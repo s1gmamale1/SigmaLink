@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Home, RotateCw, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DesignOverlayToggle } from './DesignOverlay';
 
 export interface AddressBarProps {
   url: string;
@@ -18,6 +19,10 @@ export interface AddressBarProps {
   onReload: () => void;
   onStop: () => void;
   onHome: () => void;
+  /** V3-W14-001 — workspace + active tab id for the Design picker toggle. */
+  workspaceId?: string;
+  activeTabId?: string | null;
+  onDesignActiveChange?: (active: boolean) => void;
 }
 
 function normalizeUrl(raw: string): string {
@@ -42,6 +47,9 @@ export function AddressBar({
   onReload,
   onStop,
   onHome,
+  workspaceId,
+  activeTabId,
+  onDesignActiveChange,
 }: AddressBarProps) {
   const [value, setValue] = useState(url);
   useEffect(() => {
@@ -110,6 +118,13 @@ export function AddressBar({
         placeholder="Enter URL or search…"
         className="ml-2 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
       />
+      {workspaceId ? (
+        <DesignOverlayToggle
+          workspaceId={workspaceId}
+          tabId={activeTabId ?? null}
+          onActiveChange={onDesignActiveChange}
+        />
+      ) : null}
     </div>
   );
 }

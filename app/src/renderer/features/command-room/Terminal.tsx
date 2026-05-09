@@ -1,17 +1,54 @@
 // Single xterm.js terminal bound to a PTY session via the RPC bridge.
 // Subscribe order is: register live data listener FIRST, then call subscribe()
 // to fetch the historical buffer — eliminates the replay/live race.
+//
+// TODO(V3-W13-003): per-pane chrome (top-bar status dot + branch + close, plus
+// the `<model> <effort> <speed> · <cwd>` mid-strip from V3-W12-002) ships with
+// the right-rail dock work. This file deliberately stays a bare xterm host
+// until then; pane chrome is owned by the new PaneHeader / PaneFooter
+// components (see V3_PARITY_BACKLOG.md §V3-W13-003).
 
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { rpc } from '@/renderer/lib/rpc';
+import { rpc, rpcSilent } from '@/renderer/lib/rpc';
+import { useAppState } from '@/renderer/app/state';
 
 interface Props {
   sessionId: string;
   className?: string;
+}
+
+/**
+ * V3-W13-002 — when the user clicks a link inside a PTY pane, prefer routing
+ * through the active workspace's built-in browser. Falls back to
+ * `window.open` (which Electron forwards to the OS) if anything goes wrong
+ * or the gate kv is `'0'`.
+ */
+async function routeLinkClick(url: string, workspaceId: string | undefined): Promise<void> {
+  let captureEnabled = true;
+  try {
+    const raw = await rpcSilent.kv.get('browser.captureLinks');
+    captureEnabled = raw === null || raw === undefined ? true : raw === '1';
+  } catch {
+    /* default ON when kv unreachable */
+  }
+  if (!captureEnabled || !workspaceId) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  try {
+    const state = await rpcSilent.browser.getState(workspaceId);
+    if (state.activeTabId) {
+      await rpc.browser.navigate({ workspaceId, tabId: state.activeTabId, url });
+    } else {
+      await rpc.browser.openTab({ workspaceId, url });
+    }
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
 }
 
 const THEME = {
@@ -61,6 +98,14 @@ function isPtyExitPayload(p: unknown): p is { sessionId: string; exitCode: numbe
 export function SessionTerminal({ sessionId, className }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
+  const { state } = useAppState();
+  // Capture the current workspace id in a ref so the WebLinksAddon callback
+  // (created once per terminal mount) always reads the latest value without
+  // needing to re-mount xterm on workspace switches.
+  const wsIdRef = useRef<string | undefined>(state.activeWorkspace?.id);
+  useEffect(() => {
+    wsIdRef.current = state.activeWorkspace?.id;
+  }, [state.activeWorkspace?.id]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -78,10 +123,29 @@ export function SessionTerminal({ sessionId, className }: Props) {
       scrollback: 8000,
       theme: THEME,
       convertEol: true,
+      // V3-W13-002 — handle OSC8 hyperlink activation. Plain URLs are
+      // covered by the WebLinksAddon below; this handles the `\x1b]8;;…`
+      // sequences emitted by modern CLIs (claude, gh, ripgrep --hyperlink).
+      linkHandler: {
+        activate: (_event, text) => {
+          void routeLinkClick(text, wsIdRef.current);
+        },
+        // Default `allowNonHttpProtocols = false` is what we want — file://
+        // links from the in-app browser only flow when the gate is on AND
+        // the user explicitly clicked them in the address bar, not from PTY.
+      },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    // V3-W13-002 — intercept the WebLinksAddon click so plain-text URLs that
+    // xterm renders into a clickable region route into the in-app browser.
+    // OSC8 hyperlinks are handled by `pty:link-detected` (see below) when
+    // the user clicks them via the same xterm hover-region.
+    term.loadAddon(
+      new WebLinksAddon((_event, uri) => {
+        void routeLinkClick(uri, wsIdRef.current);
+      }),
+    );
     term.open(container);
 
     // Defer first fit to the next animation frame; the container can have
@@ -147,6 +211,21 @@ export function SessionTerminal({ sessionId, className }: Props) {
     });
     ro.observe(container);
 
+    // V3-W13-015 — listen for cross-workspace jump-to-pane events the
+    // BridgeRoom dispatches when a Bridge-spawned pane finishes. Only the
+    // matching session focuses; other Terminals ignore the event silently.
+    const onFocusReq = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ sessionId?: string }>).detail;
+      if (!detail || detail.sessionId !== sessionId) return;
+      try {
+        term.focus();
+        container.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      } catch {
+        /* DOM may have unmounted */
+      }
+    };
+    window.addEventListener('sigma:pty-focus', onFocusReq);
+
     return () => {
       disposed = true;
       if (resizeTimer) clearTimeout(resizeTimer);
@@ -154,6 +233,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
       onDataDisp.dispose();
       offData();
       offExit();
+      window.removeEventListener('sigma:pty-focus', onFocusReq);
       term.dispose();
       termRef.current = null;
     };

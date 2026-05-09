@@ -7,7 +7,9 @@ import { Check, RotateCcw } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { applyFontSize, DEFAULT_THEME, setRootCssVar, THEMES, type ThemeId } from '@/renderer/lib/themes';
 import { useTheme } from '@/renderer/app/ThemeProvider';
+import { refreshTier, useTier } from '@/renderer/lib/canDo';
 import { cn } from '@/lib/utils';
+import { KV_PLAN_TIER, type Tier } from '@/main/core/plan/capabilities';
 
 const FONT_SIZES = [12, 13, 14, 16] as const;
 const TERMINAL_FONTS = [
@@ -20,10 +22,21 @@ const TERMINAL_FONTS = [
 const KV_FONT_SIZE = 'app.fontSize';
 const KV_TERMINAL_FONT = 'app.terminalFont';
 
+/** V3-W15-005 — dev-only tier override. Production builds hide the row so end
+ *  users always run with the SigmaLink-default 'ultra' tier. */
+const SHOW_TIER_OVERRIDE = process.env.NODE_ENV !== 'production';
+const TIER_OPTIONS: ReadonlyArray<{ value: Tier; label: string }> = [
+  { value: 'basic', label: 'Basic' },
+  { value: 'pro', label: 'Pro' },
+  { value: 'ultra', label: 'Ultra (default)' },
+];
+
 export function AppearanceTab() {
   const { theme, setTheme } = useTheme();
   const [fontSize, setFontSize] = useState<number>(14);
   const [terminalFont, setTerminalFont] = useState<string>(TERMINAL_FONTS[0]);
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
+  const tier = useTier();
 
   useEffect(() => {
     void (async () => {
@@ -53,6 +66,15 @@ export function AppearanceTab() {
     setTerminalFont(v);
     setRootCssVar('--terminal-font', v);
     void rpc.kv.set(KV_TERMINAL_FONT, v).catch(() => undefined);
+  }
+
+  async function changeTier(next: Tier): Promise<void> {
+    try {
+      await rpc.kv.set(KV_PLAN_TIER, next);
+    } catch {
+      /* best-effort — kv writes are non-critical */
+    }
+    await refreshTier();
   }
 
   return (
@@ -151,6 +173,52 @@ export function AppearanceTab() {
           </pre>
         </div>
       </section>
+
+      {/* V3-W15-005 — dev-only plan-tier override. Hidden in production
+          builds; SigmaLink ships with `'ultra'` so every gated affordance is
+          enabled. The override exists so QA can flip the matrix without a
+          billing surface. */}
+      {SHOW_TIER_OVERRIDE ? (
+        <section>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Advanced
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="rounded border border-border bg-card/40 px-2 py-1 text-[11px] text-muted-foreground transition hover:bg-card hover:text-foreground"
+              aria-label="Toggle advanced settings"
+            >
+              {showAdvanced ? 'Hide advanced' : 'Show advanced'}
+            </button>
+          </div>
+          {showAdvanced ? (
+            <div className="rounded-md border border-border bg-card/30 p-3 text-xs">
+              <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                Plan tier (dev-only)
+              </div>
+              <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
+                SigmaLink runs locally and is free — Ultra is the default. This
+                override exists for QA so capability gates can be exercised
+                without a billing surface.
+              </p>
+              <select
+                value={tier}
+                onChange={(e) => void changeTier(e.target.value as Tier)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                aria-label="Plan tier override"
+              >
+                {TIER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }

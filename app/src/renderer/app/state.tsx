@@ -21,11 +21,20 @@ export type RoomId =
   | 'workspaces'
   | 'command'
   | 'swarm'
+  // P3-S2 — Operator Console room. Surfaces the constellation graph, activity
+  // feed, and TopBar that already lived under features/operator-console but
+  // were previously unreachable. Requires an active workspace; the room
+  // itself renders a friendly empty-state when no swarm is active.
+  | 'operator'
   | 'review'
   | 'tasks'
   | 'memory'
   | 'browser'
   | 'skills'
+  // V3-W13-012 — Bridge Assistant standalone room. Available as a fallback
+  // when the right-rail is gated off; otherwise the Bridge tab inside the
+  // rail hosts the same surface.
+  | 'bridge'
   | 'settings';
 
 export interface AppState {

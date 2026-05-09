@@ -1,45 +1,41 @@
+// V3-W13-003 / V3-W13-004: Command Room — multi-pane terminal grid.
+//
+// Renders the per-workspace agent sessions inside a generic <GridLayout>.
+// Each cell stacks: PaneHeader · PaneStatusStrip · (PaneSplash overlay +
+// SessionTerminal) · PaneFooter. The grid honours the launcher's preset
+// shape (1/2/4/6/8/10/12) and supports per-cell drag resize plus
+// Cmd+Alt+<N> focus jumps.
+
 import { useMemo, useState } from 'react';
-import { Maximize2, Minimize2, Square, Terminal as TerminalIcon, X } from 'lucide-react';
+import { Terminal as TerminalIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { SessionTerminal } from './Terminal';
+import { GridLayout } from './GridLayout';
+import { PaneHeader } from './PaneHeader';
+import { PaneSplash } from './PaneSplash';
+import { PaneStatusStrip } from './PaneStatusStrip';
+import { PaneFooter } from './PaneFooter';
 import type { AgentSession } from '@/shared/types';
-
-type Layout = 'mosaic' | 'columns' | 'focus';
-
-function gridClassFor(count: number, layout: Layout): string {
-  if (layout === 'focus') return 'grid-cols-1';
-  if (layout === 'columns') {
-    if (count <= 2) return 'grid-cols-1';
-    if (count <= 6) return 'grid-cols-2';
-    return 'grid-cols-3';
-  }
-  // mosaic: square-ish
-  if (count <= 1) return 'grid-cols-1';
-  if (count <= 2) return 'grid-cols-2';
-  if (count <= 4) return 'grid-cols-2';
-  if (count <= 6) return 'grid-cols-3';
-  if (count <= 9) return 'grid-cols-3';
-  if (count <= 12) return 'grid-cols-4';
-  return 'grid-cols-4';
-}
 
 export function CommandRoom() {
   const { state, dispatch } = useAppState();
-  const sessions = state.sessions.filter((s) => state.activeWorkspace && s.workspaceId === state.activeWorkspace.id);
-  const [layout, setLayout] = useState<Layout>('mosaic');
-  const [focusId, setFocusId] = useState<string | null>(null);
+  const sessions = useMemo(
+    () =>
+      state.sessions.filter(
+        (s) => state.activeWorkspace && s.workspaceId === state.activeWorkspace.id,
+      ),
+    [state.sessions, state.activeWorkspace],
+  );
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  const visibleSessions = useMemo(() => {
-    if (layout === 'focus' && focusId) {
-      const target = sessions.find((s) => s.id === focusId);
-      return target ? [target] : sessions.slice(0, 1);
-    }
-    return sessions;
-  }, [sessions, layout, focusId]);
+  // Clamp the active index when the session list shrinks. Computed during
+  // render and corrected via setState so we don't need a setState-in-effect.
+  if (activeIndex >= sessions.length && sessions.length > 0) {
+    setActiveIndex(Math.max(0, sessions.length - 1));
+  }
 
   if (!state.activeWorkspace) {
     return (
@@ -72,6 +68,10 @@ export function CommandRoom() {
     dispatch({ type: 'REMOVE_SESSION', id: session.id });
   }
 
+  function handleStop(session: AgentSession) {
+    void rpc.pty.kill(session.id).catch(() => undefined);
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 items-center gap-2 border-b border-border px-3 text-xs">
@@ -80,101 +80,48 @@ export function CommandRoom() {
         <div className="text-muted-foreground">
           {sessions.length} {sessions.length === 1 ? 'agent' : 'agents'}
         </div>
-        <div className="ml-auto flex items-center gap-1">
-          <LayoutBtn current={layout} target="mosaic" set={setLayout}>
-            Mosaic
-          </LayoutBtn>
-          <LayoutBtn current={layout} target="columns" set={setLayout}>
-            Columns
-          </LayoutBtn>
-          <LayoutBtn current={layout} target="focus" set={setLayout}>
-            Focus
-          </LayoutBtn>
+        <div className="ml-auto text-[10px] text-muted-foreground/70">
+          ⌘⌥&lt;N&gt; to focus pane
         </div>
       </div>
-      <div
-        className={cn('grid min-h-0 flex-1 gap-2 overflow-hidden p-2', gridClassFor(visibleSessions.length, layout))}
-      >
-        {visibleSessions.map((session) => (
-          <PaneFrame
-            key={session.id}
-            session={session}
-            isFocus={layout === 'focus'}
-            onFocus={() => {
-              setLayout('focus');
-              setFocusId(session.id);
-            }}
-            onUnfocus={() => {
-              setLayout('mosaic');
-              setFocusId(null);
-            }}
-            onRemove={() => handleRemove(session)}
-          />
-        ))}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <GridLayout<AgentSession>
+          items={sessions}
+          getKey={(s) => s.id}
+          activeIndex={activeIndex}
+          onActiveChange={(i) => {
+            setActiveIndex(i);
+            const s = sessions[i];
+            if (s) dispatch({ type: 'SET_ACTIVE_SESSION', id: s.id });
+          }}
+          renderCell={(session) => (
+            <PaneCell
+              session={session}
+              onRemove={() => handleRemove(session)}
+              onStop={() => handleStop(session)}
+            />
+          )}
+        />
       </div>
     </div>
   );
 }
 
-function PaneFrame({
+function PaneCell({
   session,
-  isFocus,
-  onFocus,
-  onUnfocus,
   onRemove,
+  onStop,
 }: {
   session: AgentSession;
-  isFocus: boolean;
-  onFocus: () => void;
-  onUnfocus: () => void;
   onRemove: () => void;
+  onStop: () => void;
 }) {
-  const exited = session.status === 'exited';
   const errored = session.status === 'error';
-  const dotColor = errored ? '#ef4444' : exited ? '#f59e0b' : '#22c55e';
   return (
-    <div className="sl-pane-enter flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
-      <div className="flex h-7 items-center gap-2 border-b border-border px-2 text-[11px]">
-        <span className="h-2 w-2 rounded-full" style={{ background: dotColor }} />
-        <span className="font-medium uppercase tracking-wider">{session.providerId}</span>
-        {session.branch ? (
-          <span className="truncate text-muted-foreground" title={session.branch}>
-            {session.branch}
-          </span>
-        ) : null}
-        <div className="ml-auto flex items-center gap-1">
-          {isFocus ? (
-            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onUnfocus} aria-label="Restore grid">
-              <Minimize2 className="h-3 w-3" />
-            </Button>
-          ) : (
-            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onFocus} aria-label="Focus pane">
-              <Maximize2 className="h-3 w-3" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-5 w-5"
-            onClick={() => void rpc.pty.kill(session.id).catch(() => undefined)}
-            disabled={exited || errored}
-            aria-label="Stop session"
-          >
-            <Square className="h-3 w-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-5 w-5"
-            onClick={onRemove}
-            aria-label="Remove pane"
-            title="Remove pane"
-          >
-            <X className="h-3 w-3" />
-          </Button>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1">
+    <div className="sl-pane-enter flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      <PaneHeader session={session} onRemove={onRemove} onStop={onStop} />
+      <PaneStatusStrip session={session} />
+      <div className="relative min-h-0 flex-1">
         {errored ? (
           <div className="flex h-full flex-col items-start justify-start gap-2 p-3 text-xs">
             <div className="font-medium text-destructive">Failed to launch</div>
@@ -183,35 +130,13 @@ function PaneFrame({
             </div>
           </div>
         ) : (
-          <SessionTerminal sessionId={session.id} />
+          <>
+            <PaneSplash session={session} />
+            <SessionTerminal sessionId={session.id} />
+          </>
         )}
       </div>
+      <PaneFooter session={session} />
     </div>
   );
 }
-
-function LayoutBtn({
-  current,
-  target,
-  set,
-  children,
-}: {
-  current: Layout;
-  target: Layout;
-  set: (l: Layout) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => set(target)}
-      className={cn(
-        'rounded-md px-2 py-1 text-xs',
-        current === target ? 'bg-primary/15 text-primary-foreground' : 'text-muted-foreground hover:bg-muted/50',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-

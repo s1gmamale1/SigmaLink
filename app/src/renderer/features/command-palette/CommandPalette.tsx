@@ -4,13 +4,16 @@
 // against the current workspace + onboarded state so disabled commands stay
 // hidden rather than failing silently when invoked.
 
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Bot,
   Command as CommandIcon,
   Folder,
   GitBranch,
   Globe,
   ListChecks,
+  Mic,
+  MicOff,
   Network,
   Palette,
   Power,
@@ -35,6 +38,16 @@ import { useAppState, type RoomId } from '@/renderer/app/state';
 import { useTheme } from '@/renderer/app/ThemeProvider';
 import { THEMES, type ThemeId } from '@/renderer/lib/themes';
 import { bindShortcut } from '@/renderer/lib/shortcuts';
+// V3-W15-003 — Cmd/Ctrl+Shift+K opens the palette with mic auto-active so
+// the operator can dictate a command. The recognizer's final transcript
+// drops into the search field via the imperative input ref.
+import {
+  isVoiceSupported,
+  startCapture,
+  VoiceBusyError,
+  type VoiceCaptureHandle,
+} from '@/renderer/lib/voice';
+import { toast } from 'sonner';
 import type { Workspace } from '@/shared/types';
 
 interface PaletteCommand {
@@ -51,11 +64,17 @@ const ROOM_DEFS: Array<{ id: RoomId; label: string; icon: PaletteCommand['icon']
   { id: 'workspaces', label: 'Workspaces', icon: Folder },
   { id: 'command', label: 'Command Room', icon: Terminal },
   { id: 'swarm', label: 'Swarm Room', icon: Network },
+  // P3-S2 — Operator Console nav shortcut. Reuses the workspace gating used
+  // by other swarm-scoped rooms; the room itself shows an empty-state when
+  // no swarm is active.
+  { id: 'operator', label: 'Operator Console', icon: Network },
   { id: 'review', label: 'Review Room', icon: GitBranch },
   { id: 'tasks', label: 'Tasks', icon: ListChecks },
   { id: 'memory', label: 'Memory', icon: Sparkles },
   { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'skills', label: 'Skills', icon: Wand2 },
+  // V3-W13-012 — Bridge Assistant standalone room shortcut.
+  { id: 'bridge', label: 'Bridge Assistant', icon: Bot },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
 
@@ -68,14 +87,89 @@ export function CommandPalette() {
     [dispatch],
   );
 
-  // Bind mod+k to toggle.
+  // V3-W15-003 — controlled query so the voice recognizer can drop transcripts
+  // into the search field. cmdk's `<CommandInput>` is uncontrolled by default
+  // but accepts `value` + `onValueChange` from the underlying primitive.
+  const [query, setQuery] = useState('');
+  const [voiceHandle, setVoiceHandle] = useState<VoiceCaptureHandle | null>(null);
+  const autoMicRef = useRef(false);
+
+  const stopVoice = useCallback(() => {
+    setVoiceHandle((h) => {
+      h?.stop();
+      return null;
+    });
+  }, []);
+
+  const startVoice = useCallback(async () => {
+    if (voiceHandle) {
+      stopVoice();
+      return;
+    }
+    if (!isVoiceSupported()) {
+      toast.error('Voice not supported on this platform');
+      return;
+    }
+    try {
+      const handle = await startCapture({
+        source: 'palette',
+        onPartial: (text) => setQuery(text),
+        onFinal: (text) => {
+          setQuery(text.trim());
+          setVoiceHandle(null);
+        },
+        onError: () => setVoiceHandle(null),
+      });
+      setVoiceHandle(handle);
+    } catch (err) {
+      setVoiceHandle(null);
+      if (err instanceof VoiceBusyError) {
+        toast.error('Another voice session is active');
+      }
+    }
+  }, [stopVoice, voiceHandle]);
+
+  // Bind mod+k to toggle, mod+shift+k to open with mic auto-active.
   useEffect(() => {
-    const off = bindShortcut('mod+k', (e) => {
+    const offToggle = bindShortcut('mod+k', (e) => {
       e.preventDefault();
       dispatch({ type: 'SET_COMMAND_PALETTE', open: !state.commandPaletteOpen });
     });
-    return off;
+    const offVoice = bindShortcut('mod+shift+k', (e) => {
+      e.preventDefault();
+      autoMicRef.current = true;
+      dispatch({ type: 'SET_COMMAND_PALETTE', open: true });
+    });
+    return () => {
+      offToggle();
+      offVoice();
+    };
   }, [dispatch, state.commandPaletteOpen]);
+
+  // Auto-start the mic when the palette was opened via Cmd+Shift+K. We defer
+  // to a microtask so the dialog has mounted (the recognizer fires a `start`
+  // event the pill listens for; firing it before mount loses the event). The
+  // microtask deferral also keeps the React lint rule happy — setState calls
+  // happen in the scheduled callback, not synchronously inside the effect.
+  useEffect(() => {
+    let cancelled = false;
+    const id = window.setTimeout(() => {
+      if (cancelled) return;
+      if (!open) {
+        stopVoice();
+        autoMicRef.current = false;
+        return;
+      }
+      if (autoMicRef.current) {
+        autoMicRef.current = false;
+        void startVoice();
+      }
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [open, startVoice, stopVoice]);
 
   const items = useMemo<PaletteCommand[]>(() => {
     const list: PaletteCommand[] = [];
@@ -85,7 +179,12 @@ export function CommandPalette() {
     // Navigate
     for (const room of ROOM_DEFS) {
       const requiresWs =
-        room.id !== 'workspaces' && room.id !== 'settings' && room.id !== 'skills';
+        room.id !== 'workspaces' &&
+        room.id !== 'settings' &&
+        room.id !== 'skills' &&
+        // V3-W13-012 — Bridge Assistant gracefully renders an empty state
+        // when no workspace is active so the room is always reachable.
+        room.id !== 'bridge';
       list.push({
         id: `nav:${room.id}`,
         label: `Go to ${room.label}`,
@@ -270,7 +369,26 @@ export function CommandPalette() {
       title="Command palette"
       description="Search rooms, workspaces, themes, and quick actions."
     >
-      <CommandInput placeholder="Type a command, room, or theme…" />
+      <div className="relative">
+        <CommandInput
+          placeholder="Type a command, room, or theme…"
+          value={query}
+          onValueChange={setQuery}
+        />
+        <button
+          type="button"
+          onClick={() => void startVoice()}
+          aria-label={voiceHandle ? 'Stop voice input' : 'Voice input'}
+          aria-pressed={voiceHandle !== null}
+          data-testid="palette-mic"
+          className={
+            'absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md border border-border bg-background text-muted-foreground transition hover:text-foreground ' +
+            (voiceHandle ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-200' : '')
+          }
+        >
+          {voiceHandle ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+        </button>
+      </div>
       <CommandList>
         <CommandEmpty>No matches.</CommandEmpty>
         {grouped.map((g, idx) => (

@@ -87,12 +87,14 @@ export function resolveWindowsCommand(cmd: string): string | null {
 function defaultShell(): { command: string; args: string[] } {
   if (process.platform === 'win32') {
     // Prefer pwsh (PowerShell 7+) when available, then powershell.exe (Windows
-    // PowerShell 5), then cmd.exe.
+    // PowerShell 5), then cmd.exe. BUG-W7-007: pass `-NoLogo` so the upgrade
+    // banner does not clutter every fresh pane. The matching env var
+    // `POWERSHELL_UPDATECHECK=Off` is set in `spawnLocalPty` below.
     const pwsh = resolveWindowsCommand('pwsh.exe') ?? resolveWindowsCommand('pwsh');
-    if (pwsh) return { command: pwsh, args: [] };
+    if (pwsh) return { command: pwsh, args: ['-NoLogo'] };
     const powershell =
       resolveWindowsCommand('powershell.exe') ?? resolveWindowsCommand('powershell');
-    if (powershell) return { command: powershell, args: [] };
+    if (powershell) return { command: powershell, args: ['-NoLogo'] };
     const cmdExe = resolveWindowsCommand('cmd.exe') ?? 'cmd.exe';
     return { command: cmdExe, args: [] };
   }
@@ -102,6 +104,24 @@ function defaultShell(): { command: string; args: string[] } {
   }
   const sh = process.env.SHELL ?? '/bin/bash';
   return { command: sh, args: ['-l'] };
+}
+
+/**
+ * BUG-W7-007: Detect a PowerShell-family executable. Used to silence the
+ * upgrade-check banner via the `POWERSHELL_UPDATECHECK=Off` env var. We match
+ * on the executable basename only — full paths (e.g. `C:\\Program
+ * Files\\PowerShell\\7\\pwsh.exe`) and bare `pwsh` are both covered. cmd.exe
+ * and unix shells are unaffected.
+ */
+function isPowerShell(command: string): boolean {
+  if (!command) return false;
+  const base = path.basename(command).toLowerCase();
+  return (
+    base === 'pwsh' ||
+    base === 'pwsh.exe' ||
+    base === 'powershell' ||
+    base === 'powershell.exe'
+  );
 }
 
 function windowsExtensionFor(cmd: string): 'cmd' | 'ps1' | null {
@@ -157,6 +177,13 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
     COLORTERM: 'truecolor',
     FORCE_COLOR: '1',
   };
+  // BUG-W7-007: silence the "A new PowerShell stable release is available"
+  // banner that PowerShell 7 prints once per pane. Only applied when the
+  // resolved executable is pwsh/powershell — cmd.exe and unix shells are
+  // unaffected.
+  if (isPowerShell(command)) {
+    env.POWERSHELL_UPDATECHECK = 'Off';
+  }
 
   const dataSubs = new Set<(d: string) => void>();
   const exitSubs = new Set<(i: { exitCode: number; signal?: number }) => void>();

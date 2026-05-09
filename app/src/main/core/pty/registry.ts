@@ -12,6 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawnLocalPty, type PtyHandle, type SpawnInput } from './local-pty';
 import { RingBuffer } from './ring-buffer';
+import { detectLinks, type LinkHit } from './link-detector';
 
 export interface SessionRecord {
   id: string;
@@ -30,6 +31,7 @@ export interface SessionRecord {
 
 export type DataSink = (sessionId: string, data: string) => void;
 export type ExitSink = (sessionId: string, exitCode: number, signal?: number) => void;
+export type LinkSink = (sessionId: string, hit: LinkHit) => void;
 
 export interface PtyRegistryOptions {
   /**
@@ -38,6 +40,13 @@ export interface PtyRegistryOptions {
    * receive the buffer.
    */
   gracefulExitDelayMs?: number;
+  /**
+   * V3-W13-002 — invoked once per detected URL (OSC8 hyperlink or plain URL)
+   * appearing in any session's data stream. Optional: when omitted the
+   * detector is skipped entirely so non-link consumers (tests, headless
+   * spawn) pay no cost.
+   */
+  onLinkDetected?: LinkSink;
 }
 
 export class PtyRegistry {
@@ -45,19 +54,32 @@ export class PtyRegistry {
   private readonly onData: DataSink;
   private readonly onExit: ExitSink;
   private readonly gracefulExitDelayMs: number;
+  private readonly onLinkDetected: LinkSink | null;
   constructor(onData: DataSink, onExit: ExitSink, opts: PtyRegistryOptions = {}) {
     this.onData = onData;
     this.onExit = onExit;
     this.gracefulExitDelayMs = opts.gracefulExitDelayMs ?? 200;
+    this.onLinkDetected = opts.onLinkDetected ?? null;
   }
 
   create(input: { providerId: string } & SpawnInput): SessionRecord {
     const id = randomUUID();
     const pty = spawnLocalPty(input);
     const buffer = new RingBuffer();
+    const linkSink = this.onLinkDetected;
     const unsubData = pty.onData((data) => {
       buffer.append(data);
       this.onData(id, data);
+      if (linkSink) {
+        const hits = detectLinks(data);
+        for (const hit of hits) {
+          try {
+            linkSink(id, hit);
+          } catch {
+            /* never let a buggy listener break the data stream */
+          }
+        }
+      }
     });
     const unsubExit = pty.onExit(({ exitCode, signal }) => {
       const rec = this.sessions.get(id);

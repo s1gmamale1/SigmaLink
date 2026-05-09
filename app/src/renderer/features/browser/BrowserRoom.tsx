@@ -15,10 +15,30 @@ import { TabStrip } from './TabStrip';
 import { AddressBar } from './AddressBar';
 import { BrowserViewMount } from './BrowserViewMount';
 import { AgentDrivingIndicator } from './AgentDrivingIndicator';
+import { BrowserRecents } from './BrowserRecents';
+import { DesignOverlayBanner } from './DesignOverlay';
+import { DesignDock } from './DesignDock';
 
 const HOME_URL = 'about:blank';
 
-export function BrowserRoom() {
+interface BrowserRoomProps {
+  /**
+   * When the BrowserRoom is hosted inside the right-rail dock, the parent
+   * tab container toggles `display:none` on its inactive tabs. The
+   * `BrowserViewMount` needs to know the room is hidden so it can park the
+   * underlying WebContentsView (otherwise it floats at zero size at the wrong
+   * coordinates). Default `true` preserves the standalone-room behaviour.
+   */
+  visible?: boolean;
+  /**
+   * V3-W14-006 — when the room is hosted as a Bridge Canvas surface, the
+   * launcher passes the canvas id so DesignDock can persist `lastProviders`
+   * + record dispatch history.
+   */
+  canvasId?: string;
+}
+
+export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {}) {
   const { state, dispatch } = useAppState();
   const ws = state.activeWorkspace;
   const slice = ws ? state.browser[ws.id] : null;
@@ -31,6 +51,8 @@ export function BrowserRoom() {
   );
   const initLoadedRef = useRef<string | null>(null);
   const [hydrationError, setHydrationError] = useState<string | null>(null);
+  // V3-W14-001 — design picker state, surfaced from the AddressBar toggle.
+  const [designActive, setDesignActive] = useState(false);
 
   // First-time hydration for this workspace: load persisted tabs.
   useEffect(() => {
@@ -163,10 +185,26 @@ export function BrowserRoom() {
         onReload={handleReload}
         onStop={handleStop}
         onHome={handleHome}
+        workspaceId={ws.id}
+        activeTabId={activeTabId}
+        onDesignActiveChange={setDesignActive}
       />
       <div className="relative flex min-h-0 flex-1">
-        <BrowserViewMount workspaceId={ws.id} visible={true} />
-        <AgentDrivingIndicator lockOwner={lockOwner} onTakeOver={handleTakeOver} />
+        {designActive ? (
+          <DesignDock workspaceId={ws.id} canvasId={canvasId} />
+        ) : (
+          <BrowserRecents
+            workspaceId={ws.id}
+            tabs={tabs}
+            activeTabId={activeTabId}
+            disabled={!visible}
+          />
+        )}
+        <div className="relative flex min-h-0 flex-1">
+          <BrowserViewMount workspaceId={ws.id} visible={visible} />
+          <AgentDrivingIndicator lockOwner={lockOwner} onTakeOver={handleTakeOver} />
+          <DesignOverlayBanner active={designActive} />
+        </div>
       </div>
       {slice ? (
         <div className="border-t border-border bg-sidebar px-3 py-1 text-[11px] text-muted-foreground">

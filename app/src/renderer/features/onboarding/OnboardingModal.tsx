@@ -80,19 +80,22 @@ export function OnboardingModal() {
   const found = useMemo(() => providers.filter((p) => p.probe?.found).length, [providers]);
 
   async function complete(): Promise<void> {
+    // BUG-W7-012: Skip used to await the kv.set round-trip before closing
+    // the modal, which dropped the click if it landed during the Radix
+    // open/close transition (the modal was technically not yet `data-state="open"`
+    // and pointer events were ignored). Now we close the modal synchronously
+    // (state-driven, no pointer-event dependency) and persist in the
+    // background. The kv write is idempotent so redundant skips are harmless.
+    dispatch({ type: 'SET_ONBOARDED', value: true });
+    void rpc.kv.set(KV_KEY, '1').catch(() => undefined);
+    if (!pickedFolder) return;
     setBusy(true);
     try {
-      await rpc.kv.set(KV_KEY, '1').catch(() => undefined);
-      if (pickedFolder) {
-        try {
-          const ws = await rpc.workspaces.open(pickedFolder.path);
-          dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: ws });
-          dispatch({ type: 'SET_WORKSPACES', workspaces: await rpc.workspaces.list() });
-        } catch (err) {
-          console.error('open workspace failed', err);
-        }
-      }
-      dispatch({ type: 'SET_ONBOARDED', value: true });
+      const ws = await rpc.workspaces.open(pickedFolder.path);
+      dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: ws });
+      dispatch({ type: 'SET_WORKSPACES', workspaces: await rpc.workspaces.list() });
+    } catch (err) {
+      console.error('open workspace failed', err);
     } finally {
       setBusy(false);
     }
@@ -237,8 +240,11 @@ export function OnboardingModal() {
             type="button"
             variant="ghost"
             size="sm"
-            disabled={busy}
+            // BUG-W7-012: never `disabled`; Skip should always close the modal
+            // even mid-transition. `pointer-events: auto` survives the Radix
+            // open/close fade so the click is never dropped.
             onClick={() => void complete()}
+            style={{ pointerEvents: 'auto' }}
           >
             Skip
           </Button>
