@@ -1,0 +1,38 @@
+SigmaLink 0.1.0-alpha — 2026-05-09
+
+First taggable alpha. Local-first desktop workspace for orchestrating grids of CLI coding agents in real PTYs, isolated by Git worktrees.
+
+Added
+- Phase 1 foundation: Electron 30 + Vite + React 19 + Tailwind 3 + shadcn UI shell with Workspace launcher and Command Room.
+- Provider registry of eleven CLI agents (Claude Code, Codex, Gemini, Kimi, Cursor, OpenCode, Droid, Copilot, Aider, Continue, custom shell) with PATH probe and install hints.
+- Real PTY terminal panes via node-pty + xterm.js with ring-buffered history flushed to SQLite for cross-restart replay.
+- Per-pane Git worktree pool under userData with branch namespace sigmalink/<role>/<task>-<8char>.
+- SQLite + Drizzle ORM with full schema for workspaces, agent_sessions, swarms, swarm_agents, swarm_messages, browser_tabs, skills, skill_provider_state, memories, memory_links, memory_tags, tasks, task_comments, session_review, kv.
+- Boot janitor that flips zombie agent_sessions and swarms rows on startup; best-effort git worktree prune.
+- Cross-platform PTY plumbing: PATH+PATHEXT resolver routes .cmd/.bat/.ps1 shims through their interpreters; default-shell preference pwsh > powershell > cmd on Windows.
+- Phase 2 Swarm Room: roster grid, side chat, recipient picker; SIGMA:: line protocol with SAY/ACK/STATUS/DONE/OPERATOR/ROLLCALL/SYSTEM verbs; SQLite-backed mailbox with single-writer queue and JSONL debug mirrors; Squad/Team/Platoon/Legion presets.
+- Phase 3 Browser Room: in-app WebContentsView per tab, address bar, tab strip, persisted browser_tabs; per-workspace Playwright MCP supervisor with port discovery and 3-restart back-off; advisory claim/release driver lock with overlay; per-provider MCP config writer.
+- Phase 4 Skills Room: drag-and-drop SKILL.md ingestion with frontmatter validation, content-hash idempotency, atomic stage-then-rename to managed userData; per-provider fan-out to ~/.claude/skills, ~/.codex/skills, synthesized Gemini extension; per-provider toggle state and detail modal.
+- Phase 5 Memory Room (SigmaMemory): wikilink notes at <workspace>/.sigmamemory/<name>.md; in-memory inverted index; force-directed graph canvas; in-process sigmamemory MCP server with 12 tools; per-workspace MCP supervisor; combined browser+memory MCP entries written into provider configs.
+- Phase 6 Review Room: session list with multi-select; unified/split diff renderer; Tests/Notes/Conflicts tabs; git merge-tree conflict prediction with name-only fallback; commitAndMerge + batchCommitAndMerge with worktree teardown.
+- Phase 6 Tasks Room: 5-column Kanban with @dnd-kit drag-and-drop; swarm-roster drop rail that writes a SAY envelope SIGMA::TASK <title> into the assigned agent's mailbox; per-task comment thread.
+- Phase 7 UI polish: four built-in themes (Obsidian, Parchment, Nord, Synthwave) via :root[data-theme]; first-run onboarding modal; Cmd/Ctrl+K command palette; sidebar with monogram, manual + auto-collapse below 1100px, tooltips on disabled rooms; universal EmptyState/ErrorBanner; CSS-only motion.
+- Phase 8 visual test loop: Playwright _electron 37-step smoke; screenshots and machine-readable summaries.
+- IPC channel + event allowlists; preload exposes a single generic invoke against the allowlist.
+- Graceful shutdown on before-quit: pty.killAll, MCP supervisor stops, wal_checkpoint(TRUNCATE), DB close.
+- Global RPC error toaster wired at the renderer root via sonner.
+
+Fixed
+- Wave 5: P0-PTY-WIN-CMD; P1 set covering probe shim execution, worktree leak, PTY birth-failure detection, duplicate exit listener, registry leak, missing close-pane, double initial prompt, worktree path collision, runShellLine tokenizer + Windows shim execution, preload channel allowlist, DB never closed; P2 set covering cwd validation, payload casting, resize debounce, terminal fit during open, RPC error stack.
+- Wave 8: BUG-W7-001 (workspaces.open activation), BUG-W7-002 (disabled sidebar UX), BUG-W7-003 (default theme guard), BUG-W7-004 (sidebar token retheme audit), BUG-W7-005 (global sonner toaster), BUG-W7-006 (workspaces.open WAL checkpoint), BUG-W7-008 (Tasks drawer leak), BUG-W7-011 (workspaces double-state), BUG-W7-013 (disabled rooms unexplained).
+
+Deferred
+- P1-IPC-EVENT-RACE-CROSSWINDOW (single window today). P1-DRIZZLE-DEFAULT-OVERRIDE (cosmetic).
+- Skills zip ingestion; react-markdown for SKILL.md preview; Codex allowed-tools translation; project-scoped skills.
+- Real CDP-attach / shared-Chromium browser; per-workspace cookie partitions; hard-blocking driver lock.
+- Memory graph quadtree; token-overlap suggest_connections; child-MCP-to-GUI memory:changed push.
+- Three-way merge conflict editor; per-line review comments; toaster-as-ack-channel for command-palette actions.
+- Cloud sync, accounts, billing, SSH remotes, ticketing (Linear/Jira/GitHub Issues), voice, mobile, Bernstein verifier loops.
+
+Known issues
+- BUG-W7-007 PowerShell upgrade banner clutter; BUG-W7-009 Tasks sidebar icon stroke weight; BUG-W7-010 native folder picker not scriptable from Playwright; BUG-W7-012 Onboarding Skip mid-fade; BUG-W7-014 Browser room reachability in test sweep; BUG-W7-015 Parchment Launch CTA contrast nit. All P3.

@@ -65,11 +65,28 @@ Three critiques of the plan, written by independent sub-agents.
 
 ## `05-build/`
 
-Per-feature build agent outputs. Each file in this directory is a standalone report from a build wave. Currently includes the documentation pass at `W-DOCS-report.md`.
+Per-feature build agent outputs. Each file in this directory is a standalone report from a build wave.
+
+- [`W-DOCS-report.md`](05-build/W-DOCS-report.md) — initial documentation pass.
+- [`W5-FOUNDATION-report.md`](05-build/W5-FOUNDATION-report.md) — Phase 1.5 foundation patches (Windows PTY shim, IPC allowlist, P0/P1/P2 fixes).
+- [`W6-SWARM-report.md`](05-build/W6-SWARM-report.md) — Phase 2 Swarm Room, mailbox bus, SIGMA:: protocol.
+- [`W6-BROWSER-report.md`](05-build/W6-BROWSER-report.md) — Phase 3 Browser Room + Playwright MCP supervisor.
+- [`W6-SKILLS-report.md`](05-build/W6-SKILLS-report.md) — Phase 4 Skills drag-and-drop + per-provider fan-out.
+- [`W6-MEMORY-report.md`](05-build/W6-MEMORY-report.md) — Phase 5 SigmaMemory MCP server, notes UI, graph view.
+- [`W6-REVIEW-report.md`](05-build/W6-REVIEW-report.md) — Phase 6 Review Room rebuild + Tasks/Kanban.
+- [`W6-UI-POLISH-report.md`](05-build/W6-UI-POLISH-report.md) — Phase 7 UI polish (themes, command palette, onboarding).
+- [`W8-BUGFIX-report.md`](05-build/W8-BUGFIX-report.md) — Wave 8 visual-sweep bug-fix pass.
 
 ## `06-test/`
 
-Visual test reports and screenshots produced by the visual-test wave. Empty until that wave runs.
+Visual test reports, screenshots, and machine-readable summaries.
+
+- [`W7-VISUAL-report.md`](06-test/W7-VISUAL-report.md) — Wave 7 visual sweep (15 bugs filed).
+- [`ACCEPTANCE_REPORT.md`](06-test/ACCEPTANCE_REPORT.md) — Wave 9 acceptance verdict for `v0.1.0-alpha`.
+- [`visual-summary.json`](06-test/visual-summary.json) — Wave 7 step log.
+- [`visual-summary-acceptance.json`](06-test/visual-summary-acceptance.json) — Wave 9 step log + bug reverification status.
+- `console-output.txt` — driver console output from the smoke run.
+- `screenshots/` — 37 captured frames per smoke run.
 
 ## `07-bugs/`
 
@@ -77,3 +94,7 @@ The live bug log.
 
 - [`OPEN.md`](07-bugs/OPEN.md) — bugs currently being worked on.
 - [`DEFERRED.md`](07-bugs/DEFERRED.md) — bugs marked-and-skipped after the five-attempt limit.
+
+## Release notes
+
+- [`release-notes-0.1.0-alpha.txt`](release-notes-0.1.0-alpha.txt) — plain-text release notes used for the `v0.1.0-alpha` annotated tag.

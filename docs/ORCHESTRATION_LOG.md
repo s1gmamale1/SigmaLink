@@ -81,5 +81,12 @@ Final pass: run all flows, generate `docs/06-test/ACCEPTANCE_REPORT.md` summariz
 
 ## Status snapshot
 
-- Wave 1: in flight
-- All later waves: pending Wave 1 completion
+- Wave 1 — Investigation: done. Outputs landed under `docs/01-investigation/` and `docs/02-research/`.
+- Wave 2 — Synthesis: done. `docs/03-plan/PRODUCT_SPEC.md`, `BUILD_BLUEPRINT.md`, `UI_SPEC.md` all in place.
+- Wave 3 — Critique: done. `docs/04-critique/01-architecture.md`, `02-ux-ui.md`, `03-engineering-risk.md`.
+- Wave 4 — Reconciliation: deferred. `docs/03-plan/FINAL_BLUEPRINT.md` was not produced; the build proceeded directly against the Wave 2 specs with critique feedback absorbed into individual phase reports under `docs/05-build/`. Future contributors should treat the W5-W8 build reports + this log as the post-hoc reconciliation. Listed as a Wave-9 follow-up in `docs/06-test/ACCEPTANCE_REPORT.md`.
+- Wave 5 — Foundation: done. `docs/05-build/W5-FOUNDATION-report.md`.
+- Wave 6 — Feature builds (Swarm, Browser, Skills, Memory, Review/Tasks, UI Polish): done. Six reports under `docs/05-build/W6-*-report.md`.
+- Wave 7 — Visual sweep: done. `docs/06-test/W7-VISUAL-report.md` + 37 screenshots + `visual-summary.json`. 15 bugs filed (BUG-W7-001..015).
+- Wave 8 — Bug-fix loop: done. `docs/05-build/W8-BUGFIX-report.md`. 9 P1+P2 bugs fixed; 6 P3 deferred.
+- Wave 9 — Acceptance: done. `docs/06-test/ACCEPTANCE_REPORT.md` + `visual-summary-acceptance.json`. Tag `v0.1.0-alpha` cut against HEAD with release notes from `CHANGELOG.md`.

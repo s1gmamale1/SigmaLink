@@ -112,14 +112,27 @@ Each phase tracks a section of the build blueprint at [`docs/03-plan/BUILD_BLUEP
 | Phase | Scope | State |
 |---|---|---|
 | [Phase 1](docs/03-plan/BUILD_BLUEPRINT.md) | Foundation: PTY, Git worktrees, providers, SQLite, launcher, command room | Shipped |
-| [Phase 1.5](docs/03-plan/BUILD_BLUEPRINT.md#phase-15--foundation-patches-apply-before-any-new-feature-work) | Foundation patches (Windows PTY shim, IPC allowlist, P0/P1 fixes) | In progress |
-| [Phase 2](docs/03-plan/BUILD_BLUEPRINT.md#phase-2--swarm-room--mailbox-bus) | Swarm Room, mailbox bus, roll-call, broadcast | Planned |
-| [Phase 3](docs/03-plan/BUILD_BLUEPRINT.md#phase-3--in-app-browser--playwright-mcp-supervisor) | In-app browser, Playwright MCP supervisor over CDP | Planned |
-| [Phase 4](docs/03-plan/BUILD_BLUEPRINT.md#phase-4--skills-drag-and-drop--per-provider-fan-out) | Skills drag-and-drop, per-provider fan-out | Planned |
-| [Phase 5](docs/03-plan/BUILD_BLUEPRINT.md#phase-5--sigmamemory-mcp-server--notes-ui--graph-view) | SigmaMemory MCP server, notes UI, graph view | Planned |
-| [Phase 6](docs/03-plan/BUILD_BLUEPRINT.md#phase-6--review-room-rebuild--taskskanban) | Review Room rebuild, Tasks / Kanban | Planned |
-| [Phase 7](docs/03-plan/BUILD_BLUEPRINT.md#phase-7--ui-polish-theme-catalog-command-palette-layout-refinements-animations) | UI polish: theme catalog, command palette, animations | Planned |
-| [Phase 8](docs/03-plan/BUILD_BLUEPRINT.md#phase-8--visual-test--bug-fix-loops) | Visual test, bug-fix loops, acceptance | Planned |
+| [Phase 1.5](docs/03-plan/BUILD_BLUEPRINT.md#phase-15--foundation-patches-apply-before-any-new-feature-work) | Foundation patches (Windows PTY shim, IPC allowlist, P0/P1 fixes) | Shipped |
+| [Phase 2](docs/03-plan/BUILD_BLUEPRINT.md#phase-2--swarm-room--mailbox-bus) | Swarm Room, mailbox bus, roll-call, broadcast | Shipped |
+| [Phase 3](docs/03-plan/BUILD_BLUEPRINT.md#phase-3--in-app-browser--playwright-mcp-supervisor) | In-app browser, Playwright MCP supervisor over CDP | Shipped |
+| [Phase 4](docs/03-plan/BUILD_BLUEPRINT.md#phase-4--skills-drag-and-drop--per-provider-fan-out) | Skills drag-and-drop, per-provider fan-out | Shipped |
+| [Phase 5](docs/03-plan/BUILD_BLUEPRINT.md#phase-5--sigmamemory-mcp-server--notes-ui--graph-view) | SigmaMemory MCP server, notes UI, graph view | Shipped |
+| [Phase 6](docs/03-plan/BUILD_BLUEPRINT.md#phase-6--review-room-rebuild--taskskanban) | Review Room rebuild, Tasks / Kanban | Shipped |
+| [Phase 7](docs/03-plan/BUILD_BLUEPRINT.md#phase-7--ui-polish-theme-catalog-command-palette-layout-refinements-animations) | UI polish: theme catalog, command palette, animations | Shipped |
+| [Phase 8](docs/03-plan/BUILD_BLUEPRINT.md#phase-8--visual-test--bug-fix-loops) | Visual test, bug-fix loops, acceptance | Shipped (Wave 7 + Wave 8 + Wave 9 acceptance) |
+
+Last verified: 2026-05-09.
+
+## What works today
+
+A short menu of flows you can confidently demo on a fresh checkout:
+
+- Open a Git workspace from the Workspace launcher and have it persist + activate in one click.
+- Launch shell agents in a 4-pane mosaic Command Room with real PTY-backed terminals, each in its own Git worktree branch.
+- Create a coordinated swarm (Squad/Team/Platoon/Legion preset), broadcast a mission, run a roll-call, and watch the SIGMA:: protocol appear in the side chat.
+- Drop a folder containing a `SKILL.md` onto the Skills Room, then toggle per-provider fan-out for Claude / Codex / Gemini.
+- Write a `[[wikilink]]` memory note, see the backlinks panel update, and explore the force-directed graph view.
+- Switch among four themes (Obsidian, Parchment, Nord, Synthwave) and use the Cmd/Ctrl+K command palette to navigate, kill PTYs, ingest skills, or open recent workspaces.
 
 ## Architecture at a glance
 

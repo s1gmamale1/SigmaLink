@@ -31,9 +31,10 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Actual**: RPC returns the workspace record successfully, the recent list updates with the new entry, but the launcher card still says "No folder selected." and the footer still reads "No workspace open." Sidebar room buttons (Command Room, Swarm Room, Review Room, Tasks, Memory, Browser) remain disabled.
 - **Hypothesis**: `workspaces.open` only persists/upserts the workspace record. The renderer doesn't auto-dispatch `SET_ACTIVE_WORKSPACE` for non-launch flows; only `Launcher.launch()` dispatches that action. Either `workspaces.open` should activate it, or the renderer should listen and reflect it.
 - **Owner**: unassigned
-- **Status**: fixed
+- **Status**: verified
 - **Fix**: `app/src/renderer/features/workspace-launcher/Launcher.tsx:73,82` (pickFolder + chooseExisting now dispatch `SET_ACTIVE_WORKSPACE`); reducer in `app/src/renderer/app/state.tsx:142` no longer auto-switches rooms so the user can stay on Workspaces while assigning panes; OnboardingModal + CommandPalette already dispatched the action.
 - **Attempts**: 1
+- **Verification**: Wave 9 acceptance re-ran `tests/e2e/smoke.spec.ts`; the recents row + footer + Launch CTA now agree, and the launcher transitions to Command Room on launch.
 - **Notes**: Visible in `docs/06-test/screenshots/06-workspaces-with-recent.png`. Affects automation and any future "open most recent" deep-link flow.
 
 ### BUG-W7-002: Sidebar room buttons match for click via `:has-text()` even when no workspace is active and remain navigable
@@ -46,9 +47,10 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Actual**: Buttons report `disabled={true}` to the DOM but the click can still be forced and the focus/outline state changes (Browser button's outline highlights) without dispatching a room change. This produces confusing screenshots where "Browser" appears active in the sidebar but the Tasks board is shown in the main pane.
 - **Hypothesis**: The `disabled` attribute prevents `onClick` from firing, but the button still receives focus styling. Sidebar should also visually grey-out the focus ring when disabled, OR the room transition should be permitted but immediately route back to Workspaces room with a toast.
 - **Owner**: unassigned
-- **Status**: fixed
+- **Status**: verified
 - **Fix**: `app/src/renderer/features/sidebar/Sidebar.tsx:148-180` — disabled buttons now use `tabIndex={-1}`, `aria-disabled`, opacity/cursor-not-allowed, no focus ring, and a Radix tooltip explaining "Open a workspace to enable".
 - **Attempts**: 1
+- **Verification**: Wave 9 acceptance smoke confirms the disabled state has no focus ring; tooltip text rendered when hovered in manual sweep.
 - **Notes**: `docs/06-test/screenshots/25-browser-empty.png` and `26-browser-tab-loaded.png` show this — sidebar shows "Browser" outlined but Tasks room rendered.
 
 ### BUG-W7-003: Default theme on first launch is Synthwave, not Obsidian
@@ -64,6 +66,7 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Status**: fixed
 - **Fix**: `app/src/renderer/app/ThemeProvider.tsx:33-46` — value is validated against `isThemeId` and corrected to obsidian + persisted; `app/src/renderer/features/settings/AppearanceTab.tsx:62-77` — added "Reset to default" button next to the Theme grid.
 - **Attempts**: 1
+- **Verification**: Wave 9 acceptance smoke runs against a kv that already contains `app.theme=synthwave` (carried over from the W7 sweep), so the screenshot still shows Synthwave selected. Manual re-verification on a clean kv profile is recommended; the validator + Reset button were code-reviewed but not exercised on a fresh install in this pass.
 - **Notes**: `screenshots/28-settings-appearance.png` confirms Synthwave is the active card.
 
 ### BUG-W7-004: Sidebar background does not retheme when switching to Parchment (light) theme
@@ -76,9 +79,10 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Actual**: The sidebar remains dark (synthwave-era dark gradient) while the main pane and footer become parchment cream. Reads as a hard visual seam down the middle of the window.
 - **Hypothesis**: Sidebar uses CSS classes like `bg-sidebar` rather than `bg-canvas`, and the parchment theme either doesn't override `--bg-sidebar` or the Tailwind class compiled to a literal hex that bypasses the variable.
 - **Owner**: unassigned
-- **Status**: fixed
+- **Status**: verified
 - **Fix**: `app/src/index.css:90-198` — audited Parchment, Nord, and Synthwave `:root[data-theme="..."]` blocks. All four themes (including Obsidian) define the full sidebar token set: `--sidebar-background`, `--sidebar-foreground`, `--sidebar-primary[-foreground]`, `--sidebar-accent[-foreground]`, `--sidebar-border`, `--sidebar-ring`. Tailwind's `bg-sidebar` is wired to `hsl(var(--sidebar-background))` in `tailwind.config.js:42-50`, so the sidebar now retheme-s with the rest of the canvas.
 - **Attempts**: 1
+- **Verification**: Wave 9 acceptance confirms the parchment/nord/synthwave screenshots show the sidebar adopting the theme background; no left-edge seam.
 - **Notes**: `screenshots/31-theme-parchment.png` shows the seam.
 
 ### BUG-W7-005: Bogus `workspaces.open` path produces no visible error/toast
@@ -90,9 +94,10 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Actual**: The promise rejects with an error string, but no visible UI feedback is rendered. Nothing in the Workspaces room changes.
 - **Hypothesis**: Errors thrown from `rpc` invocations are not piped to a global toast surface — only individual call-sites that wrap in `try/catch` show user feedback, and `workspaces.open` is invoked from the Launcher's "Pick folder" path (where the native picker prevents bogus input). The programmatic path has no observer.
 - **Owner**: unassigned
-- **Status**: fixed
+- **Status**: verified
 - **Fix**: `app/src/renderer/lib/rpc.ts:1-90` — `invokeChannel` now calls `toast.error(message)` from sonner when the envelope is `{ok:false}` before re-throwing, so every unhandled RPC rejection surfaces. `app/src/renderer/app/App.tsx:1,55-60` — mounted `<Toaster position="bottom-right" richColors closeButton theme="dark" />` from `sonner` at the app root. Added a `rpcSilent` proxy for opt-out (probe loops, optional fetches).
 - **Attempts**: 1
+- **Verification**: Wave 9 acceptance smoke logged the bogus-path step and confirmed the sonner toaster mounted; per-step screenshot 36 shows the toast region.
 - **Notes**: `screenshots/36-error-banner.png` shows the post-error state — indistinguishable from a normal Workspaces view.
 
 ### BUG-W7-006: `swarms.create` returns "no workspace" even after successful `workspaces.open`
@@ -108,6 +113,7 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Status**: fixed
 - **Fix**: `app/src/main/core/workspaces/factory.ts:24-58` — `openWorkspace` now runs `wal_checkpoint(PASSIVE)` after the insert/update so any subsequent `workspaces.list` (in the same or another renderer call) is guaranteed to see the row. `app/src/main/core/swarms/factory.ts:51-66` — `createSwarm` continues to look up by the caller-supplied `workspaceId` directly (no dependence on `workspaces.list`) and now throws a clearer error pointing at `workspaces.open` if the row really is missing. The remaining "no workspace" line in the smoke console output is a test-harness bug (it consumes the raw envelope as an array — see BUG-W7-010).
 - **Attempts**: 1
+- **Verification**: Wave 9 acceptance smoke still emits the legacy "no workspace" console line for the same harness reason (BUG-W7-010 unchanged). Manual re-verification through the GUI rpc client is recommended before promoting to verified.
 - **Notes**: See `docs/06-test/console-output.txt` line `[RPC swarms.create] {"ok":false,"err":"no workspace"}`.
 
 ### BUG-W7-007: PowerShell new-version banner clutters every fresh shell pane
@@ -133,9 +139,10 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Actual**: Drawer persists across room changes — the smoke-test memory-graph step (`24-memory-graph.png`) shows the New Task drawer still on top of the Tasks board (because navigation was actually a no-op due to BUG-W7-002, but conceptually the drawer should still close when room changes).
 - **Hypothesis**: Drawer is mounted as a sibling overlay rather than within the Tasks subtree, and its `open` state is local to the drawer not gated by current room.
 - **Owner**: unassigned
-- **Status**: fixed
+- **Status**: verified
 - **Fix**: `app/src/renderer/features/tasks/TasksRoom.tsx:54-61,151-161` — drawer visibility is now derived from `state.room === 'tasks'` (`drawerNewOpen`, `drawerDetail`). Both `NewTaskDrawer` and `TaskDetailDrawer` receive `open=false` whenever the room is not Tasks, so the drawer cannot leak across rooms even if a sibling overlay or animation reentered.
 - **Attempts**: 1
+- **Verification**: Wave 9 acceptance smoke captured Tasks → Memory navigation; drawer no longer overlays the Memory room.
 - **Notes**: Coupled with BUG-W7-002.
 
 ### BUG-W7-009: "Tasks" sidebar item is missing the leading icon visual weight on hover/active states
@@ -171,9 +178,10 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Actual**: Card updates ("SigmaLink … Git worktrees will be created per pane"), recent row highlights, **but** the secondary text "No folder selected." persists from the empty state in some renders, and the footer still shows "No workspace open." The launch button enables but tooltip claims "Ready when you are." while the workspace is not actually active.
 - **Hypothesis**: The "No folder selected" caption is conditionally rendered based on `selectedWorkspace == null` but a separate `activeWorkspace` controls the footer; the two should agree.
 - **Owner**: unassigned
-- **Status**: fixed
+- **Status**: verified
 - **Fix**: `app/src/renderer/features/workspace-launcher/Launcher.tsx:26-29` — removed local `selectedWorkspace` state; the launcher now derives selection from the canonical `state.activeWorkspace` reducer slice (single source of truth). All references downstream were already using `selectedWorkspace`; they now point at the dispatched value, so card, footer, and Launch CTA always agree.
 - **Attempts**: 1
+- **Verification**: Wave 9 acceptance smoke confirms launcher card/footer/Launch CTA agree.
 - **Notes**: See `screenshots/06-workspaces-with-recent.png`.
 
 ### BUG-W7-012: Onboarding modal does not auto-dismiss after 5-second idle on a transient `Skip` click sometimes
@@ -196,9 +204,10 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Actual**: Click is silently ignored (`disabled` attribute), no tooltip explains why, and the Skills room is reachable without a workspace, suggesting inconsistent gating.
 - **Hypothesis**: The disabled-room set in Sidebar.tsx (line 144) excludes 'workspaces', 'settings', and 'skills' but the rationale isn't documented for users.
 - **Owner**: unassigned
-- **Status**: fixed
+- **Status**: verified
 - **Fix**: Resolved by BUG-W7-002. `app/src/renderer/features/sidebar/Sidebar.tsx:148-180` — disabled sidebar items now show the "Open a workspace to enable" tooltip on hover/focus, fully explaining the gating without changing the gating set.
 - **Attempts**: 1
+- **Verification**: Wave 9 acceptance confirms tooltip wiring; W7-002 verified status applies here.
 - **Notes**: UX polish — tooltips should explain disabled state.
 
 ### BUG-W7-014: Browser room not reachable in test sweep (no workspace activated) — placeholder screenshot misnamed
