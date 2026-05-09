@@ -17,7 +17,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 
 const MARKER = '# sigmalink-browser';
+const END_MARKER = '# end sigmalink-browser';
 const MEMORY_MARKER = '# sigmalink-memory';
+const MEMORY_END_MARKER = '# end sigmalink-memory';
+
+// BUG-W7-fix (P3 Step 4): regex anchored on BOTH the START and END markers
+// (multiline `^…$`) so a partial/legacy block (e.g. missing the end marker)
+// doesn't gobble unrelated trailing content. If the pattern doesn't match,
+// callers append a fresh block instead of mutating in place.
+const BROWSER_BLOCK_RE = /^# sigmalink-browser\b[\s\S]*?^# end sigmalink-browser[^\n]*\n?/m;
+const MEMORY_BLOCK_RE = /^# sigmalink-memory\b[\s\S]*?^# end sigmalink-memory[^\n]*\n?/m;
 
 interface WriteOptions {
   worktree: string;
@@ -92,22 +101,21 @@ function writeCodexConfigToml(opts: WriteOptions): string | null {
     const target = path.join(dir, 'config.toml');
     const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
 
-    // Idempotency: search for the marker; if present, replace the block.
+    // Idempotency: search for the START+END marker pair; replace if both
+    // present, otherwise append a fresh block (first run, or legacy partial
+    // block that no longer matches the strict pattern).
     const browserBlock = [
       MARKER,
       '[mcp_servers.browser]',
       'transport = "http"',
       `url = "${opts.mcpUrl}"`,
-      '# end sigmalink-browser',
+      END_MARKER,
       '',
     ].join('\n');
 
     let next = existing;
-    if (existing.includes(MARKER)) {
-      next = next.replace(
-        /# sigmalink-browser[\s\S]*?# end sigmalink-browser\n?/m,
-        browserBlock,
-      );
+    if (BROWSER_BLOCK_RE.test(existing)) {
+      next = next.replace(BROWSER_BLOCK_RE, browserBlock);
     } else {
       const sep = next.length === 0 || next.endsWith('\n') ? '' : '\n';
       next = next + sep + '\n' + browserBlock;
@@ -125,14 +133,11 @@ function writeCodexConfigToml(opts: WriteOptions): string | null {
         `args = ${JSON.stringify(opts.memory.args)}`,
         '[mcp_servers.sigmamemory.env]',
         ...envLines,
-        '# end sigmalink-memory',
+        MEMORY_END_MARKER,
         '',
       ].join('\n');
-      if (next.includes(MEMORY_MARKER)) {
-        next = next.replace(
-          /# sigmalink-memory[\s\S]*?# end sigmalink-memory\n?/m,
-          memoryBlock,
-        );
+      if (MEMORY_BLOCK_RE.test(next)) {
+        next = next.replace(MEMORY_BLOCK_RE, memoryBlock);
       } else {
         const sep = next.length === 0 || next.endsWith('\n') ? '' : '\n';
         next = next + sep + '\n' + memoryBlock;
@@ -155,7 +160,7 @@ function writeGeminiExtension(opts: WriteOptions): string | null {
     fs.mkdirSync(dir, { recursive: true });
     const target = path.join(dir, 'gemini-extension.json');
     const mcpServers: Record<string, unknown> = {
-      browser: { httpUrl: opts.mcpUrl },
+      browser: { url: opts.mcpUrl },
     };
     if (opts.memory) {
       mcpServers.sigmamemory = {

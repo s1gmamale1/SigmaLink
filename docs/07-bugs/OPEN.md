@@ -2,6 +2,8 @@
 
 Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`; if five attempts fail, the bug moves to `DEFERRED.md`.
 
+> **MANUAL VERIFY PENDING (Phase 3 Step 4 manual)**: BUG-W7-003 (default theme on fresh kv), BUG-W7-006 (swarms.create after workspaces.open). Code is fixed; promotion to `verified` requires a clean-kv install run that this agent could not perform.
+
 ## Format
 
 ```
@@ -124,9 +126,11 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Expected**: Pane shows just the prompt; the upgrade nag is suppressed or shown once across the workspace, not in every pane.
 - **Actual**: All four panes render the "A new PowerShell stable release is available: v7.6.1" message. Visually noisy, takes ~6 lines of vertical space per pane.
 - **Hypothesis**: PowerShell environment variable `POWERSHELL_UPDATECHECK=Off` is not set when spawning the pty. We could pass `-NoLogo` and the env var to suppress.
-- **Owner**: unassigned
-- **Status**: open
-- **Attempts**: 0
+- **Owner**: coder-bugs
+- **Status**: fixed
+- **Fix**: `app/src/main/core/pty/local-pty.ts` — `defaultShell()` now passes `-NoLogo` to both `pwsh` and `powershell.exe` (cmd.exe and unix shells unchanged); `spawnLocalPty()` sets `POWERSHELL_UPDATECHECK=Off` when the resolved executable is in the PowerShell family (basename match against `pwsh{,.exe}` / `powershell{,.exe}`). The new `isPowerShell(command)` helper isolates the detection so user-supplied PowerShell paths (full paths, scripts) also benefit.
+- **Verified by**: coder-bugs, Wave 12 — code review of `local-pty.ts` (banner suppression + env var); cmd.exe path unchanged, unix shells untouched. Awaiting Windows re-smoke for visual confirmation.
+- **Attempts**: 1
 - **Notes**: `screenshots/09-command-room-running.png`.
 
 ### BUG-W7-008: Tasks "New task" drawer stays open after navigating away to other rooms
@@ -152,9 +156,11 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Expected**: Same gap+icon+label rhythm as Workspaces / Command Room / Swarm Room.
 - **Actual**: The Tasks lucide icon is much smaller in stroke weight than its siblings; the row reads as text-only at a glance.
 - **Hypothesis**: Different `lucide-react` icon component used for tasks; perhaps `ListChecks` vs the heavier `ListTodo`.
-- **Owner**: unassigned
-- **Status**: open
-- **Attempts**: 0
+- **Owner**: coder-bugs
+- **Status**: fixed
+- **Fix**: `app/src/renderer/features/sidebar/Sidebar.tsx` — replaced `ListChecks` (whose embedded checkmark glyph rendered visually lighter than its peers) with `LayoutGrid`, which shares the simple-square stroke profile of `Folder` / `Globe` / `Settings` and is also a clean visual metaphor for a Kanban board. Same `h-4 w-4` size, default lucide stroke (1.5 via the lib's class merge).
+- **Verified by**: coder-bugs, Wave 12 — diff review against the rest of the ITEMS list. Status dots / agent count pills explicitly NOT added (those are `coder-launcher`'s V3-W12-008).
+- **Attempts**: 1
 - **Notes**: Cosmetic.
 
 ### BUG-W7-010: Test-only limitation — Folder picker is the native dialog, can't be scripted by Playwright
@@ -164,9 +170,11 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Expected**: Playwright can drive a folder pick during automation.
 - **Actual**: We must substitute the equivalent `workspaces.open` RPC because Electron's `dialog.showOpenDialog` cannot be intercepted from the renderer.
 - **Hypothesis**: Wrap `pickFolder` so test mode (`process.env.NODE_ENV === 'test'`) bypasses the native dialog with a fixed path.
-- **Owner**: unassigned
-- **Status**: open
-- **Attempts**: 0
+- **Owner**: coder-bugs
+- **Status**: fixed
+- **Fix**: `app/src/main/rpc-router.ts` — `workspacesCtl.pickFolder` now checks `process.env.SIGMA_TEST` first. When set, it reads the path from `kv['tests.fakePickerPath']` and returns `{ path }` directly, skipping `dialog.showOpenDialog` entirely. If the env var is set but no fake path is configured, the call throws `"workspaces.pickFolder: SIGMA_TEST is set but no fake path configured. Set kv['tests.fakePickerPath'] before invoking the picker."` so tests fail loudly rather than silently fall back to an unscriptable native dialog. (The bug spec mentioned `core/workspaces/controller.ts`; the actual definition lives in `rpc-router.ts` — fixed at the live location.)
+- **Verified by**: coder-bugs, Wave 12 — code review confirms native path unchanged when `SIGMA_TEST` is unset, and the kv lookup uses the same `kv` table the existing `kv.get`/`kv.set` controller writes to. Smoke spec opt-in with `SIGMA_TEST=1` + a `kv.set('tests.fakePickerPath', ...)` is now possible; the smoke itself still substitutes via `workspaces.open` (no behavioural change there).
+- **Attempts**: 1
 - **Notes**: Filed per orchestration rules — substituted with RPC and noted.
 
 ### BUG-W7-011: Workspaces room shows two conflicting selection signals after a recent click
@@ -191,9 +199,11 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Expected**: One click on Skip closes the modal.
 - **Actual**: In the smoke run, after a Continue → Continue sequence, the Skip click occasionally bounced (the modal remained on the workspace step) and we relied on `kv.set('app.onboarded','1')` to suppress for the rest of the session.
 - **Hypothesis**: Click handlers attached during the `data-state="open"` Radix Dialog transition are dropped if the click lands during `closing`/`open` transition. Add `pointer-events: auto` always or wait for `data-state="open"` before binding.
-- **Owner**: unassigned
-- **Status**: open
-- **Attempts**: 0
+- **Owner**: coder-bugs
+- **Status**: fixed
+- **Fix**: `app/src/renderer/features/onboarding/OnboardingModal.tsx` — `complete()` was awaiting `rpc.kv.set` and the workspace open round-trip before dispatching `SET_ONBOARDED`, so the modal stayed mounted (and pointer-events were governed by the Radix transition) for the duration of the IPC. Now we dispatch `SET_ONBOARDED` synchronously on click, fire the kv write into the background (`void rpc.kv.set(...)`), and only set `busy=true` if there is a `pickedFolder` to open. The Skip button is also now never `disabled` during boot and forces `style={{ pointerEvents: 'auto' }}` so a click cannot fall through Radix's open/close fade. The kv write is idempotent; redundant skips are harmless.
+- **Verified by**: coder-bugs, Wave 12 — code review of the new ordering. Awaiting slow-boot Playwright re-run for empirical confirmation.
+- **Attempts**: 1
 - **Notes**: Low-priority polish.
 
 ### BUG-W7-013: Memory and Browser rooms cannot be reached from the sidebar without first launching a workspace
@@ -217,9 +227,13 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Expected**: `25-browser-empty.png` shows the Browser room.
 - **Actual**: The screenshot shows the Tasks room because navigation didn't take. This compounds BUG-W7-001/002.
 - **Hypothesis**: Resolving BUG-W7-001 (auto-activate on `workspaces.open`) will also fix this.
-- **Owner**: unassigned
-- **Status**: open
-- **Attempts**: 0
+- **Owner**: coder-bugs
+- **Status**: fixed
+- **Fix**: Two-part decoupling.
+  - `app/src/renderer/app/App.tsx` — `RoomSwitch` now mirrors `state.room` to `document.body.dataset.room` so the active room id is observable from outside React.
+  - `app/tests/e2e/smoke.spec.ts` — the Browser-room captures now read `document.body.getAttribute('data-room')` and embed the actual rendered room in the filename: `25-browser-empty-<room>.png` and `26-browser-tab-loaded-<room>.png`. When sidebar gating sends the click elsewhere the file is named after the room that actually rendered (e.g. `25-browser-empty-tasks.png`), so screenshots are no longer silently mislabelled. The step note also includes `nav=<bool>` for diagnostic clarity.
+- **Verified by**: coder-bugs, Wave 12 — diff review of the smoke + App.tsx wiring. The next Playwright run should produce filenames that match their content. Original BUG-W7-001 / W7-002 root causes already fixed in earlier waves; this fix protects the test harness from regressing if either reappears.
+- **Attempts**: 1
 - **Notes**: Coupled bug — close when BUG-W7-001 closes.
 
 ### BUG-W7-015: "Launch N agents" button label and shape not clearly differentiated from cancel/secondary actions in light themes
@@ -232,3 +246,12 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Status**: open
 - **Attempts**: 0
 - **Notes**: `screenshots/31-theme-parchment.png`.
+
+### BUG-W7-000: Electron app failed to launch
+- **Severity**: P0
+- **Surface**: app startup
+- **Repro**: npx playwright test tests/e2e/smoke.spec.ts
+- **Expected**: app starts and renders first window
+- **Actual**: Error: electron.launch: Electron failed to install correctly, please delete node_modules/electron and try installing again
+- **Status**: open
+- **Attempts**: 1

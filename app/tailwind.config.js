@@ -48,6 +48,15 @@ module.exports = {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        // V3-W12-010: per-role colour tokens. Resolves through CSS vars set
+        // per-theme in src/index.css. Use as bg-role-coordinator,
+        // text-role-builder, border-role-scout, etc.
+        role: {
+          coordinator: "hsl(var(--role-coordinator))",
+          builder: "hsl(var(--role-builder))",
+          scout: "hsl(var(--role-scout))",
+          reviewer: "hsl(var(--role-reviewer))",
+        },
       },
       borderRadius: {
         xl: "calc(var(--radius) + 4px)",

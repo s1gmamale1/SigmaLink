@@ -246,6 +246,19 @@ export class BrowserManager extends EventEmitter {
     return rec ? this.toBrowserTab(rec) : null;
   }
 
+  /**
+   * V3-W14-001 — surfaces the underlying `WebContentsView` for a tab so the
+   * Design-mode element-picker can inject its overlay script. The view is
+   * lazily constructed on first activate; callers are expected to invoke
+   * `setActiveTab` before reaching for the view to guarantee it exists.
+   */
+  async getViewForTab(tabId: string): Promise<TWebContentsView | null> {
+    const rec = this.tabs.get(tabId);
+    if (!rec) return null;
+    if (!rec.view) await this.ensureView(rec);
+    return rec.view ?? null;
+  }
+
   // ─────────────────────────────────────────── bounds ──
 
   setBounds(b: Bounds | null): void {

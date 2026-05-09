@@ -243,6 +243,24 @@ test('SigmaLink full visual sweep', async () => {
   }
   await snap(win, '14-swarm-side-chat.png', 'swarm side chat');
 
+  // P3-S2 — Operator Console smoke. Click the sidebar entry, confirm
+  // `data-room` flipped to `operator` (BUG-W7-014 truth source), capture a
+  // screenshot, and assert no new console errors landed during the
+  // navigation.
+  const operatorErrorsBefore = consoleErrors.length;
+  const operatorNavOk = await navTo(win, 'Operator Console');
+  await win.waitForTimeout(500);
+  const operatorRoom = await win
+    .evaluate(() => document.body.getAttribute('data-room') ?? 'unknown')
+    .catch(() => 'unknown');
+  await snap(
+    win,
+    '27-operator-console.png',
+    `operator console (nav=${operatorNavOk}, rendered=${operatorRoom})`,
+  );
+  const operatorErrorsAfter = consoleErrors.length;
+  expect(operatorErrorsAfter).toBe(operatorErrorsBefore);
+
   // 15 — review
   await navTo(win, 'Review Room');
   await snap(win, '15-review-empty.png', 'review empty');
@@ -326,9 +344,22 @@ test('SigmaLink full visual sweep', async () => {
   }
   await snap(win, '24-memory-graph.png', 'memory graph');
 
-  // 25 — browser
-  await navTo(win, 'Browser');
-  await snap(win, '25-browser-empty.png', 'browser empty');
+  // 25 — browser. BUG-W7-014: previously the screenshots were named
+  // `25-browser-empty.png` and `26-browser-tab-loaded.png` regardless of
+  // whether the Browser room actually rendered. When sidebar gating sent the
+  // user back to Tasks (BUG-W7-001/002), the file was a Tasks screenshot
+  // saved under a Browser key. Probe the live `data-room` attribute and
+  // include it in the filename so each capture has an unambiguous unique key
+  // tied to what was actually rendered.
+  const browserNavOk = await navTo(win, 'Browser');
+  const browserRoomA = await win
+    .evaluate(() => document.body.getAttribute('data-room') ?? 'unknown')
+    .catch(() => 'unknown');
+  await snap(
+    win,
+    `25-browser-empty-${browserRoomA}.png`,
+    `browser empty (nav=${browserNavOk}, rendered=${browserRoomA})`,
+  );
 
   await win
     .evaluate(async () => {
@@ -346,7 +377,14 @@ test('SigmaLink full visual sweep', async () => {
     })
     .catch(() => undefined);
   await win.waitForTimeout(1500);
-  await snap(win, '26-browser-tab-loaded.png', 'browser tab loaded');
+  const browserRoomB = await win
+    .evaluate(() => document.body.getAttribute('data-room') ?? 'unknown')
+    .catch(() => 'unknown');
+  await snap(
+    win,
+    `26-browser-tab-loaded-${browserRoomB}.png`,
+    `browser tab loaded (rendered=${browserRoomB})`,
+  );
 
   // 27 — skills
   await navTo(win, 'Skills');

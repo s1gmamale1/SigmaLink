@@ -1,6 +1,6 @@
 // Side panel for editing a task and reading/posting comments.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { Button } from '@/components/ui/button';
@@ -15,29 +15,61 @@ interface Props {
 
 const STATUS_OPTIONS: TaskStatus[] = ['backlog', 'in_progress', 'in_review', 'done', 'archived'];
 
+// Form fields live in a reducer so a task-id change hydrates them with one
+// dispatch instead of five chained setStates inside `useEffect` (which the
+// react-hooks lint flags as a cascading-render anti-pattern).
+interface FormState {
+  title: string;
+  description: string;
+  status: TaskStatus;
+  labels: string;
+  err: string | null;
+}
+
+type FormAction =
+  | { type: 'hydrate'; task: Task }
+  | { type: 'set'; patch: Partial<FormState> };
+
+const INITIAL_FORM: FormState = {
+  title: '',
+  description: '',
+  status: 'backlog',
+  labels: '',
+  err: null,
+};
+
+function formReducer(state: FormState, action: FormAction): FormState {
+  switch (action.type) {
+    case 'hydrate':
+      return {
+        title: action.task.title,
+        description: action.task.description,
+        status: action.task.status,
+        labels: action.task.labels.join(', '),
+        err: null,
+      };
+    case 'set':
+      return { ...state, ...action.patch };
+    default:
+      return state;
+  }
+}
+
 export function TaskDetailDrawer(props: Props) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<TaskStatus>('backlog');
-  const [labels, setLabels] = useState('');
+  const [form, dispatch] = useReducer(formReducer, INITIAL_FORM);
+  const { title, description, status, labels, err } = form;
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [newComment, setNewComment] = useState('');
 
-  // Hydrate when the active task id changes. We deliberately depend only on
-  // the id (not the whole `props.task`) — the parent passes a fresh object on
-  // each render and we only want to refetch when the user opens a different
-  // card.
+  // Depend only on the id (not the whole `props.task`) — the parent passes a
+  // fresh object every render; we only want to refetch when the user opens a
+  // different card.
   const taskId = props.task?.id ?? null;
   useEffect(() => {
     const t = props.task;
     if (!t) return;
-    setTitle(t.title);
-    setDescription(t.description);
-    setStatus(t.status);
-    setLabels(t.labels.join(', '));
-    setErr(null);
+    dispatch({ type: 'hydrate', task: t });
     void (async () => {
       try {
         setComments(await rpc.tasks.listComments(t.id));
@@ -55,7 +87,7 @@ export function TaskDetailDrawer(props: Props) {
 
   const save = async () => {
     setBusy(true);
-    setErr(null);
+    dispatch({ type: 'set', patch: { err: null } });
     try {
       await rpc.tasks.update({
         id: props.task!.id,
@@ -65,7 +97,7 @@ export function TaskDetailDrawer(props: Props) {
         labels: labels.split(',').map((l) => l.trim()).filter(Boolean),
       });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      dispatch({ type: 'set', patch: { err: e instanceof Error ? e.message : String(e) } });
     } finally {
       setBusy(false);
     }
@@ -77,7 +109,7 @@ export function TaskDetailDrawer(props: Props) {
       await rpc.tasks.remove(props.task!.id);
       props.onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      dispatch({ type: 'set', patch: { err: e instanceof Error ? e.message : String(e) } });
     } finally {
       setBusy(false);
     }
@@ -93,7 +125,7 @@ export function TaskDetailDrawer(props: Props) {
       setComments((prev) => [...prev, c]);
       setNewComment('');
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      dispatch({ type: 'set', patch: { err: e instanceof Error ? e.message : String(e) } });
     }
   };
 
@@ -120,13 +152,18 @@ export function TaskDetailDrawer(props: Props) {
         <div className="flex-1 space-y-3 overflow-y-auto p-3 text-sm">
           <label className="block">
             <span className="mb-1 block text-xs text-muted-foreground">Title</span>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input
+              value={title}
+              onChange={(e) => dispatch({ type: 'set', patch: { title: e.target.value } })}
+            />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs text-muted-foreground">Description</span>
             <textarea
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) =>
+                dispatch({ type: 'set', patch: { description: e.target.value } })
+              }
               className="h-32 w-full resize-none rounded-md border border-border bg-background p-2 text-sm outline-none focus:border-primary"
             />
           </label>
@@ -134,7 +171,12 @@ export function TaskDetailDrawer(props: Props) {
             <span className="mb-1 block text-xs text-muted-foreground">Status</span>
             <select
               value={status}
-              onChange={(e) => setStatus(e.target.value as TaskStatus)}
+              onChange={(e) =>
+                dispatch({
+                  type: 'set',
+                  patch: { status: e.target.value as TaskStatus },
+                })
+              }
               className="w-full rounded-md border border-border bg-background p-2 text-sm"
             >
               {STATUS_OPTIONS.map((s) => (
@@ -148,7 +190,7 @@ export function TaskDetailDrawer(props: Props) {
             <span className="mb-1 block text-xs text-muted-foreground">Labels</span>
             <Input
               value={labels}
-              onChange={(e) => setLabels(e.target.value)}
+              onChange={(e) => dispatch({ type: 'set', patch: { labels: e.target.value } })}
               placeholder="bug, ui, p1"
             />
           </label>

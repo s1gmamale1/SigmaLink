@@ -2,8 +2,11 @@
 //
 // Lifecycle:
 //   1. `start(workspaceId)` is called lazily on first browser open. We pick a
-//      free TCP port on 127.0.0.1, spawn `npx @playwright/mcp@latest --port N`
-//      via `child_process.spawn`, and store the URL `http://127.0.0.1:N/mcp`.
+//      free TCP port on 127.0.0.1, spawn the Playwright MCP CLI (preferring
+//      the bundled `@playwright/mcp` from node_modules; falling back to a
+//      pinned `npx @playwright/mcp@<PLAYWRIGHT_MCP_VERSION>` only when
+//      resolution fails) via `child_process.spawn`, and store the URL
+//      `http://127.0.0.1:N/mcp`.
 //   2. We supervise the child: stderr is buffered, exit triggers a respawn
 //      with exponential backoff up to 3 attempts. After 3 consecutive
 //      failures the supervisor records `lastError` and the renderer surfaces
@@ -34,7 +37,9 @@
 // shared-Chromium CDP-attach mode without breaking the supervisor's API.
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createRequire } from 'node:module';
 import net from 'node:net';
+import path from 'node:path';
 
 interface SupervisedEntry {
   workspaceId: string;
@@ -49,12 +54,43 @@ interface SupervisedEntry {
 const MAX_RESTARTS = 3;
 const RESPAWN_DELAY_MS = 1500;
 
+// V3-W12 / closes A7 — pin the Playwright MCP version we ship against. Must
+// match the `@playwright/mcp` devDependency in package.json so the npx
+// fallback fetches the same release we tested.
+const PLAYWRIGHT_MCP_VERSION = '0.0.75';
+
+let cachedBundledCli: string | null | undefined;
+
+/**
+ * Try to resolve a bundled `@playwright/mcp/cli.js` from local node_modules.
+ * Returns null if the package is not installed (npx fallback path) or if
+ * resolution throws for any reason.
+ */
+function resolveBundledMcpCli(): string | null {
+  if (cachedBundledCli !== undefined) return cachedBundledCli;
+  try {
+    const req = createRequire(import.meta.url);
+    const pkgJson = req.resolve('@playwright/mcp/package.json');
+    const root = path.dirname(pkgJson);
+    cachedBundledCli = path.join(root, 'cli.js');
+  } catch {
+    cachedBundledCli = null;
+  }
+  return cachedBundledCli;
+}
+
 export class PlaywrightMcpSupervisor {
   private readonly entries = new Map<string, SupervisedEntry>();
 
   /**
    * Idempotently start the MCP server for the given workspace and return its
-   * URL once the child is spawned. Repeated calls return the same URL.
+   * URL once the child is spawned AND the MCP port is actually accepting
+   * connections. Repeated calls return the same URL.
+   *
+   * The port-readiness probe (`waitForPortListening`) is required because
+   * callers write the MCP config and spawn the agent CLI immediately after
+   * this resolves — without it the CLI's first MCP call would race the
+   * Playwright child's bind and ECONNREFUSED.
    */
   async start(workspaceId: string): Promise<string> {
     const existing = this.entries.get(workspaceId);
@@ -76,6 +112,10 @@ export class PlaywrightMcpSupervisor {
     this.entries.set(workspaceId, entry);
 
     this.spawnChild(entry);
+    // Best-effort readiness probe — never longer than 4s. If the child fails
+    // to bind in time we still return the URL so the caller can write the
+    // config; the supervisor will keep retrying via scheduleRestart().
+    await waitForPortListening(port, 4000).catch(() => undefined);
     return url;
   }
 
@@ -108,8 +148,25 @@ export class PlaywrightMcpSupervisor {
   private spawnChild(entry: SupervisedEntry): void {
     if (entry.shuttingDown) return;
     const isWin = process.platform === 'win32';
-    const cmd = isWin ? 'npx.cmd' : 'npx';
-    const args = ['-y', '@playwright/mcp@latest', '--port', String(entry.port)];
+    const bundled = resolveBundledMcpCli();
+    let cmd: string;
+    let args: string[];
+    if (bundled) {
+      // Preferred path: spawn the bundled CLI directly with the current
+      // Node/Electron runtime. Avoids an uncached `npx` cold-start (~3-8s
+      // first run) and pins the exact tested MCP version.
+      cmd = process.execPath;
+      args = [bundled, '--port', String(entry.port)];
+    } else {
+      // Fallback: dev installs without the package or packaged builds that
+      // failed to bundle node_modules. We pin the version so the install
+      // matches whatever was tested in `pnpm test` for this build. The prior
+      // console.warn here printed on every spawn in dev because the Electron
+      // resolver couldn't find the package from `dist-electron/main.js`; the
+      // warning was noise rather than signal, so we drop it.
+      cmd = isWin ? 'npx.cmd' : 'npx';
+      args = ['-y', `@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}`, '--port', String(entry.port)];
+    }
     let child: ChildProcess;
     try {
       child = spawn(cmd, args, {
@@ -166,5 +223,38 @@ function pickFreePort(): Promise<number> {
         srv.close(() => reject(new Error('Failed to allocate free port')));
       }
     });
+  });
+}
+
+/**
+ * Resolves when a TCP connect to 127.0.0.1:`port` succeeds, or rejects after
+ * `timeoutMs`. Polls every 100ms. Used to gate `start()` until the spawned
+ * Playwright MCP child has actually bound the port — fixes the race where
+ * agent CLIs read the MCP URL before the server is listening.
+ */
+function waitForPortListening(port: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve, reject) => {
+    const tryConnect = (): void => {
+      const sock = net.createConnection({ port, host: '127.0.0.1' });
+      let settled = false;
+      const settle = (ok: boolean): void => {
+        if (settled) return;
+        settled = true;
+        sock.removeAllListeners();
+        sock.destroy();
+        if (ok) {
+          resolve();
+        } else if (Date.now() >= deadline) {
+          reject(new Error(`waitForPortListening: timed out on 127.0.0.1:${port}`));
+        } else {
+          setTimeout(tryConnect, 100);
+        }
+      };
+      sock.once('connect', () => settle(true));
+      sock.once('error', () => settle(false));
+      sock.setTimeout(500, () => settle(false));
+    };
+    tryConnect();
   });
 }

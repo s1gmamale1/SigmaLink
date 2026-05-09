@@ -1,39 +1,22 @@
-[OK]   01-startup.png — startup
-[OK]   02-onboarding-step1.png — onboarding step 1
-[OK]   03-onboarding-step2.png — onboarding step 2 (provider probe)
-[OK]   04-onboarding-step3.png — onboarding step 3 (workspace picker)
-[OK]   05-workspaces-empty.png — workspaces empty (post-onboarding)
-[RPC workspaces.open] {"ok":true,"out":{"ok":true,"data":{"id":"c2ab4590-4f05-4d80-83ef-ed7a59e65460","name":"SigmaLink","rootPath":"C:\\Users\\DaddysHere\\Documents\\SigmaLink","repoRoot":"C:\\Users\\DaddysHere\\Documents\\SigmaLink","repoMode":"git","createdAt":1778332326258,"lastOpenedAt":1778334152657}}}
-[OK]   06-workspaces-with-recent.png — workspaces with SigmaLink folder
-[OK]   07-launcher-4-panes.png — launcher 4 panes
-[OK]   08-command-room-empty.png — command room (post-launch)
-[OK]   09-command-room-running.png — command room running
-[OK]   10-command-room-focus-mode.png — command room focus mode
-[OK]   11-swarm-empty.png — swarm empty
-[OK]   12-swarm-create.png — swarm create form
-[RPC swarms.create] {"ok":false,"err":"no workspace"}
-[OK]   13-swarm-running.png — swarm running
-[OK]   14-swarm-side-chat.png — swarm side chat
-[OK]   15-review-empty.png — review empty
-[OK]   16-review-with-sessions.png — review with sessions
-[OK]   17-review-diff-tab.png — review diff tab
-[OK]   18-tasks-empty.png — tasks empty
-[OK]   19-tasks-card-create.png — task create drawer
-[OK]   20-tasks-card-on-board.png — task on board
-[OK]   21-memory-empty.png — memory empty
-[OK]   22-memory-create-note.png — memory create note
-[OK]   23-memory-list-with-note.png — memory list with note
-[OK]   24-memory-graph.png — memory graph
-[OK]   25-browser-empty.png — browser empty
-[OK]   26-browser-tab-loaded.png — browser tab loaded
-[OK]   27-skills-empty.png — skills empty
-[OK]   28-settings-appearance.png — settings appearance
-[OK]   29-settings-providers.png — settings providers
-[OK]   30-settings-mcp.png — settings mcp
-[OK]   31-theme-parchment.png — theme parchment
-[OK]   32-theme-nord.png — theme nord
-[OK]   33-theme-synthwave.png — theme synthwave
-[OK]   34-command-palette.png — command palette open
-[OK]   35-sidebar-collapsed.png — sidebar collapsed (narrow window)
-[OK]   36-error-banner.png — error banner
-[OK]   37-final-shutdown.png — final shutdown
+[main:error] (node:25609) UnhandledPromiseRejectionWarning: Error: Could not locate the bindings file. Tried:
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/build/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/build/Debug/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/out/Debug/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/Debug/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/out/Release/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/Release/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/build/default/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/compiled/20.16.0/darwin/arm64/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/addon-build/release/install-root/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/addon-build/debug/install-root/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/addon-build/default/install-root/better_sqlite3.node
+ → /Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/lib/binding/node-v123-darwin-arm64/better_sqlite3.node
+    at bindings (/Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/bindings@1.5.0/node_modules/bindings/bindings.js:126:9)
+    at new Database (/Users/aisigma/projects/SigmaLink/app/node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3/lib/database.js:48:64)
+    at initializeDatabase (file:///Users/aisigma/projects/SigmaLink/app/electron-dist/main.js:9505:18)
+    at buildRouter (file:///Users/aisigma/projects/SigmaLink/app/electron-dist/main.js:14439:3)
+    at registerRouter (file:///Users/aisigma/projects/SigmaLink/app/electron-dist/main.js:14667:12)
+    at file:///Users/aisigma/projects/SigmaLink/app/electron-dist/main.js:14850:3
+(Use `Electron --trace-warnings ...` to show where the warning was created)
+[main:error] (node:25609) UnhandledPromiseRejectionWarning: Unhandled promise rejection. This error originated either by throwing inside of an async function without a catch block, or by rejecting a promise which was not handled with .catch(). To terminate the node process on unhandled promise rejection, use the CLI flag `--unhandled-rejections=strict` (see https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode). (rejection id: 1)

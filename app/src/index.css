@@ -49,6 +49,12 @@
     --brand-warm: 21 73% 59%;   /* #E07F4F */
     --brand-cool: 222 71% 62%;  /* #5B7FE0 */
 
+    /* V3 role colour tokens (V3-W12-010). Source: v3-agent-roles-delta.md §1. */
+    --role-coordinator: 216 90% 60%; /* blue */
+    --role-builder: 266 85% 65%;     /* violet */
+    --role-scout: 150 75% 50%;       /* green */
+    --role-reviewer: 40 90% 60%;     /* amber/gold */
+
     /* Motion tokens. */
     --motion-enter: 220ms cubic-bezier(.2, .8, .2, 1);
     --motion-exit: 160ms ease-out;
@@ -84,9 +90,18 @@
     --sidebar-accent-foreground: 0 0% 90%;
     --sidebar-border: 220 10% 15%;
     --sidebar-ring: 270 60% 55%;
+    --role-coordinator: 216 90% 60%;
+    --role-builder: 266 85% 65%;
+    --role-scout: 150 75% 50%;
+    --role-reviewer: 40 90% 60%;
   }
 
-  /* Parchment — warm light theme. */
+  /* Parchment — warm light theme.
+     BUG-W7-015: bumped `--accent` to a darker rust (lightness 32%) so the
+     workspace launcher CTA — now bound to `bg-accent` — clears ≥4.5:1
+     contrast against the cream `--accent-foreground`. The Pick-folder
+     button stays on `--primary` (lightness 45%) so the two CTAs read as a
+     primary/secondary pair instead of siblings. */
   :root[data-theme='parchment'] {
     --background: 38 38% 94%;
     --foreground: 30 12% 12%;
@@ -100,7 +115,7 @@
     --secondary-foreground: 30 12% 18%;
     --muted: 36 22% 88%;
     --muted-foreground: 30 8% 38%;
-    --accent: 22 65% 45%;
+    --accent: 22 70% 32%;
     --accent-foreground: 38 38% 96%;
     --destructive: 0 65% 45%;
     --destructive-foreground: 38 38% 96%;
@@ -121,6 +136,10 @@
     --status-danger: 0 65% 45%;
     --brand-warm: 22 65% 45%;
     --brand-cool: 222 60% 48%;
+    --role-coordinator: 216 75% 45%;
+    --role-builder: 266 65% 50%;
+    --role-scout: 150 60% 38%;
+    --role-reviewer: 32 90% 45%;
   }
 
   /* Nord — cool blue/teal. */
@@ -158,6 +177,10 @@
     --status-danger: 354 42% 56%;
     --brand-warm: 14 51% 63%;
     --brand-cool: 213 32% 72%;
+    --role-coordinator: 213 32% 72%;
+    --role-builder: 266 50% 70%;
+    --role-scout: 92 28% 65%;
+    --role-reviewer: 40 71% 73%;
   }
 
   /* Synthwave — neon dark. */
@@ -195,6 +218,10 @@
     --status-danger: 348 95% 60%;
     --brand-warm: 322 95% 65%;
     --brand-cool: 187 95% 65%;
+    --role-coordinator: 187 95% 65%;
+    --role-builder: 322 95% 65%;
+    --role-scout: 152 90% 60%;
+    --role-reviewer: 48 100% 65%;
   }
 }
 
