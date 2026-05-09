@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { getDb } from '../db/client';
+import { getDb, getRawDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { getRepoRoot } from '../git/git-ops';
 import type { Workspace } from '../../../shared/types';
@@ -32,27 +32,40 @@ export async function openWorkspace(rootPath: string): Promise<Workspace> {
   const db = getDb();
   const existing = db.select().from(workspaces).where(eq(workspaces.rootPath, abs)).get();
   const now = Date.now();
+  let resultId: string;
   if (existing) {
     db.update(workspaces)
       .set({ lastOpenedAt: now, repoRoot, repoMode })
       .where(eq(workspaces.id, existing.id))
       .run();
-    const row = db.select().from(workspaces).where(eq(workspaces.id, existing.id)).get();
-    return rowToWorkspace(row!);
+    resultId = existing.id;
+  } else {
+    resultId = randomUUID();
+    db.insert(workspaces)
+      .values({
+        id: resultId,
+        name,
+        rootPath: abs,
+        repoRoot,
+        repoMode,
+        createdAt: now,
+        lastOpenedAt: now,
+      })
+      .run();
   }
-  const id = randomUUID();
-  db.insert(workspaces)
-    .values({
-      id,
-      name,
-      rootPath: abs,
-      repoRoot,
-      repoMode,
-      createdAt: now,
-      lastOpenedAt: now,
-    })
-    .run();
-  const row = db.select().from(workspaces).where(eq(workspaces.id, id)).get();
+
+  // BUG-W7-006: ensure the row is durable before returning so a subsequent
+  // `workspaces.list` (from the renderer or a swarm controller) will see it.
+  // Better-sqlite3 already performs synchronous writes, but we force a WAL
+  // checkpoint so reads coming from another statement-cache snapshot can't
+  // race ahead of the insert.
+  try {
+    getRawDb().pragma('wal_checkpoint(PASSIVE)');
+  } catch {
+    /* best-effort */
+  }
+
+  const row = db.select().from(workspaces).where(eq(workspaces.id, resultId)).get();
   return rowToWorkspace(row!);
 }
 

@@ -46,6 +46,14 @@ export function TasksRoom() {
   const [detail, setDetail] = useState<Task | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // BUG-W7-008: derive drawer visibility from current room. When state.room
+  // is not 'tasks', the drawer must not render even if the local `newOpen` /
+  // `detail` slice still says otherwise. This mirrors the pattern recommended
+  // by the bug ticket: tie `open` to a state slice keyed by room.
+  const onTasksRoom = state.room === 'tasks';
+  const drawerNewOpen = onTasksRoom && newOpen;
+  const drawerDetail = onTasksRoom ? detail : null;
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -149,14 +157,14 @@ export function TasksRoom() {
           <SwarmRosterRail swarm={activeSwarm} />
         </div>
         <NewTaskDrawer
-          open={newOpen}
+          open={drawerNewOpen}
           workspaceId={wsId}
           initialStatus={newColumn}
           onClose={() => setNewOpen(false)}
         />
         <TaskDetailDrawer
-          open={detail !== null}
-          task={detail}
+          open={drawerDetail !== null}
+          task={drawerDetail}
           onClose={() => setDetail(null)}
         />
       </DndContext>

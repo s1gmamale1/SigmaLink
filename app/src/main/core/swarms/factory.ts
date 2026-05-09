@@ -49,12 +49,21 @@ export async function createSwarm(
   deps: SwarmFactoryDeps,
 ): Promise<Swarm> {
   const db = getDb();
+  // BUG-W7-006: prefer the workspaceId the caller already has from
+  // `workspaces.open`. We look it up directly in the workspaces table — no
+  // dependence on `workspaces.list` ordering or caching. If the row really is
+  // missing the error is loud and explicit so the renderer surfaces it via
+  // the global toaster.
   const wsRow = db
     .select()
     .from(workspacesTable)
     .where(eq(workspacesTable.id, input.workspaceId))
     .get();
-  if (!wsRow) throw new Error(`Workspace not found: ${input.workspaceId}`);
+  if (!wsRow) {
+    throw new Error(
+      `Workspace not found: ${input.workspaceId}. Open the workspace via workspaces.open before creating a swarm.`,
+    );
+  }
 
   // Resolve the roster — the operator may have customised per-row providers,
   // otherwise we use the default roster for the preset.

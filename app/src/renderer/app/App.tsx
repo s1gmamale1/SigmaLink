@@ -1,3 +1,4 @@
+import { Toaster } from 'sonner';
 import { Sidebar } from '@/renderer/features/sidebar/Sidebar';
 import { WorkspaceLauncher } from '@/renderer/features/workspace-launcher/Launcher';
 import { CommandRoom } from '@/renderer/features/command-room/CommandRoom';
@@ -51,6 +52,12 @@ export default function App() {
         </div>
         <CommandPalette />
         <OnboardingModal />
+        <Toaster
+          position="bottom-right"
+          richColors
+          closeButton
+          theme="dark"
+        />
       </ThemeProvider>
     </AppStateProvider>
   );

@@ -22,6 +22,9 @@ export function NewTaskDrawer(props: Props) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // BUG-W7-008: drawer open/close is keyed off `props.open`. The owning
+  // <TasksRoom> watches `state.room` and forces the drawer closed on room
+  // change so the drawer cannot leak across rooms. See TasksRoom.tsx.
   if (!props.open) return null;
   const submit = async () => {
     if (!title.trim()) {

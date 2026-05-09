@@ -48,6 +48,9 @@ export function TaskDetailDrawer(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
 
+  // BUG-W7-008: drawer visibility is gated on props.open. The owning
+  // <TasksRoom> watches `state.room` and forces props.open=false when the
+  // user navigates away, so the drawer cannot leak across rooms.
   if (!props.open || !props.task) return null;
 
   const save = async () => {

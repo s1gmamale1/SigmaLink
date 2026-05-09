@@ -136,10 +136,15 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_WORKSPACES':
       return { ...state, workspaces: action.workspaces };
     case 'SET_ACTIVE_WORKSPACE':
+      // BUG-W7-001: activating a workspace no longer auto-switches rooms.
+      // Some entry points (Launcher pickFolder, command palette "Open recent")
+      // want the user to stay where they are; others (Launcher.launch()) still
+      // dispatch SET_ROOM 'command' explicitly. Clearing the active workspace
+      // does fall back to Workspaces — there is no other coherent room.
       return {
         ...state,
         activeWorkspace: action.workspace,
-        room: action.workspace ? 'command' : 'workspaces',
+        room: action.workspace ? state.room : 'workspaces',
       };
     case 'ADD_SESSIONS': {
       const map = new Map(state.sessions.map((s) => [s.id, s]));

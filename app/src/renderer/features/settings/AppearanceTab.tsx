@@ -3,9 +3,9 @@
 // so the xterm renderer can read it on the next resize tick.
 
 import { useEffect, useState } from 'react';
-import { Check } from 'lucide-react';
+import { Check, RotateCcw } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
-import { applyFontSize, setRootCssVar, THEMES, type ThemeId } from '@/renderer/lib/themes';
+import { applyFontSize, DEFAULT_THEME, setRootCssVar, THEMES, type ThemeId } from '@/renderer/lib/themes';
 import { useTheme } from '@/renderer/app/ThemeProvider';
 import { cn } from '@/lib/utils';
 
@@ -58,8 +58,20 @@ export function AppearanceTab() {
   return (
     <div className="flex flex-col gap-6">
       <section>
-        <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Theme
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Theme
+          </div>
+          <button
+            type="button"
+            onClick={() => setTheme(DEFAULT_THEME)}
+            className="flex items-center gap-1 rounded border border-border bg-card/40 px-2 py-1 text-[11px] text-muted-foreground transition hover:bg-card hover:text-foreground"
+            aria-label="Reset theme to default"
+            title={`Reset to ${DEFAULT_THEME}`}
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reset to default
+          </button>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {THEMES.map((t) => {

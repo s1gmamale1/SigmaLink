@@ -23,7 +23,9 @@ interface ProviderInfo {
 export function WorkspaceLauncher() {
   const { state, dispatch } = useAppState();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(state.activeWorkspace);
+  // BUG-W7-011: there is exactly one source of truth — `state.activeWorkspace`
+  // from the reducer. We no longer keep a local `selectedWorkspace` slice.
+  const selectedWorkspace = state.activeWorkspace;
   const [preset, setPreset] = useState<GridPreset>(4);
   const [paneProviders, setPaneProviders] = useState<string[]>([]);
   const [launching, setLaunching] = useState(false);
@@ -67,20 +69,29 @@ export function WorkspaceLauncher() {
   async function pickFolder(): Promise<void> {
     const r = await rpc.workspaces.pickFolder();
     if (!r) return;
+    // BUG-W7-001: activate the workspace immediately on open. The reducer's
+    // SET_ACTIVE_WORKSPACE also flips room → command, but for a Pick-folder
+    // flow the user expects to stay in Workspaces and configure panes first,
+    // so we dispatch only after the user clicks Launch (see launch()). What
+    // this dispatch fixes is the chain of "no workspace open" footer + the
+    // disabled sidebar buttons.
     const ws = await rpc.workspaces.open(r.path);
-    setSelectedWorkspace(ws);
+    dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: ws });
     dispatch({ type: 'SET_WORKSPACES', workspaces: await rpc.workspaces.list() });
   }
 
   async function chooseExisting(ws: Workspace): Promise<void> {
+    // BUG-W7-001 / W7-011: reopen + activate so the rest of the app reacts.
     const reopened = await rpc.workspaces.open(ws.rootPath);
-    setSelectedWorkspace(reopened);
+    dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: reopened });
   }
 
   async function removeExisting(ws: Workspace): Promise<void> {
     await rpc.workspaces.remove(ws.id);
     dispatch({ type: 'SET_WORKSPACES', workspaces: await rpc.workspaces.list() });
-    if (selectedWorkspace?.id === ws.id) setSelectedWorkspace(null);
+    if (selectedWorkspace?.id === ws.id) {
+      dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: null });
+    }
   }
 
   async function launch(): Promise<void> {

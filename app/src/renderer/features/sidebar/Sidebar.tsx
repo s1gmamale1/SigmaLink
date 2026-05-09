@@ -145,11 +145,18 @@ export function Sidebar() {
               item.id !== 'settings' &&
               item.id !== 'skills' &&
               !activeWorkspace;
+            // BUG-W7-002 / W7-013: when disabled, skip from the focus order and
+            // dim the row with `cursor-not-allowed`. The tooltip explains why.
+            const tooltipLabel = disabled
+              ? `${item.label} — Open a workspace to enable`
+              : item.label;
             const button = (
               <button
                 key={item.id}
                 type="button"
                 disabled={disabled}
+                tabIndex={disabled ? -1 : 0}
+                aria-disabled={disabled || undefined}
                 onClick={() => dispatch({ type: 'SET_ROOM', room: item.id })}
                 className={cn(
                   'group relative flex w-full items-center rounded-md text-sm transition',
@@ -157,20 +164,30 @@ export function Sidebar() {
                   isActive
                     ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                     : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
-                  disabled && 'cursor-not-allowed opacity-40 hover:bg-transparent',
+                  disabled &&
+                    'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-muted-foreground focus:outline-none focus:ring-0 focus-visible:ring-0',
                 )}
                 aria-label={item.label}
+                title={disabled ? 'Open a workspace to enable' : undefined}
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 {collapsed ? null : <span className="flex-1 text-left">{item.label}</span>}
               </button>
             );
-            if (!collapsed) return button;
+            // Always wrap in a tooltip so users get the disabled rationale —
+            // not only the collapsed state. Radix Tooltip works on disabled
+            // buttons because they're rendered in a wrapper.
             return (
               <Tooltip key={item.id}>
-                <TooltipTrigger asChild>{button}</TooltipTrigger>
+                <TooltipTrigger asChild>
+                  {disabled ? (
+                    <span className="block w-full">{button}</span>
+                  ) : (
+                    button
+                  )}
+                </TooltipTrigger>
                 <TooltipContent side="right" sideOffset={8}>
-                  {item.label}
+                  {tooltipLabel}
                 </TooltipContent>
               </Tooltip>
             );

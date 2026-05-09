@@ -31,9 +31,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       try {
         const stored = await rpc.kv.get(KV_KEYS.theme);
         if (!alive) return;
-        const next = isThemeId(stored) ? stored : DEFAULT_THEME;
-        setThemeState(next);
-        applyTheme(next);
+        // BUG-W7-003: validate the stored value. If it's missing OR not in the
+        // canonical theme set, fall back to obsidian and write the corrected
+        // value back to kv so the next boot is clean.
+        if (isThemeId(stored)) {
+          setThemeState(stored);
+          applyTheme(stored);
+        } else {
+          setThemeState(DEFAULT_THEME);
+          applyTheme(DEFAULT_THEME);
+          void rpc.kv.set(KV_KEYS.theme, DEFAULT_THEME).catch(() => undefined);
+        }
       } catch {
         // kv may be unavailable during very early app boot; non-fatal.
       } finally {
