@@ -62,3 +62,26 @@ docs/02-research/transcripts/*.vtt
 docs/02-research/transcripts/*.info.json
 docs/02-research/transcripts/*.webp
 docs/02-research/transcripts/channel-videos.jsonl
+docs/02-research/videos/
+
+# Local orchestration / agent runtime (per-machine, not shared)
+.claude-flow/
+.claude/
+.gemini/
+.swarm/
+**/.claude-flow/
+**/.claude/
+**/.gemini/
+**/.swarm/
+agentdb.rvf
+agentdb.rvf.lock
+**/agentdb.rvf
+**/agentdb.rvf.lock
+opencode.json
+**/opencode.json
+
+# Ruflo init footprint inside app/ (CLAUDE.md is tracked at repo root only)
+app/CLAUDE.md
+app/scripts/ruflo-mcp-filter.mjs
+app/pnpm-workspace.yaml
+app/pnpm-lock.yaml
