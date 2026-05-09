@@ -1,0 +1,90 @@
+{
+  "_comment": "v0 stub — forward-compat scaffold for the read-only Skills marketplace (V3-W15-007). Hand-curated entries; no live network fetch yet. Future waves will replace this with a hosted index. Schema fields: id, name, description, version, author, tags[], installInstructions, repoUrl?, homepageUrl?.",
+  "schemaVersion": 0,
+  "generatedAt": "2026-05-09",
+  "skills": [
+    {
+      "id": "tdd-driver",
+      "name": "TDD Driver",
+      "description": "Drives strict red-green-refactor loops. Generates failing tests first, then minimal implementation, then refactors. Pairs well with Vitest, Jest, and Pytest.",
+      "version": "1.2.0",
+      "author": "SigmaLink Labs",
+      "tags": ["testing", "tdd", "workflow"],
+      "installInstructions": "Drop the tdd-driver/ folder containing SKILL.md onto the Skills room.",
+      "repoUrl": "https://github.com/sigmalink/skills-tdd-driver",
+      "homepageUrl": "https://sigmalink.dev/skills/tdd-driver"
+    },
+    {
+      "id": "security-audit-pro",
+      "name": "Security Audit Pro",
+      "description": "Static-analysis prompt set covering OWASP Top 10, secret leakage, insecure deserialization, and supply-chain risks. Emits a triaged findings report.",
+      "version": "0.9.4",
+      "author": "redteam-collective",
+      "tags": ["security", "audit", "owasp"],
+      "installInstructions": "Drop the security-audit-pro/ folder containing SKILL.md onto the Skills room.",
+      "repoUrl": "https://github.com/redteam-collective/skill-security-audit-pro"
+    },
+    {
+      "id": "performance-profiler",
+      "name": "Performance Profiler",
+      "description": "Walks code paths, identifies hot loops, suggests memoization and structural rewrites. Flame-graph friendly; integrates with Chrome DevTools traces.",
+      "version": "0.7.1",
+      "author": "perfworks",
+      "tags": ["performance", "profiling", "optimization"],
+      "installInstructions": "Drop the performance-profiler/ folder containing SKILL.md onto the Skills room.",
+      "repoUrl": "https://github.com/perfworks/skill-performance-profiler",
+      "homepageUrl": "https://perfworks.dev"
+    },
+    {
+      "id": "accessibility-coach",
+      "name": "Accessibility Coach",
+      "description": "WCAG 2.2 AA reviewer for React, Vue, and Svelte components. Calls out colour contrast, ARIA misuse, focus traps, and keyboard navigation gaps.",
+      "version": "1.0.0",
+      "author": "a11y-friends",
+      "tags": ["accessibility", "a11y", "wcag", "review"],
+      "installInstructions": "Drop the accessibility-coach/ folder containing SKILL.md onto the Skills room.",
+      "repoUrl": "https://github.com/a11y-friends/skill-accessibility-coach"
+    },
+    {
+      "id": "db-migration-safety",
+      "name": "Database Migration Safety",
+      "description": "Reviews up/down migrations for blocking locks, backfill correctness, and rollback safety. Postgres + MySQL; understands online-DDL gotchas.",
+      "version": "0.5.2",
+      "author": "schema-stewards",
+      "tags": ["database", "migrations", "postgres", "mysql"],
+      "installInstructions": "Drop the db-migration-safety/ folder containing SKILL.md onto the Skills room.",
+      "repoUrl": "https://github.com/schema-stewards/skill-db-migration-safety"
+    },
+    {
+      "id": "rest-api-designer",
+      "name": "REST API Designer",
+      "description": "Coaches resource modelling, status-code hygiene, idempotency keys, and OpenAPI authoring. Generates request/response samples on demand.",
+      "version": "1.1.3",
+      "author": "api-guild",
+      "tags": ["api", "rest", "openapi", "design"],
+      "installInstructions": "Drop the rest-api-designer/ folder containing SKILL.md onto the Skills room.",
+      "repoUrl": "https://github.com/api-guild/skill-rest-api-designer",
+      "homepageUrl": "https://api-guild.dev"
+    },
+    {
+      "id": "code-review-buddy",
+      "name": "Code Review Buddy",
+      "description": "Diff-aware reviewer. Surfaces logic errors, missing tests, public-API regressions, and inconsistent naming. Honours your repo's CONTRIBUTING.md tone.",
+      "version": "0.8.0",
+      "author": "SigmaLink Labs",
+      "tags": ["review", "quality", "workflow"],
+      "installInstructions": "Drop the code-review-buddy/ folder containing SKILL.md onto the Skills room.",
+      "repoUrl": "https://github.com/sigmalink/skills-code-review-buddy"
+    },
+    {
+      "id": "doc-scribe",
+      "name": "Doc Scribe",
+      "description": "Generates module-level docs, README sections, and architectural decision records. Stays under the line-budget you set.",
+      "version": "0.6.5",
+      "author": "docs-foundation",
+      "tags": ["documentation", "writing", "adr"],
+      "installInstructions": "Drop the doc-scribe/ folder containing SKILL.md onto the Skills room.",
+      "homepageUrl": "https://docs-foundation.org/skills/doc-scribe"
+    }
+  ]
+}
