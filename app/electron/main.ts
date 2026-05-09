@@ -4,7 +4,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, shell } from 'electron';
-import { registerRouter, shutdownRouter } from '../src/main/rpc-router';
+import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,6 +44,14 @@ function createWindow(): void {
   });
 
   mainWindow.on('closed', () => {
+    // Tear down any per-workspace BrowserManagers that were attached to this
+    // window so their child WebContentsViews don't outlive the parent and
+    // their Playwright MCP supervisors are stopped.
+    try {
+      getSharedDeps()?.browserRegistry.teardownAll();
+    } catch {
+      /* ignore */
+    }
     mainWindow = null;
   });
 }

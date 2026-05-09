@@ -2,6 +2,7 @@ import { Sidebar } from '@/renderer/features/sidebar/Sidebar';
 import { WorkspaceLauncher } from '@/renderer/features/workspace-launcher/Launcher';
 import { CommandRoom } from '@/renderer/features/command-room/CommandRoom';
 import { SwarmRoom } from '@/renderer/features/swarm-room/SwarmRoom';
+import { BrowserRoom } from '@/renderer/features/browser/BrowserRoom';
 import { PhasePlaceholder } from '@/renderer/features/placeholders/PhasePlaceholder';
 import { AppStateProvider, useAppState } from '@/renderer/app/state';
 
@@ -31,13 +32,7 @@ function RoomSwitch() {
         />
       );
     case 'browser':
-      return (
-        <PhasePlaceholder
-          title="Browser"
-          phase={3}
-          description="In-app WebContentsView pane plus a managed Playwright MCP server attached over CDP, so agents drive the same tab the user sees."
-        />
-      );
+      return <BrowserRoom />;
     case 'skills':
       return (
         <PhasePlaceholder

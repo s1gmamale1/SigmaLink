@@ -3,7 +3,13 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
-import type { AgentSession, Swarm, SwarmMessage, Workspace } from '@/shared/types';
+import type {
+  AgentSession,
+  BrowserState,
+  Swarm,
+  SwarmMessage,
+  Workspace,
+} from '@/shared/types';
 
 export type RoomId =
   | 'workspaces'
@@ -26,6 +32,8 @@ export interface AppState {
   swarms: Swarm[];
   activeSwarmId: string | null;
   swarmMessages: Record<string, SwarmMessage[]>;
+  // Browser room (Phase 3): per-workspace state slice keyed by workspaceId.
+  browser: Record<string, BrowserState>;
 }
 
 type Action =
@@ -42,7 +50,8 @@ type Action =
   | { type: 'SET_ACTIVE_SWARM'; id: string | null }
   | { type: 'SET_SWARM_MESSAGES'; swarmId: string; messages: SwarmMessage[] }
   | { type: 'APPEND_SWARM_MESSAGE'; message: SwarmMessage }
-  | { type: 'MARK_SWARM_ENDED'; id: string };
+  | { type: 'MARK_SWARM_ENDED'; id: string }
+  | { type: 'SET_BROWSER_STATE'; state: BrowserState };
 
 const initial: AppState = {
   ready: false,
@@ -54,6 +63,7 @@ const initial: AppState = {
   swarms: [],
   activeSwarmId: null,
   swarmMessages: {},
+  browser: {},
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -143,6 +153,11 @@ function reducer(state: AppState, action: Action): AppState {
           s.id === action.id ? { ...s, status: 'completed', endedAt: Date.now() } : s,
         ),
       };
+    case 'SET_BROWSER_STATE':
+      return {
+        ...state,
+        browser: { ...state.browser, [action.state.workspaceId]: action.state },
+      };
     default:
       return state;
   }
@@ -217,6 +232,53 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           payload,
           ts,
         },
+      });
+    });
+    return off;
+  }, []);
+
+  // Listen for browser:state so the Browser room hydrates live across rooms.
+  useEffect(() => {
+    const off = window.sigma.eventOn('browser:state', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as Record<string, unknown>;
+      const workspaceId = typeof p.workspaceId === 'string' ? p.workspaceId : '';
+      if (!workspaceId) return;
+      const tabsRaw = Array.isArray(p.tabs) ? (p.tabs as unknown[]) : [];
+      const tabs = tabsRaw
+        .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
+        .map((t) => ({
+          id: String(t.id ?? ''),
+          workspaceId: String(t.workspaceId ?? workspaceId),
+          url: String(t.url ?? ''),
+          title: String(t.title ?? ''),
+          active: Boolean(t.active),
+          createdAt: typeof t.createdAt === 'number' ? t.createdAt : Date.now(),
+          lastVisitedAt:
+            typeof t.lastVisitedAt === 'number' ? t.lastVisitedAt : Date.now(),
+        }));
+      const activeTabId = typeof p.activeTabId === 'string' ? p.activeTabId : null;
+      const lockOwnerRaw = p.lockOwner;
+      const lockOwner =
+        lockOwnerRaw && typeof lockOwnerRaw === 'object'
+          ? {
+              agentKey: String(
+                (lockOwnerRaw as Record<string, unknown>).agentKey ?? '',
+              ),
+              claimedAt:
+                typeof (lockOwnerRaw as Record<string, unknown>).claimedAt === 'number'
+                  ? ((lockOwnerRaw as Record<string, unknown>).claimedAt as number)
+                  : Date.now(),
+              label:
+                typeof (lockOwnerRaw as Record<string, unknown>).label === 'string'
+                  ? ((lockOwnerRaw as Record<string, unknown>).label as string)
+                  : undefined,
+            }
+          : null;
+      const mcpUrl = typeof p.mcpUrl === 'string' ? p.mcpUrl : null;
+      dispatch({
+        type: 'SET_BROWSER_STATE',
+        state: { workspaceId, tabs, activeTabId, lockOwner, mcpUrl },
       });
     });
     return off;

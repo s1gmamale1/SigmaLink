@@ -17,11 +17,16 @@ import { executeLaunchPlan } from './core/workspaces/launcher';
 import { AGENT_PROVIDERS } from '../shared/providers';
 import { SwarmMailbox } from './core/swarms/mailbox';
 import { buildSwarmController } from './core/swarms/controller';
+import { BrowserManagerRegistry } from './core/browser/manager';
+import { buildBrowserController } from './core/browser/controller';
+import { PlaywrightMcpSupervisor } from './core/browser/playwright-supervisor';
 
 interface SharedDeps {
   pty: PtyRegistry;
   worktreePool: WorktreePool;
   mailbox: SwarmMailbox;
+  browserRegistry: BrowserManagerRegistry;
+  playwrightSupervisor: PlaywrightMcpSupervisor;
 }
 
 let router: ReturnType<typeof buildRouter> | null = null;
@@ -60,7 +65,19 @@ function buildRouter() {
       payload: message.payload,
     });
   });
-  sharedDeps = { pty, worktreePool, mailbox };
+  const playwrightSupervisor = new PlaywrightMcpSupervisor();
+  const browserRegistry = new BrowserManagerRegistry({
+    windowProvider: () => {
+      // Prefer the focused window; fall back to the first non-destroyed one.
+      const focused = BrowserWindow.getFocusedWindow();
+      if (focused && !focused.isDestroyed()) return focused;
+      const all = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+      return all[0] ?? null;
+    },
+    supervisor: playwrightSupervisor,
+    onState: (state) => broadcast('browser:state', state),
+  });
+  sharedDeps = { pty, worktreePool, mailbox, browserRegistry, playwrightSupervisor };
 
   const appCtl = defineController({
     getVersion: async () => app.getVersion(),
@@ -201,6 +218,8 @@ function buildRouter() {
     userDataDir: userData,
   });
 
+  const browserCtl = buildBrowserController({ registry: browserRegistry });
+
   return defineRouter({
     app: appCtl,
     pty: ptyCtl,
@@ -209,6 +228,7 @@ function buildRouter() {
     git: gitCtl,
     fs: fsCtl,
     swarms: swarmsCtl,
+    browser: browserCtl,
   });
 }
 
@@ -247,12 +267,31 @@ export function shutdownRouter(): void {
     /* ignore */
   }
   try {
+    sharedDeps?.browserRegistry.teardownAll();
+  } catch {
+    /* ignore */
+  }
+  try {
+    sharedDeps?.playwrightSupervisor.stopAll();
+  } catch {
+    /* ignore */
+  }
+  try {
     closeDatabase();
   } catch {
     /* ignore */
   }
   router = null;
   sharedDeps = null;
+}
+
+/**
+ * Expose the shared deps so other main-process modules (e.g. the workspace
+ * launcher) can hook into post-W5 dependencies — currently used to give the
+ * launcher the per-workspace MCP url for `.mcp.json` writeback.
+ */
+export function getSharedDeps(): SharedDeps | null {
+  return sharedDeps;
 }
 
 export type RegisteredRouter = AppRouter;

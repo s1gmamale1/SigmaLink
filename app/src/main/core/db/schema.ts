@@ -128,6 +128,30 @@ export const swarmMessages = sqliteTable(
   }),
 );
 
+// Phase 3 — Browser Room
+export const browserTabs = sqliteTable(
+  'browser_tabs',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    url: text('url').notNull(),
+    title: text('title').notNull().default(''),
+    active: integer('active').notNull().default(0),
+    createdAt: integer('created_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    lastVisitedAt: integer('last_visited_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    browserTabsWsIdx: index('browser_tabs_ws_idx').on(t.workspaceId),
+  }),
+);
+
+export type BrowserTabRow = typeof browserTabs.$inferSelect;
+export type BrowserTabInsert = typeof browserTabs.$inferInsert;
+
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type WorkspaceInsert = typeof workspaces.$inferInsert;
 export type AgentSessionRow = typeof agentSessions.$inferSelect;

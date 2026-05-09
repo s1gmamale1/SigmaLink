@@ -12,6 +12,8 @@ import type {
   Swarm,
   SwarmMessage,
   SwarmMessageKind,
+  BrowserState,
+  BrowserTab,
 } from './types';
 
 export interface AppRouter {
@@ -79,5 +81,23 @@ export interface AppRouter {
     rollCall: (swarmId: string) => Promise<SwarmMessage>;
     tail: (swarmId: string, opts?: { limit?: number }) => Promise<SwarmMessage[]>;
     kill: (id: string) => Promise<void>;
+  };
+  browser: {
+    openTab: (input: { workspaceId: string; url?: string }) => Promise<BrowserTab>;
+    closeTab: (input: { workspaceId: string; tabId: string }) => Promise<void>;
+    navigate: (input: { workspaceId: string; tabId: string; url: string }) => Promise<void>;
+    back: (input: { workspaceId: string; tabId: string }) => Promise<void>;
+    forward: (input: { workspaceId: string; tabId: string }) => Promise<void>;
+    reload: (input: { workspaceId: string; tabId: string }) => Promise<void>;
+    stop: (input: { workspaceId: string; tabId: string }) => Promise<void>;
+    listTabs: (workspaceId: string) => Promise<BrowserTab[]>;
+    getActiveTab: (workspaceId: string) => Promise<BrowserTab | null>;
+    setActiveTab: (input: { workspaceId: string; tabId: string }) => Promise<void>;
+    setBounds: (input: { workspaceId: string; bounds: { x: number; y: number; width: number; height: number } | null }) => Promise<void>;
+    getState: (workspaceId: string) => Promise<BrowserState>;
+    claimDriver: (input: { workspaceId: string; agentKey: string; label?: string }) => Promise<void>;
+    releaseDriver: (input: { workspaceId: string }) => Promise<void>;
+    getMcpUrl: (workspaceId: string) => Promise<string | null>;
+    teardown: (workspaceId: string) => Promise<void>;
   };
 }

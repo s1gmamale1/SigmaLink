@@ -16,7 +16,37 @@ export type EventMap = {
     payload?: Record<string, unknown>;
   };
   'memory:changed': { id: string; kind: 'create' | 'update' | 'delete' };
-  'browser:state': { tabId: string; url: string; title: string; canGoBack: boolean; canGoForward: boolean };
+  /**
+   * Broadcast on every browser-state change for the workspace: tab list
+   * mutation, navigation start/finish, lock claim/release, supervisor
+   * up/down. The renderer hydrates its `browser` slice from this event.
+   *
+   * The original Phase-1 placeholder shape (tabId/url/title/canGoBack)
+   * is preserved as optional fields so any consumer that targeted only
+   * the per-tab navigation update keeps compiling.
+   */
+  'browser:state': {
+    workspaceId: string;
+    tabs: Array<{
+      id: string;
+      workspaceId: string;
+      url: string;
+      title: string;
+      active: boolean;
+      createdAt: number;
+      lastVisitedAt: number;
+    }>;
+    activeTabId: string | null;
+    lockOwner: { agentKey: string; claimedAt: number; label?: string } | null;
+    mcpUrl: string | null;
+    // Per-tab navigation summary for the active tab — convenient for
+    // address-bar UIs that only want the current URL/title.
+    tabId?: string;
+    url?: string;
+    title?: string;
+    canGoBack?: boolean;
+    canGoForward?: boolean;
+  };
 };
 
 export type EventName = keyof EventMap;

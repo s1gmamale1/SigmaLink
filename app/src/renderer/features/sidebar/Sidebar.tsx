@@ -26,7 +26,7 @@ const ITEMS: NavItem[] = [
   { id: 'swarm', label: 'Swarm Room', icon: Network },
   { id: 'review', label: 'Review Room', icon: GitBranch, phase: 4 },
   { id: 'memory', label: 'Memory', icon: Sparkles, phase: 4 },
-  { id: 'browser', label: 'Browser', icon: Globe, phase: 3 },
+  { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'skills', label: 'Skills', icon: Wand2, phase: 3 },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];

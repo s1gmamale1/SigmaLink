@@ -90,6 +90,18 @@ CREATE TABLE IF NOT EXISTS swarm_messages (
 );
 CREATE INDEX IF NOT EXISTS swarm_messages_swarm_time_idx ON swarm_messages(swarm_id, ts);
 CREATE INDEX IF NOT EXISTS swarm_messages_to_idx ON swarm_messages(swarm_id, to_agent);
+
+CREATE TABLE IF NOT EXISTS browser_tabs (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  last_visited_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS browser_tabs_ws_idx ON browser_tabs(workspace_id);
 `;
 
 export function initializeDatabase(userDataDir: string): {

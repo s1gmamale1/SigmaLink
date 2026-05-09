@@ -46,6 +46,23 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'swarms.rollCall',
   'swarms.tail',
   'swarms.kill',
+  // browser
+  'browser.openTab',
+  'browser.closeTab',
+  'browser.navigate',
+  'browser.back',
+  'browser.forward',
+  'browser.reload',
+  'browser.stop',
+  'browser.listTabs',
+  'browser.getActiveTab',
+  'browser.setActiveTab',
+  'browser.setBounds',
+  'browser.getState',
+  'browser.claimDriver',
+  'browser.releaseDriver',
+  'browser.getMcpUrl',
+  'browser.teardown',
 ]);
 
 /**

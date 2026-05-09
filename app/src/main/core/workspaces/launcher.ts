@@ -11,6 +11,8 @@ import { findProvider } from '../../../shared/providers';
 import type { AgentSession, LaunchPlan, Workspace } from '../../../shared/types';
 import type { PtyRegistry } from '../pty/registry';
 import type { WorktreePool } from '../git/worktree';
+import { getSharedDeps } from '../../rpc-router';
+import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
 
 interface LauncherDeps {
   pty: PtyRegistry;
@@ -78,6 +80,21 @@ export async function executeLaunchPlan(
       }
 
       const cwd = worktreePath ?? wsRow.rootPath;
+
+      // Browser MCP wiring: lazily start the per-workspace Playwright MCP
+      // supervisor and drop config snippets into the cwd / per-provider
+      // user-config locations so the agent CLI inherits a `browser` MCP
+      // server. Best-effort — never block PTY spawn on this.
+      try {
+        const shared = getSharedDeps();
+        if (shared) {
+          const mcpUrl = await shared.playwrightSupervisor.start(wsRow.id);
+          writeMcpConfigForAgent({ worktree: cwd, mcpUrl });
+        }
+      } catch {
+        /* MCP wiring is non-fatal */
+      }
+
       const args = buildArgs(provider.id, pane.initialPrompt);
       const rec = deps.pty.create({
         providerId: provider.id,

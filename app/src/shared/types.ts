@@ -149,3 +149,39 @@ export interface CreateSwarmInput {
   // Provider assignment per role; one entry per agent in the roster.
   roster: RoleAssignment[];
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Browser Room (Phase 3)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type TabId = string;
+
+export interface BrowserTab {
+  id: TabId;
+  workspaceId: WorkspaceId;
+  url: string;
+  title: string;
+  active: boolean;
+  createdAt: number;
+  lastVisitedAt: number;
+}
+
+/**
+ * Identifies who currently holds the "driver" lock on the browser pane.
+ * `null` when no agent is driving and the user has full control. The
+ * `agentKey` mirrors `SwarmAgent.agentKey` (e.g., "builder-1") when an
+ * agent claims the lock through the MCP bridge.
+ */
+export interface LockOwner {
+  agentKey: string;
+  claimedAt: number;
+  label?: string;
+}
+
+export interface BrowserState {
+  workspaceId: WorkspaceId;
+  tabs: BrowserTab[];
+  activeTabId: TabId | null;
+  lockOwner: LockOwner | null;
+  mcpUrl: string | null;
+}
