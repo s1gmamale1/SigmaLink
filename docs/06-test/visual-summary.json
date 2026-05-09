@@ -71,6 +71,16 @@
       "note": "swarm side chat"
     },
     {
+      "step": "27-operator-console.png",
+      "ok": true,
+      "note": "operator console (nav=true, rendered=operator)"
+    },
+    {
+      "step": "27b-operator-replays-tab.png",
+      "ok": true,
+      "note": "operator console replays tab"
+    },
+    {
       "step": "15-review-empty.png",
       "ok": true,
       "note": "review empty"
@@ -121,14 +131,19 @@
       "note": "memory graph"
     },
     {
-      "step": "25-browser-empty.png",
+      "step": "25-browser-empty-tasks.png",
       "ok": true,
-      "note": "browser empty"
+      "note": "browser empty (nav=true, rendered=tasks)"
     },
     {
-      "step": "26-browser-tab-loaded.png",
+      "step": "26-browser-tab-loaded-tasks.png",
       "ok": true,
-      "note": "browser tab loaded"
+      "note": "browser tab loaded (rendered=tasks)"
+    },
+    {
+      "step": "26b-bridge-conversations-bridge.png",
+      "ok": true,
+      "note": "bridge conversations panel (nav=true, rendered=bridge, panel=1)"
     },
     {
       "step": "27-skills-empty.png",
@@ -187,5 +202,7 @@
     }
   ],
   "consoleErrors": [],
-  "allConsoleSample": []
+  "allConsoleSample": [
+    "[main:warning] [rpc-router] 2 channel(s) have no zod schema entry in core/rpc/schemas.ts:\n  - app.tier\n  - design.shutdown"
+  ]
 }

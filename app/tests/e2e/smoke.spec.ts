@@ -139,22 +139,35 @@ test('SigmaLink full visual sweep', async () => {
   // 05 — workspaces empty (the room itself)
   await snap(win, '05-workspaces-empty.png', 'workspaces empty (post-onboarding)');
 
-  // Open the SigmaLink folder as a workspace via RPC
+  // Open the SigmaLink folder as a workspace via RPC.
+  // P3-S8: use the actual repo root (cross-platform). Previously a hardcoded
+  // Windows path was used, which failed on macOS/Linux runners and left the
+  // app without an active workspace — every downstream room rendered as
+  // `workspaces` instead of its real surface, and BridgeRoom showed
+  // EmptyState (no Conversations panel) which broke the P3-S7 assertion.
+  const repoRoot = path.resolve(__dirname, '../../../');
   const openResult = await win
-    .evaluate(async () => {
+    .evaluate(async (folder: string) => {
       try {
         // @ts-expect-error sigma is exposed
-        const out = await window.sigma.invoke(
-          'workspaces.open',
-          'C:/Users/DaddysHere/Documents/SigmaLink',
-        );
+        const out = await window.sigma.invoke('workspaces.open', folder);
         return { ok: true, out };
       } catch (err) {
         return { ok: false, err: String(err) };
       }
-    })
+    }, repoRoot)
     .catch((e) => ({ ok: false, err: String(e) }));
   appendLog(`[RPC workspaces.open] ${JSON.stringify(openResult)}`);
+  // P3-S8 — IPC `workspaces.open` lands the workspace in the main DB, but the
+  // renderer's AppState only refreshes on `sigma:test:activate-workspace`.
+  // Dispatch the event so subsequent rooms see a non-null `activeWorkspace`.
+  await win
+    .evaluate((rootPath: string) => {
+      window.dispatchEvent(
+        new CustomEvent('sigma:test:activate-workspace', { detail: { rootPath } }),
+      );
+    }, repoRoot)
+    .catch(() => undefined);
   await win.waitForTimeout(1500);
   await snap(win, '06-workspaces-with-recent.png', 'workspaces with SigmaLink folder');
 

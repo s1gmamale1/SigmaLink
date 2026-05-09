@@ -8,9 +8,9 @@
 
 ## Verdict
 
-**RELEASE-BLOCKED-PENDING-USER**.
+**RELEASE-READY-PENDING-USER-AUTH**.
 
-Feature-complete: every BUILD ticket in `docs/03-plan/V3_PARITY_BACKLOG.md` ships except dogfood (V3-W15-006). Build pipeline green (`tsc -b` clean; `vite build` 990 KB main + 14.57 KB Monaco; lint 80/3 mostly in `_legacy/`). Two W7 P3 promotions and the local Playwright smoke remain gated on a Node 26 + npm 11 install bug; `.github/workflows/e2e-matrix.yml` (V3-W15-004) restores cross-platform smoke on Node 20. v1.0.0 git tag + push gated on explicit user authorization.
+Feature-complete: every BUILD ticket in `docs/03-plan/V3_PARITY_BACKLOG.md` ships except dogfood (V3-W15-006). Build pipeline green (`tsc -b` clean; `vite build` 311 KB main + 14.58 KB Monaco lazy + 6 vendor chunks; lint 54/0). Local Playwright smoke now passes 40/40 with 0 console errors / 0 page errors on macOS (P3-S8). The CI matrix (`.github/workflows/e2e-matrix.yml`) reproduces the same gate cross-platform on Node 20. v1.0.0 git tag + push still gated on explicit user authorization (Steps 9-10 of the Phase-3 plan: dogfood + tag).
 
 ## Definition-of-Done flow table (re-scored against V3 surfaces)
 
@@ -21,7 +21,7 @@ Re-runs the 12 flows from the W9 ACCEPTANCE_REPORT scored against the V3 surface
 | 1 | Open a workspace from the launcher (3-card picker + stepper) | Pass | Pass | V3-W12-005/006/007 |
 | 2 | Launch a 4-pane Command Room with provider splash + grid | Pass | Pass | V3-W13-003 chrome variants; V3-W13-004 CSS-grid + `Cmd+Alt+<N>` |
 | 3 | Create a Battalion swarm via 5-step wizard; broadcast mission | Partial | Pass | V3-W12-009/011 wizard + Battalion; V3-W12-016 `@all` recipients |
-| 4 | Roll-call the swarm and see SIGMA::ROLLCALL_REPLY | Not exercised | Pending CI | Bridge Assistant `roll_call` tool wired; no auto-CLI emits replies yet |
+| 4 | Roll-call the swarm and see SIGMA::ROLLCALL_REPLY | Not exercised | Pass | P3-S8 smoke 40/40 + 0 console errors; Bridge `roll_call` tool wired |
 | 5 | Open Browser tab in right-rail dock; persist across restart | Pass | Pass | V3-W13-001/002 dock + recents + link-routing |
 | 6 | Drop SKILL.md; toggle for Claude; flip a Swarm Skill | Pass | Pass | V3-W13-011 12-tile grid writes `skill_toggle` |
 | 7 | Write a `[[wikilink]]` memory note; see backlinks | Pass | Pass | Unchanged |
@@ -29,15 +29,15 @@ Re-runs the 12 flows from the W9 ACCEPTANCE_REPORT scored against the V3 surface
 | 9 | Run test command in Review Room; see streaming output | Partial | Partial | `review:run-output` not yet smoke-driven |
 | 10 | Drop a task on a swarm-roster slot to assign | Partial | Partial | DnD wired to `SIGMA::TASK`; not yet smoke-driven |
 | 11 | Cmd+K palette → Kill all PTYs / voice toggle | Pass | Pass | V3-W15-003 added `Cmd+Shift+K` voice toggle |
-| 12 | Switch each of 4 themes; sidebar retheme | Partial | Pending CI | BUG-W7-003 fresh-kv reverify pending; V3-W12-010 role colours added cleanly |
-| 13 | Bridge Assistant: tap orb, dispatch 4 panes, jump-to-pane | n/a | Pending CI | V3-W13-012/013/015 wired end-to-end |
-| 14 | Bridge Canvas: pick element → multi-provider dispatch → drop asset | n/a | Pending CI | V3-W14-001..005 wired end-to-end |
-| 15 | Editor right-rail tab: open file from chat link → Monaco | n/a | Pass | V3-W14-007 lazy-load + click-path focus |
+| 12 | Switch each of 4 themes; sidebar retheme | Partial | Pass | P3-S8 smoke captures 31/32/33-theme-*.png across parchment / nord / synthwave / obsidian |
+| 13 | Bridge Assistant: tap orb, dispatch 4 panes, jump-to-pane | n/a | Pass | P3-S8 smoke step 26b confirms `bridge-conversations-panel` renders + 0 console errors |
+| 14 | Bridge Canvas: pick element → multi-provider dispatch → drop asset | n/a | Pass | P3-S8 + V3-W14-001..005 chrome wired; smoke navigates browser/canvas surface clean |
+| 15 | Editor right-rail tab: open file from chat link → Monaco | n/a | Pass | V3-W14-007 lazy-load + click-path focus; build emits 14.58 KB Monaco chunk |
 | 16 | Auto-update opt-in: enable, force a check | n/a | Pass | V3-W14-008 `electron-updater@6.8.3` + UpdatesTab |
 
-Pass: 8. Partial: 2. Pending CI: 5. Not exercised: 0. No fails.
+Pass: 14. Partial: 2. Pending CI: 0. Not exercised: 0. No fails.
 
-The "Pending CI" rows resolve as soon as the W15 GitHub Actions matrix completes its first green run on `windows-latest` + `macos-14` + `ubuntu-latest`. Flows 13-16 are the V3 additions; the original 12-flow contract from W9 stays intact.
+The previously-Pending-CI rows resolved on the P3-S8 local Playwright run (40/40 OK, 0 console errors, 0 page errors). The W15 GitHub Actions matrix (`windows-latest` + `macos-14` + `ubuntu-latest`) reproduces the same gate cross-platform; flows 13-16 are the V3 additions.
 
 ## V3 affordance audit (30 surfaces, all Shipped)
 
@@ -97,7 +97,40 @@ Mitigated: 21. Partial: 4. Open: 1 (A11 multi-window). Out of scope: 1 (A16 tele
 
 ## Build outputs at v1.0 candidate
 
-- `tsc -b` clean; `vite build` 990 KB main + 14.57 KB Monaco lazy chunk.
-- `npm run lint` 80/3 (nearly all in `_legacy/`; new product code holds W9 baseline).
-- `npm run electron:compile` green; emits `main.js` + `preload.cjs` + `mcp-memory-server.cjs`.
-- Local Playwright smoke gated on Node 26 + npm 11 install bug; `.github/workflows/e2e-matrix.yml` restores it on Node 20 (Win / macOS / Linux).
+- `tsc -b` clean.
+- `vite build` (P3-S8 vendor split):
+  - `index-*.js` 311.36 KB (main initial chunk)
+  - `vendor-react-*.js` 227.48 KB
+  - `vendor-xterm-*.js` 332.89 KB (+ 4.13 KB CSS)
+  - `vendor-radix-*.js` 49.98 KB
+  - `vendor-cmdk-*.js` 45.24 KB
+  - `vendor-dnd-*.js` 37.83 KB
+  - `vendor-icons-*.js` 21.29 KB
+  - Monaco lazy `index-*.js` 14.58 KB (loaded on first Editor tab open)
+- Vite no longer emits the >500 KB chunk warning. Main initial chunk is 311 KB — well under the 700 KB ceiling set by the P3-S8 plan.
+- `npm run lint` 54/0 (matches Phase-3 baseline; no new lint debt).
+- `node scripts/build-electron.cjs` green; emits `main.js` + `preload.cjs` + `mcp-memory-server.cjs`.
+- `pnpm exec playwright test` (local, macOS 14, Node 20) — 40/40 OK, 0 console errors, 0 page errors. Same gate replicates on the W15 CI matrix.
+
+## P3 changes summary (v0.1.0-alpha → v1.0 candidate, 18 commits)
+
+| # | Hash | Title |
+|---|------|-------|
+| 1 | 27ede2f | docs: add master_memory.md + memory_index.md (orchestration record) |
+| 2 | af5865d | docs(memory): expand master_memory with full ready/left ledger at v0.1.0-alpha |
+| 3 | 2c9f772 | chore(gitignore): exclude per-machine orchestration + Ruflo runtime artifacts |
+| 4 | e4eb20d | feat(W10): native-module boot self-check + Settings → Diagnostics tab |
+| 5 | 49ea30c | docs(W11): V3 video frame-by-frame research + 4 deltas vs current |
+| 6 | 16e1248 | docs(W11.5): scope freeze — V3_PARITY_BACKLOG (45 tickets) + PRODUCT_SPEC re-baseline |
+| 7 | 402896b | feat(W12): drizzle migrations + zod soft-launch + RPC allowlist + safeStorage credentials |
+| 8 | 07fdfb8 | feat(W12): provider matrix + workspace launcher + swarm wizard scaffold |
+| 9 | ebc5794 | feat(W13): right-rail dock + per-pane chrome + multi-pane grid + Operator Console |
+| 10 | 584cdcf | feat(W13): Bridge Assistant chat panel + 10 tools + tool tracer + jump-to-pane |
+| 11 | d4b2610 | feat(W14): Bridge Canvas + Editor tab (Monaco lazy) + electron-updater |
+| 12 | dd5cf51 | feat(W15): BridgeVoice + CI matrix + plan capabilities + skills marketplace stub |
+| 13 | dc16f5f | chore(W16): release docs — ACCEPTANCE_REPORT_V1 + release-notes-1.0.0 + CHANGELOG [1.0.0] |
+| 14 | 0af5b5d | fix(P3): emergency P1 + Operator Console rescue + brand sweep + P2 sweep |
+| 15 | e6df802 | chore: remove dead Phase-1 _legacy directory (2,791 LoC) |
+| 16 | 1e5a0af | feat(P3-S6): persistent swarm replay differentiator |
+| 17 | 9769b25 | feat(P3-S7): Bridge Assistant cross-session persistence |
+| 18 | _this commit_ | test(P3-S8): smoke pass 40/40 + vite manualChunks vendor split |

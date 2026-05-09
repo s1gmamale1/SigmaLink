@@ -367,6 +367,30 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // P3-S8 — Test-only hook. Playwright drives `workspaces.open` via IPC but
+  // the renderer's own AppState is unaware until `workspaces.list` re-fires.
+  // Rather than exposing a dispatch handle to window (which would leak
+  // implementation details), we listen for a `sigma:test:activate-workspace`
+  // CustomEvent and re-read the workspace list, then activate the matching
+  // entry. No-op in production: the event is never dispatched outside tests.
+  useEffect(() => {
+    const handler = async (event: Event) => {
+      const detail = (event as CustomEvent<{ rootPath?: string; id?: string }>).detail ?? {};
+      try {
+        const list = await rpc.workspaces.list();
+        dispatch({ type: 'SET_WORKSPACES', workspaces: list });
+        const match = list.find(
+          (w) => (detail.id && w.id === detail.id) || (detail.rootPath && w.rootPath === detail.rootPath),
+        );
+        if (match) dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: match });
+      } catch {
+        /* test harness: swallow */
+      }
+    };
+    window.addEventListener('sigma:test:activate-workspace', handler as EventListener);
+    return () => window.removeEventListener('sigma:test:activate-workspace', handler as EventListener);
+  }, []);
+
   // Hydrate persisted UI flags (onboarded, sidebar collapse) from the kv
   // table. Runs once on mount; the theme is loaded by ThemeProvider.
   useEffect(() => {
