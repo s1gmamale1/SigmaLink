@@ -5,6 +5,8 @@ import { SwarmRoom } from '@/renderer/features/swarm-room/SwarmRoom';
 import { BrowserRoom } from '@/renderer/features/browser/BrowserRoom';
 import { SkillsRoom } from '@/renderer/features/skills/SkillsRoom';
 import { MemoryRoom } from '@/renderer/features/memory/MemoryRoom';
+import { ReviewRoom } from '@/renderer/features/review/ReviewRoom';
+import { TasksRoom } from '@/renderer/features/tasks/TasksRoom';
 import { PhasePlaceholder } from '@/renderer/features/placeholders/PhasePlaceholder';
 import { AppStateProvider, useAppState } from '@/renderer/app/state';
 
@@ -18,13 +20,9 @@ function RoomSwitch() {
     case 'swarm':
       return <SwarmRoom />;
     case 'review':
-      return (
-        <PhasePlaceholder
-          title="Review Room"
-          phase={4}
-          description="Per-session diff viewer, test runner, and commit + merge with auto-cleanup of merged worktrees."
-        />
-      );
+      return <ReviewRoom />;
+    case 'tasks':
+      return <TasksRoom />;
     case 'memory':
       return <MemoryRoom />;
     case 'browser':

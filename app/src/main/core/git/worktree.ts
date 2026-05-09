@@ -13,6 +13,7 @@ import {
   sanitizeBranchSegment,
   worktreeAdd,
   worktreeRemove,
+  worktreePruneRepo,
 } from './git-ops';
 
 export interface WorktreePoolOptions {
@@ -77,5 +78,22 @@ export class WorktreePool {
     if (fs.existsSync(worktreePath)) {
       await worktreeRemove(repoRoot, worktreePath);
     }
+  }
+
+  /**
+   * Remove a worktree and immediately run `git worktree prune` so that any
+   * stale administrative directories left behind after a forced removal (or a
+   * crash) are reaped. Safe to call when the worktree no longer exists on
+   * disk — `prune` still runs.
+   */
+  async removeAndPrune(repoRoot: string, worktreePath: string): Promise<void> {
+    if (fs.existsSync(worktreePath)) {
+      try {
+        await worktreeRemove(repoRoot, worktreePath);
+      } catch {
+        /* fallthrough — prune still runs below */
+      }
+    }
+    await worktreePruneRepo(repoRoot);
   }
 }

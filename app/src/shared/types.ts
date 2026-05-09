@@ -267,3 +267,118 @@ export interface MemoryConnectionSuggestion {
   sharedTags: string[];
   score: number;
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Review Room (Phase 6)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type ReviewDecision = 'passed' | 'failed' | null;
+
+export interface DiffFileSummary {
+  /** Path inside the worktree, forward-slashed. */
+  path: string;
+  /** Pre-rename path, when applicable. */
+  oldPath?: string;
+  /**
+   * `A`dded, `M`odified, `D`eleted, `R`enamed, `C`opied, `T`ype-change,
+   * or `U`ntracked (not yet `git add`ed).
+   */
+  status: 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U';
+  additions: number;
+  deletions: number;
+  binary?: boolean;
+}
+
+export interface ReviewDiff {
+  repoRoot: string;
+  branch: string;
+  files: DiffFileSummary[];
+  /** Concatenated unified-diff output (`git diff HEAD`). */
+  patches: string;
+  /** Output of `git diff --stat HEAD`, used as a quick summary. */
+  stat: string;
+  /** True when patches were trimmed because the repo blew the budget. */
+  truncated: boolean;
+  /** True if HEAD is detached (pre-commit, rebase in progress, etc.). */
+  detached: boolean;
+}
+
+export interface ReviewConflict {
+  path: string;
+  /**
+   * Which strategy produced this prediction. Modern git has `merge-tree`,
+   * older fallbacks use a name-only intersection heuristic.
+   */
+  method: 'merge-tree' | 'heuristic' | 'unavailable';
+}
+
+export interface ReviewSession {
+  sessionId: string;
+  workspaceId: string;
+  providerId: string;
+  branch: string | null;
+  worktreePath: string | null;
+  cwd: string;
+  status: AgentSession['status'];
+  startedAt: number;
+  notes: string;
+  decision: ReviewDecision;
+  decidedAt: number | null;
+  lastTestCommand: string | null;
+  lastTestExitCode: number | null;
+  /** Live `git status` summary; populated by the controller's list call. */
+  gitStatus?: GitStatus | null;
+}
+
+export interface ReviewState {
+  workspaceId: string;
+  sessions: ReviewSession[];
+}
+
+export interface BatchCommitResult {
+  results: Array<{
+    sessionId: string;
+    ok: boolean;
+    code: number;
+    stderr?: string;
+    error?: string;
+  }>;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Tasks / Kanban (Phase 6)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type TaskStatus = 'backlog' | 'in_progress' | 'in_review' | 'done' | 'archived';
+
+export interface TaskAssignment {
+  /** Direct PTY session assignment (no swarm). */
+  sessionId?: string | null;
+  /** Swarm container, when assigned via the swarm roster. */
+  swarmId?: string | null;
+  /** The exact roster slot. */
+  swarmAgentId?: string | null;
+}
+
+export interface Task {
+  id: TaskId;
+  workspaceId: WorkspaceId;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  assignedSessionId: string | null;
+  assignedSwarmId: string | null;
+  assignedSwarmAgentId: string | null;
+  labels: string[];
+  createdAt: number;
+  updatedAt: number;
+  archivedAt: number | null;
+}
+
+export interface TaskComment {
+  id: string;
+  taskId: TaskId;
+  author: string;
+  body: string;
+  createdAt: number;
+}

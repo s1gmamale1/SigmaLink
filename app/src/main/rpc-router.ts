@@ -25,6 +25,10 @@ import { buildSkillsController } from './core/skills/controller';
 import { MemoryManager } from './core/memory/manager';
 import { MemoryMcpSupervisor } from './core/memory/mcp-supervisor';
 import { buildMemoryController } from './core/memory/controller';
+import { ReviewRunner } from './core/review/runner';
+import { buildReviewController } from './core/review/controller';
+import { TasksManager } from './core/tasks/manager';
+import { buildTasksController } from './core/tasks/controller';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -35,6 +39,8 @@ interface SharedDeps {
   skills: SkillsManager;
   memory: MemoryManager;
   memorySupervisor: MemoryMcpSupervisor;
+  reviewRunner: ReviewRunner;
+  tasks: TasksManager;
 }
 
 let router: ReturnType<typeof buildRouter> | null = null;
@@ -97,6 +103,12 @@ function buildRouter() {
       return cmd ? { command: cmd.command, args: cmd.args } : null;
     },
   });
+  const reviewRunner = new ReviewRunner((event) => {
+    broadcast('review:run-output', event);
+  });
+  const tasksManager = new TasksManager({
+    emit: (taskId) => broadcast('tasks:changed', { taskId }),
+  });
   sharedDeps = {
     pty,
     worktreePool,
@@ -106,6 +118,8 @@ function buildRouter() {
     skills: skillsManager,
     memory: memoryManager,
     memorySupervisor,
+    reviewRunner,
+    tasks: tasksManager,
   };
 
   const appCtl = defineController({
@@ -253,6 +267,15 @@ function buildRouter() {
     manager: memoryManager,
     supervisor: memorySupervisor,
   });
+  const reviewCtl = buildReviewController({
+    worktreePool,
+    runner: reviewRunner,
+    onChanged: (sessionId) => broadcast('review:changed', { sessionId }),
+  });
+  const tasksCtl = buildTasksController({
+    manager: tasksManager,
+    mailbox,
+  });
 
   return defineRouter({
     app: appCtl,
@@ -265,6 +288,8 @@ function buildRouter() {
     browser: browserCtl,
     skills: skillsCtl,
     memory: memoryCtl,
+    review: reviewCtl,
+    tasks: tasksCtl,
   });
 }
 
@@ -314,6 +339,11 @@ export function shutdownRouter(): void {
   }
   try {
     sharedDeps?.memorySupervisor.stopAll();
+  } catch {
+    /* ignore */
+  }
+  try {
+    sharedDeps?.reviewRunner.killAll();
   } catch {
     /* ignore */
   }

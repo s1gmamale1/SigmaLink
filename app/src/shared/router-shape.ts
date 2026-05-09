@@ -21,6 +21,14 @@ import type {
   MemoryGraph,
   MemoryHubStatus,
   MemoryConnectionSuggestion,
+  ReviewState,
+  ReviewDiff,
+  ReviewConflict,
+  BatchCommitResult,
+  Task,
+  TaskAssignment,
+  TaskComment,
+  TaskStatus,
 } from './types';
 
 export interface AppRouter {
@@ -158,5 +166,67 @@ export interface AppRouter {
     getMcpCommand: (input: {
       workspaceId: string;
     }) => Promise<{ command: string; args: string[] } | null>;
+  };
+  review: {
+    list: (workspaceId: string) => Promise<ReviewState>;
+    getDiff: (sessionId: string) => Promise<ReviewDiff | null>;
+    getConflicts: (sessionId: string) => Promise<ReviewConflict[]>;
+    runCommand: (input: {
+      sessionId: string;
+      command: string;
+    }) => Promise<{ runId: string }>;
+    killCommand: (sessionId: string) => Promise<void>;
+    setNotes: (input: { sessionId: string; notes: string }) => Promise<void>;
+    markPassed: (sessionId: string) => Promise<void>;
+    markFailed: (sessionId: string) => Promise<void>;
+    commitAndMerge: (input: {
+      sessionId: string;
+      message: string;
+    }) => Promise<{ stdout: string; stderr: string; code: number }>;
+    dropChanges: (sessionId: string) => Promise<{ code: number; stderr: string }>;
+    pruneOrphans: (workspaceId: string) => Promise<void>;
+    batchCommitAndMerge: (input: {
+      sessionIds: string[];
+      messageTemplate: string;
+    }) => Promise<BatchCommitResult>;
+  };
+  tasks: {
+    list: (workspaceId: string) => Promise<Task[]>;
+    get: (id: string) => Promise<Task | null>;
+    create: (input: {
+      workspaceId: string;
+      title: string;
+      description?: string;
+      status?: TaskStatus;
+      labels?: string[];
+      assignment?: TaskAssignment;
+    }) => Promise<Task>;
+    update: (input: {
+      id: string;
+      title?: string;
+      description?: string;
+      status?: TaskStatus;
+      labels?: string[];
+      assignment?: TaskAssignment | null;
+    }) => Promise<Task>;
+    remove: (id: string) => Promise<void>;
+    setStatus: (input: { id: string; status: TaskStatus }) => Promise<Task>;
+    assign: (input: {
+      id: string;
+      assignment: TaskAssignment | null;
+    }) => Promise<Task>;
+    assignToSwarmAgent: (input: {
+      taskId: string;
+      swarmId: string;
+      agentKey: string;
+      swarmAgentId: string;
+    }) => Promise<Task>;
+    listComments: (taskId: string) => Promise<TaskComment[]>;
+    addComment: (input: {
+      taskId: string;
+      author?: string;
+      body: string;
+    }) => Promise<TaskComment>;
+    removeComment: (commentId: string) => Promise<void>;
   };
 }

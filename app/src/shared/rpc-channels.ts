@@ -86,6 +86,31 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'memory.hub_status',
   'memory.getGraph',
   'memory.getMcpCommand',
+  // review
+  'review.list',
+  'review.getDiff',
+  'review.getConflicts',
+  'review.runCommand',
+  'review.killCommand',
+  'review.setNotes',
+  'review.markPassed',
+  'review.markFailed',
+  'review.commitAndMerge',
+  'review.dropChanges',
+  'review.pruneOrphans',
+  'review.batchCommitAndMerge',
+  // tasks
+  'tasks.list',
+  'tasks.get',
+  'tasks.create',
+  'tasks.update',
+  'tasks.remove',
+  'tasks.setStatus',
+  'tasks.assign',
+  'tasks.assignToSwarmAgent',
+  'tasks.listComments',
+  'tasks.addComment',
+  'tasks.removeComment',
 ]);
 
 /**
@@ -100,6 +125,9 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'memory:changed',
   'browser:state',
   'skills:changed',
+  'review:changed',
+  'review:run-output',
+  'tasks:changed',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {

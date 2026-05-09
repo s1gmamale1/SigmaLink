@@ -47,6 +47,25 @@ export type EventMap = {
     canGoBack?: boolean;
     canGoForward?: boolean;
   };
+  /** Review state row for one session was created/updated. */
+  'review:changed': { sessionId: string };
+  /**
+   * Streamed stdout/stderr from a Review-Room test runner. Renderer appends
+   * these to the per-session output buffer. `done: true` signals end-of-run.
+   */
+  'review:run-output': {
+    sessionId: string;
+    runId: string;
+    stream: 'stdout' | 'stderr' | 'system';
+    data: string;
+    exitCode?: number | null;
+    done?: boolean;
+  };
+  /**
+   * A task row was created, updated, deleted, or had a comment thread
+   * change. The renderer reloads the workspace's task list on this event.
+   */
+  'tasks:changed': { taskId: string | null };
 };
 
 export type EventName = keyof EventMap;

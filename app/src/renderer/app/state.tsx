@@ -8,10 +8,12 @@ import type {
   BrowserState,
   Memory,
   MemoryGraph,
+  ReviewState,
   Skill,
   SkillProviderState,
   Swarm,
   SwarmMessage,
+  Task,
   Workspace,
 } from '@/shared/types';
 
@@ -20,6 +22,7 @@ export type RoomId =
   | 'command'
   | 'swarm'
   | 'review'
+  | 'tasks'
   | 'memory'
   | 'browser'
   | 'skills'
@@ -46,6 +49,11 @@ export interface AppState {
   memories: Record<string, Memory[]>; // workspaceId -> list
   memoryGraph: Record<string, MemoryGraph>; // workspaceId -> graph cache
   activeMemoryName: Record<string, string | null>; // workspaceId -> selected note name
+  // Review (Phase 6) — keyed by workspaceId
+  review: Record<string, ReviewState>;
+  activeReviewSessionId: string | null;
+  // Tasks (Phase 6) — keyed by workspaceId
+  tasks: Record<string, Task[]>;
 }
 
 type Action =
@@ -74,7 +82,12 @@ type Action =
   | { type: 'UPSERT_MEMORY'; workspaceId: string; memory: Memory }
   | { type: 'REMOVE_MEMORY'; workspaceId: string; memoryId: string }
   | { type: 'SET_MEMORY_GRAPH'; workspaceId: string; graph: MemoryGraph }
-  | { type: 'SET_ACTIVE_MEMORY'; workspaceId: string; name: string | null };
+  | { type: 'SET_ACTIVE_MEMORY'; workspaceId: string; name: string | null }
+  | { type: 'SET_REVIEW'; state: ReviewState }
+  | { type: 'SET_ACTIVE_REVIEW_SESSION'; id: string | null }
+  | { type: 'SET_TASKS'; workspaceId: string; tasks: Task[] }
+  | { type: 'UPSERT_TASK'; task: Task }
+  | { type: 'REMOVE_TASK'; workspaceId: string; taskId: string };
 
 const initial: AppState = {
   ready: false,
@@ -93,6 +106,9 @@ const initial: AppState = {
   memories: {},
   memoryGraph: {},
   activeMemoryName: {},
+  review: {},
+  activeReviewSessionId: null,
+  tasks: {},
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -240,6 +256,41 @@ function reducer(state: AppState, action: Action): AppState {
           [action.workspaceId]: action.name,
         },
       };
+    case 'SET_REVIEW':
+      return {
+        ...state,
+        review: { ...state.review, [action.state.workspaceId]: action.state },
+      };
+    case 'SET_ACTIVE_REVIEW_SESSION':
+      return { ...state, activeReviewSessionId: action.id };
+    case 'SET_TASKS':
+      return {
+        ...state,
+        tasks: { ...state.tasks, [action.workspaceId]: action.tasks },
+      };
+    case 'UPSERT_TASK': {
+      const list = state.tasks[action.task.workspaceId] ?? [];
+      const filtered = list.filter((t) => t.id !== action.task.id);
+      return {
+        ...state,
+        tasks: {
+          ...state.tasks,
+          [action.task.workspaceId]: [action.task, ...filtered].sort(
+            (a, b) => b.updatedAt - a.updatedAt,
+          ),
+        },
+      };
+    }
+    case 'REMOVE_TASK': {
+      const list = state.tasks[action.workspaceId] ?? [];
+      return {
+        ...state,
+        tasks: {
+          ...state.tasks,
+          [action.workspaceId]: list.filter((t) => t.id !== action.taskId),
+        },
+      };
+    }
     default:
       return state;
   }
@@ -409,6 +460,56 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     };
     refresh();
     const off = window.sigma.eventOn('memory:changed', refresh);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [state.activeWorkspace?.id]);
+
+  // Review-room hydration: load on workspace switch + refresh on
+  // `review:changed` events. Also re-runs whenever a session enters/leaves
+  // (reuses the existing `sessions` length as the trigger).
+  useEffect(() => {
+    let alive = true;
+    const wsId = state.activeWorkspace?.id;
+    if (!wsId) return;
+    const refresh = () => {
+      void (async () => {
+        try {
+          const r = await rpc.review.list(wsId);
+          if (!alive) return;
+          dispatch({ type: 'SET_REVIEW', state: r });
+        } catch (err) {
+          console.error('Failed to load review state:', err);
+        }
+      })();
+    };
+    refresh();
+    const off = window.sigma.eventOn('review:changed', refresh);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [state.activeWorkspace?.id, state.sessions.length]);
+
+  // Tasks hydration mirroring the memory pattern.
+  useEffect(() => {
+    let alive = true;
+    const wsId = state.activeWorkspace?.id;
+    if (!wsId) return;
+    const refresh = () => {
+      void (async () => {
+        try {
+          const list = await rpc.tasks.list(wsId);
+          if (!alive) return;
+          dispatch({ type: 'SET_TASKS', workspaceId: wsId, tasks: list });
+        } catch (err) {
+          console.error('Failed to load tasks:', err);
+        }
+      })();
+    };
+    refresh();
+    const off = window.sigma.eventOn('tasks:changed', refresh);
     return () => {
       alive = false;
       off();

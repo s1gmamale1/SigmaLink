@@ -323,3 +323,117 @@ export async function worktreePruneRepo(repoRoot: string): Promise<void> {
     /* best-effort */
   }
 }
+
+/**
+ * Predict files that would conflict if `branch` were merged onto `base` in
+ * `repoRoot`. Uses `git merge-tree --write-tree` (Git 2.38+); on older Git or
+ * when the call fails for any reason, falls back to a name-only intersection
+ * heuristic that flags every file changed on both sides since their merge base.
+ */
+export async function mergePreview(
+  repoRoot: string,
+  base: string,
+  branch: string,
+): Promise<{ conflicts: string[]; method: 'merge-tree' | 'heuristic' | 'unavailable' }> {
+  try {
+    const res = await execCmd(
+      'git',
+      ['merge-tree', '--write-tree', '--name-only', '--merge-base=' + base, base, branch],
+      { cwd: repoRoot, timeoutMs: 15_000 },
+    );
+    // Modern git: prints the resulting tree id on the first line, then a blank
+    // line, then a list of conflicted paths (one per line). Exit code 1 means
+    // conflicts present, 0 means clean.
+    if (res.code === 0) return { conflicts: [], method: 'merge-tree' };
+    if (res.code === 1) {
+      const lines = res.stdout.split(/\r?\n/);
+      // Drop tree id (line 0) and blank separators.
+      const conflicts: string[] = [];
+      let started = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (i === 0 && line.length === 40) continue; // tree id
+        if (!started && line === '') {
+          started = true;
+          continue;
+        }
+        if (line.length === 0) continue;
+        // Skip OID/mode prefixed lines (some git versions print them)
+        if (/^[0-9a-f]{40}\s/.test(line) || /^\d{6}\s/.test(line)) continue;
+        conflicts.push(line);
+      }
+      // De-duplicate while preserving insertion order.
+      const seen = new Set<string>();
+      const uniq = conflicts.filter((c) => (seen.has(c) ? false : (seen.add(c), true)));
+      return { conflicts: uniq, method: 'merge-tree' };
+    }
+    // Unknown error code → fall through to heuristic.
+  } catch {
+    /* fallthrough */
+  }
+  // Heuristic fallback for older git versions: compute names changed on each
+  // side of the merge base and intersect them. False positives are possible
+  // (two-way edit of unrelated lines in same file) but it's safe — the
+  // operator still sees the actual `git merge` outcome at commit time.
+  try {
+    const baseRes = await execCmd('git', ['merge-base', base, branch], {
+      cwd: repoRoot,
+      timeoutMs: 5_000,
+    });
+    if (baseRes.code !== 0) {
+      return { conflicts: [], method: 'unavailable' };
+    }
+    const mergeBase = baseRes.stdout.trim();
+    const [leftRes, rightRes] = await Promise.all([
+      execCmd('git', ['diff', '--name-only', `${mergeBase}..${base}`], {
+        cwd: repoRoot,
+        timeoutMs: 8_000,
+      }),
+      execCmd('git', ['diff', '--name-only', `${mergeBase}..${branch}`], {
+        cwd: repoRoot,
+        timeoutMs: 8_000,
+      }),
+    ]);
+    const left = new Set(leftRes.stdout.split(/\r?\n/).filter(Boolean));
+    const right = rightRes.stdout.split(/\r?\n/).filter(Boolean);
+    const conflicts = right.filter((p) => left.has(p));
+    return { conflicts, method: 'heuristic' };
+  } catch {
+    return { conflicts: [], method: 'unavailable' };
+  }
+}
+
+/**
+ * Discard every uncommitted change in a worktree: revert tracked files to
+ * HEAD, drop staged additions, and remove untracked / ignored files. Best
+ * effort; logs are returned for the operator.
+ */
+export async function dropChanges(
+  worktreePath: string,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  if (!fs.existsSync(worktreePath)) {
+    return { stdout: '', stderr: 'worktree path missing', code: -1 };
+  }
+  const out: string[] = [];
+  const err: string[] = [];
+  // 1) restore tracked
+  const r1 = await execCmd(
+    'git',
+    ['restore', '--worktree', '--staged', '--source', 'HEAD', '--', '.'],
+    { cwd: worktreePath, timeoutMs: 30_000 },
+  );
+  out.push(r1.stdout);
+  err.push(r1.stderr);
+  // 2) clean untracked + ignored
+  const r2 = await execCmd('git', ['clean', '-fd'], {
+    cwd: worktreePath,
+    timeoutMs: 30_000,
+  });
+  out.push(r2.stdout);
+  err.push(r2.stderr);
+  return {
+    stdout: out.join(''),
+    stderr: err.join(''),
+    code: r1.code === 0 && r2.code === 0 ? 0 : r1.code || r2.code,
+  };
+}

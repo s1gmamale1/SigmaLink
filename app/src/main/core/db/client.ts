@@ -156,6 +156,45 @@ CREATE TABLE IF NOT EXISTS memory_tags (
   FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS memory_tags_tag_idx ON memory_tags(tag);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'backlog',
+  assigned_session_id TEXT,
+  assigned_swarm_id TEXT,
+  assigned_swarm_agent_id TEXT,
+  labels_json TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  archived_at INTEGER,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS tasks_ws_idx ON tasks(workspace_id);
+CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status);
+
+CREATE TABLE IF NOT EXISTS task_comments (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  author TEXT NOT NULL DEFAULT 'operator',
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS task_comments_task_idx ON task_comments(task_id);
+
+CREATE TABLE IF NOT EXISTS session_review (
+  session_id TEXT PRIMARY KEY,
+  notes TEXT NOT NULL DEFAULT '',
+  decision TEXT,
+  decided_at INTEGER,
+  last_test_command TEXT,
+  last_test_exit_code INTEGER,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
+);
 `;
 
 export function initializeDatabase(userDataDir: string): {

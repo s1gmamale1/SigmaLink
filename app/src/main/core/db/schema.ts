@@ -248,6 +248,72 @@ export type MemoryLinkInsert = typeof memoryLinks.$inferInsert;
 export type MemoryTagRow = typeof memoryTags.$inferSelect;
 export type MemoryTagInsert = typeof memoryTags.$inferInsert;
 
+// Phase 6 — Tasks / Kanban + Review notes
+export const tasks = sqliteTable(
+  'tasks',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    status: text('status', {
+      enum: ['backlog', 'in_progress', 'in_review', 'done', 'archived'],
+    })
+      .notNull()
+      .default('backlog'),
+    assignedSessionId: text('assigned_session_id'),
+    assignedSwarmId: text('assigned_swarm_id'),
+    assignedSwarmAgentId: text('assigned_swarm_agent_id'),
+    labelsJson: text('labels_json'),
+    createdAt: integer('created_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer('updated_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    archivedAt: integer('archived_at'),
+  },
+  (t) => ({
+    tasksWsIdx: index('tasks_ws_idx').on(t.workspaceId),
+    tasksStatusIdx: index('tasks_status_idx').on(t.status),
+  }),
+);
+
+export const taskComments = sqliteTable(
+  'task_comments',
+  {
+    id: text('id').primaryKey(),
+    taskId: text('task_id').notNull(),
+    author: text('author').notNull().default('operator'),
+    body: text('body').notNull(),
+    createdAt: integer('created_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    taskCommentsTaskIdx: index('task_comments_task_idx').on(t.taskId),
+  }),
+);
+
+export const sessionReview = sqliteTable('session_review', {
+  sessionId: text('session_id').primaryKey(),
+  notes: text('notes').notNull().default(''),
+  decision: text('decision', { enum: ['passed', 'failed'] }),
+  decidedAt: integer('decided_at'),
+  lastTestCommand: text('last_test_command'),
+  lastTestExitCode: integer('last_test_exit_code'),
+  updatedAt: integer('updated_at')
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+export type TaskRow = typeof tasks.$inferSelect;
+export type TaskInsert = typeof tasks.$inferInsert;
+export type TaskCommentRow = typeof taskComments.$inferSelect;
+export type TaskCommentInsert = typeof taskComments.$inferInsert;
+export type SessionReviewRow = typeof sessionReview.$inferSelect;
+export type SessionReviewInsert = typeof sessionReview.$inferInsert;
+
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type WorkspaceInsert = typeof workspaces.$inferInsert;
 export type AgentSessionRow = typeof agentSessions.$inferSelect;
