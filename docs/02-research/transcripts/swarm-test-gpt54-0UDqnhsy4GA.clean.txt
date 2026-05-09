@@ -1,0 +1,680 @@
+In this video, I'm going to be launching
+agent swarms with the newly released GPT
+5.4. OpenAI released GPT 5.4 thinking
+and GBT 5.4 Pro yesterday. I'm sure that
+you guys have all seen this benchmark.
+Really the main thing that I always look
+at as a vibe coder is the SWEBench pro
+which is the software engineering
+benchmark that they provide. And really
+what I look at is okay if you're looking
+at their last uh Frontier model which
+was GPT 5.3 Codeex that scored a 56.8%
+on this benchmark and the uh new model
+scores a 57.7%.
+Meaning that it saw a.9% improvement in
+this benchmark. So subtle improvement
+but not massive jump in the benchmarks
+from OpenAI. But one thing that I do
+want to show you guys is that in
+artificial analysis, if you actually go
+to the coding index, check this out. Um,
+let's zoom in a little bit here. So,
+this model is now the number one coding
+model inside of the artificial analysis
+coding index, which is a very reliable
+benchmark. You can see that, um, let's
+add Opus 4.6 real quick to this list.
+Uh, but it outperforms this very, very
+well. So, here's Opus 4.6 at 48 on this
+benchmark. Here's GPT 5.2 extra high at
+49. Here's Gemini 3.1 Pro at 56. And
+then here's GPT 5.4 extra high at 57. So
+we see a huge jump in performance um on
+this index. Another thing to highlight
+is the Aentic index. So here we saw
+another huge improvement. So here's GBT
+5.2 extra high and it saw a nine uh
+9point improvement from GPT 5.2 extra
+high to GPT 5.4 extra high. And this is
+now the number one model for um a Gentic
+capability. So another thing to look at
+is just the overall intelligence index.
+And again, this one now ties Gemini 3.1
+Pro and beats out Quad Opus 4.6 Max. So
+definitely when you do look at the
+benchmarks, this is a very capable
+model. Another thing that I do want to
+look at is the uh Bridgebench. So let's
+head over to the Bridgebench here. And I
+want to show this to you guys. So this
+model now scores number one on the
+Bridgebench. It beat out Sonnet 4.6 and
+Opus 4.6 uh by a score of 6 and 7
+respectively. So this is now the number
+one model in Bridgebench. and I've
+tested it out and I have to say so far
+I've actually been pretty impressed. Not
+only were they able to create a more
+intelligent model, but they also
+expanded the context window up to
+1,50,000
+tokens, which is a very substantial
+improvement. As you guys know, if we go
+to GPT 5.3 CEX, you know, this model
+only had a max context of 400,000. So,
+they significantly expanded the context
+window and they produced a more
+intelligent model. And not only did they
+ship this model yesterday, but they
+shipped something very important that
+you guys need to know about. And it's
+called fast mode. You guys are going to
+be able to see this in this video. I'm
+going to show you what this looks like.
+But basically, if you do slashfast,
+you're able to speed it up by they say
+1.5 times um faster with the same level
+of intelligence and reasoning. So, I was
+using this yesterday on stream and I
+have to say like the when you're in this
+mode, it totally solves the uh
+performance issues that we've seen with
+some of these codeex models uh and GPT
+models in general is that they are a
+little bit slower. But with fast mode,
+it completely wipes this out. It's now
+just as fast as Opus, and this really
+changes the game in my opinion. So,
+we're going to be working on with this
+as well, as well as launching agent
+swarms. So, with that being said, let's
+get right into actually launching our
+swarms and putting GPT 5.4 for to the
+test. All right, so I am now over inside
+of Bridgepace. So if you guys are
+unfamiliar with Bridgespace, this is an
+ADE, an agentic development environment
+where you are able to manage AI coding
+agents at scale. This is the product
+that I've built um with Bridgemind. If
+you guys are unfamiliar with Bridgemind,
+make sure you go to bridgemind.ai and
+check this out as you can download this
+now and it works very well on Mac OS.
+There's a couple of bugs with Windows
+that will be fixed soon and that will be
+shipped. But this is shipped on Mac OS.
+It's very stable on Mac OS. And we're
+going to be launching what I call bridge
+swarms. So bridge swarms is a feature
+that we launched yesterday. And what I'm
+going to be doing is I'm going to be
+creating swarms. And I have a couple
+system prompts, but we're going to be
+creating a few swarms. And to do that, I
+actually have cursor pulled up here. And
+we have five different things to test.
+So the first one is a next SAS
+dashboard. So, in order to create a
+swarm, and you guys are going to see how
+this works, but we're going to be
+launching all codeex agents here, but
+let's go and create a swarm. So, this is
+going to be the next SAS dashboard. I'm
+going to CD over into my desktop, and
+I'm going to CD into Bridgemint, and
+then I'm going to CD into the directory
+called GPT54 test. This is where we are
+going to be creating this project. And
+what I want to do now is I am going to
+drop in this prompt. Okay, I'm going to
+test I'm just going to drop in this goal
+prompt here into our into our uh bridge
+swarm. And then I'm going to go to agent
+roster. And this is where you're
+actually able to set up your agent
+roster. So to do this, I think that in
+order to build a next SAS dashboard, I
+actually want to do a team. So you have
+the ability to do presets or just
+provision this manually, but we're going
+to go with presets. We're going to
+launch all codeex agents. And this will
+default to GBD 5.4 fast because that's
+what I have set up. There's going to be
+some more uh customizability coming
+soon, but as you guys can see, this is
+our coordinator agent. And then we have
+a few builder agents. We have five
+builder agents. We have two scout
+agents. And we have one reviewer agent
+and then one more coordinator agent. So,
+I'm going to launch this swarm with this
+prompt. And here is our swarm. They're
+all working together. And they all are
+able to communicate with one another and
+even communicate with me. And what you
+guys are going to see here is that we're
+going to be able to communicate with all
+agents at once. And over here on the
+operator console, this is actually where
+I'm able to communicate with my agents.
+So, if I need to send a message to all
+my agents, I can just send a quick
+message just like I would with an
+employee. Or if I need to change to a
+particular agent that I need to send a
+message in uh to mid-run, I can do that
+as well. But we're going to let this
+run. And while this is running, let's
+launch a few more um tasks. But you can
+see scout 7 builder 6 have now, you
+know, sent me some information about
+what they're doing. But with that being
+said, let's launch a few more of these
+agents in more swarms. In order to just
+like launch a new swarm, all I have to
+do is click command T. I'm able to
+either launch a bridge space or a bridge
+swarm. Like I said, we're going to be
+focusing on swarms today and using GPT
+5.4 to launch swarms. The next task that
+we're going to give GPT 5.4 is to build
+a browser FPS game. So, let's go back
+over to Bridgepace and let's just put in
+the swarm name. Uh, browser FPS game.
+We're also going to CD back into um that
+directory. So, I'm going to CD into
+desktop and I'm going to CD into
+Bridgemind and then I'm going to CD into
+GPT54 test. Um, so that is going to
+launch this swarm inside of that
+directory. And now let's launch this
+prompt. This is going to be our second
+prompt and our second swarm uh to be
+able to build this out and put GPT54
+[clears throat]
+to the test. Um, so let's paste this in.
+Let's go to our agent roster. And for
+this prompt, I just want to do five. So
+it's going to have a coordinator, a
+builder, another builder, a scout, and
+then a reviewer. Let's launch this
+swarm. Here's the swarm. Let's go back
+over here. What is this looking like? So
+you can see all these messages um from
+our agents are all coming back to us.
+This one, it looks like reviewer 9 is
+now done. Um, but these are all working
+with each other and sending messages to
+one another as well as myself. But we'll
+let this work and let this build out
+this Nex.js SAS. Um, and then back over
+to our SAS here, our um, browser FPS
+game. We'll let that run for a minute.
+But let's paste in another prompt to
+launch another agent. So, let's go back
+over to cursor here. Same thing. So, the
+next thing that we're going to build is
+a flight simulator. So, let's copy this
+flight sim. Um, actually, I'll just do
+this flight simulator. Let's pull up
+bridge space. Let's launch another
+bridge swarm. So, Bridgewarm, uh, this
+is going to be the swarm name is just
+going to be flight simulator. And then
+we're going to just drop in the prompt.
+And then we're going to CD back into um
+that directory. CD Bridgemind. And then
+hold on here. Uh, CD Bridgemind. And
+then, okay, hold up. Okay, I spelled it
+wrong. Uh, CD Bridge.
+CDGPT54
+test. And then now, let's go over to
+agent roster. And for this one, like I'm
+just going to do a custom one on this.
+So, let's do a coordinator agent, Codex,
+builder, and then a let's do actually um
+let's do a reviewer and then let's do
+just one builder. So, this is just going
+to do three. So, let's launch another
+swarm here. So, this has one
+coordinator, one reviewer, and then one
+builder for this swarm. And then here is
+the mission up here. So, at any point in
+time, for example, if I go back to this
+Nex.js SAS project here, at any point in
+time, I can actually check up on my
+terminal. So you can see that all of
+these agents are working in parallel now
+building out this next uh JS SAS and you
+can see GPT54 extra high is working in
+all of these terminals. Let's go back to
+the bridge dashboard which is a little
+bit easier for us to manage. You can see
+that they're all sending messages here
+on the right about what they're doing.
+Um this one the operators working well.
+These are working very well. So I'm
+happy with um with the way that these
+are going. So let's launch our last two
+tests and then by the end of this video
+we'll be able to kind of see what it's
+able to create. Some of these prompts
+are very difficult. This one is a
+real-time chat platform. So, for
+example, like that's building a monor
+repo. I'm not sure if that will be able
+to succeed just because there may be API
+keys, but regardless, let's put it to
+the test. Let's do another command T.
+Launch another swarm. And let's paste
+this in. And let's call this one chat
+app. This one's like very very
+difficult. Chat app. Let's now CD into
+the um bridge mind directory. And then
+CD into the GPT54 test directory again.
+And for this one, since this one is so
+difficult, let's launch a platoon. 15
+agents. Let's launch all codecs. So,
+here is the agent roster. Two
+coordinators, I think seven builders, a
+couple scouts, three scouts, two
+reviewers. So, let's launch this swarm
+now. So, here is a swarm of 15. Um, and
+then now let's launch this last one
+here. Uh, just one more. This is the
+interactive data visualization
+dashboard. Um, so let's now build this.
+And this will give us a good view of
+what this is going to do. This is a D3JS
+project. So, let's now go back over to
+Bridgepace and let's now launch do a
+command T. Launch another Bridgewarm.
+Paste in this prompt. And then this one
+we'll just call um D3 chat. Um we'll
+just do D3. And then I'm going to do CD
+into desktop. And then I'm going to CD
+into uh Bridgemind. And then I'm going
+to CD into um the GPT5 for test here. Um
+CD GPT 54 test. Um so let's do that. And
+let's see here. Okay, so this is um this
+is we're going to launch this and this
+is going to be our um our last roster
+here. Um or wait, hold on. I actually
+did not have that in the right
+directory. Let me try this again. Um CD
+uh GBT 54 test go. And then go here
+agent roster. And then we'll just do a
+squad here of five agents. So five
+agents, all codecs, one coordinator, two
+builders, one scout, one reviewer. Let's
+launch this swarm. So we now have all of
+our swarms running. We have five swarms
+total. Um, if we go over to the flight
+simulator, how's that one working out?
+Um, so you can see all the messages here
+and at any point in time I can message
+my agents if I want. Um, but right now
+we are improving this. This system is
+getting better. But I think that
+launching swarms, particularly bridge
+swarms, is going to be a very, very
+useful feature in the future. But I
+think this will give us a very good test
+of how GPT54 is able to operate across
+all of these tasks inside of Bridgepace
+using Bridge Swarms. All right, let's uh
+check up on our agents here. So, what
+you can see here now is that this swarm
+is just about done building this uh
+Nex.js sash dashboard. If we go over to
+our operator console here, there have
+been 161 messages um over the past like
+what has it been 15 minutes. So, this
+looks good. You can see that a lot of
+these agents are now done. So builder
+three says it's done. Builder six says
+that it's done. Um builder two hit a
+live overwrite on own build files after
+I patch package config. So you know it's
+messaging us and at any point in time I
+can send a message to any particular
+agent. Right? So if I want to message
+builder 3, I can send a quick message to
+him. So let's just say uh what is your
+current status?
+Make sure you finish up. I am ready to
+test. Right? So, I'll send this message
+and it literally sends that message to
+that builder. Um, so you can see
+operator, what is your current status?
+test. So, I just sent that to builder 3.
+I said, "Hey, finish up. We're ready."
+Right? The whole swarm is ready. So, um,
+that's going to finish up here, but
+let's now check up on the browser FPS
+game. Um, this one does look like it's
+done. Light simulator is also done. You
+can see all of our messages here. There
+were 112 messages during this swarm. Uh,
+the coordinator sent 47 messages, the
+reviewer sent three, and the builder
+sent 22. This is done. Let's go over to
+the chat app, which is the one that had
+a ton of agents. This one had a uh
+basically what was it? A legion. So,
+this one's still working. This legion is
+still working. Um, this legion has sent
+157 messages. You can see though that
+some of these builders are now done.
+Builder 2 is saying that it's done with
+a couple of these tasks. It says
+delivered client shell layout under
+client SRC app. So, the this swarm looks
+like it's doing a good job. Um, we can
+zoom out a little bit here too and see
+like, okay, like what's the current
+status? You can see, okay, here is the
+swarm. Um, let's now check up on D3 to
+see what the status of that one is. This
+one also looks like uh this one's
+actually still working here. And that
+was a challenging one. You can see it's
+126 messages during this swarm. But
+let's put to test what we can. Um, but
+before we do that, I do want to show you
+guys and talk a little bit about what my
+thoughts are on this model after vibe
+coding with it for so much yesterday as
+well as today. Um, so basically what
+I've noticed about GPT 5.4 for is that
+this model I do notice the improvements
+when using it like hey you know when you
+look at artificial analysis and you see
+how it's performing you need to know
+that hey that's accurate like these
+models like when they're put through
+these benchmarks and you see a
+sevenpoint jump like that's something to
+note right like take note of that but
+you know something I want to show you
+guys I actually want to launch a new
+bridge space so I'm going to launch a
+new bridge space and this is another
+feature of bridge space which is this is
+like basically the classic layout that
+we have so if you guys are familiar with
+um you know basically like one of the
+best strategies of vibe coding which is
+to use multiple agents at once. So this
+is different than swarms but let's just
+launch four sessions and create a new
+bridge space and I can choose which
+agents I actually want to launch. So I
+can use quadci open code or cursor. I'm
+going to choose codeex agents and launch
+this bridge space. And here now our our
+codeex agents are launched in this
+directory. And what I want to talk to
+you guys about is this fast mode because
+I have to say this is an important this
+this feature here is actually
+just as if not more important than the
+actual model release itself because one
+of the biggest reasons that has held me
+back personally from using GPT models
+are the fact that they're slow, right?
+Like they're just they have higher
+latency, they think longer, they think
+harder, whatever you want to say, right?
+And sometimes they can get you a better
+result. But the thing is is I don't want
+to give a prompt and have it take 40
+minutes, right? It doesn't make any
+sense. But what you can now do is you
+can toggle this fast mode which is going
+to use 2x your usage, but it's going to
+speed up the agent by 1.5x. Okay? And as
+you guys know, Codex does have a 2x rate
+limit until April 2nd. So I do have a
+Codex Pro plan. Okay? And what I'm now
+seeing is that this fast mode now makes
+it worth it for me to actually use GPT
+models because for example, let me drop
+in the API. I'm going to just say I want
+you to do an in-depth review of the API
+and identify security vulnerabilities.
+Um, yeah, security vulnerabilities. So,
+let's just drop this in. And I do notice
+it being significantly faster. I noticed
+the speed up. And I was vibe coding for
+like eight hours yesterday with this
+model and I'm like, yeah, fast mode is
+kind of the way to go now. Like if you
+have a pro plan, yeah, it's going to use
+more. But hey, in in general, super
+users, super user vibe coders, right?
+Like I personally have max plans and pro
+plans to every single provider. I have
+an ultra plan for Cursor. I have a a
+whatever an ultra plan for Gemini. I
+have a pro plan for ChatGBT. And I have
+a max plan for Claude. That's what the
+world is going to look like in the
+future. And hey, like I don't just need
+one plan. Like I'm just going to for me
+personally, I'm always going to be using
+GPT 5.4 in fast mode from now on because
+I use Claude, I use Gemini, and I use
+GPT. I'm not going to be hitting my rate
+limits with GPT 5.4 extra high just by
+putting it in fast mode. It's actually
+going to make me want to use the model
+more because now it's like, okay, just
+because I use GPT, it doesn't mean it's
+going to take like, you know, 50
+minutes. It's actually going to speed it
+up significantly. So that's one thing
+that you guys need to know. you need to
+check this out. I've tried it. It is
+noticeably faster. So, make sure you
+test out fast mode. It's honestly just
+as if not more important than the model
+release itself. All right, so let's now
+take a look at what it was actually able
+to create. So, here is our flight
+simulator. So, you can see here um I'm
+able to control this with just W pitch.
+And one thing I will say is that I'm
+actually not the biggest fan of testing
+models in this way. I think that to test
+a model, you really need to put it
+through like a realworld vibe coding
+workflow where you're actually building
+features. I don't think that you can
+really do a model justice just by giving
+a one shot and having it build like a
+simulator like this. One thing that I
+will note though is that the UI
+capabilities of GBT 5.4 I do notice an
+improvement. Um I know that it didn't do
+great in design arena, but I will say I
+do notice better design capabilities of
+5.4 4 versus 5.3. Now, one thing I will
+say is let's if we go to the neon
+lockdown here and I start this run,
+right? There's issues when you oneshot
+this model where for example, I can't
+even see anything here. Now, like most
+of these things like, hey, this is
+probably a one like a one shot away,
+right, from being able to like actually
+say, hey, this is the feedback that I'm
+seeing. Can you fix this? Right? And it
+would be able to do that. But the issue
+that I have with this is that yeah like
+um these models when you just give them
+a system prompt to be able to do things
+like the best way to vibe code and be a
+good agentic engineer is to build fast
+and then iterate based off of the
+feedback that you give the model and
+give the model full context. So
+sometimes I feel like these tests that
+we do on models don't really give it
+full justice and that's why I do the
+live streams right where I'm viating an
+app until I make a million dollars
+because there I'm actually building
+products and even like for example if
+you go back and you go back to
+bridgewarm you know I used GPT 5.4 to
+help me improve bridge swarm and help me
+launch bridgewarm. So you can look at
+that and that feature was built in large
+part because of GPT 5.4. So, just know
+that like I use that model. Here is the
+look of this. Um, it was the D3. It was
+it this was the D3 dashboard. So, you
+know, decent um you know, but yeah, like
+I just, you know, I don't think that you
+can just like click around here and say,
+"Oh, this model is good or this model is
+bad." Here's the sash dashboard. Can I
+actually what? Let's see this one. Let's
+just do a random and random and enter
+workspace. So, here um routing you to
+the right workspace. So, here's the
+dashboard that it created. So, um it
+wasn't able to do a great job on those
+games, but I mean, look at this
+dashboard. I mean, this isn't bad,
+right? I mean, this is pretty good. I
+like the UI. I do notice, like I'm
+saying, I do notice the UI improvements.
+Now, you do have these weird purple blue
+G gradients, which are common with GPT
+models, but you know, these are like one
+shots, right? So, you know, you can't
+judge a model off of one shot. Um, I
+will say when I was using it yesterday
+for about 8 hours, I will say I do think
+the model is an improvement. Um, now if
+we go over to the client here, here is
+the uh chat here. Let's just do drop
+hello here. And can I send this? So, I
+can send this. It says welcome in, drop
+a win, a blocker, or a wild idea. So, I
+don't know. This is just a a baseline
+test because what I really wanted to
+show you guys was the ability to launch
+agent swarms and use GPT 5.4 extra high
+in fast mode. And note that yes, I was
+using that yesterday. And like yes, like
+if you want to succeed, you need to be
+launching multiple agents. And even like
+in my personal workflow, right, I'll
+just be launching like multiple agents
+all the time to be able to build stuff,
+right? Like that's just what I do and
+that's what Bridgerpace is for. So, if
+you have not already gotten a
+Bridgestace subscription, I highly
+recommend that you do so. Um, I'm going
+to be working on this every single day.
+There's going to be some kinks here at
+the start. If you have errors or you
+have bugs, that's what our bug bounty
+program is. You can literally earn
+Bitcoin for reporting bugs. So, just
+note that. But, go to bridgemind.ai, get
+a subscription to Bridgepace, and try
+out Bridgewarm today. It's currently 50%
+off. You literally get access to
+everything for $20 a month. And you also
+can use 50% off um at checkout to have
+it be $10 a month for your first three
+months. So, you know what I see from
+from 5.4 and I'll leave you guys with
+this is that this is an iteration. It's
+not a massive jump. It's an iteration,
+but there are things with this release
+like fast mode um that do significantly
+improve codeex as a whole, right? Um you
+know, you ultimately will be getting
+more usage out of codeex than you would
+with a cloud subscription. Um you're
+going to be able to go a little bit
+faster now with fast mode. And this
+model is an improvement. And like we've
+seen with Bridgebench. Hey, this is an
+improvement. 95.5. This is a substantial
+improvement. If we go over to the
+creative HTML, um we can also look at
+some of these HTML tests. So here's
+OpenAI GBD 5.4. Um this is what it
+created. Let's go check out the I really
+like the um Space Invaders example.
+That's the example that I always like to
+look at. Retro Space Invaders. So here's
+what GPT54 uh was able to create for
+Space Invaders. Um here's what Spark was
+able to create. And then here's what
+Opus 4.6 was able to create. So, if we
+zoom out a little bit, you guys can see
+like just the UI capability of this
+model is like, hey, like this here with
+the effects and all that. Like, it is
+better, but like I said, you can't like
+I can't do this model justice in a 20
+minute long YouTube video. Um, that's
+what my live streams are for because I'm
+not a content creator. I have no
+interest in creating content. I do it
+because that's what Bridgemind is all
+about. That's what this brand is all
+about. Building in public, being on the
+front end of this technological
+revolution, this AI revolution, this
+vibe coding movement. So, if you guys
+are watching and you have not subscribed
+to Bridgemind, if you have not joined
+the Discord community, make sure you do
+so because this is the place to be in
+2026 and um there are over 6,500
+builders in this community. Make sure
+you join today. There's going to be a
+link in the the description as well as
+in the pinned comment. Um but go check
+this out, use Bridgew. And what I will
+say is I don't think that these oneshots
+do this model justice. It is an
+improvement. You can look at that with
+the benchmarks. You can look at that
+with fast mode. Um, codeex is definitely
+going to be something that I'm going to
+put the bridge mine stamp of approval on
+and I'm going to start to use more in my
+workflow, especially with bridgewarm
+because the model is reliable and it is
+faster and it is doing very well on
+coding benchmark. So, you know, don't
+doubt GPT, don't doubt OpenAI. I think a
+lot of people they've written off
+OpenAI. Do not do that. They are
+literally like neck andneck with claude
+if not a little bit like they're better
+in some areas than claude. you can see
+on Bridgebench like it literally
+outperforms Claude models. So don't
+leave OpenAI out of the equation. You
+guys are going to start to see me use
+Codex more on stream. Um but I hope that
+this video was helpful for you guys and
+if you again if you guys haven't tried
+out Burgemine yet, go get a subscription
+at bgemind.ai. And with that being said,
+I will see you guys on stream and see
+you guys in the future.

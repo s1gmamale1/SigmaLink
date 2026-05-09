@@ -1,0 +1,936 @@
+Hello everyone and welcome back to
+another video. In this video, I'm going
+to be vibe coding with the newly
+released Opus 4.6 and using a new
+feature in Claude Code called agent
+teams. Okay, so right here I'm using
+BridgeSpace and as you can see I have
+six Claude Opus 4.6 terminals opened up
+in BridgeSpace. This is actually an ADE
+product that we are working on right
+now, but before we dive right into the
+video, I have a light goal of 200 likes
+video. So, if you haven't already liked
+and subscribed, make sure you do so.
+BridgeMind is also the fastest growing
+vibe coding community on the internet
+right now. So, if you haven't already
+joined our Discord community, make sure
+you check the Discord link in the
+description down below and join the
+Discord. We're about to pass 5,000
+members in the Discord. So, with that
+being said, let's now dive right into
+the video. Okay, the first thing that I
+want to cover is a little bit of the
+statistics, the leaderboards and the
+benchmarks for Claude Opus 4.6. So, over
+here on OpenRouter, you can see that the
+biggest difference in Claude Opus 4.6
+obviously is the context window. You
+have a million in context with this
+model, which is the first Opus model
+that actually has a million in context.
+The previous Opus models were around
+200,000. So, if you go back to Opus 4.5,
+you're going to see 200,000 and if you
+go back to Opus 4.1, you're going to see
+what is it? 200,000. So, they were able
+to keep it the same price, but they
+increased the context window by 5x. So,
+one thing to note in this is that if you
+are using Claude Opus 4.6 in Claude
+Code, this is actually not yet
+accessible to you. This is in beta. So,
+if you're using it via Claude Code, you
+do not yet have access to the one 1
+million context window. It's still at
+200,000, but with Cursor or any product
+that's integrating with Opus 4.6 via the
+API, you're going to have access to this
+1 million context window. But, let's
+actually see what they say. So, they say
+Opus 4.6 is Anthropic strongest model
+for coding and long-running professional
+tasks. It is built for agents that
+operate across entire workflows rather
+than single prompts, making it
+especially effective for large code
+bases, complex refactors, and multi-step
+debugging that unfolds over time. So,
+that's a lot of yapping, but let's go
+check the artificial analysis
+leaderboard because this is really
+interesting because I was taking a look
+at this and if you look at the
+artificial analysis and intelligence
+index, you'll note that Opus 4.6 now is
+at the top of this leaderboard. So, it
+beats out GPT-5.2 extra high.
+So, that's 51.
+Opus 4.6 is 53 on this leaderboard. You
+can see that Opus 4.5 is at 50. So, they
+were able to get a three-point bump
+here. But, one thing that I want to draw
+your attention to is the coding index.
+So, look at this. So, we have 48 and 48.
+And this is one of the biggest issues
+that I actually saw with this release.
+It's in the benchmarks here. So, Opus
+4.5 right here, Opus 4.6 right here. And
+what I want to draw your attention to is
+the SweBench verified benchmark was
+80.8%.
+So, that's one thing that I was not
+necessarily disappointed by, but I was
+hoping that we would see like 83% on
+this benchmark. This is the number one
+benchmark for coding that I take a look
+at. So, they were able to improve like
+the terminal bench for coding, which is
+important, by quite a bit actually, by
+over 5%. So, that's nice. But, I was
+looking at this one here and I was like,
+"Oh man, that kind of stinks because,
+you know, the SweBench verified, that's
+where, hey, if we see a big jump in that
+benchmark performance, that's when we're
+going to see a big jump in performance
+for us when we're actually using it in
+practice by coding. So, I was a little
+bit disappointed in that. Another
+important one to look at here is the
+speed. So, Opus 4.6 here, you can see, I
+can't highlight this, but this is Opus
+4.6. You can see it's at 73 tokens per
+second, and then Opus 4.5 is at 88. So,
+we saw a little bit of a decrease in
+tokens per second. Now, this does
+fluctuate over time, so this isn't like
+set in stone, but tokens per second did
+go down a little bit, which is a little
+bit discouraging, but um not too bad.
+But, for intelligence and speed, really
+what we're seeing is that on some of
+these other benchmarks, Opus 4.6 was
+able to see a really big improvement.
+Like, one of those is definitely like
+this one here, novel problem-solving,
+the Arc AGI-2 leaderboard. This saw a
+big jump of 30%. Um so, that's huge.
+Also, office tasks saw a big jump. Um
+financial tasks saw a 5% jump.
+Multidisciplinary reasoning on
+humanities' last exam saw a big jump as
+well. Agentic search saw a big jump. So,
+you know, a lot of these saw a big jump.
+Look at this, agentic tool use also saw
+a a jump. Um agentic computer use saw a
+big jump. But, you know, the biggest
+disappointing thing in this uh in the
+benchmarks was definitely uh agentic
+coding. I was surprised to see this not
+only not improve, but also take a little
+bit of a step back. So, discouraging
+there, but in in all in all, I think
+that it is going to be a smarter model
+across the board, maybe just not
+specifically on the coding index. The
+next thing that I like to cover about
+this new model is a little bit less
+about the model as specifically, but
+more so about the update that Anthropic
+gave to uh Claude Code and this model.
+So, if you now go to models, I want to
+highlight something here. So, with Opus
+4.6, you now have the capability to
+adjust the effort. So, if we kind of
+just zoom in here, actually let's launch
+another workspace here, do a Ctrl T.
+Let's just draw Let's just do a single
+Let's just do a single, and then we'll
+launch uh we'll launch one Claude Code
+instance in this. Um but, let's just
+launch a new new Claude Code instance.
+And this is Again, this is BridgeSpace,
+which is very useful. But, if we are in
+Opus 4.6, right? And let's do model,
+okay? And what you're going to see is
+that the default recommended model is
+now Opus 4.6. And with this model, you
+do not have this ability with Haiku or
+Sonnet. So, this is specific to Opus
+4.6. But, you can now adjust the effort.
+Do you see how it says medium effort
+here? So, all I have to do to adjust
+this is I can set it to high effort, I
+can set it to medium effort, or I can
+set it to low effort. So, this is
+similar to Codex where Hey, with Codex,
+they literally offer it as like
+different models, right? Like Codex is
+offering Codex GPT 5.3, you know, extra
+high or medium or high, you know, so
+they have four different models. So,
+this is kind of Anthropic's approach to
+this, which is actually much better
+rather than offering like a specific
+model. They just allow you to adjust the
+effort in Claude Code, which I like. So,
+that's definitely one thing to note that
+when you are setting your model inside
+Claude Code, make sure you check out the
+effort level. Um that's going to be very
+nice to be able to set it at a specific
+effort level if you're working on maybe
+an easier task, you can set it to a
+lower effort so you use less tokens. And
+then if it's a little bit more complex,
+you can set it to high effort and it's
+going to think longer and do a better
+job. But, that is an important thing to
+know about this model is that this is a
+new capability of Opus 4.6 inside of
+Claude Code. The last thing I want to do
+before we actually get our hands dirty
+and start vibe coding with Opus 4.6, I
+want to show you probably the most
+important thing that actually got
+released yesterday. So, it's you know,
+it's interesting. Like if we go back to
+the benchmarks, I'm not going to hype
+this stuff up. I think that of a lot of
+people that watch this channel and watch
+BridgeMind um and are in the BridgeMind
+community know that I don't really I
+don't really perceive myself as a
+content creator. I'm not going to hype
+up models or hype things up that
+shouldn't be hyped up. So, I want to
+draw your guys' attention to one last
+thing before we go over agent teams.
+Look at the jump between Claude Opus 4.1
+and Claude Opus 4.5 on the coding index.
+You know, we literally saw a jump of 11
+points on this coding index. And that's
+why so many people once we got Opus 4.5,
+they were like, "This is magic, right?"
+Because we saw such an improvement on
+the SweepBench verified benchmark and
+the coding capability saw a huge jump.
+But, if I'm being completely honest with
+you guys, it's like, hey, look at this.
+It's at 48. We did not get a substantial
+improvement in the coding capabilities
+from 4.5 to 4.6. Now, there are going to
+be a couple other things that are better
+about the model, but definitely one
+thing to note is that this is not going
+to change a whole lot in terms of its
+coding capabilities when you look at the
+benchmarks because the benchmarks do
+tell a lot about a model.
+And I can see this right now. It's like,
+is not going to be a model that was that
+jump from Opus 4.1 to Opus 4.5. But with
+that being said, I want to now highlight
+one of the biggest things that got
+released yesterday that may have been a
+little bit overlooked by a lot of
+people. And we were using this on stream
+yesterday. And it's called agent teams.
+And agent teams is a new experiment
+experimental feature from Anthropic that
+you can use inside of Claude Code. And
+you guys can go I'm going to I'm going
+to drop this link in the description.
+you guys want to take a look at it,
+um and and kind of read through it
+yourself, but I'm going to cover pretty
+much the basics that you guys should
+know. And I'm actually going to draw how
+this works up on the whiteboard, okay?
+So, sub-agents. As you guys know,
+sub-agents has been a very big thing. Um
+so, I'm just going to use bridge voice
+and give uh Claude Code a quick prompt
+here. I want you to launch five
+sub-agents to do an in-depth review of
+the BridgeMind UI and identify any
+inconsistencies in the theme and styling
+on different pages on the website. So,
+we're going to launch some sub-agents
+right now, okay? So, we're going to drop
+in BridgeMind UI and let's just drop
+this in with Opus 4.6 and give it that
+prompt, right? So, what this is going to
+be doing is this is going to be
+launching what's called sub-agents. So,
+we've had sub-agents for a while now.
+And what actually are sub-agents? Well,
+you can see that right here. They have
+their own context window and the results
+are returned to the caller. Um they
+report back to the main agent. Main
+agent manages all the work and focus
+tasks where only the result matters. And
+then um the token cost is going to be
+lower um when compared with agent teams.
+But, the important thing to understand
+is the difference between these two
+things, right? So, you have agent teams
+and you have sub agents. So, what agent
+teams are, and I'm just going to
+highlight this on the whiteboard, is is
+is sub agents, you had a main agent here
+that right like right now this is going
+to um give it to five sub agents, right?
+So, this is what this is what sub agents
+are, okay? So, sub agents, you have a
+main agent and the sub agents only
+communicate back to the main agent,
+okay? So, these are all communicating
+with each other, okay? Um this is how
+sub agents work. Sub agents, okay? This
+is how they work. Um the sub agents
+communicate with the main agent, and
+that's how they work. You can see um
+it's launching these sub agents, and
+these sub agents are now working, okay?
+You can see that they're reviewing um
+reviewing product page styling,
+reviewing off-page styling. So, these
+are reviewing different things, right?
+But, now what this new agent teams
+feature is is this is actually like a
+very big deal. Now, I'm going to talk a
+little bit more about it in in in some
+of the nuances of it. But, how agent
+teams work is instead of let's say you
+had sub agents, now instead of that
+being the approach, um you basically
+have something that looks like this,
+okay? So, let's say that you have um
+your your main agent here, okay? And you
+now have five agents, right? And
+previously, you only had them
+communicating with that main agent, but
+now these sub agents actually are able
+to send messages to one another, okay?
+So, the difference here is that these
+sub agents can now all communicate as a
+team because they can now communicate
+from agent to agent here, rather than
+only being able to communicate to the
+main agent. So, that's the difference
+with agent the difference with agent
+teams, and I'm actually going to show
+you guys how to set this up, and I'm
+going to show you a couple examples that
+I actually implemented yesterday on
+stream, and a couple of my thoughts with
+agent teams. Now, I'm going to drop this
+link in the description below
+and the best way to be able to set this
+up is to literally just drop the link
+into Claude Code and ask it, "Would you
+confirm that this is set up and enabled
+with my Claude Code? If it isn't, make
+sure you enable it."
+That just give it that prompt. I already
+have mine enabled, so this isn't going
+to do anything for me. I already have it
+enabled, but let's now go over to this
+agent down here and what we're going to
+do is
+"How many teams are configured? Would
+you list out the teams that are
+associated with my Claude Code?" So,
+we're going to we're going to ask it
+what it said Claude Code, but we're
+going to ask it what teams we actually
+configured because basically what I was
+doing yesterday is I was setting up
+multiple agent teams and you can see
+here I have an API security review team
+and then I also have a code quality
+fixed team. So, I have
+these teams here and let's actually Can
+I drag this? Okay, I don't have that
+configured yet. So,
+with this you can see that these teams,
+for example, code quality fixed. So, the
+purpose of this team is to fix all bugs
+and clean up AI slop across the
+BridgeMind mono repo. So, there's a team
+lead and that is that that's that's the
+team lead. That's this here. So, rather
+than it just being a main agent that all
+the sub agents talk to, now you have a
+team lead and that's what it looks like.
+So, the team lead we have a UI fixer.
+So, this is a front-end bug fixer. We
+have an admin fixer, the admin panel bug
+fixer. So, it's three members in total
+and they both are, you know, three
+members in total, both workers are
+general purpose agents, right? So, these
+these agents are working together as a
+team and then we also have a API
+security review and with that team you
+can see that I have a team lead, an off
+deep auditor, a biz logic auditor, an
+exposure auditor and a verify auditor,
+okay? So, we have these teams and I'm
+I'm to show you what it looks like to
+actually run one of these, okay? So,
+we're going to use the API security
+review two team, okay?
+I want you to enable the API and hold
+on, I'm not going to say enable. I'm
+just going to say
+I want to work with the API security
+review team and I want this team to do
+an in-depth review of the BridgeMind API
+and do an audit of our API security. Any
+findings that the team finds should be
+outputted and inputted into a readme
+file of the findings with detailed
+descriptions of each finding
+so that we can complete the task and
+make sure that the API is secure. Okay,
+so we're going to drop this in, right?
+And what you guys are going to see is
+you're going to see Opus 4.6 be able to
+work as a team. So, it says, "I'll set
+up a security audit team to thoroughly
+review the BridgeMind API. Let me create
+the team and organize the work, okay?"
+So, actually what it did here, hold on.
+Did it just create a new team?
+Hold on. What did did it not actually
+let me create the team? Okay, I actually
+don't think that that did that
+correctly. And this is one thing that to
+note is that uh Claude Claude the
+Anthropic did say that there was going
+to be some issues. Hold on, I actually
+want to stop this because it looked like
+it was creating a Was it creating a new
+team? It said, "I'll set up a security
+audit team to I That's not what I wanted
+to do.
+Um I want to let's Let here, let's
+prompt this Let's now prompt this one
+cuz this one knows what teams we have.
+So, maybe you have to like do really
+well with prompting. I want you to use
+this team. Um so, let's go back over
+here and let's actually make sure that
+we drop in and so that it knows like,
+"Hey, use this team." That may be
+something that you need to do just while
+this is like a beta feature. It's like
+an experimental feature. So, it had a
+hard time kind of like enacting this,
+right? But let's go over here and let's
+check what did this one actually find
+here. So, in here, this was the one that
+was trying to It was launching
+sub-agents, right? So, it it's asking,
+"Want me to start fixing any of these
+issues?" So, what I'm going to do is I'm
+actually going to change the model and
+I'm going to change it to low effort
+because UI issues aren't like super
+complex. They don't need high effort and
+high thinking. Yes, I now want you to
+fix the findings and update the code
+respectively. So, we'll be able to um
+launch that now.
+So, one thing that I want to test just
+briefly is like let's go over and let's
+actually launch um let's launch
+localhost here, and let's go into the
+BridgeMind UI, right? Let's go over
+here, and hold on. I think there were
+some updates being made, so we may have
+to kill our terminal real quick. Um
+let's go over here, and uh where is it?
+Let's see here.
+Um it is Let's go here.
+And let's just do
+npm dev. Okay. So, we're going to
+restart this real quick, and we're going
+to go back. Okay, look at this. This is
+This is not good. And Okay, there we go.
+All right. So, you can see our home page
+here, and let's just try a brief UI fix,
+right? And look at this. So, this is
+this agent here, and it's making
+updates. Um let's go over to BridgeSpace
+real quick. So, it's this agent, and
+it's actually asking high impact only
+recommend. Okay, what what agent is
+causing all these these uh UI issues
+that we're experiencing? So, let's see.
+Let's go back over here, and let's just
+drop this issue, and um let's let's have
+an agent fix that real quick.
+I want you to fix this error that I'm
+getting in the BridgeMind UI. So, let's
+um BridgeMind. Okay, and that's why
+we're going to need to set up a
+dictionary for BridgeVoice. Um so,
+speaking of which, let's actually pull
+up BridgeVoice real quick, and we are
+going to have to solve a couple issues
+here. Um so, we are having a storage
+error here. So, what I want to do is I'm
+going to work with Codex 5.3, and I'm
+actually going to drop in And this is a
+this is a great strategy, okay? So, what
+I'm going to do is I'm going to work
+with Codex 5.3, and I'm going to have it
+write a handoff prompt. I want you to
+write a handoff prompt to Claude Opus
+4.6. And just so you guys know, you
+know, yesterday was one of the craziest
+days that we've had in AI probably like
+two this point. We had two frontier
+models drop. Now, the only thing the
+only caveat to that that I would say is
+that like if you go back to the
+benchmarks, this was not the same
+improvement that we saw from like Opus
+4.1 to Opus 4.5. So, even though we did
+get two new frontier models, to me it
+seems like these models were not that
+much of a jump. They were like a small
+iteration that are definitely going to
+be better, but not the same jump that we
+saw an improvement from like 5.1 to 5.2
+or like you can see here Opus 4.1 to
+Opus 4.5, right? So, it's a little bit
+of a different situation than what we
+had.
+But, what we're going to do now is we're
+actually going to drop in this handoff
+prompt to Opus 4.6, okay? So, we're
+going to drop this in and we're going to
+give this handoff prompt to Opus 4.6 and
+we're going to have Opus 4.6 do this.
+So, this it says you're taking over a
+debugging task and it has this and now
+we're going to go back over and let's
+just use Warp here and we're going to
+drop in we're going to do Claude and I'm
+going to let you guys look at this
+prompt. So, what I'm going to do here is
+I'm actually going to change this and
+I'm going to change the model and I'm
+going to do high effort on this because
+this is a little bit more of a complex
+debugging task. So, I'm going to drop in
+the handoff from Codex 5.3. I'm going to
+give it here and this is a good strategy
+because Codex does think for longer and
+what a lot of people say is it's like,
+"Hey, you can have Codex instances that
+are running for up to like an hour very,
+very easily." Like you'll have Codex
+instances that are running for very,
+very long times and you know, something
+to really understand is that hey, like
+you definitely want to know that like
+when do I enact and when do I enable
+Codex versus this, right? It's like very
+important to know that. So, let's see if
+we can refresh this page. I think that
+there's an issue somewhere on my
+computer where I'm running this. Okay, I
+do see it. So, let me let me let me
+cancel out of this and then let's launch
+this again and let's go over to Warp and
+we're going to just restart the server
+real quick cuz it was having a cache
+issue.
+So, let's pull this back up, and let's
+launch localhost, and uh there we go.
+Okay, so here's our front end, right?
+And what I want to try is I just want to
+try a simple UI test. So, this here,
+code at the speed of thought, this is a
+little bit outdated at this point. So,
+I'm going to drop in this instance right
+here, and what we're going to do is
+we're going to go over to warp. Uh, I'm
+going to take this, and um hold on here.
+Did this not Did this prompt not submit?
+Do you guys see this? Did this Hold on.
+This one that we had here, did this not
+submit? What happened here? We had it,
+didn't we?
+Oh, it didn't Did this not submit? I
+don't know if you guys see that, but for
+some reason it uh it didn't it didn't
+submit my prompt. I'm not sure why. Um,
+okay, let's try this again then. All
+right, you're taking over. All right,
+let's try this.
+And let's submit.
+Um, okay, perfect. All right, so let's
+launch Claude here, and we're going to
+see if we can update the styling of that
+section as well inside of our website.
+So, let's drop in this section here, and
+let's just say, "I need you to review
+this section on the homepage of the
+Bridgemind UI, and what I need you to do
+is I need you to update it with a
+completely different component and
+looking section focused more on um
+different particular products in the
+Bridgemind suite. I want you to focus on
+the Bridgemind MCP. I want you to focus
+on Bridge Code. I want you to focus on
+um
+Bridge Space, and I want you to focus on
+Bridge [clears throat] Voice, and there
+should be some information and some nice
+uh unique components and graphics for
+each of these products, but this
+component can be removed and replaced
+with four different components covering
+each separate product. Okay, so what I'm
+going to also do, I'm going to submit
+this prompt, but I also want to go back
+over to um Bridge Space here, and you
+can see this team. And what I want to
+highlight here out of this team is that
+it's been working for the past 5 minutes
+and 58 seconds. And what I want to show
+you guys is with these teams, they're
+able to work together and message each
+other, right? So, you can see that this
+one was where we launched that team, and
+you can see off audit, exposure auditor,
+and it's running these different API
+these API teammates, right? So, it's
+security agents that are all running,
+and you can see that this one biz logic
+auditor, right? This one is doing that
+particular task. So, what's interesting
+about these agents these agent teams is
+that each of these teammates is like
+highly specified for a particular
+action, right? So,
+you know, we had another team that was
+code quality fix, which was basically
+just focused on making it so that
+there's no AI slop, right? So, we can go
+and we can add, for example, let's just
+add the BridgeMind API, and let's say
+that we want to enact this team, right?
+So, this this here, I want to say
+I want you to enact the code quality fix
+team that will do a thorough review of
+the BridgeMind API and identify any
+areas where the code quality needs to be
+fixed and updated. Do not update any
+code, but compile all the findings from
+this team into a readme file with
+different tasks and instructions of why
+it needs to be fixed, why the code
+quality is bad, and how to fix it, and
+make sure that the changes in the
+instructions will not break any of the
+functionality. So, again, I'm using
+BridgeVoice for that. It's a very very
+good text-to-speech tool. We're going to
+have that launching probably next week.
+Um this agent is now done. So, this was
+the sub-agents, right? So, this one was
+launching sub-agents, which are
+differently, right? That's where the
+agent communicates with where each
+sub-agent communicates with the main
+agent, whereas this now, this team, so
+it says to recap um what was delivered.
+So, it says all done, the security team
+has been fully shut down and cleaned up.
+To recap what was delivered, three
+auditors ran in parallel across the
+entire BridgeMind API code base, 23
+findings documented, zero critical, five
+high, 10 medium, eight low. All findings
+consolidated into this readme with
+security levels uh severity levels,
+affected files, descriptions,
+recommended fixes, and OWASP categories.
+So, it then has the says the file is
+ready for your team to review and start
+working through the remediation
+priorities. Great work. I now need you
+to launch the team once again to
+actually start working through and
+updating the code respectively and
+complete all of the updates so that
+there are no more security
+vulnerabilities based off of the
+findings.
+Okay.
+Okay, one issue that just happened is
+one of these agents did just make an
+update to Bridge Voice. So, it just
+opened up and closed. So, let's just do
+Hold on here. I need to fix this. And
+this is the issue that we're having with
+Bridge Voice right now. This is Bridge
+Voice. It's great. It did just relaunch.
+So, hold on. Let's give that prompt
+again. I now want you to launch the
+agent team to actually start working
+through the remediation priorities and
+updating the code. Make sure that each
+is updated correctly without impacting
+or breaking functionality and that we
+solve the vulnerability without breaking
+code. The code that it writes needs to
+not be AI slop, be clear, concise, and
+well-written. And once again, the most
+important thing is that we fix the
+security vulnerabilities without
+breaking functionality. Now, I want you
+to launch the team again to update the
+code and solve and fix the priorities
+and the vulnerabilities. So, we'll
+launch this. We'll submit this prompt.
+And this is once again going to restart
+that team. Now, I did say that there was
+one caveat with the teams, right? And
+the caveat is if we go to our usage
+here, what you guys are going to see
+with our usage and I guess this is one
+thing I mean, look at So, this is here,
+right? I haven't really used that much I
+haven't launched agents on that many
+tasks, right? But what I want you guys
+to take very close note of is the 22%
+used. So, the reason that this is at 22%
+is because of the teams that we've been
+enacting. Like literally yesterday when
+I was when I was using teams, one of the
+teams ran through over 500,000 tokens
+inside of one task that I gave it. So,
+like one thing to note is that if you
+are using agent teams, you are going to
+be burning through tokens, especially
+with Opus 4.6. Now, one thing that I
+will say to that is that you could use
+this with like Haiku 4.5, or you could
+use it with Claude Sonnet 4.5. You know,
+that obviously the coding capabilities
+are going to drop a ton,
+but here is what I will say with that.
+Once we get Claude Sonnet 5, this is
+going to be incredibly more useful.
+Right now, you know, we're using agent
+teams, and we're using it with
+incredibly expensive models, right? Like
+if we go back to Opus 4. 4.6, um you
+know, look at the cost, right? It's it's
+expensive. It's $5 per input, $25 per
+million on the output, and 10 $10 per
+thousand on a web search. Like it's
+expensive. So, like we have to be at the
+point where it's like, "Okay, we want to
+use this feature, but you also have to
+know that you're going to be going
+through insane amounts of token usage
+with with this feature, right? Like this
+team is launching as well, and I don't
+know how many tokens this one is going
+to run through, but yesterday I had one
+agent team that that went through that,
+right? And it literally um it literally
+went through
+uh it Yeah, I mean, it [clears throat]
+went it went through a half a million
+tokens, right? Inside of one task that I
+gave it. So, that's like unbelievable.
+Let's go back over to this agent here.
+So, this agent looks like it's done. It
+finished inside of 2 minutes and 53
+seconds. Also, this one did did run as
+well. So, let's see if our agent It
+looks like it potentially did. Um it
+says sign in with credentials. So, let's
+see if it was able to fix our issue that
+we had. Um this one ran for what? 5
+minutes, and it did. Oh, wow. Okay. So,
+guys, that's actually huge. So, the
+issue that we had here is that before
+the stream but not the stream before
+that I started with this video, um I
+that actually was not working. And what
+I did is I had GPT 5.3 review what was
+actually causing that issue, right? Cuz
+signing in was not working. So, this is
+the BridgeVoice dashboard, so I can see
+for example like some of my recent
+activities. Here's the prompts that I've
+been giving it in this session. You can
+see the total words that I've spoken to
+it, speaking time, sessions, and words
+per minute. So, very useful here. This
+is also where I set like my shortcuts
+and whatnot and where I can manage my
+subscription, but here's my history.
+But, it was able to one-shot this. I
+gave it to 5.3 first, and then I had it
+handed off to Opus 4.6, and Opus 4.6 was
+actually able to implement it fairly
+quickly. Like that is one thing that you
+should take very close note of is that,
+hey, you know, Codex 5.3 is going to run
+for longer,
+but Opus 4.6 is going to run shorter,
+and it's probably going to do a pretty
+good job. So, the next task this was
+that UI update. Let's see how it
+actually did on that UI update. So, it
+says, "Okay, perfect." So, it removed
+that task, right? And what I wanted to
+do is I wanted to like take basically
+remove that particular component that
+was there previously, and then update it
+with different sections about each
+product in the suite of Vibe coding
+tools that we're building. So, you can
+see here, Bridgemind MCP. This is
+perfect. Get started with the MCP.
+Um that looks nice. Um ship from your
+terminal, Bridge Code. That looks good.
+Um we'll have to make some updates, but
+it also just Yeah, this did a a really
+good job. Um there's going to be a
+couple things that we're going to want
+to change with this, but this actually
+did Oh, look at this. It even did like a
+little SVG background for BridgeVoice.
+That's really cool. Yeah, I mean, the
+backgrounds did really nice. It was able
+to know like the different colors and
+themes that we're using for each of
+these products. So, that's that actually
+did a really good job on the UI.
+Um I would say very, very good job here.
+Um let's try another one. How long is
+this video? I don't want to Okay, we're
+21 We're at 21 minutes at least on this
+session. So, I don't want to get want
+this video to get too long.
+Um I'll try and cap it at 30 minutes
+here, but let's um let's let's like see
+it How is this one doing this team here?
+So, two agents still working. I'll
+report when they finished. So, I will
+say this,
+just to summarize cuz I don't want the
+video to get too long. I will be
+streaming today for day 128 of Vibe
+Check an app until I make a million
+dollars. But, this Teams feature is
+actually a game-changer. It's just that
+it may not actually be applicatory until
+we get some cheaper models that are
+better in sweet bench, but are cheaper
+than Opus 4.6, right? Like, Opus 4.6,
+you're just going to be spending through
+your usage a ton. Like, even if we go
+back to that usage, like, did our usage
+go up cuz that Teams running? Let's
+check it out. Um yeah, 27%. So, another
+5% in
+was used on this session just from these
+Teams running, right? Like, this one
+this one's running, this one running,
+and it went up to another 5%, right? So,
+if you're running these Teams, you're
+just going to max out your usage like
+very, very quickly. So, I think that
+this feature is incredible.
+Again, the difference is substantial
+with with teammates and agents being
+able to message each other. This is a
+game-changer. Um you will get better
+results if you're using Teams, but right
+now it doesn't really seem very
+applicatory because, hey, you're running
+it with models that are just too
+expensive. So, until we get models that
+are cheaper like a Claude Sonnet 5,
+we're not really going to be able to get
+like a ton of use out of this because,
+you know, I'm on the 20X plan. If you're
+on the 5X plan, you would already have
+maxed out your your usage for a 5-hour
+period uh just from running these two
+Teams, right? So, it just doesn't really
+make sense for your average user, right?
+So, definitely something to take note
+of. But, it did it it did do a great job
+on the UI. It fixed our issue here that
+we're having with Bridge Voice. The
+Teams were running and cleaning up the
+code. Um but, this is like the thing
+that's interesting about these
+teammates. So, it sends messages. So, it
+does this send message that you're
+seeing, that's what you're seeing with
+the Teams talk the teammates talk to
+each other. So, this is incredible. I'm
+not going to I don't think that this
+model is like a game-changer in terms of
+the coding performance just because of,
+hey, like, this was not the same jump
+that we saw from 4.1 to 4.5. But, with
+that being said, like, I think that
+we're going to see a jump once the Sonic
+5 model releases. This is a model that's
+been rumored. I think that Sonic 5 is
+probably going to be a game-changer.
+Whereas, with this model, it's
+definitely a iteration. There's some
+improvements in other parts of the
+benchmarks. It is going to be a better
+model. Like, you've you obviously would
+be wanting to use Opus 4.6 over 4.5.
+But, in you know, when you look at the
+coding index, I don't think that we're
+going to see like massive improvements
+in the coding quality. But, we'll see
+with time. we need to give it a little
+bit more time. But, with that being
+said, guys, this is going to I'm going
+to wrap up the video here. I don't want
+to get it to get too long. But, Opus
+4.6, I'm impressed with they did with
+some of the different features. And I'm
+super excited about agent teams. I'm
+very excited to be using this model in
+my streams. And I also will be having a
+a review of 5.3 Codex. I did upgrade to
+the Chat GPT Pro plan. So, I'm going to
+be using that model in the streams as
+well.
+But, with that being said, guys, if you
+haven't already liked and subscribed,
+make sure you do so. Join the Discord,
+the fastest-growing vibe coding
+community on the internet right now.
+There's There's a link in the
+description below. And with that being
+said, guys, I will see you guys in the
+future.

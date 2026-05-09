@@ -1,0 +1,256 @@
+[Normal] Multi-Agent AI
+[Normal] Orchestration Workspace
+[Normal] Research Report: Building a BridgeSpace-Style Unified Environment
+[Normal] May 2026  |  Comprehensive Technical Analysis & Implementation Blueprint
+[Heading 1] Table of Contents
+[toc 1] Executive Summary	3
+[toc 1] BridgeSpace Feature Analysis	4
+[toc 2] Core Architecture Overview	4
+[toc 2] Key Differentiators	5
+[toc 1] Open Source Foundation Candidates	6
+[toc 2] Tier 1: Emdash (Primary Recommendation)	6
+[toc 2] Tier 2: Dux (Terminal-First Alternative)	7
+[toc 2] Tier 3: Claude Squad	8
+[toc 2] Tier 4: Bernstein (Orchestrator-Focused)	8
+[toc 2] Other Notable Tools	9
+[toc 1] Comparative Analysis Matrix	10
+[toc 1] Architecture Blueprint	11
+[toc 2] System Architecture	11
+[toc 2] The Orchestrator Layer	12
+[toc 2] Multi-Provider Agent Abstraction	13
+[toc 1] Implementation Roadmap	14
+[toc 2] Phase 1: Foundation (Weeks 1-4)	14
+[toc 2] Phase 2: Multi-Agent Core (Weeks 5-8)	15
+[toc 2] Phase 3: Orchestrator Intelligence (Weeks 9-12)	15
+[toc 2] Phase 4: Polish & Scale (Weeks 13-16)	16
+[toc 1] Technical Deep Dive	17
+[toc 2] Git Worktree Isolation	17
+[toc 2] PTY Terminal Emulation	18
+[toc 2] MCP Protocol Integration	18
+[toc 1] Conclusions & Recommendations	19
+[Heading 1] Executive Summary
+[Normal] This research report provides a comprehensive analysis of how to build a unified workspace environment for orchestrating multiple AI coding agents — similar to BridgeMind's BridgeSpace product. The core innovation requested is a dynamic multi-provider system where any CLI agent (Claude Code, Codex, Gemini CLI, OpenCode, Aider, etc.) can be launched in parallel terminals, connected to each other, and delegated tasks by a central orchestrator AI.
+[Normal] After evaluating 15+ open-source tools and frameworks across the rapidly evolving agent orchestration landscape, this report identifies Emdash as the strongest foundation for transformation, with dux and Claude Squad as viable alternatives for terminal-first workflows. The report provides a complete architecture blueprint, comparative analysis matrix, and a 16-week implementation roadmap.
+[Normal] Key Findings: Emdash (Apache-2.0, Electron) is the strongest foundation for a BridgeSpace alternative. Dux (Go TUI) offers the best terminal-first experience. Bernstein provides the most sophisticated orchestrator architecture. The combination of Emdash + a custom orchestrator layer inspired by Bernstein patterns represents the optimal path to a production-quality multi-agent workspace with dynamic provider support.
+[Heading 1] BridgeSpace Feature Analysis
+[Normal] BridgeSpace by BridgeMind is a commercial Agentic Development Environment (ADE) that provides a desktop workspace for orchestrating up to 16 AI coding agents in parallel. It represents the current state-of-the-art in multi-agent workspace design and serves as the primary reference for the desired system.
+[Heading 2] Core Architecture Overview
+[Normal] •  Desktop Application: Cross-platform Electron-based app (macOS, Windows, Linux)
+[Normal] •  Terminal-First Design: Multiple terminal panes running real CLI agents via PTY
+[Normal] •  Git Worktree Isolation: Each agent gets its own isolated working directory
+[Normal] •  Multi-Room Workspace: Command Room (terminals), Swarm Room (parallel agents), Review Room (human oversight)
+[Normal] •  BridgeMemory: Local-first knowledge graph with 12 MCP tools for shared agent memory
+[Normal] •  Kanban Task Board: Integrated project management with task-to-agent assignment
+[Heading 2] Key Differentiators
+[Normal] What separates BridgeSpace from simpler multi-terminal managers is its orchestration intelligence. The system includes an orchestrator CLI AI that can:
+[Normal] •  Decompose high-level tasks into sub-tasks suitable for parallel execution
+[Normal] •  Delegate sub-tasks to specialized agent instances with appropriate context
+[Normal] •  Monitor agent progress and verify outputs before merging
+[Normal] •  Maintain shared context through BridgeMemory (wikilink-based knowledge graph)
+[Normal] •  Support agent-to-agent communication for collaborative problem-solving
+[Heading 1] Open Source Foundation Candidates
+[Normal] The open-source ecosystem for multi-agent orchestration has matured rapidly in 2025-2026. The following tools were evaluated as potential foundations, ranked by their suitability for building a BridgeSpace-style unified workspace with dynamic multi-provider support.
+[Heading 2] Tier 1: Emdash (Primary Recommendation)
+[Normal] Emdash is the strongest open-source foundation for building a BridgeSpace alternative. It is an Electron desktop app (TypeScript/React) with native multi-provider support, SSH remoting, ticket integration, and active YC-backed development.
+[Normal] Emdash (generalaction/emdash on GitHub, 4,300+ stars, Apache-2.0) is an open-source Agentic Development Environment from Y Combinator W26 graduates. It directly competes with BridgeSpace and shares the same fundamental architecture.
+[Heading 3] Key Specifications
+[Heading 3] Supported Agents (Auto-Detected)
+[Normal] Claude Code, OpenAI Codex, Gemini CLI, OpenCode, Amp, Droid (Factory CLI), Hermes Agent, Qwen Code, Cursor CLI, GitHub Copilot CLI, Aider, and others. Adding a new provider requires only a configuration entry — no code changes.
+[Heading 3] Strengths for Transformation
+[Normal] •  Already an Electron desktop app with multi-pane terminal UI
+[Normal] •  Provider abstraction layer makes adding new agents trivial
+[Normal] •  Built-in git worktree management and diff review
+[Normal] •  Active, well-funded development (YC W26)
+[Normal] •  Commercial-friendly Apache-2.0 license
+[Heading 3] Gap Analysis
+[Normal] The primary gap in Emdash is the orchestrator intelligence layer. Emdash explicitly does not include agent-to-agent delegation or an orchestrator AI that can decompose tasks and delegate. This is the key feature to build on top of the Emdash foundation.
+[Heading 2] Tier 2: Dux (Terminal-First Alternative)
+[Normal] Dux is a Go-based Terminal UI application that runs multiple AI coding agents side-by-side in git worktrees. It is the closest open-source tool to the requested orchestrator concept, supporting any CLI provider through configuration.
+[Normal] Dux (patrickdappollonio/dux on GitHub) is a terminal-native orchestration layer written in Go. Its core philosophy: "No protocol layers. No adapters. No JSON-RPC. Just real CLIs in real terminals."
+[Heading 3] Key Specifications
+[Heading 3] Unique Features
+[Normal] •  Companion Terminals: Unlimited shell sessions per agent for builds/tests
+[Normal] •  Session Forking: Branch an agent conversation like git branching
+[Normal] •  AI Commit Messages: Send diffs to provider for Conventional Commit generation
+[Normal] •  Macro System: Reusable prompt snippets scoped to agent or terminal
+[Normal] •  Command Palette: Fuzzy-searchable access to all actions
+[Heading 2] Tier 3: Claude Squad
+[Normal] Claude Squad (smtg-ai/claude-squad on GitHub, 6,800+ stars, AGPL-3.0) is a Go-based terminal app for managing multiple AI coding agents with worktree isolation. It focuses on human-in-the-loop supervision.
+[Normal] •  Agents: Claude Code, Codex, Aider, Gemini, OpenCode, Amp
+[Normal] •  Isolation: Git worktrees + tmux sessions per agent
+[Normal] •  Coordination: Human-supervised parallel dispatch (no automated orchestration)
+[Normal] •  UI: Terminal UI with diff preview, checkout, resume, commit-and-push
+[Heading 2] Tier 4: Bernstein (Orchestrator-Focused)
+[Normal] Bernstein (chernistry/bernstein on GitHub, Apache-2.0) is the most architecturally interesting orchestrator. It implements a full planning-to-merge pipeline with deterministic scheduling.
+[Normal] •  Pipeline: Goal -> LLM Planner -> Task Graph -> Orchestrator -> Agents (parallel) -> Janitor (verify) -> Git merge
+[Normal] •  Deterministic scheduling with zero LLM tokens spent on coordination
+[Normal] •  Supports 30+ CLI agents including Claude Code, Codex, Gemini CLI
+[Normal] •  Janitor agent runs lint, type checks, and tests before merge
+[Normal] •  Local HTTP task server for agent progress reporting
+[Heading 2] Other Notable Tools
+[Normal] •  Vibe Kanban (community-maintained): Web app with Kanban board, supports 10+ agents via MCP, now community-maintained after Bloop shutdown
+[Normal] •  Composio AO: Full-automation system with web dashboard, agents fix CI failures and respond to review comments autonomously
+[Normal] •  Nimbalyst (Crystal successor): Desktop app with visual editing, successor to the deprecated Crystal project
+[Normal] •  Microsoft Conductor: YAML-defined multi-agent workflows with GitHub Copilot SDK
+[Heading 1] Comparative Analysis Matrix
+[Normal] The following matrix compares all evaluated tools across the dimensions that matter most for building a BridgeSpace-style unified workspace.
+[Heading 1] Architecture Blueprint
+[Normal] Based on the research, the recommended architecture combines Emdash as the Electron desktop foundation with a custom orchestrator layer built on proven patterns from Bernstein, dux, and Microsoft Agent Framework.
+[Heading 2] System Architecture
+[Normal] The system consists of five core layers:
+[Heading 3] 1. Desktop Shell (Electron + React)
+[Normal] •  Multi-pane terminal layout using xterm.js + node-pty
+[Normal] •  Room-based navigation: Command Room, Swarm Room, Review Room
+[Normal] •  Kanban task board with drag-and-drop agent assignment
+[Normal] •  Diff viewer with syntax highlighting and inline commenting
+[Normal] •  Activity timeline for tracking agent actions
+[Heading 3] 2. Worktree Manager
+[Normal] •  Creates isolated git worktrees per agent session
+[Normal] •  Automatic branch naming: orchestrator/{agent-type}/{task-id}
+[Normal] •  Port allocation per worktree to prevent conflicts
+[Normal] •  Environment variable injection for provider API keys
+[Heading 3] 3. Agent Provider Abstraction
+[Normal] •  Plugin-based provider system (inspired by Emdash)
+[Normal] •  Each provider defines: command, args, resume_args, oneshot_args
+[Normal] •  Auto-detection: scan PATH for known CLI binaries
+[Normal] •  Provider configuration in TOML/JSON format
+[Heading 3] 4. Orchestrator Engine
+[Normal] •  LLM-based task decomposition using structured output (JSON mode)
+[Normal] •  Hierarchical delegation: Orchestrator -> Sub-Agents -> Workers
+[Normal] •  Verification loop: Execute -> Verify -> Retry if failed
+[Normal] •  Deterministic scheduling (Bernstein pattern): zero token cost for coordination
+[Normal] •  Shared memory via MCP tools (create_memory, search_memories)
+[Heading 3] 5. Communication Layer
+[Normal] •  MCP (Model Context Protocol) for agent-to-tool communication
+[Normal] •  Local HTTP server for agent status/progress reporting
+[Normal] •  Message bus for inter-agent coordination
+[Normal] •  SQLite for persistent state, filesystem for shared artifacts
+[Heading 2] The Orchestrator Layer
+[Normal] The orchestrator is the key differentiator. It should implement the hierarchical manager-worker pattern with verification gates:
+[Normal] // Orchestrator execution loop
+for each subtask:
+  1. EXECUTE: Delegate to appropriate specialist agent
+  2. VERIFY: Ask verifier agent 'Is this correct enough?'
+  3. If NO: Re-delegate with verifier feedback -> goto 1
+  4. If YES: Subtask complete -> next subtask
+
+// Delegation contract
+{ intent, inputs, constraints, success_criteria, assigned_agent }
+[Heading 2] Multi-Provider Agent Abstraction
+[Normal] The provider abstraction enables dynamic switching between any CLI agent. Each provider is a configuration entry:
+[Normal] [providers.claude]
+command = "claude"
+args = []
+resume_args = ["--resume"]
+oneshot_args = ["-p", "{prompt}"]
+install_hint = "npm install -g @anthropic/claude-code"
+
+[providers.codex]
+command = "codex"
+args = []
+resume_args = ["--resume"]
+
+[providers.gemini]
+command = "gemini"
+args = []
+resume_args = ["--resume"]
+install_hint = "npm install -g @google/gemini-cli"
+
+// Any CLI agent can be added this way
+[Heading 1] Implementation Roadmap
+[Normal] A 16-week phased approach to building the unified orchestration workspace, starting from the Emdash foundation.
+[Heading 2] Phase 1: Foundation (Weeks 1-4)
+[Normal] •  Fork Emdash and audit the codebase architecture
+[Normal] •  Set up development environment with Electron + TypeScript
+[Normal] •  Understand the worktree manager, agent runner, and IPC bridge
+[Normal] •  Add custom provider definitions for all target agents
+[Normal] •  Implement basic orchestrator configuration UI
+[Normal] Deliverable: Modified Emdash running with custom provider set and orchestrator config panel.
+[Heading 2] Phase 2: Multi-Agent Core (Weeks 5-8)
+[Normal] •  Build agent-to-agent message bus over local HTTP
+[Normal] •  Implement agent session manager with fork/branch support
+[Normal] •  Add Swarm Room UI for parallel agent monitoring
+[Normal] •  Create task decomposition engine with structured LLM output
+[Normal] •  Build verification agent pattern (execute -> verify -> retry)
+[Normal] Deliverable: Working multi-agent workspace with orchestrator delegating to 3+ parallel agents.
+[Heading 2] Phase 3: Orchestrator Intelligence (Weeks 9-12)
+[Normal] •  Implement MCP server for shared memory (BridgeMemory equivalent)
+[Normal] •  Add wikilink-style knowledge graph with bidirectional connections
+[Normal] •  Build Review Room with human-in-the-loop approval gates
+[Normal] •  Add auto-merge with Janitor verification (Bernstein pattern)
+[Normal] •  Implement deterministic scheduling for zero-token coordination
+[Normal] Deliverable: Full orchestration pipeline with memory, verification, and human oversight.
+[Heading 2] Phase 4: Polish & Scale (Weeks 13-16)
+[Normal] •  Performance optimization for 16+ parallel agents
+[Normal] •  SSH remote development support
+[Normal] •  Ticket system integration (Linear, Jira, GitHub Issues)
+[Normal] •  Custom themes and UI customization
+[Normal] •  Documentation and community onboarding
+[Normal] Deliverable: Production-ready open-source multi-agent orchestration workspace.
+[Heading 1] Technical Deep Dive
+[Heading 2] Git Worktree Isolation
+[Normal] Git worktrees are the consensus isolation primitive across all evaluated tools. Each agent session gets its own working directory and branch:
+[Normal] // Create worktree for agent session
+git worktree add -b agent/task-001 ../project-task-001 main
+
+// Each agent runs in its own directory
+// No file conflicts between parallel agents
+// Merge results via standard git merge/PR workflow
+
+// Cleanup when done
+git worktree remove --force ../project-task-001
+git branch -D agent/task-001
+[Heading 2] PTY Terminal Emulation
+[Normal] node-pty (a native Node.js module) creates pseudo-terminals that allow interactive CLI agents to run as if in a real terminal. Combined with xterm.js in the renderer process, this provides full terminal emulation in the Electron UI.
+[Normal] •  Full TTY emulation: colors, cursor positioning, escape sequences
+[Normal] •  Bidirectional I/O: read and write to the terminal process
+[Normal] •  Process control: resize, kill, and monitor
+[Normal] •  Cross-platform: Linux/macOS (unix PTY), Windows (ConPTY)
+[Heading 2] MCP Protocol Integration
+[Normal] The Model Context Protocol (MCP), developed by Anthropic, standardizes how agents access external tools and context. It enables the orchestrator to expose shared memory, file system access, and inter-agent communication as tools that any agent can call.
+[Normal] •  MCP servers expose: tools, resources, and prompts
+[Normal] •  Agents call tools via structured JSON-RPC
+[Normal] •  Shared memory tools: create_memory, search_memories, find_backlinks
+[Normal] •  Enables any MCP-compatible agent to participate in the workspace
+[Heading 1] Conclusions & Recommendations
+[Normal] Building a BridgeSpace-style unified workspace with dynamic multi-provider orchestration is achievable today using existing open-source foundations. The ecosystem has matured significantly, with multiple viable starting points.
+[Heading 3] Primary Recommendation
+[Normal] Fork Emdash and build the orchestrator layer on top. Emdash provides the Electron desktop shell, multi-provider agent abstraction, worktree management, and SSH support — all under Apache-2.0. The missing orchestrator intelligence can be added incrementally without rewriting the foundation.
+[Heading 3] Alternative: Greenfield Build
+[Normal] If maximum flexibility is required, build from scratch using: Electron + React (desktop shell), node-pty + xterm.js (terminals), SQLite (state), and a custom orchestrator engine inspired by Bernstein's deterministic scheduling. This approach requires more effort but eliminates any architectural constraints from an existing codebase.
+[Heading 3] Key Success Factors
+[Normal] •  Provider abstraction must be config-driven, not hardcoded
+[Normal] •  Git worktrees are essential for conflict-free parallel execution
+[Normal] •  Verification gates prevent error propagation in agent chains
+[Normal] •  Human-in-the-loop design maintains developer control
+[Normal] •  MCP integration maximizes interoperability with the agent ecosystem
+[Normal] The window of opportunity is open. The tools, patterns, and protocols needed to build this system are all production-ready. The differentiator will be execution quality and the sophistication of the orchestrator intelligence layer.
+[Normal] Build the Future of Agent Orchestration
+[Normal] Research compiled May 2026
+[Normal] Based on analysis of 15+ open-source tools and frameworks
+--- TABLE 0 ---
+License | Apache-2.0 with patent grant
+Platform | macOS, Windows, Linux (cross-platform)
+Tech Stack | Electron + TypeScript + React + SQLite
+Agent Support | 20+ CLI providers (auto-detected from PATH)
+Isolation | Git worktrees per agent session
+Remote Dev | Full SSH with ProxyCommand support
+Ticketing | Linear, Jira, GitHub Issues native integration
+Storage | Local-only SQLite
+Community | 92 contributors, 106 releases
+--- TABLE 1 ---
+License | Open source
+Platform | macOS, Linux
+Tech Stack | Go (native binary)
+UI | Terminal UI (TUI) with three panes
+Agent Support | Claude, Codex, Gemini, OpenCode + any custom CLI
+Resource Use | ~36MB RAM (vs 8-10GB for agents)
+Features | Worktrees, companion terminals, macros, fork sessions, git staging, PR tracking
+--- TABLE 2 ---
+Tool | License | Platform | Agents | UI Type | Orch. | Best For
+Emdash | Apache-2.0 | All | 20+ | Electron | Manual | Visual desktop ADE
+Dux | Open | Mac/Linux | Any | TUI | Manual | Terminal-first control
+Claude Squad | AGPL-3.0 | All | 6+ | TUI | Manual | Human-in-the-loop
+Bernstein | Apache-2.0 | All | 30+ | CLI+Web | Auto | Deterministic orchestration
+Vibe Kanban | Apache-2.0 | Web | 10+ | Web | Kanban | Kanban-driven workflows
+Composio AO | MIT | Web+CLI | 4+ | Web | Auto | Full CI automation

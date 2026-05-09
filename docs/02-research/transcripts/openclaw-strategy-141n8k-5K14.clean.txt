@@ -1,0 +1,332 @@
+In this video, I'm going to be setting
+up three Open Claw agents that are going
+to be 24/7 autonomous agents working for
+Bridge Mind. Here is a quick look at my
+Open Claw setup. As you can see here, I
+just have a desk over on the other side
+of my office, which has three Mac minis
+and three Open Claw bots completely
+configured. Open Claw has completely
+taken the internet by storm. Most
+recently, OpenAI just purchased Open
+Claw and Peter Steinberger just joined
+OpenAI. So, a lot's going on and of
+people on the internet are like really
+hyping this up and what I want to do is
+I want to provide you guys with a
+genuine, authentic journey with Open
+Claw because there's a lot of different
+things about Open Claw that I find
+interesting that give me personally a
+different feel of like, okay, this AI
+agent is much different than your
+ChatGPT or your Claude code. This is
+definitely something that you want to
+stay up to date with. All right, so the
+first thing that I want to show you guys
+is the Discord server that I have set up
+for my Open Claw agents. You can see
+this is a server called Bridge Mind
+agents and you can see Dario, Elon, and
+Sam over here. They're all wearing their
+Bridge Mind hoodies and they are ready
+to go. So, I've set this off off camera
+because it's actually a pretty simple
+setup. Um, but Discord is kind of the
+way to go if you're looking for this. If
+you have multiple agents and you want
+them to end up collaborating in the long
+run, I think that Discord is a great way
+to do that and to be able to just open
+up one server and be able to have access
+to all the agents rather than like
+accessing like Telegram and whatnot. So,
+I think that Discord is the best way to
+go for setting these up. And what I want
+to do in this video is I actually want
+to set these up with you guys. And what
+you're seeing here is the three core
+elements of an Open Claw agent, the
+soul, identity, and then the user MD
+file, which is a little bit about me.
+And this is what makes me realize that
+this is a different level of agent than
+what we've been working with previously
+because this, you're giving your agent a
+personality. You're giving it a face,
+and you're telling it about yourself,
+and it's then able to operate and
+orchestrate other sub agents. So, what
+we're going to do is we're going to set
+this up, and I've already included a
+read me. I've had Claude basically
+export everything that it knows about
+me. So, community, 5,600 members.
+YouTube, 46,000 subscribers. It's going
+to know that I'm doing a series where
+I'm vibe coding an app until I make a
+million dollars. It knows that I have
+22,000 on X. It knows that I have a
+total reach of 70,000. It knows that my
+revenue's at 40k. It knows that the
+MRR's at 2,000 plus. So, there's all
+these different elements that it knows
+about me, different products,
+viewcreator.ai, bridgespace,
+bridgevoice, bridgecode, bridgemcp,
+bridgebench, bridgemindpro, all of the
+the website, the information about
+bridgemind, the information about me.
+So, this is what I'm going to be sharing
+with it, and it says teaches by doing,
+not lecturing. You know, all this stuff
+that's important, right? So, I'm going
+to drop this in, and I'm going to add
+this at Elon, and we'll see how this
+ends up functioning. Um
+here is a little about me.
+So, I'm going to paste this in, and I'm
+going to do the same thing with these
+other agents, right? So, I'm going to
+add Dario, and I'm going to paste it in.
+Now that that step is complete with
+sharing with each agent information
+about me, now I'm going to move on to
+configuring the souls and identities
+that I shared with you that are really
+important. And my strategy for setting
+up the souls and identities is to make
+each open Claude agent have its own
+role. So, Sam is going to be my general
+purpose assistant. The soul, if we take
+a look at the identity of Dario, he's
+going to be the marketing specialist.
+And for Elon, he's going to be the
+engineering specialist. So, all I have
+to do is copy I had Claude come up with
+a soul, and every all the information,
+so it's has my information from
+bridgemind, it has everything that needs
+to do, and I'm now going to copy and
+paste that into Sam. So, I'm going to
+drop in the soul and I'm now going to
+drop in the identity file as well. So,
+I'm just going to copy this and I'm
+going to paste them both over. So, let's
+paste this into Sam.
+Take a look at the new soul and identity
+that I'm giving you and update
+accordingly.
+So, Sam is now going to become my
+general purpose assistant. We'll let Sam
+sit and ruminate with that for a little
+bit and process that. We're now going to
+copy and paste at Dario and we're going
+to give Dario the
+identity and soul that it needs. Let's
+paste him in there. And same thing.
+I now want you to give Dario this
+following soul and identity
+respectively. Update the soul and
+identity.
+So, I'm going to paste that in and now
+I'm going to go over to Elon and at
+Elon, same exact thing. We're going to
+copy and paste the soul over to Elon.
+Copy the soul. Copy the identity. And
+there we go. There we go. I now want you
+to update the soul and identity of Elon
+respectively. So, we're going to now
+paste in this. And this is going to be a
+learning process for sure, but what I
+want to do is for each agent, they are
+going to be specialized for a particular
+part of the BridgeMind organization as a
+whole. A general purpose assistant, a
+marketing specialist, and an engineering
+specialist. I want to give Dario a quick
+test so that we can test the
+capabilities. So, I just passed in a
+prompt. You can see it here. The first
+thing I want you to do is go to the
+BridgeMind YouTube and review how things
+are currently performing. So, this is
+going to give Dario the task of going to
+my YouTube channel because he's the
+marketing specialist and as the
+marketing specialist, he'll be able to
+open up YouTube, go to my YouTube
+channel, and see, okay, how things are
+performing, okay? The next thing I want
+to do is go over to Sam and I'm going to
+ask Sam, he's the general purpose
+assistant. So, I actually have Remotion
+and I have all everything I need, Claude
+code, everything I need installed uh, on
+all of these open Claude bots. So, I'm
+going to use Sam real quick. I want you
+to now revisit the bridgemind.ai
+website.
+Um, and
+I want you to create an updated
+marketing video for Bridge Code, which
+is releasing on March 1st of 2026, and I
+want you to create an on-theme marketing
+video for Bridge Mind for this new
+product, Bridge Code. Review the
+website, review the benefits of Bridge
+Code, review what it's about, and output
+and send me the Remotion video once you
+are done. It should be 20 seconds long.
+So, we're going to give it this, and
+we're going to submit that. And it's
+going to be able to go out and literally
+create a 20-second marketing video using
+Bridge Mind branded themes, and create
+this marketing video. Let's go back over
+to Dario, and here's what we're looking
+at. So, here's the current performance
+snapshot based on the last 10 days of
+uploads, recent performance. So, here
+are all of my video performances, and
+you can see your vibe coding streams are
+pulling in two to four times more views
+than the weekly updates. The community
+is clearly tuning in for the tools, the
+stack, and the build process. This is
+your winning lane right now, right? So,
+being able to have information like this
+is important, but what's more important
+is that ultimately my goal and strategy
+with, for example, Dario here is that
+Dario is going to be helping me in
+actually creating and posting content
+across about 50 accounts that are going
+to be posting short clips. So, one thing
+that is very important whenever you are
+doing social media is that you need
+clipping. And one issue with clipping is
+that you need to create a ton of
+different accounts, right? You need
+accounts, you need clips, you need to be
+posting, and Dario is going to be
+working with View Creator to help me do
+that. That is my vision for Dario, our
+marketing specialist. Now, with Elon, if
+we go back over to Elon, Elon I set up
+as the engineering specialist, and I'm
+going to can be configuring him to use
+Sentry and Posthog to be able to have
+the analytics needed to be able to be
+proactive in what we're seeing in
+analytics as well as error logs from
+both Sentry and Posthog. So, what I'm
+going to do now is I'm going to add
+Elon.
+I want you to set up the Sentry MCP as
+well as the Posthog MCP with Claude
+code. Once you're done, tell me. And
+also ask me for the API keys that you
+need for setting up and configuring
+these successfully. So, we're going to
+get that. I know that it's going to need
+API keys, but to at least get them set
+up and configured, we're going to take a
+step in the right direction there. Also,
+let's go back over to Sam and look at
+that. What what How long has it been? 2
+minutes? So, Bridge Code marketing
+video, 20 seconds on theme. Let's play
+it.
+So, here it is. Bridge Code, your
+terminal supercharged. Bridge Code.
+So, there it gives Vibe coding native PR
+creative. Just a nice little infographic
+here. So, this is like, okay, you know,
+but just for 2 minutes for a one-shot,
+this is pretty impressive. Available
+March 1st, 2026. Included with Bridgmind
+Pro, right? So, my point with this in
+showing you guys how this is different.
+That's really my goal here is to show
+you guys how I'm going to be
+implementing this because this is a
+different technology and AI system than
+what we're used to. You are able to run
+these open claw bots in isolated
+environments with computer use. I can
+even tell Dario right now,
+um,
+let's @Dario. I want you to open up
+iMovie and then I want you to create a
+new project in iMovie that is titled
+Vibe coding with Claude Sonnet 4.6.
+So, let's @Dario here and we're going to
+give it this. And we're going to see,
+hey, is it able to open up iMovie on my
+on my Claude on my open open claw
+instance here that's running with uh
+with Mac Studio. And is it is it able to
+Mac Studio Mac Mini and is it able to
+open it up and is it able to actually
+create a new iMovie project because I am
+going to be creating a new video in this
+way here soon, right? So, is it able to
+do that in its own isolated environment
+and could it actually help me with the
+video editing process? So, this is going
+to be a lot of experimentation, but the
+purpose of this video is that I want to
+share this journey with you guys because
+I think that agents are going to be more
+and more of a thing as we get further
+and further into the future. And if we
+want to build the future, we're going to
+have to adopt new technologies and this
+technology is definitely one and I just
+saw iMovie open up on my Mac Mini over
+there. That's insane. So, it's literally
+opening up iMovie and it's creating this
+project. That's incredible. I can see it
+on my other computer. So, that's insane.
+So, we're going to be using these in a
+way that not a lot of other people are
+using them, you know, my goal here is to
+not use them for content purposes. My
+goal is to actually use them in real
+practice and to be able to share that
+journey with you guys. So, this is going
+to be a little bit of a new series on
+the channel. I'm going to be sharing
+this process with you guys because I
+think that this is going to improve
+significantly, but the first steps are
+just to set up the personalities, the
+identities, and the information about
+you and we've done that so far in this
+video. I wanted it to be a little bit
+shorter, but that's what I'm going to be
+doing. You guys are going to be seeing
+these open claw bots a lot more on
+stream
+because what I'm able to do is pass off
+difficult long-running tasks to these
+agents or set up cron jobs and it
+functions completely differently versus
+if I just had chat GPT or a claw
+instance running on my own computer,
+right? These are actual AI agents that
+are running in their own isolated
+environments with souls, personalities,
+identities, and information about me.
+So, this is going to be a very good
+series on the channel. I think that this
+is going to be a big step in the right
+direction. This is my first step towards
+my open claw journey and you guys are
+going to be seeing a lot more of this on
+the streams, but I hope that this guys
+this helped you in one way or another.
+But, this is my journey. This is the
+start of it and I will see you guys in
+the future.

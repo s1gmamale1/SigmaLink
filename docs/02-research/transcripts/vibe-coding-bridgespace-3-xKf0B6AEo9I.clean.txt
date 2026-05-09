@@ -1,0 +1,509 @@
+In this video, I'm going to be vibe
+coding with the newly released Bridge
+Space 3, which is now live on Product
+Hunt. For the past 3 months, I've been
+using Bridge Space as my daily driver
+when vibe coding, and I have to say this
+version 3 release is the biggest update
+to Bridge Space since it initially got
+launched. I'm going to be creating a
+mobile app, I'm going to be creating
+marketing videos, I'm going to be making
+updates to the Bridge Mind website.
+You're going to learn a ton, and you're
+also going to learn why Bridge Space 3
+is the best agent development
+environment on the market. The first
+thing that we're going to build is a
+mobile app. So, to do this, all you have
+to do is click the plus button and start
+a new workspace where you have three
+options. You can choose between a Bridge
+Space, a Bridge Swarm, and a Bridge
+Canvas. We're going to choose Bridge
+Space for now. I'll get into Bridge
+Swarm and Bridge Canvas a little bit
+later in the video. You then set up your
+workspace. So, you can either navigate
+to whatever folder that you want on your
+computer. So, for example, I can CD into
+my desktop and then CD into Bridge Mind,
+or you can just select this, and it's
+much easier to just navigate if you just
+want to use the UI to navigate to
+whatever folder you want to open up this
+workspace in. You then choose how many
+terminals you want. So, how many coding
+agents you actually want inside of this
+workspace. So, let's just get started
+with two. And what's really cool is you
+also have access to presets. So, no
+other ADE does this, but you have
+presets where, for example, I could just
+click this preset and it launches four
+Claude code agents just like that in the
+directory that I want them to launch in.
+It's very, very nice to do that. But,
+let's go back to creating this Bridge
+Space. Let's do a CD back into desktop,
+and then let's go over to Bridge Mind,
+and let's launch two. And you can choose
+between whatever agents you use. So, you
+can choose Codex, Claude, Gemini, Open
+Code, Cursor, Droid, or Co-pilot. We're
+going to launch one Codex and one
+Claude. You can also enter custom
+commands as well. So, let's launch these
+two terminals, and these two terminals
+are going to launch. We have one Claude
+code agent and one Codex agent, and now
+here is our workspace ready to go. I do
+have an issue with this workspace, and
+the issue that I have is that I need a
+couple more coding agents in order to
+build out a mobile app. So, what I'm
+going to do is I'm going to go over to
+this right tab here. As you guys can
+see, I have the browser pulled up, and
+anytime I can just collapse this or
+expand this as much as I want, just
+depending on how much space you need for
+your workspace. You can also drag it.
+But, we have access to a browser, we
+have an access to the IDE where you're
+able to actually see what's going on in
+the code base, and then you also have
+access to this new bridge agent. So,
+this is new in the Bridge Space 3
+update, and this agent has complete
+access to your workspace. It has context
+to your code base, it has context to
+what's going on inside of each agent,
+and it also has tools which we've built
+custom into the bridge agent so that
+it's actually able to take actions on
+your behalf, and that it can even prompt
+agents for you. Let me show you what I'm
+talking about. Hey there, Bridge. I want
+you to launch four more Codex agents,
+four more Claude code agents, and two
+Open Code agents. All 10 agents up and
+ready. Okay, so as you can see, Bridge
+here was able to launch all of the
+agents in the workspace. So, without me
+doing anything, this agent has full
+access to the workspace and is actually
+able to orchestrate your agents for you.
+I now need you to orchestrate these
+agents to all work together so that they
+are able to build a new app called
+Bridge Space app, which is going to be a
+React Native Expo app that uses Native
+Wind and follows the existing theme and
+styling and marketing principles that
+you see in the Bridge Mind UI. Note that
+this app needs to interface with the
+Bridge Mind API, and it also needs to
+have core functionality that allows it
+to integrate and dispatch with the
+Bridge Space desktop application Bridge
+Space Tari in this folder. I need you to
+now help me build out the initial UI and
+functionality for this app. For now,
+let's just focus on the initial styling,
+branding, and create a welcome screen as
+well as a login flow that allows us to
+be able to open up the app, login, and
+see a dashboard where we are able to
+dispatch actions to Bridge Space Tari.
+Assigning tasks. Swarm task. They're
+planning and building Bridge Space
+principles now.
+&gt;&gt; Okay, guys, so all of our agents are
+running here. I did not prompt these
+agents. This was all Bridge, and you can
+see even one of our agents here is
+already completed. This is also another
+feature that's new inside of Bridge
+Space 3, which is the notification
+system. So, if you guys heard that
+little ding, that's the notification
+system. So, whenever your agents are
+completed, you could be in a different
+workspace over here, let's say, and if I
+go over here, I can just do jump to
+pane, and it opens up that pane, and
+it's right here, right? So, it's ready
+to be prompted again. But, one thing
+that I want to note about what's
+happening here. You guys saw that Bridge
+was able to prompt all of the agents for
+me. I just had to speak my prompt into
+Bridge, and it gave all of these agents
+different tasks. And something that's
+really, really cool about this is since
+it has access to the code base, it's
+able to prompt correctly with best
+practices. So, even here, for example,
+you can see that this one, it said
+create new React Native Expo app called
+Bridge Space app in workspace root.
+Match Bridge Mind UI, Bridge Mind UI
+Tailwind config, and then the Bridge
+Mind UI lib theme file. It says use
+Native Wind in it with welcome screen.
+So, you guys can see here that it
+prompted referencing the actual files
+that it needed to. So, you don't have to
+write prompts yourself anymore. Bridge
+does it for you. While Bridge Space is
+building our mobile app, the next thing
+that I'm going to show you guys is the
+Bridge Swarm V3. So, there is a new
+harness inside of Bridge Swarm. This is
+one of the most popular features and
+tools inside of Bridge Space to date,
+and I'm going to use this and show you
+guys how to use it. So, we're going to
+build a marketing video using Bridge
+Swarm. So, I'm going to use Hyper
+Frames. This is a new framework for
+creating marketing videos. It's similar
+to Remotion, but a lot of people say
+that it's better. I've never used it, so
+we'll get a first look at it today. But,
+with Bridge Swarm, you are able to
+launch a swarm of agents that have
+different roles that are able to
+communicate and message one another. So,
+let's just launch a squad, which is five
+agents. So, there's a coordinator, a
+builder, a scout, and a reviewer. I want
+my coordinator to be Claude, I want my
+builder to be Codex, and I want my scout
+to be Let's use Codex for that one as
+well. And that looks good, and then the
+reviewer will be Claude. So, what we're
+going to do now is we're going to go
+next, and this is where we give the
+swarm mission. So, what I'm going to do
+here is I'm going to do @Bridge Space
+Tari, which is the application that I
+want to make a marketing video on. So,
+I'm just going to give it a quick voice
+prompt here. I want you to create a
+30-second marketing video using Hyper
+Frames for Bridge Space. This marketing
+video needs to use the Bridge Mind logo
+and be fast-paced, but easy to follow.
+It needs to have actual UI from Bridge
+Space and really sell Bridge Space 3,
+which is launching today. Okay, that's
+all I'm going to give it. It's just very
+simple prompt, but the swarm will
+actually be able to communicate with one
+another, and it'll do a little bit
+better than if you were just prompting a
+singular instance. So, let's go to next
+here, and I'm now going to CD into the
+directory that I need the swarm to run
+in. So, it's going to run in the Bridge
+Mind directory, and you can also add
+supporting context. I'm not going to add
+any supporting context here, except for
+Actually, let's go back. I did forget to
+add the GitHub for Hyper Frames. So, I'm
+going to add that in there to the swarm
+mission, and let's now go here, and this
+is going to just be called marketing
+video. And let's do launch swarm. And
+once the swarm launches, you're going to
+see this interface. Okay? And as you can
+see, the swarm is now connected, and at
+any time you can message any agents or
+all agents from this swarm. So, you can
+see you can message the coordinator,
+builder one, builder two, scout one, or
+the reviewer. The coolest part about
+Bridge Swarm though is that you can
+actually see what's going on behind the
+hood. So, if you go over to the chat
+here, you can watch as your swarm
+interacts and engages with one another.
+So, you can see here that the first
+thing that happens is coordinator one
+will give the agents in the swarm their
+tasks. So, you can pause the video here
+and look at this task that it gave scout
+one, but overall, the number one task
+was to review the Hyper Frames
+framework, and then the second task was
+to review the Bridge Space UI assets
+that are available. You can also see
+that these agents, once they're
+completed with their tasks, you can see
+that scout one told coordinator one that
+task one is complete. It posted a code
+base report in scout one board section,
+and here are all of its findings. We can
+also go to builder one, and it says that
+task two is complete, that it created a
+Bridge Space Tari marketing video Hyper
+Frames assets directory with the logo
+and screenshots folder. So, this is
+incredible. This is revolutionary.
+Nobody else is doing this. We just got
+another message from scout one. It says
+that it's urgent, follow up complete. It
+cloned Hyper Frames to the temporary
+Hyper Frames at commit. I mean, this is
+incredible, right? These agents are
+communicating with one another, and each
+agent with the new Bridge Swarm V3
+harness is very, very powerful. Okay,
+the marketing video is now completed
+from the swarm. So, it says Bridge Space
+V3, ship at the speed of thought. It
+then has this little infographic, spawn
+eight agents, ship it. It then shows
+this screenshot, 12 terminals, one
+workspace, sub-second startup. Shows the
+workspace, and then here is it says
+spawn a swarm, watch them ship, and then
+it says Jarvis, spin up a four-terminal
+workspace with Claude, command by your
+voice. And then here's the 12
+handcrafted theme. So, just for a
+one-shot, Bridge Space V3 launching
+today, Bridge Space
+bridgemind.ai/bridgespace.
+Just for a one-shot, not bad, right? And
+I think with a follow-up prompt, which
+we can do, for example, I'll show you
+guys how this works. I can go over here
+and I can actually just message
+coordinator one and I can say,
+"Okay, that was good, but I'm not a big
+fan of the unprofessional gradients.
+Would you review the theme and styling
+of BridgeSpace and make it a little bit
+more modern and darker themed? I didn't
+like all the purple gradients. Fix this
+and then copy the video over to my
+downloads directory again." So, when I
+do this, I entered that with
+BridgeVoice, I submit this prompt, and
+what's really cool is we can actually go
+behind the scenes to see what's
+happening. And what you can see here, if
+you look at this terminal right here, is
+it says, "Operator to coordinator one."
+And then it passed in my prompt, right?
+So, what's really cool is then that the
+coordinator is then able to get the
+other agents running and prompt the
+other agents based off of what I asked
+the coordinator to do. So, BridgeSwarm
+V3 harness is shipping live with
+BridgeSpace 3. And as you guys can see,
+this is an incredible tool. If you guys
+have large projects to work on or huge
+refactors that you need to do, launching
+a BridgeSwarm is very, very useful.
+BridgeSpace now has an incredible
+browser built into it. So, literally,
+all these terminals, if I have a link in
+the terminal, I can just click the link
+and it literally opens up that link
+inside of the BridgeSpace browser. And I
+can open up as many browsers I want. So,
+I can go to BridgeMind.ai, I can go to
+OpenRouter if I wanted to,
+openrouter.com. I could go to X, and
+there's now a new design tool. And if we
+go to this design tool, what you're
+going to see is that you can now select
+HTML elements. So, for example, let's
+just select this one here and we're
+going to give it a prompt real quick
+here.
+"I want you to review this and gain a
+complete understanding of the div
+element here in the animation that's
+inside of it." So, I can give it this
+prompt, right? And when I click submit,
+it's going to open up a new Claude
+instance. I can also set it to whatever
+agent I want. So, for example, if you
+use Codex, I could select a different
+div, and you can select whatever agent
+you want. So, Codex, Gemini, OpenCode,
+and you can submit it to whatever agent.
+So, it's now reviewed this HTML, and we
+what we want to do is we now want to
+submit that marketing video. So, let's
+drag and drop this.
+"I now want you to replace that
+animation with this marketing video in
+the project." So, I'm going to pass in
+that MP4 video, and it knows what div
+I'm talking about. So, if I didn't If I
+was working with this, right, and I
+didn't necessarily like understand what
+component that actually was inside of
+the codebase, you can just go around and
+you can select HTML elements. Like, for
+example, if I needed to adjust what this
+looked like or make this go away, I
+could just do that very, very easily.
+Like, watch this. Let's say I just
+select that. "I need you to remove
+this." So, we can just submit this. "I
+need you to remove this." It submits it
+to Claude, and Claude goes off, and
+it'll be able to remove it in a second.
+But, this is incredibly powerful, and I
+think that Let's just watch as this
+works, but it'll be able to input that
+MP4, and it'll also be able to remove
+this little the toolkit, which just can
+be removed. Boom! Just like that, we now
+have the marketing video integrated
+exactly where we need it, and we also
+have that little pill at the top there
+removed. So, this design tool is
+incredibly useful, and I use it now
+every single day in my workflow. Another
+cool feature that's shipping with
+BridgeSpace 3 is that you now have an
+IDE that is built into BridgeSpace. So,
+check this out. If you look here, it's
+connected to the terminals where if
+something gets outputted here, right, I
+can just click this, and it's going to
+pull that file up inside of the
+BridgeSpace editor. So, here is that
+file. I can also click on this one to
+see that file, this one as well to see
+that one. So, what's really nice about
+this is it just keeps you in the flow. I
+hate having to context switch between my
+editor and like VS Code or Cursor. So,
+this is really nice because Claude does
+output a lot of files. So, if it creates
+an MD file or it's referencing some
+other file, and it says, "Hey, I just
+made this." You want to look at it,
+right? So, you can do that now. For
+those of you that do read code, you can
+now do that inside of BridgeSpace. You
+can check out all the files that are
+outputted, and you can even create and
+add files as you need, just like you
+would with any other IDE. All right,
+guys. So, let's now check out this app
+that was built by Bridge Agent. So, you
+can see that here is the welcome screen.
+It says, "Build the future, the Vibe
+coding platform for builders who ship at
+the speed of thought." Let's see if it
+actually works though and if it hooked
+it up with our API. So, welcome back.
+Let's do continue with email. Here's a
+little sign-in screen. So, let's try
+signing in.
+And let's see. And yeah. Okay, it works.
+So, that is really sick. You can see it
+has the BridgeMind logo. It has
+everything that needs. You can see it
+has my pro plan rendered in and just a
+few available actions. These aren't
+hooked up yet, it looks like. Swarm
+Yeah, these aren't hooked up yet, but
+this is going to be shipping out with V4
+of BridgeSpace as we are going to work
+on it so that you can actually make it
+so that you can dispatch actions from
+your phone. But, you guys are seeing it.
+This is a little Easter egg. This is the
+first time that we are actually working
+on it, and you guys saw it here. The
+thing that built it was Bridge Agent.
+The initial structure of this was built
+using BridgeSpace. And that's the big
+thing about this is that I use
+BridgeSpace every single day, and I
+built BridgeSpace using BridgeSpace.
+This is by far the best agent
+development environment in the world, no
+doubt about it, and I use it every day.
+And I want you to start shipping with
+BridgeSpace, too. 167 days ago, I
+started Vibe coding an app in public
+live on stream with the goal in mind of
+making a million dollars, and I came
+into it with the mindset that
+consistency is the key and that staying
+power will help you succeed and that if
+I just stay consistent and I show up
+every day that I will succeed. Current
+ARR is now $90,000.
+When I first started that journey, I
+literally had nothing. I had no
+community, no following, no platform, no
+product, and I'm now at $90,000 in ARR.
+So, I want to get to 100,000 in ARR, and
+I think that with the launch of
+BridgeSpace 3, I think we can do it. So,
+I just want to show you guys want to
+give you a quick rundown of the
+different pricing options, and know that
+with the launch of BridgeSpace V3, I'm
+now going to be giving you guys the
+option to get 50% off forever if you use
+code V3 at checkout. So, if you guys
+look at this, V3 at checkout, here is
+the prices if you use code V3, and that
+is limited. Here is what comes with your
+plan. For the basic plan, you get 5,000
+credits a month. You get BridgeMind
+account access. You get access to
+BridgeSpace. You get access to the
+multi-agent swarms. You get access to
+the BridgeJarvis voice assistant that
+you saw as it was orchestrating all of
+those agents. But, I recommend the pro
+plan because with the pro plan, you get
+12,500 credits. You get everything in
+basic. You get access to the BridgeMind
+MCP and BridgeVoice, which is the
+voice-to-text tool that I was using in
+this video. Just remember that if I can
+do it, you can do it, too. And you can
+look back on my journey and see where I
+started 167 days ago when I started with
+nothing. And know that this is all been
+made possible with Vibe coding, and that
+Vibe coding is the future of software
+development. Is It is the great
+equalizer where somebody that is able to
+get a tool can now build anything that
+they want. And BridgeSpace is that tool.
+It has enabled me to build so much and
+get to $90,000 in ARR. And I want to get
+to 100. But, I want to help you. And
+that's how I'm going to get to 100,000
+is by helping you and building the best
+product possible. And that's why I use
+BridgeSpace every day, and it's pretty
+much the only Vibe coding tool that I
+use because it's the best on the market.
+But, with that being said, if you guys
+haven't already liked, subscribed, or
+joined the BridgeMind Discord community,
+which is the home of the Vibe coding
+movement, make sure you do so. I'll be
+live on stream right after this video
+finishes for day 167. And with that
+being said, I will see you guys in the
+future.
