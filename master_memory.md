@@ -178,21 +178,86 @@ The user was asleep through most of Wave 4 onward. Decisions taken without confi
 14. Pushed every wave's commit individually with a hand-written body rather than batching. Easier to bisect.
 15. Cut `v0.1.0-alpha` tag rather than waiting for `1.0.0` once the Definition of Done was 7-Pass / 4-Partial / 1-Not-exercised / 0-Fail. Alpha is honest.
 
-## Things explicitly left for the user when they wake
+## Status snapshot — what's ready / what's left at v0.1.0-alpha
 
-- BUG-W7-003 fresh-kv re-verification.
-- BUG-W7-006 manual GUI re-verification.
-- 6 P3 bugs (sweep them in one pass when you're rested).
-- Real CDP-attach mode for the browser; per-workspace cookie isolation; bookmarks/history/downloads.
-- Skills zip ingestion; project-scoped skills.
-- Memory: Barnes-Hut quadtree above ~500 notes; Monaco editor; agent→GUI `memory:changed` push.
-- Bridge Canvas (visual design tool — research only at this point).
-- SSH remote workspaces; voice assistant; ticket integrations; Anthropic Skills marketplace browser; auto-update channel.
-- First real-world dogfood: Claude Code + Codex + Gemini in a 4-pane swarm against a non-trivial repo. Watch what breaks.
+This is the canonical ready/left ledger for the alpha. Pair with `CHANGELOG.md` for the keep-a-changelog history and `docs/06-test/ACCEPTANCE_REPORT.md` for the smoke-flow Definition-of-Done table.
+
+### What's ready (shipped + tagged on GitHub `v0.1.0-alpha`, commit `83e22f1`)
+
+**Foundation**
+- Electron + Vite + React 19 + TypeScript app; 11 providers; real PTYs; Git worktree pool; SQLite via Drizzle; typed RPC bridge with channel allowlist.
+- Cross-platform PTY: Windows `.cmd` shim resolver via PATH+PATHEXT, `pwsh → powershell → cmd.exe` default-shell preference; macOS/Linux honour `$SHELL`.
+- Boot janitor (zombie-row reaper + best-effort `git worktree prune`), graceful DB close with `PRAGMA wal_checkpoint(TRUNCATE)`, 256 KiB ring-buffer per terminal session.
+
+**Rooms**
+- Workspaces launcher — pick a folder, choose a 1/2/4/6/8/10/12/14/16-pane preset, assign a provider per pane, recents list, native folder picker.
+- Command Room — mosaic / columns / focus layouts, X-to-remove, auto-remove on exit, sl-pane-enter motion.
+- Swarm Room — 4 roles (Coordinator / Builder / Scout / Reviewer), Squad / Team / Platoon / Legion presets, mailbox bus (SQLite + JSONL mirror), side chat with sticky recipient chip, broadcast, roll-call, dual-delivery (durable mailbox + PTY stdin).
+- Browser — `WebContentsView` pane, tab strip, address bar, `@playwright/mcp` supervisor (separate-Chromium mode), agent-driving lock with Take Over.
+- Skills — drag-drop SKILL.md folder, gray-matter frontmatter validation, sha256 content hash, atomic temp+rename copies, fan-out to `~/.claude/skills/`, `~/.codex/skills/`, synthesised `~/.gemini/extensions/sigmalink-<name>/`.
+- Memory — 12 MCP tools over hand-rolled stdio JSON-RPC, `.sigmamemory/<note>.md` atomic writes, wikilinks with `[[name]]` and `[[name|alias]]` syntax, backlinks panel, ~190-line canvas force-directed graph.
+- Review Room — Diff / Tests / Notes / Conflicts tabs, hand-rolled split or unified diff renderer, batch commit & merge with stepper, `merge-tree` conflict prediction.
+- Tasks Kanban — 5 columns (Backlog / In Progress / In Review / Done / Archived), `@dnd-kit/core`, drag-card-onto-roster assignment writes a `SIGMA::TASK` envelope.
+- Settings — Appearance / Providers / MCP servers tabs.
+
+**Polish**
+- 4 themes: `obsidian` default, `parchment` warm light, `nord` cool blue, `synthwave` neon dark. Reset-to-default in Settings.
+- Command palette `Cmd+K` via `cmdk` with sources for navigation, recent workspaces, theme switch, kill all PTYs, run shell command, ingest skill, create memory note, kill swarm.
+- 3-step onboarding modal gated on `kv['app.onboarded']`.
+- Sonner global error toaster auto-firing on rejected RPC envelopes; `rpcSilent` opt-out for probe loops.
+- Σ monogram + uppercase tracked SigmaLink wordmark; sidebar manual + auto-collapse below 1100 px with Radix tooltips when collapsed; Memory + Review collapse to single column below 900 px; CSS-only motion tokens + keyframes (`sl-fade-in`, `sl-slide-up`, `sl-pane-enter`).
+
+**Testing**
+- Playwright `@electron` harness at `app/tests/e2e/smoke.spec.ts`; 37-step capture across every room and every theme.
+- 0 console errors, 0 page errors, 0 crashes, 29.4 s.
+- 12-flow Definition-of-Done table: 7 Pass / 4 Partial / 1 Not exercised / 0 Fail.
+
+**Repo**
+- README, LICENSE (MIT), CONTRIBUTING, SECURITY, CODE_OF_CONDUCT (Contributor Covenant 2.1 pointer), CHANGELOG (Keep-a-Changelog), ATTRIBUTIONS, .editorconfig, `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.md`, `PULL_REQUEST_TEMPLATE.md`, `docs/README.md` index. GitHub metadata: description + 20 topics, issues on, wiki off.
+
+### What's left
+
+**Promote-to-verified (manual, ~10 min)**
+- BUG-W7-003 — re-launch with cleared kv to confirm theme default = `obsidian`.
+- BUG-W7-006 — manual GUI cycle to confirm `swarms.create` works immediately after `workspaces.open`.
+
+**P3 bugs still open**
+- BUG-W7-007 PowerShell upgrade banner spam in shell panes.
+- BUG-W7-009 Tasks icon weight inconsistent with the rest of the sidebar set.
+- BUG-W7-010 Smoke spec consumes raw IPC envelope (test-harness only — does not affect product).
+- BUG-W7-012 Onboarding-skip flake on slow boot.
+- BUG-W7-014 Browser room test coupling.
+- BUG-W7-015 Parchment CTA contrast.
+
+**Deferred features (from `CHANGELOG.md` Deferred section)**
+- Real CDP-attach mode for the in-app browser (currently separate-Chromium).
+- Per-workspace cookie isolation, bookmarks, history, downloads.
+- Skills zip ingestion, project-scoped skills, `react-markdown` SKILL preview.
+- Memory: Barnes-Hut quadtree above ~500 notes, Monaco editor, agent → GUI `memory:changed` push.
+- Bridge Canvas (visual design tool — research only).
+- SSH remote workspaces, voice assistant, ticket integrations (Linear / Jira / GitHub).
+- Anthropic Skills marketplace browser.
+- Auto-update channel (no `electron-updater` wired).
+- Native-module rebuild diagnostic for end-users.
+
+**Process leftovers**
+- Wave 4 `FINAL_BLUEPRINT.md` was never written; per-phase W5–W9 reports stand in.
+- Tasks responsive single-column at narrow widths.
+- Per-room tailored skeletons (currently a single shadcn `<Skeleton>`).
+- Sonner `<Toaster />` is mounted but no per-room toast strategy.
+
+**Recommended next-session priorities**
+1. Add an end-user "Re-probe agents" + native-module rebuild prompt in Settings (covers a real install-failure mode).
+2. Wire `electron-updater` so alpha users can pull subsequent fixes.
+3. Fix the 6 P3 bugs in one pass.
+4. Manually verify BUG-W7-003 + 006 and promote to `verified`.
+5. First real-world dogfood: launch Claude Code + Codex + Gemini in a 4-pane swarm against a non-trivial repo and watch what breaks.
+
+**TL;DR** — alpha is shippable; everything BridgeSpace-parity has a working v1; remaining work is polish, deferred research-grade features (Bridge Canvas, SSH), and one round of dogfood-driven fixes.
 
 ## Repo state at hand-off
 
-- `main` HEAD: tag-bearing release commit `83e22f1`.
+- `main` HEAD: tag-bearing release commit `83e22f1` (Wave 9 acceptance).
 - Tag: `v0.1.0-alpha` annotated, pushed.
 - 27 orchestration tasks logged in `memory_index.md`.
-- 26 commits on `main`, all signed `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`.
+- 27+ commits on `main`, every wave commit signed `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`.
