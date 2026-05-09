@@ -185,3 +185,32 @@ export interface BrowserState {
   lockOwner: LockOwner | null;
   mcpUrl: string | null;
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Skills Room (Phase 4)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type SkillId = string;
+export type SkillProviderId = 'claude' | 'codex' | 'gemini';
+
+export interface Skill {
+  id: SkillId;
+  name: string;
+  description: string;
+  version?: string;
+  /** Optional tag list pulled from frontmatter (renderer chips). */
+  tags?: string[];
+  /** Sha-256 of the managed folder contents (relpath:size:filehash join). */
+  contentHash: string;
+  /** Absolute path under `<userData>/skills/<name>/`. */
+  managedPath: string;
+  installedAt: number;
+}
+
+export interface SkillProviderState {
+  skillId: SkillId;
+  providerId: SkillProviderId;
+  enabled: boolean;
+  lastFanoutAt?: number;
+  lastError?: string;
+}

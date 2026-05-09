@@ -20,6 +20,8 @@ import { buildSwarmController } from './core/swarms/controller';
 import { BrowserManagerRegistry } from './core/browser/manager';
 import { buildBrowserController } from './core/browser/controller';
 import { PlaywrightMcpSupervisor } from './core/browser/playwright-supervisor';
+import { SkillsManager } from './core/skills/manager';
+import { buildSkillsController } from './core/skills/controller';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -27,6 +29,7 @@ interface SharedDeps {
   mailbox: SwarmMailbox;
   browserRegistry: BrowserManagerRegistry;
   playwrightSupervisor: PlaywrightMcpSupervisor;
+  skills: SkillsManager;
 }
 
 let router: ReturnType<typeof buildRouter> | null = null;
@@ -77,7 +80,11 @@ function buildRouter() {
     supervisor: playwrightSupervisor,
     onState: (state) => broadcast('browser:state', state),
   });
-  sharedDeps = { pty, worktreePool, mailbox, browserRegistry, playwrightSupervisor };
+  const skillsManager = new SkillsManager({
+    userData,
+    emit: (event, payload) => broadcast(event, payload),
+  });
+  sharedDeps = { pty, worktreePool, mailbox, browserRegistry, playwrightSupervisor, skills: skillsManager };
 
   const appCtl = defineController({
     getVersion: async () => app.getVersion(),
@@ -219,6 +226,7 @@ function buildRouter() {
   });
 
   const browserCtl = buildBrowserController({ registry: browserRegistry });
+  const skillsCtl = buildSkillsController({ manager: skillsManager });
 
   return defineRouter({
     app: appCtl,
@@ -229,6 +237,7 @@ function buildRouter() {
     fs: fsCtl,
     swarms: swarmsCtl,
     browser: browserCtl,
+    skills: skillsCtl,
   });
 }
 

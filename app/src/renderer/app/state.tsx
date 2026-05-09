@@ -6,6 +6,8 @@ import { rpc } from '@/renderer/lib/rpc';
 import type {
   AgentSession,
   BrowserState,
+  Skill,
+  SkillProviderState,
   Swarm,
   SwarmMessage,
   Workspace,
@@ -34,6 +36,10 @@ export interface AppState {
   swarmMessages: Record<string, SwarmMessage[]>;
   // Browser room (Phase 3): per-workspace state slice keyed by workspaceId.
   browser: Record<string, BrowserState>;
+  // Skills room (Phase 4)
+  skills: Skill[];
+  skillProviderStates: SkillProviderState[];
+  skillsBusy: Record<string, boolean>; // skillId|skillId:provider → in-flight
 }
 
 type Action =
@@ -51,7 +57,13 @@ type Action =
   | { type: 'SET_SWARM_MESSAGES'; swarmId: string; messages: SwarmMessage[] }
   | { type: 'APPEND_SWARM_MESSAGE'; message: SwarmMessage }
   | { type: 'MARK_SWARM_ENDED'; id: string }
-  | { type: 'SET_BROWSER_STATE'; state: BrowserState };
+  | { type: 'SET_BROWSER_STATE'; state: BrowserState }
+  | {
+      type: 'SET_SKILLS';
+      skills: Skill[];
+      states: SkillProviderState[];
+    }
+  | { type: 'SKILLS_BUSY'; key: string; busy: boolean };
 
 const initial: AppState = {
   ready: false,
@@ -64,6 +76,9 @@ const initial: AppState = {
   activeSwarmId: null,
   swarmMessages: {},
   browser: {},
+  skills: [],
+  skillProviderStates: [],
+  skillsBusy: {},
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -158,6 +173,18 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         browser: { ...state.browser, [action.state.workspaceId]: action.state },
       };
+    case 'SET_SKILLS':
+      return {
+        ...state,
+        skills: action.skills,
+        skillProviderStates: action.states,
+      };
+    case 'SKILLS_BUSY': {
+      const next = { ...state.skillsBusy };
+      if (action.busy) next[action.key] = true;
+      else delete next[action.key];
+      return { ...state, skillsBusy: next };
+    }
     default:
       return state;
   }
@@ -282,6 +309,30 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       });
     });
     return off;
+  }, []);
+
+  // Initial skills hydration + live refresh when the main process notifies us.
+  // Defined inside the effect so the dep array stays empty (no stale closure
+  // risk: `dispatch` from `useReducer` is referentially stable per React docs).
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => {
+      void (async () => {
+        try {
+          const list = await rpc.skills.list();
+          if (!alive) return;
+          dispatch({ type: 'SET_SKILLS', skills: list.skills, states: list.states });
+        } catch (err) {
+          console.error('Failed to load skills:', err);
+        }
+      })();
+    };
+    refresh();
+    const off = window.sigma.eventOn('skills:changed', refresh);
+    return () => {
+      alive = false;
+      off();
+    };
   }, []);
 
   // When the active workspace changes, refresh swarms for that workspace so

@@ -14,6 +14,8 @@ import type {
   SwarmMessageKind,
   BrowserState,
   BrowserTab,
+  Skill,
+  SkillProviderState,
 } from './types';
 
 export interface AppRouter {
@@ -99,5 +101,14 @@ export interface AppRouter {
     releaseDriver: (input: { workspaceId: string }) => Promise<void>;
     getMcpUrl: (workspaceId: string) => Promise<string | null>;
     teardown: (workspaceId: string) => Promise<void>;
+  };
+  skills: {
+    list: () => Promise<{ skills: Skill[]; states: SkillProviderState[] }>;
+    ingestFolder: (input: { path: string; force?: boolean }) => Promise<Skill>;
+    ingestZip: (input: { path: string; force?: boolean }) => Promise<Skill>;
+    enableForProvider: (input: { skillId: string; provider: string }) => Promise<SkillProviderState>;
+    disableForProvider: (input: { skillId: string; provider: string }) => Promise<SkillProviderState>;
+    uninstall: (skillId: string) => Promise<void>;
+    getReadme: (skillId: string) => Promise<{ name: string; body: string } | null>;
   };
 }

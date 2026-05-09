@@ -27,7 +27,7 @@ const ITEMS: NavItem[] = [
   { id: 'review', label: 'Review Room', icon: GitBranch, phase: 4 },
   { id: 'memory', label: 'Memory', icon: Sparkles, phase: 4 },
   { id: 'browser', label: 'Browser', icon: Globe },
-  { id: 'skills', label: 'Skills', icon: Wand2, phase: 3 },
+  { id: 'skills', label: 'Skills', icon: Wand2 },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -45,7 +45,10 @@ export function Sidebar() {
           const Icon = item.icon;
           const isActive = state.room === item.id;
           const disabled =
-            (item.id !== 'workspaces' && item.id !== 'settings' && !activeWorkspace) ||
+            (item.id !== 'workspaces' &&
+              item.id !== 'settings' &&
+              item.id !== 'skills' &&
+              !activeWorkspace) ||
             !!item.phase;
           return (
             <button

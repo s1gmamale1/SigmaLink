@@ -3,6 +3,7 @@ import { WorkspaceLauncher } from '@/renderer/features/workspace-launcher/Launch
 import { CommandRoom } from '@/renderer/features/command-room/CommandRoom';
 import { SwarmRoom } from '@/renderer/features/swarm-room/SwarmRoom';
 import { BrowserRoom } from '@/renderer/features/browser/BrowserRoom';
+import { SkillsRoom } from '@/renderer/features/skills/SkillsRoom';
 import { PhasePlaceholder } from '@/renderer/features/placeholders/PhasePlaceholder';
 import { AppStateProvider, useAppState } from '@/renderer/app/state';
 
@@ -34,13 +35,7 @@ function RoomSwitch() {
     case 'browser':
       return <BrowserRoom />;
     case 'skills':
-      return (
-        <PhasePlaceholder
-          title="Skills"
-          phase={3}
-          description="Drag-and-drop SKILL.md folders. Skills fan out to per-provider locations (.claude / .codex / .gemini)."
-        />
-      );
+      return <SkillsRoom />;
     case 'settings':
       return (
         <PhasePlaceholder

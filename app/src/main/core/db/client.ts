@@ -102,6 +102,29 @@ CREATE TABLE IF NOT EXISTS browser_tabs (
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS browser_tabs_ws_idx ON browser_tabs(workspace_id);
+
+CREATE TABLE IF NOT EXISTS skills (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  version TEXT,
+  content_hash TEXT NOT NULL,
+  managed_path TEXT NOT NULL,
+  installed_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  tags_json TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS skills_name_uq ON skills(name);
+
+CREATE TABLE IF NOT EXISTS skill_provider_state (
+  skill_id TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  last_fanout_at INTEGER,
+  last_error TEXT,
+  PRIMARY KEY (skill_id, provider_id),
+  FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS skill_provider_state_skill_idx ON skill_provider_state(skill_id);
 `;
 
 export function initializeDatabase(userDataDir: string): {

@@ -152,6 +152,45 @@ export const browserTabs = sqliteTable(
 export type BrowserTabRow = typeof browserTabs.$inferSelect;
 export type BrowserTabInsert = typeof browserTabs.$inferInsert;
 
+// Phase 4 — Skills Room
+export const skills = sqliteTable(
+  'skills',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    version: text('version'),
+    contentHash: text('content_hash').notNull(),
+    managedPath: text('managed_path').notNull(),
+    installedAt: integer('installed_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    tagsJson: text('tags_json'),
+  },
+  (t) => ({
+    skillsNameUq: uniqueIndex('skills_name_uq').on(t.name),
+  }),
+);
+
+export const skillProviderState = sqliteTable(
+  'skill_provider_state',
+  {
+    skillId: text('skill_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    enabled: integer('enabled').notNull().default(0),
+    lastFanoutAt: integer('last_fanout_at'),
+    lastError: text('last_error'),
+  },
+  (t) => ({
+    skillProviderStatePk: uniqueIndex('skill_provider_state_pk').on(t.skillId, t.providerId),
+  }),
+);
+
+export type SkillRow = typeof skills.$inferSelect;
+export type SkillInsert = typeof skills.$inferInsert;
+export type SkillProviderStateRow = typeof skillProviderState.$inferSelect;
+export type SkillProviderStateInsert = typeof skillProviderState.$inferInsert;
+
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type WorkspaceInsert = typeof workspaces.$inferInsert;
 export type AgentSessionRow = typeof agentSessions.$inferSelect;

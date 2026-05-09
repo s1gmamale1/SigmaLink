@@ -63,6 +63,14 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'browser.releaseDriver',
   'browser.getMcpUrl',
   'browser.teardown',
+  // skills
+  'skills.list',
+  'skills.ingestFolder',
+  'skills.ingestZip',
+  'skills.enableForProvider',
+  'skills.disableForProvider',
+  'skills.uninstall',
+  'skills.getReadme',
 ]);
 
 /**
@@ -76,6 +84,7 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'swarm:message',
   'memory:changed',
   'browser:state',
+  'skills:changed',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {
