@@ -3,10 +3,11 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { defineController, defineRouter } from '../shared/rpc';
 import type { AppRouter } from '../shared/router-shape';
-import { initializeDatabase, closeDatabase } from './core/db/client';
+import { initializeDatabase, closeDatabase, getRawDb } from './core/db/client';
 import { runBootJanitor } from './core/db/janitor';
 import { PtyRegistry } from './core/pty/registry';
 import { probeAllProviders, probeProviderById } from './core/providers/probe';
@@ -16,7 +17,12 @@ import { listWorkspaces, openWorkspace, removeWorkspace } from './core/workspace
 import { executeLaunchPlan } from './core/workspaces/launcher';
 import { AGENT_PROVIDERS } from '../shared/providers';
 import { SwarmMailbox } from './core/swarms/mailbox';
+import { BoardManager } from './core/swarms/boards';
 import { buildSwarmController } from './core/swarms/controller';
+import { buildConsoleController } from './core/swarms/console-controller';
+import { eq } from 'drizzle-orm';
+import { swarmAgents } from './core/db/schema';
+import { getDb } from './core/db/client';
 import { BrowserManagerRegistry } from './core/browser/manager';
 import { buildBrowserController } from './core/browser/controller';
 import { PlaywrightMcpSupervisor } from './core/browser/playwright-supervisor';
@@ -30,6 +36,20 @@ import { buildReviewController } from './core/review/controller';
 import { TasksManager } from './core/tasks/manager';
 import { buildTasksController } from './core/tasks/controller';
 import { buildKvController } from './core/db/kv-controller';
+import { buildAssistantController } from './core/assistant/controller';
+import { buildDesignController } from './core/design/controller';
+import { buildVoiceController } from './core/voice/adapter';
+import { fsReadDir, fsReadFile, fsWriteFile } from './core/fs/controller';
+import { getChannelSchema } from './core/rpc/schemas';
+// V3-W14-008 — auto-update integration. The actual `electron-updater` calls
+// live in `electron/auto-update.ts`; this controller exposes a single RPC
+// method so the renderer can trigger a manual check, and reads the last-
+// check timestamp via `kv.get('updates.lastCheckTimestamp')`.
+import { checkForUpdates as checkForUpdatesImpl } from '../../electron/auto-update';
+// V3-W15-005 — plan tier resolved from kv['plan.tier'] with a SigmaLink-default
+// of 'ultra'. The capability matrix lives next to this import; the renderer
+// reads through `app.tier()` rather than touching kv directly.
+import { KV_PLAN_TIER, parseTier } from './core/plan/capabilities';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -42,15 +62,31 @@ interface SharedDeps {
   memorySupervisor: MemoryMcpSupervisor;
   reviewRunner: ReviewRunner;
   tasks: TasksManager;
+  /** V3-W12-014 — Operator Console controller. Registered side-band so the
+   *  `swarm.*` namespace doesn't pollute the typed AppRouter shape. */
+  consoleStop?: () => void;
 }
 
 let router: ReturnType<typeof buildRouter> | null = null;
 let sharedDeps: SharedDeps | null = null;
+/** Side-band controller handlers registered outside `defineRouter` so
+ *  foundations can grow the AppRouter shape independently. */
+let consoleHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
+/** V3-W14-001..006 — Bridge Canvas controller cleanup hook. Called from
+ *  `shutdownRouter` so picker overlays + dev-server watchers tear down. */
+let designShutdown: (() => void) | null = null;
+
+const requireCJS = createRequire(import.meta.url);
 
 function broadcast(event: string, payload: unknown) {
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed()) w.webContents.send(event, payload);
   }
+}
+
+function capitalize(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function buildRouter() {
@@ -66,6 +102,17 @@ function buildRouter() {
   const pty = new PtyRegistry(
     (sessionId, data) => broadcast('pty:data', { sessionId, data }),
     (sessionId, exitCode, signal) => broadcast('pty:exit', { sessionId, exitCode, signal }),
+    {
+      // V3-W13-002 — surface OSC8 + plain URLs to the renderer so the click
+      // handler can route them into the in-app browser. The renderer-side
+      // gate (`kv['browser.captureLinks']`) decides whether to intercept.
+      onLinkDetected: (sessionId, hit) =>
+        broadcast('pty:link-detected', {
+          sessionId,
+          url: hit.url,
+          text: hit.text,
+        }),
+    },
   );
   const mailbox = new SwarmMailbox(userData);
   mailbox.setEmitter((message) => {
@@ -79,6 +126,35 @@ function buildRouter() {
       id: message.id,
       payload: message.payload,
     });
+  });
+  // V3-W13-008 — board namespace persistence. The mailbox calls into the
+  // BoardManager whenever a `board_post` envelope lands so the DB row + on-
+  // disk markdown file stay in sync.
+  const boardManager = new BoardManager(userData);
+  mailbox.setBoardManager(boardManager);
+  // V3-W13-009 — Operator → agent DM pane echo. Resolves agentKey →
+  // sessionId via swarm_agents and writes a formatted line into PTY stdin.
+  mailbox.setPaneEcho((_swarmId, toAgent, body) => {
+    if (!toAgent || toAgent === '*') return;
+    const db = getDb();
+    const row = db
+      .select({
+        sessionId: swarmAgents.sessionId,
+        role: swarmAgents.role,
+        roleIndex: swarmAgents.roleIndex,
+      })
+      .from(swarmAgents)
+      .where(eq(swarmAgents.agentKey, toAgent))
+      .all()
+      .find((r) => r.sessionId);
+    if (!row || !row.sessionId) return;
+    const role = capitalize(row.role);
+    const line = `[Operator → ${role} ${row.roleIndex}] ${body}\n`;
+    try {
+      pty.write(row.sessionId, line);
+    } catch {
+      /* PTY may have exited */
+    }
   });
   const playwrightSupervisor = new PlaywrightMcpSupervisor();
   const browserRegistry = new BrowserManagerRegistry({
@@ -126,6 +202,45 @@ function buildRouter() {
   const appCtl = defineController({
     getVersion: async () => app.getVersion(),
     getPlatform: async () => process.platform as NodeJS.Platform,
+    diagnostics: async () => {
+      const required = ['better-sqlite3', 'node-pty'];
+      const nativeModules = required.map((mod) => {
+        try {
+          requireCJS(mod);
+          return { module: mod, ok: true as const };
+        } catch (err) {
+          return {
+            module: mod,
+            ok: false as const,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      });
+      return {
+        nativeModules,
+        env: {
+          electron: process.versions.electron ?? null,
+          node: process.versions.node,
+          chrome: process.versions.chrome ?? null,
+          platform: process.platform,
+          arch: process.arch,
+          userData: app.getPath('userData'),
+        },
+      };
+    },
+    // V3-W14-008 — manual update check. Renderer triggers from Settings →
+    // Updates. We never throw on "no update" — the result envelope carries an
+    // optional version + error string and the UI renders accordingly.
+    checkForUpdates: async () => checkForUpdatesImpl(),
+    // V3-W15-005 — Plan tier read. Default `'ultra'` since SigmaLink is local-
+    // only / free; the override is only writable from a hidden dev-mode control
+    // in Settings → Appearance, so production users always see Ultra.
+    tier: async () => {
+      const row = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get(KV_PLAN_TIER) as { value?: string } | undefined;
+      return parseTier(row?.value ?? null);
+    },
   });
 
   const ptyCtl = defineController({
@@ -206,6 +321,24 @@ function buildRouter() {
 
   const workspacesCtl = defineController({
     pickFolder: async () => {
+      // BUG-W7-010: Playwright cannot drive Electron's native folder picker.
+      // When `process.env.SIGMA_TEST` is set, skip the dialog and return a
+      // deterministic path stored in kv under `tests.fakePickerPath`. If no
+      // fake path is configured we fail loudly so tests can't silently fall
+      // back to the unscriptable native dialog.
+      if (process.env.SIGMA_TEST) {
+        const row = getRawDb()
+          .prepare('SELECT value FROM kv WHERE key = ?')
+          .get('tests.fakePickerPath') as { value?: string } | undefined;
+        const fakePath = row?.value;
+        if (!fakePath) {
+          throw new Error(
+            'workspaces.pickFolder: SIGMA_TEST is set but no fake path configured. ' +
+              "Set kv['tests.fakePickerPath'] before invoking the picker.",
+          );
+        }
+        return { path: fakePath };
+      }
       const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
       const opts: Electron.OpenDialogOptions = { properties: ['openDirectory', 'createDirectory'] };
       const r = win
@@ -253,6 +386,12 @@ function buildRouter() {
 
   const fsCtl = defineController({
     exists: async (p: string) => fs.existsSync(p),
+    // V3-W14-007 — Editor tab. The controller bodies live in core/fs/controller.ts
+    // so they can be unit-tested without spinning up the whole router.
+    readDir: async (input: { path: string }) => fsReadDir(input),
+    readFile: async (input: { path: string; maxBytes?: number }) => fsReadFile(input),
+    writeFile: async (input: { path: string; content: string; repoRoot: string }) =>
+      fsWriteFile(input),
   });
 
   const swarmsCtl = buildSwarmController({
@@ -261,6 +400,23 @@ function buildRouter() {
     mailbox,
     userDataDir: userData,
   });
+
+  // V3-W12-014 — Operator Console controller. Lives outside `defineRouter`
+  // so foundations can extend the AppRouter shape without merge conflicts.
+  // Channels register under the `swarm.<method>` namespace; events
+  // (`swarm:counters`, `swarm:ledger`) broadcast on a 1s interval.
+  const consoleCtl = buildConsoleController({
+    pty,
+    emitCounters: (c) => broadcast('swarm:counters', c),
+    emitLedger: (l) => broadcast('swarm:ledger', l),
+  });
+  consoleHandlers = consoleCtl.handlers as Record<
+    string,
+    (...args: unknown[]) => unknown
+  >;
+  // Start the 1s broadcast loop; matching stop runs in shutdownRouter.
+  consoleCtl.start();
+  sharedDeps.consoleStop = consoleCtl.stop;
 
   const browserCtl = buildBrowserController({ registry: browserRegistry });
   const skillsCtl = buildSkillsController({ manager: skillsManager });
@@ -278,6 +434,38 @@ function buildRouter() {
     mailbox,
   });
   const kvCtl = buildKvController();
+  // V3-W13-013 — Bridge Assistant controller. Owns the `assistant.*`
+  // namespace and pipes tool traces + dispatch echoes back through the
+  // shared broadcaster so every BrowserWindow (right-rail, standalone room)
+  // sees the same stream.
+  const assistantCtl = buildAssistantController({
+    pty,
+    worktreePool,
+    mailbox,
+    memory: memoryManager,
+    tasks: tasksManager,
+    browserRegistry,
+    userDataDir: userData,
+    emit: (event, payload) => broadcast(event, payload),
+  });
+  // V3-W14-001..006 — Bridge Canvas controller. Owns the `design.*` namespace
+  // (element-picker overlay, asset staging, HMR poke, canvas DAO + dispatch
+  // fan-out). Holds onto its own picker runtime + watch registry so the
+  // shutdown path can tear them down deterministically.
+  const designCtl = buildDesignController({
+    browserRegistry,
+    pty,
+    worktreePool,
+    userDataDir: userData,
+    emit: (event, payload) => broadcast(event, payload),
+  });
+  designShutdown = (designCtl as unknown as { shutdown: () => void }).shutdown;
+  // V3-W15-001 — BridgeVoice. Renderer drives Web Speech capture; this stub
+  // tracks the active session id so concurrent starts reject with
+  // `voice-busy` and the title-bar pill / orb / palette stay in sync.
+  const voiceCtl = buildVoiceController({
+    emit: (event, payload) => broadcast(event, payload),
+  });
 
   return defineRouter({
     app: appCtl,
@@ -293,6 +481,9 @@ function buildRouter() {
     review: reviewCtl,
     tasks: tasksCtl,
     kv: kvCtl,
+    assistant: assistantCtl,
+    design: designCtl,
+    voice: voiceCtl,
   });
 }
 
@@ -300,6 +491,26 @@ export function registerRouter(): void {
   if (router) return;
   router = buildRouter();
   const isDev = !app.isPackaged;
+  // V3-W12-017 — soft-launch per-channel zod validation. In dev, warn once
+  // for every controller method that lacks a schema entry so future waves can
+  // hunt down the gaps; production stays silent. Enforcement (reject on
+  // validation failure) is V3-W13's responsibility — do NOT flip on here.
+  const missingSchemas: string[] = [];
+  for (const [ns, handlers] of Object.entries(router)) {
+    for (const key of Object.keys(handlers)) {
+      const channel = `${ns}.${key}`;
+      if (!getChannelSchema(channel)) missingSchemas.push(channel);
+    }
+  }
+  if (
+    isDev &&
+    missingSchemas.length > 0 &&
+    process.env.NODE_ENV !== 'production'
+  ) {
+    console.warn(
+      `[rpc-router] ${missingSchemas.length} channel(s) have no zod schema entry in core/rpc/schemas.ts:\n  - ${missingSchemas.join('\n  - ')}`,
+    );
+  }
   for (const [ns, handlers] of Object.entries(router)) {
     for (const [key, fn] of Object.entries(handlers)) {
       const channel = `${ns}.${key}`;
@@ -311,6 +522,27 @@ export function registerRouter(): void {
           const message = err instanceof Error ? err.message : String(err);
           // Include stack in dev for easier debugging, omit in production to
           // avoid leaking implementation details across IPC.
+          const stack = isDev && err instanceof Error ? err.stack : undefined;
+          return { ok: false, error: message, stack };
+        }
+      });
+    }
+  }
+
+  // V3-W12-014 — Register Operator Console side-band handlers under the
+  // `swarm.<method>` namespace. These channels are NOT in the typed AppRouter
+  // shape; foundations adds them to the rpc-channels.ts allowlist. Until
+  // then, the preload still gates access via `isAllowedChannel` so unlisted
+  // channels reject before reaching ipcMain.
+  if (consoleHandlers) {
+    for (const [key, fn] of Object.entries(consoleHandlers)) {
+      const channel = `swarm.${key}`;
+      ipcMain.handle(channel, async (_e, ...args) => {
+        try {
+          const out = await (fn as (...a: unknown[]) => unknown)(...args);
+          return { ok: true, data: out };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           const stack = isDev && err instanceof Error ? err.stack : undefined;
           return { ok: false, error: message, stack };
         }
@@ -351,12 +583,24 @@ export function shutdownRouter(): void {
     /* ignore */
   }
   try {
+    sharedDeps?.consoleStop?.();
+  } catch {
+    /* ignore */
+  }
+  try {
+    designShutdown?.();
+  } catch {
+    /* ignore */
+  }
+  try {
     closeDatabase();
   } catch {
     /* ignore */
   }
   router = null;
   sharedDeps = null;
+  consoleHandlers = null;
+  designShutdown = null;
 }
 
 /**

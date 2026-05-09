@@ -84,7 +84,11 @@ export type SwarmAgentId = string;
 
 export type Role = 'coordinator' | 'builder' | 'scout' | 'reviewer';
 
-export type SwarmPreset = 'squad' | 'team' | 'platoon' | 'legion' | 'custom';
+// V3-W12-009: Legion → Battalion rename. Existing 'legion' rows in the DB
+// stay readable (CHECK constraint accepts both via SQLite's lenient
+// re-verification rule); new swarms must use 'battalion' or one of the
+// canonical V3 presets. See docs/02-research/v3-agent-roles-delta.md §2.
+export type SwarmPreset = 'squad' | 'team' | 'platoon' | 'battalion' | 'legion' | 'custom';
 
 export type SwarmStatus = 'running' | 'paused' | 'completed' | 'failed';
 
@@ -102,6 +106,10 @@ export interface RoleAssignment {
   role: Role;
   roleIndex: number; // 1-based
   providerId: string;
+  /** V3-W12-018: optional model id (resolves via models.ts). */
+  modelId?: string;
+  /** V3-W12-018: per-row auto-approve toggle. Defaults to false. */
+  autoApprove?: boolean;
 }
 
 export interface SwarmAgent {
@@ -114,6 +122,8 @@ export interface SwarmAgent {
   status: 'idle' | 'busy' | 'blocked' | 'done' | 'error';
   inboxPath: string;
   agentKey: string; // e.g. "coordinator-1"
+  /** V3-W12-018: per-agent auto-approve toggle, persisted on swarm_agents. */
+  autoApprove?: boolean;
 }
 
 export interface Swarm {

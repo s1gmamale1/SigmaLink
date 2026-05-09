@@ -69,7 +69,12 @@ export const swarms = sqliteTable(
     workspaceId: text('workspace_id').notNull(),
     name: text('name').notNull(),
     mission: text('mission').notNull(),
-    preset: text('preset', { enum: ['squad', 'team', 'platoon', 'legion', 'custom'] }).notNull(),
+    // V3-W12-009: 'legion' preserved for legacy row read-back; new swarms
+    // accept 'battalion'. SQLite does not re-verify CHECK constraints on
+    // existing rows when the enum changes, so historical 'legion' rows stay.
+    preset: text('preset', {
+      enum: ['squad', 'team', 'platoon', 'battalion', 'legion', 'custom'],
+    }).notNull(),
     status: text('status', { enum: ['running', 'paused', 'completed', 'failed'] })
       .notNull()
       .default('running'),
@@ -98,6 +103,15 @@ export const swarmAgents = sqliteTable(
       .default('idle'),
     inboxPath: text('inbox_path').notNull(),
     agentKey: text('agent_key').notNull(),
+    // V3-W12-018 — per-agent auto-approve toggle. Migration 0001 backfills 0
+    // for legacy rows; new rows default to 0 here too so the schema stays in
+    // sync with the runtime DDL.
+    autoApprove: integer('auto_approve').notNull().default(0),
+    // V3-W13-014 — multi-hub constellation. NULL on the queen coordinator;
+    // every other agent (including peer coordinators) points to the queen so
+    // the constellation renderer can draw glow lines per hub. Migration 0005
+    // adds the column to existing DBs.
+    coordinatorId: text('coordinator_id'),
     createdAt: integer('created_at')
       .notNull()
       .default(sql`(unixepoch() * 1000)`),
@@ -105,8 +119,34 @@ export const swarmAgents = sqliteTable(
   (t) => ({
     swarmAgentsSwarmIdx: index('swarm_agents_swarm_idx').on(t.swarmId),
     swarmAgentsRoleUq: uniqueIndex('swarm_agents_role_uq').on(t.swarmId, t.role, t.roleIndex),
+    swarmAgentsCoordIdx: index('swarm_agents_coord_idx').on(t.coordinatorId),
   }),
 );
+
+// V3-W13-011 — Swarm Skills 12-tile grid persistence. One row per
+// (swarmId, skillKey); `on` is a 0/1 flag, `group` is one of
+// 'workflow' | 'quality' | 'ops' | 'analysis'. The renderer mirrors toggles
+// here via a `skill_toggle` envelope so coordinators can read the active
+// skill set without re-tailing the mailbox.
+export const swarmSkills = sqliteTable(
+  'swarm_skills',
+  {
+    swarmId: text('swarm_id').notNull(),
+    skillKey: text('skill_key').notNull(),
+    on: integer('on_flag').notNull().default(0),
+    group: text('group_key').notNull(),
+    updatedAt: integer('updated_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    swarmSkillsPk: uniqueIndex('swarm_skills_pk').on(t.swarmId, t.skillKey),
+    swarmSkillsSwarmIdx: index('swarm_skills_swarm_idx').on(t.swarmId),
+  }),
+);
+
+export type SwarmSkillRow = typeof swarmSkills.$inferSelect;
+export type SwarmSkillInsert = typeof swarmSkills.$inferInsert;
 
 export const swarmMessages = sqliteTable(
   'swarm_messages',
@@ -121,6 +161,10 @@ export const swarmMessages = sqliteTable(
     ts: integer('ts').notNull(),
     deliveredAt: integer('delivered_at'),
     readAt: integer('read_at'),
+    // V3-W12-016 — counter projection filter. NULL = unresolved; the four
+    // Operator Console badges count rows where kind ∈ {escalation,
+    // review_request, quiet_tick, error_report} AND resolved_at IS NULL.
+    resolvedAt: integer('resolved_at'),
   },
   (t) => ({
     swarmMessagesSwarmTimeIdx: index('swarm_messages_swarm_time_idx').on(t.swarmId, t.ts),
@@ -313,6 +357,112 @@ export type TaskCommentRow = typeof taskComments.$inferSelect;
 export type TaskCommentInsert = typeof taskComments.$inferInsert;
 export type SessionReviewRow = typeof sessionReview.$inferSelect;
 export type SessionReviewInsert = typeof sessionReview.$inferInsert;
+
+// Phase — V3-W13-008 — per-agent board namespace.
+// Mirrors the on-disk markdown file at
+//   <userData>/swarms/<swarmId>/boards/<agentId>/<postId>.md
+// Migration 0003_boards owns the DDL; this Drizzle table mirrors it so
+// queries elsewhere stay typed.
+export const boards = sqliteTable(
+  'boards',
+  {
+    id: text('id').primaryKey(),
+    swarmId: text('swarmId').notNull(),
+    agentId: text('agentId').notNull(),
+    postId: text('postId').notNull(),
+    title: text('title').notNull(),
+    bodyMd: text('bodyMd').notNull(),
+    attachmentsJson: text('attachmentsJson').notNull().default('[]'),
+    createdAt: integer('createdAt').notNull(),
+  },
+  (t) => ({
+    boardsSwarmAgentIdx: index('boards_swarm_agent_idx').on(t.swarmId, t.agentId),
+  }),
+);
+
+export type BoardRow = typeof boards.$inferSelect;
+export type BoardInsert = typeof boards.$inferInsert;
+
+// Phase — V3-W13-013 — Bridge Assistant chat persistence.
+// Migration 0006_assistant owns the DDL; these Drizzle tables mirror it so
+// the assistant controller and conversations DAO stay end-to-end typed.
+export const conversations = sqliteTable(
+  'conversations',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    kind: text('kind', { enum: ['assistant', 'swarm_dm'] }).notNull(),
+    createdAt: integer('created_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    conversationsWsIdx: index('conversations_ws_idx').on(t.workspaceId),
+    conversationsKindIdx: index('conversations_kind_idx').on(t.kind),
+  }),
+);
+
+export const messages = sqliteTable(
+  'messages',
+  {
+    id: text('id').primaryKey(),
+    conversationId: text('conversation_id').notNull(),
+    role: text('role', { enum: ['user', 'assistant', 'tool', 'system'] }).notNull(),
+    content: text('content').notNull(),
+    toolCallId: text('tool_call_id'),
+    createdAt: integer('created_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    messagesConvIdx: index('messages_conversation_idx').on(t.conversationId, t.createdAt),
+  }),
+);
+
+export type ConversationRow = typeof conversations.$inferSelect;
+export type ConversationInsert = typeof conversations.$inferInsert;
+export type MessageRow = typeof messages.$inferSelect;
+export type MessageInsert = typeof messages.$inferInsert;
+
+// Phase — V3-W14-006 — Bridge Canvas persistence.
+// Migration 0007_canvases owns the DDL; these Drizzle tables mirror it so the
+// design controller stays end-to-end typed.
+export const canvases = sqliteTable(
+  'canvases',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    title: text('title').notNull(),
+    lastProviders: text('last_providers').notNull().default('[]'),
+    createdAt: integer('created_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    canvasesWsIdx: index('canvases_ws_idx').on(t.workspaceId),
+  }),
+);
+
+export const canvasDispatches = sqliteTable(
+  'canvas_dispatches',
+  {
+    id: text('id').primaryKey(),
+    canvasId: text('canvas_id').notNull(),
+    prompt: text('prompt').notNull(),
+    providers: text('providers').notNull().default('[]'),
+    ts: integer('ts')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    canvasDispatchesIdx: index('canvas_dispatches_canvas_idx').on(t.canvasId, t.ts),
+  }),
+);
+
+export type CanvasRow = typeof canvases.$inferSelect;
+export type CanvasInsert = typeof canvases.$inferInsert;
+export type CanvasDispatchRow = typeof canvasDispatches.$inferSelect;
+export type CanvasDispatchInsert = typeof canvasDispatches.$inferInsert;
 
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type WorkspaceInsert = typeof workspaces.$inferInsert;

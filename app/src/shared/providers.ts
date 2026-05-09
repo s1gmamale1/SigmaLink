@@ -1,5 +1,19 @@
 // Provider registry. Pure data + small helpers; no Node-only code so safe in renderer too.
 
+export type ProviderId =
+  | 'bridgecode'
+  | 'claude'
+  | 'codex'
+  | 'gemini'
+  | 'opencode'
+  | 'cursor'
+  | 'droid'
+  | 'copilot'
+  | 'aider'
+  | 'continue'
+  | 'shell'
+  | 'custom';
+
 export interface AgentProviderDefinition {
   id: string;
   name: string;
@@ -18,9 +32,31 @@ export interface AgentProviderDefinition {
   icon: string;               // lucide-react icon id
   installHint: string;        // human-readable install instruction
   detectable?: boolean;       // include in PATH auto-scan
+  // V3-W12-001 / 003: gating + fallback
+  comingSoon?: boolean;          // BridgeCode-style stub; render disabled, fall back when launched
+  fallbackProviderId?: ProviderId; // when comingSoon binary missing, launcher silently spawns this
+  legacy?: boolean;              // hidden by default; only shown when providers.showLegacy === '1'
+  recommendedRoles?: string[];   // wizard hints (e.g. ['builder','coordinator'])
 }
 
 export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
+  {
+    id: 'bridgecode',
+    name: 'BridgeCode',
+    description: 'BridgeMind native CLI (coming soon)',
+    command: 'bridgecode',
+    altCommands: ['bridgecode.cmd'],
+    args: [],
+    resumeArgs: ['--resume'],
+    oneshotArgs: ['-p', '{prompt}'],
+    color: '#3b82f6',
+    icon: 'bridge',
+    installHint: 'Coming soon — BridgeMind hosted CLI',
+    detectable: false,
+    comingSoon: true,
+    fallbackProviderId: 'claude',
+    recommendedRoles: ['builder', 'coordinator'],
+  },
   {
     id: 'claude',
     name: 'Claude Code',
@@ -65,17 +101,6 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     detectable: true,
   },
   {
-    id: 'kimi',
-    name: 'Kimi CLI',
-    description: 'Moonshot Kimi CLI',
-    command: 'kimi',
-    args: [],
-    color: '#22D3EE',
-    icon: 'moon',
-    installHint: 'npm i -g @moonshot-ai/kimi-cli',
-    detectable: true,
-  },
-  {
     id: 'cursor',
     name: 'Cursor Agent',
     description: 'Cursor CLI agent',
@@ -108,6 +133,7 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     icon: 'bot',
     installHint: 'pipx install aider-chat',
     detectable: true,
+    legacy: true,
   },
   {
     id: 'continue',
@@ -119,6 +145,7 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     icon: 'arrow-right-circle',
     installHint: 'See continue.dev',
     detectable: true,
+    legacy: true,
   },
   {
     id: 'shell',
@@ -139,4 +166,15 @@ export function findProvider(id: string): AgentProviderDefinition | undefined {
 
 export function listDetectable(): AgentProviderDefinition[] {
   return AGENT_PROVIDERS.filter((p) => p.detectable !== false && p.command);
+}
+
+// V3-W12-003: legacy providers (aider, continue) are hidden unless the user
+// flips kv['providers.showLegacy']='1'. comingSoon rows (BridgeCode) are kept
+// in the visible list but rendered disabled by the consumer.
+export function listVisibleProviders(showLegacy: boolean): AgentProviderDefinition[] {
+  return AGENT_PROVIDERS.filter((p) => {
+    if (p.id === 'shell') return false;
+    if (p.legacy) return showLegacy;
+    return true;
+  });
 }

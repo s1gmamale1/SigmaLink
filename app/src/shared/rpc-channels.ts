@@ -11,6 +11,11 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // app
   'app.getVersion',
   'app.getPlatform',
+  'app.diagnostics',
+  // V3-W14-008 — manual electron-updater trigger from Settings → Updates.
+  'app.checkForUpdates',
+  // V3-W15-005 — read the current plan tier (default 'ultra' on SigmaLink).
+  'app.tier',
   // pty
   'pty.create',
   'pty.write',
@@ -37,6 +42,10 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'git.worktreeRemove',
   // fs
   'fs.exists',
+  // V3-W14-007 — Editor tab file tree + Monaco source loader.
+  'fs.readDir',
+  'fs.readFile',
+  'fs.writeFile',
   // swarms
   'swarms.create',
   'swarms.list',
@@ -114,6 +123,36 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'tasks.listComments',
   'tasks.addComment',
   'tasks.removeComment',
+  // V3-W12-017 — Bridge Assistant (W13 fills bodies)
+  'assistant.send',
+  'assistant.list',
+  'assistant.cancel',
+  'assistant.dispatchPane',
+  'assistant.tools',
+  'assistant.invokeTool',
+  // V3-W12-017 — Design Mode / Bridge Canvas (W14 fills bodies)
+  'design.captureElement',
+  'design.dispatch',
+  'design.history',
+  // V3-W14-001..006 — Bridge Canvas live channels.
+  'design.startPick',
+  'design.stopPick',
+  'design.attachFile',
+  'design.listCanvases',
+  'design.createCanvas',
+  'design.openCanvas',
+  'design.setDevServerRoots',
+  'design.reloadTab',
+  // V3-W12-017 — Operator Console RPC additions (W12-W13 fill bodies)
+  'swarm.console-tab',
+  'swarm.stop-all',
+  'swarm.constellation-layout',
+  'swarm.agent-filter',
+  'swarm.mission-rename',
+  'swarm.update-agent',
+  // V3-W12-017 — BridgeVoice (W15 fills bodies)
+  'voice.start',
+  'voice.stop',
 ]);
 
 /**
@@ -123,6 +162,10 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
 export const EVENTS: ReadonlySet<string> = new Set<string>([
   'pty:data',
   'pty:exit',
+  // V3-W13-002 — emitted when the PTY data stream contains a URL (plain or
+  // OSC8 hyperlink). The renderer routes the click into the in-app browser
+  // when `kv['browser.captureLinks']` is on.
+  'pty:link-detected',
   'workspace:launched',
   'swarm:message',
   'memory:changed',
@@ -131,6 +174,24 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'review:changed',
   'review:run-output',
   'tasks:changed',
+  // V3-W12-017 — Operator Console + Bridge + Design + Voice events
+  'swarm:counters',
+  'swarm:ledger',
+  'voice:state',
+  'assistant:dispatch-echo',
+  // V3-W13-013 — Bridge Assistant streaming + tool tracer events. The
+  // assistant.* RPC namespace is already declared above; these one-way
+  // events drive the renderer's orb state machine + ToolCallInspector.
+  'assistant:state',
+  'assistant:tool-trace',
+  'design:capture',
+  // V3-W14-001..005 — picker lifecycle + HMR poke notifications.
+  'design:picker-state',
+  'design:patch-applied',
+  // V3-W14-009 — main → renderer signal that `better-sqlite3` (or another
+  // required native module) failed its ABI check. Renderer surfaces the
+  // NativeRebuildModal when this fires.
+  'app:native-rebuild-needed',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {

@@ -4,6 +4,13 @@
 export type EventMap = {
   'pty:data': { sessionId: string; data: string };
   'pty:exit': { sessionId: string; exitCode: number; signal?: number };
+  /**
+   * V3-W13-002 — emitted whenever the PTY data stream contains a navigable
+   * URL. The renderer subscribes from `Terminal.tsx` and routes the click
+   * into the in-app Browser (right-rail) tab, falling back to
+   * `shell.openExternal` only when `kv['browser.captureLinks']` is `'0'`.
+   */
+  'pty:link-detected': { sessionId: string; url: string; text?: string };
   'workspace:launched': { workspaceId: string };
   'swarm:message': {
     swarmId: string;
@@ -66,6 +73,35 @@ export type EventMap = {
    * change. The renderer reloads the workspace's task list on this event.
    */
   'tasks:changed': { taskId: string | null };
+  /**
+   * V3-W14-001 — element-picker capture. Emitted from the main process when
+   * the user clicks an element in a Design-mode browser tab. Renderer
+   * subscribes from the DesignDock to populate the captured-source pill,
+   * outerHTML preview, and screenshot thumbnail.
+   */
+  'design:capture': {
+    pickerToken: string;
+    workspaceId: string;
+    tabId: string;
+    selector: string;
+    outerHTML: string;
+    computedStyles: Record<string, string>;
+    screenshotPng: string; // data: URL
+    pageUrl: string;
+  };
+  /** V3-W14-001 — picker on/off transitions, surfaces in the address bar. */
+  'design:picker-state': {
+    workspaceId: string;
+    tabId: string;
+    active: boolean;
+  };
+  /** V3-W14-005 — HMR / file-watch nudge. */
+  'design:patch-applied': {
+    workspaceId: string;
+    tabId: string;
+    file: string;
+    range?: { startLine: number; endLine: number };
+  };
 };
 
 export type EventName = keyof EventMap;

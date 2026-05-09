@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema';
+import { migrate } from './migrate';
 
 let dbHandle: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let rawDb: Database.Database | null = null;
@@ -208,6 +209,10 @@ export function initializeDatabase(userDataDir: string): {
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
   sqlite.exec(BOOTSTRAP_SQL);
+  // V3-W12-016: run forward-only migrations after bootstrap so existing
+  // installs pick up new columns; fresh installs already have the columns
+  // because the migration runner short-circuits via PRAGMA introspection.
+  migrate(sqlite);
   rawDb = sqlite;
   dbHandle = drizzle(sqlite, { schema });
   return { db: dbHandle, raw: sqlite, filePath };
