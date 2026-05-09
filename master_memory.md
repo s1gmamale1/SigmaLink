@@ -261,3 +261,55 @@ This is the canonical ready/left ledger for the alpha. Pair with `CHANGELOG.md` 
 - Tag: `v0.1.0-alpha` annotated, pushed.
 - 27 orchestration tasks logged in `memory_index.md`.
 - 27+ commits on `main`, every wave commit signed `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`.
+
+## Phase 2 — V3 parity build (Waves 10-16, May 2026)
+
+After v0.1.0-alpha shipped, a Node 26 + npm 11 install bug blocked the local smoke; W10 spent its budget restoring `node_modules`. The user then shared *Vibe Coding With BridgeSpace 3*, and the orchestration pivoted to V3 parity. W12-15 ran as parallel-agent waves against `docs/03-plan/V3_PARITY_BACKLOG.md` (45 tickets). v1.0.0 is feature-complete, release-blocked pending CI matrix run + user authorisation for the tag.
+
+### Wave 10 — boot self-check + Diagnostics tab
+
+Restored the corrupt `node_modules/electron`. Shipped a boot self-check for `better-sqlite3` ABI mismatches, a `NativeRebuildModal` prompting `npm rebuild`, a Re-probe banner that re-runs provider PATH probes, and a Settings → Diagnostics tab. Closes critique R3 + risk A12 (both Open at v0.1.0-alpha).
+
+### Wave 11 — V3 frame-by-frame multimodal research
+
+Three multimodal walker agents covered 553 frames at `docs/02-research/frames/v3/`; a synthesiser produced 5 canonical research files (`v3-frame-by-frame.md`, `v3-delta-vs-current.md`, `v3-protocol-delta.md`, `v3-providers-delta.md`, `v3-agent-roles-delta.md`). Bridge Assistant verdict: **BUILD, do not defer**. Synthesiser also surfaced Bridge Canvas as first-class, the right-rail dock, Operator Console body, Battalion 20 preset, 9-provider matrix with BridgeCode + Kimi-as-model, 9 new mailbox envelope kinds, and BridgeVoice intake.
+
+### Wave 11.5 — scope freeze
+
+Cut `V3_PARITY_BACKLOG.md` (45 tickets, all grep-able as `[V3-WNN-NNN]`). Surgical PRODUCT_SPEC.md re-baseline: C-016 conflict resolution, §2.2/2.3/3.10 rebuilt, new §3.12/13/14, §4 rewritten with V3 9-provider matrix. CHANGELOG `[Unreleased]` carried the V3 scope-freeze announcement until W16.
+
+### Wave 12 — parallel debt + V3 quick-wins (6 agents, 18 tickets)
+
+Migrations + RPC allowlist scaffolding had to land first so W13-15 never blocked on schema or channel changes. Drizzle Kit journal; 9 mailbox envelope kinds with per-kind zod schemas; new columns `swarm_messages.resolvedAt`, `swarm_agents.autoApprove`, `swarm_agents.coordinatorId`; 17 RPC channels + 5 events; `assistant.*` / `design.*` / `voice:state` / `swarm:*` allowlist groups. BridgeCode stub + Kimi as OpenCode model + Aider/Continue legacy toggle. 3-card launcher + stepper + breadcrumb. Battalion 20 replacing Legion 50; role colour tokens; 5-step swarm wizard; Operator Console TopBar scaffold. `safeStorage` credentials (closes A5). Five P3 bugs closed: BUG-W7-007 / 009 / 010 / 012 / 014.
+
+### Wave 13 — V3 parity sweep + Bridge Assistant (5 agents, 15 tickets)
+
+Right-rail dock (Browser / Editor / Bridge tabs + splitter); Browser recents + click-link-in-pane routing; per-pane chrome variants + multi-pane CSS-grid + `Cmd+Alt+<N>`; Constellation graph (multi-hub via `coordinatorId`); ActivityFeed; structured `task_brief` render; per-agent boards; operator → PTY DM echo; Mission `@<workspaceSlug>` autocomplete; Swarm Skills 12-tile grid. **Bridge Assistant fully built**: 4-state orb + chat + 10 canonical tools (`launch_pane`, `prompt_agent`, `read_files`, `open_url`, `create_task`, `create_swarm`, `create_memory`, `search_memories`, `broadcast_to_swarm`, `roll_call`) + tool tracer + Jump-to-pane toast + completion ding.
+
+### Wave 14 — Bridge Canvas + Editor + auto-update (3 agents, 9 tickets)
+
+Bridge Canvas pipeline (element picker, DesignDock, provider chips with Shift/Alt multi-select, drag-drop asset staging, live-DOM HMR poke, GA toggle). Editor right-rail tab with Monaco lazy-loaded as 14.57 KB chunk separate from the 990 KB main; CodeMirror fallback; `fs.*` RPC. Auto-update via `electron-updater@6.8.3` opt-in; UpdatesTab; NativeRebuildModal; Re-probe banner.
+
+### Wave 15 — voice + CI matrix + plan capabilities (4 agents, 6 of 7 tickets)
+
+BridgeVoice intake: title-bar pill + 3 capture sources (mission, Bridge orb, Command Palette `Cmd+Shift+K`); Web Speech API stub. CI matrix on Win / macOS / Linux under Node 20. Plan capabilities default Ultra. Marketplace stub. **V3-W15-006 dogfood deferred** — needs a real human GUI session.
+
+### Wave 16 — release prep
+
+Release-architect produced the v1.0 doc set with no commit / tag / push actions: `ACCEPTANCE_REPORT_V1.md`, `release-notes-1.0.0.txt`, CHANGELOG `[1.0.0] - 2026-05-10 (PENDING TAG)`, this extension. Build at cut: `tsc -b` clean; `vite build` 990 KB + 14.57 KB Monaco; lint 80/3.
+
+## Status snapshot — v1.0 candidate
+
+Supersedes the v0.1.0-alpha snapshot above. Detailed surface inventory + risk register live in `docs/06-test/ACCEPTANCE_REPORT_V1.md`; full ticket-level scope in `docs/03-plan/V3_PARITY_BACKLOG.md`.
+
+**Ready**: all Phase 1-8 surfaces from v0.1.0-alpha plus every Wave 12-14 ticket, the W15 voice / CI / plan / marketplace work, and W10 Diagnostics. Bridge Assistant + Bridge Canvas both ship full.
+
+**Release gating**: explicit user authorization for `git tag -a v1.0.0`; W15 CI matrix first green run on Win / macOS / Linux.
+
+**Manual reverify (still `fixed`)**: BUG-W7-003 (theme default on fresh kv); BUG-W7-006 (`swarms.create` race vs `workspaces.open`).
+
+**P3 still open**: BUG-W7-015 (Parchment CTA contrast); BUG-W7-000 (Node 26 + npm 11 install — bypassed by Node 20 CI matrix).
+
+**Top 5 v1.1 follow-ups**: dogfood (V3-W15-006); native voice bindings; macOS notarisation + Win signing; 3-way merge editor + per-line review; promote BUG-W7-003 + 006 to `verified`.
+
+**TL;DR** — v1.0 is feature-complete and release-blocked-pending-user.

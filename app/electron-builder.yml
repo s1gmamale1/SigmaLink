@@ -37,3 +37,13 @@ linux:
     - target: deb
       arch: [x64]
   category: Development
+# V3-W14-008 — auto-update channel. Targets the public GitHub Releases of the
+# SigmaLink repository so `electron-updater` can resolve `latest-mac.yml`,
+# `latest.yml`, and `latest-linux.yml` from a single source. macOS code-signing
+# is intentionally out-of-scope for v1 — users get an unsigned dmg until a
+# Developer ID is attached. The renderer gates the actual update check behind
+# `kv['updates.optIn']='1'` (default OFF).
+publish:
+  provider: github
+  owner: s1gmamale1
+  repo: SigmaLink

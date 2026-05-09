@@ -2,9 +2,12 @@
 
 Local-first desktop workspace for orchestrating grids of CLI coding agents in real PTYs, isolated by Git worktrees.
 
-SigmaLink is an Electron desktop application that lets a single human operator run several coding-agent CLIs (Claude Code, Codex, Gemini, Kimi, Cursor, OpenCode, Droid, Copilot, Aider, Continue, plus a custom shell entry) in parallel against the same Git repository. Each agent runs in a real PTY-backed terminal pane and is checked out into its own Git worktree, so concurrent edits cannot collide on disk. A SQLite database holds workspaces, sessions, swarm rosters, tasks, conversations, and notes; nothing is sent to a remote service.
+SigmaLink is an Electron desktop application that lets a single human operator run several coding-agent CLIs (BridgeCode, Claude Code, Codex, Gemini, Cursor, OpenCode, plus the custom shell entry, with Aider and Continue available as legacy toggles) in parallel against the same Git repository. Each agent runs in a real PTY-backed terminal pane and is checked out into its own Git worktree, so concurrent edits cannot collide on disk. A SQLite database holds workspaces, sessions, swarm rosters, tasks, conversations, and notes; nothing is sent to a remote service.
 
-The project is in active rebuild. Phase 1 (foundation: workspace launcher, command room with PTY-backed terminals, Git worktree pool, SQLite schema, eleven providers) is shipped. Phases 2–8 — coordinated agent swarms, an embedded controllable browser, drag-and-drop Skills, a wikilink memory MCP server, a rebuilt review pipeline, UI polish, and the visual-test loop — are being built by a sub-agent swarm orchestrated from [`docs/ORCHESTRATION_LOG.md`](docs/ORCHESTRATION_LOG.md). Expect heavy churn until Wave 7 acceptance lands.
+The project is in active rebuild. Phases 1–8 (foundation, swarms, in-app browser, Skills, SigmaMemory, Review/Tasks, UI polish, visual-test loop) are shipped. Phase 9 (V3 parity, waves 12–16) is in progress: bundled credential storage via Electron `safeStorage`, a Bridge Assistant room (W13), the Bridge Canvas visual-design surface (W14), and final hardening land before v0.2.0. Track the swarm in [`docs/ORCHESTRATION_LOG.md`](docs/ORCHESTRATION_LOG.md).
+
+[![lint-and-build](https://github.com/s1gmamale1/SigmaLink/actions/workflows/lint-and-build.yml/badge.svg?branch=main)](https://github.com/s1gmamale1/SigmaLink/actions/workflows/lint-and-build.yml)
+[![e2e-matrix](https://github.com/s1gmamale1/SigmaLink/actions/workflows/e2e-matrix.yml/badge.svg?branch=main)](https://github.com/s1gmamale1/SigmaLink/actions/workflows/e2e-matrix.yml)
 
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)
@@ -28,26 +31,24 @@ A workspace is a saved binding of a folder, optional repo root, base branch, and
 | Type | Purpose | Status |
 |---|---|---|
 | Bridge Space | Single-workspace agent grid: parallel but independent CLI agents over the same repo (1..16 panes). | Phase 1 (shipped) |
-| Bridge Swarm | Role-bearing coordinated swarm with a file-mailbox bus, side chat, broadcast, and roll-call. | Phase 2 (planned) |
-| Bridge Canvas | Visual design surface: pick an element in the embedded browser, dispatch a scoped prompt, drag assets onto a selection. | Phase 3+ (planned) |
+| Bridge Swarm | Role-bearing coordinated swarm with a file-mailbox bus, side chat, broadcast, and roll-call. | Phase 2 (shipped) |
+| Bridge Canvas | Visual design surface: pick an element in the embedded browser, dispatch a scoped prompt, drag assets onto a selection. | In V3 build (Wave 14) |
 
 ## Supported agents
 
-Eleven providers ship in the default registry. Any other CLI on `PATH` is auto-detected and surfaces in the picker. Source: [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md) section 4.
+Nine providers ship in the V3 default registry: BridgeCode (coming soon, currently falls back to Claude Code at spawn time), Claude Code, Codex CLI, Gemini CLI, Cursor Agent, OpenCode, the plain Shell entry, plus Aider and Continue as legacy toggles (hidden until `kv['providers.showLegacy'] = '1'`). Kimi is a model rather than a standalone CLI, so it is selected per-provider rather than being its own row. Any other CLI on `PATH` is auto-detected and surfaces in the picker. Source: [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md) section 4 and `app/src/shared/providers.ts`.
 
-| Provider | Command | Install hint |
-|---|---|---|
-| Claude Code | `claude` | `npm i -g @anthropic-ai/claude-code` |
-| Codex CLI | `codex` | `npm i -g @openai/codex` |
-| Gemini CLI | `gemini` | `npm i -g @google/gemini-cli` |
-| Kimi | `kimi` | manual install on `PATH` |
-| Cursor Agent | `cursor-agent` | install via Cursor app |
-| OpenCode | `opencode` | `npm i -g opencode` |
-| Droid | `droid` | `npm i -g @factory-ai/droid` |
-| GitHub Copilot CLI | `gh copilot` | `gh extension install github/gh-copilot` |
-| Aider | `aider` | `pipx install aider-chat` |
-| Continue | `continue` | `npm i -g @continuedev/cli` |
-| Custom shell | operator-supplied | n/a |
+| Provider | Command | Install hint | Visibility |
+|---|---|---|---|
+| BridgeCode | `bridgecode` | Coming soon — BridgeMind hosted CLI | V3 default (renders disabled, falls back to Claude) |
+| Claude Code | `claude` | `npm i -g @anthropic-ai/claude-code` | V3 default |
+| Codex CLI | `codex` | `npm i -g @openai/codex` | V3 default |
+| Gemini CLI | `gemini` | `npm i -g @google/gemini-cli` | V3 default |
+| Cursor Agent | `cursor-agent` | install via Cursor app | V3 default |
+| OpenCode | `opencode` | `npm i -g opencode` | V3 default |
+| Shell | operator-supplied | Built-in | Always available |
+| Aider | `aider` | `pipx install aider-chat` | Legacy toggle |
+| Continue | `continue` | `npm i -g @continuedev/cli` | Legacy toggle |
 
 ## Quickstart
 
@@ -120,8 +121,11 @@ Each phase tracks a section of the build blueprint at [`docs/03-plan/BUILD_BLUEP
 | [Phase 6](docs/03-plan/BUILD_BLUEPRINT.md#phase-6--review-room-rebuild--taskskanban) | Review Room rebuild, Tasks / Kanban | Shipped |
 | [Phase 7](docs/03-plan/BUILD_BLUEPRINT.md#phase-7--ui-polish-theme-catalog-command-palette-layout-refinements-animations) | UI polish: theme catalog, command palette, animations | Shipped |
 | [Phase 8](docs/03-plan/BUILD_BLUEPRINT.md#phase-8--visual-test--bug-fix-loops) | Visual test, bug-fix loops, acceptance | Shipped (Wave 7 + Wave 8 + Wave 9 acceptance) |
+| [Phase 9](docs/03-plan/BUILD_BLUEPRINT.md) | V3 parity — credential safeStorage, bundled `@playwright/mcp`, Bridge Assistant room, Bridge Canvas, hardening | In progress (Waves 12–16) |
 
-Last verified: 2026-05-09.
+Now shipping 9 of 11 V3 rooms (Workspaces, Command Room, Swarm Room, Browser, Skills, SigmaMemory, Review, Tasks, Settings). Bridge Assistant lands in Wave 13 and Bridge Canvas in Wave 14.
+
+Last verified: 2026-05-10.
 
 ## What works today
 
@@ -139,8 +143,10 @@ A short menu of flows you can confidently demo on a fresh checkout:
 ```
 +---------------------------------------------------------------+
 | Renderer (React 19, Tailwind 3, shadcn UI, xterm.js)          |
-|   rooms: workspaces / command / swarm / review / memory /     |
-|          browser / skills / tasks / settings / assistant      |
+|   rooms (9 shipped): workspaces / command / swarm / review /  |
+|          memory / browser / skills / tasks / settings         |
+|   rooms (V3 build): bridge-assistant (W13) / bridge-canvas    |
+|          (W14)                                                |
 +---------------------------------------------------------------+
                      |   typed RPC + event bridge (Proxy)
 +---------------------------------------------------------------+
@@ -188,7 +194,7 @@ SigmaLink runs untrusted CLI agents inside PTYs against your local repositories.
 - Inspired by BridgeMind's BridgeSpace and BridgeSwarm products. SigmaLink is an independent project; we are not affiliated with, endorsed by, or sponsored by BridgeMind.
 - PTY ring-buffer plumbing, generic RPC bridge, and several Git-orchestration patterns are drawn from [Emdash](https://github.com/generalaction/emdash) (Apache-2.0). See [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md).
 - Skill format follows the public Anthropic Skills layout (SKILL.md frontmatter + body).
-- UI components use [shadcn UI](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), [lucide-react](https://lucide.dev/), and [xterm.js](https://xtermjs.org/). Database access uses [Drizzle ORM](https://orm.drizzle.team/) on top of [better-sqlite3](https://github.com/WiseLibs/better-sqlite3). PTY support comes from [node-pty](https://github.com/microsoft/node-pty).
+- UI components use [shadcn UI](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), [lucide-react](https://lucide.dev/), and [xterm.js](https://xtermjs.org/). Database access uses [Drizzle ORM](https://orm.drizzle.team/) on top of [better-sqlite3](https://github.com/WiseLibs/better-sqlite3). PTY support comes from [node-pty](https://github.com/microsoft/node-pty). The in-app browser drives Chromium through the bundled [@playwright/mcp](https://github.com/microsoft/playwright-mcp) supervisor.
 
 ## License
 

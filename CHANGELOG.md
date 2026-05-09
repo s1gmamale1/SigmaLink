@@ -4,6 +4,101 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-10 (PENDING TAG)
+
+V3 parity release. Tag + push gated on explicit user authorization. Body: `docs/release-notes-1.0.0.txt`. Acceptance: `docs/06-test/ACCEPTANCE_REPORT_V1.md`.
+
+### Added
+
+Wave 10 — boot self-check + Diagnostics:
+
+- Boot self-check detects `better-sqlite3` ABI mismatches; `NativeRebuildModal` prompts `npm rebuild`; Re-probe banner re-runs provider PATH probes; Settings → Diagnostics tab. Closes critique R3 + risk A12.
+
+Wave 11.5 — scope freeze:
+
+- `docs/03-plan/V3_PARITY_BACKLOG.md` (45 tickets, W12-15); surgical PRODUCT_SPEC re-baseline (C-016, §2.2/2.3/3.10/3.12/3.13/3.14, §4 V3 9-provider matrix).
+
+Wave 12 — V3 quick-wins + infrastructure (6 parallel agents):
+
+- Workspace launcher: 3-card picker (BridgeSpace / Swarm / Canvas-ALPHA, `⌘T`/`⌘S`/`⌘K`) + Start → Layout → Agents stepper + tile grid 1/2/4/6/8/10/12 + recents autocomplete + preset row + sidebar status dot + agent-count pill + breadcrumb `Workspace <N> / <user>`.
+- Provider matrix reset: BridgeCode stub (silent Claude fallback via `agent_sessions.providerEffective`); Kimi → OpenCode model option (`ModelOption` type, per-pane status strip `<model> <effort> <speed> · <cwd>`); Aider + Continue behind `kv['providers.showLegacy']`; wizard quick-fills (Enable all / One of each / Split evenly).
+- Battalion 20 preset (3/11/3/3 [INFERRED]); cap 50→20; >20-agent swarms read-only with `legacy: true`.
+- Role colour CSS tokens (`--role-coordinator/-builder/-scout/-reviewer`) across all themes; `bg-role-<n>` utilities.
+- Swarm wizard 5-step shell (Roster → Mission → Directory → Context → Name); CLI-agent-for-all global provider strip; per-row Auto-approve + provider override + model + count -/+ + colour stripe.
+- Operator Console TopBar (TERMINALS / CHAT / ACTIVITY tabs + STOP ALL + group filters fed by `swarm:counters`).
+- 17 new RPC channels + 5 events; `assistant.*` / `design.*` / `voice:state` / new `swarm:*` allowlist groups.
+- 9 mailbox envelope kinds: `escalation` (promoted), `review_request`, `quiet_tick`, `error_report`, `task_brief`, `board_post`, `bridge_dispatch`, `design_dispatch`, `skill_toggle`. Recipient grammar `@all`/`@coordinators`/`@builders`/`@scouts`/`@reviewers`. Per-kind zod soft-launch schemas.
+- `swarm_messages.resolvedAt` (counters); `directive.echo='pane'` (operator → PTY).
+- Drizzle Kit journal; new tables `boards`, `swarm_skills`, `canvases`; new columns `swarm_agents.coordinatorId`, `swarm_agents.autoApprove`.
+- `safeStorage`-backed credentials (closes A5).
+
+Wave 13 — V3 parity sweep + Bridge Assistant (5 parallel agents):
+
+- Right-rail dock with Browser / Editor / Bridge tabs + resizable splitter; width in `kv['rightRail.width']`. Browser recents + click-link-in-pane routing.
+- Per-pane chrome variants + provider splash + footer hints; multi-pane CSS-grid 1/2/4/6/8/10/12 with per-pane drag-resize + `Cmd+Alt+<N>`.
+- Constellation graph (drag/zoom; multi-hub via `coordinatorId`); ActivityFeed sidebar; structured `task_brief` render (URGENT chip + indented headings + live links).
+- Per-agent boards (`boards` table + atomic markdown under `<userData>/swarms/<swarmId>/boards/...`); `board_post` envelope DB + disk in one tx.
+- Operator → agent DM echo into PTY when `directive.echo === 'pane'`. Mission `@<workspaceSlug>` autocomplete. Swarm Skills 12-tile grid persists to `swarm_skills` and fires `skill_toggle`.
+- **Bridge Assistant fully built**: chat panel + 4-state orb (STANDBY / LISTENING / RECEIVING / THINKING) + char-by-char streaming.
+- `assistant.*` RPC: `listen`, `state` (event), `dispatch-pane`, `dispatch-bulk`, `ref-resolve`, `turn-cancel`, `tool-trace` (event).
+- 10 canonical tools: `launch_pane`, `prompt_agent`, `read_files`, `open_url`, `create_task`, `create_swarm`, `create_memory`, `search_memories`, `broadcast_to_swarm`, `roll_call`. Tool tracer + cross-workspace Jump-to-pane toast + completion ding (`app/public/sounds/ding.wav`).
+
+Wave 14 — Bridge Canvas + Editor + auto-update (3 parallel agents):
+
+- Bridge Canvas element-picker overlay; `design:start-pick / pick-result` carry `{ selector, outerHTML, computedStyles, screenshotPng }`.
+- DesignDock with captured selector + collapsible outerHTML + screenshot thumbnail + "Paste source" pill.
+- Per-prompt provider chips (Claude / Codex / Gemini / OpenCode) Shift-add / Alt-remove; persists per-canvas in `canvases.lastProviders`.
+- Drag-and-drop asset staging into `<userData>/canvases/<canvasId>/staging/<ulid>.<ext>`.
+- Live-DOM HMR poke: `design:patch-applied` on agent file writes; `location.reload()` fallback or no-op WebSocket nudge.
+- BridgeCanvas card ALPHA chip until `kv['canvas.gaSign']='1'`.
+- Editor right-rail tab: Monaco lazy-loaded as 14.57 KB chunk (separate from 990 KB main); CodeMirror fallback; file tree + click-path focus + `fs.readDir`/`readFile`/`writeFile` RPC.
+- Auto-update via `electron-updater@6.8.3`; opt-in behind `kv['updates.optIn']='1'`; Settings → Updates tab with Check button + last-check timestamp.
+- Re-probe agents button (Settings → Providers); `NativeRebuildModal` on `better-sqlite3` ABI mismatch.
+
+Wave 15 — voice + CI matrix + plan capabilities (4 parallel agents):
+
+- BridgeVoice intake: title-bar pill + global `voice:state { active, source: 'mission'|'assistant'|'palette' }`. Web Speech API stub; native bindings deferred to v1.1.
+- Voice into swarm mission textarea, Bridge orb tap, Command Palette (`Cmd+Shift+K`).
+- `.github/workflows/e2e-matrix.yml` runs the smoke on `windows-latest` / `macos-14` / `ubuntu-latest` under Node 20; per-OS artefacts; required PR check.
+- Plan-gating matrix at `app/src/main/core/plan/capabilities.ts` + `canDo(cap)`; default tier `'ultra'` (free, local-only); QA override via `kv['plan.tier']`.
+- Skills marketplace stub: read-only listing from `docs/marketplace/skills.json`.
+
+### Changed
+
+- Roster preset rename Legion → Battalion. Preset list = Squad 5 (1/2/1/1) · Team 10 (2/5/2/1) · Platoon 15 (2/7/3/3) · Battalion 20 (3/11/3/3 [INFERRED]) · Custom 1..20. `swarms.preset` CHECK constraint accepts `'battalion'`; existing `'legion'` rows survive but new swarms reject `legion`. Supersedes original PRODUCT_SPEC C-006.
+- Provider matrix 11 → 9 default. BridgeCode added; Kimi demoted to OpenCode model option; Aider + Continue hidden behind legacy toggle; Custom row renamed to "Custom Command". Supersedes original PRODUCT_SPEC C-004.
+- `[Unreleased]` section reset to empty after this release cuts.
+- README status table flips Phase 9 to In progress (Waves 12–16) → Shipped pending W15 CI matrix completion.
+
+### Fixed
+
+W12 P3 sweep — 5 P3 bugs from W7 closed:
+
+- `BUG-W7-007` (P3) — PowerShell upgrade banner suppressed: `-NoLogo` + `POWERSHELL_UPDATECHECK=Off` for the PowerShell family in `local-pty.ts`.
+- `BUG-W7-009` (P3) — Tasks sidebar icon weight: `ListChecks` → `LayoutGrid` to match `Folder`/`Globe`/`Settings` stroke profile.
+- `BUG-W7-010` (P3) — Test-only folder picker: `workspacesCtl.pickFolder` bypasses `dialog.showOpenDialog` when `process.env.SIGMA_TEST` is set, reading `kv['tests.fakePickerPath']`.
+- `BUG-W7-012` (P3) — Onboarding Skip flake: `complete()` dispatches `SET_ONBOARDED` synchronously; kv write fires in background; Skip button forces `pointerEvents: 'auto'`.
+- `BUG-W7-014` (P3) — Browser room test-coupling: `RoomSwitch` mirrors `state.room` to `document.body.dataset.room`; smoke embeds rendered room in filename.
+
+### Deferred
+
+- Dogfood cycle (V3-W15-006) — needs real human GUI session; queued for v1.1.
+- Native voice bindings (macOS Speech / Windows SAPI / Linux PocketSphinx); Web Speech API stub ships in v1.0.0.
+- macOS notarisation + Windows code-signing certificate (R10 Partial).
+- Three-way merge editor + per-line review comments in Review Room.
+- Manual reverify BUG-W7-003 + BUG-W7-006 (both hold `fixed` pending fresh-kv GUI cycle).
+- Real CDP-attach / shared-Chromium Browser; per-workspace cookie isolation; hard-blocking `claimDriver` lock.
+- Barnes-Hut quadtree for Memory graph >500 notes; token-overlap `suggest_connections`; real-time `memory:changed` IPC.
+- Cloud sync, accounts, billing, SSH remote workspaces, ticketing integrations, mobile clients — out of scope for v1.
+- Bernstein-style verifier loops (PRODUCT_SPEC C-008); multi-window concurrency (A11); telemetry (A16).
+
+### Known issues
+
+- Local Playwright `_electron` smoke gated on Node 26 + npm 11 install bug; W15 CI matrix on Node 20 is canonical.
+- Lint at 80 errors / 3 warnings, nearly all in `_legacy/` archive code.
+- BUG-W7-015 (P3) — Parchment "Launch N agents" CTA contrast nit (open).
+- BUG-W7-000 (P0) — Electron node_modules install bug; bypassed by Node 20 CI matrix; tracked for v1.1.
+
 ## [0.1.0-alpha] - 2026-05-09
 
 ### Added
@@ -91,5 +186,6 @@ Wave 8 — visual-sweep bug-fix pass:
 - `BUG-W7-014` (P3) — Browser room not reachable in test sweep when no workspace is activated; coupled to `BUG-W7-001` (now verified) but the test harness path remains.
 - `BUG-W7-015` (P3) — Parchment "Launch N agents" CTA contrast nit.
 
-[Unreleased]: https://github.com/s1gmamale1/SigmaLink/compare/v0.1.0-alpha...HEAD
+[Unreleased]: https://github.com/s1gmamale1/SigmaLink/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/s1gmamale1/SigmaLink/compare/v0.1.0-alpha...v1.0.0
 [0.1.0-alpha]: https://github.com/s1gmamale1/SigmaLink/releases/tag/v0.1.0-alpha

@@ -1,0 +1,188 @@
+SigmaLink v1.0.0 — V3 parity release
+Tag date target: 2026-05-10 (PENDING USER AUTHORIZATION)
+Predecessor: v0.1.0-alpha (2026-05-09)
+
+SigmaLink is a local-first Electron desktop workspace for orchestrating
+grids of CLI coding agents in real PTYs, isolated by Git worktrees.
+v1.0.0 is the V3-parity build: every BridgeSpace V3 surface that the
+Wave 11 multimodal study (553 frames, 4 transcripts, synthesizer
+verdict) marked canonical now ships.
+
+The v0.1.0-alpha tag captured Phase 1 through Wave 9. v1.0.0 adds the
+V3 parity surfaces, a first-class Bridge Assistant, the Bridge Canvas
+visual-design pipeline, the BridgeVoice intake stub, the Editor right-
+rail tab, an opt-in auto-update channel, a cross-platform CI matrix,
+and a plan-capability matrix (default Ultra; SigmaLink ships free).
+
+WHAT'S NEW IN V3
+
+  Workspace launcher (Wave 12)
+  - 3-card picker: BridgeSpace, BridgeSwarm, BridgeCanvas (ALPHA chip).
+  - Start -> Layout -> Agents stepper.
+  - Layout step tile grid 1/2/4/6/8/10/12 with hover tooltips; recents
+    autocomplete; preset row.
+  - Sidebar tabs gain status dot + agent-count pill; top breadcrumb
+    "Workspace <N> / <user>".
+
+  Provider matrix reset (Wave 12)
+  - 11 providers -> 9 default. BridgeCode added (coming-soon, silent
+    fallback to Claude when binary missing). Kimi demoted to a model
+    option under OpenCode. Aider and Continue hidden behind
+    kv['providers.showLegacy'].
+  - Per-pane status strip "<model> <effort> <speed> - <cwd>".
+  - Wizard quick-fills: Enable all / One of each / Split evenly.
+
+  Roster reset (Wave 12)
+  - Legion 50 retired. Battalion 20 (3/11/3/3 [INFERRED]) added.
+  - Preset set: Squad 5 / Team 10 / Platoon 15 / Battalion 20 /
+    Custom 1..20. Existing >20-agent swarms load read-only.
+  - Four role-colour CSS tokens defined across all four themes.
+
+  Operator Console (Waves 12-13)
+  - TopBar with TERMINALS / CHAT / ACTIVITY tabs, STOP ALL pill, group
+    filters with unread counters from swarm:counters.
+  - Constellation graph (multi-hub via swarm_agents.coordinatorId);
+    ActivityFeed sidebar; per-agent boards (boards table + atomic
+    markdown via the new board_post envelope); operator -> agent DM
+    echo into PTY when directive.echo='pane'; mission @<workspaceSlug>
+    autocomplete.
+
+  Mailbox protocol additions (Wave 12)
+  - 9 new envelope kinds: escalation (promoted), review_request,
+    quiet_tick, error_report, task_brief, board_post, bridge_dispatch,
+    design_dispatch, skill_toggle.
+  - swarm_messages.resolvedAt for counter projection; recipient
+    grammar accepts @all/@coordinators/@builders/@scouts/@reviewers.
+  - 17 new RPC channels + 5 events through the preload allowlist;
+    per-channel zod soft-launch lands payload validation.
+
+BRIDGE ASSISTANT (Wave 13)
+
+  First-class room mounted on the right-rail Bridge tab.
+
+  - 4-state orb: STANDBY -> LISTENING -> RECEIVING -> THINKING. Tap
+    enters LISTENING (Web Speech intake; native bindings deferred).
+  - Chat panel with rounded-pill role labels (BRIDGE / YOU); assistant
+    messages stream char-by-char.
+  - 10 canonical tools across the assistant.* RPC namespace:
+    launch_pane, prompt_agent, read_files, open_url, create_task,
+    create_swarm, create_memory, search_memories, broadcast_to_swarm,
+    roll_call.
+  - assistant:dispatch-bulk spawns N panes; assistant:ref-resolve
+    walks the workspace index to resolve @filename references inline.
+  - Tool-call inspector renders call/response pairs in the chat
+    panel; completion fires a sonner toast with a Jump-to-pane action
+    plus a subtle ding (user-toggleable in Settings).
+
+  Supersedes the v0.1.0-alpha "deferred research-grade feature"
+  classification. The synthesizer verdict was BUILD; v1.0.0 ships it.
+
+BRIDGE CANVAS (Wave 14)
+
+  - Element-picker overlay from the Browser address bar; DevTools-
+    style hover-highlight; click freezes selection.
+  - DesignDock left-pane shows captured selector, outerHTML snippet
+    (collapsible), screenshot thumbnail, "Paste source" pill.
+  - Per-prompt provider chips: Claude / Codex / Gemini / OpenCode
+    (Shift-add, Alt-remove); default persists in canvases.lastProviders.
+  - Drag-and-drop assets stage to <userData>/canvases/<canvasId>/
+    staging/<ulid>.<ext>; absolute path inserted as quoted string.
+  - Live-DOM HMR poke: when an agent writes a file under the active
+    dev-server source root, design:patch-applied fires; Browser tab
+    posts location.reload() (or a no-op WebSocket frame) to nudge HMR.
+  - BridgeCanvas card retains the ALPHA chip until kv['canvas.gaSign']
+    flips to '1'.
+
+BRIDGEVOICE (Wave 15)
+
+  BridgeVoice intake is wired through three capture sources.
+
+  - Centred title-bar pill appears whenever any capture is active.
+  - Global voice:state event { active, source: 'mission'|'assistant'|
+    'palette' } fires on transitions.
+  - Mic button on the swarm-mission textarea; tap on the Bridge orb
+    routes voice into the assistant.* turn; Cmd+Shift+K in the Command
+    Palette toggles voice mode.
+  - v1.0.0 ships a Web Speech API stub adapter; OS-native bindings
+    (macOS Speech, Windows SAPI, Linux PocketSphinx) queued for v1.1.
+
+EDITOR RIGHT-RAIL TAB (Wave 14)
+
+  - Lazy-loaded monaco-editor as a 14.57 KB chunk separate from the
+    990 KB main bundle; CodeMirror fallback if Monaco fails to load.
+  - File tree rooted at the active workspace; expand/collapse persisted
+    in kv. fs.readDir / fs.readFile / fs.writeFile RPC.
+  - Click-path in any chat or pane footer focuses the file in Editor.
+
+PLAN CAPABILITIES (Wave 15)
+
+  app/src/main/core/plan/capabilities.ts enumerates every plan-gated
+  affordance (BridgeMCP slot count, BridgeVoice on/off, max swarm size,
+  BridgeCode access). canDo(cap) helper consulted by all gated UIs.
+  Default tier = 'ultra' since SigmaLink is local-only and free. The
+  capability matrix exists for forward compatibility only; no billing
+  UI ships in v1.0.0.
+
+AUTO-UPDATE (Wave 14)
+
+  electron-updater@6.8.3 bundled, disabled by default behind
+  kv['updates.optIn']='1'. Settings -> Updates tab exposes "Check for
+  updates" with a last-check timestamp; release channel pinned to
+  GitHub Releases. Boot self-check (Wave 10) gates against
+  better-sqlite3 ABI mismatches; the NativeRebuildModal prompts a
+  `npm rebuild` cycle when needed.
+
+CI MATRIX (Wave 15)
+
+  .github/workflows/e2e-matrix.yml runs app/tests/e2e/smoke.spec.ts on
+  windows-latest, macos-14, ubuntu-latest under stable Node 20.
+  Per-OS artefacts (visual-summary.json + screenshots). Required check
+  on PRs. Local Playwright runs are currently gated on a Node 26 +
+  npm 11 install bug; the CI matrix is the canonical signal until
+  that upstream issue is unblocked.
+
+ACKNOWLEDGEMENTS
+
+  - BridgeMind for the BridgeSpace V3 product that inspired and
+    grounded the V3 parity build. SigmaLink is independent and not
+    affiliated with, endorsed by, or sponsored by BridgeMind.
+  - Anthropic Claude Code for serving as a primary provider and for
+    the Skills format we ingest unchanged.
+  - OpenAI Codex CLI for the second provider lane.
+  - Google Gemini CLI as the third primary provider lane; the
+    synthesised gemini-extension manifests follow Gemini's published
+    extension layout.
+  - @playwright/mcp for the Browser supervisor that powers the in-app
+    browser and the V3 design-mode picker.
+  - Cursor Agent, OpenCode, Droid, and Copilot for filling out the
+    9-provider default matrix.
+  - shadcn UI, Radix UI, lucide-react, xterm.js, Drizzle ORM,
+    better-sqlite3, node-pty, electron-updater for the platform.
+  - Emdash (Apache-2.0) for PTY ring-buffer plumbing, generic RPC
+    bridge, and Git-orchestration patterns; see ATTRIBUTIONS.md.
+
+KNOWN LIMITATIONS
+
+  - Local Playwright _electron smoke is gated on a Node 26 + npm 11
+    install bug. The W15 CI matrix is the gating signal.
+  - Dogfood cycle (V3-W15-006) deferred to v1.1: requires a real human
+    GUI session driving a 4-pane swarm against a non-trivial repo for
+    >=30 minutes.
+  - BridgeVoice ships the Web Speech API adapter only; native OS voice
+    bindings queued for v1.1.
+  - macOS notarisation and Windows code-signing certificate are not
+    yet wired; auto-update works against unsigned builds but power-
+    user install flow remains.
+  - Three-way merge editor and per-line review comments in the Review
+    Room are still deferred.
+  - BUG-W7-003 (theme defaulting on fresh kv) and BUG-W7-006
+    (swarms.create race vs workspaces.open) remain at "fixed" pending
+    a manual GUI reverify on a clean kv profile.
+  - Multi-window concurrency (A11) is out of scope for v1.
+  - Telemetry (A16) is out of scope; SigmaLink is local-first.
+
+TAG STATUS
+
+  v1.0.0 is RELEASE-BLOCKED-PENDING-USER. Build pipeline is green.
+  The v1.0.0 git tag and push wait on explicit user authorization;
+  this notes file is the body of that pending annotated tag.
