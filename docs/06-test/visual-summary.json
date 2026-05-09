@@ -1,0 +1,191 @@
+{
+  "stepLog": [
+    {
+      "step": "01-startup.png",
+      "ok": true,
+      "note": "startup"
+    },
+    {
+      "step": "02-onboarding-step1.png",
+      "ok": true,
+      "note": "onboarding step 1"
+    },
+    {
+      "step": "03-onboarding-step2.png",
+      "ok": true,
+      "note": "onboarding step 2 (provider probe)"
+    },
+    {
+      "step": "04-onboarding-step3.png",
+      "ok": true,
+      "note": "onboarding step 3 (workspace picker)"
+    },
+    {
+      "step": "05-workspaces-empty.png",
+      "ok": true,
+      "note": "workspaces empty (post-onboarding)"
+    },
+    {
+      "step": "06-workspaces-with-recent.png",
+      "ok": true,
+      "note": "workspaces with SigmaLink folder"
+    },
+    {
+      "step": "07-launcher-4-panes.png",
+      "ok": true,
+      "note": "launcher 4 panes"
+    },
+    {
+      "step": "08-command-room-empty.png",
+      "ok": true,
+      "note": "command room (post-launch)"
+    },
+    {
+      "step": "09-command-room-running.png",
+      "ok": true,
+      "note": "command room running"
+    },
+    {
+      "step": "10-command-room-focus-mode.png",
+      "ok": true,
+      "note": "command room focus mode"
+    },
+    {
+      "step": "11-swarm-empty.png",
+      "ok": true,
+      "note": "swarm empty"
+    },
+    {
+      "step": "12-swarm-create.png",
+      "ok": true,
+      "note": "swarm create form"
+    },
+    {
+      "step": "13-swarm-running.png",
+      "ok": true,
+      "note": "swarm running"
+    },
+    {
+      "step": "14-swarm-side-chat.png",
+      "ok": true,
+      "note": "swarm side chat"
+    },
+    {
+      "step": "15-review-empty.png",
+      "ok": true,
+      "note": "review empty"
+    },
+    {
+      "step": "16-review-with-sessions.png",
+      "ok": true,
+      "note": "review with sessions"
+    },
+    {
+      "step": "17-review-diff-tab.png",
+      "ok": true,
+      "note": "review diff tab"
+    },
+    {
+      "step": "18-tasks-empty.png",
+      "ok": true,
+      "note": "tasks empty"
+    },
+    {
+      "step": "19-tasks-card-create.png",
+      "ok": true,
+      "note": "task create drawer"
+    },
+    {
+      "step": "20-tasks-card-on-board.png",
+      "ok": true,
+      "note": "task on board"
+    },
+    {
+      "step": "21-memory-empty.png",
+      "ok": true,
+      "note": "memory empty"
+    },
+    {
+      "step": "22-memory-create-note.png",
+      "ok": true,
+      "note": "memory create note"
+    },
+    {
+      "step": "23-memory-list-with-note.png",
+      "ok": true,
+      "note": "memory list with note"
+    },
+    {
+      "step": "24-memory-graph.png",
+      "ok": true,
+      "note": "memory graph"
+    },
+    {
+      "step": "25-browser-empty.png",
+      "ok": true,
+      "note": "browser empty"
+    },
+    {
+      "step": "26-browser-tab-loaded.png",
+      "ok": true,
+      "note": "browser tab loaded"
+    },
+    {
+      "step": "27-skills-empty.png",
+      "ok": true,
+      "note": "skills empty"
+    },
+    {
+      "step": "28-settings-appearance.png",
+      "ok": true,
+      "note": "settings appearance"
+    },
+    {
+      "step": "29-settings-providers.png",
+      "ok": true,
+      "note": "settings providers"
+    },
+    {
+      "step": "30-settings-mcp.png",
+      "ok": true,
+      "note": "settings mcp"
+    },
+    {
+      "step": "31-theme-parchment.png",
+      "ok": true,
+      "note": "theme parchment"
+    },
+    {
+      "step": "32-theme-nord.png",
+      "ok": true,
+      "note": "theme nord"
+    },
+    {
+      "step": "33-theme-synthwave.png",
+      "ok": true,
+      "note": "theme synthwave"
+    },
+    {
+      "step": "34-command-palette.png",
+      "ok": true,
+      "note": "command palette open"
+    },
+    {
+      "step": "35-sidebar-collapsed.png",
+      "ok": true,
+      "note": "sidebar collapsed (narrow window)"
+    },
+    {
+      "step": "36-error-banner.png",
+      "ok": true,
+      "note": "error banner"
+    },
+    {
+      "step": "37-final-shutdown.png",
+      "ok": true,
+      "note": "final shutdown"
+    }
+  ],
+  "consoleErrors": [],
+  "allConsoleSample": []
+}
