@@ -10,9 +10,23 @@ Marker conventions:
 
 ---
 
-## 0. Conflict resolutions (C-001 … C-015)
+## 0. Conflict resolutions (C-001 … C-016)
 
 Every conflict surfaced in `docs/02-research/CONFLICTS.md` is resolved here once and applied consistently across this file, `BUILD_BLUEPRINT.md`, and `UI_SPEC.md`.
+
+**C-016 — V3 supersedes original spec where they diverge.** After Wave 11's three-walker
+frame-by-frame study of the BridgeSpace V3 video (553 frames, `docs/02-research/v3-frame-by-frame.md`)
+and Wave 11.5 scope-freeze, V3 is the canonical reference for every divergent surface
+listed below. The execution backlog lives at `docs/03-plan/V3_PARITY_BACKLOG.md`. Divergent items:
+- Roster preset reset: **Legion 50 dropped, Battalion 20 added** (`v3-agent-roles-delta.md` §2; supersedes C-006).
+- Provider matrix: **11 → 9 default**; `BridgeCode` added; `kimi` demoted to model option under OpenCode; `aider`/`continue` hidden behind Settings legacy toggle (`v3-providers-delta.md`; supersedes C-004).
+- Bridge Canvas: **promoted from research-deferred to first-class room** (frames 0368-0405; supersedes master_memory deferred list).
+- Bridge Assistant: **promoted from research-deferred to first-class right-rail tab + mobile tile** (frames 0080-0150, 0410, 0455; supersedes master_memory deferred list).
+- Right-rail dock: **NEW** Browser / Editor / Bridge tabs (frames 0080, 0340, 0410).
+- Operator Console: **NEW** TERMINALS / CHAT / ACTIVITY tabs + ESCALATIONS / REVIEW / QUIET / ERRORS counters + constellation graph (frames 0250, 0265, 0295).
+- Swarm Skills: **NEW** 12-tile toggleable behavior modifiers (frames 0210, 0220).
+- Voice / BridgeVoice: **NEW** title-bar mic indicator + `voice:state` event (frame 0220; supersedes "voice out of scope" line in §15).
+- Mobile companion: **NEW** 6-tile dashboard sketch — high-level only, full mobile spec out of scope for v1.0 (frame 0455).
 
 | ID | Decision | Why |
 |---|---|---|
@@ -21,7 +35,7 @@ Every conflict surfaced in `docs/02-research/CONFLICTS.md` is resolved here once
 | C-003 | The mailbox schema allows N coordinators (1..N). The "coordinator 10" line in the launch transcript is treated as a misheard token. | No code change; schema flexibility resolves it. |
 | C-004 | Provider list ships **eleven** entries: claude, codex, gemini, kimi, cursor, opencode, droid, copilot, aider, continue, custom (shell). Drop the rebuild-plan position that excluded Continue; the legacy MVP already shipped it and the cost of keeping a config row is zero. Auto-detect any other provider found on PATH (Emdash style) but list only these eleven in the picker by default. | Maximises operator coverage without code changes. |
 | C-005 | Per-role provider defaults: Coordinator → Codex, Builder → Claude, Scout → Gemini, Reviewer → Codex. Operator override per role at launch. | Speaker recommendation; matches transcript. |
-| C-006 | Swarm sizing presets: **Squad (5)**, **Team (10)**, **Platoon (15)**, **Legion (50)**, plus a **Custom** roster builder. Workspace pane presets remain `1/2/4/6/8/10/12/14/16`. | Two preset axes — pane grid and roster — are kept distinct. |
+| C-006 | Swarm sizing presets: **Squad (5)**, **Team (10)**, **Platoon (15)**, **Battalion (20)**, plus a **Custom** roster builder (cap 20). Workspace pane presets remain `1/2/4/6/8/10/12/14/16`. *(Updated by C-016 from V3 frames 0184/0185; Legion-50 dropped.)* | Two preset axes — pane grid and roster — are kept distinct. |
 | C-007 | SigmaMemory ships exactly the 12 named tools listed in `REBUILD_PLAN.md` Phase 4. The "three tools" version in the research blueprint is a documented subset. | Rebuild plan precedence. |
 | C-008 | Phase 2 starts with operator-supervised orchestration via the file-mailbox bus (no LLM coordinator-as-dispatcher). A Bernstein-style verifier loop is deferred. The Coordinator role IS an LLM agent inside the swarm, but the dispatch substrate is deterministic file IO. | Lower risk; matches the demo. |
 | C-009 | SSH remote workspaces remain **out of scope** for v1. The provider abstraction will keep an SSH transport seam but no UI ships. | Rebuild plan precedence. |
@@ -36,7 +50,7 @@ Every conflict surfaced in `docs/02-research/CONFLICTS.md` is resolved here once
 
 ## 1. Product description (one paragraph)
 
-SigmaLink is a local-first, Electron + React desktop **agentic development environment** that lets a single human operator run a grid of CLI coding agents (Claude Code, Codex, Gemini, Kimi, Cursor, OpenCode, Droid, Copilot, Aider, Continue, plus a Custom shell) in real PTYs against a Git repository, isolating each agent in its own worktree, optionally coordinating those agents as a role-bearing swarm (Coordinator / Builder / Scout / Reviewer) over a deterministic file-system mailbox, with drag-and-drop Anthropic Skills loading, an embedded controllable browser, a 12-tool wikilink memory MCP server, and a SQLite-backed Kanban + review pipeline — all without cloud sync, accounts, or billing. It is for power users who already use one or more coding-agent CLIs and who want to orchestrate them on their own hardware. (Source: `docs/02-research/REQUIREMENTS_MASTER.md` Workspaces, Swarms, Browser, Memory, Skills, Out-of-scope sections; `docs/02-research/RESEARCH_SUMMARY.md`.)
+SigmaLink is a local-first, Electron + React desktop **agentic development environment** that lets a single human operator run a grid of CLI coding agents (BridgeCode, Claude Code, Codex, Gemini, OpenCode, Cursor, Droid, Copilot, plus a Custom Command — V3 9-provider matrix per §4) in real PTYs against a Git repository, isolating each agent in its own worktree, optionally coordinating those agents as a role-bearing swarm (Coordinator / Builder / Scout / Reviewer) over a deterministic file-system mailbox, with a Bridge Assistant orchestrator (right-rail tab + chat + tool-trace), a Bridge Canvas visual design tool (element-pick → per-prompt provider picker → live-DOM HMR poke), drag-and-drop Anthropic Skills loading, an embedded controllable browser, a 12-tool wikilink memory MCP server, and a SQLite-backed Kanban + review pipeline — all without cloud sync, accounts, or billing. It is for power users who already use one or more coding-agent CLIs and who want to orchestrate them on their own hardware. (Sources: `docs/02-research/REQUIREMENTS_MASTER.md`; `docs/02-research/v3-frame-by-frame.md`; V3 deltas under `docs/02-research/v3-*-delta.md`.)
 
 ---
 
@@ -56,29 +70,46 @@ A "workspace" is the user-level construct: a saved binding of a folder, optional
 
 ### 2.2 Bridge Swarm (role-bearing coordinated swarm)
 
-- **When to use**: one mission, multiple agents that need to talk to each other. Hand-off long-running task with minimal intervention. (Source: `glossary.md` "Bridge Swarm"; `workflows.md` W2/W3.)
+- **When to use**: one mission, multiple agents that need to talk to each other. Hand-off long-running task with minimal intervention. (Source: `glossary.md` "Bridge Swarm"; `workflows.md` W2/W3; V3 frames 0184/0185.)
 - **Who creates it**: operator, via Workspaces room → "+" → "Bridge Swarm".
+- **Roster presets** (V3-locked per `v3-agent-roles-delta.md` §2; frames 0184/0185 chips):
+  - **Squad 5** — 1 Coord / 2 Builders / 1 Scout / 1 Reviewer `[CONFIRMED]`.
+  - **Team 10** — 2 Coord / 5 Builders / 2 Scouts / 1 Reviewer `[CONFIRMED]`.
+  - **Platoon 15** — 2 Coord / 7 Builders / 3 Scouts / 3 Reviewers `[CONFIRMED]`.
+  - **Battalion 20** — **3 Coord / 11 Builders / 3 Scouts / 3 Reviewers** `[INFERRED]` (chip visible 0185, never expanded; ratios extrapolated from Platoon).
+  - **Custom 1..20** — operator picks each role count; cap dropped from 50 → 20. Existing > 20-agent swarms load read-only with `legacy: true` flag.
+  - Legion-50 is **removed**; the `swarms.preset` CHECK constraint accepts `'battalion'` and rejects new `'legion'` writes (existing rows survive).
 - **Contents**:
   - 1 swarm row (`swarms` table) holding mission, name, directory, supporting context.
-  - N agent rows (`swarm_agents`) with role and provider.
+  - N agent rows (`swarm_agents`) with role, provider, `autoApprove`, `coordinatorId` (frames 0205, 0250).
   - JSONL inboxes on disk at `<userData>/swarms/<swarmId>/inboxes/<agentId>.jsonl`. (Source: `REBUILD_PLAN.md` Phase 2.)
   - Optional supporting-context files copied to `<userData>/swarms/<swarmId>/brain/`.
-- **Persists**: `swarms`, `swarm_agents`, `swarm_messages`. Inboxes are rebuildable from `swarm_messages` after a crash.
+  - Per-agent **board** namespace at `<userData>/swarms/<swarmId>/boards/<agentId>/<postId>.md` (V3 frame 0280; transcript L247).
+- **Per-role colour tokens** (V3 frames 0185/0205/0250/0295): Coordinator blue `hsl(216 90% 60%)`, Builder violet `hsl(266 85% 65%)`, Scout green `hsl(150 75% 50%)`, Reviewer amber `hsl(40 90% 60%)`. Wired as `--role-coordinator/--role-builder/--role-scout/--role-reviewer` CSS vars in every theme block.
+- **Persists**: `swarms`, `swarm_agents` (with `autoApprove`, `coordinatorId`), `swarm_messages` (with `resolvedAt`), `boards`, `swarm_skills`. Inboxes are rebuildable from `swarm_messages` after a crash.
 
-### 2.3 Bridge Canvas (visual design tool) `[CHOSEN]`
+### 2.3 Bridge Canvas (visual design tool — fully spec'd)
 
-The launch and V3 videos name a third workspace type but never demo it. We pick a concrete clone:
+V3 demos this surface end-to-end across frames 0368-0405. Promoted from research-deferred to **first-class room** (C-016). Sources: `v3-frame-by-frame.md` Chapter C; `v3-protocol-delta.md` §4 (`design.*` RPC); `v3-delta-vs-current.md` §"Bridge Canvas".
 
-- **When to use**: select an HTML element in the in-app browser, dispatch a prompt scoped to that element to a chosen provider, optionally drag an asset onto the selection. (Source: `workflows.md` W6 — the Visual Design Tool flow that V3 demonstrates.)
-- **Who creates it**: operator, via Workspaces room → "+" → "Bridge Canvas". Also auto-spawned when the operator activates Design Tool inside the Browser room of any other workspace type.
-- **Contents**:
-  - 1 browser tab (the canvas surface).
-  - 1 element-pick overlay state (CSS selector, bounding rect, screenshot blob).
-  - A scoped prompt textarea + provider picker.
-  - A drop zone for assets; assets are copied to `<userData>/canvases/<canvasId>/assets/`.
-  - 0..N Builder agents spawned per submitted prompt. Each builder runs as a Bridge Space pane in the underlying directory.
-- **Persists**: `canvases` table (id, workspace_id, current_url, current_selector, asset_count). Each spawned builder writes to `agent_sessions` like a normal pane.
-- **Unknowns**: BridgeSpace's exact element-pick visuals, marquee colour, the activation gesture. We pick a Chrome-DevTools-style overlay with `border/glow-cool` highlight and a toolbar toggle in the browser chrome. `[CHOSEN]`
+- **When to use**: select an HTML element in the in-app browser preview, dispatch a prompt scoped to that element to one or more chosen providers, optionally drag an asset onto the selection. The agent edits the underlying source file; an HMR poke reflects the change live in the preview.
+- **Who creates it**: operator, via Workspaces room → "+" → BridgeCanvas card (`⌘K`, `ALPHA` chip — frames 0020, 0180). Also auto-spawned when the operator clicks "Activate Design Tool" inside the Browser room of any other workspace.
+- **Element-picker overlay** (frames 0368, 0369; RPC `design:start-pick / design:pick-result`):
+  - Banner *"Click an element in the preview"* during pick mode.
+  - DevTools-style hover highlight; click freezes selection.
+  - Pick result carries `{ selector, outerHTML, computedStyles, screenshotPng }`.
+- **Captured-element source paste** (frames 0368, 0380):
+  - Left dock shows the captured selector (e.g. `[Design Mode • Claude — Selected: div.relative.w-full]`), the outerHTML snippet (collapsible), a screenshot thumbnail, and a "Paste source" button that injects the snippet into the prompt buffer.
+- **Per-prompt provider picker** (frame 0380):
+  - Four chips: **Claude · Codex · Gemini · OpenCode** (default Claude).
+  - **Shift + Click** adds providers; **Alt + Click** removes. Multi-select fans the prompt out to one Builder pane per provider.
+  - Selection persists per-canvas via `canvases.lastProviders`.
+- **Drag-and-drop asset injection** (frames 0398, 0405; RPC `design:attach-file`):
+  - HTML5 drop into the prompt buffer stages the file under `<userData>/canvases/<canvasId>/staging/<ulid>.<ext>`.
+  - Absolute staging path is inserted into the prompt as a quoted string (matches V3 buffer `'/Users/.../bridgespace-v3.mp4'`).
+- **Live-DOM HMR poke** (frame 0405; event `design:patch-applied`):
+  - When an agent writes a file under the active dev server's source root, the browser tab posts a `location.reload()` if no HMR socket detected, otherwise nudges the dev server's HMR endpoint with a no-op WebSocket frame so the change repaints without a hard reload.
+- **Persists**: `canvases (id, workspace_id, current_url, current_selector, asset_count, last_providers, created_at, updated_at)`. Each spawned builder writes to `agent_sessions` like a normal pane.
 
 ---
 
@@ -157,14 +188,36 @@ The renderer mounts one of eleven surfaces at a time. Sidebar + workspace tab st
 - **Data shape**: settings live in `kv` table (`provider.<id>.commandOverride`, `theme.id`, `mcp.<id>.enabled`, `shortcut.<action>`, `telemetry.optIn`).
 - **Persistence**: `kv` only.
 
-### 3.10 Bridge Assistant (route `assistant`)
+### 3.10 Bridge Assistant (full room spec — promoted from deferred per C-016)
 
-- **Purpose**: in-app autonomous orchestration agent (the SigmaLink equivalent of "Bridge"). Has tools to launch panes, prompt agents, read workspace files. (Source: `glossary.md` "Bridge agent"; `workflows.md` W5.)
-- **Affordances**: a chat panel pinned to the right side or full-room, tool-call inspector, context preview ("see what the assistant sees"), per-turn cancel.
+V3 makes Bridge Assistant a **first-class right-rail tab** on desktop (frames 0080, 0090, 0100, 0150, 0410) and a **first-class tile** on the mobile dashboard (frame 0455). Same agent, two surfaces. Sources: `v3-frame-by-frame.md` Chapter A; `v3-protocol-delta.md` §3; `v3-delta-vs-current.md` §"Bridge Assistant".
+
+- **Purpose**: in-app autonomous orchestration agent. Voice-or-text intake; bulk-spawns panes; per-pane prompt dispatch; resolves `@filename` references against the indexed codebase; auditable tool-call trace.
+- **Surface**: lives in the right-rail dock (§3.12) under the **Bridge** tab. Also exposed as a full-room route at `assistant` for keyboard-only operation. The mobile companion (§3.13) renders the same conversation in tile form.
+- **Orb state machine** (frames 0080, 0090): **STANDBY** (`Tap to activate`) → **LISTENING** (mic open; W15 wires real STT) → **RECEIVING** (text streaming back from assistant) → **THINKING** (tool-call in flight). State transitions broadcast via `assistant:state` event.
+- **Chat transcript** (frames 0080, 0100, 0150): rounded-pill role labels `BRIDGE` (assistant) and `YOU` (operator). Assistant messages stream char-by-char.
+- **Per-pane prompt-injection echo** (frame 0150; transcript L147-158): when the assistant dispatches `Implement {feature}` / `Find and fix a bug in @filename` / `Run /review on my current changes` / `Write tests for @filename` to a target pane, the pane footer shows the injected prompt as a faint ghost line until the agent picks it up.
+- **Bulk spawn** (frame 0080-0100; transcript L82-96): one operator prompt → N panes via `assistant:dispatch-bulk { spec: { provider, count, initialPrompt? }[] }`. The walker example *"launch two more codex agents two more cloud code agents three open code agents"* spawns 7 panes in a single round-trip.
+- **`@filename` resolution** (frame 0160; transcript L147-158): `assistant:ref-resolve { atRef }` walks the workspace index and returns `{ absPath, snippet }`. The token is replaced inline in the prompt before dispatch.
+- **Tool-call inspector** (auditable trace): every tool call writes a `messages` row with `toolCallId` set; the chat panel renders an expandable card per call showing tool, args, response, and elapsed time. `assistant:tool-trace` event mirrors the stream for external auditors.
+- **Cross-workspace Jump-to-pane** (transcript L122-137): completion of a dispatched prompt fires a sonner toast with a "Jump to pane" action; clicking switches workspaces and focuses the target session. A subtle "ding" sound plays (user-toggleable).
+- **Workspace tools** (the assistant's MCP-style tool set; `[CHOSEN]` shapes):
+  - `launch_pane(provider, count, initialPrompt?)`
+  - `prompt_agent(sessionId, text)` *(per-pane dispatch)*
+  - `dispatch_bulk(spec[])` *(maps to `assistant:dispatch-bulk`)*
+  - `ref_resolve(atRef)` *(maps to `assistant:ref-resolve`)*
+  - `read_files(globs)`
+  - `open_url(url)`
+  - `create_task(title, description, successCriteria, assignee?)`
+  - `create_swarm(name, mission, roster)`
+  - `create_memory(title, body, tags?)`
+  - `search_memories(query)`
+  - `broadcast_to_swarm(swarmId, text)`
+  - `roll_call(swarmId)`
+- **Provider**: configurable; defaults to Claude (opus tier if available) `[CHOSEN]`.
 - **Data shape**: `Conversation { id, workspaceId, kind: 'assistant', createdAt }`, `Message { id, conversationId, role: 'user'|'assistant'|'tool', content, toolCallId?, createdAt }`.
 - **Persistence**: `conversations`, `messages`.
-- **Provider**: configurable; defaults to Claude (opus tier if available) `[CHOSEN]` (resolves video-question E.15).
-- **Tools** (the assistant's MCP tool set): `launch_pane(provider,count,initialPrompt?)`, `prompt_agent(sessionId,text)`, `read_files(globs)`, `open_url(url)`, `create_task(title,description,successCriteria,assignee?)`, `create_swarm(name,mission,roster)`, `create_memory(title,body,tags?)`, `search_memories(query)`, `broadcast_to_swarm(swarmId,text)`, `roll_call(swarmId)`. `[CHOSEN]`
+- **RPC namespace** (NEW; `v3-protocol-delta.md` §3): `assistant:listen`, `assistant:state` (event), `assistant:dispatch-pane`, `assistant:dispatch-bulk`, `assistant:ref-resolve`, `assistant:turn-cancel`, `assistant:tool-trace` (event). Distinct from the swarm mailbox: a Bridge dispatch lands in the target pane's PTY stdin (or as `agent_sessions.pendingPrompt`), not in `swarm_messages`.
 
 ### 3.11 Command Palette (overlay; not a route)
 
@@ -173,11 +226,37 @@ The renderer mounts one of eleven surfaces at a time. Sidebar + workspace tab st
 - **Data shape**: in-memory only.
 - **Persistence**: none. Recent searches cached in localStorage `sigmalink.paletteRecent`.
 
+### 3.12 Right-rail dock — Browser / Editor / Bridge tabs (NEW per C-016)
+
+V3 docks three persistent tools to the right of the active workspace (frames 0080, 0340, 0410, 0420, 0430). Sources: `v3-frame-by-frame.md` Chapter B/C; `v3-delta-vs-current.md` §"Browser + Editor + Bridge dock".
+
+- **Purpose**: keep the tools an operator alternates between (web reference, code reading, AI orchestrator) one click away without losing terminal grid state.
+- **Tab strip**: three tabs always present: **Browser · Editor · Bridge**. Per-tab state persists across switches.
+- **Resizable splitter**: vertical split between the workspace body and the dock. Width persisted in `kv['rightRail.width']`. Min 280 px, max 50 % of window.
+- **Browser tab** (frames 0340, 0355): hosts the Browser room (§3.6) plus a **recents panel** showing the last 10 distinct origins. Click on a link inside any agent pane (PTY OSC8 hyperlink or auto-detected URL) opens it here, not in the OS browser (transcript L209).
+- **Editor tab** (frames 0420, 0430; transcript L380-403): file tree rooted at the active workspace + Monaco/CodeMirror with TS/JSX syntax highlighting and line numbers. Click-on-path in any chat or pane footer focuses the file in this tab.
+- **Bridge tab** (frames 0080, 0090, 0100, 0150, 0410): mounts the Bridge Assistant chat panel + orb (§3.10).
+- **Data shape**: in-memory only; per-tab persistence handled by underlying rooms.
+
+### 3.13 Mobile companion — 6-tile dashboard (NEW per C-016; v1.0 high-level only)
+
+V3 frame 0455 shows a mobile dashboard with **six tiles**: Terminal · Kanban · Workspace · Swarm · **Canvas** · **Bridge**. Walker C confirms `Plan Pro · ACTIVE · Renews 2/11/2026` chrome.
+
+- **Scope for v1.0**: protocol surfaces + RPC compatibility only. Full mobile shell (auth, push, native UI) is **out of scope for v1.0**; tracked for post-1.0.
+- **Tiles** (mapping to existing rooms):
+  - **Terminal** → §3.2 Command room (read-only mirror; no PTY input on mobile v1).
+  - **Kanban** → §3.8 Tasks room.
+  - **Workspace** → §3.1 Workspaces room (recent list + open).
+  - **Swarm** → §3.3 Swarm room + §11.1 Operator Console.
+  - **Canvas** → §2.3 Bridge Canvas (read-only previewer of dispatched prompts + thumbnails).
+  - **Bridge** → §3.10 Bridge Assistant (chat-only; full tool-trace inspection deferred).
+- **Connection**: mobile companion connects to a desktop instance over LAN; pairing flow + transport TBD.
+
 ---
 
-## 4. Agent providers (canonical list)
+## 4. Agent providers (canonical list — V3 9-provider matrix)
 
-The eleven entries below are the default registry. A 12th seam, "auto-detected" providers, lets PATH-discovered agents (Amp, Hermes, Qwen, etc.) appear at the bottom of the picker greyed-out until the operator confirms.
+V3 ships a different default set than the original spec. Sources: `v3-providers-delta.md`; V3 frames 0055 (wizard), 0184 (BridgeSwarm CLI strip), 0205 (per-row strip), 0380 (Design Mode picker), 0510 (pricing). Default registry = **9 providers** (8 named + Custom Command); two retained behind a Settings legacy toggle; one demoted to a model option. Updated by C-016; supersedes original C-004.
 
 Field shape (all entries):
 ```
@@ -189,29 +268,56 @@ ProviderDefinition {
   args?: string[];                  // default args appended on every spawn
   resumeArgs?: string[];            // appended when resuming an existing session
   oneshotArgs?: (prompt: string) => string[]; // builds args for a single prompt
-  installHint?: string;             // shown when not found on PATH
-  color: string;                    // hex for UI accent
-  icon: string;                     // lucide-react icon name
+  installHint?: string;
+  color: string;
+  icon: string;
   description: string;
-  recommendedRoles?: Role[];        // for swarm picker defaults
+  recommendedRoles?: Role[];
+  comingSoon?: boolean;             // NEW (V3): renders the chip as "Coming Soon"
+  fallbackProviderId?: ProviderId;  // NEW (V3): silent fallback when binary missing
 }
 ```
 
+Per-provider model options live in a sibling registry:
+```
+ModelOption { providerId, modelId, label, via?: 'openrouter'|'native', defaultEffort? }
+```
+
+### 4.1 Default 9-provider registry (wizard order)
+
 | id | command | install hint | resume / oneshot | recommended roles |
 |---|---|---|---|---|
+| **bridgecode** *(NEW; `comingSoon: true`, fallback `claude`)* | `bridgecode` (alt `bridgecode.cmd`) | (Coming Soon — falls back to Claude) | `--resume` / `-p {prompt}` | Builder, Coordinator |
 | claude | `claude` (alt `claude.cmd`) | `npm i -g @anthropic-ai/claude-code` | `--resume` / `-p {prompt}` | Builder, Reviewer, Assistant default |
 | codex | `codex` (alt `codex.cmd`) | `npm i -g @openai/codex` | `--resume` / `-q {prompt}` | Coordinator, Reviewer |
 | gemini | `gemini` (alt `gemini.cmd`) | `npm i -g @google/gemini-cli` | `--resume` / `--prompt {prompt}` | Scout |
-| kimi | `kimi` (alt `kimi.cmd`) | manual install (PATH) | none / `--prompt {prompt}` | Builder |
-| cursor | `cursor-agent` (alt `cursor-agent.cmd`) | install via Cursor app | `--resume` / `--prompt {prompt}` | Builder |
 | opencode | `opencode` (alt `opencode.cmd`) | `npm i -g opencode` | `--resume` / `--prompt {prompt}` | Builder |
+| cursor | `cursor-agent` (alt `cursor-agent.cmd`) | install via Cursor app | `--resume` / `--prompt {prompt}` | Builder |
 | droid | `droid` (alt `droid.cmd`) | `npm i -g @factory-ai/droid` | `--resume` / `--prompt {prompt}` | Builder |
 | copilot | `gh copilot` | `gh extension install github/gh-copilot` | n/a / `suggest -t {prompt}` | Reviewer, Scout |
-| aider | `aider` | `pipx install aider-chat` | none / `--message {prompt}` | Builder |
-| continue | `continue` (alt `continue.cmd`) | `npm i -g @continuedev/cli` | none / `--prompt {prompt}` | Builder |
-| custom | (operator-supplied) | n/a | n/a | any |
+| custom | (operator-supplied; UI label "Custom Command") | n/a | n/a | any |
 
-Sources: `REQUIREMENTS_MASTER.md` Providers; legacy `app/src/_legacy/lib/providers.ts`; `glossary.md` Providers/agent backends; `feature-matrix.md`.
+### 4.2 Demoted: Kimi as a model option (not a top-level provider)
+
+Frame 0100/0140 shows OpenCode booted with `Build · Kimi K2.6 OpenRouter`. Kimi is a **model selection under OpenCode** (and any OpenRouter-capable provider), not a standalone provider row. Lives in `src/main/core/providers/models.ts` as `ModelOption { providerId: 'opencode', modelId: 'kimi-k2.6', label: 'Kimi K2.6', via: 'openrouter' }`.
+
+### 4.3 Hidden behind Settings: Aider + Continue
+
+Aider and Continue are **not visible** in V3's default UI. They remain in the codebase and ship as off-by-default rows under `Settings → Providers → Show legacy providers` (kv key `providers.showLegacy`). Their probes still run; they simply aren't surfaced in the default picker. This supersedes original C-004 by way of C-016.
+
+### 4.4 Per-pane chrome variants
+
+Per-pane top-bar renders provider-specific splash + status (frames 0045, 0070, 0100, 0140):
+- **Claude** → `Claude Code v2.1.116 · Opus 4.7 (1M) · Claude Max`.
+- **Codex** → `OpenAI Codex (v0.121.0) · gpt-5.4 high fast · directory: ~/Desktop/<repo>`.
+- **OpenCode** → giant ASCII logo + `Build · <model> <via>` chip (e.g. `Build · Kimi K2.6 OpenRouter`).
+Mid-strip prompt-bar formats `<model> <effort> <speed> · <cwd>` for any (provider, model) combo. Footer hints rotate `auto mode on (shift+tab)` / `bypass permissions on` based on agent state.
+
+### 4.5 Wizard quick-fills + Custom Command row (frame 0055)
+
+Wizard provider matrix renders three quick-fill macros — *Enable all · One of each · Split evenly* — at the top, and a **Custom Command** row + `+ Add custom command` button at the bottom. *One of each* skips any provider with `comingSoon === true` (so BridgeCode is excluded until the binary ships).
+
+Sources: `v3-providers-delta.md`; `v3-frame-by-frame.md` 0055/0184/0205/0380/0510.
 
 Spawn-resolution rule for Windows (resolves P0 + P1-PROBE-EXEC-WIN): one shared helper `resolveForCurrentOS(command)` walks PATH and PATHEXT; if the resolved path ends in `.cmd`/`.bat` it is wrapped through `cmd.exe /d /s /c`; if it ends in `.ps1` through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`. Both `core/pty/local-pty.ts`, `core/providers/probe.ts`, and `core/git/runShellLine` route through this helper. (Source: `01-known-bug-windows-pty.md`.)
 
@@ -850,6 +956,32 @@ All RPC follows `<namespace>.<method>` and returns `{ ok: true, data } | { ok: f
 - `swarms.rollCall(swarmId)` → `void`
 - `swarms.send(swarmId, fromAgentId, toAgentId, kind, body, payload?)` → `MailboxEnvelope`
 - `swarms.tail(swarmId, opts?)` → `MailboxEnvelope[]`
+- `swarms.updateAgent(swarmAgentId, patch)` → `SwarmAgent` *(NEW V3 — `autoApprove`, per-row provider override)*
+
+### swarm:* (Operator Console — NEW, V3 per `v3-protocol-delta.md` §5)
+- `swarm:console-tab { swarmId, tab: 'terminals'|'chat'|'activity' }` → `void`
+- `swarm:stop-all { swarmId, reason }` → `{ stopped: number }`
+- `swarm:counters` (event) → `{ escalations, review, quiet, errors }`
+- `swarm:constellation-layout { swarmId, nodePositions }` → `void`
+- `swarm:agent-filter { swarmId, filter: 'all'|'coordinators'|'builders'|'scouts'|'reviewers' }` → `void`
+- `swarm:ledger` (event) → `{ agentsTotal, messagesTotal, elapsedMs }`
+- `swarm:mission-rename { swarmId, mission }` → `void`
+
+### assistant.* (NEW, V3 per `v3-protocol-delta.md` §3)
+- `assistant.listen { workspaceId }` → `{ conversationId }`
+- `assistant.state` (event) → `{ orb: 'standby'|'listening'|'receiving'|'thinking' }`
+- `assistant.dispatch-pane { workspaceId, targetSessionId, prompt, attachments? }` → `void`
+- `assistant.dispatch-bulk { workspaceId, spec: { provider, count, initialPrompt? }[] }` → `{ sessions: SessionSummary[] }`
+- `assistant.ref-resolve { workspaceId, atRef }` → `{ absPath, snippet }`
+- `assistant.turn-cancel { conversationId, turnId }` → `void`
+- `assistant.tool-trace` (event) → `{ toolCallId, tool, args, result?, elapsedMs }`
+
+### design.* (NEW, V3 per `v3-protocol-delta.md` §4)
+- `design.start-pick { tabId }` → `{ pickerToken }`
+- `design.pick-result` (event) → `{ pickerToken, selector, outerHTML, computedStyles, screenshotPng }`
+- `design.dispatch { pickerToken, prompt, providers, modifiers: { shift?, alt? }, attachments? }` → `{ sessions: SessionSummary[] }`
+- `design.attach-file { pickerToken, path }` → `{ stagingPath }`
+- `design.patch-applied` (event) → `{ tabId, file, range }`
 
 ### tasks.*
 - `tasks.list(workspaceId, opts?)` → `Task[]`
@@ -915,6 +1047,13 @@ All RPC follows `<namespace>.<method>` and returns `{ ok: true, data } | { ok: f
 - `pty:exit { sessionId, exitCode }`
 - `swarm:message { swarmId, envelope }`
 - `swarm:agent_status { swarmAgentId, status }`
+- `swarm:counters { swarmId, escalations, review, quiet, errors }` *(NEW V3)*
+- `swarm:ledger { swarmId, agentsTotal, messagesTotal, elapsedMs }` *(NEW V3)*
+- `assistant:state { conversationId, orb }` *(NEW V3)*
+- `assistant:tool-trace { conversationId, toolCallId, tool, args, result?, elapsedMs }` *(NEW V3)*
+- `design:pick-result { pickerToken, selector, outerHTML, computedStyles, screenshotPng }` *(NEW V3)*
+- `design:patch-applied { tabId, file, range }` *(NEW V3)*
+- `voice:state { active, source: 'mission'|'assistant'|'palette' }` *(NEW V3)*
 - `tasks:changed { workspaceId }`
 - `skills:changed`
 - `browser:driving { tabId, isDriving }`
@@ -922,7 +1061,24 @@ All RPC follows `<namespace>.<method>` and returns `{ ok: true, data } | { ok: f
 - `review:changed { id }`
 - `providers:changed`
 
-Total RPC methods: ~75.
+Total RPC methods: ~95 across 17 namespaces (was ~75 / 13 pre-V3).
+
+---
+
+## 11.1 Operator Console (under Swarm — NEW V3 per `v3-protocol-delta.md` §5)
+
+V3 frame 0250 introduces the **Operator Console** as the canonical control surface for an active Bridge Swarm. Sources: `v3-frame-by-frame.md` Chapter B (0250-0325); `v3-delta-vs-current.md` §"Swarm".
+
+- **Top-bar tabs** (frames 0250, 0265, 0295): three tabs **TERMINALS · CHAT · ACTIVITY**. Each carries an unread badge; CHAT shows count of unseen `swarm_messages` since last visit (frame 0265 *"8 unread"*). A **STOP ALL** red pill (frame 0295) terminates every PTY in the swarm via `swarm:stop-all { reason }`. A mission chip shows the active mission name and supports inline rename via `swarm:mission-rename`.
+- **Counters bar** (frame 0295): four numeric badges **ESCALATIONS · REVIEW · QUIET · ERRORS**. Each is a live count over `swarm_messages` filtered by kind ∈ {`escalation`, `review_request`, `quiet_tick`, `error_report`} AND `resolvedAt IS NULL`. Updates stream via `swarm:counters` event.
+- **Group filter chips** (frame 0295): `All Agents · COORDINATORS · BUILDERS · REVIEWERS · SCOUTS`. Filter scopes both the chat tail and the constellation graph (`swarm:agent-filter`).
+- **Constellation graph** (frames 0250, 0295): hand-rolled canvas hub-and-spoke topology. Single-coordinator presets (Squad) draw one hub at centre with all workers as spokes. Multi-coordinator presets (Team / Platoon / Battalion) render multi-hub: each coordinator owns a subset of workers via `swarm_agents.coordinatorId`; glow lines only between a coordinator and its assignees. Drag-to-pan canvas (frame 0295 *"DRAG CANVAS"*); scroll-to-zoom; positions persist via `swarm:constellation-layout`.
+- **Activity feed sidebar** (frame 0250): right rail per-agent timeline of status / completion / escalation / `board_post` envelopes. Filter chips reuse the group filter.
+- **Bottom-bar ledger** (frame 0295): live tally `<N> agents · <M> messages · <T> elapsed`, streamed via `swarm:ledger`.
+- **Composer** (frames 0250, 0265, 0310): recipient chip supports `@all`, `@coordinators`, `@builders`, `@scouts`, `@reviewers`, plus per-agent ids. Per-message status pills render via 3-letter codes (`MSG/ACK/DONE/ESCALATE/INFO/BSC/SUE/BTU`) with role-coloured backgrounds.
+- **Coordinator structured task brief** (frame 0265): when a coordinator emits a `task_brief` envelope, the chat bubble renders an `URGENT` chip (red) when `urgency === 'urgent'`, headings bolded, sub-bullets indented, links live. Schema in `v3-protocol-delta.md` §1.
+- **Operator → agent DM echo** (frame 0325; transcript L296-301): when the operator messages an individual agent with `directive.echo === 'pane'`, the target PTY receives `[Operator → <Role> <N>] <body>\n` on stdin in addition to the durable mailbox write.
+- **Per-agent board namespace** (frame 0280; transcript L247): each agent has its own board at `<userData>/swarms/<swarmId>/boards/<agentId>/<postId>.md` (mirrored in DB table `boards`). Used for long-form notes that don't belong in chat.
 
 ---
 
@@ -939,7 +1095,38 @@ Detailed pixel work lives in `UI_SPEC.md`. The headline tokens are:
 
 ---
 
-## 13. Keyboard shortcuts
+## 13. Voice / BridgeVoice (NEW per C-016)
+
+V3 ships voice intake as a cross-app primitive (frames 0220, 0235; transcript L86-96, L190). Source: `v3-protocol-delta.md` §6. Supersedes the original "voice out of scope" line in §17 (was §15).
+
+- **Title-bar pill**: a centred **`BridgeVoice`** pill appears in the title bar **whenever any capture is active**, regardless of which surface initiated it (frame 0220). Disappears on capture end.
+- **Global event**: `voice:state` `{ active: boolean, source: 'mission'|'assistant'|'palette' }`. Exactly one capture session is active across the app at a time; opening a new source automatically tears down the previous one.
+- **OS speech adapter**: one shared adapter (macOS Speech Recognizer / Windows SAPI / Linux PocketSphinx fallback). No second capture session is ever opened.
+- **Intake surfaces**:
+  - **Mission textarea** (frame 0235): mic icon on the swarm wizard's mission step; streamed transcription drops into the textarea verbatim. Cmd+Enter submits.
+  - **Bridge orb** (frames 0080, 0090; transcript L86-96): tapping the orb in STANDBY enters LISTENING and transcribes into the Bridge Assistant `assistant.listen` conversation.
+  - **Command Palette** (transcript L190): `Cmd+Shift+K` voice-mode toggle in the palette transcribes into the search field.
+- **Out-of-scope for v1.0**: BridgeJarvis-style wake word (transcript L472-475); BridgeVoice as a separate desktop sibling app (frame 0520). The pill + `voice:state` ship; the standalone app does not.
+
+---
+
+## 14. Swarm Skills (NEW per C-016)
+
+V3 frames 0210/0220 show a **12-tile grid** of toggleable behavior modifiers shown during the BridgeSwarm wizard's mission step. Source: `v3-frame-by-frame.md` Chapter B (0210-0220); `v3-protocol-delta.md` §1 (`skill_toggle` envelope).
+
+- **Purpose**: each tile, when ON, injects an instruction into the coordinator's system prompt that biases the swarm's behaviour without changing the mission. Distinct from §7 Anthropic Skills: those are operator-installed prompt assets; Swarm Skills are built-in coordinator-prompt modifiers.
+- **Layout**: 3 × 4 grid grouped into four bands.
+- **Tiles** (verbatim from frame 0220):
+  - **Workflow** — `Incremental Commits`, `Refactor Only`, `Monorepo Aware`.
+  - **Quality** — `Test-Driven`, `Code Review`, `Documentation`, `Security Audit`, `DRY`, `Accessibility`.
+  - **Ops** — `Keep CI Green`, `Migration Safe`.
+  - **Analysis** — `Performance`.
+- **Interaction**: each tile shows an on/off pill + label. Toggling persists to a new `swarm_skills (swarmId, skillKey, on, group)` table and fires a `skill_toggle` envelope into the mailbox so the coordinator picks up the new state on next prompt assembly.
+- **Persistence**: `swarm_skills` table; default off for all 12 on a fresh swarm.
+
+---
+
+## 15. Keyboard shortcuts
 
 Final binding table. macOS uses `Cmd`; Windows/Linux use `Ctrl`. (Source: `keyboard-shortcuts.md` for confirmed bindings; `[CHOSEN]` marked for invented bindings, resolves open-questions 2/3/5.)
 
@@ -975,21 +1162,24 @@ Final binding table. macOS uses `Cmd`; Windows/Linux use `Ctrl`. (Source: `keybo
 
 ---
 
-## 14. Pricing tiers
+## 16. Pricing tiers
 
 SigmaLink is open-source (MIT) and local-only. Every feature in this spec is free in our clone. There is no Basic/Pro/Ultra split. There are no credits, no metering, no accounts, no billing surface. The Settings room hides all pricing-related UI.
 
+For forward-compat only, a `Capability` enum (`src/main/core/plan/capabilities.ts`) exposes a `canDo(cap): boolean` helper consulted by gated UIs; default tier `'ultra'` means every capability is unlocked. QA can override via `kv['plan.tier']`.
+
 ---
 
-## 15. Out of scope (explicit, with rationale)
+## 17. Out of scope (explicit, with rationale)
 
 | feature | rationale |
 |---|---|
 | SSH remote development UI | Touches network/auth; out of scope per `REBUILD_PLAN.md`; the provider abstraction keeps a transport seam. |
-| Voice assistant (BridgeVoice / BridgeJarvis equivalent) | Adds STT vendor risk; OS-level dictation already exists; out of scope per `REBUILD_PLAN.md`. |
+| BridgeJarvis wake-word | Always-on STT raises vendor + privacy cost; OS dictation already covers explicit-trigger cases. *(BridgeVoice intake itself is in-scope per §13.)* |
+| BridgeVoice as a standalone sibling app (frame 0520) | The intake pill ships in-app; a separate STT-only product is independent scope. |
 | Ticket integrations (Linear / Jira / GitHub Issues) | OAuth + cloud writes; conflicts with local-first stance. |
 | Cloud sync of workspaces/memory | Would require accounts and a server; out of scope. |
-| Mobile companion app | The clone target mobile shell exists in V3 but is wholly out of scope. |
+| Full mobile companion app (auth, push, native UI) | Tracked for post-1.0 per §3.13; v1 ships RPC compatibility seams only. |
 | Account creation, billing, credit metering | The clone is free. |
 | Telemetry by default | We respect `[CHOSEN]` an explicit opt-in; default off. |
 | BridgeBench-style benchmark runner | Independent product, separate scope. |
@@ -1001,4 +1191,4 @@ SigmaLink is open-source (MIT) and local-only. Every feature in this spec is fre
 
 ## Status note
 
-SigmaLink ships **23 product features** at v1: workspace types (Bridge Space, Bridge Swarm, Bridge Canvas), Command room with three layouts and three densities, Swarm room with file-mailbox bus, broadcast, and roll-call, Review room with diff viewer + command runner + commit/merge, Memory room with 12-tool MCP server and force-directed graph, Browser room with controllable WebContentsView and Playwright MCP supervisor, Skills drag-and-drop ingest with three-target fan-out, Tasks Kanban with file-ownership locks, Bridge Assistant chat, Command Palette overlay, Settings with 25+ themes, eleven canonical providers plus auto-detect, per-agent Git worktree isolation, per-workspace CDP endpoint, Cmd+K palette, full keyboard binding table, and one shared spawn-resolution helper that fixes the Windows PTY bug. The RPC surface comprises **~75 methods** across 13 namespaces. Persistence covers **26 SQLite tables** plus the `kv` settings store and a `migrations` ledger. The top **5 risk areas** the critique agents should focus on are: (1) the Windows PTY spawn-resolution helper and PTY-lifecycle finalisation (P0 + W1/W2/W3), (2) the swarm mailbox crash-safety boundary between JSONL append and SQLite mirror (lossless re-derivation requirement), (3) the Skills validation + fan-out atomicity when one of three target paths fails partway through, (4) the per-workspace Playwright MCP supervisor lifecycle and CDP port allocation under rapid open/close, and (5) the Memory transactional write strategy where disk + SQLite + edge rebuild must commit-or-rollback as one unit.
+After the V3 scope freeze (Wave 11.5; C-016), SigmaLink targets the V3 surface set: 9-provider matrix with BridgeCode (`comingSoon`), three workspace types (Bridge Space, **Bridge Swarm**, **Bridge Canvas — promoted to first-class**), Command room with multi-pane grid + per-pane chrome variants, Swarm room with the file-mailbox bus + V3 Operator Console (TERMINALS/CHAT/ACTIVITY tabs, ESCALATIONS/REVIEW/QUIET/ERRORS counters, constellation graph, Swarm Skills, structured task briefs, board namespaces, operator → pane echo), Review room with diff viewer + command runner + commit/merge, Memory room with 12-tool MCP server and force-directed graph, Browser room with controllable WebContentsView, Skills drag-and-drop ingest with three-target fan-out, Tasks Kanban with file-ownership locks, **Bridge Assistant first-class right-rail tab + mobile tile** (chat, orb state machine, bulk-spawn, per-pane dispatch, `@filename` resolve, tool-trace), **right-rail Browser/Editor/Bridge dock**, **BridgeVoice intake**, Command Palette overlay, Settings with 4 themes (V3 still 4-day-one per UX critique), per-agent Git worktree isolation, per-workspace CDP endpoint, full keyboard binding table, and the shared spawn-resolution helper. Roster preset reset to **Squad 5 / Team 10 / Platoon 15 / Battalion 20**. RPC surface: **~95 methods across 17 namespaces** (was 75/13 pre-V3). Persistence: **26 base tables** + 3 V3 additions (`boards`, `swarm_skills`, plus `swarm_messages.resolvedAt` column) + the `kv` settings store + `migrations` ledger. Execution backlog at `docs/03-plan/V3_PARITY_BACKLOG.md`.
