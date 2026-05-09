@@ -5,7 +5,9 @@
 export type RpcProcedureMap = Record<string, (...args: any[]) => unknown>;
 export type RpcRouterShape = Record<string, RpcProcedureMap>;
 
-export type RpcResult<T> = { ok: true; data: T } | { ok: false; error: string };
+export type RpcResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; stack?: string };
 
 export type RpcClient<R extends RpcRouterShape> = {
   [NS in keyof R]: {

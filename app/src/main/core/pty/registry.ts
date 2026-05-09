@@ -1,5 +1,13 @@
 // Session registry: keeps PtyHandle + ring buffer per session id, fans data to
 // all subscribed renderers via the shared event bus.
+//
+// Lifecycle:
+//   create() → record alive=true.
+//   onExit (from PTY) → record alive=false, broadcast pty:exit, then schedule a
+//     gracefulExitDelayMs delay before forgetting so the renderer's last data
+//     drain (and any subscribe-late history pull) is not lost.
+//   forget() → unsubscribes data/exit listeners and removes the record.
+//   killAll() → ask every record to die; called from app `before-quit`.
 
 import { randomUUID } from 'node:crypto';
 import { spawnLocalPty, type PtyHandle, type SpawnInput } from './local-pty';
@@ -23,13 +31,24 @@ export interface SessionRecord {
 export type DataSink = (sessionId: string, data: string) => void;
 export type ExitSink = (sessionId: string, exitCode: number, signal?: number) => void;
 
+export interface PtyRegistryOptions {
+  /**
+   * Milliseconds to keep the SessionRecord alive after the PTY exit so live
+   * data subscribers see the trailing chunk and late `subscribe` calls still
+   * receive the buffer.
+   */
+  gracefulExitDelayMs?: number;
+}
+
 export class PtyRegistry {
   private sessions = new Map<string, SessionRecord>();
   private readonly onData: DataSink;
   private readonly onExit: ExitSink;
-  constructor(onData: DataSink, onExit: ExitSink) {
+  private readonly gracefulExitDelayMs: number;
+  constructor(onData: DataSink, onExit: ExitSink, opts: PtyRegistryOptions = {}) {
     this.onData = onData;
     this.onExit = onExit;
+    this.gracefulExitDelayMs = opts.gracefulExitDelayMs ?? 200;
   }
 
   create(input: { providerId: string } & SpawnInput): SessionRecord {
@@ -48,6 +67,9 @@ export class PtyRegistry {
         rec.exitedAt = Date.now();
       }
       this.onExit(id, exitCode, signal);
+      // Forget after a short grace period so the renderer's last data drain is
+      // not lost and a late subscribe() can still pull the snapshot.
+      setTimeout(() => this.forget(id), this.gracefulExitDelayMs);
     });
     const rec: SessionRecord = {
       id,
@@ -94,9 +116,34 @@ export class PtyRegistry {
   forget(id: string): void {
     const rec = this.sessions.get(id);
     if (!rec) return;
-    rec.unsubData();
-    rec.unsubExit();
+    try {
+      rec.unsubData();
+    } catch {
+      /* ignore */
+    }
+    try {
+      rec.unsubExit();
+    } catch {
+      /* ignore */
+    }
+    rec.buffer.clear();
     this.sessions.delete(id);
+  }
+
+  /**
+   * Best-effort termination of every live session. Called from
+   * Electron's `before-quit` hook. Does not wait for exit acknowledgement.
+   */
+  killAll(): void {
+    for (const rec of this.sessions.values()) {
+      if (rec.alive) {
+        try {
+          rec.pty.kill();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
   }
 
   // Returns the historical buffer atomically; the caller is responsible for

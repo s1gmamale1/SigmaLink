@@ -1,7 +1,17 @@
 // Thin wrapper around node-pty.spawn with platform-aware shell resolution.
+//
+// Cross-platform notes:
+//  * Linux/macOS — node-pty/posix uses execvp via the user's shell-resolved
+//    binary lookup; PATH is honoured, no extension juggling required.
+//  * Windows — ConPTY's CreateProcessW does NOT walk PATHEXT, so an
+//    extensionless command like `claude` (an npm shim) fails with
+//    ERROR_FILE_NOT_FOUND. We resolve the bare command against PATH+PATHEXT
+//    ourselves and either spawn the resolved `.exe` directly or wrap `.cmd` /
+//    `.bat` / `.ps1` shims through their interpreter.
 
 import os from 'node:os';
 import path from 'node:path';
+import fs from 'node:fs';
 import * as nodePty from 'node-pty';
 
 export interface SpawnInput {
@@ -22,40 +32,124 @@ export interface PtyHandle {
   onExit(cb: (info: { exitCode: number; signal?: number }) => void): () => void;
 }
 
+const WINDOWS_DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
+
+/**
+ * Resolve a bare command against PATH + PATHEXT on Windows.
+ * Returns the absolute path of the first match, or null if not found.
+ *
+ * Examples:
+ *   resolveWindowsCommand('claude')   ->  'C:\\Users\\u\\AppData\\Roaming\\npm\\claude.cmd'
+ *   resolveWindowsCommand('git')      ->  'C:\\Program Files\\Git\\cmd\\git.exe'
+ *   resolveWindowsCommand('pwsh')     ->  '...pwsh.exe' or null
+ *   resolveWindowsCommand('claude.cmd') -> resolves only against the literal extension
+ */
+export function resolveWindowsCommand(cmd: string): string | null {
+  if (!cmd) return null;
+  // Already absolute? Trust the caller, but only if it actually exists.
+  if (path.isAbsolute(cmd)) {
+    if (fs.existsSync(cmd)) return cmd;
+    // Maybe missing extension on an absolute path.
+    if (path.extname(cmd) === '') {
+      const exts = (process.env.PATHEXT ?? WINDOWS_DEFAULT_PATHEXT).split(';').filter(Boolean);
+      for (const ext of exts) {
+        const candidate = cmd + ext;
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+    return null;
+  }
+  const exts = (process.env.PATHEXT ?? WINDOWS_DEFAULT_PATHEXT).split(';').filter(Boolean);
+  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const hasExt = path.extname(cmd).length > 0;
+  for (const dir of dirs) {
+    const base = path.join(dir, cmd);
+    if (hasExt) {
+      try {
+        if (fs.existsSync(base)) return base;
+      } catch {
+        /* skip unreadable dir */
+      }
+    } else {
+      for (const ext of exts) {
+        const candidate = base + ext;
+        try {
+          if (fs.existsSync(candidate)) return candidate;
+        } catch {
+          /* skip unreadable dir */
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function defaultShell(): { command: string; args: string[] } {
   if (process.platform === 'win32') {
-    const ps = process.env.PSModulePath ? 'powershell.exe' : 'cmd.exe';
-    return { command: ps, args: [] };
+    // Prefer pwsh (PowerShell 7+) when available, then powershell.exe (Windows
+    // PowerShell 5), then cmd.exe.
+    const pwsh = resolveWindowsCommand('pwsh.exe') ?? resolveWindowsCommand('pwsh');
+    if (pwsh) return { command: pwsh, args: [] };
+    const powershell =
+      resolveWindowsCommand('powershell.exe') ?? resolveWindowsCommand('powershell');
+    if (powershell) return { command: powershell, args: [] };
+    const cmdExe = resolveWindowsCommand('cmd.exe') ?? 'cmd.exe';
+    return { command: cmdExe, args: [] };
+  }
+  if (process.platform === 'darwin') {
+    const sh = process.env.SHELL ?? '/bin/zsh';
+    return { command: sh, args: ['-l'] };
   }
   const sh = process.env.SHELL ?? '/bin/bash';
   return { command: sh, args: ['-l'] };
 }
 
-function windowsExtensionFor(cmd: string): string | null {
+function windowsExtensionFor(cmd: string): 'cmd' | 'ps1' | null {
   const ext = path.extname(cmd).toLowerCase();
   if (ext === '.cmd' || ext === '.bat') return 'cmd';
   if (ext === '.ps1') return 'ps1';
   return null;
 }
 
+/**
+ * Build the spawn argv for the current platform.
+ *  - non-Windows: pass through unchanged.
+ *  - Windows: resolve extensionless commands via PATH+PATHEXT first, then wrap
+ *    `.cmd` / `.bat` through `cmd.exe /d /s /c <resolved> <args>` and `.ps1`
+ *    through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ...`.
+ *    `.exe` is spawned directly so no extra shell process is allocated.
+ */
 function platformAwareSpawnArgs(input: SpawnInput): { command: string; args: string[] } {
   if (!input.command) return defaultShell();
   if (process.platform !== 'win32') return { command: input.command, args: input.args };
-  // Windows: wrap .cmd/.bat through cmd.exe and .ps1 through powershell.exe
-  const kind = windowsExtensionFor(input.command);
+
+  // Windows: try to resolve the command against PATH+PATHEXT first. If we
+  // cannot resolve we still try to spawn the literal command; node-pty's
+  // failure surface is the same and the caller's error reporting handles it.
+  const resolved = resolveWindowsCommand(input.command) ?? input.command;
+  const kind = windowsExtensionFor(resolved);
   if (kind === 'cmd') {
-    return { command: 'cmd.exe', args: ['/d', '/s', '/c', input.command, ...input.args] };
+    return {
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', resolved, ...input.args],
+    };
   }
   if (kind === 'ps1') {
     return {
       command: 'powershell.exe',
-      args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', input.command, ...input.args],
+      args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolved, ...input.args],
     };
   }
-  return { command: input.command, args: input.args };
+  return { command: resolved, args: input.args };
 }
 
 export function spawnLocalPty(input: SpawnInput): PtyHandle {
+  // Validate cwd up-front; ConPTY also fails with code 2 when the directory
+  // does not exist, and the failure mode is indistinguishable from a missing
+  // executable.
+  const resolvedCwd =
+    input.cwd && fs.existsSync(input.cwd) ? input.cwd : os.homedir();
+
   const { command, args } = platformAwareSpawnArgs(input);
   const env: NodeJS.ProcessEnv = {
     ...(input.env ?? process.env),
@@ -63,15 +157,57 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
     COLORTERM: 'truecolor',
     FORCE_COLOR: '1',
   };
-  const proc = nodePty.spawn(command, args, {
-    name: 'xterm-256color',
-    cwd: input.cwd || os.homedir(),
-    cols: Math.max(20, input.cols | 0),
-    rows: Math.max(5, input.rows | 0),
-    env: env as { [key: string]: string },
-  });
+
   const dataSubs = new Set<(d: string) => void>();
   const exitSubs = new Set<(i: { exitCode: number; signal?: number }) => void>();
+
+  let proc: nodePty.IPty;
+  try {
+    proc = nodePty.spawn(command, args, {
+      name: 'xterm-256color',
+      cwd: resolvedCwd,
+      cols: Math.max(20, input.cols | 0),
+      rows: Math.max(5, input.rows | 0),
+      env: env as { [key: string]: string },
+    });
+  } catch (err) {
+    // Synchronous spawn failure (rare on POSIX, possible on Windows when the
+    // ConPTY agent itself cannot be created). Surface it as a synthetic data
+    // chunk + exit so the caller's data/exit pipeline observes it the same way
+    // as a normal early death.
+    const message =
+      err instanceof Error ? err.message : String(err ?? 'spawn failed');
+    const fakeHandle: PtyHandle = {
+      pid: -1,
+      write: () => {
+        /* noop on a dead pty */
+      },
+      resize: () => {
+        /* noop */
+      },
+      kill: () => {
+        /* noop */
+      },
+      onData: (cb) => {
+        dataSubs.add(cb);
+        return () => dataSubs.delete(cb);
+      },
+      onExit: (cb) => {
+        exitSubs.add(cb);
+        return () => exitSubs.delete(cb);
+      },
+    };
+    setImmediate(() => {
+      for (const cb of dataSubs) {
+        cb(`\x1b[31m${message}\x1b[0m\r\n`);
+      }
+      for (const cb of exitSubs) {
+        cb({ exitCode: -1, signal: undefined });
+      }
+    });
+    return fakeHandle;
+  }
+
   proc.onData((d) => {
     for (const cb of dataSubs) cb(d);
   });
@@ -81,7 +217,8 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
   return {
     pid: proc.pid,
     write: (d) => proc.write(d),
-    resize: (cols, rows) => proc.resize(Math.max(20, cols | 0), Math.max(5, rows | 0)),
+    resize: (cols, rows) =>
+      proc.resize(Math.max(20, cols | 0), Math.max(5, rows | 0)),
     kill: () => {
       try {
         proc.kill();

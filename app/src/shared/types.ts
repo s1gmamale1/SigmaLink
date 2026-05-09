@@ -29,6 +29,11 @@ export interface AgentSession {
   exitedAt?: number;
   worktreePath: string | null;
   initialPrompt?: string;
+  /**
+   * Populated when the launcher could not bring the pane up (e.g. worktree
+   * creation failed, PTY spawn failed). Renderer surfaces it inline.
+   */
+  error?: string;
 }
 
 export interface ProviderProbe {

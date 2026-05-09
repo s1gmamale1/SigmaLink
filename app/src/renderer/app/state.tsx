@@ -1,7 +1,7 @@
 // Global renderer state: current workspace, active room, live agent sessions.
 // Plain useReducer + Context. No external store dependency.
 
-import { createContext, useContext, useEffect, useMemo, useReducer, type Dispatch, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import type { AgentSession, Workspace } from '@/shared/types';
 
@@ -31,7 +31,8 @@ type Action =
   | { type: 'SET_ACTIVE_WORKSPACE'; workspace: Workspace | null }
   | { type: 'ADD_SESSIONS'; sessions: AgentSession[] }
   | { type: 'SET_ACTIVE_SESSION'; id: string | null }
-  | { type: 'MARK_SESSION_EXITED'; id: string; exitCode: number };
+  | { type: 'MARK_SESSION_EXITED'; id: string; exitCode: number }
+  | { type: 'REMOVE_SESSION'; id: string };
 
 const initial: AppState = {
   ready: false,
@@ -60,10 +61,11 @@ function reducer(state: AppState, action: Action): AppState {
       const map = new Map(state.sessions.map((s) => [s.id, s]));
       for (const s of action.sessions) map.set(s.id, s);
       const sessions = Array.from(map.values());
+      const firstLive = action.sessions.find((s) => s.status !== 'error');
       return {
         ...state,
         sessions,
-        activeSessionId: state.activeSessionId ?? action.sessions[0]?.id ?? null,
+        activeSessionId: state.activeSessionId ?? firstLive?.id ?? action.sessions[0]?.id ?? null,
       };
     }
     case 'SET_ACTIVE_SESSION':
@@ -72,15 +74,31 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         sessions: state.sessions.map((s) =>
-          s.id === action.id ? { ...s, status: 'exited', exitCode: action.exitCode } : s,
+          s.id === action.id
+            ? { ...s, status: 'exited', exitCode: action.exitCode, exitedAt: Date.now() }
+            : s,
         ),
       };
+    case 'REMOVE_SESSION': {
+      const sessions = state.sessions.filter((s) => s.id !== action.id);
+      const activeSessionId =
+        state.activeSessionId === action.id
+          ? sessions[0]?.id ?? null
+          : state.activeSessionId;
+      return { ...state, sessions, activeSessionId };
+    }
     default:
       return state;
   }
 }
 
 const StateCtx = createContext<{ state: AppState; dispatch: Dispatch<Action> } | null>(null);
+
+/**
+ * Time after which an exited session is auto-removed from the live sessions
+ * list. The user can also remove it manually from the Command Room.
+ */
+const EXITED_AUTO_REMOVE_MS = 5_000;
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
@@ -105,10 +123,44 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   // Listen for PTY exit so the UI can mark sessions accordingly.
   useEffect(() => {
     const off = window.sigma.eventOn('pty:exit', (raw: unknown) => {
-      const p = raw as { sessionId: string; exitCode: number };
-      dispatch({ type: 'MARK_SESSION_EXITED', id: p.sessionId, exitCode: p.exitCode });
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown; exitCode?: unknown };
+      if (typeof p.sessionId !== 'string') return;
+      const exitCode = typeof p.exitCode === 'number' ? p.exitCode : -1;
+      dispatch({ type: 'MARK_SESSION_EXITED', id: p.sessionId, exitCode });
     });
     return off;
+  }, []);
+
+  // Auto-remove exited sessions after a short grace period so the user can see
+  // the final exit code, then the pane disappears.
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  useEffect(() => {
+    const timers = timersRef.current;
+    for (const session of state.sessions) {
+      if (session.status === 'exited' && !timers.has(session.id)) {
+        const t = setTimeout(() => {
+          dispatch({ type: 'REMOVE_SESSION', id: session.id });
+          timers.delete(session.id);
+        }, EXITED_AUTO_REMOVE_MS);
+        timers.set(session.id, t);
+      }
+    }
+    // Cancel timers for sessions that are no longer present.
+    for (const [id, t] of timers) {
+      if (!state.sessions.find((s) => s.id === id)) {
+        clearTimeout(t);
+        timers.delete(id);
+      }
+    }
+  }, [state.sessions]);
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    };
   }, []);
 
   const value = useMemo(() => ({ state, dispatch }), [state]);

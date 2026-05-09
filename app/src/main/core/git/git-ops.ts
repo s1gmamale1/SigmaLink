@@ -1,9 +1,17 @@
 // Pure-function Git helpers built on argument-array exec (no shell interpolation).
+//
+// Tokenizer (`tokenizeShellLine`) examples:
+//   git commit -m "It's working"     -> ['git','commit','-m',"It's working"]
+//   echo 'hi' "there"                -> ['echo','hi','there']
+//   path "C:\\Users\\me"             -> ['path','C:\\Users\\me']
+//   path "C:\\Users\\\"me\""         -> ['path','C:\\Users\\"me"']
+//   echo  ""                         -> ['echo','']            (empty quoted segment is preserved)
 
 import path from 'node:path';
 import fs from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execCmd } from '../../lib/exec';
+import { resolveWindowsCommand } from '../pty/local-pty';
 import type { GitDiff, GitStatus } from '../../../shared/types';
 
 export async function getRepoRoot(cwd: string): Promise<string | null> {
@@ -26,14 +34,17 @@ export function repoHash(repoRoot: string): string {
 
 export function sanitizeBranchSegment(input: string): string {
   const cleaned = input
-    .replace(/[^A-Za-z0-9._\/-]+/g, '-')
+    .replace(/[^A-Za-z0-9._/-]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^[-./]+|[-./]+$/g, '');
   return cleaned.slice(0, 80) || 'agent-session';
 }
 
 export function generateBranchName(role: string, hint?: string): string {
-  const suffix = Math.random().toString(36).slice(2, 7);
+  // 8 base-36 chars (~2.8e12 states) keeps collision probability astronomical
+  // even when hundreds of panes share the same role+hint. Using randomUUID()
+  // also avoids dependence on Math.random() entropy quality.
+  const suffix = randomUUID().replace(/-/g, '').slice(0, 8);
   const base = sanitizeBranchSegment(`${role}/${hint ?? 'task'}-${suffix}`);
   return `sigmalink/${base}`;
 }
@@ -107,18 +118,130 @@ export async function gitDiff(cwd: string): Promise<GitDiff | null> {
   };
 }
 
+/**
+ * Shell-style tokenizer for `runShellLine`. Handles:
+ *  - whitespace as a token boundary
+ *  - single-quoted segments (no escapes inside)
+ *  - double-quoted segments (backslash escapes \", \\, \n, \r, \t, \$, \`)
+ *  - empty quoted segments preserved as ''
+ *  - adjacent quoted/unquoted segments concatenate into one token
+ *    (e.g. `a"b c"d` -> `ab cd`)
+ *
+ * This is intentionally small and dependency-free; it covers the cases the
+ * launcher currently exposes (git plumbing) and gracefully handles user-typed
+ * paths with spaces/quotes.
+ */
+export function tokenizeShellLine(line: string): string[] {
+  const tokens: string[] = [];
+  let cur = '';
+  let inToken = false;
+  type State = 'NORMAL' | 'SQ' | 'DQ';
+  let state: State = 'NORMAL';
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i];
+    if (state === 'NORMAL') {
+      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+        if (inToken) {
+          tokens.push(cur);
+          cur = '';
+          inToken = false;
+        }
+        i++;
+        continue;
+      }
+      if (ch === "'") {
+        state = 'SQ';
+        inToken = true;
+        i++;
+        continue;
+      }
+      if (ch === '"') {
+        state = 'DQ';
+        inToken = true;
+        i++;
+        continue;
+      }
+      cur += ch;
+      inToken = true;
+      i++;
+      continue;
+    }
+    if (state === 'SQ') {
+      if (ch === "'") {
+        state = 'NORMAL';
+        i++;
+        continue;
+      }
+      cur += ch;
+      i++;
+      continue;
+    }
+    // DQ
+    if (ch === '\\' && i + 1 < line.length) {
+      const next = line[i + 1];
+      // Only a small subset of escapes are recognised inside double quotes.
+      if (next === '"' || next === '\\' || next === '$' || next === '`') {
+        cur += next;
+        i += 2;
+        continue;
+      }
+      if (next === 'n') {
+        cur += '\n';
+        i += 2;
+        continue;
+      }
+      if (next === 'r') {
+        cur += '\r';
+        i += 2;
+        continue;
+      }
+      if (next === 't') {
+        cur += '\t';
+        i += 2;
+        continue;
+      }
+      // Unknown escape: keep the backslash literal (POSIX-ish behaviour).
+      cur += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      state = 'NORMAL';
+      i++;
+      continue;
+    }
+    cur += ch;
+    i++;
+  }
+  if (inToken) tokens.push(cur);
+  return tokens;
+}
+
 export async function runShellLine(
   cwd: string,
   line: string,
   timeoutMs = 180_000,
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-  // Best-effort tokenizer: split on whitespace except inside double-quotes.
-  const tokens: string[] = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(line))) tokens.push(m[1] ?? m[2] ?? m[3] ?? '');
+  const tokens = tokenizeShellLine(line);
   if (tokens.length === 0) return { stdout: '', stderr: 'empty command', code: -1 };
-  const [cmd, ...args] = tokens;
+  let [cmd, ...args] = tokens;
+  // On Windows, resolve PATH+PATHEXT for extensionless commands so npm-installed
+  // CLIs (`.cmd` shims) can be found by the argument-array spawn (which does
+  // NOT honour PATHEXT). `.cmd`/`.bat` shims are routed through `cmd.exe`.
+  if (process.platform === 'win32') {
+    const resolved = resolveWindowsCommand(cmd) ?? cmd;
+    const ext = path.extname(resolved).toLowerCase();
+    if (ext === '.cmd' || ext === '.bat') {
+      args = ['/d', '/s', '/c', resolved, ...args];
+      cmd = 'cmd.exe';
+    } else if (ext === '.ps1') {
+      args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolved, ...args];
+      cmd = 'powershell.exe';
+    } else {
+      cmd = resolved;
+    }
+  }
   const res = await execCmd(cmd, args, { cwd, timeoutMs });
   return { stdout: res.stdout, stderr: res.stderr, code: res.code };
 }
@@ -191,4 +314,12 @@ export async function worktreeRemove(repoRoot: string, worktreePath: string): Pr
     timeoutMs: 30_000,
   });
   await execCmd('git', ['worktree', 'prune'], { cwd: repoRoot, timeoutMs: 10_000 });
+}
+
+export async function worktreePruneRepo(repoRoot: string): Promise<void> {
+  try {
+    await execCmd('git', ['worktree', 'prune'], { cwd: repoRoot, timeoutMs: 10_000 });
+  } catch {
+    /* best-effort */
+  }
 }

@@ -30,6 +30,7 @@ export interface AppRouter {
     kill: (sessionId: string) => Promise<void>;
     subscribe: (sessionId: string) => Promise<{ history: string }>; // returns ring buffer + registers consumer
     list: () => Promise<Array<{ sessionId: string; providerId: string; cwd: string; alive: boolean }>>;
+    forget: (sessionId: string) => Promise<void>;
   };
   providers: {
     list: () => Promise<

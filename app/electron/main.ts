@@ -4,7 +4,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, shell } from 'electron';
-import { registerRouter } from '../src/main/rpc-router';
+import { registerRouter, shutdownRouter } from '../src/main/rpc-router';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,4 +58,11 @@ void app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// Graceful shutdown: kill live PTYs, flush + close SQLite WAL. Without this,
+// surviving sessions are left "running" in the DB and unfinalised WAL pages
+// linger on disk. `before-quit` may fire on macOS even when windows remain.
+app.on('before-quit', () => {
+  shutdownRouter();
 });

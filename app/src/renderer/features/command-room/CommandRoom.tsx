@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { SessionTerminal } from './Terminal';
+import type { AgentSession } from '@/shared/types';
 
 type Layout = 'mosaic' | 'columns' | 'focus';
 
@@ -26,7 +27,7 @@ function gridClassFor(count: number, layout: Layout): string {
 }
 
 export function CommandRoom() {
-  const { state } = useAppState();
+  const { state, dispatch } = useAppState();
   const sessions = state.sessions.filter((s) => state.activeWorkspace && s.workspaceId === state.activeWorkspace.id);
   const [layout, setLayout] = useState<Layout>('mosaic');
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -44,6 +45,13 @@ export function CommandRoom() {
   }
   if (sessions.length === 0) {
     return <RoomEmpty title="No agents launched yet — head back to Workspaces." />;
+  }
+
+  function handleRemove(session: AgentSession) {
+    if (session.status !== 'error') {
+      void rpc.pty.kill(session.id).catch(() => undefined);
+    }
+    dispatch({ type: 'REMOVE_SESSION', id: session.id });
   }
 
   return (
@@ -82,6 +90,7 @@ export function CommandRoom() {
               setLayout('mosaic');
               setFocusId(null);
             }}
+            onRemove={() => handleRemove(session)}
           />
         ))}
       </div>
@@ -94,17 +103,21 @@ function PaneFrame({
   isFocus,
   onFocus,
   onUnfocus,
+  onRemove,
 }: {
-  session: ReturnType<typeof useAppState>['state']['sessions'][number];
+  session: AgentSession;
   isFocus: boolean;
   onFocus: () => void;
   onUnfocus: () => void;
+  onRemove: () => void;
 }) {
   const exited = session.status === 'exited';
+  const errored = session.status === 'error';
+  const dotColor = errored ? '#ef4444' : exited ? '#f59e0b' : '#22c55e';
   return (
     <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex h-7 items-center gap-2 border-b border-border px-2 text-[11px]">
-        <span className="h-2 w-2 rounded-full" style={{ background: exited ? '#ef4444' : '#22c55e' }} />
+        <span className="h-2 w-2 rounded-full" style={{ background: dotColor }} />
         <span className="font-medium uppercase tracking-wider">{session.providerId}</span>
         {session.branch ? (
           <span className="truncate text-muted-foreground" title={session.branch}>
@@ -125,16 +138,35 @@ function PaneFrame({
             variant="ghost"
             size="icon"
             className="h-5 w-5"
-            onClick={() => void rpc.pty.kill(session.id)}
-            disabled={exited}
+            onClick={() => void rpc.pty.kill(session.id).catch(() => undefined)}
+            disabled={exited || errored}
             aria-label="Stop session"
           >
             <Square className="h-3 w-3" />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-5 w-5"
+            onClick={onRemove}
+            aria-label="Remove pane"
+            title="Remove pane"
+          >
+            <X className="h-3 w-3" />
+          </Button>
         </div>
       </div>
       <div className="min-h-0 flex-1">
-        <SessionTerminal sessionId={session.id} />
+        {errored ? (
+          <div className="flex h-full flex-col items-start justify-start gap-2 p-3 text-xs">
+            <div className="font-medium text-destructive">Failed to launch</div>
+            <div className="whitespace-pre-wrap break-words text-muted-foreground">
+              {session.error ?? 'unknown error'}
+            </div>
+          </div>
+        ) : (
+          <SessionTerminal sessionId={session.id} />
+        )}
       </div>
     </div>
   );

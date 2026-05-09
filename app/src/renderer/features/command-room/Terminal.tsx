@@ -38,6 +38,26 @@ const THEME = {
   brightWhite: '#f8fafc',
 } as const;
 
+function isPtyDataPayload(p: unknown): p is { sessionId: string; data: string } {
+  return (
+    !!p &&
+    typeof p === 'object' &&
+    'sessionId' in p &&
+    typeof (p as { sessionId: unknown }).sessionId === 'string' &&
+    'data' in p &&
+    typeof (p as { data: unknown }).data === 'string'
+  );
+}
+
+function isPtyExitPayload(p: unknown): p is { sessionId: string; exitCode: number } {
+  return (
+    !!p &&
+    typeof p === 'object' &&
+    'sessionId' in p &&
+    typeof (p as { sessionId: unknown }).sessionId === 'string'
+  );
+}
+
 export function SessionTerminal({ sessionId, className }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -64,23 +84,29 @@ export function SessionTerminal({ sessionId, className }: Props) {
     term.loadAddon(new WebLinksAddon());
     term.open(container);
 
-    try {
-      fit.fit();
-    } catch {
-      /* ignore initial fit errors */
-    }
+    // Defer first fit to the next animation frame; the container can have
+    // zero height during initial layout which makes fit.fit() throw.
+    requestAnimationFrame(() => {
+      if (disposed) return;
+      try {
+        fit.fit();
+      } catch {
+        /* ignore initial fit errors */
+      }
+    });
 
     termRef.current = term;
 
     // 1) Subscribe to live PTY data BEFORE pulling the snapshot.
     const offData = window.sigma.eventOn('pty:data', (raw: unknown) => {
-      const p = raw as { sessionId: string; data: string };
-      if (p.sessionId === sessionId) term.write(p.data);
+      if (!isPtyDataPayload(raw)) return;
+      if (raw.sessionId === sessionId) term.write(raw.data);
     });
     const offExit = window.sigma.eventOn('pty:exit', (raw: unknown) => {
-      const p = raw as { sessionId: string; exitCode: number };
-      if (p.sessionId === sessionId) {
-        term.write(`\r\n\x1b[2;90m[session exited code=${p.exitCode}]\x1b[0m\r\n`);
+      if (!isPtyExitPayload(raw)) return;
+      if (raw.sessionId === sessionId) {
+        const code = typeof raw.exitCode === 'number' ? raw.exitCode : -1;
+        term.write(`\r\n\x1b[2;90m[session exited code=${code}]\x1b[0m\r\n`);
       }
     });
 
@@ -94,23 +120,36 @@ export function SessionTerminal({ sessionId, className }: Props) {
 
     // Wire local input -> PTY.
     const onDataDisp = term.onData((data) => {
-      void rpc.pty.write(sessionId, data);
+      void rpc.pty.write(sessionId, data).catch(() => undefined);
     });
 
-    // Resize observer: keep PTY in sync with the visible cell grid.
+    // Resize observer: keep PTY in sync with the visible cell grid. Debounce
+    // to ~50ms so a window-edge drag doesn't fire dozens of IPC calls per
+    // second.
+    let lastCols = term.cols;
+    let lastRows = term.rows;
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const ro = new ResizeObserver(() => {
-      try {
-        fit.fit();
-      } catch {
-        return;
-      }
-      const { cols, rows } = term;
-      void rpc.pty.resize(sessionId, cols, rows).catch(() => undefined);
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        try {
+          fit.fit();
+        } catch {
+          return;
+        }
+        const { cols, rows } = term;
+        if (cols !== lastCols || rows !== lastRows) {
+          lastCols = cols;
+          lastRows = rows;
+          void rpc.pty.resize(sessionId, cols, rows).catch(() => undefined);
+        }
+      }, 50);
     });
     ro.observe(container);
 
     return () => {
       disposed = true;
+      if (resizeTimer) clearTimeout(resizeTimer);
       ro.disconnect();
       onDataDisp.dispose();
       offData();

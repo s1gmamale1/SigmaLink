@@ -71,3 +71,24 @@ export function getRawDb(): Database.Database {
   if (!rawDb) throw new Error('Database not initialized — call initializeDatabase() first.');
   return rawDb;
 }
+
+/**
+ * Gracefully close the SQLite handle. Runs `PRAGMA wal_checkpoint(TRUNCATE)`
+ * so the WAL file is collapsed into the main DB, then closes the connection.
+ * Safe to call repeatedly — subsequent calls are no-ops.
+ */
+export function closeDatabase(): void {
+  if (!rawDb) return;
+  try {
+    rawDb.pragma('wal_checkpoint(TRUNCATE)');
+  } catch {
+    /* best-effort */
+  }
+  try {
+    rawDb.close();
+  } catch {
+    /* ignore */
+  }
+  rawDb = null;
+  dbHandle = null;
+}

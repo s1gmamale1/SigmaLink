@@ -2,10 +2,12 @@
 // every channel on ipcMain. Renderer events fan out via BrowserWindow.send.
 
 import path from 'node:path';
+import fs from 'node:fs';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { defineController, defineRouter } from '../shared/rpc';
 import type { AppRouter } from '../shared/router-shape';
-import { initializeDatabase } from './core/db/client';
+import { initializeDatabase, closeDatabase } from './core/db/client';
+import { runBootJanitor } from './core/db/janitor';
 import { PtyRegistry } from './core/pty/registry';
 import { probeAllProviders, probeProviderById } from './core/providers/probe';
 import { commitAndMerge, gitDiff, gitStatus, runShellLine, worktreeRemove } from './core/git/git-ops';
@@ -13,9 +15,14 @@ import { WorktreePool } from './core/git/worktree';
 import { listWorkspaces, openWorkspace, removeWorkspace } from './core/workspaces/factory';
 import { executeLaunchPlan } from './core/workspaces/launcher';
 import { AGENT_PROVIDERS } from '../shared/providers';
-import fs from 'node:fs';
+
+interface SharedDeps {
+  pty: PtyRegistry;
+  worktreePool: WorktreePool;
+}
 
 let router: ReturnType<typeof buildRouter> | null = null;
+let sharedDeps: SharedDeps | null = null;
 
 function broadcast(event: string, payload: unknown) {
   for (const w of BrowserWindow.getAllWindows()) {
@@ -26,11 +33,18 @@ function broadcast(event: string, payload: unknown) {
 function buildRouter() {
   const userData = app.getPath('userData');
   initializeDatabase(userData);
+
+  // Boot janitor: clean up zombie running sessions and prune dead worktrees.
+  void runBootJanitor().catch(() => {
+    /* non-fatal */
+  });
+
   const worktreePool = new WorktreePool({ baseDir: path.join(userData, 'worktrees') });
   const pty = new PtyRegistry(
     (sessionId, data) => broadcast('pty:data', { sessionId, data }),
     (sessionId, exitCode, signal) => broadcast('pty:exit', { sessionId, exitCode, signal }),
   );
+  sharedDeps = { pty, worktreePool };
 
   const appCtl = defineController({
     getVersion: async () => app.getVersion(),
@@ -60,9 +74,17 @@ function buildRouter() {
         cols: input.cols,
         rows: input.rows,
       });
+      // Note: typing the initial prompt is the launcher's responsibility (see
+      // `core/workspaces/launcher.ts`) so callers using executeLaunchPlan do
+      // not double-send. When this controller is invoked directly (no current
+      // production caller) the initial prompt is still typed here once.
       if (input.initialPrompt) {
         setTimeout(() => {
-          try { pty.write(rec.id, input.initialPrompt + '\n'); } catch { /* ignore */ }
+          try {
+            pty.write(rec.id, input.initialPrompt + '\n');
+          } catch {
+            /* ignore */
+          }
         }, 500);
       }
       return { sessionId: rec.id, pid: rec.pid };
@@ -86,6 +108,9 @@ function buildRouter() {
         cwd: s.cwd,
         alive: s.alive,
       })),
+    forget: async (sessionId: string) => {
+      pty.forget(sessionId);
+    },
   });
 
   const providersCtl = defineController({
@@ -166,6 +191,7 @@ function buildRouter() {
 export function registerRouter(): void {
   if (router) return;
   router = buildRouter();
+  const isDev = !app.isPackaged;
   for (const [ns, handlers] of Object.entries(router)) {
     for (const [key, fn] of Object.entries(handlers)) {
       const channel = `${ns}.${key}`;
@@ -175,11 +201,34 @@ export function registerRouter(): void {
           return { ok: true, data: out };
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          return { ok: false, error: message };
+          // Include stack in dev for easier debugging, omit in production to
+          // avoid leaking implementation details across IPC.
+          const stack = isDev && err instanceof Error ? err.stack : undefined;
+          return { ok: false, error: message, stack };
         }
       });
     }
   }
+}
+
+/**
+ * Best-effort cleanup hooks for the Electron main bootstrap. Killing live
+ * PTYs, closing the DB, and flushing WAL keeps quits graceful and prevents
+ * orphan worktrees / zombie session rows after a normal shutdown.
+ */
+export function shutdownRouter(): void {
+  try {
+    sharedDeps?.pty.killAll();
+  } catch {
+    /* ignore */
+  }
+  try {
+    closeDatabase();
+  } catch {
+    /* ignore */
+  }
+  router = null;
+  sharedDeps = null;
 }
 
 export type RegisteredRouter = AppRouter;
