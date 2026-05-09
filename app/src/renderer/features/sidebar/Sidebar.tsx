@@ -5,19 +5,21 @@
 
 import { useEffect } from 'react';
 import {
+  Bot,
   ChevronLeft,
   ChevronRight,
   Command as CommandIcon,
   Folder,
   GitBranch,
   Globe,
-  ListChecks,
+  LayoutGrid,
   Network,
   Settings,
   Sparkles,
   Terminal,
   Wand2,
 } from 'lucide-react';
+import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Tooltip,
@@ -29,6 +31,7 @@ import { Monogram } from '@/renderer/components/Monogram';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState, type RoomId } from '@/renderer/app/state';
 import { MOD_KEY_LABEL } from '@/renderer/lib/shortcuts';
+import type { AgentSession, Workspace } from '@/shared/types';
 
 interface NavItem {
   id: RoomId;
@@ -40,11 +43,21 @@ const ITEMS: NavItem[] = [
   { id: 'workspaces', label: 'Workspaces', icon: Folder },
   { id: 'command', label: 'Command Room', icon: Terminal },
   { id: 'swarm', label: 'Swarm Room', icon: Network },
+  // P3-S2 — Operator Console is the swarm-scoped supervisor view (constellation
+  // graph + activity feed). Requires an active workspace; renders a friendly
+  // empty-state when no swarm exists yet.
+  { id: 'operator', label: 'Operator Console', icon: Network },
   { id: 'review', label: 'Review Room', icon: GitBranch },
-  { id: 'tasks', label: 'Tasks', icon: ListChecks },
+  // BUG-W7-009: Was `ListChecks` whose checkmark glyph rendered visually lighter
+  // than its peers. `LayoutGrid` shares the simple-square stroke profile of
+  // `Folder`/`Globe`/`Settings` so the row reads in rhythm with the rest.
+  { id: 'tasks', label: 'Tasks', icon: LayoutGrid },
   { id: 'memory', label: 'Memory', icon: Sparkles },
   { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'skills', label: 'Skills', icon: Wand2 },
+  // V3-W13-012 — Bridge Assistant standalone room (fallback when the
+  // right-rail is gated off; otherwise lives in the right-rail tab).
+  { id: 'bridge', label: 'Bridge Assistant', icon: Bot },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -144,6 +157,7 @@ export function Sidebar() {
               item.id !== 'workspaces' &&
               item.id !== 'settings' &&
               item.id !== 'skills' &&
+              item.id !== 'bridge' &&
               !activeWorkspace;
             // BUG-W7-002 / W7-013: when disabled, skip from the focus order and
             // dim the row with `cursor-not-allowed`. The tooltip explains why.
@@ -194,6 +208,17 @@ export function Sidebar() {
           })}
         </nav>
 
+        {/* V3-W12-008: workspace tabs with status dot + agent-count pill.
+            Hidden when collapsed to keep the rail at 56px width. */}
+        {!collapsed && state.workspaces.length > 0 ? (
+          <WorkspaceTabs
+            workspaces={state.workspaces}
+            sessions={state.sessions}
+            activeId={activeWorkspace?.id ?? null}
+            onPick={(ws) => dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: ws })}
+          />
+        ) : null}
+
         <div className={cn('border-t border-border', collapsed ? 'p-2' : 'p-3 text-xs')}>
           {collapsed ? (
             <button
@@ -221,5 +246,87 @@ export function Sidebar() {
         </div>
       </aside>
     </TooltipProvider>
+  );
+}
+
+// V3-W12-008: per-workspace tab rendering. The status dot rolls up the
+// statuses of every live session in that workspace into a single colour
+// (running=green, error=amber, exited=grey). The pill counts running
+// sessions only — exited sessions are exempted so the user does not get
+// an inflated number when sessions auto-clear.
+interface WorkspaceTabsProps {
+  workspaces: Workspace[];
+  sessions: AgentSession[];
+  activeId: string | null;
+  onPick: (ws: Workspace) => void;
+}
+
+function WorkspaceTabs({ workspaces, sessions, activeId, onPick }: WorkspaceTabsProps) {
+  // Project sessions onto the workspace id so each tab can compute its own
+  // counters in O(1). Memoised because the sidebar re-renders on every
+  // dispatch and bucketing 100 sessions × N workspaces is wasteful.
+  const byWorkspace = useMemo(() => {
+    const map = new Map<string, AgentSession[]>();
+    for (const s of sessions) {
+      const list = map.get(s.workspaceId) ?? [];
+      list.push(s);
+      map.set(s.workspaceId, list);
+    }
+    return map;
+  }, [sessions]);
+
+  // Cap to the most recently opened 6 — anything further makes the rail
+  // scroll, which we already do in the nav above.
+  const top = workspaces.slice(0, 6);
+
+  return (
+    <div className="flex flex-col gap-0.5 border-t border-border px-2 py-2">
+      <div className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        Workspaces
+      </div>
+      {top.map((ws) => {
+        const sessionsForWs = byWorkspace.get(ws.id) ?? [];
+        const running = sessionsForWs.filter((s) => s.status === 'running').length;
+        const hasError = sessionsForWs.some((s) => s.status === 'error');
+        const hasRunning = running > 0;
+        const dotClass = hasError
+          ? 'bg-amber-500'
+          : hasRunning
+            ? 'bg-emerald-500'
+            : 'bg-zinc-500';
+        const isActive = ws.id === activeId;
+        return (
+          <button
+            key={ws.id}
+            type="button"
+            onClick={() => onPick(ws)}
+            className={cn(
+              'group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition',
+              isActive
+                ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
+            )}
+            title={ws.rootPath}
+          >
+            <span
+              aria-hidden
+              className={cn('inline-block h-2 w-2 shrink-0 rounded-full', dotClass)}
+            />
+            <span className="flex-1 truncate text-left text-[13px]">{ws.name}</span>
+            <span
+              className={cn(
+                'rounded-full px-1.5 py-0 text-[10px] font-mono tabular-nums',
+                hasRunning
+                  ? 'bg-emerald-500/20 text-emerald-400'
+                  : 'bg-muted/50 text-muted-foreground',
+              )}
+              aria-label={`${running} running ${running === 1 ? 'agent' : 'agents'}`}
+            >
+              {running}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }

@@ -100,11 +100,31 @@ export async function createSwarm(
     })
     .run();
 
+  // V3-W13-014 — multi-hub constellation. We materialise rows in two passes:
+  //   1. Insert every coordinator first so we know the queen's id (the very
+  //      first coordinator in roster order). Peer coordinators then carry
+  //      `coordinatorId = queenId` so the constellation renderer can draw a
+  //      single hub for the swarm; non-coordinator agents are assigned to one
+  //      coordinator round-robin (the queen included as a hub).
+  //   2. Insert non-coordinator agents with their assigned `coordinatorId`.
+  // This avoids a nullable-then-update dance and keeps the FK semantics
+  // (logical, since SQLite ALTER TABLE ADD COLUMN cannot attach REFERENCES)
+  // observable in a single INSERT per row.
+  const coordinatorAssignments = roster.filter((r) => r.role === 'coordinator');
+  const otherAssignments = roster.filter((r) => r.role !== 'coordinator');
+  const coordinatorIds: string[] = [];
+  let queenId: string | null = null;
+
   const agents: SwarmAgent[] = [];
-  for (const assignment of roster) {
+
+  // Pass 1 — coordinators.
+  for (const assignment of coordinatorAssignments) {
     const aKey = makeAgentKey(assignment.role, assignment.roleIndex);
     const agentId = randomUUID();
     const inboxPath = deps.mailbox.ensureInbox(swarmId, aKey);
+    // First coordinator becomes the queen (coordinatorId NULL); peers point
+    // back at the queen.
+    const coordinatorId = queenId; // null for the very first iteration
 
     db.insert(swarmAgents)
       .values({
@@ -116,6 +136,89 @@ export async function createSwarm(
         status: 'idle',
         inboxPath,
         agentKey: aKey,
+        coordinatorId,
+        createdAt: now,
+      })
+      .run();
+
+    if (queenId === null) queenId = agentId;
+    coordinatorIds.push(agentId);
+
+    let sessionId: string | null = null;
+    let sessionStatus: SwarmAgent['status'] = 'idle';
+    try {
+      sessionId = await spawnAgentSession({
+        wsRow,
+        swarmId,
+        agentId,
+        role: assignment.role,
+        roleIndex: assignment.roleIndex,
+        providerId: assignment.providerId,
+        baseRef: input.baseRef,
+        agentKey: aKey,
+        deps,
+      });
+      sessionStatus = 'idle';
+    } catch (err) {
+      sessionStatus = 'error';
+      const message = err instanceof Error ? err.message : String(err);
+      void deps.mailbox.append({
+        swarmId,
+        fromAgent: 'operator',
+        toAgent: aKey,
+        kind: 'SYSTEM',
+        body: `Failed to spawn ${aKey}: ${message}`,
+      });
+    }
+
+    if (sessionId) {
+      db.update(swarmAgents)
+        .set({ sessionId, status: sessionStatus })
+        .where(eq(swarmAgents.id, agentId))
+        .run();
+    } else {
+      db.update(swarmAgents)
+        .set({ status: sessionStatus })
+        .where(eq(swarmAgents.id, agentId))
+        .run();
+    }
+
+    agents.push({
+      id: agentId,
+      swarmId,
+      role: assignment.role,
+      roleIndex: assignment.roleIndex,
+      providerId: assignment.providerId,
+      sessionId,
+      status: sessionStatus,
+      inboxPath,
+      agentKey: aKey,
+    });
+  }
+
+  // Pass 2 — non-coordinator agents, assigned round-robin across coordinators.
+  // If no coordinator was rostered (shouldn't happen for stock presets but is
+  // legal for `custom`), assignees get `coordinatorId = NULL`.
+  let rrCursor = 0;
+  for (const assignment of otherAssignments) {
+    const aKey = makeAgentKey(assignment.role, assignment.roleIndex);
+    const agentId = randomUUID();
+    const inboxPath = deps.mailbox.ensureInbox(swarmId, aKey);
+    const coordinatorId =
+      coordinatorIds.length > 0 ? coordinatorIds[rrCursor % coordinatorIds.length] : null;
+    rrCursor += 1;
+
+    db.insert(swarmAgents)
+      .values({
+        id: agentId,
+        swarmId,
+        role: assignment.role,
+        roleIndex: assignment.roleIndex,
+        providerId: assignment.providerId,
+        status: 'idle',
+        inboxPath,
+        agentKey: aKey,
+        coordinatorId,
         createdAt: now,
       })
       .run();

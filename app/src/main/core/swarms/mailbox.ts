@@ -18,14 +18,27 @@ import { and, asc, eq } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { swarmAgents, swarmMessages } from '../db/schema';
 import type { SwarmMessage, SwarmMessageKind } from '../../../shared/types';
+import type { BoardManager } from './boards';
+import type { MailboxKind } from './types';
 
 export interface MailboxAppend {
   swarmId: string;
   fromAgent: string;
   toAgent: string; // '*' for broadcast or agentKey
-  kind: SwarmMessageKind;
+  // Allow V3 envelope kinds (`board_post`, `directive`, …) alongside the
+  // legacy SIGMA::* verbs. The DB column is plain TEXT so any string is
+  // storable; this widening just lets callers use the typed union without
+  // casting through `as`.
+  kind: SwarmMessageKind | MailboxKind;
   body: string;
   payload?: Record<string, unknown>;
+  /**
+   * For `directive` envelopes only — when set to `'pane'`, the mailbox calls
+   * the registered `paneEcho` closure after the durable insert so the target
+   * agent's PTY stdin receives `[Operator → <Role> <N>] <body>\n`. Other
+   * kinds ignore this field.
+   */
+  echo?: 'pane';
 }
 
 type EmitFn = (message: SwarmMessage) => void;
@@ -41,6 +54,16 @@ export class SwarmMailbox {
   private readonly queue: QueueItem[] = [];
   private draining = false;
   private emit: EmitFn = () => undefined;
+  // V3-W13-008 — optional board manager wired at boot from rpc-router. Kept
+  // optional so unit tests that exercise the mailbox in isolation don't have
+  // to construct a manager just to satisfy the type.
+  private boardManager: BoardManager | null = null;
+  // V3-W13-009 — pane-echo writer. The router supplies a closure that knows
+  // how to resolve an agentKey → sessionId and write to the PTY. The mailbox
+  // calls it after every `directive` insert with `echo === 'pane'`.
+  private paneEcho:
+    | ((swarmId: string, toAgent: string, body: string) => void)
+    | null = null;
 
   constructor(userDataDir: string) {
     this.userDataDir = userDataDir;
@@ -48,6 +71,16 @@ export class SwarmMailbox {
 
   setEmitter(fn: EmitFn): void {
     this.emit = fn;
+  }
+
+  setBoardManager(manager: BoardManager): void {
+    this.boardManager = manager;
+  }
+
+  setPaneEcho(
+    fn: (swarmId: string, toAgent: string, body: string) => void,
+  ): void {
+    this.paneEcho = fn;
   }
 
   /** Path to a single agent's JSONL inbox. */
@@ -120,7 +153,11 @@ export class SwarmMailbox {
       swarmId: input.swarmId,
       fromAgent: input.fromAgent,
       toAgent: input.toAgent,
-      kind: input.kind,
+      // SwarmMessage.kind is the legacy SIGMA::* enum; V3 envelope kinds are
+      // wider but still serialise as a plain string column. Cast at the
+      // boundary so callers can pass the typed union without losing the V3
+      // `kind` strings on the wire.
+      kind: input.kind as SwarmMessageKind,
       body: input.body,
       payload: input.payload,
       ts,
@@ -142,6 +179,46 @@ export class SwarmMailbox {
       fs.appendFileSync(outboxPath, line);
     } catch {
       /* best-effort mirror */
+    }
+
+    // V3-W13-008 — board_post side effect. After the mailbox row lands, mirror
+    // the post into the `boards` table + on-disk markdown file. Failures are
+    // logged but do NOT roll back the mailbox row: the envelope is the
+    // durable record, the board file is a derived artifact.
+    if (input.kind === 'board_post' && this.boardManager) {
+      try {
+        const p = (input.payload ?? {}) as Record<string, unknown>;
+        const title = typeof p.title === 'string' ? p.title : '(untitled)';
+        const bodyMd = typeof p.bodyMd === 'string' ? p.bodyMd : input.body;
+        const postId = typeof p.boardId === 'string' ? p.boardId : undefined;
+        const attachments = Array.isArray(p.attachments)
+          ? (p.attachments as unknown[]).filter(
+              (s): s is string => typeof s === 'string',
+            )
+          : undefined;
+        // The agent that posted owns the namespace. For broadcast posts we
+        // skip the board write — boards are per-agent by definition.
+        if (input.fromAgent !== '*' && input.fromAgent !== 'operator') {
+          this.boardManager.create(input.swarmId, input.fromAgent, {
+            postId,
+            title,
+            bodyMd,
+            attachments,
+          });
+        }
+      } catch {
+        /* board write failure is non-fatal for the mailbox */
+      }
+    }
+
+    // V3-W13-009 — directive.echo='pane' side effect. The router-supplied
+    // closure resolves agentKey → sessionId and types the line into the PTY.
+    if (input.kind === 'directive' && input.echo === 'pane' && this.paneEcho) {
+      try {
+        this.paneEcho(input.swarmId, input.toAgent, input.body);
+      } catch {
+        /* PTY may have exited — mailbox row remains durable */
+      }
     }
 
     try {

@@ -72,7 +72,14 @@ export async function probeProvider(p: AgentProviderDefinition): Promise<Provide
 }
 
 export async function probeAllProviders(): Promise<ProviderProbe[]> {
-  return Promise.all(AGENT_PROVIDERS.filter((p) => p.detectable !== false && p.command).map(probeProvider));
+  // Skip comingSoon providers — they ship without a real binary and would
+  // always probe as not-found. The launcher transparently substitutes the
+  // fallback provider at spawn time (see V3-W12-001).
+  return Promise.all(
+    AGENT_PROVIDERS.filter(
+      (p) => p.detectable !== false && p.command && !p.comingSoon,
+    ).map(probeProvider),
+  );
 }
 
 export async function probeProviderById(id: string): Promise<ProviderProbe> {

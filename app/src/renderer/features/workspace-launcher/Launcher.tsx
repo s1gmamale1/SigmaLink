@@ -1,89 +1,103 @@
+// Workspace launcher orchestrator. Wave 12 (V3-W12-004/005/006/007 +
+// BUG-W7-015) splits the chrome across PickerCards / Stepper /
+// StartStep / LayoutStep / AgentsStep. BUG-W7-001 is preserved:
+// `state.activeWorkspace` is the single source of truth.
+
 import { useEffect, useMemo, useState } from 'react';
-import { Folder, FolderPlus, Play, Trash2 } from 'lucide-react';
+import { Play, Plus, Settings as SettingsIcon, SplitSquareHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
-import type { GridPreset, LaunchPlan, Workspace } from '@/shared/types';
-import type { ProviderProbe } from '@/shared/types';
-
-const PRESETS: GridPreset[] = [1, 2, 4, 6, 8, 10, 12, 14, 16];
-
-interface ProviderInfo {
-  id: string;
-  name: string;
-  description: string;
-  color: string;
-  installHint: string;
-  probe?: ProviderProbe;
-}
+import type { GridPreset, LaunchPlan, ProviderProbe, Workspace } from '@/shared/types';
+import { PickerCards, type LauncherMode } from './PickerCards';
+import { Stepper, type StepId } from './Stepper';
+import { StartStep } from './StartStep';
+import { LayoutStep } from './LayoutStep';
+import { AgentsStep } from './AgentsStep';
+import { gridLabel } from './grid';
 
 export function WorkspaceLauncher() {
   const { state, dispatch } = useAppState();
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  // BUG-W7-011: there is exactly one source of truth — `state.activeWorkspace`
-  // from the reducer. We no longer keep a local `selectedWorkspace` slice.
   const selectedWorkspace = state.activeWorkspace;
+
+  const [mode, setMode] = useState<LauncherMode>('space');
+  const [step, setStep] = useState<StepId>('start');
   const [preset, setPreset] = useState<GridPreset>(4);
-  const [paneProviders, setPaneProviders] = useState<string[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [skipAgents, setSkipAgents] = useState(false);
+  const [probes, setProbes] = useState<ProviderProbe[]>([]);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Probe providers on mount so the matrix can render PATH-status badges.
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const list = await rpc.providers.list();
-      const probes = await rpc.providers.probeAll().catch(() => [] as ProviderProbe[]);
-      if (!alive) return;
-      const probeById = new Map(probes.map((p) => [p.id, p]));
-      const merged: ProviderInfo[] = list.map((p) => ({
-        ...p,
-        probe: probeById.get(p.id),
-      }));
-      setProviders(merged);
+      const ps = await rpc.providers.probeAll().catch(() => [] as ProviderProbe[]);
+      if (alive) setProbes(ps);
     })();
     return () => {
       alive = false;
     };
   }, []);
 
-  useEffect(() => {
-    if (paneProviders.length === preset) return;
-    const fallback = providers[0]?.id ?? 'shell';
-    setPaneProviders((prev) => {
-      const next = Array(preset).fill(fallback);
-      for (let i = 0; i < Math.min(prev.length, preset); i++) next[i] = prev[i];
-      return next;
-    });
-  }, [preset, providers, paneProviders.length]);
+  // Step navigation + preset clamping run inside the event handlers below
+  // (changeStepOnPick / changePreset). Avoiding setState-in-effect keeps the
+  // render pass single-pass per react-hooks/set-state-in-effect rule.
 
-  const repoLabel = useMemo(() => {
-    if (!selectedWorkspace) return 'Select a folder';
-    return selectedWorkspace.repoMode === 'git'
-      ? 'Git worktrees will be created per pane'
-      : 'Plain folder mode (no worktree isolation)';
-  }, [selectedWorkspace]);
+  function changePreset(next: GridPreset): void {
+    setPreset(next);
+    // Clamp existing per-provider counts so the sum never exceeds the new
+    // pane budget. Done synchronously alongside the preset change so the
+    // matrix never flashes an over-allocated state.
+    setCounts((prev) => {
+      const total = Object.values(prev).reduce((a, b) => a + b, 0);
+      if (total <= next) return prev;
+      const trimmed: Record<string, number> = {};
+      let budget = next;
+      for (const [k, v] of Object.entries(prev)) {
+        if (budget <= 0) break;
+        const give = Math.min(v, budget);
+        if (give > 0) trimmed[k] = give;
+        budget -= give;
+      }
+      return trimmed;
+    });
+  }
+
+  // Auto-advance Step 1 → 2 once a workspace lands in `state.activeWorkspace`.
+  // We don't auto-advance Step 2 → 3 — the user picks the pane count and
+  // that click is the gate.
+  function maybeAdvanceFromStart(): void {
+    setStep((curr) => (curr === 'start' ? 'layout' : curr));
+  }
+
+  const completed = useMemo<Partial<Record<StepId, boolean>>>(
+    () => ({
+      start: !!selectedWorkspace,
+      layout: !!selectedWorkspace && preset > 0,
+      agents:
+        skipAgents ||
+        Object.values(counts).reduce((a, b) => a + b, 0) === preset,
+    }),
+    [selectedWorkspace, preset, counts, skipAgents],
+  );
 
   async function pickFolder(): Promise<void> {
     const r = await rpc.workspaces.pickFolder();
     if (!r) return;
-    // BUG-W7-001: activate the workspace immediately on open. The reducer's
-    // SET_ACTIVE_WORKSPACE also flips room → command, but for a Pick-folder
-    // flow the user expects to stay in Workspaces and configure panes first,
-    // so we dispatch only after the user clicks Launch (see launch()). What
-    // this dispatch fixes is the chain of "no workspace open" footer + the
-    // disabled sidebar buttons.
     const ws = await rpc.workspaces.open(r.path);
     dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: ws });
     dispatch({ type: 'SET_WORKSPACES', workspaces: await rpc.workspaces.list() });
+    maybeAdvanceFromStart();
   }
 
   async function chooseExisting(ws: Workspace): Promise<void> {
-    // BUG-W7-001 / W7-011: reopen + activate so the rest of the app reacts.
     const reopened = await rpc.workspaces.open(ws.rootPath);
     dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: reopened });
+    maybeAdvanceFromStart();
   }
 
   async function removeExisting(ws: Workspace): Promise<void> {
@@ -94,14 +108,58 @@ export function WorkspaceLauncher() {
     }
   }
 
+  function expandCountsToPanes(): string[] {
+    // Convert {provider: count} → flat array sized to preset, padded with
+    // shell when the user under-assigned. Custom Command + the unknown
+    // Droid/Copilot stub ids fall back to shell at launch (registry-side
+    // fallback lands in V3-W12-001 follow-ups).
+    const flat: string[] = [];
+    for (const [providerId, n] of Object.entries(counts)) {
+      const id = providerId === 'custom' ? 'shell' : providerId;
+      for (let i = 0; i < n; i++) flat.push(id);
+    }
+    while (flat.length < preset) flat.push('shell');
+    return flat.slice(0, preset);
+  }
+
   async function launch(): Promise<void> {
     if (!selectedWorkspace) {
       setError('Pick a workspace folder first.');
       return;
     }
+    if (mode === 'swarm') {
+      // Defer to the Swarm Room which has its own creation wizard. Don't
+      // spawn panes; just route the user into that room.
+      dispatch({ type: 'SET_ROOM', room: 'swarm' });
+      return;
+    }
+    if (mode === 'canvas') {
+      // V3-W14-006 — SigmaCanvas: create a canvas row, ensure a browser tab
+      // exists for the Design surface, then route into the Browser room. The
+      // BrowserRoom recognises the design picker toggle in the AddressBar.
+      try {
+        await rpc.design.createCanvas({
+          workspaceId: selectedWorkspace.id,
+          title: `${selectedWorkspace.name} canvas`,
+        });
+        const state = await rpc.browser.getState(selectedWorkspace.id);
+        if (state.tabs.length === 0) {
+          await rpc.browser.openTab({ workspaceId: selectedWorkspace.id });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        return;
+      }
+      dispatch({ type: 'SET_ROOM', room: 'browser' });
+      return;
+    }
     setLaunching(true);
     setError(null);
     try {
+      const paneProviders = skipAgents
+        ? Array(preset).fill('shell')
+        : expandCountsToPanes();
       const plan: LaunchPlan = {
         workspaceRoot: selectedWorkspace.rootPath,
         preset,
@@ -119,163 +177,163 @@ export function WorkspaceLauncher() {
     }
   }
 
+  const launchEnabled =
+    !!selectedWorkspace &&
+    !launching &&
+    (skipAgents ||
+      mode === 'swarm' ||
+      mode === 'canvas' ||
+      Object.values(counts).reduce((a, b) => a + b, 0) === preset);
+
+  const launchLabel =
+    mode === 'swarm'
+      ? 'Open Swarm Room'
+      : mode === 'canvas'
+        ? 'Open Bridge Canvas'
+        : skipAgents
+          ? `Open ${preset} ${preset === 1 ? 'shell' : 'shells'}`
+          : `Launch ${preset} ${preset === 1 ? 'agent' : 'agents'}`;
+
   return (
     <div className="sl-fade-in flex h-full flex-col gap-4 overflow-y-auto p-6">
       {error ? (
         <ErrorBanner message={error} onDismiss={() => setError(null)} />
       ) : null}
-      <header>
-        <div className="text-2xl font-semibold tracking-tight">Workspaces</div>
+      <header className="flex flex-col gap-1">
+        <div className="text-2xl font-semibold tracking-tight">Build the future.</div>
         <div className="text-sm text-muted-foreground">
-          Open a project folder, choose a grid layout, assign one CLI agent per pane, then launch.
+          Pick a workspace shape, choose a layout, then assign agents.
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="col-span-1 flex flex-col gap-3 p-4 lg:col-span-2">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-medium">1 · Choose a folder</div>
-            <Button size="sm" onClick={pickFolder} className="gap-2">
-              <FolderPlus className="h-4 w-4" /> Pick folder
-            </Button>
-          </div>
-          {selectedWorkspace ? (
-            <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
-              <div className="flex items-center gap-2 font-medium">
-                <Folder className="h-4 w-4" /> {selectedWorkspace.name}
-              </div>
-              <div className="mt-1 truncate text-xs text-muted-foreground" title={selectedWorkspace.rootPath}>
-                {selectedWorkspace.rootPath}
-              </div>
-              <div className="mt-1 text-xs text-muted-foreground">{repoLabel}</div>
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground">No folder selected.</div>
-          )}
-          {state.workspaces.length > 0 && (
-            <div className="mt-2">
-              <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Recent
-              </div>
-              <ul className="flex flex-col gap-1">
-                {state.workspaces.slice(0, 8).map((ws) => (
-                  <li
-                    key={ws.id}
-                    className={cn(
-                      'group flex items-center justify-between rounded-md border border-border bg-card/40 px-2 py-1.5 text-sm transition hover:bg-card',
-                      selectedWorkspace?.id === ws.id && 'border-primary/60 bg-primary/10',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => chooseExisting(ws)}
-                      className="flex flex-1 items-center gap-2 text-left"
-                    >
-                      <Folder className="h-4 w-4 text-muted-foreground" />
-                      <span className="truncate" title={ws.rootPath}>
-                        <span className="font-medium">{ws.name}</span>{' '}
-                        <span className="text-xs text-muted-foreground">{ws.rootPath}</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="opacity-0 transition group-hover:opacity-100"
-                      onClick={() => removeExisting(ws)}
-                      aria-label="Forget workspace"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </Card>
+      <PickerCards mode={mode} onChange={setMode} />
 
-        <Card className="col-span-1 flex flex-col gap-3 p-4">
-          <div className="text-sm font-medium">2 · Grid preset</div>
-          <div className="grid grid-cols-3 gap-2">
-            {PRESETS.map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setPreset(n)}
-                className={cn(
-                  'rounded-md border border-border px-3 py-2 text-sm transition',
-                  preset === n
-                    ? 'border-primary bg-primary/15 text-primary-foreground'
-                    : 'bg-card/40 hover:bg-card',
-                )}
-              >
-                {n} {n === 1 ? 'pane' : 'panes'}
-              </button>
-            ))}
-          </div>
-        </Card>
-      </section>
+      <Card className="flex flex-col gap-4 p-4">
+        <Stepper current={step} completed={completed} onJump={setStep} />
 
-      <Card className="flex flex-col gap-3 p-4">
-        <div className="text-sm font-medium">3 · Assign a provider per pane</div>
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-          {paneProviders.map((providerId, idx) => (
-            <PaneAssign
-              key={idx}
-              index={idx}
-              providers={providers}
-              providerId={providerId}
-              onChange={(next) =>
-                setPaneProviders((prev) => prev.map((p, i) => (i === idx ? next : p)))
-              }
+        <div className="border-t border-border/60 pt-4">
+          {step === 'start' ? (
+            <StartStep
+              selected={selectedWorkspace}
+              recents={state.workspaces}
+              onPickFolder={pickFolder}
+              onChooseRecent={chooseExisting}
+              onForgetRecent={removeExisting}
             />
-          ))}
+          ) : null}
+          {step === 'layout' ? (
+            <div className="flex flex-col gap-3">
+              <LayoutStep preset={preset} onChange={changePreset} />
+              <div className="text-xs text-muted-foreground">{gridLabel(preset)}</div>
+            </div>
+          ) : null}
+          {step === 'agents' ? (
+            <AgentsStep
+              totalPanes={preset}
+              counts={counts}
+              onCountsChange={setCounts}
+              skipAgents={skipAgents}
+              onSkipChange={setSkipAgents}
+              probes={probes}
+            />
+          ) : null}
+        </div>
+
+        <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-3">
+          <StepNav step={step} onChange={setStep} canAgents={!!selectedWorkspace} />
+          <Button
+            onClick={launch}
+            disabled={!launchEnabled}
+            // BUG-W7-015: route the launch CTA through `--accent` rather than
+            // `--primary` so the Parchment theme can crank accent darker for
+            // 4.5:1 contrast without affecting the secondary Pick-folder
+            // button (which still uses `--primary`). Other themes alias
+            // accent to a token-equivalent of primary so the visual stays
+            // identical there.
+            className="gap-2 bg-accent text-accent-foreground hover:bg-accent/90"
+            aria-label={launchLabel}
+          >
+            <Play className="h-4 w-4" />
+            {launching ? 'Launching…' : launchLabel}
+          </Button>
         </div>
       </Card>
 
-      <div className="flex items-center justify-between">
-        <div className="text-xs text-muted-foreground">
-          {error ? <span className="text-destructive">{error}</span> : 'Ready when you are.'}
-        </div>
-        <Button onClick={launch} disabled={launching || !selectedWorkspace} className="gap-2">
-          <Play className="h-4 w-4" />
-          {launching ? 'Launching…' : `Launch ${preset} ${preset === 1 ? 'agent' : 'agents'}`}
-        </Button>
-      </div>
+      <BottomActionRow />
     </div>
   );
 }
 
-function PaneAssign({
-  index,
-  providers,
-  providerId,
-  onChange,
-}: {
-  index: number;
-  providers: ProviderInfo[];
-  providerId: string;
-  onChange: (id: string) => void;
-}) {
-  const provider = providers.find((p) => p.id === providerId);
+interface StepNavProps {
+  step: StepId;
+  onChange: (s: StepId) => void;
+  canAgents: boolean;
+}
+
+function StepNav({ step, onChange, canAgents }: StepNavProps) {
+  const next: Record<StepId, StepId | null> = {
+    start: 'layout',
+    layout: 'agents',
+    agents: null,
+  };
+  const prev: Record<StepId, StepId | null> = {
+    start: null,
+    layout: 'start',
+    agents: 'layout',
+  };
+  const nextStep = next[step];
+  const prevStep = prev[step];
   return (
-    <label className="flex flex-col gap-1 rounded-md border border-border bg-card/40 p-2">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        Pane {index + 1}
-      </span>
-      <select
-        value={providerId}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+    <div className="flex items-center gap-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => prevStep && onChange(prevStep)}
+        disabled={!prevStep}
       >
-        {providers.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-            {p.probe ? (p.probe.found ? ' ✓' : ' (not on PATH)') : ''}
-          </option>
-        ))}
-      </select>
-      {provider && !provider.probe?.found && provider.id !== 'shell' && (
-        <span className="text-[10px] text-amber-400">{provider.installHint}</span>
-      )}
-    </label>
+        Back
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => nextStep && onChange(nextStep)}
+        disabled={!nextStep || (nextStep === 'agents' && !canAgents)}
+      >
+        Next
+      </Button>
+    </div>
+  );
+}
+
+// V3-W12-005 acceptance: bottom action row `+ NEW TERMINAL · SPLIT RIGHT ·
+// SETTINGS`. These are global affordances under the wizard card; the
+// individual handlers are stubs for now (Settings routes to the Settings
+// room; new-terminal/split-right wiring lands with Command Room polish).
+function BottomActionRow() {
+  const { dispatch } = useAppState();
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
+      <button
+        type="button"
+        className="flex items-center gap-1 rounded-md border border-border bg-card/40 px-3 py-1.5 transition hover:bg-card"
+        onClick={() => undefined}
+      >
+        <Plus className="h-3.5 w-3.5" /> New terminal
+      </button>
+      <button
+        type="button"
+        className="flex items-center gap-1 rounded-md border border-border bg-card/40 px-3 py-1.5 transition hover:bg-card"
+        onClick={() => undefined}
+      >
+        <SplitSquareHorizontal className="h-3.5 w-3.5" /> Split right
+      </button>
+      <button
+        type="button"
+        className="flex items-center gap-1 rounded-md border border-border bg-card/40 px-3 py-1.5 transition hover:bg-card"
+        onClick={() => dispatch({ type: 'SET_ROOM', room: 'settings' })}
+      >
+        <SettingsIcon className="h-3.5 w-3.5" /> Settings
+      </button>
+    </div>
   );
 }
