@@ -1,38 +1,182 @@
 # SigmaLink
 
-An open-source Electron desktop workspace for orchestrating multiple CLI coding agents in parallel — a clone-in-spirit of BridgeMind's BridgeSpace + BridgeSwarm.
+Local-first desktop workspace for orchestrating grids of CLI coding agents in real PTYs, isolated by Git worktrees.
 
-## Repo layout
+SigmaLink is an Electron desktop application that lets a single human operator run several coding-agent CLIs (Claude Code, Codex, Gemini, Kimi, Cursor, OpenCode, Droid, Copilot, Aider, Continue, plus a custom shell entry) in parallel against the same Git repository. Each agent runs in a real PTY-backed terminal pane and is checked out into its own Git worktree, so concurrent edits cannot collide on disk. A SQLite database holds workspaces, sessions, swarm rosters, tasks, conversations, and notes; nothing is sent to a remote service.
 
-```
-app/                 Electron + Vite + React + Tailwind + shadcn product
-docs/                Research, plans, critiques, and build reports
-  ORCHESTRATION_LOG.md  Master log of every wave
-  01-investigation/     Bug audit + architecture notes for the current build
-  02-research/          BridgeSpace research synthesised from public sources
-  03-plan/              Product spec, build blueprint, UI spec
-  04-critique/          Architecture / UX / engineering-risk critiques
-  05-build/             Per-feature build agent outputs (populated as work progresses)
-  06-test/              Visual test reports + screenshots
-  07-bugs/              Open + deferred bugs
-REBUILD_PLAN.md      Original Phase-1 plan (now superseded by docs/03-plan/)
-```
+The project is in active rebuild. Phase 1 (foundation: workspace launcher, command room with PTY-backed terminals, Git worktree pool, SQLite schema, eleven providers) is shipped. Phases 2–8 — coordinated agent swarms, an embedded controllable browser, drag-and-drop Skills, a wikilink memory MCP server, a rebuilt review pipeline, UI polish, and the visual-test loop — are being built by a sub-agent swarm orchestrated from [`docs/ORCHESTRATION_LOG.md`](docs/ORCHESTRATION_LOG.md). Expect heavy churn until Wave 7 acceptance lands.
 
-## Status
+![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)
+![Electron](https://img.shields.io/badge/Electron-30-2B2E3A?style=flat-square)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square)
+![Status](https://img.shields.io/badge/status-WIP-orange?style=flat-square)
 
-- Phase 1 foundation: built and compiling. Workspace launcher, command room with PTY-backed terminals, 9 providers, SQLite + Drizzle.
-- Phase 2–8: planned in `docs/03-plan/BUILD_BLUEPRINT.md` and being executed by the agent swarm.
+## Why SigmaLink
 
-## Running the app
+- Parallel CLI agent grids of up to sixteen panes per workspace, with per-pane provider selection, persistent ring-buffered terminal history, and layout presets (mosaic, columns, focus).
+- Per-pane Git worktree isolation under a `sigmalink/<role>/<task>-<8char>` branch namespace, so two agents editing the same repo cannot stomp on each other.
+- Role-bearing swarms (Coordinator, Builder, Scout, Reviewer) coordinated through a deterministic JSONL file-mailbox bus and persisted in SQLite, with broadcast and roll-call patterns built in.
+- An in-app Chromium pane (planned, Phase 3) that any agent can drive through Playwright MCP over CDP, so agents can navigate, take screenshots, and click without a separate browser context.
+- Drag-and-drop Anthropic-format Skills (planned, Phase 4) that fan out to each provider's native skills/extensions location after Zod validation.
+- Local SigmaMemory (planned, Phase 5): a wikilink-driven notes system backed by an in-process MCP server with twelve tools and a force-directed graph view, modelled on the BridgeMemory pattern.
+
+## Workspace types
+
+A workspace is a saved binding of a folder, optional repo root, base branch, and the rooms / sessions opened against it. The type is fixed at creation. Detail in [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md).
+
+| Type | Purpose | Status |
+|---|---|---|
+| Bridge Space | Single-workspace agent grid: parallel but independent CLI agents over the same repo (1..16 panes). | Phase 1 (shipped) |
+| Bridge Swarm | Role-bearing coordinated swarm with a file-mailbox bus, side chat, broadcast, and roll-call. | Phase 2 (planned) |
+| Bridge Canvas | Visual design surface: pick an element in the embedded browser, dispatch a scoped prompt, drag assets onto a selection. | Phase 3+ (planned) |
+
+## Supported agents
+
+Eleven providers ship in the default registry. Any other CLI on `PATH` is auto-detected and surfaces in the picker. Source: [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md) section 4.
+
+| Provider | Command | Install hint |
+|---|---|---|
+| Claude Code | `claude` | `npm i -g @anthropic-ai/claude-code` |
+| Codex CLI | `codex` | `npm i -g @openai/codex` |
+| Gemini CLI | `gemini` | `npm i -g @google/gemini-cli` |
+| Kimi | `kimi` | manual install on `PATH` |
+| Cursor Agent | `cursor-agent` | install via Cursor app |
+| OpenCode | `opencode` | `npm i -g opencode` |
+| Droid | `droid` | `npm i -g @factory-ai/droid` |
+| GitHub Copilot CLI | `gh copilot` | `gh extension install github/gh-copilot` |
+| Aider | `aider` | `pipx install aider-chat` |
+| Continue | `continue` | `npm i -g @continuedev/cli` |
+| Custom shell | operator-supplied | n/a |
+
+## Quickstart
+
+Prerequisites: Node.js 20 or newer, Git, npm, and at least one CLI agent installed on `PATH`.
 
 ```bash
-cd app
+git clone https://github.com/s1gmamale1/SigmaLink.git
+cd SigmaLink/app
 npm install
 npm run electron:dev
 ```
 
-Requirements: Node 20+, Git, and at least one CLI agent installed (Claude Code, Codex CLI, Gemini CLI, etc.) on `PATH`.
+Once the app is running:
+
+1. Pick a folder (a Git repo is recommended; non-repo folders fall back to direct-folder mode).
+2. Choose a grid preset (1, 2, 4, 6, 8, 10, 12, 14, or 16 panes).
+3. Assign a provider per pane.
+4. Click **Launch**.
+
+The Command Room opens with one PTY per pane, each in its own worktree branch.
+
+## Requirements
+
+- Node.js 20 or newer.
+- Git (with `user.name` and `user.email` configured for commit / merge actions).
+- At least one CLI agent on `PATH`. The launcher greys out providers it cannot resolve.
+
+Windows users: `node-pty` is rebuilt against the local Electron version on `npm install`. The known `.cmd` shim issue is tracked in [`docs/01-investigation/01-known-bug-windows-pty.md`](docs/01-investigation/01-known-bug-windows-pty.md) and is the first item on the Phase 1.5 patch list.
+
+## Project structure
+
+```
+SigmaLink/
+├── app/                       Electron + Vite + React product
+│   ├── electron/              main + preload sources (esbuild output in electron-dist/)
+│   ├── src/                   renderer (Vite + React 19 + Tailwind 3 + shadcn UI)
+│   ├── scripts/               build helpers (build-electron.cjs)
+│   ├── package.json
+│   └── electron-builder.yml
+├── docs/
+│   ├── ORCHESTRATION_LOG.md   master log of every wave
+│   ├── 01-investigation/      bug audit, architecture notes, test plan
+│   ├── 02-research/           public-source research synthesis
+│   ├── 03-plan/               PRODUCT_SPEC, BUILD_BLUEPRINT, UI_SPEC
+│   ├── 04-critique/           architecture / UX / engineering-risk critiques
+│   ├── 05-build/              per-feature build agent outputs
+│   ├── 06-test/               visual test reports + screenshots
+│   └── 07-bugs/               open + deferred bugs
+├── REBUILD_PLAN.md            historical Phase-1 plan (superseded)
+├── ATTRIBUTIONS.md
+├── CHANGELOG.md
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
+├── SECURITY.md
+└── LICENSE
+```
+
+## Current status
+
+Each phase tracks a section of the build blueprint at [`docs/03-plan/BUILD_BLUEPRINT.md`](docs/03-plan/BUILD_BLUEPRINT.md).
+
+| Phase | Scope | State |
+|---|---|---|
+| [Phase 1](docs/03-plan/BUILD_BLUEPRINT.md) | Foundation: PTY, Git worktrees, providers, SQLite, launcher, command room | Shipped |
+| [Phase 1.5](docs/03-plan/BUILD_BLUEPRINT.md#phase-15--foundation-patches-apply-before-any-new-feature-work) | Foundation patches (Windows PTY shim, IPC allowlist, P0/P1 fixes) | In progress |
+| [Phase 2](docs/03-plan/BUILD_BLUEPRINT.md#phase-2--swarm-room--mailbox-bus) | Swarm Room, mailbox bus, roll-call, broadcast | Planned |
+| [Phase 3](docs/03-plan/BUILD_BLUEPRINT.md#phase-3--in-app-browser--playwright-mcp-supervisor) | In-app browser, Playwright MCP supervisor over CDP | Planned |
+| [Phase 4](docs/03-plan/BUILD_BLUEPRINT.md#phase-4--skills-drag-and-drop--per-provider-fan-out) | Skills drag-and-drop, per-provider fan-out | Planned |
+| [Phase 5](docs/03-plan/BUILD_BLUEPRINT.md#phase-5--sigmamemory-mcp-server--notes-ui--graph-view) | SigmaMemory MCP server, notes UI, graph view | Planned |
+| [Phase 6](docs/03-plan/BUILD_BLUEPRINT.md#phase-6--review-room-rebuild--taskskanban) | Review Room rebuild, Tasks / Kanban | Planned |
+| [Phase 7](docs/03-plan/BUILD_BLUEPRINT.md#phase-7--ui-polish-theme-catalog-command-palette-layout-refinements-animations) | UI polish: theme catalog, command palette, animations | Planned |
+| [Phase 8](docs/03-plan/BUILD_BLUEPRINT.md#phase-8--visual-test--bug-fix-loops) | Visual test, bug-fix loops, acceptance | Planned |
+
+## Architecture at a glance
+
+```
++---------------------------------------------------------------+
+| Renderer (React 19, Tailwind 3, shadcn UI, xterm.js)          |
+|   rooms: workspaces / command / swarm / review / memory /     |
+|          browser / skills / tasks / settings / assistant      |
++---------------------------------------------------------------+
+                     |   typed RPC + event bridge (Proxy)
++---------------------------------------------------------------+
+| Preload (single generic invoke + per-channel allowlist)       |
++---------------------------------------------------------------+
+                     |   ipcMain
++---------------------------------------------------------------+
+| Main process (Electron 30)                                    |
+|   core/pty   core/git   core/providers   core/swarm  core/db  |
+|   core/skills (planned)  core/browser (planned)               |
+|   core/memory (planned)  core/mcp (planned)                   |
++---------------------------------------------------------------+
+                     |   on-disk
++---------------------------------------------------------------+
+| SQLite (Drizzle ORM) | Git worktrees | JSONL mailboxes |      |
+| .sigmamemory/ notes  | per-workspace browser session profile  |
++---------------------------------------------------------------+
+```
+
+A more detailed walk-through lives in [`docs/01-investigation/03-architecture-notes.md`](docs/01-investigation/03-architecture-notes.md).
+
+## Roadmap
+
+The full phased plan is in [`docs/03-plan/BUILD_BLUEPRINT.md`](docs/03-plan/BUILD_BLUEPRINT.md). Critiques that shaped it are in [`docs/04-critique/`](docs/04-critique/). Open bugs are tracked in [`docs/07-bugs/OPEN.md`](docs/07-bugs/OPEN.md); deferred bugs in [`docs/07-bugs/DEFERRED.md`](docs/07-bugs/DEFERRED.md).
+
+## Documentation index
+
+Start at [`docs/README.md`](docs/README.md) for the full directory map. The intended reading order is:
+
+1. [`docs/ORCHESTRATION_LOG.md`](docs/ORCHESTRATION_LOG.md) — what the swarm is doing and why.
+2. [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md) — canonical product spec.
+3. [`docs/03-plan/BUILD_BLUEPRINT.md`](docs/03-plan/BUILD_BLUEPRINT.md) — phased implementation plan.
+4. [`docs/04-critique/`](docs/04-critique/) — architecture, UX, engineering-risk critiques.
+
+## Contributing
+
+Pull requests are welcome but expect heavy churn until Wave 7 acceptance lands. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a PR; bug reports and feature requests use the templates in [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/).
+
+## Security
+
+SigmaLink runs untrusted CLI agents inside PTYs against your local repositories. Each agent has full filesystem access within its worktree, and the planned in-app browser will give agents network egress. Treat this like running anything else with `--dangerously-skip-permissions` enabled. Vulnerability reports go through a private security advisory: see [`SECURITY.md`](SECURITY.md).
+
+## Acknowledgements
+
+- Inspired by BridgeMind's BridgeSpace and BridgeSwarm products. SigmaLink is an independent project; we are not affiliated with, endorsed by, or sponsored by BridgeMind.
+- PTY ring-buffer plumbing, generic RPC bridge, and several Git-orchestration patterns are drawn from [Emdash](https://github.com/generalaction/emdash) (Apache-2.0). See [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md).
+- Skill format follows the public Anthropic Skills layout (SKILL.md frontmatter + body).
+- UI components use [shadcn UI](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), [lucide-react](https://lucide.dev/), and [xterm.js](https://xtermjs.org/). Database access uses [Drizzle ORM](https://orm.drizzle.team/) on top of [better-sqlite3](https://github.com/WiseLibs/better-sqlite3). PTY support comes from [node-pty](https://github.com/microsoft/node-pty).
 
 ## License
 
-MIT for product code (see `app/package.json`). Research artifacts under `docs/02-research/web-pages/` quote ≤15 words per page from public sources for analysis only.
+MIT. See [`LICENSE`](LICENSE).

@@ -1,3 +1,8 @@
+> **Historical reference — superseded.**
+> This Phase-1 plan is preserved for context only. The current canonical specs live under
+> [`docs/03-plan/`](docs/03-plan/): see `PRODUCT_SPEC.md`, `BUILD_BLUEPRINT.md`, and `UI_SPEC.md`.
+> The orchestration log at [`docs/ORCHESTRATION_LOG.md`](docs/ORCHESTRATION_LOG.md) tracks every wave that follows from those specs.
+
 # SigmaLink Ground-Up Rebuild Plan
 
 Synthesis of research from: existing app audit, BridgeSpace public docs/marketing, Emdash (Apache-2.0) source patterns, Anthropic Skills + Playwright MCP patterns, BridgeSpace_Research_Report.docx, and the YouTube launch video transcript.
