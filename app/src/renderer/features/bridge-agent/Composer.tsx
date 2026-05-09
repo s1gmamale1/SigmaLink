@@ -1,0 +1,100 @@
+// V3-W13-012 — Bridge Assistant composer.
+// Enter submits; Shift+Enter newlines. Mic toggles the orb to LISTENING;
+// real voice intake lands in W15.
+//
+// V3-W15-005 — Mic visibility gated by `canDo('bridgevoice.enabled')`. Ultra
+// (SigmaLink default) returns true so users see no UI change. The gate is
+// here to prove the capability matrix wires through; lower tiers (Pro/Basic
+// in a hypothetical hosted SigmaLink) hide the affordance instead of
+// disabling it so the dock chrome stays clean.
+
+import { forwardRef, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Mic, Send } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { useCanDo } from '@/renderer/lib/canDo';
+
+interface Props {
+  busy: boolean;
+  onSend: (prompt: string) => void;
+  onMicPress?: () => void;
+  placeholder?: string;
+  className?: string;
+}
+
+export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer(
+  { busy, onSend, onMicPress, placeholder, className }: Props,
+  externalRef,
+) {
+  const [value, setValue] = useState('');
+  const innerRef = useRef<HTMLTextAreaElement | null>(null);
+  const voiceEnabled = useCanDo<boolean>('bridgevoice.enabled');
+
+  useEffect(() => {
+    if (typeof externalRef === 'function') externalRef(innerRef.current);
+    else if (externalRef) (externalRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = innerRef.current;
+  }, [externalRef]);
+
+  const commit = () => {
+    const trimmed = value.trim();
+    if (!trimmed || busy) return;
+    onSend(trimmed);
+    setValue('');
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      commit();
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        'flex shrink-0 items-end gap-2 border-t border-border bg-background p-2',
+        className,
+      )}
+    >
+      <textarea
+        ref={innerRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder ?? 'Ask the Bridge…'}
+        rows={2}
+        className={cn(
+          'min-h-[44px] flex-1 resize-none rounded-md border border-input bg-muted/30 px-3 py-2 text-sm shadow-xs outline-none transition placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring',
+          'disabled:cursor-not-allowed disabled:opacity-60',
+        )}
+        disabled={busy}
+        aria-label="Ask the Bridge"
+      />
+      <div className="flex flex-col gap-1">
+        {voiceEnabled ? (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={onMicPress}
+            aria-label="Toggle voice input"
+            title="Voice input (W15)"
+            disabled={busy}
+          >
+            <Mic className="h-4 w-4" />
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          size="icon"
+          onClick={commit}
+          aria-label="Send"
+          title="Send"
+          disabled={busy || !value.trim()}
+        >
+          <Send className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+});
