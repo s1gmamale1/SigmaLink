@@ -1,0 +1,3 @@
+"Jarvis, spin up a 4-terminal workspace with Claude."
+alee
+i a ee
