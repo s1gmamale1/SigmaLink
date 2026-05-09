@@ -160,6 +160,11 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'assistant.dispatchPane': stub,
   'assistant.tools': stub,
   'assistant.invokeTool': stub,
+  // P3-S7 — Bridge Assistant cross-session persistence + origin back-link.
+  'assistant.conversations.list': stub,
+  'assistant.conversations.get': stub,
+  'assistant.conversations.delete': stub,
+  'swarm.origin.get': stub,
   'design.captureElement': stub,
   'design.dispatch': stub,
   'design.history': stub,
@@ -178,6 +183,13 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'swarm.agent-filter': stub,
   'swarm.mission-rename': stub,
   'swarm.update-agent': stub,
+  // P3-S6 — Persistent Swarm Replay. Soft-launch z.any(); tighten in v1.1
+  // once the scrubber UI hardens its payload shapes.
+  'swarm.replay.list': stub,
+  'swarm.replay.scrub': stub,
+  'swarm.replay.bookmark': stub,
+  'swarm.replay.listBookmarks': stub,
+  'swarm.replay.deleteBookmark': stub,
   'voice.start': stub,
   'voice.stop': stub,
 };

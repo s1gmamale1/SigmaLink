@@ -18,8 +18,9 @@
 
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import type { Role, SwarmAgent, SwarmMessage } from '@/shared/types';
+import type { Role, SwarmAgent, SwarmMessage, SwarmMessageKind } from '@/shared/types';
 import type { AgentFilter } from './TopBar';
+import type { ReplayFrame } from './ReplayScrubber';
 
 interface Props {
   agents: SwarmAgent[];
@@ -27,6 +28,12 @@ interface Props {
   filter: AgentFilter;
   /** Cap the visible history per agent. Defaults to 50 per the V3 brief. */
   maxPerAgent?: number;
+  /**
+   * P3-S6 — when provided, render historical messages from the replay frame
+   * instead of the live `messages` slice. Live behavior is unchanged when
+   * absent.
+   */
+  replayFrame?: ReplayFrame | null;
 }
 
 interface Row {
@@ -63,7 +70,45 @@ const ROLE_DOT: Record<Role, string> = {
   reviewer: 'bg-role-reviewer',
 };
 
-export function ActivityFeed({ agents, messages, filter, maxPerAgent = 50 }: Props) {
+export function ActivityFeed({
+  agents: liveAgents,
+  messages: liveMessages,
+  filter,
+  maxPerAgent = 50,
+  replayFrame,
+}: Props) {
+  // P3-S6 — historical mode. Project the replay roster back into the
+  // SwarmAgent shape and the replay messages into the live SwarmMessage shape
+  // so the rest of the render path stays unchanged.
+  const agents = useMemo<SwarmAgent[]>(() => {
+    if (!replayFrame) return liveAgents;
+    return replayFrame.agents.map((a) => ({
+      id: a.id,
+      swarmId: replayFrame.swarmId,
+      role: (a.role as Role) ?? 'builder',
+      roleIndex: a.roleIndex,
+      providerId: a.providerId,
+      sessionId: null,
+      status: 'idle',
+      inboxPath: '',
+      agentKey: a.agentKey,
+    }));
+  }, [liveAgents, replayFrame]);
+
+  const messages = useMemo<SwarmMessage[]>(() => {
+    if (!replayFrame) return liveMessages;
+    return replayFrame.messages.map((m) => ({
+      id: m.id,
+      swarmId: replayFrame.swarmId,
+      fromAgent: m.fromAgent,
+      toAgent: m.toAgent,
+      kind: m.kind as SwarmMessageKind,
+      body: m.body,
+      payload: m.payload,
+      ts: m.ts,
+    }));
+  }, [liveMessages, replayFrame]);
+
   const roleByAgent = useMemo(() => {
     const m = new Map<string, Role>();
     for (const a of agents) m.set(a.agentKey, a.role);

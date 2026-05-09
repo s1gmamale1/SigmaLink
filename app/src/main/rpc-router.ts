@@ -20,6 +20,7 @@ import { SwarmMailbox } from './core/swarms/mailbox';
 import { BoardManager } from './core/swarms/boards';
 import { buildSwarmController } from './core/swarms/controller';
 import { buildConsoleController } from './core/swarms/console-controller';
+import { ReplayManager } from './core/swarms/replay';
 import { eq } from 'drizzle-orm';
 import { swarmAgents } from './core/db/schema';
 import { getDb } from './core/db/client';
@@ -37,6 +38,10 @@ import { TasksManager } from './core/tasks/manager';
 import { buildTasksController } from './core/tasks/controller';
 import { buildKvController } from './core/db/kv-controller';
 import { buildAssistantController } from './core/assistant/controller';
+import {
+  buildConversationsHandlers,
+  buildSwarmOriginHandlers,
+} from './core/assistant/conversations-controller';
 import { buildDesignController } from './core/design/controller';
 import { buildVoiceController } from './core/voice/adapter';
 import { fsReadDir, fsReadFile, fsWriteFile } from './core/fs/controller';
@@ -72,6 +77,17 @@ let sharedDeps: SharedDeps | null = null;
 /** Side-band controller handlers registered outside `defineRouter` so
  *  foundations can grow the AppRouter shape independently. */
 let consoleHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
+/** P3-S6 — Persistent Swarm Replay handlers. Registered side-band under the
+ *  `swarm.replay.<method>` namespace via the same allowlist gate. */
+let replayHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
+/** P3-S7 — Bridge Assistant cross-session persistence. Two side-band
+ *  handler maps: `assistant.conversations.<method>` powers the
+ *  Conversations panel inside BridgeRoom; `swarm.origin.<method>` resolves
+ *  the back-link from a swarm to the chat-turn that created it for the
+ *  Operator Console. Same envelope contract as the console + replay
+ *  side-bands above. */
+let conversationsHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
+let swarmOriginHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
 /** V3-W14-001..006 — Bridge Canvas controller cleanup hook. Called from
  *  `shutdownRouter` so picker overlays + dev-server watchers tear down. */
 let designShutdown: (() => void) | null = null;
@@ -418,6 +434,69 @@ function buildRouter() {
   consoleCtl.start();
   sharedDeps.consoleStop = consoleCtl.stop;
 
+  // P3-S6 — Persistent Swarm Replay. The mailbox is event-sourced; this
+  // manager harvests `swarm_messages` rows into scrubbable frames + persists
+  // labelled bookmarks. Side-band registration mirrors the console pattern so
+  // the typed AppRouter shape stays optional.
+  const replayManager = new ReplayManager();
+  replayHandlers = {
+    list: async (input: unknown) => {
+      const arg = (input as { workspaceId?: string }) ?? {};
+      if (typeof arg.workspaceId !== 'string' || !arg.workspaceId) {
+        throw new Error('swarm.replay.list: workspaceId required');
+      }
+      return replayManager.list(arg.workspaceId);
+    },
+    scrub: async (input: unknown) => {
+      const arg = (input as { swarmId?: string; frameIdx?: number }) ?? {};
+      if (typeof arg.swarmId !== 'string' || !arg.swarmId) {
+        throw new Error('swarm.replay.scrub: swarmId required');
+      }
+      if (typeof arg.frameIdx !== 'number' || !Number.isFinite(arg.frameIdx)) {
+        throw new Error('swarm.replay.scrub: frameIdx must be a finite number');
+      }
+      const frame = await replayManager.scrub(arg.swarmId, arg.frameIdx);
+      // Broadcast for any sibling inspector listening on the active swarm.
+      try {
+        broadcast('swarm:replay-frame', {
+          swarmId: frame.swarmId,
+          frameIdx: frame.frameIdx,
+          totalFrames: frame.totalFrames,
+        });
+      } catch {
+        /* fire-and-forget */
+      }
+      return frame;
+    },
+    bookmark: async (input: unknown) => {
+      const arg =
+        (input as { swarmId?: string; frameIdx?: number; label?: string }) ?? {};
+      if (typeof arg.swarmId !== 'string' || !arg.swarmId) {
+        throw new Error('swarm.replay.bookmark: swarmId required');
+      }
+      if (typeof arg.frameIdx !== 'number' || !Number.isFinite(arg.frameIdx)) {
+        throw new Error(
+          'swarm.replay.bookmark: frameIdx must be a finite number',
+        );
+      }
+      return replayManager.bookmark(arg.swarmId, arg.frameIdx, arg.label ?? '');
+    },
+    listBookmarks: async (input: unknown) => {
+      const arg = (input as { swarmId?: string }) ?? {};
+      if (typeof arg.swarmId !== 'string' || !arg.swarmId) {
+        throw new Error('swarm.replay.listBookmarks: swarmId required');
+      }
+      return replayManager.listBookmarks(arg.swarmId);
+    },
+    deleteBookmark: async (input: unknown) => {
+      const arg = (input as { snapshotId?: string }) ?? {};
+      if (typeof arg.snapshotId !== 'string' || !arg.snapshotId) {
+        throw new Error('swarm.replay.deleteBookmark: snapshotId required');
+      }
+      await replayManager.deleteBookmark(arg.snapshotId);
+    },
+  };
+
   const browserCtl = buildBrowserController({ registry: browserRegistry });
   const skillsCtl = buildSkillsController({ manager: skillsManager });
   const memoryCtl = buildMemoryController({
@@ -448,6 +527,17 @@ function buildRouter() {
     userDataDir: userData,
     emit: (event, payload) => broadcast(event, payload),
   });
+  // P3-S7 — Side-band handlers for the Conversations panel + Operator
+  // Console origin link. Mirrors the swarm.replay registration pattern
+  // below so the typed AppRouter shape stays flat.
+  conversationsHandlers = buildConversationsHandlers() as Record<
+    string,
+    (...args: unknown[]) => unknown
+  >;
+  swarmOriginHandlers = buildSwarmOriginHandlers() as Record<
+    string,
+    (...args: unknown[]) => unknown
+  >;
   // V3-W14-001..006 — Bridge Canvas controller. Owns the `design.*` namespace
   // (element-picker overlay, asset staging, HMR poke, canvas DAO + dispatch
   // fan-out). Holds onto its own picker runtime + watch registry so the
@@ -549,6 +639,52 @@ export function registerRouter(): void {
       });
     }
   }
+
+  // P3-S6 — Persistent Swarm Replay handlers. Same envelope contract as the
+  // console side-band; the channel ids land under `swarm.replay.<method>` so
+  // the renderer's `swarm.replay.list` invocation routes here.
+  if (replayHandlers) {
+    for (const [key, fn] of Object.entries(replayHandlers)) {
+      const channel = `swarm.replay.${key}`;
+      ipcMain.handle(channel, async (_e, ...args) => {
+        try {
+          const out = await (fn as (...a: unknown[]) => unknown)(...args);
+          return { ok: true, data: out };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const stack = isDev && err instanceof Error ? err.stack : undefined;
+          return { ok: false, error: message, stack };
+        }
+      });
+    }
+  }
+
+  // P3-S7 — Bridge Assistant Conversations + swarm origin link. Two more
+  // side-band registrations: `assistant.conversations.<method>` is the
+  // backing for the Conversations panel inside BridgeRoom;
+  // `swarm.origin.<method>` resolves the back-link a swarm has into the
+  // chat that triggered it. Both use the same envelope as the side-bands
+  // above so the preload bridge can speak to them with no special-casing.
+  const sideBands: Array<{ prefix: string; map: Record<string, (...args: unknown[]) => unknown> | null }> = [
+    { prefix: 'assistant.conversations.', map: conversationsHandlers },
+    { prefix: 'swarm.origin.', map: swarmOriginHandlers },
+  ];
+  for (const band of sideBands) {
+    if (!band.map) continue;
+    for (const [key, fn] of Object.entries(band.map)) {
+      const channel = `${band.prefix}${key}`;
+      ipcMain.handle(channel, async (_e, ...args) => {
+        try {
+          const out = await (fn as (...a: unknown[]) => unknown)(...args);
+          return { ok: true, data: out };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const stack = isDev && err instanceof Error ? err.stack : undefined;
+          return { ok: false, error: message, stack };
+        }
+      });
+    }
+  }
 }
 
 /**
@@ -600,6 +736,7 @@ export function shutdownRouter(): void {
   router = null;
   sharedDeps = null;
   consoleHandlers = null;
+  replayHandlers = null;
   designShutdown = null;
 }
 

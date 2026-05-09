@@ -9,11 +9,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Role, SwarmAgent } from '@/shared/types';
 import { rpc } from '@/renderer/lib/rpc';
 import type { AgentFilter } from './TopBar';
+import type { ReplayFrame } from './ReplayScrubber';
 
 interface Props {
   swarmId: string;
   agents: SwarmAgent[];
   filter: AgentFilter;
+  /**
+   * P3-S6 — when provided, render the historical agent roster from the replay
+   * frame instead of the live state. Live behavior is unchanged when absent.
+   */
+  replayFrame?: ReplayFrame | null;
 }
 
 interface Node {
@@ -65,7 +71,29 @@ const STATUS_HALO: Record<SwarmAgent['status'], string> = {
   error: 'rgba(239,68,68,0.85)',
 };
 
-export function Constellation({ swarmId, agents, filter }: Props) {
+export function Constellation({
+  swarmId,
+  agents: liveAgents,
+  filter,
+  replayFrame,
+}: Props) {
+  // P3-S6 — historical replay mode. The replay manager returns a synthetic
+  // agent roster (no live status); project it back into the SwarmAgent shape
+  // so the existing physics + draw paths keep working unchanged.
+  const agents: SwarmAgent[] = useMemo(() => {
+    if (!replayFrame) return liveAgents;
+    return replayFrame.agents.map((a) => ({
+      id: a.id,
+      swarmId: replayFrame.swarmId,
+      role: (a.role as Role) ?? 'builder',
+      roleIndex: a.roleIndex,
+      providerId: a.providerId,
+      sessionId: null,
+      status: 'idle',
+      inboxPath: '',
+      agentKey: a.agentKey,
+    }));
+  }, [liveAgents, replayFrame]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const nodesRef = useRef<Node[]>([]);

@@ -365,6 +365,42 @@ export interface AppRouter {
       name: string;
       args: Record<string, unknown>;
     }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
+    /**
+     * P3-S7 — Cross-session persistence sub-namespace. The handlers register
+     * side-band in `rpc-router.ts` (the typed RPC proxy supports a single
+     * namespace level), so renderer call-sites reach these via
+     * `window.sigma.invoke('assistant.conversations.<method>', …)`. The
+     * shapes here exist for IDE + reviewer documentation.
+     */
+    conversations: {
+      list: (input: { workspaceId: string }) => Promise<
+        Array<{
+          id: string;
+          workspaceId: string;
+          kind: 'assistant' | 'swarm_dm';
+          createdAt: number;
+          title: string;
+          lastMessageAt: number;
+          messageCount: number;
+        }>
+      >;
+      get: (input: { conversationId: string }) => Promise<{
+        conversation: {
+          id: string;
+          workspaceId: string;
+          createdAt: number;
+        } | null;
+        messages: Array<{
+          id: string;
+          conversationId: string;
+          role: 'user' | 'assistant' | 'tool' | 'system';
+          content: string;
+          toolCallId: string | null;
+          createdAt: number;
+        }>;
+      }>;
+      delete: (input: { conversationId: string }) => Promise<{ ok: true }>;
+    };
   };
   design: {
     captureElement: (input: { tabId: string }) => Promise<{
@@ -439,7 +475,7 @@ export interface AppRouter {
   swarm: {
     'console-tab': (input: {
       swarmId: string;
-      tab: 'terminals' | 'chat' | 'activity';
+      tab: 'terminals' | 'chat' | 'activity' | 'replays';
     }) => Promise<void>;
     'stop-all': (input: { swarmId: string; reason: string }) => Promise<{ stopped: number }>;
     'constellation-layout': (input: {
@@ -456,6 +492,80 @@ export interface AppRouter {
       providerId?: string;
       autoApprove?: boolean;
     }) => Promise<void>;
+    /**
+     * P3-S6 — Persistent Swarm Replay namespace. The mailbox is event-sourced;
+     * these methods harvest the durable log into a scrubber UI so an operator
+     * can replay any past session frame-by-frame.
+     */
+    replay: {
+      list: (input: { workspaceId: string }) => Promise<
+        Array<{
+          swarmId: string;
+          name: string;
+          missionExcerpt: string;
+          agentCount: number;
+          messageCount: number;
+          firstAt: number | null;
+          lastAt: number | null;
+          status: string;
+        }>
+      >;
+      scrub: (input: { swarmId: string; frameIdx: number }) => Promise<{
+        swarmId: string;
+        swarmName: string;
+        missionText: string;
+        frameIdx: number;
+        totalFrames: number;
+        agents: Array<{
+          id: string;
+          agentKey: string;
+          role: string;
+          roleIndex: number;
+          providerId: string;
+          addedAt: number;
+        }>;
+        messages: Array<{
+          id: string;
+          fromAgent: string;
+          toAgent: string;
+          kind: string;
+          body: string;
+          ts: number;
+          payload?: Record<string, unknown>;
+        }>;
+        counters: {
+          escalations: number;
+          review: number;
+          quiet: number;
+          errors: number;
+        };
+      }>;
+      bookmark: (input: {
+        swarmId: string;
+        frameIdx: number;
+        label: string;
+      }) => Promise<{ snapshotId: string }>;
+      listBookmarks: (input: { swarmId: string }) => Promise<
+        Array<{ id: string; label: string; frameIdx: number; createdAt: number }>
+      >;
+      deleteBookmark: (input: { snapshotId: string }) => Promise<void>;
+    };
+    /**
+     * P3-S7 — Origin back-link. When a swarm was created via the Bridge
+     * Assistant `create_swarm` tool, the controller writes a row in
+     * `swarm_origins` keyed on `swarmId`; this method reads the row so the
+     * Operator Console can render "Started from Bridge Assistant chat: …"
+     * and link back to the originating turn. Returns `null` for swarms
+     * that were created in the Swarm Room directly.
+     */
+    origin: {
+      get: (input: { swarmId: string }) => Promise<{
+        swarmId: string;
+        conversationId: string;
+        messageId: string;
+        createdAt: number;
+      } | null>;
+    };
   };
   voice: {
     start: (input: {

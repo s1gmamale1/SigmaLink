@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 
-export type ConsoleTab = 'terminals' | 'chat' | 'activity';
+export type ConsoleTab = 'terminals' | 'chat' | 'activity' | 'replays';
 export type AgentFilter = 'all' | 'coordinators' | 'builders' | 'scouts' | 'reviewers';
 
 export interface CountersPayload {
@@ -51,6 +51,9 @@ const TABS: { id: ConsoleTab; label: string }[] = [
   { id: 'terminals', label: 'Terminals' },
   { id: 'chat', label: 'Chat' },
   { id: 'activity', label: 'Activity' },
+  // P3-S6 — Persistent Swarm Replay. Differentiator over V3, where swarms
+  // vanish when the window closes. Scrub past sessions frame-by-frame.
+  { id: 'replays', label: 'Replays' },
 ];
 
 const FILTERS: { id: AgentFilter; label: string }[] = [

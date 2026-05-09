@@ -130,6 +130,14 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'assistant.dispatchPane',
   'assistant.tools',
   'assistant.invokeTool',
+  // P3-S7 — Bridge Assistant cross-session persistence: Conversations panel
+  // backing + Operator Console origin link. Channels register side-band in
+  // `rpc-router.ts`; the typed AppRouter shape declares them under
+  // `assistant.conversations` and `swarm.origin` for documentation.
+  'assistant.conversations.list',
+  'assistant.conversations.get',
+  'assistant.conversations.delete',
+  'swarm.origin.get',
   // V3-W12-017 — Design Mode / Bridge Canvas (W14 fills bodies)
   'design.captureElement',
   'design.dispatch',
@@ -150,6 +158,12 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'swarm.agent-filter',
   'swarm.mission-rename',
   'swarm.update-agent',
+  // P3-S6 — Persistent Swarm Replay. Scrub past sessions frame-by-frame.
+  'swarm.replay.list',
+  'swarm.replay.scrub',
+  'swarm.replay.bookmark',
+  'swarm.replay.listBookmarks',
+  'swarm.replay.deleteBookmark',
   // V3-W12-017 — BridgeVoice (W15 fills bodies)
   'voice.start',
   'voice.stop',
@@ -188,6 +202,9 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // V3-W14-001..005 — picker lifecycle + HMR poke notifications.
   'design:picker-state',
   'design:patch-applied',
+  // P3-S6 — broadcast when a replay scrub completes; useful for keeping
+  // multiple inspectors in sync on the same session.
+  'swarm:replay-frame',
   // V3-W14-009 — main → renderer signal that `better-sqlite3` (or another
   // required native module) failed its ABI check. Renderer surfaces the
   // NativeRebuildModal when this fires.

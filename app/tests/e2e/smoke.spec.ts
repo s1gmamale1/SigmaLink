@@ -261,6 +261,24 @@ test('SigmaLink full visual sweep', async () => {
   const operatorErrorsAfter = consoleErrors.length;
   expect(operatorErrorsAfter).toBe(operatorErrorsBefore);
 
+  // P3-S6 — Persistent Swarm Replay. Click the Replays tab inside the
+  // Operator Console and assert the scrubber renders without console errors.
+  // We do not interact with the slider — that would require a swarm with
+  // recorded messages to exist, which the smoke harness does not guarantee.
+  const replayErrorsBefore = consoleErrors.length;
+  const replaysTab = win.locator('button:has-text("Replays")').first();
+  if (await replaysTab.count()) {
+    await replaysTab.click({ timeout: 2000 }).catch(() => undefined);
+    await win.waitForTimeout(400);
+  }
+  await snap(
+    win,
+    '27b-operator-replays-tab.png',
+    'operator console replays tab',
+  );
+  const replayErrorsAfter = consoleErrors.length;
+  expect(replayErrorsAfter).toBe(replayErrorsBefore);
+
   // 15 — review
   await navTo(win, 'Review Room');
   await snap(win, '15-review-empty.png', 'review empty');
@@ -385,6 +403,27 @@ test('SigmaLink full visual sweep', async () => {
     `26-browser-tab-loaded-${browserRoomB}.png`,
     `browser tab loaded (rendered=${browserRoomB})`,
   );
+
+  // P3-S7 — Bridge Assistant Conversations panel smoke. Navigate, confirm
+  // the panel renders, and assert no new console errors landed during the
+  // navigation. The panel is rendered for the standalone variant only (the
+  // right-rail variant is too narrow to host the sidebar).
+  const bridgeErrorsBefore = consoleErrors.length;
+  const bridgeNavOk = await navTo(win, 'Bridge Assistant');
+  await win.waitForTimeout(500);
+  const bridgeRoom = await win
+    .evaluate(() => document.body.getAttribute('data-room') ?? 'unknown')
+    .catch(() => 'unknown');
+  const conversationsPanelCount = await win
+    .locator('[data-testid="bridge-conversations-panel"]')
+    .count();
+  await snap(
+    win,
+    `26b-bridge-conversations-${bridgeRoom}.png`,
+    `bridge conversations panel (nav=${bridgeNavOk}, rendered=${bridgeRoom}, panel=${conversationsPanelCount})`,
+  );
+  expect(consoleErrors.length).toBe(bridgeErrorsBefore);
+  expect(conversationsPanelCount).toBeGreaterThan(0);
 
   // 27 — skills
   await navTo(win, 'Skills');

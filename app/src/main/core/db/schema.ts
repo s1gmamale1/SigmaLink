@@ -464,6 +464,51 @@ export type CanvasInsert = typeof canvases.$inferInsert;
 export type CanvasDispatchRow = typeof canvasDispatches.$inferSelect;
 export type CanvasDispatchInsert = typeof canvasDispatches.$inferInsert;
 
+// Phase 3 Step 6 — Persistent Swarm Replay bookmarks.
+// Migration 0008_swarm_replay owns the DDL; this Drizzle table mirrors it so
+// the replay manager stays end-to-end typed. Note the column names are
+// camelCase on disk to match the migration (no snake_case mapping needed).
+export const swarmReplaySnapshots = sqliteTable(
+  'swarm_replay_snapshots',
+  {
+    id: text('id').primaryKey(),
+    swarmId: text('swarmId').notNull(),
+    label: text('label').notNull(),
+    frameIdx: integer('frameIdx').notNull(),
+    createdAt: integer('createdAt').notNull(),
+  },
+  (t) => ({
+    swarmReplaySnapshotsSwarmFrameIdx: index(
+      'swarm_replay_snapshots_swarm_frame_idx',
+    ).on(t.swarmId, t.frameIdx),
+  }),
+);
+
+export type SwarmReplaySnapshotRow = typeof swarmReplaySnapshots.$inferSelect;
+export type SwarmReplaySnapshotInsert = typeof swarmReplaySnapshots.$inferInsert;
+
+// Phase 3 Step 7 — Bridge Assistant cross-session persistence: swarm origins.
+// Migration 0009_swarm_origins owns the DDL; this Drizzle table mirrors it.
+// Each row is a back-link from a `swarms.id` to the (`conversationId`,
+// `messageId`) pair that triggered the swarm via the assistant's
+// `create_swarm` tool, enabling the Operator Console to render a
+// "Started from Bridge Assistant chat" link back to the originating turn.
+export const swarmOrigins = sqliteTable(
+  'swarm_origins',
+  {
+    swarmId: text('swarmId').primaryKey(),
+    conversationId: text('conversationId').notNull(),
+    messageId: text('messageId').notNull(),
+    createdAt: integer('createdAt').notNull(),
+  },
+  (t) => ({
+    swarmOriginsConvIdx: index('swarm_origins_conv_idx').on(t.conversationId),
+  }),
+);
+
+export type SwarmOriginRow = typeof swarmOrigins.$inferSelect;
+export type SwarmOriginInsert = typeof swarmOrigins.$inferInsert;
+
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type WorkspaceInsert = typeof workspaces.$inferInsert;
 export type AgentSessionRow = typeof agentSessions.$inferSelect;

@@ -18,6 +18,8 @@ import { EmptyState } from '@/renderer/components/EmptyState';
 import { TopBar, type AgentFilter, type ConsoleTab, type CountersPayload } from './TopBar';
 import { Constellation } from './Constellation';
 import { ActivityFeed } from './ActivityFeed';
+import { ReplayScrubber, type ReplayFrame } from './ReplayScrubber';
+import { OriginLink } from './OriginLink';
 
 interface LedgerPayload {
   swarmId: string;
@@ -53,6 +55,9 @@ export function OperatorConsole() {
   const [filter, setFilter] = useState<AgentFilter>('all');
   const [counters, setCounters] = useState<CountersPayload | null>(null);
   const [ledger, setLedger] = useState<LedgerPayload | null>(null);
+  // P3-S6 — replay frame is null in live mode; populated when the user is
+  // dragging the scrubber on the Replays tab.
+  const [replayFrame, setReplayFrame] = useState<ReplayFrame | null>(null);
 
   const activeWorkspace = state.activeWorkspace;
   const swarms = useMemo(
@@ -158,33 +163,52 @@ export function OperatorConsole() {
     );
   }
 
-  if (!activeSwarm) {
+  // P3-S6 — Replays tab is reachable even without an active live swarm; the
+  // scrubber pulls historical sessions from the database. Bail out only when
+  // we have no active swarm AND we're not on the Replays tab.
+  if (!activeSwarm && tab !== 'replays') {
     return (
-      <EmptyState
-        icon={Network}
-        title="No active swarm"
-        description="Create a swarm in the Swarm Room to populate the console."
-      />
+      <div className="flex h-full min-h-0 flex-col bg-background">
+        <TopBar
+          swarmId=""
+          swarmName="—"
+          mission="No active swarm"
+          tab={tab}
+          onTabChange={onTabChange}
+          filter={filter}
+          onFilterChange={onFilterChange}
+          counters={counters}
+          onMissionRename={async () => undefined}
+          onStopAll={async () => undefined}
+        />
+        <EmptyState
+          icon={Network}
+          title="No active swarm"
+          description="Create a swarm in the Swarm Room — or open the Replays tab to scrub a past session."
+        />
+      </div>
     );
   }
 
   // Filter membership helper for the placeholder bodies. The constellation
   // graph and activity feed (W13) reuse the same filter.
-  const visibleAgents = activeSwarm.agents.filter((a) => {
-    if (filter === 'all') return true;
-    if (filter === 'coordinators') return a.role === 'coordinator';
-    if (filter === 'builders') return a.role === 'builder';
-    if (filter === 'reviewers') return a.role === 'reviewer';
-    if (filter === 'scouts') return a.role === 'scout';
-    return true;
-  });
+  const visibleAgents = activeSwarm
+    ? activeSwarm.agents.filter((a) => {
+        if (filter === 'all') return true;
+        if (filter === 'coordinators') return a.role === 'coordinator';
+        if (filter === 'builders') return a.role === 'builder';
+        if (filter === 'reviewers') return a.role === 'reviewer';
+        if (filter === 'scouts') return a.role === 'scout';
+        return true;
+      })
+    : [];
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <TopBar
-        swarmId={activeSwarm.id}
-        swarmName={activeSwarm.name}
-        mission={activeSwarm.mission}
+        swarmId={activeSwarm?.id ?? ''}
+        swarmName={activeSwarm?.name ?? '—'}
+        mission={activeSwarm?.mission ?? ''}
         tab={tab}
         onTabChange={onTabChange}
         filter={filter}
@@ -194,8 +218,16 @@ export function OperatorConsole() {
         onStopAll={onStopAll}
       />
 
+      {/* P3-S7 — When the active swarm (or the swarm being replayed) was
+          created via the Bridge Assistant, render a "Started from Bridge
+          Assistant chat" link that hops the room back to `bridge` and
+          scrolls to the originating tool-call message. */}
+      <OriginLink
+        swarmId={replayFrame?.swarmId ?? activeSwarm?.id ?? null}
+      />
+
       <div className="flex flex-1 overflow-hidden">
-        {tab === 'terminals' ? (
+        {tab === 'terminals' && activeSwarm ? (
           <>
             <div className="flex flex-1 flex-col overflow-hidden">
               <Constellation
@@ -212,7 +244,7 @@ export function OperatorConsole() {
           </>
         ) : null}
 
-        {tab === 'chat' ? (
+        {tab === 'chat' && activeSwarm ? (
           <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
             <div className="flex flex-col items-center gap-1 text-center">
               <span className="text-sm font-medium text-foreground">
@@ -223,7 +255,7 @@ export function OperatorConsole() {
           </div>
         ) : null}
 
-        {tab === 'activity' ? (
+        {tab === 'activity' && activeSwarm ? (
           <div className="flex flex-1 overflow-hidden">
             <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
               {ledger
@@ -236,6 +268,37 @@ export function OperatorConsole() {
               agents={activeSwarm.agents}
               messages={messages}
               filter={filter}
+            />
+          </div>
+        ) : null}
+
+        {tab === 'replays' ? (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex flex-1 overflow-hidden">
+              <div className="flex flex-1 flex-col overflow-hidden">
+                {replayFrame ? (
+                  <Constellation
+                    swarmId={replayFrame.swarmId}
+                    agents={[]}
+                    filter={filter}
+                    replayFrame={replayFrame}
+                  />
+                ) : (
+                  <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
+                    Pick a swarm + drag the timeline to replay frames.
+                  </div>
+                )}
+              </div>
+              <ActivityFeed
+                agents={activeSwarm?.agents ?? []}
+                messages={[]}
+                filter={filter}
+                replayFrame={replayFrame}
+              />
+            </div>
+            <ReplayScrubber
+              workspaceId={activeWorkspace.id}
+              onFrameChange={setReplayFrame}
             />
           </div>
         ) : null}
