@@ -1,6 +1,7 @@
 import { Sidebar } from '@/renderer/features/sidebar/Sidebar';
 import { WorkspaceLauncher } from '@/renderer/features/workspace-launcher/Launcher';
 import { CommandRoom } from '@/renderer/features/command-room/CommandRoom';
+import { SwarmRoom } from '@/renderer/features/swarm-room/SwarmRoom';
 import { PhasePlaceholder } from '@/renderer/features/placeholders/PhasePlaceholder';
 import { AppStateProvider, useAppState } from '@/renderer/app/state';
 
@@ -12,19 +13,7 @@ function RoomSwitch() {
     case 'command':
       return <CommandRoom />;
     case 'swarm':
-      return (
-        <PhasePlaceholder
-          title="Swarm Room"
-          phase={2}
-          description="Roster of role-bearing agents (Coordinator / Builder / Scout / Reviewer) with a file-system mailbox bus, side-chat, and operator broadcast."
-          bullets={[
-            'Role presets and per-role provider assignment',
-            'Coordinator-driven roll-call and task delegation',
-            'Operator broadcast tool',
-            'Mailbox messages persisted in SQLite',
-          ]}
-        />
-      );
+      return <SwarmRoom />;
     case 'review':
       return (
         <PhasePlaceholder

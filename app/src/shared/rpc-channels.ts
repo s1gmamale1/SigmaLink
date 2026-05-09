@@ -37,6 +37,15 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'git.worktreeRemove',
   // fs
   'fs.exists',
+  // swarms
+  'swarms.create',
+  'swarms.list',
+  'swarms.get',
+  'swarms.sendMessage',
+  'swarms.broadcast',
+  'swarms.rollCall',
+  'swarms.tail',
+  'swarms.kill',
 ]);
 
 /**

@@ -44,6 +44,52 @@ CREATE TABLE IF NOT EXISTS kv (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
+
+CREATE TABLE IF NOT EXISTS swarms (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mission TEXT NOT NULL,
+  preset TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running',
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  ended_at INTEGER,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS swarms_ws_idx ON swarms(workspace_id);
+CREATE INDEX IF NOT EXISTS swarms_status_idx ON swarms(status);
+
+CREATE TABLE IF NOT EXISTS swarm_agents (
+  id TEXT PRIMARY KEY,
+  swarm_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  role_index INTEGER NOT NULL,
+  provider_id TEXT NOT NULL,
+  session_id TEXT,
+  status TEXT NOT NULL DEFAULT 'idle',
+  inbox_path TEXT NOT NULL,
+  agent_key TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  FOREIGN KEY (swarm_id) REFERENCES swarms(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS swarm_agents_swarm_idx ON swarm_agents(swarm_id);
+CREATE UNIQUE INDEX IF NOT EXISTS swarm_agents_role_uq ON swarm_agents(swarm_id, role, role_index);
+
+CREATE TABLE IF NOT EXISTS swarm_messages (
+  id TEXT PRIMARY KEY,
+  swarm_id TEXT NOT NULL,
+  from_agent TEXT NOT NULL,
+  to_agent TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  body TEXT NOT NULL,
+  payload_json TEXT,
+  ts INTEGER NOT NULL,
+  delivered_at INTEGER,
+  read_at INTEGER,
+  FOREIGN KEY (swarm_id) REFERENCES swarms(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS swarm_messages_swarm_time_idx ON swarm_messages(swarm_id, ts);
+CREATE INDEX IF NOT EXISTS swarm_messages_to_idx ON swarm_messages(swarm_id, to_agent);
 `;
 
 export function initializeDatabase(userDataDir: string): {

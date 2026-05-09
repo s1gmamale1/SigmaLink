@@ -8,6 +8,10 @@ import type {
   GitStatus,
   GitDiff,
   LaunchPlan,
+  CreateSwarmInput,
+  Swarm,
+  SwarmMessage,
+  SwarmMessageKind,
 } from './types';
 
 export interface AppRouter {
@@ -60,5 +64,20 @@ export interface AppRouter {
   };
   fs: {
     exists: (path: string) => Promise<boolean>;
+  };
+  swarms: {
+    create: (input: CreateSwarmInput) => Promise<Swarm>;
+    list: (workspaceId: string) => Promise<Swarm[]>;
+    get: (id: string) => Promise<Swarm | null>;
+    sendMessage: (input: {
+      swarmId: string;
+      toAgent: string; // agentKey or '*'
+      body: string;
+      kind?: SwarmMessageKind;
+    }) => Promise<SwarmMessage>;
+    broadcast: (swarmId: string, body: string) => Promise<SwarmMessage>;
+    rollCall: (swarmId: string) => Promise<SwarmMessage>;
+    tail: (swarmId: string, opts?: { limit?: number }) => Promise<SwarmMessage[]>;
+    kill: (id: string) => Promise<void>;
   };
 }

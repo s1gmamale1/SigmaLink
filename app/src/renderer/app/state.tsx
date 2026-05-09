@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
-import type { AgentSession, Workspace } from '@/shared/types';
+import type { AgentSession, Swarm, SwarmMessage, Workspace } from '@/shared/types';
 
 export type RoomId =
   | 'workspaces'
@@ -22,6 +22,10 @@ export interface AppState {
   activeWorkspace: Workspace | null;
   sessions: AgentSession[];
   activeSessionId: string | null;
+  // Swarm Room (Phase 2)
+  swarms: Swarm[];
+  activeSwarmId: string | null;
+  swarmMessages: Record<string, SwarmMessage[]>;
 }
 
 type Action =
@@ -32,7 +36,13 @@ type Action =
   | { type: 'ADD_SESSIONS'; sessions: AgentSession[] }
   | { type: 'SET_ACTIVE_SESSION'; id: string | null }
   | { type: 'MARK_SESSION_EXITED'; id: string; exitCode: number }
-  | { type: 'REMOVE_SESSION'; id: string };
+  | { type: 'REMOVE_SESSION'; id: string }
+  | { type: 'SET_SWARMS'; swarms: Swarm[] }
+  | { type: 'UPSERT_SWARM'; swarm: Swarm }
+  | { type: 'SET_ACTIVE_SWARM'; id: string | null }
+  | { type: 'SET_SWARM_MESSAGES'; swarmId: string; messages: SwarmMessage[] }
+  | { type: 'APPEND_SWARM_MESSAGE'; message: SwarmMessage }
+  | { type: 'MARK_SWARM_ENDED'; id: string };
 
 const initial: AppState = {
   ready: false,
@@ -41,6 +51,9 @@ const initial: AppState = {
   activeWorkspace: null,
   sessions: [],
   activeSessionId: null,
+  swarms: [],
+  activeSwarmId: null,
+  swarmMessages: {},
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -87,6 +100,49 @@ function reducer(state: AppState, action: Action): AppState {
           : state.activeSessionId;
       return { ...state, sessions, activeSessionId };
     }
+    case 'SET_SWARMS':
+      return {
+        ...state,
+        swarms: action.swarms,
+        activeSwarmId:
+          state.activeSwarmId && action.swarms.find((s) => s.id === state.activeSwarmId)
+            ? state.activeSwarmId
+            : action.swarms[0]?.id ?? null,
+      };
+    case 'UPSERT_SWARM': {
+      const without = state.swarms.filter((s) => s.id !== action.swarm.id);
+      const swarms = [action.swarm, ...without];
+      return {
+        ...state,
+        swarms,
+        activeSwarmId: state.activeSwarmId ?? action.swarm.id,
+      };
+    }
+    case 'SET_ACTIVE_SWARM':
+      return { ...state, activeSwarmId: action.id };
+    case 'SET_SWARM_MESSAGES':
+      return {
+        ...state,
+        swarmMessages: { ...state.swarmMessages, [action.swarmId]: action.messages },
+      };
+    case 'APPEND_SWARM_MESSAGE': {
+      const existing = state.swarmMessages[action.message.swarmId] ?? [];
+      // Avoid duplicates if the renderer received the message twice (event +
+      // tail refresh). Identity by `id`.
+      if (existing.some((m) => m.id === action.message.id)) return state;
+      const next = [...existing, action.message];
+      return {
+        ...state,
+        swarmMessages: { ...state.swarmMessages, [action.message.swarmId]: next },
+      };
+    }
+    case 'MARK_SWARM_ENDED':
+      return {
+        ...state,
+        swarms: state.swarms.map((s) =>
+          s.id === action.id ? { ...s, status: 'completed', endedAt: Date.now() } : s,
+        ),
+      };
     default:
       return state;
   }
@@ -131,6 +187,63 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     });
     return off;
   }, []);
+
+  // Listen for swarm:message so the side-chat updates live across rooms.
+  useEffect(() => {
+    const off = window.sigma.eventOn('swarm:message', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as Record<string, unknown>;
+      const swarmId = typeof p.swarmId === 'string' ? p.swarmId : '';
+      const id = typeof p.id === 'string' ? p.id : '';
+      const from = typeof p.from === 'string' ? p.from : 'operator';
+      const to = typeof p.to === 'string' ? p.to : '*';
+      const body = typeof p.body === 'string' ? p.body : '';
+      const ts = typeof p.ts === 'number' ? p.ts : Date.now();
+      const kind = (typeof p.kind === 'string' ? p.kind : 'OPERATOR') as SwarmMessage['kind'];
+      const payload =
+        p.payload && typeof p.payload === 'object'
+          ? (p.payload as Record<string, unknown>)
+          : undefined;
+      if (!swarmId || !id) return;
+      dispatch({
+        type: 'APPEND_SWARM_MESSAGE',
+        message: {
+          id,
+          swarmId,
+          fromAgent: from,
+          toAgent: to,
+          kind,
+          body,
+          payload,
+          ts,
+        },
+      });
+    });
+    return off;
+  }, []);
+
+  // When the active workspace changes, refresh swarms for that workspace so
+  // the Swarm Room can pick up persisted swarms across app restarts.
+  useEffect(() => {
+    let alive = true;
+    const wsId = state.activeWorkspace?.id;
+    if (!wsId) {
+      dispatch({ type: 'SET_SWARMS', swarms: [] });
+      return;
+    }
+    void (async () => {
+      try {
+        const list = await rpc.swarms.list(wsId);
+        if (!alive) return;
+        dispatch({ type: 'SET_SWARMS', swarms: list });
+      } catch (err) {
+        console.error('Failed to load swarms:', err);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [state.activeWorkspace?.id]);
 
   // Auto-remove exited sessions after a short grace period so the user can see
   // the final exit code, then the pane disappears.

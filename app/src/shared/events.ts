@@ -5,7 +5,16 @@ export type EventMap = {
   'pty:data': { sessionId: string; data: string };
   'pty:exit': { sessionId: string; exitCode: number; signal?: number };
   'workspace:launched': { workspaceId: string };
-  'swarm:message': { swarmId: string; from: string; to: string; body: string; ts: number };
+  'swarm:message': {
+    swarmId: string;
+    from: string;
+    to: string;
+    body: string;
+    ts: number;
+    kind?: string;
+    id?: string;
+    payload?: Record<string, unknown>;
+  };
   'memory:changed': { id: string; kind: 'create' | 'update' | 'delete' };
   'browser:state': { tabId: string; url: string; title: string; canGoBack: boolean; canGoForward: boolean };
 };

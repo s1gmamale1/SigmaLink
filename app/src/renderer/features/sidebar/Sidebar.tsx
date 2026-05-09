@@ -23,7 +23,7 @@ interface NavItem {
 const ITEMS: NavItem[] = [
   { id: 'workspaces', label: 'Workspaces', icon: Folder },
   { id: 'command', label: 'Command Room', icon: Terminal },
-  { id: 'swarm', label: 'Swarm Room', icon: Network, phase: 2 },
+  { id: 'swarm', label: 'Swarm Room', icon: Network },
   { id: 'review', label: 'Review Room', icon: GitBranch, phase: 4 },
   { id: 'memory', label: 'Memory', icon: Sparkles, phase: 4 },
   { id: 'browser', label: 'Browser', icon: Globe, phase: 3 },

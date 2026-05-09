@@ -12,12 +12,13 @@
 
 import { eq, and } from 'drizzle-orm';
 import { getDb } from './client';
-import { agentSessions, workspaces as workspacesTable } from './schema';
+import { agentSessions, swarms as swarmsTable, workspaces as workspacesTable } from './schema';
 import { worktreePruneRepo } from '../git/git-ops';
 
 export interface JanitorReport {
   zombieSessionsMarked: number;
   reposPruned: number;
+  zombieSwarmsMarked: number;
 }
 
 const PRUNE_BUDGET_MS = 1_000;
@@ -62,5 +63,22 @@ export async function runBootJanitor(): Promise<JanitorReport> {
     }
   }
 
-  return { zombieSessionsMarked: marked, reposPruned };
+  // 3) Mark zombie running swarms as failed. Any swarm row stuck in
+  //    status='running' before the previous quit must be re-marked since the
+  //    PTY agents that powered it are long gone.
+  let zombieSwarmsMarked = 0;
+  const runningSwarms = db
+    .select()
+    .from(swarmsTable)
+    .where(eq(swarmsTable.status, 'running'))
+    .all();
+  for (const row of runningSwarms) {
+    db.update(swarmsTable)
+      .set({ status: 'failed', endedAt: now })
+      .where(and(eq(swarmsTable.id, row.id), eq(swarmsTable.status, 'running')))
+      .run();
+    zombieSwarmsMarked += 1;
+  }
+
+  return { zombieSessionsMarked: marked, reposPruned, zombieSwarmsMarked };
 }

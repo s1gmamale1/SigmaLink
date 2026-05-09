@@ -15,10 +15,13 @@ import { WorktreePool } from './core/git/worktree';
 import { listWorkspaces, openWorkspace, removeWorkspace } from './core/workspaces/factory';
 import { executeLaunchPlan } from './core/workspaces/launcher';
 import { AGENT_PROVIDERS } from '../shared/providers';
+import { SwarmMailbox } from './core/swarms/mailbox';
+import { buildSwarmController } from './core/swarms/controller';
 
 interface SharedDeps {
   pty: PtyRegistry;
   worktreePool: WorktreePool;
+  mailbox: SwarmMailbox;
 }
 
 let router: ReturnType<typeof buildRouter> | null = null;
@@ -44,7 +47,20 @@ function buildRouter() {
     (sessionId, data) => broadcast('pty:data', { sessionId, data }),
     (sessionId, exitCode, signal) => broadcast('pty:exit', { sessionId, exitCode, signal }),
   );
-  sharedDeps = { pty, worktreePool };
+  const mailbox = new SwarmMailbox(userData);
+  mailbox.setEmitter((message) => {
+    broadcast('swarm:message', {
+      swarmId: message.swarmId,
+      from: message.fromAgent,
+      to: message.toAgent,
+      body: message.body,
+      ts: message.ts,
+      kind: message.kind,
+      id: message.id,
+      payload: message.payload,
+    });
+  });
+  sharedDeps = { pty, worktreePool, mailbox };
 
   const appCtl = defineController({
     getVersion: async () => app.getVersion(),
@@ -178,6 +194,13 @@ function buildRouter() {
     exists: async (p: string) => fs.existsSync(p),
   });
 
+  const swarmsCtl = buildSwarmController({
+    pty,
+    worktreePool,
+    mailbox,
+    userDataDir: userData,
+  });
+
   return defineRouter({
     app: appCtl,
     pty: ptyCtl,
@@ -185,6 +208,7 @@ function buildRouter() {
     workspaces: workspacesCtl,
     git: gitCtl,
     fs: fsCtl,
+    swarms: swarmsCtl,
   });
 }
 

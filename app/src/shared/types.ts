@@ -74,3 +74,78 @@ export interface LaunchPlan {
   baseRef?: string;
   panes: PaneAssignment[];
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Swarm Room (Phase 2)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type SwarmId = string;
+export type SwarmAgentId = string;
+
+export type Role = 'coordinator' | 'builder' | 'scout' | 'reviewer';
+
+export type SwarmPreset = 'squad' | 'team' | 'platoon' | 'legion' | 'custom';
+
+export type SwarmStatus = 'running' | 'paused' | 'completed' | 'failed';
+
+export type SwarmMessageKind =
+  | 'SAY'
+  | 'ACK'
+  | 'STATUS'
+  | 'DONE'
+  | 'OPERATOR'
+  | 'ROLLCALL'
+  | 'ROLLCALL_REPLY'
+  | 'SYSTEM';
+
+export interface RoleAssignment {
+  role: Role;
+  roleIndex: number; // 1-based
+  providerId: string;
+}
+
+export interface SwarmAgent {
+  id: SwarmAgentId;
+  swarmId: SwarmId;
+  role: Role;
+  roleIndex: number;
+  providerId: string;
+  sessionId: string | null;
+  status: 'idle' | 'busy' | 'blocked' | 'done' | 'error';
+  inboxPath: string;
+  agentKey: string; // e.g. "coordinator-1"
+}
+
+export interface Swarm {
+  id: SwarmId;
+  workspaceId: WorkspaceId;
+  name: string;
+  mission: string;
+  preset: SwarmPreset;
+  status: SwarmStatus;
+  createdAt: number;
+  endedAt: number | null;
+  agents: SwarmAgent[];
+}
+
+export interface SwarmMessage {
+  id: string;
+  swarmId: SwarmId;
+  fromAgent: string; // 'operator' or agentKey
+  toAgent: string;   // '*' (broadcast) or agentKey
+  kind: SwarmMessageKind;
+  body: string;
+  payload?: Record<string, unknown>;
+  ts: number;
+  readAt?: number | null;
+}
+
+export interface CreateSwarmInput {
+  workspaceId: WorkspaceId;
+  mission: string;
+  preset: SwarmPreset;
+  name?: string;
+  baseRef?: string;
+  // Provider assignment per role; one entry per agent in the roster.
+  roster: RoleAssignment[];
+}
