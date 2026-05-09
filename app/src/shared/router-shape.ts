@@ -190,6 +190,10 @@ export interface AppRouter {
       messageTemplate: string;
     }) => Promise<BatchCommitResult>;
   };
+  kv: {
+    get: (key: string) => Promise<string | null>;
+    set: (key: string, value: string) => Promise<void>;
+  };
   tasks: {
     list: (workspaceId: string) => Promise<Task[]>;
     get: (id: string) => Promise<Task | null>;

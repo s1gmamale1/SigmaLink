@@ -8,6 +8,7 @@ import { Sparkles, List as ListIcon, Network as NetworkIcon } from 'lucide-react
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
 import { useAppState } from '@/renderer/app/state';
+import { EmptyState } from '@/renderer/components/EmptyState';
 import type { Memory } from '@/shared/types';
 import { MemoryList } from './MemoryList';
 import { MemoryEditor } from './MemoryEditor';
@@ -115,9 +116,11 @@ export function MemoryRoom() {
 
   if (!ws || !wsId) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Open a workspace to use Memory.
-      </div>
+      <EmptyState
+        icon={Sparkles}
+        title="Open a workspace to use Memory"
+        description="Notes, backlinks, and the memory graph are scoped per workspace."
+      />
     );
   }
 
@@ -154,7 +157,7 @@ export function MemoryRoom() {
         </div>
       </header>
       {tab === 'list' ? (
-        <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: '260px 1fr 280px' }}>
+        <div className="memory-tri-grid grid min-h-0 flex-1">
           <MemoryList
             memories={memories}
             workspaceId={wsId}

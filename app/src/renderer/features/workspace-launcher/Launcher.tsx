@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { GridPreset, LaunchPlan, Workspace } from '@/shared/types';
 import type { ProviderProbe } from '@/shared/types';
 
@@ -108,7 +109,10 @@ export function WorkspaceLauncher() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
+    <div className="sl-fade-in flex h-full flex-col gap-4 overflow-y-auto p-6">
+      {error ? (
+        <ErrorBanner message={error} onDismiss={() => setError(null)} />
+      ) : null}
       <header>
         <div className="text-2xl font-semibold tracking-tight">Workspaces</div>
         <div className="text-sm text-muted-foreground">

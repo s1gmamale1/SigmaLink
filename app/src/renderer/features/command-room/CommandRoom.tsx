@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Maximize2, Minimize2, Square, X } from 'lucide-react';
+import { Maximize2, Minimize2, Square, Terminal as TerminalIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
+import { EmptyState } from '@/renderer/components/EmptyState';
 import { SessionTerminal } from './Terminal';
 import type { AgentSession } from '@/shared/types';
 
@@ -41,10 +42,27 @@ export function CommandRoom() {
   }, [sessions, layout, focusId]);
 
   if (!state.activeWorkspace) {
-    return <RoomEmpty title="Open a workspace first" />;
+    return (
+      <EmptyState
+        icon={TerminalIcon}
+        title="Open a workspace first"
+        description="The Command Room shows live agent terminals once a workspace is launched."
+      />
+    );
   }
   if (sessions.length === 0) {
-    return <RoomEmpty title="No agents launched yet — head back to Workspaces." />;
+    return (
+      <EmptyState
+        icon={TerminalIcon}
+        title="No agents launched yet"
+        description="Head back to the Workspaces room to pick a grid preset and launch."
+        action={
+          <Button size="sm" onClick={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}>
+            Go to Workspaces
+          </Button>
+        }
+      />
+    );
   }
 
   function handleRemove(session: AgentSession) {
@@ -115,7 +133,7 @@ function PaneFrame({
   const errored = session.status === 'error';
   const dotColor = errored ? '#ef4444' : exited ? '#f59e0b' : '#22c55e';
   return (
-    <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
+    <div className="sl-pane-enter flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex h-7 items-center gap-2 border-b border-border px-2 text-[11px]">
         <span className="h-2 w-2 rounded-full" style={{ background: dotColor }} />
         <span className="font-medium uppercase tracking-wider">{session.providerId}</span>
@@ -197,11 +215,3 @@ function LayoutBtn({
   );
 }
 
-function RoomEmpty({ title }: { title: string }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-10 text-center">
-      <X className="h-6 w-6 text-muted-foreground" />
-      <div className="text-sm text-muted-foreground">{title}</div>
-    </div>
-  );
-}

@@ -20,6 +20,8 @@ import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/renderer/components/EmptyState';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { Task, TaskStatus } from '@/shared/types';
 import { Column } from './Column';
 import { NewTaskDrawer } from './NewTaskDrawer';
@@ -97,9 +99,11 @@ export function TasksRoom() {
 
   if (!state.activeWorkspace) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Open a workspace to use Tasks.
-      </div>
+      <EmptyState
+        icon={ListChecks}
+        title="Open a workspace to use Tasks"
+        description="The Kanban board, swarm roster, and task assignment all live per workspace."
+      />
     );
   }
   return (
@@ -122,11 +126,7 @@ export function TasksRoom() {
           <Plus className="mr-1 h-3 w-3" /> New task
         </Button>
       </header>
-      {err ? (
-        <div className="border-b border-red-500/40 bg-red-500/5 px-3 py-1 text-xs text-red-500">
-          {err}
-        </div>
-      ) : null}
+      {err ? <ErrorBanner message={err} onDismiss={() => setErr(null)} /> : null}
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div className="relative flex min-h-0 flex-1">
           <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto p-2">

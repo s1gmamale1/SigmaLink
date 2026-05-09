@@ -54,6 +54,14 @@ export interface AppState {
   activeReviewSessionId: string | null;
   // Tasks (Phase 6) — keyed by workspaceId
   tasks: Record<string, Task[]>;
+  // UI polish (Phase 7) — non-persisted view flags. The persisted values
+  // (theme, onboarded, sidebarCollapsed) are loaded from kv on boot via the
+  // `BOOT_UI` action and then mirrored here for synchronous reads. Writes
+  // round-trip back to kv at the call site (see ThemeProvider, Sidebar).
+  uiBoot: boolean;
+  onboarded: boolean;
+  commandPaletteOpen: boolean;
+  sidebarCollapsed: boolean;
 }
 
 type Action =
@@ -87,7 +95,11 @@ type Action =
   | { type: 'SET_ACTIVE_REVIEW_SESSION'; id: string | null }
   | { type: 'SET_TASKS'; workspaceId: string; tasks: Task[] }
   | { type: 'UPSERT_TASK'; task: Task }
-  | { type: 'REMOVE_TASK'; workspaceId: string; taskId: string };
+  | { type: 'REMOVE_TASK'; workspaceId: string; taskId: string }
+  | { type: 'BOOT_UI'; onboarded: boolean; sidebarCollapsed: boolean }
+  | { type: 'SET_ONBOARDED'; value: boolean }
+  | { type: 'SET_COMMAND_PALETTE'; open: boolean }
+  | { type: 'SET_SIDEBAR_COLLAPSED'; collapsed: boolean };
 
 const initial: AppState = {
   ready: false,
@@ -109,6 +121,10 @@ const initial: AppState = {
   review: {},
   activeReviewSessionId: null,
   tasks: {},
+  uiBoot: false,
+  onboarded: true, // optimistic — corrected by BOOT_UI before the modal evaluates.
+  commandPaletteOpen: false,
+  sidebarCollapsed: false,
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -291,6 +307,19 @@ function reducer(state: AppState, action: Action): AppState {
         },
       };
     }
+    case 'BOOT_UI':
+      return {
+        ...state,
+        uiBoot: true,
+        onboarded: action.onboarded,
+        sidebarCollapsed: action.sidebarCollapsed,
+      };
+    case 'SET_ONBOARDED':
+      return { ...state, onboarded: action.value };
+    case 'SET_COMMAND_PALETTE':
+      return { ...state, commandPaletteOpen: action.open };
+    case 'SET_SIDEBAR_COLLAPSED':
+      return { ...state, sidebarCollapsed: action.collapsed };
     default:
       return state;
   }
@@ -317,6 +346,31 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.error('Failed to load workspaces:', err);
         dispatch({ type: 'READY', workspaces: [] });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Hydrate persisted UI flags (onboarded, sidebar collapse) from the kv
+  // table. Runs once on mount; the theme is loaded by ThemeProvider.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const [onboardedRaw, sidebarRaw] = await Promise.all([
+          rpc.kv.get('app.onboarded').catch(() => null),
+          rpc.kv.get('app.sidebar.collapsed').catch(() => null),
+        ]);
+        if (!alive) return;
+        dispatch({
+          type: 'BOOT_UI',
+          onboarded: onboardedRaw === '1',
+          sidebarCollapsed: sidebarRaw === '1',
+        });
+      } catch {
+        if (alive) dispatch({ type: 'BOOT_UI', onboarded: false, sidebarCollapsed: false });
       }
     })();
     return () => {

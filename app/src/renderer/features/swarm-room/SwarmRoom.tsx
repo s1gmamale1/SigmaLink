@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Megaphone, Plus, Power, Radio, RefreshCcw } from 'lucide-react';
+import { Megaphone, Network, Plus, Power, Radio, RefreshCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
+import { EmptyState } from '@/renderer/components/EmptyState';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { RoleAssignment } from '@/shared/types';
 import { SwarmCreate } from './SwarmCreate';
 import { RoleRoster } from './RoleRoster';
@@ -118,9 +120,11 @@ export function SwarmRoom() {
 
   if (!activeWorkspace) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
-        Open a workspace first.
-      </div>
+      <EmptyState
+        icon={Network}
+        title="Open a workspace first"
+        description="Swarms are scoped per workspace — open a project folder to start one."
+      />
     );
   }
 
@@ -150,6 +154,9 @@ export function SwarmRoom() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {error ? (
+        <ErrorBanner message={error} onDismiss={() => setError(null)} />
+      ) : null}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-sm">
         <select
           value={activeSwarm.id}

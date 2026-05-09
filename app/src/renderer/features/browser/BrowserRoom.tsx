@@ -5,9 +5,12 @@
 //   • BrowserViewMount (the placeholder div the main-process view tracks)
 //   • AgentDrivingIndicator (overlay when an agent has the driver lock)
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Globe } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
+import { EmptyState } from '@/renderer/components/EmptyState';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import { TabStrip } from './TabStrip';
 import { AddressBar } from './AddressBar';
 import { BrowserViewMount } from './BrowserViewMount';
@@ -27,6 +30,7 @@ export function BrowserRoom() {
     [tabs, activeTabId],
   );
   const initLoadedRef = useRef<string | null>(null);
+  const [hydrationError, setHydrationError] = useState<string | null>(null);
 
   // First-time hydration for this workspace: load persisted tabs.
   useEffect(() => {
@@ -56,6 +60,9 @@ export function BrowserRoom() {
         }
       } catch (err) {
         console.error('Failed to hydrate browser state:', err);
+        setHydrationError(err instanceof Error ? err.message : String(err));
+        // Reset so a manual retry can re-attempt hydration.
+        initLoadedRef.current = null;
       }
     })();
   }, [ws, dispatch]);
@@ -124,14 +131,22 @@ export function BrowserRoom() {
 
   if (!ws) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Open a workspace to use the in-app browser.
-      </div>
+      <EmptyState
+        icon={Globe}
+        title="Open a workspace to use the in-app browser"
+        description="Tabs, navigation history, and the agent driver lock are scoped per workspace."
+      />
     );
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {hydrationError ? (
+        <ErrorBanner
+          message={`Failed to load browser state: ${hydrationError}`}
+          onDismiss={() => setHydrationError(null)}
+        />
+      ) : null}
       <TabStrip
         tabs={tabs}
         activeTabId={activeTabId}

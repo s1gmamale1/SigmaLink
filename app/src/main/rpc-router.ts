@@ -29,6 +29,7 @@ import { ReviewRunner } from './core/review/runner';
 import { buildReviewController } from './core/review/controller';
 import { TasksManager } from './core/tasks/manager';
 import { buildTasksController } from './core/tasks/controller';
+import { buildKvController } from './core/db/kv-controller';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -276,6 +277,7 @@ function buildRouter() {
     manager: tasksManager,
     mailbox,
   });
+  const kvCtl = buildKvController();
 
   return defineRouter({
     app: appCtl,
@@ -290,6 +292,7 @@ function buildRouter() {
     memory: memoryCtl,
     review: reviewCtl,
     tasks: tasksCtl,
+    kv: kvCtl,
   });
 }
 

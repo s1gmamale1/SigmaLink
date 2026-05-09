@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { GitBranch } from 'lucide-react';
 import { useAppState } from '@/renderer/app/state';
+import { EmptyState } from '@/renderer/components/EmptyState';
 import { SessionList } from './SessionList';
 import { SessionDetail } from './SessionDetail';
 import { BatchToolbar } from './BatchToolbar';
@@ -58,9 +59,11 @@ export function ReviewRoom() {
 
   if (!state.activeWorkspace) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Open a workspace to use the Review Room.
-      </div>
+      <EmptyState
+        icon={GitBranch}
+        title="Open a workspace to use the Review Room"
+        description="Diffs, conflicts, and batch merges show up here once your agents start producing changes."
+      />
     );
   }
   return (
@@ -72,8 +75,8 @@ export function ReviewRoom() {
           {sessions.length} session{sessions.length === 1 ? '' : 's'}
         </span>
       </header>
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-80 shrink-0 flex-col border-r border-border">
+      <div className="flex min-h-0 flex-1 max-[900px]:flex-col">
+        <aside className="flex w-80 shrink-0 flex-col border-r border-border max-[900px]:w-full max-[900px]:border-b max-[900px]:border-r-0">
           <SessionList
             sessions={sessions}
             activeId={activeId}
@@ -91,9 +94,15 @@ export function ReviewRoom() {
           {activeSession ? (
             <SessionDetail session={activeSession} />
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              No session selected.
-            </div>
+            <EmptyState
+              icon={GitBranch}
+              title={sessions.length === 0 ? 'No agent sessions to review yet' : 'No session selected'}
+              description={
+                sessions.length === 0
+                  ? 'Sessions appear here once any agent in this workspace starts producing changes.'
+                  : 'Pick a session from the rail to inspect its diff, tests, and notes.'
+              }
+            />
           )}
         </section>
       </div>

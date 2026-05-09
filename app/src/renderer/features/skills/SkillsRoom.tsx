@@ -5,6 +5,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { Wand2 } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
+import { EmptyState } from '@/renderer/components/EmptyState';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { Skill, SkillProviderId } from '@/shared/types';
 import { DropZone } from './DropZone';
 import { SkillCard } from './SkillCard';
@@ -124,11 +126,7 @@ export function SkillsRoom() {
         onError={(msg) => setError(msg)}
       />
 
-      {error ? (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
+      {error ? <ErrorBanner message={error} onDismiss={() => setError(null)} /> : null}
 
       {updatePrompt ? (
         <div className="flex items-center justify-between rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
@@ -161,8 +159,12 @@ export function SkillsRoom() {
 
       <div className="grid grid-cols-1 gap-3 overflow-y-auto pb-6 lg:grid-cols-2">
         {state.skills.length === 0 ? (
-          <div className="col-span-full flex h-32 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
-            No skills installed yet. Drop a SKILL.md folder above to get started.
+          <div className="col-span-full">
+            <EmptyState
+              icon={Wand2}
+              title="No skills installed yet"
+              description="Drop a SKILL.md folder above to install your first skill."
+            />
           </div>
         ) : (
           state.skills.map((skill) => (

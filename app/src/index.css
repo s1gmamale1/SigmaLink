@@ -3,6 +3,9 @@
 @tailwind utilities;
 
 @layer base {
+  /* Default tokens (= obsidian). Kept on :root so unset = obsidian even
+     before the ThemeProvider hydrates. Themed overrides live in
+     :root[data-theme="..."] blocks below. */
   :root {
     --background: 220 20% 4%;
     --foreground: 0 0% 98%;
@@ -32,8 +35,205 @@
     --sidebar-accent-foreground: 0 0% 90%;
     --sidebar-border: 220 10% 15%;
     --sidebar-ring: 270 60% 55%;
+
+    /* Status colors (shared across all themes by default; overridden if a
+       theme wants a tonal shift). */
+    --status-success: 142 65% 45%;
+    --status-warning: 38 92% 55%;
+    --status-info: 210 90% 60%;
+    --status-danger: 0 70% 50%;
+    --status-pending: 220 10% 55%;
+    --status-neutral: 220 10% 35%;
+
+    /* Brand accents (warm = primary action color, cool = informational). */
+    --brand-warm: 21 73% 59%;   /* #E07F4F */
+    --brand-cool: 222 71% 62%;  /* #5B7FE0 */
+
+    /* Motion tokens. */
+    --motion-enter: 220ms cubic-bezier(.2, .8, .2, 1);
+    --motion-exit: 160ms ease-out;
+    --motion-fast: 120ms ease-out;
+  }
+
+  /* Obsidian — explicit override for clarity (matches :root above). */
+  :root[data-theme='obsidian'] {
+    --background: 220 20% 4%;
+    --foreground: 0 0% 98%;
+    --card: 220 15% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 220 15% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 270 60% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 10% 12%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 220 10% 15%;
+    --muted-foreground: 220 10% 55%;
+    --accent: 270 60% 55%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 70% 45%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 10% 15%;
+    --input: 220 10% 15%;
+    --ring: 270 60% 55%;
+    --sidebar-background: 220 20% 6%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 270 60% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 10% 12%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 220 10% 15%;
+    --sidebar-ring: 270 60% 55%;
+  }
+
+  /* Parchment — warm light theme. */
+  :root[data-theme='parchment'] {
+    --background: 38 38% 94%;
+    --foreground: 30 12% 12%;
+    --card: 38 35% 91%;
+    --card-foreground: 30 12% 12%;
+    --popover: 38 35% 91%;
+    --popover-foreground: 30 12% 12%;
+    --primary: 22 65% 45%;
+    --primary-foreground: 38 38% 96%;
+    --secondary: 36 25% 86%;
+    --secondary-foreground: 30 12% 18%;
+    --muted: 36 22% 88%;
+    --muted-foreground: 30 8% 38%;
+    --accent: 22 65% 45%;
+    --accent-foreground: 38 38% 96%;
+    --destructive: 0 65% 45%;
+    --destructive-foreground: 38 38% 96%;
+    --border: 35 18% 78%;
+    --input: 35 18% 78%;
+    --ring: 22 65% 45%;
+    --sidebar-background: 38 30% 90%;
+    --sidebar-foreground: 30 12% 18%;
+    --sidebar-primary: 22 65% 45%;
+    --sidebar-primary-foreground: 38 38% 96%;
+    --sidebar-accent: 36 25% 84%;
+    --sidebar-accent-foreground: 30 12% 18%;
+    --sidebar-border: 35 18% 75%;
+    --sidebar-ring: 22 65% 45%;
+    --status-success: 142 55% 35%;
+    --status-warning: 32 90% 45%;
+    --status-info: 210 80% 45%;
+    --status-danger: 0 65% 45%;
+    --brand-warm: 22 65% 45%;
+    --brand-cool: 222 60% 48%;
+  }
+
+  /* Nord — cool blue/teal. */
+  :root[data-theme='nord'] {
+    --background: 220 16% 18%;
+    --foreground: 218 27% 92%;
+    --card: 220 16% 22%;
+    --card-foreground: 218 27% 92%;
+    --popover: 220 16% 22%;
+    --popover-foreground: 218 27% 92%;
+    --primary: 193 43% 67%;
+    --primary-foreground: 220 16% 14%;
+    --secondary: 220 16% 26%;
+    --secondary-foreground: 218 27% 92%;
+    --muted: 220 16% 28%;
+    --muted-foreground: 218 18% 70%;
+    --accent: 193 43% 67%;
+    --accent-foreground: 220 16% 14%;
+    --destructive: 354 42% 56%;
+    --destructive-foreground: 218 27% 92%;
+    --border: 220 16% 30%;
+    --input: 220 16% 30%;
+    --ring: 193 43% 67%;
+    --sidebar-background: 220 16% 14%;
+    --sidebar-foreground: 218 27% 88%;
+    --sidebar-primary: 193 43% 67%;
+    --sidebar-primary-foreground: 220 16% 14%;
+    --sidebar-accent: 220 16% 22%;
+    --sidebar-accent-foreground: 218 27% 92%;
+    --sidebar-border: 220 16% 26%;
+    --sidebar-ring: 193 43% 67%;
+    --status-success: 92 28% 65%;
+    --status-warning: 40 71% 73%;
+    --status-info: 213 32% 72%;
+    --status-danger: 354 42% 56%;
+    --brand-warm: 14 51% 63%;
+    --brand-cool: 213 32% 72%;
+  }
+
+  /* Synthwave — neon dark. */
+  :root[data-theme='synthwave'] {
+    --background: 264 60% 8%;
+    --foreground: 270 100% 96%;
+    --card: 264 50% 12%;
+    --card-foreground: 270 100% 96%;
+    --popover: 264 50% 12%;
+    --popover-foreground: 270 100% 96%;
+    --primary: 322 95% 65%;
+    --primary-foreground: 264 60% 6%;
+    --secondary: 264 45% 18%;
+    --secondary-foreground: 270 100% 96%;
+    --muted: 264 40% 22%;
+    --muted-foreground: 270 30% 75%;
+    --accent: 187 95% 65%;
+    --accent-foreground: 264 60% 6%;
+    --destructive: 348 95% 60%;
+    --destructive-foreground: 270 100% 96%;
+    --border: 264 45% 22%;
+    --input: 264 45% 22%;
+    --ring: 322 95% 65%;
+    --sidebar-background: 264 65% 6%;
+    --sidebar-foreground: 270 100% 92%;
+    --sidebar-primary: 322 95% 65%;
+    --sidebar-primary-foreground: 264 60% 6%;
+    --sidebar-accent: 264 50% 16%;
+    --sidebar-accent-foreground: 270 100% 96%;
+    --sidebar-border: 264 50% 22%;
+    --sidebar-ring: 322 95% 65%;
+    --status-success: 152 90% 60%;
+    --status-warning: 48 100% 65%;
+    --status-info: 187 95% 65%;
+    --status-danger: 348 95% 60%;
+    --brand-warm: 322 95% 65%;
+    --brand-cool: 187 95% 65%;
   }
 }
+
+/* Memory room three-column → single-column collapse. Kept here because
+   Tailwind's arbitrary-variant breakpoints can't override an inline
+   gridTemplateColumns style at runtime. */
+.memory-tri-grid {
+  grid-template-columns: 260px 1fr 280px;
+}
+@media (max-width: 900px) {
+  .memory-tri-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Reusable motion utility classes — paired with the tokens above. Kept
+   outside the @layer so consumers can override via inline style if needed. */
+.sl-fade-in {
+  animation: sl-fade-in var(--motion-enter) both;
+}
+.sl-slide-up {
+  animation: sl-slide-up var(--motion-enter) both;
+}
+.sl-pane-enter {
+  animation: sl-pane-enter var(--motion-enter) both;
+}
+@keyframes sl-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sl-slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes sl-pane-enter {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 
 @layer base {
   * {

@@ -99,6 +99,9 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'review.dropChanges',
   'review.pruneOrphans',
   'review.batchCommitAndMerge',
+  // kv
+  'kv.get',
+  'kv.set',
   // tasks
   'tasks.list',
   'tasks.get',

@@ -7,7 +7,10 @@ import { SkillsRoom } from '@/renderer/features/skills/SkillsRoom';
 import { MemoryRoom } from '@/renderer/features/memory/MemoryRoom';
 import { ReviewRoom } from '@/renderer/features/review/ReviewRoom';
 import { TasksRoom } from '@/renderer/features/tasks/TasksRoom';
-import { PhasePlaceholder } from '@/renderer/features/placeholders/PhasePlaceholder';
+import { SettingsRoom } from '@/renderer/features/settings/SettingsRoom';
+import { CommandPalette } from '@/renderer/features/command-palette/CommandPalette';
+import { OnboardingModal } from '@/renderer/features/onboarding/OnboardingModal';
+import { ThemeProvider } from '@/renderer/app/ThemeProvider';
 import { AppStateProvider, useAppState } from '@/renderer/app/state';
 
 function RoomSwitch() {
@@ -30,13 +33,7 @@ function RoomSwitch() {
     case 'skills':
       return <SkillsRoom />;
     case 'settings':
-      return (
-        <PhasePlaceholder
-          title="Settings"
-          phase={1}
-          description="Provider definitions, themes, and MCP server configuration. Phase 1 ships with built-in provider list and probe; UI editor lands later."
-        />
-      );
+      return <SettingsRoom />;
     default:
       return null;
   }
@@ -45,12 +42,16 @@ function RoomSwitch() {
 export default function App() {
   return (
     <AppStateProvider>
-      <div className="flex h-full w-full">
-        <Sidebar />
-        <main className="flex min-h-0 flex-1 flex-col">
-          <RoomSwitch />
-        </main>
-      </div>
+      <ThemeProvider>
+        <div className="flex h-full w-full">
+          <Sidebar />
+          <main className="flex min-h-0 flex-1 flex-col">
+            <RoomSwitch />
+          </main>
+        </div>
+        <CommandPalette />
+        <OnboardingModal />
+      </ThemeProvider>
     </AppStateProvider>
   );
 }
