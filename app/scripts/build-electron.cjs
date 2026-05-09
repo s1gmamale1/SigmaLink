@@ -48,4 +48,13 @@ esbuild.buildSync({
   outfile: path.join(outDir, 'preload.cjs'),
 });
 
+// Phase 5 Memory: stdio MCP server entry. Bundled as CJS so we can spawn it
+// with plain `node mcp-memory-server.cjs` and avoid ESM loader gymnastics.
+esbuild.buildSync({
+  ...common,
+  entryPoints: [path.join(root, 'src/main/core/memory/mcp-server.ts')],
+  format: 'cjs',
+  outfile: path.join(outDir, 'mcp-memory-server.cjs'),
+});
+
 console.log('[build-electron] wrote', path.relative(root, outDir));

@@ -22,6 +22,9 @@ import { buildBrowserController } from './core/browser/controller';
 import { PlaywrightMcpSupervisor } from './core/browser/playwright-supervisor';
 import { SkillsManager } from './core/skills/manager';
 import { buildSkillsController } from './core/skills/controller';
+import { MemoryManager } from './core/memory/manager';
+import { MemoryMcpSupervisor } from './core/memory/mcp-supervisor';
+import { buildMemoryController } from './core/memory/controller';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -30,6 +33,8 @@ interface SharedDeps {
   browserRegistry: BrowserManagerRegistry;
   playwrightSupervisor: PlaywrightMcpSupervisor;
   skills: SkillsManager;
+  memory: MemoryManager;
+  memorySupervisor: MemoryMcpSupervisor;
 }
 
 let router: ReturnType<typeof buildRouter> | null = null;
@@ -84,7 +89,24 @@ function buildRouter() {
     userData,
     emit: (event, payload) => broadcast(event, payload),
   });
-  sharedDeps = { pty, worktreePool, mailbox, browserRegistry, playwrightSupervisor, skills: skillsManager };
+  const memorySupervisor = new MemoryMcpSupervisor();
+  const memoryManager = new MemoryManager({
+    emit: (event) => broadcast('memory:changed', event),
+    resolveMcpCommand: (workspaceId) => {
+      const cmd = memorySupervisor.getCommandFor(workspaceId);
+      return cmd ? { command: cmd.command, args: cmd.args } : null;
+    },
+  });
+  sharedDeps = {
+    pty,
+    worktreePool,
+    mailbox,
+    browserRegistry,
+    playwrightSupervisor,
+    skills: skillsManager,
+    memory: memoryManager,
+    memorySupervisor,
+  };
 
   const appCtl = defineController({
     getVersion: async () => app.getVersion(),
@@ -227,6 +249,10 @@ function buildRouter() {
 
   const browserCtl = buildBrowserController({ registry: browserRegistry });
   const skillsCtl = buildSkillsController({ manager: skillsManager });
+  const memoryCtl = buildMemoryController({
+    manager: memoryManager,
+    supervisor: memorySupervisor,
+  });
 
   return defineRouter({
     app: appCtl,
@@ -238,6 +264,7 @@ function buildRouter() {
     swarms: swarmsCtl,
     browser: browserCtl,
     skills: skillsCtl,
+    memory: memoryCtl,
   });
 }
 
@@ -282,6 +309,11 @@ export function shutdownRouter(): void {
   }
   try {
     sharedDeps?.playwrightSupervisor.stopAll();
+  } catch {
+    /* ignore */
+  }
+  try {
+    sharedDeps?.memorySupervisor.stopAll();
   } catch {
     /* ignore */
   }

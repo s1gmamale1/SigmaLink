@@ -16,6 +16,11 @@ import type {
   BrowserTab,
   Skill,
   SkillProviderState,
+  Memory,
+  MemorySearchHit,
+  MemoryGraph,
+  MemoryHubStatus,
+  MemoryConnectionSuggestion,
 } from './types';
 
 export interface AppRouter {
@@ -110,5 +115,48 @@ export interface AppRouter {
     disableForProvider: (input: { skillId: string; provider: string }) => Promise<SkillProviderState>;
     uninstall: (skillId: string) => Promise<void>;
     getReadme: (skillId: string) => Promise<{ name: string; body: string } | null>;
+  };
+  memory: {
+    // CRUD (6)
+    list_memories: (input: { workspaceId: string }) => Promise<Memory[]>;
+    read_memory: (input: { workspaceId: string; name: string }) => Promise<Memory | null>;
+    create_memory: (input: {
+      workspaceId: string;
+      name: string;
+      body?: string;
+      tags?: string[];
+    }) => Promise<Memory>;
+    update_memory: (input: {
+      workspaceId: string;
+      name: string;
+      body?: string;
+      tags?: string[];
+    }) => Promise<Memory>;
+    append_to_memory: (input: {
+      workspaceId: string;
+      name: string;
+      text: string;
+    }) => Promise<Memory>;
+    delete_memory: (input: { workspaceId: string; name: string }) => Promise<void>;
+    // Discovery (4)
+    search_memories: (input: {
+      workspaceId: string;
+      query: string;
+      limit?: number;
+    }) => Promise<MemorySearchHit[]>;
+    find_backlinks: (input: { workspaceId: string; name: string }) => Promise<Memory[]>;
+    list_orphans: (input: { workspaceId: string }) => Promise<Memory[]>;
+    suggest_connections: (input: {
+      workspaceId: string;
+      name: string;
+    }) => Promise<MemoryConnectionSuggestion[]>;
+    // Hub Management (2)
+    init_hub: (input: { workspaceId: string }) => Promise<MemoryHubStatus>;
+    hub_status: (input: { workspaceId: string }) => Promise<MemoryHubStatus>;
+    // Renderer-only helpers
+    getGraph: (input: { workspaceId: string }) => Promise<MemoryGraph>;
+    getMcpCommand: (input: {
+      workspaceId: string;
+    }) => Promise<{ command: string; args: string[] } | null>;
   };
 }

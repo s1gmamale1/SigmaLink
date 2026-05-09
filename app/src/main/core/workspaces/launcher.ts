@@ -81,15 +81,27 @@ export async function executeLaunchPlan(
 
       const cwd = worktreePath ?? wsRow.rootPath;
 
-      // Browser MCP wiring: lazily start the per-workspace Playwright MCP
-      // supervisor and drop config snippets into the cwd / per-provider
-      // user-config locations so the agent CLI inherits a `browser` MCP
-      // server. Best-effort — never block PTY spawn on this.
+      // Browser + Memory MCP wiring: lazily start the per-workspace
+      // Playwright MCP supervisor + the SigmaMemory stdio supervisor and
+      // drop a single combined config snippet into the cwd / per-provider
+      // user-config locations so the agent CLI inherits both `browser` and
+      // `sigmamemory` MCP servers. Best-effort — never block PTY spawn.
       try {
         const shared = getSharedDeps();
         if (shared) {
           const mcpUrl = await shared.playwrightSupervisor.start(wsRow.id);
-          writeMcpConfigForAgent({ worktree: cwd, mcpUrl });
+          const memRoot = wsRow.repoRoot ?? wsRow.rootPath;
+          try {
+            await shared.memorySupervisor.start(wsRow.id, memRoot);
+          } catch {
+            /* memory supervisor is non-fatal */
+          }
+          const memCmd = shared.memorySupervisor.getCommandFor(wsRow.id);
+          writeMcpConfigForAgent({
+            worktree: cwd,
+            mcpUrl,
+            memory: memCmd ?? undefined,
+          });
         }
       } catch {
         /* MCP wiring is non-fatal */

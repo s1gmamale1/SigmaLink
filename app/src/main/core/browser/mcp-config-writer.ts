@@ -17,10 +17,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 
 const MARKER = '# sigmalink-browser';
+const MEMORY_MARKER = '# sigmalink-memory';
 
 interface WriteOptions {
   worktree: string;
   mcpUrl: string;
+  /**
+   * Optional Phase-5 SigmaMemory stdio server. When supplied, the writer
+   * adds a `sigmamemory` server entry alongside the `browser` HTTP entry so
+   * agent CLIs see both tool sets in the same `.mcp.json`.
+   */
+  memory?: {
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+  };
 }
 
 export function writeMcpConfigForAgent(opts: WriteOptions): {
@@ -55,6 +66,14 @@ function writeClaudeMcpJson(opts: WriteOptions): string | null {
       type: 'http',
       url: opts.mcpUrl,
     };
+    if (opts.memory) {
+      (existing.mcpServers as Record<string, unknown>).sigmamemory = {
+        type: 'stdio',
+        command: opts.memory.command,
+        args: opts.memory.args,
+        env: opts.memory.env,
+      };
+    }
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, JSON.stringify(existing, null, 2) + '\n', 'utf8');
     return target;
@@ -74,7 +93,7 @@ function writeCodexConfigToml(opts: WriteOptions): string | null {
     const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
 
     // Idempotency: search for the marker; if present, replace the block.
-    const block = [
+    const browserBlock = [
       MARKER,
       '[mcp_servers.browser]',
       'transport = "http"',
@@ -85,14 +104,41 @@ function writeCodexConfigToml(opts: WriteOptions): string | null {
 
     let next = existing;
     if (existing.includes(MARKER)) {
-      next = existing.replace(
+      next = next.replace(
         /# sigmalink-browser[\s\S]*?# end sigmalink-browser\n?/m,
-        block,
+        browserBlock,
       );
     } else {
-      const sep = existing.length === 0 || existing.endsWith('\n') ? '' : '\n';
-      next = existing + sep + '\n' + block;
+      const sep = next.length === 0 || next.endsWith('\n') ? '' : '\n';
+      next = next + sep + '\n' + browserBlock;
     }
+
+    if (opts.memory) {
+      const envLines = Object.entries(opts.memory.env).map(
+        ([k, v]) => `  ${k} = ${JSON.stringify(v)}`,
+      );
+      const memoryBlock = [
+        MEMORY_MARKER,
+        '[mcp_servers.sigmamemory]',
+        'transport = "stdio"',
+        `command = ${JSON.stringify(opts.memory.command)}`,
+        `args = ${JSON.stringify(opts.memory.args)}`,
+        '[mcp_servers.sigmamemory.env]',
+        ...envLines,
+        '# end sigmalink-memory',
+        '',
+      ].join('\n');
+      if (next.includes(MEMORY_MARKER)) {
+        next = next.replace(
+          /# sigmalink-memory[\s\S]*?# end sigmalink-memory\n?/m,
+          memoryBlock,
+        );
+      } else {
+        const sep = next.length === 0 || next.endsWith('\n') ? '' : '\n';
+        next = next + sep + '\n' + memoryBlock;
+      }
+    }
+
     fs.writeFileSync(target, next, 'utf8');
     return target;
   } catch {
@@ -108,15 +154,21 @@ function writeGeminiExtension(opts: WriteOptions): string | null {
     const dir = path.join(home, '.gemini', 'extensions', 'sigmalink-browser');
     fs.mkdirSync(dir, { recursive: true });
     const target = path.join(dir, 'gemini-extension.json');
+    const mcpServers: Record<string, unknown> = {
+      browser: { httpUrl: opts.mcpUrl },
+    };
+    if (opts.memory) {
+      mcpServers.sigmamemory = {
+        command: opts.memory.command,
+        args: opts.memory.args,
+        env: opts.memory.env,
+      };
+    }
     const manifest = {
       name: 'sigmalink-browser',
       version: '1.0.0',
-      description: 'SigmaLink in-app browser, exposed over Playwright MCP.',
-      mcpServers: {
-        browser: {
-          httpUrl: opts.mcpUrl,
-        },
-      },
+      description: 'SigmaLink in-app browser + memory hub, exposed over MCP.',
+      mcpServers,
     };
     fs.writeFileSync(target, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
     return target;

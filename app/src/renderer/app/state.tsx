@@ -6,6 +6,8 @@ import { rpc } from '@/renderer/lib/rpc';
 import type {
   AgentSession,
   BrowserState,
+  Memory,
+  MemoryGraph,
   Skill,
   SkillProviderState,
   Swarm,
@@ -40,6 +42,10 @@ export interface AppState {
   skills: Skill[];
   skillProviderStates: SkillProviderState[];
   skillsBusy: Record<string, boolean>; // skillId|skillId:provider → in-flight
+  // Memory (Phase 5)
+  memories: Record<string, Memory[]>; // workspaceId -> list
+  memoryGraph: Record<string, MemoryGraph>; // workspaceId -> graph cache
+  activeMemoryName: Record<string, string | null>; // workspaceId -> selected note name
 }
 
 type Action =
@@ -63,7 +69,12 @@ type Action =
       skills: Skill[];
       states: SkillProviderState[];
     }
-  | { type: 'SKILLS_BUSY'; key: string; busy: boolean };
+  | { type: 'SKILLS_BUSY'; key: string; busy: boolean }
+  | { type: 'SET_MEMORIES'; workspaceId: string; memories: Memory[] }
+  | { type: 'UPSERT_MEMORY'; workspaceId: string; memory: Memory }
+  | { type: 'REMOVE_MEMORY'; workspaceId: string; memoryId: string }
+  | { type: 'SET_MEMORY_GRAPH'; workspaceId: string; graph: MemoryGraph }
+  | { type: 'SET_ACTIVE_MEMORY'; workspaceId: string; name: string | null };
 
 const initial: AppState = {
   ready: false,
@@ -79,6 +90,9 @@ const initial: AppState = {
   skills: [],
   skillProviderStates: [],
   skillsBusy: {},
+  memories: {},
+  memoryGraph: {},
+  activeMemoryName: {},
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -185,6 +199,47 @@ function reducer(state: AppState, action: Action): AppState {
       else delete next[action.key];
       return { ...state, skillsBusy: next };
     }
+    case 'SET_MEMORIES':
+      return {
+        ...state,
+        memories: { ...state.memories, [action.workspaceId]: action.memories },
+      };
+    case 'UPSERT_MEMORY': {
+      const list = state.memories[action.workspaceId] ?? [];
+      const filtered = list.filter((m) => m.id !== action.memory.id);
+      return {
+        ...state,
+        memories: {
+          ...state.memories,
+          [action.workspaceId]: [action.memory, ...filtered].sort(
+            (a, b) => b.updatedAt - a.updatedAt,
+          ),
+        },
+      };
+    }
+    case 'REMOVE_MEMORY': {
+      const list = state.memories[action.workspaceId] ?? [];
+      return {
+        ...state,
+        memories: {
+          ...state.memories,
+          [action.workspaceId]: list.filter((m) => m.id !== action.memoryId),
+        },
+      };
+    }
+    case 'SET_MEMORY_GRAPH':
+      return {
+        ...state,
+        memoryGraph: { ...state.memoryGraph, [action.workspaceId]: action.graph },
+      };
+    case 'SET_ACTIVE_MEMORY':
+      return {
+        ...state,
+        activeMemoryName: {
+          ...state.activeMemoryName,
+          [action.workspaceId]: action.name,
+        },
+      };
     default:
       return state;
   }
@@ -334,6 +389,31 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       off();
     };
   }, []);
+
+  // Memory hydration: refresh whenever the active workspace changes AND on
+  // every `memory:changed` event so the list / graph stay live.
+  useEffect(() => {
+    let alive = true;
+    const wsId = state.activeWorkspace?.id;
+    if (!wsId) return;
+    const refresh = () => {
+      void (async () => {
+        try {
+          const list = await rpc.memory.list_memories({ workspaceId: wsId });
+          if (!alive) return;
+          dispatch({ type: 'SET_MEMORIES', workspaceId: wsId, memories: list });
+        } catch (err) {
+          console.error('Failed to load memories:', err);
+        }
+      })();
+    };
+    refresh();
+    const off = window.sigma.eventOn('memory:changed', refresh);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [state.activeWorkspace?.id]);
 
   // When the active workspace changes, refresh swarms for that workspace so
   // the Swarm Room can pick up persisted swarms across app restarts.

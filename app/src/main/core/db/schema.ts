@@ -191,6 +191,63 @@ export type SkillInsert = typeof skills.$inferInsert;
 export type SkillProviderStateRow = typeof skillProviderState.$inferSelect;
 export type SkillProviderStateInsert = typeof skillProviderState.$inferInsert;
 
+// Phase 5 — Memory
+export const memories = sqliteTable(
+  'memories',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    name: text('name').notNull(),
+    body: text('body').notNull().default(''),
+    frontmatterJson: text('frontmatter_json'),
+    createdAt: integer('created_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer('updated_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    memoriesWsIdx: index('memories_ws_idx').on(t.workspaceId),
+    memoriesNameUq: uniqueIndex('memories_ws_name_uq').on(t.workspaceId, t.name),
+  }),
+);
+
+export const memoryLinks = sqliteTable(
+  'memory_links',
+  {
+    id: text('id').primaryKey(),
+    fromMemoryId: text('from_memory_id').notNull(),
+    toMemoryName: text('to_memory_name').notNull(),
+    createdAt: integer('created_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    memoryLinksFromIdx: index('memory_links_from_idx').on(t.fromMemoryId),
+    memoryLinksToIdx: index('memory_links_to_idx').on(t.toMemoryName),
+  }),
+);
+
+export const memoryTags = sqliteTable(
+  'memory_tags',
+  {
+    memoryId: text('memory_id').notNull(),
+    tag: text('tag').notNull(),
+  },
+  (t) => ({
+    memoryTagsPk: uniqueIndex('memory_tags_pk').on(t.memoryId, t.tag),
+    memoryTagsTagIdx: index('memory_tags_tag_idx').on(t.tag),
+  }),
+);
+
+export type MemoryRow = typeof memories.$inferSelect;
+export type MemoryInsert = typeof memories.$inferInsert;
+export type MemoryLinkRow = typeof memoryLinks.$inferSelect;
+export type MemoryLinkInsert = typeof memoryLinks.$inferInsert;
+export type MemoryTagRow = typeof memoryTags.$inferSelect;
+export type MemoryTagInsert = typeof memoryTags.$inferInsert;
+
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type WorkspaceInsert = typeof workspaces.$inferInsert;
 export type AgentSessionRow = typeof agentSessions.$inferSelect;

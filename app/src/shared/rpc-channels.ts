@@ -71,6 +71,21 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'skills.disableForProvider',
   'skills.uninstall',
   'skills.getReadme',
+  // memory
+  'memory.list_memories',
+  'memory.read_memory',
+  'memory.create_memory',
+  'memory.update_memory',
+  'memory.append_to_memory',
+  'memory.delete_memory',
+  'memory.search_memories',
+  'memory.find_backlinks',
+  'memory.list_orphans',
+  'memory.suggest_connections',
+  'memory.init_hub',
+  'memory.hub_status',
+  'memory.getGraph',
+  'memory.getMcpCommand',
 ]);
 
 /**

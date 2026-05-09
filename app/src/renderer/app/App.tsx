@@ -4,6 +4,7 @@ import { CommandRoom } from '@/renderer/features/command-room/CommandRoom';
 import { SwarmRoom } from '@/renderer/features/swarm-room/SwarmRoom';
 import { BrowserRoom } from '@/renderer/features/browser/BrowserRoom';
 import { SkillsRoom } from '@/renderer/features/skills/SkillsRoom';
+import { MemoryRoom } from '@/renderer/features/memory/MemoryRoom';
 import { PhasePlaceholder } from '@/renderer/features/placeholders/PhasePlaceholder';
 import { AppStateProvider, useAppState } from '@/renderer/app/state';
 
@@ -25,13 +26,7 @@ function RoomSwitch() {
         />
       );
     case 'memory':
-      return (
-        <PhasePlaceholder
-          title="Memory"
-          phase={4}
-          description="Local-first wikilink notes with a force-directed graph and an MCP server that exposes 12 shared-memory tools to every agent."
-        />
-      );
+      return <MemoryRoom />;
     case 'browser':
       return <BrowserRoom />;
     case 'skills':

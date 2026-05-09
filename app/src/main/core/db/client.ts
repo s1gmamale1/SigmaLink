@@ -125,6 +125,37 @@ CREATE TABLE IF NOT EXISTS skill_provider_state (
   FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS skill_provider_state_skill_idx ON skill_provider_state(skill_id);
+
+CREATE TABLE IF NOT EXISTS memories (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  frontmatter_json TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS memories_ws_idx ON memories(workspace_id);
+CREATE UNIQUE INDEX IF NOT EXISTS memories_ws_name_uq ON memories(workspace_id, name);
+
+CREATE TABLE IF NOT EXISTS memory_links (
+  id TEXT PRIMARY KEY,
+  from_memory_id TEXT NOT NULL,
+  to_memory_name TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  FOREIGN KEY (from_memory_id) REFERENCES memories(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS memory_links_from_idx ON memory_links(from_memory_id);
+CREATE INDEX IF NOT EXISTS memory_links_to_idx ON memory_links(to_memory_name);
+
+CREATE TABLE IF NOT EXISTS memory_tags (
+  memory_id TEXT NOT NULL,
+  tag TEXT NOT NULL,
+  PRIMARY KEY (memory_id, tag),
+  FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS memory_tags_tag_idx ON memory_tags(tag);
 `;
 
 export function initializeDatabase(userDataDir: string): {

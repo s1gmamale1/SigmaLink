@@ -214,3 +214,56 @@ export interface SkillProviderState {
   lastFanoutAt?: number;
   lastError?: string;
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Memory (Phase 5)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type MemoryId = string;
+
+export interface Memory {
+  id: MemoryId;
+  workspaceId: WorkspaceId;
+  name: string;
+  body: string;
+  tags: string[];
+  links: string[]; // outgoing wikilink targets (de-duplicated, in order seen)
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MemorySearchHit {
+  id: MemoryId;
+  name: string;
+  snippet: string;
+  score: number;
+  updatedAt: number;
+}
+
+export interface MemoryGraph {
+  nodes: Array<{
+    id: MemoryId;
+    label: string;
+    tagCount: number;
+    refCount: number; // incoming link count (backlinks)
+  }>;
+  edges: Array<{ from: MemoryId; to: MemoryId }>;
+}
+
+export interface MemoryHubStatus {
+  workspaceId: WorkspaceId;
+  hubPath: string;
+  memoryCount: number;
+  linkCount: number;
+  tagCount: number;
+  initialized: boolean;
+  mcpCommand: string | null;
+  mcpArgs: string[];
+}
+
+export interface MemoryConnectionSuggestion {
+  id: MemoryId;
+  name: string;
+  sharedTags: string[];
+  score: number;
+}
