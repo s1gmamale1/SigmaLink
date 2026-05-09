@@ -25,6 +25,7 @@ import {
 } from './conversations';
 import { findTool, publicTools } from './tools';
 import { ToolTracer, safeSerialize, type ToolTrace } from './tool-tracer';
+import { recordSwarmOrigin } from './swarm-origins';
 
 export interface AssistantControllerDeps {
   pty: PtyRegistry;
@@ -53,10 +54,14 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
   tracer.setEmitter(deps.emit);
   const activeTurns = new Map<string, ActiveTurn>();
 
+  /** P3-S7 — Returns the persisted trace so the caller can link follow-up
+   *  rows (e.g. `swarm_origins`) to the same `messages.id` written by the
+   *  tracer. The previous void return value would have forced a second
+   *  appendMessage round-trip. */
   const recordTrace = (
     p: Omit<ToolTrace, 'id' | 'finishedAt' | 'startedAt'> & { startedAt?: number },
-  ): void => {
-    tracer.record({
+  ): ToolTrace => {
+    const trace: ToolTrace = {
       id: randomUUID(),
       conversationId: p.conversationId,
       name: p.name,
@@ -66,7 +71,9 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
       ok: p.ok,
       result: safeSerialize(p.result),
       error: p.error,
-    });
+    };
+    tracer.record(trace);
+    return trace;
   };
 
   return defineController({
@@ -216,14 +223,32 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
           defaultWorkspaceId: conv?.workspaceId ?? null,
           userDataDir: deps.userDataDir,
         });
-        recordTrace({ ...traceBase, args: parsed, ok: true, result, startedAt });
-        if (conv) {
-          appendMessage({
-            conversationId: conv.id,
-            role: 'tool',
-            content: JSON.stringify({ tool: tool.id, result: safeSerialize(result) }),
-            toolCallId: tool.id,
-          });
+        // P3-S7 — single persistence path: the tracer writes the `messages`
+        // row with role='tool' and `toolCallId` set to the trace id; the
+        // legacy second appendMessage call here is gone because it
+        // duplicated the row + lost the ulid back-link.
+        const trace = recordTrace({ ...traceBase, args: parsed, ok: true, result, startedAt });
+        if (conv && tool.id === 'create_swarm') {
+          // P3-S7 — Bridge → swarm cross-link. The tool result includes the
+          // freshly-created swarm row; persist a `swarm_origins` row keyed
+          // to the trace's `messages.id` so the Operator Console can show
+          // "Started from Bridge Assistant chat: <date>" and link back to
+          // this exact tool call.
+          const swarmId =
+            typeof (result as { swarm?: { id?: string } } | null)?.swarm?.id === 'string'
+              ? (result as { swarm: { id: string } }).swarm.id
+              : null;
+          if (swarmId && trace.messageId) {
+            try {
+              recordSwarmOrigin({
+                swarmId,
+                conversationId: conv.id,
+                messageId: trace.messageId,
+              });
+            } catch {
+              /* origin is decorative — never fail the tool call over it */
+            }
+          }
         }
         return { ok: true, result };
       } catch (err) {

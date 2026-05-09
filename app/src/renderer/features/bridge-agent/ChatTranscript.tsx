@@ -71,7 +71,13 @@ function ChatRow({ message, streamingDelta }: { message: ChatMessageView; stream
     : message.content;
 
   return (
-    <div data-role={r} className="flex flex-col gap-1" role="group" aria-label={label}>
+    <div
+      data-role={r}
+      data-message-id={message.id}
+      className="flex flex-col gap-1 rounded transition-shadow"
+      role="group"
+      aria-label={label}
+    >
       <div className="flex items-center gap-2">
         <span
           className={cn(

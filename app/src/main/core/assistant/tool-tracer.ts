@@ -1,8 +1,21 @@
-// V3-W13-013 — Bridge Assistant tool-trace bus. Each call records a small
-// JSON-serialisable record + emits an `assistant:tool-trace` event so the
-// renderer's ToolCallInspector can stream the trace. Ring buffer caps memory.
+// V3-W13-013 — Bridge Assistant tool-trace bus.
+// P3-S7 — Persistence: every traced tool call is now also written to the
+// `messages` table with role='tool', `toolCallId` set to the trace id, and
+// `content` carrying a JSON-serialised {name, args, result|error} payload.
+// The in-memory ring buffer survives as a fast read-back path for the
+// renderer's ToolCallInspector; the DB row is the source of truth so the
+// trace replays cleanly across sessions.
+//
+// The ring buffer caps at MAX_TRACES so a long-running session can't unbound
+// memory; the DB row stays.
+
+import type { Message } from './conversations';
+import { appendMessage } from './conversations';
 
 export interface ToolTrace {
+  /** ulid/uuid issued by the controller; mirrored as `messages.toolCallId`
+   *  so the renderer can reconcile a streamed trace event back to its
+   *  persisted row after a reload. */
   id: string;
   conversationId: string | null;
   name: string;
@@ -12,6 +25,9 @@ export interface ToolTrace {
   ok: boolean;
   result: unknown;
   error?: string;
+  /** P3-S7 — set after the DB write succeeds so the renderer can prove the
+   *  trace is persisted (vs in-flight). */
+  messageId?: string;
 }
 
 const MAX_TRACES = 200;
@@ -26,7 +42,26 @@ export class ToolTracer {
     this.emit = fn;
   }
 
+  /**
+   * Persist + cache + announce a trace. Persistence is best-effort: if the
+   * DB write throws (e.g. the conversation row was deleted mid-turn) the
+   * trace still flows through the in-memory buffer and the emitted event
+   * so the renderer doesn't lose visibility — we just don't get a back-link.
+   *
+   * Mutates the input `trace` to set `messageId` after a successful DB
+   * write so callers can chain the persisted id (e.g. into `swarm_origins`)
+   * without a second lookup.
+   */
   record(trace: ToolTrace): void {
+    if (trace.conversationId) {
+      try {
+        const persisted = persistTrace(trace);
+        trace.messageId = persisted.id;
+      } catch {
+        /* persistence is best-effort; in-memory buffer below is still
+         * authoritative for this session's read-back. */
+      }
+    }
     this.buffer.push(trace);
     if (this.buffer.length > MAX_TRACES) {
       this.buffer.splice(0, this.buffer.length - MAX_TRACES);
@@ -41,6 +76,24 @@ export class ToolTracer {
   list(): ToolTrace[] {
     return [...this.buffer];
   }
+}
+
+/** Internal: serialise the trace into a `messages` row. Wrapped so the
+ *  controller can call this directly when the persisted message id needs
+ *  to be linked elsewhere (e.g. swarm_origins on `create_swarm`). */
+export function persistTrace(trace: ToolTrace): Message {
+  if (!trace.conversationId) {
+    throw new Error('persistTrace: conversationId required');
+  }
+  const payload = trace.ok
+    ? { name: trace.name, args: trace.args, result: trace.result }
+    : { name: trace.name, args: trace.args, error: trace.error ?? 'unknown' };
+  return appendMessage({
+    conversationId: trace.conversationId,
+    role: 'tool',
+    content: JSON.stringify(payload),
+    toolCallId: trace.id,
+  });
 }
 
 /** Coerce arbitrary values into a JSON-safe representation for tracing. */
