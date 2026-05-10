@@ -567,10 +567,113 @@ export interface AppRouter {
       } | null>;
     };
   };
+  // Phase 4 Track C — Ruflo MCP embed. Six channels under the `ruflo.*`
+  // namespace forward into the embedded `@claude-flow/cli` MCP server. Each
+  // tool-call channel returns either a typed success envelope or
+  // `{ ok: false, code: 'ruflo-unavailable', reason: string }` so renderer
+  // call-sites can degrade silently when the supervisor is `absent` / `down`
+  // / `degraded`.
+  ruflo: {
+    health: () => Promise<{
+      state: 'absent' | 'starting' | 'ready' | 'degraded' | 'down';
+      lastError?: string;
+      pid?: number;
+      uptimeMs?: number;
+      version?: string;
+      runtimePath?: string;
+    }>;
+    'embeddings.search': (input: {
+      query: string;
+      topK?: number;
+      threshold?: number;
+      namespace?: string;
+    }) => Promise<
+      | {
+          ok: true;
+          results: Array<{
+            id: string;
+            score: number;
+            text: string;
+            namespace?: string;
+          }>;
+        }
+      | { ok: false; code: 'ruflo-unavailable'; reason: string }
+    >;
+    'embeddings.generate': (input: {
+      text: string;
+      hyperbolic?: boolean;
+      normalize?: boolean;
+    }) => Promise<
+      | { ok: true; embedding: number[]; dimensions: number }
+      | { ok: false; code: 'ruflo-unavailable'; reason: string }
+    >;
+    'patterns.search': (input: {
+      query: string;
+      topK?: number;
+      minConfidence?: number;
+    }) => Promise<
+      | {
+          ok: true;
+          results: Array<{
+            pattern: string;
+            type?: string;
+            confidence: number;
+            score: number;
+          }>;
+        }
+      | { ok: false; code: 'ruflo-unavailable'; reason: string }
+    >;
+    /** CRITICAL: payload is `{ pattern, type, confidence }` — NOT
+     *  `{ namespace, key, value }`. The upstream `agentdb_pattern-store`
+     *  tool rejects the latter shape. */
+    'patterns.store': (input: {
+      pattern: string;
+      type?: string;
+      confidence?: number;
+    }) => Promise<
+      | { ok: true; id?: string }
+      | { ok: false; code: 'ruflo-unavailable'; reason: string }
+    >;
+    'autopilot.predict': () => Promise<
+      | {
+          ok: true;
+          suggestion: {
+            title: string;
+            detail?: string;
+            commandId?: string;
+            args?: unknown;
+          } | null;
+        }
+      | { ok: false; code: 'ruflo-unavailable'; reason: string }
+    >;
+    'install.start': () => Promise<{ jobId: string }>;
+  };
   voice: {
     start: (input: {
       source: 'mission' | 'assistant' | 'palette';
     }) => Promise<{ sessionId: string }>;
     stop: (input: { sessionId: string }) => Promise<void>;
+    /**
+     * V1.1 — Run the intent classifier against an arbitrary transcript and
+     * route the resolved intent through the same controllers the
+     * SigmaVoice native pipeline uses. Useful for accessibility flows that
+     * bypass the microphone + unit tests.
+     */
+    dispatch: (input: { transcript: string }) => Promise<{
+      intent: string;
+      controller: string;
+      ok: boolean;
+      reason: string;
+    }>;
+    /**
+     * V1.1 — Switch the routing strategy at runtime. `auto` picks native-mac
+     * on darwin (when the prebuild is loaded) and Web Speech everywhere
+     * else. `off` short-circuits both — `start` rejects with `voice-disabled`.
+     */
+    setMode: (input: {
+      mode: 'auto' | 'web-speech' | 'native-mac' | 'off';
+    }) => Promise<{
+      mode: 'auto' | 'web-speech' | 'native-mac' | 'off';
+    }>;
   };
 }

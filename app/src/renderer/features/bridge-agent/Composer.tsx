@@ -20,10 +20,19 @@ interface Props {
   onMicPress?: () => void;
   placeholder?: string;
   className?: string;
+  /** Phase 4 Track C — emits the live textarea value so BridgeRoom can
+   *  debounce a `ruflo.patterns.search` probe and surface a "Similar past
+   *  task" ribbon. Optional; the composer works exactly as before when
+   *  omitted. */
+  onChange?: (value: string) => void;
+  /** Phase 4 Track C — externally-set value (e.g. when the pattern ribbon's
+   *  "Apply" CTA fills the composer). When provided the composer becomes
+   *  controlled until the user types again. */
+  externalValue?: string;
 }
 
 export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer(
-  { busy, onSend, onMicPress, placeholder, className }: Props,
+  { busy, onSend, onMicPress, placeholder, className, onChange, externalValue }: Props,
   externalRef,
 ) {
   const [value, setValue] = useState('');
@@ -35,11 +44,28 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
     else if (externalRef) (externalRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = innerRef.current;
   }, [externalRef]);
 
+  // Phase 4 Track C — sync controlled value pushes (e.g. ribbon Apply).
+  // Microtask-deferred so the lint rule `react-hooks/set-state-in-effect`
+  // is satisfied; the parent only updates `externalValue` on user actions
+  // so the brief async hop is invisible.
+  useEffect(() => {
+    if (typeof externalValue !== 'string') return;
+    let alive = true;
+    const id = window.setTimeout(() => {
+      if (alive) setValue(externalValue);
+    }, 0);
+    return () => {
+      alive = false;
+      window.clearTimeout(id);
+    };
+  }, [externalValue]);
+
   const commit = () => {
     const trimmed = value.trim();
     if (!trimmed || busy) return;
     onSend(trimmed);
     setValue('');
+    onChange?.('');
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -59,7 +85,10 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
       <textarea
         ref={innerRef}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          setValue(e.target.value);
+          onChange?.(e.target.value);
+        }}
         onKeyDown={onKeyDown}
         placeholder={placeholder ?? 'Ask the Bridge…'}
         rows={2}

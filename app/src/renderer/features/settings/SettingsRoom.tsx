@@ -10,6 +10,7 @@ import { ProvidersTab } from './ProvidersTab';
 import { McpServersTab } from './McpServersTab';
 import { DiagnosticsTab } from './DiagnosticsTab';
 import { UpdatesTab } from './UpdatesTab';
+import { RufloSettings } from './RufloSettings';
 
 export function SettingsRoom() {
   return (
@@ -20,6 +21,7 @@ export function SettingsRoom() {
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="providers">Providers</TabsTrigger>
             <TabsTrigger value="mcp">MCP servers</TabsTrigger>
+            <TabsTrigger value="ruflo">Ruflo</TabsTrigger>
             <TabsTrigger value="updates">Updates</TabsTrigger>
             <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
           </TabsList>
@@ -32,6 +34,9 @@ export function SettingsRoom() {
             </TabsContent>
             <TabsContent value="mcp" className="mt-0">
               <McpServersTab />
+            </TabsContent>
+            <TabsContent value="ruflo" className="mt-0">
+              <RufloSettings />
             </TabsContent>
             <TabsContent value="updates" className="mt-0">
               <UpdatesTab />

@@ -167,6 +167,25 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // V3-W12-017 — BridgeVoice (W15 fills bodies)
   'voice.start',
   'voice.stop',
+  // V1.1 — SigmaVoice native macOS dispatcher hooks. `dispatch` runs the
+  // intent classifier on an arbitrary transcript (used for accessibility
+  // bypass + dev tests); `setMode` flips the routing strategy at runtime
+  // (`auto` | `web-speech` | `native-mac` | `off`).
+  'voice.dispatch',
+  'voice.setMode',
+  // Phase 4 Track C — Ruflo MCP embed (lazy-downloaded `@claude-flow/cli`).
+  // The supervisor lives in main; renderer features (Memory semantic search,
+  // Bridge pattern surfacing, Command-Palette autopilot, Settings → Ruflo)
+  // exercise these channels. When the supervisor is `absent`/`down`, calls
+  // resolve with `{ ok: false, code: 'ruflo-unavailable' }` rather than
+  // throw, so renderer fall-back paths stay quiet.
+  'ruflo.health',
+  'ruflo.embeddings.search',
+  'ruflo.embeddings.generate',
+  'ruflo.patterns.search',
+  'ruflo.patterns.store',
+  'ruflo.autopilot.predict',
+  'ruflo.install.start',
 ]);
 
 /**
@@ -192,6 +211,22 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'swarm:counters',
   'swarm:ledger',
   'voice:state',
+  // V1.1 — SigmaVoice dispatcher echoes the resolved intent so VoicePill can
+  // toast "Routing → coordinator..." between final-transcript and controller
+  // resolution. Payload mirrors `ClassifiedIntent` from voice/dispatcher.ts.
+  'voice:dispatch-echo',
+  // V1.1 — Result envelope for the most recent dispatch ({ ok, reason }).
+  // Used by telemetry + future Voice History panel; renderer subscribes
+  // optionally.
+  'voice:dispatch-result',
+  // V1.1 — Native voice errors (no-permission, audio-engine-failure, etc).
+  // Renderer surfaces these as toasts with a "Open Settings" action when
+  // `code === 'no-permission'`.
+  'voice:error',
+  // V1.1 — main → renderer navigation hint. SigmaVoice's `app.navigate`
+  // intent fires this so the active window's router can switch panes
+  // without round-tripping through the renderer voice adapter.
+  'app:navigate',
   'assistant:dispatch-echo',
   // V3-W13-013 — Bridge Assistant streaming + tool tracer events. The
   // assistant.* RPC namespace is already declared above; these one-way
@@ -209,6 +244,13 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // required native module) failed its ABI check. Renderer surfaces the
   // NativeRebuildModal when this fires.
   'app:native-rebuild-needed',
+  // Phase 4 Track C — Ruflo lifecycle events. `ruflo:health` fires on every
+  // supervisor state transition (Settings + Memory chip + Bridge ribbon
+  // subscribe to render state-aware affordances). `ruflo:install-progress`
+  // streams the lazy-installer's phase / bytes so Settings can render a
+  // progress bar without polling.
+  'ruflo:health',
+  'ruflo:install-progress',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {

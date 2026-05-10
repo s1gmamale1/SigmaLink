@@ -1,0 +1,15 @@
+# Build artefacts
+build/
+*.o
+*.obj
+
+# Loose .node binaries — only the curated `prebuilds/<platform>-<arch>/` files
+# are checked in (CI commits those on release tags); ad-hoc local builds stay
+# out of the repo.
+*.node
+
+# Allow committed prebuild binaries.
+!prebuilds/**/*.node
+
+# Native dependency caches
+node_modules/

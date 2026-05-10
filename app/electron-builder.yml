@@ -32,6 +32,18 @@ extraResources:
     to: dist
 mac:
   category: public.app-category.developer-tools
+  # v1.1 — SigmaVoice (BridgeVoice native macOS) requires hardened runtime so
+  # the entitlements plist below activates. Hardened runtime is inert without
+  # a Developer ID signing identity (we ship unsigned for now), but harmless;
+  # turning it on early lets future notarisation work without an electron-
+  # builder churn round.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: "SigmaLink uses your microphone for voice commands."
+    NSSpeechRecognitionUsageDescription: "SigmaLink uses speech recognition to dispatch commands to AI agents."
   target:
     - target: dmg
       arch: [x64, arm64]

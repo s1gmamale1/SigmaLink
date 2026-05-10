@@ -8,9 +8,9 @@
 // the same thread the user was in.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot } from 'lucide-react';
+import { Bot, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { rpc, onEvent } from '@/renderer/lib/rpc';
+import { rpc, rpcSilent, onEvent } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { cn } from '@/lib/utils';
@@ -32,6 +32,11 @@ import {
 } from '@/renderer/lib/voice';
 
 const KV_ACTIVE_CONVERSATION = 'bridge.activeConversationId';
+// BUG-V1.1-04-IPC — when a Bridge tool dispatches a pane, auto-shift focus
+// to the spawned pane (workspace + room + active-session + xterm focus)
+// instead of waiting for the user to click "Jump to pane" in the toast.
+// Default ON; users can disable by writing kv['bridge.autoFocusOnDispatch']='0'.
+const KV_AUTO_FOCUS_ON_DISPATCH = 'bridge.autoFocusOnDispatch';
 
 /** Best-effort kv write — every persistence write in this room is
  *  decorative (the user's intent survives in DB rows; kv only restores
@@ -85,6 +90,17 @@ interface DispatchEchoEvent {
   conversationId: string | null;
 }
 
+interface RufloHealthEvent {
+  state: 'absent' | 'starting' | 'ready' | 'degraded' | 'down';
+}
+
+interface PatternHit {
+  pattern: string;
+  type?: string;
+  confidence: number;
+  score: number;
+}
+
 interface Props {
   /** Compact mode trims the header chrome — used inside the right-rail tab. */
   variant?: 'standalone' | 'rail';
@@ -106,6 +122,105 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
   // V3-W15-003 — live voice capture handle. Stored in a ref so onOrbClick can
   // toggle without re-binding when state churns elsewhere in the room.
   const voiceHandleRef = useRef<VoiceCaptureHandle | null>(null);
+  // Phase 4 Track C — pattern surfacing state. `composerText` mirrors the
+  // textarea value so we can debounce a search; `patternHit` is the highest-
+  // confidence match (≥0.7) returned by the embedded Ruflo MCP. `ribbonHidden`
+  // is a session-scoped dismissal flag — it resets on conversation switch
+  // or workspace change.
+  const [composerText, setComposerText] = useState('');
+  const [patternHit, setPatternHit] = useState<PatternHit | null>(null);
+  const [ribbonHidden, setRibbonHidden] = useState(false);
+  const [rufloReady, setRufloReady] = useState(false);
+  const [composerExternalValue, setComposerExternalValue] = useState<string | undefined>(undefined);
+  const lastSentPromptRef = useRef<string | null>(null);
+  // Phase 4 Track C — readiness pinned in a ref so the assistant:state
+  // listener (which only re-binds on conversationId changes) reads the
+  // freshest value without forcing the effect to re-run.
+  const rufloReadyRef = useRef(false);
+
+  // Phase 4 Track C — track Ruflo health.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const h = await rpcSilent.ruflo.health();
+        if (alive) {
+          setRufloReady(h.state === 'ready');
+          rufloReadyRef.current = h.state === 'ready';
+        }
+      } catch {
+        /* main-process method missing — keep default false */
+      }
+    })();
+    const off = onEvent<RufloHealthEvent>('ruflo:health', (e) => {
+      const ready = e?.state === 'ready';
+      setRufloReady(ready);
+      rufloReadyRef.current = ready;
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
+
+  // Phase 4 Track C — debounced pattern probe (800ms). Fires only when the
+  // supervisor is `ready` and the composer holds enough text to be worth a
+  // round-trip. The `Promise.allSettled`-style ignore-on-fail keeps the
+  // ribbon silent on degraded supervisors.
+  useEffect(() => {
+    let alive = true;
+    const text = composerText.trim();
+    const skip = !rufloReady || text.length < 8;
+    if (skip) {
+      // Defer the reset to a microtask so the lint rule
+      // `react-hooks/set-state-in-effect` is satisfied.
+      const id = window.setTimeout(() => {
+        if (alive) setPatternHit(null);
+      }, 0);
+      return () => {
+        alive = false;
+        window.clearTimeout(id);
+      };
+    }
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const out = await rpcSilent.ruflo['patterns.search']({
+            query: text,
+            topK: 3,
+            minConfidence: 0.7,
+          });
+          if (!alive) return;
+          if (out && 'ok' in out && out.ok && out.results.length > 0) {
+            // The MCP returns hits sorted by score; pick the highest-conf
+            // entry that also clears the 0.7 confidence floor.
+            const best = out.results.find((r) => r.confidence >= 0.7) ?? null;
+            setPatternHit(best);
+          } else {
+            setPatternHit(null);
+          }
+        } catch {
+          if (alive) setPatternHit(null);
+        }
+      })();
+    }, 800);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [composerText, rufloReady]);
+
+  // Reset ribbon dismissal when the conversation or workspace changes.
+  useEffect(() => {
+    let alive = true;
+    const id = window.setTimeout(() => {
+      if (alive) setRibbonHidden(false);
+    }, 0);
+    return () => {
+      alive = false;
+      window.clearTimeout(id);
+    };
+  }, [conversationId, wsId]);
 
   /** P3-S7 — Refresh the Conversations panel from the side-band channel.
    *  Pulled into a callback so the panel can re-fetch after a delete or
@@ -201,6 +316,22 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
         if (e.state) setOrbState(e.state);
         if (e.state === 'standby') {
           setBusy(false);
+          // Phase 4 Track C — fire-and-forget pattern store. The user's most
+          // recent prompt becomes a `task-completion` pattern at confidence
+          // 0.8 so the next similar query can offer it back via the ribbon.
+          // CRITICAL: payload shape is `{ pattern, type, confidence }` —
+          // NOT `{ namespace, key, value }` per the ruflo-researcher fix.
+          if (lastSentPromptRef.current && rufloReadyRef.current) {
+            const pat = lastSentPromptRef.current;
+            lastSentPromptRef.current = null;
+            void rpcSilent.ruflo['patterns.store']({
+              pattern: pat,
+              type: 'task-completion',
+              confidence: 0.8,
+            }).catch(() => {
+              /* background telemetry — losing it is acceptable */
+            });
+          }
           setStreaming((prev) => {
             if (!prev || !e.messageId) return null;
             const messageId = e.messageId;
@@ -243,31 +374,53 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
       }
       const targetWs = state.workspaces.find((w) => w.id === echo.workspaceId) ?? null;
       const wsLabel = targetWs?.name ?? 'workspace';
-      toast.success(`Bridge dispatched a ${echo.providerId} pane`, {
-        description: `${wsLabel} · session ${echo.sessionId.slice(0, 8)}`,
-        action: {
-          label: 'Jump to pane',
-          onClick: () => {
-            // Cross-workspace jump: swap workspace, hop to Command Room,
-            // notify Terminal.tsx via a window event for focus.
-            if (targetWs && state.activeWorkspace?.id !== targetWs.id) {
-              dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: targetWs });
-            }
-            dispatch({ type: 'SET_ROOM', room: 'command' });
-            dispatch({ type: 'SET_ACTIVE_SESSION', id: echo.sessionId });
-            try {
-              window.dispatchEvent(
-                new CustomEvent('sigma:pty-focus', {
-                  detail: { sessionId: echo.sessionId },
-                }),
-              );
-            } catch {
-              /* ignore */
-            }
+
+      // Cross-workspace jump: swap workspace (if needed), hop to the
+      // Command Room, set the global active session, and emit
+      // `sigma:pty-focus` so the matching xterm grabs keyboard focus and
+      // CommandRoom syncs its activeIndex / footer metadata. Shared by
+      // the auto-focus path (default) and the toast "Jump to pane"
+      // fallback so both produce identical behaviour.
+      const jumpToPane = (): void => {
+        if (targetWs && state.activeWorkspace?.id !== targetWs.id) {
+          dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: targetWs });
+        }
+        dispatch({ type: 'SET_ROOM', room: 'command' });
+        dispatch({ type: 'SET_ACTIVE_SESSION', id: echo.sessionId });
+        try {
+          window.dispatchEvent(
+            new CustomEvent('sigma:pty-focus', {
+              detail: { sessionId: echo.sessionId },
+            }),
+          );
+        } catch {
+          /* ignore — DOM unmounted */
+        }
+      };
+
+      // BUG-V1.1-04-IPC — read the auto-focus gate (default ON). When
+      // enabled, jump immediately so CommandRoom's activeIndex syncs
+      // alongside the xterm focus shift; the toast becomes a confirmation
+      // rather than the only path to the new pane. Users can opt out by
+      // writing kv['bridge.autoFocusOnDispatch']='0'.
+      void (async () => {
+        let autoFocus = true;
+        try {
+          const raw = await rpcSilent.kv.get(KV_AUTO_FOCUS_ON_DISPATCH);
+          autoFocus = raw === null || raw === undefined ? true : raw !== '0';
+        } catch {
+          /* default ON when kv unreachable */
+        }
+        if (autoFocus) jumpToPane();
+        toast.success(`Bridge dispatched a ${echo.providerId} pane`, {
+          description: `${wsLabel} · session ${echo.sessionId.slice(0, 8)}`,
+          action: {
+            label: 'Jump to pane',
+            onClick: jumpToPane,
           },
-        },
-      });
-      void playDing();
+        });
+        void playDing();
+      })();
     });
     return off;
   }, [state.workspaces, state.activeWorkspace?.id, dispatch]);
@@ -278,6 +431,12 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
         toast.error('Open a workspace before talking to the Bridge.');
         return;
       }
+      // Phase 4 Track C — capture the prompt so the post-turn `state==='standby'`
+      // event can fire `ruflo.patterns.store({ pattern, type, confidence })`.
+      lastSentPromptRef.current = prompt;
+      setComposerText('');
+      setComposerExternalValue('');
+      setPatternHit(null);
       setMessages((rows) => [
         ...rows,
         {
@@ -512,7 +671,50 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
           <ChatTranscript messages={messages} streamingDelta={streaming?.delta} />
         </div>
         <ToolCallInspector />
-        <Composer ref={composerRef} busy={busy} onSend={sendPrompt} onMicPress={onOrbClick} />
+        {/* Phase 4 Track C — "Similar past task" ribbon. Renders only when
+            the embedded Ruflo MCP returns a hit at ≥0.7 confidence and the
+            user hasn't dismissed the ribbon for the current session. The
+            ribbon never blocks send; clicking "Apply" copies the matched
+            pattern into the composer for one-tap edit-then-send. */}
+        {patternHit && !ribbonHidden && rufloReady ? (
+          <div className="flex items-start gap-2 border-t border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+            <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] uppercase tracking-wider text-primary">
+                Similar past task ({Math.round(patternHit.confidence * 100)}% confidence)
+              </div>
+              <div className="mt-0.5 line-clamp-2 text-muted-foreground">{patternHit.pattern}</div>
+            </div>
+            <button
+              type="button"
+              className="rounded border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary transition hover:bg-primary/20"
+              onClick={() => {
+                setComposerExternalValue(patternHit.pattern);
+                setComposerText(patternHit.pattern);
+                setRibbonHidden(true);
+                composerRef.current?.focus();
+              }}
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              className="rounded p-0.5 text-muted-foreground transition hover:bg-muted/40 hover:text-foreground"
+              aria-label="Dismiss similar task"
+              onClick={() => setRibbonHidden(true)}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ) : null}
+        <Composer
+          ref={composerRef}
+          busy={busy}
+          onSend={sendPrompt}
+          onMicPress={onOrbClick}
+          onChange={setComposerText}
+          externalValue={composerExternalValue}
+        />
       </div>
     </div>
   );

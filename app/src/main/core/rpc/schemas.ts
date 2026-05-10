@@ -217,6 +217,156 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'swarm.replay.deleteBookmark': stub,
   'voice.start': stub,
   'voice.stop': stub,
+  // V1.1 — SigmaVoice dispatcher channels. Hardened (not `stub`) because the
+  // shapes are stable and the controller validates them at runtime anyway.
+  'voice.dispatch': {
+    input: z.object({ transcript: z.string() }),
+    output: z.object({
+      intent: z.string(),
+      controller: z.string(),
+      ok: z.boolean(),
+      reason: z.string(),
+    }),
+  },
+  'voice.setMode': {
+    input: z.object({
+      mode: z.enum(['auto', 'web-speech', 'native-mac', 'off']),
+    }),
+    output: z.object({
+      mode: z.enum(['auto', 'web-speech', 'native-mac', 'off']),
+    }),
+  },
+  // ── Phase 4 Track C — Ruflo MCP embed ────────────────────────────────
+  // Hardened (not `stub`) since both ends are first-party. The output
+  // shapes for tool calls also accept the unavailable envelope so the
+  // controller can emit `{ ok: false, code: 'ruflo-unavailable' }` without
+  // tripping the soft-launch validator.
+  'ruflo.health': {
+    input: z.undefined().optional(),
+    output: z.object({
+      state: z.enum(['absent', 'starting', 'ready', 'degraded', 'down']),
+      lastError: z.string().optional(),
+      pid: z.number().int().optional(),
+      uptimeMs: z.number().nonnegative().optional(),
+      version: z.string().optional(),
+      runtimePath: z.string().optional(),
+    }),
+  },
+  'ruflo.embeddings.search': {
+    input: z.object({
+      query: z.string().min(1).max(2_000),
+      topK: z.number().int().min(1).max(50).optional(),
+      threshold: z.number().min(0).max(1).optional(),
+      namespace: z.string().max(120).optional(),
+    }),
+    output: z.union([
+      z.object({
+        ok: z.literal(true),
+        results: z.array(
+          z.object({
+            id: z.string(),
+            score: z.number(),
+            text: z.string(),
+            namespace: z.string().optional(),
+          }),
+        ),
+      }),
+      z.object({
+        ok: z.literal(false),
+        code: z.literal('ruflo-unavailable'),
+        reason: z.string(),
+      }),
+    ]),
+  },
+  'ruflo.embeddings.generate': {
+    input: z.object({
+      text: z.string().min(1).max(8_000),
+      hyperbolic: z.boolean().optional(),
+      normalize: z.boolean().optional(),
+    }),
+    output: z.union([
+      z.object({
+        ok: z.literal(true),
+        embedding: z.array(z.number()),
+        dimensions: z.number().int().nonnegative(),
+      }),
+      z.object({
+        ok: z.literal(false),
+        code: z.literal('ruflo-unavailable'),
+        reason: z.string(),
+      }),
+    ]),
+  },
+  'ruflo.patterns.search': {
+    input: z.object({
+      query: z.string().min(1).max(2_000),
+      topK: z.number().int().min(1).max(20).optional(),
+      minConfidence: z.number().min(0).max(1).optional(),
+    }),
+    output: z.union([
+      z.object({
+        ok: z.literal(true),
+        results: z.array(
+          z.object({
+            pattern: z.string(),
+            type: z.string().optional(),
+            confidence: z.number(),
+            score: z.number(),
+          }),
+        ),
+      }),
+      z.object({
+        ok: z.literal(false),
+        code: z.literal('ruflo-unavailable'),
+        reason: z.string(),
+      }),
+    ]),
+  },
+  'ruflo.patterns.store': {
+    // CRITICAL — upstream `agentdb_pattern-store` accepts
+    // `{ pattern, type, confidence }`. The original Phase 4 plan said
+    // `{ namespace, key, value }`; that schema is wrong. Reference: the
+    // ruflo-researcher pattern at `agentdb_pattern-search` namespace
+    // `phase4-ruflo-research` key `claude-flow-embed-strategy-2026-05-10`.
+    input: z.object({
+      pattern: z.string().min(1).max(8_000),
+      type: z.string().max(120).optional(),
+      confidence: z.number().min(0).max(1).optional(),
+    }),
+    output: z.union([
+      z.object({ ok: z.literal(true), id: z.string().optional() }),
+      z.object({
+        ok: z.literal(false),
+        code: z.literal('ruflo-unavailable'),
+        reason: z.string(),
+      }),
+    ]),
+  },
+  'ruflo.autopilot.predict': {
+    input: z.object({}).strict().optional(),
+    output: z.union([
+      z.object({
+        ok: z.literal(true),
+        suggestion: z
+          .object({
+            title: z.string(),
+            detail: z.string().optional(),
+            commandId: z.string().optional(),
+            args: z.unknown().optional(),
+          })
+          .nullable(),
+      }),
+      z.object({
+        ok: z.literal(false),
+        code: z.literal('ruflo-unavailable'),
+        reason: z.string(),
+      }),
+    ]),
+  },
+  'ruflo.install.start': {
+    input: z.object({}).strict().optional(),
+    output: z.object({ jobId: z.string() }),
+  },
 };
 
 /** Look up the schema entry for a `<namespace>.<method>` channel id. */

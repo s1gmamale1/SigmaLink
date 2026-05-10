@@ -23,6 +23,7 @@ import {
   Terminal,
   Wand2,
   StickyNote,
+  Zap,
 } from 'lucide-react';
 import {
   CommandDialog,
@@ -33,7 +34,7 @@ import {
   CommandList,
   CommandSeparator,
 } from '@/components/ui/command';
-import { rpc } from '@/renderer/lib/rpc';
+import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import { useAppState, type RoomId } from '@/renderer/app/state';
 import { useTheme } from '@/renderer/app/ThemeProvider';
 import { THEMES, type ThemeId } from '@/renderer/lib/themes';
@@ -58,6 +59,42 @@ interface PaletteCommand {
   icon: React.ComponentType<{ className?: string }>;
   run: () => void;
   disabled?: boolean;
+}
+
+/** Phase 4 Track C — module-scoped autopilot cache. The 30s TTL covers the
+ *  common case where users mash cmd+k repeatedly while remembering what they
+ *  meant to type. The cache is intentionally global to the renderer process
+ *  so re-mounting the palette (e.g. via theme switch) doesn't refresh it. */
+interface AutopilotCacheEntry {
+  ts: number;
+  suggestion: { title: string; detail?: string; commandId?: string; args?: unknown } | null;
+}
+const AUTOPILOT_CACHE_TTL_MS = 30_000;
+const AUTOPILOT_TIMEOUT_MS = 2_000;
+let autopilotCache: AutopilotCacheEntry | null = null;
+let autopilotInflight: Promise<AutopilotCacheEntry | null> | null = null;
+
+async function fetchAutopilot(): Promise<AutopilotCacheEntry | null> {
+  // Coalesce concurrent fetches.
+  if (autopilotInflight) return autopilotInflight;
+  autopilotInflight = (async () => {
+    try {
+      const timeout = new Promise<null>((resolve) =>
+        setTimeout(() => resolve(null), AUTOPILOT_TIMEOUT_MS),
+      );
+      const call = rpcSilent.ruflo['autopilot.predict']();
+      const out = await Promise.race([call, timeout]);
+      if (!out || !('ok' in out) || !out.ok) return null;
+      const entry: AutopilotCacheEntry = { ts: Date.now(), suggestion: out.suggestion };
+      autopilotCache = entry;
+      return entry;
+    } catch {
+      return null;
+    } finally {
+      autopilotInflight = null;
+    }
+  })();
+  return autopilotInflight;
 }
 
 const ROOM_DEFS: Array<{ id: RoomId; label: string; icon: PaletteCommand['icon'] }> = [
@@ -93,6 +130,11 @@ export function CommandPalette() {
   const [query, setQuery] = useState('');
   const [voiceHandle, setVoiceHandle] = useState<VoiceCaptureHandle | null>(null);
   const autoMicRef = useRef(false);
+  // Phase 4 Track C — Ruflo autopilot suggestion. Populated lazily on every
+  // palette open via `ruflo.autopilot.predict()` with a 30s in-memory cache
+  // and a 2s timeout. When the supervisor isn't `ready` the suggestion stays
+  // null and the "Suggested for you" group is omitted.
+  const [autopilot, setAutopilot] = useState<AutopilotCacheEntry | null>(autopilotCache);
 
   const stopVoice = useCallback(() => {
     setVoiceHandle((h) => {
@@ -146,6 +188,28 @@ export function CommandPalette() {
     };
   }, [dispatch, state.commandPaletteOpen]);
 
+  // Phase 4 Track C — prefetch the Ruflo autopilot suggestion whenever the
+  // palette opens. Uses the module-level cache (30s TTL) so back-to-back
+  // opens skip the round-trip; the 2s race is enforced in `fetchAutopilot`.
+  useEffect(() => {
+    if (!open) return;
+    const fresh =
+      autopilotCache && Date.now() - autopilotCache.ts < AUTOPILOT_CACHE_TTL_MS
+        ? autopilotCache
+        : null;
+    if (fresh) {
+      setAutopilot(fresh);
+      return;
+    }
+    let alive = true;
+    void fetchAutopilot().then((entry) => {
+      if (alive) setAutopilot(entry);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [open]);
+
   // Auto-start the mic when the palette was opened via Cmd+Shift+K. We defer
   // to a microtask so the dialog has mounted (the recognizer fires a `start`
   // event the pill listens for; firing it before mount loses the event). The
@@ -175,6 +239,34 @@ export function CommandPalette() {
     const list: PaletteCommand[] = [];
     const ws = state.activeWorkspace;
     const wsId = ws?.id;
+
+    // Phase 4 Track C — Ruflo autopilot suggestion. Surfaces above
+    // Navigate when the supervisor returned a non-null hit; selecting it
+    // routes through the same command map (commandId === 'nav:<room>')
+    // by pushing into the existing list early so cmdk's fuzzy filter
+    // still applies. When the suggestion has a `commandId` we trust it;
+    // otherwise the title shows but the row is disabled (no-op).
+    if (autopilot?.suggestion) {
+      const sug = autopilot.suggestion;
+      list.push({
+        id: `ruflo:autopilot:${sug.commandId ?? 'noop'}`,
+        label: sug.title,
+        hint: sug.detail,
+        group: 'Suggested for you',
+        icon: Zap,
+        disabled: !sug.commandId,
+        run: () => {
+          setOpen(false);
+          // Lightweight command id router. Currently supports `nav:<roomId>`
+          // for room navigation; future hits can extend this without
+          // shipping a fresh palette build.
+          if (typeof sug.commandId === 'string' && sug.commandId.startsWith('nav:')) {
+            const room = sug.commandId.slice('nav:'.length) as RoomId;
+            dispatch({ type: 'SET_ROOM', room });
+          }
+        },
+      });
+    }
 
     // Navigate
     for (const room of ROOM_DEFS) {
@@ -346,6 +438,7 @@ export function CommandPalette() {
     dispatch,
     setTheme,
     setOpen,
+    autopilot,
   ]);
 
   // Group items by `group` while preserving insertion order.

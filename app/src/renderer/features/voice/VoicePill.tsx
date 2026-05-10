@@ -10,9 +10,25 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Mic } from 'lucide-react';
+import { toast } from 'sonner';
 import { onEvent } from '@/renderer/lib/rpc';
 import type { VoiceSource } from '@/renderer/lib/voice';
 import { cn } from '@/lib/utils';
+
+interface DispatchEchoDetail {
+  intent: string;
+  controller: string;
+  args: Record<string, unknown>;
+  raw: string;
+}
+
+const ROUTING_LABEL: Record<string, string> = {
+  create_swarm: 'Spawning swarm…',
+  'app.navigate': 'Switching pane…',
+  'swarms.broadcast': 'Broadcasting…',
+  'swarms.rollCall': 'Calling roll…',
+  'assistant.freeform': 'Asking Bridge…',
+};
 
 interface VoiceStateDetail {
   active: boolean;
@@ -87,6 +103,22 @@ export function VoicePill() {
         fadeTimerRef.current = null;
       }
     };
+  }, []);
+
+  // V1.1 — SigmaVoice dispatch echo. Fires once between the recogniser's
+  // final transcript and the controller invocation. Surfacing a small toast
+  // gives the operator immediate feedback when speech is being routed
+  // (matches the `dispatching` phase in the adapter state machine).
+  useEffect(() => {
+    const off = onEvent<DispatchEchoDetail>('voice:dispatch-echo', (raw) => {
+      if (!raw || typeof raw !== 'object') return;
+      const label = ROUTING_LABEL[raw.intent] ?? 'Routing…';
+      const description = typeof raw.raw === 'string' && raw.raw.length > 0
+        ? `“${raw.raw.slice(0, 80)}${raw.raw.length > 80 ? '…' : ''}”`
+        : undefined;
+      toast(label, { description, duration: 1800 });
+    });
+    return off;
   }, []);
 
   if (!mounted) return null;

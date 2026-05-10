@@ -407,3 +407,74 @@ Supersedes the v1.0-candidate snapshot above.
 **Top v1.1 priorities**: macOS notarisation (Apple Developer ID); native voice bindings (macOS Speech / Win SAPI / Linux PocketSphinx); BridgeCode multi-provider dispatch when BridgeMind ships the SKU; Skill marketplace live install from GitHub URL; three-way merge editor (Review Room v2); first real-world dogfood with screen recording.
 
 **TL;DR** — v1.0.0 SHIPPED via tag + GitHub release. Source launch verified end-to-end. Bundled DMG has a known defect blocked behind v1.0.1 hotfix. Two world-first differentiators (Persistent Swarm Replay + Bridge Assistant cross-session memory) are live and exercise architectural advantages V3 cannot match.
+
+---
+
+## Phase 4 — v1.0.1 hotfix shipped + research wave for v1.1.0 (May 10, 2026)
+
+User report after using v1.0.0: macOS traffic-light buttons overlap "SigmaLink" wordmark on sidebar header; CLI agent panes have misaligned text on first paint. These plus the known DMG `bindings` defect + 2 P3 BUG-DF items defined Phase 4 Step 1 (v1.0.1 hotfix). User then defined the broader Phase 4 scope autonomously: full app testing → bug-fix → Agent IPC reliability + SigmaVoice native + Ruflo MCP integration. Plan retired Phase 3's contents; new 7-step plan saved at `~/.claude/plans/download-a-skill-plugin-that-lexical-pinwheel.md`. User stance locked via AskUserQuestion: synthesis sequencing (v1.0.1 hotfix THEN demo-first features), macOS-only voice in v1.1, both push-to-talk AND wake-word (default OFF, opt-in).
+
+### Step 1 — v1.0.1 hotfix shipped — commits `1f457ce` `9ce61e3` `52123a8` `4afd109` (tag `v1.0.1`)
+
+Three explore agents in parallel (UI defect audit + voice/skills state + Ruflo opportunities) found that:
+- `Sidebar.tsx:104-117` had no left padding for macOS traffic lights; user-reported overlap was real.
+- `Terminal.tsx:153` `requestAnimationFrame`-deferred `fit.fit()` could fire while GridLayout was still flex-shrinking → cells one column off until first window resize.
+- `0002_credentials.ts` migration ID typo (already fixed in P3); `httpUrl` Gemini MCP typo (already fixed in P3).
+
+Five fixes shipped in v1.0.1:
+1. **DMG `bindings` defect**: tried 3 escalating asarUnpack patterns (`**/*.node`, `node_modules/<pkg>/**`, `node_modules/.pnpm/**/<pkg>/**`); only `node-pty` ever unpacked correctly because electron-builder special-cases it. **Root cause unresolved**: how pnpm's content-addressed `node_modules` interact with electron-builder's pattern matcher. **Workaround**: `asar: false` in `electron-builder.yml` AND deleted the duplicate `build` block in `package.json` that was overriding the YAML and re-enabling asar. Cost ~50 MB extra DMG; benefit is 100% guaranteed native modules load. Boot self-check hardened to actually instantiate `new Database(':memory:')` + `node-pty.spawn().kill()` so the inner `require('bindings')` failure is caught at boot rather than first DB write.
+2. **Sidebar traffic-light overlap**: 28-px draggable spacer at top of sidebar on macOS only (`PLATFORM_IS_MAC` exported from `lib/shortcuts.ts`); spacer hidden on Win/Linux.
+3. **Terminal text alignment**: dropped `requestAnimationFrame` defer; `ResizeObserver` now gates `fit()` on non-zero `contentRect` dimensions and runs the first fit synchronously when container measures non-zero. Subsequent debounce 50→25 ms.
+4. **BUG-DF-02**: zod schemas `app.tier` (`enum(['basic','pro','ultra'])` — corrected from plan's `['free','pro','ultra']` to match real `Tier` union) + `design.shutdown` (`z.void()`).
+5. **BUG-DF-01**: `BrowserViewMount.tsx` + `TabStrip.tsx` + `BrowserRecents.tsx` wrapped in `React.memo` with content-aware comparators; `setBounds` IPC dedup'd against last-sent rect. Eliminates the cascade triggered by `browser:state` ticks on every `page-title-updated`.
+
+Repo cleanup (commit `52123a8`): deleted 4× `.DS_Store`, `app/info.md` (init scaffold), `app/package-lock.json` (stale npm lockfile), 3 one-shot setup scripts (`patch-main.cjs`, `patch-package.cjs`, `fix-electron-bridge.ps1`) already baked into source. Extended `app/.gitignore` to mask `electron-dist/`, `release/`, `test-results/`, Ruflo runtime (`.swarm/`, `.claude-flow/`, `.claude/`, `agentdb.rvf*`, `*.db*`), and `package-lock.json`. Root `.gitignore` was already comprehensive (lines 67-87).
+
+Build: 1921 modules, 1.51s vite build, 311 KB main + 6 vendor chunks (vendor-react 227, vendor-xterm 333, vendor-radix 53, vendor-cmdk 45, vendor-dnd 38, vendor-icons 21 KB). Lint baseline ≤54 retained.
+
+DMG built via direct `node node_modules/.pnpm/electron-builder@.../cli.js --mac --arm64` invocation (the flat `node_modules/.bin/electron-builder` shim was empty due to pnpm install hooks being skipped). Both arm64 + x64 produced (4 artefacts total: 2 DMG + 2 zip; 121-139 MB each, larger than v1.0.0 due to `asar: false`). Tag `v1.0.1` cut + pushed; GitHub release published at https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.0.1 with all 4 binaries attached. App boot verified via `open release/mac-arm64/SigmaLink.app` — process alive past boot self-check.
+
+### Phase 4 research wave (parallel to Step 1) — 3 background agents
+
+While Step 1 finalised, three Ruflo-skill-equipped researcher agents gathered docs for v1.1 features. Reports stored to AgentDB under `phase4-voice-research` and `phase4-ruflo-research` namespaces.
+
+**voice-researcher** (macOS Speech Framework + NAPI):
+- macOS minimum bumped from 10.12 → **10.15 Catalina** (`requiresOnDeviceRecognition` requires it).
+- Toolchain: `node-addon-api ^8.5.0` + `node-gyp ^12.2.0` + Objective-C++ `.mm` + `prebuildify --napi --strip --arch=x64+arm64`. ABI-stable via Node-API: ONE binary per arch.
+- Pipeline (verbatim from `sveinbjornt/hear`): `[SFSpeechRecognizer requestAuthorization]` → `recognizer = [SFSpeechRecognizer alloc] initWithLocale:NSLocale]` → `request = [SFSpeechAudioBufferRecognitionRequest alloc] init` with `shouldReportPartialResults=YES, requiresOnDeviceRecognition=YES, addsPunctuation=YES` → `engine = [AVAudioEngine alloc] init; inputNode = engine.inputNode` → `[inputNode installTapOnBus:0 ...]` → `task = [recognizer recognitionTaskWithRequest ...]` → `[engine startAndReturnError]`. Stop: `[engine stop]; [inputNode removeTapOnBus:0]; [request endAudio]; [task cancel]`.
+- Server-side recognition is capped at ~1 minute per session; on-device has no cap (WWDC19 #256). Continuous mode requires `requiresOnDeviceRecognition = YES`.
+- Permissions: `electron.systemPreferences.askForMediaAccess('microphone')` works for mic, but does NOT handle Speech — call `[SFSpeechRecognizer requestAuthorization:]` directly inside the native module (mirroring `node-mac-permissions.askForSpeechRecognitionAccess`).
+- Hardened-runtime entitlements (mandatory for notarisation): `com.apple.security.cs.allow-jit`, `com.apple.security.cs.allow-unsigned-executable-memory`, `com.apple.security.device.audio-input`.
+- Reference projects: `codebytere/node-mac-permissions` (auth + ThreadSafeFunction pattern), `sveinbjornt/hear` (full pipeline), `prebuild/prebuildify` (distribution).
+
+**wake-researcher** (Porcupine wake-word — CRITICAL LEGAL FINDING):
+- `@picovoice/porcupine-node@4.0.2` (Apache-2.0 binding, but engine itself proprietary). 7.17 MB unpacked. Audio: 16-bit PCM, 16 kHz mono, 512-sample frames (~32 ms).
+- Built-in keywords: `alexa, americano, blueberry, bumblebee, computer, grapefruit, grasshopper, hey google, hey siri, jarvis, ok google, picovoice, porcupine, terminator`. **"Hey Sigma" requires custom `.ppn` per-platform** (4 files: mac-arm64/x64, win-x64, linux-x64).
+- **SHOWSTOPPER**: Picovoice Free Tier ToU §7 prohibits "allowing third parties to use the Services on your behalf without Picovoice's written consent." **SigmaLink CANNOT legally ship a single bundled AccessKey to public users.** Two compliant paths: (a) BYO-AccessKey UX (each user signs up + pastes their own free key in Settings; legal but high friction) or (b) Enterprise license (must contact sales; pricing not published).
+- Open-source alternatives all blocked: `openWakeWord` Apache-2.0 code but pretrained models are **CC-BY-NC-SA 4.0 (non-commercial only)**, same blocker. `Snowboy` archived 2020. `Mycroft Precise` shut down 2023. Only fully MIT-licensable path: train a custom ONNX model + `onnxruntime-node` (~30k hours negative audio + thousands of synthetic positive samples; realistic Phase 5+ work).
+- **Phase 4 decision**: defer wake-word to v1.2. v1.1 ships push-to-talk only. If user explicitly wants wake-word, ship BYO-AccessKey UX (Settings → "Get a free Picovoice key" link).
+
+**ruflo-researcher** (Ruflo MCP embed):
+- User-facing pkg: `ruflo@3.7.0-alpha.20`; actual implementation: `@claude-flow/cli@3.7.0-alpha.18`. ESM-only, Node ≥ 20.
+- **SIZE BLOCKER**: ESM tarball is 10 MB but transitive install expands to **1.4 GB on disk** across 422 sub-modules. Top hogs: `onnxruntime-node` 210 MB (ships all-platforms in `bin/napi-v6/{darwin,linux,win32}/`), `onnxruntime-web` 130 MB, `@claude-flow/cli` 89 MB, `agentdb` 66 MB, `agentic-flow` 66 MB, `@ruvector/*` 29 MB. Per-platform install (npm `optionalDependencies`) trims to ~250-350 MB per platform.
+- Spawn target: `node_modules/@claude-flow/cli/bin/mcp-server.js` directly (NOT `ruflo` wrapper, NOT `ruflo-mcp-filter.mjs` shim). Diagnostics already on stderr-only; filter unnecessary.
+- **Tool name correction (CRITICAL — Phase 4 plan was wrong)**: `agentdb_pattern-store` accepts `{ pattern, type, confidence }`, NOT `{ namespace, key, value, metadata }`. For k/v needs use `agentdb_hierarchical-store`. Other canonical names: `embeddings_search { query, topK?, threshold?, namespace? }`, `embeddings_generate { text, hyperbolic?, normalize? }`, `agentdb_pattern-search { query, topK?, minConfidence? }`, `autopilot_predict {}`.
+- No daemon required for the 3 target tools. The `ruflo daemon` is for background workers (audit/optimize/map/consolidate/testgaps) which we don't need.
+- All cross-platform native crates published per-platform on npm (verified live): `@ruvector/sona-{darwin-arm64,darwin-x64,linux-x64-gnu,win32-x64-msvc}`, `@ruvector/attention-*`, `@ruvector/rvf-node-*`, `onnxruntime-node` (bundles arm64+x64). Risk: `win-ia32` and `linux-arm64-gnu` for some `@ruvector/*` crates unverified.
+- Cwd isolation: spawn with `cwd: app.getPath('userData')/'ruflo-runtime'` so AgentDB doesn't conflict with the user's separate Ruflo CLI usage.
+- **Phase 4 decision pending**: bundle (+250-350 MB DMG) vs lazy-download into `userData/ruflo/` on first use. Architect agent debating; recommendation expected to favour lazy-download given size impact.
+
+### Phase 4 work in flight (May 10 evening, autonomous)
+
+Overnight autonomous run. Currently dispatched:
+- **Testing wave** (3 agents): `e2e-runner` (Playwright suite), `ipc-auditor` (swarm mailbox + agent comm code review), `provider-prober` (provider launch path audit).
+- **Architecture wave** (2 agents): `voice-architect` (SigmaVoice native module design doc), `ruflo-architect` (Ruflo embed architecture incl. bundle vs lazy decision).
+
+Next waves planned (autonomous; will dispatch on testing+architecture completion):
+- Bug-fix swarm consuming `BUG-V1.1-NN-*` from testing reports
+- Track A coding: Agent IPC reliability hardening (per ipc-auditor findings)
+- Track B coding: SigmaVoice native module + dispatcher (per voice-architect design)
+- Track C coding: Ruflo MCP supervisor + 3 user-facing features (per ruflo-architect design)
+- Final smoke + dogfood + commit + push (potentially `v1.1.0-rc1` tag)
+
+Stop conditions (will pause + ask): destructive action, permanently broken build no agent debate resolves, request to leak credentials, anything requiring Apple Developer ID procurement.

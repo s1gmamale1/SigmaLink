@@ -46,22 +46,34 @@ Per-wave engineering reports live under [`docs/05-build/`](docs/05-build/) and v
 | T-39 | Post-release launch-doctor: diagnose + fix Electron `path.txt` missing via pnpm-stash symlinks; write `RUNNING.md` (131 lines) | shipped | 1 |
 | T-40 | Store 6 lessons to AgentDB via `agentdb_pattern-store` (Node 26 trap, pnpm exec trap, symlink fix, DMG defect, sub-agent inbox limitation, project state) | shipped | 1 |
 | T-41 | Append Phase 3 narrative to `master_memory.md` + Phase 3 rows to `memory_index.md` | shipped | 1 |
+| T-42 | Phase 4 Step 1 — v1.0.1 hotfix: 5 fixes (DMG asar:false + boot self-check + UI Bug 1 sidebar 28px spacer + UI Bug 2 ResizeObserver + zod schemas + dataroom React.memo cascade) + repo cleanup (4 .DS_Store, 3 one-shot scripts, package-lock.json, info.md, broken v1.0.0 release artefacts) + extended app/.gitignore | shipped | 1 |
+| T-43 | Phase 4 Step 1 release: `v1.0.1` annotated tag + push + GitHub release with 4 binaries (mac arm64+x64, both DMG + zip; 121-139 MB each); v1.0.0 broken DMG superseded | shipped | 1 |
+| T-44 | Phase 4 research wave (3 background agents): voice-researcher (macOS Speech Framework + NAPI path), wake-researcher (Porcupine licensing — BYO-AccessKey blocker), ruflo-researcher (@claude-flow/cli embed; +250-350MB; tool name corrections) | shipped | 1 |
+| T-45 | Phase 4 testing wave (3 background agents): e2e-runner (Playwright suite), ipc-auditor (swarm mailbox/agent comm code review), provider-prober (provider launch path audit) | in progress | 1 |
+| T-46 | Phase 4 architecture wave (2 background agents): voice-architect (SigmaVoice native module design doc), ruflo-architect (Ruflo embed architecture + bundle vs lazy decision) | in progress | 1 |
 
 ## Counts
 
-- Tasks total: 41
-- Shipped: 40
+- Tasks total: 46
+- Shipped: 43
+- In progress: 2 (T-45 testing, T-46 architecture)
 - Deferred: 1 (T-14 reconciliation)
-- Multi-trial: 1 (T-22 with 2 trials)
+- Multi-trial: 2 (T-22 with 2 trials, T-42 with 4 trials due to asarUnpack pattern misses)
 - Bugs filed: 17 (3 P1, 6 P2, 6 P3 from W7 + 2 P3 BUG-DF from Phase 3 dogfood)
-- Bugs fixed: 11
+- Bugs fixed: 13 (11 prior + BUG-DF-01 + BUG-DF-02 in v1.0.1)
 - Bugs verified: 9 (W8 7-of-9 + Phase 3 promoted W7-003 + W7-006)
-- Bugs deferred: 8 (6 P3 W7 + 2 P3 BUG-DF target v1.1)
+- Bugs deferred: 6 (6 P3 W7; BUG-DF-01/02 closed in v1.0.1)
 
 ## Latest commit + tag
 
-- `main` HEAD pushed: `28ac378` (release commit for `v1.0.0`).
-- `main` HEAD local-only: `3caa7c7` (post-release `RUNNING.md`).
-- Tags: `v0.1.0-alpha` (annotated, pushed) — historical; `v1.0.0` (annotated, pushed) — current.
-- GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.0.0 (published; DMG + zip attached; unsigned; ⚠ DMG has runtime `bindings` defect, scheduled for v1.0.1 hotfix).
+- `main` HEAD pushed: `4afd109` (Phase 4 Step 1 final: asar:false + package.json build block deletion).
+- Tags pushed: `v0.1.0-alpha` (historical), `v1.0.0` (superseded by v1.0.1 due to broken DMG; release page still live but DMG remains downloadable for archival), `v1.0.1` (current shipped).
+- GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.0.1 (published; 4 binaries mac arm64+x64 DMG + zip; unsigned).
 - Repo: https://github.com/s1gmamale1/SigmaLink
+
+## Phase 4 plan reference
+
+- Plan file: `~/.claude/plans/download-a-skill-plugin-that-lexical-pinwheel.md`
+- 7 steps total. Step 1 ✅ (v1.0.1 shipped). Steps 2-7 in autonomous progress.
+- Wake-word (originally Step 4) DEFERRED to v1.2 due to Porcupine licensing. v1.1 will ship push-to-talk only.
+- Step 2 (V3 visual parity) DEFERRED in favour of user's explicit Phase 4 priorities (Agent IPC + SigmaVoice + Ruflo).
