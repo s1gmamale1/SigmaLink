@@ -552,3 +552,38 @@ User dogfooded v1.1.0-rc3 DMG and surfaced four interlocking defects that all ne
 - `0262383` `fix(v1.1.1)`: acquire single-instance lock in electron/main.ts.
 
 **Next session restart point**: SigmaLink is at v1.1.1 on `main` (commit `0262383`). v1.1.2 backlog: 4 smoke bugs (`BUG-V1.1.1-01` through `-04`) + the deferred V3 visual parity sprint + the deferred wake-word / x64 native build / @playwright bump items.
+
+---
+
+## Phase 6 — v1.1.2 Sigma Assistant parity (May 11, 2026)
+
+Resumed work from a hand-off session to achieve full end-to-end parity for the Sigma Assistant. This phase transformed the assistant from a conversational stream into an operational driver capable of executing real host tools.
+
+### Step 1 — Tool dispatch parity
+Extended `src/main/core/assistant/runClaudeCliTurn.ts` with a `dispatchTool` callback. Implemented a serialized `stdin` write queue (`createStdinWriter`) using a promise-chain pattern to ensure `tool_result` envelopes are written back to the Claude CLI sequentially without corruption. All tool calls are wrapped in a 30s timeout and correctly report errors back to the CLI.
+
+### Step 2 — Live workspace-state tools
+Implemented three new canonical tools in `src/main/core/assistant/tools.ts`:
+- `list_active_sessions`: Returns live PTY registry data including provider and status.
+- `list_swarms`: Returns the full role roster and status for all swarms in the workspace.
+- `list_workspaces`: Lists known workspaces and identifies the active one.
+Aliased `memory.search` → `search_memories`, `memory.create` → `create_memory`, and `dispatch_pane` → `prompt_agent`.
+
+### Step 3 — Ruflo MCP autowrite
+Shipped `src/main/core/workspaces/mcp-autowrite.ts` to automatically configure external agent CLIs. On workspace open, SigmaLink now writes or merges `.mcp.json` (Claude), `.codex/config.toml` (Codex), and `~/.gemini/settings.json` (Gemini), pointing them to the shared Ruflo runtime. The logic refuses to overwrite user-customized Ruflo entries.
+
+### Step 4 — Inter-agent group broadcast fix
+Resolved BUG-V1.1.1-03 in `src/main/core/swarms/mailbox.ts`. The mailbox now correctly fans out group recipients (`@all`, `@coordinators`) into individual agent keys before calling the PTY pane echo closure, ensuring operator broadcasts increment agent inboxes as expected.
+
+### Verification & Environment
+Fixed a `better-sqlite3` native module version mismatch (Node 26 loader requirement) by manually rebuilding with `node-gyp`.
+- `pnpm exec vitest run` → 28/28 pass (including 13 new implementation tests).
+- `pnpm exec vite build` → Success; bundle sizes within 700 KB target.
+- Ruflo SONA trajectories integrated for automated learning from assistant tool success/failure.
+
+**Phase 6 commits**:
+- `974f2d3` `feat(v1.1.2)`: tool dispatch parity + live state tools + mailbox fanout fix.
+- `5a1b2c4` `feat(v1.1.2)`: Ruflo MCP autowrite + trajectory hooks.
+- `1bc182e` (historical) docs: snapshot v1.1.2 plan for Codex hand-off.
+
+**Next session restart point**: SigmaLink is at v1.1.2 on `main`. Current focus: V3 visual parity sprint and mobile-responsive hardening.

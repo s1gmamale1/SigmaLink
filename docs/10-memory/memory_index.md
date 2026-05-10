@@ -87,3 +87,6 @@ Per-wave engineering reports live under [`../06-build/`](../06-build/) and visua
 ## Next session restart point
 
 SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording validates → tag v1.1.0 final on the same SHA. Run `agentdb_pattern-search` query "phase4" to recall the 14-agent autonomous overnight run details. v1.2 backlog catalogued in `docs/07-bugs/OPEN.md` Phase 4 section + plan file's "Deferred to v1.2" list.
+| T-54 | Phase 6 — v1.1.2 Sigma Assistant parity: tool dispatch parity + live state tools + mailbox fanout fix + MCP autowrite | shipped | 1 |
+| T-55 | Environment fix: resolve better-sqlite3 Node 26 mismatch via manual node-gyp rebuild | shipped | 1 |
+| T-56 | Verification: 28/28 tests pass + production build success | shipped | 1 |
