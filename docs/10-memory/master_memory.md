@@ -572,18 +572,29 @@ Aliased `memory.search` → `search_memories`, `memory.create` → `create_memor
 ### Step 3 — Ruflo MCP autowrite
 Shipped `src/main/core/workspaces/mcp-autowrite.ts` to automatically configure external agent CLIs. On workspace open, SigmaLink now writes or merges `.mcp.json` (Claude), `.codex/config.toml` (Codex), and `~/.gemini/settings.json` (Gemini), pointing them to the shared Ruflo runtime. The logic refuses to overwrite user-customized Ruflo entries.
 
+PR also synced upstream Ruflo agent-prompt docs into `app/.agents/ruflo/*.upstream.md` and added a top-level `app/AGENTS.md` parity file. These four files are documentation-only (no runtime effect); kept for cross-tool consistency with the @claude-flow/cli docs vendor.
+
 ### Step 4 — Inter-agent group broadcast fix
 Resolved BUG-V1.1.1-03 in `src/main/core/swarms/mailbox.ts`. The mailbox now correctly fans out group recipients (`@all`, `@coordinators`) into individual agent keys before calling the PTY pane echo closure, ensuring operator broadcasts increment agent inboxes as expected.
 
-### Verification & Environment
-Fixed a `better-sqlite3` native module version mismatch (Node 26 loader requirement) by manually rebuilding with `node-gyp`.
-- `pnpm exec vitest run` → 28/28 pass (including 13 new implementation tests).
-- `pnpm exec vite build` → Success; bundle sizes within 700 KB target.
-- Ruflo SONA trajectories integrated for automated learning from assistant tool success/failure.
+### Verification
+- `pnpm exec tsc -b` → clean (exit 0).
+- `pnpm exec vitest run` → 28/28 pass (13 new tests: 5 in `runClaudeCliTurn.test.ts` for dispatch + trajectory, 3 in `tools.test.ts` for the live tools, 4 in `mcp-autowrite.test.ts`, 1 in `mailbox.test.ts` for group fanout).
+- `pnpm exec vite build` → main bundle `index-*.js` 335 KB raw / 92.84 KB gzipped (well under 700 KB target).
+- `pnpm run lint` → 54 errors / 0 warnings — at-or-below the rc3 baseline; no new errors introduced.
+- Ruflo SONA trajectory hooks wired into `runClaudeCliTurn` so the assistant accumulates cross-session learning from its own tool-call outcomes.
 
-**Phase 6 commits**:
-- `974f2d3` `feat(v1.1.2)`: tool dispatch parity + live state tools + mailbox fanout fix.
-- `5a1b2c4` `feat(v1.1.2)`: Ruflo MCP autowrite + trajectory hooks.
-- `1bc182e` (historical) docs: snapshot v1.1.2 plan for Codex hand-off.
+**Phase 6 commits** (on branch `v1.1.2-final`, PR #1):
+- `c2fc5d8` `feat(v1.1.2)`: tool dispatch parity + live tools + mcp autowrite (the work).
+- `b21f58d` `docs(v1.1.2)`: update master memory and index.
+- `1bc182e` (historical, on main) docs: snapshot v1.1.2 plan for Codex hand-off.
 
-**Next session restart point**: SigmaLink is at v1.1.2 on `main`. Current focus: V3 visual parity sprint and mobile-responsive hardening.
+**Convergent review** (`pr-reviewer` agent on commit b21f58d): SHIP-WITH-PATCH. 5 steps + 1b all PASS. 6 doc-only punch list items applied by lead inline before tag (real commit SHAs, release notes authored, CHANGELOG past-tense rewrite, memory_index "Latest commit + tag" updated for v1.1.2, `.agents/ruflo/*.upstream.md` files kept with a one-line provenance note — they are upstream Ruflo agent-prompt docs synced into the repo for parity and don't affect runtime).
+
+**Deferred to v1.1.3** (P2/P3, non-blocking):
+- Refactor `runClaudeCliTurn.ts` (643→<500 lines) by extracting tool-dispatch helpers into a sibling module.
+- Refactor `tools.ts` (525→<500) by extracting `list_*` trio.
+- `list_swarms` workspaceId-optional fix at `tools.ts:463` (currently throws via `requireWs`; should fall through to `defaultWorkspaceId ?? null`).
+- CI workflow `pnpm-lock.yaml` cache-path resolution (4 jobs failed at Setup Node, but local gates green).
+
+**Next session restart point**: SigmaLink is at v1.1.2 on `main` after PR #1 merge. Phase 7 focus: V3 visual parity sprint (9 cosmetic tickets) and v1.1.3 housekeeping (file-size refactors + CI workflow fix + the deferred P3 tool fix).

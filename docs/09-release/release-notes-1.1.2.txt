@@ -1,0 +1,165 @@
+SigmaLink v1.1.2 — Sigma Assistant end-to-end
+
+v1.1.1 wired the assistant to the local Claude Code CLI, but the Tool
+calls panel exposed that `tool_use` envelopes never executed — Sigma
+could talk, but it couldn't actually launch panes, dispatch prompts,
+or see live workspace state. v1.1.2 closes that gap. After this
+release Sigma is a fully-functional in-app assistant: it executes host
+tools end-to-end, sees real-time workspace state, broadcasts to swarm
+groups, and writes its own MCP config so spawned agent CLIs join the
+same Ruflo brain.
+
+The 4 bugs filed during the v1.1.1 dogfood are closed:
+BUG-V1.1.1-01 (launch_pane fires but doesn't spawn) ✓
+BUG-V1.1.1-02 (Sigma can't enumerate active sessions)   ✓
+BUG-V1.1.1-03 (inter-agent broadcast inert)             ✓
+BUG-V1.1.1-04 (Ruflo MCP not auto-connected)            ✓
+
+What's new
+==========
+
+1. Tool dispatch parity
+-----------------------
+
+`runClaudeCliTurn.ts:routeToolUse()` extended with a `dispatchTool`
+callback. Every `tool_use` block the Claude CLI emits is now routed to
+`controller.invokeTool(name, args)`, the result captured, and a
+`tool_result` envelope written back to the CLI's stdin:
+
+* `tool_use_id` matches exactly (no orphan results)
+* `is_error: true` flag on dispatcher exceptions
+* Stringified content (the safer common-denominator shape across CLI
+  versions)
+* Serialised write queue so multiple tool_use blocks in one envelope
+  go to stdin in order without race
+* 30 s `withTimeout` for slow tools (`create_swarm` provisions
+  worktrees; up to ~10 s typical)
+
+The CLI then continues its turn with the actual host result in scope.
+No more "Sigma traced the intent but nothing happened."
+
+2. Live list_* tools
+--------------------
+
+Three new tools read the in-memory registries (NOT the DB):
+
+* `list_active_sessions(workspaceId?)` — every live PTY pane with
+  provider, agentKey, swarmId, paneIndex
+* `list_swarms(workspaceId?)` — open swarms with roster + status
+* `list_workspaces()` — every known workspace with active flag
+
+`system-prompt.ts` trimmed: the stale recent-files + open-swarms blob
+is gone; the prompt now says "call the list_* tools when you need
+live state." Saves ~300 prompt tokens, makes Sigma's answers accurate
+to the moment the question was asked.
+
+3. MCP autowrite
+----------------
+
+New `app/src/main/core/workspaces/mcp-autowrite.ts`. On workspace open,
+SigmaLink writes/merges three config files:
+
+* claude code: project-local `<root>/.mcp.json`
+* codex: global `~/.codex/config.toml` `[mcp_servers.ruflo]`
+* gemini: global `~/.gemini/settings.json` mcpServers block
+
+Each entry points the spawned agent CLI at the shared
+`<root>/.claude-flow/` state dir, so every claude/codex/gemini pane that
+boots inside a SigmaLink workspace converges on ONE Ruflo brain. Each
+agent runs its own stdio MCP client (~50ms boot overhead), but they
+all share memory, patterns, and learning on disk.
+
+The autowrite is idempotent and refuses to clobber user-customised
+`ruflo` entries (only writes if `command === "npx"` or no entry
+exists). TOML round-trip preserves comments. Toggle in Settings →
+Ruflo, kv key `ruflo.autowriteMcp` (default ON).
+
+4. Mailbox group broadcast (the v1.1.1 dogfood bug)
+----------------------------------------------------
+
+`mailbox.ts:expandRecipient` correctly resolves `@all`,
+`@coordinators`, `@builders`, `@scouts`, `@reviewers` to concrete
+agent keys BEFORE invoking the PTY pane-echo closure. Operator
+broadcasts now reach every recipient in the target swarm — and only
+that swarm (the rc3 cross-swarm-leak fix is preserved).
+
+5. SONA trajectory wrap
+-----------------------
+
+`runClaudeCliTurn.ts` now calls `trajectoryStart` on every CLI turn,
+`trajectoryStep` per tool dispatch, `trajectoryEnd` with verdict on
+success / failure / cancel. Fail-soft when Ruflo is unavailable
+(missing supervisor never breaks a turn). Sigma Assistant accumulates
+cross-session learning from its own tool-call outcomes via the
+existing ReasoningBank pipeline — the same learning loop Claude (the
+CLI) benefits from through the per-prompt [INTELLIGENCE] hook.
+
+Build hygiene
+=============
+
+* `pnpm exec tsc -b` → clean (exit 0)
+* `pnpm exec vitest run` → 28/28 pass
+* `pnpm exec vite build` → main bundle 335 KB raw / 92.84 KB gzipped
+* `pnpm run lint` → 54 errors / 0 warnings (rc3 baseline; no new
+  errors introduced)
+* 13 new tests landed: 5 (dispatch + trajectory in
+  `runClaudeCliTurn.test.ts`), 3 (live tools in `tools.test.ts`),
+  4 (in `mcp-autowrite.test.ts`), 1 (group fanout in
+  `mailbox.test.ts`)
+* No new `any` casts, `@ts-ignore`, or `eslint-disable`.
+* `pr-reviewer` agent convergent review: SHIP-WITH-PATCH; six
+  doc-only items applied inline by the lead before tag.
+
+Distribution
+============
+
+arm64-only macOS DMG (same as v1.1.1). The build host's native modules
+get packaged; per-arch CI rebuild matrix is deferred to v1.2. Intel-Mac
+users: stay on v1.0.1 or wait.
+
+  npx electron-rebuild --module-dir \
+    node_modules/.pnpm/better-sqlite3@<ver>/node_modules/better-sqlite3 \
+    --types prod -f
+
+…runs before each manual arm64 build.
+
+Carried forward
+===============
+
+All v1.1.1 surfaces intact: window drag across chrome regions, Sigma
+rebrand, real Claude CLI streaming, voice diagnostics in Settings,
+single-instance lock. All Phase 4 / v1.1.0-rc3 work intact: Track A
+(IPC reliability + provider launcher), Track B (SigmaVoice native),
+Track C (Ruflo MCP supervisor), Skills marketplace.
+
+Known issues / deferred to v1.1.3
+==================================
+
+* `runClaudeCliTurn.ts` (643 lines) + `tools.ts` (525 lines) exceed
+  the 500-line/file project rule; refactor lands in v1.1.3.
+* `list_swarms` rejects when no `workspaceId` is provided and no
+  default is anchored on the conversation; should fall through to
+  `defaultWorkspaceId ?? null`. Cosmetic; doesn't break the happy
+  path.
+* CI workflow fails at Setup Node (`cache-dependency-path:
+  app/pnpm-lock.yaml` mis-resolves on `v1.1.2-final` branch). Local
+  gates all green; CI is informational only for this hotfix.
+
+Known issues (unchanged from v1.1.1)
+=====================================
+
+* "Hey Sigma" wake-word — Porcupine licensing forbids bundled key;
+  push-to-talk only in v1.1.x.
+* macOS notarisation — needs Apple Developer ID; hardened runtime is
+  on but the DMG ships unsigned.
+* @playwright/test ≥ 1.60 bump for Node-26 loader race.
+* Win SAPI + Linux Whisper.cpp voice deferred to v1.2.
+
+Upgrade path
+============
+
+Drop the new SigmaLink.app into /Applications. Existing kv state +
+workspaces survive — only additions are the new canDo keys and the
+optional `ruflo.autowriteMcp` toggle (default ON). First time you
+open a workspace after upgrading, MCP config files are written for
+the three agent CLIs if installed.

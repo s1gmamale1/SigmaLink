@@ -73,10 +73,13 @@ Per-wave engineering reports live under [`../06-build/`](../06-build/) and visua
 
 ## Latest commit + tag
 
-- `main` HEAD pushed: `909717d` (chore(release): v1.1.0-rc2 — bundle Step 5 marketplace into rc).
-- Phase 4 commits: `83520bb` (Track A IPC + provider hardening), `2944132` (Tracks B+C SigmaVoice + Ruflo), `0266eea` (rc1 release prep), `b125187` (memory ledger), `4ef2f19` (Step 5 marketplace), `c83da42` (T-52 ledger), `909717d` (rc2 release prep).
-- Tags pushed: `v0.1.0-alpha` (historical), `v1.0.0` (superseded), `v1.0.1` (Phase 4 Step 1 hotfix), `v1.1.0-rc1` (Phase 4 Tracks A+B+C; superseded by rc2), `v1.1.0-rc2` (current shipped — Tracks A+B+C+Step 5 bundled).
-- GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.0-rc2 (prerelease; 4 binaries mac arm64+x64 DMG + zip; unsigned; bundles Tracks A+B+C+Step 5 marketplace; awaiting real-world dogfood validation before final v1.1.0).
+- `v1.1.2-final` HEAD: `b21f58d` (PR #1 awaiting merge to `main` after SHIP-WITH-PATCH punch list applied).
+- `main` HEAD: `1bc182e` (docs: snapshot v1.1.2 plan for Codex hand-off).
+- Phase 5 commits (v1.1.1, on main): `8cbc173` (window drag + rebrand + Claude CLI + voice diagnostics), `0262383` (single-instance lock), `dfb6fb4` (Phase 5 docs), `71472f5` (doc reorg).
+- Phase 6 commits (v1.1.2-final): `c2fc5d8` (tool dispatch parity + live tools + mcp autowrite), `b21f58d` (memory ledger update).
+- Tags pushed: `v0.1.0-alpha`, `v1.0.0` (superseded), `v1.0.1`, `v1.1.0-rc1` (superseded), `v1.1.0-rc2` (superseded), `v1.1.0-rc3` (last shipped rc), `v1.1.1` (current shipped — UX hotfix).
+- GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.1 (arm64-only DMG + zip).
+- PR open: https://github.com/s1gmamale1/SigmaLink/pull/1 — `feat(v1.1.2): Sigma Assistant Parity` from `v1.1.2-final` → `main`.
 - Repo: https://github.com/s1gmamale1/SigmaLink
 
 ## Phase 4 plan reference
