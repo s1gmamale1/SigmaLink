@@ -1,0 +1,130 @@
+# Phase 4 Track B follow-up — produces ABI-stable Node-API prebuilds
+# for the SigmaVoice native module so end users do not need Xcode.
+#
+# Runs on:
+#   - PRs that touch `app/native/voice-mac/**` (so reviewers see whether
+#     the build still works without committing the .node binary).
+#   - Release tags `v*` (so checked-in prebuilds match the tagged binary).
+#   - Manual `workflow_dispatch` (for one-off rebuilds).
+#
+# Output: `app/native/voice-mac/prebuilds/{darwin-arm64,darwin-x64}/node.napi.node`
+# committed back to the branch on release tags so DMG builds resolve via
+# `node-gyp-build` without falling through to a node-gyp rebuild on the
+# user's machine.
+#
+# Note: macOS-14 is Apple Silicon (arm64) and macOS-13 is Intel (x64).
+# Both runners are stable on GitHub-hosted matrices as of 2026-05.
+
+name: Native voice prebuild (macOS)
+
+on:
+  pull_request:
+    paths:
+      - 'app/native/voice-mac/**'
+      - '.github/workflows/native-prebuild-mac.yml'
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write # release-tag pushes commit prebuilds back
+
+jobs:
+  prebuild:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+          - os: macos-13
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node 20 (matches Electron 30 runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.x
+
+      - name: Install root deps
+        working-directory: app
+        run: pnpm install --ignore-scripts --frozen-lockfile=false
+
+      - name: Build native voice module
+        working-directory: app/native/voice-mac
+        run: |
+          # `prebuildify` produces `prebuilds/<platform>-<arch>/node.napi.node`.
+          # The `--napi` flag tags the binary as Node-API so node-gyp-build
+          # picks it up regardless of the consumer's Node ABI.
+          npx prebuildify --napi --strip --arch=${{ matrix.arch }}
+          ls -la prebuilds/darwin-${{ matrix.arch }}/
+
+      - name: Smoke-load the built module
+        working-directory: app/native/voice-mac
+        run: |
+          # Sanity check: the built .node loads under the runner's Node and
+          # the module exports the expected surface. This catches link
+          # errors that prebuildify may not surface.
+          node -e "
+            const m = require('./');
+            if (typeof m.isAvailable !== 'function') process.exit(1);
+            console.log('isAvailable:', m.isAvailable());
+            console.log('surface OK');
+          "
+
+      - name: Upload prebuild artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-mac-darwin-${{ matrix.arch }}
+          path: app/native/voice-mac/prebuilds/darwin-${{ matrix.arch }}/node.napi.node
+          if-no-files-found: error
+          retention-days: 30
+
+  commit-prebuilds:
+    # Only commits prebuilds back on release tags. PRs and dispatches stop
+    # at the artifact upload above.
+    needs: prebuild
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch full history so we can push to the tag's branch.
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download arm64 prebuild
+        uses: actions/download-artifact@v4
+        with:
+          name: voice-mac-darwin-arm64
+          path: app/native/voice-mac/prebuilds/darwin-arm64/
+
+      - name: Download x64 prebuild
+        uses: actions/download-artifact@v4
+        with:
+          name: voice-mac-darwin-x64
+          path: app/native/voice-mac/prebuilds/darwin-x64/
+
+      - name: Commit prebuilds back to main
+        run: |
+          # Resolve the branch the tag was cut from (usually `main`).
+          BRANCH=$(git for-each-ref --format='%(refname:short)' refs/heads/ \
+            | grep -E '^main$' | head -n1 || echo "main")
+          git checkout "$BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/native/voice-mac/prebuilds/
+          if git diff --staged --quiet; then
+            echo "No prebuild changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(voice-mac): refresh prebuilds for ${GITHUB_REF_NAME}"
+          git push origin "$BRANCH"

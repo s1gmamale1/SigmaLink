@@ -181,16 +181,23 @@ Start at [`docs/README.md`](docs/README.md) for the full directory map. The inte
 3. [`docs/03-plan/BUILD_BLUEPRINT.md`](docs/03-plan/BUILD_BLUEPRINT.md) — phased implementation plan.
 4. [`docs/04-critique/`](docs/04-critique/) — architecture, UX, engineering-risk critiques.
 
-## Known issues in v1.0
+## Releases
 
-The v1.0.0 release ships with the following known limitations. Full triage in [`docs/07-bugs/OPEN.md`](docs/07-bugs/OPEN.md); v1.1 milestone tracks the follow-ups.
+- **v1.1.0-rc2** (current; prerelease) — bundles Phase 4 Tracks A+B+C plus the Skills marketplace live install. Native macOS speech recognition, Ruflo MCP semantic memory + pattern surfacing + autopilot palette suggestion, IPC reliability hardening (group recipients, cross-swarm leak fix, cross-pane focus auto-sync, dead-PTY error_report), provider launcher façade with BridgeCode silent fallback, macOS DMG PATH bootstrap. Awaiting real-world dogfood validation before v1.1.0 final. [Release page](https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.0-rc2).
+- **v1.0.1** — DMG bindings hotfix + UI bug fixes (sidebar traffic-light overlap, CLI pane text alignment, Browser data-room flicker, missing zod schemas).
+- **v1.0.0** — V3 parity release with Persistent Swarm Replay + Bridge Assistant cross-session memory differentiators. ⚠ Known DMG runtime defect (`Cannot find module 'bindings'`) — superseded by v1.0.1.
 
-- **BUG-DF-01** (P3): Browser sidebar click in some Playwright auto-flows briefly renders the prior room. Manual usage is fine; cosmetic flicker scheduled for v1.1.
-- **BUG-DF-02** (P3): Two RPC channels (`app.tier`, `design.shutdown`) emit zod soft-launch warnings at boot. No functional impact; schemas to land in v1.1.
-- **Native voice (BridgeVoice)**: macOS Speech / Windows SAPI / Linux PocketSphinx bindings are stubbed via Web Speech API; native bindings are v1.1.
-- **macOS notarisation + Windows code-signing**: installers are unsigned in v1.0; notarisation requires an Apple Developer ID (deferred to v1.1).
-- **BridgeCode multi-provider dispatch**: BridgeCode is registered with `comingSoon` flag and falls back to Claude. Real BridgeCode dispatch lands when BridgeMind ships the BridgeCode SKU.
-- **Skill marketplace install from GitHub URL**: marketplace is currently read-only stub; live install from GitHub deferred to v1.1.
+## Known issues in v1.1.0-rc2
+
+Full triage in [`docs/07-bugs/OPEN.md`](docs/07-bugs/OPEN.md). v1.2 milestone tracks the follow-ups.
+
+- **Wake-word "Hey Sigma"** — Porcupine free-tier licensing forbids shipping a bundled AccessKey to public users. v1.2 will add a BYO-AccessKey UX in Settings (each user creates their own free Picovoice account).
+- **Ruflo native deps** — `@claude-flow/cli`'s installer fetches the top-level tarball only in v1.1; transitive `@ruvector/sona-*` and `onnxruntime-node` are not pulled. Tools that need them surface a clear error. v1.2 will lift this to a real `npm install --omit=dev` walk.
+- **macOS notarisation + Windows code-signing** — installers are unsigned. macOS users see Gatekeeper warnings; Windows users see the SmartScreen filter. Notarisation requires an Apple Developer ID (procurement deferred).
+- **BridgeCode multi-provider dispatch** — BridgeCode is registered with `comingSoon` flag and silently falls back to Claude. Real dispatch lands when BridgeMind ships the BridgeCode SKU.
+- **macOS-only voice** — Windows SAPI + Linux Whisper.cpp deferred to v1.2; Win/Linux remain on Web Speech API fallback.
+- **`@playwright/test` 1.59 + Node 26 race** — defensive spec edits keep the suite running; proper fix (bump to ≥1.60) deferred to v1.2.
+- **V3 visual parity sprint** — 9 documented gaps in `docs/03-plan/V3_PARITY_BACKLOG.md` (right-rail dock chrome, per-pane top-bar variants, multi-pane grid layout persistence, role-color tokens, Swarm Skills 12-tile grid, Bridge orb animation polish, CLI agent provider strip, coordinator task-brief envelope, general token retheme audit). Cosmetic; held for a later sweep.
 
 ## Contributing
 
