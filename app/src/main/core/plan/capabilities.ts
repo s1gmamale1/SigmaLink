@@ -28,6 +28,7 @@ export type Capability =
   | 'swarm.maxSize'
   | 'bridgemcp.slotCount'
   | 'bridgevoice.enabled'
+  | 'sigmavoice.enabled'
   | 'bridgecode.access'
   | 'bridgejarvis.enabled'
   | 'canvas.enabled';
@@ -49,6 +50,7 @@ export const CAPABILITIES_BY_TIER: Record<Tier, Record<Capability, CapabilityVal
     'swarm.maxSize': 5,
     'bridgemcp.slotCount': 1,
     'bridgevoice.enabled': false,
+    'sigmavoice.enabled': false,
     'bridgecode.access': false,
     'bridgejarvis.enabled': false,
     'canvas.enabled': false,
@@ -57,6 +59,7 @@ export const CAPABILITIES_BY_TIER: Record<Tier, Record<Capability, CapabilityVal
     'swarm.maxSize': 15,
     'bridgemcp.slotCount': 10,
     'bridgevoice.enabled': true,
+    'sigmavoice.enabled': true,
     'bridgecode.access': true,
     'bridgejarvis.enabled': false,
     'canvas.enabled': true,
@@ -65,6 +68,7 @@ export const CAPABILITIES_BY_TIER: Record<Tier, Record<Capability, CapabilityVal
     'swarm.maxSize': 20,
     'bridgemcp.slotCount': 999,
     'bridgevoice.enabled': true,
+    'sigmavoice.enabled': true,
     'bridgecode.access': true,
     'bridgejarvis.enabled': true,
     'canvas.enabled': true,

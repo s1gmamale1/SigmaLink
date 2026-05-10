@@ -709,5 +709,14 @@ export interface AppRouter {
     }) => Promise<{
       mode: 'auto' | 'web-speech' | 'native-mac' | 'off';
     }>;
+    /**
+     * V1.1.1 — Re-prompt the OS microphone authorisation dialog. Resolves
+     * with `'unsupported'` on non-darwin or when the native module is
+     * missing so the renderer can render a steady-state Settings row
+     * without special-casing the platform branch.
+     */
+    permissionRequest: () => Promise<{
+      status: 'granted' | 'denied' | 'undetermined' | 'unsupported';
+    }>;
   };
 }

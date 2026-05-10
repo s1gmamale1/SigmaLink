@@ -1,4 +1,4 @@
-// V3-W15-001 — BridgeVoice title-bar indicator.
+// V3-W15-001 — SigmaVoice title-bar indicator.
 //
 // Source: V3 frames 0080 + 0090 (top-bar pill that shows the active voice
 // source while capture is live). Subscribes to two channels:
@@ -27,7 +27,7 @@ const ROUTING_LABEL: Record<string, string> = {
   'app.navigate': 'Switching pane…',
   'swarms.broadcast': 'Broadcasting…',
   'swarms.rollCall': 'Calling roll…',
-  'assistant.freeform': 'Asking Bridge…',
+  'assistant.freeform': 'Asking Sigma…',
 };
 
 interface VoiceStateDetail {
@@ -137,7 +137,7 @@ export function VoicePill() {
       role="status"
     >
       <Mic className="h-3 w-3" aria-hidden />
-      <span>BridgeVoice</span>
+      <span>SigmaVoice</span>
       {label ? <span className="opacity-70">· {label}</span> : null}
     </div>
   );

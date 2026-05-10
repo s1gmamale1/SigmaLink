@@ -44,6 +44,7 @@ import {
 } from './core/assistant/conversations-controller';
 import { buildDesignController } from './core/design/controller';
 import { buildVoiceController } from './core/voice/adapter';
+import { runVoiceDiagnostics } from './core/voice/diagnostics';
 import { fsReadDir, fsReadFile, fsWriteFile } from './core/fs/controller';
 import { getChannelSchema } from './core/rpc/schemas';
 // Phase 4 Track C — Ruflo MCP embed. Process-singleton supervisor + lazy
@@ -601,6 +602,34 @@ function buildRouter() {
   // without keeping a stateful adapter pointer in main.
   const voiceCtl = buildVoiceController({
     emit: (event, payload) => broadcast(event, payload),
+    // V1.1.1 — kv hooks let the controller bootstrap routing mode from
+    // persisted state and run the macOS first-launch auto-enable. Both
+    // statements are wrapped in try/catch on the controller side so a
+    // missing kv table (cold migration) never blocks voice startup.
+    kv: {
+      get: (key) => {
+        try {
+          const row = getRawDb()
+            .prepare('SELECT value FROM kv WHERE key = ?')
+            .get(key) as { value?: string } | undefined;
+          return row?.value ?? null;
+        } catch {
+          return null;
+        }
+      },
+      set: (key, value) => {
+        try {
+          getRawDb()
+            .prepare(
+              `INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+            )
+            .run(key, value);
+        } catch {
+          /* swallow */
+        }
+      },
+    },
     dispatcher: {
       resolveWorkspaceId: () => {
         try {
@@ -766,9 +795,17 @@ export function registerRouter(): void {
   // `swarm.origin.<method>` resolves the back-link a swarm has into the
   // chat that triggered it. Both use the same envelope as the side-bands
   // above so the preload bridge can speak to them with no special-casing.
+  // V1.1.1 — SigmaVoice diagnostics side-band. The channel id
+  // `voice.diagnostics.run` lives outside the typed AppRouter shape (the
+  // `voice` namespace stays flat) so we register it via the same
+  // map-based pattern as the other side-bands above.
+  const voiceDiagnosticsHandlers: Record<string, (...args: unknown[]) => unknown> = {
+    run: () => runVoiceDiagnostics(),
+  };
   const sideBands: Array<{ prefix: string; map: Record<string, (...args: unknown[]) => unknown> | null }> = [
     { prefix: 'assistant.conversations.', map: conversationsHandlers },
     { prefix: 'swarm.origin.', map: swarmOriginHandlers },
+    { prefix: 'voice.diagnostics.', map: voiceDiagnosticsHandlers },
   ];
   for (const band of sideBands) {
     if (!band.map) continue;

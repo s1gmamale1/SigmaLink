@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
+import { dragStyle } from '@/renderer/lib/drag-region';
 
 export function Breadcrumb() {
   const { state } = useAppState();
@@ -61,14 +62,20 @@ export function Breadcrumb() {
     // Still render the chrome bar so the layout below does not jump when a
     // workspace opens. The label reads `No workspace open`.
     return (
-      <div className="flex h-8 items-center border-b border-border bg-background/60 px-4 text-xs text-muted-foreground">
+      <div
+        className="flex h-8 items-center border-b border-border bg-background/60 px-4 text-xs text-muted-foreground"
+        style={dragStyle()}
+      >
         No workspace open
       </div>
     );
   }
 
   return (
-    <div className="flex h-8 items-center gap-1 border-b border-border bg-background/60 px-4 text-xs">
+    <div
+      className="flex h-8 items-center gap-1 border-b border-border bg-background/60 px-4 text-xs"
+      style={dragStyle()}
+    >
       <span className="text-foreground">Workspace {workspaceNumber}</span>
       {userName ? (
         <>

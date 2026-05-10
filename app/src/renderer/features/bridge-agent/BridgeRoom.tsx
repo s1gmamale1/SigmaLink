@@ -367,7 +367,7 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
       if (!raw || typeof raw !== 'object') return;
       const echo = raw as DispatchEchoEvent;
       if (!echo.ok) {
-        toast.error('Bridge dispatch failed', {
+        toast.error('Sigma dispatch failed', {
           description: echo.error ?? 'Unknown error',
         });
         return;
@@ -412,7 +412,7 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
           /* default ON when kv unreachable */
         }
         if (autoFocus) jumpToPane();
-        toast.success(`Bridge dispatched a ${echo.providerId} pane`, {
+        toast.success(`Sigma dispatched a ${echo.providerId} pane`, {
           description: `${wsLabel} · session ${echo.sessionId.slice(0, 8)}`,
           action: {
             label: 'Jump to pane',
@@ -428,7 +428,7 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
   const sendPrompt = useCallback(
     async (prompt: string) => {
       if (!activeWorkspace) {
-        toast.error('Open a workspace before talking to the Bridge.');
+        toast.error('Open a workspace before talking to Sigma.');
         return;
       }
       // Phase 4 Track C — capture the prompt so the post-turn `state==='standby'`
@@ -627,8 +627,8 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
       <div className={cn('flex h-full min-h-0 flex-col bg-background', className)}>
         <EmptyState
           icon={Bot}
-          title="Bridge Assistant"
-          description="Open a workspace to talk to the Bridge."
+          title="Sigma Assistant"
+          description="Open a workspace to talk to Sigma."
         />
       </div>
     );
@@ -658,7 +658,7 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
         {variant === 'standalone' ? (
           <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/10 px-3 text-sm">
             <Bot className="h-4 w-4 text-primary" aria-hidden />
-            <h2 className="text-sm font-semibold tracking-tight">Bridge Assistant</h2>
+            <h2 className="text-sm font-semibold tracking-tight">Sigma Assistant</h2>
             <span className="ml-2 truncate text-xs text-muted-foreground">
               {activeWorkspace.name}
             </span>

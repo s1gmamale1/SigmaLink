@@ -1,11 +1,12 @@
 // Tab bar for the right-rail dock. Three permanent tabs: Browser, Editor,
-// Bridge. The active tab id is owned by `RightRail.tsx`; inactive tabs are
-// kept mounted under `display:none` so per-pane state (browser tabs, editor
-// scroll, bridge transcript) survives a switch.
+// Sigma Assistant. The active tab id is owned by `RightRail.tsx`; inactive
+// tabs are kept mounted under `display:none` so per-pane state survives a
+// switch.
 
 import { Bot, FileCode2, Globe } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 
 export type RightRailTabId = 'browser' | 'editor' | 'bridge';
 
@@ -18,7 +19,7 @@ interface TabDef {
 const TABS: readonly TabDef[] = [
   { id: 'browser', label: 'Browser', Icon: Globe },
   { id: 'editor', label: 'Editor', Icon: FileCode2 },
-  { id: 'bridge', label: 'Bridge Assistant', Icon: Bot },
+  { id: 'bridge', label: 'Sigma Assistant', Icon: Bot },
 ] as const;
 
 interface Props {
@@ -35,6 +36,7 @@ export function RightRailTabs({ active, onSelect, bodies }: Props) {
         role="tablist"
         aria-label="Right rail tabs"
         className="flex shrink-0 items-center gap-1 border-b border-border bg-sidebar px-2 py-1"
+        style={dragStyle()}
       >
         {TABS.map((t) => {
           const isActive = t.id === active;
@@ -53,6 +55,7 @@ export function RightRailTabs({ active, onSelect, bodies }: Props) {
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:bg-accent/40',
               )}
+              style={noDragStyle()}
             >
               <t.Icon className="h-3.5 w-3.5" aria-hidden />
               <span>{t.label}</span>

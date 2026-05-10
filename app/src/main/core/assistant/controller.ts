@@ -1,7 +1,8 @@
 // V3-W13-013 — Bridge Assistant RPC controller. Wires `assistant.*` to the
 // conversations DAO, the launcher (dispatchPane), the tool registry (10
-// tools), and the tool tracer. W13 stubs the assistant turn; the LLM
-// client lands in W14+.
+// tools), and the tool tracer. V3-W14-002 — `send` now drives the local
+// Claude Code CLI via runClaudeCliTurn; runStubTurn is the binary-missing
+// fallback only.
 
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
@@ -26,6 +27,7 @@ import {
 import { findTool, publicTools } from './tools';
 import { ToolTracer, safeSerialize, type ToolTrace } from './tool-tracer';
 import { recordSwarmOrigin } from './swarm-origins';
+import { runClaudeCliTurn, cancelClaudeCliTurn } from './runClaudeCliTurn';
 
 export interface AssistantControllerDeps {
   pty: PtyRegistry;
@@ -101,9 +103,29 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
       const turnId = randomUUID();
       const turn: ActiveTurn = { conversationId, turnId, cancelled: false };
       activeTurns.set(turnId, turn);
-      void runStubTurn(turn, input.prompt, deps).finally(() => {
-        activeTurns.delete(turnId);
-      });
+      // V3-W14-002 — try the local Claude CLI first; fall back to the stub
+      // when the binary is missing on disk. The stub keeps the demo path
+      // alive so a fresh DMG without `claude` installed still feels alive.
+      void (async () => {
+        try {
+          const out = await runClaudeCliTurn(turn, input.prompt, { emit: deps.emit, tracer });
+          if (!out.handled && out.reason === 'no-binary') {
+            await runStubTurn(turn, input.prompt, deps, {
+              forcedReply:
+                'Claude Code CLI not detected on disk. Install Claude Code (https://www.anthropic.com/claude-code) to enable Sigma Assistant.',
+            });
+          }
+        } catch (err) {
+          // Last-ditch: the CLI driver itself blew up. Surface the error
+          // through the stub so the user sees something.
+          const message = err instanceof Error ? err.message : String(err);
+          await runStubTurn(turn, input.prompt, deps, {
+            forcedReply: `Sigma Assistant hit an error: ${message}`,
+          });
+        } finally {
+          activeTurns.delete(turnId);
+        }
+      })();
       return { conversationId, turnId };
     },
 
@@ -117,6 +139,9 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
     cancel: async (input: { conversationId: string; turnId: string }): Promise<void> => {
       const t = activeTurns.get(input.turnId);
       if (t) t.cancelled = true;
+      // V3-W14-002 — also kill the in-flight CLI child if there is one.
+      // No-op when the turn is being run by the stub fallback.
+      cancelClaudeCliTurn(input.turnId);
     },
 
     /** Spawn N panes; emit one `assistant:dispatch-echo` per pane. */
@@ -260,13 +285,20 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
   });
 }
 
-/** W13 stub turn — emits a deterministic assistant message + streamed deltas. */
+/**
+ * W13 stub turn — emits a deterministic assistant message + streamed deltas.
+ *
+ * V3-W14-002 — now used as the fallback path when the local Claude CLI is
+ * missing on disk. The caller may pass `forcedReply` to surface a specific
+ * install-prompt or error message instead of the heuristic stub.
+ */
 async function runStubTurn(
   turn: ActiveTurn,
   prompt: string,
   deps: AssistantControllerDeps,
+  opts?: { forcedReply?: string },
 ): Promise<void> {
-  const reply = composeStubReply(prompt);
+  const reply = opts?.forcedReply ?? composeStubReply(prompt);
   emitState(deps, 'thinking', turn);
   await delay(150);
   if (turn.cancelled) return;

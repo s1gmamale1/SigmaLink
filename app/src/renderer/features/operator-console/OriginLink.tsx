@@ -88,7 +88,7 @@ export function OriginLink({ swarmId }: Props) {
       <MessageCircle className="h-3 w-3 text-primary" aria-hidden />
       <span>
         Started from{' '}
-        <span className="font-medium text-foreground">Bridge Assistant chat</span>
+        <span className="font-medium text-foreground">Sigma Assistant chat</span>
         {' · '}
         <span className="tabular-nums">{stamp}</span>
       </span>

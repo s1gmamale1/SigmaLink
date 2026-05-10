@@ -4,6 +4,40 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-10
+
+UX hotfix on top of v1.1.0-rc3. Four user-reported defects fixed in one pass: the window is now draggable, the "Bridge Assistant" rebrand to "Sigma Assistant" is complete across every user-visible surface, the assistant actually streams real Claude Code CLI responses (no more "stub mode for W13"), and SigmaVoice has a full diagnostics surface so the silent "voice not enabled" failure mode is finally visible to the user.
+
+### Added
+
+- **Sigma Assistant Claude Code CLI streaming** — new driver `app/src/main/core/assistant/runClaudeCliTurn.ts` (497 lines) spawns the local `claude` CLI binary in `--output-format stream-json --verbose` mode via `child_process.spawn` (not PTY) and bridges its envelopes onto the existing `assistant:state` + `assistant:tool-trace` IPC channels. Probe cached per main-process lifetime; falls back to a friendly stub (with install link) when the binary is missing. Cancellation via `cancelClaudeCliTurn(turnId)` kills the child with SIGTERM. New `cli-envelope.ts` parser (91 lines) with type guards for the streaming JSON shape; new `system-prompt.ts` (108 lines) building a ~1100-token SigmaLink-aware system prompt with workspace context, recent files, open swarms, and the 10 canonical Sigma tools. Critical discovery: `--verbose` is required alongside `--output-format stream-json` (added to spawn args). 8 unit tests via `spawnOverride`/`probeOverride` injection + 1 Playwright e2e (skip-on-no-claude). Live JSON shape verified against installed CLI v2.1.138. No raw API calls.
+
+- **SigmaVoice diagnostics surface** — new `app/src/main/core/voice/diagnostics.ts` `runVoiceDiagnostics()` probes 4 stages independently (native loaded, permission status, dispatcher reachable, last error) in try/catch — never throws. New RPC channels `voice.diagnostics.run` + `voice.permissionRequest` allowlisted in `rpc-channels.ts` and zod-schema'd in `schemas.ts`. New `app/src/renderer/features/settings/VoiceTab.tsx` with mode radio (off/auto/on persisted to kv), permission row with Re-prompt button, and "Run diagnostics" button that renders 4 coloured stage dots with hover-tooltip detail. 7 unit tests + 1 Playwright e2e walking the Settings flow.
+
+- **First-launch voice auto-enable on macOS** — adapter now bootstraps `voice.mode` from `kv['voice.mode']` and on first launch flips `'off'`→`'auto'` when the native module loads (persists `voice.firstLaunch=1` so idempotent). On non-macOS or when native fails to load, emits a `voice:unavailable` event with `{reason: 'no-native'|'platform'}` so the UI can explain the disabled state instead of going silent.
+
+- **Drag-region helper** — new `app/src/renderer/lib/drag-region.ts` `dragStyle()` / `noDragStyle()` returning typed `CSSProperties` with the WebKit-prefixed `WebkitAppRegion` value. Single chokepoint replaces ad-hoc style objects.
+
+- **`sigmavoice.enabled` capability key** — added to all three tier rows (basic=false, pro=true, ultra=true) in `capabilities.ts`. Composer reads the new key. Legacy `bridgevoice.enabled` retained for one release as an alias.
+
+### Fixed
+
+- **Window immovable on macOS** — only a 28-px sliver in the sidebar header had `WebkitAppRegion: 'drag'`; the rest of the chrome (breadcrumb, right-rail tab bar, sidebar wordmark) was non-draggable, so under `titleBarStyle: 'hiddenInset'` the user couldn't pick up the window from anywhere visible. Wired drag regions across all chrome containers + `no-drag` overrides on every interactive child (collapse button, tabs).
+
+- **"Stub mode for W13" reply text** — the right-rail assistant has been a deterministic stub since W13. v1.1.1 wires it to the actual local `claude` CLI; the stub remains as the binary-missing fallback (with an install hint).
+
+- **"Voice not enabled or something" silent failure** — root cause was a diagnostics gap, not a single bug: mode defaults to `'auto'`, native module loads fine, but on first mic press `requestPermission()` returns `not-determined` until the OS dialog is acknowledged, the adapter threw `no-permission`, and the orb reset silently. Fixed by the first-launch auto-enable + `voice:unavailable` event + the new Settings → Voice diagnostics surface.
+
+### Changed
+
+- **Bridge → Sigma rebrand** — 8 user-visible strings swapped (sidebar nav, right-rail tab, command-palette entry, BridgeRoom EmptyState + standalone header, OriginLink banner, Composer placeholder + aria-label, VoicePill label). Comments + `Voice input (W15)` button title also updated. Folder paths and IPC channel names (`assistant:*`, `voice:*`) unchanged — protocol-level, breaks the renderer to rename.
+
+- **`vitest` added as a dev dependency** for the new unit-test files.
+
+### Carried forward from v1.1.0-rc3
+
+All Phase 4 work intact: Track A (agent IPC reliability + provider launcher façade), Track B (SigmaVoice native macOS Speech.framework), Track C (Ruflo MCP supervisor + 3 user-facing features), and Skills marketplace live install.
+
 ## [1.1.0-rc3] - 2026-05-10
 
 Hotfix on rc2. The rc2 DMG crashed at first launch with `Cannot find module 'lazy-val'`. rc3 fixes the underlying packaging defect.

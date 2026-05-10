@@ -3,7 +3,7 @@
 // auto-collapse below 1100px width, and Radix tooltips on collapsed items so
 // the user still sees the room name on hover.
 
-import { useEffect, type CSSProperties } from 'react';
+import { useEffect } from 'react';
 import {
   Bot,
   ChevronLeft,
@@ -31,6 +31,7 @@ import { Monogram } from '@/renderer/components/Monogram';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState, type RoomId } from '@/renderer/app/state';
 import { MOD_KEY_LABEL, PLATFORM_IS_MAC } from '@/renderer/lib/shortcuts';
+import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 import type { AgentSession, Workspace } from '@/shared/types';
 
 interface NavItem {
@@ -55,9 +56,9 @@ const ITEMS: NavItem[] = [
   { id: 'memory', label: 'Memory', icon: Sparkles },
   { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'skills', label: 'Skills', icon: Wand2 },
-  // V3-W13-012 — Bridge Assistant standalone room (fallback when the
+  // V3-W13-012 — Sigma Assistant standalone room (fallback when the
   // right-rail is gated off; otherwise lives in the right-rail tab).
-  { id: 'bridge', label: 'Bridge Assistant', icon: Bot },
+  { id: 'bridge', label: 'Sigma Assistant', icon: Bot },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -104,7 +105,7 @@ export function Sidebar() {
         {PLATFORM_IS_MAC ? (
           <div
             className="h-7 shrink-0 border-b border-border bg-sidebar"
-            style={{ WebkitAppRegion: 'drag' } as CSSProperties}
+            style={dragStyle()}
             aria-hidden
           />
         ) : null}
@@ -113,6 +114,7 @@ export function Sidebar() {
             'flex h-12 items-center gap-2 border-b border-border',
             collapsed ? 'justify-center px-2' : 'px-4',
           )}
+          style={dragStyle()}
         >
           <span className="text-primary">
             <Monogram size={collapsed ? 22 : 24} />
@@ -129,6 +131,7 @@ export function Sidebar() {
               className="rounded p-1 text-muted-foreground transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
               aria-label="Collapse sidebar"
               title="Collapse sidebar"
+              style={noDragStyle()}
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>

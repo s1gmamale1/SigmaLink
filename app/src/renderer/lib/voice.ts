@@ -156,7 +156,7 @@ export async function startCapture(opts: VoiceCaptureOptions): Promise<VoiceCapt
   const Recognizer = getRecognizer();
   if (!Recognizer) {
     toast.error('Voice not supported on this platform', {
-      description: 'BridgeVoice needs the Web Speech API (Chrome/Edge/Electron).',
+      description: 'SigmaVoice needs the Web Speech API (Chrome/Edge/Electron).',
     });
     opts.onError?.('voice-unsupported');
     return { stop: () => undefined };

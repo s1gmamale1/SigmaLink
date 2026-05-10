@@ -287,6 +287,28 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       mode: z.enum(['auto', 'web-speech', 'native-mac', 'off']),
     }),
   },
+  // V1.1.1 — Settings → Voice diagnostics. Each field is independently
+  // probed with try/catch so the controller never throws; `lastError`
+  // carries the first non-null probe failure.
+  'voice.diagnostics.run': {
+    input: z.undefined().optional(),
+    output: z.object({
+      nativeLoaded: z.boolean(),
+      permissionStatus: z.enum(['granted', 'denied', 'undetermined', 'unsupported']),
+      dispatcherReachable: z.boolean(),
+      mode: z.enum(['off', 'auto', 'on']),
+      lastError: z.string().nullable(),
+    }),
+  },
+  // V1.1.1 — Settings → Voice "Re-prompt microphone" CTA. Resolves with
+  // `'unsupported'` on non-darwin or when the native module is missing,
+  // so callers can render a steady-state row without special-casing.
+  'voice.permissionRequest': {
+    input: z.undefined().optional(),
+    output: z.object({
+      status: z.enum(['granted', 'denied', 'undetermined', 'unsupported']),
+    }),
+  },
   // ── Phase 4 Track C — Ruflo MCP embed ────────────────────────────────
   // Hardened (not `stub`) since both ends are first-party. The output
   // shapes for tool calls also accept the unavailable envelope so the

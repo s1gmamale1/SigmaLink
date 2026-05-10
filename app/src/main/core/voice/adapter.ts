@@ -50,7 +50,27 @@ export interface VoiceControllerDeps {
    * `notRouted` and the renderer simply shows a soft toast.
    */
   dispatcher?: Omit<DispatchDeps, 'emit'>;
+  /**
+   * V1.1.1 — Optional kv hooks for the first-launch auto-enable path.
+   *
+   * On macOS, when the native module loads successfully and `voice.firstLaunch`
+   * is unset, the controller flips `mode` from `'off'` to `'auto'` and stamps
+   * `voice.firstLaunch=1` so the user never sees a "voice not enabled" state
+   * out of the box. When the platform can't host SigmaVoice (non-darwin or
+   * native module missing) we emit `voice:unavailable` instead so the
+   * renderer can show an explanatory tooltip rather than disabling silently.
+   *
+   * Both hooks are optional — if absent we skip the bootstrap (e.g. unit
+   * tests, headless smokes) and rely on whatever default mode the test set.
+   */
+  kv?: {
+    get: (key: string) => string | null;
+    set: (key: string, value: string) => void;
+  };
 }
+
+const KV_VOICE_MODE = 'voice.mode';
+const KV_VOICE_FIRST_LAUNCH = 'voice.firstLaunch';
 
 interface ActiveSession {
   id: string;
@@ -77,7 +97,76 @@ const VALID_MODES: ReadonlySet<VoiceMode> = new Set([
 
 export function buildVoiceController(deps: VoiceControllerDeps) {
   let active: ActiveSession | null = null;
+  // V1.1.1 — bootstrap mode from kv (if available) so a user's previous
+  // choice survives restarts. The first-launch path below flips an `'off'`
+  // back to `'auto'` exactly once on darwin so the out-of-box experience
+  // never lands in a "voice not enabled" state without an explicit user
+  // action. Falls back to `'auto'` when kv hooks are missing or the row is
+  // unreadable — mirrors the v1.1 default.
   let mode: VoiceMode = 'auto';
+  if (deps.kv) {
+    try {
+      const raw = deps.kv.get(KV_VOICE_MODE);
+      if (raw && (VALID_MODES as ReadonlySet<string>).has(raw)) {
+        mode = raw as VoiceMode;
+      }
+    } catch {
+      /* keep default */
+    }
+  }
+  // First-launch auto-enable. The check is gated on:
+  //   1. Hook availability (kv present),
+  //   2. mode === 'off' — only restore the default when the user has not
+  //      explicitly opted into another mode,
+  //   3. firstLaunch flag is unset — never overwrite a deliberate later
+  //      "off" toggle (we'd be re-enabling against the user's wish),
+  //   4. platform is darwin AND the native module loads — non-darwin keeps
+  //      mode='off' and the renderer surfaces `voice:unavailable` so the
+  //      Composer can hide the mic without bouncing through a toast.
+  if (deps.kv) {
+    try {
+      const firstLaunch = deps.kv.get(KV_VOICE_FIRST_LAUNCH);
+      if (firstLaunch !== '1') {
+        if (process.platform === 'darwin' && isNativeMacVoiceAvailable()) {
+          if (mode === 'off') {
+            mode = 'auto';
+            try {
+              deps.kv.set(KV_VOICE_MODE, mode);
+            } catch {
+              /* persistence failure is non-fatal */
+            }
+            console.log(
+              '[voice] auto-enabled on first launch (macOS native available)',
+            );
+          }
+          try {
+            deps.kv.set(KV_VOICE_FIRST_LAUNCH, '1');
+          } catch {
+            /* swallow */
+          }
+        } else {
+          // No native engine — emit a one-shot reason so the renderer can
+          // render an explanatory tooltip instead of silently disabling.
+          // We still stamp `firstLaunch=1` so we don't re-broadcast the
+          // event on every adapter rebuild.
+          const reason: 'platform' | 'no-native' =
+            process.platform === 'darwin' ? 'no-native' : 'platform';
+          try {
+            deps.emit('voice:unavailable', { reason });
+          } catch {
+            /* fire-and-forget */
+          }
+          try {
+            deps.kv.set(KV_VOICE_FIRST_LAUNCH, '1');
+          } catch {
+            /* swallow */
+          }
+        }
+      }
+    } catch {
+      /* fall through with current mode */
+    }
+  }
   let phase: VoicePhase = 'idle';
 
   function broadcast(): void {
@@ -291,8 +380,49 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
         throw new Error(`voice.setMode: invalid mode "${String(m)}"`);
       }
       mode = m;
+      // V1.1.1 — persist the user's choice so it survives the next restart.
+      // We also stamp firstLaunch=1 here so a deliberate `off` cannot be
+      // unwound by the bootstrap auto-enable on the next boot.
+      if (deps.kv) {
+        try {
+          deps.kv.set(KV_VOICE_MODE, m);
+          deps.kv.set(KV_VOICE_FIRST_LAUNCH, '1');
+        } catch {
+          /* persistence failure is non-fatal */
+        }
+      }
       broadcast();
       return { mode };
+    },
+    /**
+     * V1.1.1 — Re-prompt the OS microphone permission dialog. The native
+     * adapter already invokes `requestPermission()` lazily on the first
+     * `start()`, but the Settings → Voice surface needs to surface a
+     * dedicated CTA so users who previously denied can re-grant without
+     * triggering a fake capture. Resolves with the resulting auth status.
+     * On non-darwin platforms (or when the native module is missing) the
+     * call resolves with `{ status: 'unsupported' }` instead of throwing
+     * so the renderer can render a steady-state "Microphone unsupported"
+     * row without special-casing.
+     */
+    permissionRequest: async (): Promise<{
+      status: 'granted' | 'denied' | 'undetermined' | 'unsupported';
+    }> => {
+      if (process.platform !== 'darwin') {
+        return { status: 'unsupported' };
+      }
+      const native = loadNative();
+      if (!native) {
+        return { status: 'unsupported' };
+      }
+      try {
+        const raw = await native.requestPermission();
+        if (raw === 'granted') return { status: 'granted' };
+        if (raw === 'denied' || raw === 'restricted') return { status: 'denied' };
+        return { status: 'undetermined' };
+      } catch {
+        return { status: 'undetermined' };
+      }
     },
   });
 }

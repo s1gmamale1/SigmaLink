@@ -178,6 +178,14 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // (`auto` | `web-speech` | `native-mac` | `off`).
   'voice.dispatch',
   'voice.setMode',
+  // V1.1.1 — Settings → Voice diagnostics. Re-runs the four-stage probe
+  // (native module / mic permission / dispatcher reachability / persisted
+  // mode) so support can pinpoint why "voice not enabled" surfaces.
+  'voice.diagnostics.run',
+  // V1.1.1 — Re-prompt the OS microphone permission dialog from Settings
+  // without faking a capture session. macOS-only; on other platforms the
+  // call resolves with `{ status: 'unsupported' }`.
+  'voice.permissionRequest',
   // Phase 4 Track C — Ruflo MCP embed (lazy-downloaded `@claude-flow/cli`).
   // The supervisor lives in main; renderer features (Memory semantic search,
   // Bridge pattern surfacing, Command-Palette autopilot, Settings → Ruflo)
@@ -232,6 +240,11 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // Renderer surfaces these as toasts with a "Open Settings" action when
   // `code === 'no-permission'`.
   'voice:error',
+  // V1.1.1 — Fired once at controller boot when SigmaVoice cannot run on
+  // the current host (non-darwin platform or native module missing). Lets
+  // the renderer render an explanatory tooltip instead of a silent disable.
+  // Payload: `{ reason: 'no-native' | 'no-permission' | 'platform' }`.
+  'voice:unavailable',
   // V1.1 — main → renderer navigation hint. SigmaVoice's `app.navigate`
   // intent fires this so the active window's router can switch panes
   // without round-tripping through the renderer voice adapter.

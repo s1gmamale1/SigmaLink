@@ -37,7 +37,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
 ) {
   const [value, setValue] = useState('');
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
-  const voiceEnabled = useCanDo<boolean>('bridgevoice.enabled');
+  const voiceEnabled = useCanDo<boolean>('sigmavoice.enabled');
 
   useEffect(() => {
     if (typeof externalRef === 'function') externalRef(innerRef.current);
@@ -90,14 +90,14 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
           onChange?.(e.target.value);
         }}
         onKeyDown={onKeyDown}
-        placeholder={placeholder ?? 'Ask the Bridge…'}
+        placeholder={placeholder ?? 'Ask Sigma…'}
         rows={2}
         className={cn(
           'min-h-[44px] flex-1 resize-none rounded-md border border-input bg-muted/30 px-3 py-2 text-sm shadow-xs outline-none transition placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring',
           'disabled:cursor-not-allowed disabled:opacity-60',
         )}
         disabled={busy}
-        aria-label="Ask the Bridge"
+        aria-label="Ask Sigma"
       />
       <div className="flex flex-col gap-1">
         {voiceEnabled ? (
@@ -107,7 +107,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
             variant="ghost"
             onClick={onMicPress}
             aria-label="Toggle voice input"
-            title="Voice input (W15)"
+            title="SigmaVoice input"
             disabled={busy}
           >
             <Mic className="h-4 w-4" />

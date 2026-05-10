@@ -1,0 +1,145 @@
+SigmaLink v1.1.1 — UX hotfix on top of v1.1.0-rc3
+
+Four user-reported defects from the rc3 dogfood are fixed here. No new
+features, no architectural shifts — strictly polish, rebrand, and the
+long-promised "Sigma Assistant actually answers" wiring.
+
+What's fixed
+============
+
+1. Window is movable again
+---------------------------
+
+rc3 shipped with `titleBarStyle: 'hiddenInset'` on macOS but only a 28-pixel
+sliver in the sidebar header had a CSS drag region. Outside that strip the
+window simply refused to be picked up — the user had to use Stage Manager
+or a window-manager third-party app to reposition it.
+
+v1.1.1 wires explicit drag regions across every chrome surface (top
+breadcrumb bar, right-rail tab bar, the full sidebar header strip) and
+adds matching `no-drag` overrides on every interactive child (buttons,
+tabs, the collapse toggle) so clicks still register cleanly. New helper
+at `app/src/renderer/lib/drag-region.ts` keeps the WebKit prefix in one
+place.
+
+2. "Bridge Assistant" → "Sigma Assistant" rebrand
+--------------------------------------------------
+
+Every user-visible "Bridge Assistant" string is now "Sigma Assistant".
+Every "BridgeVoice" string is "SigmaVoice". The composer placeholder
+reads "Ask Sigma…" instead of "Ask the Bridge…". Folder paths and the
+internal `bridge-agent` directory stay untouched so the diff is small
+and reversible.
+
+The plan-tier capability matrix gained a `sigmavoice.enabled` key
+mirroring the legacy `bridgevoice.enabled` for one release; the renderer
+reads the new key. Future SigmaLink/Bridge Mind sync points can drop
+the alias.
+
+3. Sigma Assistant actually answers (Claude Code CLI streaming)
+---------------------------------------------------------------
+
+This is the big one. v1.0 through rc3 the right-rail Bridge/Sigma
+Assistant was a deterministic stub: every reply began "Got it — '<your
+text>'. I'm in stub mode for W13; the LLM-backed turn lands in W14."
+
+v1.1.1 wires the assistant to the local `claude` Code CLI (Opus 4.7) in
+streaming JSON mode. The driver:
+
+* Probes for the `claude` binary on disk via the existing `probeProvider`
+  (DMG-safe — uses `bootstrapShellPath()` to resolve `/opt/homebrew/bin`
+  etc. when the app is launched from Finder).
+* Spawns `claude -p "<prompt>" --output-format stream-json --verbose
+  --append-system-prompt "<sigma-context>"` via `child_process.spawn`
+  (NOT a PTY — clean stdout JSONL).
+* Reads the stream line-by-line; relays text deltas onto the existing
+  `assistant:state` channel (renderer animation works as-is); routes
+  `tool_use` envelopes through the existing `ToolTracer` so the right-
+  rail "Tool calls" disclosure populates live; emits the orb-reset
+  `kind:'state'+state:'standby'` envelope on the `result` line.
+* Caches the probe result for the main-process lifetime; supports
+  cancellation via `cancelClaudeCliTurn(turnId)` (kills the child
+  with SIGTERM).
+* Falls back to a friendly stub — "Claude Code CLI not detected.
+  Install Claude Code (https://www.anthropic.com/claude-code) to enable
+  Sigma Assistant." — when the binary is missing on disk.
+
+System prompt at `app/src/main/core/assistant/system-prompt.ts` injects
+~1100 tokens of SigmaLink context (workspace name, root path, recent
+files, open swarms, the 10 canonical Sigma tools by name + arg shape).
+
+8 unit tests + 1 Playwright e2e (skip-on-no-claude). Live JSON shape
+verified against `claude` CLI v2.1.138.
+
+No raw API calls. No cloud round-trip beyond what the local CLI itself
+makes. No new auth surface.
+
+4. SigmaVoice "voice not enabled" — diagnostics
+------------------------------------------------
+
+Some users reported that the mic button rendered but tapping it produced
+nothing visible — "voice not enabled or something." Investigation
+showed the actual issue is a diagnostics gap, not a single bug:
+
+* Default `voice.mode` is `'auto'` (not `'off'`).
+* The macOS native module loads (`isAvailable: true`).
+* But on first mic press, `requestPermission()` returns
+  `not-determined` until the OS dialog is acknowledged. The adapter
+  threw `no-permission`, the orb reset silently, and the user perceived
+  voice as broken.
+
+v1.1.1 ships:
+
+* First-launch auto-enable on macOS — flips `voice.mode` to `'auto'`
+  the first time the app launches on a Mac with the native module
+  loaded; persists `voice.firstLaunch=1` so it's idempotent.
+* `voice:unavailable` event with `{reason}` — emitted on platforms
+  without a native voice path so the UI can render an explanatory
+  pill instead of just disabling the mic silently.
+* New Settings → Voice tab with three sections:
+  - Mode radio (off / auto / on) persisted to `kv['voice.mode']`
+  - Microphone permission row with a "Re-prompt" button that drives
+    the native permission dialog
+  - "Run diagnostics" button that probes 4 stages independently
+    (native loaded, permission status, dispatcher reachable, last
+    error) and renders a coloured dot per stage
+* New RPC channels `voice.diagnostics.run` + `voice.permissionRequest`
+  (both with zod schemas).
+
+7 unit tests + 1 Playwright e2e covering the Settings flow.
+
+Build hygiene
+=============
+
+* `tsc -b` clean.
+* 15/15 vitest pass (8 CLI driver + 7 voice diagnostics).
+* `vitest` added as a dev dep.
+* No new `any` casts; no new lint suppressions.
+* All new files under 500 lines.
+* electron-builder.yml unchanged; same DMG packaging path as rc3.
+
+Carried forward
+===============
+
+All Phase 4 / v1.1.0-rc3 features remain intact: Track A (agent IPC
+hardening + provider launcher façade), Track B (SigmaVoice native
+macOS Speech.framework module), Track C (Ruflo MCP supervisor +
+3 user-facing features), Step 5 (Skills marketplace live install).
+
+Known issues (unchanged from rc3)
+==================================
+
+* "Hey Sigma" wake-word — Porcupine licensing forbids bundled key.
+  Push-to-talk only in v1.1.x.
+* macOS notarisation — needs Apple Developer ID. Hardened runtime is
+  on but the DMG ships unsigned.
+* @playwright/test ≥1.60 bump for Node-26 loader race.
+* Win SAPI + Linux Whisper.cpp voice deferred to v1.2.
+
+Upgrade path
+============
+
+Drop the new SigmaLink.app into /Applications. Existing kv state
+survives — the canDo migration is read-time alias, no DB changes.
+First launch on macOS will request microphone + speech-recognition
+permissions if you tap the mic; granting once is enough.
