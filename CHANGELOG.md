@@ -4,7 +4,7 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-05-10 (PENDING TAG)
+## [1.0.0] - 2026-05-10
 
 V3 parity release. Tag + push gated on explicit user authorization. Body: `docs/release-notes-1.0.0.txt`. Acceptance: `docs/06-test/ACCEPTANCE_REPORT_V1.md`.
 
@@ -98,6 +98,8 @@ W12 P3 sweep — 5 P3 bugs from W7 closed:
 - Lint at 80 errors / 3 warnings, nearly all in `_legacy/` archive code.
 - BUG-W7-015 (P3) — Parchment "Launch N agents" CTA contrast nit (open).
 - BUG-W7-000 (P0) — Electron node_modules install bug; bypassed by Node 20 CI matrix; tracked for v1.1.
+
+Tagged and released: 2026-05-10.
 
 ## [0.1.0-alpha] - 2026-05-09
 

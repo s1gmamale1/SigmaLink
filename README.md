@@ -181,6 +181,17 @@ Start at [`docs/README.md`](docs/README.md) for the full directory map. The inte
 3. [`docs/03-plan/BUILD_BLUEPRINT.md`](docs/03-plan/BUILD_BLUEPRINT.md) — phased implementation plan.
 4. [`docs/04-critique/`](docs/04-critique/) — architecture, UX, engineering-risk critiques.
 
+## Known issues in v1.0
+
+The v1.0.0 release ships with the following known limitations. Full triage in [`docs/07-bugs/OPEN.md`](docs/07-bugs/OPEN.md); v1.1 milestone tracks the follow-ups.
+
+- **BUG-DF-01** (P3): Browser sidebar click in some Playwright auto-flows briefly renders the prior room. Manual usage is fine; cosmetic flicker scheduled for v1.1.
+- **BUG-DF-02** (P3): Two RPC channels (`app.tier`, `design.shutdown`) emit zod soft-launch warnings at boot. No functional impact; schemas to land in v1.1.
+- **Native voice (BridgeVoice)**: macOS Speech / Windows SAPI / Linux PocketSphinx bindings are stubbed via Web Speech API; native bindings are v1.1.
+- **macOS notarisation + Windows code-signing**: installers are unsigned in v1.0; notarisation requires an Apple Developer ID (deferred to v1.1).
+- **BridgeCode multi-provider dispatch**: BridgeCode is registered with `comingSoon` flag and falls back to Claude. Real BridgeCode dispatch lands when BridgeMind ships the BridgeCode SKU.
+- **Skill marketplace install from GitHub URL**: marketplace is currently read-only stub; live install from GitHub deferred to v1.1.
+
 ## Contributing
 
 Pull requests are welcome but expect heavy churn until Wave 7 acceptance lands. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a PR; bug reports and feature requests use the templates in [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/).
