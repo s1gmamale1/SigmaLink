@@ -186,6 +186,26 @@ const RECIPIENT_GROUPS = new Set<MailboxRecipientGroup>([
   '@reviewers',
 ]);
 
+/**
+ * Map of role-scoped group selectors → the `swarm_agents.role` value used for
+ * filtering. `@all` is intentionally absent: it expands to every agent in the
+ * swarm regardless of role and is handled separately by `expandRecipient`.
+ */
+export const GROUP_TO_ROLE: Record<
+  Exclude<MailboxRecipientGroup, '@all'>,
+  Role
+> = {
+  '@coordinators': 'coordinator',
+  '@builders': 'builder',
+  '@scouts': 'scout',
+  '@reviewers': 'reviewer',
+};
+
+/** True when `raw` is a recognised group selector (`@all` or a role group). */
+export function isRecipientGroup(raw: string): raw is MailboxRecipientGroup {
+  return RECIPIENT_GROUPS.has(raw as MailboxRecipientGroup);
+}
+
 /** Coerce a recipient string into a typed `MailboxRecipient`. Never throws. */
 export function parseRecipient(raw: string): MailboxRecipient {
   if (raw === '*') return '*';

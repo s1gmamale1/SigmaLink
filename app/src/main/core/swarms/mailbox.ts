@@ -19,7 +19,7 @@ import { getDb } from '../db/client';
 import { swarmAgents, swarmMessages } from '../db/schema';
 import type { SwarmMessage, SwarmMessageKind } from '../../../shared/types';
 import type { BoardManager } from './boards';
-import type { MailboxKind } from './types';
+import { GROUP_TO_ROLE, isRecipientGroup, type MailboxKind } from './types';
 
 export interface MailboxAppend {
   swarmId: string;
@@ -231,14 +231,7 @@ export class SwarmMailbox {
   }
 
   private recipientsFor(swarmId: string, toAgent: string): string[] {
-    if (toAgent !== '*') return [toAgent];
-    const db = getDb();
-    const rows = db
-      .select({ agentKey: swarmAgents.agentKey })
-      .from(swarmAgents)
-      .where(eq(swarmAgents.swarmId, swarmId))
-      .all();
-    return rows.map((r) => r.agentKey);
+    return expandRecipient(swarmId, toAgent);
   }
 
   /** Tail recent messages for a swarm. Newest last for chronological render. */
@@ -262,6 +255,63 @@ export class SwarmMailbox {
       .where(and(eq(swarmMessages.id, messageId), eq(swarmMessages.swarmId, swarmId)))
       .run();
   }
+}
+
+/**
+ * Expand a mailbox `toAgent` field into the concrete list of agent keys that
+ * should receive the envelope. Resolves V3 group selectors (`@all`,
+ * `@coordinators`, `@builders`, `@scouts`, `@reviewers`) and the legacy `'*'`
+ * broadcast against `swarm_agents` for the given swarmId. Literal agent keys
+ * are validated against the swarm's roster — unknown keys return `[]` and log
+ * a warning so an Operator's directive cannot be silently dropped onto a
+ * non-existent inbox file.
+ *
+ * Resolves BUG-V1.1-01-IPC: previously `recipientsFor` short-circuited on any
+ * `toAgent !== '*'` and returned the literal string, so a `@coordinators`
+ * envelope mirrored into `inboxes/@coordinators.jsonl` and zero PTYs received
+ * the SIGMA:: line.
+ */
+export function expandRecipient(swarmId: string, recipient: string): string[] {
+  if (!recipient) return [];
+  // Broadcasts: '*' (legacy wire) and '@all' (V3 canonical) both expand to
+  // every agent in the swarm.
+  if (recipient === '*' || recipient === '@all') {
+    const db = getDb();
+    const rows = db
+      .select({ agentKey: swarmAgents.agentKey })
+      .from(swarmAgents)
+      .where(eq(swarmAgents.swarmId, swarmId))
+      .all();
+    return rows.map((r) => r.agentKey);
+  }
+  // Role-scoped groups: expand against the role column.
+  if (isRecipientGroup(recipient)) {
+    const role = GROUP_TO_ROLE[recipient as keyof typeof GROUP_TO_ROLE];
+    if (!role) return [];
+    const db = getDb();
+    const rows = db
+      .select({ agentKey: swarmAgents.agentKey })
+      .from(swarmAgents)
+      .where(and(eq(swarmAgents.swarmId, swarmId), eq(swarmAgents.role, role)))
+      .all();
+    return rows.map((r) => r.agentKey);
+  }
+  // Literal agentKey — verify membership before honouring it. An unknown key
+  // (typo, stale roster) returns `[]` instead of producing a phantom inbox
+  // file the operator can never read from.
+  const db = getDb();
+  const hit = db
+    .select({ agentKey: swarmAgents.agentKey })
+    .from(swarmAgents)
+    .where(and(eq(swarmAgents.swarmId, swarmId), eq(swarmAgents.agentKey, recipient)))
+    .get();
+  if (!hit) {
+    console.warn(
+      `[mailbox] expandRecipient: unknown recipient "${recipient}" for swarm ${swarmId}`,
+    );
+    return [];
+  }
+  return [hit.agentKey];
 }
 
 function rowToMessage(row: typeof swarmMessages.$inferSelect): SwarmMessage {

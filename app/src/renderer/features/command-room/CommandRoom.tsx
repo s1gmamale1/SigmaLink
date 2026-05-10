@@ -6,7 +6,7 @@
 // shape (1/2/4/6/8/10/12) and supports per-cell drag resize plus
 // Cmd+Alt+<N> focus jumps.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Terminal as TerminalIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { rpc } from '@/renderer/lib/rpc';
@@ -29,13 +29,50 @@ export function CommandRoom() {
       ),
     [state.sessions, state.activeWorkspace],
   );
-  const [activeIndex, setActiveIndex] = useState(0);
 
-  // Clamp the active index when the session list shrinks. Computed during
-  // render and corrected via setState so we don't need a setState-in-effect.
-  if (activeIndex >= sessions.length && sessions.length > 0) {
-    setActiveIndex(Math.max(0, sessions.length - 1));
-  }
+  // BUG-V1.1-04-IPC — derive activeIndex from global state.activeSessionId
+  // so cross-pane jumps fired by Bridge dispatch echoes (or anywhere else
+  // that dispatches SET_ACTIVE_SESSION) update the focus ring + footer
+  // metadata without needing a local click. Falls back to 0 when the
+  // active id isn't in the current pane list (e.g. workspace just
+  // switched, session not yet hydrated).
+  const activeIndex = useMemo(() => {
+    if (sessions.length === 0) return 0;
+    const idx = state.activeSessionId
+      ? sessions.findIndex((s) => s.id === state.activeSessionId)
+      : -1;
+    return idx >= 0 ? idx : 0;
+  }, [sessions, state.activeSessionId]);
+
+  // Reconcile the global active session with the local pane list. If the
+  // current activeSessionId is missing from this workspace's sessions, point
+  // it at the first pane so the focus ring lands somewhere coherent.
+  useEffect(() => {
+    if (sessions.length === 0) return;
+    const inList = state.activeSessionId
+      ? sessions.some((s) => s.id === state.activeSessionId)
+      : false;
+    if (!inList) {
+      dispatch({ type: 'SET_ACTIVE_SESSION', id: sessions[0]!.id });
+    }
+  }, [sessions, state.activeSessionId, dispatch]);
+
+  // BUG-V1.1-04-IPC — listen for cross-pane focus requests at the room
+  // level so the active-index ring + footer metadata sync alongside the
+  // xterm focus call in Terminal.tsx. Bridge dispatch echoes fire this
+  // event automatically; the prior implementation only updated xterm.
+  useEffect(() => {
+    const onFocusReq = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ sessionId?: string }>).detail;
+      if (!detail || typeof detail.sessionId !== 'string') return;
+      const target = detail.sessionId;
+      if (!sessions.some((s) => s.id === target)) return;
+      if (state.activeSessionId === target) return;
+      dispatch({ type: 'SET_ACTIVE_SESSION', id: target });
+    };
+    window.addEventListener('sigma:pty-focus', onFocusReq);
+    return () => window.removeEventListener('sigma:pty-focus', onFocusReq);
+  }, [sessions, state.activeSessionId, dispatch]);
 
   if (!state.activeWorkspace) {
     return (
@@ -90,9 +127,10 @@ export function CommandRoom() {
           getKey={(s) => s.id}
           activeIndex={activeIndex}
           onActiveChange={(i) => {
-            setActiveIndex(i);
             const s = sessions[i];
-            if (s) dispatch({ type: 'SET_ACTIVE_SESSION', id: s.id });
+            if (s && state.activeSessionId !== s.id) {
+              dispatch({ type: 'SET_ACTIVE_SESSION', id: s.id });
+            }
           }}
           renderCell={(session) => (
             <PaneCell

@@ -5,7 +5,7 @@
 // without inserting a "running" row into agent_sessions.
 
 import { eq } from 'drizzle-orm';
-import { getDb } from '../db/client';
+import { getDb, getRawDb } from '../db/client';
 import { agentSessions, workspaces as workspacesTable } from '../db/schema';
 import { findProvider } from '../../../shared/providers';
 import type { AgentSession, LaunchPlan, Workspace } from '../../../shared/types';
@@ -13,6 +13,23 @@ import type { PtyRegistry } from '../pty/registry';
 import type { WorktreePool } from '../git/worktree';
 import { getSharedDeps } from '../../rpc-router';
 import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
+import { resolveAndSpawn, ProviderLaunchError } from '../providers/launcher';
+
+/**
+ * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
+ * not opted in. The launcher façade re-checks this main-side so a renderer
+ * that bypasses its own gate still cannot spawn a legacy provider.
+ */
+function readShowLegacy(): boolean {
+  try {
+    const row = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get('providers.showLegacy') as { value?: string } | undefined;
+    return row?.value === '1' || row?.value === 'true';
+  } catch {
+    return false;
+  }
+}
 
 interface LauncherDeps {
   pty: PtyRegistry;
@@ -21,17 +38,39 @@ interface LauncherDeps {
   defaultRows?: number;
 }
 
-function buildArgs(providerId: string, oneshotPrompt?: string): string[] {
+/**
+ * Build the prompt-related "extra" args. The façade owns the base
+ * `provider.args` and the autoApprove flag; this helper only contributes the
+ * tokens that depend on `oneshotPrompt`. Returning an empty array when no
+ * prompt is set is correct — the caller still types the prompt later via
+ * `pty.write` for providers that lack a one-shot or initial-prompt flag.
+ */
+function buildExtraArgs(providerId: string, oneshotPrompt?: string): string[] {
   const p = findProvider(providerId);
-  if (!p) return [];
-  const args = [...p.args];
-  if (oneshotPrompt && p.oneshotArgs && p.oneshotArgs.length) {
+  if (!p || !oneshotPrompt) return [];
+  if (p.oneshotArgs && p.oneshotArgs.length) {
     return p.oneshotArgs.map((tok) => tok.replace('{prompt}', oneshotPrompt));
   }
-  if (oneshotPrompt && p.initialPromptFlag) {
-    return [...args, p.initialPromptFlag, oneshotPrompt];
+  if (p.initialPromptFlag) {
+    return [p.initialPromptFlag, oneshotPrompt];
   }
-  return args;
+  return [];
+}
+
+/**
+ * BUG-V1.1-02: persist the resolved provider tag when a comingSoon→fallback
+ * swap occurred. The column is nullable; the migration is idempotent and may
+ * not have run yet on legacy DBs, so we fall back to a no-op on column-missing
+ * errors instead of crashing the spawn.
+ */
+function writeProviderEffective(sessionId: string, providerEffective: string): void {
+  try {
+    getRawDb()
+      .prepare('UPDATE agent_sessions SET provider_effective = ? WHERE id = ?')
+      .run(providerEffective, sessionId);
+  } catch {
+    /* column may not exist on a pre-0010 DB; ignore */
+  }
 }
 
 export async function executeLaunchPlan(
@@ -107,21 +146,36 @@ export async function executeLaunchPlan(
         /* MCP wiring is non-fatal */
       }
 
-      const args = buildArgs(provider.id, pane.initialPrompt);
-      const rec = deps.pty.create({
-        providerId: provider.id,
-        command: provider.command,
-        args,
-        cwd,
-        cols: deps.defaultCols ?? 120,
-        rows: deps.defaultRows ?? 32,
-      });
+      // V1.1: route every spawn through the provider launcher façade. The
+      // façade applies the comingSoon→fallback swap, walks `altCommands` on
+      // ENOENT, appends `autoApproveFlag` when requested, and re-checks the
+      // legacy gate main-side. The caller (this loop) still owns the DB
+      // insert + worktree wiring + initial-prompt typing.
+      const extraArgs = buildExtraArgs(provider.id, pane.initialPrompt);
+      const spawnResult = resolveAndSpawn(
+        { ptyRegistry: deps.pty },
+        {
+          providerId: provider.id,
+          cwd,
+          cols: deps.defaultCols ?? 120,
+          rows: deps.defaultRows ?? 32,
+          showLegacy: readShowLegacy(),
+          extraArgs,
+        },
+      );
+      const rec = spawnResult.ptySession;
       const finalSessionId = rec.id;
+      const effectiveProvider =
+        findProvider(spawnResult.providerEffective) ?? provider;
 
       db.insert(agentSessions)
         .values({
           id: finalSessionId,
           workspaceId: wsRow.id,
+          // BUG-V1.1-01: store the requested id in `providerId` so the UI
+          // continues to show what the operator picked (e.g. "BridgeCode"),
+          // and the resolved id in `provider_effective` so the runtime knows
+          // which CLI actually launched.
           providerId: provider.id,
           cwd,
           branch,
@@ -131,12 +185,24 @@ export async function executeLaunchPlan(
           startedAt: rec.startedAt,
         })
         .run();
+      if (spawnResult.fallbackOccurred) {
+        writeProviderEffective(finalSessionId, spawnResult.providerEffective);
+      } else {
+        // Always tag the row with the resolved id so downstream queries don't
+        // have to special-case nulls.
+        writeProviderEffective(finalSessionId, spawnResult.providerEffective);
+      }
 
       // If we wanted a non-oneshot prompt to be typed, push it after a tick.
       // The launcher is the single source-of-truth for typing the initial
       // prompt; the rpc-router pty.create controller does NOT type prompts to
-      // avoid double-send.
-      if (pane.initialPrompt && !provider.oneshotArgs?.length && !provider.initialPromptFlag) {
+      // avoid double-send. Use the *effective* provider's flags — a
+      // BridgeCode→Claude fallback should use Claude's prompt-flag rules.
+      if (
+        pane.initialPrompt &&
+        !effectiveProvider.oneshotArgs?.length &&
+        !effectiveProvider.initialPromptFlag
+      ) {
         setTimeout(() => {
           try {
             deps.pty.write(finalSessionId, pane.initialPrompt + '\n');
@@ -179,7 +245,16 @@ export async function executeLaunchPlan(
         }
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // ProviderLaunchError surfaces a human-readable .message already (legacy
+      // gate, "no usable command found", etc.); we preserve it verbatim for
+      // the renderer's error banner. Other thrown errors (worktree creation,
+      // MCP wiring) flow through the same path.
+      const message =
+        err instanceof ProviderLaunchError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
       // Roll back the worktree if we created one before the failure.
       if (worktreePath && wsRow.repoRoot) {
         try {

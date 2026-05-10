@@ -49,9 +49,14 @@ async function navTo(win: Page, label: string) {
   }
 }
 
-test.setTimeout(240_000);
+// BUG-V1.1-PW-01 — Playwright 1.59 + Node 26 race the loader hook; calls to
+// test.setTimeout / test.afterEach at module-load time fire before the file
+// suite registers, yielding "No tests found". Defensive fix: hoist the
+// timeout into the test body so the loader has settled by the time it runs.
+// Proper fix is bumping @playwright/test to >=1.60 (uses module.registerHooks).
 
 test('SigmaLink full visual sweep', async () => {
+  test.setTimeout(240_000);
   let app: ElectronApplication | null = null;
   try {
     app = await electron.launch({

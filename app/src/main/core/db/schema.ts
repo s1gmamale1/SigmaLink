@@ -46,6 +46,9 @@ export const agentSessions = sqliteTable(
       .notNull()
       .default(sql`(unixepoch() * 1000)`),
     exitedAt: integer('exited_at'),
+    // V1.1-02: launcher-resolved provider tag (e.g. 'claude'). Nullable for
+    // sessions that predate the BridgeCode launcher façade.
+    providerEffective: text('provider_effective'),
   },
   (t) => ({
     wsIdx: index('agent_sessions_ws_idx').on(t.workspaceId),

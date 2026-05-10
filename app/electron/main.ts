@@ -4,6 +4,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 import { app, BrowserWindow, shell } from 'electron';
 import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
 import { maybeCheckOnBoot } from './auto-update';
@@ -14,6 +15,58 @@ const requireCJS = createRequire(import.meta.url);
 
 let mainWindow: BrowserWindow | null = null;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+// v1.0.2 — macOS shell-PATH bootstrap. When SigmaLink launches from Finder
+// (DMG install), `process.env.PATH` is the truncated NSWorkspace default
+// (`/usr/bin:/bin:/usr/sbin:/sbin`) — `.zshrc`/`.bash_profile` is NOT sourced.
+// Provider CLIs (`claude`, `codex`, `gemini`, `cursor-agent`, `opencode`)
+// almost always sit under `/opt/homebrew/bin`, `~/.npm-global/bin`,
+// `~/.local/bin`, or similar — none of which appear in that default. The
+// result is a packaged-app-only failure: `which claude` works in the user's
+// terminal, but `node-pty.spawn('claude', …)` ENOENTs from the .app bundle.
+// Fix: spawn the user's login shell once at boot in interactive mode, read
+// its resolved PATH, and prepend the missing entries (dedup'd) before
+// `registerRouter()` so all downstream PTYs inherit the full PATH.
+//
+// No-op on Win/Linux (Linux gets the user's full PATH through the launching
+// terminal; Windows has its own PATH+PATHEXT resolver in `local-pty.ts`).
+// Skipped when `VITE_DEV_SERVER_URL` is set (dev path already has full PATH).
+//
+// Source: provider-prober audit, BUG-V1.1-03-PROV (2026-05-10).
+function bootstrapShellPath(): void {
+  if (process.platform !== 'darwin') return;
+  if (devServerUrl) return;
+  const userShell = process.env.SHELL || '/bin/zsh';
+  try {
+    // `-i` (interactive) so .zshrc / .bash_profile is sourced; `-l` (login)
+    // so /etc/profile + ~/.zprofile run too. `-c` to evaluate a single
+    // statement and exit. Quoting the SHELL to handle spaces in path.
+    const res = spawnSync(userShell, ['-ilc', 'printf %s "$PATH"'], {
+      timeout: 3000,
+      encoding: 'utf8',
+      env: { ...process.env, TERM: 'dumb' }, // prevent prompt theme work
+    });
+    if (res.status !== 0 || !res.stdout) return;
+    const shellPath = res.stdout.trim();
+    if (!shellPath) return;
+    const existing = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+    const fromShell = shellPath.split(path.delimiter).filter(Boolean);
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    // Prefer shell-resolved entries first so /opt/homebrew/bin wins over
+    // the truncated /usr/bin claude.shim that Finder might also expose.
+    for (const entry of [...fromShell, ...existing]) {
+      if (!seen.has(entry)) {
+        seen.add(entry);
+        merged.push(entry);
+      }
+    }
+    process.env.PATH = merged.join(path.delimiter);
+  } catch {
+    /* shell may be missing or hang — keep the truncated PATH so probe-vs-
+       launch parity remains predictable rather than silently degrade */
+  }
+}
 
 // Native-module self-check. Catches the dominant install-time failure mode:
 // `better-sqlite3` or `node-pty` ABI mismatch after upgrading Electron without
@@ -229,6 +282,11 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
+  // BUG-V1.1-03-PROV — pull the user's interactive-shell PATH into the main
+  // process before any provider PTY spawns, so DMG-launched apps can find
+  // /opt/homebrew/bin/claude etc. No-op on Win/Linux + dev server.
+  bootstrapShellPath();
+
   const checks = checkNativeModules();
   if (checks.some((c) => !c.ok)) {
     showDiagnosticWindow(checks);

@@ -21,7 +21,7 @@ import { BoardManager } from './core/swarms/boards';
 import { buildSwarmController } from './core/swarms/controller';
 import { buildConsoleController } from './core/swarms/console-controller';
 import { ReplayManager } from './core/swarms/replay';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { swarmAgents } from './core/db/schema';
 import { getDb } from './core/db/client';
 import { BrowserManagerRegistry } from './core/browser/manager';
@@ -46,6 +46,12 @@ import { buildDesignController } from './core/design/controller';
 import { buildVoiceController } from './core/voice/adapter';
 import { fsReadDir, fsReadFile, fsWriteFile } from './core/fs/controller';
 import { getChannelSchema } from './core/rpc/schemas';
+// Phase 4 Track C — Ruflo MCP embed. Process-singleton supervisor + lazy
+// installer + JSON-RPC proxy fronting the renderer-facing controller.
+import { RufloMcpSupervisor } from './core/ruflo/supervisor';
+import { RufloProxy } from './core/ruflo/proxy';
+import { RufloInstaller } from './core/ruflo/installer';
+import { buildRufloController } from './core/ruflo/controller';
 // V3-W14-008 — auto-update integration. The actual `electron-updater` calls
 // live in `electron/auto-update.ts`; this controller exposes a single RPC
 // method so the renderer can trigger a manual check, and reads the last-
@@ -67,6 +73,9 @@ interface SharedDeps {
   memorySupervisor: MemoryMcpSupervisor;
   reviewRunner: ReviewRunner;
   tasks: TasksManager;
+  /** Phase 4 Track C — process-singleton Ruflo supervisor. Stop in the
+   *  shutdown path next to memorySupervisor.stopAll(). */
+  rufloSupervisor: RufloMcpSupervisor;
   /** V3-W12-014 — Operator Console controller. Registered side-band so the
    *  `swarm.*` namespace doesn't pollute the typed AppRouter shape. */
   consoleStop?: () => void;
@@ -150,8 +159,14 @@ function buildRouter() {
   mailbox.setBoardManager(boardManager);
   // V3-W13-009 — Operator → agent DM pane echo. Resolves agentKey →
   // sessionId via swarm_agents and writes a formatted line into PTY stdin.
-  mailbox.setPaneEcho((_swarmId, toAgent, body) => {
-    if (!toAgent || toAgent === '*') return;
+  // BUG-V1.1-02-IPC: scope the lookup to the originating `swarmId`. Without
+  // it, two concurrent swarms each rostering a `coordinator-1` would race and
+  // pick whichever row sorted first, leaking Operator directives across
+  // swarms. The `swarmId` argument now drives the WHERE clause; an empty
+  // result is logged so a misrouted directive surfaces in dev rather than
+  // silently dropping.
+  mailbox.setPaneEcho((swarmId, toAgent, body) => {
+    if (!toAgent || toAgent === '*' || toAgent === '@all') return;
     const db = getDb();
     const row = db
       .select({
@@ -160,10 +175,20 @@ function buildRouter() {
         roleIndex: swarmAgents.roleIndex,
       })
       .from(swarmAgents)
-      .where(eq(swarmAgents.agentKey, toAgent))
+      .where(
+        and(
+          eq(swarmAgents.swarmId, swarmId),
+          eq(swarmAgents.agentKey, toAgent),
+        ),
+      )
       .all()
       .find((r) => r.sessionId);
-    if (!row || !row.sessionId) return;
+    if (!row || !row.sessionId) {
+      console.warn(
+        `[paneEcho] no live session for swarm=${swarmId} agent=${toAgent}; directive not echoed`,
+      );
+      return;
+    }
     const role = capitalize(row.role);
     const line = `[Operator → ${role} ${row.roleIndex}] ${body}\n`;
     try {
@@ -202,6 +227,17 @@ function buildRouter() {
   const tasksManager = new TasksManager({
     emit: (taskId) => broadcast('tasks:changed', { taskId }),
   });
+  // Phase 4 Track C — Ruflo MCP supervisor + installer + proxy. The
+  // supervisor is process-singleton (one child per app, not per workspace).
+  // It boots in `down`/`absent` and only spins up the child when the user
+  // opts in via Settings → Ruflo. Health transitions broadcast on
+  // `ruflo:health`; install progress on `ruflo:install-progress`.
+  const rufloSupervisor = new RufloMcpSupervisor();
+  rufloSupervisor.on('health', (h) => broadcast('ruflo:health', h));
+  const rufloProxy = new RufloProxy(rufloSupervisor);
+  const rufloInstaller = new RufloInstaller();
+  rufloInstaller.on('progress', (p) => broadcast('ruflo:install-progress', p));
+
   sharedDeps = {
     pty,
     worktreePool,
@@ -213,6 +249,7 @@ function buildRouter() {
     memorySupervisor,
     reviewRunner,
     tasks: tasksManager,
+    rufloSupervisor,
   };
 
   const appCtl = defineController({
@@ -550,11 +587,70 @@ function buildRouter() {
     emit: (event, payload) => broadcast(event, payload),
   });
   designShutdown = (designCtl as unknown as { shutdown: () => void }).shutdown;
-  // V3-W15-001 — BridgeVoice. Renderer drives Web Speech capture; this stub
-  // tracks the active session id so concurrent starts reject with
-  // `voice-busy` and the title-bar pill / orb / palette stay in sync.
+  // V3-W15-001 / V1.1 — BridgeVoice. Renderer drives Web Speech capture on
+  // Win/Linux; macOS uses the native SFSpeechRecognizer pipeline when
+  // `@sigmalink/voice-mac` loads. The dispatcher hooks below let the voice
+  // controller route final transcripts directly into swarm + assistant
+  // controllers without bouncing through the renderer. Active workspace +
+  // swarm hints are read from kv (`voice.activeWorkspaceId`,
+  // `voice.activeSwarmId`) so the renderer can pin context per surface
+  // without keeping a stateful adapter pointer in main.
   const voiceCtl = buildVoiceController({
     emit: (event, payload) => broadcast(event, payload),
+    dispatcher: {
+      resolveWorkspaceId: () => {
+        try {
+          const row = getRawDb()
+            .prepare('SELECT value FROM kv WHERE key = ?')
+            .get('voice.activeWorkspaceId') as { value?: string } | undefined;
+          return row?.value ?? null;
+        } catch {
+          return null;
+        }
+      },
+      resolveSwarmId: () => {
+        try {
+          const row = getRawDb()
+            .prepare('SELECT value FROM kv WHERE key = ?')
+            .get('voice.activeSwarmId') as { value?: string } | undefined;
+          return row?.value ?? null;
+        } catch {
+          return null;
+        }
+      },
+      controllers: {
+        // swarmCreate requires the full CreateSwarmInput shape — left
+        // unwired in v1.1 until the dispatcher carries enough context to
+        // build a valid plan. Falls through to `notRouted`.
+        swarmBroadcast: async ({ swarmId, body }) => {
+          await (swarmsCtl as { broadcast: (s: string, b: string) => Promise<unknown> })
+            .broadcast(swarmId, body);
+        },
+        swarmRollCall: async ({ swarmId }) => {
+          await (swarmsCtl as { rollCall: (s: string) => Promise<unknown> })
+            .rollCall(swarmId);
+        },
+        assistantSend: async ({ workspaceId, prompt }) => {
+          await (assistantCtl as {
+            send: (i: { workspaceId: string; prompt: string }) => Promise<unknown>;
+          }).send({ workspaceId, prompt });
+        },
+        appNavigate: ({ pane }) => {
+          // Forward to renderer subscribers; the title-bar router handles
+          // the actual route change.
+          broadcast('app:navigate', { pane });
+        },
+      },
+    },
+  });
+
+  // Phase 4 Track C — Ruflo controller. Channels: ruflo.health,
+  // ruflo.embeddings.search, ruflo.embeddings.generate, ruflo.patterns.search,
+  // ruflo.patterns.store, ruflo.autopilot.predict, ruflo.install.start.
+  const rufloCtl = buildRufloController({
+    supervisor: rufloSupervisor,
+    proxy: rufloProxy,
+    installer: rufloInstaller,
   });
 
   return defineRouter({
@@ -574,6 +670,7 @@ function buildRouter() {
     assistant: assistantCtl,
     design: designCtl,
     voice: voiceCtl,
+    ruflo: rufloCtl,
   });
 }
 
@@ -710,6 +807,14 @@ export function shutdownRouter(): void {
   }
   try {
     sharedDeps?.memorySupervisor.stopAll();
+  } catch {
+    /* ignore */
+  }
+  // Phase 4 Track C — stop the Ruflo child cleanly so the JSON-RPC stdio
+  // pipes drain and the SIGTERM/SIGKILL escalation runs before electron
+  // tears the process down.
+  try {
+    sharedDeps?.rufloSupervisor.stop();
   } catch {
     /* ignore */
   }

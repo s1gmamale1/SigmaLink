@@ -10,7 +10,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { getDb } from '../db/client';
+import { getDb, getRawDb } from '../db/client';
 import {
   agentSessions,
   swarmAgents,
@@ -33,6 +33,7 @@ import {
   parseProtocolLine,
   ProtocolLineBuffer,
 } from './protocol';
+import { resolveAndSpawn } from '../providers/launcher';
 
 export interface SwarmFactoryDeps {
   pty: PtyRegistry;
@@ -334,14 +335,30 @@ async function spawnAgentSession(args: {
   }
 
   const cwd = worktreePath ?? args.wsRow.rootPath;
-  const rec = args.deps.pty.create({
-    providerId: provider.id,
-    command: provider.command,
-    args: [...provider.args],
-    cwd,
-    cols: args.deps.defaultCols ?? 120,
-    rows: args.deps.defaultRows ?? 32,
-  });
+  // V1.1: route swarm-agent spawns through the provider launcher façade so
+  // BridgeCode→Claude fallback, altCommands ENOENT walk, and the legacy gate
+  // all apply uniformly. Read `kv['providers.showLegacy']` defensively — if
+  // the row is missing the default is "hidden".
+  let showLegacy = false;
+  try {
+    const row = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get('providers.showLegacy') as { value?: string } | undefined;
+    showLegacy = row?.value === '1' || row?.value === 'true';
+  } catch {
+    /* ignore — default to false */
+  }
+  const spawnResult = resolveAndSpawn(
+    { ptyRegistry: args.deps.pty },
+    {
+      providerId: provider.id,
+      cwd,
+      cols: args.deps.defaultCols ?? 120,
+      rows: args.deps.defaultRows ?? 32,
+      showLegacy,
+    },
+  );
+  const rec = spawnResult.ptySession;
 
   // Tag the agent_sessions row with the swarm so future rooms (Review, Tasks)
   // can correlate sessions to swarm agents.
@@ -357,6 +374,16 @@ async function spawnAgentSession(args: {
       startedAt: rec.startedAt,
     })
     .run();
+  // BUG-V1.1-02: persist the launcher-resolved provider tag (e.g. 'claude'
+  // when the swarm requested 'bridgecode'). Best-effort — column is added by
+  // migration 0010; older DBs swallow the failure.
+  try {
+    getRawDb()
+      .prepare('UPDATE agent_sessions SET provider_effective = ? WHERE id = ?')
+      .run(spawnResult.providerEffective, rec.id);
+  } catch {
+    /* column may not exist yet — ignore */
+  }
 
   // Wire SIGMA:: protocol. The PTY ring buffer continues to receive raw bytes
   // for live terminal rendering; we additionally split chunks by line and

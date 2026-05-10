@@ -14,7 +14,7 @@ import type { PtyRegistry } from '../pty/registry';
 import type { WorktreePool } from '../git/worktree';
 import { getDb } from '../db/client';
 import { swarmAgents, swarmSkills } from '../db/schema';
-import { SwarmMailbox } from './mailbox';
+import { SwarmMailbox, expandRecipient } from './mailbox';
 import type { MailboxKind } from './types';
 import {
   createSwarm,
@@ -63,6 +63,14 @@ export function buildSwarmController(deps: SwarmControllerDeps) {
       echo?: 'pane';
     }): Promise<SwarmMessage> => {
       const kind = (input.kind ?? 'OPERATOR') as SwarmMessageKind | MailboxKind;
+      // BUG-V1.1-01-IPC: canonicalise the legacy wildcard `'*'` to the V3
+      // group selector `'@all'` at the controller boundary. The mailbox
+      // expand-recipient helper accepts both, but persisting `@all` keeps the
+      // SQLite row + JSONL mirror filenames aligned with the rest of the V3
+      // grammar (`@coordinators`, `@builders`, …) so consumers don't have to
+      // special-case the wildcard. `broadcast()` deliberately keeps `'*'` —
+      // that envelope is the canonical legacy wire format.
+      const toAgent = input.toAgent === '*' ? '@all' : input.toAgent;
       // V3-W13-011 — for `skill_toggle` envelopes, mirror the on/off flip
       // into `swarm_skills` so coordinators can read the active skill set
       // without re-tailing the mailbox. We accept either a structured
@@ -77,7 +85,7 @@ export function buildSwarmController(deps: SwarmControllerDeps) {
       const message = await deps.mailbox.append({
         swarmId: input.swarmId,
         fromAgent: 'operator',
-        toAgent: input.toAgent,
+        toAgent,
         kind,
         body: input.body,
         payload: input.payload,
@@ -91,11 +99,12 @@ export function buildSwarmController(deps: SwarmControllerDeps) {
       const isDirectivePaneEcho =
         kind === 'directive' && input.echo === 'pane';
       if (!isDirectivePaneEcho) {
-        writeToPtys(deps, input.swarmId, input.toAgent, {
+        writeToPtys(deps, input.swarmId, toAgent, {
           fromAgent: 'operator',
-          toAgent: input.toAgent,
+          toAgent,
           body: input.body,
           kind: kind as SwarmMessageKind,
+          originalEnvelopeId: message.id,
         });
       }
       return message;
@@ -206,29 +215,82 @@ function mirrorSkillToggle(
   }
 }
 
+/**
+ * Type the SIGMA::* line into the stdin of every agent that resolves from
+ * `toAgent`. Resolution flows through `expandRecipient` so V3 group selectors
+ * (`@coordinators`, `@builders`, …) reach every member of the role rather
+ * than typing into a non-existent "agent" named `@coordinators` (BUG-V1.1-01).
+ *
+ * BUG-V1.1-12-IPC: when the target row exists but has no `sessionId` (agent
+ * never came up), or the underlying PTY refuses the write (process exited),
+ * we now persist a `kind:'error_report'` mailbox row so the operator's
+ * side-chat surfaces the dead-write instead of silently dropping it.
+ */
 function writeToPtys(
   deps: SwarmControllerDeps,
   swarmId: string,
   toAgent: string,
-  msg: { fromAgent: string; toAgent: string; body: string; kind: SwarmMessageKind },
+  msg: {
+    fromAgent: string;
+    toAgent: string;
+    body: string;
+    kind: SwarmMessageKind;
+    originalEnvelopeId?: string;
+  },
 ): void {
   const db = getDb();
+  const recipientKeys = expandRecipient(swarmId, toAgent);
+  if (recipientKeys.length === 0) return;
   const agentRows = db
     .select()
     .from(swarmAgents)
     .where(eq(swarmAgents.swarmId, swarmId))
     .all();
-  const targets =
-    toAgent === '*'
-      ? agentRows
-      : agentRows.filter((a) => a.agentKey === toAgent);
+  const byKey = new Map(agentRows.map((a) => [a.agentKey, a]));
   const line = formatStdinDelivery(msg);
-  for (const a of targets) {
-    if (!a.sessionId) continue;
+  for (const key of recipientKeys) {
+    const a = byKey.get(key);
+    if (!a) continue;
+    if (!a.sessionId) {
+      reportDeadWrite(deps, swarmId, key, 'session-not-found', msg.originalEnvelopeId);
+      continue;
+    }
     try {
       deps.pty.write(a.sessionId, line);
     } catch {
-      /* ignore — PTY may have exited */
+      reportDeadWrite(deps, swarmId, key, 'pty-dead', msg.originalEnvelopeId);
     }
   }
+}
+
+/**
+ * Persist an `error_report` envelope when an Operator → agent write target is
+ * dead. Best-effort: a failure to append the report does NOT throw, since the
+ * caller is already in a fire-and-forget delivery loop.
+ */
+function reportDeadWrite(
+  deps: SwarmControllerDeps,
+  swarmId: string,
+  targetAgent: string,
+  reason: 'session-not-found' | 'pty-dead',
+  originalEnvelopeId: string | undefined,
+): void {
+  void deps.mailbox
+    .append({
+      swarmId,
+      fromAgent: 'operator',
+      toAgent: 'operator',
+      kind: 'error_report',
+      body: `Operator directive could not reach ${targetAgent}: ${reason}`,
+      payload: {
+        kind: 'runtime',
+        message: `pty write failed: ${reason}`,
+        targetAgent,
+        reason,
+        originalEnvelopeId: originalEnvelopeId ?? null,
+      },
+    })
+    .catch(() => {
+      /* mailbox queue rejection is non-fatal here */
+    });
 }

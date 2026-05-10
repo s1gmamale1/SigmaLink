@@ -31,6 +31,14 @@ function tempUserData(label: string): string {
   return dir;
 }
 
+// BUG-V1.1-PW-01 — Wrap the file in `test.describe(...)` so test.afterEach
+// lives inside a suite the file-loader has registered. Without this,
+// Playwright 1.59 + Node 26 throws "did not expect test.afterEach() to be
+// called here" at module load time. Proper fix is bumping @playwright/test
+// to >=1.60 which uses `module.registerHooks()` over the racey
+// `module.register()` API.
+test.describe('dogfood-v1', () => {
+
 test.afterEach(() => {
   while (tempDirsToClean.length > 0) {
     const dir = tempDirsToClean.pop()!;
@@ -348,3 +356,5 @@ test('BUG-W7-006: swarms.create after workspaces.open has no race', async () => 
 
   await app.close().catch(() => undefined);
 });
+
+}); // close test.describe('dogfood-v1', ...)

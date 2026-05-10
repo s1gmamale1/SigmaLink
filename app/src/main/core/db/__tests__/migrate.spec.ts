@@ -72,6 +72,39 @@ test('ALL_MIGRATIONS bindings are in lexical order', () => {
   assert.deepEqual(bindings, sorted, 'ALL_MIGRATIONS must be lexically sorted');
 });
 
+test('0010_provider_effective is registered (BUG-V1.1-02-PROV)', () => {
+  // Schema-drift guard: the CHANGELOG promised this column in Phase 2 but
+  // the migration was never authored. If anyone deletes 0010 or forgets to
+  // wire it into ALL_MIGRATIONS, this test fails loudly.
+  const migrateSrc = fs.readFileSync(migrateSrcPath, 'utf8');
+  assert.match(
+    migrateSrc,
+    /from\s+['"]\.\/migrations\/0010_provider_effective['"]/,
+    'migrate.ts must import 0010_provider_effective',
+  );
+  const arrayMatch = migrateSrc.match(/ALL_MIGRATIONS:\s*Migration\[\]\s*=\s*\[([\s\S]*?)\]/);
+  assert.ok(arrayMatch, 'ALL_MIGRATIONS array literal not found');
+  assert.match(
+    arrayMatch[1],
+    /\bmig0010\b/,
+    'mig0010 must appear in ALL_MIGRATIONS',
+  );
+  // The migration file itself must exist on disk and export `name`.
+  const migPath = path.join(migrationsDir, '0010_provider_effective.ts');
+  assert.ok(fs.existsSync(migPath), '0010_provider_effective.ts must exist');
+  const migSrc = fs.readFileSync(migPath, 'utf8');
+  assert.match(
+    migSrc,
+    /export\s+const\s+name\s*=\s*['"]0010_provider_effective['"]/,
+    '0010 must export name === "0010_provider_effective"',
+  );
+  assert.match(
+    migSrc,
+    /ALTER\s+TABLE\s+agent_sessions\s+ADD\s+COLUMN\s+provider_effective\s+TEXT/i,
+    '0010 must ADD COLUMN provider_effective TEXT on agent_sessions',
+  );
+});
+
 test('every migration file exports `name` (not `id`)', () => {
   const files = fs
     .readdirSync(migrationsDir)

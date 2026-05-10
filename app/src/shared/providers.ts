@@ -1,5 +1,11 @@
 // Provider registry. Pure data + small helpers; no Node-only code so safe in renderer too.
 
+// BUG-V1.1-08-PROV: `droid` and `copilot` previously appeared in this union but
+// had no registry entries — any code that resolved them at runtime fell
+// through `findProvider() === undefined` and silently degraded. They are
+// removed here; the renderer-side stubs in `AgentsStep` / `RoleRoster` keep
+// the wizard rows visible by referencing them as plain `string`. If/when the
+// real providers ship, re-add them here AND add registry entries below.
 export type ProviderId =
   | 'bridgecode'
   | 'claude'
@@ -7,8 +13,6 @@ export type ProviderId =
   | 'gemini'
   | 'opencode'
   | 'cursor'
-  | 'droid'
-  | 'copilot'
   | 'aider'
   | 'continue'
   | 'shell'

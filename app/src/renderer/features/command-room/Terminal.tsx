@@ -221,9 +221,17 @@ export function SessionTerminal({ sessionId, className }: Props) {
     // V3-W13-015 — listen for cross-workspace jump-to-pane events the
     // BridgeRoom dispatches when a Bridge-spawned pane finishes. Only the
     // matching session focuses; other Terminals ignore the event silently.
+    // BUG-V1.1-04-IPC — guard against double-focus when the auto-focus
+    // path fires immediately after the user already had this pane focused
+    // (e.g. they were typing in it when the dispatch echo arrived).
     const onFocusReq = (ev: Event) => {
       const detail = (ev as CustomEvent<{ sessionId?: string }>).detail;
       if (!detail || detail.sessionId !== sessionId) return;
+      const xtermEl = container.querySelector<HTMLElement>('.xterm-helper-textarea');
+      const alreadyFocused =
+        document.activeElement === xtermEl ||
+        (xtermEl ? xtermEl.contains(document.activeElement) : false);
+      if (alreadyFocused) return;
       try {
         term.focus();
         container.scrollIntoView({ block: 'nearest', behavior: 'smooth' });

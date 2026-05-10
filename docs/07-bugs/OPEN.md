@@ -286,3 +286,82 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
   3. Watch the recents column (left aside) and the underlying browser pane: neither should flash on title ticks. The WebContentsView should hold its position without reflow.
   4. With DevTools open in the renderer, add a `console.count('recents render')` inside `BrowserRecentsInner` and a `console.count('viewmount setBounds')` inside the dedup branch of `BrowserViewMount` — counts should be near-zero on title-only updates and bump only on real layout changes (window resize, sidebar collapse, tab close).
 - **Notes**: BUG-W7-002 / BUG-W7-014 already addressed the sidebar gating + screenshot misnaming. This fix attacks the remaining substrate that made the Playwright nav race observable in the first place: a re-render storm in the Browser room that competes with the room-transition dispatch. Coupled with the prior sidebar fixes the entire DF-01 symptom should clear. Source bug entry: `docs/06-test/DOGFOOD_V1.md` §5.
+
+---
+
+## Phase 4 v1.1.0-rc1 fixes (2026-05-10)
+
+Below: bugs closed by the autonomous Phase 4 fix wave (4 fixers + lead direct edits + voice-coder + ruflo-coder). These were filed by the e2e-runner / ipc-auditor / provider-prober testing wave.
+
+### BUG-V1.1-03-PROV: macOS .app double-click ships with truncated PATH; providers ENOENT
+- **Severity**: P1
+- **Surface**: `app/electron/main.ts` boot path (no shell-PATH bootstrap on Finder launch).
+- **Repro**: Build DMG, install, launch by double-clicking SigmaLink.app from Applications. Workspaces → 4-pane preset → Launch agents → all CLIs error `claude: command not found` even though `which claude` works in user's terminal.
+- **Status**: open → fixed (2026-05-10)
+- **Fix**: `app/electron/main.ts` — added `bootstrapShellPath()` that spawns `${SHELL} -ilc 'printf %s "$PATH"'` once at boot on darwin (only when not running under VITE_DEV_SERVER_URL), captures the resolved PATH, and prepends shell entries (deduped) to `process.env.PATH` before `registerRouter()`. All downstream PTYs inherit the full PATH so `/opt/homebrew/bin/claude` etc. resolve. Closes the symmetric BUG-V1.1-04-PROV (probe vs launch parity) at the same time since both share `process.env.PATH` after the bootstrap.
+- **Attempts**: 1
+
+### BUG-V1.1-01-PROV / 05 / 06 / 07 / 08-PROV: Provider launcher façade
+- **Severity**: P1 (01) + P2 (05/06/07/08)
+- **Surface**: previously, no central `app/src/main/core/providers/launcher.ts`; three call sites (`workspaces/launcher.ts`, `swarms/factory.ts`, `rpc-router.ts`) re-implemented command/args resolution inconsistently.
+- **Status**: open → fixed (2026-05-10)
+- **Fix**: NEW `app/src/main/core/providers/launcher.ts` `resolveAndSpawn(deps, opts)` façade — resolves `comingSoon` → `fallbackProviderId` (BridgeCode → Claude with `provider_effective` populated); walks `[command, ...altCommands]` on ENOENT; appends `provider.autoApproveFlag` when `autoApprove === true`; re-checks `kv['providers.showLegacy']` main-side. Dropped dead `'droid'` and `'copilot'` from `ProviderId` union (08). New `app/src/main/core/providers/__tests__/launcher.spec.ts` 9/9 pass. Wired in `workspaces/launcher.ts` + `swarms/factory.ts:spawnAgentSession()`.
+- **Owner**: fixer-provider-launcher
+
+### BUG-V1.1-02-PROV: agent_sessions.providerEffective column missing
+- **Severity**: P1 (documentation drift — promised in CHANGELOG but never landed)
+- **Surface**: `app/src/main/core/db/schema.ts` had no `providerEffective` column; renderer chrome promising "BridgeCode (using claude)" couldn't be implemented.
+- **Status**: open → fixed (2026-05-10)
+- **Fix**: NEW migration `app/src/main/core/db/migrations/0010_provider_effective.ts` — `ALTER TABLE agent_sessions ADD COLUMN provider_effective TEXT`, idempotent with `PRAGMA table_info` guard + BEGIN/COMMIT/ROLLBACK transaction. Mirrors `0005_coordinator_id` shape. `app/src/main/core/db/schema.ts` now has `providerEffective: text('provider_effective')` (nullable). `app/src/main/core/db/migrate.ts` registers `mig0010` in `ALL_MIGRATIONS`. The provider-launcher façade populates the column via raw SQL UPDATE in a try/catch (degrades silently on pre-0010 DBs). New regression test in `migrate.spec.ts`.
+- **Owner**: fixer-providereffective
+
+### BUG-V1.1-01-IPC: Group recipient grammar (@coordinators/@builders/@scouts/@reviewers/@all) silently dropped
+- **Severity**: P1
+- **Surface**: `app/src/main/core/swarms/mailbox.ts:233-242` `recipientsFor()` short-circuited on `toAgent !== '*'` and returned `[toAgent]` literal.
+- **Repro**: SideChat → "Send to @coordinators" → mailbox row persisted with literal `'@coordinators'` toAgent, JSONL appended to `inboxes/@coordinators.jsonl` (non-existent inbox), zero PTYs received the SIGMA:: line.
+- **Status**: open → fixed (2026-05-10)
+- **Fix**: New exported `expandRecipient(swarmId, recipient): string[]` in `mailbox.ts`. Resolves `*`/`@all` → all swarm_agents.agentKey for swarmId; resolves `@coordinators`/`@builders`/`@scouts`/`@reviewers` via `swarm_agents.role` filter; for literal agentKey returns `[recipient]` if exists; unknown returns `[]` + warns. `controller.ts` canonicalizes `*` → `@all` at controller boundary. New test `mailbox.spec.ts` 10 cases covering every grammar branch.
+- **Owner**: fixer-ipc-mailbox
+
+### BUG-V1.1-02-IPC: Cross-swarm directive leak via setPaneEcho
+- **Severity**: P1 (confidentiality + correctness)
+- **Surface**: `app/src/main/rpc-router.ts:153-174` setPaneEcho closure discarded swarmId; DB query had no swarmId filter.
+- **Repro**: Two concurrent swarms (Battalion test) where both name agents `coordinator-1`. Operator → coordinator-1 directive in swarm A could type into swarm B's coordinator-1 PTY.
+- **Status**: open → fixed (2026-05-10)
+- **Fix**: setPaneEcho closure now consumes swarmId; uses `and(eq(swarmAgents.swarmId, swarmId), eq(swarmAgents.agentKey, toAgent))` in WHERE. Warns on miss. `and` added to drizzle import.
+- **Owner**: fixer-ipc-mailbox
+
+### BUG-V1.1-12-IPC: writeToPtys silently swallows dead-PTY writes
+- **Severity**: P3
+- **Surface**: `app/src/main/core/swarms/controller.ts:209-234` try/catch around `pty.write` swallowed all errors.
+- **Status**: open → fixed (2026-05-10)
+- **Fix**: New `reportDeadWrite(swarmId, targetAgent, originalEnvelopeId, reason)` in `controller.ts` emits a `kind:'error_report'` mailbox row when a write target is dead. Operator sees feedback in side-chat instead of silence.
+- **Owner**: fixer-ipc-mailbox (folded into BUG-V1.1-01-IPC fix)
+
+### BUG-V1.1-04-IPC: Cross-pane "Jump to pane" only fires on toast click
+- **Severity**: P2
+- **Surface**: `app/src/renderer/features/bridge-agent/BridgeRoom.tsx` + `command-room/{CommandRoom,Terminal}.tsx`.
+- **Status**: open → fixed (2026-05-10)
+- **Fix**: BridgeRoom now performs the workspace-switch + room-hop + active-session + `sigma:pty-focus` jump AUTOMATICALLY on `assistant:dispatch-echo` (not behind a toast button click). Toast retained as confirmation. New gate `kv['bridge.autoFocusOnDispatch']` (default ON). CommandRoom listens for `sigma:pty-focus` at room level; activeIndex now derived from `state.activeSessionId` via useMemo. Terminal short-circuits if already focused (avoid double-focus).
+- **Owner**: fixer-pane-sync
+
+### BUG-V1.1-DF-01-PW: Playwright e2e suite fails on Node 26
+- **Severity**: P1 (blocks automated regression)
+- **Surface**: `tests/e2e/{smoke,dogfood}.spec.ts`. Playwright 1.59 + Node 26 race the loader hook; `test.setTimeout`/`test.afterEach` at module-load fire before file suite registers.
+- **Status**: open → defensive-fix applied (2026-05-10)
+- **Defensive fix**: `smoke.spec.ts` — moved `test.setTimeout(240_000)` inside the test body. `dogfood.spec.ts` — wrapped contents in `test.describe('dogfood-v1', () => { ... })`. Both specs now survive the racey loader.
+- **Proper fix (defer to v1.2)**: bump `@playwright/test` to ≥1.60 (uses `module.registerHooks()` instead of deprecated `module.register()`).
+- **Owner**: lead
+
+### Bugs deferred to v1.2
+
+- **BUG-V1.1-03-IPC** (P1 → demoted P2): V3 envelope kinds (`escalation`, `review_request`, `quiet_tick`) have no producer. `error_report` IS now produced by writeToPtys dead-PTY check (BUG-V1.1-12 fix). The other kinds need quiet-tick detector + ESCALATE SIGMA:: parser.
+- **BUG-V1.1-05-IPC** (P2): Roll-call has no main-process aggregation/timeout/feedback.
+- **BUG-V1.1-06-IPC** (P2): Bridge Assistant `roll_call`/`broadcast` tools call `mailbox.append` directly, bypassing `controller.broadcast`/`rollCall` dual-delivery (mailbox row written but SIGMA:: line never typed into PTYs).
+- **BUG-V1.1-07-IPC** (P2): `console-controller.stop-all` and `factory.killSwarm` are divergent kill paths — zombie agent rows possible after Battalion-20 stop.
+- **BUG-V1.1-08-IPC** (P3): Mailbox JSONL mirror not transactional with SQLite insert — partial-write crash leaves on-disk artifacts inconsistent.
+- **BUG-V1.1-09-IPC** (P3): factory.ts data handler subscribes before exit handler — fast-failing provider can race the data subscription.
+- **BUG-V1.1-10-IPC** (P3): Replay scrub reads ALL `swarm_messages` rows on every slider tick; needs full-row LRU cache.
+- **BUG-V1.1-11-IPC** (P3): No envelope-id deduplication in mailbox; double-click Roll Call yields 2 distinct rows.
+- **BUG-V1.1-09-PROV** (P3): PTY allocation has no idempotent retry on transient failure.
+- **BUG-V1.1-DF-02-PW** (P3): @playwright/mcp@0.0.75 forces a duplicate playwright-core@1.61.0-alpha into pnpm lockfile.
