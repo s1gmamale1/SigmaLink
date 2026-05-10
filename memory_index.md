@@ -49,31 +49,39 @@ Per-wave engineering reports live under [`docs/05-build/`](docs/05-build/) and v
 | T-42 | Phase 4 Step 1 — v1.0.1 hotfix: 5 fixes (DMG asar:false + boot self-check + UI Bug 1 sidebar 28px spacer + UI Bug 2 ResizeObserver + zod schemas + dataroom React.memo cascade) + repo cleanup (4 .DS_Store, 3 one-shot scripts, package-lock.json, info.md, broken v1.0.0 release artefacts) + extended app/.gitignore | shipped | 1 |
 | T-43 | Phase 4 Step 1 release: `v1.0.1` annotated tag + push + GitHub release with 4 binaries (mac arm64+x64, both DMG + zip; 121-139 MB each); v1.0.0 broken DMG superseded | shipped | 1 |
 | T-44 | Phase 4 research wave (3 background agents): voice-researcher (macOS Speech Framework + NAPI path), wake-researcher (Porcupine licensing — BYO-AccessKey blocker), ruflo-researcher (@claude-flow/cli embed; +250-350MB; tool name corrections) | shipped | 1 |
-| T-45 | Phase 4 testing wave (3 background agents): e2e-runner (Playwright suite), ipc-auditor (swarm mailbox/agent comm code review), provider-prober (provider launch path audit) | in progress | 1 |
-| T-46 | Phase 4 architecture wave (2 background agents): voice-architect (SigmaVoice native module design doc), ruflo-architect (Ruflo embed architecture + bundle vs lazy decision) | in progress | 1 |
+| T-45 | Phase 4 testing wave (3 background agents): e2e-runner (Playwright suite — Node 26 race surfaced), ipc-auditor (12 IPC bugs found), provider-prober (9 provider bugs found) | shipped | 1 |
+| T-46 | Phase 4 architecture wave (2 background agents): voice-architect (SigmaVoice native module design doc), ruflo-architect (Ruflo embed architecture — Option B lazy-download chosen) | shipped | 1 |
+| T-47 | Phase 4 fix wave (4 background agents): fixer-ipc-mailbox (group recipients + cross-swarm leak + dead-PTY error_report), fixer-provider-launcher (façade + 5 PROV bugs), fixer-providereffective (migration 0010), fixer-pane-sync (cross-pane focus auto-sync) — 9 bugs closed | shipped | 1 |
+| T-48 | Phase 4 lead direct fixes: macOS PATH bootstrap in electron/main.ts (BUG-V1.1-03-PROV), Playwright spec defenses (smoke + dogfood for Node 26 loader race), CHANGELOG + release notes for v1.1.0-rc1 | shipped | 1 |
+| T-49 | Phase 4 Track B coding (voice-coder, 1 background agent): SigmaVoice native macOS module — 12 new files in app/native/voice-mac + dispatcher + adapter extension + RPC channels + electron-builder hardened-runtime config; 17/17 dispatcher tests pass; native module compiled locally arm64 | shipped | 1 |
+| T-50 | Phase 4 Track C coding (ruflo-coder, 1 background agent): Ruflo MCP supervisor + 3 user-facing features (semantic memory search, Bridge pattern surfacing, Command Palette autopilot) + Settings panel; lazy-download Option B; 14/14 proxy tests pass | shipped | 1 |
+| T-51 | Phase 4 release: v1.1.0-rc1 annotated tag + push + GitHub prerelease with 4 binaries (mac arm64+x64, DMG + zip, 131-139 MB each); unsigned; verified DMG launches past boot self-check | shipped | 1 |
 
 ## Counts
 
-- Tasks total: 46
-- Shipped: 43
-- In progress: 2 (T-45 testing, T-46 architecture)
+- Tasks total: 51
+- Shipped: 50
+- In progress: 0
 - Deferred: 1 (T-14 reconciliation)
 - Multi-trial: 2 (T-22 with 2 trials, T-42 with 4 trials due to asarUnpack pattern misses)
-- Bugs filed: 17 (3 P1, 6 P2, 6 P3 from W7 + 2 P3 BUG-DF from Phase 3 dogfood)
-- Bugs fixed: 13 (11 prior + BUG-DF-01 + BUG-DF-02 in v1.0.1)
-- Bugs verified: 9 (W8 7-of-9 + Phase 3 promoted W7-003 + W7-006)
-- Bugs deferred: 6 (6 P3 W7; BUG-DF-01/02 closed in v1.0.1)
+- Bugs filed: 38 (17 prior + 21 from Phase 4 testing wave: 3 P1-IPC, 4 P2-IPC, 5 P3-IPC, 3 P1-PROV, 5 P2-PROV, 1 P3-PROV)
+- Bugs fixed: 24 (13 prior + 11 in Phase 4 v1.1.0-rc1)
+- Bugs verified: 9 (W8 7-of-9 + Phase 3 promoted W7-003 + W7-006). Phase 4 fixes pending real-world v1.1.0 dogfood verification.
+- Bugs deferred: 16 (6 P3 W7 + 10 v1.2 follow-ups: wake-word legal, Ruflo HTTP Range, V3 envelope producers, kill-path consolidation, Bridge tools dual-delivery, Playwright 1.60 bump, 5 P3 IPC, 1 P3 PROV)
 
 ## Latest commit + tag
 
-- `main` HEAD pushed: `4afd109` (Phase 4 Step 1 final: asar:false + package.json build block deletion).
-- Tags pushed: `v0.1.0-alpha` (historical), `v1.0.0` (superseded by v1.0.1 due to broken DMG; release page still live but DMG remains downloadable for archival), `v1.0.1` (current shipped).
-- GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.0.1 (published; 4 binaries mac arm64+x64 DMG + zip; unsigned).
+- `main` HEAD pushed: `0266eea` (chore(release): v1.1.0-rc1 — CHANGELOG + release notes + version bump).
+- Phase 4 commits: `83520bb` (Track A IPC + provider hardening), `2944132` (Tracks B+C SigmaVoice + Ruflo), `0266eea` (release prep).
+- Tags pushed: `v0.1.0-alpha` (historical), `v1.0.0` (superseded by v1.0.1), `v1.0.1` (Phase 4 Step 1 hotfix), `v1.1.0-rc1` (current shipped — Phase 4 release candidate).
+- GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.0-rc1 (prerelease; 4 binaries mac arm64+x64 DMG + zip; unsigned; native voice + Ruflo features warrant real-world validation before final v1.1.0).
 - Repo: https://github.com/s1gmamale1/SigmaLink
 
 ## Phase 4 plan reference
 
 - Plan file: `~/.claude/plans/download-a-skill-plugin-that-lexical-pinwheel.md`
-- 7 steps total. Step 1 ✅ (v1.0.1 shipped). Steps 2-7 in autonomous progress.
-- Wake-word (originally Step 4) DEFERRED to v1.2 due to Porcupine licensing. v1.1 will ship push-to-talk only.
-- Step 2 (V3 visual parity) DEFERRED in favour of user's explicit Phase 4 priorities (Agent IPC + SigmaVoice + Ruflo).
+- 7-step plan executed autonomously. Step 1 ✅ (v1.0.1 shipped). Steps 3 (SigmaVoice) + 6 (Ruflo embed) ✅ (in v1.1.0-rc1). Step 4 (wake-word) DEFERRED v1.2 (Porcupine licensing). Step 2 (V3 visual parity) DEFERRED (user re-prioritised IPC + voice + Ruflo over visual polish). Step 5 (Skills marketplace live install) NOT YET STARTED — v1.2 candidate. Step 7 (final v1.1.0 tag) PENDING dogfood verification on rc1.
+
+## Next session restart point
+
+SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording validates → tag v1.1.0 final on the same SHA. Run `agentdb_pattern-search` query "phase4" to recall the 14-agent autonomous overnight run details. v1.2 backlog catalogued in `docs/07-bugs/OPEN.md` Phase 4 section + plan file's "Deferred to v1.2" list.

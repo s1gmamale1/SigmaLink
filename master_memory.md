@@ -478,3 +478,29 @@ Next waves planned (autonomous; will dispatch on testing+architecture completion
 - Final smoke + dogfood + commit + push (potentially `v1.1.0-rc1` tag)
 
 Stop conditions (will pause + ask): destructive action, permanently broken build no agent debate resolves, request to leak credentials, anything requiring Apple Developer ID procurement.
+
+### v1.1.0-rc1 SHIPPED (May 10, 2026 — autonomous overnight run)
+
+The autonomous Phase 4 wave completed without hitting any of the stop conditions. Final tag + GitHub release at https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.0-rc1 (prerelease; 4 binaries: mac arm64+x64, DMG + zip, 131-139 MB each, unsigned).
+
+**Three commits landed on `main` after v1.0.1**:
+- `83520bb` `fix(P4-trackA)`: IPC reliability + provider launcher façade + macOS PATH bootstrap. 21 files changed (+1484 / -70 lines). Closes 9 testing-swarm bugs.
+- `2944132` `feat(P4-tracksB+C)`: SigmaVoice native macOS module + Ruflo MCP supervisor with three user-facing features. Larger commit (Track B + C share rpc-channels.ts/schemas/router-shape/rpc-router/BridgeRoom — splitting would tear an atomic interface change).
+- `0266eea` `chore(release)`: v1.1.0-rc1 — CHANGELOG entry + release notes + version bump.
+
+**Final build state**: `tsc -b` clean. `vite build` 322 KB main + 6 vendor chunks (well under 700 KB target). `electron:compile` clean. Lint 42 errors / 10 warnings — net DOWN from 54/10 baseline.
+
+**DMG verification**: `open app/release/mac-arm64/SigmaLink.app` → process alive past boot self-check. Native modules confirmed on disk (`Resources/app/node_modules/{bindings,better-sqlite3,node-pty}/`). The asar:false workaround from v1.0.1 carried forward.
+
+**Autonomous swarm summary**:
+- 3 background research agents (voice, wake, ruflo) → 3 reports stored to AgentDB.
+- 3 background testing agents (e2e-runner, ipc-auditor, provider-prober) → 21 bugs filed.
+- 2 background architecture agents (voice, ruflo) → 2 design docs at `docs/04-design/`.
+- 4 background fixer agents (mailbox, provider-launcher, providereffective, pane-sync) → 9 bugs closed.
+- 2 background coder agents (voice-coder 18 files, ruflo-coder 15 files) → Tracks B + C complete.
+- Lead direct edits: PATH bootstrap (electron/main.ts), Playwright spec defenses (smoke + dogfood), CHANGELOG, release notes, version bump, bug ledger.
+- Total agent wall-clock: ~3 hours across 14 background agents + lead orchestration.
+
+**11 bugs closed** (3 P1-IPC, 5 P1/P2-PROV, 1 P2-IPC, 1 P3-IPC, 1 P1 Playwright defensive). Plus carry-over from v1.0.1: 2 P3 BUG-DF + 4 v1.0.1 fix items. **10 bugs deferred to v1.2** with explicit reasons (Porcupine licensing for wake-word, V3 envelope kinds need new producers, scope-bounding).
+
+**Next session restart point**: SigmaLink is at v1.1.0-rc1 on `main`. Real-world dogfood + visual recording validates → tag v1.1.0 final on the same SHA. Track A bugs deferred to v1.2 are catalogued in `docs/07-bugs/OPEN.md` Phase 4 section.
