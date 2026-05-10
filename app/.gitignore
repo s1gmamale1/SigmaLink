@@ -10,7 +10,25 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+electron-dist
+release
+test-results
 *.local
+
+# Ruflo / Claude-Flow runtime artefacts (per-machine; never committed)
+.swarm/
+.claude-flow/
+.claude/
+agentdb.rvf
+agentdb.rvf.lock
+ruvector.db
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Stale npm lockfile (project uses pnpm — see pnpm-lock.yaml)
+package-lock.json
 
 # Editor directories and files
 .vscode/*
