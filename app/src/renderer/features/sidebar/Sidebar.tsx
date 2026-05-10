@@ -3,7 +3,7 @@
 // auto-collapse below 1100px width, and Radix tooltips on collapsed items so
 // the user still sees the room name on hover.
 
-import { useEffect } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import {
   Bot,
   ChevronLeft,
@@ -30,7 +30,7 @@ import {
 import { Monogram } from '@/renderer/components/Monogram';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState, type RoomId } from '@/renderer/app/state';
-import { MOD_KEY_LABEL } from '@/renderer/lib/shortcuts';
+import { MOD_KEY_LABEL, PLATFORM_IS_MAC } from '@/renderer/lib/shortcuts';
 import type { AgentSession, Workspace } from '@/shared/types';
 
 interface NavItem {
@@ -101,6 +101,13 @@ export function Sidebar() {
           collapsed ? 'w-14' : 'w-60',
         )}
       >
+        {PLATFORM_IS_MAC ? (
+          <div
+            className="h-7 shrink-0 border-b border-border bg-sidebar"
+            style={{ WebkitAppRegion: 'drag' } as CSSProperties}
+            aria-hidden
+          />
+        ) : null}
         <div
           className={cn(
             'flex h-12 items-center gap-2 border-b border-border',

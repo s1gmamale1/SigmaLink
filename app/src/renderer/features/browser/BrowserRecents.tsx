@@ -4,8 +4,13 @@
 //
 // V3-W13-002 — depends on the right-rail dock (V3-W13-001) and the existing
 // `browser.navigate` RPC.
+//
+// BUG-DF-01 — wrapped in `React.memo`. The parent BrowserRoom now passes a
+// stable `tabs` reference (preserved across `browser:state` broadcasts when
+// the tab content didn't actually change), so the recents column no longer
+// re-renders on every page-title-update tick.
 
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { Globe } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
@@ -65,7 +70,7 @@ function shortLabel(origin: string): string {
   }
 }
 
-export function BrowserRecents({ workspaceId, tabs, activeTabId, disabled }: Props) {
+function BrowserRecentsInner({ workspaceId, tabs, activeTabId, disabled }: Props) {
   const recents = useMemo(() => buildRecents(tabs), [tabs]);
 
   const onClick = (entry: OriginEntry) => {
@@ -111,3 +116,29 @@ export function BrowserRecents({ workspaceId, tabs, activeTabId, disabled }: Pro
     </aside>
   );
 }
+
+// BUG-DF-01 — only the inputs to `buildRecents` matter (per-tab origin via
+// `url` + ordering via `lastVisitedAt`). Comparing those lets us skip the
+// re-render and the buildRecents resort/filter when the broadcast doesn't
+// touch anything visible in the recents column.
+function recentsInputsEqual(a: BrowserTab[], b: BrowserTab[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.id !== y.id || x.url !== y.url || x.lastVisitedAt !== y.lastVisitedAt) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export const BrowserRecents = memo(BrowserRecentsInner, (prev, next) => {
+  return (
+    prev.workspaceId === next.workspaceId &&
+    prev.activeTabId === next.activeTabId &&
+    prev.disabled === next.disabled &&
+    recentsInputsEqual(prev.tabs, next.tabs)
+  );
+});

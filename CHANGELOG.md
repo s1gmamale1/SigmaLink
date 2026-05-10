@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-05-10
+
+Hotfix release. Tag + push gated on explicit user authorization. Body: `docs/release-notes-1.0.1.txt`.
+
+### Fixed
+
+- **DMG `Cannot find module 'bindings'`** at first launch — `electron-builder.yml` now adds `bindings`, `file-uri-to-path`, `prebuild-install`, `better-sqlite3/**`, and `node-pty/**` to `asarUnpack` so the native-module resolver finds the unpacked siblings. The v1.0.0 break came from the `--config.npmRebuild=false` build-flag workaround dropping transitive deps from the asar; the YAML-side fix means future rebuilds don't need that flag.
+- **Boot self-check missed `bindings` resolution failures** — `app/electron/main.ts` `checkNativeModules()` now opens `new Database(':memory:')` and spawns a 1×1 `node-pty.spawn()` (then immediately kills) so the inner `require('bindings')` actually executes during the smoke test; the diagnostic page now appears at boot rather than the renderer white-screening on first DB write.
+- **macOS traffic-light overlap on Sidebar** — title-bar buttons (close/min/zoom) overlapped the `SigmaLink` wordmark + Σ monogram on top-left of the sidebar. Added a 28-px draggable spacer at the top of the sidebar on macOS so the buttons sit in their own region (`Sidebar.tsx`); spacer hidden on Win/Linux.
+- **CLI agent pane text misalignment on first render** — `Terminal.tsx` no longer relies on a `requestAnimationFrame`-deferred initial `fit.fit()` (the rAF could fire before GridLayout's flex-shrink stabilized, leaving cells one column off). The `ResizeObserver` now gates `fit()` on non-zero contentRect dimensions and runs the first fit synchronously when the container measures non-zero; subsequent resizes debounce 25 ms (was 50 ms).
+- **BUG-DF-02** — `app.tier` and `design.shutdown` RPC channels now have zod schemas; the boot-time soft-launch warning `2 channel(s) have no zod schema entry` no longer fires.
+- **BUG-DF-01** — Browser room data-room flicker on tab focus.
+
+### Build
+
+- `app/electron-builder.yml` `asarUnpack` block extended; no longer requires `--config.npmRebuild=false` at build time.
+- `app/scripts/build-electron.cjs` adds `lazy-val` to esbuild externals to fix a pre-existing `electron:compile` break that surfaced when rebuilding a clean tree.
+- `app/package.json` version `1.0.0` → `1.0.1`.
+
 ## [1.0.0] - 2026-05-10
 
 V3 parity release. Tag + push gated on explicit user authorization. Body: `docs/release-notes-1.0.0.txt`. Acceptance: `docs/06-test/ACCEPTANCE_REPORT_V1.md`.

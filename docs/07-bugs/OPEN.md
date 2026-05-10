@@ -255,3 +255,34 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Actual**: Error: electron.launch: Electron failed to install correctly, please delete node_modules/electron and try installing again
 - **Status**: open
 - **Attempts**: 1
+
+### BUG-DF-02: Two RPC channels lack zod schema entries (`app.tier`, `design.shutdown`)
+- **Severity**: P3
+- **Surface**: `app/src/main/core/rpc/schemas.ts` — boot-time soft-launch warning logged `2 channel(s) have no zod schema entry: app.tier · design.shutdown`.
+- **Status**: open → fixed (2026-05-10)
+- **Fix**: `app/src/main/core/rpc/schemas.ts` — added `APP_TIER_SCHEMA` (`output: z.enum(['basic','pro','ultra'])`, mirrors `Tier` in `core/plan/capabilities.ts`) and `DESIGN_SHUTDOWN_SCHEMA` (`output: z.void()` — main-internal teardown hook, not in the renderer allowlist). Both registered in `CHANNEL_SCHEMAS` so the soft-launch warning now reports zero gaps. Source bug entry: `docs/06-test/DOGFOOD_V1.md` §5.
+- **Attempts**: 1
+- **Notes**: Zod enforcement is still soft-launch (`VALIDATION_MODE = 'warn'`); this closes the coverage gap so a later wave can flip to `'enforce'` without further coordination.
+
+### BUG-DF-01: Browser data-room flickers / sidebar nav lands on prior `tasks` room in Playwright auto-flow
+- **Severity**: P3 (target: v1.1)
+- **Surface**: `app/src/renderer/features/browser/{BrowserRoom,BrowserRecents,TabStrip,BrowserViewMount}.tsx` — Browser room re-render churn driven by `browser:state` IPC broadcasts.
+- **Repro (Playwright)**: After clicking through Tasks → Memory → graph tab → click `button[aria-label="Browser"]`, then synchronously read `document.body.getAttribute('data-room')`. Reads `tasks`, not `browser`. Visually: a one-frame flash in the data-room area as the WebContentsView re-positions on every `did-navigate` / `page-title-updated` event.
+- **Expected**: `data-room` settles to `browser` within 400 ms with no visible flicker in the recents column or the WebContentsView.
+- **Actual** (pre-fix): `data-room` still reads `tasks` after 400 ms; `25-browser-empty-tasks.png` / `26-browser-tab-loaded-tasks.png` confirm the Tasks board content remained rendered. Manually visible as a one-frame WebContentsView flash on every page-title / did-navigate tick.
+- **Hypothesis** (pre-fix): The Sidebar `disabled` calculation was suspected (BUG-W7-002 already addressed that). Actual root cause: `BrowserManager.broadcast()` (`app/src/main/core/browser/manager.ts:357-373,453-454`) fires `browser:state` for every WebContents `page-title-updated` / `did-navigate` / `did-navigate-in-page` event. Each broadcast calls `dispatch SET_BROWSER_STATE`, the reducer spreads (`app/src/renderer/app/state.tsx:231-234`) and produces a fresh `slice`/`tabs` reference, BrowserRecents re-runs `buildRecents` (sort + filter + map), BrowserViewMount's ResizeObserver schedules a redundant `setBounds` IPC, and the main process re-positions the WebContentsView with identical coords — observable as a flicker. Under Playwright the re-render storm also competes with the room-transition dispatch from the sidebar click, which is why the `data-room` attribute appears to "stick" on `tasks`.
+- **Owner**: dataroom-fixer
+- **Status**: open → fixed (2026-05-10)
+- **Fix**:
+  - `app/src/renderer/features/browser/BrowserViewMount.tsx` — wrap in `React.memo`; dedupe `setBounds` IPC by comparing the last-sent rect against the next one (skip when x/y/width/height + visible all match). Eliminates the WebContentsView re-position churn that produced the visible flicker.
+  - `app/src/renderer/features/browser/TabStrip.tsx` — wrap in `React.memo` with a content-aware comparator (`id` / `url` / `title` per tab + handler identity). Tab strip no longer re-renders on every page-title tick.
+  - `app/src/renderer/features/browser/BrowserRecents.tsx` — wrap in `React.memo` with a comparator over the inputs to `buildRecents` (`id` / `url` / `lastVisitedAt` per tab). Recents column no longer re-runs `buildRecents` on every broadcast.
+  - `app/src/renderer/features/browser/BrowserRoom.tsx` — annotated the existing `useMemo(() => slice?.tabs ?? [], [slice])` to document why the short-circuit lives in the leaves (the reducer always spreads, so the parent ref legitimately changes; only content-aware comparators on the leaves can no-op the equal-payload renders).
+- **Verified by**: dataroom-fixer, Phase 3 — `npx tsc -b --noEmit` exits 0; `npm run lint` reports 32 errors (well below the 54 baseline; none in the four touched files); E2E browser smoke not re-run in this session because Electron does not launch in the harness (BUG-W7-000), but the change is purely renderer memoisation + IPC dedup so the existing dogfood + smoke specs should pick it up on the next CI run.
+- **Attempts**: 1
+- **Visual-verify steps for next manual run** (operator, not automatable):
+  1. Launch app, open a workspace, click Browser.
+  2. Open a tab to a site with frequent title updates (e.g. a busy Twitter/X feed or a YouTube watch page) and let it run for ~30 s.
+  3. Watch the recents column (left aside) and the underlying browser pane: neither should flash on title ticks. The WebContentsView should hold its position without reflow.
+  4. With DevTools open in the renderer, add a `console.count('recents render')` inside `BrowserRecentsInner` and a `console.count('viewmount setBounds')` inside the dedup branch of `BrowserViewMount` — counts should be near-zero on title-only updates and bump only on real layout changes (window resize, sidebar collapse, tab close).
+- **Notes**: BUG-W7-002 / BUG-W7-014 already addressed the sidebar gating + screenshot misnaming. This fix attacks the remaining substrate that made the Playwright nav race observable in the first place: a re-render storm in the Browser room that competes with the room-transition dispatch. Coupled with the prior sidebar fixes the entire DF-01 symptom should clear. Source bug entry: `docs/06-test/DOGFOOD_V1.md` §5.

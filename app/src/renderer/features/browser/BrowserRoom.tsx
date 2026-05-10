@@ -42,6 +42,11 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
   const { state, dispatch } = useAppState();
   const ws = state.activeWorkspace;
   const slice = ws ? state.browser[ws.id] : null;
+  // BUG-DF-01 — `slice` is a fresh object on every `browser:state` broadcast
+  // (the reducer always spreads), so this useMemo intentionally still runs
+  // each render. The downstream short-circuit lives in TabStrip/BrowserRecents
+  // (`React.memo` with content-aware comparators) — that's where we actually
+  // skip work when the visible tab data didn't change.
   const tabs = useMemo(() => slice?.tabs ?? [], [slice]);
   const activeTabId = slice?.activeTabId ?? null;
   const lockOwner = slice?.lockOwner ?? null;

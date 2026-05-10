@@ -38,6 +38,26 @@ const stub: ChannelSchema = { input: any, output: any };
  */
 export const VALIDATION_MODE: 'warn' | 'enforce' = 'warn';
 
+// V3-W15-005 — Plan tier enum. Mirrors `Tier` in core/plan/capabilities.ts.
+// Hardened (not `stub`) because the controller has a single, well-known shape
+// and `app.tier` is read from the renderer on every Settings → Appearance
+// mount; tightening here is free.
+const TIER_ENUM = z.enum(['basic', 'pro', 'ultra']);
+const APP_TIER_SCHEMA: ChannelSchema = {
+  input: z.undefined().optional(),
+  output: TIER_ENUM,
+};
+
+// V3-W14-001..006 — Bridge Canvas teardown hook. The design controller exposes
+// a `shutdown()` method that `rpc-router.shutdownRouter` calls to tear down
+// picker overlays + dev-server watchers. The preload bridge does NOT allow-
+// list `design.shutdown`, so the renderer can never invoke it; the schema
+// entry exists purely to silence the soft-launch missing-schema warning.
+const DESIGN_SHUTDOWN_SCHEMA: ChannelSchema = {
+  input: z.undefined().optional(),
+  output: z.void(),
+};
+
 export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   // ── app ──────────────────────────────────────────────────────────────
   'app.getVersion': stub,
@@ -45,6 +65,8 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'app.diagnostics': stub,
   // V3-W14-008 — manual electron-updater trigger.
   'app.checkForUpdates': stub,
+  // V3-W15-005 — read the current plan tier (default 'ultra' on SigmaLink).
+  'app.tier': APP_TIER_SCHEMA,
   // ── pty ──────────────────────────────────────────────────────────────
   'pty.create': stub,
   'pty.write': stub,
@@ -177,6 +199,9 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'design.openCanvas': stub,
   'design.setDevServerRoots': stub,
   'design.reloadTab': stub,
+  // V3-W14-001..006 — Bridge Canvas teardown hook (main-process internal;
+  // not allow-listed in rpc-channels.ts so the renderer cannot reach it).
+  'design.shutdown': DESIGN_SHUTDOWN_SCHEMA,
   'swarm.console-tab': stub,
   'swarm.stop-all': stub,
   'swarm.constellation-layout': stub,

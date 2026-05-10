@@ -22,6 +22,10 @@ const common = {
     'electron',
     'better-sqlite3',
     'node-pty',
+    // electron-updater pulls `lazy-val` via dynamic require; mark external so
+    // esbuild doesn't try to resolve it at bundle time. v1.0.1 — pre-existing
+    // build break uncovered while fixing the DMG bindings defect.
+    'lazy-val',
     // Optional drivers Drizzle imports lazily — keep them external to avoid
     // pulling them into the bundle when we use only better-sqlite3.
     'pg', 'pg-native', 'mysql2', 'mysql', 'sqlite3', 'tedious',

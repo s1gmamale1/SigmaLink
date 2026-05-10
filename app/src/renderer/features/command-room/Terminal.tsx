@@ -147,19 +147,11 @@ export function SessionTerminal({ sessionId, className }: Props) {
       }),
     );
     term.open(container);
-
-    // Defer first fit to the next animation frame; the container can have
-    // zero height during initial layout which makes fit.fit() throw.
-    requestAnimationFrame(() => {
-      if (disposed) return;
-      try {
-        fit.fit();
-      } catch {
-        /* ignore initial fit errors */
-      }
-    });
-
     termRef.current = term;
+    // Initial fit is handled by the ResizeObserver below — it fires once
+    // immediately on observe() and we gate fit() on non-zero dimensions, so
+    // we no longer need the requestAnimationFrame workaround that caused
+    // misaligned text when GridLayout was still flex-shrinking on mount.
 
     // 1) Subscribe to live PTY data BEFORE pulling the snapshot.
     const offData = window.sigma.eventOn('pty:data', (raw: unknown) => {
@@ -187,27 +179,42 @@ export function SessionTerminal({ sessionId, className }: Props) {
       void rpc.pty.write(sessionId, data).catch(() => undefined);
     });
 
-    // Resize observer: keep PTY in sync with the visible cell grid. Debounce
-    // to ~50ms so a window-edge drag doesn't fire dozens of IPC calls per
-    // second.
+    // Resize observer: keep PTY in sync with the visible cell grid.
+    // Gate fit() on non-zero dimensions so we don't run while GridLayout is
+    // still flex-shrinking on first mount (the previous rAF workaround
+    // could fire mid-resize and produced misaligned cells). Debounce to
+    // 25ms so a window-edge drag doesn't fire dozens of IPC calls per
+    // second; first fit at non-zero size runs synchronously.
     let lastCols = term.cols;
     let lastRows = term.rows;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-    const ro = new ResizeObserver(() => {
+    let didFirstFit = false;
+    const runFit = () => {
+      if (disposed) return;
+      try {
+        fit.fit();
+      } catch {
+        return;
+      }
+      const { cols, rows } = term;
+      if (cols !== lastCols || rows !== lastRows) {
+        lastCols = cols;
+        lastRows = rows;
+        void rpc.pty.resize(sessionId, cols, rows).catch(() => undefined);
+      }
+    };
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width <= 0 || height <= 0) return;
+      if (!didFirstFit) {
+        didFirstFit = true;
+        runFit();
+        return;
+      }
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        try {
-          fit.fit();
-        } catch {
-          return;
-        }
-        const { cols, rows } = term;
-        if (cols !== lastCols || rows !== lastRows) {
-          lastCols = cols;
-          lastRows = rows;
-          void rpc.pty.resize(sessionId, cols, rows).catch(() => undefined);
-        }
-      }, 50);
+      resizeTimer = setTimeout(runFit, 25);
     });
     ro.observe(container);
 

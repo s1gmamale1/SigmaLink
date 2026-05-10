@@ -128,8 +128,9 @@ Total: 45 screenshots in `screenshots/` + 5 in `screenshots/dogfood-v1/`. Every 
 - **Repro**: Launch the app (any environment); first console.warn line of `[main:warning] [rpc-router]` shows the missing entries.
 - **Expected**: All RPC channels registered in `app/src/shared/rpc-channels.ts` should have a corresponding schema entry (even `z.any()`/`stub`) in `core/rpc/schemas.ts` per the W13 contract.
 - **Actual**: `app.tier` and `design.shutdown` are missing.
-- **Status**: open · target:v1.1
-- **Notes**: Zod enforcement is still in soft-launch mode, so the gap does not block any flow. Add the two `stub` entries before flipping enforcement to hard.
+- **Status**: fixed (2026-05-10)
+- **Fix**: `app/src/main/core/rpc/schemas.ts` — added `APP_TIER_SCHEMA` (`output: z.enum(['basic','pro','ultra'])`, mirrors `Tier` in `core/plan/capabilities.ts`) and `DESIGN_SHUTDOWN_SCHEMA` (`output: z.void()` — main-internal teardown hook, not in the renderer allowlist). Both registered in `CHANNEL_SCHEMAS` so the soft-launch missing-schema warning now reports zero gaps.
+- **Notes**: Zod enforcement is still in soft-launch mode, so the gap did not block any flow; this just gets us to 100% coverage so a later wave can flip enforcement to hard without further coordination.
 
 ## 6. Verdict
 

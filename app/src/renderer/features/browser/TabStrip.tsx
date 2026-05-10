@@ -2,7 +2,14 @@
 //
 // Middle-click closes (mirrors Chrome). Active tab is highlighted; long titles
 // truncate with an ellipsis.
+//
+// BUG-DF-01 — wrapped in `React.memo` so the strip only re-renders when the
+// tabs array (or active id) actually changes. The parent BrowserRoom receives
+// a fresh `slice` on every `browser:state` broadcast; without memo, every
+// title/url tick from the WebContentsView would re-render this component and
+// contribute to the data-room flicker.
 
+import { memo } from 'react';
 import { Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -16,7 +23,7 @@ interface Props {
   onNewTab: () => void;
 }
 
-export function TabStrip({ tabs, activeTabId, onSelect, onClose, onNewTab }: Props) {
+function TabStripInner({ tabs, activeTabId, onSelect, onClose, onNewTab }: Props) {
   return (
     <div className="flex items-center gap-1 overflow-x-auto border-b border-border bg-sidebar px-2 py-1">
       {tabs.map((t) => {
@@ -75,3 +82,32 @@ function domainOf(url: string): string {
     return '';
   }
 }
+
+// BUG-DF-01 — content-aware comparator. The parent BrowserRoom passes a
+// fresh `tabs` array on every `browser:state` broadcast (the reducer
+// spreads on each event). Comparing the visible per-tab fields lets us
+// short-circuit when the broadcast doesn't actually change what the strip
+// renders (e.g. a page-title-update tick that we already absorbed, or a
+// `did-navigate-in-page` that only bumped `lastVisitedAt`). All event
+// handlers (`onSelect`, `onClose`, `onNewTab`) are wrapped in `useCallback`
+// upstream so a referential check is enough for them.
+function tabsArrayContentEqual(a: BrowserTab[], b: BrowserTab[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.id !== y.id || x.url !== y.url || x.title !== y.title) return false;
+  }
+  return true;
+}
+
+export const TabStrip = memo(TabStripInner, (prev, next) => {
+  return (
+    prev.activeTabId === next.activeTabId &&
+    prev.onSelect === next.onSelect &&
+    prev.onClose === next.onClose &&
+    prev.onNewTab === next.onNewTab &&
+    tabsArrayContentEqual(prev.tabs, next.tabs)
+  );
+});

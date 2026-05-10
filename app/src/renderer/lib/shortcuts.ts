@@ -14,7 +14,7 @@ export interface ParsedShortcut {
   alt: boolean;
 }
 
-const PLATFORM_IS_MAC =
+export const PLATFORM_IS_MAC =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPod|iPad/.test(navigator.platform);
 
 export function parseShortcut(spec: string): ParsedShortcut {

@@ -26,14 +26,57 @@ interface NativeModuleCheck {
   readonly error?: string;
 }
 
+// v1.0.1 — real instantiation, not just `require()`. The v1.0.0 DMG passed
+// `requireCJS('better-sqlite3')` (which only loads `database.js`) but blew up
+// at first `new Database(...)` because the inner `require('bindings')` was
+// dropped from the asar. Spinning up an in-memory DB and a 1×1 PTY here
+// triggers the full native-loader chain at boot, so any packaging defect
+// surfaces in the diagnostic window instead of a white-screen renderer.
 function checkNativeModules(): NativeModuleCheck[] {
-  const required = ['better-sqlite3', 'node-pty'];
-  return required.map((mod) => {
+  const probes: ReadonlyArray<{ module: string; probe: () => void }> = [
+    {
+      module: 'better-sqlite3',
+      probe: () => {
+        const Database = requireCJS('better-sqlite3') as new (path: string) => {
+          prepare: (sql: string) => { get: () => unknown };
+          close: () => void;
+        };
+        const db = new Database(':memory:');
+        try {
+          db.prepare('SELECT 1').get();
+        } finally {
+          db.close();
+        }
+      },
+    },
+    {
+      module: 'node-pty',
+      probe: () => {
+        const pty = requireCJS('node-pty') as {
+          spawn: (
+            shell: string,
+            args: ReadonlyArray<string>,
+            opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv },
+          ) => { kill: () => void };
+        };
+        const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
+        const term = pty.spawn(shell, [], {
+          name: 'xterm-color',
+          cols: 1,
+          rows: 1,
+          cwd: process.cwd(),
+          env: process.env,
+        });
+        term.kill();
+      },
+    },
+  ];
+  return probes.map(({ module, probe }) => {
     try {
-      requireCJS(mod);
-      return { module: mod, ok: true };
+      probe();
+      return { module, ok: true };
     } catch (err) {
-      return { module: mod, ok: false, error: err instanceof Error ? err.message : String(err) };
+      return { module, ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
 }

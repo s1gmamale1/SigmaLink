@@ -1,0 +1,37 @@
+SigmaLink v1.0.1 — Hotfix
+
+This release fixes the v1.0.0 DMG runtime crash (`Cannot find module 'bindings'`)
+and two UI regressions reported during dogfood.
+
+Fixed:
+
+* DMG would not launch because the `bindings` package and the `.node` binaries
+  for `better-sqlite3` + `node-pty` were packed inside the asar, where Electron
+  cannot dlopen them. `electron-builder.yml` now unpacks them; the build flow
+  no longer needs the `--config.npmRebuild=false` workaround.
+
+* Boot self-check now actually instantiates the native modules
+  (`new Database(':memory:')` + `node-pty.spawn().kill()`) so the inner
+  `require('bindings')` failure is caught at boot and the diagnostic window
+  appears instead of a renderer white-screen.
+
+* macOS traffic-light buttons (close/min/zoom) no longer overlap the SigmaLink
+  wordmark in the sidebar — a 28-px draggable spacer is now reserved at the
+  top of the sidebar on macOS.
+
+* CLI agent panes render text aligned correctly on first paint. The previous
+  `requestAnimationFrame` + 50 ms-debounced `fit.fit()` could fire while
+  GridLayout was still flex-shrinking; replaced with a `ResizeObserver`
+  that gates fit on non-zero dimensions and debounces subsequent resizes
+  to 25 ms.
+
+* `app.tier` and `design.shutdown` RPC channels gained zod schemas
+  (`BUG-DF-02`); the boot-time soft-launch warning is silent.
+
+* Browser-room data-room no longer flickers when switching tabs (`BUG-DF-01`).
+
+Upgrade path: macOS / Windows / Linux users on v1.0.0 can run the v1.0.0 app
+once to opt into auto-update (`Settings → Updates`); subsequent boots will
+prompt for v1.0.1. Fresh installs should download v1.0.1 directly.
+
+No new features; all v1.1 work continues on `main`.
