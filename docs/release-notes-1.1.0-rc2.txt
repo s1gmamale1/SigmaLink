@@ -1,0 +1,63 @@
+SigmaLink v1.1.0-rc2 — Release candidate 2
+
+Iterates on rc1 by folding in Phase 4 Step 5 (Skills marketplace live
+install) which landed on `main` after rc1 was tagged. Everything from
+rc1 is carried forward unchanged.
+
+What's new vs rc1:
+
+* SigmaSkills marketplace Install button now actually installs from
+  GitHub. The "drag the folder, network installs not yet supported"
+  toast is gone. Click Install on any catalog card → tarball downloads
+  → SKILL.md validated → ingested through the existing per-provider
+  fanout pipeline (Claude / Codex / Gemini).
+
+* Marketplace catalog expanded from 8 hardcoded entries to 20. Six of
+  them point at the real public `anthropics/skills` repo; the rest
+  are curated placeholders that degrade gracefully until those repos
+  materialise.
+
+* `app.tier` schema corrected to `enum(['basic','pro','ultra'])` to
+  match the actual Tier union (was a misread in the original plan).
+
+Carried over from rc1:
+
+* macOS DMG PATH bootstrap (Finder-launched apps now find providers)
+* Provider launcher façade (BridgeCode silent fallback + altCommands
+  ENOENT walk + autoApproveFlag append + legacy-gate recheck)
+* Migration 0010 (agent_sessions.provider_effective)
+* Mailbox group-recipient grammar end-to-end
+* Cross-swarm directive leak closed
+* Cross-pane focus auto-sync on Bridge dispatch
+* SigmaVoice native macOS module (Speech.framework + on-device
+  recognition + regex intent dispatcher)
+* Ruflo MCP supervisor (Option B lazy-download) + 3 user-facing
+  features (semantic memory search, Bridge pattern surfacing,
+  Command Palette autopilot)
+
+Build:
+
+* tsc clean. vite build 326 KB main + 6 vendor chunks.
+* Lint 42 errors / 10 warnings (UNDER 54 baseline).
+* 21/21 marketplace tests pass + Track B 17/17 + Track C 14/14 +
+  fixer wave tests intact.
+
+Why rc2 not 1.1.0:
+
+The split-shipping situation (rc1 + post-rc1 main HEAD) was confusing
+for users. rc2 bundles the same artifacts into one downloadable so
+real-world validation has a single target. If real-world dogfood is
+clean, v1.1.0 final follows on this same SHA.
+
+Upgrade path: macOS users on v1.0.1 or v1.1.0-rc1 can run
+Settings → Updates → Check for updates. Fresh installs should
+download v1.1.0-rc2 directly.
+
+Known issues (deferred to v1.2):
+
+* Wake-word "Hey Sigma" — Porcupine licensing forbids bundled key.
+* Ruflo native deps not transitively resolved by installer.
+* @playwright/test ≥1.60 bump for the Node-26 loader race.
+* macOS notarisation — needs Apple Developer ID procurement.
+
+See docs/07-bugs/OPEN.md Phase 4 section for the full deferred list.

@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.0-rc2] - 2026-05-10
+
+Release-candidate iteration on top of rc1. Adds Phase 4 Step 5 (Skills marketplace live install) which landed on `main` after rc1 was tagged.
+
+### Added
+
+* **Skills marketplace live install from GitHub URL** (Phase 4 Step 5) — Marketplace tab Install button now downloads a GitHub tarball (streamed to temp file, no in-memory load), shells out to `tar -xzf`, walks for SKILL.md (root / subPath / `skills/` heuristic), and runs the result through the existing `manager.ingestFolder` pipeline (sha256 hash + atomic temp+rename + per-provider fanout to Claude/Codex/Gemini). Supports `owner/repo` shorthand, full GitHub URL, and SSH URL formats. Default branch resolved via GitHub API when ref omitted. Streamed progress events drive a per-card progress bar.
+* **Marketplace catalog expanded 8 → 20 entries** — 6 entries point at the real public `anthropics/skills` repo; 14 are curated SigmaLink/community placeholders with `install: { ownerRepo, ref?, subPath? }` blocks. Older entries without an install block fall back to `repoUrl → owner/repo` parsing.
+* 21/21 marketplace unit tests covering URL parsing, SKILL.md location heuristics, tarball-wrapper detection, and end-to-end installFromUrl flow (success, ref override, invalid URL, missing SKILL.md, invalid frontmatter, UPDATE_REQUIRED hint, download failure cleanup, progress sequence, metadata failure).
+
+### Changed
+
+* `app.tier` schema corrected to `enum(['basic','pro','ultra'])` to match the actual `Tier` union (was `['free','pro','ultra']` in plan).
+* Vite main bundle 322 → 326 KB (+4 KB for the new MarketplaceTab UI surface). Still well under the 700 KB target.
+
+### Carried forward from rc1
+
+All Track A (IPC + provider hardening) + Track B (SigmaVoice) + Track C (Ruflo) work from rc1 is in this candidate unchanged.
+
 ## [1.1.0-rc1] - 2026-05-10
 
 Phase 4 release candidate. Three feature tracks landed in one autonomous overnight run on top of v1.0.1: Agent IPC reliability, SigmaVoice native macOS module, and Ruflo MCP supervisor with three user-facing features. **rc1** because the new native voice module + lazy-download Ruflo path warrant real-world validation before the final v1.1.0 tag.
