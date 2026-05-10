@@ -6,7 +6,7 @@
 [OK]   03-onboarding-step2.png — onboarding step 2 (provider probe)
 [OK]   04-onboarding-step3.png — onboarding step 3 (workspace picker)
 [OK]   05-workspaces-empty.png — workspaces empty (post-onboarding)
-[RPC workspaces.open] {"ok":true,"out":{"ok":true,"data":{"id":"aa67e256-5ae7-4b8b-974d-70b0db1065a5","name":"SigmaLink","rootPath":"/Users/aisigma/projects/SigmaLink","repoRoot":"/Users/aisigma/projects/SigmaLink","repoMode":"git","createdAt":1778370390254,"lastOpenedAt":1778370656917}}}
+[RPC workspaces.open] {"ok":true,"out":{"ok":true,"data":{"id":"aa67e256-5ae7-4b8b-974d-70b0db1065a5","name":"SigmaLink","rootPath":"/Users/aisigma/projects/SigmaLink","repoRoot":"/Users/aisigma/projects/SigmaLink","repoMode":"git","createdAt":1778370390254,"lastOpenedAt":1778374419053}}}
 [OK]   06-workspaces-with-recent.png — workspaces with SigmaLink folder
 [OK]   07-launcher-4-panes.png — launcher 4 panes
 [OK]   08-command-room-empty.png — command room (post-launch)

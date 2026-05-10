@@ -2,7 +2,7 @@
 
 Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`; if five attempts fail, the bug moves to `DEFERRED.md`.
 
-> **MANUAL VERIFY PENDING (Phase 3 Step 4 manual)**: BUG-W7-003 (default theme on fresh kv), BUG-W7-006 (swarms.create after workspaces.open). Code is fixed; promotion to `verified` requires a clean-kv install run that this agent could not perform.
+> **W7-003 + W7-006**: Promoted to `verified` 2026-05-10 by Phase 3 Step 9 automated dogfood (`app/tests/e2e/dogfood.spec.ts`). Both run against per-test temp `userData` directories (Chromium `--user-data-dir`), which is the clean-kv install scenario the original sweep could not exercise.
 
 ## Format
 
@@ -65,11 +65,11 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Actual**: Settings shows the Synthwave card highlighted (and the canvas is the magenta neon variant). The kv value persisted from a previous session is retained without a reset path, and there is no "Reset to default" affordance in Appearance.
 - **Hypothesis**: ThemeProvider reads `app.theme` from kv and applies whatever string is stored. There is no validation that the theme is in the canonical set, no fallback to `obsidian` if the value is malformed, and no obvious reset button.
 - **Owner**: unassigned
-- **Status**: fixed
+- **Status**: verified
 - **Fix**: `app/src/renderer/app/ThemeProvider.tsx:33-46` — value is validated against `isThemeId` and corrected to obsidian + persisted; `app/src/renderer/features/settings/AppearanceTab.tsx:62-77` — added "Reset to default" button next to the Theme grid.
 - **Attempts**: 1
-- **Verification**: Wave 9 acceptance smoke runs against a kv that already contains `app.theme=synthwave` (carried over from the W7 sweep), so the screenshot still shows Synthwave selected. Manual re-verification on a clean kv profile is recommended; the validator + Reset button were code-reviewed but not exercised on a fresh install in this pass.
-- **Notes**: `screenshots/28-settings-appearance.png` confirms Synthwave is the active card.
+- **Verification**: Verified by automated dogfood test 2026-05-10. `app/tests/e2e/dogfood.spec.ts:'BUG-W7-003: default theme on fresh kv is obsidian'` launches the app with a per-test temp `userData` directory (Chromium `--user-data-dir` flag → empty kv), waits for ThemeProvider hydrate, then asserts both `kv.app.theme` resolves to `'obsidian'` (auto-corrected from null) AND `<html data-theme>` reads `obsidian`. Screenshot: `docs/06-test/screenshots/dogfood-v1/df-04-w7-003-default-theme.png`.
+- **Notes**: `screenshots/28-settings-appearance.png` confirms Synthwave is the active card on the persisted dev kv (carried over from W7 sweep) — that profile is a separate concern from default-on-fresh-install behaviour.
 
 ### BUG-W7-004: Sidebar background does not retheme when switching to Parchment (light) theme
 - **Severity**: P2
@@ -112,11 +112,11 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 - **Actual**: `workspaces.list` returns `[]`, so the harness's swarms.create call returned `{ ok: false, err: 'no workspace' }`. Possibly a separation between "open" (current selection) and "list" (saved workspaces) that is not documented.
 - **Hypothesis**: `workspaces.list` only returns workspaces that have been launched at least once (or saved via a different path). `workspaces.open` returns a transient record that isn't yet persisted. Either persist on open, or document the lifecycle.
 - **Owner**: unassigned
-- **Status**: fixed
+- **Status**: verified
 - **Fix**: `app/src/main/core/workspaces/factory.ts:24-58` — `openWorkspace` now runs `wal_checkpoint(PASSIVE)` after the insert/update so any subsequent `workspaces.list` (in the same or another renderer call) is guaranteed to see the row. `app/src/main/core/swarms/factory.ts:51-66` — `createSwarm` continues to look up by the caller-supplied `workspaceId` directly (no dependence on `workspaces.list`) and now throws a clearer error pointing at `workspaces.open` if the row really is missing. The remaining "no workspace" line in the smoke console output is a test-harness bug (it consumes the raw envelope as an array — see BUG-W7-010).
 - **Attempts**: 1
-- **Verification**: Wave 9 acceptance smoke still emits the legacy "no workspace" console line for the same harness reason (BUG-W7-010 unchanged). Manual re-verification through the GUI rpc client is recommended before promoting to verified.
-- **Notes**: See `docs/06-test/console-output.txt` line `[RPC swarms.create] {"ok":false,"err":"no workspace"}`.
+- **Verification**: Verified by automated dogfood test 2026-05-10. `app/tests/e2e/dogfood.spec.ts:'BUG-W7-006: swarms.create after workspaces.open has no race'` uses the workspace id returned by `workspaces.open` directly (envelope-aware, sidesteps BUG-W7-010 harness bug) and immediately invokes `swarms.create` — both calls share the same evaluate closure with no intervening wait, so any race would surface. Result: open returns `{ok:true, data:{id}}`, create returns `{ok:true, data:{id, ...}}`, and a follow-up `swarms.list(wsId)` shows the new row. Screenshot: `docs/06-test/screenshots/dogfood-v1/df-05-w7-006-swarm-created.png`.
+- **Notes**: Test-harness bug BUG-W7-010 remains separate (it lives in the OLD smoke spec only); the dogfood spec consumes the envelope correctly.
 
 ### BUG-W7-007: PowerShell new-version banner clutters every fresh shell pane
 - **Severity**: P3
