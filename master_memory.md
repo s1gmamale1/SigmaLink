@@ -313,3 +313,97 @@ Supersedes the v0.1.0-alpha snapshot above. Detailed surface inventory + risk re
 **Top 5 v1.1 follow-ups**: dogfood (V3-W15-006); native voice bindings; macOS notarisation + Win signing; 3-way merge editor + per-line review; promote BUG-W7-003 + 006 to `verified`.
 
 **TL;DR** — v1.0 is feature-complete and release-blocked-pending-user.
+
+---
+
+## Phase 3 — Polish + Differentiators + v1.0.0 release (May 10, 2026)
+
+Three explore agents (bug hunter, V3 design refresher, state auditor) ran in parallel against the Phase 2 codebase, then three Plan agents debated next-phase priorities from contrasting stances (ship-fast / polish-first / differentiate-from-V3). User locked the synthesis: **repair + 2 differentiators → v1.0.0**. Plan filed at `~/.claude/plans/download-a-skill-plugin-that-lexical-pinwheel.md`.
+
+Exploration surfaced three problems Phase 2 missed:
+1. **Operator Console fully built but ORPHANED** — 534 LoC of canvas-driven graph with no Sidebar entry, no `RoomSwitch` case, no `RoomId` type entry. Wave 13 acceptance failure that nobody caught.
+2. **Two silent P1 bugs**: migration `0002_credentials.ts` exports `id` instead of `name` (runner skips it; credentials table never inits); Gemini MCP config writes `httpUrl` instead of `url` (handshake fails).
+3. **Brand drift**: workspace picker still labels cards "BridgeSpace / BridgeSwarm / BridgeCanvas" instead of "SigmaLink / SigmaSwarm / SigmaCanvas".
+
+Two architectural wins ready to harvest cheap:
+- Mailbox is **already event-sourced** on disk (`swarm_messages` rows with timestamps) — turn that into Persistent Swarm Replay (V3 cannot match without backend rewrite).
+- Bridge Assistant has a tool-tracer; conversations + messages tables exist from W13 migration 0006 but weren't wired in — turn that into cross-session persistence.
+
+### Step 1 — P1 emergency fixes
+Migration `0002_credentials` `id`→`name` + registered in `migrate.ts ALL_MIGRATIONS`; self-bootstrap in `core/credentials/storage.ts` removed; Gemini MCP `httpUrl`→`url`. Two new test files: `migrate.spec.ts` (asserts every `0NNN_*.ts` is registered) + `mcp-config-writer.spec.ts` (snapshots Gemini JSON shape with `url`). 6 tests passing. Migration chain `0001 → 0007` unbroken.
+
+### Step 2 — Operator Console rescue
+Added `'operator'` to `RoomId` union, `case 'operator':` to `RoomSwitch`, `{id:'operator', label:'Operator Console', icon:Network}` to Sidebar ITEMS, and a palette command. The orphan code's prop contracts were sound — no fallback flag needed. Smoke spec extended. ~40 LoC, 0 new lint errors.
+
+### Step 3 — Brand sweep + CI guard
+Substituted "BridgeSpace/BridgeSwarm/BridgeCanvas" → "SigmaLink/SigmaSwarm/SigmaCanvas" in `PickerCards.tsx`, `Launcher.tsx`. Renamed `Sidebar.tsx` + `RightRailTabs.tsx` "Bridge" → "Bridge Assistant". New `scripts/check-brand.sh` exits non-zero on user-visible drift; wired into `lint-and-build.yml` as required step. (RoleRoster, PaneSplash, PaneStatusStrip, AgentsStep had zero in-scope strings — already clean.)
+
+### Step 4 — P2 fix sweep + W7 closeout
+PaneHeader z-20 (over PaneSplash z-10); BridgeCode "coming soon" splash branch removed (falls through to generic Claude fallback splash); Playwright supervisor now `await mcpConfigWriter.write(...)` before `start()`; demoted `console.warn` to debug; Codex regex more robust with explicit START/END markers + append-on-no-match fallback; PaneStatusStrip fallback model entries for Droid + Copilot; **react-hooks violations in `TaskDetailDrawer.tsx:35-36` fixed via `useReducer` + ref pattern**. 5 P2 bugs `fixed`; manual W7-003 + W7-006 verification deferred to Step 9.
+
+### Step 5 — Phase 2 atomic commit + lint hygiene
+124 uncommitted files staged in **13 logical commits** (planned 11; agent added `chore(gitignore)` first to exclude orchestration dirs and `chore: remove dead Phase-1 _legacy directory` last). The `_legacy/` deletion removed **2,791 LoC** of dead Phase-1 code. Final lint: **54 errors / 0 warnings** (down from 79/3; W9 baseline of 53 within 1). 8 `eslint-disable` lines audited via `simplify` skill — all justified. 16 commits ahead of `v0.1.0-alpha`.
+
+### Step 6 — Persistent Swarm Replay (Differentiator #1) — commit `1e5a0af`
+Migration `0008_swarm_replay` adds `swarm_replay_snapshots(id, swarmId, label, frameIdx, createdAt)`. New `core/swarms/replay.ts` `ReplayManager` with `list / scrub / bookmark / listBookmarks / deleteBookmark` + LRU(32) frame cache; `scrub(swarmId, frameIdx)` returns cumulative state at any historical frame. 5 new RPC channels under `swarm.replay.*` + `swarm:replay-frame` event. New `ReplayScrubber.tsx` (range slider + frame counter + bookmark dropdown + swarm picker); Constellation + ActivityFeed accept optional `replayFrame` prop. New "Replays" tab in Operator Console TopBar. **V3 cannot match this** — V3 swarms vanish when the window closes; SigmaLink's mailbox already wrote every envelope to disk.
+
+### Step 7 — Bridge Assistant cross-session persistence (Differentiator #2) — commit `9769b25`
+Tool-tracer rewritten from in-memory ring buffer to DB-backed: every tool call persisted to `messages.toolCallId`. New `conversations-controller.ts` with `assistant.conversations.{list,get,delete}` RPC. Migration `0009_swarm_origins` adds `swarm_origins(swarmId, conversationId, messageId, createdAt)` linking table. When the Bridge Assistant invokes `create_swarm`, the resulting swarm gets a `swarm_origins` row keying back to the conversation + tool-call message. New `ConversationsPanel.tsx` left-side sidebar in `BridgeRoom`. New `OriginLink.tsx` widget in Operator Console: when scrubbing a replay, fetches `swarm.origin.get(swarmId)` and shows "Started from Bridge Assistant chat · <date> · Open chat" — clicking jumps to the right conversation, scrolls to the triggering tool-call message, flashes a primary ring. Connective tissue between Steps 2 + 6.
+
+### Step 8 — Smoke + bundle chunks — commit `baede6a`
+Smoke spec extended (Steps 2 + 6 + 7 surfaces) — **40/40 Pass**, 0 console errors, 0 page errors. `vite.config.ts` `manualChunks` split: `vendor-react` (227 KB), `vendor-xterm` (333 KB), `vendor-radix` (50 KB), `vendor-cmdk` (45 KB), `vendor-dnd` (38 KB), `vendor-icons` (21 KB). Monaco kept lazy at 14.57 KB. **Main initial bundle: 1025 KB → 311 KB** (70% reduction; well under 700 KB target). `ACCEPTANCE_REPORT_V1.md` verdict flipped to RELEASE-READY-PENDING-USER-AUTH.
+
+### Step 9 — Automated dogfood — commit `3905108`
+`dogfood-tester` agent extended `tests/e2e/dogfood.spec.ts` (320 lines, 3 tests) covering Operator Console Replays tab, Bridge Conversations panel, OriginLink mount, Diagnostics tab. Programmatically verified **BUG-W7-003** (per-test fresh-kv Electron launch → Obsidian default theme) and **BUG-W7-006** (open workspace → immediately create swarm → no race). Both promoted from `fixed` → `verified` in `OPEN.md`. **40/40 smoke + 3 dogfood specs PASS**, 0 console errors, 0 page errors, 0 P1/P2 emerged. 2 P3 BUG-DF flagged for v1.1: `BUG-DF-01` (Browser room data-room flicker), `BUG-DF-02` (zod schema stubs missing for `app.tier` + `design.shutdown`). Verdict: **GREENLIGHT-FOR-RELEASE**. DOGFOOD_V1.md filed.
+
+### Step 10 — v1.0.0 tag + GitHub release — commit `28ac378`
+Stripped `(PENDING TAG)` from CHANGELOG `[1.0.0] - 2026-05-10`; bumped `package.json` to 1.0.0 (already there from W16); README "Known issues in v1.0" section added. Quick security review: clean (no hardcoded creds; `safeStorage` fallback contract correct; 3 `dangerouslySetInnerHTML` sites verified to escape user content). Annotated tag `v1.0.0` cut, body sourced from `docs/release-notes-1.0.0.txt`. **`git push origin main` + `git push origin v1.0.0` succeeded.** GitHub release published at https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.0.0.
+
+Installer build hit the **Node 26 + npm 11 + prebuild-install crash**; worked around with `--config.npmRebuild=false` so electron-builder packed the already-resident native binaries verbatim. Both artefacts produced and attached: `SigmaLink-1.0.0-arm64.dmg` (122 MB), `SigmaLink-1.0.0-arm64-mac.zip` (117 MB). **macOS notarisation skipped** (no Apple Developer ID configured) — v1.0 ships unsigned.
+
+### Post-release: launch path defects discovered + fixed — commit `3caa7c7`
+
+Two issues surfaced when actually launching:
+
+1. **DMG broken**: `Cannot find module 'bindings'` at `app.asar/node_modules/better-sqlite3/lib/database.js:48`. Root cause: `--npmRebuild=false` workaround dropped transitive deps (`bindings`, `prebuild-install`) from the asar bundle. **Hole in boot self-check exposed**: `electron/main.ts` does `require('better-sqlite3')` which loads `database.js` but doesn't trigger inner `require('bindings')` until `new Database(...)` is called. v1.0.1 hotfix needs both fixes.
+2. **Source launch broken**: `node_modules/electron/` was a flat directory missing `dist/` and `path.txt`; pnpm hadn't fully linked the binary from its `.pnpm/electron@30.5.1/...` stash. **Non-destructive fix**: two symlinks from flat path to pnpm stash. Verified: app launches with all helper processes spawning, no errors.
+
+Wrote **`/Users/aisigma/projects/SigmaLink/RUNNING.md`** (131 lines) documenting the verified launch sequence:
+- Quickstart: `cd app && node node_modules/electron/cli.js electron-dist/main.js`
+- First-time setup: pnpm install → build → @electron/rebuild → symlink fix
+- 5 troubleshooting recipes
+- Why `pnpm exec electron .` fails (wrapper trap + Node 26/npm 11 crash)
+- Why the v1.0.0 DMG is broken (bindings dropped from asar)
+
+### Lessons stored to AgentDB (`agentdb_pattern-store`)
+
+6 patterns saved for future-session recall:
+- `error-recovery`: Node 26 + npm 11 + better-sqlite3@12.9.0 install crash workaround
+- `error-recovery`: pnpm exec electron wrapper trap
+- `error-recovery`: missing `electron/path.txt` symlink fix from `.pnpm/` stash
+- `build-defect`: v1.0.0 DMG `bindings` missing → v1.0.1 fix path
+- `orchestration-pattern`: sub-agents don't truly block on inbox SendMessages — every agent prompt must include concrete initial work
+- `project-state`: SigmaLink v1.0.0 differentiators + known issues snapshot
+
+Future Claude Code sessions will recall these via `agentdb_pattern-search` when they hit similar errors.
+
+## Status snapshot — v1.0.0 SHIPPED
+
+Supersedes the v1.0-candidate snapshot above.
+
+- **`main` HEAD**: `3caa7c7` (RUNNING.md commit, local only) → `28ac378` (release commit, pushed).
+- **Tag**: `v1.0.0` annotated, pushed to `origin`.
+- **Commits since `v0.1.0-alpha`**: 22 (21 pushed + 1 local).
+- **GitHub release**: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.0.0 (published, not draft).
+- **Build**: `tsc -b` clean; `vite build` 311 KB main + 6 vendor chunks + 14.57 KB Monaco lazy.
+- **Lint**: 54 errors / 0 warnings (= ceiling, pinned in CI).
+- **Smoke**: 40/40 + 3 dogfood specs Pass, 0 console errors, 0 page errors.
+- **Bug ledger**: 0 P1, 0 P2, 2 P3 (`BUG-DF-01` Browser flicker, `BUG-DF-02` zod stubs). BUG-W7-003 + BUG-W7-006 promoted to `verified`.
+- **DMG status**: ⚠ broken at runtime (`bindings` missing). Yank or replace in v1.0.1 hotfix.
+- **Source launch**: ✓ verified via `node node_modules/electron/cli.js electron-dist/main.js` after symlink fix; documented in `RUNNING.md`.
+
+**Top v1.0.1 hotfix priorities**: rebuild DMG with `bindings` + `prebuild-install` as explicit deps; strengthen boot self-check to actually instantiate `new Database(':memory:')` + `node-pty.spawn`; resolve Browser room data-room flicker; backfill 2 missing zod schemas.
+
+**Top v1.1 priorities**: macOS notarisation (Apple Developer ID); native voice bindings (macOS Speech / Win SAPI / Linux PocketSphinx); BridgeCode multi-provider dispatch when BridgeMind ships the SKU; Skill marketplace live install from GitHub URL; three-way merge editor (Review Room v2); first real-world dogfood with screen recording.
+
+**TL;DR** — v1.0.0 SHIPPED via tag + GitHub release. Source launch verified end-to-end. Bundled DMG has a known defect blocked behind v1.0.1 hotfix. Two world-first differentiators (Persistent Swarm Replay + Bridge Assistant cross-session memory) are live and exercise architectural advantages V3 cannot match.

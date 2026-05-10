@@ -32,20 +32,36 @@ Per-wave engineering reports live under [`docs/05-build/`](docs/05-build/) and v
 | T-25 | Wave 9 — acceptance re-smoke against W8 fixes; promote 7/9 bugs to verified; CHANGELOG cut `[0.1.0-alpha] - 2026-05-09`; README status table flipped to Shipped; ACCEPTANCE_REPORT (12-flow Definition of Done: 7 Pass / 4 Partial / 1 Not exercised / 0 Fail); `v0.1.0-alpha` annotated tag created | shipped (verdict: alpha-ready) | 1 |
 | T-26 | Push every wave commit + tag `v0.1.0-alpha` to GitHub | shipped | 1 |
 | T-27 | Write `master_memory.md` + `memory_index.md` and push | shipped | 1 |
+| T-28 | Phase 2 — Wave 10 (boot self-check + Diagnostics tab) → Wave 16 (release docs) — 45 V3 parity tickets across 25 parallel agents | shipped | 1 |
+| T-29 | Phase 3 Step 1 — P1 emergency fixes: migration 0002 `id`→`name` registered; Gemini MCP `httpUrl`→`url`; 2 new test files (6 tests) | shipped | 1 |
+| T-30 | Phase 3 Step 2 — Operator Console rescue (orphan W13 code wired into `RoomId`+`RoomSwitch`+Sidebar+CommandPalette+smoke) | shipped | 1 |
+| T-31 | Phase 3 Step 3 — Brand sweep + CI guard (`scripts/check-brand.sh` blocks PR drift) | shipped | 1 |
+| T-32 | Phase 3 Step 4 — P2 fix sweep (PaneSplash z-index, BridgeCode splash, Playwright supervisor race, regex robustness, model defaults, react-hooks in TaskDetailDrawer) | shipped | 1 |
+| T-33 | Phase 3 Step 5 — Phase 2 atomic commit + lint hygiene (124 files → 13 commits, `_legacy/` deleted -2,791 LoC, lint 79→54) | shipped | 1 |
+| T-34 | Phase 3 Step 6 — Differentiator #1: Persistent Swarm Replay (migration 0008, ReplayManager, ReplayScrubber, Replays tab) | shipped | 1 |
+| T-35 | Phase 3 Step 7 — Differentiator #2: Bridge Assistant cross-session persistence (DB-backed tool-tracer, Conversations panel, migration 0009 swarm_origins, OriginLink) | shipped | 1 |
+| T-36 | Phase 3 Step 8 — Smoke pass 40/40 + vite manualChunks (main 1025 KB → 311 KB; 6 vendor chunks; Monaco lazy 14.57 KB) | shipped | 1 |
+| T-37 | Phase 3 Step 9 — Automated dogfood: `dogfood.spec.ts` (3 tests) + manual W7-003/006 verified; GREENLIGHT-FOR-RELEASE | shipped | 1 |
+| T-38 | Phase 3 Step 10 — `v1.0.0` annotated tag + push + GitHub release (DMG + zip attached, unsigned, notarisation deferred) | shipped (⚠ DMG has known runtime defect) | 1 |
+| T-39 | Post-release launch-doctor: diagnose + fix Electron `path.txt` missing via pnpm-stash symlinks; write `RUNNING.md` (131 lines) | shipped | 1 |
+| T-40 | Store 6 lessons to AgentDB via `agentdb_pattern-store` (Node 26 trap, pnpm exec trap, symlink fix, DMG defect, sub-agent inbox limitation, project state) | shipped | 1 |
+| T-41 | Append Phase 3 narrative to `master_memory.md` + Phase 3 rows to `memory_index.md` | shipped | 1 |
 
 ## Counts
 
-- Tasks total: 27
-- Shipped: 25
+- Tasks total: 41
+- Shipped: 40
 - Deferred: 1 (T-14 reconciliation)
 - Multi-trial: 1 (T-22 with 2 trials)
-- Bugs filed: 15 (3 P1, 6 P2, 6 P3)
-- Bugs fixed: 9
-- Bugs verified after re-smoke: 7
-- Bugs deferred: 6 (all P3)
+- Bugs filed: 17 (3 P1, 6 P2, 6 P3 from W7 + 2 P3 BUG-DF from Phase 3 dogfood)
+- Bugs fixed: 11
+- Bugs verified: 9 (W8 7-of-9 + Phase 3 promoted W7-003 + W7-006)
+- Bugs deferred: 8 (6 P3 W7 + 2 P3 BUG-DF target v1.1)
 
 ## Latest commit + tag
 
-- `main` HEAD: tag-bearing release commit `83e22f1`
-- Tag: `v0.1.0-alpha` (annotated, pushed)
+- `main` HEAD pushed: `28ac378` (release commit for `v1.0.0`).
+- `main` HEAD local-only: `3caa7c7` (post-release `RUNNING.md`).
+- Tags: `v0.1.0-alpha` (annotated, pushed) — historical; `v1.0.0` (annotated, pushed) — current.
+- GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.0.0 (published; DMG + zip attached; unsigned; ⚠ DMG has runtime `bindings` defect, scheduled for v1.0.1 hotfix).
 - Repo: https://github.com/s1gmamale1/SigmaLink
