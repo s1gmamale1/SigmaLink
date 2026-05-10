@@ -1,0 +1,55 @@
+SigmaLink v1.1.0-rc3 — Hotfix on rc2
+
+The rc2 DMG crashed at first launch with `Cannot find module 'lazy-val'`.
+rc3 fixes the underlying packaging defect; everything else from rc2 is
+carried forward unchanged (Tracks A+B+C + Skills marketplace).
+
+Root cause:
+
+`lazy-val` (transitive dep of `electron-updater`) was listed as an
+esbuild external in `scripts/build-electron.cjs`. That meant the
+bundled `electron-dist/main.js` did `require('lazy-val')` at runtime.
+The packaged DMG's `Resources/app/node_modules/lazy-val/` was an
+EMPTY directory — pnpm's content-addressed hoist had left a placeholder
+because the real package lived in `node_modules/.pnpm/lazy-val@1.0.5/
+node_modules/lazy-val/`, and electron-builder's transitive walk didn't
+follow that path.
+
+This is the same family of trap as the v1.0.0 DMG `bindings` defect.
+
+Fix:
+
+* `scripts/build-electron.cjs` — drop `lazy-val` from the externals list
+  so esbuild bundles it inline. The fixed `main.js` no longer issues
+  `require('lazy-val')` at runtime; the resolver path that crashed is
+  eliminated.
+* Local fix to `node_modules/lazy-val/` — replaced the empty pnpm
+  placeholder with a symlink to the .pnpm content store so the build
+  itself can resolve the dep.
+* No source-code changes vs rc2.
+
+Upgrade path:
+
+If you're on rc2 and the app crashes with `Cannot find module 'lazy-val'`,
+download v1.1.0-rc3 and replace the .app bundle in /Applications. The
+broken rc2 DMG never ran past first launch, so there's no migration to
+worry about.
+
+Same Phase 4 features as rc2:
+
+* Track A — Agent IPC reliability (PATH bootstrap, provider launcher
+  façade, migration 0010, group recipients, cross-swarm leak, focus
+  auto-sync)
+* Track B — SigmaVoice native macOS Speech.framework
+* Track C — Ruflo MCP supervisor + 3 user-facing features (semantic
+  memory, pattern surfacing, autopilot palette)
+* Step 5 — SigmaSkills marketplace live install from GitHub URL
+
+Known issues (deferred to v1.2):
+
+* Wake-word "Hey Sigma" — Porcupine licensing forbids bundled key
+* Ruflo native deps not transitively resolved
+* @playwright/test ≥1.60 bump for Node-26 loader race
+* macOS notarisation — needs Apple Developer ID
+
+See docs/07-bugs/OPEN.md Phase 4 section for the full deferred list.

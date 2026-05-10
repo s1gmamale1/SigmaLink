@@ -4,6 +4,14 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.0-rc3] - 2026-05-10
+
+Hotfix on rc2. The rc2 DMG crashed at first launch with `Cannot find module 'lazy-val'`. rc3 fixes the underlying packaging defect.
+
+### Fixed
+
+- **DMG runtime crash `Cannot find module 'lazy-val'`** — root cause: `lazy-val` (transitive dep of `electron-updater`) was on the esbuild externals list, so `main.js` did `require('lazy-val')` at runtime. The packaged app's `Resources/app/node_modules/lazy-val/` was an EMPTY directory left by pnpm's content-addressed hoist (the real package lives in `node_modules/.pnpm/lazy-val@1.0.5/...`). Same family of trap as the v1.0.0 `bindings` defect. Fix: drop `lazy-val` from `scripts/build-electron.cjs` externals so esbuild bundles it inline; replace the empty pnpm placeholder at `node_modules/lazy-val/` with a proper symlink to the .pnpm content store. The fixed `main.js` no longer issues `require('lazy-val')` at runtime — the resolver path that crashed is eliminated.
+
 ## [1.1.0-rc2] - 2026-05-10
 
 Release-candidate iteration on top of rc1. Adds Phase 4 Step 5 (Skills marketplace live install) which landed on `main` after rc1 was tagged.
