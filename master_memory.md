@@ -504,3 +504,51 @@ The autonomous Phase 4 wave completed without hitting any of the stop conditions
 **11 bugs closed** (3 P1-IPC, 5 P1/P2-PROV, 1 P2-IPC, 1 P3-IPC, 1 P1 Playwright defensive). Plus carry-over from v1.0.1: 2 P3 BUG-DF + 4 v1.0.1 fix items. **10 bugs deferred to v1.2** with explicit reasons (Porcupine licensing for wake-word, V3 envelope kinds need new producers, scope-bounding).
 
 **Next session restart point**: SigmaLink is at v1.1.0-rc1 on `main`. Real-world dogfood + visual recording validates → tag v1.1.0 final on the same SHA. Track A bugs deferred to v1.2 are catalogued in `docs/07-bugs/OPEN.md` Phase 4 section.
+
+
+---
+
+## Phase 5 — v1.1.1 UX hotfix (2026-05-11)
+
+User dogfooded v1.1.0-rc3 DMG and surfaced four interlocking defects that all needed to ship together:
+
+1. **Window immovable on macOS** — `titleBarStyle: 'hiddenInset'` exposed only a 28-px sliver of drag region in the sidebar header. Everywhere else (breadcrumb, right-rail header, sidebar wordmark) was non-draggable.
+2. **"Bridge Assistant" branding wrong** — product is SigmaLink; every feature should be `Sigma <Name>`. The right-rail panel must be **Sigma Assistant**, voice is **SigmaVoice**.
+3. **Sigma Assistant was a stub** — every reply began "Got it — '<your text>'. I'm in stub mode for W13; the LLM-backed turn lands in W14." User mandate: power the assistant with the **local Claude Code CLI binary** (Opus 4.7), no raw API calls.
+4. **SigmaVoice "voice not enabled or something"** — silent failure mode where the mic button rendered but tapping it produced nothing visible.
+
+**5-step plan executed via SendMessage-first swarm coordination**:
+- Step 1 (window drag): I directly edited 3 chrome containers + new `drag-region.ts` helper.
+- Step 2 (rebrand): I directly swapped 8 user-visible strings + added `sigmavoice.enabled` capability.
+- Step 3 (Claude CLI streaming): `coder-cli` background agent — 8 unit tests + 1 e2e, 497-line driver, live JSON shape verified against `claude` CLI v2.1.138. Critical discovery: `--verbose` REQUIRED with `--output-format stream-json`.
+- Step 4 (voice diagnostics): `coder-voice` background agent — root cause was a diagnostics gap (auth `not-determined` until first prompt → silent throw), shipped 4-stage probe + Settings → Voice tab.
+- Step 5 (release): direct lead — git push, gh release create, GitHub release with arm64 DMG attached.
+
+**Convergent review**: `code-review-swarm` background agent ran `git diff` + tsc + vitest + lint over the 19 modified + 11 new files; flagged 4 leftover toast strings (Bridge dispatch toasts + ChatTranscript empty-state + voice fallback). Patched in same session, re-verified clean.
+
+**Two unplanned fixes added during release**:
+- **arm64-only scope** — first DMG build packaged x86_64 native modules (`better_sqlite3.node`); user crashed on first launch with "incompatible architecture". Root cause: `--config.npmRebuild=false` (from rc3 to dodge node-pty TS test errors under pnpm) skips per-arch rebuilds. Fix: ran `electron-rebuild --module-dir ... --types prod -f` against the real pnpm path under `node_modules/.pnpm/better-sqlite3@12.9.0/...`, then rebuilt arm64-only DMG. x64 deferred to v1.2 CI matrix.
+- **Single-instance lock missing** — user reported "multiple SigmaLink instances launch when creating agents." Root cause: `electron/main.ts` was missing `app.requestSingleInstanceLock()`. Without it, every LaunchServices activation (second `.app` double-click, agent CLI URL handler, dock drag-drop) spawned a parallel instance fighting the original for the SQLite WAL lock. Fix: acquired lock at boot; on `second-instance` we focus the existing window and quit the duplicate. Two commits stacked on rc3 (`8cbc173` + `0262383`).
+
+**Final build state**:
+- `tsc -b` clean.
+- `pnpm exec vitest run` → 15/15 pass (8 CLI driver + 7 voice diagnostics).
+- `pnpm exec vite build` → 334 KB main + vendor chunks, 92 KB gzip (well under target).
+- Lint at 54/0 once `release/` added to `globalIgnores` in `eslint.config.js` (matches rc3 effective baseline; new files contribute zero errors).
+- Smoke tested: window drags from breadcrumb / right-rail / sidebar; Sigma Assistant streams real Claude CLI responses; Settings → Voice diagnostics renders 4-stage probe; single SigmaLink dock icon when launching agents.
+
+**Released as `v1.1.1`** on 2026-05-11 (https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.1). Tag pushed, GitHub release published with `SigmaLink-1.1.1-arm64.dmg` (130 MB) + `SigmaLink-1.1.1-arm64-mac.zip` (133 MB) + blockmaps.
+
+**Smoke-test follow-ups** (4 P2 bugs filed in `docs/07-bugs/OPEN.md`, target v1.1.2):
+- BUG-V1.1.1-01 — Sigma Assistant `launch_pane` tool emits but doesn't actually spawn a PTY (CLI tool_use envelope visible in Tool calls panel, but never feeds into `controller.invokeTool()`).
+- BUG-V1.1.1-02 — Sigma Assistant cannot enumerate active sessions (system-prompt builder reads from DB instead of live registry; sees "(no active swarms)" even with 4 agents running).
+- BUG-V1.1.1-03 — Inter-agent broadcast / side-chat to `@all` / `@coordinators` lands in the operator log but every agent shows `0 msgs`. Possible regression from the rc3 cross-swarm-leak fix tightening.
+- BUG-V1.1.1-04 — Ruflo MCP not auto-connected for spawned agent CLIs (agents see Ruflo as disconnected because no per-workspace `.mcp.json` is auto-written pointing at SigmaLink's embedded daemon's shared `.claude-flow/` state dir).
+
+**Architecture decision (informal)**: Ruflo MCP federation is v1.2 work. v1.1.x stop-gap is auto-write workspace-scoped MCP configs (`.mcp.json` for claude code, `.codex/mcp.json` for codex, `~/.gemini/.../...` for gemini) pointing each spawned CLI at a shared `.claude-flow/` state dir. They each spawn their own MCP stdio client but converge on one on-disk SQLite/HNSW brain. True federation (one daemon, all agents as TCP clients) is later — needs Ruflo's HTTP/WS transport + per-workspace port allocator.
+
+**Phase 5 commits**:
+- `8cbc173` `feat(v1.1.1)`: window drag + Sigma rebrand + Claude CLI + voice diagnostics. 33 files changed (+2531 / -38 lines).
+- `0262383` `fix(v1.1.1)`: acquire single-instance lock in electron/main.ts.
+
+**Next session restart point**: SigmaLink is at v1.1.1 on `main` (commit `0262383`). v1.1.2 backlog: 4 smoke bugs (`BUG-V1.1.1-01` through `-04`) + the deferred V3 visual parity sprint + the deferred wake-word / x64 native build / @playwright bump items.

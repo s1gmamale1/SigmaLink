@@ -183,11 +183,13 @@ Start at [`docs/README.md`](docs/README.md) for the full directory map. The inte
 
 ## Releases
 
-- **v1.1.0-rc2** (current; prerelease) — bundles Phase 4 Tracks A+B+C plus the Skills marketplace live install. Native macOS speech recognition, Ruflo MCP semantic memory + pattern surfacing + autopilot palette suggestion, IPC reliability hardening (group recipients, cross-swarm leak fix, cross-pane focus auto-sync, dead-PTY error_report), provider launcher façade with BridgeCode silent fallback, macOS DMG PATH bootstrap. Awaiting real-world dogfood validation before v1.1.0 final. [Release page](https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.0-rc2).
+- **v1.1.1** (current) — UX hotfix on top of v1.1.0-rc3. Window finally draggable on macOS (chrome regions wired with `WebkitAppRegion`). "Bridge Assistant" rebranded to **Sigma Assistant** across every user-visible string. **Sigma Assistant now streams real Claude Code CLI responses** (Opus 4.7 under the hood, no raw API calls) — the long-standing W13 stub is replaced with a `child_process` driver that pipes `claude -p ... --output-format stream-json --verbose` JSONL into the existing `assistant:state` channel. **SigmaVoice diagnostics surface** added to Settings (mode radio, permission status with re-prompt, Run Diagnostics button with 4-stage probe dots). First-launch auto-enable on macOS. 8 + 7 new unit tests.
+- **v1.1.0-rc3** — Hotfix on rc2: inlined `lazy-val` in the esbuild bundle to dodge the pnpm content-store hoist that crashed the rc2 DMG with `Cannot find module 'lazy-val'`.
+- **v1.1.0-rc2** — Bundles Phase 4 Tracks A+B+C plus the Skills marketplace live install. Native macOS speech recognition, Ruflo MCP semantic memory + pattern surfacing + autopilot palette suggestion, IPC reliability hardening, provider launcher façade with BridgeCode silent fallback, macOS DMG PATH bootstrap. ⚠ Known DMG runtime defect (`Cannot find module 'lazy-val'`) — superseded by rc3.
 - **v1.0.1** — DMG bindings hotfix + UI bug fixes (sidebar traffic-light overlap, CLI pane text alignment, Browser data-room flicker, missing zod schemas).
-- **v1.0.0** — V3 parity release with Persistent Swarm Replay + Bridge Assistant cross-session memory differentiators. ⚠ Known DMG runtime defect (`Cannot find module 'bindings'`) — superseded by v1.0.1.
+- **v1.0.0** — V3 parity release with Persistent Swarm Replay + Sigma Assistant cross-session memory differentiators. ⚠ Known DMG runtime defect (`Cannot find module 'bindings'`) — superseded by v1.0.1.
 
-## Known issues in v1.1.0-rc2
+## Known issues in v1.1.1
 
 Full triage in [`docs/07-bugs/OPEN.md`](docs/07-bugs/OPEN.md). v1.2 milestone tracks the follow-ups.
 

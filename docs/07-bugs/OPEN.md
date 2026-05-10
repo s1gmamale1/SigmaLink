@@ -289,6 +289,58 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 
 ---
 
+## v1.1.1 smoke-test follow-ups (2026-05-11)
+
+User dogfooded the v1.1.1 DMG (window drag + Sigma rebrand + Claude CLI streaming + voice diagnostics + single-instance lock). The four UX fixes ship as expected; three real-but-not-blocking gaps surfaced for v1.1.2:
+
+### BUG-V1.1.1-01: Sigma Assistant `launch_pane` tool not wired into PTY spawn
+- **Severity**: P2
+- **Surface**: Sigma Assistant (right-rail) → user asks "launch a codex pane" → tool emits but pane never appears
+- **Repro**: open right-rail Sigma Assistant; type "Launch 1 codex pane. Prompt is to give 1 sentence introduction of itself"; observe Tool calls panel shows `launch_pane` invocation but no new PTY in Command Room
+- **Expected**: codex CLI pane materialises in the active swarm with the initialPrompt pre-typed
+- **Actual**: tool call returns `{ fromCli: true, input: {...}, result: { ... } }` but the host bridge does not consume the tool_use envelope to spawn an actual pane. The CLI emits the intent, the renderer logs it, but `launch_pane` is not in the deferred-tools list and direct calls fail with "No such tool available."
+- **Hypothesis**: `runClaudeCliTurn`'s `tool_use` handler routes through `ToolTracer` (visualisation) but never feeds the result back into the controller's `invokeTool('launch_pane', …)` path. coder-cli's follow-up #2 from the Step 3 exit summary already flagged this.
+- **Owner**: unassigned (target v1.1.2)
+- **Status**: open
+- **Attempts**: 0
+- **Notes**: To unblock — wire the CLI driver's `tool_use` envelopes into the existing `assistant.invokeTool()` controller method (controller.ts:189-259). Same for `dispatch_pane`, `dispatch_bulk`, and `create_swarm`.
+
+### BUG-V1.1.1-02: Sigma Assistant cannot enumerate active sessions / swarm state
+- **Severity**: P2
+- **Surface**: Sigma Assistant chat
+- **Repro**: with an active workspace + 4 spawned agent panes, ask Sigma "Do you see how many agents currently launched in our workspace?"
+- **Expected**: Sigma replies with "4 agents: claude-1, claude-2, codex, gemini" or similar
+- **Actual**: Sigma replies "No active swarms or panes in the SigmaLink workspace right now — the session header shows '(no active swarms)' and no recent files."
+- **Hypothesis**: `buildSigmaSystemPrompt()` reads workspace + swarm state at turn start, but the renderer's active session list is not threaded through to the system prompt builder. The state queried is from the fresh main-process DB read, not the renderer's live session map.
+- **Owner**: unassigned (target v1.1.2)
+- **Status**: open
+- **Attempts**: 0
+- **Notes**: Likely `system-prompt.ts` reads via a query path that doesn't include the just-spawned PTY rows (race vs. eventual-consistency in the session table). Add an explicit `list_active_sessions` tool that queries the live `sessions` registry instead of the DB.
+
+### BUG-V1.1.1-03: Inter-agent broadcast / chat surface inert
+- **Severity**: P2
+- **Surface**: Swarm Room → side chat → Operator broadcasts to `@all` / `@coordinators`
+- **Repro**: open a swarm with 5 agents (1 coordinator, 2 builders, 1 scout, 1 reviewer); operator broadcasts "Deploy Scout 1 to review and summarize the project" via the side chat
+- **Expected**: every recipient agent's message counter increments (e.g., coordinator-1 1 msg, scout-1 1 msg); the broadcast text reaches each pane's mailbox
+- **Actual**: every agent shows `0 msgs` after the broadcast lands; operator side chat shows `MSG OPERATOR → @COORDINATORS` rows but no agent reads them
+- **Hypothesis**: the side chat → mailbox plumbing was last touched in Phase 4 Track A (group-recipient grammar). Either `expandRecipient` is returning empty, or the mailbox writer is targeting a different swarm-id than the active panes use, or the renderer's per-agent counter isn't subscribing to the right event.
+- **Owner**: unassigned (target v1.1.2)
+- **Status**: open
+- **Attempts**: 0
+- **Notes**: Cross-check with the rc3 fix for cross-swarm-leak (BUG-V1.1-02-IPC) — possible regression where the swarm-id scoping was tightened too aggressively. Reproduce with the existing `mailbox.test.ts` first.
+
+### BUG-V1.1.1-04: Ruflo MCP not auto-connected for spawned agent CLIs
+- **Severity**: P2 (architectural gap, not bug — but tracked here so it doesn't get lost)
+- **Surface**: every agent CLI (claude/codex/gemini) spawned from a SigmaLink workspace
+- **Repro**: open a workspace, spawn 4 agents (claude, codex, gemini); inside each, ask `ruflo mcp status` or run `mcp list`
+- **Expected**: Ruflo MCP shows as `connected` in every agent
+- **Actual**: claude says "RuFlo is not initialized in this directory"; codex sees `ruflo.mcp_status { running: true }` but only because *its own* user-config has Ruflo wired; gemini lists only `browser` + `sigmamemory` (both disconnected)
+- **Hypothesis**: SigmaLink's embedded Ruflo daemon is main-process-only — there is no per-workspace `.mcp.json` (or codex/gemini equivalent) auto-written that points spawned CLIs at a shared `.claude-flow/` state dir.
+- **Owner**: unassigned (target v1.1.2)
+- **Status**: open
+- **Attempts**: 0
+- **Notes**: Two paths: (a) v1.1.x stop-gap — auto-write workspace-scoped MCP config files pointing each agent at a shared `.claude-flow/` dir; (b) v1.2 federation — Ruflo runs as a TCP/WS MCP server on a per-workspace localhost port; agents connect as clients sharing one in-memory daemon. (a) gets you 90% of the value with ~50ms boot per agent.
+
 ## Phase 4 v1.1.0-rc1 fixes (2026-05-10)
 
 Below: bugs closed by the autonomous Phase 4 fix wave (4 fixers + lead direct edits + voice-coder + ruflo-coder). These were filed by the e2e-runner / ipc-auditor / provider-prober testing wave.
