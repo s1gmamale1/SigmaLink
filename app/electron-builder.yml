@@ -9,18 +9,24 @@ files:
   - electron-dist/**/*
   - package.json
 # v1.0.1 — native-module packaging fix.
-# `bindings`, `prebuild-install`, `file-uri-to-path`, and the prebuilt `.node`
-# binaries for `better-sqlite3` + `node-pty` must live OUTSIDE the asar
-# archive. Electron cannot dlopen `.node` files from inside an asar, and the
-# `bindings` package walks the filesystem looking for the binary — both fail
-# silently when packed, surfacing as `Cannot find module 'bindings'` at first
-# `new Database(...)` call. v1.0.0 shipped without this list; v1.0.1 fixes it.
-asarUnpack:
-  - "**/node_modules/bindings/**"
-  - "**/node_modules/file-uri-to-path/**"
-  - "**/node_modules/prebuild-install/**"
-  - "**/node_modules/better-sqlite3/**"
-  - "**/node_modules/node-pty/**"
+# v1.0.0 shipped with asar packing enabled but no asarUnpack patterns, so
+# better-sqlite3's .node file was packed inside the asar archive. Electron
+# cannot dlopen .node from inside an asar, and the `bindings` resolver walks
+# the filesystem looking for siblings, so the app crashed at first
+# `new Database(...)` with `Cannot find module 'bindings'`.
+#
+# Multiple asarUnpack glob patterns were tried in v1.0.1 development
+# (**/*.node, node_modules/<pkg>/**, node_modules/.pnpm/**/<pkg>/**) — all
+# successfully unpacked node-pty (which has its own postinstall heuristic in
+# electron-builder) but not better-sqlite3 / bindings / file-uri-to-path.
+# Root cause appears to be how pnpm content-addressed paths interact with
+# electron-builder's pattern matcher.
+#
+# v1.0.1 ships with asar disabled entirely. The cost is ~50 MB of extra DMG
+# size + slightly slower cold-start (more file I/O). The benefit is a 100%
+# guarantee that the native modules load. v1.1.0 will re-introduce asar with
+# correct unpack patterns once we have a verified glob that works under pnpm.
+asar: false
 extraResources:
   - from: dist
     to: dist
