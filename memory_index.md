@@ -57,11 +57,12 @@ Per-wave engineering reports live under [`docs/05-build/`](docs/05-build/) and v
 | T-50 | Phase 4 Track C coding (ruflo-coder, 1 background agent): Ruflo MCP supervisor + 3 user-facing features (semantic memory search, Bridge pattern surfacing, Command Palette autopilot) + Settings panel; lazy-download Option B; 14/14 proxy tests pass | shipped | 1 |
 | T-51 | Phase 4 release: v1.1.0-rc1 annotated tag + push + GitHub prerelease with 4 binaries (mac arm64+x64, DMG + zip, 131-139 MB each); unsigned; verified DMG launches past boot self-check | shipped | 1 |
 | T-52 | Phase 4 Step 5 — SigmaSkills marketplace live install (marketplace-coder, 1 background agent): new `core/skills/marketplace.ts` (~400 LoC) installs from GitHub URL via tarball stream + tar extract + existing manager.ingestFolder pipeline; 21/21 tests; MarketplaceTab Install button now functional (replacing the v1.0.1 toast stub); skills.json expanded from 8 to 20 entries (6 real anthropics/skills + 14 placeholders) | shipped | 1 |
+| T-53 | Phase 4 release iteration: v1.1.0-rc2 annotated tag + push + GitHub prerelease bundling Tracks A+B+C+Step 5 into one downloadable; 4 binaries; supersedes rc1 (which lacked Step 5 marketplace) | shipped | 1 |
 
 ## Counts
 
-- Tasks total: 52
-- Shipped: 51
+- Tasks total: 53
+- Shipped: 52
 - In progress: 0
 - Deferred: 1 (T-14 reconciliation)
 - Multi-trial: 2 (T-22 with 2 trials, T-42 with 4 trials due to asarUnpack pattern misses)
@@ -72,10 +73,10 @@ Per-wave engineering reports live under [`docs/05-build/`](docs/05-build/) and v
 
 ## Latest commit + tag
 
-- `main` HEAD pushed: `4ef2f19` (feat(P4-step5): Skills marketplace live install).
-- Phase 4 commits: `83520bb` (Track A IPC + provider hardening), `2944132` (Tracks B+C SigmaVoice + Ruflo), `0266eea` (rc1 release prep), `b125187` (memory ledger), `4ef2f19` (Step 5 marketplace).
-- Tags pushed: `v0.1.0-alpha` (historical), `v1.0.0` (superseded by v1.0.1), `v1.0.1` (Phase 4 Step 1 hotfix), `v1.1.0-rc1` (current shipped — Phase 4 release candidate).
-- GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.0-rc1 (prerelease; 4 binaries mac arm64+x64 DMG + zip; unsigned; native voice + Ruflo features warrant real-world validation before final v1.1.0).
+- `main` HEAD pushed: `909717d` (chore(release): v1.1.0-rc2 — bundle Step 5 marketplace into rc).
+- Phase 4 commits: `83520bb` (Track A IPC + provider hardening), `2944132` (Tracks B+C SigmaVoice + Ruflo), `0266eea` (rc1 release prep), `b125187` (memory ledger), `4ef2f19` (Step 5 marketplace), `c83da42` (T-52 ledger), `909717d` (rc2 release prep).
+- Tags pushed: `v0.1.0-alpha` (historical), `v1.0.0` (superseded), `v1.0.1` (Phase 4 Step 1 hotfix), `v1.1.0-rc1` (Phase 4 Tracks A+B+C; superseded by rc2), `v1.1.0-rc2` (current shipped — Tracks A+B+C+Step 5 bundled).
+- GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.0-rc2 (prerelease; 4 binaries mac arm64+x64 DMG + zip; unsigned; bundles Tracks A+B+C+Step 5 marketplace; awaiting real-world dogfood validation before final v1.1.0).
 - Repo: https://github.com/s1gmamale1/SigmaLink
 
 ## Phase 4 plan reference
