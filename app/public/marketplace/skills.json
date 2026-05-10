@@ -1,8 +1,68 @@
 {
-  "_comment": "v0 stub — forward-compat scaffold for the read-only Skills marketplace (V3-W15-007). Hand-curated entries; no live network fetch yet. Future waves will replace this with a hosted index. Schema fields: id, name, description, version, author, tags[], installInstructions, repoUrl?, homepageUrl?.",
-  "schemaVersion": 0,
-  "generatedAt": "2026-05-09",
+  "_comment": "Phase 4 Step 5 (v1.1) — live install marketplace index. Each entry has an `install` block that drives `skills.installFromUrl`: `ownerRepo` is the GitHub coordinate (`owner/repo`), optional `subPath` points at a SKILL.md inside a mono-repo, optional `ref` pins to a commit SHA / tag. The renderer Marketplace tab reads this file via fetch('marketplace/skills.json'). Schema fields: id, name, description, version, author, tags[], install{ownerRepo, ref?, subPath?}, repoUrl?, homepageUrl?, installInstructions?.",
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-10",
   "skills": [
+    {
+      "id": "anthropic-mcp-builder",
+      "name": "MCP Server Builder",
+      "description": "Anthropic's reference skill for designing and shipping Model Context Protocol servers. Walks through tool design, schema discipline, and stdio vs HTTP trade-offs.",
+      "version": "1.0.0",
+      "author": "anthropics",
+      "tags": ["mcp", "servers", "tooling", "anthropic"],
+      "install": { "ownerRepo": "anthropics/skills", "subPath": "skills/mcp-builder" },
+      "repoUrl": "https://github.com/anthropics/skills"
+    },
+    {
+      "id": "anthropic-pdf",
+      "name": "PDF Author",
+      "description": "Generate clean, well-paginated PDFs from prompts. Frontmatter includes argument hints for page size, fonts, and a custom cover.",
+      "version": "1.0.0",
+      "author": "anthropics",
+      "tags": ["pdf", "documents", "anthropic"],
+      "install": { "ownerRepo": "anthropics/skills", "subPath": "skills/pdf" },
+      "repoUrl": "https://github.com/anthropics/skills"
+    },
+    {
+      "id": "anthropic-docx",
+      "name": "DOCX Author",
+      "description": "Authoring + revision skill for Microsoft Word documents. Supports tracked changes, headings, and a strict outline mode for technical writers.",
+      "version": "1.0.0",
+      "author": "anthropics",
+      "tags": ["docx", "documents", "writing", "anthropic"],
+      "install": { "ownerRepo": "anthropics/skills", "subPath": "skills/docx" },
+      "repoUrl": "https://github.com/anthropics/skills"
+    },
+    {
+      "id": "anthropic-xlsx",
+      "name": "Spreadsheet Author",
+      "description": "Generates and updates Excel-compatible spreadsheets. Handles formulas, named ranges, and freeze panes from natural-language descriptions.",
+      "version": "1.0.0",
+      "author": "anthropics",
+      "tags": ["xlsx", "spreadsheets", "excel", "anthropic"],
+      "install": { "ownerRepo": "anthropics/skills", "subPath": "skills/xlsx" },
+      "repoUrl": "https://github.com/anthropics/skills"
+    },
+    {
+      "id": "anthropic-pptx",
+      "name": "Slide Deck Author",
+      "description": "Builds PowerPoint-compatible slide decks from outlines. Supports speaker notes, master themes, and structured agenda generation.",
+      "version": "1.0.0",
+      "author": "anthropics",
+      "tags": ["pptx", "slides", "presentations", "anthropic"],
+      "install": { "ownerRepo": "anthropics/skills", "subPath": "skills/pptx" },
+      "repoUrl": "https://github.com/anthropics/skills"
+    },
+    {
+      "id": "anthropic-skill-creator",
+      "name": "Skill Creator",
+      "description": "Meta-skill for authoring new SKILL.md packages. Inspects the active codebase, drafts frontmatter, and emits a starter folder layout.",
+      "version": "1.0.0",
+      "author": "anthropics",
+      "tags": ["skill", "meta", "scaffold", "anthropic"],
+      "install": { "ownerRepo": "anthropics/skills", "subPath": "skills/skill-creator" },
+      "repoUrl": "https://github.com/anthropics/skills"
+    },
     {
       "id": "tdd-driver",
       "name": "TDD Driver",
@@ -10,7 +70,7 @@
       "version": "1.2.0",
       "author": "SigmaLink Labs",
       "tags": ["testing", "tdd", "workflow"],
-      "installInstructions": "Drop the tdd-driver/ folder containing SKILL.md onto the Skills room.",
+      "install": { "ownerRepo": "sigmalink/skills-tdd-driver" },
       "repoUrl": "https://github.com/sigmalink/skills-tdd-driver",
       "homepageUrl": "https://sigmalink.dev/skills/tdd-driver"
     },
@@ -21,7 +81,7 @@
       "version": "0.9.4",
       "author": "redteam-collective",
       "tags": ["security", "audit", "owasp"],
-      "installInstructions": "Drop the security-audit-pro/ folder containing SKILL.md onto the Skills room.",
+      "install": { "ownerRepo": "redteam-collective/skill-security-audit-pro" },
       "repoUrl": "https://github.com/redteam-collective/skill-security-audit-pro"
     },
     {
@@ -31,7 +91,7 @@
       "version": "0.7.1",
       "author": "perfworks",
       "tags": ["performance", "profiling", "optimization"],
-      "installInstructions": "Drop the performance-profiler/ folder containing SKILL.md onto the Skills room.",
+      "install": { "ownerRepo": "perfworks/skill-performance-profiler" },
       "repoUrl": "https://github.com/perfworks/skill-performance-profiler",
       "homepageUrl": "https://perfworks.dev"
     },
@@ -42,7 +102,7 @@
       "version": "1.0.0",
       "author": "a11y-friends",
       "tags": ["accessibility", "a11y", "wcag", "review"],
-      "installInstructions": "Drop the accessibility-coach/ folder containing SKILL.md onto the Skills room.",
+      "install": { "ownerRepo": "a11y-friends/skill-accessibility-coach" },
       "repoUrl": "https://github.com/a11y-friends/skill-accessibility-coach"
     },
     {
@@ -52,7 +112,7 @@
       "version": "0.5.2",
       "author": "schema-stewards",
       "tags": ["database", "migrations", "postgres", "mysql"],
-      "installInstructions": "Drop the db-migration-safety/ folder containing SKILL.md onto the Skills room.",
+      "install": { "ownerRepo": "schema-stewards/skill-db-migration-safety" },
       "repoUrl": "https://github.com/schema-stewards/skill-db-migration-safety"
     },
     {
@@ -62,7 +122,7 @@
       "version": "1.1.3",
       "author": "api-guild",
       "tags": ["api", "rest", "openapi", "design"],
-      "installInstructions": "Drop the rest-api-designer/ folder containing SKILL.md onto the Skills room.",
+      "install": { "ownerRepo": "api-guild/skill-rest-api-designer" },
       "repoUrl": "https://github.com/api-guild/skill-rest-api-designer",
       "homepageUrl": "https://api-guild.dev"
     },
@@ -73,7 +133,7 @@
       "version": "0.8.0",
       "author": "SigmaLink Labs",
       "tags": ["review", "quality", "workflow"],
-      "installInstructions": "Drop the code-review-buddy/ folder containing SKILL.md onto the Skills room.",
+      "install": { "ownerRepo": "sigmalink/skills-code-review-buddy" },
       "repoUrl": "https://github.com/sigmalink/skills-code-review-buddy"
     },
     {
@@ -83,8 +143,68 @@
       "version": "0.6.5",
       "author": "docs-foundation",
       "tags": ["documentation", "writing", "adr"],
-      "installInstructions": "Drop the doc-scribe/ folder containing SKILL.md onto the Skills room.",
+      "install": { "ownerRepo": "docs-foundation/skill-doc-scribe" },
       "homepageUrl": "https://docs-foundation.org/skills/doc-scribe"
+    },
+    {
+      "id": "react-modernizer",
+      "name": "React Modernizer",
+      "description": "Codemods class components to hooks, refactors prop drilling into context, and migrates legacy lifecycle methods to effects without changing behaviour.",
+      "version": "0.4.2",
+      "author": "frontend-forge",
+      "tags": ["react", "refactor", "hooks", "modernization"],
+      "install": { "ownerRepo": "frontend-forge/skill-react-modernizer" },
+      "repoUrl": "https://github.com/frontend-forge/skill-react-modernizer"
+    },
+    {
+      "id": "rust-borrow-checker-coach",
+      "name": "Rust Borrow Checker Coach",
+      "description": "Guides you through borrow-checker errors with minimal-fix proposals. Knows the common idioms for `Cow`, `Rc<RefCell>`, and lifetime elision.",
+      "version": "0.3.0",
+      "author": "rust-mentors",
+      "tags": ["rust", "borrow-checker", "lifetimes"],
+      "install": { "ownerRepo": "rust-mentors/skill-borrow-checker-coach" },
+      "repoUrl": "https://github.com/rust-mentors/skill-borrow-checker-coach"
+    },
+    {
+      "id": "kubernetes-yaml-doctor",
+      "name": "Kubernetes YAML Doctor",
+      "description": "Lints Helm charts and raw manifests. Catches resource-limit drift, missing readiness probes, and namespace leaks before kubectl apply.",
+      "version": "0.6.0",
+      "author": "cluster-ops",
+      "tags": ["kubernetes", "helm", "devops"],
+      "install": { "ownerRepo": "cluster-ops/skill-k8s-yaml-doctor" },
+      "repoUrl": "https://github.com/cluster-ops/skill-k8s-yaml-doctor"
+    },
+    {
+      "id": "graphql-schema-architect",
+      "name": "GraphQL Schema Architect",
+      "description": "Reviews GraphQL schemas for N+1 risk, federation seams, and pagination consistency. Generates connection-cursor patterns from prose specs.",
+      "version": "0.5.1",
+      "author": "graph-guild",
+      "tags": ["graphql", "schema", "federation"],
+      "install": { "ownerRepo": "graph-guild/skill-graphql-architect" },
+      "repoUrl": "https://github.com/graph-guild/skill-graphql-architect"
+    },
+    {
+      "id": "license-compliance",
+      "name": "License Compliance Auditor",
+      "description": "Walks `package-lock.json` / `Cargo.lock` / `go.sum` and surfaces incompatible licenses (GPL leakage, AGPL surfaces, unattributed BSD).",
+      "version": "0.2.4",
+      "author": "license-watch",
+      "tags": ["license", "compliance", "supply-chain"],
+      "install": { "ownerRepo": "license-watch/skill-compliance" },
+      "repoUrl": "https://github.com/license-watch/skill-compliance"
+    },
+    {
+      "id": "spec-by-example",
+      "name": "Spec by Example",
+      "description": "Authors executable specifications in Gherkin. Pairs scenarios with property-based tests; emits a coverage matrix linking specs to source files.",
+      "version": "0.7.3",
+      "author": "behaviour-driven",
+      "tags": ["bdd", "gherkin", "specifications", "testing"],
+      "install": { "ownerRepo": "behaviour-driven/skill-spec-by-example" },
+      "repoUrl": "https://github.com/behaviour-driven/skill-spec-by-example"
     }
   ]
 }

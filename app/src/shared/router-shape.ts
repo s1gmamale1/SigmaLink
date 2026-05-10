@@ -183,6 +183,40 @@ export interface AppRouter {
     list: () => Promise<{ skills: Skill[]; states: SkillProviderState[] }>;
     ingestFolder: (input: { path: string; force?: boolean }) => Promise<Skill>;
     ingestZip: (input: { path: string; force?: boolean }) => Promise<Skill>;
+    /**
+     * Phase 4 Step 5 — clone a public GitHub repo, validate `SKILL.md`, and
+     * forward the unpacked folder into the same `ingestFolder` pipeline that
+     * powers drag-and-drop. Subscribes to `skills:install-progress` for
+     * per-phase progress; the resolved envelope is returned only at the end.
+     * `ownerRepo` accepts both `'owner/repo'` shorthand and a full GitHub URL.
+     */
+    installFromUrl: (input: {
+      ownerRepo: string;
+      ref?: string;
+      subPath?: string;
+      force?: boolean;
+    }) => Promise<{
+      ok: boolean;
+      skill?: Skill;
+      fanoutResults?: Array<{
+        provider: 'claude' | 'codex' | 'gemini';
+        enabled: boolean;
+        ok: boolean;
+        reason?: string;
+      }>;
+      error?: {
+        code:
+          | 'invalid-url'
+          | 'metadata-failed'
+          | 'download-failed'
+          | 'extract-failed'
+          | 'no-skill-md'
+          | 'invalid-skill'
+          | 'ingest-failed'
+          | 'update-required';
+        message: string;
+      };
+    }>;
     enableForProvider: (input: { skillId: string; provider: string }) => Promise<SkillProviderState>;
     disableForProvider: (input: { skillId: string; provider: string }) => Promise<SkillProviderState>;
     uninstall: (skillId: string) => Promise<void>;

@@ -28,7 +28,7 @@ import { BrowserManagerRegistry } from './core/browser/manager';
 import { buildBrowserController } from './core/browser/controller';
 import { PlaywrightMcpSupervisor } from './core/browser/playwright-supervisor';
 import { SkillsManager } from './core/skills/manager';
-import { buildSkillsController } from './core/skills/controller';
+import { buildSkillsController, defaultMarketplaceTempDir } from './core/skills/controller';
 import { MemoryManager } from './core/memory/manager';
 import { MemoryMcpSupervisor } from './core/memory/mcp-supervisor';
 import { buildMemoryController } from './core/memory/controller';
@@ -535,7 +535,11 @@ function buildRouter() {
   };
 
   const browserCtl = buildBrowserController({ registry: browserRegistry });
-  const skillsCtl = buildSkillsController({ manager: skillsManager });
+  const skillsCtl = buildSkillsController({
+    manager: skillsManager,
+    marketplaceTempDir: defaultMarketplaceTempDir(userData),
+    emit: (event, payload) => broadcast(event, payload),
+  });
   const memoryCtl = buildMemoryController({
     manager: memoryManager,
     supervisor: memorySupervisor,

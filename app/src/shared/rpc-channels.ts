@@ -76,6 +76,11 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'skills.list',
   'skills.ingestFolder',
   'skills.ingestZip',
+  // Phase 4 Step 5 — live install from a public GitHub URL. The renderer
+  // subscribes to `skills:install-progress` (one-way event) to drive a
+  // progress bar between fetch / extract / validate / ingest / fanout
+  // phases.
+  'skills.installFromUrl',
   'skills.enableForProvider',
   'skills.disableForProvider',
   'skills.uninstall',
@@ -204,6 +209,10 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'memory:changed',
   'browser:state',
   'skills:changed',
+  // Phase 4 Step 5 — live install progress for a marketplace install.
+  // Payload: `{ ownerRepo, phase, bytesDone, bytesTotal, message? }` where
+  // `phase` is one of resolve|fetch|extract|validate|ingest|fanout|done|error.
+  'skills:install-progress',
   'review:changed',
   'review:run-output',
   'tasks:changed',

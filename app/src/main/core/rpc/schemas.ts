@@ -128,6 +128,57 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'skills.list': stub,
   'skills.ingestFolder': stub,
   'skills.ingestZip': stub,
+  // Phase 4 Step 5 — marketplace install from a GitHub URL. Hardened
+  // (not `stub`) because both ends are first-party and the result envelope
+  // is the controller's stable contract.
+  'skills.installFromUrl': {
+    input: z.object({
+      ownerRepo: z.string().min(1).max(280),
+      ref: z.string().max(120).optional(),
+      subPath: z.string().max(280).optional(),
+      force: z.boolean().optional(),
+    }),
+    output: z.object({
+      ok: z.boolean(),
+      skill: z
+        .object({
+          id: z.string(),
+          name: z.string(),
+          description: z.string(),
+          version: z.string().optional(),
+          contentHash: z.string(),
+          managedPath: z.string(),
+          installedAt: z.number(),
+          tags: z.array(z.string()).optional(),
+        })
+        .optional(),
+      fanoutResults: z
+        .array(
+          z.object({
+            provider: z.enum(['claude', 'codex', 'gemini']),
+            enabled: z.boolean(),
+            ok: z.boolean(),
+            reason: z.string().optional(),
+          }),
+        )
+        .optional(),
+      error: z
+        .object({
+          code: z.enum([
+            'invalid-url',
+            'metadata-failed',
+            'download-failed',
+            'extract-failed',
+            'no-skill-md',
+            'invalid-skill',
+            'ingest-failed',
+            'update-required',
+          ]),
+          message: z.string(),
+        })
+        .optional(),
+    }),
+  },
   'skills.enableForProvider': stub,
   'skills.disableForProvider': stub,
   'skills.uninstall': stub,
