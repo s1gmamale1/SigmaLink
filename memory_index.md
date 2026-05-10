@@ -56,11 +56,12 @@ Per-wave engineering reports live under [`docs/05-build/`](docs/05-build/) and v
 | T-49 | Phase 4 Track B coding (voice-coder, 1 background agent): SigmaVoice native macOS module — 12 new files in app/native/voice-mac + dispatcher + adapter extension + RPC channels + electron-builder hardened-runtime config; 17/17 dispatcher tests pass; native module compiled locally arm64 | shipped | 1 |
 | T-50 | Phase 4 Track C coding (ruflo-coder, 1 background agent): Ruflo MCP supervisor + 3 user-facing features (semantic memory search, Bridge pattern surfacing, Command Palette autopilot) + Settings panel; lazy-download Option B; 14/14 proxy tests pass | shipped | 1 |
 | T-51 | Phase 4 release: v1.1.0-rc1 annotated tag + push + GitHub prerelease with 4 binaries (mac arm64+x64, DMG + zip, 131-139 MB each); unsigned; verified DMG launches past boot self-check | shipped | 1 |
+| T-52 | Phase 4 Step 5 — SigmaSkills marketplace live install (marketplace-coder, 1 background agent): new `core/skills/marketplace.ts` (~400 LoC) installs from GitHub URL via tarball stream + tar extract + existing manager.ingestFolder pipeline; 21/21 tests; MarketplaceTab Install button now functional (replacing the v1.0.1 toast stub); skills.json expanded from 8 to 20 entries (6 real anthropics/skills + 14 placeholders) | shipped | 1 |
 
 ## Counts
 
-- Tasks total: 51
-- Shipped: 50
+- Tasks total: 52
+- Shipped: 51
 - In progress: 0
 - Deferred: 1 (T-14 reconciliation)
 - Multi-trial: 2 (T-22 with 2 trials, T-42 with 4 trials due to asarUnpack pattern misses)
@@ -71,8 +72,8 @@ Per-wave engineering reports live under [`docs/05-build/`](docs/05-build/) and v
 
 ## Latest commit + tag
 
-- `main` HEAD pushed: `0266eea` (chore(release): v1.1.0-rc1 — CHANGELOG + release notes + version bump).
-- Phase 4 commits: `83520bb` (Track A IPC + provider hardening), `2944132` (Tracks B+C SigmaVoice + Ruflo), `0266eea` (release prep).
+- `main` HEAD pushed: `4ef2f19` (feat(P4-step5): Skills marketplace live install).
+- Phase 4 commits: `83520bb` (Track A IPC + provider hardening), `2944132` (Tracks B+C SigmaVoice + Ruflo), `0266eea` (rc1 release prep), `b125187` (memory ledger), `4ef2f19` (Step 5 marketplace).
 - Tags pushed: `v0.1.0-alpha` (historical), `v1.0.0` (superseded by v1.0.1), `v1.0.1` (Phase 4 Step 1 hotfix), `v1.1.0-rc1` (current shipped — Phase 4 release candidate).
 - GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.0-rc1 (prerelease; 4 binaries mac arm64+x64 DMG + zip; unsigned; native voice + Ruflo features warrant real-world validation before final v1.1.0).
 - Repo: https://github.com/s1gmamale1/SigmaLink
@@ -80,7 +81,7 @@ Per-wave engineering reports live under [`docs/05-build/`](docs/05-build/) and v
 ## Phase 4 plan reference
 
 - Plan file: `~/.claude/plans/download-a-skill-plugin-that-lexical-pinwheel.md`
-- 7-step plan executed autonomously. Step 1 ✅ (v1.0.1 shipped). Steps 3 (SigmaVoice) + 6 (Ruflo embed) ✅ (in v1.1.0-rc1). Step 4 (wake-word) DEFERRED v1.2 (Porcupine licensing). Step 2 (V3 visual parity) DEFERRED (user re-prioritised IPC + voice + Ruflo over visual polish). Step 5 (Skills marketplace live install) NOT YET STARTED — v1.2 candidate. Step 7 (final v1.1.0 tag) PENDING dogfood verification on rc1.
+- 7-step plan executed autonomously. Step 1 ✅ (v1.0.1 shipped). Steps 3 (SigmaVoice) + 6 (Ruflo embed) ✅ (in v1.1.0-rc1). Step 5 (Skills marketplace live install) ✅ (commit 4ef2f19, on main, post-rc1). Step 4 (wake-word) DEFERRED v1.2 (Porcupine licensing). Step 2 (V3 visual parity) DEFERRED awaiting user direction. Step 7 (final v1.1.0 tag) PENDING dogfood verification on rc1 + decision whether to roll Step 5 into v1.1.0 or hold for rc2.
 
 ## Next session restart point
 
