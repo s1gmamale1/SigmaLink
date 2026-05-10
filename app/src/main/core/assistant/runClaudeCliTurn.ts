@@ -17,15 +17,17 @@ import { probeProvider } from '../providers/probe';
 import { findProvider } from '../../../shared/providers';
 import { getDb } from '../db/client';
 import { workspaces as workspacesTable, messages as messagesTable } from '../db/schema';
-import { listSwarmsForWorkspace } from '../swarms/factory';
 import { appendMessage, getConversation } from './conversations';
 import { ToolTracer, safeSerialize, type ToolTrace } from './tool-tracer';
+import { findTool } from './tools';
 import { buildSigmaSystemPrompt, estimateTokens } from './system-prompt';
+import type { RufloProxy } from '../ruflo/proxy';
 import {
   parseCliLine,
   isAssistantEnvelope,
   isResultEnvelope,
   isResultSuccess,
+  type CliAssistantEnvelope,
   type CliAssistantContentBlock,
   type CliResultErrorEnvelope,
 } from './cli-envelope';
@@ -42,6 +44,10 @@ export interface CliTurnDeps {
   emit: (event: string, payload: unknown) => void;
   /** Tool tracer (controller-owned). Tests inject a mock. */
   tracer?: ToolTracer;
+  /** Executes a Sigma tool emitted by the Claude CLI. */
+  dispatchTool?: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+  /** Optional Ruflo bridge for SONA trajectory learning. Fail-soft. */
+  ruflo?: Pick<RufloProxy, 'trajectoryStart' | 'trajectoryStep' | 'trajectoryEnd'>;
 }
 
 /** Test injection points: probe / spawner / system-prompt overrides. */
@@ -53,6 +59,7 @@ export interface CliTurnOptions {
 
 /** Minimal subset of ChildProcessWithoutNullStreams the driver depends on. */
 export interface CliChildLike {
+  stdin: NodeJS.WritableStream;
   stdout: NodeJS.ReadableStream;
   stderr: NodeJS.ReadableStream;
   on(event: 'close', listener: (code: number | null) => void): unknown;
@@ -146,16 +153,7 @@ function defaultSystemPromptForWorkspace(workspaceId: string): string {
   } catch {
     /* DB miss is non-fatal — prompt still works with placeholders */
   }
-  let openSwarms: Array<{ id: string; name: string; mission: string; preset: string }> = [];
-  try {
-    openSwarms = listSwarmsForWorkspace(workspaceId)
-      .filter((s) => s.status === 'running' || s.status === 'paused')
-      .slice(0, 10)
-      .map((s) => ({ id: s.id, name: s.name, mission: s.mission, preset: s.preset }));
-  } catch {
-    /* swarms unavailable — keep prompt valid */
-  }
-  return buildSigmaSystemPrompt({ workspaceName, workspaceRoot, openSwarms, recentFiles: [] });
+  return buildSigmaSystemPrompt({ workspaceName, workspaceRoot });
 }
 
 // ── Main entry point ───────────────────────────────────────────────────────
@@ -205,6 +203,16 @@ export async function runClaudeCliTurn(
   // produces its first envelope (cold-start latency on Claude Code is
   // ~1-2s before the first JSONL line lands).
   emitState(deps, 'thinking', turn);
+  let trajectoryId: string | null = null;
+  try {
+    trajectoryId =
+      (await deps.ruflo?.trajectoryStart({
+        task: prompt.slice(0, 200),
+        agent: 'sigma-assistant',
+      })) ?? null;
+  } catch {
+    trajectoryId = null;
+  }
 
   const args = [
     '-p',
@@ -248,7 +256,6 @@ export async function runClaudeCliTurn(
     }
   }
 
-  const tracer = deps.tracer;
   const stderrChunks: string[] = [];
   child.stderr.on('data', (chunk: Buffer | string) => {
     const s = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
@@ -260,6 +267,8 @@ export async function runClaudeCliTurn(
   let sawResult = false;
   let receivingEmitted = false;
   let finalText = '';
+  const stdinWriter = createStdinWriter(child);
+  const pendingToolRoutes = new Set<Promise<void>>();
 
   const rl = readline.createInterface({ input: child.stdout });
 
@@ -285,10 +294,14 @@ export async function runClaudeCliTurn(
             // the typing effect (BridgeRoom expects ~4-char deltas).
             finalText += block.text;
             streamDelta(deps, turn, assistantMessageId, block.text);
-          } else if (block.type === 'tool_use' && block.name && tracer) {
-            routeToolUse(tracer, turn, block);
           }
         }
+        const routePromise = routeToolUse(env, deps, turn, stdinWriter, trajectoryId).catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`[runClaudeCliTurn] failed to route tool_use: ${message}`);
+        });
+        pendingToolRoutes.add(routePromise);
+        routePromise.finally(() => pendingToolRoutes.delete(routePromise));
       } else if (isResultEnvelope(env)) {
         sawResult = true;
         if (isResultSuccess(env)) {
@@ -303,20 +316,25 @@ export async function runClaudeCliTurn(
           }
           persistFinal(turn, assistantMessageId, finalText);
           emitFinal(deps, turn, assistantMessageId, finalText, env.usage);
+          void endTrajectory(deps, trajectoryId, true, finalText.slice(0, 300));
         } else {
           const errMsg =
             (env as CliResultErrorEnvelope).result ?? `claude CLI returned ${env.subtype}`;
           persistFinal(turn, assistantMessageId, errMsg);
           emitErrorFinal(deps, turn, errMsg, assistantMessageId);
+          void endTrajectory(deps, trajectoryId, false, errMsg.slice(0, 300));
         }
       }
       // system / user / unknown envelopes are log-only.
     });
-    child.on('close', (code: number | null) => {
+    child.on('close', async (code: number | null) => {
       activeChildren.delete(turn.turnId);
       rl.close();
+      await Promise.allSettled(Array.from(pendingToolRoutes));
+      await stdinWriter.drain().catch(() => undefined);
       if (turn.cancelled) {
         emitState(deps, 'standby', turn, { cancelled: true, messageId: assistantMessageId });
+        void endTrajectory(deps, trajectoryId, false, 'cancelled');
         resolve();
         return;
       }
@@ -328,6 +346,7 @@ export async function runClaudeCliTurn(
             : `claude CLI exited ${code}${tail ? `: ${tail}` : ''}`;
         persistFinal(turn, assistantMessageId, message);
         emitErrorFinal(deps, turn, message, assistantMessageId);
+        void endTrajectory(deps, trajectoryId, false, message.slice(0, 300));
       }
       resolve();
     });
@@ -336,6 +355,7 @@ export async function runClaudeCliTurn(
       const msg = `claude CLI process error: ${err.message}`;
       persistFinal(turn, assistantMessageId, msg);
       emitErrorFinal(deps, turn, msg, assistantMessageId);
+      void endTrajectory(deps, trajectoryId, false, msg.slice(0, 300));
       resolve();
     });
   });
@@ -468,11 +488,137 @@ function persistFinal(
   }
 }
 
-function routeToolUse(
-  tracer: ToolTracer,
+interface StdinWriter {
+  enqueue(line: string): Promise<void>;
+  drain(): Promise<void>;
+}
+
+function createStdinWriter(child: CliChildLike): StdinWriter {
+  let writeChain = Promise.resolve();
+  return {
+    enqueue(line: string): Promise<void> {
+      writeChain = writeChain
+        .catch(() => undefined)
+        .then(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              child.stdin.write(line, (err?: Error | null) => {
+                if (err) reject(err);
+                else resolve();
+              });
+            }),
+        );
+      return writeChain;
+    },
+    drain(): Promise<void> {
+      return writeChain;
+    },
+  };
+}
+
+async function routeToolUse(
+  envelope: CliAssistantEnvelope,
+  deps: CliTurnDeps,
+  turn: CliTurnHandle,
+  stdinWriter: StdinWriter,
+  trajectoryId: string | null,
+): Promise<void> {
+  const blocks = (envelope.message.content ?? []).filter(
+    (block) => block.type === 'tool_use',
+  );
+  for (const block of blocks) {
+    traceToolUse(deps.tracer, turn, block);
+    const toolUseId = block.id ?? randomUUID();
+    const name = block.name ?? '<unknown>';
+    const input = block.input ?? {};
+    const tool = findTool(name);
+    let result: unknown;
+    let isError = false;
+
+    if (!tool) {
+      result = { error: 'unknown_tool', name };
+      isError = true;
+    } else if (!deps.dispatchTool) {
+      result = { error: 'tool_dispatch_unavailable', name };
+      isError = true;
+    } else {
+      try {
+        result = await withTimeout(deps.dispatchTool(name, input), 30_000, name);
+      } catch (err) {
+        result = { error: err instanceof Error ? err.message : String(err) };
+        isError = true;
+      }
+    }
+    void recordTrajectoryStep(deps, trajectoryId, name, input, result, !isError);
+
+    const resultBlock: Record<string, unknown> = {
+      type: 'tool_result',
+      tool_use_id: toolUseId,
+      content: JSON.stringify(result ?? null),
+    };
+    if (isError) resultBlock.is_error = true;
+    const line =
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: [resultBlock] },
+      }) + '\n';
+    await stdinWriter.enqueue(line);
+  }
+}
+
+async function recordTrajectoryStep(
+  deps: CliTurnDeps,
+  trajectoryId: string | null,
+  name: string,
+  input: Record<string, unknown>,
+  result: unknown,
+  ok: boolean,
+): Promise<void> {
+  if (!trajectoryId || !deps.ruflo) return;
+  try {
+    await deps.ruflo.trajectoryStep({
+      trajectoryId,
+      action: name,
+      result: JSON.stringify({ input, result }).slice(0, 500),
+      quality: ok ? 1 : 0,
+    });
+  } catch {
+    /* learning is best-effort */
+  }
+}
+
+async function endTrajectory(
+  deps: CliTurnDeps,
+  trajectoryId: string | null,
+  success: boolean,
+  feedback: string,
+): Promise<void> {
+  if (!trajectoryId || !deps.ruflo) return;
+  try {
+    await deps.ruflo.trajectoryEnd({ trajectoryId, success, feedback });
+  } catch {
+    /* learning is best-effort */
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, toolName: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`tool_timeout: ${toolName}`));
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function traceToolUse(
+  tracer: ToolTracer | undefined,
   turn: CliTurnHandle,
   block: CliAssistantContentBlock,
 ): void {
+  if (!tracer) return;
   // CLI-emitted tool calls from claude's perspective. The host hasn't run
   // the tool yet (that path is invokeTool RPC); we trace the *intent* so
   // the right-rail "Tool calls" disclosure shows what the model proposed

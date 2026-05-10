@@ -28,6 +28,7 @@ import { findTool, publicTools } from './tools';
 import { ToolTracer, safeSerialize, type ToolTrace } from './tool-tracer';
 import { recordSwarmOrigin } from './swarm-origins';
 import { runClaudeCliTurn, cancelClaudeCliTurn } from './runClaudeCliTurn';
+import type { RufloProxy } from '../ruflo/proxy';
 
 export interface AssistantControllerDeps {
   pty: PtyRegistry;
@@ -38,6 +39,7 @@ export interface AssistantControllerDeps {
   browserRegistry: BrowserManagerRegistry;
   userDataDir: string;
   emit: (event: string, payload: unknown) => void;
+  ruflo?: Pick<RufloProxy, 'trajectoryStart' | 'trajectoryStep' | 'trajectoryEnd'>;
 }
 
 interface ActiveTurn {
@@ -78,6 +80,78 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
     return trace;
   };
 
+  const invokeAssistantTool = async (input: {
+    conversationId?: string;
+    name: string;
+    args: Record<string, unknown>;
+  }): Promise<{ ok: boolean; result: unknown; error?: string }> => {
+    const tool = findTool(input?.name ?? '');
+    const conv = input?.conversationId ? getConversation(input.conversationId) : null;
+    const traceBase = {
+      conversationId: conv?.id ?? null,
+      name: tool?.id ?? input?.name ?? '<unknown>',
+    };
+    if (!tool) {
+      const err = `Unknown tool: ${input?.name}`;
+      recordTrace({ ...traceBase, args: input?.args ?? {}, ok: false, result: null, error: err });
+      return { ok: false, result: null, error: err };
+    }
+    const startedAt = Date.now();
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = tool.parse(input?.args ?? {});
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const error = `Invalid input: ${message}`;
+      recordTrace({ ...traceBase, args: input?.args ?? {}, ok: false, result: null, error, startedAt });
+      return { ok: false, result: null, error };
+    }
+    try {
+      const result = await tool.handler(parsed, {
+        pty: deps.pty,
+        worktreePool: deps.worktreePool,
+        mailbox: deps.mailbox,
+        memory: deps.memory,
+        tasks: deps.tasks,
+        browserRegistry: deps.browserRegistry,
+        defaultWorkspaceId: conv?.workspaceId ?? null,
+        userDataDir: deps.userDataDir,
+      });
+      // P3-S7 — single persistence path: the tracer writes the `messages`
+      // row with role='tool' and `toolCallId` set to the trace id; the
+      // legacy second appendMessage call here is gone because it
+      // duplicated the row + lost the ulid back-link.
+      const trace = recordTrace({ ...traceBase, args: parsed, ok: true, result, startedAt });
+      if (conv && tool.id === 'create_swarm') {
+        // P3-S7 — Bridge → swarm cross-link. The tool result includes the
+        // freshly-created swarm row; persist a `swarm_origins` row keyed
+        // to the trace's `messages.id` so the Operator Console can show
+        // "Started from Bridge Assistant chat: <date>" and link back to
+        // this exact tool call.
+        const swarmId =
+          typeof (result as { swarm?: { id?: string } } | null)?.swarm?.id === 'string'
+            ? (result as { swarm: { id: string } }).swarm.id
+            : null;
+        if (swarmId && trace.messageId) {
+          try {
+            recordSwarmOrigin({
+              swarmId,
+              conversationId: conv.id,
+              messageId: trace.messageId,
+            });
+          } catch {
+            /* origin is decorative — never fail the tool call over it */
+          }
+        }
+      }
+      return { ok: true, result };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      recordTrace({ ...traceBase, args: parsed, ok: false, result: null, error: message, startedAt });
+      return { ok: false, result: null, error: message };
+    }
+  };
+
   return defineController({
     send: async (input: {
       workspaceId: string;
@@ -108,7 +182,16 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
       // alive so a fresh DMG without `claude` installed still feels alive.
       void (async () => {
         try {
-          const out = await runClaudeCliTurn(turn, input.prompt, { emit: deps.emit, tracer });
+          const out = await runClaudeCliTurn(turn, input.prompt, {
+            emit: deps.emit,
+            tracer,
+            ruflo: deps.ruflo,
+            dispatchTool: async (name, args) => {
+              const result = await invokeAssistantTool({ conversationId, name, args });
+              if (!result.ok) throw new Error(result.error ?? `Tool failed: ${name}`);
+              return result.result;
+            },
+          });
           if (!out.handled && out.reason === 'no-binary') {
             await runStubTurn(turn, input.prompt, deps, {
               forcedReply:
@@ -216,71 +299,7 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
       name: string;
       args: Record<string, unknown>;
     }): Promise<{ ok: boolean; result: unknown; error?: string }> => {
-      const tool = findTool(input?.name ?? '');
-      const conv = input?.conversationId ? getConversation(input.conversationId) : null;
-      const traceBase = {
-        conversationId: conv?.id ?? null,
-        name: tool?.id ?? input?.name ?? '<unknown>',
-      };
-      if (!tool) {
-        const err = `Unknown tool: ${input?.name}`;
-        recordTrace({ ...traceBase, args: input?.args ?? {}, ok: false, result: null, error: err });
-        return { ok: false, result: null, error: err };
-      }
-      const startedAt = Date.now();
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = tool.parse(input?.args ?? {});
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const error = `Invalid input: ${message}`;
-        recordTrace({ ...traceBase, args: input?.args ?? {}, ok: false, result: null, error, startedAt });
-        return { ok: false, result: null, error };
-      }
-      try {
-        const result = await tool.handler(parsed, {
-          pty: deps.pty,
-          worktreePool: deps.worktreePool,
-          mailbox: deps.mailbox,
-          memory: deps.memory,
-          tasks: deps.tasks,
-          browserRegistry: deps.browserRegistry,
-          defaultWorkspaceId: conv?.workspaceId ?? null,
-          userDataDir: deps.userDataDir,
-        });
-        // P3-S7 — single persistence path: the tracer writes the `messages`
-        // row with role='tool' and `toolCallId` set to the trace id; the
-        // legacy second appendMessage call here is gone because it
-        // duplicated the row + lost the ulid back-link.
-        const trace = recordTrace({ ...traceBase, args: parsed, ok: true, result, startedAt });
-        if (conv && tool.id === 'create_swarm') {
-          // P3-S7 — Bridge → swarm cross-link. The tool result includes the
-          // freshly-created swarm row; persist a `swarm_origins` row keyed
-          // to the trace's `messages.id` so the Operator Console can show
-          // "Started from Bridge Assistant chat: <date>" and link back to
-          // this exact tool call.
-          const swarmId =
-            typeof (result as { swarm?: { id?: string } } | null)?.swarm?.id === 'string'
-              ? (result as { swarm: { id: string } }).swarm.id
-              : null;
-          if (swarmId && trace.messageId) {
-            try {
-              recordSwarmOrigin({
-                swarmId,
-                conversationId: conv.id,
-                messageId: trace.messageId,
-              });
-            } catch {
-              /* origin is decorative — never fail the tool call over it */
-            }
-          }
-        }
-        return { ok: true, result };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        recordTrace({ ...traceBase, args: parsed, ok: false, result: null, error: message, startedAt });
-        return { ok: false, result: null, error: message };
-      }
+      return invokeAssistantTool(input);
     },
   });
 }

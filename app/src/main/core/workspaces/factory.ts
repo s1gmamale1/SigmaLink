@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { getDb, getRawDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { getRepoRoot } from '../git/git-ops';
+import { KV_RUFLO_AUTOWRITE_MCP, writeWorkspaceMcpConfig } from './mcp-autowrite';
 import type { Workspace } from '../../../shared/types';
 
 function rowToWorkspace(row: typeof workspaces.$inferSelect): Workspace {
@@ -66,7 +67,22 @@ export async function openWorkspace(rootPath: string): Promise<Workspace> {
   }
 
   const row = db.select().from(workspaces).where(eq(workspaces.id, resultId)).get();
-  return rowToWorkspace(row!);
+  const workspace = rowToWorkspace(row!);
+  try {
+    const autowrite = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(KV_RUFLO_AUTOWRITE_MCP) as { value?: string } | undefined;
+    if (autowrite?.value !== '0') {
+      writeWorkspaceMcpConfig(abs);
+    }
+  } catch (err) {
+    console.warn(
+      `[ruflo] MCP autowrite failed for ${abs}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  return workspace;
 }
 
 export function listWorkspaces(): Workspace[] {

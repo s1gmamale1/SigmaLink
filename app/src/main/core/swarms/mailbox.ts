@@ -33,10 +33,11 @@ export interface MailboxAppend {
   body: string;
   payload?: Record<string, unknown>;
   /**
-   * For `directive` envelopes only — when set to `'pane'`, the mailbox calls
-   * the registered `paneEcho` closure after the durable insert so the target
-   * agent's PTY stdin receives `[Operator → <Role> <N>] <body>\n`. Other
-   * kinds ignore this field.
+   * For `directive` envelopes only — when set to `'pane'`, the mailbox fans
+   * the recipient out through the swarm roster and calls the registered
+   * `paneEcho` closure after the durable insert so each target agent's PTY
+   * stdin receives `[Operator → <Role> <N>] <body>\n`. Other kinds ignore
+   * this field.
    */
   echo?: 'pane';
 }
@@ -59,8 +60,9 @@ export class SwarmMailbox {
   // to construct a manager just to satisfy the type.
   private boardManager: BoardManager | null = null;
   // V3-W13-009 — pane-echo writer. The router supplies a closure that knows
-  // how to resolve an agentKey → sessionId and write to the PTY. The mailbox
-  // calls it after every `directive` insert with `echo === 'pane'`.
+  // how to resolve a concrete agentKey → sessionId and write to the PTY. The
+  // mailbox expands groups and calls it after every `directive` insert with
+  // `echo === 'pane'`.
   private paneEcho:
     | ((swarmId: string, toAgent: string, body: string) => void)
     | null = null;
@@ -211,11 +213,16 @@ export class SwarmMailbox {
       }
     }
 
-    // V3-W13-009 — directive.echo='pane' side effect. The router-supplied
-    // closure resolves agentKey → sessionId and types the line into the PTY.
+    // V3-W13-009 — directive.echo='pane' side effect. Resolve group selectors
+    // (`@all`, `@coordinators`, …) before calling the router-supplied closure.
+    // The closure intentionally handles concrete agent keys only so pane echo
+    // stays scoped to this swarm's roster and cannot leak to same-named agents
+    // in a different swarm.
     if (input.kind === 'directive' && input.echo === 'pane' && this.paneEcho) {
       try {
-        this.paneEcho(input.swarmId, input.toAgent, input.body);
+        for (const key of this.recipientsFor(input.swarmId, input.toAgent)) {
+          this.paneEcho(input.swarmId, key, input.body);
+        }
       } catch {
         /* PTY may have exited — mailbox row remains durable */
       }

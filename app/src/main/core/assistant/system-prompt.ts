@@ -32,6 +32,12 @@ result back as a tool_result):
                       Send a broadcast message to every agent in a swarm.
   roll_call           { swarmId?, workspaceId? }
                       Send ROLLCALL to one swarm (or every swarm in workspace).
+  list_active_sessions { workspaceId? }
+                      List live PTY sessions from the in-memory registry.
+  list_swarms         { workspaceId? }
+                      List swarm rosters and statuses for a workspace.
+  list_workspaces     {}
+                      List known workspaces and mark the active one.
 `;
 
 const STYLE_RULES = `\
@@ -40,6 +46,7 @@ Style rules:
   • Be actionable. Prefer "I'll launch a 3-pane swarm" over "I could…".
   • Never apologise. If a tool fails, surface the error and propose the next step.
   • Use the workspace's actual paths and swarm names — never invent identifiers.
+  • If you need live state (active panes, swarm rosters, workspaces), call the list_* tools.
   • If the user's intent is ambiguous, ask exactly one clarifying question.
 `;
 
@@ -50,40 +57,20 @@ export interface SigmaSystemPromptContext {
   workspaceRoot: string;
   /** Current room the user is viewing (e.g. "bridge", "command", "operator"). */
   currentRoom?: string;
-  /** Recently-touched files relative to workspaceRoot — trimmed to ~20. */
+  /** Deprecated: live state now comes from list_* tools. */
   recentFiles?: string[];
-  /** One-line summary per active swarm (id + name + mission). */
+  /** Deprecated: live state now comes from list_* tools. */
   openSwarms?: Array<{ id: string; name: string; mission: string; preset: string }>;
 }
 
 /**
  * Builds the system prompt appended to every Sigma Assistant turn. The
  * preamble + tool description + style rules are static (~600 tokens); the
- * dynamic context block is bounded so the total prompt stays under ~1500
- * tokens for low-latency turns even on a busy workspace.
- *
- * Token budget:
- *   preamble + tools + style ≈ 600
- *   recentFiles cap  20 paths * ~12 tokens ≈ 240
- *   openSwarms  cap  10 entries * ~25 tokens ≈ 250
- *   workspace meta ≈ 30
- *   ────────────────────────────────────────── total ≈ 1120
+ * dynamic context block is intentionally static: live sessions, swarms, and
+ * workspaces change during a turn and must be refreshed via list_* tools.
  */
 export function buildSigmaSystemPrompt(ctx: SigmaSystemPromptContext): string {
-  const recent = (ctx.recentFiles ?? []).slice(0, 20);
-  const swarms = (ctx.openSwarms ?? []).slice(0, 10);
   const room = ctx.currentRoom ? ` (currently in the "${ctx.currentRoom}" room)` : '';
-
-  const recentFilesBlock =
-    recent.length === 0
-      ? '  (none yet — the user has not opened any files this session)\n'
-      : recent.map((p) => `  • ${p}`).join('\n') + '\n';
-
-  const swarmsBlock =
-    swarms.length === 0
-      ? '  (no active swarms)\n'
-      : swarms.map((s) => `  • ${s.name} [${s.preset}, id=${s.id}] — ${s.mission}`).join('\n') +
-        '\n';
 
   return `\
 You are Sigma Assistant, the in-app intelligence inside SigmaLink — a desktop
@@ -94,10 +81,6 @@ work across panes.
 
 Workspace: ${ctx.workspaceName} (${ctx.workspaceRoot})${room}
 
-Recent files:
-${recentFilesBlock}
-Active swarms:
-${swarmsBlock}
 ${TOOL_BLURB}
 ${STYLE_RULES}`;
 }

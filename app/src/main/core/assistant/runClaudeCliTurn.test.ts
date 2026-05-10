@@ -8,7 +8,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { Readable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 import {
   runClaudeCliTurn,
   cancelClaudeCliTurn,
@@ -22,13 +22,21 @@ import { ToolTracer } from './tool-tracer';
 // ── Test harness ───────────────────────────────────────────────────────────
 
 class FakeChild extends EventEmitter implements CliChildLike {
+  stdin: Writable;
   stdout: Readable;
   stderr: Readable;
+  stdinLines: string[] = [];
   killed = false;
   killSignal: string | number | null = null;
 
   constructor(opts: { exitCode?: number | null } = {}) {
     super();
+    this.stdin = new Writable({
+      write: (chunk, _encoding, callback) => {
+        this.stdinLines.push(chunk.toString());
+        callback();
+      },
+    });
     this.stdout = new Readable({ read() {} });
     this.stderr = new Readable({ read() {} });
     // Auto-close stream after envelopes get pushed in tests; tests trigger
@@ -103,6 +111,27 @@ const fakeProbe = async () => ({
 const noProbe = async () => ({ found: false });
 
 const fixedSysPrompt = () => 'system-prompt-test';
+
+async function waitForStdinLines(child: FakeChild, count: number): Promise<void> {
+  for (let i = 0; i < 50; i += 1) {
+    if (child.stdinLines.length >= count) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error(`timed out waiting for ${count} stdin lines`);
+}
+
+function parseToolResultLine(line: string): {
+  tool_use_id: string;
+  content: string;
+  is_error?: boolean;
+} {
+  const env = JSON.parse(line) as {
+    type: string;
+    message: { content: Array<{ tool_use_id: string; content: string; is_error?: boolean }> };
+  };
+  expect(env.type).toBe('user');
+  return env.message.content[0];
+}
 
 beforeEach(() => {
   __resetProbeCache();
@@ -232,6 +261,278 @@ describe('runClaudeCliTurn', () => {
     expect(traced[0].args).toEqual({ workspaceId: 'ws-x' });
     expect(traced[0].ok).toBe(true);
     expect((traced[0].result as { fromCli: boolean }).fromCli).toBe(true);
+  });
+
+  it('dispatches a tool_use and writes a matching tool_result to stdin', async () => {
+    const deps = makeDeps();
+    const child = new FakeChild();
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const turnPromise = runClaudeCliTurn(
+      makeTurn(),
+      'launch',
+      {
+        ...deps,
+        dispatchTool: async (name, args) => {
+          calls.push({ name, args });
+          return { sessionId: 'sess-1', provider: 'codex', paneIndex: 4 };
+        },
+      },
+      { probeOverride: fakeProbe, spawnOverride: () => child, buildSystemPrompt: fixedSysPrompt },
+    );
+
+    await new Promise((r) => setImmediate(r));
+    child.pushLine({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_launch_1',
+            name: 'launch_pane',
+            input: {
+              workspaceRoot: '/tmp/project',
+              provider: 'codex',
+              count: 1,
+              initialPrompt: 'Introduce yourself.',
+            },
+          },
+        ],
+      },
+    });
+
+    await waitForStdinLines(child, 1);
+    child.pushLine({ type: 'result', subtype: 'success', result: 'done', is_error: false });
+    child.finish(0);
+    await turnPromise;
+
+    expect(calls).toEqual([
+      {
+        name: 'launch_pane',
+        args: {
+          workspaceRoot: '/tmp/project',
+          provider: 'codex',
+          count: 1,
+          initialPrompt: 'Introduce yourself.',
+        },
+      },
+    ]);
+    const result = parseToolResultLine(child.stdinLines[0]);
+    expect(result.tool_use_id).toBe('toolu_launch_1');
+    expect(result.is_error).toBeUndefined();
+    expect(JSON.parse(result.content)).toEqual({
+      sessionId: 'sess-1',
+      provider: 'codex',
+      paneIndex: 4,
+    });
+  });
+
+  it('writes an error tool_result for an unknown tool_use', async () => {
+    const deps = makeDeps();
+    const child = new FakeChild();
+    const calls: string[] = [];
+    const turnPromise = runClaudeCliTurn(
+      makeTurn(),
+      'unknown',
+      {
+        ...deps,
+        dispatchTool: async (name) => {
+          calls.push(name);
+          return { ok: true };
+        },
+      },
+      { probeOverride: fakeProbe, spawnOverride: () => child, buildSystemPrompt: fixedSysPrompt },
+    );
+
+    await new Promise((r) => setImmediate(r));
+    child.pushLine({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_unknown_1',
+            name: 'not_a_sigma_tool',
+            input: { value: 1 },
+          },
+        ],
+      },
+    });
+
+    await waitForStdinLines(child, 1);
+    child.pushLine({ type: 'result', subtype: 'success', result: 'handled', is_error: false });
+    child.finish(0);
+    await turnPromise;
+
+    expect(calls).toEqual([]);
+    const result = parseToolResultLine(child.stdinLines[0]);
+    expect(result.tool_use_id).toBe('toolu_unknown_1');
+    expect(result.is_error).toBe(true);
+    expect(JSON.parse(result.content)).toEqual({
+      error: 'unknown_tool',
+      name: 'not_a_sigma_tool',
+    });
+  });
+
+  it('writes an error tool_result when dispatchTool throws', async () => {
+    const deps = makeDeps();
+    const child = new FakeChild();
+    const turnPromise = runClaudeCliTurn(
+      makeTurn(),
+      'roll',
+      {
+        ...deps,
+        dispatchTool: async () => {
+          throw new Error('handler failed');
+        },
+      },
+      { probeOverride: fakeProbe, spawnOverride: () => child, buildSystemPrompt: fixedSysPrompt },
+    );
+
+    await new Promise((r) => setImmediate(r));
+    child.pushLine({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_throw_1',
+            name: 'roll_call',
+            input: { workspaceId: 'ws-1' },
+          },
+        ],
+      },
+    });
+
+    await waitForStdinLines(child, 1);
+    child.pushLine({ type: 'result', subtype: 'success', result: 'handled', is_error: false });
+    child.finish(0);
+    await turnPromise;
+
+    const result = parseToolResultLine(child.stdinLines[0]);
+    expect(result.tool_use_id).toBe('toolu_throw_1');
+    expect(result.is_error).toBe(true);
+    expect(JSON.parse(result.content)).toEqual({ error: 'handler failed' });
+  });
+
+  it('dispatches multiple tool_use blocks and writes results in input order', async () => {
+    const deps = makeDeps();
+    const child = new FakeChild();
+    const calls: string[] = [];
+    const turnPromise = runClaudeCliTurn(
+      makeTurn(),
+      'list',
+      {
+        ...deps,
+        dispatchTool: async (name) => {
+          calls.push(name);
+          return { name };
+        },
+      },
+      { probeOverride: fakeProbe, spawnOverride: () => child, buildSystemPrompt: fixedSysPrompt },
+    );
+
+    await new Promise((r) => setImmediate(r));
+    child.pushLine({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_sessions',
+            name: 'list_active_sessions',
+            input: { workspaceId: 'ws-1' },
+          },
+          {
+            type: 'tool_use',
+            id: 'toolu_workspaces',
+            name: 'list_workspaces',
+            input: {},
+          },
+        ],
+      },
+    });
+
+    await waitForStdinLines(child, 2);
+    child.pushLine({ type: 'result', subtype: 'success', result: 'handled', is_error: false });
+    child.finish(0);
+    await turnPromise;
+
+    expect(calls).toEqual(['list_active_sessions', 'list_workspaces']);
+    const first = parseToolResultLine(child.stdinLines[0]);
+    const second = parseToolResultLine(child.stdinLines[1]);
+    expect(first.tool_use_id).toBe('toolu_sessions');
+    expect(second.tool_use_id).toBe('toolu_workspaces');
+    expect(JSON.parse(first.content)).toEqual({ name: 'list_active_sessions' });
+    expect(JSON.parse(second.content)).toEqual({ name: 'list_workspaces' });
+  });
+
+  it('records Ruflo trajectory start, tool step, and success end when available', async () => {
+    const deps = makeDeps();
+    const child = new FakeChild();
+    const calls: Array<{ method: string; input: unknown }> = [];
+    const ruflo = {
+      trajectoryStart: async (input: { task: string; agent?: string }) => {
+        calls.push({ method: 'start', input });
+        return 'traj-test';
+      },
+      trajectoryStep: async (input: {
+        trajectoryId: string;
+        action: string;
+        result?: string;
+        quality?: number;
+      }) => {
+        calls.push({ method: 'step', input });
+      },
+      trajectoryEnd: async (input: {
+        trajectoryId: string;
+        success: boolean;
+        feedback?: string;
+      }) => {
+        calls.push({ method: 'end', input });
+      },
+    };
+    const turnPromise = runClaudeCliTurn(
+      makeTurn(),
+      'launch one pane',
+      {
+        ...deps,
+        ruflo,
+        dispatchTool: async () => ({ ok: true }),
+      },
+      { probeOverride: fakeProbe, spawnOverride: () => child, buildSystemPrompt: fixedSysPrompt },
+    );
+
+    await new Promise((r) => setImmediate(r));
+    child.pushLine({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_launch_traj',
+            name: 'launch_pane',
+            input: { workspaceRoot: '/tmp/project', provider: 'codex' },
+          },
+        ],
+      },
+    });
+    await waitForStdinLines(child, 1);
+    child.pushLine({ type: 'result', subtype: 'success', result: 'done', is_error: false });
+    child.finish(0);
+    await turnPromise;
+
+    expect(calls.map((c) => c.method)).toEqual(['start', 'step', 'end']);
+    expect(calls[0].input).toEqual({ task: 'launch one pane', agent: 'sigma-assistant' });
+    expect(calls[1].input).toMatchObject({
+      trajectoryId: 'traj-test',
+      action: 'launch_pane',
+      quality: 1,
+    });
+    expect(calls[2].input).toEqual({
+      trajectoryId: 'traj-test',
+      success: true,
+      feedback: 'done',
+    });
   });
 
   it('emits an error envelope when result.is_error is true', async () => {

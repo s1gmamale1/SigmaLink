@@ -2,7 +2,14 @@
 // PRODUCT_SPEC §3.10. Each delegates into an existing controller.
 
 import fs from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
+import { getDb } from '../db/client';
+import {
+  agentSessions,
+  swarmAgents,
+  workspaces as workspacesTable,
+} from '../db/schema';
 import type { PtyRegistry } from '../pty/registry';
 import type { WorktreePool } from '../git/worktree';
 import type { SwarmMailbox } from '../swarms/mailbox';
@@ -101,6 +108,21 @@ const sRollCall = z.object({
   swarmId: z.string().optional(),
   workspaceId: z.string().optional(),
 });
+const sListActiveSessions = z.object({ workspaceId: z.string().optional() });
+const sListSwarms = z.object({ workspaceId: z.string().optional() });
+const sListWorkspaces = z.object({});
+
+function cwdLooksInsideWorkspace(
+  cwd: string,
+  ws: typeof workspacesTable.$inferSelect | undefined,
+): boolean {
+  if (!ws) return false;
+  const roots = [ws.rootPath, ws.repoRoot].filter((r): r is string => Boolean(r));
+  return roots.some((root) => {
+    const rel = path.relative(root, cwd);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  });
+}
 
 // ── Tools ─────────────────────────────────────────────────────────────────
 export const TOOLS: ToolDefinition[] = [
@@ -381,10 +403,118 @@ export const TOOLS: ToolDefinition[] = [
       return { messageIds, swarmCount: targetIds.length };
     },
   ),
+  T(
+    'list_active_sessions',
+    'List active sessions',
+    'List live PTY sessions, optionally scoped to a workspace.',
+    {
+      type: 'object',
+      properties: { workspaceId: { type: 'string' } },
+    },
+    sListActiveSessions,
+    async (a, ctx) => {
+      const wsId = a.workspaceId ?? ctx.defaultWorkspaceId ?? undefined;
+      const db = getDb();
+      const workspaces = db.select().from(workspacesTable).all();
+      const ws = wsId ? workspaces.find((w) => w.id === wsId) : undefined;
+      const sessionRows = db.select().from(agentSessions).all();
+      const agentRows = db.select().from(swarmAgents).all();
+      const sessionById = new Map(sessionRows.map((row) => [row.id, row]));
+      const agentBySessionId = new Map(
+        agentRows
+          .filter((row) => row.sessionId)
+          .map((row) => [row.sessionId as string, row]),
+      );
+
+      const sessions = ctx.pty
+        .list()
+        .map((rec, paneIndex) => ({ rec, paneIndex }))
+        .filter(({ rec }) => rec.alive)
+        .filter(({ rec }) => {
+          if (!wsId) return true;
+          const row = sessionById.get(rec.id);
+          return row?.workspaceId === wsId || cwdLooksInsideWorkspace(rec.cwd, ws);
+        })
+        .map(({ rec, paneIndex }) => {
+          const row = sessionById.get(rec.id);
+          const agent = agentBySessionId.get(rec.id);
+          return {
+            sessionId: rec.id,
+            provider: row?.providerEffective ?? row?.providerId ?? rec.providerId,
+            status: rec.alive ? 'running' : row?.status ?? 'exited',
+            agentKey: agent?.agentKey ?? null,
+            swarmId: agent?.swarmId ?? null,
+            paneIndex,
+          };
+        });
+      return { sessions };
+    },
+  ),
+  T(
+    'list_swarms',
+    'List swarms',
+    'List swarms and role rosters for the active workspace.',
+    {
+      type: 'object',
+      properties: { workspaceId: { type: 'string' } },
+    },
+    sListSwarms,
+    async (a, ctx) => {
+      const wsId = requireWs(ctx, a.workspaceId, 'list_swarms');
+      const swarms = listSwarmsForWorkspace(wsId).map((swarm) => ({
+        swarmId: swarm.id,
+        name: swarm.name,
+        status: swarm.status,
+        agentCount: swarm.agents.length,
+        roles: swarm.agents.map((agent) => ({
+          agentKey: agent.agentKey,
+          role: agent.role,
+          status: agent.status,
+          sessionId: agent.sessionId,
+          provider: agent.providerId,
+        })),
+      }));
+      return { swarms };
+    },
+  ),
+  T(
+    'list_workspaces',
+    'List workspaces',
+    'List known workspaces and mark the active assistant workspace.',
+    {
+      type: 'object',
+      properties: {},
+    },
+    sListWorkspaces,
+    async (_a, ctx) => {
+      const rows = getDb()
+        .select()
+        .from(workspacesTable)
+        .all()
+        .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+      const fallbackActiveId = ctx.defaultWorkspaceId ?? rows[0]?.id ?? null;
+      return {
+        workspaces: rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          rootPath: row.rootPath,
+          active: row.id === fallbackActiveId,
+        })),
+      };
+    },
+  ),
 ];
 
-export const findTool = (name: string): ToolDefinition | null =>
-  TOOLS.find((t) => t.id === name) ?? null;
+const TOOL_ALIASES: Record<string, string> = {
+  'memory.search': 'search_memories',
+  'memory.create': 'create_memory',
+  dispatch_pane: 'prompt_agent',
+};
+
+export const findTool = (name: string): ToolDefinition | null => {
+  const id = TOOL_ALIASES[name] ?? name;
+  return TOOLS.find((t) => t.id === id) ?? null;
+};
 
 export const publicTools = () =>
   TOOLS.map((t) => ({

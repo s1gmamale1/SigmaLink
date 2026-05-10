@@ -19,7 +19,28 @@ const TOOL_TIMEOUTS: Record<string, number> = {
   'agentdb_pattern-search': 4_000,
   'agentdb_pattern-store': 8_000,
   autopilot_predict: 2_500,
+  hooks_intelligence_trajectory_start: 2_500,
+  hooks_intelligence_trajectory_step: 2_500,
+  hooks_intelligence_trajectory_end: 3_000,
 };
+
+export interface RufloTrajectoryStartInput {
+  task: string;
+  agent?: string;
+}
+
+export interface RufloTrajectoryStepInput {
+  trajectoryId: string;
+  action: string;
+  result?: string;
+  quality?: number;
+}
+
+export interface RufloTrajectoryEndInput {
+  trajectoryId: string;
+  success: boolean;
+  feedback?: string;
+}
 
 export class RufloProxy {
   private readonly supervisor: RufloMcpSupervisor;
@@ -44,5 +65,42 @@ export class RufloProxy {
   /** Convenience: returns true when the supervisor will accept a call. */
   isReady(): boolean {
     return this.supervisor.health().state === 'ready';
+  }
+
+  async trajectoryStart(input: RufloTrajectoryStartInput): Promise<string | null> {
+    const raw = await this.callWithAlias<{ trajectoryId?: unknown }>(
+      ['hooks_intelligence_trajectory_start', 'hooks_intelligence_trajectory-start'],
+      input as unknown as Record<string, unknown>,
+    );
+    return typeof raw?.trajectoryId === 'string' ? raw.trajectoryId : null;
+  }
+
+  async trajectoryStep(input: RufloTrajectoryStepInput): Promise<void> {
+    await this.callWithAlias(
+      ['hooks_intelligence_trajectory_step', 'hooks_intelligence_trajectory-step'],
+      input as unknown as Record<string, unknown>,
+    );
+  }
+
+  async trajectoryEnd(input: RufloTrajectoryEndInput): Promise<void> {
+    await this.callWithAlias(
+      ['hooks_intelligence_trajectory_end', 'hooks_intelligence_trajectory-end'],
+      input as unknown as Record<string, unknown>,
+    );
+  }
+
+  private async callWithAlias<T = unknown>(
+    toolNames: string[],
+    args: Record<string, unknown>,
+  ): Promise<T> {
+    let lastErr: unknown;
+    for (const toolName of toolNames) {
+      try {
+        return await this.call<T>(toolName, args);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   }
 }

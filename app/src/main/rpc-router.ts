@@ -568,6 +568,7 @@ function buildRouter() {
     browserRegistry,
     userDataDir: userData,
     emit: (event, payload) => broadcast(event, payload),
+    ruflo: rufloProxy,
   });
   // P3-S7 — Side-band handlers for the Conversations panel + Operator
   // Console origin link. Mirrors the swarm.replay registration pattern

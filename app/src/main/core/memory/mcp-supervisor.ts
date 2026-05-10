@@ -112,6 +112,7 @@ export class MemoryMcpSupervisor {
       command: process.execPath, // node from the bundled Electron — works for `node` MCP transport
       args: [this.opts.serverEntry],
       env: {
+        ELECTRON_RUN_AS_NODE: '1',
         SIGMALINK_DB_PATH: this.opts.dbPath,
         SIGMALINK_WORKSPACE_ID: workspaceId,
         SIGMALINK_WORKSPACE_ROOT: root,

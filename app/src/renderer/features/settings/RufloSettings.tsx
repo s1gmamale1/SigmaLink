@@ -20,6 +20,7 @@ import { rpc, rpcSilent, onEvent } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
 
 const KV_TELEMETRY_OPT_IN = 'ruflo.telemetry.optIn';
+const KV_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
 
 type RufloState = 'absent' | 'starting' | 'ready' | 'degraded' | 'down';
 
@@ -76,6 +77,7 @@ export function RufloSettings() {
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [installing, setInstalling] = useState<boolean>(false);
   const [telemetry, setTelemetry] = useState<boolean>(false);
+  const [autowriteMcp, setAutowriteMcp] = useState<boolean>(true);
 
   // Hydrate health + telemetry on mount.
   useEffect(() => {
@@ -92,6 +94,12 @@ export function RufloSettings() {
         if (alive) setTelemetry(t === '1');
       } catch {
         /* ignore */
+      }
+      try {
+        const a = await rpc.kv.get(KV_AUTOWRITE_MCP);
+        if (alive) setAutowriteMcp(a !== '0');
+      } catch {
+        /* default ON */
       }
     })();
     const offHealth = onEvent<RufloHealth>('ruflo:health', (h) => {
@@ -128,6 +136,11 @@ export function RufloSettings() {
   const onToggleTelemetry = useCallback((next: boolean) => {
     setTelemetry(next);
     void rpc.kv.set(KV_TELEMETRY_OPT_IN, next ? '1' : '0').catch(() => undefined);
+  }, []);
+
+  const onToggleAutowriteMcp = useCallback((next: boolean) => {
+    setAutowriteMcp(next);
+    void rpc.kv.set(KV_AUTOWRITE_MCP, next ? '1' : '0').catch(() => undefined);
   }, []);
 
   const state = health?.state ?? 'absent';
@@ -236,6 +249,18 @@ export function RufloSettings() {
       <section>
         <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Privacy
+        </div>
+        <div className="mb-3 flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
+          <div className="min-w-0 pr-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              Auto-configure Ruflo MCP for spawned agents
+            </div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              Writes workspace MCP entries on open. Turning this off leaves existing configs unchanged.
+            </div>
+          </div>
+          <Switch checked={autowriteMcp} onCheckedChange={onToggleAutowriteMcp} />
         </div>
         <div className="flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
           <div className="min-w-0 pr-3">
