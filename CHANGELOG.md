@@ -4,6 +4,55 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.0-rc1] - 2026-05-10
+
+Phase 4 release candidate. Three feature tracks landed in one autonomous overnight run on top of v1.0.1: Agent IPC reliability, SigmaVoice native macOS module, and Ruflo MCP supervisor with three user-facing features. **rc1** because the new native voice module + lazy-download Ruflo path warrant real-world validation before the final v1.1.0 tag.
+
+### Added
+
+* **SigmaVoice native macOS** (Track B) — replaces renderer-only Web Speech API with on-device `SFSpeechRecognizer` via Objective-C++ NAPI module (`app/native/voice-mac/`). ABI-stable Node-API binary per arch (darwin-x64 + darwin-arm64); end users no longer need Xcode after CI ships prebuilds. Continuous mode with `requiresOnDeviceRecognition=YES` (server-side capped at ~60 s). New `dispatcher.ts` regex intent classifier routes finalized transcripts into broadcast / rollCall / app.navigate / assistant.send. macOS minimum bumped 10.12 → 10.15 (Speech.framework requirement). 17/17 dispatcher tests pass.
+
+* **Ruflo MCP embed** (Track C) — three new user-facing features powered by an Option B lazy-download supervisor. **Semantic Memory Search** in Memory room runs `ruflo.embeddings.search` in parallel with token search; "Semantic" chip on Ruflo-sourced rows. **Bridge Assistant pattern surfacing** debounces composer input 800 ms → `ruflo.patterns.search`; ribbon at ≥0.7 confidence with Apply / dismiss. **Autopilot Command Palette** prefetches `ruflo.autopilot.predict` on cmdk open with 30 s cache. New Settings → Ruflo tab with download button (350 MB) + health row + telemetry opt-in. 14/14 proxy unit tests pass.
+
+* **Provider launcher façade** — new `providers/launcher.ts` `resolveAndSpawn()` consolidates the three direct call sites; honors `comingSoon` + `fallbackProviderId` (BridgeCode → Claude with `provider_effective` populated), walks `[command, ...altCommands]` on ENOENT, appends `provider.autoApproveFlag` when `autoApprove=true`, re-checks `kv['providers.showLegacy']` main-side. 9/9 unit tests pass.
+
+* **Migration 0010 — `agent_sessions.provider_effective`** column. Idempotent ALTER TABLE inside BEGIN/COMMIT/ROLLBACK. Populated by the launcher façade on every spawn so the renderer can render "BridgeCode (using claude)" chrome.
+
+* **Group-recipient grammar** — `expandRecipient(swarmId, recipient)` resolves `*`/`@all`/`@coordinators`/`@builders`/`@scouts`/`@reviewers` end-to-end (mailbox row + JSONL mirror + PTY fan-out). Skill-toggle producer + SideChat sends to roles now actually reach all the role's PTYs.
+
+### Fixed
+
+* **macOS DMG PATH-truncation** (BUG-V1.1-03-PROV) — `electron/main.ts` `bootstrapShellPath()` now spawns `${SHELL} -ilc 'printf %s "$PATH"'` once at boot on darwin and prepends shell-resolved entries to `process.env.PATH`. Providers like `claude` / `codex` / `gemini` that live under `/opt/homebrew/bin` etc. now resolve when SigmaLink is launched from Finder/dock.
+
+* **Cross-swarm directive leak** (BUG-V1.1-02-IPC) — `setPaneEcho` closure now scopes the DB lookup by `swarmId AND agentKey`. Operator → coordinator-1 directives no longer route into a different swarm's coordinator-1 PTY when both swarms have agents with the same name.
+
+* **Cross-pane focus auto-sync** (BUG-V1.1-04-IPC) — Bridge dispatch echoes now perform workspace-switch + room-hop + active-session jump automatically; CommandRoom listens at room level and derives `activeIndex` from `state.activeSessionId`. Toast retained as confirmation.
+
+* **Dead-PTY writes silenced** (BUG-V1.1-12-IPC) — `controller.writeToPtys` emits a `kind:'error_report'` mailbox row when a write target is dead.
+
+* **Playwright Node 26 race** (BUG-V1.1-DF-01-PW) — defensive: `smoke.spec.ts` hoists `test.setTimeout(240_000)` into the test body, `dogfood.spec.ts` wraps in `test.describe('dogfood-v1', …)`. Proper fix (bump @playwright/test to ≥1.60) deferred to v1.2.
+
+### Removed
+
+* Dead `'droid'` and `'copilot'` from `ProviderId` union — never had registry entries; renderer stub references continue to work as plain strings.
+
+### Build
+
+* `tsc -b` clean. `vite build` 322 KB main + 6 vendor chunks (was 311 KB pre-Phase-4-tracks-B+C; +12 KB; well under 700 KB target). `electron:compile` clean. Lint **42 errors / 10 warnings** (was 54/10 baseline; tracks contributed 0 new errors — net DECREASE).
+* `mac.hardenedRuntime: true` + `entitlements: build/entitlements.mac.plist` (3 entitlements: allow-jit, allow-unsigned-executable-memory, device.audio-input). `mac.extendInfo` adds NSMicrophoneUsageDescription + NSSpeechRecognitionUsageDescription. Hardened runtime is inert without a Developer ID signing identity (we still ship unsigned), but turning it on lets future notarisation work without an electron-builder churn round.
+
+### Deferred to v1.2
+
+* Wake-word "Hey Sigma" (Porcupine licensing forbids bundled key; needs BYO-AccessKey UX or enterprise license).
+* Native voice CI workflow + cross-arch prebuilds (`app/native/voice-mac/prebuilds/`).
+* Ruflo HTTP Range / resumable downloads.
+* Ruflo native deps (@ruvector/sona-*, onnxruntime-node) — installer fetches top-level tarball only in v1.1.
+* Roll-call main-process aggregation + timeout (BUG-V1.1-05-IPC).
+* `console-controller.stop-all` + `factory.killSwarm` consolidation (BUG-V1.1-07-IPC).
+* @playwright/test ≥1.60 bump to remove the Node-26 loader race.
+* Bridge Assistant `roll_call` / `broadcast` tools dual-delivery (BUG-V1.1-06-IPC).
+* Five P3 IPC follow-ups + 1 P3 PROV follow-up.
+
 ## [1.0.1] - 2026-05-10
 
 Hotfix release. Tag + push gated on explicit user authorization. Body: `docs/release-notes-1.0.1.txt`.

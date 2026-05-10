@@ -1,0 +1,88 @@
+SigmaLink v1.1.0-rc1 — Release candidate
+
+Phase 4 release candidate. Three feature tracks landed in one
+autonomous overnight run on top of v1.0.1.
+
+Track A — Agent IPC reliability:
+
+* macOS DMG PATH bootstrap — Finder-launched apps now find
+  /opt/homebrew/bin/claude etc. Closes the "claude: command not
+  found" failure mode that hit users launching from the .app bundle.
+
+* Provider launcher façade (`providers/launcher.ts`) consolidates the
+  three call sites and adds: BridgeCode → Claude silent fallback with
+  `provider_effective` column populated, ENOENT walk through
+  altCommands, autoApproveFlag append, main-side legacy-gate recheck.
+  9/9 unit tests pass.
+
+* Migration 0010 adds the missing `agent_sessions.provider_effective`
+  column.
+
+* Mailbox group-recipient grammar (@coordinators / @builders /
+  @scouts / @reviewers / @all) now resolves end-to-end. Side-chat
+  sends to roles reach all PTYs.
+
+* Cross-swarm directive leak closed (setPaneEcho now scopes lookups
+  by swarmId).
+
+* Cross-pane "Jump to pane" auto-syncs on Bridge dispatch — no more
+  manual toast click required.
+
+* writeToPtys dead-target writes now emit `error_report` mailbox
+  rows so the operator gets feedback instead of silence.
+
+Track B — SigmaVoice native macOS:
+
+* Replaces renderer-only Web Speech API with on-device
+  SFSpeechRecognizer via Objective-C++ NAPI module
+  (app/native/voice-mac/). ABI-stable Node-API binary per arch.
+
+* New regex intent classifier (dispatcher.ts) routes finalized
+  transcripts into broadcast / rollCall / app.navigate / assistant.send.
+  17/17 dispatcher tests pass.
+
+* macOS minimum bumped 10.12 → 10.15 (Speech.framework requirement).
+
+* Wake-word "Hey Sigma" DEFERRED to v1.2 — Porcupine free-tier
+  licensing forbids shipping a bundled AccessKey to public users.
+  v1.2 will add a BYO-AccessKey UX in Settings.
+
+Track C — Ruflo MCP embed:
+
+* Lazy-download supervisor (Option B) in
+  Settings → Ruflo → "Download Ruflo (350 MB)". DMG stays small;
+  users opt in once.
+
+* Three new user-facing features when Ruflo is installed:
+  - Semantic Memory Search (Memory room) — parallel
+    `embeddings.search` + token search; "Semantic" chip on
+    Ruflo-sourced rows.
+  - Bridge Assistant pattern surfacing — composer probes
+    `agentdb_pattern-search` after 800 ms; ribbon shows similar past
+    tasks at ≥0.7 confidence.
+  - Autopilot suggestion in Command Palette — prefetches
+    `autopilot_predict` on cmdk open; 30 s cache.
+
+* Process-singleton supervisor with circuit breaker + 3× exponential
+  restart backoff. Cwd isolated to `userData/ruflo-runtime/` so the
+  AgentDB doesn't conflict with the user's separate Ruflo CLI usage.
+
+Build:
+
+* tsc clean. vite build 322 KB main (well under 700 KB target).
+* Lint 42 errors / 10 warnings (was 54/10 — net DECREASE).
+* Native voice module compiles for darwin-arm64 locally.
+
+Why rc1 not 1.1.0: the new native voice module + lazy-download Ruflo
+path warrant real-world validation before the final v1.1.0 tag. If
+real-world dogfood is clean, v1.1.0 final follows on the same
+codebase.
+
+Upgrade path: macOS / Windows / Linux users on v1.0.1 can run
+`Settings → Updates → Check for updates`. Fresh installs should
+download v1.1.0-rc1 directly.
+
+Known issues: Ruflo native deps (@ruvector/sona-*, onnxruntime-node)
+are not transitively resolved by the v1.1 installer — supervisor
+will surface a clear error if a tool needs them. v1.2 will lift this
+to a real `npm install --omit=dev` walk.
