@@ -1,6 +1,6 @@
 # SigmaLink — Master Memory
 
-Long-form record of the orchestrated build. Pair with [`memory_index.md`](memory_index.md) for the compact task table and with [`docs/ORCHESTRATION_LOG.md`](docs/ORCHESTRATION_LOG.md) for the per-wave operating log.
+Long-form record of the orchestrated build. Pair with [`memory_index.md`](memory_index.md) for the compact task table and with [`./ORCHESTRATION_LOG.md`](./ORCHESTRATION_LOG.md) for the per-wave operating log.
 
 The orchestrator did not write product code itself. Every wave was dispatched as one or more sub-agents; the orchestrator only wrote planning, indexing, and decoration markdown.
 
@@ -60,7 +60,7 @@ Total ≈14,440 words. Branch suffix decided at 8 chars (closes a P1 bug). Legio
 
 ## Wave 3 — Critique (3 parallel sub-agents)
 
-Three independent stress-tests, all written to `docs/04-critique/`:
+Three independent stress-tests, all written to `../05-critique/`:
 
 - **Architecture critique** — 5 CRITICAL, 7 HIGH, 4 MEDIUM. Top items: A1 generic invoke needs per-channel zod validation; A2 mailbox concurrency on Windows requires SQLite-as-system-of-record + JSONL mirror, not raw `O_APPEND`; A3 SigmaMemory MCP server lifecycle (child-process supervisor + DB-first transactional order); A4 migration story; A5 secrets handling.
 - **UX/UI critique** — 6 CRITICAL, 9 HIGH, 9 MEDIUM, 3 LOW. 27 numbered findings (U1..U27). Headlines: U1 collapse the rail, U7 list-first Memory with backlinks panel, U10/U16 unified Swarm composer with sticky recipient chip, U13 ship 4 themes day-1 not 25, U17 visual divergence from BridgeMind for IP safety.
@@ -68,7 +68,7 @@ Three independent stress-tests, all written to `docs/04-critique/`:
 
 ## Wave 4 — Reconciliation (deferred)
 
-Launched but did not produce `FINAL_BLUEPRINT.md`. The orchestrator chose to proceed against the Wave 2 specs + Wave 3 critique reports directly so the build pipeline could keep moving. The W5..W9 build reports + the orchestration log serve as the post-hoc reconciliation. Documented in `docs/06-test/ACCEPTANCE_REPORT.md` follow-ups.
+Launched but did not produce `FINAL_BLUEPRINT.md`. The orchestrator chose to proceed against the Wave 2 specs + Wave 3 critique reports directly so the build pipeline could keep moving. The W5..W9 build reports + the orchestration log serve as the post-hoc reconciliation. Documented in `../07-test/ACCEPTANCE_REPORT.md` follow-ups.
 
 ## Wave 5 — Foundation patches
 
@@ -92,7 +92,7 @@ Build verification: `lint` 56 (= baseline pre-W5), `build` green, `electron:comp
 
 ## Wave 6 — Feature builds (six sequential sub-agents)
 
-Each wave wrote its own report under `docs/05-build/`. All six finished green.
+Each wave wrote its own report under `../06-build/`. All six finished green.
 
 ### 6a — Swarm Room
 
@@ -130,7 +130,7 @@ Net additions: 4 themes (`obsidian` default, `parchment` warm light, `nord` cool
 
 ## Wave 7 — Visual sweep
 
-Single sub-agent. Installed `@playwright/test` as devDependency, wrote `app/playwright.config.ts` and `app/tests/e2e/smoke.spec.ts` driving Electron via Playwright's `_electron` API. 37-step capture across every room and theme, saved to `docs/06-test/screenshots/` and summarised in `visual-summary.json`. Run: 1/1 spec passed in 28.3 s, zero console errors, zero `pageerror`s, zero crashes. Filed 15 bugs in `docs/07-bugs/OPEN.md`: 3 P1 (workspace activation; missing global RPC error toaster; `swarms.create` race vs `workspaces.open`), 6 P2 (sidebar focus; theme defaulting; sidebar retheme audit; Tasks drawer leak; double-state in Launcher; unexplained disabled rooms), 6 P3 (PowerShell upgrade banner spam; Tasks icon weight; native-picker test limit; onboarding-skip flake; browser room test coupling; Parchment CTA contrast).
+Single sub-agent. Installed `@playwright/test` as devDependency, wrote `app/playwright.config.ts` and `app/tests/e2e/smoke.spec.ts` driving Electron via Playwright's `_electron` API. 37-step capture across every room and theme, saved to `../07-test/screenshots/` and summarised in `visual-summary.json`. Run: 1/1 spec passed in 28.3 s, zero console errors, zero `pageerror`s, zero crashes. Filed 15 bugs in `../08-bugs/OPEN.md`: 3 P1 (workspace activation; missing global RPC error toaster; `swarms.create` race vs `workspaces.open`), 6 P2 (sidebar focus; theme defaulting; sidebar retheme audit; Tasks drawer leak; double-state in Launcher; unexplained disabled rooms), 6 P3 (PowerShell upgrade banner spam; Tasks icon weight; native-picker test limit; onboarding-skip flake; browser room test coupling; Parchment CTA contrast).
 
 ## Wave 8 — Bug fixes
 
@@ -152,7 +152,7 @@ Build: `lint` 52 errors / 3 warnings (= baseline, no regression); `build` green;
 
 Re-ran the full Playwright smoke against the W8 fixes (29.4 s, 1/1 pass, 37/37 screenshots). Promoted 7 of 9 W8 fixes from `fixed` to `verified` in OPEN.md. BUG-W7-003 and 006 remain `fixed` with explicit `Verification:` notes — 003 needs a fresh-kv profile, 006 needs a manual GUI cycle (the harness limitation is itself an open P3, BUG-W7-010).
 
-Wrote `docs/06-test/ACCEPTANCE_REPORT.md` with the 12-flow Definition-of-Done table (7 Pass / 4 Partial / 1 Not exercised / 0 Fail), bug burndown (15 → 9 fixed → 7 verified → 6 deferred P3), build outputs, A1..A16 + R1..R11 risk register marked Mitigated/Partial/Open, top-5 follow-ups, verdict **Alpha-ready**.
+Wrote `../07-test/ACCEPTANCE_REPORT.md` with the 12-flow Definition-of-Done table (7 Pass / 4 Partial / 1 Not exercised / 0 Fail), bug burndown (15 → 9 fixed → 7 verified → 6 deferred P3), build outputs, A1..A16 + R1..R11 risk register marked Mitigated/Partial/Open, top-5 follow-ups, verdict **Alpha-ready**.
 
 CHANGELOG cut `[0.1.0-alpha] - 2026-05-09` (Added / Fixed / Deferred / Known issues, bug-id grep-able), reset `[Unreleased]` to empty. README status table flipped to Shipped for Phases 1, 1.5, 2, 3, 4, 5, 6, 7, 8 with a "Last verified" stamp. ORCHESTRATION_LOG status snapshot rewritten for Waves 1–9 (Wave 4 explicitly noted as deferred). Doc index updated with W5/W6/W7/W8 build reports and the ACCEPTANCE_REPORT.
 
@@ -180,7 +180,7 @@ The user was asleep through most of Wave 4 onward. Decisions taken without confi
 
 ## Status snapshot — what's ready / what's left at v0.1.0-alpha
 
-This is the canonical ready/left ledger for the alpha. Pair with `CHANGELOG.md` for the keep-a-changelog history and `docs/06-test/ACCEPTANCE_REPORT.md` for the smoke-flow Definition-of-Done table.
+This is the canonical ready/left ledger for the alpha. Pair with `CHANGELOG.md` for the keep-a-changelog history and `../07-test/ACCEPTANCE_REPORT.md` for the smoke-flow Definition-of-Done table.
 
 ### What's ready (shipped + tagged on GitHub `v0.1.0-alpha`, commit `83e22f1`)
 
@@ -300,7 +300,7 @@ Release-architect produced the v1.0 doc set with no commit / tag / push actions:
 
 ## Status snapshot — v1.0 candidate
 
-Supersedes the v0.1.0-alpha snapshot above. Detailed surface inventory + risk register live in `docs/06-test/ACCEPTANCE_REPORT_V1.md`; full ticket-level scope in `docs/03-plan/V3_PARITY_BACKLOG.md`.
+Supersedes the v0.1.0-alpha snapshot above. Detailed surface inventory + risk register live in `../07-test/ACCEPTANCE_REPORT_V1.md`; full ticket-level scope in `docs/03-plan/V3_PARITY_BACKLOG.md`.
 
 **Ready**: all Phase 1-8 surfaces from v0.1.0-alpha plus every Wave 12-14 ticket, the W15 voice / CI / plan / marketplace work, and W10 Diagnostics. Bridge Assistant + Bridge Canvas both ship full.
 
@@ -357,7 +357,7 @@ Smoke spec extended (Steps 2 + 6 + 7 surfaces) — **40/40 Pass**, 0 console err
 `dogfood-tester` agent extended `tests/e2e/dogfood.spec.ts` (320 lines, 3 tests) covering Operator Console Replays tab, Bridge Conversations panel, OriginLink mount, Diagnostics tab. Programmatically verified **BUG-W7-003** (per-test fresh-kv Electron launch → Obsidian default theme) and **BUG-W7-006** (open workspace → immediately create swarm → no race). Both promoted from `fixed` → `verified` in `OPEN.md`. **40/40 smoke + 3 dogfood specs PASS**, 0 console errors, 0 page errors, 0 P1/P2 emerged. 2 P3 BUG-DF flagged for v1.1: `BUG-DF-01` (Browser room data-room flicker), `BUG-DF-02` (zod schema stubs missing for `app.tier` + `design.shutdown`). Verdict: **GREENLIGHT-FOR-RELEASE**. DOGFOOD_V1.md filed.
 
 ### Step 10 — v1.0.0 tag + GitHub release — commit `28ac378`
-Stripped `(PENDING TAG)` from CHANGELOG `[1.0.0] - 2026-05-10`; bumped `package.json` to 1.0.0 (already there from W16); README "Known issues in v1.0" section added. Quick security review: clean (no hardcoded creds; `safeStorage` fallback contract correct; 3 `dangerouslySetInnerHTML` sites verified to escape user content). Annotated tag `v1.0.0` cut, body sourced from `docs/release-notes-1.0.0.txt`. **`git push origin main` + `git push origin v1.0.0` succeeded.** GitHub release published at https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.0.0.
+Stripped `(PENDING TAG)` from CHANGELOG `[1.0.0] - 2026-05-10`; bumped `package.json` to 1.0.0 (already there from W16); README "Known issues in v1.0" section added. Quick security review: clean (no hardcoded creds; `safeStorage` fallback contract correct; 3 `dangerouslySetInnerHTML` sites verified to escape user content). Annotated tag `v1.0.0` cut, body sourced from `../09-release/release-notes-1.0.0.txt`. **`git push origin main` + `git push origin v1.0.0` succeeded.** GitHub release published at https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.0.0.
 
 Installer build hit the **Node 26 + npm 11 + prebuild-install crash**; worked around with `--config.npmRebuild=false` so electron-builder packed the already-resident native binaries verbatim. Both artefacts produced and attached: `SigmaLink-1.0.0-arm64.dmg` (122 MB), `SigmaLink-1.0.0-arm64-mac.zip` (117 MB). **macOS notarisation skipped** (no Apple Developer ID configured) — v1.0 ships unsigned.
 
@@ -503,7 +503,7 @@ The autonomous Phase 4 wave completed without hitting any of the stop conditions
 
 **11 bugs closed** (3 P1-IPC, 5 P1/P2-PROV, 1 P2-IPC, 1 P3-IPC, 1 P1 Playwright defensive). Plus carry-over from v1.0.1: 2 P3 BUG-DF + 4 v1.0.1 fix items. **10 bugs deferred to v1.2** with explicit reasons (Porcupine licensing for wake-word, V3 envelope kinds need new producers, scope-bounding).
 
-**Next session restart point**: SigmaLink is at v1.1.0-rc1 on `main`. Real-world dogfood + visual recording validates → tag v1.1.0 final on the same SHA. Track A bugs deferred to v1.2 are catalogued in `docs/07-bugs/OPEN.md` Phase 4 section.
+**Next session restart point**: SigmaLink is at v1.1.0-rc1 on `main`. Real-world dogfood + visual recording validates → tag v1.1.0 final on the same SHA. Track A bugs deferred to v1.2 are catalogued in `../08-bugs/OPEN.md` Phase 4 section.
 
 
 ---
@@ -539,7 +539,7 @@ User dogfooded v1.1.0-rc3 DMG and surfaced four interlocking defects that all ne
 
 **Released as `v1.1.1`** on 2026-05-11 (https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.1). Tag pushed, GitHub release published with `SigmaLink-1.1.1-arm64.dmg` (130 MB) + `SigmaLink-1.1.1-arm64-mac.zip` (133 MB) + blockmaps.
 
-**Smoke-test follow-ups** (4 P2 bugs filed in `docs/07-bugs/OPEN.md`, target v1.1.2):
+**Smoke-test follow-ups** (4 P2 bugs filed in `../08-bugs/OPEN.md`, target v1.1.2):
 - BUG-V1.1.1-01 — Sigma Assistant `launch_pane` tool emits but doesn't actually spawn a PTY (CLI tool_use envelope visible in Tool calls panel, but never feeds into `controller.invokeTool()`).
 - BUG-V1.1.1-02 — Sigma Assistant cannot enumerate active sessions (system-prompt builder reads from DB instead of live registry; sees "(no active swarms)" even with 4 agents running).
 - BUG-V1.1.1-03 — Inter-agent broadcast / side-chat to `@all` / `@coordinators` lands in the operator log but every agent shows `0 msgs`. Possible regression from the rc3 cross-swarm-leak fix tightening.

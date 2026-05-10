@@ -1,7 +1,7 @@
 # SigmaLink — Memory Index
 
 Compact index of every orchestration task. Detailed narrative lives in [`master_memory.md`](master_memory.md).
-Per-wave engineering reports live under [`docs/05-build/`](docs/05-build/) and visual testing under [`docs/06-test/`](docs/06-test/).
+Per-wave engineering reports live under [`../06-build/`](../06-build/) and visual testing under [`../07-test/`](../07-test/). Bug ledger at [`../08-bugs/OPEN.md`](../08-bugs/OPEN.md).
 
 | task_index | task_title | result | trials |
 |---|---|---|---|

@@ -4,7 +4,7 @@ Local-first desktop workspace for orchestrating grids of CLI coding agents in re
 
 SigmaLink is an Electron desktop application that lets a single human operator run several coding-agent CLIs (BridgeCode, Claude Code, Codex, Gemini, Cursor, OpenCode, plus the custom shell entry, with Aider and Continue available as legacy toggles) in parallel against the same Git repository. Each agent runs in a real PTY-backed terminal pane and is checked out into its own Git worktree, so concurrent edits cannot collide on disk. A SQLite database holds workspaces, sessions, swarm rosters, tasks, conversations, and notes; nothing is sent to a remote service.
 
-The project is in active rebuild. Phases 1–8 (foundation, swarms, in-app browser, Skills, SigmaMemory, Review/Tasks, UI polish, visual-test loop) are shipped. Phase 9 (V3 parity, waves 12–16) is in progress: bundled credential storage via Electron `safeStorage`, a Bridge Assistant room (W13), the Bridge Canvas visual-design surface (W14), and final hardening land before v0.2.0. Track the swarm in [`docs/ORCHESTRATION_LOG.md`](docs/ORCHESTRATION_LOG.md).
+The project is in active rebuild. Phases 1–8 (foundation, swarms, in-app browser, Skills, SigmaMemory, Review/Tasks, UI polish, visual-test loop) are shipped. Phase 9 (V3 parity, waves 12–16) is in progress: bundled credential storage via Electron `safeStorage`, a Sigma Assistant room (W13), the Sigma Canvas visual-design surface (W14), and final hardening land before v0.2.0. Track the swarm in [`docs/10-memory/ORCHESTRATION_LOG.md`](docs/10-memory/ORCHESTRATION_LOG.md).
 
 [![lint-and-build](https://github.com/s1gmamale1/SigmaLink/actions/workflows/lint-and-build.yml/badge.svg?branch=main)](https://github.com/s1gmamale1/SigmaLink/actions/workflows/lint-and-build.yml)
 [![e2e-matrix](https://github.com/s1gmamale1/SigmaLink/actions/workflows/e2e-matrix.yml/badge.svg?branch=main)](https://github.com/s1gmamale1/SigmaLink/actions/workflows/e2e-matrix.yml)
@@ -89,15 +89,17 @@ SigmaLink/
 │   ├── package.json
 │   └── electron-builder.yml
 ├── docs/
-│   ├── ORCHESTRATION_LOG.md   master log of every wave
+│   ├── 00-index.md            top-level index of indexes
 │   ├── 01-investigation/      bug audit, architecture notes, test plan
 │   ├── 02-research/           public-source research synthesis
-│   ├── 03-plan/               PRODUCT_SPEC, BUILD_BLUEPRINT, UI_SPEC
-│   ├── 04-critique/           architecture / UX / engineering-risk critiques
-│   ├── 05-build/              per-feature build agent outputs
-│   ├── 06-test/               visual test reports + screenshots
-│   └── 07-bugs/               open + deferred bugs
-├── REBUILD_PLAN.md            historical Phase-1 plan (superseded)
+│   ├── 03-plan/               PRODUCT_SPEC, BUILD_BLUEPRINT, UI_SPEC, REBUILD_PLAN, V3_PARITY_BACKLOG
+│   ├── 04-design/             per-track design docs (voice, ruflo)
+│   ├── 05-critique/           architecture / UX / engineering-risk critiques
+│   ├── 06-build/              per-feature build agent outputs
+│   ├── 07-test/               visual test reports + screenshots
+│   ├── 08-bugs/               open + deferred bugs
+│   ├── 09-release/            release-notes-*.txt per annotated tag
+│   └── 10-memory/             master_memory, memory_index, ORCHESTRATION_LOG
 ├── ATTRIBUTIONS.md
 ├── CHANGELOG.md
 ├── CODE_OF_CONDUCT.md
@@ -170,7 +172,7 @@ A more detailed walk-through lives in [`docs/01-investigation/03-architecture-no
 
 ## Roadmap
 
-The full phased plan is in [`docs/03-plan/BUILD_BLUEPRINT.md`](docs/03-plan/BUILD_BLUEPRINT.md). Critiques that shaped it are in [`docs/04-critique/`](docs/04-critique/). Open bugs are tracked in [`docs/07-bugs/OPEN.md`](docs/07-bugs/OPEN.md); deferred bugs in [`docs/07-bugs/DEFERRED.md`](docs/07-bugs/DEFERRED.md).
+The full phased plan is in [`docs/03-plan/BUILD_BLUEPRINT.md`](docs/03-plan/BUILD_BLUEPRINT.md). Critiques that shaped it are in [`docs/05-critique/`](docs/05-critique/). Open bugs are tracked in [`docs/08-bugs/OPEN.md`](docs/08-bugs/OPEN.md); deferred bugs in [`docs/08-bugs/DEFERRED.md`](docs/08-bugs/DEFERRED.md). Long-form orchestration ledger at [`docs/10-memory/master_memory.md`](docs/10-memory/master_memory.md).
 
 ## Documentation index
 
@@ -179,7 +181,7 @@ Start at [`docs/README.md`](docs/README.md) for the full directory map. The inte
 1. [`docs/ORCHESTRATION_LOG.md`](docs/ORCHESTRATION_LOG.md) — what the swarm is doing and why.
 2. [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md) — canonical product spec.
 3. [`docs/03-plan/BUILD_BLUEPRINT.md`](docs/03-plan/BUILD_BLUEPRINT.md) — phased implementation plan.
-4. [`docs/04-critique/`](docs/04-critique/) — architecture, UX, engineering-risk critiques.
+4. [`docs/05-critique/`](docs/05-critique/) — architecture, UX, engineering-risk critiques.
 
 ## Releases
 
@@ -191,7 +193,7 @@ Start at [`docs/README.md`](docs/README.md) for the full directory map. The inte
 
 ## Known issues in v1.1.1
 
-Full triage in [`docs/07-bugs/OPEN.md`](docs/07-bugs/OPEN.md). v1.2 milestone tracks the follow-ups.
+Full triage in [`docs/08-bugs/OPEN.md`](docs/08-bugs/OPEN.md). v1.2 milestone tracks the follow-ups.
 
 - **Wake-word "Hey Sigma"** — Porcupine free-tier licensing forbids shipping a bundled AccessKey to public users. v1.2 will add a BYO-AccessKey UX in Settings (each user creates their own free Picovoice account).
 - **Ruflo native deps** — `@claude-flow/cli`'s installer fetches the top-level tarball only in v1.1; transitive `@ruvector/sona-*` and `onnxruntime-node` are not pulled. Tools that need them surface a clear error. v1.2 will lift this to a real `npm install --omit=dev` walk.

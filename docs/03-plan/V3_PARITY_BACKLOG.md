@@ -562,11 +562,11 @@ capability matrix lands as a `kv` row (no billing UI).
 
 #### [V3-W15-006] Dogfood cycle — 4-pane swarm against non-trivial repo
 - Source: master_memory recommended priorities #5.
-- Files: `docs/06-test/DOGFOOD_RUN_W15.md`.
+- Files: `docs/07-test/DOGFOOD_RUN_W15.md`.
 - Acceptance:
   - Launch Claude + Codex + Gemini + OpenCode in a 4-pane swarm against a real repo.
   - Run for ≥30 min; capture screen recording + bug list.
-  - Filed bugs land in `docs/07-bugs/OPEN.md` with `[V3-DOGFOOD-NN]` prefix.
+  - Filed bugs land in `docs/08-bugs/OPEN.md` with `[V3-DOGFOOD-NN]` prefix.
 - Effort: M.
 - Depends on: all W12-W14 tickets.
 

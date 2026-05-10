@@ -128,7 +128,7 @@ Phase 4 release candidate. Three feature tracks landed in one autonomous overnig
 
 ## [1.0.1] - 2026-05-10
 
-Hotfix release. Tag + push gated on explicit user authorization. Body: `docs/release-notes-1.0.1.txt`.
+Hotfix release. Tag + push gated on explicit user authorization. Body: `docs/09-release/release-notes-1.0.1.txt`.
 
 ### Fixed
 
@@ -147,7 +147,7 @@ Hotfix release. Tag + push gated on explicit user authorization. Body: `docs/rel
 
 ## [1.0.0] - 2026-05-10
 
-V3 parity release. Tag + push gated on explicit user authorization. Body: `docs/release-notes-1.0.0.txt`. Acceptance: `docs/06-test/ACCEPTANCE_REPORT_V1.md`.
+V3 parity release. Tag + push gated on explicit user authorization. Body: `docs/09-release/release-notes-1.0.0.txt`. Acceptance: `docs/07-test/ACCEPTANCE_REPORT_V1.md`.
 
 ### Added
 
@@ -260,7 +260,7 @@ Tagged and released: 2026-05-10.
 - Phase 6 Review Room: session list with multi-select; unified/split diff renderer (no new deps); Tests/Notes/Conflicts tabs; `git merge-tree` conflict prediction with name-only intersection fallback; `commitAndMerge` + `batchCommitAndMerge` with worktree teardown; `dropChanges` and `pruneOrphans`.
 - Phase 6 Tasks Room: 5-column Kanban (Backlog / In Progress / In Review / Done / Archived); `@dnd-kit/*` drag-and-drop card moves; swarm-roster drop rail that writes a `SAY` envelope `SIGMA::TASK <title>` into the assigned agent's mailbox; per-task comment thread.
 - Phase 7 UI polish: four built-in themes (Obsidian, Parchment, Nord, Synthwave) driven by `:root[data-theme=...]` HSL tokens; first-run onboarding modal (welcome → detect agents → pick workspace); cmdk command palette bound to Cmd/Ctrl+K with nav, recent workspaces, theme switching, kill-all-PTY, ingest-skill, new-memory-note actions; sidebar with Σ monogram, manual + auto-collapse below 1100px, Radix tooltips on disabled rooms; universal `EmptyState` and `ErrorBanner` components; CSS-only motion (`sl-fade-in`, `sl-slide-up`, `sl-pane-enter`).
-- Phase 8 visual test loop: `app/tests/e2e/smoke.spec.ts` Playwright `_electron` driver; 37-step visual sweep with screenshots committed to `docs/06-test/screenshots/` and machine-readable summary at `docs/06-test/visual-summary.json` / `visual-summary-acceptance.json`.
+- Phase 8 visual test loop: `app/tests/e2e/smoke.spec.ts` Playwright `_electron` driver; 37-step visual sweep with screenshots committed to `docs/07-test/screenshots/` and machine-readable summary at `docs/07-test/visual-summary.json` / `visual-summary-acceptance.json`.
 - IPC channel + event allowlists in `app/src/shared/rpc-channels.ts`; preload exposes a single generic `invoke` against the allowlist; renderer uses a typed Proxy bridge.
 - Graceful shutdown on `before-quit`: `pty.killAll()`, MCP supervisor stops, `wal_checkpoint(TRUNCATE)`, DB close.
 - Global RPC error toaster: any `{ok:false}` envelope from the preload bridge surfaces as a sonner toast; `rpcSilent` proxy for opt-out paths.

@@ -10,7 +10,7 @@ The canonical surface to read before contributing:
 
 - [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md) — what we are building.
 - [`docs/03-plan/BUILD_BLUEPRINT.md`](docs/03-plan/BUILD_BLUEPRINT.md) — the phased plan; every PR should link to the phase it belongs to.
-- [`docs/04-critique/`](docs/04-critique/) — known risks and constraints.
+- [`docs/05-critique/`](docs/05-critique/) — known risks and constraints.
 
 ## Local development
 
@@ -45,11 +45,11 @@ A PR that does not pass `npm run lint` and `npm run product:check` will not be r
 ## Branch naming
 
 - New features: `feat/<area>-<slug>` (for example `feat/swarm-mailbox-watcher`).
-- Bug fixes: `fix/<bug-id>` matching the bug ID in [`docs/01-investigation/02-bug-sweep.md`](docs/01-investigation/02-bug-sweep.md) or [`docs/07-bugs/OPEN.md`](docs/07-bugs/OPEN.md), for example `fix/P0-PTY-WIN-CMD`.
+- Bug fixes: `fix/<bug-id>` matching the bug ID in [`docs/01-investigation/02-bug-sweep.md`](docs/01-investigation/02-bug-sweep.md) or [`docs/08-bugs/OPEN.md`](docs/08-bugs/OPEN.md), for example `fix/P0-PTY-WIN-CMD`.
 - Doc-only: `docs/<area>-<slug>`.
 - Refactors: `refactor/<area>-<slug>`.
 
-The bug-fix branch convention is mandatory; it lets the orchestrator cross-link PRs to the bug-sweep grid (see [`docs/04-critique/03-engineering-risk.md`](docs/04-critique/03-engineering-risk.md) for the policy).
+The bug-fix branch convention is mandatory; it lets the orchestrator cross-link PRs to the bug-sweep grid (see [`docs/05-critique/03-engineering-risk.md`](docs/05-critique/03-engineering-risk.md) for the policy).
 
 ## Commit messages
 
