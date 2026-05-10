@@ -85,3 +85,10 @@ app/CLAUDE.md
 app/scripts/ruflo-mcp-filter.mjs
 app/pnpm-workspace.yaml
 app/pnpm-lock.yaml
+
+# Obsidian vault — per-machine workspace state + plugin data + graph layout.
+# The vault content (00-Index.md and the 01..10 numbered notes) are symlinks
+# into the project root, so the actual documentation stays tracked. Only the
+# vault container directory + .obsidian config + plugin data + Welcome scaffold
+# stay local.
+SigmaLink/
