@@ -22,6 +22,8 @@ UX hotfix on top of v1.1.0-rc3. Four user-reported defects fixed in one pass: th
 
 ### Fixed
 
+- **Multiple SigmaLink instances on agent spawn / second `.app` launch** — `electron/main.ts` was missing `app.requestSingleInstanceLock()`. Without the lock, every LaunchServices activation (a second double-click of the .app, an agent CLI registering a URL handler, drag-drops onto the dock icon) spawned a parallel SigmaLink with its own SQLite handle, its own PTY pool, and its own RPC router — the duplicates fought the original for the WAL lock and the user saw two SigmaLink icons in the dock. v1.1.1 acquires the lock at boot; if a second instance starts, it focuses the existing window and quits cleanly.
+
 - **Window immovable on macOS** — only a 28-px sliver in the sidebar header had `WebkitAppRegion: 'drag'`; the rest of the chrome (breadcrumb, right-rail tab bar, sidebar wordmark) was non-draggable, so under `titleBarStyle: 'hiddenInset'` the user couldn't pick up the window from anywhere visible. Wired drag regions across all chrome containers + `no-drag` overrides on every interactive child (collapse button, tabs).
 
 - **"Stub mode for W13" reply text** — the right-rail assistant has been a deterministic stub since W13. v1.1.1 wires it to the actual local `claude` CLI; the stub remains as the binary-missing fallback (with an install hint).
@@ -37,6 +39,16 @@ UX hotfix on top of v1.1.0-rc3. Four user-reported defects fixed in one pass: th
 ### Carried forward from v1.1.0-rc3
 
 All Phase 4 work intact: Track A (agent IPC reliability + provider launcher façade), Track B (SigmaVoice native macOS Speech.framework), Track C (Ruflo MCP supervisor + 3 user-facing features), and Skills marketplace live install.
+
+### Distribution scope
+
+**arm64-only this release.** The x64 macOS DMG was pulled because it would have bundled arm64 native modules under `--config.npmRebuild=false` and crashed on first launch (caught locally by the rc3 diagnostic page). Apple Silicon users get `SigmaLink-1.1.1-arm64.dmg` / `SigmaLink-1.1.1-arm64-mac.zip`. Intel-Mac users should stay on v1.0.1 or wait for v1.2 (which will wire a CI matrix with per-arch native rebuilds).
+
+Required pre-build dance for arm64 releases until the CI matrix lands:
+```
+cd app/node_modules/.pnpm/better-sqlite3@<ver>/node_modules/better-sqlite3 \
+  && npx electron-rebuild --module-dir . --types prod -f
+```
 
 ## [1.1.0-rc3] - 2026-05-10
 

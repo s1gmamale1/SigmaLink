@@ -281,6 +281,27 @@ function createWindow(): void {
   });
 }
 
+// v1.1.1 — single-instance lock. Without this, double-clicking the .app a
+// second time, or any LaunchServices activation while SigmaLink is already
+// running (some agent CLIs registering URL handlers, drag-drops onto the
+// dock icon, OS reauth flows), spawns a parallel instance with its own
+// SQLite handle, its own PTY pool, its own rcps. The duplicate instance
+// fights the original for the WAL lock and the user sees two SigmaLink
+// icons in the dock. Acquire the lock; if we lose it, focus the existing
+// window and quit cleanly.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 void app.whenReady().then(() => {
   // BUG-V1.1-03-PROV — pull the user's interactive-shell PATH into the main
   // process before any provider PTY spawns, so DMG-launched apps can find

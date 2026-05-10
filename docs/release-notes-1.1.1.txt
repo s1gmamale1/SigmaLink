@@ -7,6 +7,21 @@ long-promised "Sigma Assistant actually answers" wiring.
 What's fixed
 ============
 
+0. Single-instance lock — no more duplicate SigmaLink dock icons
+----------------------------------------------------------------
+
+Previous releases were missing `app.requestSingleInstanceLock()` in
+`electron/main.ts`. macOS's LaunchServices would spawn a parallel
+SigmaLink instance for every second activation (double-clicking the
+.app a second time; some agent CLIs registering URL handlers when
+they boot inside their PTYs; drag-drops onto the dock icon). The
+duplicate fought the original for the SQLite WAL lock and you saw
+two SigmaLink icons in the dock with weird half-frozen behaviour.
+
+v1.1.1 acquires the lock at boot. A second-instance event focuses
+the existing window and the duplicate quits cleanly. One SigmaLink
+in the dock at all times.
+
 1. Window is movable again
 ---------------------------
 
@@ -117,6 +132,39 @@ Build hygiene
 * No new `any` casts; no new lint suppressions.
 * All new files under 500 lines.
 * electron-builder.yml unchanged; same DMG packaging path as rc3.
+* `eslint.config.js` — added `release` to `globalIgnores` so the bundled
+  DMG output stops polluting the lint baseline (pre-existing 10
+  warnings disappear; new effective baseline is 54 errors / 0 warnings,
+  matching the rc3 ship state once `release/` is excluded).
+
+arm64-only scope (new in this release)
+=======================================
+
+v1.1.1 ships an **arm64 macOS DMG only** (`SigmaLink-1.1.1-arm64.dmg`
++ `SigmaLink-1.1.1-arm64-mac.zip`). The x64 DMG was pulled from this
+release because it would have bundled arm64 native modules
+(`better-sqlite3`, `node-pty`) and crashed at first launch with
+`mach-o file, but is an incompatible architecture` — exactly the
+trap that the rc3-DMG diagnostic page is designed to catch.
+
+Root cause: pnpm's content-addressed `node_modules` layout fetches
+prebuilt native binaries that match the build host's architecture
+only. electron-builder's `--config.npmRebuild=false` flag (used since
+v1.0.1 to dodge a node-pty TypeScript-test compilation issue under
+pnpm) skips the rebuild step that would normally cross-compile the
+other arch's binaries.
+
+Until v1.2 wires a CI matrix with proper per-arch rebuilds, every
+manual release on Apple Silicon ships arm64-only. Intel-Mac users
+should stay on v1.0.1 (the last cross-arch release) or wait for v1.2.
+
+Required pre-build dance for future arm64 releases:
+
+    cd app/node_modules/.pnpm/better-sqlite3@<ver>/node_modules/better-sqlite3
+    npx electron-rebuild --module-dir . --types prod -f
+
+(node-pty already ships an arm64 prebuild via prebuild-install; it
+does not need a manual rebuild on Apple Silicon hosts.)
 
 Carried forward
 ===============
