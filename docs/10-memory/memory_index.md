@@ -58,6 +58,11 @@ Per-wave engineering reports live under [`../06-build/`](../06-build/) and visua
 | T-51 | Phase 4 release: v1.1.0-rc1 annotated tag + push + GitHub prerelease with 4 binaries (mac arm64+x64, DMG + zip, 131-139 MB each); unsigned; verified DMG launches past boot self-check | shipped | 1 |
 | T-52 | Phase 4 Step 5 — SigmaSkills marketplace live install (marketplace-coder, 1 background agent): new `core/skills/marketplace.ts` (~400 LoC) installs from GitHub URL via tarball stream + tar extract + existing manager.ingestFolder pipeline; 21/21 tests; MarketplaceTab Install button now functional (replacing the v1.0.1 toast stub); skills.json expanded from 8 to 20 entries (6 real anthropics/skills + 14 placeholders) | shipped | 1 |
 | T-53 | Phase 4 release iteration: v1.1.0-rc2 annotated tag + push + GitHub prerelease bundling Tracks A+B+C+Step 5 into one downloadable; 4 binaries; supersedes rc1 (which lacked Step 5 marketplace) | shipped | 1 |
+| T-54 | Phase 5 — v1.1.1 UX hotfix: window drag + Bridge→Sigma rebrand + Claude CLI streaming + voice diagnostics + single-instance lock | shipped | 1 |
+| T-55 | Phase 6 — v1.1.2 Sigma Assistant Parity: tool dispatch parity + live tools + mcp autowrite + mailbox group broadcast (Codex/Gemini collaboration via PR #1) | shipped (awaiting merge + smoke confirmation) | 1 |
+| T-56 | Phase 6 follow-up — v1.1.2-rev2/rev3: arm64 native module rebuild + single-instance lock + MCP host server (BUG-V1.1.2-01) + session-restore minimum (BUG-V1.1.2-02) | shipped | 3 |
+| T-57 | Phase 7 — v1.1.3 plan-mode review: 3 Explore agents (multi-workspace state / pane resume / Ruflo bootstrap) + design questions locked; plan snapshotted to docs/10-memory/v1.1.3-plan.md | planning | 1 |
+| T-58 | Phase 7 implementation (queued — awaits user authorization): multi-workspace + pane resume + add-pane + Ruflo pre-flight + multi-workspace session-restore + per-CLI skills verify + chat label rebrand | queued | 0 |
 
 ## Counts
 
@@ -73,10 +78,12 @@ Per-wave engineering reports live under [`../06-build/`](../06-build/) and visua
 
 ## Latest commit + tag
 
-- `v1.1.2-final` HEAD: `b21f58d` (PR #1 awaiting merge to `main` after SHIP-WITH-PATCH punch list applied).
+- `v1.1.3-plan` HEAD: (this commit — planning artifacts only; no code changes).
+- `v1.1.2-final` HEAD: `c1452bd` (MCP host server + session-restore + 4 punch-list patches; awaiting smoke confirmation + merge).
 - `main` HEAD: `1bc182e` (docs: snapshot v1.1.2 plan for Codex hand-off).
 - Phase 5 commits (v1.1.1, on main): `8cbc173` (window drag + rebrand + Claude CLI + voice diagnostics), `0262383` (single-instance lock), `dfb6fb4` (Phase 5 docs), `71472f5` (doc reorg).
-- Phase 6 commits (v1.1.2-final): `c2fc5d8` (tool dispatch parity + live tools + mcp autowrite), `b21f58d` (memory ledger update).
+- Phase 6 commits (v1.1.2-final): `c2fc5d8` (tool dispatch parity + live tools + mcp autowrite), `b21f58d` (memory ledger update), `3b3627e` (pr-reviewer punch list), `b5972f7` (file v1.1.2 smoke bugs), `74b7f71` (session restore — BUG-V1.1.2-02), `c1452bd` (MCP host server — BUG-V1.1.2-01).
+- Phase 7 plan (v1.1.3-plan branch): planning artifacts only. Plan at `docs/10-memory/v1.1.3-plan.md`; 7 bugs filed in `docs/08-bugs/OPEN.md`. Awaits user authorization to spawn implementation swarm.
 - Tags pushed: `v0.1.0-alpha`, `v1.0.0` (superseded), `v1.0.1`, `v1.1.0-rc1` (superseded), `v1.1.0-rc2` (superseded), `v1.1.0-rc3` (last shipped rc), `v1.1.1` (current shipped — UX hotfix).
 - GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.1 (arm64-only DMG + zip).
 - PR open: https://github.com/s1gmamale1/SigmaLink/pull/1 — `feat(v1.1.2): Sigma Assistant Parity` from `v1.1.2-final` → `main`.

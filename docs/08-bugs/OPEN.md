@@ -22,6 +22,73 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 
 ## Bugs
 
+## v1.1.3 planned work (2026-05-11) — planning artifacts, not yet implemented
+
+Filed from user dogfood + plan-mode review of v1.1.2-rev3. Implementation will be delegated to a parallel agent swarm once the user authorizes execution. Plan reference: `docs/10-memory/v1.1.3-plan.md`.
+
+### BUG-V1.1.3-01: Chat role label still reads "BRIDGE" instead of "SIGMA"
+- **Severity**: P3
+- **Surface**: Sigma Assistant chat — `app/src/renderer/features/bridge-agent/ChatTranscript.tsx` role label
+- **Repro**: open Sigma Assistant, send a message, observe assistant reply's role chip reads "BRIDGE"
+- **Expected**: assistant reply role chip reads "SIGMA"
+- **Owner**: coder-rebrand-chat (planned)
+- **Status**: open
+- **Notes**: last user-facing brand string the v1.1.1 sweep missed. 30-min fix; Step 1 in v1.1.3 plan.
+
+### BUG-V1.1.3-02: Workspace switching is destructive — prior workspace runtime state lost
+- **Severity**: P1 (UX-blocking for multi-project workflows)
+- **Surface**: Sidebar `WorkspaceTabs` click → renderer state `SET_ACTIVE_WORKSPACE` discards prior context
+- **Repro**: open workspace A, spawn 2 agents, switch to workspace B; switch back to A — sessions still in DB but renderer no longer treats A as "open"
+- **Expected**: switching is a tab swap; both workspaces stay live; close button per tab dismisses just one
+- **Owner**: coder-multi-workspace (planned)
+- **Status**: open
+- **Notes**: Step 2 in v1.1.3 plan. Requires state model change from `activeWorkspace` to `openWorkspaces[]` + `activeWorkspaceId`.
+
+### BUG-V1.1.3-03: All previously-open workspaces don't restore on app relaunch
+- **Severity**: P2
+- **Surface**: app boot after quit
+- **Repro**: open 3 workspaces, quit, relaunch — only 1 workspace (the active one) restores
+- **Expected**: every workspace open at quit-time reappears as a tab; active workspace matches last; per-workspace last-room is preserved
+- **Owner**: coder-session-restore (planned)
+- **Status**: open
+- **Notes**: Step 6 in v1.1.3 plan. Extends v1.1.2 BUG-V1.1.2-02 single-workspace snapshot to list-of-workspaces shape.
+
+### BUG-V1.1.3-04: PTY panes don't resume on app restart — CLI sessions evaporate
+- **Severity**: P1
+- **Surface**: app boot — `agent_sessions` rows survive, but the actual claude/codex/gemini processes don't; no `--resume` mechanism is wired
+- **Repro**: open workspace, spawn claude pane, have a conversation, quit app, relaunch — pane is gone; row is stale in DB
+- **Expected**: pane respawns with `<provider> --resume <session_id>` and the prior chat history continues
+- **Owner**: coder-pane-resume (planned)
+- **Status**: open
+- **Notes**: Step 3 in v1.1.3 plan. Needs migration 0011 to add `external_session_id` column + session-id extractor parsing CLI early output + resume launcher consuming the existing `resumeArgs` registry field (declared but unused since v1.1.0). Per-CLI extractor fixtures need capture during implementation.
+
+### BUG-V1.1.3-05: Cannot add agents to an existing swarm — pane count locked at preset
+- **Severity**: P2
+- **Surface**: Swarm Wizard preset selection at create-time; Command Room has no "+pane" UI
+- **Repro**: create swarm with 5-pane preset; want to add a 6th — no affordance exists
+- **Expected**: "+pane" button in Command Room top bar; "+agent" in Swarm Room header; Sigma Assistant tool `add_agent` callable via MCP
+- **Owner**: coder-add-pane (planned)
+- **Status**: open
+- **Notes**: Step 4 in v1.1.3 plan. Reuses existing `spawnAgentSession` helper in `swarms/factory.ts`. Cap at 20 (existing preset max).
+
+### BUG-V1.1.3-06: Ruflo bootstrap is lazy + verifies nothing on workspace open
+- **Severity**: P2
+- **Surface**: workspace creation in `workspaces/factory.ts:openWorkspace()`
+- **Repro**: open a fresh workspace; observe Ruflo supervisor stays in `absent` or `down` state until user clicks Download in Settings; mcp-autowrite ran but nothing verified the agents can actually discover the server
+- **Expected**: `openWorkspace` calls `rufloSupervisor.ensureStarted()` + `verifyForWorkspace(root, 'fast')`; readiness pill in the breadcrumb area animates green when ready; strict-verification toggle available in Settings
+- **Owner**: coder-ruflo-preflight (planned)
+- **Status**: open
+- **Notes**: Step 5 in v1.1.3 plan. Fast mode: ~50ms config file readback. Strict mode (opt-in toggle): ~3-5s per CLI MCP handshake probe.
+
+### BUG-V1.1.3-07: Skills not verified per-CLI on workspace open
+- **Severity**: P3
+- **Surface**: skills fanout — `manager.ts` already fans skills to claude/codex/gemini paths but never re-verifies content hash on subsequent workspace opens
+- **Repro**: install skill, fanout succeeds, manually delete the skill from `~/.claude/skills/<name>/`, re-open workspace — skill is missing but SigmaLink doesn't notice
+- **Expected**: on workspace open, `skillsManager.verifyFanoutForWorkspace(workspaceId)` checks each enabled skill's content hash at each enabled CLI path; missing/stale triggers reFanout
+- **Owner**: coder-skills-verify (planned)
+- **Status**: open
+- **Notes**: Step 7 in v1.1.3 plan. Non-blocking on failure; just a hygiene pass.
+
 ### BUG-W7-001: `workspaces.open` RPC succeeds but does not activate the workspace
 - **Severity**: P1
 - **Surface**: Workspaces room — `workspaces.open` IPC handler / Launcher.tsx integration
