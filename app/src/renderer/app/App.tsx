@@ -1,19 +1,13 @@
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect, type ReactElement } from 'react';
 import { Toaster } from 'sonner';
 import { Sidebar } from '@/renderer/features/sidebar/Sidebar';
 import { Breadcrumb } from '@/renderer/features/top-bar/Breadcrumb';
 import { VoicePill } from '@/renderer/features/voice/VoicePill';
-import { WorkspaceLauncher } from '@/renderer/features/workspace-launcher/Launcher';
+// CommandRoom stays eager — it's the default landing room, so lazy-loading
+// it would add a Suspense flash on cold boot. Every other room is code-split
+// via React.lazy below so the main bundle ships ~30 KB gzip lighter
+// (rooms are only fetched when the user navigates to them).
 import { CommandRoom } from '@/renderer/features/command-room/CommandRoom';
-import { SwarmRoom } from '@/renderer/features/swarm-room/SwarmRoom';
-import { OperatorConsole } from '@/renderer/features/operator-console';
-import { BrowserRoom } from '@/renderer/features/browser/BrowserRoom';
-import { SkillsRoom } from '@/renderer/features/skills/SkillsRoom';
-import { MemoryRoom } from '@/renderer/features/memory/MemoryRoom';
-import { ReviewRoom } from '@/renderer/features/review/ReviewRoom';
-import { TasksRoom } from '@/renderer/features/tasks/TasksRoom';
-import { SettingsRoom } from '@/renderer/features/settings/SettingsRoom';
-import { BridgeRoom } from '@/renderer/features/bridge-agent/BridgeRoom';
 import { CommandPalette } from '@/renderer/features/command-palette/CommandPalette';
 import { OnboardingModal } from '@/renderer/features/onboarding/OnboardingModal';
 import { NativeRebuildModal } from '@/renderer/components/NativeRebuildModal';
@@ -22,6 +16,77 @@ import { RightRailProvider } from '@/renderer/features/right-rail/RightRailConte
 import { useRightRailEnabled } from '@/renderer/features/right-rail/use-right-rail-enabled';
 import { ThemeProvider } from '@/renderer/app/ThemeProvider';
 import { AppStateProvider, useAppState } from '@/renderer/app/state';
+
+// --- Lazy rooms ----------------------------------------------------------
+// Each room is wrapped in `React.lazy` so its module (and the heavy feature
+// subtrees it pulls in — operator-console, bridge-agent, memory, skills,
+// browser, etc.) stays out of the main chunk until the user actually
+// navigates there. Named exports are adapted to default exports via the
+// `then(m => ({ default: m.X }))` shim — see `EditorTab.tsx` for the
+// existing reference pattern (Monaco loader).
+const WorkspaceLauncher = lazy(() =>
+  import('@/renderer/features/workspace-launcher/Launcher').then((m) => ({
+    default: m.WorkspaceLauncher,
+  })),
+);
+const SwarmRoom = lazy(() =>
+  import('@/renderer/features/swarm-room/SwarmRoom').then((m) => ({
+    default: m.SwarmRoom,
+  })),
+);
+const OperatorConsole = lazy(() =>
+  import('@/renderer/features/operator-console').then((m) => ({
+    default: m.OperatorConsole,
+  })),
+);
+const BrowserRoom = lazy(() =>
+  import('@/renderer/features/browser/BrowserRoom').then((m) => ({
+    default: m.BrowserRoom,
+  })),
+);
+const SkillsRoom = lazy(() =>
+  import('@/renderer/features/skills/SkillsRoom').then((m) => ({
+    default: m.SkillsRoom,
+  })),
+);
+const MemoryRoom = lazy(() =>
+  import('@/renderer/features/memory/MemoryRoom').then((m) => ({
+    default: m.MemoryRoom,
+  })),
+);
+const ReviewRoom = lazy(() =>
+  import('@/renderer/features/review/ReviewRoom').then((m) => ({
+    default: m.ReviewRoom,
+  })),
+);
+const TasksRoom = lazy(() =>
+  import('@/renderer/features/tasks/TasksRoom').then((m) => ({
+    default: m.TasksRoom,
+  })),
+);
+const SettingsRoom = lazy(() =>
+  import('@/renderer/features/settings/SettingsRoom').then((m) => ({
+    default: m.SettingsRoom,
+  })),
+);
+const BridgeRoom = lazy(() =>
+  import('@/renderer/features/bridge-agent/BridgeRoom').then((m) => ({
+    default: m.BridgeRoom,
+  })),
+);
+
+// Lightweight placeholder rendered while a lazy room module is downloading.
+// Kept inline (no separate file) so it adds zero bytes to the main chunk
+// beyond the markup itself.
+function RoomSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading room"
+      className="flex min-h-0 flex-1 animate-pulse bg-muted/30"
+    />
+  );
+}
 
 function RoomSwitch() {
   const { state } = useAppState();
@@ -32,32 +97,48 @@ function RoomSwitch() {
     document.body.setAttribute('data-room', state.room);
     return () => document.body.removeAttribute('data-room');
   }, [state.room]);
+  // CommandRoom stays eager (default landing room → no Suspense flash on
+  // cold boot). Every other room is lazy-mounted, so wrap them in a single
+  // Suspense boundary keyed by room id — that way re-entering the same room
+  // doesn't re-trigger the fallback once the chunk is cached.
+  let body: ReactElement | null;
   switch (state.room) {
-    case 'workspaces':
-      return <WorkspaceLauncher />;
     case 'command':
       return <CommandRoom />;
+    case 'workspaces':
+      body = <WorkspaceLauncher />;
+      break;
     case 'swarm':
-      return <SwarmRoom />;
+      body = <SwarmRoom />;
+      break;
     case 'operator':
-      return <OperatorConsole />;
+      body = <OperatorConsole />;
+      break;
     case 'review':
-      return <ReviewRoom />;
+      body = <ReviewRoom />;
+      break;
     case 'tasks':
-      return <TasksRoom />;
+      body = <TasksRoom />;
+      break;
     case 'memory':
-      return <MemoryRoom />;
+      body = <MemoryRoom />;
+      break;
     case 'browser':
-      return <BrowserRoom />;
+      body = <BrowserRoom />;
+      break;
     case 'skills':
-      return <SkillsRoom />;
+      body = <SkillsRoom />;
+      break;
     case 'bridge':
-      return <BridgeRoom variant="standalone" />;
+      body = <BridgeRoom variant="standalone" />;
+      break;
     case 'settings':
-      return <SettingsRoom />;
+      body = <SettingsRoom />;
+      break;
     default:
       return null;
   }
+  return <Suspense fallback={<RoomSkeleton />}>{body}</Suspense>;
 }
 
 /**

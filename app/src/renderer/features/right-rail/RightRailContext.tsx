@@ -7,32 +7,21 @@
 // active tab when the v1.1.4 chrome lands.
 
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
-
-export type RightRailTabId = 'browser' | 'editor' | 'bridge';
-
-interface RightRailContextValue {
-  activeTab: RightRailTabId;
-  setActiveTab: (tab: RightRailTabId) => void;
-}
-
-const KV_TAB = 'rightRail.tab';
-const DEFAULT_TAB: RightRailTabId = 'browser';
-const VALID_TABS: ReadonlySet<RightRailTabId> = new Set([
-  'browser',
-  'editor',
-  'bridge',
-]);
-
-const RightRailCtx = createContext<RightRailContextValue | null>(null);
+import {
+  DEFAULT_TAB,
+  KV_TAB,
+  RightRailCtx,
+  VALID_TABS,
+  type RightRailContextValue,
+  type RightRailTabId,
+} from './RightRailContext.data';
 
 export function RightRailProvider({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTabState] = useState<RightRailTabId>(DEFAULT_TAB);
@@ -67,12 +56,4 @@ export function RightRailProvider({ children }: { children: ReactNode }) {
     [activeTab, setActiveTab],
   );
   return <RightRailCtx.Provider value={value}>{children}</RightRailCtx.Provider>;
-}
-
-export function useRightRail(): RightRailContextValue {
-  const ctx = useContext(RightRailCtx);
-  if (!ctx) {
-    throw new Error('useRightRail must be used within a RightRailProvider');
-  }
-  return ctx;
 }

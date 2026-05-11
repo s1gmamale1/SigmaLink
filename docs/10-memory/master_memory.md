@@ -764,6 +764,43 @@ curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scrip
 - The DMG path still exists as a fallback for users who prefer GUI installs.
 - When SigmaLink is funded and Apple Developer ID is purchased, drop the install script + adhoc-sign hook + in-DMG README; flip electron-builder.yml to use the real cert.
 
-**Phase 11 commits**: TBD (set at tag time).
+**Phase 11 commits**:
+- `ad27db4` `docs(readme)`: promote curl-bash installer to top of repo README + `6799af1` `feat(v1.1.7)`: curl-bash install script bypasses Gatekeeper.
 
-**Next session restart point**: SigmaLink is at v1.1.7 on `main`. Three install paths now available: (a) curl-bash one-liner with zero prompts, (b) DMG manual with in-DMG README workaround, (c) build from source. v1.2 candidate still: enroll in Apple Developer Program for proper notarisation. v1.1.8 cleanup pass: state.tsx + factory.ts under 500-line rule, promote 3 stub schemas, fix CI cache-dependency-path.
+---
+
+## Phase 12 — v1.1.8 5-agent optimization swarm (2026-05-12)
+
+User asked for an optimization session with agent swarm, "do not break what's working, make agent tests their fixes. Tell them use the relevant skills". Dispatched a 3-investigator Phase 1 + 5-coder Phase 2 swarm with skill instructions (sparc:optimizer, sparc:tester, analysis:performance-bottlenecks).
+
+### Phase 1 investigators
+
+- **`perf-investigator`** — bundle / React render / IPC chattiness / SQLite n+1 / PTY survey. Top finding: 10 rooms statically imported into the main chunk; useAppState() has no selector so every dispatch re-renders 27 consumers; pty:data is broadcast to 32 listeners on 16 panes.
+- **`quality-investigator`** — file sizes (state.tsx 996, factory.ts 713, runClaudeCliTurn.ts 709, sidebar.tsx 726, BridgeRoom 721), lint baseline 60 errors broken down by family, 3 stub schemas, dead code in `src/lib/utils.ts`.
+- **`test-investigator`** — picked Option B (`vi.mock('../db/client')` + shared `fakeDb()`) for the NMV-mismatch fix; identified factory.test.ts as the highest-impact new coverage.
+
+### Phase 2 coders — 5 parallel, NON-OVERLAPPING file scopes
+
+- **`quality-lint-fixer`** — deleted dead `utils.ts` exports (19 errors), promoted 3 stub schemas to real zod (caught Role enum drift: actual `coordinator|builder|scout|reviewer`, not plan's hallucinated `tester|researcher`), `.data.ts` split for 8 shadcn UI files + RightRailContext. -27 lint errors.
+- **`perf-bundle-lazy`** — `React.lazy()` for 10 rooms (CommandRoom eager), BrowserRoom latch-on-first-activation, BridgeTabPlaceholder + RightRail also converted to lazy. Main bundle 97.57 → 38.26 KB gzip (-61%).
+- **`perf-ptybus`** — new `renderer/lib/pty-data-bus.ts` (88 lines) routes pty:data by sessionId through a Map; Terminal + PaneSplash migrated. 32→1 listener per chunk. 9 new bus tests.
+- **`test-nmv-fixer`** — shared `src/test-utils/db-fake.ts`, migrated mailbox.test.ts + tools.test.ts to vi.mock pattern, added factory.test.ts for paneIndex + 20-cap. 108/114 → 128/128.
+- **`refactor-state-split`** — state.tsx 996 → 553 + 3 sibling modules (types 157, reducer 316, hook 19). Re-exports preserve all consumer imports. Residual 553 LOC is irreducible provider + IPC-listener cohesion.
+
+### Parallel-agent integration outcome
+
+One conflict surfaced: quality-lint-fixer's `.data.ts` split for `button.tsx` initially broke `alert-dialog.tsx`'s `buttonVariants` import. Resolved within the same dispatch when quality-lint-fixer updated the 4 consumer files (alert-dialog, pagination, calendar, toggle-group). Lead verified aggregate gates green before tag — no commit-time integration debt.
+
+### Aggregate gates
+
+- `pnpm exec tsc -b` → clean
+- `pnpm exec vitest run` → 128/128 (was 108/114)
+- `pnpm run lint` → 32 problems (was 60, -28)
+- `pnpm exec vite build` → main 38.26 KB gzip (was 97.57, -61%)
+- 10 lazy chunks emitted
+
+The 31 remaining lint errors are React-compiler structural family (set-state-in-effect, immutability, exhaustive-deps) — scheduled for a dedicated v1.1.9 wave together with the `useAppStateSelector` + precomputed `sessionsByWorkspace` slices refactor (which is the higher-impact runtime perf work the perf-investigator flagged but parked for v1.1.9 as a paired refactor).
+
+**Phase 12 commits**: TBD (set at tag time).
+
+**Next session restart point**: SigmaLink is at v1.1.8 on `main`. Cold boot ~60% faster, full test suite green, lint baseline halved, state.tsx splits applied. v1.1.9 backlog: `useAppStateSelector` + `sessionsByWorkspace` paired refactor, `factory.ts` + `runClaudeCliTurn.ts` splits, React-compiler structural lint wave, CI cache-dependency-path fix. v1.2 candidate still: Apple Developer Program for proper notarisation.

@@ -4,6 +4,49 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-05-12
+
+5-agent parallel optimization swarm. Zero behavioural changes. Zero broken contracts. Cold boot ~60% faster (bundle), all 6 NMV-blocked tests recovered (108/114 → 128/128 green), lint -28, state.tsx splits under budget.
+
+### Performance
+
+- **Main bundle 97.57 → 38.26 KB gzip (-61%, -59 KB)** — 10 rooms now `React.lazy()`-loaded (CommandRoom stays eager). BridgeRoom + OperatorConsole + MemoryRoom + SkillsRoom + BrowserRoom + ReviewRoom + TasksRoom + SettingsRoom + SwarmRoom + Launcher emitted as sibling chunks. BridgeTabPlaceholder + RightRail also converted to lazy (no vite "dynamic import will not move module" warnings).
+- **BrowserRoom latch-on-first-activation** — instead of unconditionally mounting `<BrowserRoom visible={activeTab==='browser'}/>`, RightRail now only renders the subtree once `activeTab === 'browser'` has been true at least once. Keeps the browser:state listener + DesignOverlay + BrowserViewMount + BrowserRecents tree out of cold boot.
+- **`renderer/lib/pty-data-bus.ts`** (88 lines) — new module routes `pty:data` events by sessionId through a `Map<string, Set<Listener>>`. With 16 panes, previously each chunk paid 32 `eventOn` dispatches + 32 sessionId string-compares + 31 drops; now: 1 dispatch + 1 Map.get + 1-2 actual listener calls. IPC + main-process untouched. 9 new bus tests cover routing, isolation, unsubscribe, install-once, mid-dispatch self-unsubscribe.
+
+### Fixed
+
+- **6 main-process tests recovered** — `src/main/core/swarms/mailbox.test.ts` + `src/main/core/assistant/tools.test.ts` were hitting better-sqlite3 NMV 123 ↔ 147 mismatch when run under host Node 26 (binding compiled for Electron 30.5.1). Both migrated to the canonical `vi.mock('../db/client')` + `fakeDb()` pattern already used by `session-restore.test.ts` and `manager.test.ts`.
+
+### Added
+
+- **`src/test-utils/db-fake.ts`** — new shared shim consolidating the `fakeDb()` + seed helpers previously inlined in 3+ tests. Future main-process tests can import instead of re-implementing.
+- **`src/main/core/swarms/factory.test.ts`** — new test covering `paneIndex` derivation + 20-agent cap (the contract that v1.1.4 CommandRoom + tools dispatch both depend on).
+- **`renderer/lib/pty-data-bus.test.ts`** — 9 specs (see Performance section above).
+
+### Changed
+
+- **state.tsx 996 → 553 LOC + 3 sibling modules**:
+  - `src/renderer/app/state.types.ts` (157 LOC) — `RoomId`, `AppState`, `Action`, `initialAppState`, `selectActiveWorkspace`
+  - `src/renderer/app/state.reducer.ts` (316 LOC) — `appStateReducer` + private helpers
+  - `src/renderer/app/state.hook.ts` (19 LOC) — `useAppState` + `AppStateContext`
+  - `src/renderer/app/state.tsx` keeps the `AppStateProvider` + IPC wiring; re-exports the types/reducer/hook from the new modules. Zero consumer changes.
+- **3 stub schemas → real zod** (`src/main/core/rpc/schemas.ts`): `panes.resume`, `swarms.addAgent`, `skills.verifyForWorkspace`. Shapes drawn from actual controller types. `VALIDATION_MODE` stays `'warn'`. Caught a Role enum drift: actual is `'coordinator'|'builder'|'scout'|'reviewer'`, not the plan's hallucinated `'tester'|'researcher'`.
+- **`.data.ts` sibling split for 8 files** — variants/types extracted from: `badge.tsx`, `button.tsx`, `button-group.tsx`, `form.tsx`, `navigation-menu.tsx`, `toggle.tsx`, `sidebar.tsx`, `RightRailContext.tsx`. Pattern mirrors `rooms-menu-items.ts` / `workspaces-summary.ts` from v1.1.4. Consumer-side import paths updated where the rule still flagged re-exports (alert-dialog, pagination, calendar, toggle-group, RightRailSwitcher, RightRail).
+
+### Removed
+
+- **Dead utility code from `src/lib/utils.ts`** — `parseAnsi` (owned all 19 `no-control-regex` errors), `mockPTYBridge`, `generateId`, `formatDuration` (all zero-caller). `cn` + `formatTimestamp` retained.
+- **Orphan `PTYBridge` type** + `TerminalSession.pty` field from `src/types/index.ts`.
+
+### Build hygiene
+
+- `pnpm exec tsc -b` clean.
+- `pnpm exec vitest run` 128/128 (was 108/114). +20 tests across 4 new files.
+- `pnpm run lint` 32 problems (31 errors + 1 warning; was 60 → -28). The 31 remaining are React-compiler structural family (set-state-in-effect, immutability, exhaustive-deps) — scheduled for a dedicated v1.1.9 wave.
+- `pnpm exec vite build` 38.26 KB gzip main + 10 sibling lazy chunks.
+- `codesign --verify --deep --strict --verbose=2 SigmaLink.app` still passes with `Sealed Resources version=2 rules=13 files=20492` (adhoc-sign hook from v1.1.5 unchanged).
+
 ## [1.1.7] - 2026-05-12
 
 Internal-distribution release. No code changes. No behavioural changes. The new `app/scripts/install-macos.sh` is a self-contained Bash installer that downloads + installs SigmaLink WITHOUT triggering any macOS Gatekeeper dialog. `curl` doesn't tag its downloads with `com.apple.quarantine`, so files it fetches are exempt from Gatekeeper's first-launch assessment — same pattern Rust/Homebrew/Docker installers use. Confirmed empirically on macOS 26.4 (Tahoe): `xattr` output is empty on curl-downloaded files.

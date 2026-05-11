@@ -115,3 +115,6 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-72 | electron-builder.yml: identity null + hardenedRuntime false; v1.1.4 release page xattr workaround note | shipped | 1 |
 | T-73 | Phase 10 — v1.1.6 DMG ships first-launch README explaining Sequoia/Tahoe Gatekeeper workarounds | shipped | 1 |
 | T-74 | Phase 11 — v1.1.7 curl-bash install script bypassing Gatekeeper entirely for internal distribution | shipped | 1 |
+| T-75 | Phase 12 — v1.1.8 5-coder optimization swarm: bundle -61% gzip, 32→1 pty listeners, NMV tests recovered | shipped | 5 |
+| T-76 | state.tsx 996→553 split into types/reducer/hook siblings + 3 stub schemas promoted to real zod | shipped | 1 |
+| T-77 | Lint baseline 60→32 errors via dead utils.ts delete + 8 .data.ts splits + state.tsx refactor | shipped | 1 |

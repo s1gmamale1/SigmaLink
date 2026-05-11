@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from 'react';
 import { findProvider } from '@/shared/providers';
+import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
 import type { AgentSession } from '@/shared/types';
 
 // Inline default-model labels per provider. Mirrors `MODEL_OPTIONS` in
@@ -31,26 +32,17 @@ interface Props {
   session: AgentSession;
 }
 
-function isPtyDataPayload(p: unknown): p is { sessionId: string; data: string } {
-  return (
-    !!p &&
-    typeof p === 'object' &&
-    'sessionId' in p &&
-    typeof (p as { sessionId: unknown }).sessionId === 'string'
-  );
-}
-
 export function PaneSplash({ session }: Props) {
   const [firstByteSeen, setFirstByteSeen] = useState(false);
 
   useEffect(() => {
-    // Subscribe to PTY output from external bus; setState only fires from
-    // the bus callback (the documented exception in react-hooks rules) plus
-    // a safety timeout that also hides via the same setter.
-    const off = window.sigma.eventOn('pty:data', (raw: unknown) => {
-      if (!isPtyDataPayload(raw)) return;
-      if (raw.sessionId === session.id) setFirstByteSeen(true);
-    });
+    // V1.1.8 perf-ptybus — route through the renderer-side bus so the
+    // process pays one `eventOn('pty:data', …)` listener regardless of pane
+    // count. The bus already routes by sessionId, so the callback no longer
+    // needs to filter or type-check the payload. The safety timeout still
+    // hides the splash if the PTY never emits a byte (e.g. provider boot
+    // hang) via the same setter.
+    const off = subscribePtyData(session.id, () => setFirstByteSeen(true));
     const t = setTimeout(() => setFirstByteSeen(true), 4000);
     return () => {
       off();

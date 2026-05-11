@@ -1,18 +1,30 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { initializeDatabase, getRawDb, closeDatabase } from '../db/client';
+
+vi.mock('../db/client', () => ({
+  getDb: vi.fn(),
+  getRawDb: vi.fn(),
+  initializeDatabase: vi.fn(),
+  closeDatabase: vi.fn(),
+}));
+
+import {
+  closeDatabase,
+  getDb,
+  getRawDb,
+  initializeDatabase,
+} from '../db/client';
 import { findTool } from './tools';
 import type { ToolContext } from './tools';
+import {
+  createDbFake,
+  seedAgent,
+  seedSwarm,
+  seedWorkspace,
+  type DbFake,
+} from '@/test-utils/db-fake';
 
 const tmpDirs: string[] = [];
-
-function makeTmpDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-assistant-tools-'));
-  tmpDirs.push(dir);
-  return dir;
-}
 
 function makeCtx(
   sessions: Array<{
@@ -37,21 +49,23 @@ function makeCtx(
   } as unknown as ToolContext;
 }
 
-function seedWorkspace(id: string, rootPath: string, lastOpenedAt: number): void {
-  getRawDb()
-    .prepare(
-      `INSERT INTO workspaces (id, name, root_path, repo_mode, created_at, last_opened_at)
-       VALUES (?, ?, ?, 'plain', ?, ?)`,
-    )
-    .run(id, path.basename(rootPath), rootPath, lastOpenedAt, lastOpenedAt);
-}
+let fake: DbFake;
 
 beforeEach(() => {
-  initializeDatabase(makeTmpDir());
+  fake = createDbFake();
+  vi.mocked(getDb).mockReturnValue(fake.drizzle as unknown as ReturnType<typeof getDb>);
+  vi.mocked(getRawDb).mockReturnValue(fake.raw as unknown as ReturnType<typeof getRawDb>);
+  vi.mocked(initializeDatabase).mockReturnValue({
+    db: fake.drizzle as unknown as ReturnType<typeof initializeDatabase>['db'],
+    raw: fake.raw as unknown as ReturnType<typeof initializeDatabase>['raw'],
+    filePath: '/tmp/fake.db',
+  });
+  vi.mocked(closeDatabase).mockReturnValue(undefined);
 });
 
 afterEach(() => {
-  closeDatabase();
+  vi.mocked(getDb).mockReset();
+  vi.mocked(getRawDb).mockReset();
 });
 
 afterAll(() => {
@@ -63,27 +77,36 @@ afterAll(() => {
 describe('assistant list_* tools', () => {
   it('list_active_sessions returns live registry sessions with swarm metadata', async () => {
     const root = '/tmp/ws-1';
-    seedWorkspace('ws-1', root, 100);
+    seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: root });
+    // Seed an agent_sessions row via the raw shim (mirrors how production
+    // tests previously seeded with `INSERT INTO agent_sessions ...`).
     getRawDb()
       .prepare(
         `INSERT INTO agent_sessions
          (id, workspace_id, provider_id, cwd, status, started_at, provider_effective)
-         VALUES ('sess-1', 'ws-1', 'bridgecode', ?, 'running', 101, 'codex')`,
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(root);
-    getRawDb()
-      .prepare(
-        `INSERT INTO swarms (id, workspace_id, name, mission, preset, status, created_at)
-         VALUES ('swarm-1', 'ws-1', 'Build', 'test', 'squad', 'running', 102)`,
-      )
-      .run();
-    getRawDb()
-      .prepare(
-        `INSERT INTO swarm_agents
-         (id, swarm_id, role, role_index, provider_id, session_id, status, inbox_path, agent_key)
-         VALUES ('agent-1', 'swarm-1', 'coordinator', 1, 'codex', 'sess-1', 'idle', '/tmp/inbox', 'coordinator-1')`,
-      )
-      .run();
+      .run('sess-1', 'ws-1', 'bridgecode', root, 'running', 101, 'codex');
+    seedSwarm(fake, {
+      id: 'swarm-1',
+      workspaceId: 'ws-1',
+      name: 'Build',
+      mission: 'test',
+      preset: 'squad',
+      status: 'running',
+      createdAt: 102,
+    });
+    seedAgent(fake, {
+      id: 'agent-1',
+      swarmId: 'swarm-1',
+      role: 'coordinator',
+      roleIndex: 1,
+      providerId: 'codex',
+      sessionId: 'sess-1',
+      status: 'idle',
+      inboxPath: '/tmp/inbox',
+      agentKey: 'coordinator-1',
+    });
 
     const out = await findTool('list_active_sessions')!.handler(
       { workspaceId: 'ws-1' },
@@ -109,20 +132,27 @@ describe('assistant list_* tools', () => {
   });
 
   it('list_swarms returns swarm summaries with role roster', async () => {
-    seedWorkspace('ws-1', '/tmp/ws-1', 100);
-    getRawDb()
-      .prepare(
-        `INSERT INTO swarms (id, workspace_id, name, mission, preset, status, created_at)
-         VALUES ('swarm-1', 'ws-1', 'Build', 'test', 'team', 'running', 102)`,
-      )
-      .run();
-    getRawDb()
-      .prepare(
-        `INSERT INTO swarm_agents
-         (id, swarm_id, role, role_index, provider_id, session_id, status, inbox_path, agent_key)
-         VALUES ('agent-1', 'swarm-1', 'builder', 1, 'codex', 'sess-1', 'busy', '/tmp/inbox', 'builder-1')`,
-      )
-      .run();
+    seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: '/tmp/ws-1' });
+    seedSwarm(fake, {
+      id: 'swarm-1',
+      workspaceId: 'ws-1',
+      name: 'Build',
+      mission: 'test',
+      preset: 'team',
+      status: 'running',
+      createdAt: 102,
+    });
+    seedAgent(fake, {
+      id: 'agent-1',
+      swarmId: 'swarm-1',
+      role: 'builder',
+      roleIndex: 1,
+      providerId: 'codex',
+      sessionId: 'sess-1',
+      status: 'busy',
+      inboxPath: '/tmp/inbox',
+      agentKey: 'builder-1',
+    });
 
     const out = await findTool('list_swarms')!.handler({}, makeCtx());
 
@@ -148,8 +178,13 @@ describe('assistant list_* tools', () => {
   });
 
   it('list_workspaces marks the active assistant workspace', async () => {
-    seedWorkspace('ws-old', '/tmp/old', 100);
-    seedWorkspace('ws-active', '/tmp/active', 200);
+    seedWorkspace(fake, { id: 'ws-old', name: 'old', rootPath: '/tmp/old', lastOpenedAt: 100 });
+    seedWorkspace(fake, {
+      id: 'ws-active',
+      name: 'active',
+      rootPath: '/tmp/active',
+      lastOpenedAt: 200,
+    });
 
     const out = await findTool('list_workspaces')!.handler(
       {},
@@ -167,26 +202,28 @@ describe('assistant list_* tools', () => {
 
 describe('assistant add_agent tool', () => {
   function seedSwarmWithBuilders(count: number): void {
-    seedWorkspace('ws-1', '/tmp/ws-1', 100);
-    getRawDb()
-      .prepare(
-        `INSERT INTO swarms (id, workspace_id, name, mission, preset, status, created_at)
-         VALUES ('swarm-1', 'ws-1', 'Build', 'test', 'custom', 'running', 102)`,
-      )
-      .run();
-    const stmt = getRawDb().prepare(
-      `INSERT INTO swarm_agents
-       (id, swarm_id, role, role_index, provider_id, session_id, status, inbox_path, agent_key)
-       VALUES (?, 'swarm-1', 'builder', ?, 'shell', ?, 'idle', ?, ?)`,
-    );
+    seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: '/tmp/ws-1' });
+    seedSwarm(fake, {
+      id: 'swarm-1',
+      workspaceId: 'ws-1',
+      name: 'Build',
+      mission: 'test',
+      preset: 'custom',
+      status: 'running',
+      createdAt: 102,
+    });
     for (let i = 1; i <= count; i += 1) {
-      stmt.run(
-        `agent-${i}`,
-        i,
-        `sess-${i}`,
-        `/tmp/inbox-builder-${i}`,
-        `builder-${i}`,
-      );
+      seedAgent(fake, {
+        id: `agent-${i}`,
+        swarmId: 'swarm-1',
+        role: 'builder',
+        roleIndex: i,
+        providerId: 'shell',
+        sessionId: `sess-${i}`,
+        status: 'idle',
+        inboxPath: `/tmp/inbox-builder-${i}`,
+        agentKey: `builder-${i}`,
+      });
     }
   }
 
@@ -245,19 +282,15 @@ describe('assistant add_agent tool', () => {
       paneIndex: 1,
       agentKey: 'builder-2',
     });
-    const agent = getRawDb()
-      .prepare(
-        `SELECT agent_key, session_id, role, role_index
-         FROM swarm_agents WHERE swarm_id = 'swarm-1' AND agent_key = 'builder-2'`,
-      )
-      .get() as
-      | { agent_key: string; session_id: string; role: string; role_index: number }
-      | undefined;
-    expect(agent).toEqual({
-      agent_key: 'builder-2',
-      session_id: 'sess-new',
+    const rows = fake.store.tables.get('swarm_agents') ?? [];
+    const agent = rows.find(
+      (r) => r.swarmId === 'swarm-1' && r.agentKey === 'builder-2',
+    );
+    expect(agent).toMatchObject({
+      agentKey: 'builder-2',
+      sessionId: 'sess-new',
       role: 'builder',
-      role_index: 2,
+      roleIndex: 2,
     });
   });
 

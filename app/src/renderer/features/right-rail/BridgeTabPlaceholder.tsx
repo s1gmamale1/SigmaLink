@@ -5,9 +5,32 @@
 // The component is intentionally tiny: it just hosts BridgeRoom in `rail`
 // variant so the chrome adapts to the narrow column. The standalone /bridge
 // route mounts the same component with `variant='standalone'` (see App.tsx).
+//
+// Bundle-lazy: BridgeRoom is dynamically imported via React.lazy so its
+// 1.7K-LOC tree (and the chat surface it pulls in) stays out of the main
+// chunk. The wrapping Suspense boundary keeps the rail slot stable while
+// the chunk streams in.
 
-import { BridgeRoom } from '@/renderer/features/bridge-agent/BridgeRoom';
+import { Suspense, lazy } from 'react';
+
+const BridgeRoom = lazy(() =>
+  import('@/renderer/features/bridge-agent/BridgeRoom').then((m) => ({
+    default: m.BridgeRoom,
+  })),
+);
 
 export function BridgeTabPlaceholder() {
-  return <BridgeRoom variant="rail" className="h-full min-h-0 flex-1" />;
+  return (
+    <Suspense
+      fallback={
+        <div
+          role="status"
+          aria-label="Loading Sigma Assistant"
+          className="h-full min-h-0 flex-1 animate-pulse bg-muted/30"
+        />
+      }
+    >
+      <BridgeRoom variant="rail" className="h-full min-h-0 flex-1" />
+    </Suspense>
+  );
 }

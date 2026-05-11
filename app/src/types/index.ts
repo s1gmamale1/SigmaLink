@@ -30,15 +30,6 @@ export interface TerminalSession {
   createdAt: number;
   title: string;
   output: string[]; // raw PTY chunks
-  pty?: PTYBridge;
-}
-
-export interface PTYBridge {
-  write(data: string): void;
-  resize(cols: number, rows: number): void;
-  onData(callback: (data: string) => void): void;
-  onExit(callback: (code: number) => void): void;
-  kill(): void;
 }
 
 export interface SubTask {

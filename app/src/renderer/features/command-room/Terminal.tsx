@@ -14,6 +14,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
+import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
 import { useAppState } from '@/renderer/app/state';
 
 interface Props {
@@ -74,17 +75,6 @@ const THEME = {
   brightCyan: '#67e8f9',
   brightWhite: '#f8fafc',
 } as const;
-
-function isPtyDataPayload(p: unknown): p is { sessionId: string; data: string } {
-  return (
-    !!p &&
-    typeof p === 'object' &&
-    'sessionId' in p &&
-    typeof (p as { sessionId: unknown }).sessionId === 'string' &&
-    'data' in p &&
-    typeof (p as { data: unknown }).data === 'string'
-  );
-}
 
 function isPtyExitPayload(p: unknown): p is { sessionId: string; exitCode: number } {
   return (
@@ -154,9 +144,14 @@ export function SessionTerminal({ sessionId, className }: Props) {
     // misaligned text when GridLayout was still flex-shrinking on mount.
 
     // 1) Subscribe to live PTY data BEFORE pulling the snapshot.
-    const offData = window.sigma.eventOn('pty:data', (raw: unknown) => {
-      if (!isPtyDataPayload(raw)) return;
-      if (raw.sessionId === sessionId) term.write(raw.data);
+    //
+    // V1.1.8 perf-ptybus — route via the renderer-side ptyDataBus so we pay
+    // a single `window.sigma.eventOn('pty:data', …)` for the whole app
+    // regardless of pane count. The bus already filters by sessionId, so
+    // the listener body no longer needs the `payload.sessionId === sessionId`
+    // gate or the `isPtyDataPayload` type-check (the bus does both).
+    const offData = subscribePtyData(sessionId, (payload) => {
+      term.write(payload.data);
     });
     const offExit = window.sigma.eventOn('pty:exit', (raw: unknown) => {
       if (!isPtyExitPayload(raw)) return;

@@ -13,7 +13,7 @@ import { useAppState } from '@/renderer/app/state';
 import {
   useRightRail,
   type RightRailTabId,
-} from '@/renderer/features/right-rail/RightRailContext';
+} from '@/renderer/features/right-rail/RightRailContext.data';
 
 interface SegmentDef {
   id: RightRailTabId;

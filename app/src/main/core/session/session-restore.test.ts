@@ -22,41 +22,7 @@ import {
   rememberSessionSnapshot,
   writeSessionSnapshot,
 } from './session-restore';
-
-interface FakeRow {
-  value?: string;
-}
-
-interface FakeStatement {
-  get: (key: string) => FakeRow | undefined;
-  run: (key: string, value: string) => void;
-}
-
-interface FakeDb {
-  storage: Map<string, string>;
-  prepare: (sql: string) => FakeStatement;
-}
-
-function fakeDb(): FakeDb {
-  const storage = new Map<string, string>();
-  return {
-    storage,
-    prepare: (sql: string): FakeStatement => {
-      const isWrite = sql.trim().toUpperCase().startsWith('INSERT');
-      return {
-        get: (key: string): FakeRow | undefined => {
-          if (isWrite) throw new Error('fakeDb: get on write statement');
-          const value = storage.get(key);
-          return value === undefined ? undefined : { value };
-        },
-        run: (key: string, value: string): void => {
-          if (!isWrite) throw new Error('fakeDb: run on read statement');
-          storage.set(key, value);
-        },
-      };
-    },
-  };
-}
+import { fakeDb } from '@/test-utils/db-fake';
 
 beforeEach(() => {
   __resetForTests();

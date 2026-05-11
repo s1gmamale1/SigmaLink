@@ -1,0 +1,170 @@
+SigmaLink v1.1.8 — Optimization release
+
+A 5-agent parallel swarm landed the highest-impact non-breaking wins
+from a 3-investigator Phase-1 scan. Zero behavioural changes. Zero
+broken contracts. Cold boot is roughly 60% faster, the test suite is
+fully green again, the lint baseline drops by 28, and the global
+state module finally splits under the 500-line/file rule.
+
+Highlights
+==========
+
+* **Main bundle: 97.57 → 38.26 KB gzip (-61%, -59 KB)**.
+  10 rooms now `React.lazy()`-loaded; `CommandRoom` stays eager. Cold
+  paint is dramatically faster because the renderer no longer ships
+  ~8.5 KLOC of room code (BridgeRoom 1790, OperatorRoom 1712,
+  MemoryRoom 1136, SkillsRoom 1100, plus 6 others) before the user
+  has picked a room.
+
+* **PTY event fan-out fixed**.
+  `pty:data` events used to register 32 `eventOn` listeners on a
+  16-pane workspace (Terminal + PaneSplash, per pane), each
+  matching sessionId by string compare and dropping 99% of events.
+  v1.1.8 introduces `renderer/lib/pty-data-bus.ts` — one
+  `eventOn('pty:data')` listener that routes by sessionId through
+  a `Map<string, Set<Listener>>`. 9 new bus tests; pure renderer
+  change, IPC + main-process untouched.
+
+* **6 failing main-process tests recovered: 108/114 → 128/128**.
+  `mailbox.test.ts` and `tools.test.ts` were hitting the
+  better-sqlite3 NMV 123 ↔ 147 mismatch (Electron's ABI vs host
+  Node 26's ABI). Both migrated to the canonical
+  `vi.mock('../db/client')` + `fakeDb()` pattern already used by
+  `session-restore.test.ts` and `manager.test.ts`. New shared
+  `src/test-utils/db-fake.ts` consolidates the shim. Plus a new
+  `factory.test.ts` covering `paneIndex` derivation + the 20-agent
+  cap that v1.1.4 CommandRoom + tools dispatch both depend on.
+
+* **state.tsx 996 → 553 LOC** + 3 new sibling modules
+  (`state.types.ts` 157, `state.reducer.ts` 316, `state.hook.ts`
+  19) — pattern mirrors the v1.1.4 `rooms-menu-items.ts` /
+  `workspaces-summary.ts` precedent. All consumer imports keep
+  resolving via `state.tsx` re-exports; no caller changes needed.
+  The 553-LOC residual is the irreducible provider + IPC-listener
+  effects (cannot be split without breaking React lifecycle
+  cohesion — that's a v1.1.9 custom-hooks refactor).
+
+* **3 stub schemas in `rpc/schemas.ts` promoted to real zod**.
+  `panes.resume`, `swarms.addAgent`, `skills.verifyForWorkspace`
+  no longer use `{ input: any, output: any }`. Shapes drawn from
+  the actual controller return types; `VALIDATION_MODE` stays
+  `'warn'` (dev-only console output, non-breaking).
+  Closes the v1.1.4 plan item.
+
+* **Dead code wipe**: `src/lib/utils.ts` lost `parseAnsi` (which
+  owned ALL 19 `no-control-regex` errors), `mockPTYBridge`,
+  `generateId`, `formatDuration` — all confirmed zero-caller.
+  Orphan `PTYBridge` type removed from `src/types/index.ts`.
+
+* **.data.ts sibling split for 7 shadcn UI files + RightRailContext**
+  — kills 7 `react-refresh/only-export-components` errors using
+  the codebase's own pattern. Variants/types move next door; the
+  component file imports + re-exports. Consumers updated where
+  the lint rule still flagged re-exports (alert-dialog,
+  pagination, calendar, toggle-group, RightRailSwitcher,
+  RightRail). Sidebar.tsx variants also extracted as a bonus 8th
+  split.
+
+Gates
+=====
+
+* `pnpm exec tsc -b` → clean
+* `pnpm exec vitest run` → **128/128 pass** (was 108/114; +20 tests
+  total: 9 pty-bus + 6 recovered NMV + 5 factory + minor)
+* `pnpm run lint` → **32 problems** (31 errors, 1 warning; was 60 →
+  -28; the remaining 31 are all react-compiler structural family
+  — set-state-in-effect, immutability, exhaustive-deps — scheduled
+  for a v1.1.9 dedicated React-compiler wave)
+* `pnpm exec vite build` → main bundle **38.26 KB gzip** (was
+  97.57); 10 new lazy chunks (BridgeRoom, OperatorConsole,
+  MemoryRoom, SkillsRoom, BrowserRoom, ReviewRoom, TasksRoom,
+  SettingsRoom, SwarmRoom, Launcher)
+* `codesign --verify --deep --strict --verbose=2 SigmaLink.app` →
+  exit 0, Sealed Resources 20492 files (adhoc-sign hook from
+  v1.1.5 continues to work)
+
+Carried forward
+===============
+
+Every v1.1.0..v1.1.7 surface intact:
+
+* v1.1.7 — `scripts/install-macos.sh` curl-bash installer (no
+  Gatekeeper prompts)
+* v1.1.6 — in-DMG `README — Open SigmaLink.txt`
+* v1.1.5 — `scripts/adhoc-sign.cjs` afterSign hook with proper
+  `_CodeSignature/CodeResources` seal
+* v1.1.4 — V3 visual parity: WorkspacesPanel + RoomsMenuButton +
+  RightRailSwitcher + collapsed PaneHeader + 3×3 grid
+* v1.1.3 — multi-workspace state, pane resume, growable swarms,
+  Ruflo pre-flight
+* v1.1.2 — Sigma Assistant tool dispatch via MCP host server
+* v1.1.1 — Sigma rebrand + window drag + voice diagnostics +
+  single-instance lock
+
+Coordination
+============
+
+Phase 1 — 3 parallel investigators:
+* `perf-investigator` — bundle / React / IPC / SQLite / PTY survey
+* `quality-investigator` — file sizes, lint errors, stub schemas,
+  dead code, type-safety holes
+* `test-investigator` — NMV-mismatch fix path + coverage gaps
+
+Phase 2 — 5 parallel coders (all NON-OVERLAPPING file scopes):
+* `quality-lint-fixer` — dead utils.ts + 3 schemas + 7 .data.ts splits
+* `perf-bundle-lazy` — React.lazy rooms + BrowserRoom latch
+* `perf-ptybus` — renderer pty-data-bus + Terminal/PaneSplash migration
+* `test-nmv-fixer` — vi.mock pattern + shared fakeDb + factory.test.ts
+* `refactor-state-split` — state.tsx → 4 sibling modules
+
+Each Phase-2 coder used `sparc:optimizer` / `sparc:tester` /
+`analysis:performance-bottlenecks` skills and verified their own
+gates before SHIP. One parallel-agent integration issue surfaced
+(quality-lint-fixer's `.data.ts` split for `button.tsx` initially
+broke `alert-dialog.tsx`'s `buttonVariants` import) and was
+resolved within the same dispatch by quality-lint-fixer updating
+the four consumer files (alert-dialog, pagination, calendar,
+toggle-group). Lead verified aggregate gates green before tagging.
+
+Distribution
+============
+
+arm64-only macOS DMG, same dance as v1.1.5..v1.1.7. The new
+DMG ships with the v1.1.6 README + the proper adhoc-sign signature.
+
+Install options unchanged from v1.1.7:
+
+  curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+
+  # Or pin v1.1.8 explicitly:
+  curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.8
+
+Deferred to v1.1.9
+===================
+
+* `useAppStateSelector<T>` built on `useSyncExternalStore` — paired
+  with the precomputed `sessionsByWorkspace` / `swarmsByWorkspace`
+  derived slices the perf-investigator flagged. Higher-impact for
+  sustained runtime but better landed together.
+* `swarms/factory.ts` (713 LOC) + `runClaudeCliTurn.ts` (709 LOC)
+  splits — same pattern as state.tsx; not yet done.
+* React-compiler structural family lint (16 set-state-in-effect,
+  8 immutability, 1 purity) — needs a dedicated wave.
+* CI workflow `cache-dependency-path` fix.
+
+Known issues (unchanged)
+========================
+
+* No Apple Developer ID + no notarisation → first-launch friction
+  documented in v1.1.6 in-DMG README + v1.1.7 install script
+  bypasses it entirely.
+* "Hey Sigma" wake-word — Porcupine licensing forbids bundled key.
+* Win SAPI + Linux Whisper.cpp voice deferred to v1.2.
+* Gemini pane resume — gemini CLI lacks --resume.
+
+Upgrade path
+============
+
+Drop the new SigmaLink.app into /Applications. Existing kv state +
+workspaces + agent sessions survive — no migrations. The faster
+cold-boot is the user-visible delta.

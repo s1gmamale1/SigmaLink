@@ -2,14 +2,28 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { closeDatabase, getRawDb, initializeDatabase } from '../db/client';
+vi.mock('../db/client', () => ({
+  getDb: vi.fn(),
+  getRawDb: vi.fn(),
+  initializeDatabase: vi.fn(),
+  closeDatabase: vi.fn(),
+}));
+
+import { closeDatabase, getDb, getRawDb, initializeDatabase } from '../db/client';
 import { SwarmMailbox } from './mailbox';
+import {
+  createDbFake,
+  seedAgent,
+  seedSwarm,
+  seedWorkspace,
+  type DbFake,
+} from '@/test-utils/db-fake';
 
 type Role = 'coordinator' | 'builder' | 'scout' | 'reviewer';
 
-interface SeedAgent {
+interface SeedAgentSpec {
   role: Role;
   index: number;
 }
@@ -22,36 +36,28 @@ function makeUserData(): string {
   return dir;
 }
 
-function seedSwarm(mailbox: SwarmMailbox, swarmId: string, agents: SeedAgent[]): void {
-  const db = getRawDb();
-  const workspaceId = randomUUID();
-  db.prepare(
-    `INSERT INTO workspaces (id, name, root_path, repo_mode)
-     VALUES (?, 'test', ?, 'plain')`,
-  ).run(workspaceId, `/tmp/${workspaceId}`);
-  db.prepare(
-    `INSERT INTO swarms (id, workspace_id, name, mission, preset, status)
-     VALUES (?, ?, 'test-swarm', 'test mission', 'squad', 'running')`,
-  ).run(swarmId, workspaceId);
+function seedSwarmRoster(
+  fake: DbFake,
+  mailbox: SwarmMailbox,
+  swarmId: string,
+  agents: SeedAgentSpec[],
+): void {
+  const workspace = seedWorkspace(fake, { id: randomUUID(), rootPath: `/tmp/${randomUUID()}` });
+  seedSwarm(fake, { id: swarmId, workspaceId: workspace.id as string });
 
-  const insertAgent = db.prepare(
-    `INSERT INTO swarm_agents
-      (id, swarm_id, role, role_index, provider_id, session_id, status, inbox_path, agent_key)
-     VALUES (?, ?, ?, ?, 'codex', ?, 'idle', ?, ?)`,
-  );
   for (const agent of agents) {
     const agentKey = `${agent.role}-${agent.index}`;
     const sessionId = `${swarmId}:${agentKey}`;
     const inboxPath = mailbox.ensureInbox(swarmId, agentKey);
-    insertAgent.run(
-      randomUUID(),
+    seedAgent(fake, {
       swarmId,
-      agent.role,
-      agent.index,
+      role: agent.role,
+      roleIndex: agent.index,
+      providerId: 'codex',
       sessionId,
       inboxPath,
       agentKey,
-    );
+    });
   }
 }
 
@@ -72,6 +78,20 @@ function sortEchoes(
   return [...echoed].sort((a, b) => a.toAgent.localeCompare(b.toAgent));
 }
 
+let fake: DbFake;
+
+beforeEach(() => {
+  fake = createDbFake();
+  vi.mocked(getDb).mockReturnValue(fake.drizzle as unknown as ReturnType<typeof getDb>);
+  vi.mocked(getRawDb).mockReturnValue(fake.raw as unknown as ReturnType<typeof getRawDb>);
+  vi.mocked(initializeDatabase).mockReturnValue({
+    db: fake.drizzle as unknown as ReturnType<typeof initializeDatabase>['db'],
+    raw: fake.raw as unknown as ReturnType<typeof initializeDatabase>['raw'],
+    filePath: '/tmp/fake.db',
+  });
+  vi.mocked(closeDatabase).mockReturnValue(undefined);
+});
+
 afterEach(() => {
   closeDatabase();
   for (const dir of tmpDirs.splice(0)) {
@@ -86,12 +106,12 @@ describe('SwarmMailbox operator broadcast delivery', () => {
     const mailbox = new SwarmMailbox(userDataDir);
     const swarmA = randomUUID();
     const swarmB = randomUUID();
-    seedSwarm(mailbox, swarmA, [
+    seedSwarmRoster(fake, mailbox, swarmA, [
       { role: 'coordinator', index: 1 },
       { role: 'coordinator', index: 2 },
       { role: 'builder', index: 1 },
     ]);
-    seedSwarm(mailbox, swarmB, [
+    seedSwarmRoster(fake, mailbox, swarmB, [
       { role: 'coordinator', index: 1 },
       { role: 'coordinator', index: 2 },
       { role: 'builder', index: 1 },

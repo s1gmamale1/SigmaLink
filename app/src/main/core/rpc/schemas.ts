@@ -82,7 +82,38 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'pty.list': stub,
   'pty.forget': stub,
   // ── panes ───────────────────────────────────────────────────────────────
-  'panes.resume': stub,
+  // V3-W12-017 — controller wraps `resumeWorkspacePanes` (see
+  // `src/main/core/pty/resume-launcher.ts`). Output mirrors `PaneResumeResult`.
+  'panes.resume': {
+    input: z.string().min(1), // workspaceId
+    output: z.object({
+      workspaceId: z.string(),
+      resumed: z.array(
+        z.object({
+          sessionId: z.string(),
+          providerId: z.string(),
+          providerEffective: z.string(),
+          externalSessionId: z.string(),
+          pid: z.number().int(),
+        }),
+      ),
+      failed: z.array(
+        z.object({
+          sessionId: z.string(),
+          providerId: z.string(),
+          externalSessionId: z.string(),
+          error: z.string(),
+        }),
+      ),
+      skipped: z.array(
+        z.object({
+          sessionId: z.string(),
+          providerId: z.string(),
+          reason: z.string(),
+        }),
+      ),
+    }),
+  },
   // ── providers ────────────────────────────────────────────────────────
   'providers.list': stub,
   'providers.probeAll': stub,
@@ -108,7 +139,24 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'fs.writeFile': stub,
   // ── swarms ───────────────────────────────────────────────────────────
   'swarms.create': stub,
-  'swarms.addAgent': stub,
+  // V3-W12-017 — controller wraps `addAgentToSwarm` (factory.ts).
+  // `AgentSession` + `Swarm` are large, nested shapes; defer their deep-tighten
+  // to a future wave and use `z.any()` for those two fields only.
+  'swarms.addAgent': {
+    input: z.object({
+      swarmId: z.string().min(1),
+      providerId: z.string().min(1),
+      role: z.enum(['coordinator', 'builder', 'scout', 'reviewer']).optional(),
+      initialPrompt: z.string().max(8_000).optional(),
+    }),
+    output: z.object({
+      sessionId: z.string(),
+      paneIndex: z.number().int().nonnegative(),
+      agentKey: z.string(),
+      session: z.any(),
+      swarm: z.any(),
+    }),
+  },
   'swarms.list': stub,
   'swarms.get': stub,
   'swarms.sendMessage': stub,
@@ -192,7 +240,25 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'skills.disableForProvider': stub,
   'skills.uninstall': stub,
   'skills.getReadme': stub,
-  'skills.verifyForWorkspace': stub,
+  // V3-W12-017 — controller wraps `manager.verifyFanoutForWorkspace`.
+  // Output mirrors `SkillFanoutVerification` (manager.ts).
+  'skills.verifyForWorkspace': {
+    input: z.string().min(1), // workspaceId
+    output: z.object({
+      workspaceId: z.string(),
+      verified: z.number().int().nonnegative(),
+      refanned: z.number().int().nonnegative(),
+      errors: z.array(
+        z.object({
+          skillId: z.string(),
+          skillName: z.string(),
+          providerId: z.enum(['claude', 'codex', 'gemini']),
+          targetPath: z.string(),
+          message: z.string(),
+        }),
+      ),
+    }),
+  },
   // ── memory ───────────────────────────────────────────────────────────
   'memory.list_memories': stub,
   'memory.read_memory': stub,
