@@ -108,3 +108,21 @@ publish:
 # electron-builder's afterSign contract: receives `{ appOutDir, packager }`
 # and runs synchronously before DMG/zip artefacts are produced.
 afterSign: scripts/adhoc-sign.cjs
+# v1.1.6 — bundle a clear first-launch README inside the DMG. macOS Sequoia
+# removed the Control-click → Open Gatekeeper bypass; the dialog now reads
+# "Apple could not verify SigmaLink is free of malware". Without a paid
+# Apple Developer ID we cannot notarise, so we ship a README explaining
+# the two recoverable workarounds (Terminal xattr -cr, or System Settings
+# → Privacy & Security → Open Anyway) directly inside the mounted DMG.
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+    - x: 270
+      y: 380
+      path: build/dmg/README — Open SigmaLink.txt
+      type: file

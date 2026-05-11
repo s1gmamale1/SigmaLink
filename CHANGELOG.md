@@ -4,6 +4,29 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-05-12
+
+Single-file documentation release on top of v1.1.5. No code changes. No behavioural changes. The mounted DMG now ships a clear `README — Open SigmaLink.txt` explaining how to recover from the macOS Sequoia/Tahoe Gatekeeper "Apple could not verify SigmaLink is free of malware" dialog. (Notarisation, which would eliminate the dialog entirely, requires Apple Developer Program membership at $99/year — held until SigmaLink is funded.)
+
+### Added
+
+- **`build/dmg/README — Open SigmaLink.txt`** — plain-ASCII first-launch walkthrough that appears as a third item next to `SigmaLink.app` + `Applications →` symlink when the DMG mounts. Covers both recoverable workarounds: the Terminal one-liner `xattr -cr /Applications/SigmaLink.app` AND the 6-step System Settings → Privacy & Security → "Open Anyway" flow that replaced the Sequoia-removed Control-click → Open shortcut.
+
+### Changed
+
+- **`electron-builder.yml` `dmg.contents`** — added a third coordinate entry pointing at the README. The DMG window now contains 3 items instead of 2.
+
+### Path to permanent fix (v1.2 candidate)
+
+Notarisation eliminates the dialog entirely. Requires:
+1. Apple Developer Program membership ($99/year).
+2. "Developer ID Application" certificate exported as .p12.
+3. GitHub Actions secrets: `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `CSC_LINK` (base64 .p12), `CSC_KEY_PASSWORD`.
+4. `electron-builder.yml` mac block: real `identity`, `hardenedRuntime: true`, `notarize: true`.
+5. Remove `scripts/adhoc-sign.cjs` afterSign hook + the in-DMG README.
+
+After that ships, SigmaLink is also eligible for Homebrew Cask (which is removing un-notarised casks by Sept 2026 anyway).
+
 ## [1.1.5] - 2026-05-12
 
 Single-bug hotfix on top of v1.1.4. No new features. No behavioural changes. The macOS DMG can now be downloaded from GitHub and opened by drag-to-/Applications without the user being told the bundle is "damaged".

@@ -1,0 +1,124 @@
+SigmaLink v1.1.6 — DMG ships with a first-launch README
+
+Single-file documentation release on top of v1.1.5. No code changes.
+No behavioural changes. The mounted DMG now contains a clear
+README — Open SigmaLink.txt with two recoverable workarounds for
+the macOS Gatekeeper "Apple could not verify SigmaLink is free of
+malware" dialog.
+
+Why v1.1.6 exists
+==================
+
+v1.1.5 fixed the "damaged and can't be opened" verdict (proper
+ad-hoc signature + CodeResources seal). What v1.1.5 cannot escape
+is the subsequent macOS Sequoia/Tahoe Gatekeeper dialog for
+un-notarised apps:
+
+  "SigmaLink" Not Opened.
+  Apple could not verify "SigmaLink" is free of malware that may
+  harm your Mac or compromise your privacy.
+  [Move to Trash] [Done]
+
+This is the standard "unidentified developer" rejection, not a
+malware detection. Apple removed the Control-click → Open shortcut
+in Sequoia (15.0); the replacement flow is System Settings →
+Privacy & Security → "Open Anyway". `xattr -cr` also still strips
+the quarantine bit and bypasses Gatekeeper entirely.
+
+Notarisation (the real fix) requires Apple Developer Program
+membership — $99/year per developer. SigmaLink is not yet enrolled.
+Until that changes, every fresh install hits the recoverable
+dialog above.
+
+v1.1.6 ships a clear in-DMG explainer so the user does not have to
+hunt for the workaround.
+
+What v1.1.6 ships
+==================
+
+1. **README inside the DMG** — when you mount SigmaLink-1.1.6-arm64.dmg
+   you see three things in the window:
+
+       [SigmaLink.app]   [Applications →]   [README — Open SigmaLink.txt]
+
+   The README walks through both workarounds:
+
+     OPTION A — Terminal one-liner:
+       xattr -cr /Applications/SigmaLink.app
+       open /Applications/SigmaLink.app
+
+     OPTION B — System Settings → Privacy & Security → "Open Anyway"
+       (6-step illustrated walkthrough in the README)
+
+2. **electron-builder.yml** `dmg.contents` block extended to include
+   the README at a third coordinate next to the app icon. The README
+   is plain ASCII so it opens in any default text app.
+
+Carried forward from v1.1.5
+============================
+
+Every v1.1.5 surface intact:
+
+* `scripts/adhoc-sign.cjs` afterSign hook still runs codesign
+  --force --deep --sign - --timestamp=none and verifies the result.
+* Bundle still passes `codesign --verify --deep --strict --verbose=2`
+  with `Sealed Resources version=2 rules=13 files=20492`.
+* Identity null + hardenedRuntime false config unchanged.
+
+Path to a full fix (v1.2 candidate)
+====================================
+
+For new users, the friction is real. Notarisation is the only
+permanent fix. Plan:
+
+1. Buy Apple Developer Program membership ($99/year).
+2. Generate a "Developer ID Application" certificate; export as .p12.
+3. Set GitHub Actions secrets:
+     APPLE_ID
+     APPLE_APP_SPECIFIC_PASSWORD
+     APPLE_TEAM_ID
+     CSC_LINK (base64-encoded .p12)
+     CSC_KEY_PASSWORD
+4. Update `electron-builder.yml`:
+     mac:
+       identity: "Developer ID Application: <NAME>"
+       hardenedRuntime: true
+       notarize: true
+5. Remove `scripts/adhoc-sign.cjs` afterSign hook (no longer needed).
+6. Remove `build/dmg/README — Open SigmaLink.txt` (no longer
+   needed; the DMG becomes a single-double-click install).
+7. After tagging, electron-builder uploads the .app to Apple's
+   notarisation service; typical turnaround 2–15 minutes.
+
+Once that ships, SigmaLink is also eligible for Homebrew Cask
+(which is removing un-notarised casks by September 2026 anyway).
+
+Build hygiene
+=============
+
+* `pnpm exec tsc -b` clean
+* `pnpm exec vitest run` 108/114 (same pre-existing NMV failures)
+* `pnpm run lint` 59 problems (unchanged)
+* `pnpm exec vite build` 354.95 KB raw / 97.57 KB gzip
+* `codesign --verify --deep --strict --verbose=2 SigmaLink.app` → exit 0
+* `Sealed Resources version=2 rules=13 files=20492`
+* DMG mount shows 3 entries: SigmaLink.app + Applications symlink + README
+
+Known issues (unchanged from v1.1.5)
+=====================================
+
+* No Apple Developer ID + no notarisation → first-launch friction
+  documented above. v1.2 candidate.
+* "Hey Sigma" wake-word — Porcupine licensing forbids bundled key.
+* Win SAPI + Linux Whisper.cpp voice deferred to v1.2.
+* state.tsx (996 lines) + swarms/factory.ts (713 lines) still
+  exceed the 500-line/file rule. v1.1.7 cleanup pass.
+* CI workflow `cache-dependency-path` resolves to a stale path.
+* 3 stub RPC schemas still use `{input: any, output: any}`.
+
+Upgrade path
+============
+
+Drop the new SigmaLink.app into /Applications. Existing kv state +
+workspaces + agent sessions survive — no migrations in this release.
+The README inside the new DMG explains the first-launch flow.

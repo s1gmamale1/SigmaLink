@@ -113,3 +113,4 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-70 | GridLayout 9-pane 3×3 fix + PaneHeader.test.tsx Element.prototype tsc narrowing fix | shipped | 1 |
 | T-71 | Phase 9 — v1.1.5 Gatekeeper "damaged" hotfix: investigate root cause + adhoc-sign.cjs afterSign hook | shipped | 1 |
 | T-72 | electron-builder.yml: identity null + hardenedRuntime false; v1.1.4 release page xattr workaround note | shipped | 1 |
+| T-73 | Phase 10 — v1.1.6 DMG ships first-launch README explaining Sequoia/Tahoe Gatekeeper workarounds | shipped | 1 |

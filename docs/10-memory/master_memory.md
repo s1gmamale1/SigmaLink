@@ -688,6 +688,34 @@ v1.1.0 turned on `hardenedRuntime: true` for SigmaVoice with a comment claiming 
 
 DMG now ships with proper ad-hoc signature + resource seal. Gatekeeper surfaces "unidentified developer" (recoverable right-click → Open) instead of "damaged" (destructive). Still no notarisation; that requires Apple Developer ID + APPLE_ID env vars + `notarize: true` config — held until SigmaLink monetises and can absorb the membership fee.
 
-**Phase 9 commits**: TBD (set at tag time).
+**Phase 9 commits**:
+- `696d599` `fix(v1.1.5)`: Gatekeeper "damaged" dialog hotfix.
 
-**Next session restart point**: SigmaLink is at v1.1.5 on `main`. v1.1.4 release page on GitHub annotated with the `xattr -cr` workaround for downloaders who hit the damaged dialog. v1.1.6+ cleanup pass: split state.tsx (996 lines) + factory.ts (713 lines) under 500-line rule, promote 3 stub schemas to real zod, fix CI cache-dependency-path. v1.2 backlog: Split + Minimise pane actions, notifications system, V3 orange brand (held — primary blue stays), x64 macOS DMG matrix, macOS notarisation (if Developer ID).
+---
+
+## Phase 10 — v1.1.6 DMG ships first-launch README (2026-05-12)
+
+v1.1.5 cleared the "damaged" verdict but the user still hit the next Gatekeeper layer: "Apple could not verify SigmaLink is free of malware that may harm your Mac or compromise your privacy." with [Move to Trash] / [Done] buttons. This is the macOS Sequoia/Tahoe un-notarised-app dialog (recoverable). Deployed `sequoia-research` agent (web-search-enabled). Key findings:
+
+- Apple removed the Control-click → Open shortcut in Sequoia (15.0). Replacement: System Settings → Privacy & Security → scroll to Security section → "Open Anyway" → authenticate. Available for ~1 hour after the failed launch.
+- `xattr -cr /Applications/SigmaLink.app` still works in 26.x to strip `com.apple.quarantine` and bypass Gatekeeper entirely.
+- `spctl --master-disable` is neutered in Sequoia; only configuration profiles (MDM) can globally disable Gatekeeper.
+- Notarisation requires Apple Developer Program — $99/year, no free tier, no open-source exception (FSFE petitioned Apple Nov 2025; no movement).
+- Homebrew Cask is removing un-notarised casks by Sept 2026 — not a viable channel.
+- Self-strip-quarantine on first launch is impossible (chicken-and-egg: Gatekeeper runs before the app can touch its own xattrs).
+
+### Fix shipped
+
+`build/dmg/README — Open SigmaLink.txt` — plain-ASCII walkthrough now bundled in the DMG. When the user mounts SigmaLink-1.1.6-arm64.dmg they see three items in the window:
+
+  [SigmaLink.app]   [Applications →]   [README — Open SigmaLink.txt]
+
+The README covers both options: Terminal one-liner and System Settings flow. `electron-builder.yml` `dmg.contents` extended with a third coordinate pointing at the file.
+
+### Path to real fix (v1.2 candidate)
+
+Buy Apple Developer Program ($99/year), generate "Developer ID Application" cert, set CI secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID, CSC_LINK, CSC_KEY_PASSWORD), flip `electron-builder.yml` mac block to use the real identity + `hardenedRuntime: true` + `notarize: true`, drop the adhoc-sign.cjs afterSign hook + the in-DMG README. After that, DMG becomes a single-double-click install and Homebrew Cask submission opens up.
+
+**Phase 10 commits**: TBD (set at tag time).
+
+**Next session restart point**: SigmaLink is at v1.1.6 on `main`. The first-launch friction is documented in-DMG; v1.2 backlog still carries the proper notarisation work (waiting on $99/year Developer Program decision from user). v1.1.7 cleanup pass: split state.tsx + factory.ts under 500-line rule, promote 3 stub schemas, fix CI cache-dependency-path.
