@@ -1,0 +1,173 @@
+SigmaLink v1.1.3 — Multi-workspace + pane resume + growable swarms
+
+v1.1.2 made Sigma Assistant actually dispatch tools. v1.1.3 makes
+SigmaLink behave like a real multi-project workspace: open several
+projects in parallel like browser tabs, switch between them without
+losing context, restart the app and find everything where you left it
+— including the running CLI agents themselves.
+
+The 7 v1.1.3-planned bugs are closed:
+  BUG-V1.1.3-01 (chat label "BRIDGE" → "SIGMA")        ✓
+  BUG-V1.1.3-02 (workspace switching is destructive)   ✓
+  BUG-V1.1.3-03 (workspaces don't restore across boot) ✓
+  BUG-V1.1.3-04 (PTY panes don't resume across boot)   ✓
+  BUG-V1.1.3-05 (swarm count locked at preset)         ✓
+  BUG-V1.1.3-06 (Ruflo bootstrap lazy + unverified)    ✓
+  BUG-V1.1.3-07 (skills not verified per CLI)          ✓
+
+What's new
+==========
+
+1. Multi-workspace tabs
+----------------------
+
+Sidebar gains real workspace tabs: 8 visible + overflow drawer beyond
+that. Open as many workspaces as you want. Click between them — each
+workspace's runtime context (sessions, swarms, Sigma conversation)
+stays alive. Close button per tab dismisses just that one; a "+"
+button opens the picker for adding more. On quit, every open tab is
+persisted; on relaunch, all of them reappear with the correct active
+workspace selected.
+
+State model change: `activeWorkspace` (single) → `openWorkspaces[]` +
+`activeWorkspaceId` selector pattern. Consumers read via the derived
+selector so existing components (BridgeRoom, Composer, RightRail)
+keep working without changes.
+
+2. Pane resume across restart
+-----------------------------
+
+Each spawned agent CLI's session id is captured from its early
+stdout output (Claude Code via JSONL `system.init` envelope, Codex
+via banner regex, Gemini deferred until support confirmed) and
+persisted to the new `external_session_id` column added in migration
+0011. On the next app launch, the resume launcher batch-respawns
+every restored workspace's panes with `<cli> --resume <session_id>`,
+finally consuming the long-dormant `resumeArgs` registry field. Chat
+history continues from where you quit.
+
+Failures fall back to fresh spawns silently per the locked UX
+decision; no prompts on restart.
+
+3. Growable swarms (+ Sigma can do it too)
+------------------------------------------
+
+The swarm preset (5 / 10 / 15 / 20 panes) no longer locks the pane
+count at create time. Command Room's top bar gains a "+ pane"
+button; Swarm Room header gains "+ agent". Picker selects provider +
+optional initial prompt. Capacity-bound at 20 (existing preset max).
+GridLayout shapes extended to handle 13-20 panes (4×4 + 5×4).
+
+Sigma Assistant can do the same via the new `add_agent` tool wired
+through the MCP host server from v1.1.2. Ask Sigma "spawn one more
+codex pane with a hello prompt" and watch it appear.
+
+4. Ruflo pre-flight on workspace open
+-------------------------------------
+
+Workspace creation no longer leaves Ruflo dormant until you click
+Download in Settings. `openWorkspace` now calls
+`rufloSupervisor.ensureStarted()` (idempotent, non-blocking) +
+`verifyForWorkspace(root, mode)`. Mode defaults to `fast` (~50ms
+config file readback verifying the per-CLI MCP entries from the
+v1.1.2 autowrite). A "Strict MCP verification" toggle in Settings →
+Ruflo opts into the thorough `claude/codex/gemini mcp list` probe
+(~3-5s) for paranoid users.
+
+Status surfaces as a 3-state readiness pill in the workspace
+breadcrumb area: green (verified), amber (partial — some CLIs
+failed), red (Ruflo unavailable).
+
+5. Per-CLI skills verification
+------------------------------
+
+When a workspace opens, `skillsManager.verifyFanoutForWorkspace()`
+content-hash checks each enabled skill against each enabled CLI's
+expected path (`~/.claude/skills/`, `~/.codex/skills/`,
+`~/.gemini/extensions/sigmalink-*/`). Missing or stale skills
+trigger silent re-fanout. The readiness pill aggregates skill
+status alongside Ruflo status.
+
+Build hygiene
+=============
+
+* `pnpm exec tsc -b` → clean (exit 0)
+* `pnpm exec vitest run` → 86/86 pass across 13 test files
+* `pnpm exec vite build` → main bundle 350 KB raw / 96.51 KB
+  gzipped (well under 700 KB target)
+* `pnpm run lint` → 60 problems (59 errors / 1 warning); +6 net
+  from rc3 baseline of 54/0. All new violations are in the same
+  family as pre-existing ones (no-control-regex for ANSI escape
+  parsing; react-refresh on state.tsx exports). One eslint-disable
+  added pre-tag for the ANSI regex; rest are non-blocking and
+  scheduled for the v1.1.4 cleanup pass.
+* No new `any` casts, `@ts-ignore`, or `eslint-disable` outside
+  the documented one above.
+* 86 vitest tests include the new suites: state reducer multi-
+  workspace, session-id-extractor per-CLI fixtures, resume-launcher
+  failure paths, ruflo verify fast+strict, skills verify, mailbox
+  group fanout (carried from v1.1.2).
+* `pr2-reviewer` convergent review verdict: SHIP-WITH-PATCH; score
+  0.9375 (above 0.85 threshold). 2 punch-list items applied inline
+  by the lead before tag (this file + ANSI lint disable).
+
+Distribution
+============
+
+arm64-only macOS DMG, same as v1.1.1 / v1.1.2. The build host's
+native modules get packaged; per-arch CI rebuild matrix deferred to
+v1.2. Intel-Mac users: stay on v1.0.1 or wait. Pre-build dance for
+each manual arm64 release:
+
+  npx electron-rebuild --module-dir \
+    node_modules/.pnpm/better-sqlite3@<ver>/node_modules/better-sqlite3 \
+    --types prod -f
+
+Pin to Electron 30.5.1 (NMV 123) — the host's `node` 26 (NMV 147) is
+binary-incompatible if you forget `--version` to electron-rebuild.
+
+Carried forward
+===============
+
+All v1.1.0 → v1.1.2 surfaces intact: window drag across chrome
+regions, Sigma rebrand, real Claude CLI streaming, voice diagnostics
+in Settings, single-instance lock, MCP host server bridging Sigma
+tools to the spawned Claude CLI, mailbox group broadcast fix,
+session-restore minimum, all Phase 4 features (SigmaVoice native,
+Ruflo MCP supervisor, Skills marketplace).
+
+Known issues / deferred to v1.1.4
+==================================
+
+* `state.tsx` (996 lines) and `swarms/factory.ts` (713 lines)
+  exceed the 500-line/file project rule. Refactor lands in v1.1.4.
+* `react-refresh/only-export-components` (4 sites) and one
+  `react-hooks/exhaustive-deps` warning in CommandRoom.tsx — same
+  family as pre-existing shadcn warnings.
+* CI workflow `cache-dependency-path` resolves to a stale path on
+  the runners; 4 jobs fail at Setup Node. Local gates all green;
+  CI fix is a separate hygiene PR.
+* Gemini pane resume not implemented (gemini CLI doesn't expose a
+  --resume protocol as of v0.41.x). Extractor returns null; resume-
+  launcher skips gemini panes — they respawn fresh.
+
+Known issues (unchanged from v1.1.2)
+=====================================
+
+* "Hey Sigma" wake-word — Porcupine licensing forbids bundled key.
+* macOS notarisation — needs Apple Developer ID; DMG ships unsigned.
+* @playwright/test ≥ 1.60 bump for Node-26 loader race.
+* Win SAPI + Linux Whisper.cpp voice deferred to v1.2.
+
+Upgrade path
+============
+
+Drop the new SigmaLink.app into /Applications. Existing kv state +
+workspaces survive — migration 0011 is additive (adds nullable
+column). On first launch after upgrading, your last-active workspace
+opens automatically (legacy single-workspace session snapshot is
+parsed as a fallback). Workspaces opened in this v1.1.3 session
+forward will be restored as a list on subsequent restarts.
+
+The full v1.1.3 plan lived at `docs/10-memory/v1.1.3-plan.md`.
+Phase 7 narrative in `docs/10-memory/master_memory.md`.

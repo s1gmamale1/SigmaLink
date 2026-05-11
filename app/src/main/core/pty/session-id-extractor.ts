@@ -1,3 +1,7 @@
+/* eslint-disable no-control-regex */
+// ANSI/OSC escape sequences require control-character ranges by construction;
+// disabling the rule here mirrors lib/utils.ts (same family).
+
 export interface SessionIdExtraction {
   providerId: string;
   sessionId: string;
