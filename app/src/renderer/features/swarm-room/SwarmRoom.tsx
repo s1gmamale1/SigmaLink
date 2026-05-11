@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Megaphone, Network, Plus, Power, Radio, RefreshCcw } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
@@ -118,6 +125,27 @@ export function SwarmRoom() {
     }
   }
 
+  async function addAgent(providerId: string): Promise<void> {
+    if (!activeSwarm) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await rpc.swarms.addAgent({ swarmId: activeSwarm.id, providerId });
+      dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
+      dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
+      dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
+      toast.success(`Added ${result.agentKey}`, {
+        description: `Pane ${result.paneIndex + 1}`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      toast.error('Could not add agent', { description: message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!activeWorkspace) {
     return (
       <EmptyState
@@ -176,6 +204,33 @@ export function SwarmRoom() {
           <Button variant="outline" size="sm" onClick={() => void refreshSwarms()} className="gap-1">
             <RefreshCcw className="h-3.5 w-3.5" /> Refresh
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={
+                  busy ||
+                  activeSwarm.status !== 'running' ||
+                  activeSwarm.agents.length >= 20
+                }
+                className="gap-1"
+              >
+                <Plus className="h-3.5 w-3.5" /> Agent
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {providers.map((provider) => (
+                <DropdownMenuItem
+                  key={provider.id}
+                  onClick={() => void addAgent(provider.id)}
+                  disabled={busy}
+                >
+                  {provider.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="outline"
             size="sm"

@@ -23,7 +23,7 @@ interface Props {
 
 const ROLE_LABEL: Record<ChatRole, string> = {
   user: 'YOU',
-  assistant: 'BRIDGE',
+  assistant: 'SIGMA',
   tool: 'TOOL',
   system: 'SYSTEM',
 };

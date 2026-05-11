@@ -4,10 +4,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { getRawDb } from '../db/client';
 import { parseSkillMd } from './frontmatter';
-import { ingestFolder, ingestZip, SkillUpdateRequiredError } from './ingestion';
-import { applyFanout, removeFanout } from './fanout';
+import { ingestFolder, ingestZip, rehashManagedFolder, SkillUpdateRequiredError } from './ingestion';
+import { applyFanout, removeFanout, targetDirFor } from './fanout';
 import {
   PROVIDER_TARGETS,
   isProviderTarget,
@@ -40,6 +41,21 @@ interface SkillProviderRow {
   enabled: number;
   last_fanout_at: number | null;
   last_error: string | null;
+}
+
+export interface SkillFanoutVerifyError {
+  skillId: string;
+  skillName: string;
+  providerId: ProviderTarget;
+  targetPath: string;
+  message: string;
+}
+
+export interface SkillFanoutVerification {
+  workspaceId: string;
+  verified: number;
+  refanned: number;
+  errors: SkillFanoutVerifyError[];
 }
 
 function rowToSkill(row: SkillRow): Skill {
@@ -248,24 +264,7 @@ export class SkillsManager {
 
     if (enabledTargets.length === 0) return states.map(rowToProviderState);
 
-    // Re-parse SKILL.md so the fan-out has the latest body for synthesised
-    // Gemini extensions etc.
-    const skillMdPath = path.join(skill.managedPath, 'SKILL.md');
-    const text = fs.readFileSync(skillMdPath, 'utf8');
-    const parsed = parseSkillMd(text, skill.name);
-    if (!parsed.ok) {
-      throw new Error(`Managed SKILL.md no longer valid: ${parsed.error}`);
-    }
-
-    const results = await applyFanout(skill, skill.managedPath, parsed.data, parsed.body, enabledTargets, { force });
-    const now = Date.now();
-    for (const r of results) {
-      this.db()
-        .prepare(
-          `UPDATE skill_provider_state SET last_fanout_at = ?, last_error = ? WHERE skill_id = ? AND provider_id = ?`,
-        )
-        .run(now, r.ok ? null : r.error ?? 'unknown error', skillId, r.provider);
-    }
+    const { results, now } = await this.fanoutTargets(skill, enabledTargets, { force });
 
     return states.map((row) => {
       const updated = results.find((r) => r.provider === row.provider_id);
@@ -279,6 +278,76 @@ export class SkillsManager {
     });
   }
 
+  async verifyFanoutForWorkspace(workspaceId: string): Promise<SkillFanoutVerification> {
+    const rows = this.db()
+      .prepare(
+        `SELECT s.id, s.name, s.description, s.version, s.content_hash, s.managed_path, s.installed_at, s.tags_json,
+                ps.provider_id
+         FROM skills s
+         JOIN skill_provider_state ps ON ps.skill_id = s.id
+         WHERE ps.enabled != 0
+         ORDER BY s.installed_at DESC`,
+      )
+      .all() as Array<SkillRow & { provider_id: string }>;
+
+    const result: SkillFanoutVerification = {
+      workspaceId,
+      verified: 0,
+      refanned: 0,
+      errors: [],
+    };
+
+    const staleBySkill = new Map<string, { skill: Skill; providers: ProviderTarget[] }>();
+    for (const row of rows) {
+      if (!isProviderTarget(row.provider_id)) continue;
+      const skill = rowToSkill(row);
+      const provider = row.provider_id as ProviderTarget;
+      const targetPath = targetDirFor(provider, skill.name);
+      const check = this.isFanoutCurrent(skill, provider, targetPath);
+      if (check.ok) {
+        result.verified += 1;
+        continue;
+      }
+      const bucket = staleBySkill.get(skill.id) ?? { skill, providers: [] };
+      bucket.providers.push(provider);
+      staleBySkill.set(skill.id, bucket);
+    }
+
+    for (const { skill, providers } of staleBySkill.values()) {
+      try {
+        const { results } = await this.fanoutTargets(skill, providers, { force: true });
+        for (const r of results) {
+          if (r.ok) {
+            result.refanned += 1;
+          } else {
+            result.errors.push({
+              skillId: skill.id,
+              skillName: skill.name,
+              providerId: r.provider,
+              targetPath: r.targetPath,
+              message: r.error ?? 'unknown fanout error',
+            });
+          }
+        }
+      } catch (err) {
+        for (const provider of providers) {
+          result.errors.push({
+            skillId: skill.id,
+            skillName: skill.name,
+            providerId: provider,
+            targetPath: targetDirFor(provider, skill.name),
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+
+    if (result.refanned > 0 || result.errors.length > 0) {
+      this.emit('skills:changed', { reason: 'fanout-verify', workspaceId });
+    }
+    return result;
+  }
+
   // ─── helpers ────────────────────────────────────────────────────────────
 
   private requireSkill(skillId: string): Skill {
@@ -290,20 +359,8 @@ export class SkillsManager {
   }
 
   private async fanoutSingle(skill: Skill, provider: ProviderTarget): Promise<SkillProviderState> {
-    const skillMdPath = path.join(skill.managedPath, 'SKILL.md');
-    const text = fs.readFileSync(skillMdPath, 'utf8');
-    const parsed = parseSkillMd(text, skill.name);
-    if (!parsed.ok) {
-      throw new Error(`Managed SKILL.md no longer valid: ${parsed.error}`);
-    }
-    const results = await applyFanout(skill, skill.managedPath, parsed.data, parsed.body, [provider]);
+    const { results, now } = await this.fanoutTargets(skill, [provider]);
     const r = results[0]!;
-    const now = Date.now();
-    this.db()
-      .prepare(
-        `UPDATE skill_provider_state SET last_fanout_at = ?, last_error = ? WHERE skill_id = ? AND provider_id = ?`,
-      )
-      .run(now, r.ok ? null : r.error ?? 'unknown error', skill.id, provider);
 
     return {
       skillId: skill.id,
@@ -313,4 +370,81 @@ export class SkillsManager {
       lastError: r.ok ? undefined : r.error,
     };
   }
+
+  private async fanoutTargets(
+    skill: Skill,
+    providers: ProviderTarget[],
+    opts?: { force?: boolean },
+  ): Promise<{ results: Awaited<ReturnType<typeof applyFanout>>; now: number }> {
+    const skillMdPath = path.join(skill.managedPath, 'SKILL.md');
+    const text = fs.readFileSync(skillMdPath, 'utf8');
+    const parsed = parseSkillMd(text, skill.name);
+    if (!parsed.ok) {
+      throw new Error(`Managed SKILL.md no longer valid: ${parsed.error}`);
+    }
+    const results = await applyFanout(skill, skill.managedPath, parsed.data, parsed.body, providers, opts);
+    const now = Date.now();
+    for (const r of results) {
+      this.db()
+        .prepare(
+          `UPDATE skill_provider_state SET last_fanout_at = ?, last_error = ? WHERE skill_id = ? AND provider_id = ?`,
+        )
+        .run(now, r.ok ? null : r.error ?? 'unknown error', skill.id, r.provider);
+    }
+    return { results, now };
+  }
+
+  private isFanoutCurrent(
+    skill: Skill,
+    provider: ProviderTarget,
+    targetPath: string,
+  ): { ok: boolean; reason?: string } {
+    if (!fs.existsSync(targetPath)) return { ok: false, reason: 'missing target' };
+    try {
+      if (provider === 'gemini') {
+        return sourceFilesMatchTarget(skill.managedPath, targetPath);
+      }
+      const hash = rehashManagedFolder(targetPath);
+      return hash === skill.contentHash
+        ? { ok: true }
+        : { ok: false, reason: 'content hash mismatch' };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  }
+}
+
+function sourceFilesMatchTarget(sourceDir: string, targetDir: string): { ok: boolean; reason?: string } {
+  const sourceFiles = listFiles(sourceDir);
+  for (const rel of sourceFiles) {
+    const sourcePath = path.join(sourceDir, rel);
+    const targetPath = path.join(targetDir, rel);
+    if (!fs.existsSync(targetPath)) return { ok: false, reason: `${rel} missing` };
+    const sourceStat = fs.statSync(sourcePath);
+    const targetStat = fs.statSync(targetPath);
+    if (sourceStat.size !== targetStat.size) return { ok: false, reason: `${rel} size mismatch` };
+    if (sha256File(sourcePath) !== sha256File(targetPath)) {
+      return { ok: false, reason: `${rel} content mismatch` };
+    }
+  }
+  return { ok: true };
+}
+
+function listFiles(root: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string) => {
+    const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const rel = prefix ? path.join(prefix, entry.name) : entry.name;
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(abs, rel);
+      else if (entry.isFile()) out.push(rel);
+    }
+  };
+  walk(root, '');
+  return out;
+}
+
+function sha256File(target: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex');
 }

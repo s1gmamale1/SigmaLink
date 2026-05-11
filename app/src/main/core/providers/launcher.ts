@@ -48,6 +48,8 @@ export interface ResolveAndSpawnOpts {
   showLegacy?: boolean;
   /** Extra trailing args (e.g. one-shot prompt tokens, initial-prompt flag). */
   extraArgs?: string[];
+  /** Reuse an existing SigmaLink PTY session id when relaunching a pane. */
+  sessionId?: string;
 }
 
 export interface ResolveAndSpawnResult {
@@ -211,6 +213,7 @@ export function resolveAndSpawn(
   for (const command of candidates) {
     try {
       const ptySession = deps.ptyRegistry.create({
+        sessionId: opts.sessionId,
         providerId: def.id,
         command,
         args,

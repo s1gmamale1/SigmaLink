@@ -58,6 +58,12 @@ const DESIGN_SHUTDOWN_SCHEMA: ChannelSchema = {
   output: z.void(),
 };
 
+export const OpenWorkspacesChangedEventSchema = z.object({
+  workspaceIds: z.array(z.string().min(1).max(200)),
+});
+
+export type OpenWorkspacesChangedEvent = z.infer<typeof OpenWorkspacesChangedEventSchema>;
+
 export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   // ── app ──────────────────────────────────────────────────────────────
   'app.getVersion': stub,
@@ -75,6 +81,8 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'pty.subscribe': stub,
   'pty.list': stub,
   'pty.forget': stub,
+  // ── panes ───────────────────────────────────────────────────────────────
+  'panes.resume': stub,
   // ── providers ────────────────────────────────────────────────────────
   'providers.list': stub,
   'providers.probeAll': stub,
@@ -100,6 +108,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'fs.writeFile': stub,
   // ── swarms ───────────────────────────────────────────────────────────
   'swarms.create': stub,
+  'swarms.addAgent': stub,
   'swarms.list': stub,
   'swarms.get': stub,
   'swarms.sendMessage': stub,
@@ -183,6 +192,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'skills.disableForProvider': stub,
   'skills.uninstall': stub,
   'skills.getReadme': stub,
+  'skills.verifyForWorkspace': stub,
   // ── memory ───────────────────────────────────────────────────────────
   'memory.list_memories': stub,
   'memory.read_memory': stub,
@@ -439,6 +449,21 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'ruflo.install.start': {
     input: z.object({}).strict().optional(),
     output: z.object({ jobId: z.string() }),
+  },
+  'ruflo.verifyForWorkspace': {
+    input: z.string().min(1),
+    output: z.object({
+      claude: z.boolean(),
+      codex: z.boolean(),
+      gemini: z.boolean(),
+      mode: z.enum(['fast', 'strict']),
+      errors: z.array(
+        z.object({
+          cli: z.enum(['claude', 'codex', 'gemini']),
+          message: z.string(),
+        }),
+      ),
+    }),
   },
 };
 

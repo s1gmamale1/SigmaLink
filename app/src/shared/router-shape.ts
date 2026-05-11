@@ -8,6 +8,8 @@ import type {
   GitStatus,
   GitDiff,
   LaunchPlan,
+  AddAgentToSwarmInput,
+  AddAgentToSwarmResult,
   CreateSwarmInput,
   Swarm,
   SwarmMessage,
@@ -15,6 +17,7 @@ import type {
   BrowserState,
   BrowserTab,
   Skill,
+  SkillProviderId,
   SkillProviderState,
   Memory,
   MemorySearchHit,
@@ -53,6 +56,28 @@ export interface CheckForUpdatesResult {
   error?: string;
 }
 
+export interface PaneResumeResult {
+  workspaceId: string;
+  resumed: Array<{
+    sessionId: string;
+    providerId: string;
+    providerEffective: string;
+    externalSessionId: string;
+    pid: number;
+  }>;
+  failed: Array<{
+    sessionId: string;
+    providerId: string;
+    externalSessionId: string;
+    error: string;
+  }>;
+  skipped: Array<{
+    sessionId: string;
+    providerId: string;
+    reason: string;
+  }>;
+}
+
 /**
  * V3-W15-005 — Plan tier surfaced over RPC. Mirrors the `Tier` literal in
  * `app/src/main/core/plan/capabilities.ts` (kept as a string union here so
@@ -89,6 +114,9 @@ export interface AppRouter {
     subscribe: (sessionId: string) => Promise<{ history: string }>; // returns ring buffer + registers consumer
     list: () => Promise<Array<{ sessionId: string; providerId: string; cwd: string; alive: boolean }>>;
     forget: (sessionId: string) => Promise<void>;
+  };
+  panes: {
+    resume: (workspaceId: string) => Promise<PaneResumeResult>;
   };
   providers: {
     list: () => Promise<
@@ -142,6 +170,7 @@ export interface AppRouter {
   };
   swarms: {
     create: (input: CreateSwarmInput) => Promise<Swarm>;
+    addAgent: (input: AddAgentToSwarmInput) => Promise<AddAgentToSwarmResult>;
     list: (workspaceId: string) => Promise<Swarm[]>;
     get: (id: string) => Promise<Swarm | null>;
     sendMessage: (input: {
@@ -221,6 +250,18 @@ export interface AppRouter {
     disableForProvider: (input: { skillId: string; provider: string }) => Promise<SkillProviderState>;
     uninstall: (skillId: string) => Promise<void>;
     getReadme: (skillId: string) => Promise<{ name: string; body: string } | null>;
+    verifyForWorkspace: (workspaceId: string) => Promise<{
+      workspaceId: string;
+      verified: number;
+      refanned: number;
+      errors: Array<{
+        skillId: string;
+        skillName: string;
+        providerId: SkillProviderId;
+        targetPath: string;
+        message: string;
+      }>;
+    }>;
   };
   memory: {
     // CRUD (6)
@@ -681,6 +722,13 @@ export interface AppRouter {
       | { ok: false; code: 'ruflo-unavailable'; reason: string }
     >;
     'install.start': () => Promise<{ jobId: string }>;
+    verifyForWorkspace: (workspaceRoot: string) => Promise<{
+      claude: boolean;
+      codex: boolean;
+      gemini: boolean;
+      mode: 'fast' | 'strict';
+      errors: Array<{ cli: 'claude' | 'codex' | 'gemini'; message: string }>;
+    }>;
   };
   voice: {
     start: (input: {

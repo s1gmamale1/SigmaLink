@@ -5,6 +5,8 @@
 import { and, eq } from 'drizzle-orm';
 import { defineController } from '../../../shared/rpc';
 import type {
+  AddAgentToSwarmInput,
+  AddAgentToSwarmResult,
   CreateSwarmInput,
   Swarm,
   SwarmMessage,
@@ -17,6 +19,7 @@ import { swarmAgents, swarmSkills } from '../db/schema';
 import { SwarmMailbox, expandRecipient } from './mailbox';
 import type { MailboxKind } from './types';
 import {
+  addAgentToSwarm,
   createSwarm,
   killSwarm,
   listSwarmsForWorkspace,
@@ -39,6 +42,14 @@ export function buildSwarmController(deps: SwarmControllerDeps) {
   return defineController({
     create: async (input: CreateSwarmInput): Promise<Swarm> => {
       return createSwarm(input, {
+        pty: deps.pty,
+        worktreePool: deps.worktreePool,
+        mailbox: deps.mailbox,
+        userDataDir: deps.userDataDir,
+      });
+    },
+    addAgent: async (input: AddAgentToSwarmInput): Promise<AddAgentToSwarmResult> => {
+      return addAgentToSwarm(input, {
         pty: deps.pty,
         worktreePool: deps.worktreePool,
         mailbox: deps.mailbox,

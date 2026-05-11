@@ -1,8 +1,9 @@
 // V3-W13-004: Multi-pane terminal grid layout.
 //
-// Generic CSS-grid layout supporting 1, 2, 4, 6, 8, 10, 12 panes. Mirrors
+// Generic CSS-grid layout supporting 1, 2, 4, 6, 8, 10, 12, 14, 16, 18,
+// and 20 panes. Mirrors
 // the launcher's GridPreset (V3-W12-007) so the room renders the user's
-// chosen layout one-for-one. Counts that don't map to a preset (3/5/7/9/11)
+// chosen layout one-for-one. Counts that don't map to a preset
 // fall back to the next-larger grid with empty trailing cells.
 //
 // Features:
@@ -29,7 +30,8 @@ interface GridShape {
 }
 
 function shapeFor(count: number): GridShape {
-  // 1 → 1×1, 2 → 2×1, 4 → 2×2, 6 → 3×2, 8 → 4×2, 10 → 5×2, 12 → 4×3.
+  // 1 → 1×1, 2 → 2×1, 4 → 2×2, 6 → 3×2, 8 → 4×2, 10 → 5×2,
+  // 12 → 4×3, 14/16 → 4×4, 18/20 → 5×4.
   // Odd counts fall back to the next-larger preset.
   if (count <= 1) return { cols: 1, rows: 1 };
   if (count === 2) return { cols: 2, rows: 1 };
@@ -37,7 +39,9 @@ function shapeFor(count: number): GridShape {
   if (count <= 6) return { cols: 3, rows: 2 };
   if (count <= 8) return { cols: 4, rows: 2 };
   if (count <= 10) return { cols: 5, rows: 2 };
-  return { cols: 4, rows: 3 };
+  if (count <= 12) return { cols: 4, rows: 3 };
+  if (count <= 16) return { cols: 4, rows: 4 };
+  return { cols: 5, rows: 4 };
 }
 
 interface Props<T> {

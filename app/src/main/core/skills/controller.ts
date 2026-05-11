@@ -5,7 +5,7 @@
 import path from 'node:path';
 import { defineController } from '../../../shared/rpc';
 import type { Skill, SkillProviderState } from '../../../shared/types';
-import type { SkillsManager } from './manager';
+import type { SkillFanoutVerification, SkillsManager } from './manager';
 import { isProviderTarget, type ProviderTarget } from './types';
 import {
   installFromUrl as runInstallFromUrl,
@@ -92,6 +92,14 @@ export function buildSkillsController(deps: SkillsControllerDeps) {
     },
     getReadme: async (skillId: string): Promise<{ name: string; body: string } | null> => {
       return m.getReadme(skillId);
+    },
+    verifyForWorkspace: async (workspaceId: string): Promise<SkillFanoutVerification> => {
+      if (typeof workspaceId !== 'string' || !workspaceId.trim()) {
+        throw new Error('skills.verifyForWorkspace: missing workspaceId');
+      }
+      const result = await m.verifyFanoutForWorkspace(workspaceId);
+      emit('skills:workspace-verified', result);
+      return result;
     },
   });
 }

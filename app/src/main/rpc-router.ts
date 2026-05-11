@@ -10,10 +10,16 @@ import type { AppRouter } from '../shared/router-shape';
 import { initializeDatabase, closeDatabase, getRawDb } from './core/db/client';
 import { runBootJanitor } from './core/db/janitor';
 import { PtyRegistry } from './core/pty/registry';
+import { resumeWorkspacePanes } from './core/pty/resume-launcher';
 import { probeAllProviders, probeProviderById } from './core/providers/probe';
 import { commitAndMerge, gitDiff, gitStatus, runShellLine, worktreeRemove } from './core/git/git-ops';
 import { WorktreePool } from './core/git/worktree';
 import { listWorkspaces, openWorkspace, removeWorkspace } from './core/workspaces/factory';
+import {
+  installWorkspaceLifecycleIpc,
+  markWorkspaceClosed,
+  markWorkspaceOpened,
+} from './core/workspaces/lifecycle';
 import { executeLaunchPlan } from './core/workspaces/launcher';
 import { AGENT_PROVIDERS } from '../shared/providers';
 import { SwarmMailbox } from './core/swarms/mailbox';
@@ -144,6 +150,20 @@ function buildRouter() {
           url: hit.url,
           text: hit.text,
         }),
+      onExternalSessionId: (sessionId, extraction) => {
+        try {
+          getRawDb()
+            .prepare(
+              `UPDATE agent_sessions
+               SET external_session_id = ?
+               WHERE id = ?
+                 AND (external_session_id IS NULL OR external_session_id = '')`,
+            )
+            .run(extraction.sessionId, sessionId);
+        } catch {
+          /* migration may not have run yet in dev/test boot; ignore */
+        }
+      },
     },
   );
   const mailbox = new SwarmMailbox(userData);
@@ -382,6 +402,10 @@ function buildRouter() {
     },
   });
 
+  const panesCtl = defineController({
+    resume: async (workspaceId: string) => resumeWorkspacePanes(workspaceId, { pty }),
+  });
+
   const providersCtl = defineController({
     list: async () =>
       AGENT_PROVIDERS.map((p) => ({
@@ -424,9 +448,20 @@ function buildRouter() {
       if (r.canceled || !r.filePaths[0]) return null;
       return { path: r.filePaths[0] };
     },
-    open: async (root: string) => openWorkspace(root),
+    open: async (root: string) => {
+      const workspace = await openWorkspace(root, {
+        rufloSupervisor,
+        skillsManager,
+        emit: (event, payload) => broadcast(event, payload),
+      });
+      markWorkspaceOpened(workspace.id);
+      return workspace;
+    },
     list: async () => listWorkspaces(),
-    remove: async (id: string) => removeWorkspace(id),
+    remove: async (id: string) => {
+      removeWorkspace(id);
+      markWorkspaceClosed(id);
+    },
     launch: async (plan) => {
       const out = await executeLaunchPlan(plan, { pty, worktreePool });
       return { sessions: out.sessions };
@@ -728,11 +763,13 @@ function buildRouter() {
     supervisor: rufloSupervisor,
     proxy: rufloProxy,
     installer: rufloInstaller,
+    emit: (event, payload) => broadcast(event, payload),
   });
 
   return defineRouter({
     app: appCtl,
     pty: ptyCtl,
+    panes: panesCtl,
     providers: providersCtl,
     workspaces: workspacesCtl,
     git: gitCtl,
@@ -754,6 +791,7 @@ function buildRouter() {
 export function registerRouter(): void {
   if (router) return;
   router = buildRouter();
+  installWorkspaceLifecycleIpc();
   const isDev = !app.isPackaged;
   // V3-W12-017 — soft-launch per-channel zod validation. In dev, warn once
   // for every controller method that lacks a schema entry so future waves can

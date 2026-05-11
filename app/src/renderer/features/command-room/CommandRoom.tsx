@@ -6,9 +6,16 @@
 // shape (1/2/4/6/8/10/12) and supports per-cell drag resize plus
 // Cmd+Alt+<N> focus jumps.
 
-import { useEffect, useMemo } from 'react';
-import { Terminal as TerminalIcon } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, Terminal as TerminalIcon } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
@@ -22,6 +29,8 @@ import type { AgentSession } from '@/shared/types';
 
 export function CommandRoom() {
   const { state, dispatch } = useAppState();
+  const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
+  const [adding, setAdding] = useState(false);
   const sessions = useMemo(
     () =>
       state.sessions.filter(
@@ -29,6 +38,44 @@ export function CommandRoom() {
       ),
     [state.sessions, state.activeWorkspace],
   );
+  const activeSwarm = useMemo(() => {
+    if (!state.activeWorkspace) return null;
+    const workspaceSwarms = state.swarms.filter((s) => s.workspaceId === state.activeWorkspace?.id);
+    const selected = state.activeSwarmId
+      ? workspaceSwarms.find((s) => s.id === state.activeSwarmId)
+      : null;
+    return selected ?? workspaceSwarms.find((s) => s.status === 'running') ?? null;
+  }, [state.activeSwarmId, state.activeWorkspace, state.swarms]);
+
+  useEffect(() => {
+    let alive = true;
+    void rpc.providers
+      .list()
+      .then((list) => {
+        if (alive) setProviders(list.map((p) => ({ id: p.id, name: p.name })));
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!state.activeWorkspace) return;
+    let alive = true;
+    void rpc.swarms
+      .list(state.activeWorkspace.id)
+      .then((list) => {
+        if (!alive) return;
+        for (const swarm of list) {
+          dispatch({ type: 'UPSERT_SWARM', swarm });
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [state.activeWorkspace?.id, dispatch]);
 
   // BUG-V1.1-04-IPC — derive activeIndex from global state.activeSessionId
   // so cross-pane jumps fired by Bridge dispatch echoes (or anywhere else
@@ -109,6 +156,26 @@ export function CommandRoom() {
     void rpc.pty.kill(session.id).catch(() => undefined);
   }
 
+  async function addPane(providerId: string): Promise<void> {
+    if (!activeSwarm || adding) return;
+    setAdding(true);
+    try {
+      const result = await rpc.swarms.addAgent({ swarmId: activeSwarm.id, providerId });
+      dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
+      dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
+      dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
+      toast.success(`Added ${result.agentKey}`, {
+        description: `Pane ${result.paneIndex + 1}`,
+      });
+    } catch (err) {
+      toast.error('Could not add pane', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setAdding(false);
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 items-center gap-2 border-b border-border px-3 text-xs">
@@ -117,6 +184,34 @@ export function CommandRoom() {
         <div className="text-muted-foreground">
           {sessions.length} {sessions.length === 1 ? 'agent' : 'agents'}
         </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={
+                adding ||
+                !activeSwarm ||
+                activeSwarm.status !== 'running' ||
+                activeSwarm.agents.length >= 20
+              }
+              className="ml-1 h-7 gap-1 px-2 text-xs"
+            >
+              <Plus className="h-3.5 w-3.5" /> Pane
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {providers.map((provider) => (
+              <DropdownMenuItem
+                key={provider.id}
+                onClick={() => void addPane(provider.id)}
+                disabled={adding}
+              >
+                {provider.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <div className="ml-auto text-[10px] text-muted-foreground/70">
           ⌘⌥&lt;N&gt; to focus pane
         </div>

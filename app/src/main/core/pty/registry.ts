@@ -13,6 +13,10 @@ import { randomUUID } from 'node:crypto';
 import { spawnLocalPty, type PtyHandle, type SpawnInput } from './local-pty';
 import { RingBuffer } from './ring-buffer';
 import { detectLinks, type LinkHit } from './link-detector';
+import {
+  extractSessionIdFromLine,
+  type SessionIdExtraction,
+} from './session-id-extractor';
 
 export interface SessionRecord {
   id: string;
@@ -23,6 +27,7 @@ export interface SessionRecord {
   exitCode?: number;
   startedAt: number;
   exitedAt?: number;
+  externalSessionId?: string;
   pty: PtyHandle;
   buffer: RingBuffer;
   unsubData: () => void;
@@ -32,6 +37,10 @@ export interface SessionRecord {
 export type DataSink = (sessionId: string, data: string) => void;
 export type ExitSink = (sessionId: string, exitCode: number, signal?: number) => void;
 export type LinkSink = (sessionId: string, hit: LinkHit) => void;
+export type ExternalSessionIdSink = (
+  sessionId: string,
+  extraction: SessionIdExtraction,
+) => void;
 
 export interface PtyRegistryOptions {
   /**
@@ -47,6 +56,13 @@ export interface PtyRegistryOptions {
    * spawn) pay no cost.
    */
   onLinkDetected?: LinkSink;
+  /**
+   * v1.1.3 Step 3 — invoked once when early provider output reveals the
+   * provider-native resumable session id.
+   */
+  onExternalSessionId?: ExternalSessionIdSink;
+  /** Maximum complete output lines to scan per PTY before giving up. */
+  externalSessionScanLineLimit?: number;
 }
 
 export class PtyRegistry {
@@ -55,20 +71,74 @@ export class PtyRegistry {
   private readonly onExit: ExitSink;
   private readonly gracefulExitDelayMs: number;
   private readonly onLinkDetected: LinkSink | null;
+  private readonly onExternalSessionId: ExternalSessionIdSink | null;
+  private readonly externalSessionScanLineLimit: number;
   constructor(onData: DataSink, onExit: ExitSink, opts: PtyRegistryOptions = {}) {
     this.onData = onData;
     this.onExit = onExit;
     this.gracefulExitDelayMs = opts.gracefulExitDelayMs ?? 200;
     this.onLinkDetected = opts.onLinkDetected ?? null;
+    this.onExternalSessionId = opts.onExternalSessionId ?? null;
+    this.externalSessionScanLineLimit = opts.externalSessionScanLineLimit ?? 100;
   }
 
-  create(input: { providerId: string } & SpawnInput): SessionRecord {
-    const id = randomUUID();
+  create(input: { providerId: string; sessionId?: string } & SpawnInput): SessionRecord {
+    const id = input.sessionId ?? randomUUID();
     const pty = spawnLocalPty(input);
     const buffer = new RingBuffer();
     const linkSink = this.onLinkDetected;
+    const externalSink = this.onExternalSessionId;
+    const scanLimit = this.externalSessionScanLineLimit;
+    let scanDone = scanLimit <= 0;
+    let scannedLines = 0;
+    let pendingLine = '';
+    let extractedExternalSessionId: string | undefined;
+    const recordExternalSessionId = (extraction: SessionIdExtraction) => {
+      if (scanDone) return;
+      scanDone = true;
+      extractedExternalSessionId = extraction.sessionId;
+      const rec = this.sessions.get(id);
+      if (rec) rec.externalSessionId = extraction.sessionId;
+      if (externalSink) {
+        try {
+          externalSink(id, extraction);
+        } catch {
+          /* never let persistence break the PTY data stream */
+        }
+      }
+    };
+    const scanExternalSessionId = (data: string) => {
+      if (scanDone) return;
+      pendingLine += data;
+      const lines = pendingLine.split(/\r\n|\n|\r/);
+      pendingLine = lines.pop() ?? '';
+      for (const line of lines) {
+        scannedLines += 1;
+        const hit = extractSessionIdFromLine(input.providerId, line);
+        if (hit) {
+          recordExternalSessionId(hit);
+          return;
+        }
+        if (scannedLines >= scanLimit) {
+          scanDone = true;
+          pendingLine = '';
+          return;
+        }
+      }
+      if (pendingLine.length > 8192) {
+        scannedLines += 1;
+        const hit = extractSessionIdFromLine(input.providerId, pendingLine);
+        if (hit) {
+          recordExternalSessionId(hit);
+          return;
+        }
+        pendingLine = '';
+        if (scannedLines >= scanLimit) scanDone = true;
+      }
+    };
     const unsubData = pty.onData((data) => {
       buffer.append(data);
+      scanExternalSessionId(data);
       this.onData(id, data);
       if (linkSink) {
         const hits = detectLinks(data);
@@ -100,6 +170,7 @@ export class PtyRegistry {
       pid: pty.pid,
       alive: true,
       startedAt: Date.now(),
+      externalSessionId: extractedExternalSessionId,
       pty,
       buffer,
       unsubData,

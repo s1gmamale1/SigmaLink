@@ -24,6 +24,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'pty.subscribe',
   'pty.list',
   'pty.forget',
+  // panes
+  'panes.resume',
   // providers
   'providers.list',
   'providers.probeAll',
@@ -48,6 +50,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'fs.writeFile',
   // swarms
   'swarms.create',
+  'swarms.addAgent',
   'swarms.list',
   'swarms.get',
   'swarms.sendMessage',
@@ -85,6 +88,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'skills.disableForProvider',
   'skills.uninstall',
   'skills.getReadme',
+  'skills.verifyForWorkspace',
   // memory
   'memory.list_memories',
   'memory.read_memory',
@@ -199,6 +203,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'ruflo.patterns.store',
   'ruflo.autopilot.predict',
   'ruflo.install.start',
+  'ruflo.verifyForWorkspace',
 ]);
 
 /**
@@ -221,6 +226,7 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // Payload: `{ ownerRepo, phase, bytesDone, bytesTotal, message? }` where
   // `phase` is one of resolve|fetch|extract|validate|ingest|fanout|done|error.
   'skills:install-progress',
+  'skills:workspace-verified',
   'review:changed',
   'review:run-output',
   'tasks:changed',
@@ -273,6 +279,7 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // progress bar without polling.
   'ruflo:health',
   'ruflo:install-progress',
+  'ruflo:workspace-verified',
   // BUG-V1.1.2-02 — Session restore. `app:session-snapshot` is a renderer →
   // main fire-and-forget (via `eventSend`) that caches the active workspace
   // + room so the next boot can resume them. `app:session-restore` is the
@@ -282,6 +289,11 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // don't have to expose an RPC channel for a one-shot push.
   'app:session-snapshot',
   'app:session-restore',
+  // v1.1.3 Step 2 — runtime-open workspace id list. Main broadcasts it after
+  // workspace open/close lifecycle changes; the renderer can also push its
+  // local close/open list back through eventSend so main has the same source
+  // of truth for later session persistence.
+  'app:open-workspaces-changed',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {

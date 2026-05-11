@@ -16,9 +16,9 @@ import type { SwarmMailbox } from '../swarms/mailbox';
 import type { MemoryManager } from '../memory/manager';
 import type { TasksManager } from '../tasks/manager';
 import type { BrowserManagerRegistry } from '../browser/manager';
-import type { LaunchPlan, RoleAssignment, SwarmPreset } from '../../../shared/types';
+import type { LaunchPlan, Role, RoleAssignment, SwarmPreset } from '../../../shared/types';
 import { executeLaunchPlan } from '../workspaces/launcher';
-import { createSwarm, listSwarmsForWorkspace } from '../swarms/factory';
+import { addAgentToSwarm, createSwarm, listSwarmsForWorkspace } from '../swarms/factory';
 import { formatBroadcast, formatRollCall } from '../swarms/protocol';
 import { defaultRoster } from '../swarms/types';
 
@@ -91,6 +91,12 @@ const sCreateSwarm = z.object({
   mission: z.string().min(1),
   preset: z.enum(['squad', 'team', 'platoon', 'battalion', 'custom']),
   name: z.string().optional(),
+});
+const sAddAgent = z.object({
+  swarmId: z.string().min(1),
+  providerId: z.string().min(1),
+  role: z.enum(['coordinator', 'builder', 'scout', 'reviewer']).optional(),
+  initialPrompt: z.string().optional(),
 });
 const sCreateMemory = z.object({
   workspaceId: z.string().optional(),
@@ -293,6 +299,43 @@ export const TOOLS: ToolDefinition[] = [
         },
       );
       return { swarm };
+    },
+  ),
+  T(
+    'add_agent',
+    'Add agent',
+    'Add one agent pane to an existing running swarm, up to 20 agents.',
+    {
+      type: 'object',
+      required: ['swarmId', 'providerId'],
+      properties: {
+        swarmId: { type: 'string' },
+        providerId: { type: 'string' },
+        role: { type: 'string', enum: ['coordinator', 'builder', 'scout', 'reviewer'] },
+        initialPrompt: { type: 'string' },
+      },
+    },
+    sAddAgent,
+    async (a, ctx) => {
+      const result = await addAgentToSwarm(
+        {
+          swarmId: a.swarmId,
+          providerId: a.providerId,
+          role: a.role as Role | undefined,
+          initialPrompt: a.initialPrompt,
+        },
+        {
+          pty: ctx.pty,
+          worktreePool: ctx.worktreePool,
+          mailbox: ctx.mailbox,
+          userDataDir: ctx.userDataDir,
+        },
+      );
+      return {
+        sessionId: result.sessionId,
+        paneIndex: result.paneIndex,
+        agentKey: result.agentKey,
+      };
     },
   ),
   T(

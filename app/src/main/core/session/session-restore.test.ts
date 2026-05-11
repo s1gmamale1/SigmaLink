@@ -69,19 +69,40 @@ afterEach(() => {
 
 describe('session-restore: rememberSessionSnapshot', () => {
   it('accepts a well-formed snapshot', () => {
+    const ok = rememberSessionSnapshot({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: 'ws-1', room: 'command' }],
+    });
+    expect(ok).toBe(true);
+    expect(getCachedSnapshot()).toEqual({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: 'ws-1', room: 'command' }],
+    });
+  });
+
+  it('accepts a legacy v1.1.2 snapshot', () => {
     const ok = rememberSessionSnapshot({ workspaceId: 'ws-1', room: 'command' });
     expect(ok).toBe(true);
-    expect(getCachedSnapshot()).toEqual({ workspaceId: 'ws-1', room: 'command' });
+    expect(getCachedSnapshot()).toEqual({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: 'ws-1', room: 'command' }],
+    });
   });
 
   it('rejects an empty workspaceId', () => {
-    const ok = rememberSessionSnapshot({ workspaceId: '', room: 'command' });
+    const ok = rememberSessionSnapshot({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: '', room: 'command' }],
+    });
     expect(ok).toBe(false);
     expect(getCachedSnapshot()).toBeNull();
   });
 
   it('rejects an empty room', () => {
-    const ok = rememberSessionSnapshot({ workspaceId: 'ws-1', room: '' });
+    const ok = rememberSessionSnapshot({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: 'ws-1', room: '' }],
+    });
     expect(ok).toBe(false);
     expect(getCachedSnapshot()).toBeNull();
   });
@@ -96,15 +117,27 @@ describe('session-restore: rememberSessionSnapshot', () => {
 
   it('rejects extra-long values to bound the kv row size', () => {
     const big = 'x'.repeat(500);
-    const ok = rememberSessionSnapshot({ workspaceId: big, room: 'command' });
+    const ok = rememberSessionSnapshot({
+      activeWorkspaceId: big,
+      openWorkspaces: [{ workspaceId: big, room: 'command' }],
+    });
     expect(ok).toBe(false);
     expect(getCachedSnapshot()).toBeNull();
   });
 
   it('overwrites the cached snapshot on each accepted call', () => {
-    rememberSessionSnapshot({ workspaceId: 'ws-1', room: 'command' });
-    rememberSessionSnapshot({ workspaceId: 'ws-2', room: 'memory' });
-    expect(getCachedSnapshot()).toEqual({ workspaceId: 'ws-2', room: 'memory' });
+    rememberSessionSnapshot({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: 'ws-1', room: 'command' }],
+    });
+    rememberSessionSnapshot({
+      activeWorkspaceId: 'ws-2',
+      openWorkspaces: [{ workspaceId: 'ws-2', room: 'memory' }],
+    });
+    expect(getCachedSnapshot()).toEqual({
+      activeWorkspaceId: 'ws-2',
+      openWorkspaces: [{ workspaceId: 'ws-2', room: 'memory' }],
+    });
   });
 });
 
@@ -112,12 +145,31 @@ describe('session-restore: writeSessionSnapshot + readSessionSnapshot', () => {
   it('round-trips a valid snapshot through the fake kv', () => {
     const db = fakeDb();
     vi.mocked(getRawDb).mockReturnValue(db as unknown as ReturnType<typeof getRawDb>);
-    writeSessionSnapshot({ workspaceId: 'ws-1', room: 'memory' });
+    writeSessionSnapshot({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: 'ws-1', room: 'memory' }],
+    });
     expect(db.storage.get(SESSION_KV_KEY)).toBe(
-      JSON.stringify({ workspaceId: 'ws-1', room: 'memory' }),
+      JSON.stringify({
+        activeWorkspaceId: 'ws-1',
+        openWorkspaces: [{ workspaceId: 'ws-1', room: 'memory' }],
+      }),
     );
     const read = readSessionSnapshot();
-    expect(read).toEqual({ workspaceId: 'ws-1', room: 'memory' });
+    expect(read).toEqual({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: 'ws-1', room: 'memory' }],
+    });
+  });
+
+  it('reads a legacy v1.1.2 snapshot through the fake kv', () => {
+    const db = fakeDb();
+    db.storage.set(SESSION_KV_KEY, JSON.stringify({ workspaceId: 'ws-1', room: 'memory' }));
+    vi.mocked(getRawDb).mockReturnValue(db as unknown as ReturnType<typeof getRawDb>);
+    expect(readSessionSnapshot()).toEqual({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: 'ws-1', room: 'memory' }],
+    });
   });
 
   it('returns null when no row exists', () => {
@@ -150,7 +202,10 @@ describe('session-restore: writeSessionSnapshot + readSessionSnapshot', () => {
   it('is a no-op when called with a malformed snapshot', () => {
     const db = fakeDb();
     vi.mocked(getRawDb).mockReturnValue(db as unknown as ReturnType<typeof getRawDb>);
-    writeSessionSnapshot({ workspaceId: '', room: '' });
+    writeSessionSnapshot({
+      activeWorkspaceId: '',
+      openWorkspaces: [{ workspaceId: '', room: '' }],
+    });
     expect(db.storage.size).toBe(0);
   });
 });
@@ -159,10 +214,16 @@ describe('session-restore: persistCachedSnapshot', () => {
   it('writes the cached snapshot to kv', () => {
     const db = fakeDb();
     vi.mocked(getRawDb).mockReturnValue(db as unknown as ReturnType<typeof getRawDb>);
-    rememberSessionSnapshot({ workspaceId: 'ws-1', room: 'tasks' });
+    rememberSessionSnapshot({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: 'ws-1', room: 'tasks' }],
+    });
     persistCachedSnapshot();
     expect(db.storage.get(SESSION_KV_KEY)).toBe(
-      JSON.stringify({ workspaceId: 'ws-1', room: 'tasks' }),
+      JSON.stringify({
+        activeWorkspaceId: 'ws-1',
+        openWorkspaces: [{ workspaceId: 'ws-1', room: 'tasks' }],
+      }),
     );
   });
 
@@ -177,7 +238,10 @@ describe('session-restore: persistCachedSnapshot', () => {
     vi.mocked(getRawDb).mockImplementation(() => {
       throw new Error('write failed');
     });
-    rememberSessionSnapshot({ workspaceId: 'ws-1', room: 'command' });
+    rememberSessionSnapshot({
+      activeWorkspaceId: 'ws-1',
+      openWorkspaces: [{ workspaceId: 'ws-1', room: 'command' }],
+    });
     expect(() => persistCachedSnapshot()).not.toThrow();
   });
 });

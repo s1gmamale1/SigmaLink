@@ -60,7 +60,7 @@ export interface GitDiff {
   untrackedFiles: string[];
 }
 
-export type GridPreset = 1 | 2 | 4 | 6 | 8 | 10 | 12 | 14 | 16;
+export type GridPreset = 1 | 2 | 4 | 6 | 8 | 10 | 12 | 14 | 16 | 18 | 20;
 
 export interface PaneAssignment {
   paneIndex: number;
@@ -158,6 +158,21 @@ export interface CreateSwarmInput {
   baseRef?: string;
   // Provider assignment per role; one entry per agent in the roster.
   roster: RoleAssignment[];
+}
+
+export interface AddAgentToSwarmInput {
+  swarmId: SwarmId;
+  providerId: string;
+  role?: Role;
+  initialPrompt?: string;
+}
+
+export interface AddAgentToSwarmResult {
+  sessionId: SessionId;
+  paneIndex: number;
+  agentKey: string;
+  session: AgentSession;
+  swarm: Swarm;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

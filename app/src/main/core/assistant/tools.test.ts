@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -162,5 +162,114 @@ describe('assistant list_* tools', () => {
         { id: 'ws-old', name: 'old', rootPath: '/tmp/old', active: false },
       ],
     });
+  });
+});
+
+describe('assistant add_agent tool', () => {
+  function seedSwarmWithBuilders(count: number): void {
+    seedWorkspace('ws-1', '/tmp/ws-1', 100);
+    getRawDb()
+      .prepare(
+        `INSERT INTO swarms (id, workspace_id, name, mission, preset, status, created_at)
+         VALUES ('swarm-1', 'ws-1', 'Build', 'test', 'custom', 'running', 102)`,
+      )
+      .run();
+    const stmt = getRawDb().prepare(
+      `INSERT INTO swarm_agents
+       (id, swarm_id, role, role_index, provider_id, session_id, status, inbox_path, agent_key)
+       VALUES (?, 'swarm-1', 'builder', ?, 'shell', ?, 'idle', ?, ?)`,
+    );
+    for (let i = 1; i <= count; i += 1) {
+      stmt.run(
+        `agent-${i}`,
+        i,
+        `sess-${i}`,
+        `/tmp/inbox-builder-${i}`,
+        `builder-${i}`,
+      );
+    }
+  }
+
+  function makeAddAgentCtx() {
+    const ptyHandle = {
+      pid: 123,
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(),
+      onData: vi.fn(() => () => undefined),
+      onExit: vi.fn(() => () => undefined),
+    };
+    const pty = {
+      create: vi.fn((input: { providerId: string; cwd: string }) => ({
+        id: 'sess-new',
+        providerId: input.providerId,
+        cwd: input.cwd,
+        pid: ptyHandle.pid,
+        alive: true,
+        startedAt: 1234,
+        pty: ptyHandle,
+      })),
+      list: vi.fn(() => []),
+      write: vi.fn(),
+    };
+    const mailbox = {
+      ensureInbox: vi.fn((_swarmId: string, agentKey: string) => `/tmp/${agentKey}.jsonl`),
+      append: vi.fn(async () => ({
+        id: 'msg-1',
+        swarmId: 'swarm-1',
+        fromAgent: 'operator',
+        toAgent: '*',
+        kind: 'SYSTEM',
+        body: 'ok',
+        ts: 1,
+      })),
+    };
+    return {
+      ...makeCtx(),
+      pty,
+      mailbox,
+    } as unknown as ToolContext;
+  }
+
+  it('add_agent appends a builder to an existing swarm', async () => {
+    seedSwarmWithBuilders(1);
+    const ctx = makeAddAgentCtx();
+
+    const out = await findTool('add_agent')!.handler(
+      { swarmId: 'swarm-1', providerId: 'shell' },
+      ctx,
+    );
+
+    expect(out).toEqual({
+      sessionId: 'sess-new',
+      paneIndex: 1,
+      agentKey: 'builder-2',
+    });
+    const agent = getRawDb()
+      .prepare(
+        `SELECT agent_key, session_id, role, role_index
+         FROM swarm_agents WHERE swarm_id = 'swarm-1' AND agent_key = 'builder-2'`,
+      )
+      .get() as
+      | { agent_key: string; session_id: string; role: string; role_index: number }
+      | undefined;
+    expect(agent).toEqual({
+      agent_key: 'builder-2',
+      session_id: 'sess-new',
+      role: 'builder',
+      role_index: 2,
+    });
+  });
+
+  it('add_agent refuses swarms at 20 agents before spawning', async () => {
+    seedSwarmWithBuilders(20);
+    const ctx = makeAddAgentCtx();
+
+    await expect(
+      findTool('add_agent')!.handler({ swarmId: 'swarm-1', providerId: 'shell' }, ctx),
+    ).rejects.toThrow(/20 agents/);
+    expect(
+      (ctx.pty as unknown as { create: ReturnType<typeof vi.fn> }).create,
+    ).not.toHaveBeenCalled();
   });
 });

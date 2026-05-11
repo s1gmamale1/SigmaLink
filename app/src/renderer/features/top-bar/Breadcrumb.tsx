@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { dragStyle } from '@/renderer/lib/drag-region';
+import { RufloReadinessPill } from '@/renderer/components/RufloReadinessPill';
 
 export function Breadcrumb() {
   const { state } = useAppState();
@@ -86,6 +87,7 @@ export function Breadcrumb() {
       <span className="ml-2 truncate text-muted-foreground" title={active.rootPath}>
         — {active.name}
       </span>
+      <RufloReadinessPill />
     </div>
   );
 }

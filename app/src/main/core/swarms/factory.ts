@@ -19,6 +19,7 @@ import {
 } from '../db/schema';
 import { findProvider } from '../../../shared/providers';
 import type {
+  AgentSession,
   CreateSwarmInput,
   Role,
   Swarm,
@@ -35,6 +36,8 @@ import {
 } from './protocol';
 import { resolveAndSpawn } from '../providers/launcher';
 
+const MAX_SWARM_AGENTS = 20;
+
 export interface SwarmFactoryDeps {
   pty: PtyRegistry;
   worktreePool: WorktreePool;
@@ -43,6 +46,21 @@ export interface SwarmFactoryDeps {
   defaultRows?: number;
   /** Overrideable for tests; production passes app.getPath('userData'). */
   userDataDir: string;
+}
+
+export interface AddAgentToSwarmInput {
+  swarmId: string;
+  providerId: string;
+  role?: Role;
+  initialPrompt?: string;
+}
+
+export interface AddAgentToSwarmResult {
+  sessionId: string;
+  paneIndex: number;
+  agentKey: string;
+  session: AgentSession;
+  swarm: Swarm;
 }
 
 export async function createSwarm(
@@ -72,6 +90,9 @@ export async function createSwarm(
     input.roster && input.roster.length > 0 ? input.roster : defaultRoster(input.preset);
   if (roster.length === 0) {
     throw new Error('Cannot create swarm: empty roster.');
+  }
+  if (roster.length > MAX_SWARM_AGENTS) {
+    throw new Error(`Cannot create swarm: roster exceeds ${MAX_SWARM_AGENTS} agents.`);
   }
   if (input.preset !== 'custom') {
     const total = totalForPreset(input.preset);
@@ -304,6 +325,127 @@ export async function createSwarm(
   };
 }
 
+export async function addAgentToSwarm(
+  input: AddAgentToSwarmInput,
+  deps: SwarmFactoryDeps,
+): Promise<AddAgentToSwarmResult> {
+  const db = getDb();
+  const swarmRow = db.select().from(swarms).where(eq(swarms.id, input.swarmId)).get();
+  if (!swarmRow) {
+    throw new Error(`Swarm not found: ${input.swarmId}`);
+  }
+  if (swarmRow.status !== 'running') {
+    throw new Error(`Cannot add agent to swarm ${input.swarmId}: status is ${swarmRow.status}.`);
+  }
+
+  const wsRow = db
+    .select()
+    .from(workspacesTable)
+    .where(eq(workspacesTable.id, swarmRow.workspaceId))
+    .get();
+  if (!wsRow) {
+    throw new Error(`Workspace not found for swarm ${input.swarmId}: ${swarmRow.workspaceId}`);
+  }
+
+  const agentRows = db
+    .select()
+    .from(swarmAgents)
+    .where(eq(swarmAgents.swarmId, input.swarmId))
+    .all();
+  if (agentRows.length >= MAX_SWARM_AGENTS) {
+    throw new Error(`Cannot add agent: swarm already has ${MAX_SWARM_AGENTS} agents.`);
+  }
+
+  const role = input.role ?? 'builder';
+  const maxRoleIndex = agentRows
+    .filter((a) => a.role === role)
+    .reduce((max, a) => Math.max(max, a.roleIndex), 0);
+  const roleIndex = maxRoleIndex + 1;
+  const aKey = makeAgentKey(role, roleIndex);
+  const paneIndex = agentRows.length === 0 ? 0 : agentRows.length;
+  const agentId = randomUUID();
+  const now = Date.now();
+  const inboxPath = deps.mailbox.ensureInbox(input.swarmId, aKey);
+  const coordinatorId = pickCoordinatorId(agentRows, role);
+
+  db.insert(swarmAgents)
+    .values({
+      id: agentId,
+      swarmId: input.swarmId,
+      role,
+      roleIndex,
+      providerId: input.providerId,
+      status: 'idle',
+      inboxPath,
+      agentKey: aKey,
+      coordinatorId,
+      createdAt: now,
+    })
+    .run();
+
+  let sessionId: string;
+  try {
+    sessionId = await spawnAgentSession({
+      wsRow,
+      swarmId: input.swarmId,
+      agentId,
+      role,
+      roleIndex,
+      providerId: input.providerId,
+      agentKey: aKey,
+      initialPrompt: input.initialPrompt,
+      deps,
+    });
+  } catch (err) {
+    db.update(swarmAgents)
+      .set({ status: 'error' })
+      .where(eq(swarmAgents.id, agentId))
+      .run();
+    const message = err instanceof Error ? err.message : String(err);
+    void deps.mailbox.append({
+      swarmId: input.swarmId,
+      fromAgent: 'operator',
+      toAgent: aKey,
+      kind: 'SYSTEM',
+      body: `Failed to spawn ${aKey}: ${message}`,
+    });
+    throw err;
+  }
+
+  db.update(swarmAgents)
+    .set({ sessionId, status: 'idle' })
+    .where(eq(swarmAgents.id, agentId))
+    .run();
+
+  void deps.mailbox.append({
+    swarmId: input.swarmId,
+    fromAgent: 'operator',
+    toAgent: aKey,
+    kind: 'SYSTEM',
+    body: `Added ${aKey} to swarm "${swarmRow.name}".`,
+    payload: { paneIndex, providerId: input.providerId },
+  });
+
+  const session = loadAgentSession(sessionId);
+  const swarm = loadSwarm(input.swarmId);
+  if (!session || !swarm) {
+    throw new Error(`Added ${aKey}, but failed to reload session metadata.`);
+  }
+
+  return { sessionId, paneIndex, agentKey: aKey, session, swarm };
+}
+
+function pickCoordinatorId(
+  agentRows: Array<typeof swarmAgents.$inferSelect>,
+  role: Role,
+): string | null {
+  const coordinators = agentRows.filter((a) => a.role === 'coordinator');
+  if (coordinators.length === 0) return null;
+  const queen = coordinators.find((a) => !a.coordinatorId) ?? coordinators[0];
+  if (role === 'coordinator') return queen?.id ?? null;
+  return queen?.id ?? null;
+}
+
 async function spawnAgentSession(args: {
   wsRow: typeof workspacesTable.$inferSelect;
   swarmId: string;
@@ -313,6 +455,7 @@ async function spawnAgentSession(args: {
   providerId: string;
   baseRef?: string;
   agentKey: string;
+  initialPrompt?: string;
   deps: SwarmFactoryDeps;
 }): Promise<string> {
   const provider = findProvider(args.providerId);
@@ -348,6 +491,7 @@ async function spawnAgentSession(args: {
   } catch {
     /* ignore — default to false */
   }
+  const extraArgs = buildExtraArgs(provider.id, args.initialPrompt);
   const spawnResult = resolveAndSpawn(
     { ptyRegistry: args.deps.pty },
     {
@@ -356,9 +500,11 @@ async function spawnAgentSession(args: {
       cols: args.deps.defaultCols ?? 120,
       rows: args.deps.defaultRows ?? 32,
       showLegacy,
+      extraArgs,
     },
   );
   const rec = spawnResult.ptySession;
+  const effectiveProvider = findProvider(spawnResult.providerEffective) ?? provider;
 
   // Tag the agent_sessions row with the swarm so future rooms (Review, Tasks)
   // can correlate sessions to swarm agents.
@@ -371,7 +517,9 @@ async function spawnAgentSession(args: {
       branch,
       worktreePath,
       status: 'running',
+      initialPrompt: args.initialPrompt,
       startedAt: rec.startedAt,
+      externalSessionId: rec.externalSessionId,
     })
     .run();
   // BUG-V1.1-02: persist the launcher-resolved provider tag (e.g. 'claude'
@@ -383,6 +531,20 @@ async function spawnAgentSession(args: {
       .run(spawnResult.providerEffective, rec.id);
   } catch {
     /* column may not exist yet — ignore */
+  }
+
+  if (
+    args.initialPrompt &&
+    !effectiveProvider.oneshotArgs?.length &&
+    !effectiveProvider.initialPromptFlag
+  ) {
+    setTimeout(() => {
+      try {
+        args.deps.pty.write(rec.id, args.initialPrompt + '\n');
+      } catch {
+        /* ignore */
+      }
+    }, 600);
   }
 
   // Wire SIGMA:: protocol. The PTY ring buffer continues to receive raw bytes
@@ -424,6 +586,40 @@ async function spawnAgentSession(args: {
   });
 
   return rec.id;
+}
+
+function buildExtraArgs(providerId: string, initialPrompt?: string): string[] {
+  const provider = findProvider(providerId);
+  if (!provider || !initialPrompt) return [];
+  if (provider.oneshotArgs && provider.oneshotArgs.length) {
+    return provider.oneshotArgs.map((tok) => tok.replace('{prompt}', initialPrompt));
+  }
+  if (provider.initialPromptFlag) {
+    return [provider.initialPromptFlag, initialPrompt];
+  }
+  return [];
+}
+
+function loadAgentSession(sessionId: string): AgentSession | null {
+  const row = getDb()
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.id, sessionId))
+    .get();
+  if (!row) return null;
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    providerId: row.providerId,
+    cwd: row.cwd,
+    branch: row.branch ?? null,
+    status: row.status as AgentSession['status'],
+    exitCode: row.exitCode ?? undefined,
+    startedAt: row.startedAt,
+    exitedAt: row.exitedAt ?? undefined,
+    worktreePath: row.worktreePath ?? null,
+    initialPrompt: row.initialPrompt ?? undefined,
+  };
 }
 
 export function loadSwarm(swarmId: string): Swarm | null {

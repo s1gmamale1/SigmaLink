@@ -8,10 +8,9 @@
 // `before-quit` handler (renderer may already be torn down at that point, so
 // query-on-quit is not reliable).
 //
-// Storage key: kv['app.lastSession'] — a JSON-encoded `{ workspaceId, room }`
-// envelope. Reads validate the shape and fail closed (returns null), so a
-// corrupt or stale value never crashes boot — the user just lands on the
-// picker as if first-run.
+// Storage key: kv['app.lastSession'] — a JSON-encoded session envelope. v1.1.3
+// stores `{ activeWorkspaceId, openWorkspaces: [{ workspaceId, room }] }`;
+// v1.1.2's legacy `{ workspaceId, room }` remains readable as a fallback.
 
 import { z } from 'zod';
 import { getRawDb } from '../db/client';
@@ -23,9 +22,22 @@ import { getRawDb } from '../db/client';
  * before dispatching SET_ROOM, the main process validates outgoing writes
  * through `parse` so a malicious/buggy renderer can't poison the kv row.
  */
-export const SessionSnapshotSchema = z.object({
+export const LegacySessionSnapshotSchema = z.object({
   workspaceId: z.string().min(1).max(200),
   room: z.string().min(1).max(80),
+});
+
+export const SessionSnapshotSchema = z.object({
+  activeWorkspaceId: z.string().min(1).max(200),
+  openWorkspaces: z
+    .array(
+      z.object({
+        workspaceId: z.string().min(1).max(200),
+        room: z.string().min(1).max(80),
+      }),
+    )
+    .min(1)
+    .max(50),
 });
 
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
@@ -33,6 +45,26 @@ export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 const KV_KEY = 'app.lastSession';
 
 let cached: SessionSnapshot | null = null;
+
+function normalizeSessionSnapshot(snapshot: unknown): SessionSnapshot | null {
+  const current = SessionSnapshotSchema.safeParse(snapshot);
+  if (current.success) return current.data;
+
+  const legacy = LegacySessionSnapshotSchema.safeParse(snapshot);
+  if (legacy.success) {
+    return {
+      activeWorkspaceId: legacy.data.workspaceId,
+      openWorkspaces: [
+        {
+          workspaceId: legacy.data.workspaceId,
+          room: legacy.data.room,
+        },
+      ],
+    };
+  }
+
+  return null;
+}
 
 /**
  * Cache a snapshot from the renderer. Called from the IPC handler bound to
@@ -44,9 +76,9 @@ let cached: SessionSnapshot | null = null;
  * unit test boundary explicit.
  */
 export function rememberSessionSnapshot(snapshot: unknown): boolean {
-  const parsed = SessionSnapshotSchema.safeParse(snapshot);
-  if (!parsed.success) return false;
-  cached = { workspaceId: parsed.data.workspaceId, room: parsed.data.room };
+  const parsed = normalizeSessionSnapshot(snapshot);
+  if (!parsed) return false;
+  cached = parsed;
   return true;
 }
 
@@ -78,9 +110,9 @@ export function persistCachedSnapshot(): void {
  * inside main (programming bug) is rejected before we touch kv.
  */
 export function writeSessionSnapshot(snapshot: SessionSnapshot): void {
-  const parsed = SessionSnapshotSchema.safeParse(snapshot);
-  if (!parsed.success) return;
-  const value = JSON.stringify(parsed.data);
+  const parsed = normalizeSessionSnapshot(snapshot);
+  if (!parsed) return;
+  const value = JSON.stringify(parsed);
   getRawDb()
     .prepare(
       `INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000)
@@ -117,7 +149,8 @@ export function readSessionSnapshot(): SessionSnapshot | null {
     return null;
   }
   const parsed = SessionSnapshotSchema.safeParse(parsedJson);
-  return parsed.success ? parsed.data : null;
+  if (parsed.success) return parsed.data;
+  return normalizeSessionSnapshot(parsedJson);
 }
 
 /**

@@ -183,6 +183,7 @@ export async function executeLaunchPlan(
           status: 'running',
           initialPrompt: pane.initialPrompt,
           startedAt: rec.startedAt,
+          externalSessionId: rec.externalSessionId,
         })
         .run();
       if (spawnResult.fallbackOccurred) {

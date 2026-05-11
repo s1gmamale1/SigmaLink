@@ -2,7 +2,7 @@
 // Plain useReducer + Context. No external store dependency.
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from 'react';
-import { rpc } from '@/renderer/lib/rpc';
+import { rpc } from '../lib/rpc';
 import type {
   AgentSession,
   BrowserState,
@@ -15,7 +15,7 @@ import type {
   SwarmMessage,
   Task,
   Workspace,
-} from '@/shared/types';
+} from '../../shared/types';
 
 export type RoomId =
   | 'workspaces'
@@ -62,7 +62,12 @@ function isRoomId(value: unknown): value is RoomId {
 export interface AppState {
   ready: boolean;
   room: RoomId;
+  /** All persisted workspaces from the DB. */
   workspaces: Workspace[];
+  /** Runtime-open workspaces. Ordered most-recently-active first. */
+  openWorkspaces: Workspace[];
+  activeWorkspaceId: string | null;
+  /** Derived compatibility selector for existing consumers. */
   activeWorkspace: Workspace | null;
   sessions: AgentSession[];
   activeSessionId: string | null;
@@ -95,10 +100,15 @@ export interface AppState {
   sidebarCollapsed: boolean;
 }
 
-type Action =
+export type Action =
   | { type: 'READY'; workspaces: Workspace[] }
   | { type: 'SET_ROOM'; room: RoomId }
   | { type: 'SET_WORKSPACES'; workspaces: Workspace[] }
+  | { type: 'WORKSPACE_OPEN'; workspace: Workspace }
+  | { type: 'WORKSPACE_CLOSE'; workspaceId: string }
+  | { type: 'SET_ACTIVE_WORKSPACE_ID'; workspaceId: string | null }
+  | { type: 'SYNC_OPEN_WORKSPACES'; workspaceIds: string[]; workspaces: Workspace[] }
+  /** Compatibility shim for pre-v1.1.3 call sites. Prefer WORKSPACE_OPEN + SET_ACTIVE_WORKSPACE_ID. */
   | { type: 'SET_ACTIVE_WORKSPACE'; workspace: Workspace | null }
   | { type: 'ADD_SESSIONS'; sessions: AgentSession[] }
   | { type: 'SET_ACTIVE_SESSION'; id: string | null }
@@ -132,10 +142,12 @@ type Action =
   | { type: 'SET_COMMAND_PALETTE'; open: boolean }
   | { type: 'SET_SIDEBAR_COLLAPSED'; collapsed: boolean };
 
-const initial: AppState = {
+export const initialAppState: AppState = {
   ready: false,
   room: 'workspaces',
   workspaces: [],
+  openWorkspaces: [],
+  activeWorkspaceId: null,
   activeWorkspace: null,
   sessions: [],
   activeSessionId: null,
@@ -158,25 +170,135 @@ const initial: AppState = {
   sidebarCollapsed: false,
 };
 
-function reducer(state: AppState, action: Action): AppState {
+export function selectActiveWorkspace(
+  state: Pick<AppState, 'openWorkspaces' | 'activeWorkspaceId'>,
+): Workspace | null {
+  if (!state.activeWorkspaceId) return null;
+  return state.openWorkspaces.find((w) => w.id === state.activeWorkspaceId) ?? null;
+}
+
+function deriveActiveWorkspace(state: AppState): AppState {
+  const activeWorkspace = selectActiveWorkspace(state);
+  return state.activeWorkspace === activeWorkspace ? state : { ...state, activeWorkspace };
+}
+
+function upsertOpenWorkspace(openWorkspaces: Workspace[], workspace: Workspace): Workspace[] {
+  const filtered = openWorkspaces.filter((w) => w.id !== workspace.id);
+  return [workspace, ...filtered];
+}
+
+function reconcileOpenWorkspaces(
+  openWorkspaces: Workspace[],
+  persistedWorkspaces: Workspace[],
+): Workspace[] {
+  const persisted = new Map(persistedWorkspaces.map((w) => [w.id, w]));
+  return openWorkspaces
+    .filter((w) => persisted.has(w.id))
+    .map((w) => persisted.get(w.id) ?? w);
+}
+
+function workspaceIdsEqual(a: Workspace[], ids: string[]): boolean {
+  return a.length === ids.length && a.every((w, index) => w.id === ids[index]);
+}
+
+export function appStateReducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case 'READY':
-      return { ...state, ready: true, workspaces: action.workspaces };
+    case 'READY': {
+      const openWorkspaces = reconcileOpenWorkspaces(state.openWorkspaces, action.workspaces);
+      const activeWorkspaceId =
+        state.activeWorkspaceId && openWorkspaces.some((w) => w.id === state.activeWorkspaceId)
+          ? state.activeWorkspaceId
+          : openWorkspaces[0]?.id ?? null;
+      return deriveActiveWorkspace({
+        ...state,
+        ready: true,
+        workspaces: action.workspaces,
+        openWorkspaces,
+        activeWorkspaceId,
+      });
+    }
     case 'SET_ROOM':
       return { ...state, room: action.room };
-    case 'SET_WORKSPACES':
-      return { ...state, workspaces: action.workspaces };
+    case 'SET_WORKSPACES': {
+      const openWorkspaces = reconcileOpenWorkspaces(state.openWorkspaces, action.workspaces);
+      const activeWorkspaceId =
+        state.activeWorkspaceId && openWorkspaces.some((w) => w.id === state.activeWorkspaceId)
+          ? state.activeWorkspaceId
+          : openWorkspaces[0]?.id ?? null;
+      return deriveActiveWorkspace({
+        ...state,
+        workspaces: action.workspaces,
+        openWorkspaces,
+        activeWorkspaceId,
+      });
+    }
+    case 'WORKSPACE_OPEN':
+      return deriveActiveWorkspace({
+        ...state,
+        openWorkspaces: upsertOpenWorkspace(state.openWorkspaces, action.workspace),
+        activeWorkspaceId: action.workspace.id,
+      });
+    case 'WORKSPACE_CLOSE': {
+      const openWorkspaces = state.openWorkspaces.filter((w) => w.id !== action.workspaceId);
+      const activeWorkspaceId =
+        state.activeWorkspaceId === action.workspaceId
+          ? openWorkspaces[0]?.id ?? null
+          : state.activeWorkspaceId;
+      return deriveActiveWorkspace({
+        ...state,
+        openWorkspaces,
+        activeWorkspaceId,
+        room: activeWorkspaceId ? state.room : 'workspaces',
+      });
+    }
+    case 'SET_ACTIVE_WORKSPACE_ID': {
+      if (!action.workspaceId) {
+        return deriveActiveWorkspace({
+          ...state,
+          activeWorkspaceId: null,
+          room: 'workspaces',
+        });
+      }
+      const workspace = state.openWorkspaces.find((w) => w.id === action.workspaceId);
+      if (!workspace) return state;
+      return deriveActiveWorkspace({
+        ...state,
+        openWorkspaces: upsertOpenWorkspace(state.openWorkspaces, workspace),
+        activeWorkspaceId: action.workspaceId,
+      });
+    }
+    case 'SYNC_OPEN_WORKSPACES': {
+      if (workspaceIdsEqual(state.openWorkspaces, action.workspaceIds)) return state;
+      const persisted = new Map(action.workspaces.map((w) => [w.id, w]));
+      const openWorkspaces = action.workspaceIds
+        .map((id) => persisted.get(id))
+        .filter((w): w is Workspace => Boolean(w));
+      const activeWorkspaceId =
+        state.activeWorkspaceId && openWorkspaces.some((w) => w.id === state.activeWorkspaceId)
+          ? state.activeWorkspaceId
+          : openWorkspaces[0]?.id ?? null;
+      return deriveActiveWorkspace({
+        ...state,
+        workspaces: action.workspaces,
+        openWorkspaces,
+        activeWorkspaceId,
+        room: activeWorkspaceId ? state.room : 'workspaces',
+      });
+    }
     case 'SET_ACTIVE_WORKSPACE':
       // BUG-W7-001: activating a workspace no longer auto-switches rooms.
       // Some entry points (Launcher pickFolder, command palette "Open recent")
       // want the user to stay where they are; others (Launcher.launch()) still
       // dispatch SET_ROOM 'command' explicitly. Clearing the active workspace
       // does fall back to Workspaces — there is no other coherent room.
-      return {
+      return deriveActiveWorkspace({
         ...state,
-        activeWorkspace: action.workspace,
+        openWorkspaces: action.workspace
+          ? upsertOpenWorkspace(state.openWorkspaces, action.workspace)
+          : state.openWorkspaces,
+        activeWorkspaceId: action.workspace?.id ?? null,
         room: action.workspace ? state.room : 'workspaces',
-      };
+      });
     case 'ADD_SESSIONS': {
       const map = new Map(state.sessions.map((s) => [s.id, s]));
       for (const s of action.sessions) map.set(s.id, s);
@@ -369,8 +491,21 @@ const StateCtx = createContext<{ state: AppState; dispatch: Dispatch<Action> } |
  */
 const EXITED_AUTO_REMOVE_MS = 5_000;
 
+function parseOpenWorkspacesChanged(raw: unknown): string[] | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const p = raw as { workspaceIds?: unknown };
+  if (!Array.isArray(p.workspaceIds)) return null;
+  const ids = p.workspaceIds.filter((id): id is string => typeof id === 'string' && id.length > 0);
+  return ids.length === p.workspaceIds.length ? ids : null;
+}
+
 export function AppStateProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initial);
+  const [state, dispatch] = useReducer(appStateReducer, initialAppState);
+  const workspacesRef = useRef<Workspace[]>([]);
+
+  useEffect(() => {
+    workspacesRef.current = state.workspaces;
+  }, [state.workspaces]);
 
   useEffect(() => {
     let alive = true;
@@ -404,7 +539,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         const match = list.find(
           (w) => (detail.id && w.id === detail.id) || (detail.rootPath && w.rootPath === detail.rootPath),
         );
-        if (match) dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: match });
+        if (match) dispatch({ type: 'WORKSPACE_OPEN', workspace: match });
       } catch {
         /* test harness: swallow */
       }
@@ -412,6 +547,45 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     window.addEventListener('sigma:test:activate-workspace', handler as EventListener);
     return () => window.removeEventListener('sigma:test:activate-workspace', handler as EventListener);
   }, []);
+
+  // v1.1.3 Step 2 — main-process workspace lifecycle mirror. `workspaces.open`
+  // emits the event after it marks a workspace opened, and local close/open
+  // state sends the current id list back so the main process can keep one
+  // runtime list for Step 6 persistence.
+  useEffect(() => {
+    const off = window.sigma.eventOn('app:open-workspaces-changed', (raw: unknown) => {
+      const workspaceIds = parseOpenWorkspacesChanged(raw);
+      if (!workspaceIds) return;
+      void (async () => {
+        let workspaces = workspacesRef.current;
+        if (workspaceIds.some((id) => !workspaces.some((w) => w.id === id))) {
+          try {
+            workspaces = await rpc.workspaces.list();
+            dispatch({ type: 'SET_WORKSPACES', workspaces });
+          } catch {
+            return;
+          }
+        }
+        dispatch({ type: 'SYNC_OPEN_WORKSPACES', workspaceIds, workspaces });
+      })();
+    });
+    return off;
+  }, []);
+
+  const lastOpenWorkspaceIdsRef = useRef<string>('');
+  useEffect(() => {
+    if (!state.ready) return;
+    const workspaceIds = state.openWorkspaces.map((w) => w.id);
+    const key = workspaceIds.join('\0');
+    if (!key && !lastOpenWorkspaceIdsRef.current) return;
+    if (key === lastOpenWorkspaceIdsRef.current) return;
+    lastOpenWorkspaceIdsRef.current = key;
+    try {
+      window.sigma.eventSend('app:open-workspaces-changed', { workspaceIds });
+    } catch {
+      /* preload bridge gone — nothing actionable on the renderer side */
+    }
+  }, [state.ready, state.openWorkspaces]);
 
   // Hydrate persisted UI flags (onboarded, sidebar collapse) from the kv
   // table. Runs once on mount; the theme is loaded by ThemeProvider.
@@ -441,7 +615,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   // BUG-V1.1.2-02 — Session restore on boot. The main process emits
   // `app:session-restore` once `did-finish-load` fires; we wait until the
   // workspace list has hydrated (`state.ready === true`) before activating
-  // the workspace so the SET_ACTIVE_WORKSPACE dispatch can verify the row
+  // the workspace so the WORKSPACE_OPEN dispatch can use a verified row
   // still exists. A missing row (deleted/moved workspace) falls back to the
   // picker — no crash, no toast. The room dispatch only fires if the
   // restored room is a known `RoomId`; an unknown room from a downgrade
@@ -450,14 +624,40 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   // We hold the payload across a possibly-not-yet-ready render in a ref so
   // the listener can attach immediately (don't miss the event if main
   // pushes before our effect runs).
-  const pendingRestoreRef = useRef<{ workspaceId: string; room: string } | null>(null);
+  const pendingRestoreRef = useRef<{
+    activeWorkspaceId: string;
+    openWorkspaces: Array<{ workspaceId: string; room: string }>;
+  } | null>(null);
   useEffect(() => {
     const off = window.sigma.eventOn('app:session-restore', (raw: unknown) => {
       if (!raw || typeof raw !== 'object') return;
-      const p = raw as { workspaceId?: unknown; room?: unknown };
+      const p = raw as {
+        activeWorkspaceId?: unknown;
+        openWorkspaces?: unknown;
+        workspaceId?: unknown;
+        room?: unknown;
+      };
+      if (typeof p.activeWorkspaceId === 'string' && Array.isArray(p.openWorkspaces)) {
+        const openWorkspaces = p.openWorkspaces
+          .filter((entry): entry is { workspaceId: string; room: string } => {
+            if (!entry || typeof entry !== 'object') return false;
+            const e = entry as { workspaceId?: unknown; room?: unknown };
+            return typeof e.workspaceId === 'string' && !!e.workspaceId && typeof e.room === 'string' && !!e.room;
+          });
+        if (openWorkspaces.length > 0) {
+          pendingRestoreRef.current = {
+            activeWorkspaceId: p.activeWorkspaceId,
+            openWorkspaces,
+          };
+        }
+        return;
+      }
       if (typeof p.workspaceId !== 'string' || !p.workspaceId) return;
       if (typeof p.room !== 'string' || !p.room) return;
-      pendingRestoreRef.current = { workspaceId: p.workspaceId, room: p.room };
+      pendingRestoreRef.current = {
+        activeWorkspaceId: p.workspaceId,
+        openWorkspaces: [{ workspaceId: p.workspaceId, room: p.room }],
+      };
     });
     return off;
   }, []);
@@ -471,15 +671,30 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     if (!state.ready) return;
     const pending = pendingRestoreRef.current;
     if (!pending) return;
-    const match = state.workspaces.find((w) => w.id === pending.workspaceId);
-    if (!match) {
-      // Workspace was deleted/moved between sessions; fall back to picker.
+    const workspaceById = new Map(state.workspaces.map((w) => [w.id, w]));
+    const restored = pending.openWorkspaces
+      .map((entry) => ({ entry, workspace: workspaceById.get(entry.workspaceId) }))
+      .filter((item): item is { entry: { workspaceId: string; room: string }; workspace: Workspace } =>
+        Boolean(item.workspace),
+      );
+    if (restored.length === 0) {
+      // Workspaces were deleted/moved between sessions; fall back to picker.
       pendingRestoreRef.current = null;
       return;
     }
-    dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: match });
-    if (isRoomId(pending.room)) {
-      dispatch({ type: 'SET_ROOM', room: pending.room });
+    for (const item of [...restored].reverse()) {
+      dispatch({ type: 'WORKSPACE_OPEN', workspace: item.workspace });
+    }
+    const active =
+      restored.find((item) => item.workspace.id === pending.activeWorkspaceId) ?? restored[0];
+    dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: active.workspace.id });
+    if (isRoomId(active.entry.room)) {
+      dispatch({ type: 'SET_ROOM', room: active.entry.room });
+    }
+    for (const item of restored) {
+      void rpc.panes.resume(item.workspace.id).catch(() => {
+        /* pane resume failures are reported by main; restore should continue */
+      });
     }
     pendingRestoreRef.current = null;
   }, [state.ready, state.workspaces]);
@@ -506,8 +721,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     snapshotTimerRef.current = setTimeout(() => {
       try {
         window.sigma.eventSend('app:session-snapshot', {
-          workspaceId: wsId,
-          room: state.room,
+          activeWorkspaceId: wsId,
+          openWorkspaces: state.openWorkspaces.map((workspace) => ({
+            workspaceId: workspace.id,
+            room: state.room,
+          })),
         });
       } catch {
         /* preload bridge gone — nothing actionable on the renderer side */
@@ -519,7 +737,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         snapshotTimerRef.current = null;
       }
     };
-  }, [state.ready, state.activeWorkspace?.id, state.room]);
+  }, [state.ready, state.activeWorkspace?.id, state.openWorkspaces, state.room]);
 
   // Listen for PTY exit so the UI can mark sessions accordingly.
   useEffect(() => {

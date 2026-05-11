@@ -28,6 +28,7 @@ const CIRCUIT_BREAKER_WINDOW_MS = 10_000;
 /** Default per-call timeout (most tools are sub-second; some pattern stores
  *  take a beat on cold writes). Configurable via `call({ timeoutMs })`. */
 const DEFAULT_CALL_TIMEOUT_MS = 5_000;
+const ENSURE_READY_TIMEOUT_MS = 5_000;
 /** Cap concurrent in-flight JSON-RPC calls to keep stdio backpressure sane. */
 const MAX_INFLIGHT = 10;
 /** SIGKILL escalation if a graceful SIGTERM doesn't exit within 2s. */
@@ -67,6 +68,7 @@ export class RufloMcpSupervisor extends EventEmitter {
   private readonly inflight = new Map<number, PendingCall>();
   private readonly recentFailures: number[] = [];
   private readonly opts: Required<Pick<RufloMcpSupervisorOpts, 'rufloRoot' | 'cwd' | 'nodeBinary'>>;
+  private ensureStartedPromise: Promise<RufloHealth> | null = null;
 
   constructor(opts: RufloMcpSupervisorOpts = {}) {
     super();
@@ -107,6 +109,42 @@ export class RufloMcpSupervisor extends EventEmitter {
     this.shuttingDown = false;
     this.transition('starting');
     this.spawnChild();
+  }
+
+  /** Start if needed and wait up to 5s for a ready health state. Idempotent. */
+  async ensureStarted(): Promise<RufloHealth> {
+    if (this._state === 'ready') return this.health();
+    if (this._state === 'absent') return this.health();
+    if (this.ensureStartedPromise) return this.ensureStartedPromise;
+
+    this.ensureStartedPromise = new Promise<RufloHealth>((resolve) => {
+      let done = false;
+      const finish = (health: RufloHealth) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        this.off('health', onHealth);
+        this.ensureStartedPromise = null;
+        resolve(health);
+      };
+      const onHealth = (health: RufloHealth) => {
+        if (health.state === 'ready' || health.state === 'absent' || health.state === 'down') {
+          finish(health);
+        }
+      };
+      const timer = setTimeout(() => finish(this.health()), ENSURE_READY_TIMEOUT_MS);
+      this.on('health', onHealth);
+      void this.start()
+        .then(() => {
+          const health = this.health();
+          if (health.state === 'ready' || health.state === 'absent') finish(health);
+        })
+        .catch((err) => {
+          this._lastError = err instanceof Error ? err.message : String(err);
+          finish(this.health());
+        });
+    });
+    return this.ensureStartedPromise;
   }
 
   /** Stop the child (best-effort SIGTERM; SIGKILL after 2s). */

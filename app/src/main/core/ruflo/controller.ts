@@ -23,11 +23,18 @@ import type { RufloMcpSupervisor } from './supervisor';
 import type { RufloProxy } from './proxy';
 import type { RufloInstaller } from './installer';
 import type { RufloHealth } from './types';
+import { getRawDb } from '../db/client';
+import {
+  KV_RUFLO_STRICT_MCP_VERIFICATION,
+  verifyForWorkspace,
+  type RufloWorkspaceVerification,
+} from './verify';
 
 export interface RufloControllerDeps {
   supervisor: RufloMcpSupervisor;
   proxy: RufloProxy;
   installer: RufloInstaller;
+  emit?: (event: string, payload: unknown) => void;
 }
 
 export interface UnavailableEnvelope {
@@ -47,6 +54,7 @@ function isUnavailableError(err: unknown): boolean {
 
 export function buildRufloController(deps: RufloControllerDeps) {
   const { supervisor, proxy, installer } = deps;
+  const emit = deps.emit ?? (() => undefined);
 
   return defineController({
     health: async (): Promise<RufloHealth> => supervisor.health(),
@@ -206,7 +214,28 @@ export function buildRufloController(deps: RufloControllerDeps) {
       });
       return { jobId };
     },
+
+    verifyForWorkspace: async (workspaceRoot: string): Promise<RufloWorkspaceVerification> => {
+      if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
+        throw new Error('ruflo.verifyForWorkspace: missing workspaceRoot');
+      }
+      const mode = readStrictMode() ? 'strict' : 'fast';
+      const result = await verifyForWorkspace(workspaceRoot, mode);
+      emit('ruflo:workspace-verified', { workspaceRoot, ...result });
+      return result;
+    },
   });
+}
+
+export function readStrictMode(): boolean {
+  try {
+    const row = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(KV_RUFLO_STRICT_MCP_VERIFICATION) as { value?: string } | undefined;
+    return row?.value === '1';
+  } catch {
+    return false;
+  }
 }
 
 function normalizeEmbeddingHit(

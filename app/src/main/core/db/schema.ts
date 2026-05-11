@@ -49,6 +49,9 @@ export const agentSessions = sqliteTable(
     // V1.1-02: launcher-resolved provider tag (e.g. 'claude'). Nullable for
     // sessions that predate the BridgeCode launcher façade.
     providerEffective: text('provider_effective'),
+    // v1.1.3: provider-native session id used by CLI resume flows
+    // (`claude --resume <id>`, `codex --resume <id>`, etc.).
+    externalSessionId: text('external_session_id'),
   },
   (t) => ({
     wsIdx: index('agent_sessions_ws_idx').on(t.workspaceId),

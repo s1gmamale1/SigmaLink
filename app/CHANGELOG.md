@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.3] - 2026-05-11
+
+v1.1.3 starts the next implementation wave with the final visible assistant
+rebrand fix and release bookkeeping for the broader v1.1.3 plan.
+
+### Fixed
+
+- **Assistant chat label** - rendered assistant messages now use the `SIGMA`
+  role pill instead of the leftover `BRIDGE` label. Internal Bridge-era
+  component names and CSS hooks remain unchanged.
+
+### Changed
+
+- Bumped the app package version to `1.1.3`.
+- Added v1.1.3 release notes and scoped memory/design docs for the planned
+  multi-workspace, growable-swarm, and Ruflo pre-flight work.
+
 ## [1.1.2] - 2026-05-11
 
 Sigma Assistant end-to-end. v1.1.1 shipped streaming Claude CLI responses but the Tool calls panel exposed that `tool_use` envelopes never executed — Sigma could talk but couldn't act. v1.1.2 fixes that. The assistant now actually launches panes, dispatches prompts, sees live workspace state, broadcasts to swarm groups, and writes its own MCP config for spawned agent CLIs.

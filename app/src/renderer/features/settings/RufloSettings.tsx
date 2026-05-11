@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 
 const KV_TELEMETRY_OPT_IN = 'ruflo.telemetry.optIn';
 const KV_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
+const KV_STRICT_MCP_VERIFICATION = 'ruflo.strictMcpVerification';
 
 type RufloState = 'absent' | 'starting' | 'ready' | 'degraded' | 'down';
 
@@ -78,6 +79,7 @@ export function RufloSettings() {
   const [installing, setInstalling] = useState<boolean>(false);
   const [telemetry, setTelemetry] = useState<boolean>(false);
   const [autowriteMcp, setAutowriteMcp] = useState<boolean>(true);
+  const [strictMcpVerification, setStrictMcpVerification] = useState<boolean>(false);
 
   // Hydrate health + telemetry on mount.
   useEffect(() => {
@@ -100,6 +102,12 @@ export function RufloSettings() {
         if (alive) setAutowriteMcp(a !== '0');
       } catch {
         /* default ON */
+      }
+      try {
+        const s = await rpc.kv.get(KV_STRICT_MCP_VERIFICATION);
+        if (alive) setStrictMcpVerification(s === '1');
+      } catch {
+        /* default OFF */
       }
     })();
     const offHealth = onEvent<RufloHealth>('ruflo:health', (h) => {
@@ -141,6 +149,11 @@ export function RufloSettings() {
   const onToggleAutowriteMcp = useCallback((next: boolean) => {
     setAutowriteMcp(next);
     void rpc.kv.set(KV_AUTOWRITE_MCP, next ? '1' : '0').catch(() => undefined);
+  }, []);
+
+  const onToggleStrictMcpVerification = useCallback((next: boolean) => {
+    setStrictMcpVerification(next);
+    void rpc.kv.set(KV_STRICT_MCP_VERIFICATION, next ? '1' : '0').catch(() => undefined);
   }, []);
 
   const state = health?.state ?? 'absent';
@@ -261,6 +274,21 @@ export function RufloSettings() {
             </div>
           </div>
           <Switch checked={autowriteMcp} onCheckedChange={onToggleAutowriteMcp} />
+        </div>
+        <div className="mb-3 flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
+          <div className="min-w-0 pr-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              Strict MCP verification
+            </div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              Probes each CLI after workspace open. Slower, but catches discovery failures.
+            </div>
+          </div>
+          <Switch
+            checked={strictMcpVerification}
+            onCheckedChange={onToggleStrictMcpVerification}
+          />
         </div>
         <div className="flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
           <div className="min-w-0 pr-3">
