@@ -1,21 +1,28 @@
 # Changelog
 
-## [1.1.3] - 2026-05-11
+## [1.1.3] - 2026-05-12
 
-v1.1.3 starts the next implementation wave with the final visible assistant
-rebrand fix and release bookkeeping for the broader v1.1.3 plan.
+v1.1.3 implements the multi-workspace architecture, pane resume capabilities, and growable agent swarms.
+
+### Added
+
+- **Multi-workspace tabs** — The sidebar now supports parallel opened workspaces. Users can switch between workspaces without losing runtime state. Includes an 8-tab limit with an overflow drawer and per-tab close buttons.
+- **Pane resume** — Agent CLI processes now persist across app restarts. SigmaLink captures the provider-native session ID (Claude/Codex) and relaunches PTYs using `--resume <id>`.
+- **Growable swarms** — Swarms are no longer locked at creation size. Users can add agents to an existing swarm post-launch (up to a 20-agent capacity). Sigma Assistant can also use the new `add_agent` tool.
+- **Ruflo readiness pre-flight** — New verification pipeline ensures the Ruflo orchestration layer is fully operational before spawning agents. Readiness is surfaced via a "Readiness Pill" in the breadcrumb.
+- **Multi-workspace session restore** — The app now restores all previously open workspaces and their active rooms on boot.
+- **Skills verification sweep** — SigmaLink now performs a content-hash check of enabled skills on workspace open, automatically refreshing missing or stale copies.
 
 ### Fixed
 
-- **Assistant chat label** - rendered assistant messages now use the `SIGMA`
-  role pill instead of the leftover `BRIDGE` label. Internal Bridge-era
-  component names and CSS hooks remain unchanged.
+- **Assistant chat label** - Rendered assistant messages now use the `SIGMA` role pill instead of the leftover `BRIDGE` label.
+- **Mailbox fanout** - Resolved issues with inter-agent group broadcasts in multi-workspace environments.
 
-### Changed
+### Verification
 
-- Bumped the app package version to `1.1.3`.
-- Added v1.1.3 release notes and scoped memory/design docs for the planned
-  multi-workspace, growable-swarm, and Ruflo pre-flight work.
+- `pnpm exec vitest run` → **86/86 pass** (all test files converted to Vitest).
+- `npm run build` → Success (frontend + main/preload).
+- Environment: Fixed `better-sqlite3` Node 26 mismatch via manual rebuild.
 
 ## [1.1.2] - 2026-05-11
 
