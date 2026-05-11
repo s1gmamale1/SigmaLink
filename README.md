@@ -2,18 +2,39 @@
 
 Local-first desktop workspace for orchestrating grids of CLI coding agents in real PTYs, isolated by Git worktrees.
 
-SigmaLink is an Electron desktop application that lets a single human operator run several coding-agent CLIs (BridgeCode, Claude Code, Codex, Gemini, Cursor, OpenCode, plus the custom shell entry, with Aider and Continue available as legacy toggles) in parallel against the same Git repository. Each agent runs in a real PTY-backed terminal pane and is checked out into its own Git worktree, so concurrent edits cannot collide on disk. A SQLite database holds workspaces, sessions, swarm rosters, tasks, conversations, and notes; nothing is sent to a remote service.
-
-The project is in active rebuild. Phases 1–8 (foundation, swarms, in-app browser, Skills, SigmaMemory, Review/Tasks, UI polish, visual-test loop) are shipped. Phase 9 (V3 parity, waves 12–16) is in progress: bundled credential storage via Electron `safeStorage`, a Sigma Assistant room (W13), the Sigma Canvas visual-design surface (W14), and final hardening land before v0.2.0. Track the swarm in [`docs/10-memory/ORCHESTRATION_LOG.md`](docs/10-memory/ORCHESTRATION_LOG.md).
-
+[![Latest release](https://img.shields.io/github/v/release/s1gmamale1/SigmaLink?style=flat-square&color=2B2E3A&label=release)](https://github.com/s1gmamale1/SigmaLink/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/s1gmamale1/SigmaLink/total?style=flat-square&color=2B2E3A)](https://github.com/s1gmamale1/SigmaLink/releases)
 [![lint-and-build](https://github.com/s1gmamale1/SigmaLink/actions/workflows/lint-and-build.yml/badge.svg?branch=main)](https://github.com/s1gmamale1/SigmaLink/actions/workflows/lint-and-build.yml)
 [![e2e-matrix](https://github.com/s1gmamale1/SigmaLink/actions/workflows/e2e-matrix.yml/badge.svg?branch=main)](https://github.com/s1gmamale1/SigmaLink/actions/workflows/e2e-matrix.yml)
 
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-macOS%20arm64-lightgrey?style=flat-square)
 ![Electron](https://img.shields.io/badge/Electron-30-2B2E3A?style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square)
 ![Status](https://img.shields.io/badge/status-WIP-orange?style=flat-square)
+
+## Install in one line (macOS, Apple Silicon)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+```
+
+That downloads the latest release, installs `SigmaLink.app` into `/Applications`, and launches it — with **zero macOS Gatekeeper prompts**. `curl` doesn't tag downloads with `com.apple.quarantine`, so the bundle is exempt from Gatekeeper's first-launch check. Same pattern as the Rust, Homebrew, and Docker installers.
+
+To pin a specific release tag:
+```bash
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.7
+```
+
+**Other install paths** are documented below: [manual DMG download](#install-options) (3 options including Terminal + System Settings workarounds) and [build from source](#quickstart-build-from-source).
+
+---
+
+## What it is
+
+SigmaLink is an Electron desktop application that lets a single human operator run several coding-agent CLIs (BridgeCode, Claude Code, Codex, Gemini, Cursor, OpenCode, plus the custom shell entry, with Aider and Continue available as legacy toggles) in parallel against the same Git repository. Each agent runs in a real PTY-backed terminal pane and is checked out into its own Git worktree, so concurrent edits cannot collide on disk. A SQLite database holds workspaces, sessions, swarm rosters, tasks, conversations, and notes; nothing is sent to a remote service.
+
+The project is in active rebuild. Phases 1–8 (foundation, swarms, in-app browser, Skills, SigmaMemory, Review/Tasks, UI polish, visual-test loop) are shipped. Phase 9 (V3 parity, waves 12–16) is in progress: bundled credential storage via Electron `safeStorage`, a Sigma Assistant room (W13), the Sigma Canvas visual-design surface (W14), and final hardening land before v0.2.0. Track the swarm in [`docs/10-memory/ORCHESTRATION_LOG.md`](docs/10-memory/ORCHESTRATION_LOG.md).
 
 ## Why SigmaLink
 
@@ -50,17 +71,14 @@ Nine providers ship in the V3 default registry: BridgeCode (coming soon, current
 | Aider | `aider` | `pipx install aider-chat` | Legacy toggle |
 | Continue | `continue` | `npm i -g @continuedev/cli` | Legacy toggle |
 
-## Install (macOS, Apple Silicon)
+## Install options
 
-The fastest install path. `curl` doesn't tag its downloads with `com.apple.quarantine`, so files it fetches are exempt from Gatekeeper's first-launch assessment — the SigmaLink.app installs and launches without any "unverified developer" prompt. Same pattern as the Rust, Homebrew, and Docker installers.
+Three install paths are supported on macOS Apple Silicon. The first is recommended for most users.
+
+### Option 1 — Curl-bash installer (zero prompts) — RECOMMENDED
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
-```
-
-Pin to a specific release if you need to:
-```bash
-curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.7
 ```
 
 What the script does, in order:
@@ -71,9 +89,56 @@ What the script does, in order:
 5. Mounts the DMG, copies `SigmaLink.app` into `/Applications/`, strips any xattrs defensively.
 6. Unmounts the DMG and (if you're on a tty) prompts to launch.
 
-If you'd rather download the DMG manually from https://github.com/s1gmamale1/SigmaLink/releases — see the README inside the mounted DMG; it walks through both the Terminal `xattr -cr` workaround and the System Settings → Privacy & Security → "Open Anyway" flow.
+To inspect the script before running it:
+```bash
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh -o install-sigmalink.sh
+less install-sigmalink.sh
+bash install-sigmalink.sh
+```
 
-The proper signed-and-notarised install path (no first-launch prompt at all) is on the v1.2 roadmap once Apple Developer Program enrollment is funded.
+To pin a specific release tag:
+```bash
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.7
+```
+
+### Option 2 — Manual DMG download
+
+Browse https://github.com/s1gmamale1/SigmaLink/releases and download `SigmaLink-<version>-arm64.dmg`. On macOS Sequoia/Tahoe Apple's Gatekeeper will block the first launch with one of two dialogs:
+
+| Dialog | Cause | Recovery |
+|---|---|---|
+| **"is damaged and can't be opened"** | DMG built before v1.1.5 (missing CodeResources seal) | Upgrade to v1.1.5+. For old DMGs, `xattr -cr /Applications/SigmaLink.app` |
+| **"Apple could not verify..."** | Un-notarised app (no Apple Developer ID) | See workarounds below |
+
+Two recoverable workarounds — pick whichever:
+
+**A) Terminal one-liner (fastest):**
+```bash
+xattr -cr /Applications/SigmaLink.app && open /Applications/SigmaLink.app
+```
+
+**B) System Settings (no Terminal):**
+1. Click **Done** on the warning dialog (NOT "Move to Trash").
+2. Open **System Settings → Privacy & Security**.
+3. Scroll down to the **Security** section.
+4. Click **Open Anyway** next to `"SigmaLink" was blocked to protect your Mac`.
+5. Authenticate (Touch ID / password).
+6. Re-open SigmaLink; the original warning re-appears — click **Open**.
+
+The DMG also ships a `README — Open SigmaLink.txt` file with these same instructions, visible when the DMG mounts.
+
+### Option 3 — Build from source
+
+See [Quickstart (build from source)](#quickstart-build-from-source) below. Local builds are not subject to Gatekeeper because the resulting `.app` never carries `com.apple.quarantine`.
+
+### Why these workarounds exist
+
+SigmaLink is not signed with an Apple Developer ID and is not notarised. Apple Developer Program costs $99/year and is on the v1.2 roadmap once the project is funded. Until then:
+- v1.1.5+ DMG passes `codesign --verify --deep --strict` with a proper ad-hoc signature (no more "damaged" verdict).
+- macOS Gatekeeper still shows "unidentified developer" on the FIRST launch of a browser-downloaded DMG. Subsequent launches work normally once accepted.
+- `curl` downloads (Option 1) bypass Gatekeeper entirely because curl doesn't register as a quarantine source.
+
+Path to the permanent fix: enroll in Apple Developer Program → flip `electron-builder.yml` to use a real Developer ID + `notarize: true` → DMG becomes a single-double-click install with no prompts → SigmaLink becomes eligible for Homebrew Cask. All documented in [`docs/09-release/release-notes-1.1.7.txt`](docs/09-release/release-notes-1.1.7.txt).
 
 ## Quickstart (build from source)
 

@@ -2,6 +2,16 @@
 
 The Electron + Vite + React workspace inside `app/` is the SigmaLink desktop application. This directory holds everything that ships in the installer: the Electron main and preload sources under `electron/`, the renderer under `src/`, the build helpers under `scripts/`, and the `electron-builder` config in `electron-builder.yml`. The repository-level [README](../README.md) explains what SigmaLink is and where it is going; this README is the operational reference for working in this directory.
 
+## End-user install (macOS Apple Silicon)
+
+For installing a pre-built release on a target Mac (not for building from source), use the one-line installer from any Terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+```
+
+The installer downloads the latest release via `curl` (which doesn't tag downloads with `com.apple.quarantine`), so the app installs into `/Applications` without triggering any macOS Gatekeeper "unverified developer" prompts. Source: [`scripts/install-macos.sh`](scripts/install-macos.sh) — POSIX Bash, 170 lines, no external dependencies beyond `curl` + `hdiutil` + `osascript`. Three install paths are documented in the repository-level [README](../README.md#install-options).
+
 ## Scripts
 
 The scripts below are defined in [`package.json`](package.json) and are the entry points the project uses for development, packaging, and CI.
@@ -32,13 +42,14 @@ npm run electron:dev
 
 ## Build pipeline
 
-The build is split across three tools:
+The build is split across three tools, with a fourth `afterSign` hook on macOS:
 
 1. **esbuild** — bundles `electron/main.ts` and `electron/preload.ts` into `electron-dist/`. Driven by `scripts/build-electron.cjs` and exposed via `npm run electron:compile`.
 2. **Vite** — builds the renderer (React 19 + Tailwind 3 + shadcn UI + xterm.js) into `dist/`. Driven by `npm run build`.
-3. **electron-builder** — consumes both outputs and produces installers. Configuration lives in the `build` block of [`package.json`](package.json) and is targeted at Windows (NSIS + portable) and macOS (DMG + zip).
+3. **electron-builder** — consumes both outputs and produces installers. Configuration lives in [`electron-builder.yml`](electron-builder.yml). Targets: macOS (DMG + zip), Windows (NSIS + portable), Linux (AppImage + deb).
+4. **`scripts/adhoc-sign.cjs`** — `afterSign` hook for macOS only. Runs `codesign --force --deep --sign - --timestamp=none` over the packaged `.app` to write a proper `_CodeSignature/CodeResources` resource seal (electron-builder's auto-discovery doesn't produce a real seal without a paid Developer ID). Then runs `codesign --verify --deep --strict` and throws if verification fails — silent ship-with-broken-sig regressions are impossible.
 
-The `npm run electron:dev` and `npm run electron:build` scripts run these steps in order, so you rarely invoke any of them by hand.
+The `npm run electron:dev` and `npm run electron:build` scripts run these steps in order, so you rarely invoke any of them by hand. Once a paid Apple Developer ID is available, drop `adhoc-sign.cjs` and flip `electron-builder.yml` mac block to `identity: <cert CN>`, `hardenedRuntime: true`, `notarize: true`.
 
 ## Source layout
 
@@ -70,6 +81,15 @@ The renderer and main process are organised by feature area, not by layer.
 - `esbuild` — bundles the Electron main and preload.
 - `react-resizable-panels` — terminal grid layout primitives.
 - `@dnd-kit/core` and `@dnd-kit/sortable` — drag-and-drop for the Kanban board and skill drop zone.
+
+## Distribution
+
+| Surface | Source of truth |
+|---|---|
+| One-line installer | [`scripts/install-macos.sh`](scripts/install-macos.sh). POSIX Bash, downloads via `curl` (no quarantine), installs into `/Applications`, zero Gatekeeper prompts. |
+| In-DMG README | [`build/dmg/README — Open SigmaLink.txt`](build/dmg/README%20%E2%80%94%20Open%20SigmaLink.txt). Shown next to `SigmaLink.app` when the DMG mounts — covers the Terminal `xattr -cr` and System Settings → Privacy & Security workarounds for browser-downloaded DMGs. |
+| Code signing | [`scripts/adhoc-sign.cjs`](scripts/adhoc-sign.cjs) — `afterSign` hook ad-hoc signs every Mach-O + writes a real `_CodeSignature/CodeResources` seal. Without it, DMG launches surface as "is damaged". |
+| Release notes | [`../docs/09-release/`](../docs/09-release/) — per-tag narrative; see `release-notes-1.1.7.txt` for the curl-bash install rationale. |
 
 ## Known limitation
 
