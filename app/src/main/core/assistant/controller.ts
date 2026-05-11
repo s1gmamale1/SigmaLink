@@ -40,6 +40,19 @@ export interface AssistantControllerDeps {
   userDataDir: string;
   emit: (event: string, payload: unknown) => void;
   ruflo?: Pick<RufloProxy, 'trajectoryStart' | 'trajectoryStep' | 'trajectoryEnd'>;
+  /**
+   * BUG-V1.1.2-01 — Sigma host MCP wiring. When supplied, the controller
+   * forwards both fields to `runClaudeCliTurn` so the Claude CLI registers
+   * the 13 Sigma tools as an MCP server and emits real `tool_use` envelopes
+   * (instead of describing them in prose in the system prompt, which left
+   * the live `list_*` dispatchers as dead code).
+   */
+  mcpHost?: {
+    /** Absolute path to `electron-dist/mcp-sigma-host-server.cjs`. */
+    serverEntry: string;
+    /** Unix socket path or `\\.\pipe\…` the bridge is listening on. */
+    socketPath: string;
+  };
 }
 
 interface ActiveTurn {
@@ -53,7 +66,21 @@ const pickPreset = (n: number): LaunchPlan['preset'] =>
 
 const delay = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
 
-export function buildAssistantController(deps: AssistantControllerDeps) {
+export interface AssistantController {
+  controller: ReturnType<typeof defineController>;
+  /**
+   * Direct, in-process tool invoker used by the MCP host bridge. Skips the
+   * router serialisation hop but goes through the exact same trace +
+   * dispatch path as the public `assistant.invokeTool` RPC.
+   */
+  invokeTool: (input: {
+    conversationId?: string;
+    name: string;
+    args: Record<string, unknown>;
+  }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
+}
+
+export function buildAssistantController(deps: AssistantControllerDeps): AssistantController {
   const tracer = new ToolTracer();
   tracer.setEmitter(deps.emit);
   const activeTurns = new Map<string, ActiveTurn>();
@@ -152,7 +179,7 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
     }
   };
 
-  return defineController({
+  const controller = defineController({
     send: async (input: {
       workspaceId: string;
       conversationId?: string;
@@ -180,6 +207,20 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
       // V3-W14-002 — try the local Claude CLI first; fall back to the stub
       // when the binary is missing on disk. The stub keeps the demo path
       // alive so a fresh DMG without `claude` installed still feels alive.
+      // BUG-V1.1.2-01 — resolve the workspace root for the temp `.mcp.json`
+      // anchor. Falls back to the OS temp dir inside writeSigmaHostMcpConfig
+      // when the workspace row is missing or the directory isn't writable.
+      let mcpWorkspaceRoot: string | undefined;
+      try {
+        const wsRow = getDb()
+          .select()
+          .from(workspacesTable)
+          .where(eq(workspacesTable.id, input.workspaceId))
+          .get();
+        mcpWorkspaceRoot = wsRow?.rootPath ?? undefined;
+      } catch {
+        mcpWorkspaceRoot = undefined;
+      }
       void (async () => {
         try {
           const out = await runClaudeCliTurn(turn, input.prompt, {
@@ -191,6 +232,13 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
               if (!result.ok) throw new Error(result.error ?? `Tool failed: ${name}`);
               return result.result;
             },
+            mcpHost: deps.mcpHost
+              ? {
+                  serverEntry: deps.mcpHost.serverEntry,
+                  socketPath: deps.mcpHost.socketPath,
+                  workspaceRoot: mcpWorkspaceRoot,
+                }
+              : undefined,
           });
           if (!out.handled && out.reason === 'no-binary') {
             await runStubTurn(turn, input.prompt, deps, {
@@ -302,6 +350,7 @@ export function buildAssistantController(deps: AssistantControllerDeps) {
       return invokeAssistantTool(input);
     },
   });
+  return { controller, invokeTool: invokeAssistantTool };
 }
 
 /**

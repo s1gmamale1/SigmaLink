@@ -38,6 +38,7 @@ import { TasksManager } from './core/tasks/manager';
 import { buildTasksController } from './core/tasks/controller';
 import { buildKvController } from './core/db/kv-controller';
 import { buildAssistantController } from './core/assistant/controller';
+import { McpHostBridge, type ToolInvoker } from './core/assistant/mcp-host-bridge';
 import {
   buildConversationsHandlers,
   buildSwarmOriginHandlers,
@@ -80,6 +81,11 @@ interface SharedDeps {
   /** V3-W12-014 — Operator Console controller. Registered side-band so the
    *  `swarm.*` namespace doesn't pollute the typed AppRouter shape. */
   consoleStop?: () => void;
+  /** BUG-V1.1.2-01 — Sigma Assistant MCP host bridge. Listens on a Unix
+   *  socket (Windows named pipe); each Claude CLI turn writes a temp
+   *  `.mcp.json` declaring the stdio server, which dials back here and
+   *  proxies `tools/call` envelopes into the assistant controller. */
+  mcpHostBridge?: McpHostBridge;
 }
 
 let router: ReturnType<typeof buildRouter> | null = null;
@@ -215,6 +221,22 @@ function buildRouter() {
     emit: (event, payload) => broadcast(event, payload),
   });
   const memorySupervisor = new MemoryMcpSupervisor();
+
+  // BUG-V1.1.2-01 — Sigma Assistant MCP host bridge. Constructed early so we
+  // can pass its `socketPath` into the assistant controller before the bridge
+  // actually listens; the controller only reads the path when a turn runs,
+  // by which point `start()` below has completed. The invoker is resolved
+  // lazily because the assistant controller is built later in this boot
+  // sequence.
+  let resolvedToolInvoker: ToolInvoker | null = null;
+  const mcpHostBridge = new McpHostBridge({
+    resolveInvoker: () => resolvedToolInvoker,
+  });
+  const sigmaHostServerEntry = path.join(
+    app.getAppPath(),
+    'electron-dist',
+    'mcp-sigma-host-server.cjs',
+  );
   const memoryManager = new MemoryManager({
     emit: (event) => broadcast('memory:changed', event),
     resolveMcpCommand: (workspaceId) => {
@@ -251,6 +273,7 @@ function buildRouter() {
     reviewRunner,
     tasks: tasksManager,
     rufloSupervisor,
+    mcpHostBridge,
   };
 
   const appCtl = defineController({
@@ -559,7 +582,7 @@ function buildRouter() {
   // namespace and pipes tool traces + dispatch echoes back through the
   // shared broadcaster so every BrowserWindow (right-rail, standalone room)
   // sees the same stream.
-  const assistantCtl = buildAssistantController({
+  const assistantBundle = buildAssistantController({
     pty,
     worktreePool,
     mailbox,
@@ -569,6 +592,26 @@ function buildRouter() {
     userDataDir: userData,
     emit: (event, payload) => broadcast(event, payload),
     ruflo: rufloProxy,
+    mcpHost: {
+      serverEntry: sigmaHostServerEntry,
+      socketPath: mcpHostBridge.getSocketPath(),
+    },
+  });
+  const assistantCtl = assistantBundle.controller;
+  // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the
+  // controller has been constructed. The bridge already listens (or will
+  // start listening below); any incoming `tools.invoke` calls that race
+  // ahead receive `invoker not wired` and the CLI retries on the next
+  // turn — but in practice the CLI doesn't dial in until a user prompt
+  // lands, by which point the bridge + invoker are fully wired.
+  resolvedToolInvoker = assistantBundle.invokeTool;
+  // Start listening; failure here is non-fatal because the controller's
+  // direct tool dispatch path still works (the CLI just won't see any
+  // Sigma tools registered, exactly like v1.1.1 behaviour).
+  void mcpHostBridge.start().catch((err) => {
+    console.warn(
+      `[mcp-host-bridge] failed to start: ${err instanceof Error ? err.message : String(err)}`,
+    );
   });
   // P3-S7 — Side-band handlers for the Conversations panel + Operator
   // Console origin link. Mirrors the swarm.replay registration pattern
@@ -849,6 +892,11 @@ export function shutdownRouter(): void {
   }
   try {
     sharedDeps?.memorySupervisor.stopAll();
+  } catch {
+    /* ignore */
+  }
+  try {
+    sharedDeps?.mcpHostBridge?.stop();
   } catch {
     /* ignore */
   }

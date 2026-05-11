@@ -9,6 +9,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   runClaudeCliTurn,
   cancelClaudeCliTurn,
@@ -690,5 +693,138 @@ describe('runClaudeCliTurn', () => {
       .filter((e) => e.channel === 'assistant:state' && e.payload.kind === 'delta')
       .map((e) => e.payload.delta as string);
     expect(deltas.join('')).toContain('not-valid-json');
+  });
+
+  // ──────────────────────────────────────────── BUG-V1.1.2-01: MCP wiring ──
+
+  describe('BUG-V1.1.2-01 — passes --mcp-config when mcpHost is wired', () => {
+    it('adds --mcp-config + --strict-mcp-config and writes a sigma-host stdio entry', async () => {
+      // Stage a fake server-entry file so writeSigmaHostMcpConfig accepts it.
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigma-host-test-'));
+      const serverEntry = path.join(tmpDir, 'mcp-sigma-host-server.cjs');
+      fs.writeFileSync(serverEntry, '// stub\n', 'utf8');
+      const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sigma-host-ws-'));
+
+      try {
+        const deps = makeDeps();
+        const child = new FakeChild();
+        let capturedArgs: string[] | null = null;
+        const turnPromise = runClaudeCliTurn(
+          makeTurn(),
+          'hi',
+          {
+            ...deps,
+            mcpHost: {
+              serverEntry,
+              socketPath: '/tmp/sigma-host-test.sock',
+              workspaceRoot,
+            },
+          },
+          {
+            probeOverride: fakeProbe,
+            spawnOverride: () => child,
+            buildSystemPrompt: fixedSysPrompt,
+            onSpawnArgs: (_bin, args) => {
+              capturedArgs = args.slice();
+            },
+          },
+        );
+
+        await new Promise((r) => setImmediate(r));
+        child.pushLine({ type: 'result', subtype: 'success', result: 'ok' });
+        child.finish(0);
+        await turnPromise;
+
+        expect(capturedArgs).not.toBeNull();
+        const args = capturedArgs as unknown as string[];
+        const cfgIdx = args.indexOf('--mcp-config');
+        expect(cfgIdx).toBeGreaterThan(-1);
+        const cfgPath = args[cfgIdx + 1];
+        expect(typeof cfgPath).toBe('string');
+        expect(args).toContain('--strict-mcp-config');
+        // The config file should live under the workspace's .claude-flow dir.
+        expect(cfgPath).toContain(path.join(workspaceRoot, '.claude-flow'));
+        expect(fs.existsSync(cfgPath)).toBe(true);
+
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as {
+          mcpServers: Record<
+            string,
+            {
+              type: string;
+              command: string;
+              args: string[];
+              env: Record<string, string>;
+            }
+          >;
+        };
+        expect(cfg.mcpServers['sigma-host']).toBeDefined();
+        expect(cfg.mcpServers['sigma-host'].type).toBe('stdio');
+        expect(cfg.mcpServers['sigma-host'].args).toEqual([serverEntry]);
+        expect(cfg.mcpServers['sigma-host'].env.SIGMA_HOST_SOCKET).toBe('/tmp/sigma-host-test.sock');
+        expect(cfg.mcpServers['sigma-host'].env.SIGMA_HOST_AUTOBOOT).toBe('1');
+        expect(cfg.mcpServers['sigma-host'].env.ELECTRON_RUN_AS_NODE).toBe('1');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(workspaceRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('omits --mcp-config when mcpHost is not wired (v1.1.1 parity)', async () => {
+      const deps = makeDeps();
+      const child = new FakeChild();
+      let capturedArgs: string[] | null = null;
+      const turnPromise = runClaudeCliTurn(makeTurn(), 'hi', deps, {
+        probeOverride: fakeProbe,
+        spawnOverride: () => child,
+        buildSystemPrompt: fixedSysPrompt,
+        onSpawnArgs: (_bin, args) => {
+          capturedArgs = args.slice();
+        },
+      });
+
+      await new Promise((r) => setImmediate(r));
+      child.pushLine({ type: 'result', subtype: 'success', result: 'ok' });
+      child.finish(0);
+      await turnPromise;
+
+      expect(capturedArgs).not.toBeNull();
+      const args = capturedArgs as unknown as string[];
+      expect(args).not.toContain('--mcp-config');
+      expect(args).not.toContain('--strict-mcp-config');
+    });
+
+    it('skips --mcp-config when the bundled server entry is missing on disk', async () => {
+      const deps = makeDeps();
+      const child = new FakeChild();
+      let capturedArgs: string[] | null = null;
+      const turnPromise = runClaudeCliTurn(
+        makeTurn(),
+        'hi',
+        {
+          ...deps,
+          mcpHost: {
+            serverEntry: '/does/not/exist/mcp-sigma-host-server.cjs',
+            socketPath: '/tmp/sigma-host-test.sock',
+          },
+        },
+        {
+          probeOverride: fakeProbe,
+          spawnOverride: () => child,
+          buildSystemPrompt: fixedSysPrompt,
+          onSpawnArgs: (_bin, args) => {
+            capturedArgs = args.slice();
+          },
+        },
+      );
+
+      await new Promise((r) => setImmediate(r));
+      child.pushLine({ type: 'result', subtype: 'success', result: 'ok' });
+      child.finish(0);
+      await turnPromise;
+
+      const args = capturedArgs as unknown as string[];
+      expect(args).not.toContain('--mcp-config');
+      // The turn still succeeds — Sigma host is best-effort, never blocking.
+    });
   });
 });

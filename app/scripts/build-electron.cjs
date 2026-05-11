@@ -66,4 +66,17 @@ esbuild.buildSync({
   outfile: path.join(outDir, 'mcp-memory-server.cjs'),
 });
 
+// BUG-V1.1.2-01: Sigma Assistant MCP host stdio server entry. Spawned by the
+// Claude CLI via `--mcp-config <tmp>.mcp.json` so the CLI sees the 13 Sigma
+// tools natively (and emits real `tool_use` envelopes). The banner sets
+// SIGMA_HOST_AUTOBOOT=1 so the CJS file auto-boots on direct invocation,
+// while unit tests can still import `handleMcpLine` without side effects.
+esbuild.buildSync({
+  ...common,
+  entryPoints: [path.join(root, 'src/main/core/assistant/mcp-host-server.ts')],
+  format: 'cjs',
+  outfile: path.join(outDir, 'mcp-sigma-host-server.cjs'),
+  banner: { js: 'process.env.SIGMA_HOST_AUTOBOOT = "1";' },
+});
+
 console.log('[build-electron] wrote', path.relative(root, outDir));

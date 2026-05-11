@@ -21,6 +21,7 @@ import { appendMessage, getConversation } from './conversations';
 import { ToolTracer, safeSerialize, type ToolTrace } from './tool-tracer';
 import { findTool } from './tools';
 import { buildSigmaSystemPrompt, estimateTokens } from './system-prompt';
+import { writeSigmaHostMcpConfig } from './mcp-host-bridge';
 import type { RufloProxy } from '../ruflo/proxy';
 import {
   parseCliLine,
@@ -48,6 +49,33 @@ export interface CliTurnDeps {
   dispatchTool?: (name: string, args: Record<string, unknown>) => Promise<unknown>;
   /** Optional Ruflo bridge for SONA trajectory learning. Fail-soft. */
   ruflo?: Pick<RufloProxy, 'trajectoryStart' | 'trajectoryStep' | 'trajectoryEnd'>;
+  /**
+   * BUG-V1.1.2-01 — Sigma host MCP wiring. When supplied AND `serverEntry`
+   * exists on disk, the driver writes a temp `.mcp.json` declaring the
+   * `sigma-host` stdio server and passes `--mcp-config <path>` to the CLI.
+   * The CLI then spawns the stdio server, which dials back to us via the
+   * Unix socket / Windows pipe at `socketPath` and forwards `tools/call`
+   * envelopes into the same `dispatchTool` path used for direct tool_use
+   * routing.
+   *
+   * Optional: when omitted, the driver behaves like v1.1.1 (no MCP config,
+   * Claude has no view of Sigma tools, dispatcher stays dead). Provided
+   * primarily so unit tests that don't care about MCP don't have to fake
+   * a filesystem.
+   */
+  mcpHost?: {
+    /** Absolute path to `electron-dist/mcp-sigma-host-server.cjs`. */
+    serverEntry: string;
+    /** Unix socket path or `\\.\pipe\…` name the bridge is listening on. */
+    socketPath: string;
+    /**
+     * Workspace root used to anchor the temp `.mcp.json`. We prefer
+     * `<workspaceRoot>/.claude-flow/sigma-host.mcp.json` so the file lives
+     * with the rest of our workspace-scoped MCP state (see BUG-V1.1.1-04).
+     * When the directory is not writable, we fall back to the OS temp dir.
+     */
+    workspaceRoot?: string;
+  };
 }
 
 /** Test injection points: probe / spawner / system-prompt overrides. */
@@ -55,6 +83,11 @@ export interface CliTurnOptions {
   probeOverride?: () => Promise<{ found: boolean; resolvedPath?: string; version?: string }>;
   spawnOverride?: SpawnOverride;
   buildSystemPrompt?: (workspaceId: string) => string;
+  /**
+   * Hook for the test to capture the spawn args without supplying a full
+   * fake. Called BEFORE `spawn`/`spawnOverride`. Synchronous.
+   */
+  onSpawnArgs?: (bin: string, args: string[]) => void;
 }
 
 /** Minimal subset of ChildProcessWithoutNullStreams the driver depends on. */
@@ -223,6 +256,39 @@ export async function runClaudeCliTurn(
     '--append-system-prompt',
     sysPrompt,
   ];
+
+  // BUG-V1.1.2-01 — When the host bridge is wired AND the bundled stdio
+  // server exists on disk, write a temp `.mcp.json` and instruct the CLI
+  // to load it. The CLI will spawn the server, which dials back to the
+  // bridge socket and proxies tools/call into our in-process dispatcher.
+  // Failures here are non-fatal — the turn still streams text, just
+  // without Sigma tools registered as a fallback.
+  let mcpConfigPath: string | null = null;
+  if (deps.mcpHost?.serverEntry && deps.mcpHost?.socketPath) {
+    try {
+      mcpConfigPath = writeSigmaHostMcpConfig(
+        deps.mcpHost,
+        turn.conversationId,
+        workspaceId ?? undefined,
+      );
+      if (mcpConfigPath) {
+        args.push('--mcp-config', mcpConfigPath);
+        args.push('--strict-mcp-config');
+      }
+    } catch (err) {
+      console.warn(
+        `[runClaudeCliTurn] failed to write sigma-host mcp config: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  if (opts.onSpawnArgs) {
+    try {
+      opts.onSpawnArgs(probe.resolvedPath, args);
+    } catch {
+      /* observer-only; never fail the turn */
+    }
+  }
 
   let child: CliChildLike;
   try {
