@@ -716,6 +716,54 @@ The README covers both options: Terminal one-liner and System Settings flow. `el
 
 Buy Apple Developer Program ($99/year), generate "Developer ID Application" cert, set CI secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID, CSC_LINK, CSC_KEY_PASSWORD), flip `electron-builder.yml` mac block to use the real identity + `hardenedRuntime: true` + `notarize: true`, drop the adhoc-sign.cjs afterSign hook + the in-DMG README. After that, DMG becomes a single-double-click install and Homebrew Cask submission opens up.
 
-**Phase 10 commits**: TBD (set at tag time).
+**Phase 10 commits**:
+- `005f059` `docs(v1.1.6)`: bundle first-launch README inside the DMG.
 
-**Next session restart point**: SigmaLink is at v1.1.6 on `main`. The first-launch friction is documented in-DMG; v1.2 backlog still carries the proper notarisation work (waiting on $99/year Developer Program decision from user). v1.1.7 cleanup pass: split state.tsx + factory.ts under 500-line rule, promote 3 stub schemas, fix CI cache-dependency-path.
+---
+
+## Phase 11 — v1.1.7 curl-bash installer (2026-05-12)
+
+User asked: "if there's no way to just make dmg files and ship them on github as a release, then we should create a script that auto makes the dmg when launched on other PCs. This is for internal use only, not for commercial purposes anyway. Find out if there're no other ways to ship dmgs without paying fee."
+
+### Research outcome
+
+Deployed `curl-bypass-research` agent + ran empirical test on this Mac. Result:
+
+- **`curl` and `wget` do NOT tag downloads with `com.apple.quarantine`** on macOS. Only LaunchServices-registered apps (Safari, Chrome, Mail, Messages, AirDrop receive, App Store) do.
+- Files without `com.apple.quarantine` are NOT subject to Gatekeeper's first-launch assessment.
+- This is the documented mechanism behind every `curl | bash` installer (Rust, Homebrew, Docker, oh-my-zsh).
+- Empirically confirmed on macOS 26.4 (Tahoe): a curl-downloaded test file has empty xattr output.
+- Apple has not introduced a "quarantine everything" mode; their 2026-02-18 App Store Connect requirement says the opposite (`com.apple.quarantine` is still source-attached, not universal).
+
+The bypass is legitimate for internal-use distribution. The DMG itself was never the problem; the problem was the channel (browser download attaches quarantine). Curl-installed apps skip the entire Gatekeeper pipeline.
+
+### Fix shipped
+
+`app/scripts/install-macos.sh` — 170-line POSIX-Bash installer:
+
+1. Platform + arch gate (macOS arm64 only for now).
+2. Resolves latest release via GitHub API; accepts explicit tag arg.
+3. Downloads matching DMG via curl.
+4. Quits any running SigmaLink via AppleScript.
+5. Replaces `/Applications/SigmaLink.app` (sudo fallback).
+6. Strips xattrs defensively.
+7. Unmounts DMG, optionally launches.
+
+Plus README.md Install section + updated in-DMG README preamble pointing at the one-liner.
+
+One-line install:
+```
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+```
+
+### Why this is the right answer for internal distribution
+
+- $0 cost (no Apple Developer Program).
+- Zero macOS prompts.
+- Same UX as Rust/Homebrew/Docker installers (users trust this pattern).
+- The DMG path still exists as a fallback for users who prefer GUI installs.
+- When SigmaLink is funded and Apple Developer ID is purchased, drop the install script + adhoc-sign hook + in-DMG README; flip electron-builder.yml to use the real cert.
+
+**Phase 11 commits**: TBD (set at tag time).
+
+**Next session restart point**: SigmaLink is at v1.1.7 on `main`. Three install paths now available: (a) curl-bash one-liner with zero prompts, (b) DMG manual with in-DMG README workaround, (c) build from source. v1.2 candidate still: enroll in Apple Developer Program for proper notarisation. v1.1.8 cleanup pass: state.tsx + factory.ts under 500-line rule, promote 3 stub schemas, fix CI cache-dependency-path.

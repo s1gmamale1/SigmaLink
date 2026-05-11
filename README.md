@@ -50,7 +50,32 @@ Nine providers ship in the V3 default registry: BridgeCode (coming soon, current
 | Aider | `aider` | `pipx install aider-chat` | Legacy toggle |
 | Continue | `continue` | `npm i -g @continuedev/cli` | Legacy toggle |
 
-## Quickstart
+## Install (macOS, Apple Silicon)
+
+The fastest install path. `curl` doesn't tag its downloads with `com.apple.quarantine`, so files it fetches are exempt from Gatekeeper's first-launch assessment — the SigmaLink.app installs and launches without any "unverified developer" prompt. Same pattern as the Rust, Homebrew, and Docker installers.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+```
+
+Pin to a specific release if you need to:
+```bash
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.7
+```
+
+What the script does, in order:
+1. Detects platform + arch (refuses non-arm64 macOS for now).
+2. Fetches the latest release tag via the GitHub API (60 req/hour anonymous quota; pass an explicit tag to skip).
+3. Downloads the matching `SigmaLink-<version>-arm64.dmg` via `curl` (no quarantine flag).
+4. Quits any running SigmaLink, removes the old `/Applications/SigmaLink.app`.
+5. Mounts the DMG, copies `SigmaLink.app` into `/Applications/`, strips any xattrs defensively.
+6. Unmounts the DMG and (if you're on a tty) prompts to launch.
+
+If you'd rather download the DMG manually from https://github.com/s1gmamale1/SigmaLink/releases — see the README inside the mounted DMG; it walks through both the Terminal `xattr -cr` workaround and the System Settings → Privacy & Security → "Open Anyway" flow.
+
+The proper signed-and-notarised install path (no first-launch prompt at all) is on the v1.2 roadmap once Apple Developer Program enrollment is funded.
+
+## Quickstart (build from source)
 
 Prerequisites: Node.js 20 or newer, Git, npm, and at least one CLI agent installed on `PATH`.
 

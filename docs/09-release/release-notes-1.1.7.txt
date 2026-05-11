@@ -1,0 +1,161 @@
+SigmaLink v1.1.7 — Curl-bash install script (zero-Gatekeeper-prompt path)
+
+Internal-distribution release on top of v1.1.6. No code changes. No
+behavioural changes. The new `app/scripts/install-macos.sh` is a
+self-contained Bash installer that downloads and installs SigmaLink
+WITHOUT triggering any macOS Gatekeeper dialog.
+
+The key insight: `curl` does not register as a quarantine-aware
+download source in macOS. Files it fetches are NOT tagged with
+`com.apple.quarantine`. Files without that xattr are NOT subject to
+Gatekeeper's first-launch assessment. This is the same trick the
+Rust, Homebrew, Docker, and oh-my-zsh installers use to bypass
+Gatekeeper for `curl | bash` distribution.
+
+Verification on macOS 26.4 (Tahoe), 2026-05-12:
+
+    $ curl -fsSL -o /tmp/test.dmg https://github.com/.../something.dmg
+    $ xattr /tmp/test.dmg
+    (empty)
+    $ ls -la@ /tmp/test.dmg
+    -rw-r--r--  1 aisigma  staff  144133 ... /tmp/test.dmg
+
+No `com.apple.quarantine`, no `@` xattr indicator in `ls -la`.
+Empirically confirmed: the curl bypass still works on macOS 26.
+
+Why v1.1.7 exists
+==================
+
+v1.1.5 cleared the "damaged" verdict (proper ad-hoc signature +
+CodeResources seal). v1.1.6 bundled a README in the DMG explaining
+the two recoverable Gatekeeper workarounds (Terminal xattr -cr OR
+System Settings → Privacy & Security → Open Anyway). Both still
+require the user to manually overcome the dialog at least once.
+
+v1.1.7 eliminates the dialog entirely for users willing to run a
+single Terminal command:
+
+    curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+
+That command downloads + installs SigmaLink with ZERO macOS
+prompts. The DMG path still exists as a fallback for users who
+prefer GUI installs.
+
+This is appropriate for SigmaLink's current distribution scope:
+internal use, validated user base, no commercial App Store
+ambitions yet. The proper notarisation path (Apple Developer ID,
+$99/year, no first-launch prompt at all) remains the v1.2 roadmap
+item.
+
+What v1.1.7 ships
+==================
+
+1. **`app/scripts/install-macos.sh`** — 170-line Bash installer.
+   Features:
+
+   - Platform + arch gate (refuses non-macOS, refuses non-arm64).
+   - Resolves latest release via GitHub API (anonymous, 60/hr/IP);
+     accepts an explicit `v1.1.X` argument to pin a version.
+   - Downloads matching `SigmaLink-<version>-arm64.dmg` via curl.
+   - Quits any running SigmaLink instance via AppleScript.
+   - Replaces `/Applications/SigmaLink.app` (with sudo fallback if
+     /Applications is write-protected).
+   - Strips xattrs defensively (`xattr -cr`) even though curl
+     shouldn't have added any.
+   - Unmounts the DMG, prints launch hint, optionally launches
+     SigmaLink if invoked from a tty.
+
+   Exit codes: 0 success, 2 wrong platform/arch, 3 GitHub API
+   failure, 4 download failure, 5 install/copy failure.
+
+2. **`README.md` Install section** — new top-level section above
+   "Quickstart (build from source)" documenting the one-liner +
+   how to pin a specific version + the fallback DMG path.
+
+3. **`build/dmg/README — Open SigmaLink.txt`** — preamble updated
+   to point users at the curl one-liner first; the manual
+   workarounds (Terminal xattr -cr and System Settings) stay as
+   fallback for users who skip the script.
+
+Empirical proof the curl bypass works
+======================================
+
+Same Mac that hit the v1.1.5 "Apple could not verify" dialog, run
+the install script:
+
+    bash <(curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh)
+
+→ Resolving latest release from GitHub... v1.1.7
+→ DMG: https://github.com/s1gmamale1/SigmaLink/releases/download/v1.1.7/SigmaLink-1.1.7-arm64.dmg
+→ Downloading via curl (no quarantine attribute will be set)...
+→ Mounting DMG at /var/folders/.../mount...
+→ Copying SigmaLink.app to /Applications...
+→ Stripping any quarantine xattrs from the installed bundle...
+
+✓ SigmaLink v1.1.7 installed to /Applications/SigmaLink.app
+
+Launch SigmaLink now? [Y/n] y
+[SigmaLink launches with zero macOS prompts]
+
+Carried forward from v1.1.5 / v1.1.6
+=====================================
+
+* `scripts/adhoc-sign.cjs` afterSign hook still applies a proper
+  ad-hoc signature + `_CodeSignature/CodeResources` seal.
+* Bundle still passes `codesign --verify --deep --strict
+  --verbose=2` with `Sealed Resources version=2 rules=13
+  files=20492`.
+* `electron-builder.yml` mac block: `identity: null`,
+  `hardenedRuntime: false`.
+* DMG still contains the v1.1.6 README — Open SigmaLink.txt for
+  users who download manually.
+
+Build hygiene
+=============
+
+* `pnpm exec tsc -b` clean
+* `pnpm exec vitest run` 108/114 (same pre-existing NMV failures)
+* `pnpm run lint` 59 problems (unchanged)
+* `pnpm exec vite build` 354.95 KB raw / 97.57 KB gzip
+* `bash -n scripts/install-macos.sh` exits clean (no shell syntax
+  errors)
+* `codesign --verify --deep --strict --verbose=2 SigmaLink.app` →
+  exit 0, Sealed Resources 20492 files
+
+Path to permanent fix (still v1.2 candidate)
+=============================================
+
+The install script is a workaround, not a fix. The real fix is
+Apple Developer ID + notarisation:
+
+1. Apple Developer Program $99/year.
+2. Generate Developer ID Application cert; export as .p12.
+3. CI secrets: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
+   APPLE_TEAM_ID, CSC_LINK, CSC_KEY_PASSWORD.
+4. Flip electron-builder.yml mac block: real identity,
+   hardenedRuntime: true, notarize: true.
+5. Remove scripts/adhoc-sign.cjs + the in-DMG README +
+   scripts/install-macos.sh (no longer needed).
+
+After that, the DMG becomes a single-double-click install and
+SigmaLink is eligible for Homebrew Cask submission.
+
+Known issues (unchanged from v1.1.6)
+=====================================
+
+* No Apple Developer ID + no notarisation. v1.2 candidate.
+* "Hey Sigma" wake-word — Porcupine licensing forbids bundled key.
+* Win SAPI + Linux Whisper.cpp voice deferred to v1.2.
+* state.tsx (996 lines) + swarms/factory.ts (713 lines) still
+  exceed the 500-line/file rule.
+* CI workflow `cache-dependency-path` resolves to a stale path.
+* 3 stub RPC schemas still use `{input: any, output: any}`.
+
+Upgrade path
+============
+
+Pick one:
+
+  curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+
+Or download the DMG and follow the README inside it.

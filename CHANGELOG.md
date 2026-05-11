@@ -4,6 +4,38 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-05-12
+
+Internal-distribution release. No code changes. No behavioural changes. The new `app/scripts/install-macos.sh` is a self-contained Bash installer that downloads + installs SigmaLink WITHOUT triggering any macOS Gatekeeper dialog. `curl` doesn't tag its downloads with `com.apple.quarantine`, so files it fetches are exempt from Gatekeeper's first-launch assessment — same pattern Rust/Homebrew/Docker installers use. Confirmed empirically on macOS 26.4 (Tahoe): `xattr` output is empty on curl-downloaded files.
+
+### Added
+
+- **`app/scripts/install-macos.sh`** — 170-line POSIX-Bash installer:
+  - Platform + arch gate (macOS arm64 only for now).
+  - Resolves latest release via GitHub API; accepts explicit `v1.1.X` tag arg to pin.
+  - Downloads `SigmaLink-<version>-arm64.dmg` via curl.
+  - Quits any running SigmaLink via AppleScript.
+  - Replaces `/Applications/SigmaLink.app` (with sudo fallback if write-protected).
+  - Strips xattrs defensively (`xattr -cr`) even though curl shouldn't have added any.
+  - Unmounts the DMG, prints launch hint, optionally launches SigmaLink if invoked from a tty.
+  - Exit codes: 0 success, 2 wrong platform/arch, 3 GitHub API failure, 4 download failure, 5 install/copy failure.
+- **`README.md` Install section** — new top-level section above "Quickstart (build from source)" documenting the curl one-liner + how to pin a version + the fallback DMG path.
+
+### Changed
+
+- **`build/dmg/README — Open SigmaLink.txt`** — preamble points users at the curl one-liner first; the Terminal `xattr -cr` and System Settings workarounds stay as the manual fallback.
+
+### One-liner install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+```
+
+Pin to a specific tag:
+```bash
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.7
+```
+
 ## [1.1.6] - 2026-05-12
 
 Single-file documentation release on top of v1.1.5. No code changes. No behavioural changes. The mounted DMG now ships a clear `README — Open SigmaLink.txt` explaining how to recover from the macOS Sequoia/Tahoe Gatekeeper "Apple could not verify SigmaLink is free of malware" dialog. (Notarisation, which would eliminate the dialog entirely, requires Apple Developer Program membership at $99/year — held until SigmaLink is funded.)

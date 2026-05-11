@@ -1,6 +1,22 @@
 SigmaLink — How to open it on macOS the first time
 ====================================================
 
+EASIEST PATH (no Gatekeeper prompt at all)
+-------------------------------------------
+
+Skip this DMG entirely and run the one-line installer in Terminal.
+`curl` doesn't tag downloads with `com.apple.quarantine`, so files
+it fetches are NOT subject to Gatekeeper's first-launch check:
+
+    curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+
+The script downloads + installs SigmaLink with zero macOS prompts.
+Same mechanism Rust / Homebrew / Docker use for their installers.
+
+If you'd rather use this DMG anyway, two workarounds below.
+
+
+
 SigmaLink is signed with an ad-hoc signature, not with an Apple Developer
 ID. macOS Gatekeeper does not trust ad-hoc signatures on quarantined
 downloads, so the first launch needs one extra step. After that, normal
