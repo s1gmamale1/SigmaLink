@@ -598,3 +598,43 @@ Resolved BUG-V1.1.1-03 in `src/main/core/swarms/mailbox.ts`. The mailbox now cor
 - CI workflow `pnpm-lock.yaml` cache-path resolution (4 jobs failed at Setup Node, but local gates green).
 
 **Next session restart point**: SigmaLink is at v1.1.2 on `main` after PR #1 merge. Phase 7 focus: V3 visual parity sprint (9 cosmetic tickets) and v1.1.3 housekeeping (file-size refactors + CI workflow fix + the deferred P3 tool fix).
+
+---
+
+## Phase 7 — v1.1.3 multi-workspace, pane resume, and Ruflo pre-flight (May 12, 2026)
+
+Resumed work from a hand-off session to implement multi-workspace support and pane resume capabilities. This phase shifted SigmaLink from a single-workspace Electron app into a multi-tab productivity hub.
+
+### Step 1 — Rebrand completion
+Finished the "BRIDGE" to "Sigma Assistant" rebrand in `ChatTranscript.tsx`. All user-facing chat role labels now consistently use "Sigma Assistant".
+
+### Step 2 — Multi-workspace tabs
+Transformed the application state to support parallel opened workspaces. Added `openWorkspaces` and `activeWorkspaceId` to the core state. Built `src/main/core/workspaces/lifecycle.ts` to synchronize the open list across IPC and updated the Sidebar with an 8-tab limit, overflow drawer, and per-tab closing.
+
+### Step 3 — Pane resume (CLI process persistence)
+Implemented persistence for agent CLI processes across SigmaLink restarts.
+- Added `external_session_id` column to `agent_sessions` via migration `0011`.
+- Built `src/main/core/pty/session-id-extractor.ts` to capture session IDs from Claude/Codex startup banners and JSONL envelopes.
+- Created `src/main/core/pty/resume-launcher.ts` to relaunch PTYs using each provider's `resumeArgs` (e.g., `claude --resume <id>`).
+
+### Step 4 — Growable swarms
+Enabled adding agents to existing swarms post-creation. Added the `swarms.addAgent` RPC and the `add_agent` Sigma tool. Bound maximum swarm capacity at 20 agents and updated `src/renderer/features/workspace-launcher/grid.ts` with corresponding 18/20 terminal layouts.
+
+### Step 5 — Ruflo pre-flight & verification
+Hardened the Ruflo orchestration layer. Added `RufloMcpSupervisor.ensureStarted()` with a ready-wait lock. Implemented fast/strict verification in `src/main/core/ruflo/verify.ts` that probes for the CLI executable and config path before spawning agents, surfacing readiness via a new Breadcrumb "Readiness Pill".
+
+### Step 6 — Multi-workspace session restore
+Extended `src/main/core/session/session-restore.ts` to persist and restore the full list of open workspaces and their respective active rooms. Added legacy v1.1.2 normalization to ensure seamless migration.
+
+### Step 7 — Skills verification sweep
+Built `SkillsManager.verifyFanoutForWorkspace` in `src/main/core/skills/manager.ts`. On workspace open, SigmaLink now performs a content-hash check of enabled skills and automatically refreshes missing or corrupted copies in the workspace worktree.
+
+### Verification & Environment
+Resolved a `better-sqlite3` Node 26 `NODE_MODULE_VERSION` mismatch via manual `node-gyp` rebuild. Converted new test files from `node:test` to `vitest` for full test suite integration.
+- `pnpm exec vitest run` → 86/86 pass.
+- `npm run build` → Success (frontend + main/preload).
+
+**Phase 7 commits**:
+- `989a350` `feat(v1.1.3)`: multi-workspace + pane resume + grow swarms + ruflo pre-flight.
+
+**Next session restart point**: SigmaLink is at v1.1.3 on `main`. Current focus: V3 visual parity sprint (cosmetic tickets) and mobile-responsive hardening.

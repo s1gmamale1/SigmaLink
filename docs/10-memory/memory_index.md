@@ -100,3 +100,9 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-54 | Phase 6 — v1.1.2 Sigma Assistant parity: tool dispatch parity + live state tools + mailbox fanout fix + MCP autowrite | shipped | 1 |
 | T-55 | Environment fix: resolve better-sqlite3 Node 26 mismatch via manual node-gyp rebuild | shipped | 1 |
 | T-56 | Verification: 28/28 tests pass + production build success | shipped | 1 |
+| T-57 | Phase 7 — v1.1.3 multi-workspace support + Sidebar tab strip + overflow drawer | shipped | 1 |
+| T-58 | Pane resume: migration 0011 + session-id-extractor + resume-launcher | shipped | 1 |
+| T-59 | Swarm growth: swarms.addAgent RPC + add_agent Sigma tool + 20-agent grid layouts | shipped | 1 |
+| T-60 | Ruflo hardening: ensureStarted() + readiness pre-flight + Breadcrumb readiness pill | shipped | 1 |
+| T-61 | Multi-workspace session-restore + skills content-hash verification sweep | shipped | 1 |
+| T-62 | Environment fix: resolve better-sqlite3 Node 26 mismatch + convert test suite to Vitest | shipped | 1 |
