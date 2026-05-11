@@ -289,6 +289,34 @@ Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`;
 
 ---
 
+## v1.1.2 smoke-test follow-ups (2026-05-11) — must-fix before tag
+
+User dogfooded the v1.1.2-arm64 DMG (built off branch `v1.1.2-final` at commit `3b3627e`) and surfaced two real bugs that block the tag:
+
+### BUG-V1.1.2-01: Sigma Assistant doesn't actually know about its tools (dispatch dead-letter)
+- **Severity**: P1 (blocks v1.1.2 tag — supersedes the "tool dispatch parity PASS" verdict)
+- **Surface**: Sigma Assistant chat in right-rail panel
+- **Repro**: open Sigma Assistant; type "do you see how many panes are open?"
+- **Expected**: Sigma calls `list_active_sessions`, replies with concrete counts
+- **Actual**: Sigma replies: "I don't actually have access to the `list_active_sessions` tool in this environment — the Sigma tools listed in my prompt aren't wired up here. I can't see live pane or swarm state right now."
+- **Hypothesis**: the v1.1.2 work built the *receiving* side of tool dispatch (`runClaudeCliTurn.ts:routeToolUse` extended with `dispatchTool` callback + stdin write queue + `tool_result` envelopes) but did NOT build the *announcing* side. The Claude CLI is spawned with `claude -p ... --output-format stream-json --verbose --append-system-prompt "<ctx>"` — the `<ctx>` lists tools by NAME but the CLI's tool-use protocol requires tools be REGISTERED via an MCP server, not just described in prose. With no MCP server exposing the 13 Sigma tools to the child CLI, Claude never emits a `tool_use` envelope, the dispatcher never fires, and the live `list_*` tools are dead code.
+- **Owner**: coder-mcp-server (target v1.1.2 — must-fix)
+- **Status**: in-progress
+- **Attempts**: 0
+- **Notes**: Fix: build a `sigma-host-mcp-server.cjs` (model after the existing `app/src/main/core/memory/mcp-server.ts` → `electron-dist/mcp-memory-server.cjs` pattern). The server exposes the 13 tools from `tools.ts` via MCP stdio. `runClaudeCliTurn` writes a temp `.mcp.json` referencing the spawned server and passes `--mcp-config <temp.path>` to the `claude` CLI. The CLI then auto-discovers the tools, emits `tool_use` envelopes for them, the existing dispatcher catches them, and the round-trip we built actually fires.
+
+### BUG-V1.1.2-02: Workspace session state not persisted across restarts
+- **Severity**: P2
+- **Surface**: app launch
+- **Repro**: open a workspace, open the Command Room, spawn some panes; quit the app; relaunch
+- **Expected**: SigmaLink restores the last workspace, last room, and (ideally) the open panes' provider list — at minimum, the previously-active workspace is auto-opened
+- **Actual**: app launches to the workspace picker as if first-run; user must manually re-pick their workspace
+- **Hypothesis**: no `kv['app.lastSession']` write on quit / no auto-restore on `whenReady`. The kv pattern is already wired (used by `plan.tier`, `voice.mode`, `sidebar.collapsed`, etc); just needs a session-restore hook.
+- **Owner**: coder-session-state (target v1.1.2)
+- **Status**: in-progress
+- **Attempts**: 0
+- **Notes**: Minimum viable fix: emit `app:session-snapshot` from renderer on every SET_ACTIVE_WORKSPACE / SET_ROOM; main process caches + writes to kv on `before-quit`; on next boot after `did-finish-load`, send `app:session-restore` to renderer which dispatches the state. Pane-level restore (provider, count, prompts) deferred — falls to v1.2 (already persisted in `agent_sessions` table).
+
 ## v1.1.1 smoke-test follow-ups (2026-05-11)
 
 User dogfooded the v1.1.1 DMG (window drag + Sigma rebrand + Claude CLI streaming + voice diagnostics + single-instance lock). The four UX fixes ship as expected; three real-but-not-blocking gaps surfaced for v1.1.2:
