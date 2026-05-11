@@ -4,6 +4,39 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-05-12
+
+Single-bug hotfix on top of v1.1.4. No new features. No behavioural changes. The macOS DMG can now be downloaded from GitHub and opened by drag-to-/Applications without the user being told the bundle is "damaged".
+
+### Fixed
+
+- **macOS Gatekeeper "damaged and can't be opened" on downloaded DMG** — root cause: v1.1.0 turned on `hardenedRuntime: true` in `electron-builder.yml` without a corresponding signing identity, with a comment claiming hardened runtime was "harmless without a Developer ID". It isn't. electron-builder's identity auto-discovery found no Developer ID, silently produced a bundle whose only signature was the linker-injected ad-hoc stamp ld(1) puts on every Mach-O, and the bundle never gained a `Contents/_CodeSignature/CodeResources` resource seal. Chrome attaches `com.apple.quarantine` to downloads, Gatekeeper checks the signature, sees a seal-asserting ad-hoc sig with no actual `CodeResources` directory, and rejects with "damaged" (the destructive verdict — vs the recoverable "unidentified developer" prompt). Every DMG from v1.1.0..v1.1.4 carries the same defect; only fresh local builds escaped because they had no quarantine flag.
+
+### Added
+
+- **`scripts/adhoc-sign.cjs`** — new electron-builder `afterSign` hook (~70 lines including header comment). After packaging, runs `codesign --force --deep --sign - --timestamp=none "<App>.app"` to re-sign every nested Mach-O (Electron Framework + 4 SigmaLink helper apps + Squirrel + Mantle + ReactiveObjC + every `.node` native module) AND write a real `_CodeSignature/CodeResources` seal (20492 files sealed in the v1.1.5 bundle). Then runs `codesign --verify --deep --strict` and throws if it fails — silent ship-with-broken-sig regressions are now impossible.
+
+### Changed
+
+- **`electron-builder.yml` mac block**: `identity: null` (skip builder's signing pass — adhoc-sign.cjs owns it), `hardenedRuntime: false` (with ad-hoc signing the hardened runtime can't survive trust checks anyway; SigmaVoice TCC prompts depend on Info.plist keys not on hardened runtime). Long comment in the YAML documents the regression history and the migration path when a Developer ID is eventually acquired.
+
+### User workaround for v1.1.0..v1.1.4 DMGs already downloaded
+
+```bash
+xattr -cr ~/Downloads/SigmaLink-1.1.4-arm64.dmg
+open ~/Downloads/SigmaLink-1.1.4-arm64.dmg
+# drag to /Applications, then:
+xattr -cr /Applications/SigmaLink.app
+open /Applications/SigmaLink.app
+```
+
+`xattr -cr` strips `com.apple.quarantine`. Gatekeeper only enforces on quarantined apps; once stripped, the broken signature stops mattering.
+
+### Build hygiene
+
+- `pnpm exec tsc -b` clean. `pnpm exec vitest run` 108/114 (same pre-existing NMV-host-Node failures). `pnpm exec vite build` 354.95 KB raw / 97.57 KB gzip. `pnpm run lint` 59 (unchanged from v1.1.4).
+- `codesign --verify --deep --strict --verbose=2 SigmaLink.app` returns exit 0 with `valid on disk` + `satisfies its Designated Requirement`. `Sealed Resources version=2 rules=13 files=20492`. v1.1.4 had `Sealed Resources=none`.
+
 ## [1.1.4] - 2026-05-11
 
 V3 BridgeMind visual parity sweep. Frontend-only release; backend touches: zero. RPC channels touched: zero. The functional pipeline from v1.1.3 is preserved exactly; what changes is the chrome around it. (For v1.1.2 + v1.1.3 release narrative, see `docs/09-release/release-notes-1.1.2.txt` + `release-notes-1.1.3.txt`.)

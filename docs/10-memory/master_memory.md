@@ -665,6 +665,29 @@ Built `RightRailSwitcher.tsx` (86 lines) — a three-button segmented control (G
 ### Coordination
 Four parallel coder agents (`coder-workspaces-panel`, `coder-rooms-menu`, `coder-rail-switcher`, `coder-pane-header`) executed in one swarm dispatch. `coder-rail-switcher` waited on SendMessage from `coder-rooms-menu` before editing Breadcrumb.tsx (both touched the same file). Each coder self-tested. Lead verified aggregate gates + fixed the PaneHeader.test.tsx tsc errors flagged by coder-workspaces-panel before tagging.
 
-**Phase 8 commits**: TBD (set at tag time).
+**Phase 8 commits**:
+- `4a8d7c7` `feat(v1.1.4)`: V3 visual parity layout sweep.
 
-**Next session restart point**: SigmaLink is at v1.1.4 on `main`. Visual parity to V3 BridgeMind is now in place across sidebar / top bar / pane chrome / grid shape. v1.1.5 cleanup pass: split state.tsx (996 lines) + factory.ts (713 lines) under 500-line rule, promote 3 stub schemas to real zod, fix CI cache-dependency-path. v1.2 backlog: Split + Minimise pane actions, notifications system, V3 orange brand (held — primary blue stays for SigmaLink), x64 macOS DMG matrix.
+---
+
+## Phase 9 — v1.1.5 Gatekeeper "damaged" hotfix (2026-05-12)
+
+Hours after the v1.1.4 ship, user downloaded the DMG from GitHub via Chrome and got "SigmaLink is damaged and can't be opened" on drag to /Applications. Deployed a two-agent investigation team. `dmg-forensics` confirmed: `Signature=adhoc, flags=adhoc,linker-signed, Sealed Resources=none, _CodeSignature/CodeResources missing entirely`. `builder-config-research` clarified that electron-builder 24.13.3 does NOT parse `identity: "-"` as ad-hoc (treats it as a keychain qualifier) — so the only working path is `identity: null` plus an `afterSign` hook that runs codesign manually.
+
+### Root cause
+
+v1.1.0 turned on `hardenedRuntime: true` for SigmaVoice with a comment claiming hardened runtime was "harmless without a Developer ID". It wasn't. electron-builder's identity auto-discovery found no Developer ID, silently produced a bundle whose only signature was the linker-injected ad-hoc stamp ld(1) puts on every Mach-O, and the bundle never gained a `Contents/_CodeSignature/CodeResources` resource seal. Chrome attaches `com.apple.quarantine` to downloads, Gatekeeper checks the signature, sees a seal-asserting ad-hoc sig with no actual `CodeResources` directory, and rejects with "damaged" (the destructive verdict). Every DMG from v1.1.0..v1.1.4 carries the same defect; only fresh local builds escaped because they had no quarantine flag.
+
+### Fix
+
+- New `scripts/adhoc-sign.cjs` electron-builder `afterSign` hook (~70 lines including header comment). Runs `codesign --force --deep --sign - --timestamp=none "<App>.app"` after packaging completes, then runs `codesign --verify --deep --strict` and throws if it fails.
+- `electron-builder.yml` mac block: `identity: null` (skip builder's signing pass), `hardenedRuntime: false`. Long inline comment documents the regression history and the migration path when a Developer ID is eventually acquired.
+- Bundle now passes verification with `Sealed Resources version=2 rules=13 files=20492` (was `Sealed Resources=none` in v1.1.4).
+
+### Outcome
+
+DMG now ships with proper ad-hoc signature + resource seal. Gatekeeper surfaces "unidentified developer" (recoverable right-click → Open) instead of "damaged" (destructive). Still no notarisation; that requires Apple Developer ID + APPLE_ID env vars + `notarize: true` config — held until SigmaLink monetises and can absorb the membership fee.
+
+**Phase 9 commits**: TBD (set at tag time).
+
+**Next session restart point**: SigmaLink is at v1.1.5 on `main`. v1.1.4 release page on GitHub annotated with the `xattr -cr` workaround for downloaders who hit the damaged dialog. v1.1.6+ cleanup pass: split state.tsx (996 lines) + factory.ts (713 lines) under 500-line rule, promote 3 stub schemas to real zod, fix CI cache-dependency-path. v1.2 backlog: Split + Minimise pane actions, notifications system, V3 orange brand (held — primary blue stays), x64 macOS DMG matrix, macOS notarisation (if Developer ID).

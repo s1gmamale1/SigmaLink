@@ -32,12 +32,37 @@ extraResources:
     to: dist
 mac:
   category: public.app-category.developer-tools
-  # v1.1 — SigmaVoice (BridgeVoice native macOS) requires hardened runtime so
-  # the entitlements plist below activates. Hardened runtime is inert without
-  # a Developer ID signing identity (we ship unsigned for now), but harmless;
-  # turning it on early lets future notarisation work without an electron-
-  # builder churn round.
-  hardenedRuntime: true
+  # v1.1.5 — fix Gatekeeper "damaged" dialog on downloaded DMGs.
+  #
+  # v1.1.0 turned on `hardenedRuntime: true` for SigmaVoice with a comment
+  # claiming it was "harmless without a Developer ID". That was wrong. With
+  # no signing identity declared, electron-builder's auto-discovery silently
+  # produced a bundle whose only signature was the linker-injected ad-hoc
+  # one stamped into the Mach-O. The bundle had no
+  # `Contents/_CodeSignature/CodeResources` at all, so any quarantined
+  # download (Chrome / Safari attaches `com.apple.quarantine` xattr)
+  # triggered Gatekeeper's "is damaged and can't be opened" verdict instead
+  # of the gentler "unidentified developer" right-click-to-open prompt.
+  #
+  # electron-builder 24.13.x does NOT parse `identity: "-"` as ad-hoc — it
+  # treats it as a keychain identity qualifier and falls back to the same
+  # broken state. So v1.1.5 uses `identity: null` (tells builder to skip its
+  # own signing pass) plus an `afterSign` hook that calls
+  # `codesign --force --deep --sign -` ourselves. The hook writes a proper
+  # `_CodeSignature/CodeResources` seal across every Mach-O including the
+  # native modules (better-sqlite3.node, node-pty's pty.node, Electron
+  # Framework, Squirrel helpers).
+  #
+  # Hardened runtime is turned OFF in this release. With ad-hoc signing it
+  # cannot survive the trust checks anyway, and SigmaVoice's TCC prompts
+  # (NSMicrophoneUsageDescription, NSSpeechRecognitionUsageDescription)
+  # depend on Info.plist keys, not on hardened runtime.
+  #
+  # When someone later acquires a Developer ID: drop the afterSign hook,
+  # set `identity` to the cert CN, flip `hardenedRuntime: true`, add
+  # `notarize: true`, and wire CSC_*/APPLE_ID env vars.
+  identity: null
+  hardenedRuntime: false
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
@@ -78,3 +103,8 @@ publish:
   provider: github
   owner: s1gmamale1
   repo: SigmaLink
+# v1.1.5 — ad-hoc codesign sweep after electron-builder finishes packing.
+# See the long comment under `mac:` for context. Hook signature matches
+# electron-builder's afterSign contract: receives `{ appOutDir, packager }`
+# and runs synchronously before DMG/zip artefacts are produced.
+afterSign: scripts/adhoc-sign.cjs

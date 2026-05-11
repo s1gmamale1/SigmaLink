@@ -1,0 +1,138 @@
+SigmaLink v1.1.5 — Gatekeeper "damaged" dialog fix
+
+This is a SINGLE-BUG hotfix on top of v1.1.4. No new features. No
+behavioural changes. The only difference from v1.1.4 is that the
+macOS DMG can now be downloaded from GitHub and opened by drag-to-
+/Applications without the user being told the bundle is damaged.
+
+Why v1.1.5 exists
+==================
+
+A user dogfooding v1.1.4 downloaded the DMG from
+https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.4 via
+Chrome, dragged SigmaLink.app to /Applications, and double-clicked.
+macOS displayed:
+
+  "SigmaLink" is damaged and can't be opened. You should move it to
+  the Trash.
+
+Forensic inspection revealed the bundle had only the linker-injected
+ad-hoc signature ld(1) stamps into a Mach-O — the
+`Contents/_CodeSignature/CodeResources` resource seal directory was
+entirely missing. With macOS's `com.apple.quarantine` xattr attached
+by Chrome to downloads, Gatekeeper rejects bundles in that state
+with the destructive "damaged" verdict (rather than the recoverable
+"unidentified developer" right-click-to-open prompt).
+
+This regression was introduced in v1.1.0 when `hardenedRuntime: true`
+was turned on for SigmaVoice without a corresponding signing config.
+electron-builder's identity auto-discovery found no Developer ID,
+silently fell back to producing a bundle with no `_CodeSignature`
+directory, and the comment in the YAML insisted hardened runtime was
+"harmless without a Developer ID" — it isn't. Every DMG from v1.1.0
+through v1.1.4 has the same defect; only fresh local builds escaped
+because they had no quarantine flag.
+
+What v1.1.5 does
+================
+
+1. **`scripts/adhoc-sign.cjs`** (NEW) — an electron-builder
+   `afterSign` hook that runs after packaging completes. It invokes
+   `codesign --force --deep --sign - --timestamp=none "<App>.app"`
+   to re-sign every nested Mach-O (Electron Framework, the four
+   SigmaLink helper apps, Squirrel, Mantle, ReactiveObjC, every
+   `.node` native module including better-sqlite3 and node-pty)
+   AND writes a real `_CodeSignature/CodeResources` resource seal.
+   Then it runs `codesign --verify --deep --strict` and throws if
+   verification fails — so silent ship-with-broken-sig regressions
+   are impossible going forward.
+
+2. **`electron-builder.yml`** mac block now sets `identity: null`
+   (skip the builder's signing pass — we own it) and flips
+   `hardenedRuntime: false` (with ad-hoc signing the hardened
+   runtime cannot survive trust checks anyway, and SigmaVoice's
+   TCC prompts depend on Info.plist keys not on hardened runtime).
+
+The resulting DMG passes `codesign --verify --deep --strict` cleanly:
+
+    valid on disk
+    satisfies its Designated Requirement
+    Signature=adhoc
+    Sealed Resources version=2 rules=13 files=20492
+
+The bundle is still not trusted by Gatekeeper (no Developer ID, no
+notarisation — those require an Apple Developer Program membership).
+On first launch macOS will show "unidentified developer" with two
+recoverable paths:
+
+  * Right-click SigmaLink in /Applications → Open → Open in the
+    confirmation dialog (one-time).
+  * Or from Terminal: `xattr -dr com.apple.quarantine /Applications/SigmaLink.app`
+
+If you still have the BROKEN v1.1.4 DMG installed
+==================================================
+
+The cleanest path is to download v1.1.5 fresh. But if you want to
+unblock the v1.1.4 install you already have:
+
+    xattr -cr ~/Downloads/SigmaLink-1.1.4-arm64.dmg
+    open ~/Downloads/SigmaLink-1.1.4-arm64.dmg
+    # drag to /Applications, then:
+    xattr -cr /Applications/SigmaLink.app
+    open /Applications/SigmaLink.app
+
+`xattr -cr` strips every extended attribute, including
+`com.apple.quarantine`. Once stripped, Gatekeeper won't reassess.
+
+Build hygiene
+=============
+
+* `pnpm exec tsc -b` → clean
+* `pnpm exec vitest run` → 108/114 pass (same 6 pre-existing
+  better-sqlite3 NMV-host-Node failures as v1.1.4)
+* `pnpm run lint` → 59 problems (unchanged from v1.1.4)
+* `pnpm exec vite build` → 354.95 KB raw / 97.57 KB gzipped
+* `codesign --verify --deep --strict --verbose=2 SigmaLink.app` →
+  exit 0, "valid on disk" + "satisfies its Designated Requirement"
+* `_CodeSignature/CodeResources` present, sealed 20492 files
+
+Carried forward
+===============
+
+Every v1.1.4 surface intact: the WorkspacesPanel sidebar redesign,
+top-left RoomsMenuButton dropdown, top-right RightRailSwitcher +
+settings gear, collapsed PaneHeader with truncated label + 4 icons
++ tooltip + right-click context menu, 9-pane 3×3 grid layout. Plus
+every v1.1.0..v1.1.3 feature: multi-workspace tabs, pane resume,
+growable swarms, Sigma Assistant CLI streaming, Ruflo readiness,
+single-instance lock, window drag.
+
+Distribution scope
+==================
+
+arm64-only macOS DMG, same dance as v1.1.1 through v1.1.4. x64
+macOS DMG remains deferred to v1.2 (needs CI matrix with per-arch
+native rebuilds). Intel-Mac users: stay on v1.0.1 (which predated
+the hardened-runtime regression) or wait for v1.2.
+
+Known issues (unchanged from v1.1.4)
+=====================================
+
+* macOS notarisation requires Apple Developer ID — not in scope.
+  All v1.1.x DMGs are ad-hoc signed; right-click → Open works.
+* "Hey Sigma" wake-word — Porcupine licensing forbids bundled key.
+* Win SAPI + Linux Whisper.cpp voice deferred to v1.2.
+* state.tsx (996 lines) + swarms/factory.ts (713 lines) still
+  exceed the 500-line/file rule.
+* CI workflow `cache-dependency-path` resolves to a stale path.
+* 3 stub RPC schemas (panes.resume, swarms.addAgent,
+  skills.verifyForWorkspace) still use `{input: any, output: any}`.
+
+Upgrade path
+============
+
+Drop the new SigmaLink.app into /Applications. Existing kv state +
+workspaces + agent sessions survive — no migrations in this release.
+First launch will show the standard macOS "unidentified developer"
+prompt; right-click → Open accepts it. After that initial
+acceptance, normal double-click launches work forever.

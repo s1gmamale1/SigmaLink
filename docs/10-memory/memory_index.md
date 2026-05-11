@@ -111,3 +111,5 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-68 | Top-right RightRailSwitcher segmented control + Settings gear + RightRailContext state lift | shipped | 1 |
 | T-69 | Pane header collapse: h-7+h-6 → single h-7 with 4 icons + tooltip + right-click Stop context menu; PaneStatusStrip deleted | shipped | 1 |
 | T-70 | GridLayout 9-pane 3×3 fix + PaneHeader.test.tsx Element.prototype tsc narrowing fix | shipped | 1 |
+| T-71 | Phase 9 — v1.1.5 Gatekeeper "damaged" hotfix: investigate root cause + adhoc-sign.cjs afterSign hook | shipped | 1 |
+| T-72 | electron-builder.yml: identity null + hardenedRuntime false; v1.1.4 release page xattr workaround note | shipped | 1 |
