@@ -5,9 +5,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
 import { maybeCheckOnBoot } from './auto-update';
+import { isAllowedEvent } from '../src/shared/rpc-channels';
+import {
+  getCachedSnapshot,
+  persistCachedSnapshot,
+  readSessionSnapshot,
+  rememberSessionSnapshot,
+} from '../src/main/core/session/session-restore';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -242,6 +249,25 @@ function createWindow(): void {
     void mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
+  // BUG-V1.1.2-02 — once the renderer's bundle has loaded, push the persisted
+  // session snapshot so AppStateProvider can dispatch SET_ACTIVE_WORKSPACE +
+  // SET_ROOM. `did-finish-load` fires before React mounts; the renderer
+  // queues the event on `window.sigma.eventOn(...)` from inside an effect
+  // that races the IPC payload arrival — Electron buffers `send` until at
+  // least one listener exists per channel, but to stay defensive we only
+  // emit when a snapshot actually exists. A missing/corrupt row is silently
+  // ignored so the user lands on the picker (= identical to first-run).
+  mainWindow.webContents.once('did-finish-load', () => {
+    try {
+      const snapshot = readSessionSnapshot();
+      if (snapshot && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('app:session-restore', snapshot);
+      }
+    } catch {
+      /* never block boot on session restore */
+    }
+  });
+
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
     // V3-W14-009 — re-run the native-module probe once the renderer is
@@ -302,6 +328,19 @@ if (!gotLock) {
   });
 }
 
+// BUG-V1.1.2-02 — Renderer pushes `app:session-snapshot { workspaceId, room }`
+// every time the active workspace or room changes (throttled to ≤ 1/sec).
+// `rememberSessionSnapshot` runs the zod schema on the payload and silently
+// drops anything malformed so a compromised renderer can't poison the kv
+// row. The kv write itself happens once from `before-quit` so we don't
+// thrash the WAL during a normal session. The `isAllowedEvent` guard is
+// defence-in-depth: the channel is already in the allowlist or this main
+// process would never have registered the listener at all.
+ipcMain.on('app:session-snapshot', (_event, payload: unknown) => {
+  if (!isAllowedEvent('app:session-snapshot')) return;
+  rememberSessionSnapshot(payload);
+});
+
 void app.whenReady().then(() => {
   // BUG-V1.1-03-PROV — pull the user's interactive-shell PATH into the main
   // process before any provider PTY spawns, so DMG-launched apps can find
@@ -335,6 +374,20 @@ app.on('window-all-closed', () => {
 // Graceful shutdown: kill live PTYs, flush + close SQLite WAL. Without this,
 // surviving sessions are left "running" in the DB and unfinalised WAL pages
 // linger on disk. `before-quit` may fire on macOS even when windows remain.
+//
+// BUG-V1.1.2-02 — Persist the renderer's last-known workspace + room BEFORE
+// shutting the router down: the kv write runs through `getRawDb()` and that
+// handle gets closed inside `shutdownRouter` → `closeDatabase()`. A flush
+// after the close would be a no-op. The renderer may already be torn down
+// at this point, so we cannot ask it for the snapshot — we rely on the
+// cached value seeded by `app:session-snapshot` IPC events during the run.
 app.on('before-quit', () => {
+  try {
+    if (getCachedSnapshot()) {
+      persistCachedSnapshot();
+    }
+  } catch {
+    /* never let session persistence block shutdown */
+  }
   shutdownRouter();
 });

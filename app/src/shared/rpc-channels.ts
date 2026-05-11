@@ -273,6 +273,15 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // progress bar without polling.
   'ruflo:health',
   'ruflo:install-progress',
+  // BUG-V1.1.2-02 — Session restore. `app:session-snapshot` is a renderer →
+  // main fire-and-forget (via `eventSend`) that caches the active workspace
+  // + room so the next boot can resume them. `app:session-restore` is the
+  // main → renderer event the boot path emits once the renderer signals it
+  // has finished loading. Both flow through the existing event allowlist;
+  // the snapshot side rides on the `eventSend` API in the preload so we
+  // don't have to expose an RPC channel for a one-shot push.
+  'app:session-snapshot',
+  'app:session-restore',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {

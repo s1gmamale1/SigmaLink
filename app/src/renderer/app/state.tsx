@@ -37,6 +37,28 @@ export type RoomId =
   | 'bridge'
   | 'settings';
 
+// BUG-V1.1.2-02 — Runtime mirror of the `RoomId` union so the session-restore
+// handler can narrow an incoming string before dispatching SET_ROOM. Adding a
+// room here is a one-line edit; failing to add one means the restore silently
+// drops back to 'workspaces' for that pane — never a crash.
+const VALID_ROOMS: ReadonlySet<RoomId> = new Set<RoomId>([
+  'workspaces',
+  'command',
+  'swarm',
+  'operator',
+  'review',
+  'tasks',
+  'memory',
+  'browser',
+  'skills',
+  'bridge',
+  'settings',
+]);
+
+function isRoomId(value: unknown): value is RoomId {
+  return typeof value === 'string' && VALID_ROOMS.has(value as RoomId);
+}
+
 export interface AppState {
   ready: boolean;
   room: RoomId;
@@ -415,6 +437,89 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       alive = false;
     };
   }, []);
+
+  // BUG-V1.1.2-02 — Session restore on boot. The main process emits
+  // `app:session-restore` once `did-finish-load` fires; we wait until the
+  // workspace list has hydrated (`state.ready === true`) before activating
+  // the workspace so the SET_ACTIVE_WORKSPACE dispatch can verify the row
+  // still exists. A missing row (deleted/moved workspace) falls back to the
+  // picker — no crash, no toast. The room dispatch only fires if the
+  // restored room is a known `RoomId`; an unknown room from a downgrade
+  // path keeps the user on 'workspaces' (the default for a fresh boot).
+  //
+  // We hold the payload across a possibly-not-yet-ready render in a ref so
+  // the listener can attach immediately (don't miss the event if main
+  // pushes before our effect runs).
+  const pendingRestoreRef = useRef<{ workspaceId: string; room: string } | null>(null);
+  useEffect(() => {
+    const off = window.sigma.eventOn('app:session-restore', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown; room?: unknown };
+      if (typeof p.workspaceId !== 'string' || !p.workspaceId) return;
+      if (typeof p.room !== 'string' || !p.room) return;
+      pendingRestoreRef.current = { workspaceId: p.workspaceId, room: p.room };
+    });
+    return off;
+  }, []);
+
+  // Drain the pending restore once the workspace list has loaded so we can
+  // safely look up the workspace by id. Runs whenever `state.ready` flips
+  // (cold boot) or whenever the workspace list re-syncs (a deleted workspace
+  // shows up here as a no-op). Idempotent — clearing the ref guarantees a
+  // single dispatch per snapshot.
+  useEffect(() => {
+    if (!state.ready) return;
+    const pending = pendingRestoreRef.current;
+    if (!pending) return;
+    const match = state.workspaces.find((w) => w.id === pending.workspaceId);
+    if (!match) {
+      // Workspace was deleted/moved between sessions; fall back to picker.
+      pendingRestoreRef.current = null;
+      return;
+    }
+    dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: match });
+    if (isRoomId(pending.room)) {
+      dispatch({ type: 'SET_ROOM', room: pending.room });
+    }
+    pendingRestoreRef.current = null;
+  }, [state.ready, state.workspaces]);
+
+  // BUG-V1.1.2-02 — Persist on change. Every time the active workspace or
+  // room actually changes, fire-and-forget `app:session-snapshot` so the
+  // main process can flush it to kv on the next quit. Throttled to ≤ 1
+  // event/sec so a rapid sequence of room toggles doesn't spam IPC; the
+  // trailing-edge timer guarantees the final state still lands.
+  //
+  // We deliberately skip emission while the boot flow is still hydrating
+  // (`state.ready === false`) so the persisted row doesn't get overwritten
+  // by the initial 'workspaces' default before the restore effect runs.
+  const lastSnapshotRef = useRef<string>('');
+  const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!state.ready) return;
+    const wsId = state.activeWorkspace?.id;
+    if (!wsId) return;
+    const key = `${wsId}::${state.room}`;
+    if (key === lastSnapshotRef.current) return;
+    lastSnapshotRef.current = key;
+    if (snapshotTimerRef.current) clearTimeout(snapshotTimerRef.current);
+    snapshotTimerRef.current = setTimeout(() => {
+      try {
+        window.sigma.eventSend('app:session-snapshot', {
+          workspaceId: wsId,
+          room: state.room,
+        });
+      } catch {
+        /* preload bridge gone — nothing actionable on the renderer side */
+      }
+    }, 250);
+    return () => {
+      if (snapshotTimerRef.current) {
+        clearTimeout(snapshotTimerRef.current);
+        snapshotTimerRef.current = null;
+      }
+    };
+  }, [state.ready, state.activeWorkspace?.id, state.room]);
 
   // Listen for PTY exit so the UI can mark sessions accordingly.
   useEffect(() => {
