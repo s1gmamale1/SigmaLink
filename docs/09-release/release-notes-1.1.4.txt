@@ -1,0 +1,189 @@
+SigmaLink v1.1.4 — V3 visual parity layout sweep
+
+v1.1.3 nailed the runtime behaviour (multi-workspace, pane resume,
+growable swarms). v1.1.4 makes SigmaLink LOOK like V3 BridgeMind —
+the layout the user has been referencing as the target design.
+
+This is a frontend-only release. Backend touches: zero. RPC channels
+touched: zero. The functional pipeline from v1.1.3 is preserved
+exactly; what changes is the chrome around it.
+
+What's new
+==========
+
+1. Workspaces panel replaces the mixed sidebar
+-----------------------------------------------
+
+The left sidebar was a hybrid: 12 room nav items + a workspace-tabs
+footer. v1.1.4 makes it a PURE WORKSPACES PANEL — every open
+workspace is a full row, scrollable, with:
+
+  * a colour dot derived deterministically from the workspace id
+    (hash → 8-colour palette: pink / blue / purple / amber / emerald
+    / rose / cyan / indigo)
+  * the workspace name (truncated)
+  * a pane-count badge counting running sessions only
+  * a close × button visible on hover for the active row
+
+The 8-tab cap + overflow drawer from v1.1.3 is gone — the list
+scrolls. Sidebar.tsx dropped from ~500 lines to 147 lines.
+
+State model unchanged: still `openWorkspaces[] + activeWorkspaceId`
+from v1.1.3. The selector pattern keeps existing components working.
+
+2. Top-left rooms menu dropdown
+--------------------------------
+
+Removing the 12 room-nav items from the sidebar (above) left a hole.
+The new RoomsMenuButton at the left edge of the breadcrumb is a
+single LayoutGrid icon that opens a Radix DropdownMenu listing all
+the rooms (Workspaces, Command, Swarm, Operator, Review, Tasks,
+Memory, Browser, Skills, Sigma, Settings — 11 in the actual RoomId
+union, not the 12 the plan estimated).
+
+Disabled-when-no-workspace logic mirrors v1.1.3 sidebar behaviour
+exactly: Workspaces, Settings, Skills, and Sigma are always
+enabled; the rest grey out until a workspace is opened. The active
+room is marked with a check.
+
+3. Top-right right-rail switcher + settings gear
+-------------------------------------------------
+
+The right-rail tabs (Browser / Editor / Sigma) used to live INSIDE
+the right rail as an always-visible h-9 strip. v1.1.4 lifts them
+into a segmented control at the right edge of the breadcrumb:
+
+  [Globe Browser] [FileCode2 Editor] [Bot Sigma]   [Settings gear]
+
+The in-rail tab strip is hidden. A new RightRailContext lifts the
+active-tab state so the top-bar switcher and the rail content stay
+in sync without prop drilling. The kv persistence the rail used
+before (rightRail.tab) is preserved verbatim — your last-active
+rail tab still restores across boot.
+
+The settings gear dispatches SET_ROOM with 'settings'. The
+notifications bell V3 also shows is explicitly out of scope — no
+notification source exists yet.
+
+4. Per-pane header collapse
+----------------------------
+
+Each pane previously had TWO header strips: a h-7 PaneHeader
+(provider colour + name + branch + Stop + Close) and a h-6
+PaneStatusStrip (model + effort + cwd). v1.1.4 collapses them into
+a single h-7 strip:
+
+  [2px colour stripe] · [PROVIDER·1 truncated]  ·  spacer  ·  [⊞] [║] [▽] [×]
+
+  ⊞ = Focus (fullscreen this pane via existing paneFocus state)
+  ║ = Split (disabled, "Coming in v1.2" tooltip)
+  ▽ = Minimise (disabled, "Coming in v1.2" tooltip)
+  × = Close (rpc.pty.kill)
+
+The branch / model / effort / cwd labels move into a Radix tooltip
+on hover of the provider name. The Stop button moves into a
+right-click context menu on the pane body (with a Stop item that
+disables when the session is exited or errored).
+
+Pane index is appended to the provider label (CLAUDE·1, CODEX·2)
+so adjacent same-provider panes stay distinguishable when truncated.
+
+PaneStatusStrip.tsx is deleted. CommandRoom.tsx PaneCell adjusts
+its height accounting accordingly.
+
+5. 9-pane layout: 3×3, not 4×3
+-------------------------------
+
+GridLayout.shapeFor(9) previously returned { cols: 4, rows: 3 }
+(one empty cell — looked ragged in the V3 reference). v1.1.4 adds a
+tier `if (count === 9) return { cols: 3, rows: 3 };` above the
+count<=12 line. 10/11/12 panes stay at 4×3.
+
+Build hygiene
+=============
+
+* `pnpm exec tsc -b` → clean (exit 0)
+* `pnpm exec vitest run` → 108/114 pass renderer-side; the 6
+  failures are the pre-existing better-sqlite3 NODE_MODULE_VERSION
+  mismatch on host-Node main-process tests (NMV 123 vs 147),
+  unchanged from v1.1.3.
+* `pnpm exec vite build` → main bundle 354.95 KB raw / 97.57 KB
+  gzipped (under 700 KB target)
+* `pnpm run lint` → 59 problems (58 errors / 1 warning), DOWN 1
+  from v1.1.3's 60-problem ceiling. All pre-existing families.
+* No new `any` casts, `@ts-ignore`, or `eslint-disable` in any of
+  the new files.
+* 28 new vitest specs across the 4 new test files:
+  - workspace-color.test.ts (4 tests — hash determinism + palette
+    spread)
+  - WorkspacesPanel.test.tsx (6 tests — pane-count badge, close
+    button on active row, "+" picker)
+  - RoomsMenuButton.test.tsx (8 tests — all rooms render,
+    selection dispatches SET_ROOM, disabled-state logic)
+  - RightRailSwitcher.test.tsx (3 tests — segment click updates
+    context, gear dispatches SET_ROOM('settings'))
+  - PaneHeader.test.tsx (7 tests — truncated label, Focus + Close
+    handlers, Split + Minimise disabled, tooltip body content)
+
+Distribution
+============
+
+arm64-only macOS DMG, same as v1.1.1 / v1.1.2 / v1.1.3. Pre-build
+dance for each manual arm64 release:
+
+  npx electron-rebuild --version $(node -p "require('./node_modules/electron/package.json').version") \
+    --module-dir node_modules/.pnpm/better-sqlite3@<ver>/node_modules/better-sqlite3 \
+    --types prod -f
+
+Pin to Electron 30.5.1 (NMV 123) — the host's `node` 26 (NMV 147)
+is binary-incompatible if you forget `--version` to electron-rebuild.
+
+Carried forward
+===============
+
+All v1.1.0 → v1.1.3 surfaces intact: window drag across chrome
+regions, Sigma rebrand, real Claude CLI streaming with MCP host
+server, voice diagnostics in Settings, single-instance lock,
+multi-workspace tabs (now repackaged in the new WorkspacesPanel),
+session-restore for workspaces + room + panes, growable swarms,
+Ruflo pre-flight + per-CLI skills verification.
+
+Known issues / deferred to v1.1.5
+==================================
+
+* `state.tsx` (996 lines) and `swarms/factory.ts` (713 lines)
+  still exceed the 500-line/file project rule. Refactor still on
+  the v1.1.5 docket.
+* CI workflow `cache-dependency-path` resolves to a stale path on
+  the runners; 4 jobs fail at Setup Node. Local gates all green;
+  CI fix is a separate hygiene PR.
+* 3 stub schemas (panes.resume, swarms.addAgent,
+  skills.verifyForWorkspace) still use `{ input: any, output: any }`
+  rather than real zod shapes. Functional, not strictly validated.
+* Split + Minimise pane icons are visual-only placeholders with
+  "Coming in v1.2" tooltips. The Split icon (Columns2) and
+  Minimise icon (Minimize2) are wired to the UI but do nothing.
+
+Known issues (unchanged from v1.1.3)
+=====================================
+
+* "Hey Sigma" wake-word — Porcupine licensing forbids bundled key.
+* macOS notarisation — needs Apple Developer ID; DMG ships unsigned.
+* @playwright/test ≥ 1.60 bump for Node-26 loader race.
+* Win SAPI + Linux Whisper.cpp voice deferred to v1.2.
+* Gemini pane resume not implemented (gemini CLI lacks --resume).
+* Notifications bell + notification system — explicitly deferred.
+* V3 orange active-pane ring — SigmaLink primary blue stays; the
+  brand rebrand applies.
+
+Upgrade path
+============
+
+Drop the new SigmaLink.app into /Applications. Existing kv state +
+workspaces + agent sessions survive — no migrations in this release.
+Your last-active rail tab + last-opened workspaces + per-workspace
+panes all restore exactly as in v1.1.3.
+
+The full v1.1.4 plan lived at
+~/.claude/plans/download-a-skill-plugin-that-lexical-pinwheel.md.
+Phase 8 narrative in docs/10-memory/master_memory.md.

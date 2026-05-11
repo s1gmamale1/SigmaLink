@@ -18,6 +18,7 @@ import { CommandPalette } from '@/renderer/features/command-palette/CommandPalet
 import { OnboardingModal } from '@/renderer/features/onboarding/OnboardingModal';
 import { NativeRebuildModal } from '@/renderer/components/NativeRebuildModal';
 import { RightRail } from '@/renderer/features/right-rail/RightRail';
+import { RightRailProvider } from '@/renderer/features/right-rail/RightRailContext';
 import { useRightRailEnabled } from '@/renderer/features/right-rail/use-right-rail-enabled';
 import { ThemeProvider } from '@/renderer/app/ThemeProvider';
 import { AppStateProvider, useAppState } from '@/renderer/app/state';
@@ -91,21 +92,27 @@ export default function App() {
   return (
     <AppStateProvider>
       <ThemeProvider>
-        <div className="flex h-full w-full">
-          <Sidebar />
-          <main className="flex min-h-0 flex-1 flex-col">
-            {/* V3-W15-001 — title-bar BridgeVoice pill overlays the breadcrumb
-                while a voice session is active. The pill auto-hides 200ms
-                after capture stops so we don't reserve layout space. */}
-            <div className="relative">
-              <Breadcrumb />
-              <div className="pointer-events-none absolute inset-x-0 top-0 flex h-8 items-center justify-center">
-                <VoicePill />
+        {/* v1.1.4 Step 3 — the right-rail's active-tab state lives in
+            `RightRailContext` so both the top-bar `RightRailSwitcher`
+            (inside Breadcrumb) and the rail itself (`RightRail`) share
+            one source of truth. The provider wraps both. */}
+        <RightRailProvider>
+          <div className="flex h-full w-full">
+            <Sidebar />
+            <main className="flex min-h-0 flex-1 flex-col">
+              {/* V3-W15-001 — title-bar BridgeVoice pill overlays the breadcrumb
+                  while a voice session is active. The pill auto-hides 200ms
+                  after capture stops so we don't reserve layout space. */}
+              <div className="relative">
+                <Breadcrumb />
+                <div className="pointer-events-none absolute inset-x-0 top-0 flex h-8 items-center justify-center">
+                  <VoicePill />
+                </div>
               </div>
-            </div>
-            <MainBody />
-          </main>
-        </div>
+              <MainBody />
+            </main>
+          </div>
+        </RightRailProvider>
         <CommandPalette />
         <OnboardingModal />
         <NativeRebuildModal />

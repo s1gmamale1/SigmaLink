@@ -1,15 +1,22 @@
-// V3-W13-003 / V3-W13-004: Command Room — multi-pane terminal grid.
+// V3-W13-003 / V3-W13-004 / v1.1.4 Step 4: Command Room — multi-pane grid.
 //
 // Renders the per-workspace agent sessions inside a generic <GridLayout>.
-// Each cell stacks: PaneHeader · PaneStatusStrip · (PaneSplash overlay +
+// Each cell stacks: PaneHeader (single h-7 strip) · (PaneSplash overlay +
 // SessionTerminal) · PaneFooter. The grid honours the launcher's preset
-// shape (1/2/4/6/8/10/12) and supports per-cell drag resize plus
-// Cmd+Alt+<N> focus jumps.
+// shape (1/2/3×3/4/6/8/9/10/12) and supports per-cell drag resize plus
+// Cmd+Alt+<N> focus jumps. The legacy PaneStatusStrip was collapsed into
+// PaneHeader's provider-name tooltip; Stop moves to the right-click menu.
 
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Terminal as TerminalIcon } from 'lucide-react';
+import { Plus, Square, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +30,6 @@ import { SessionTerminal } from './Terminal';
 import { GridLayout } from './GridLayout';
 import { PaneHeader } from './PaneHeader';
 import { PaneSplash } from './PaneSplash';
-import { PaneStatusStrip } from './PaneStatusStrip';
 import { PaneFooter } from './PaneFooter';
 import type { AgentSession } from '@/shared/types';
 
@@ -227,9 +233,11 @@ export function CommandRoom() {
               dispatch({ type: 'SET_ACTIVE_SESSION', id: s.id });
             }
           }}
-          renderCell={(session) => (
+          renderCell={(session, ctx) => (
             <PaneCell
               session={session}
+              paneIndex={ctx.index + 1}
+              onFocus={() => ctx.activate()}
               onRemove={() => handleRemove(session)}
               onStop={() => handleStop(session)}
             />
@@ -242,34 +250,66 @@ export function CommandRoom() {
 
 function PaneCell({
   session,
+  paneIndex,
+  onFocus,
   onRemove,
   onStop,
 }: {
   session: AgentSession;
+  paneIndex: number;
+  onFocus: () => void;
   onRemove: () => void;
   onStop: () => void;
 }) {
   const errored = session.status === 'error';
+  const exited = session.status === 'exited';
+  // V1.1.4 Step 4 — Stop functionality lives in the right-click context menu
+  // now that PaneStatusStrip is gone and the header only carries Close. The
+  // ContextMenu wraps just the body so right-clicks on the header chrome
+  // (with its own buttons) don't fight Radix for the event.
   return (
     <div className="sl-pane-enter flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <PaneHeader session={session} onRemove={onRemove} onStop={onStop} />
-      <PaneStatusStrip session={session} />
-      <div className="relative min-h-0 flex-1">
-        {errored ? (
-          <div className="flex h-full flex-col items-start justify-start gap-2 p-3 text-xs">
-            <div className="font-medium text-destructive">Failed to launch</div>
-            <div className="whitespace-pre-wrap break-words text-muted-foreground">
-              {session.error ?? 'unknown error'}
+      <PaneHeader
+        session={session}
+        paneIndex={paneIndex}
+        onFocus={onFocus}
+        onClose={onRemove}
+      />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <div className="relative min-h-0 flex-1">
+              {errored ? (
+                <div className="flex h-full flex-col items-start justify-start gap-2 p-3 text-xs">
+                  <div className="font-medium text-destructive">Failed to launch</div>
+                  <div className="whitespace-pre-wrap break-words text-muted-foreground">
+                    {session.error ?? 'unknown error'}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <PaneSplash session={session} />
+                  <SessionTerminal sessionId={session.id} />
+                </>
+              )}
             </div>
+            <PaneFooter session={session} />
           </div>
-        ) : (
-          <>
-            <PaneSplash session={session} />
-            <SessionTerminal sessionId={session.id} />
-          </>
-        )}
-      </div>
-      <PaneFooter session={session} />
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem
+            onSelect={onStop}
+            disabled={exited || errored}
+            variant="destructive"
+          >
+            <Square className="h-3.5 w-3.5" />
+            <span>Stop</span>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={onRemove} variant="destructive">
+            <span>Close pane</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
   );
 }

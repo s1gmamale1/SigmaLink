@@ -18,6 +18,8 @@ import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { dragStyle } from '@/renderer/lib/drag-region';
 import { RufloReadinessPill } from '@/renderer/components/RufloReadinessPill';
+import { RoomsMenuButton } from './RoomsMenuButton';
+import { RightRailSwitcher } from './RightRailSwitcher';
 
 export function Breadcrumb() {
   const { state } = useAppState();
@@ -61,13 +63,18 @@ export function Breadcrumb() {
 
   if (!active) {
     // Still render the chrome bar so the layout below does not jump when a
-    // workspace opens. The label reads `No workspace open`.
+    // workspace opens. The label reads `No workspace open`. The rooms menu
+    // button still renders here — Workspaces / Settings / Skills / Bridge are
+    // reachable without an active workspace and the user needs a way back to
+    // the workspaces room.
     return (
       <div
-        className="flex h-8 items-center border-b border-border bg-background/60 px-4 text-xs text-muted-foreground"
+        className="flex h-8 items-center gap-2 border-b border-border bg-background/60 px-4 text-xs text-muted-foreground"
         style={dragStyle()}
       >
-        No workspace open
+        <RoomsMenuButton />
+        <span>No workspace open</span>
+        <RightRailSwitcher />
       </div>
     );
   }
@@ -77,6 +84,7 @@ export function Breadcrumb() {
       className="flex h-8 items-center gap-1 border-b border-border bg-background/60 px-4 text-xs"
       style={dragStyle()}
     >
+      <RoomsMenuButton />
       <span className="text-foreground">Workspace {workspaceNumber}</span>
       {userName ? (
         <>
@@ -87,6 +95,7 @@ export function Breadcrumb() {
       <span className="ml-2 truncate text-muted-foreground" title={active.rootPath}>
         — {active.name}
       </span>
+      <RightRailSwitcher />
       <RufloReadinessPill />
     </div>
   );

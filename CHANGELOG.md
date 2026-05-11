@@ -4,6 +4,39 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-05-11
+
+V3 BridgeMind visual parity sweep. Frontend-only release; backend touches: zero. RPC channels touched: zero. The functional pipeline from v1.1.3 is preserved exactly; what changes is the chrome around it. (For v1.1.2 + v1.1.3 release narrative, see `docs/09-release/release-notes-1.1.2.txt` + `release-notes-1.1.3.txt`.)
+
+### Added
+
+- **Workspaces panel as full sidebar body** — new `WorkspacesPanel.tsx` (216 lines) lifts the workspace-tabs concept out of `Sidebar.tsx` and becomes the sidebar's only content. Scrollable list (no 8-tab cap, no overflow drawer). Each row shows a deterministic colour dot (`workspaceColor()` hashes id → 8-colour palette), the workspace name, a running-pane-count badge, and a close × visible on hover for the active row. New `workspace-color.ts` utility (27 lines) + tests. Sidebar.tsx drops from ~500 to 147 lines (drops the 12-item nav block + Cmd+K launcher card).
+- **Top-left rooms menu dropdown** — new `RoomsMenuButton.tsx` (72 lines) rendered at the left edge of the Breadcrumb. Single `LayoutGrid` icon opens a Radix DropdownMenu listing all 11 rooms. Disabled-when-no-workspace logic mirrors the v1.1.3 sidebar behaviour exactly. The active room is marked with a check. Items + icons + labels are split into `rooms-menu-items.ts` so the component file stays Fast-Refresh-clean.
+- **Top-right right-rail switcher + settings gear** — new `RightRailSwitcher.tsx` (86 lines) rendered at the right edge of the Breadcrumb. Three-button segmented control (Globe / FileCode2 / Bot icons labelled "Browser" / "Editor" / "Sigma") plus a sibling Settings gear. State lifted into a new `RightRailContext` so the top-bar switcher and the rail content stay in sync; kv persistence of the last-active tab is preserved. The in-rail tab strip is hidden via a new `tabsVisible={false}` prop.
+- **Pane right-click context menu with Stop** — Stop functionality moved out of the pane header chrome and into a Radix context menu on the pane body. Stop item is destructive variant and disabled when the session is exited or errored.
+
+### Changed
+
+- **Per-pane header collapsed to single h-7 strip** — `PaneHeader.tsx` rewrites the previous h-7 + h-6 two-strip pattern into one row: 2px colour stripe → truncated `PROVIDER·index` label (max-w-80px) → spacer → 4 icon buttons (Focus / Split / Minimise / Close). Branch / model / effort / cwd labels move into a Radix tooltip on hover of the provider name. Stop button removed from header chrome (right-click menu instead). Pane index is appended to the label so adjacent same-provider panes stay distinguishable. Focus icon binds to the existing `paneFocus` state machine.
+- **9-pane layout: 3×3, not 4×3** — `GridLayout.shapeFor(9)` now returns `{ cols: 3, rows: 3 }` (matches V3 reference, no empty trailing cell). 10/11/12-pane layouts unchanged at 4×3.
+
+### Removed
+
+- **`PaneStatusStrip.tsx` deleted** — its model / effort / cwd content is now inside the PaneHeader tooltip body. All references and imports removed.
+- **Sidebar nav items, ITEMS array, Cmd+K launcher card, inline WorkspaceTabs** — superseded by the rooms-menu dropdown + WorkspacesPanel.
+
+### Fixed
+
+- **PaneHeader.test.tsx Element.prototype tsc narrowing** — `Element.prototype.hasPointerCapture` and `.scrollIntoView` polyfills now use a typed cast (`proto as unknown as { hasPointerCapture?: ... }`) instead of `'X' in Element.prototype` narrowing, which collapsed to `never` and broke tsc.
+
+### Distribution scope
+
+arm64-only macOS DMG, same as v1.1.1 through v1.1.3. The pre-build electron-rebuild dance against Electron 30.5.1 (NMV 123) is still required for each manual arm64 release. Intel-Mac users: stay on v1.0.1 or wait for v1.2.
+
+### Carried forward
+
+All v1.1.0 → v1.1.3 surfaces intact: multi-workspace tabs (now in the new WorkspacesPanel), pane resume via `--resume <session_id>`, growable swarms with `add_agent` Sigma tool, Ruflo pre-flight + readiness pill, per-CLI skills verification, MCP host server bridging Sigma tools to the spawned Claude CLI, voice diagnostics, single-instance lock, window drag.
+
 ## [1.1.1] - 2026-05-10
 
 UX hotfix on top of v1.1.0-rc3. Four user-reported defects fixed in one pass: the window is now draggable, the "Bridge Assistant" rebrand to "Sigma Assistant" is complete across every user-visible surface, the assistant actually streams real Claude Code CLI responses (no more "stub mode for W13"), and SigmaVoice has a full diagnostics surface so the silent "voice not enabled" failure mode is finally visible to the user.

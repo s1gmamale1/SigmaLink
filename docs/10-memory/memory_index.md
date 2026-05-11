@@ -106,3 +106,8 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-60 | Ruflo hardening: ensureStarted() + readiness pre-flight + Breadcrumb readiness pill | shipped | 1 |
 | T-61 | Multi-workspace session-restore + skills content-hash verification sweep | shipped | 1 |
 | T-62 | Environment fix: resolve better-sqlite3 Node 26 mismatch + convert test suite to Vitest | shipped | 1 |
+| T-66 | Phase 8 — v1.1.4 V3 visual parity sweep: WorkspacesPanel + workspace-color util + Sidebar refactor (~500→147 lines) | shipped | 1 |
+| T-67 | Top-left RoomsMenuButton dropdown with all 11 RoomIds + disabled-state mirror of v1.1.3 sidebar | shipped | 1 |
+| T-68 | Top-right RightRailSwitcher segmented control + Settings gear + RightRailContext state lift | shipped | 1 |
+| T-69 | Pane header collapse: h-7+h-6 → single h-7 with 4 icons + tooltip + right-click Stop context menu; PaneStatusStrip deleted | shipped | 1 |
+| T-70 | GridLayout 9-pane 3×3 fix + PaneHeader.test.tsx Element.prototype tsc narrowing fix | shipped | 1 |

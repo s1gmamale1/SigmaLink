@@ -1,18 +1,22 @@
 // Right-rail dock — the column that hosts the Browser / Editor / Bridge tabs
-// alongside the main room body. Width and last-active tab persist to the kv
-// store. Mountable behind `kv['rightRail.enabled']`; when disabled the parent
-// renders the body alone.
+// alongside the main room body. Width persists to the kv store; the active
+// tab is owned by `RightRailContext` so the top-bar segmented control
+// (`RightRailSwitcher`) and the rail itself stay in sync. Mountable behind
+// `kv['rightRail.enabled']`; when disabled the parent renders the body alone.
 //
 // V3-W13-001 — depends on the existing browser feature (Browser tab body) and
 // will pick up real Editor/Bridge bodies in W13-W14.
+// SigmaLink v1.1.4 Step 3 — in-rail tab strip is hidden; the top-bar
+// `RightRailSwitcher` is the segmented control.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import { BrowserRoom } from '@/renderer/features/browser/BrowserRoom';
 import { Splitter } from './Splitter';
-import { RightRailTabs, type RightRailTabId } from './RightRailTabs';
+import { RightRailTabs } from './RightRailTabs';
 import { BridgeTabPlaceholder } from './BridgeTabPlaceholder';
 import { EditorTabPlaceholder } from './EditorTabPlaceholder';
+import { useRightRail } from './RightRailContext';
 
 interface Props {
   /**
@@ -25,35 +29,27 @@ interface Props {
 
 const DEFAULT_WIDTH = 480;
 const KV_WIDTH = 'rightRail.width';
-const KV_TAB = 'rightRail.tab';
-
-const VALID_TABS: ReadonlySet<RightRailTabId> = new Set(['browser', 'editor', 'bridge']);
 
 export function RightRail({ children }: Props) {
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
-  const [activeTab, setActiveTab] = useState<RightRailTabId>('browser');
   const [hydrated, setHydrated] = useState(false);
+  const { activeTab, setActiveTab } = useRightRail();
   // Track the latest width so commit-handlers can persist without retriggering
   // a render via state lookups.
   const widthRef = useRef(DEFAULT_WIDTH);
 
-  // Hydrate persisted width + tab once on mount.
+  // Hydrate persisted width once on mount. The active tab is hydrated by
+  // `RightRailContext`, which is mounted higher in the tree.
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
-        const [rawWidth, rawTab] = await Promise.all([
-          rpcSilent.kv.get(KV_WIDTH).catch(() => null),
-          rpcSilent.kv.get(KV_TAB).catch(() => null),
-        ]);
+        const rawWidth = await rpcSilent.kv.get(KV_WIDTH).catch(() => null);
         if (!alive) return;
         const parsed = typeof rawWidth === 'string' ? parseInt(rawWidth, 10) : NaN;
         if (Number.isFinite(parsed) && parsed >= 200 && parsed <= 1200) {
           setWidth(parsed);
           widthRef.current = parsed;
-        }
-        if (typeof rawTab === 'string' && VALID_TABS.has(rawTab as RightRailTabId)) {
-          setActiveTab(rawTab as RightRailTabId);
         }
       } finally {
         if (alive) setHydrated(true);
@@ -71,11 +67,6 @@ export function RightRail({ children }: Props) {
 
   const handleCommit = useCallback((final: number) => {
     void rpc.kv.set(KV_WIDTH, String(Math.round(final))).catch(() => undefined);
-  }, []);
-
-  const handleSelectTab = useCallback((tab: RightRailTabId) => {
-    setActiveTab(tab);
-    void rpc.kv.set(KV_TAB, tab).catch(() => undefined);
   }, []);
 
   // Until the kv read resolves we render the body full-bleed. Otherwise the
@@ -96,7 +87,8 @@ export function RightRail({ children }: Props) {
       >
         <RightRailTabs
           active={activeTab}
-          onSelect={handleSelectTab}
+          onSelect={setActiveTab}
+          tabsVisible={false}
           bodies={{
             browser: <BrowserRoom visible={activeTab === 'browser'} />,
             editor: <EditorTabPlaceholder />,

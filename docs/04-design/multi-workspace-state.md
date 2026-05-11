@@ -93,3 +93,9 @@ No data leak between workspaces. No new UI surface — same orb, same composer, 
 - Pane-level UI state per workspace (Editor open files, scroll positions) — deferred to v1.2.
 - "Snapshot" / workspace templates — deferred.
 - Workspace-private settings (e.g., per-workspace theme) — deferred.
+
+## v1.1.4 update — sidebar = workspaces panel only
+
+In v1.1.4 the sidebar became a pure workspaces panel (the 12-item room nav moved to the top-left `RoomsMenuButton` dropdown — see `docs/04-design/top-bar-regions.md`). The 8-tab visible cap + overflow drawer from v1.1.3 are gone: the workspaces list scrolls. Each row gets a deterministic colour dot from `workspaceColor()` hashing the workspace id into an 8-colour palette. The active row shows a close × on hover. `Sidebar.tsx` dropped from ~500 lines to 147; the workspace rendering logic now lives in `WorkspacesPanel.tsx`.
+
+This is a visual-only change — `openWorkspaces[]` + `activeWorkspaceId` + the derived `activeWorkspace` selector are unchanged from v1.1.3.

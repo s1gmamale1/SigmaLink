@@ -30,15 +30,17 @@ interface GridShape {
 }
 
 function shapeFor(count: number): GridShape {
-  // 1 → 1×1, 2 → 2×1, 4 → 2×2, 6 → 3×2, 8 → 4×2, 10 → 5×2,
-  // 12 → 4×3, 14/16 → 4×4, 18/20 → 5×4.
-  // Odd counts fall back to the next-larger preset.
+  // 1 → 1×1, 2 → 2×1, 4 → 2×2, 6 → 3×2, 8 → 4×2, 9 → 3×3,
+  // 10/11/12 → 4×3, 14/16 → 4×4, 18/20 → 5×4.
+  // Odd counts fall back to the next-larger preset, except 9 which gets
+  // its own square 3×3 grid (v1.1.4 Step 4: V3 BridgeMind parity, no
+  // trailing empty cell that 4×3 would leave).
   if (count <= 1) return { cols: 1, rows: 1 };
   if (count === 2) return { cols: 2, rows: 1 };
   if (count <= 4) return { cols: 2, rows: 2 };
   if (count <= 6) return { cols: 3, rows: 2 };
   if (count <= 8) return { cols: 4, rows: 2 };
-  if (count <= 10) return { cols: 5, rows: 2 };
+  if (count === 9) return { cols: 3, rows: 3 };
   if (count <= 12) return { cols: 4, rows: 3 };
   if (count <= 16) return { cols: 4, rows: 4 };
   return { cols: 5, rows: 4 };

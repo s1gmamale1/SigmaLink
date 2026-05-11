@@ -637,4 +637,34 @@ Resolved a `better-sqlite3` Node 26 `NODE_MODULE_VERSION` mismatch via manual `n
 **Phase 7 commits**:
 - `989a350` `feat(v1.1.3)`: multi-workspace + pane resume + grow swarms + ruflo pre-flight.
 
-**Next session restart point**: SigmaLink is at v1.1.3 on `main`. Current focus: V3 visual parity sprint (cosmetic tickets) and mobile-responsive hardening.
+---
+
+## Phase 8 — v1.1.4 V3 visual parity sweep (2026-05-11)
+
+User dogfooded v1.1.3 and confirmed multi-workspace + pane resume work. Real bottleneck became **visual drift from V3 BridgeMind** — the reference layout the user has been targeting. Four regions diverged. Phase 8 ported them. Frontend-only release; backend touches: zero; RPC channels touched: zero.
+
+### Step 1 — Workspaces panel
+Promoted the inline `WorkspaceTabs` block out of `Sidebar.tsx` into a dedicated `WorkspacesPanel.tsx` (216 lines). The sidebar dropped from ~500 lines to 147 lines (dropped the 12-item ITEMS nav array + Cmd+K launcher card + inline tabs). Workspace rows now show a deterministic colour dot (`workspace-color.ts` hashes id → 8-colour palette: pink/blue/purple/amber/emerald/rose/cyan/indigo) + pane-count badge (running sessions only) + close-× on hover for the active row. No 8-tab cap; the list scrolls. Added `@testing-library/react` + `jsdom` devDeps to support the new TSX vitest specs.
+
+### Step 2 — Top-left rooms menu
+Built `RoomsMenuButton.tsx` (72 lines) — a `LayoutGrid` icon at the left edge of the Breadcrumb that opens a Radix DropdownMenu listing all 11 rooms from the `RoomId` union (the plan said 12; the union actually has 11). Item icons + labels lifted from the now-deleted sidebar ITEMS array. Disabled-when-no-workspace logic mirrors v1.1.3 sidebar behaviour exactly. Pure-data module `rooms-menu-items.ts` split out so the TSX file stays Fast-Refresh-clean.
+
+### Step 3 — Top-right right-rail switcher + settings gear
+Built `RightRailSwitcher.tsx` (86 lines) — a three-button segmented control (Globe/FileCode2/Bot icons labelled Browser/Editor/Sigma) plus a sibling Settings gear. State lifted into a new `RightRailContext` so the top-bar switcher and the rail content stay in sync; kv persistence of the last-active tab is preserved. The in-rail tab strip is hidden via a new `tabsVisible={false}` prop on `RightRailTabs`. Gear dispatches `SET_ROOM('settings')`.
+
+### Step 4 — Pane header collapse + 3×3 grid for 9 panes
+`PaneHeader.tsx` rewritten as a single h-7 strip (was h-7 + h-6): 2px colour stripe → truncated `PROVIDER·index` label (max-w-80px) → spacer → 4 icon buttons (Focus / Split-disabled / Minimise-disabled / Close). Branch/model/effort/cwd labels moved into a Radix tooltip on hover of the provider name. Stop button moved into a right-click context menu on the pane body (with disabled state when session is exited/errored). `PaneStatusStrip.tsx` deleted. `GridLayout.shapeFor(9)` now returns `{ cols: 3, rows: 3 }` instead of `{ cols: 4, rows: 3 }` (no empty trailing cell). 10/11/12 unchanged.
+
+### Build hygiene
+- `pnpm exec tsc -b` → clean (after fixing a 2-line Element.prototype narrowing in PaneHeader.test.tsx via a typed cast).
+- `pnpm exec vitest run` → 108/114 pass renderer-side. The 6 failures are the pre-existing better-sqlite3 NMV-123-vs-147 mismatch on host-Node main-process tests, unchanged from v1.1.3.
+- `pnpm exec vite build` → 354.95 KB raw / 97.57 KB gzip main bundle (under 700 KB target).
+- `pnpm run lint` → 59 problems (58 errors / 1 warning), DOWN 1 from v1.1.3's 60-problem ceiling. All pre-existing families.
+- 28 new vitest specs across 5 new test files. No new `any`, `@ts-ignore`, or `eslint-disable` introduced.
+
+### Coordination
+Four parallel coder agents (`coder-workspaces-panel`, `coder-rooms-menu`, `coder-rail-switcher`, `coder-pane-header`) executed in one swarm dispatch. `coder-rail-switcher` waited on SendMessage from `coder-rooms-menu` before editing Breadcrumb.tsx (both touched the same file). Each coder self-tested. Lead verified aggregate gates + fixed the PaneHeader.test.tsx tsc errors flagged by coder-workspaces-panel before tagging.
+
+**Phase 8 commits**: TBD (set at tag time).
+
+**Next session restart point**: SigmaLink is at v1.1.4 on `main`. Visual parity to V3 BridgeMind is now in place across sidebar / top bar / pane chrome / grid shape. v1.1.5 cleanup pass: split state.tsx (996 lines) + factory.ts (713 lines) under 500-line rule, promote 3 stub schemas to real zod, fix CI cache-dependency-path. v1.2 backlog: Split + Minimise pane actions, notifications system, V3 orange brand (held — primary blue stays for SigmaLink), x64 macOS DMG matrix.
