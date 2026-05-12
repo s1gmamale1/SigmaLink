@@ -12,6 +12,7 @@
 | P1 functional bugs | 0 | — |
 | P2 functional bugs / UX | 2 | [P2 — bugs](#p2--functional--ux) |
 | P3 polish | 2 | [P3 — polish](#p3--polish) |
+| Provider registry cleanup | 1 | [v1.1.10 providers](#v1110--provider-registry-cleanup-user-requested-2026-05-12) |
 | Perf — sustained runtime | 2 | [v1.1.9 perf](#v119--paired-perf-refactor) |
 | Quality — refactor | 3 | [v1.1.9 quality](#v119--quality--file-size) |
 | Tests / CI | 2 | [v1.1.9 ci](#v119--ci--test-infra) |
@@ -53,6 +54,69 @@
 - **Issue**: Gemini CLI v0.41+ has no documented resume protocol. SigmaLink's resume launcher skips gemini panes (they respawn fresh on restart).
 - **Effort**: External dependency — file an upstream gemini-cli issue. Until then, claude + codex panes resume; gemini doesn't.
 - **Defer to**: when upstream lands `gemini --resume <session_id>`.
+
+---
+
+## v1.1.10 — provider registry cleanup (user-requested 2026-05-12)
+
+> Trim the provider registry to the 5 CLIs SigmaLink actually targets. Remove BridgeCode placeholder + Cursor Agent + Shell entry + Aider + Continue. Add Kimi Code CLI as a first-class provider.
+
+### Final provider set
+
+| Provider | Command | Install hint | Notes |
+|---|---|---|---|
+| Claude Code | `claude` | `npm i -g @anthropic-ai/claude-code` | Already shipping |
+| Codex CLI | `codex` | `npm i -g @openai/codex` | Already shipping |
+| Gemini CLI | `gemini` | `npm i -g @google/gemini-cli` | Already shipping; `--resume` missing upstream |
+| OpenCode CLI | `opencode` | `npm i -g opencode` | Already shipping |
+| **Kimi Code CLI** | `kimi` (verify) | TBD — verify npm package name | **NEW** — Moonshot AI's CLI. Was previously documented as "model only, picked per-provider"; promoting to first-class provider |
+
+### Remove
+
+- **BridgeCode** — placeholder for the BridgeMind hosted CLI that never materialised. Currently `bridgecode` entry in `providers.ts` falls back to Claude at spawn time. Drop entirely (registry + README + onboarding + V3-W12-001/002/003 parity tickets).
+- **Cursor Agent** — `cursor-agent` binary. Drop.
+- **Shell entry** (operator-supplied) — drop the always-available "Shell" pseudo-provider.
+- **Aider** — `aider` legacy toggle. Drop.
+- **Continue** — `continue` legacy toggle. Drop.
+
+### Touch points (concrete file checklist)
+
+1. `app/src/shared/providers.ts` — provider registry. Drop 5 rows (BridgeCode, Cursor, Shell, Aider, Continue). Add `kimi` row with command + install hint + resumeArgs (verify Kimi CLI supports `--resume <id>`; if not, leave resumeArgs undefined like gemini).
+2. `app/src/shared/types.ts` — `ProviderId` union (if string-typed). Update if discriminated.
+3. `README.md` provider table at line ~41-51 (Supported agents section). Replace with the 5-row table above. Remove the "kimi-is-a-model-not-a-CLI" paragraph.
+4. `app/src/main/core/providers/probe.ts` — version detection probe. Add kimi probe, drop the 5 removed entries.
+5. `app/src/main/core/providers/launcher.ts` — `resolveAndSpawn` provider switch. Drop dead branches.
+6. `app/src/renderer/features/workspace-launcher/` — provider picker step. Re-test wizard with new 5-provider set.
+7. `app/src/renderer/features/onboarding/OnboardingModal.tsx` — provider preflight checks. Drop BridgeCode "coming soon" copy.
+8. `app/src/renderer/features/settings/ProvidersTab.tsx` — provider toggles + per-provider config UI. Audit for removed rows.
+9. `app/src/main/core/skills/manager.ts` — skills fanout currently targets `~/.claude/`, `~/.codex/`, `~/.gemini/`. Add kimi target path (verify Kimi CLI skill location; default to `~/.kimi/skills/` if undocumented).
+10. `app/src/main/core/workspaces/mcp-autowrite.ts` — currently autowrites `.mcp.json` (claude), `~/.codex/config.toml`, `~/.gemini/settings.json`. Add kimi config write if Kimi CLI supports MCP (verify upstream).
+11. `app/src/main/core/ruflo/verify.ts` — Ruflo `fast` mode reads back per-CLI MCP entries. Add kimi check.
+12. `docs/03-plan/V3_PARITY_BACKLOG.md` — V3-W12-001/002/003 (BridgeCode stub + Kimi demote + Aider/Continue hide). Mark "obsoleted by v1.1.10 cleanup" and close.
+13. `docs/03-plan/PRODUCT_SPEC.md` section 4 — provider inventory. Replace.
+14. Provider color palette in pane chrome — verify Kimi has a distinct colour (or hash-derive like workspace dots).
+
+### Verify before implementing
+
+- **Kimi CLI install hint** — confirm the actual npm package name. Possibilities: `@moonshotai/kimi-cli`, `kimi-cli`, `@kimicc/kimi-cli`. Run a quick web search OR check `kimi --version` if installed locally.
+- **Kimi `--resume` support** — like gemini, may not have a resumable session ID yet.
+- **Kimi MCP config** — does Kimi CLI support MCP `mcpServers` in a config file? If not, the autowrite + ruflo verify entries get skipped for kimi.
+- **Kimi skills fanout target** — where does Kimi CLI read prompt/extension files? If it has none, skills fanout skips kimi.
+
+### Effort + risk
+
+- **Effort**: M (~1d) — mostly mechanical deletes + one new registry row + README rewrite + 2-3 tests.
+- **Risk**: Med — removing the "Shell" pseudo-provider could break the workspace-launcher "blank workspace" flow. Verify Onboarding still works without it.
+- **Migration**: existing kv state referencing dropped providers should silently fall back to Claude (already does for BridgeCode). Add a one-time migration that rewrites any `provider_id = 'bridgecode'|'cursor-agent'|'aider'|'continue'|'shell'` rows in `agent_sessions` to `provider_id = 'claude'` so historical workspaces still load.
+
+### Acceptance
+
+- README provider table shows exactly 5 rows: Claude, Codex, Gemini, OpenCode, Kimi.
+- `pnpm exec tsc -b` clean (no orphan ProviderId references).
+- `pnpm exec vitest run` green; provider-related tests updated.
+- Workspace launcher wizard offers 5 providers in the picker.
+- Settings → Providers tab lists 5 providers.
+- No string `'bridgecode'` / `'cursor-agent'` / `'aider'` / `'continue'` / `'shell'` left in `src/`.
 
 ---
 
