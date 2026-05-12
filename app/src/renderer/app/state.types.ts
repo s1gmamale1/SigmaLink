@@ -41,6 +41,14 @@ export type RoomId =
 export interface AppState {
   ready: boolean;
   room: RoomId;
+  /**
+   * Per-workspace last-active room. v1.1.10 — fixes the session-restore bug
+   * where the global `room` was serialized for ALL open workspaces, forcing
+   * them into the same room after restore. SET_ROOM writes through to this
+   * map keyed by the currently active workspace so each workspace remembers
+   * the room the user was viewing when they last left it.
+   */
+  roomByWorkspace: Record<string, RoomId>;
   /** All persisted workspaces from the DB. */
   workspaces: Workspace[];
   /** Runtime-open workspaces. Ordered most-recently-active first. */
@@ -84,6 +92,13 @@ export interface AppState {
 export type Action =
   | { type: 'READY'; workspaces: Workspace[] }
   | { type: 'SET_ROOM'; room: RoomId }
+  /**
+   * v1.1.10 — seed a workspace's last-active room WITHOUT touching the
+   * current `state.room`. Used by the session-restore drain to repopulate
+   * `roomByWorkspace` for every workspace in the snapshot so the next
+   * snapshot is lossless even if the user never visits the workspace.
+   */
+  | { type: 'SET_ROOM_FOR_WORKSPACE'; workspaceId: string; room: RoomId }
   | { type: 'SET_WORKSPACES'; workspaces: Workspace[] }
   | { type: 'WORKSPACE_OPEN'; workspace: Workspace }
   | { type: 'WORKSPACE_CLOSE'; workspaceId: string }
@@ -126,6 +141,7 @@ export type Action =
 export const initialAppState: AppState = {
   ready: false,
   room: 'workspaces',
+  roomByWorkspace: {},
   workspaces: [],
   openWorkspaces: [],
   activeWorkspaceId: null,

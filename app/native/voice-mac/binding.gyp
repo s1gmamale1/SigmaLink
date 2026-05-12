@@ -6,7 +6,7 @@
       "include_dirs": [
         "<!(node -p \"require('node-addon-api').include_dir\")"
       ],
-      "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS", "NAPI_VERSION=8" ],
+      "defines": [ "NAPI_VERSION=8" ],
       "conditions": [
         [ "OS==\"mac\"", {
           "sources": [
@@ -17,11 +17,13 @@
           "xcode_settings": {
             "CLANG_ENABLE_OBJC_ARC": "YES",
             "MACOSX_DEPLOYMENT_TARGET": "10.15",
-            "GCC_ENABLE_CPP_EXCEPTIONS": "NO",
+            "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
             "OTHER_CPLUSPLUSFLAGS": [
               "-std=c++17",
               "-stdlib=libc++",
-              "-fobjc-arc"
+              "-fobjc-arc",
+              "-fobjc-arc-exceptions",
+              "-fexceptions"
             ],
             "OTHER_LDFLAGS": [
               "-framework Speech",

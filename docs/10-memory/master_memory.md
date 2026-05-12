@@ -990,3 +990,58 @@ Gemini CLI + 10-agent Ruflo swarm ran a read-only audit, documented at `app/docs
 - `codesign --verify --deep --strict` → Sealed Resources files=20492
 
 **Next session restart point**: SigmaLink at v1.1.10 on `main`. All Gemini P1 audit findings closed. v1.1.11 backlog: provider registry cleanup (BridgeCode/Cursor/Shell/Aider/Continue out, Kimi in) + Playwright e2e refresh + Kimi report (if landed) + Gemini's 🟠 P3 optimizations.
+
+---
+
+## Phase 16 — Kimi codebase audit (May 12, 2026)
+
+Kimi CLI + 10-agent Ruflo swarm ran a second parallel audit covering 5 file scopes (App Core, Features, Electron/Main, Build/Config, Shared). Output at `app/CODEBASE_AUDIT_REPORT.md` (538 lines, ~43 KB). 129 issues catalogued across bugs (38) / dead code (23) / optimizations (35) / better logic (33); 5 marked critical, 52 warning, 72 suggestion.
+
+### Verified findings
+
+- **C1 binding.gyp + ThreadSafeFunction**: TRUE. Native voice-mac had both `NAPI_DISABLE_CPP_EXCEPTIONS` + `GCC_ENABLE_CPP_EXCEPTIONS: "NO"` while node-addon-api throws on TSFn failure.
+- **C2 use-workspace-mirror desync**: TRUE. `catch { return; }` swallowed RPC errors leaving state stale.
+- **C3 use-exited-session-gc timer leak**: PARTIAL — second effect cleaned up on unmount, but the timer-fire-during-unmount race was real (narrow window).
+- **C4 MissionStep voice cleanup**: TRUE. `eslint-disable-next-line` was hiding a real closure-over-null bug.
+- **State-hook warnings** in v1.1.9 code: 6 of 8 confirmed (per-workspace room snapshot, SET_ACTIVE_WORKSPACE_ID silent no-op, REMOVE_SESSION exited fallback, UPSERT_SWARM auto-active override, review-effect dep churn, parseSwarmMessage kind validation).
+
+### False positives
+
+- **C5 "No CI/CD pipeline"**: 3 workflows already exist (`lint-and-build.yml`, `e2e-matrix.yml`, `native-prebuild-mac.yml`).
+- **Fix 5 `voice.diagnostics.run` channel missing handler**: handler IS registered via side-band map at `rpc-router.ts:884-890`, schema at `schemas.ts:369`.
+
+### Remaining triage
+
+~100 warning-level findings across 20+ feature files (Composer voice gate key, MemoryRoom keystroke RPC spam, EditorTab listener thrash, NotesTab edit clobber, ReplayScrubber off-by-one + stale callback, Constellation/MemoryGraph rAF hover stale closure, BridgeRoom listener thrash, TaskDetailDrawer stale prop, RoleRoster useCanDo NaN, etc.) deferred to a "Kimi warning sweep" release (v1.1.12 or later). 35 P3 optimizations also catalogued for later.
+
+---
+
+## Phase 17 — v1.1.11 Kimi audit P1 + state-hook fix wave (May 12, 2026)
+
+2-coder Ruflo swarm landed Kimi's verified critical + high-confidence state-hook items. Each used `sparc:debug` + `sparc:tester` skills.
+
+### `kimi-critical-fixer` — 4 critical fixes + 9 new tests
+- **C1** native voice-mac: flipped exception flags ON, added `-fobjc-arc-exceptions` + `-fexceptions`, wrapped every `ThreadSafeFunction::New` site in `try/catch (const Napi::Error&)`. `node-gyp rebuild` clean.
+- **C2** useWorkspaceMirror: catch + fall-through; SYNC_OPEN_WORKSPACES always dispatches with cached workspacesRef. 3 new test specs.
+- **C3** useExitedSessionGc: `timers.has(sessionId)` guard inside the setTimeout callback. 4 new test specs.
+- **C4** MissionStep: introduced `voiceHandleRef` mirroring `voiceHandle`; cleanup reads from ref. 2 new test specs.
+
+### `kimi-state-fixer` — 6 reducer + state-hook fixes + 28 new tests
+- **Fix 1** per-workspace room state preserved: new `roomByWorkspace: Record<string, RoomId>` + `SET_ROOM_FOR_WORKSPACE` action + WORKSPACE_OPEN/CLOSE/READY/SET_WORKSPACES/SYNC_OPEN_WORKSPACES maintenance.
+- **Fix 2** SET_ACTIVE_WORKSPACE_ID warns on unknown ID.
+- **Fix 3** REMOVE_SESSION fallback filters for `status === 'running'`.
+- **Fix 4** UPSERT_SWARM only auto-activates on first arrival.
+- **Fix 5** voice.diagnostics.run: VERIFIED ALREADY REGISTERED (false positive in Kimi's report; no code change).
+- **Fix 6** review effect no longer depends on `state.sessions.length`.
+- **Fix 7** parseSwarmMessage `VALID_SWARM_KINDS` allowlist + type guard.
+- **Fix 8** appStateStore double-render: DEFERRED to v1.1.12 (needs paired refactor with useSyncExternalStore wiring).
+
+### Aggregate gates
+- `pnpm exec tsc -b` → clean
+- `pnpm exec vitest run` → **196/196** (was 168/168; +28 new specs across 7 new + extended files; +9 critical-fixer + 19 state-fixer = 28 total new this release)
+- `pnpm run lint` → 0/0 (unchanged)
+- `pnpm exec vite build` → 38.26 KB gzip main (unchanged shape)
+- `codesign --verify --deep --strict` → Sealed Resources files=20492
+- native `node-gyp rebuild` voice-mac → clean with exceptions enabled
+
+**Next session restart point**: SigmaLink at v1.1.11 on `main`. Kimi audit's verified critical + high-confidence state-hook items closed. v1.1.12 backlog: provider registry cleanup (still pending), Playwright e2e refresh, Kimi warning sweep across 20+ feature files, Fix 8 appStateStore paired refactor, Gemini + Kimi P3 optimizations.

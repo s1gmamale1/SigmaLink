@@ -84,8 +84,16 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
   }, [state.activeWorkspace?.id, dispatch]);
 
   // Review-room hydration: load on workspace switch + refresh on
-  // `review:changed` events. Also re-runs whenever a session enters/leaves
-  // (reuses the existing `sessions` length as the trigger).
+  // `review:changed` events.
+  //
+  // v1.1.10 — dropped `state.sessions.length` from the dep array. Previously,
+  // every session add/remove tore down the listener, re-subscribed, AND fired
+  // an immediate RPC fetch (runRefreshOnEvent calls `refresh()` synchronously
+  // on every setup). Under rapid session churn (e.g. multi-pane spawn /
+  // teardown) this spammed `rpc.review.list` with N+1 calls for every
+  // unrelated session event. The main process already emits `review:changed`
+  // whenever review state actually changes — that channel is the correct
+  // trigger here and matches every other room in this file.
   useEffect(() => {
     const wsId = state.activeWorkspace?.id;
     if (!wsId) return;
@@ -98,7 +106,7 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       'review:changed',
       'review state',
     );
-  }, [state.activeWorkspace?.id, state.sessions.length, dispatch]);
+  }, [state.activeWorkspace?.id, dispatch]);
 
   // Tasks hydration mirroring the memory pattern.
   useEffect(() => {

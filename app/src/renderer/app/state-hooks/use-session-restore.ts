@@ -89,6 +89,18 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
     const active =
       restored.find((item) => item.workspace.id === pending.activeWorkspaceId) ?? restored[0];
     dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: active.workspace.id });
+    // v1.1.10 — seed per-workspace rooms for EVERY restored entry so the
+    // next snapshot doesn't lose state for inactive workspaces. The active
+    // workspace's room rides on the visible SET_ROOM below as well.
+    for (const item of restored) {
+      if (isRoomId(item.entry.room)) {
+        dispatch({
+          type: 'SET_ROOM_FOR_WORKSPACE',
+          workspaceId: item.workspace.id,
+          room: item.entry.room,
+        });
+      }
+    }
     if (isRoomId(active.entry.room)) {
       dispatch({ type: 'SET_ROOM', room: active.entry.room });
     }
@@ -109,13 +121,26 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
   // We deliberately skip emission while the boot flow is still hydrating
   // (`state.ready === false`) so the persisted row doesn't get overwritten
   // by the initial 'workspaces' default before the restore effect runs.
+  //
+  // v1.1.10 — serialise the room PER workspace via `state.roomByWorkspace`
+  // instead of stamping the active room onto every entry. Two workspaces
+  // sitting in different rooms (e.g. A in 'command', B in 'swarm') now
+  // round-trip through restore without forcing both into a single room.
+  // Workspaces with no entry fall back to the current active room (newly
+  // opened mid-session, never moved) and ultimately to 'command' so the
+  // schema's `room: string().min(1)` requirement is satisfied.
   const lastSnapshotRef = useRef<string>('');
   const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!state.ready) return;
     const wsId = state.activeWorkspace?.id;
     if (!wsId) return;
-    const key = `${wsId}::${state.room}`;
+    const fallbackRoom = state.room !== 'workspaces' ? state.room : 'command';
+    const entries = state.openWorkspaces.map((workspace) => ({
+      workspaceId: workspace.id,
+      room: state.roomByWorkspace[workspace.id] ?? (workspace.id === wsId ? fallbackRoom : 'command'),
+    }));
+    const key = `${wsId}::${entries.map((e) => `${e.workspaceId}=${e.room}`).join('|')}`;
     if (key === lastSnapshotRef.current) return;
     lastSnapshotRef.current = key;
     if (snapshotTimerRef.current) clearTimeout(snapshotTimerRef.current);
@@ -123,10 +148,7 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
       try {
         window.sigma.eventSend('app:session-snapshot', {
           activeWorkspaceId: wsId,
-          openWorkspaces: state.openWorkspaces.map((workspace) => ({
-            workspaceId: workspace.id,
-            room: state.room,
-          })),
+          openWorkspaces: entries,
         });
       } catch {
         /* preload bridge gone — nothing actionable on the renderer side */
@@ -138,5 +160,11 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
         snapshotTimerRef.current = null;
       }
     };
-  }, [state.ready, state.activeWorkspace?.id, state.openWorkspaces, state.room]);
+  }, [
+    state.ready,
+    state.activeWorkspace?.id,
+    state.openWorkspaces,
+    state.room,
+    state.roomByWorkspace,
+  ]);
 }

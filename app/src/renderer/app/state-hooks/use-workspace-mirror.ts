@@ -33,13 +33,19 @@ export function useWorkspaceMirror(state: AppState, dispatch: Dispatch<Action>):
       const workspaceIds = parseOpenWorkspacesChanged(raw);
       if (!workspaceIds) return;
       void (async () => {
+        // BUG-C2 — never bail out before SYNC_OPEN_WORKSPACES. Main has already
+        // changed openWorkspaces; if we return early on RPC failure the
+        // renderer state stays permanently stale. Fall through to dispatch
+        // with whatever cached workspaces we have — the reducer filters out
+        // unknown ids gracefully (see SYNC_OPEN_WORKSPACES handler).
         let workspaces = workspacesRef.current;
         if (workspaceIds.some((id) => !workspaces.some((w) => w.id === id))) {
           try {
             workspaces = await rpc.workspaces.list();
             dispatch({ type: 'SET_WORKSPACES', workspaces });
-          } catch {
-            return;
+          } catch (err) {
+            console.warn('[useWorkspaceMirror] rpc.workspaces.list failed', err);
+            workspaces = workspacesRef.current;
           }
         }
         dispatch({ type: 'SYNC_OPEN_WORKSPACES', workspaceIds, workspaces });

@@ -4,6 +4,40 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.11] - 2026-05-12
+
+Kimi audit P1 fix wave. 10 of 11 verified findings closed + 37 new tests. Vitest 168→196.
+
+### Fixed — native + critical state
+
+- **C1 native voice-mac `std::terminate()` risk** (`binding.gyp` + `sigmavoice_mac.mm` + `tsfn_bridge.mm`): exception flags flipped ON, every `ThreadSafeFunction::New` call site wrapped in `try/catch (const Napi::Error&)` that propagates as JS exceptions instead of crashing the host. node-gyp rebuilds clean.
+- **C2 useWorkspaceMirror state desync** (`use-workspace-mirror.ts:35-44`): `catch { return; }` replaced with `catch (err) { console.warn(...); }` + fall-through; `SYNC_OPEN_WORKSPACES` now always dispatches.
+- **C3 useExitedSessionGc unmount race** (`use-exited-session-gc.ts:22-40`): `timers.has(sessionId)` guard inside the setTimeout callback. Unmount cleanup empties the Map → stale dispatches suppressed.
+- **C4 MissionStep voice cleanup closure-over-null** (`MissionStep.tsx:228-233`): introduced `voiceHandleRef` mirroring `voiceHandle` via tracking useEffect; cleanup reads from ref. Removed `eslint-disable-next-line`.
+
+### Fixed — state-hook + reducer warnings
+
+- **Per-workspace room snapshot preserved** (`use-session-restore.ts`, `state.types.ts`, `state.reducer.ts`): added `roomByWorkspace: Record<string, RoomId>` + `SET_ROOM_FOR_WORKSPACE` action + WORKSPACE_OPEN/CLOSE/READY/SET_WORKSPACES/SYNC_OPEN_WORKSPACES maintenance. Workspaces in different rooms no longer share the active room on restore.
+- **SET_ACTIVE_WORKSPACE_ID logs unknown IDs** (`state.reducer.ts:102-117`): `console.warn` before returning unchanged.
+- **REMOVE_SESSION fallback prefers live sessions** (`state.reducer.ts:176-188`): filter `status === 'running'` first.
+- **UPSERT_SWARM only auto-activates on first arrival** (`state.reducer.ts:199-208`): auto-set `activeSwarmId` only when post-upsert workspace has exactly one swarm. Deselected workspaces no longer jump on unrelated swarm updates.
+- **Review hydration no-churn on session add/remove** (`use-live-events.ts:89-101`): dropped `state.sessions.length` from effect deps.
+- **parseSwarmMessage runtime kind validation** (`parsers.ts:120`): `VALID_SWARM_KINDS` allowlist + `isSwarmMessageKind` guard; null/missing → `'OPERATOR'`; unknown → reject.
+
+### False positives (verified, no code change)
+
+- **C5 "No CI/CD pipeline"**: 3 workflows already exist (`lint-and-build.yml`, `e2e-matrix.yml`, `native-prebuild-mac.yml`).
+- **Fix 5 `voice.diagnostics.run` channel missing handler**: handler IS registered at `rpc-router.ts:884-890`, schema-validated at `schemas.ts:369`.
+
+### Deferred to v1.1.12
+
+- **Fix 8 appStateStore double-render via useLayoutEffect** — real bug but needs paired refactor with `useSyncExternalStore` wiring.
+- Kimi's ~100 warning-level findings across 20+ feature files.
+
+### Build hygiene
+
+- `pnpm exec tsc -b` clean; `pnpm exec vitest run` **196/196** (was 168/168, +28 specs); `pnpm run lint` 0/0; `pnpm exec vite build` 38.26 KB gzip main; `codesign --verify --deep --strict` Sealed Resources files=20492; native `node-gyp rebuild` clean with exceptions ON.
+
 ## [1.1.10] - 2026-05-12
 
 Reliability hotfix from Gemini parallel audit. 6 P1 bugs + 4 perf wins + dead-code sweep. Vitest 130→168 (+38 new tests). Zero behavioural changes for the happy path; wins are all in failure modes (process leaks, race conditions, broadcast aborts, animation waste, hung child kills).

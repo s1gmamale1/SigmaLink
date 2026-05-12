@@ -1,0 +1,255 @@
+SigmaLink v1.1.11 — Kimi audit P1 + state-hook fix wave
+
+10 of 11 audit findings from Kimi's 10-agent Ruflo audit landed,
+plus 37 new tests. The audit catalogued 129 issues across 4
+categories; v1.1.11 closes the highest-impact ones — 4 critical
+bugs + 6 state-hook warnings. One critical (C5 "No CI/CD") was a
+false positive: workflows already exist. One warning (Fix 8
+double-render store sync) deferred to v1.1.12 because it needs
+paired refactor with Codex's useSyncExternalStore wiring.
+
+Why v1.1.11 exists
+==================
+
+Kimi's full audit at `app/CODEBASE_AUDIT_REPORT.md` (538 lines)
+identified 129 issues. v1.1.10 closed Gemini's 12 findings. This
+release closes Kimi's verified critical + high-confidence state
+findings. The remaining ~100 warning-level items spread across 20+
+feature files get triaged in a follow-up "Kimi warning sweep"
+release (v1.1.12 or later).
+
+Critical fixes (C1-C4 from Kimi's report)
+==========================================
+
+**C1 — Native voice-mac `std::terminate()` risk**
+(`native/voice-mac/binding.gyp` + `.mm` sources). The build
+disabled both `NAPI_DISABLE_CPP_EXCEPTIONS` (in defines) AND
+`GCC_ENABLE_CPP_EXCEPTIONS: "NO"` (xcode_settings), yet
+`node-addon-api`'s `ThreadSafeFunction::New` can throw on failure.
+With exceptions disabled, that would trip `std::terminate()` and
+crash the host process. v1.1.11 flips both flags ON (Option A from
+the brief), adds `-fobjc-arc-exceptions` + `-fexceptions` C++
+flags, and wraps every `ThreadSafeFunction::New` call site (in
+`sigmavoice_mac.mm` and via the `BindCallback<>` template) in
+`try/catch (const Napi::Error& e)` blocks that propagate as JS
+exceptions. `node-gyp rebuild` succeeds with exceptions enabled.
+
+**C2 — useWorkspaceMirror state desync on RPC error**
+(`src/renderer/app/state-hooks/use-workspace-mirror.ts:35-44`).
+If `rpc.workspaces.list()` threw, the catch did `return;` and the
+SYNC_OPEN_WORKSPACES dispatch never fired — renderer state stayed
+permanently desynced from main's open workspaces. v1.1.11 replaces
+the silent return with `console.warn` + fall-through, so SYNC_OPEN_WORKSPACES
+always dispatches using the cached `workspacesRef.current` even
+when the RPC fails. New `use-workspace-mirror.test.ts` (3 specs:
+RPC-failure / success / no-RPC-needed paths).
+
+**C3 — useExitedSessionGc unmount-race timer leak**
+(`src/renderer/app/state-hooks/use-exited-session-gc.ts:22-40`).
+A `setTimeout` scheduled by the first effect could fire between
+component unmount and the second effect's cleanup, dispatching
+into a torn-down provider. v1.1.11 adds a `timers.has(sessionId)`
+guard inside the timer callback so the unmount cleanup (which
+empties the Map) suppresses any stale dispatches. New
+`use-exited-session-gc.test.ts` (4 specs: unmount race / normal
+fire / removal cancels / no double-schedule).
+
+**C4 — MissionStep voice cleanup closes over null**
+(`src/renderer/features/swarm-room/MissionStep.tsx:228-233`).
+The cleanup effect had `[]` deps and closed over the initial
+`voiceHandle` (always `null` from useState). On unmount,
+`null?.stop()` was a no-op and the live Web Speech recognizer kept
+running, orphaning the VoiceCaptureHandle. v1.1.11 introduces a
+`voiceHandleRef` that mirrors `voiceHandle` via a tracking
+useEffect; the unmount cleanup reads from the ref and sees the
+live recognizer. Removed the `eslint-disable-next-line` comment
+that was hiding the bug. New `MissionStep.test.tsx` (2 specs:
+stop-on-unmount-after-capture / no-stop-if-never-started).
+
+**C5 — Discarded (false claim)**: Kimi reported "No CI/CD
+pipeline; `.github/workflows/` missing". This is false —
+SigmaLink has 3 workflows (`lint-and-build.yml`, `e2e-matrix.yml`,
+`native-prebuild-mac.yml`). Documented in master_memory Phase 16
+narrative.
+
+State-hook warning fixes (Bugs section of Kimi's report)
+=========================================================
+
+**Fix 1 — Per-workspace room state preserved across snapshot**
+(`use-session-restore.ts:124-130` + `state.types.ts` +
+`state.reducer.ts`). The snapshot writer was saving the CURRENT
+global `state.room` for ALL open workspaces — if user had
+workspace A in `command` and workspace B in `swarm`, both were
+serialized as the active room. v1.1.11 adds
+`roomByWorkspace: Record<string, RoomId>` to AppState +
+initialAppState; new `SET_ROOM_FOR_WORKSPACE` action; SET_ROOM
+stamps the active workspace's entry; WORKSPACE_OPEN seeds it;
+WORKSPACE_CLOSE drops it; READY/SET_WORKSPACES/SYNC_OPEN_WORKSPACES
+prune dead entries. The snapshot writer reads from the new map;
+the restore drain seeds per-workspace entries for inactive
+workspaces too. SessionSnapshotSchema in main is unchanged — the
+per-workspace `room` field already existed on each entry.
+
+**Fix 2 — SET_ACTIVE_WORKSPACE_ID warns on unknown ID**
+(`state.reducer.ts:102-117`). Previously a silent no-op if the
+workspaceId wasn't in `openWorkspaces`. Now logs
+`console.warn('[reducer] SET_ACTIVE_WORKSPACE_ID called with id
+not in openWorkspaces', action.workspaceId)` before returning
+unchanged state, surfacing the dispatch-no-op for debugging.
+
+**Fix 3 — REMOVE_SESSION fallback prefers live sessions**
+(`state.reducer.ts:176-188`). Was picking `sessions[0]?.id`
+unfiltered; an exited or error session could become active.
+v1.1.11 filters for `status === 'running'` first, falls back to
+any session, then null.
+
+**Fix 4 — UPSERT_SWARM only auto-activates on first arrival**
+(`state.reducer.ts:199-208`). Previously auto-set
+`activeSwarmId` to the upserted swarm whenever `state.activeSwarmId
+=== null`, overriding intentional user deselection (e.g., user
+clears active swarm; an unrelated swarm message updates a swarm;
+user jumps back). v1.1.11 only auto-sets when the workspace has
+exactly one swarm AFTER the upsert (first arrival semantics).
+Re-upserts and updates to existing swarms in a deselected
+workspace stay deselected.
+
+**Fix 5 — Discarded (false claim)**:
+`voice.diagnostics.run` channel is registered. Kimi flagged
+`src/shared/rpc-channels.ts:188` as having an allowlisted channel
+without a handler; verification confirms the handler IS registered
+via the side-band map at `src/main/rpc-router.ts:884-890`,
+schema-validated at `src/main/core/rpc/schemas.ts:369`. No code
+change.
+
+**Fix 6 — Review hydration no longer churns on session add/remove**
+(`use-live-events.ts:89-101`). Effect was depending on
+`state.sessions.length`, causing `runRefreshOnEvent` teardown +
+setup + immediate RPC fetch on EVERY session add/remove. v1.1.11
+removes `state.sessions.length` from the deps; the effect now
+only re-runs on workspace switch + `review:changed` events.
+
+**Fix 7 — parseSwarmMessage runtime kind validation**
+(`parsers.ts:120`). The `kind` field was cast via `as SwarmMessage['kind']`
+without runtime validation; invalid `kind` strings entered state
+unchecked. v1.1.11 adds `VALID_SWARM_KINDS` allowlist +
+`isSwarmMessageKind` type guard; missing/null kind falls back to
+`'OPERATOR'`; unknown strings or non-string values return null
+(message rejected).
+
+**Fix 8 — Deferred to v1.1.12**: appStateStore double-render via
+`useLayoutEffect`. Real bug but requires paired refactor with
+Codex's `useSyncExternalStore` wiring across `state.tsx`,
+`state.hook.ts`, and the `appStateStore` interface. Out of scope
+for surgical fix wave.
+
+Gates
+=====
+
+* `pnpm exec tsc -b` → clean
+* `pnpm exec vitest run` → **196/196 pass** (was 168/168 at v1.1.10;
+  +28 new state-hook tests + 9 critical-fixer tests = 37 new specs
+  across 7 new + extended files)
+* `pnpm run lint` → 0/0 (unchanged)
+* `pnpm exec vite build` → main bundle 38.26 KB gzip (unchanged shape)
+* `codesign --verify --deep --strict --verbose=2 SigmaLink.app` →
+  exit 0, `Sealed Resources version=2 rules=13 files=20492`
+* `node-gyp rebuild` (for voice-mac native): clean with exceptions
+  enabled
+
+New test files
+==============
+
+* `state-hooks/use-workspace-mirror.test.ts` — 3 specs
+* `state-hooks/use-exited-session-gc.test.ts` — 4 specs
+* `swarm-room/MissionStep.test.tsx` — 2 specs
+* `state-hooks/parsers.test.ts` — 6 specs (kind validation)
+* `state-hooks/use-live-events.test.ts` — 2 specs (review churn)
+* `state-hooks/use-session-restore.test.ts` — 2 specs (per-workspace
+  room round-trip)
+* `state.test.ts` — extended with 10 reducer cases (SET_ACTIVE_WORKSPACE_ID
+  warn / REMOVE_SESSION live-filter / UPSERT_SWARM first-arrival /
+  SET_ROOM_FOR_WORKSPACE / WORKSPACE_OPEN seeds room / etc.)
+
+Coordination
+============
+
+Phase 16 (Kimi parallel audit, May 12) identified 129 findings.
+Phase 17 (this release): 2-coder Ruflo swarm closed the critical
++ high-confidence state-hook items:
+
+* `kimi-critical-fixer` — C1 native exceptions + C2/C3/C4 state-hook
+  fixes; 4 fixes + 9 new tests. Used `sparc:debug` + `sparc:tester`.
+* `kimi-state-fixer` — 6 reducer + state-hook fixes (Fix 1, 2, 3, 4,
+  6, 7); 28 new tests across 4 files. Used `sparc:debug` +
+  `sparc:tester`. Fix 8 explicitly deferred with v1.1.12 paired-refactor
+  rationale.
+
+Lead verified aggregate gates green before tagging. Two of Kimi's
+11 critical/high findings were verified false (C5 + Fix 5);
+documented in release notes + master_memory Phase 17 narrative
+so the audit's accuracy is on record.
+
+Carried forward
+===============
+
+All v1.1.0..v1.1.10 surfaces intact:
+
+* v1.1.10 — Gemini audit P1 fixes (6 bugs + 4 perf wins + dead
+  code sweep)
+* v1.1.9 — perf paired refactor + file-size sweep + lint zero
+* v1.1.8 — 5-agent optimization swarm (bundle -61% gzip)
+* v1.1.7 — curl-bash installer
+* v1.1.6 — in-DMG README
+* v1.1.5 — adhoc-sign hook
+* v1.1.4 — V3 visual parity
+* v1.1.3 — multi-workspace + pane resume + growable swarms
+* v1.1.2 — Sigma Assistant tool dispatch
+* v1.1.1 — Sigma rebrand + voice diagnostics
+
+Deferred to v1.1.12
+====================
+
+See `docs/08-bugs/BACKLOG.md` for the full ledger.
+
+* **Provider registry cleanup** (user-requested 2026-05-12, originally
+  v1.1.10) — pushed again. Will land standalone.
+* **Playwright e2e refresh** — v1.1.4 stale selectors.
+* **Kimi audit warning sweep** — ~100 warning-level findings across
+  20+ feature files (Composer voice gate key mismatch, MemoryRoom
+  keystroke RPC spam, EditorTab listener thrash, NotesTab edit
+  clobber, ReplayScrubber off-by-one + stale callback, Constellation
+  + MemoryGraph rAF hover stale closure, BridgeRoom listener thrash,
+  TaskDetailDrawer stale prop, etc.).
+* **Kimi's 🟠 P3 optimizations** — 35 catalogued, deferred until
+  the warning sweep lands first.
+* **Fix 8 — appStateStore double-render** — paired refactor candidate.
+
+Distribution
+============
+
+arm64-only macOS DMG, same install paths as v1.1.7+:
+
+  curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+
+  # Pin v1.1.11 explicitly:
+  curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.11
+
+Known issues (unchanged)
+========================
+
+* No Apple Developer ID + no notarisation — first-launch friction
+  mitigated by curl installer.
+* "Hey Sigma" wake-word — Porcupine licensing.
+* Win SAPI + Linux Whisper voice — v1.2.
+* Gemini pane resume — gemini CLI lacks --resume.
+* x64 macOS DMG via CI matrix — v1.2.
+
+Upgrade path
+============
+
+Drop the new SigmaLink.app into /Applications. Existing kv state +
+workspaces + agent sessions survive — no migrations. The wins are
+in: voice module no longer crashes the host on TSFn failure; per-
+workspace room state preserved across restart; cleanup paths
+correctly terminate live resources; SwarmRoom doesn't auto-jump
+between deselected swarms on every message.

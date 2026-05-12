@@ -10,6 +10,12 @@ namespace sigmavoice {
 
 void StringEmitter::Bind(Napi::Function cb, const std::string& name) {
   Release();
+  // BUG-C1 — ThreadSafeFunction::New can throw on internal libuv / Napi
+  // failures. With C++ exceptions enabled in binding.gyp, we let the
+  // exception propagate to the N-API entry point (BindCallback<>) which
+  // converts it to a JS exception via ThrowAsJavaScriptException. We
+  // ensure the emitter stays in a known state (tsfn_ == nullptr) if the
+  // call throws.
   tsfn_ = Napi::ThreadSafeFunction::New(
       cb.Env(),
       cb,
@@ -44,6 +50,7 @@ void StringEmitter::Emit(const std::string& payload) {
 
 void ErrorEmitter::Bind(Napi::Function cb, const std::string& name) {
   Release();
+  // BUG-C1 — see StringEmitter::Bind above. Same propagation contract.
   tsfn_ = Napi::ThreadSafeFunction::New(
       cb.Env(),
       cb,

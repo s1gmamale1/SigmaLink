@@ -4,8 +4,27 @@
 // IPC bridge access except for the `eventOn` subscription in
 // `runRefreshOnEvent`, which is meant to be called from inside a useEffect.
 
-import type { BrowserState, SwarmMessage } from '../../../shared/types';
+import type { BrowserState, SwarmMessage, SwarmMessageKind } from '../../../shared/types';
 import type { RoomId } from '../state.types';
+
+// Runtime mirror of `SwarmMessageKind` so the parser can reject malformed
+// payloads instead of casting through `as`. If a new kind lands in
+// shared/types.ts, add it here too — the unit test in state.test.ts asserts
+// every kind round-trips cleanly.
+const VALID_SWARM_KINDS: ReadonlySet<SwarmMessageKind> = new Set<SwarmMessageKind>([
+  'SAY',
+  'ACK',
+  'STATUS',
+  'DONE',
+  'OPERATOR',
+  'ROLLCALL',
+  'ROLLCALL_REPLY',
+  'SYSTEM',
+]);
+
+function isSwarmMessageKind(value: unknown): value is SwarmMessageKind {
+  return typeof value === 'string' && VALID_SWARM_KINDS.has(value as SwarmMessageKind);
+}
 
 /**
  * Shared shape for the per-workspace hydrate-on-mount-and-event pattern.
@@ -117,7 +136,20 @@ export function parseSwarmMessage(raw: unknown): SwarmMessage | null {
   const to = typeof p.to === 'string' ? p.to : '*';
   const body = typeof p.body === 'string' ? p.body : '';
   const ts = typeof p.ts === 'number' ? p.ts : Date.now();
-  const kind = (typeof p.kind === 'string' ? p.kind : 'OPERATOR') as SwarmMessage['kind'];
+  // v1.1.10 — runtime-validate `kind` so a malformed/malicious IPC payload
+  // can't smuggle an unknown discriminant into state. Missing or invalid kinds
+  // fall back to 'OPERATOR' (a UI-rendered neutral message); an explicit but
+  // unknown string (e.g. `{ kind: 'INVALID' }`) is rejected outright so a
+  // typo in main/native code is loud, not silent.
+  const rawKind = p.kind;
+  let kind: SwarmMessageKind;
+  if (rawKind === undefined || rawKind === null) {
+    kind = 'OPERATOR';
+  } else if (isSwarmMessageKind(rawKind)) {
+    kind = rawKind;
+  } else {
+    return null;
+  }
   const payload =
     p.payload && typeof p.payload === 'object'
       ? (p.payload as Record<string, unknown>)

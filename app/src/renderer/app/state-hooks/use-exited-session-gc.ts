@@ -23,11 +23,17 @@ export function useExitedSessionGc(state: AppState, dispatch: Dispatch<Action>):
     const timers = timersRef.current;
     for (const session of state.sessions) {
       if (session.status === 'exited' && !timers.has(session.id)) {
+        const sessionId = session.id;
         const t = setTimeout(() => {
-          dispatch({ type: 'REMOVE_SESSION', id: session.id });
-          timers.delete(session.id);
+          // BUG-C3 — guard against firing after unmount or after the session
+          // has already been cleared. The unmount cleanup below empties this
+          // Map; if our id is no longer present we must not dispatch into a
+          // torn-down provider.
+          if (!timers.has(sessionId)) return;
+          timers.delete(sessionId);
+          dispatch({ type: 'REMOVE_SESSION', id: sessionId });
         }, EXITED_AUTO_REMOVE_MS);
-        timers.set(session.id, t);
+        timers.set(sessionId, t);
       }
     }
     // Cancel timers for sessions that are no longer present.

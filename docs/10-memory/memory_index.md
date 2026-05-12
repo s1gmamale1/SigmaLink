@@ -145,3 +145,10 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-86 | Orchestration reliability: mailbox no-abort + addAgentToSwarm atomic role index + StdinWriter timeout | shipped | 1 |
 | T-87 | Frontend perf: Terminal/Sidebar/Launcher selector migration + Constellation visibility gate | shipped | 1 |
 | T-88 | Dead code: PhasePlaceholder + placeholders/ + RoomChrome inlined (net -82 LOC) | shipped | 1 |
+| T-89 | Phase 16 — Kimi codebase audit (129 issues, 5 critical, 52 warning, 72 suggestion) | investigated | 1 |
+| T-90 | Phase 17 — v1.1.11 Kimi audit P1 fix wave: 2-coder swarm closes 4 critical + 6 state-hook warnings | shipped | 2 |
+| T-91 | Native voice-mac C++ exceptions enabled + try/catch around ThreadSafeFunction::New | shipped | 1 |
+| T-92 | State hooks: useWorkspaceMirror desync fix + useExitedSessionGc timer guard + MissionStep voiceHandleRef | shipped | 1 |
+| T-93 | Reducer: per-workspace roomByWorkspace + SET_ACTIVE_WORKSPACE_ID warn + REMOVE_SESSION live-filter + UPSERT_SWARM first-arrival | shipped | 1 |
+| T-94 | parseSwarmMessage runtime kind validation + use-live-events review churn fix | shipped | 1 |
+| T-95 | Kimi audit false positives verified: C5 No CI/CD (3 workflows exist) + Fix 5 voice.diagnostics.run (handler registered) | investigated | 1 |

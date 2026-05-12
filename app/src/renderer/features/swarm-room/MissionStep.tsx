@@ -102,6 +102,18 @@ export function MissionStep({ mission, onMissionChange, onAdvance }: Props) {
     missionRef.current = mission;
   }, [mission]);
 
+  // BUG-C4 — unmount cleanup must reference the *latest* voice handle, not
+  // the initial null captured by an empty-deps effect. We mirror `voiceHandle`
+  // into a ref so the cleanup below can read the live recognizer at the
+  // moment the component unmounts. Adding `voiceHandle` to the cleanup
+  // effect's deps would tear down + recreate on every handle change, which
+  // calls .stop() during the next render's setup — wrong. The ref pattern
+  // keeps cleanup correct without firing mid-life.
+  const voiceHandleRef = useRef<VoiceCaptureHandle | null>(null);
+  useEffect(() => {
+    voiceHandleRef.current = voiceHandle;
+  }, [voiceHandle]);
+
   // Pull the workspace list once; the picker is a snapshot — operators
   // rarely add a workspace mid-wizard, and a stale entry is harmless because
   // server-side resolution catches missing slugs.
@@ -220,12 +232,14 @@ export function MissionStep({ mission, onMissionChange, onAdvance }: Props) {
     });
   }
 
-  // Cleanup any live voice capture when the step unmounts.
+  // Cleanup any live voice capture when the step unmounts. Reads from the
+  // ref so the cleanup sees the handle that was active at unmount time
+  // (BUG-C4).
   useEffect(() => {
     return () => {
-      voiceHandle?.stop();
+      voiceHandleRef.current?.stop();
+      voiceHandleRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function toggleVoice(): Promise<void> {

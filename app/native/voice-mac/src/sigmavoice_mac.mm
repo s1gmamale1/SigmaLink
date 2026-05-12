@@ -20,23 +20,48 @@ Napi::Value GetAuthStatus(const Napi::CallbackInfo& info) {
 
 /** Returns a Promise<AuthStatus>. We resolve once SFSpeechRecognizer's
  *  authorization handler fires. The callback may arrive on a non-JS
- *  thread, so we hop back via a TSFN dedicated to this single call. */
+ *  thread, so we hop back via a TSFN dedicated to this single call.
+ *
+ *  BUG-C1 — `ThreadSafeFunction::New` can throw `Napi::Error` on failure
+ *  (queue alloc, internal libuv state, etc.). We now build with C++
+ *  exceptions enabled and catch here, rejecting the deferred instead of
+ *  letting std::terminate() take the host process down. */
 Napi::Value RequestPermission(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
 
-  auto* tsfn = new Napi::ThreadSafeFunction(Napi::ThreadSafeFunction::New(
-      env,
-      Napi::Function::New(env, [](const Napi::CallbackInfo&) {}),
-      "voice-mac.requestPermission",
-      0,
-      1
-  ));
-  // Capture the deferred by heap so the lambda outlives this stack frame.
-  auto* deferredHeap = new Napi::Promise::Deferred(deferred);
+  Napi::ThreadSafeFunction* tsfn = nullptr;
+  Napi::Promise::Deferred* deferredHeap = nullptr;
+  try {
+    tsfn = new Napi::ThreadSafeFunction(Napi::ThreadSafeFunction::New(
+        env,
+        Napi::Function::New(env, [](const Napi::CallbackInfo&) {}),
+        "voice-mac.requestPermission",
+        0,
+        1
+    ));
+    // Capture the deferred by heap so the lambda outlives this stack frame.
+    deferredHeap = new Napi::Promise::Deferred(deferred);
+  } catch (const Napi::Error& e) {
+    delete tsfn;
+    delete deferredHeap;
+    deferred.Reject(Napi::Error::New(env, std::string("voice-mac: failed to create TSFN: ") + e.Message()).Value());
+    return deferred.Promise();
+  } catch (const std::exception& e) {
+    delete tsfn;
+    delete deferredHeap;
+    deferred.Reject(Napi::Error::New(env, std::string("voice-mac: ") + e.what()).Value());
+    return deferred.Promise();
+  }
 
   Recognizer::Instance().RequestAuthorization([tsfn, deferredHeap](const std::string& status) {
-    auto* copy = new std::string(status);
+    auto* copy = new (std::nothrow) std::string(status);
+    if (!copy) {
+      tsfn->Release();
+      delete tsfn;
+      delete deferredHeap;
+      return;
+    }
     napi_status rc = tsfn->NonBlockingCall(copy, [deferredHeap](Napi::Env e, Napi::Function, std::string* s) {
       deferredHeap->Resolve(Napi::String::New(e, *s));
       delete s;
@@ -105,7 +130,20 @@ Napi::Value BindCallback(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
   Napi::Function cb = info[0].As<Napi::Function>();
-  (Recognizer::Instance().*Bind)(cb);
+  // BUG-C1 — ThreadSafeFunction::New (inside Bind) can throw on libuv /
+  // queue allocation failure. Catch and surface as a JS exception so the
+  // host process does not std::terminate().
+  try {
+    (Recognizer::Instance().*Bind)(cb);
+  } catch (const Napi::Error& e) {
+    Napi::Error::New(env, std::string("voice-mac: bind failed: ") + e.Message())
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  } catch (const std::exception& e) {
+    Napi::Error::New(env, std::string("voice-mac: ") + e.what())
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
   // Returns an unsubscribe stub. The native side keeps a single binding per
   // channel; calling onPartial(cb) again just rebinds. The unsubscribe
   // closure clears the binding by rebinding a no-op. JS-side adapter is

@@ -156,3 +156,166 @@ describe('appStateReducer multi-workspace state', () => {
     expect(ended.swarmsByWorkspace.a[0]?.status).toBe('completed');
   });
 });
+
+// v1.1.10 — fixes from the warning-level audit pass:
+// - Fix 1: per-workspace room state lost on snapshot.
+// - Fix 2: SET_ACTIVE_WORKSPACE_ID silently ignores unknown IDs (now warns).
+// - Fix 3: REMOVE_SESSION fallback picks live session first.
+// - Fix 4: UPSERT_SWARM does not override intentional deselection.
+describe('appStateReducer v1.1.10 reliability fixes', () => {
+  it('Fix 1: SET_ROOM stamps roomByWorkspace under the active workspace', () => {
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    const opened = [wsA, wsB].reduce(
+      (next, ws) => appStateReducer(next, { type: 'WORKSPACE_OPEN', workspace: ws }),
+      readyState([wsA, wsB]),
+    );
+    // wsB is active after the second open. Switch its room.
+    const swarm = appStateReducer(opened, { type: 'SET_ROOM', room: 'swarm' });
+    expect(swarm.room).toBe('swarm');
+    expect(swarm.roomByWorkspace.b).toBe('swarm');
+    expect(swarm.roomByWorkspace.a).toBeUndefined();
+
+    // Switch to A and set a different room.
+    const activeA = appStateReducer(swarm, { type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: 'a' });
+    const command = appStateReducer(activeA, { type: 'SET_ROOM', room: 'command' });
+    expect(command.roomByWorkspace.a).toBe('command');
+    expect(command.roomByWorkspace.b).toBe('swarm');
+  });
+
+  it('Fix 1: SET_ROOM_FOR_WORKSPACE seeds entries without touching state.room', () => {
+    const wsA = workspace('a');
+    const state = appStateReducer(readyState([wsA]), { type: 'WORKSPACE_OPEN', workspace: wsA });
+    expect(state.room).toBe('workspaces');
+    const seeded = appStateReducer(state, {
+      type: 'SET_ROOM_FOR_WORKSPACE',
+      workspaceId: 'a',
+      room: 'memory',
+    });
+    expect(seeded.roomByWorkspace.a).toBe('memory');
+    expect(seeded.room).toBe('workspaces'); // unchanged
+  });
+
+  it('Fix 1: WORKSPACE_CLOSE drops the closed workspace from roomByWorkspace', () => {
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    const opened = [wsA, wsB].reduce(
+      (next, ws) => appStateReducer(next, { type: 'WORKSPACE_OPEN', workspace: ws }),
+      readyState([wsA, wsB]),
+    );
+    const withRooms = appStateReducer(
+      appStateReducer(opened, { type: 'SET_ROOM_FOR_WORKSPACE', workspaceId: 'a', room: 'command' }),
+      { type: 'SET_ROOM_FOR_WORKSPACE', workspaceId: 'b', room: 'swarm' },
+    );
+    expect(withRooms.roomByWorkspace).toEqual({ a: 'command', b: 'swarm' });
+    const closedB = appStateReducer(withRooms, { type: 'WORKSPACE_CLOSE', workspaceId: 'b' });
+    expect(closedB.roomByWorkspace).toEqual({ a: 'command' });
+  });
+
+  it('Fix 1: snapshot path remembers different rooms per workspace', () => {
+    // Simulates the full snapshot scenario: workspace A is in `command`, B is
+    // in `swarm`. Pre-v1.1.10 the snapshot writer used a single global room
+    // for both entries; the reducer now preserves them independently so the
+    // serialiser can read state.roomByWorkspace directly.
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    const base = [wsA, wsB].reduce(
+      (next, ws) => appStateReducer(next, { type: 'WORKSPACE_OPEN', workspace: ws }),
+      readyState([wsA, wsB]),
+    );
+    // Active is B (most recently opened).
+    const bSwarm = appStateReducer(base, { type: 'SET_ROOM', room: 'swarm' });
+    const activeA = appStateReducer(bSwarm, { type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: 'a' });
+    const aCommand = appStateReducer(activeA, { type: 'SET_ROOM', room: 'command' });
+
+    expect(aCommand.roomByWorkspace).toEqual({ a: 'command', b: 'swarm' });
+    // Simulate the snapshot writer mapping over openWorkspaces.
+    const entries = aCommand.openWorkspaces.map((w) => ({
+      workspaceId: w.id,
+      room: aCommand.roomByWorkspace[w.id] ?? aCommand.room,
+    }));
+    const rooms = Object.fromEntries(entries.map((e) => [e.workspaceId, e.room]));
+    expect(rooms).toEqual({ a: 'command', b: 'swarm' });
+  });
+
+  it('Fix 2: SET_ACTIVE_WORKSPACE_ID warns on unknown id without mutating state', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const wsA = workspace('a');
+      const opened = appStateReducer(readyState([wsA]), {
+        type: 'WORKSPACE_OPEN',
+        workspace: wsA,
+      });
+      const result = appStateReducer(opened, {
+        type: 'SET_ACTIVE_WORKSPACE_ID',
+        workspaceId: 'ghost',
+      });
+      expect(result).toBe(opened); // strict identity — no churn
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('SET_ACTIVE_WORKSPACE_ID'),
+        'ghost',
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('Fix 3: REMOVE_SESSION prefers a live session over exited ones', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('exited1', 'a'), session('live1', 'a'), session('exited2', 'a')],
+    });
+    // Mark the two exited.
+    s = appStateReducer(s, { type: 'MARK_SESSION_EXITED', id: 'exited1', exitCode: 1 });
+    s = appStateReducer(s, { type: 'MARK_SESSION_EXITED', id: 'exited2', exitCode: 1 });
+    // Make the live session active, then remove it. The fallback should
+    // prefer running > exited even if exited comes first in the array.
+    s = appStateReducer(s, { type: 'SET_ACTIVE_SESSION', id: 'live1' });
+    const removed = appStateReducer(s, { type: 'REMOVE_SESSION', id: 'live1' });
+    // No live session left — fall back to first remaining (exited).
+    expect(removed.activeSessionId).toBe('exited1');
+  });
+
+  it('Fix 3: REMOVE_SESSION picks a live session when available', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('exited1', 'a'), session('live1', 'a'), session('live2', 'a')],
+    });
+    s = appStateReducer(s, { type: 'MARK_SESSION_EXITED', id: 'exited1', exitCode: 1 });
+    s = appStateReducer(s, { type: 'SET_ACTIVE_SESSION', id: 'live1' });
+    const removed = appStateReducer(s, { type: 'REMOVE_SESSION', id: 'live1' });
+    // exited1 sits at index 0, live2 at index 2 — fallback must skip the
+    // exited one and pick the running session.
+    expect(removed.activeSessionId).toBe('live2');
+  });
+
+  it('Fix 4: UPSERT_SWARM does not auto-activate when other swarms exist in the workspace', () => {
+    let s = readyState([workspace('a'), workspace('b')]);
+    s = appStateReducer(s, { type: 'SET_SWARMS', swarms: [swarm('sw1', 'a')] });
+    expect(s.activeSwarmId).toBe('sw1');
+    // User intentionally clears active swarm.
+    s = appStateReducer(s, { type: 'SET_ACTIVE_SWARM', id: null });
+    expect(s.activeSwarmId).toBeNull();
+    // A second swarm is upserted (e.g. swarm:message updates sw1's roster).
+    s = appStateReducer(s, { type: 'UPSERT_SWARM', swarm: swarm('sw2', 'a') });
+    // Pre-v1.1.10 this would re-set activeSwarmId to 'sw2'.
+    expect(s.activeSwarmId).toBeNull();
+  });
+
+  it('Fix 4: UPSERT_SWARM auto-activates the FIRST swarm in a workspace', () => {
+    let s = readyState([workspace('a')]);
+    expect(s.activeSwarmId).toBeNull();
+    // First swarm ever — auto-activate is still expected.
+    s = appStateReducer(s, { type: 'UPSERT_SWARM', swarm: swarm('sw1', 'a') });
+    expect(s.activeSwarmId).toBe('sw1');
+    // Re-upserting the same swarm (e.g. status change) keeps active.
+    s = appStateReducer(s, { type: 'UPSERT_SWARM', swarm: swarm('sw1', 'a') });
+    expect(s.activeSwarmId).toBe('sw1');
+  });
+});

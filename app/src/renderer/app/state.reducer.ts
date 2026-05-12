@@ -7,7 +7,7 @@
 // the public API.
 
 import type { AgentSession, Swarm, Workspace } from '../../shared/types';
-import { selectActiveWorkspace, type Action, type AppState } from './state.types';
+import { selectActiveWorkspace, type Action, type AppState, type RoomId } from './state.types';
 
 function deriveActiveWorkspace(state: AppState): AppState {
   const activeWorkspace = selectActiveWorkspace(state);
@@ -49,6 +49,28 @@ function groupSwarmsByWorkspace(swarms: Swarm[]): Record<string, Swarm[]> {
   return grouped;
 }
 
+/**
+ * Drop entries from the per-workspace room map whose workspace is no longer
+ * open. Keeps `roomByWorkspace` from growing unboundedly across long-running
+ * sessions and prevents stale rooms leaking back when a closed workspace is
+ * reopened later (it should land on its DB-persisted room, not a stale
+ * runtime guess).
+ */
+function pruneRoomByWorkspace(
+  roomByWorkspace: Record<string, RoomId>,
+  openWorkspaces: Workspace[],
+): Record<string, RoomId> {
+  const liveIds = new Set(openWorkspaces.map((w) => w.id));
+  let changed = false;
+  const next: Record<string, RoomId> = {};
+  for (const [id, room] of Object.entries(roomByWorkspace)) {
+    if (liveIds.has(id)) next[id] = room;
+    else changed = true;
+  }
+  return changed ? next : roomByWorkspace;
+}
+
+
 export function appStateReducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'READY': {
@@ -63,10 +85,37 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         workspaces: action.workspaces,
         openWorkspaces,
         activeWorkspaceId,
+        roomByWorkspace: pruneRoomByWorkspace(state.roomByWorkspace, openWorkspaces),
       });
     }
-    case 'SET_ROOM':
-      return { ...state, room: action.room };
+    case 'SET_ROOM': {
+      // v1.1.10 — remember the room per active workspace so the snapshot
+      // writer can serialise each open workspace's last room correctly. We
+      // only persist non-'workspaces' rooms because the picker is not a
+      // workspace-scoped surface; landing back on the picker is handled by
+      // not having an entry (snapshot writer falls back to 'command').
+      const wsId = state.activeWorkspaceId;
+      const roomByWorkspace =
+        wsId && action.room !== 'workspaces'
+          ? { ...state.roomByWorkspace, [wsId]: action.room }
+          : state.roomByWorkspace;
+      return { ...state, room: action.room, roomByWorkspace };
+    }
+    case 'SET_ROOM_FOR_WORKSPACE': {
+      // v1.1.10 — used by session-restore to seed the per-workspace map
+      // without altering the user-visible `state.room`. No-op if the room
+      // is the picker (we drop those at SET_ROOM time too) or the entry is
+      // already correct.
+      if (action.room === 'workspaces') return state;
+      if (state.roomByWorkspace[action.workspaceId] === action.room) return state;
+      return {
+        ...state,
+        roomByWorkspace: {
+          ...state.roomByWorkspace,
+          [action.workspaceId]: action.room,
+        },
+      };
+    }
     case 'SET_WORKSPACES': {
       const openWorkspaces = reconcileOpenWorkspaces(state.openWorkspaces, action.workspaces);
       const activeWorkspaceId =
@@ -78,25 +127,42 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         workspaces: action.workspaces,
         openWorkspaces,
         activeWorkspaceId,
+        roomByWorkspace: pruneRoomByWorkspace(state.roomByWorkspace, openWorkspaces),
       });
     }
-    case 'WORKSPACE_OPEN':
+    case 'WORKSPACE_OPEN': {
+      const openWorkspaces = upsertOpenWorkspace(state.openWorkspaces, action.workspace);
+      // Seed the per-workspace room entry if we don't have one yet — keeps
+      // the snapshot writer accurate for workspaces opened mid-session, and
+      // makes restore round-trips lossless for the active workspace.
+      const wsId = action.workspace.id;
+      const roomByWorkspace =
+        state.roomByWorkspace[wsId] || state.room === 'workspaces'
+          ? state.roomByWorkspace
+          : { ...state.roomByWorkspace, [wsId]: state.room };
       return deriveActiveWorkspace({
         ...state,
-        openWorkspaces: upsertOpenWorkspace(state.openWorkspaces, action.workspace),
-        activeWorkspaceId: action.workspace.id,
+        openWorkspaces,
+        activeWorkspaceId: wsId,
+        roomByWorkspace,
       });
+    }
     case 'WORKSPACE_CLOSE': {
       const openWorkspaces = state.openWorkspaces.filter((w) => w.id !== action.workspaceId);
       const activeWorkspaceId =
         state.activeWorkspaceId === action.workspaceId
           ? openWorkspaces[0]?.id ?? null
           : state.activeWorkspaceId;
+      // Drop the closed workspace's room entry so the next open lands on its
+      // DB-persisted room rather than a stale runtime guess.
+      const { [action.workspaceId]: _dropped, ...rest } = state.roomByWorkspace;
+      void _dropped;
       return deriveActiveWorkspace({
         ...state,
         openWorkspaces,
         activeWorkspaceId,
         room: activeWorkspaceId ? state.room : 'workspaces',
+        roomByWorkspace: rest,
       });
     }
     case 'SET_ACTIVE_WORKSPACE_ID': {
@@ -108,7 +174,17 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         });
       }
       const workspace = state.openWorkspaces.find((w) => w.id === action.workspaceId);
-      if (!workspace) return state;
+      if (!workspace) {
+        // v1.1.10 — surface invalid dispatches instead of silently dropping
+        // them. Caller can keep the soft fallback (returning unchanged state)
+        // because every code path that should activate an open workspace
+        // already opens it first; reaching this branch is always a bug.
+        console.warn(
+          '[appStateReducer] SET_ACTIVE_WORKSPACE_ID called with id not in openWorkspaces:',
+          action.workspaceId,
+        );
+        return state;
+      }
       return deriveActiveWorkspace({
         ...state,
         openWorkspaces: upsertOpenWorkspace(state.openWorkspaces, workspace),
@@ -131,6 +207,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         openWorkspaces,
         activeWorkspaceId,
         room: activeWorkspaceId ? state.room : 'workspaces',
+        roomByWorkspace: pruneRoomByWorkspace(state.roomByWorkspace, openWorkspaces),
       });
     }
     case 'SET_ACTIVE_WORKSPACE':
@@ -175,9 +252,14 @@ export function appStateReducer(state: AppState, action: Action): AppState {
     }
     case 'REMOVE_SESSION': {
       const sessions = state.sessions.filter((s) => s.id !== action.id);
+      // v1.1.10 — when the active session is removed, prefer a live (running)
+      // replacement so the UI doesn't jump to an exited/error session as the
+      // new "active". Fall through to any remaining session if no live ones
+      // exist, then to null when the list is empty.
+      const liveFallback = sessions.find((s) => s.status === 'running');
       const activeSessionId =
         state.activeSessionId === action.id
-          ? sessions[0]?.id ?? null
+          ? liveFallback?.id ?? sessions[0]?.id ?? null
           : state.activeSessionId;
       return {
         ...state,
@@ -199,11 +281,24 @@ export function appStateReducer(state: AppState, action: Action): AppState {
     case 'UPSERT_SWARM': {
       const without = state.swarms.filter((s) => s.id !== action.swarm.id);
       const swarms = [action.swarm, ...without];
+      // v1.1.10 — auto-activate only when this is the FIRST swarm to land in
+      // the workspace (no other swarms exist there). Previously we auto-set
+      // whenever `activeSwarmId` was null, which overrode an intentional user
+      // deselection: a swarm `STATUS` message would yank the user back to
+      // the swarm room. Restricting auto-activation to the "first swarm
+      // arrives" case preserves both the original UX (no manual selection
+      // needed when there's only one) and user agency (a cleared selection
+      // stays cleared as long as there's something else to choose).
+      const existingForWorkspace = state.swarms.some(
+        (s) => s.workspaceId === action.swarm.workspaceId && s.id !== action.swarm.id,
+      );
+      const activeSwarmId =
+        state.activeSwarmId ?? (existingForWorkspace ? null : action.swarm.id);
       return {
         ...state,
         swarms,
         swarmsByWorkspace: groupSwarmsByWorkspace(swarms),
-        activeSwarmId: state.activeSwarmId ?? action.swarm.id,
+        activeSwarmId,
       };
     }
     case 'SET_ACTIVE_SWARM':
