@@ -77,7 +77,7 @@ mac:
 win:
   target:
     - target: nsis
-      arch: [x64, ia32]
+      arch: [x64]
     - target: portable
       arch: [x64]
 nsis:
@@ -86,6 +86,10 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: SigmaLink
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  license: build/nsis/README — First launch.txt
 linux:
   target:
     - target: AppImage

@@ -8,10 +8,20 @@ Local-first desktop workspace for orchestrating grids of CLI coding agents in re
 [![e2e-matrix](https://github.com/s1gmamale1/SigmaLink/actions/workflows/e2e-matrix.yml/badge.svg?branch=main)](https://github.com/s1gmamale1/SigmaLink/actions/workflows/e2e-matrix.yml)
 
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
-![Platform](https://img.shields.io/badge/platform-macOS%20arm64-lightgrey?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Windows%20x64-lightgrey?style=flat-square)
 ![Electron](https://img.shields.io/badge/Electron-30-2B2E3A?style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square)
 ![Status](https://img.shields.io/badge/status-WIP-orange?style=flat-square)
+
+## Supported platforms
+
+| Platform | Installer | One-line install | First-launch friction | Native bridges |
+|---|---|---|---|---|
+| macOS 13+ (Apple Silicon arm64) | DMG | `curl … install-macos.sh` | None via curl-bash (Gatekeeper bypass) | SigmaVoice native Speech.framework |
+| Windows 10/11 (x64) | NSIS EXE | `iex (irm … install-windows.ps1)` | SmartScreen warning on first run (workarounds documented) | Web Speech API (Chromium, requires internet) |
+
+> Linux (AppImage + .deb) is built from the same `electron-builder.yml` but is not test-gated and not on the supported platform list yet — tracked in [`docs/08-bugs/BACKLOG.md`](docs/08-bugs/BACKLOG.md) (v1.3+).
+> Windows x86 (ia32) was dropped in v1.2.0; the installer is x64-only.
 
 ## Install in one line (macOS, Apple Silicon)
 
@@ -25,6 +35,18 @@ To pin a specific release tag:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.7
 ```
+
+## Windows (10/11, x64)
+
+```powershell
+iex (irm https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-windows.ps1)
+```
+
+Or download the EXE directly from [Releases](https://github.com/s1gmamale1/SigmaLink/releases/latest).
+
+### Windows: first launch
+
+SigmaLink ships unsigned on Windows (no EV/OV Authenticode cert — deferred indefinitely; see [`docs/04-design/windows-port.md`](docs/04-design/windows-port.md)). The PowerShell installer above runs `Unblock-File` on the downloaded EXE to strip the Mark-of-the-Web tag, so the most common SmartScreen path is already avoided. If you download the EXE manually from the Releases page, SmartScreen may still surface a blue "Windows protected your PC" dialog on first launch. The full workaround set (Option A: **More info → Run anyway**; Option B: right-click EXE → **Properties → Unblock → OK**) is documented inside the installer itself — `README — First launch.txt` is shown by NSIS before the install completes.
 
 **Other install paths** are documented below: [manual DMG download](#install-options) (3 options including Terminal + System Settings workarounds) and [build from source](#quickstart-build-from-source).
 
@@ -166,7 +188,7 @@ The Command Room opens with one PTY per pane, each in its own worktree branch.
 - Git (with `user.name` and `user.email` configured for commit / merge actions).
 - At least one CLI agent on `PATH`. The launcher greys out providers it cannot resolve.
 
-Windows users: `node-pty` is rebuilt against the local Electron version on `npm install`. The known `.cmd` shim issue is tracked in [`docs/01-investigation/01-known-bug-windows-pty.md`](docs/01-investigation/01-known-bug-windows-pty.md) and is the first item on the Phase 1.5 patch list.
+Windows users: `node-pty` and `better-sqlite3` are rebuilt against the local Electron version on `npm install`. The historic `.cmd` shim issue ("Cannot create process, error code: 2") was resolved by the PATH+PATHEXT resolver in `src/main/core/pty/local-pty.ts:47-85` — see [`docs/01-investigation/01-known-bug-windows-pty.md`](docs/01-investigation/01-known-bug-windows-pty.md) for the full history and [`docs/04-design/windows-port.md`](docs/04-design/windows-port.md) for the v1.2.0 Windows port design.
 
 ## Project structure
 

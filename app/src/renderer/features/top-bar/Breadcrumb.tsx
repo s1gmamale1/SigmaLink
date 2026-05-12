@@ -17,9 +17,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { dragStyle } from '@/renderer/lib/drag-region';
+import { IS_WIN32 } from '@/renderer/lib/platform';
 import { RufloReadinessPill } from '@/renderer/components/RufloReadinessPill';
 import { RoomsMenuButton } from './RoomsMenuButton';
 import { RightRailSwitcher } from './RightRailSwitcher';
+
+// V1.2.0 Windows port — reserve 140px on the right edge so the breadcrumb's
+// rightmost cluster (RightRailSwitcher + settings gear) never collides with
+// Windows' native Window Caption Overlay (min / max / close buttons) which
+// render at top-right when `titleBarStyle: 'default'`. macOS / Linux leave it
+// unset because their window controls live on the left / outside the chrome.
+const WIN32_WCO_RESERVE_PX = 140;
 
 export function Breadcrumb() {
   const { state } = useAppState();
@@ -70,7 +78,11 @@ export function Breadcrumb() {
     return (
       <div
         className="flex h-8 items-center gap-2 border-b border-border bg-background/60 px-4 text-xs text-muted-foreground"
-        style={dragStyle()}
+        style={{
+          ...dragStyle(),
+          paddingRight: IS_WIN32 ? WIN32_WCO_RESERVE_PX : undefined,
+        }}
+        data-testid="breadcrumb-empty"
       >
         <RoomsMenuButton />
         <span>No workspace open</span>
@@ -82,7 +94,11 @@ export function Breadcrumb() {
   return (
     <div
       className="flex h-8 items-center gap-1 border-b border-border bg-background/60 px-4 text-xs"
-      style={dragStyle()}
+      style={{
+        ...dragStyle(),
+        paddingRight: IS_WIN32 ? WIN32_WCO_RESERVE_PX : undefined,
+      }}
+      data-testid="breadcrumb"
     >
       <RoomsMenuButton />
       <span className="text-foreground">Workspace {workspaceNumber}</span>

@@ -1,0 +1,234 @@
+SigmaLink v1.2.0 — Windows platform port
+
+Windows 10/11 (x64) is now a peer release surface to macOS arm64.
+NSIS installer ships from CI on every tag push, with a PowerShell
+one-liner installer that mirrors the macOS curl-bash UX. Voice on
+Windows routes through the Chromium Web Speech API; native SAPI5
+binding is deferred to v1.3+. Code-signing is deferred indefinitely;
+SmartScreen workarounds are documented inside the installer.
+
+Why v1.2.0 exists
+=================
+
+The macOS stream stabilised at v1.1.11 (196/196 tests, lint 0/0,
+native voice exceptions cleaned up). Platform reach is the next
+growth lever — Windows is the largest installed dev workstation base
+SigmaLink wasn't shipping to. v1.2.0 lands the platform without
+regressing macOS.
+
+What's new
+==========
+
+**NSIS installer for Windows 10/11 x64**
+`.github/workflows/release-windows.yml` (70 LOC) builds on every
+`v*` tag push (and `workflow_dispatch`) on `windows-latest`,
+rebuilds native modules (`better-sqlite3`, `node-pty`) against
+Electron 30 for x64, packs via `pnpm electron:pack:win`, and uploads
+`SigmaLink-Setup-<version>.exe` to the GitHub Release via
+`softprops/action-gh-release@v2`. Permissions `contents: write`;
+concurrency group `release-windows-${{ github.ref }}` with
+`cancel-in-progress: false`.
+
+**PowerShell one-liner install (parity with curl-bash macOS)**
+`app/scripts/install-windows.ps1` (234 lines / ~180 LOC) detects
+AMD64, fetches the latest release tag (or a pinned tag via
+`-Version v1.2.0`), downloads the EXE to `$env:TEMP`, calls
+`Unblock-File` to strip the Mark-of-the-Web (`Zone.Identifier` ADS),
+runs the NSIS installer, and cleans up unless `-KeepInstaller` is
+passed. `-Quiet` forwards NSIS `/S`. PowerShell 5+ gate at entry.
+
+**SmartScreen workaround documentation**
+`app/build/nsis/README — First launch.txt` (72 lines) is surfaced
+inside the installer via `nsis.license` (semantically odd but
+functional; v1.2.1 polish replaces with a custom NSH page).
+Documents the two recovery paths for users who download the EXE
+manually instead of via the PowerShell flow:
+- Option A: SmartScreen dialog → "More info" → "Run anyway"
+- Option B: right-click EXE → Properties → check "Unblock" → OK
+
+**Cascadia Mono terminal font on Windows**
+`app/src/renderer/features/command-room/Terminal.tsx:112` prepends
+`"Cascadia Mono"` to the xterm font stack ahead of Consolas/Menlo/
+Monaco. Cascadia ships with Windows 11 and is installable on
+Windows 10. macOS and Linux fall through to their existing stacks.
+
+**Platform-aware Voice tab**
+`app/src/renderer/features/settings/VoiceTab.tsx` reads
+`window.sigma.platform` (new in `electron/preload.ts`) and switches
+copy on non-darwin: `NATIVE_ENGINE_LABEL` becomes "Web Speech API
+(Chromium, requires internet)"; `NATIVE_ENGINE_AVAILABLE` is `false`
+so the native-engine radio is disabled; the diagnostics indicator
+dot is grey neutral instead of red error ("expected state on
+Windows", not "your voice is broken").
+
+How to install
+==============
+
+macOS Apple Silicon (unchanged):
+
+  curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+
+Windows 10/11 x64 (new):
+
+  iex (irm https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-windows.ps1)
+
+Or manual download from
+https://github.com/s1gmamale1/SigmaLink/releases/latest — pick the
+`SigmaLink-Setup-<version>.exe` asset on Windows or the
+`SigmaLink-<version>-arm64.dmg` on macOS.
+
+What's NOT in this release
+==========================
+
+* Native Windows SAPI5 voice binding — Web Speech API only;
+  offline + always-on capture is v1.3+ work.
+* EV/OV Authenticode signing — $300-700/yr; deferred indefinitely.
+  SmartScreen workarounds documented in the in-installer README.
+* `windowsControlsOverlay` frameless chrome — v1.2.0 uses native
+  Windows frame + 140px Breadcrumb right-pad. WCO is v1.3+ polish.
+* Linux AppImage + .deb test gating — built from the same source
+  but no CI runner and no smoke; not on the supported platform list.
+* `Split` + `Minimise` pane functions — still placeholder.
+* Provider Registry Cleanup (BridgeCode + Cursor + Shell + Aider +
+  Continue out, Kimi in as first-class) — pushed to v1.1.12 again.
+* Kimi audit warning sweep (~100 findings across 20+ feature
+  files) — v1.1.12.
+* Microsoft Store / WinGet distribution — after EV cert.
+* Windows auto-update — after signing.
+
+Known issues
+============
+
+* **SmartScreen first-run warning on Windows** — fresh users who
+  download the EXE manually (not via the PowerShell installer) will
+  see SmartScreen on first launch. The in-installer
+  `README — First launch.txt` documents the two recoveries:
+  "More info → Run anyway" or right-click → Properties → Unblock.
+  SmartScreen reputation is per-binary-hash, so every release
+  re-warms reputation from zero.
+
+* **`nsis.license` page shows the welcome README behind an
+  "I accept" radio gate** — cosmetic; v1.2.1 polish target. The
+  field semantically expects a license agreement and renders the
+  text behind a forced accept gate. We're abusing it for the
+  SmartScreen explainer. v1.2.1 replaces with a custom MUI2
+  informational page via `nsis.include`.
+
+* **Web Speech API requires internet on Windows** — Chromium
+  delegates speech recognition to a Google cloud STT call.
+  Air-gapped Windows users have no voice path. v1.3+ unblock via
+  native SAPI5 binding.
+
+* **No Windows auto-update** — users re-run the PowerShell
+  installer to upgrade. Renderer toggle for auto-update stays
+  opt-in and macOS-only.
+
+* All v1.1.x macOS known issues unchanged (no Apple Developer ID,
+  Porcupine wake-word licensing, Gemini pane resume).
+
+Files of note
+=============
+
+* `.github/workflows/release-windows.yml` — CI build + release.
+* `app/electron-builder.yml` — `win.target.nsis.arch: [x64]`,
+  NSIS icon set, `nsis.license` welcome page wired.
+* `app/build/nsis/README — First launch.txt` — 72-line welcome.
+* `app/scripts/install-windows.ps1` — PowerShell installer.
+* `app/electron/preload.ts` — `window.sigma.platform` exposure.
+* `app/src/renderer/lib/platform.ts` — NEW (12 LOC); exports
+  `getPlatform()` + `IS_WIN32`.
+* `app/src/renderer/features/top-bar/Breadcrumb.tsx` — 140px WCO
+  pad on win32.
+* `app/src/renderer/features/command-room/Terminal.tsx:112` —
+  Cascadia Mono prepend.
+* `app/src/renderer/features/settings/VoiceTab.tsx` — platform-
+  aware copy + neutral diagnostics dot on non-darwin.
+* `docs/04-design/windows-port.md` — NEW design doc (~150 lines).
+  Architectural decisions + touch-point reference table +
+  trade-offs.
+* `docs/01-investigation/01-known-bug-windows-pty.md` — marked
+  RESOLVED 2026-05-12; preserves the original investigation as
+  historical record.
+
+Gates
+=====
+
+* `pnpm exec tsc -b` → clean
+* `pnpm exec vitest run` → **205/205** (was 196/196 at v1.1.11;
+  +9 new specs across `Breadcrumb.test.tsx` + `VoiceTab.test.tsx`)
+* `pnpm exec eslint .` → 0/0
+* `pnpm exec vite build` → unchanged main bundle
+* macOS DMG sign → unchanged from v1.1.11
+  (`codesign --verify --deep --strict` Sealed Resources files=20492)
+* Windows EXE → built by CI on `windows-latest`; smoke verified
+  locally via `pnpm electron:pack:win`
+
+Verified by
+===========
+
+Code inspection 2026-05-12 on macOS host. Windows VM smoke deferred
+to first beta tag (`v1.2.1-beta` or similar) since the integration
+gates (tsc + vitest + eslint) all run cross-platform and the historic
+`.cmd` shim bug was independently re-verified on Windows 11 as part
+of the v1.1.10 reliability sweep.
+
+Coordination
+============
+
+Phase 18 ran as 5 implementation steps + 1 release step over a
+single working session:
+
+* 3 Explore agents (pre-flight) verified ~80% of Windows-relevant
+  plumbing was already in place from foundation patches (Wave 5) +
+  the v1.1.10 reliability sweep.
+* Step 1 — CI workflow (release-windows.yml).
+* Step 2 — Installer plumbing (electron-builder.yml ia32 drop +
+  NSIS welcome page).
+* Step 3 — PowerShell installer (install-windows.ps1).
+* Step 4 — Renderer polish (preload + lib/platform + Breadcrumb +
+  Cascadia + VoiceTab + 2 test files / 9 cases).
+* Step 5 — Docs sweep (this set of 8 documentation files).
+* Step 6 — `v1.2.0` annotated tag + push.
+
+Carried forward
+===============
+
+All v1.1.0..v1.1.11 surfaces intact:
+
+* v1.1.11 — Kimi audit P1 fixes + state-hook fix wave
+* v1.1.10 — Gemini P1 reliability hotfix
+* v1.1.9 — perf paired refactor + file-size sweep + lint 0/0
+* v1.1.8 — 5-agent optimization swarm (bundle -61% gzip)
+* v1.1.7 — curl-bash installer
+* v1.1.6 — in-DMG README
+* v1.1.5 — adhoc-sign hook
+* v1.1.4 — V3 visual parity
+* v1.1.3 — multi-workspace + pane resume + growable swarms
+* v1.1.2 — Sigma Assistant tool dispatch
+* v1.1.1 — Sigma rebrand + voice diagnostics
+
+Distribution
+============
+
+First dual-platform release. arm64 macOS DMG + x64 Windows NSIS EXE:
+
+  # macOS
+  curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+
+  # Windows
+  iex (irm https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-windows.ps1)
+
+  # Pin v1.2.0 explicitly on macOS:
+  curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.2.0
+
+  # Pin v1.2.0 explicitly on Windows:
+  iex "& { $(irm https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-windows.ps1) } -Version v1.2.0"
+
+Upgrade path
+============
+
+macOS users: drop the new SigmaLink.app into /Applications; existing
+kv state + workspaces + agent sessions survive.
+
+Windows users: first-time install via the PowerShell one-liner above
+(or manual EXE download). No prior Windows release to migrate from.

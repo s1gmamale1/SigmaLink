@@ -22,7 +22,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Mic, RefreshCw } from 'lucide-react';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
+import { IS_WIN32, getPlatform } from '@/renderer/lib/platform';
 import { cn } from '@/lib/utils';
+
+// v1.2.0 Windows port — the "native macOS engine" only exists on darwin.
+// On every other platform the auto/on radio still works but quietly falls
+// back to Web Speech. We surface that fact in the radio copy and in the
+// diagnostics row so a Windows / Linux user does not see a red error on a
+// platform where the native module is, by design, unavailable.
+const NATIVE_ENGINE_LABEL: string = (() => {
+  if (IS_WIN32) return 'Web Speech API (Chromium, requires internet)';
+  if (getPlatform() === 'linux') return 'Web Speech API (Chromium, requires internet)';
+  return 'macOS native engine';
+})();
+
+// True when the native engine is buildable on this platform. Today that's
+// darwin only — the napi-rs prebuild ships in the macOS DMG and is absent
+// from the win/linux artifacts. Gates the red error on the diagnostics dot
+// so non-darwin users see "unavailable on this platform" instead.
+const NATIVE_ENGINE_AVAILABLE = getPlatform() === 'darwin';
 
 type DiagnosticsMode = 'off' | 'auto' | 'on';
 type PermissionStatus = 'granted' | 'denied' | 'undetermined' | 'unsupported';
@@ -50,12 +68,16 @@ const MODE_OPTIONS: ReadonlyArray<{
   {
     value: 'auto',
     label: 'Auto (recommended)',
-    description: 'Use the macOS native engine when available; fall back to Web Speech.',
+    description: NATIVE_ENGINE_AVAILABLE
+      ? 'Use the macOS native engine when available; fall back to Web Speech.'
+      : `Use ${NATIVE_ENGINE_LABEL} (native engine unavailable on this platform).`,
   },
   {
     value: 'on',
     label: 'On',
-    description: 'Force the on-device native engine on macOS.',
+    description: NATIVE_ENGINE_AVAILABLE
+      ? 'Force the on-device native engine on macOS.'
+      : `Force ${NATIVE_ENGINE_LABEL}.`,
   },
 ];
 
@@ -240,7 +262,9 @@ export function VoiceTab() {
               {PERMISSION_LABEL[permission]}
             </div>
             <div className="text-[11px] text-muted-foreground">
-              macOS prompts once; deny → re-grant in System Settings.
+              {NATIVE_ENGINE_AVAILABLE
+                ? 'macOS prompts once; deny → re-grant in System Settings.'
+                : 'Permission is requested by the browser engine when you first speak.'}
             </div>
           </div>
           <button
@@ -281,15 +305,32 @@ export function VoiceTab() {
           {diagnostics ? (
             <>
               <div className="flex items-center gap-6 px-2 py-2" data-testid="voice-diagnostics-dots">
-                <DiagnosticsDot
-                  ok={diagnostics.nativeLoaded}
-                  label="Native"
-                  detail={
-                    diagnostics.nativeLoaded
-                      ? 'Native macOS module loaded.'
-                      : 'Native module unavailable (non-darwin or prebuild missing).'
-                  }
-                />
+                {NATIVE_ENGINE_AVAILABLE ? (
+                  <DiagnosticsDot
+                    ok={diagnostics.nativeLoaded}
+                    label="Native"
+                    detail={
+                      diagnostics.nativeLoaded
+                        ? 'Native macOS module loaded.'
+                        : 'Native module unavailable (prebuild missing).'
+                    }
+                  />
+                ) : (
+                  <div
+                    data-testid="voice-diagnostics-dot-native-unavailable"
+                    data-status="neutral"
+                    className="flex flex-col items-center gap-1"
+                    title="Native engine: unavailable on this platform"
+                  >
+                    <span
+                      className="inline-flex h-3 w-3 rounded-full bg-muted-foreground/40 ring-2 ring-offset-1 ring-offset-background ring-muted-foreground/10"
+                      aria-label="Native engine: unavailable on this platform"
+                    />
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Native: unavailable
+                    </span>
+                  </div>
+                )}
                 <DiagnosticsDot
                   ok={diagnostics.permissionStatus === 'granted'}
                   label="Permission"

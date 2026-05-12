@@ -78,15 +78,11 @@ Per-wave engineering reports live under [`../06-build/`](../06-build/) and visua
 
 ## Latest commit + tag
 
-- `v1.1.3-plan` HEAD: (this commit — planning artifacts only; no code changes).
-- `v1.1.2-final` HEAD: `c1452bd` (MCP host server + session-restore + 4 punch-list patches; awaiting smoke confirmation + merge).
-- `main` HEAD: `1bc182e` (docs: snapshot v1.1.2 plan for Codex hand-off).
-- Phase 5 commits (v1.1.1, on main): `8cbc173` (window drag + rebrand + Claude CLI + voice diagnostics), `0262383` (single-instance lock), `dfb6fb4` (Phase 5 docs), `71472f5` (doc reorg).
-- Phase 6 commits (v1.1.2-final): `c2fc5d8` (tool dispatch parity + live tools + mcp autowrite), `b21f58d` (memory ledger update), `3b3627e` (pr-reviewer punch list), `b5972f7` (file v1.1.2 smoke bugs), `74b7f71` (session restore — BUG-V1.1.2-02), `c1452bd` (MCP host server — BUG-V1.1.2-01).
-- Phase 7 plan (v1.1.3-plan branch): planning artifacts only. Plan at `docs/10-memory/v1.1.3-plan.md`; 7 bugs filed in `docs/08-bugs/OPEN.md`. Awaits user authorization to spawn implementation swarm.
-- Tags pushed: `v0.1.0-alpha`, `v1.0.0` (superseded), `v1.0.1`, `v1.1.0-rc1` (superseded), `v1.1.0-rc2` (superseded), `v1.1.0-rc3` (last shipped rc), `v1.1.1` (current shipped — UX hotfix).
-- GitHub release: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.1.1 (arm64-only DMG + zip).
-- PR open: https://github.com/s1gmamale1/SigmaLink/pull/1 — `feat(v1.1.2): Sigma Assistant Parity` from `v1.1.2-final` → `main`.
+- `v1.2.0` HEAD: pending push (tag created in Step 6 of Phase 18; CI workflow `release-windows.yml` builds NSIS EXE on `windows-latest` and uploads to the GitHub Release on push).
+- `main` HEAD: pending Phase 18 commit (5 implementation steps + this docs sweep).
+- Phase 18 commits (v1.2.0): release-windows.yml CI, electron-builder.yml ia32 drop + NSIS welcome page, install-windows.ps1 PowerShell installer, renderer polish (preload platform + lib/platform.ts + Breadcrumb pad + Cascadia + VoiceTab copy), docs sweep (windows-port.md design + RESOLVED close-out + BACKLOG restructure + release notes + CHANGELOG).
+- Tags pushed (history): `v0.1.0-alpha`, `v1.0.0` (superseded), `v1.0.1`, `v1.1.0-rc1` (superseded), `v1.1.0-rc2` (superseded), `v1.1.0-rc3` (last shipped rc), `v1.1.1` (UX hotfix), `v1.1.2-final` (Sigma Assistant parity), `v1.1.3`..`v1.1.11` (multi-workspace + V3 visual parity + Gatekeeper hotfix + curl-bash + 5-coder optimization + perf paired refactor + Gemini P1 reliability + Kimi P1 + state-hook fixes). v1.2.0 is the next push.
+- GitHub release: pending — first dual-platform (macOS arm64 DMG + Windows x64 NSIS EXE) release once `v1.2.0` is pushed.
 - Repo: https://github.com/s1gmamale1/SigmaLink
 
 ## Phase 4 plan reference
@@ -152,3 +148,16 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-93 | Reducer: per-workspace roomByWorkspace + SET_ACTIVE_WORKSPACE_ID warn + REMOVE_SESSION live-filter + UPSERT_SWARM first-arrival | shipped | 1 |
 | T-94 | parseSwarmMessage runtime kind validation + use-live-events review churn fix | shipped | 1 |
 | T-95 | Kimi audit false positives verified: C5 No CI/CD (3 workflows exist) + Fix 5 voice.diagnostics.run (handler registered) | investigated | 1 |
+
+## v1.2.0 Phase 18 — Windows platform port (May 12, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-96 | Phase 18 research — 3 Explore agents survey Windows-readiness across PTY / MCP / voice / chrome / native modules; ~80% pre-existing platform-awareness confirmed | investigated | 1 |
+| T-97 | Phase 18 plan — v1.2.0 Windows port plan: NSIS EXE + PowerShell installer + Web Speech fallback + WCO clearance + ia32 drop; SAPI5 + EV cert + WCO frameless deferred | shipped | 1 |
+| T-98 | Step 1 — CI: `.github/workflows/release-windows.yml` (70 LOC) on `windows-latest`, tag-triggered `v*` + workflow_dispatch, uploads via `softprops/action-gh-release@v2` | shipped | 1 |
+| T-99 | Step 2 — Installer plumbing: `app/electron-builder.yml` ia32 drop, `nsis.installerIcon`/`uninstallerIcon`/`installerHeaderIcon` wired, `nsis.license` welcome page; `app/build/nsis/README — First launch.txt` (72 lines) | shipped | 1 |
+| T-100 | Step 3 — PowerShell installer: `app/scripts/install-windows.ps1` (234 lines / ~180 LOC); MOTW strip via `Unblock-File`; params `-Version`/`-Quiet`/`-KeepInstaller`; mirrors `install-macos.sh` | shipped | 1 |
+| T-101 | Step 4 — Renderer polish: `preload.ts` exposes platform; new `lib/platform.ts` (12 LOC) with `IS_WIN32`; Breadcrumb 140px WCO pad; Terminal Cascadia Mono prepend; VoiceTab platform-aware copy + grey dot; 2 new test files + 9 new cases; 196 → 205/205 | shipped | 1 |
+| T-102 | Step 5 — Docs sweep: root `README.md` (platform badge + Supported platforms table + Windows first-launch); `app/README.md` (Windows install + Distribution row + "building locally"); `docs/04-design/windows-port.md` (NEW ~150 lines); `01-known-bug-windows-pty.md` marked RESOLVED; `08-bugs/BACKLOG.md` Phase 18 closes + v1.3 platform section; `master_memory.md` Phase 18 narrative; `09-release/release-notes-1.2.0.txt` (NEW); `CHANGELOG.md` `[1.2.0]` entry | shipped | 1 |
+| T-103 | Step 6 — Release: `v1.2.0` annotated tag + push; CI workflow builds NSIS EXE on `windows-latest` and uploads to GitHub Release; macOS DMG continues from existing pipeline | pending push | 1 |

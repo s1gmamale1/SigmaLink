@@ -4,6 +4,63 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-12
+
+Windows 10/11 (x64) is now a peer release surface to macOS arm64. NSIS installer ships from CI on every tag push; PowerShell one-liner installer mirrors the macOS curl-bash UX. Voice on Windows routes through the Chromium Web Speech API; native SAPI5 is deferred to v1.3+. Code-signing is deferred indefinitely; SmartScreen workarounds documented inside the installer. Vitest 196 → 205. Zero behavioural regressions on macOS.
+
+### Added — distribution
+
+- **`.github/workflows/release-windows.yml`** (70 LOC). Builds the NSIS EXE on `windows-latest` on every `v*` tag push (and `workflow_dispatch`); rebuilds native modules; uploads `SigmaLink-Setup-*.exe` to the GitHub Release via `softprops/action-gh-release@v2`. Concurrency group `release-windows-${{ github.ref }}` with `cancel-in-progress: false`; permissions `contents: write`.
+- **`app/scripts/install-windows.ps1`** (234 lines / ~180 LOC). PowerShell 5+, AMD64-only, fetches latest or pinned release, downloads `SigmaLink-Setup-*.exe` to `$env:TEMP`, runs `Unblock-File` to strip MOTW, launches NSIS installer. Params: `-Version <tag>`, `-Quiet` (forwards NSIS `/S`), `-KeepInstaller`.
+- **`app/build/nsis/README — First launch.txt`** (72 lines). Wired via `nsis.license` in `app/electron-builder.yml`; surfaced during install. Documents two SmartScreen recoveries for users who download the EXE manually (Option A: "More info → Run anyway"; Option B: right-click → Properties → Unblock).
+- **`docs/04-design/windows-port.md`** (NEW). ~150 lines of architectural decisions + touch-point reference table + trade-offs covering PTY resolution, native frame chrome, Web Speech fallback, unsigned + Unblock-File strategy, native module CI rebuild, MCP pipe transport, Cascadia Mono font.
+- **`docs/09-release/release-notes-1.2.0.txt`** (NEW).
+
+### Added — renderer
+
+- **`app/src/renderer/lib/platform.ts`** (NEW, 12 LOC). Exports `getPlatform()` + `IS_WIN32`. Single source of truth for renderer-side platform branches.
+- **`app/electron/preload.ts`** — `window.sigma.platform = process.platform` exposure.
+- **2 new test files** — `Breadcrumb.test.tsx` + `VoiceTab.test.tsx`. 9 new cases. Repo total **205/205** (was 196/196).
+
+### Changed — installer
+
+- **`app/electron-builder.yml`** — dropped `ia32` from `win.target.nsis.arch` (now `[x64]` only). Wired `nsis.installerIcon` + `nsis.uninstallerIcon` + `nsis.installerHeaderIcon` to `build/icon.ico`. Wired `nsis.license` to surface the SmartScreen explainer during install.
+
+### Changed — renderer
+
+- **`app/src/renderer/features/top-bar/Breadcrumb.tsx`** — conditional 140px right-padding on win32 via `IS_WIN32` to clear the native min/max/close buttons (WCO area).
+- **`app/src/renderer/features/command-room/Terminal.tsx:112`** — prepended `"Cascadia Mono"` to the xterm fontFamily stack ahead of `Consolas`. macOS and Linux unaffected.
+- **`app/src/renderer/features/settings/VoiceTab.tsx`** — platform-aware. `NATIVE_ENGINE_LABEL` reads "Web Speech API (Chromium, requires internet)" on non-darwin; `NATIVE_ENGINE_AVAILABLE` is `false`; diagnostics indicator dot is grey neutral instead of red error.
+
+### Closed — historic bugs
+
+- **Windows `.cmd` shim spawn ("Cannot create process, error code: 2")** — investigation at `docs/01-investigation/01-known-bug-windows-pty.md` marked **RESOLVED 2026-05-12**. Shipping fix lives at `app/src/main/core/pty/local-pty.ts:47-85` (`resolveWindowsCommand` PATH+PATHEXT walker), `:175-197` (resolved-then-wrap dispatcher), `:215-230` (pre-flight ENOENT for fallback walk). Original investigation preserved verbatim as the root-cause record.
+
+### Deferred
+
+- Native Windows SAPI5 voice binding → v1.3+ (offline + always-on capture).
+- `windowsControlsOverlay` frameless chrome → v1.3+ (cosmetic polish; v1.2.0 ships with native frame + 140px Breadcrumb pad).
+- EV/OV Authenticode certificate → indefinitely (funded-only; $300-700/yr).
+- Linux AppImage / .deb test gating → v1.3+ (no CI runner yet).
+- Microsoft Store / WinGet distribution → after EV cert.
+- Windows auto-update → after signing.
+- `nsis.license` → custom NSH welcome page → v1.2.1 (cosmetic; currently abuses the license-agreement field which forces an "I accept" radio gate).
+
+### Known issues
+
+- **SmartScreen first-run warning** for users who download the EXE manually (not via the PowerShell installer). Per-binary-hash reputation, so every release re-warms from zero. Workarounds documented in the in-installer README.
+- **`nsis.license` welcome page** semantically odd — surfaced behind a forced "I accept" radio gate. v1.2.1 polish.
+- **Web Speech API requires internet on Windows** — air-gapped users have no voice path until SAPI5 lands in v1.3+.
+
+### Build hygiene
+
+- `pnpm exec tsc -b` clean.
+- `pnpm exec vitest run` → **205/205** (was 196/196 at v1.1.11; +9 new specs).
+- `pnpm exec eslint .` → 0/0 (unchanged).
+- `pnpm exec vite build` → unchanged main bundle.
+- macOS DMG sign unchanged from v1.1.11.
+- Windows EXE built by CI on `windows-latest` and uploaded to the GitHub Release automatically; smoke verified locally via `pnpm electron:pack:win` on macOS host.
+
 ## [1.1.11] - 2026-05-12
 
 Kimi audit P1 fix wave. 10 of 11 verified findings closed + 37 new tests. Vitest 168→196.

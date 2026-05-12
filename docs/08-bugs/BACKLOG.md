@@ -1,9 +1,9 @@
 # SigmaLink Backlog — Open Bugs + Optimization Targets
 
-> Snapshot at **v1.1.8** (commit `74d33e4`, 2026-05-12).
-> Last sweep: 5-coder optimization swarm (bundle -61% gzip, lint -28, tests 128/128).
+> Snapshot at **v1.2.0** (2026-05-12).
+> Latest sweep: v1.2.0 Windows platform port — NSIS EXE + PowerShell installer + SmartScreen workaround docs + Cascadia Mono font + VoiceTab platform-aware copy + WCO clearance + ia32 drop. Tests 196 → 205.
 > Bug ledger details live in [`OPEN.md`](OPEN.md); the v1.1.1 / v1.1.2 / v1.1.3 entries there are CLOSED — see "Shipped & verified" at the bottom of this file.
-> Codex v1.1.9 branch update (2026-05-12): app-state selector/slice work, CI cache + coverage + shellcheck hardening, and the remaining React compiler lint wave are implemented in `codex/bug-backlog-pr`. The larger file-size refactors remain open.
+> History: v1.1.8 (5-coder optimization swarm, bundle -61% gzip), v1.1.9 (perf + lint 0/0), v1.1.10 (Gemini P1 reliability), v1.1.11 (Kimi P1 + state-hook fixes), v1.2.0 (Windows port).
 
 ## Index
 
@@ -17,7 +17,7 @@
 | Perf — sustained runtime | 2 | [v1.1.9 perf](#v119--paired-perf-refactor) |
 | Quality — refactor | 3 | [v1.1.9 quality](#v119--quality--file-size) |
 | Tests / CI | 2 | [v1.1.9 ci](#v119--ci--test-infra) |
-| Platform / distribution | 5 | [v1.2 platform](#v12--platform--distribution) |
+| Platform / distribution | 6 | [v1.3 platform](#v13--platform--distribution) |
 | Lint — React-compiler family | 31 errors | [v1.1.9 lint](#v119--react-compiler-lint-wave) |
 | Funded-only (Apple, Porcupine) | 2 | [Waiting on external](#waiting-on-external--needs-funding) |
 
@@ -245,7 +245,42 @@
 
 ---
 
-## v1.2 — platform / distribution
+## v1.3 — platform / distribution
+
+> v1.2.0 closed the Windows platform port at the unsigned-NSIS + PowerShell-installer + Web-Speech-fallback level. The items below are the next platform-distribution wave.
+
+### Native Windows SAPI5 voice binding
+- **Surface**: `src/main/core/voice/*` — currently macOS Speech.framework only (`native-mac.ts:107` gates non-darwin to `null`).
+- **Issue**: Windows voice routes through Chromium's Web Speech API which requires internet (cloud STT via Google). Air-gapped or offline-first Windows users have no voice path.
+- **Fix sketch**: Add `native-win.ts` calling SAPI5 via a small node-gyp binding (or off-the-shelf `node-microsoft-cognitiveservices-speech-sdk` for online + `whisper.cpp` for offline). Dispatcher contract is already platform-agnostic.
+- **Effort**: L (~3-5d).
+- **Defer to**: v1.3+.
+
+### `windowsControlsOverlay` frameless chrome
+- **Surface**: `electron/main.ts:235` currently sets `titleBarStyle: 'default'` (native frame) on win32. Breadcrumb pads 140px right to clear WCO.
+- **Issue**: v1.2.0 ships with the native Windows frame for fastest landing. The 140px shim is cosmetically awkward and prevents drawing custom controls in the title bar region.
+- **Fix sketch**: `webPreferences.titleBarOverlay` + `frame: false` + WCO-aware Breadcrumb. Adds non-trivial layout + a11y work.
+- **Effort**: M (~1-2d).
+- **Defer to**: v1.3+.
+
+### EV/OV Authenticode certificate
+- **Issue**: every v1.2.x EXE is unsigned. Users who download the EXE manually (not via the PowerShell installer's `Unblock-File` flow) see SmartScreen on first launch. SmartScreen reputation is per-binary-hash, so every release re-warms reputation from zero.
+- **Cost**: EV cert $300-700/year (immediate reputation); OV cert $80-200/year (reputation accumulates over time).
+- **Defer to**: indefinitely. Funded-only. Same gating as Apple Developer ID.
+
+### Linux AppImage / .deb test gating
+- **Issue**: `electron-builder.yml` builds AppImage + .deb from the same source, but there is no Linux runner in CI and no smoke. v1.2.0 supported-platform list explicitly excludes Linux.
+- **Fix sketch**: Add `ubuntu-latest` runner to the release workflow matrix; smoke against a known Wayland + X11 setup.
+- **Effort**: M (~1-2d).
+- **Defer to**: v1.3+.
+
+### Microsoft Store / WinGet distribution
+- **Issue**: GitHub Releases only as of v1.2.0. WinGet manifest needs the signed EXE; Microsoft Store needs the same plus identity validation.
+- **Defer to**: after EV cert lands.
+
+### Windows auto-update
+- **Issue**: `autoUpdater` for Windows needs either signed Microsoft Store distribution or a self-hosted `electron-updater` differential feed.
+- **Defer to**: after EV cert lands. Renderer toggle stays opt-in and macOS-only until then.
 
 ### Apple Developer ID + notarisation
 - **Issue**: every v1.1.x DMG carries an ad-hoc signature (`scripts/adhoc-sign.cjs` from v1.1.5). On first Gatekeeper assessment of a browser-downloaded DMG, macOS surfaces "Apple could not verify SigmaLink..." — recoverable via `xattr -cr` or System Settings → Privacy & Security → Open Anyway, OR bypassed entirely via the v1.1.7 `curl | bash` installer. Real fix is notarisation.
@@ -264,7 +299,7 @@
 - **Pair with**: notarisation (otherwise the x64 DMG hits the same Gatekeeper wall).
 
 ### `Split` + `Minimise` pane actions become functional
-- **Surface**: PaneHeader (v1.1.4). Today disabled with "Coming in v1.2" tooltip.
+- **Surface**: PaneHeader (v1.1.4). Today disabled with "Coming in v1.2" tooltip — note the tooltip copy is now stale, will update when these ship.
 - **Effort**: M (~1d each).
 - **Risk**: Med — pane grid layout already complex; splitting needs sub-grid; minimise needs collapse-to-chip animation + state slice.
 
@@ -273,10 +308,12 @@
 - **Required first**: define what generates notifications (PTY exits? swarm broadcasts? Ruflo readiness changes? Sigma Assistant tool errors?). Then surface (bell badge → dropdown of recent items).
 - **Effort**: L (~3d for source taxonomy + dropdown UI + persistence layer).
 
-### Win SAPI + Linux Whisper.cpp voice
-- **Surface**: `src/main/core/voice/*` (currently macOS Speech.framework only).
-- **Effort**: L (~3-5d Win SAPI + same for Whisper.cpp).
-- **Pair with**: cross-platform installer scripts (v1.1.7 install-macos.sh is mac-only).
+### v1.2.1 polish: replace `nsis.license` with custom NSIS welcome page
+- **Surface**: `app/electron-builder.yml` (`nsis.license` field) + `app/build/nsis/README — First launch.txt`.
+- **Issue**: v1.2.0 wired the welcome README via `nsis.license`, which renders the text behind a forced "I accept the terms of the License Agreement" radio gate. Semantically odd — it's a SmartScreen explainer, not a license.
+- **Fix sketch**: `nsis.include: build/nsis/welcome.nsh` registering a custom MUI2 informational page (no radio gate, Next-only).
+- **Effort**: S (~2-4hr).
+- **Risk**: Low — installer-only.
 
 ---
 
@@ -292,6 +329,29 @@
 
 ### Apple Developer Program ($99/year)
 - Documented in [v1.2 platform](#v12--platform--distribution) above.
+
+---
+
+## Shipped & verified — v1.2.0 (Windows platform port, 2026-05-12)
+
+Items moved from the former "v1.2 — platform / distribution" section into the Shipped column. Verified by code inspection 2026-05-12; Windows VM smoke deferred to first beta tag.
+
+| Item | Shipping evidence |
+|---|---|
+| Windows NSIS installer build via CI on tag push | `.github/workflows/release-windows.yml` (70 LOC) runs on `v*` tag + `workflow_dispatch`, builds on `windows-latest`, uploads via `softprops/action-gh-release@v2`. |
+| GitHub Release upload pipeline | Same workflow. `contents: write` permission; concurrency group `release-windows-${{ github.ref }}` with `cancel-in-progress: false`. |
+| PowerShell one-liner installer (parity with curl-bash macOS) | `app/scripts/install-windows.ps1` (234 lines / ~180 LOC). PowerShell 5+ gate, AMD64 detect, `Invoke-RestMethod` to `/releases/latest` or `/releases/tags/<tag>`, picks `SigmaLink-Setup-*.exe`, `Unblock-File` strips MOTW, `Start-Process`. Params: `-Version`, `-Quiet`, `-KeepInstaller`. |
+| SmartScreen workaround docs | `app/build/nsis/README — First launch.txt` (72 lines) wired via `nsis.license` in `app/electron-builder.yml`. Two recovery paths documented: Option A "More info → Run anyway"; Option B right-click → Properties → Unblock. |
+| Cascadia Mono terminal font on Windows | `app/src/renderer/features/command-room/Terminal.tsx:112` prepended to xterm fontFamily stack ahead of Consolas. |
+| VoiceTab platform-aware copy | `app/src/renderer/features/settings/VoiceTab.tsx` — `NATIVE_ENGINE_LABEL` reads "Web Speech API (Chromium, requires internet)" on non-darwin; diagnostics dot grey neutral, not red error. |
+| Native frame WCO clearance | `app/src/renderer/features/top-bar/Breadcrumb.tsx` — conditional 140px right-padding on win32 via new `IS_WIN32` helper from `app/src/renderer/lib/platform.ts`. |
+| ia32 dropped, x64 only | `app/electron-builder.yml` — `win.target.nsis.arch: [x64]`. ia32 actively removed. |
+| NSIS icon set wired | `app/electron-builder.yml` — `installerIcon`, `uninstallerIcon`, `installerHeaderIcon` all pointing at `build/icon.ico`. |
+| Renderer platform helper | `app/src/renderer/lib/platform.ts` (NEW, 12 LOC) — `getPlatform()` + `IS_WIN32`. |
+| `window.sigma.platform` exposure | `app/electron/preload.ts` — added `platform: process.platform`. |
+| Historic Windows `.cmd` shim spawn bug closed | `docs/01-investigation/01-known-bug-windows-pty.md` marked RESOLVED. Cites `app/src/main/core/pty/local-pty.ts:47-85` (`resolveWindowsCommand`), `:175-197` (wrap), `:215-230` (pre-flight ENOENT). |
+| 2 new test files | `Breadcrumb.test.tsx` + `VoiceTab.test.tsx` — 9 new cases. Repo total 196 → **205/205**. |
+| v1.2.0 design doc | `docs/04-design/windows-port.md` (NEW). |
 
 ---
 

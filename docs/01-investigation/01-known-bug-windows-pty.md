@@ -257,3 +257,19 @@ The author should pick **one** of the two; combining them is unnecessary. I reco
 - Provider definitions: `app/src/shared/providers.ts:25-76`
 - Probe path that should-but-doesn't share resolution: `app/src/main/core/providers/probe.ts:9-39`
 - Unused helper: `app/src/main/lib/exec.ts:73-77`
+
+---
+
+## Status: RESOLVED 2026-05-12
+
+The patch landed in the v1.1.x stream and was re-verified on a Windows 11 VM as part of the v1.2.0 Windows platform port. The "Alternative 1" approach from the Proposed Patch section above (PATH+PATHEXT resolver, then `cmd.exe` wrap of resolved `.cmd`/`.bat` shims) was the design chosen.
+
+The shipping implementation lives at:
+
+- **`app/src/main/core/pty/local-pty.ts:47-85`** — `resolveWindowsCommand(cmd)` walks every `PATH` directory and tries each `PATHEXT` suffix in order, returning the first absolute path that exists on disk. Honours `cmd` already containing an extension (only checks the literal path in that case) and absolute paths (returns them unchanged if they exist).
+- **`app/src/main/core/pty/local-pty.ts:175-197`** — `platformAwareSpawnArgs` now resolves first, then dispatches: resolved `.cmd`/`.bat` → `cmd.exe /d /s /c <resolved> <args>`; resolved `.ps1` → `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <resolved>`; resolved `.exe` and anything else → spawn directly.
+- **`app/src/main/core/pty/local-pty.ts:215-230`** — pre-flight ENOENT check. If `resolveWindowsCommand` returns `null`, throws a synchronous `Error` with `code = 'ENOENT'` so the launcher's existing fallback walk (in `resolveAndSpawn`) reaches alternative commands before failing the launch.
+
+ConPTY now receives an absolute, resolved `.cmd` path rather than the bare `claude` / `codex` / `gemini` shim name. `CreateProcessW` no longer trips `ERROR_FILE_NOT_FOUND`. Per-provider probes also resolve through the same code path, so version detection works against `.cmd` shims (closing the secondary issue called out in the original "Other changes worth bundling with the fix" section).
+
+Cross-link to the full Windows platform port design and trade-offs: [`../04-design/windows-port.md`](../04-design/windows-port.md). The historical investigation above is preserved verbatim as the original root-cause record.

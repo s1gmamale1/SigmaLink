@@ -34,6 +34,12 @@ const api = {
       return '';
     }
   },
+  // Static `process.platform` snapshot baked into the preload bundle at build
+  // time. The renderer cannot read `process.platform` itself because
+  // contextIsolation strips Node globals; exposing it here avoids a round-trip
+  // IPC for what is, by definition, a constant for the lifetime of the
+  // process. Consumed by `src/renderer/lib/platform.ts`.
+  platform: process.platform as NodeJS.Platform,
 };
 
 contextBridge.exposeInMainWorld('sigma', api);

@@ -12,6 +12,27 @@ curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scrip
 
 The installer downloads the latest release via `curl` (which doesn't tag downloads with `com.apple.quarantine`), so the app installs into `/Applications` without triggering any macOS Gatekeeper "unverified developer" prompts. Source: [`scripts/install-macos.sh`](scripts/install-macos.sh) — POSIX Bash, 170 lines, no external dependencies beyond `curl` + `hdiutil` + `osascript`. Three install paths are documented in the repository-level [README](../README.md#install-options).
 
+## End-user install (Windows 10/11 x64)
+
+From any PowerShell prompt (admin or user — installer prompts for elevation only if the target dir requires it):
+
+```powershell
+iex (irm https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-windows.ps1)
+```
+
+Source: [`scripts/install-windows.ps1`](scripts/install-windows.ps1) — 234 lines (~180 LOC), zero external dependencies beyond PowerShell 5+ + `Invoke-RestMethod`. It detects AMD64, fetches the latest release tag (or a pinned tag via `-Version v1.2.0`), downloads `SigmaLink-Setup-<version>.exe` to `$env:TEMP`, calls `Unblock-File` to strip the Mark-of-the-Web tag before launch (this avoids the most common SmartScreen path), and runs the NSIS installer. Pass `-Quiet` to forward `/S` to NSIS, `-KeepInstaller` to retain the EXE after install.
+
+The installer surfaces a 72-line `README — First launch.txt` welcome page during install ([`build/nsis/README — First launch.txt`](build/nsis/README%20%E2%80%94%20First%20launch.txt)) that documents the two SmartScreen recoveries available to users who download the EXE manually instead of via the PowerShell one-liner. Code-signing is deferred — see [`../docs/04-design/windows-port.md`](../docs/04-design/windows-port.md) for the full design and trade-off analysis.
+
+## Windows: building locally
+
+`pnpm electron:pack:win` produces an NSIS-style EXE in `dist-electron/`. On a non-Windows host the bundled `electron-builder` rebuilds native modules (`node-pty`, `better-sqlite3`) against the local Electron version but skips the Windows-specific code signing step. For a clean CI-equivalent x64 build, push a tag matching `v*` and let [`.github/workflows/release-windows.yml`](../.github/workflows/release-windows.yml) build on a `windows-latest` runner and upload to the GitHub Release.
+
+```bash
+pnpm electron:pack:win
+# Output: dist-electron/SigmaLink-Setup-<version>.exe (NSIS, ~120-140 MB)
+```
+
 ## Scripts
 
 The scripts below are defined in [`package.json`](package.json) and are the entry points the project uses for development, packaging, and CI.
@@ -86,11 +107,15 @@ The renderer and main process are organised by feature area, not by layer.
 
 | Surface | Source of truth |
 |---|---|
-| One-line installer | [`scripts/install-macos.sh`](scripts/install-macos.sh). POSIX Bash, downloads via `curl` (no quarantine), installs into `/Applications`, zero Gatekeeper prompts. |
+| macOS one-line installer | [`scripts/install-macos.sh`](scripts/install-macos.sh). POSIX Bash, downloads via `curl` (no quarantine), installs into `/Applications`, zero Gatekeeper prompts. |
+| Windows one-line installer | [`scripts/install-windows.ps1`](scripts/install-windows.ps1). PowerShell 5+, downloads `SigmaLink-Setup-*.exe` to `$env:TEMP`, runs `Unblock-File` to strip MOTW, then launches the NSIS installer. Parity with the macOS curl-bash flow. |
+| Windows 10/11 x64 NSIS EXE | Built by [`../.github/workflows/release-windows.yml`](../.github/workflows/release-windows.yml) on every `v*` tag push (also `workflow_dispatch`). NSIS targets `x64` only (ia32 dropped in v1.2.0). Unsigned (no EV/OV cert); SmartScreen workarounds documented in the in-installer welcome page. |
 | In-DMG README | [`build/dmg/README — Open SigmaLink.txt`](build/dmg/README%20%E2%80%94%20Open%20SigmaLink.txt). Shown next to `SigmaLink.app` when the DMG mounts — covers the Terminal `xattr -cr` and System Settings → Privacy & Security workarounds for browser-downloaded DMGs. |
-| Code signing | [`scripts/adhoc-sign.cjs`](scripts/adhoc-sign.cjs) — `afterSign` hook ad-hoc signs every Mach-O + writes a real `_CodeSignature/CodeResources` seal. Without it, DMG launches surface as "is damaged". |
-| Release notes | [`../docs/09-release/`](../docs/09-release/) — per-tag narrative; see `release-notes-1.1.7.txt` for the curl-bash install rationale. |
+| In-NSIS README | [`build/nsis/README — First launch.txt`](build/nsis/README%20%E2%80%94%20First%20launch.txt). 72-line welcome page surfaced via `nsis.license` during install — covers the two SmartScreen recoveries (Option A: **More info → Run anyway**; Option B: right-click → **Properties → Unblock**). |
+| Code signing (macOS) | [`scripts/adhoc-sign.cjs`](scripts/adhoc-sign.cjs) — `afterSign` hook ad-hoc signs every Mach-O + writes a real `_CodeSignature/CodeResources` seal. Without it, DMG launches surface as "is damaged". |
+| Code signing (Windows) | None. Unsigned EXE. Mark-of-the-Web stripped via `Unblock-File` in the PowerShell installer. EV cert deferred — see [`../docs/04-design/windows-port.md`](../docs/04-design/windows-port.md). |
+| Release notes | [`../docs/09-release/`](../docs/09-release/) — per-tag narrative; see `release-notes-1.1.7.txt` for the curl-bash rationale and `release-notes-1.2.0.txt` for the Windows port. |
 
 ## Known limitation
 
-On Windows, agent CLIs that resolve to a `.cmd` shim currently fail to spawn through `node-pty` with `Cannot create process, error code: 2`. The full diagnosis and the planned `resolveForCurrentOS` helper are documented in [`../docs/01-investigation/01-known-bug-windows-pty.md`](../docs/01-investigation/01-known-bug-windows-pty.md). This is the first item on the Phase 1.5 patch list; no new feature work begins until it lands.
+The historic Windows `.cmd` shim spawn bug ("Cannot create process, error code: 2") was resolved in v1.1.x — see [`../docs/01-investigation/01-known-bug-windows-pty.md`](../docs/01-investigation/01-known-bug-windows-pty.md) for the full investigation and the patch landing record. Voice capture on Windows currently routes through the Chromium Web Speech API (requires internet); a native SAPI5 binding is deferred to v1.3+. The full Windows-port design including all platform trade-offs lives at [`../docs/04-design/windows-port.md`](../docs/04-design/windows-port.md).

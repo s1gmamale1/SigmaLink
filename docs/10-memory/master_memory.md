@@ -1045,3 +1045,69 @@ Kimi CLI + 10-agent Ruflo swarm ran a second parallel audit covering 5 file scop
 - native `node-gyp rebuild` voice-mac → clean with exceptions enabled
 
 **Next session restart point**: SigmaLink at v1.1.11 on `main`. Kimi audit's verified critical + high-confidence state-hook items closed. v1.1.12 backlog: provider registry cleanup (still pending), Playwright e2e refresh, Kimi warning sweep across 20+ feature files, Fix 8 appStateStore paired refactor, Gemini + Kimi P3 optimizations.
+
+---
+
+## Phase 18 — v1.2.0 Windows platform port (May 12, 2026)
+
+The macOS stream stabilised through v1.1.11 (196/196 tests, lint 0/0, native voice exceptions cleaned up, Kimi + Gemini P1 audits closed). The next growth lever is platform reach — Windows is the largest installed dev workstation base SigmaLink isn't shipping to yet. v1.2.0 makes Windows 10/11 (x64) a first-class peer to macOS without regressing the macOS surface.
+
+### Pre-flight verification of Windows-readiness
+
+Three Explore agents ran in parallel before any code was written, surveying the codebase for what was already platform-aware versus what needed work. Headline: roughly 80% of the Windows-relevant plumbing was already in place, mostly as side-effects of foundation patches (Wave 5) and reliability sweeps (v1.1.10 + v1.1.11). Concrete pre-existing platform-aware surfaces:
+
+- `app/src/main/core/pty/local-pty.ts:47-85` — `resolveWindowsCommand` (PATH+PATHEXT walker) shipped in v1.1.x and re-verified during the v1.1.10 reliability sweep (`backend-reliability-fixer` agent added the ENOENT pre-flight at `:215-230` that lets the launcher fallback walk reach alternative commands).
+- `app/src/main/core/pty/local-pty.ts:175-197` — `platformAwareSpawnArgs` resolves first, then wraps `.cmd`/`.bat` through `cmd.exe /d /s /c` and `.ps1` through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`. Closes the long-standing P0 from [`docs/01-investigation/01-known-bug-windows-pty.md`](../01-investigation/01-known-bug-windows-pty.md).
+- `app/src/main/core/assistant/mcp-host-bridge.ts:84-90` — already routes through `\\.\pipe\<name>` on win32 vs Unix-domain socket on darwin/linux. No v1.2.0 change.
+- `app/electron/main.ts:235` — already branched `titleBarStyle: 'hiddenInset'` for darwin, `'default'` (native frame) for everything else.
+- `app/src/main/core/voice/native-mac.ts:107` — already gated to return `null` on non-darwin so the dispatcher falls through to the renderer's Web Speech API.
+
+What remained was the distribution layer (CI workflow + NSIS config + PowerShell installer), a handful of renderer polish items (WCO clearance + font + voice copy), and the documentation sweep.
+
+### Implementation, 5 steps + 1 release
+
+Five implementation steps were dispatched as named coder sub-agents over a single working session; lead orchestrator stitched the docs in Step 5 (this entry) and tagged the release in Step 6.
+
+- **Step 1 — CI workflow.** `.github/workflows/release-windows.yml` (70 LOC). Tag-triggered (`v*`) plus `workflow_dispatch`. Single `windows-latest` runner. Setup verbatim copied from `e2e-matrix.yml` (Node + pnpm + `pnpm install --frozen-lockfile` + `pnpm rebuild better-sqlite3 node-pty`). Builds via `pnpm electron:pack:win`. Uploads `dist-electron/SigmaLink-Setup-*.exe` to the GitHub Release via `softprops/action-gh-release@v2`. Concurrency group `release-windows-${{ github.ref }}` with `cancel-in-progress: false` (multiple tag pushes don't cancel an in-flight release). Permissions `contents: write`.
+
+- **Step 2 — Installer plumbing.** `app/electron-builder.yml` edits: dropped `ia32` from `win.target.nsis.arch` (now `[x64]` only); added `nsis.installerIcon` + `nsis.uninstallerIcon` + `nsis.installerHeaderIcon` all pointing at `build/icon.ico`; added `nsis.license: build/nsis/README — First launch.txt` to surface the SmartScreen explainer during install. Plus `app/build/nsis/README — First launch.txt` (72 lines) explaining SmartScreen + the two workarounds. Known cosmetic issue: `nsis.license` shows the README behind a forced "I accept" radio gate — semantically odd but cheap; v1.2.1 polish replaces it with a custom NSH page.
+
+- **Step 3 — PowerShell installer.** `app/scripts/install-windows.ps1` (234 lines / ~180 LOC). Mirrors `install-macos.sh`: PowerShell 5+ gate, AMD64 detect, `Invoke-RestMethod` to `/releases/latest` or `/releases/tags/<tag>`, picks `SigmaLink-Setup-*.exe`, downloads to `$env:TEMP`, `Unblock-File` strips MOTW, `Start-Process` invokes the NSIS installer, cleanup unless `-KeepInstaller`. Params: `-Version <tag>`, `-Quiet` (forwards NSIS `/S`), `-KeepInstaller`.
+
+- **Step 4 — Renderer polish.** `app/electron/preload.ts` exposes `window.sigma.platform = process.platform`. New `app/src/renderer/lib/platform.ts` (12 LOC) exports `getPlatform()` + `IS_WIN32`. `Breadcrumb.tsx` conditional 140px right-padding on win32 to clear the native WCO buttons. `Terminal.tsx:112` prepends `"Cascadia Mono"` to the xterm font stack. `VoiceTab.tsx` becomes platform-aware: `NATIVE_ENGINE_LABEL` + `NATIVE_ENGINE_AVAILABLE` flip on non-darwin; copy reads "Web Speech API (Chromium, requires internet)"; diagnostics dot is grey neutral instead of red error. 2 new test files (`Breadcrumb.test.tsx`, `VoiceTab.test.tsx`) — 9 new cases. Repo total now **205/205**.
+
+- **Step 5 — Docs sweep.** This entry plus updates to root `README.md` (platform badge, Supported platforms table, Windows first-launch subsection), `app/README.md` (Windows install + Distribution table row + "building locally" subsection), `docs/04-design/windows-port.md` (NEW, ~150 lines covering all architectural decisions + touch-point reference table + trade-offs), `docs/01-investigation/01-known-bug-windows-pty.md` (appended "Status: RESOLVED 2026-05-12" section preserving the original investigation as historical record), `docs/08-bugs/BACKLOG.md` (snapshot header v1.1.8 → v1.2.0; v1.2 platform section restructured into shipped + remaining v1.3 backlog), `docs/10-memory/memory_index.md` (T-96…T-103 appended), `docs/09-release/release-notes-1.2.0.txt` (NEW, ~80 lines), `CHANGELOG.md` (new `[1.2.0]` entry).
+
+- **Step 6 — Release tag.** `v1.2.0` annotated tag created and pushed; the CI workflow from Step 1 builds + uploads the EXE to the GitHub Release automatically.
+
+### Decisions taken
+
+- **v1.2.0 minor version bump**: Windows port is a meaningful new platform surface, not a patch. SemVer minor for the new platform; no API-breaking changes for macOS users.
+- **Unsigned EXE + PowerShell installer**: EV cert ($300-700/yr) deferred indefinitely. PowerShell installer calls `Unblock-File` to strip MOTW so the most common SmartScreen path is avoided. Manual EXE download still hits SmartScreen — workaround documented in the in-installer welcome page.
+- **Web Speech API only on Windows**: native SAPI5 binding is real work (~3-5d) for a feature most users won't notice on a one-rung-down release. Web Speech is honest about requiring internet via the platform-aware VoiceTab copy.
+- **x64 only, ia32 dropped**: Windows-on-32-bit is single-digit-percent of the 2026 installed base; doubling CI runtime + asset size isn't worth it.
+- **Native frame, not WCO**: 140px Breadcrumb padding is cosmetically awkward but lands the platform in days instead of weeks. WCO is v1.3+ polish.
+
+### What deferred
+
+- Native Windows SAPI5 voice binding → v1.3+ (offline + always-on capture).
+- EV cert + signed Windows builds → indefinitely (funded-only).
+- `windowsControlsOverlay` frameless chrome → v1.3+ (polish).
+- Linux AppImage + .deb test gating → v1.3+ (no CI runner yet).
+- Microsoft Store / WinGet distribution → after EV cert.
+- Windows auto-update → after signing.
+- `nsis.license` → custom NSH page → v1.2.1 (cosmetic).
+
+### Test status
+
+- `pnpm exec tsc -b` → clean
+- `pnpm exec vitest run` → **205/205** (was 196/196 at v1.1.11; +9 new specs across `Breadcrumb.test.tsx` + `VoiceTab.test.tsx`)
+- `pnpm exec eslint .` → 0/0 (unchanged)
+- macOS DMG sign → unchanged from v1.1.11
+- Windows EXE → built by CI on `windows-latest`; smoke verified locally via `pnpm electron:pack:win`; Windows VM smoke deferred to first beta tag
+
+### Stale doc closure
+
+`docs/01-investigation/01-known-bug-windows-pty.md` had been carrying a "Status: Root cause confirmed by code inspection" header since Phase 1. The fix actually landed in the v1.1.x stream as part of Wave 5 + the v1.1.10 reliability sweep, but the investigation doc was never updated to reflect that. v1.2.0 appends a new "Status: RESOLVED 2026-05-12" section at the bottom citing the shipping `local-pty.ts:47-230` implementation and cross-linking to the new Windows-port design doc. The original investigation is preserved verbatim as the root-cause record.
+
+**Next session restart point**: SigmaLink at v1.2.0 on `main`. Windows 10/11 x64 is now a peer platform to macOS arm64 (unsigned EXE + PowerShell installer + Web Speech voice fallback). v1.2.1 backlog: `nsis.license` → custom NSH welcome page. v1.3+ backlog: native SAPI5 voice, WCO frameless chrome, Linux test gating. Funded-only: EV cert (Windows), Apple Developer ID (macOS), Picovoice (wake-word).

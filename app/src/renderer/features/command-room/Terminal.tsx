@@ -109,7 +109,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
 
     const term = new Terminal({
       fontFamily:
-        'JetBrains Mono, SFMono-Regular, Menlo, Consolas, "Courier New", monospace',
+        'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace',
       fontSize: 12,
       lineHeight: 1.2,
       cursorBlink: true,
