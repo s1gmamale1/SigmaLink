@@ -9,7 +9,6 @@
 //   0045 — Claude:   `Claude Code v2.1.116 · Opus 4.7 (1M) · Claude Max`
 //   0070 — Codex:    `OpenAI Codex (v0.121.0) · gpt-5.4 high fast · directory: ~/Desktop/bridgemind`
 //   0100/0140 — OpenCode ASCII + `Build · Kimi K2.6 OpenRouter`
-//   0150 — BridgeCode `coming soon · falling back to Claude`
 
 import { useEffect, useState } from 'react';
 import { findProvider } from '@/shared/providers';
@@ -24,8 +23,8 @@ const DEFAULT_MODEL_LABEL: Record<string, string> = {
   claude: 'Opus 4.7 (1M)',
   codex: 'gpt-5.4',
   gemini: 'Gemini 2.5 Pro',
-  opencode: 'Kimi K2.6 OpenRouter',
-  bridgecode: 'BridgeCode default',
+  kimi: 'Kimi K2.6',
+  opencode: 'OpenCode default',
 };
 
 interface Props {
@@ -117,15 +116,14 @@ function renderSplash(
         </pre>
         <div className="mt-1">
           <span className="text-muted-foreground">Build · </span>
-          <span style={{ color: colour }}>{modelLabel ?? 'Kimi K2.6 OpenRouter'}</span>
+          <span style={{ color: colour }}>{modelLabel ?? 'OpenCode default'}</span>
         </div>
         <div className="text-muted-foreground">cwd: {cwd}</div>
       </div>
     );
   }
-  // BridgeCode falls back to Claude under the hood, so we render the generic
-  // splash (instead of the misleading "coming soon" stub) — the agent is
-  // actually running. Generic provider splash.
+  // Generic provider splash (Gemini, Kimi, etc.) — used when there's no
+  // bespoke ASCII banner for the provider.
   return (
     <div className="flex flex-col gap-1">
       <div className="text-[12px] font-semibold uppercase tracking-wider" style={{ color: colour }}>

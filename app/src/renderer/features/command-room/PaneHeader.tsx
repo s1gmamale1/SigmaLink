@@ -34,11 +34,8 @@ const DEFAULT_MODELS: Record<string, ModelMeta> = {
   claude: { label: 'claude-opus-4.7', effort: 'high' },
   codex: { label: 'gpt-5.4', effort: 'high' },
   gemini: { label: 'gemini-2.5-pro', effort: 'medium' },
-  opencode: { label: 'kimi-k2.6', effort: 'medium' },
-  bridgecode: { label: 'bridgecode-default', effort: 'medium' },
-  cursor: { label: 'cursor-agent', effort: 'medium' },
-  droid: { label: 'droid', effort: 'medium' },
-  copilot: { label: 'copilot', effort: 'medium' },
+  kimi: { label: 'kimi-k2.6', effort: 'medium' },
+  opencode: { label: 'opencode-default', effort: 'medium' },
 };
 
 interface Props {

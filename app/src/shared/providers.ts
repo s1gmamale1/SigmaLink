@@ -1,20 +1,18 @@
 // Provider registry. Pure data + small helpers; no Node-only code so safe in renderer too.
+//
+// v1.2.4 cleanup (user-confirmed 2026-05-13): the registry was trimmed to the
+// five CLIs SigmaLink actually targets — claude / codex / gemini / opencode /
+// kimi. BridgeCode, Cursor Agent, Aider, and Continue were removed entirely.
+// The `'shell'` row stays as an INTERNAL sentinel so the workspace launcher
+// can still spawn a plain interactive shell when the operator skips agents;
+// it is filtered out of every user-facing picker (see `listVisibleProviders`).
 
-// BUG-V1.1-08-PROV: `droid` and `copilot` previously appeared in this union but
-// had no registry entries — any code that resolved them at runtime fell
-// through `findProvider() === undefined` and silently degraded. They are
-// removed here; the renderer-side stubs in `AgentsStep` / `RoleRoster` keep
-// the wizard rows visible by referencing them as plain `string`. If/when the
-// real providers ship, re-add them here AND add registry entries below.
 export type ProviderId =
-  | 'bridgecode'
   | 'claude'
   | 'codex'
   | 'gemini'
+  | 'kimi'
   | 'opencode'
-  | 'cursor'
-  | 'aider'
-  | 'continue'
   | 'shell'
   | 'custom';
 
@@ -36,31 +34,15 @@ export interface AgentProviderDefinition {
   icon: string;               // lucide-react icon id
   installHint: string;        // human-readable install instruction
   detectable?: boolean;       // include in PATH auto-scan
-  // V3-W12-001 / 003: gating + fallback
-  comingSoon?: boolean;          // BridgeCode-style stub; render disabled, fall back when launched
+  // Generic capabilities retained for future stubs even though the v1.2.4
+  // registry no longer ships a comingSoon / legacy / fallback provider.
+  comingSoon?: boolean;          // render disabled, fall back when launched
   fallbackProviderId?: ProviderId; // when comingSoon binary missing, launcher silently spawns this
   legacy?: boolean;              // hidden by default; only shown when providers.showLegacy === '1'
   recommendedRoles?: string[];   // wizard hints (e.g. ['builder','coordinator'])
 }
 
 export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
-  {
-    id: 'bridgecode',
-    name: 'BridgeCode',
-    description: 'BridgeMind native CLI (coming soon)',
-    command: 'bridgecode',
-    altCommands: ['bridgecode.cmd'],
-    args: [],
-    resumeArgs: ['--resume'],
-    oneshotArgs: ['-p', '{prompt}'],
-    color: '#3b82f6',
-    icon: 'bridge',
-    installHint: 'Coming soon — BridgeMind hosted CLI',
-    detectable: false,
-    comingSoon: true,
-    fallbackProviderId: 'claude',
-    recommendedRoles: ['builder', 'coordinator'],
-  },
   {
     id: 'claude',
     name: 'Claude Code',
@@ -81,6 +63,7 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     name: 'Codex CLI',
     description: "OpenAI's Codex CLI",
     command: 'codex',
+    altCommands: ['codex.cmd'],
     args: [],
     resumeArgs: ['--resume'],
     oneshotArgs: ['-q', '{prompt}'],
@@ -95,8 +78,12 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     name: 'Gemini CLI',
     description: "Google's Gemini CLI",
     command: 'gemini',
+    altCommands: ['gemini.cmd'],
     args: [],
-    resumeArgs: ['--resume'],
+    // Gemini CLI v0.41+ has no documented `--resume` protocol yet (tracked in
+    // `docs/08-bugs/BACKLOG.md` → P3 polish). Leave resumeArgs undefined so
+    // the resume-launcher skips Gemini panes instead of spawning a broken
+    // command line.
     initialPromptFlag: '-i',
     autoApproveFlag: '--yolo',
     color: '#4285F4',
@@ -105,52 +92,41 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     detectable: true,
   },
   {
-    id: 'cursor',
-    name: 'Cursor Agent',
-    description: 'Cursor CLI agent',
-    command: 'cursor-agent',
-    altCommands: ['cursor'],
+    id: 'kimi',
+    name: 'Kimi Code CLI',
+    description: "Moonshot AI's Kimi Code CLI",
+    command: 'kimi',
+    altCommands: ['kimi.cmd'],
     args: [],
-    color: '#A78BFA',
-    icon: 'mouse-pointer-2',
-    installHint: 'See cursor.com for CLI access',
+    // Kimi CLI resume protocol unverified upstream — leave undefined like
+    // Gemini until confirmed; the resume-launcher will skip kimi panes.
+    color: '#22D3EE',
+    icon: 'moon',
+    // NOTE(v1.2.4): the upstream npm package name is unverified at registry
+    // freeze. Common candidates: `@moonshot-ai/kimi-cli`, `kimi-cli`,
+    // `@kimi/cli`. Probe runs `kimi --version` against PATH so the actual
+    // install command is documentation-only; verify before shipping a final
+    // install hint string.
+    installHint: 'See moonshot.ai for Kimi Code CLI install instructions',
     detectable: true,
   },
   {
     id: 'opencode',
-    name: 'OpenCode',
+    name: 'OpenCode CLI',
     description: 'OpenCode CLI',
     command: 'opencode',
+    altCommands: ['opencode.cmd'],
     args: [],
     color: '#F59E0B',
     icon: 'square-code',
-    installHint: 'See opencode.ai',
+    installHint: 'npm i -g opencode',
     detectable: true,
   },
-  {
-    id: 'aider',
-    name: 'Aider',
-    description: 'Aider AI pair-programmer',
-    command: 'aider',
-    args: [],
-    color: '#EF4444',
-    icon: 'bot',
-    installHint: 'pipx install aider-chat',
-    detectable: true,
-    legacy: true,
-  },
-  {
-    id: 'continue',
-    name: 'Continue',
-    description: 'Continue CLI',
-    command: 'continue',
-    args: [],
-    color: '#6366F1',
-    icon: 'arrow-right-circle',
-    installHint: 'See continue.dev',
-    detectable: true,
-    legacy: true,
-  },
+  // INTERNAL: not surfaced in any picker. The workspace launcher routes
+  // skip-agents / custom-command rows through this providerId so the spawn
+  // path falls into `defaultShell()` (see `local-pty.ts`). Filtered out of
+  // `listVisibleProviders` so the Settings → Providers tab and the
+  // workspace-launcher wizard never offer "Shell" as a button.
   {
     id: 'shell',
     name: 'Shell',
@@ -172,9 +148,9 @@ export function listDetectable(): AgentProviderDefinition[] {
   return AGENT_PROVIDERS.filter((p) => p.detectable !== false && p.command);
 }
 
-// V3-W12-003: legacy providers (aider, continue) are hidden unless the user
-// flips kv['providers.showLegacy']='1'. comingSoon rows (BridgeCode) are kept
-// in the visible list but rendered disabled by the consumer.
+// v1.2.4: the legacy gate machinery is retained for future use, but the
+// shipped registry contains no `legacy` rows. The internal `shell` sentinel
+// stays filtered out so the user never sees it in pickers.
 export function listVisibleProviders(showLegacy: boolean): AgentProviderDefinition[] {
   return AGENT_PROVIDERS.filter((p) => {
     if (p.id === 'shell') return false;

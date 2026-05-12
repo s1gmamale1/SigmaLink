@@ -36,8 +36,11 @@ interface CanvasShape {
 }
 
 const DEFAULT_PROVIDERS: string[] = ['claude'];
+// v1.2.4: provider registry trimmed to the 5 shipping CLIs. `shell` and
+// `custom` stay as internal-only sentinels for the workspace launcher's
+// skip-agents / custom-command paths.
 // prettier-ignore
-const VALID_PROVIDERS = new Set(['claude','codex','gemini','opencode','cursor','aider','continue','shell']);
+const VALID_PROVIDERS = new Set(['claude','codex','gemini','kimi','opencode','shell','custom']);
 
 function normalizeProviders(input: unknown): string[] {
   if (!Array.isArray(input)) return [];

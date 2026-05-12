@@ -174,9 +174,11 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
       externalSessionId: rec.externalSessionId,
     })
     .run();
-  // BUG-V1.1-02: persist the launcher-resolved provider tag (e.g. 'claude'
-  // when the swarm requested 'bridgecode'). Best-effort — column is added by
-  // migration 0010; older DBs swallow the failure.
+  // BUG-V1.1-02: persist the launcher-resolved provider tag. The launcher
+  // façade always records `providerEffective`, even when no comingSoon swap
+  // occurred, so downstream queries don't have to special-case nulls.
+  // Best-effort — column is added by migration 0010; older DBs swallow the
+  // failure.
   try {
     getRawDb()
       .prepare('UPDATE agent_sessions SET provider_effective = ? WHERE id = ?')

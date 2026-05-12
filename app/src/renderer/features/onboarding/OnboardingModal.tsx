@@ -144,7 +144,7 @@ export function OnboardingModal() {
           <section className="sl-fade-in space-y-3 text-sm text-muted-foreground">
             <p>
               SigmaLink is a desktop control room for your CLI agents — Claude Code, Codex,
-              Cursor, Gemini, Aider — all in tiled terminals over real git worktrees.
+              Gemini, Kimi, OpenCode — all in tiled terminals over real git worktrees.
             </p>
             <ul className="space-y-1 pl-5 [&>li]:list-disc">
               <li>Launch up to 16 panes with one click.</li>

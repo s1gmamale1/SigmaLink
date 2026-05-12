@@ -1,9 +1,8 @@
-// V3-W12-004 / V3-W12-006 Step 3: provider matrix.
+// Step 3: provider matrix.
 //
-// Per the V3 frame log (frame 0055) and `v3-providers-delta.md`, the matrix
-// orders providers BridgeCode | Claude | Codex | Gemini | OpenCode | Cursor
-// | Droid | Copilot | Custom Command. Each row exposes a `−/+` counter; a
-// running total at the top reads `<used>/<N>`. Three quick-fill buttons:
+// v1.2.4 final order: Claude | Codex | Gemini | Kimi | OpenCode | Custom
+// Command. Each row exposes a `−/+` counter; a running total at the top
+// reads `<used>/<N>`. Three quick-fill buttons:
 //
 //   • Enable all     — distribute panes evenly across every non-coming-soon
 //                      provider (best-effort fallback for the user's pane
@@ -22,19 +21,14 @@ import { Button } from '@/components/ui/button';
 import { AGENT_PROVIDERS, type AgentProviderDefinition } from '@/shared/providers';
 import type { ProviderProbe } from '@/shared/types';
 
-// V3 matrix order. Droid + Copilot are stubs that fall back to Custom Command
-// today (registry lands their definitions in V3-W12-001/003 follow-ups). We
-// reference them by id with a renderer-only stub when missing from the
-// registry so the row still appears.
+// v1.2.4 matrix order. `custom` is a renderer-only "Custom Command" row that
+// falls back to the internal shell sentinel at launch time.
 const MATRIX_ORDER: string[] = [
-  'bridgecode',
   'claude',
   'codex',
   'gemini',
+  'kimi',
   'opencode',
-  'cursor',
-  'droid',
-  'copilot',
   'custom',
 ];
 
@@ -73,24 +67,11 @@ function rowFromDef(
   };
 }
 
-// Stubs for ids that aren't (yet) in the shared registry. Droid + Copilot
-// land in V3-W12-001/003 follow-ups; Custom Command is a freeform shell
-// command row. Kept as a small lookup so we don't duplicate the row shape.
+// Stubs for ids that aren't in the shared registry. `custom` is a freeform
+// shell command row; the launcher routes it through the internal shell
+// sentinel at spawn time. Kept as a small lookup so we don't duplicate the
+// row shape.
 const STUBS: Record<string, Omit<MatrixRow, 'found'>> = {
-  droid: {
-    id: 'droid',
-    name: 'Droid',
-    description: 'Factory Droid CLI (coming soon)',
-    comingSoon: true,
-    installHint: 'Coming soon — Factory Droid integration',
-  },
-  copilot: {
-    id: 'copilot',
-    name: 'Copilot',
-    description: 'GitHub Copilot CLI (coming soon)',
-    comingSoon: true,
-    installHint: 'Coming soon — GitHub Copilot CLI',
-  },
   custom: {
     id: 'custom',
     name: 'Custom Command',

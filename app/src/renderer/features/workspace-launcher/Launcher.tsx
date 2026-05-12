@@ -114,9 +114,9 @@ export function WorkspaceLauncher() {
 
   function expandCountsToPanes(): string[] {
     // Convert {provider: count} → flat array sized to preset, padded with
-    // shell when the user under-assigned. Custom Command + the unknown
-    // Droid/Copilot stub ids fall back to shell at launch (registry-side
-    // fallback lands in V3-W12-001 follow-ups).
+    // the internal shell sentinel when the user under-assigned. The Custom
+    // Command row also resolves to the shell sentinel at launch, which
+    // routes through `defaultShell()` in `local-pty.ts`.
     const flat: string[] = [];
     for (const [providerId, n] of Object.entries(counts)) {
       const id = providerId === 'custom' ? 'shell' : providerId;

@@ -2,17 +2,15 @@
 //
 // Each role row carries:
 //   - A coloured stripe driven by the per-theme `--role-<role>` token.
-//   - 9-provider chip strip in V3 order
-//     (BridgeCode | Claude | Codex | Gemini | OpenCode | Cursor | Droid |
-//      Copilot | Custom Command).
+//   - 6-provider chip strip in v1.2.4 order
+//     (Claude | Codex | Gemini | Kimi | OpenCode | Custom Command).
 //   - Model dropdown next to the provider strip.
 //   - `Auto` chip (autoApprove) — wired via `swarm.update-agent` (channel
 //     lands in V3-W12-014 once foundations adds it to the allowlist).
 //   - Count -/+ controls (operator can scale a role on a Custom roster).
 //
 // Above the rows, a global "CLI agent for all" provider strip (V3-W12-012)
-// flips every row's provider in one click. Coming-soon providers render
-// disabled per V3-W12-001 semantics.
+// flips every row's provider in one click.
 
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
@@ -54,19 +52,15 @@ const ROLE_BORDER: Record<Role, string> = {
 };
 
 /**
- * V3 provider matrix order. The label "Custom Command" maps to providerId
- * `custom`. Coming-soon providers (BridgeCode) render disabled but selectable
- * per V3-W12-001 fallback semantics.
+ * v1.2.4 provider matrix order. The label "Custom Command" maps to providerId
+ * `custom` which the launcher routes through the internal shell sentinel.
  */
 const V3_PROVIDER_ORDER: Array<{ id: string; label: string; comingSoon?: boolean }> = [
-  { id: 'bridgecode', label: 'BridgeCode', comingSoon: true },
   { id: 'claude', label: 'Claude' },
   { id: 'codex', label: 'Codex' },
   { id: 'gemini', label: 'Gemini' },
+  { id: 'kimi', label: 'Kimi' },
   { id: 'opencode', label: 'OpenCode' },
-  { id: 'cursor', label: 'Cursor' },
-  { id: 'droid', label: 'Droid' },
-  { id: 'copilot', label: 'Copilot' },
   { id: 'custom', label: 'Custom Command' },
 ];
 
@@ -75,11 +69,8 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
   claude: 'claude-opus-4-7',
   codex: 'gpt-5.4',
   gemini: 'gemini-2.5-pro',
+  kimi: 'kimi-k2.6',
   opencode: 'opencode-default',
-  bridgecode: 'bridgecode-default',
-  cursor: 'cursor-default',
-  droid: 'droid-default',
-  copilot: 'copilot-default',
   custom: 'custom-default',
 };
 

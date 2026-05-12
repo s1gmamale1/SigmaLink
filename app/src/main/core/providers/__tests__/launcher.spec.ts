@@ -4,8 +4,10 @@
 // `mcp-config-writer.spec.ts`). No new test runner needed.
 //
 // What we cover:
-//   1. BUG-V1.1-01-PROV — BridgeCode (comingSoon) silently swaps to its
-//      `fallbackProviderId` (Claude) at spawn.
+//   1. BUG-V1.1-01-PROV — `comingSoon` providers silently swap to their
+//      `fallbackProviderId` at spawn. v1.2.4 ships no comingSoon row in the
+//      default registry, but the capability is retained for future stubs and
+//      tested against a synthetic fixture below.
 //   2. BUG-V1.1-05-PROV — ENOENT walk through `altCommands` until one works.
 //   3. BUG-V1.1-06-PROV — `autoApproveFlag` appended when `autoApprove=true`.
 //   4. BUG-V1.1-07-PROV — legacy gate refuses spawn when `showLegacy=false`.
@@ -99,11 +101,14 @@ const claudeProvider: AgentProviderDefinition = {
   installHint: 'npm i -g @anthropic-ai/claude-code',
 };
 
-const bridgecodeProvider: AgentProviderDefinition = {
-  id: 'bridgecode',
-  name: 'BridgeCode',
+// Synthetic comingSoon provider used to exercise the fallback machinery. The
+// v1.2.4 shipping registry no longer includes such a row; this fixture keeps
+// the launcher façade's swap path under test for future stubs.
+const comingSoonStub: AgentProviderDefinition = {
+  id: 'future-cli',
+  name: 'Future CLI',
   description: '',
-  command: 'bridgecode',
+  command: 'future-cli',
   args: [],
   color: '#000',
   icon: '',
@@ -112,11 +117,13 @@ const bridgecodeProvider: AgentProviderDefinition = {
   fallbackProviderId: 'claude',
 };
 
-const aiderProvider: AgentProviderDefinition = {
-  id: 'aider',
-  name: 'Aider',
+// Synthetic legacy provider used to exercise the showLegacy gate. The v1.2.4
+// shipping registry no longer includes a legacy row.
+const legacyStub: AgentProviderDefinition = {
+  id: 'legacy-cli',
+  name: 'Legacy CLI',
   description: '',
-  command: 'aider',
+  command: 'legacy-cli',
   args: [],
   color: '#000',
   icon: '',
@@ -126,20 +133,20 @@ const aiderProvider: AgentProviderDefinition = {
 
 // ── Tests ────────────────────────────────────────────────────────────────
 
-test('BUG-V1.1-01: BridgeCode (comingSoon) falls back to Claude at spawn', () => {
-  const { registry, calls } = makeMockRegistry(() => makeFakeSession('s-bc'));
+test('BUG-V1.1-01: comingSoon provider falls back to its fallbackProviderId at spawn', () => {
+  const { registry, calls } = makeMockRegistry(() => makeFakeSession('s-cs'));
   const result = resolveAndSpawn(
     {
       ptyRegistry: registry,
-      getProvider: makeProviderRegistry([bridgecodeProvider, claudeProvider]),
+      getProvider: makeProviderRegistry([comingSoonStub, claudeProvider]),
     },
-    { providerId: 'bridgecode', cwd: '/tmp' },
+    { providerId: 'future-cli', cwd: '/tmp' },
   );
-  assert.equal(result.providerRequested, 'bridgecode');
+  assert.equal(result.providerRequested, 'future-cli');
   assert.equal(result.providerEffective, 'claude');
   assert.equal(result.fallbackOccurred, true);
   assert.equal(result.commandUsed, 'claude');
-  // The PTY registry was asked to spawn `claude`, not `bridgecode`.
+  // The PTY registry was asked to spawn `claude`, not the comingSoon stub.
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.command, 'claude');
 });
@@ -246,9 +253,9 @@ test('BUG-V1.1-07: legacy provider refused when showLegacy=false', () => {
       resolveAndSpawn(
         {
           ptyRegistry: registry,
-          getProvider: makeProviderRegistry([aiderProvider]),
+          getProvider: makeProviderRegistry([legacyStub]),
         },
-        { providerId: 'aider', cwd: '/tmp', showLegacy: false },
+        { providerId: 'legacy-cli', cwd: '/tmp', showLegacy: false },
       ),
     (err: unknown) => {
       assert.ok(err instanceof ProviderLaunchError);
@@ -261,16 +268,16 @@ test('BUG-V1.1-07: legacy provider refused when showLegacy=false', () => {
 });
 
 test('BUG-V1.1-07: legacy provider allowed when showLegacy=true', () => {
-  const { registry } = makeMockRegistry(() => makeFakeSession('s-aider'));
+  const { registry } = makeMockRegistry(() => makeFakeSession('s-legacy'));
   const result = resolveAndSpawn(
     {
       ptyRegistry: registry,
-      getProvider: makeProviderRegistry([aiderProvider]),
+      getProvider: makeProviderRegistry([legacyStub]),
     },
-    { providerId: 'aider', cwd: '/tmp', showLegacy: true },
+    { providerId: 'legacy-cli', cwd: '/tmp', showLegacy: true },
   );
-  assert.equal(result.providerEffective, 'aider');
-  assert.equal(result.commandUsed, 'aider');
+  assert.equal(result.providerEffective, 'legacy-cli');
+  assert.equal(result.commandUsed, 'legacy-cli');
 });
 
 test('unknown providerId throws ProviderLaunchError(unknown-provider)', () => {

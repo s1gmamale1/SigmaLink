@@ -11,7 +11,7 @@ export interface SessionIdExtraction {
 
 const ANSI_RE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 const OSC_RE = /\u001b\][\s\S]*?(?:\u0007|\u001b\\)/g;
-const CLAUDE_PROVIDER_IDS = new Set(['claude', 'bridgecode']);
+const CLAUDE_PROVIDER_IDS = new Set(['claude']);
 const CODEX_PROVIDER_IDS = new Set(['codex']);
 
 function cleanLine(line: string): string {

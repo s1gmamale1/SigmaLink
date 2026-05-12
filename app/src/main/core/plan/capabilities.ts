@@ -29,7 +29,6 @@ export type Capability =
   | 'bridgemcp.slotCount'
   | 'bridgevoice.enabled'
   | 'sigmavoice.enabled'
-  | 'bridgecode.access'
   | 'bridgejarvis.enabled'
   | 'canvas.enabled';
 
@@ -41,7 +40,6 @@ export type CapabilityValue = number | boolean;
  *   - swarm.maxSize:       basic=5, pro=15, ultra=20 (matches V3 pricing tiles)
  *   - bridgemcp.slotCount: basic=1, pro=10, ultra=999 (effectively unlimited)
  *   - bridgevoice.enabled: pro+ only
- *   - bridgecode.access:   pro+ only
  *   - bridgejarvis.enabled: ultra only
  *   - canvas.enabled:      pro+ only
  */
@@ -51,7 +49,6 @@ export const CAPABILITIES_BY_TIER: Record<Tier, Record<Capability, CapabilityVal
     'bridgemcp.slotCount': 1,
     'bridgevoice.enabled': false,
     'sigmavoice.enabled': false,
-    'bridgecode.access': false,
     'bridgejarvis.enabled': false,
     'canvas.enabled': false,
   },
@@ -60,7 +57,6 @@ export const CAPABILITIES_BY_TIER: Record<Tier, Record<Capability, CapabilityVal
     'bridgemcp.slotCount': 10,
     'bridgevoice.enabled': true,
     'sigmavoice.enabled': true,
-    'bridgecode.access': true,
     'bridgejarvis.enabled': false,
     'canvas.enabled': true,
   },
@@ -69,7 +65,6 @@ export const CAPABILITIES_BY_TIER: Record<Tier, Record<Capability, CapabilityVal
     'bridgemcp.slotCount': 999,
     'bridgevoice.enabled': true,
     'sigmavoice.enabled': true,
-    'bridgecode.access': true,
     'bridgejarvis.enabled': true,
     'canvas.enabled': true,
   },

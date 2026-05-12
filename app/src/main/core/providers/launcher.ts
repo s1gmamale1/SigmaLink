@@ -4,17 +4,19 @@
 // behaviours that were previously scattered across `executeLaunchPlan`,
 // `spawnAgentSession`, and ad-hoc renderer calls — and were therefore broken:
 //
-//   1. BUG-V1.1-01-PROV — `comingSoon` providers (BridgeCode) silently swap to
-//      their `fallbackProviderId` (Claude) at spawn. Caller learns the swap
-//      happened via `fallbackOccurred` and can persist it to
-//      `agent_sessions.providerEffective`.
+//   1. BUG-V1.1-01-PROV — `comingSoon` providers silently swap to their
+//      `fallbackProviderId` at spawn. Caller learns the swap happened via
+//      `fallbackOccurred` and can persist it to
+//      `agent_sessions.providerEffective`. (v1.2.4: registry no longer ships
+//      a comingSoon row, but the capability is retained for future stubs.)
 //   2. BUG-V1.1-05-PROV — on ENOENT we walk `[command, ...altCommands]` and
 //      try each in turn before giving up.
 //   3. BUG-V1.1-06-PROV — when `autoApprove === true` and the provider exposes
 //      `autoApproveFlag`, we append it to `args`.
 //   4. BUG-V1.1-07-PROV — main-side re-check of `kv['providers.showLegacy']`
-//      so a renderer that bypasses its gate still cannot spawn an Aider /
-//      Continue session.
+//      so a renderer that bypasses its gate cannot spawn a legacy provider.
+//      (v1.2.4: registry no longer ships a legacy row, but the capability is
+//      retained for future use.)
 //
 // The façade is deliberately thin: it does NOT touch the database, mailbox,
 // worktree pool, or RPC. Callers (executeLaunchPlan, spawnAgentSession) own

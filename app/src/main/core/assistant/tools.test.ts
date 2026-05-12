@@ -80,13 +80,17 @@ describe('assistant list_* tools', () => {
     seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: root });
     // Seed an agent_sessions row via the raw shim (mirrors how production
     // tests previously seeded with `INSERT INTO agent_sessions ...`).
+    // Simulates a session whose requested provider differs from the resolved
+    // (effective) provider — used to exercise the launcher's comingSoon →
+    // fallback path. v1.2.4 ships no comingSoon row by default; the synthetic
+    // `future-cli` id stands in for any future stub.
     getRawDb()
       .prepare(
         `INSERT INTO agent_sessions
          (id, workspace_id, provider_id, cwd, status, started_at, provider_effective)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run('sess-1', 'ws-1', 'bridgecode', root, 'running', 101, 'codex');
+      .run('sess-1', 'ws-1', 'future-cli', root, 'running', 101, 'codex');
     seedSwarm(fake, {
       id: 'swarm-1',
       workspaceId: 'ws-1',
@@ -111,7 +115,7 @@ describe('assistant list_* tools', () => {
     const out = await findTool('list_active_sessions')!.handler(
       { workspaceId: 'ws-1' },
       makeCtx([
-        { id: 'sess-1', providerId: 'bridgecode', cwd: root, alive: true },
+        { id: 'sess-1', providerId: 'future-cli', cwd: root, alive: true },
         { id: 'dead-1', providerId: 'codex', cwd: root, alive: false },
         { id: 'other-1', providerId: 'codex', cwd: '/tmp/other', alive: true },
       ]),

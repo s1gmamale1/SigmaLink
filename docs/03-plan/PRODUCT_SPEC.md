@@ -254,9 +254,25 @@ V3 frame 0455 shows a mobile dashboard with **six tiles**: Terminal · Kanban ·
 
 ---
 
-## 4. Agent providers (canonical list — V3 9-provider matrix)
+## 4. Agent providers (canonical list — v1.2.4 5-provider matrix)
 
-V3 ships a different default set than the original spec. Sources: `v3-providers-delta.md`; V3 frames 0055 (wizard), 0184 (BridgeSwarm CLI strip), 0205 (per-row strip), 0380 (Design Mode picker), 0510 (pricing). Default registry = **9 providers** (8 named + Custom Command); two retained behind a Settings legacy toggle; one demoted to a model option. Updated by C-016; supersedes original C-004.
+> **Updated 2026-05-13 (v1.2.4 provider-registry cleanup).** The previous V3 9-provider matrix (which included BridgeCode, Cursor, Droid, Copilot, and the demoted Kimi-as-model) is **superseded** by this 5-provider matrix. BridgeCode never materialised, Cursor's CLI fell out of scope, Droid + Copilot stubs were never implemented, Aider + Continue were removed entirely, and Kimi was promoted back to a first-class CLI provider with its own registry row. See `docs/08-bugs/BACKLOG.md` → "v1.1.10 — provider registry cleanup → Shipped & verified — v1.2.4". Sections 4.1–4.5 below are kept for historical context but no longer reflect the shipping registry.
+
+### 4.0 v1.2.4 shipping registry (current source of truth)
+
+| Provider | id | command | install hint |
+|---|---|---|---|
+| Claude Code | `claude` | `claude` (alt `claude.cmd`) | `npm i -g @anthropic-ai/claude-code` |
+| Codex CLI | `codex` | `codex` (alt `codex.cmd`) | `npm i -g @openai/codex` |
+| Gemini CLI | `gemini` | `gemini` (alt `gemini.cmd`) | `npm i -g @google/gemini-cli` |
+| Kimi Code CLI | `kimi` | `kimi` (alt `kimi.cmd`) | See moonshot.ai (npm package name pending) |
+| OpenCode CLI | `opencode` | `opencode` (alt `opencode.cmd`) | `npm i -g opencode` |
+
+An internal-only `'shell'` sentinel powers the workspace launcher's "Skip — no agents" / "Custom Command" rows by routing through `defaultShell()` in `local-pty.ts`. It is filtered out of every user-facing picker.
+
+---
+
+> The remainder of section 4 (4.1–4.5) is preserved for historical context only — it describes the V3 9-provider matrix that v1.2.4 obsoleted.
 
 Field shape (all entries):
 ```

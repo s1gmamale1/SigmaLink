@@ -54,7 +54,7 @@ SigmaLink ships unsigned on Windows (no EV/OV Authenticode cert — deferred ind
 
 ## What it is
 
-SigmaLink is an Electron desktop application that lets a single human operator run several coding-agent CLIs (BridgeCode, Claude Code, Codex, Gemini, Cursor, OpenCode, plus the custom shell entry, with Aider and Continue available as legacy toggles) in parallel against the same Git repository. Each agent runs in a real PTY-backed terminal pane and is checked out into its own Git worktree, so concurrent edits cannot collide on disk. A SQLite database holds workspaces, sessions, swarm rosters, tasks, conversations, and notes; nothing is sent to a remote service.
+SigmaLink is an Electron desktop application that lets a single human operator run several coding-agent CLIs (Claude Code, Codex CLI, Gemini CLI, Kimi Code CLI, OpenCode CLI, plus a custom-command escape hatch) in parallel against the same Git repository. Each agent runs in a real PTY-backed terminal pane and is checked out into its own Git worktree, so concurrent edits cannot collide on disk. A SQLite database holds workspaces, sessions, swarm rosters, tasks, conversations, and notes; nothing is sent to a remote service.
 
 The project is in active rebuild. Phases 1–8 (foundation, swarms, in-app browser, Skills, SigmaMemory, Review/Tasks, UI polish, visual-test loop) are shipped. Phase 9 (V3 parity, waves 12–16) is in progress: bundled credential storage via Electron `safeStorage`, a Sigma Assistant room (W13), the Sigma Canvas visual-design surface (W14), and final hardening land before v0.2.0. Track the swarm in [`docs/10-memory/ORCHESTRATION_LOG.md`](docs/10-memory/ORCHESTRATION_LOG.md).
 
@@ -79,19 +79,17 @@ A workspace is a saved binding of a folder, optional repo root, base branch, and
 
 ## Supported agents
 
-Nine providers ship in the V3 default registry: BridgeCode (coming soon, currently falls back to Claude Code at spawn time), Claude Code, Codex CLI, Gemini CLI, Cursor Agent, OpenCode, the plain Shell entry, plus Aider and Continue as legacy toggles (hidden until `kv['providers.showLegacy'] = '1'`). Kimi is a model rather than a standalone CLI, so it is selected per-provider rather than being its own row. Any other CLI on `PATH` is auto-detected and surfaces in the picker. Source: [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md) section 4 and `app/src/shared/providers.ts`.
+Five providers ship in the v1.2.4 default registry: Claude Code, Codex CLI, Gemini CLI, Kimi Code CLI, and OpenCode CLI. A "Custom Command" row in the workspace-launcher wizard opens a plain interactive shell for ad-hoc binaries. Source: [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md) section 4 and `app/src/shared/providers.ts`.
 
-| Provider | Command | Install hint | Visibility |
-|---|---|---|---|
-| BridgeCode | `bridgecode` | Coming soon — BridgeMind hosted CLI | V3 default (renders disabled, falls back to Claude) |
-| Claude Code | `claude` | `npm i -g @anthropic-ai/claude-code` | V3 default |
-| Codex CLI | `codex` | `npm i -g @openai/codex` | V3 default |
-| Gemini CLI | `gemini` | `npm i -g @google/gemini-cli` | V3 default |
-| Cursor Agent | `cursor-agent` | install via Cursor app | V3 default |
-| OpenCode | `opencode` | `npm i -g opencode` | V3 default |
-| Shell | operator-supplied | Built-in | Always available |
-| Aider | `aider` | `pipx install aider-chat` | Legacy toggle |
-| Continue | `continue` | `npm i -g @continuedev/cli` | Legacy toggle |
+| Provider | Command | Install hint |
+|---|---|---|
+| Claude Code | `claude` | `npm i -g @anthropic-ai/claude-code` |
+| Codex CLI | `codex` | `npm i -g @openai/codex` |
+| Gemini CLI | `gemini` | `npm i -g @google/gemini-cli` |
+| Kimi Code CLI | `kimi` | See moonshot.ai for install instructions (upstream npm package name pending) |
+| OpenCode CLI | `opencode` | `npm i -g opencode` |
+
+> Earlier registries shipped BridgeCode, Cursor Agent, Aider, Continue, and a "Shell" provider row. v1.2.4 trimmed them: BridgeCode never materialised, Cursor's CLI fell out of scope, Aider/Continue moved off SigmaLink's support matrix, and "Shell" is now an internal-only sentinel that powers the launcher's "Skip — no agents" path without surfacing as a user-facing button.
 
 ## Install options
 

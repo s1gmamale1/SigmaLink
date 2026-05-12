@@ -66,45 +66,34 @@ agents never block on a schema or channel-allowlist change.
 
 ### Provider matrix (source `v3-providers-delta.md`)
 
-#### [V3-W12-001] Add BridgeCode provider stub
-- Frames: 0055, 0184, 0510. Source: `v3-providers-delta.md` §"BridgeCode definition".
-- Files: `app/src/main/core/providers/registry.ts`, `app/src/main/core/providers/types.ts`.
-- Acceptance:
-  - `ProviderDefinition.comingSoon?: boolean` + `fallbackProviderId?: ProviderId` fields exist.
-  - Registry includes `bridgecode` with `command: 'bridgecode'`, `altCommands: ['bridgecode.cmd']`, fallback `'claude'`, `recommendedRoles: ['builder','coordinator']`, `comingSoon: true`.
-  - When binary missing, launcher silently spawns Claude and records `agent_sessions.providerEffective = 'claude'`.
-- Effort: S.
-- Depends on: none.
+> **OBSOLETED by v1.2.4 provider-registry cleanup (2026-05-13)** — see
+> `docs/08-bugs/BACKLOG.md` → "v1.1.10 — provider registry cleanup → Shipped &
+> verified — v1.2.4". The shipping registry was trimmed to the 5 CLIs
+> SigmaLink actually targets (Claude, Codex, Gemini, Kimi, OpenCode). The
+> tickets below are kept for historical context; their original acceptance
+> criteria no longer apply.
 
-#### [V3-W12-002] Demote Kimi to model option under OpenCode
-- Frames: 0100, 0140 (`Build · Kimi K2.6 OpenRouter`). Source: `v3-providers-delta.md` §"OpenRouter / Kimi handling".
-- Files: `app/src/main/core/providers/registry.ts`, new `app/src/main/core/providers/models.ts`.
-- Acceptance:
-  - `ModelOption { providerId, modelId, label, via?: 'openrouter'|'native', defaultEffort? }` type exported.
-  - Kimi-K2.6 listed as a model under `opencode` (and any OpenRouter-capable provider); no top-level `kimi` row in default registry.
-  - Per-pane status strip renders `<model> <effort> <speed> · <cwd>` (e.g. `gpt-5.4 high fast · ~/Desktop/bridgemind`) for any (provider, model) combo.
-- Effort: S.
-- Depends on: none.
+#### [V3-W12-001] ~~Add BridgeCode provider stub~~ — **obsoleted v1.2.4**
+- BridgeCode placeholder was removed from the registry. The launcher's
+  comingSoon → fallback machinery (the original deliverable of this ticket)
+  is retained as generic infrastructure for future stubs but ships unused.
+- Original spec preserved in git history.
 
-#### [V3-W12-003] Hide Aider/Continue behind Settings toggle
-- Frames: not visible in V3 matrix. Source: `v3-providers-delta.md` Diff table.
-- Files: `app/src/main/core/providers/registry.ts`, `app/src/renderer/features/settings/ProvidersTab.tsx`.
-- Acceptance:
-  - New kv key `providers.showLegacy: '0'|'1'` (default `'0'`).
-  - Default picker only renders 9 providers (BridgeCode, Claude, Codex, Gemini, OpenCode, Cursor, Droid, Copilot, Custom).
-  - Toggle "Show legacy providers" reveals Aider + Continue in picker without re-adding their PATH probes.
-- Effort: S.
-- Depends on: V3-W12-001.
+#### [V3-W12-002] Demote Kimi to model option under OpenCode — **superseded v1.2.4**
+- v1.2.4 promotes Kimi back to a first-class CLI provider with its own
+  registry row (`id: 'kimi'`, `command: 'kimi'`). The Kimi-under-OpenCode
+  model option was removed from `models.ts` and replaced with a native
+  `kimi` provider entry.
 
-#### [V3-W12-004] Wizard matrix order + quick-fills + Custom Command row
-- Frames: 0055. Source: `v3-providers-delta.md` §"UI implications".
-- Files: `app/src/renderer/features/workspace-launcher/Launcher.tsx`, `app/src/renderer/features/swarm-room/RoleRoster.tsx`.
-- Acceptance:
-  - Provider matrix order: `BridgeCode | Claude | Codex | Gemini | OpenCode | Cursor | Droid | Copilot | Custom Command`.
-  - Quick-fill buttons render: *Enable all · One of each · Split evenly*; *One of each* skips `comingSoon` rows.
-  - Custom Command row + `+ Add custom command` appears at matrix bottom; legacy "Custom" rename complete.
-- Effort: M.
-- Depends on: V3-W12-001, V3-W12-002.
+#### [V3-W12-003] ~~Hide Aider/Continue behind Settings toggle~~ — **obsoleted v1.2.4**
+- Aider and Continue were removed from the registry entirely. The
+  `providers.showLegacy` kv flag and legacy-provider gate machinery are
+  retained as infrastructure but ship with no consumers.
+
+#### [V3-W12-004] Wizard matrix order + quick-fills + Custom Command row — **superseded v1.2.4**
+- v1.2.4 matrix order is `Claude | Codex | Gemini | Kimi | OpenCode | Custom
+  Command` (Droid + Copilot stubs removed; BridgeCode removed; Cursor
+  removed). Quick-fill buttons and the Custom Command row continue to ship.
 
 ### Workspace launcher chrome (source `v3-delta-vs-current.md` §"Workspace launcher")
 

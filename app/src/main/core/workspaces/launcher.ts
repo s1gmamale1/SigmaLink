@@ -173,9 +173,9 @@ export async function executeLaunchPlan(
           id: finalSessionId,
           workspaceId: wsRow.id,
           // BUG-V1.1-01: store the requested id in `providerId` so the UI
-          // continues to show what the operator picked (e.g. "BridgeCode"),
-          // and the resolved id in `provider_effective` so the runtime knows
-          // which CLI actually launched.
+          // continues to show what the operator picked, and the resolved id
+          // in `provider_effective` so the runtime knows which CLI actually
+          // launched (relevant when a comingSoon → fallback swap occurs).
           providerId: provider.id,
           cwd,
           branch,
@@ -197,8 +197,8 @@ export async function executeLaunchPlan(
       // If we wanted a non-oneshot prompt to be typed, push it after a tick.
       // The launcher is the single source-of-truth for typing the initial
       // prompt; the rpc-router pty.create controller does NOT type prompts to
-      // avoid double-send. Use the *effective* provider's flags — a
-      // BridgeCode→Claude fallback should use Claude's prompt-flag rules.
+      // avoid double-send. Use the *effective* provider's flags — any
+      // comingSoon→fallback path should defer to the resolved CLI's rules.
       if (
         pane.initialPrompt &&
         !effectiveProvider.oneshotArgs?.length &&
