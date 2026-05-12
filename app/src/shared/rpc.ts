@@ -2,7 +2,7 @@
 // Channel naming: "<namespace>.<method>"; one ipcMain.handle per pair.
 // Renderer uses createRpcClient<Router>() to get an end-to-end typed proxy.
 
-export type RpcProcedureMap = Record<string, (...args: any[]) => unknown>;
+export type RpcProcedureMap = Record<string, (...args: never[]) => unknown>;
 export type RpcRouterShape = Record<string, RpcProcedureMap>;
 
 export type RpcResult<T> =

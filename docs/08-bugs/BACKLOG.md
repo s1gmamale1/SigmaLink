@@ -3,6 +3,7 @@
 > Snapshot at **v1.1.8** (commit `74d33e4`, 2026-05-12).
 > Last sweep: 5-coder optimization swarm (bundle -61% gzip, lint -28, tests 128/128).
 > Bug ledger details live in [`OPEN.md`](OPEN.md); the v1.1.1 / v1.1.2 / v1.1.3 entries there are CLOSED — see "Shipped & verified" at the bottom of this file.
+> Codex v1.1.9 branch update (2026-05-12): app-state selector/slice work, CI cache + coverage + shellcheck hardening, and the remaining React compiler lint wave are implemented in `codex/bug-backlog-pr`. The larger file-size refactors remain open.
 
 ## Index
 
@@ -29,6 +30,7 @@
 - **Issue**: primary CTA reads as a secondary button against the Parchment chrome; cancel/secondary actions look similar.
 - **Effort**: XS (~30min) — adjust the variant token in `src/components/ui/button.data.ts` for the `parchment` theme.
 - **Defer to**: v1.1.9 polish pass.
+- **2026-05-12 check**: Current branch already uses the accent-filled launch CTA and darker Parchment accent tokens; no additional code change was needed in this PR.
 - **Source**: [`OPEN.md`](OPEN.md) → BUG-W7-015.
 
 ### BUG-W7-000 — Test-runner reports "Electron app failed to launch" intermittently in Phase 3 visual sweep
@@ -36,7 +38,8 @@
 - **Issue**: Playwright cannot reliably bring the app up cold; first run sometimes hangs on better-sqlite3 module load. Repeating the test in the same run passes.
 - **Hypothesis**: race between `electron-builder install-app-deps` rebuild and the test's Electron spawn. Already mitigated by v1.1.5 ad-hoc-sign hook + v1.1.8 NMV test-isolation, but never closed formally.
 - **Effort**: S (~2hr) — verify on a clean CI runner with the v1.1.8 install path; close or refile.
-- **Defer to**: v1.1.9 — relabel after re-verification.
+- **Defer to**: v1.1.10 — paired with the [Playwright e2e refresh](#v1110--playwright-e2e-refresh) because the focused smoke fails on stale selectors before it can re-verify launch.
+- **2026-05-12 check**: Launch step now works locally after `node scripts/build-electron.cjs`; focused smoke still fails later on v1.1.4-stale selectors (see v1.1.10 entry).
 - **Source**: [`OPEN.md`](OPEN.md) → BUG-W7-000.
 
 ---
@@ -128,6 +131,7 @@
 - **Surface**: `src/renderer/app/state.tsx` + `state.hook.ts` + 27 consumer files.
 - **Issue today**: `useAppState()` returns `{ state, dispatch }` whose ref flips on every reducer call. 27 consumers re-render on EVERY dispatch (PTY exit, swarm message, browser state, 250ms snapshot timer, ephemeral UI flags). 24 of those destructure the full state.
 - **Fix sketch**: New `useAppStateSelector<T>(sel, eq?)` built on `useSyncExternalStore` over a tiny event emitter the reducer fans out to. Keep `useAppState()` as a thin alias for migration; opt-in conversion of consumers over time.
+- **2026-05-12 status**: Implemented additive `useAppStateSelector` + `useAppDispatch`; converted Command Room, Command Palette, Swarm Room, and Operator Console as the first high-churn consumer wave.
 - **Effort**: M (~1d for the hook + emitter; +0.5d per consumer wave of conversions).
 - **Risk**: Med — additive (old hook stays), but touches global state. Land alongside the precomputed slice work below for combined acceptance.
 
@@ -135,6 +139,7 @@
 - **Surface**: `src/renderer/app/state.reducer.ts` + 4 consumer files (CommandRoom, CommandPalette, SwarmRoom, OperatorRoom).
 - **Issue today**: Reducer rebuilds `Map(state.sessions)` on every `ADD_SESSIONS` / `MARK_SESSION_EXITED`. Four consumers run linear `sessions.filter(s => s.workspaceId === ...)` on every render. Combined with the selector issue above, that's O(N×consumers) wasted work per dispatch.
 - **Fix sketch**: Add `sessionsByWorkspace: Record<string, AgentSession[]>` derived slice maintained by the reducer (rebuild on add/remove/exited). Same for `swarmsByWorkspace`. Consumers read the precomputed slice. Additive — old `state.sessions` array preserved.
+- **2026-05-12 status**: Implemented and covered by reducer tests for add/exit/remove session paths and set/upsert/end swarm paths.
 - **Effort**: S (~3hr).
 - **Risk**: Low (additive).
 - **Pair with**: `useAppStateSelector` above — together they eliminate the worst sustained-runtime overhead.
@@ -169,6 +174,7 @@
 ### CI workflow `cache-dependency-path` resolves to stale path
 - **Surface**: `.github/workflows/lint-and-build.yml`, `e2e-matrix.yml`.
 - **Issue**: 4 jobs fail at "Setup Node" because the cache-dependency-path points at a moved lockfile. Local gates all green. Tracked in v1.1.4 release notes, never fixed.
+- **2026-05-12 status**: CI cache path now targets `app/package.json`; workflows install with `--no-frozen-lockfile` because this repo ignores `app/pnpm-lock.yaml`.
 - **Effort**: XS (~30min) — update the path glob.
 - **Risk**: Zero.
 
@@ -176,14 +182,16 @@
 - **Surface**: `app/vitest.config.ts` + new CI job.
 - **Issue**: 16 test files cover 17/55 main-process modules; the v1.1.8 swarm grew that to maybe 19/55, but no enforcement floor. Future regressions can silently drop coverage.
 - **Fix sketch**: `@vitest/coverage-v8` is already bundled. Add baseline threshold (start lenient, e.g. 40% lines), upgrade quarterly. Expose `coverage/index.html` artifact in CI.
+- **2026-05-12 status**: Added `pnpm run coverage` and an initial repo-wide ratchet matching the current baseline: 22% lines, 21% statements/functions, 18% branches.
 - **Effort**: S (~2hr).
 - **Risk**: Low — additive.
 - **Source**: v1.1.8 `test-investigator` Win 2.
 
-### Add `shellcheck` step for `scripts/install-macos.sh`
+### Add `shellcheck` step for `app/scripts/install-macos.sh`
 - **Surface**: CI workflow.
 - **Issue**: today only `bash -n` syntax check guards the install script. `shellcheck` catches real lint (quoting, exit-code handling, etc.).
-- **Effort**: Trivial (~10min) — single `shellcheck scripts/install-macos.sh` step.
+- **2026-05-12 status**: Added a CI step that installs ShellCheck on Ubuntu and checks `app/scripts/install-macos.sh`.
+- **Effort**: Trivial (~10min) — single `shellcheck app/scripts/install-macos.sh` step.
 - **Risk**: Zero.
 - **Source**: v1.1.8 `test-investigator` finding.
 
@@ -209,6 +217,31 @@
 4. `immutability` last — usually exposes deeper architecture issues.
 
 **Total effort**: L (~3-5d sustained).
+
+**2026-05-12 status**: `pnpm run lint` is clean on `codex/bug-backlog-pr`. The fixes cover the remaining `set-state-in-effect`, `purity`, `immutability`, `exhaustive-deps`, and `no-explicit-any` findings from this snapshot. The two canvas physics surfaces retain narrow lint disables for intentional per-frame mutable layout state.
+
+---
+
+## v1.1.10 — Playwright e2e refresh
+
+> Surfaced during the v1.1.9 finalisation pass (2026-05-12). The v1.1.4 V3 visual parity layout broke several smoke-suite selectors; the v1.1.1 BRIDGE→SIGMA rebrand broke the assistant aria-label. The launch path itself now works after `node scripts/build-electron.cjs`, but the in-suite assertions are stale, so BUG-W7-000 cannot be re-verified end-to-end yet.
+
+### Stale selectors in `tests/e2e/smoke.spec.ts`
+
+- `aria-label="Bridge Assistant"` → should be `Sigma Assistant` (v1.1.1 rebrand).
+- `Swarm Room` / `Operator Console` direct sidebar lookups → these moved into the top-left `RoomsMenuButton` dropdown in v1.1.4. Selectors need to open the dropdown first.
+- `conversationsPanelCount > 0` expectation → the conversations panel surface changed in v1.1.4; assertion no longer matches the new layout.
+
+### Plan
+
+1. Inventory every selector in `tests/e2e/*.spec.ts` against the current `Sidebar` + `Breadcrumb` + `RoomsMenuButton` markup.
+2. Replace direct nav lookups with `RoomsMenuButton`-opening flows.
+3. Update aria-labels (`Bridge Assistant` → `Sigma Assistant`).
+4. Re-verify BUG-W7-000 closure on a clean CI runner: `node scripts/build-electron.cjs` already unblocks the launch step locally; need to confirm in CI matrix.
+5. Move BUG-W7-000 to the "Shipped & verified" table once the focused smoke passes a full sweep.
+
+**Effort**: S (~1d) — selector audit + smoke rerun.
+**Risk**: Low — test-only changes.
 
 ---
 

@@ -36,21 +36,26 @@ export function SessionDetail({ session }: Props) {
   useEffect(() => {
     let alive = true;
     if (!session.worktreePath) {
-      setDiff(null);
+      queueMicrotask(() => {
+        if (alive) setDiff(null);
+      });
       return;
     }
-    setDiffLoading(true);
-    void (async () => {
-      try {
-        const d = await rpc.review.getDiff(session.sessionId);
-        if (!alive) return;
-        setDiff(d);
-      } catch {
-        if (alive) setDiff(null);
-      } finally {
-        if (alive) setDiffLoading(false);
-      }
-    })();
+    queueMicrotask(() => {
+      if (!alive) return;
+      setDiffLoading(true);
+      void (async () => {
+        try {
+          const d = await rpc.review.getDiff(session.sessionId);
+          if (!alive) return;
+          setDiff(d);
+        } catch {
+          if (alive) setDiff(null);
+        } finally {
+          if (alive) setDiffLoading(false);
+        }
+      })();
+    });
     return () => {
       alive = false;
     };

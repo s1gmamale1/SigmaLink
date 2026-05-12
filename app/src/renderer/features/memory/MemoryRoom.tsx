@@ -49,7 +49,7 @@ export function MemoryRoom() {
   useEffect(() => {
     if (!wsId || tab !== 'graph') return;
     let alive = true;
-    setGraphLoading(true);
+    queueMicrotask(() => setGraphLoading(true));
     void (async () => {
       try {
         const g = await rpc.memory.getGraph({ workspaceId: wsId });

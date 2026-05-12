@@ -24,34 +24,39 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { rpc } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { SessionTerminal } from './Terminal';
 import { GridLayout } from './GridLayout';
 import { PaneHeader } from './PaneHeader';
 import { PaneSplash } from './PaneSplash';
 import { PaneFooter } from './PaneFooter';
-import type { AgentSession } from '@/shared/types';
+import type { AgentSession, Swarm } from '@/shared/types';
+
+const EMPTY_SESSIONS: AgentSession[] = [];
+const EMPTY_SWARMS: Swarm[] = [];
 
 export function CommandRoom() {
-  const { state, dispatch } = useAppState();
+  const dispatch = useAppDispatch();
+  const activeWorkspace = useAppStateSelector((state) => state.activeWorkspace);
+  const activeWorkspaceId = activeWorkspace?.id ?? null;
+  const activeSessionId = useAppStateSelector((state) => state.activeSessionId);
+  const activeSwarmId = useAppStateSelector((state) => state.activeSwarmId);
+  const sessions = useAppStateSelector((state) =>
+    activeWorkspaceId ? state.sessionsByWorkspace[activeWorkspaceId] ?? EMPTY_SESSIONS : EMPTY_SESSIONS,
+  );
+  const workspaceSwarms = useAppStateSelector((state) =>
+    activeWorkspaceId ? state.swarmsByWorkspace[activeWorkspaceId] ?? EMPTY_SWARMS : EMPTY_SWARMS,
+  );
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [adding, setAdding] = useState(false);
-  const sessions = useMemo(
-    () =>
-      state.sessions.filter(
-        (s) => state.activeWorkspace && s.workspaceId === state.activeWorkspace.id,
-      ),
-    [state.sessions, state.activeWorkspace],
-  );
   const activeSwarm = useMemo(() => {
-    if (!state.activeWorkspace) return null;
-    const workspaceSwarms = state.swarms.filter((s) => s.workspaceId === state.activeWorkspace?.id);
-    const selected = state.activeSwarmId
-      ? workspaceSwarms.find((s) => s.id === state.activeSwarmId)
+    if (!activeWorkspace) return null;
+    const selected = activeSwarmId
+      ? workspaceSwarms.find((s) => s.id === activeSwarmId)
       : null;
     return selected ?? workspaceSwarms.find((s) => s.status === 'running') ?? null;
-  }, [state.activeSwarmId, state.activeWorkspace, state.swarms]);
+  }, [activeSwarmId, activeWorkspace, workspaceSwarms]);
 
   useEffect(() => {
     let alive = true;
@@ -67,10 +72,10 @@ export function CommandRoom() {
   }, []);
 
   useEffect(() => {
-    if (!state.activeWorkspace) return;
+    if (!activeWorkspaceId) return;
     let alive = true;
     void rpc.swarms
-      .list(state.activeWorkspace.id)
+      .list(activeWorkspaceId)
       .then((list) => {
         if (!alive) return;
         for (const swarm of list) {
@@ -81,7 +86,7 @@ export function CommandRoom() {
     return () => {
       alive = false;
     };
-  }, [state.activeWorkspace?.id, dispatch]);
+  }, [activeWorkspaceId, dispatch]);
 
   // BUG-V1.1-04-IPC — derive activeIndex from global state.activeSessionId
   // so cross-pane jumps fired by Bridge dispatch echoes (or anywhere else
@@ -91,24 +96,24 @@ export function CommandRoom() {
   // switched, session not yet hydrated).
   const activeIndex = useMemo(() => {
     if (sessions.length === 0) return 0;
-    const idx = state.activeSessionId
-      ? sessions.findIndex((s) => s.id === state.activeSessionId)
+    const idx = activeSessionId
+      ? sessions.findIndex((s) => s.id === activeSessionId)
       : -1;
     return idx >= 0 ? idx : 0;
-  }, [sessions, state.activeSessionId]);
+  }, [sessions, activeSessionId]);
 
   // Reconcile the global active session with the local pane list. If the
   // current activeSessionId is missing from this workspace's sessions, point
   // it at the first pane so the focus ring lands somewhere coherent.
   useEffect(() => {
     if (sessions.length === 0) return;
-    const inList = state.activeSessionId
-      ? sessions.some((s) => s.id === state.activeSessionId)
+    const inList = activeSessionId
+      ? sessions.some((s) => s.id === activeSessionId)
       : false;
     if (!inList) {
       dispatch({ type: 'SET_ACTIVE_SESSION', id: sessions[0]!.id });
     }
-  }, [sessions, state.activeSessionId, dispatch]);
+  }, [sessions, activeSessionId, dispatch]);
 
   // BUG-V1.1-04-IPC — listen for cross-pane focus requests at the room
   // level so the active-index ring + footer metadata sync alongside the
@@ -120,14 +125,14 @@ export function CommandRoom() {
       if (!detail || typeof detail.sessionId !== 'string') return;
       const target = detail.sessionId;
       if (!sessions.some((s) => s.id === target)) return;
-      if (state.activeSessionId === target) return;
+      if (activeSessionId === target) return;
       dispatch({ type: 'SET_ACTIVE_SESSION', id: target });
     };
     window.addEventListener('sigma:pty-focus', onFocusReq);
     return () => window.removeEventListener('sigma:pty-focus', onFocusReq);
-  }, [sessions, state.activeSessionId, dispatch]);
+  }, [sessions, activeSessionId, dispatch]);
 
-  if (!state.activeWorkspace) {
+  if (!activeWorkspace) {
     return (
       <EmptyState
         icon={TerminalIcon}
@@ -185,7 +190,7 @@ export function CommandRoom() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 items-center gap-2 border-b border-border px-3 text-xs">
-        <div className="font-medium">{state.activeWorkspace.name}</div>
+        <div className="font-medium">{activeWorkspace.name}</div>
         <span className="text-muted-foreground">·</span>
         <div className="text-muted-foreground">
           {sessions.length} {sessions.length === 1 ? 'agent' : 'agents'}
@@ -229,7 +234,7 @@ export function CommandRoom() {
           activeIndex={activeIndex}
           onActiveChange={(i) => {
             const s = sessions[i];
-            if (s && state.activeSessionId !== s.id) {
+            if (s && activeSessionId !== s.id) {
               dispatch({ type: 'SET_ACTIVE_SESSION', id: s.id });
             }
           }}

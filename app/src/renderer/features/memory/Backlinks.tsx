@@ -21,12 +21,14 @@ export function Backlinks({ workspaceId, noteName, memoriesVersion, onSelect }: 
 
   useEffect(() => {
     if (!noteName) {
-      setItems([]);
+      queueMicrotask(() => setItems([]));
       return;
     }
     let alive = true;
-    setBusy(true);
-    setErr(null);
+    queueMicrotask(() => {
+      setBusy(true);
+      setErr(null);
+    });
     void (async () => {
       try {
         const r = await rpc.memory.find_backlinks({ workspaceId, name: noteName });

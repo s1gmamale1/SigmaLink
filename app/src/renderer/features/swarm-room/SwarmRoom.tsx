@@ -9,41 +9,43 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { rpc } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
-import type { RoleAssignment } from '@/shared/types';
+import type { RoleAssignment, Swarm } from '@/shared/types';
 import { SwarmCreate } from './SwarmCreate';
 import { RoleRoster } from './RoleRoster';
 import { SideChat } from './SideChat';
 
+const EMPTY_SWARMS: Swarm[] = [];
+
 export function SwarmRoom() {
-  const { state, dispatch } = useAppState();
+  const dispatch = useAppDispatch();
+  const activeWorkspace = useAppStateSelector((state) => state.activeWorkspace);
+  const activeSwarmId = useAppStateSelector((state) => state.activeSwarmId);
+  const swarmMessages = useAppStateSelector((state) => state.swarmMessages);
+  const swarms = useAppStateSelector((state) =>
+    activeWorkspace ? state.swarmsByWorkspace[activeWorkspace.id] ?? EMPTY_SWARMS : EMPTY_SWARMS,
+  );
   const [creating, setCreating] = useState(false);
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const activeWorkspace = state.activeWorkspace;
-  const swarms = useMemo(
-    () =>
-      state.swarms.filter((s) => activeWorkspace && s.workspaceId === activeWorkspace.id),
-    [state.swarms, activeWorkspace],
-  );
   const activeSwarm = useMemo(
-    () => swarms.find((s) => s.id === state.activeSwarmId) ?? swarms[0] ?? null,
-    [swarms, state.activeSwarmId],
+    () => swarms.find((s) => s.id === activeSwarmId) ?? swarms[0] ?? null,
+    [swarms, activeSwarmId],
   );
   const messages = useMemo(
-    () => (activeSwarm ? state.swarmMessages[activeSwarm.id] ?? [] : []),
-    [activeSwarm, state.swarmMessages],
+    () => (activeSwarm ? swarmMessages[activeSwarm.id] ?? [] : []),
+    [activeSwarm, swarmMessages],
   );
 
   // Initial tail when active swarm changes.
   useEffect(() => {
     let alive = true;
     if (!activeSwarm) return;
-    if (state.swarmMessages[activeSwarm.id]) return;
+    if (swarmMessages[activeSwarm.id]) return;
     void (async () => {
       try {
         const tail = await rpc.swarms.tail(activeSwarm.id, { limit: 200 });
@@ -56,7 +58,7 @@ export function SwarmRoom() {
     return () => {
       alive = false;
     };
-  }, [activeSwarm, dispatch, state.swarmMessages]);
+  }, [activeSwarm, dispatch, swarmMessages]);
 
   // Provider list for the roster card.
   useEffect(() => {

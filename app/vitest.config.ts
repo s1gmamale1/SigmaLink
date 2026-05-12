@@ -17,5 +17,19 @@ export default defineConfig({
     exclude: ['node_modules', 'dist', 'electron-dist', 'tests/e2e'],
     environment: 'node',
     globals: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      reportsDirectory: 'coverage',
+      // Initial repo-wide ratchet from the v1.1.9 baseline. Keep these just
+      // below current coverage so CI prevents regressions without pretending
+      // the legacy surface is already broadly covered.
+      thresholds: {
+        lines: 22,
+        statements: 21,
+        functions: 21,
+        branches: 18,
+      },
+    },
   },
 });

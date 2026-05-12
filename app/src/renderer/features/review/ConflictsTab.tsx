@@ -30,8 +30,10 @@ export function ConflictsTab({ session }: Props) {
   };
 
   useEffect(() => {
-    setConflicts(null);
-    void refresh();
+    queueMicrotask(() => {
+      setConflicts(null);
+      void refresh();
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.sessionId]);
 

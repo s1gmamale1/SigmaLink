@@ -6,7 +6,7 @@
 // (not exported) — they are reducer implementation detail and aren't part of
 // the public API.
 
-import type { Workspace } from '../../shared/types';
+import type { AgentSession, Swarm, Workspace } from '../../shared/types';
 import { selectActiveWorkspace, type Action, type AppState } from './state.types';
 
 function deriveActiveWorkspace(state: AppState): AppState {
@@ -31,6 +31,22 @@ function reconcileOpenWorkspaces(
 
 function workspaceIdsEqual(a: Workspace[], ids: string[]): boolean {
   return a.length === ids.length && a.every((w, index) => w.id === ids[index]);
+}
+
+function groupSessionsByWorkspace(sessions: AgentSession[]): Record<string, AgentSession[]> {
+  const grouped: Record<string, AgentSession[]> = {};
+  for (const session of sessions) {
+    (grouped[session.workspaceId] ??= []).push(session);
+  }
+  return grouped;
+}
+
+function groupSwarmsByWorkspace(swarms: Swarm[]): Record<string, Swarm[]> {
+  const grouped: Record<string, Swarm[]> = {};
+  for (const swarm of swarms) {
+    (grouped[swarm.workspaceId] ??= []).push(swarm);
+  }
+  return grouped;
 }
 
 export function appStateReducer(state: AppState, action: Action): AppState {
@@ -139,32 +155,42 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         sessions,
+        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
         activeSessionId: state.activeSessionId ?? firstLive?.id ?? action.sessions[0]?.id ?? null,
       };
     }
     case 'SET_ACTIVE_SESSION':
       return { ...state, activeSessionId: action.id };
-    case 'MARK_SESSION_EXITED':
+    case 'MARK_SESSION_EXITED': {
+      const sessions: AgentSession[] = state.sessions.map((s) =>
+        s.id === action.id
+          ? { ...s, status: 'exited', exitCode: action.exitCode, exitedAt: Date.now() }
+          : s,
+      );
       return {
         ...state,
-        sessions: state.sessions.map((s) =>
-          s.id === action.id
-            ? { ...s, status: 'exited', exitCode: action.exitCode, exitedAt: Date.now() }
-            : s,
-        ),
+        sessions,
+        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
       };
+    }
     case 'REMOVE_SESSION': {
       const sessions = state.sessions.filter((s) => s.id !== action.id);
       const activeSessionId =
         state.activeSessionId === action.id
           ? sessions[0]?.id ?? null
           : state.activeSessionId;
-      return { ...state, sessions, activeSessionId };
+      return {
+        ...state,
+        sessions,
+        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
+        activeSessionId,
+      };
     }
     case 'SET_SWARMS':
       return {
         ...state,
         swarms: action.swarms,
+        swarmsByWorkspace: groupSwarmsByWorkspace(action.swarms),
         activeSwarmId:
           state.activeSwarmId && action.swarms.find((s) => s.id === state.activeSwarmId)
             ? state.activeSwarmId
@@ -176,6 +202,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         swarms,
+        swarmsByWorkspace: groupSwarmsByWorkspace(swarms),
         activeSwarmId: state.activeSwarmId ?? action.swarm.id,
       };
     }
@@ -197,13 +224,16 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         swarmMessages: { ...state.swarmMessages, [action.message.swarmId]: next },
       };
     }
-    case 'MARK_SWARM_ENDED':
+    case 'MARK_SWARM_ENDED': {
+      const swarms: Swarm[] = state.swarms.map((s) =>
+        s.id === action.id ? { ...s, status: 'completed', endedAt: Date.now() } : s,
+      );
       return {
         ...state,
-        swarms: state.swarms.map((s) =>
-          s.id === action.id ? { ...s, status: 'completed', endedAt: Date.now() } : s,
-        ),
+        swarms,
+        swarmsByWorkspace: groupSwarmsByWorkspace(swarms),
       };
+    }
     case 'SET_BROWSER_STATE':
       return {
         ...state,

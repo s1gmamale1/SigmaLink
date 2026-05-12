@@ -14,7 +14,7 @@ export function NotesTab({ session }: Props) {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    setValue(session.notes);
+    queueMicrotask(() => setValue(session.notes));
   }, [session.sessionId, session.notes]);
 
   const save = async () => {
