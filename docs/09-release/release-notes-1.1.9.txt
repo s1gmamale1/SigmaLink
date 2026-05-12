@@ -1,0 +1,185 @@
+SigmaLink v1.1.9 — Perf paired refactor + file-size sweep + lint zero
+
+Two coordinated swarms shipped this release. PR #3 (Codex + Claude
+finalizer) landed the perf paired refactor + CI hardening + lint
+wave 32→0. A second 3-coder swarm landed the file-size targets
+that closed out the v1.1.9 backlog. Zero behavioural changes. Zero
+broken contracts.
+
+Highlights
+==========
+
+* **Lint baseline: 32 problems → 0**. React-compiler structural
+  family fully resolved (set-state-in-effect deferred to next
+  tick, render-time `Math.random()` in sidebar skeleton replaced
+  with deterministic sizing, `shared/rpc.ts` `any` typed, narrow
+  file-level immutability disables on MemoryGraph + Constellation
+  intentional-mutable-ref surfaces).
+
+* **useAppStateSelector<T> + useAppDispatch**. New hooks backed by
+  `useSyncExternalStore` so consumers can subscribe to a
+  per-selector slice of state instead of the full context.
+  CommandRoom, CommandPalette, SwarmRoom, OperatorConsole all
+  migrated — the 27-consumer rerender fan-out on every dispatch is
+  gone for these four hot rooms.
+
+* **Precomputed slices: `sessionsByWorkspace` + `swarmsByWorkspace`**.
+  Reducer maintains both on `ADD_SESSIONS` / `MARK_SESSION_EXITED` /
+  `REMOVE_SESSION` / `SET_SWARMS` / `UPSERT_SWARM` /
+  `MARK_SWARM_ENDED`. Consumers read the O(1) lookup instead of
+  re-filtering `state.sessions` on every render.
+
+* **Three big files split under the 500-LOC budget**:
+
+    - `swarms/factory.ts` 713 → 396 LOC. Private spawn helpers
+      (`spawnAgentSession`, `pickCoordinatorId`, `buildExtraArgs`,
+      `loadAgentSession`, plus a new `materializeRosterAgent`
+      dedupe) moved to `factory-spawn.ts` (344 LOC). Public surface
+      unchanged.
+
+    - `assistant/runClaudeCliTurn.ts` 709 → 348 LOC. Stateless
+      emit layer moved to `runClaudeCliTurn.emit.ts` (186 LOC).
+      Tool routing + Ruflo trajectory + readline-loop dispatchers
+      moved to `runClaudeCliTurn.trajectory.ts` (193 LOC). Public
+      surface unchanged; `__resetProbeCache` + `__resetActiveChildren`
+      preserved for test hooks.
+
+    - `renderer/app/state.tsx` 553 → 97 LOC. The 14 IPC-event
+      listener effects extracted into four custom hooks under
+      `state-hooks/`: `use-session-restore.ts` (142 LOC),
+      `use-workspace-mirror.ts` (65 LOC), `use-live-events.ts`
+      (140 LOC), `use-exited-session-gc.ts` (49 LOC), plus a
+      shared `parsers.ts` (163 LOC) with a `runRefreshOnEvent`
+      helper that dedups four near-identical refresh-on-event
+      effects. Provider is now ~150 LOC of pure orchestration.
+
+* **CI / test infra hardening**:
+
+    - GitHub Actions `cache-dependency-path` fixed (was stale).
+    - pnpm install switched to `--no-frozen-lockfile --ignore-scripts`
+      + explicit `node node_modules/electron/install.js` after.
+    - `pnpm run coverage` + `@vitest/coverage-v8` + baseline
+      thresholds (lines 22 / statements 21 / functions 21 /
+      branches 18).
+    - ShellCheck CI step for `app/scripts/install-macos.sh`.
+    - `app/coverage/` + `docs/06-test/` added to .gitignore.
+    - `.claude` added to ESLint globalIgnores (Claude Code's
+      local harness was leaking a non-source-tree lint error into
+      the build).
+
+Gates
+=====
+
+* `pnpm exec tsc -b` → clean
+* `pnpm exec vitest run` → **130/130 pass** (was 128/130 at v1.1.8;
+  +2 specs from Codex's slice tests). 20 test files.
+* `pnpm run lint` → **0 problems** (was 32 at v1.1.8 → -32).
+* `pnpm run coverage` → 21.92% statements / 18.8% branches /
+  21.23% functions / 22.72% lines (above baseline thresholds).
+* `pnpm exec vite build` → main bundle 38.26 KB gzip (unchanged
+  from v1.1.8; bundle shape preserved).
+* `codesign --verify --deep --strict --verbose=2 SigmaLink.app` →
+  exit 0, `Sealed Resources version=2 rules=13 files=20492`.
+* `bash -n scripts/install-macos.sh` → clean.
+
+File-size budget compliance
+============================
+
+After this release, every source file in `app/src/` is under the
+500-LOC project rule except 4 known-acceptable exceptions:
+
+    rpc-router.ts            985 LOC  — wave-13 territory; out of v1.1.x scope
+    router-shape.ts          770 LOC  — same
+    sidebar.tsx              726 LOC  — feature-active; v1.2 candidate
+    BridgeRoom.tsx           721 LOC  — feature-active; v1.2 candidate
+
+The 5 v1.1.x churn-files that did exceed are now closed:
+
+    state.tsx               996 → 97 LOC   (v1.1.8 split + v1.1.9 hook extraction)
+    factory.ts              713 → 396 LOC  (v1.1.9 split)
+    runClaudeCliTurn.ts     709 → 348 LOC  (v1.1.9 split)
+    Sidebar.tsx (renderer)  ~500 → 147 LOC (v1.1.4 split)
+    PaneHeader.tsx          collapsed two strips → single h-7 (v1.1.4)
+
+Coordination
+============
+
+PR #3 — `codex-handoff-finalizer` finished Codex's parallel-session
+work (perf paired refactor + CI + lint wave). Rebased clean on top
+of the v1.1.10-provider-registry-cleanup BACKLOG entry, merged via
+GitHub rebase-and-merge.
+
+Three additional parallel coders on disjoint file scopes:
+
+* `coder-factory-split` — factory.ts → factory.ts + factory-spawn.ts
+* `coder-cli-turn-split` — runClaudeCliTurn.ts → main + emit + trajectory
+* `coder-state-residual-split` — state.tsx → provider + 4 hooks + parsers helper
+
+Each used `sparc:optimizer` + `sparc:tester` skills. Each verified
+their own tsc / vitest / lint / vite-build gates before SHIP. Lead
+ran the aggregate gates + fixed the trailing `.claude` lint leak
+before tagging.
+
+Carried forward from v1.1.8
+============================
+
+Every v1.1.0..v1.1.8 surface intact:
+
+* v1.1.8 — 5-agent optimization swarm: bundle 97→38 KB gzip,
+  pty-data-bus, NMV-tests recovered, state.tsx 996→553, lint 60→32.
+* v1.1.7 — curl-bash install script (zero Gatekeeper prompts).
+* v1.1.6 — in-DMG README.
+* v1.1.5 — adhoc-sign.cjs afterSign hook + CodeResources seal.
+* v1.1.4 — V3 visual parity: WorkspacesPanel + RoomsMenuButton +
+  RightRailSwitcher + collapsed PaneHeader + 3×3 grid.
+* v1.1.3 — multi-workspace + pane resume + growable swarms +
+  Ruflo pre-flight.
+* v1.1.2 — Sigma Assistant tool dispatch via MCP host server.
+* v1.1.1 — Sigma rebrand + window drag + voice diagnostics +
+  single-instance lock.
+
+Deferred to v1.1.10
+====================
+
+See `docs/08-bugs/BACKLOG.md` for the full ledger.
+
+* **Provider registry cleanup** (user-requested 2026-05-12) —
+  remove BridgeCode + Cursor Agent + Shell + Aider + Continue;
+  keep Claude/Codex/Gemini/OpenCode; add Kimi Code CLI. 14
+  concrete touch points enumerated.
+* **Playwright e2e refresh** — `tests/e2e/smoke.spec.ts` has
+  stale v1.1.4 selectors (Bridge → Sigma rename, RoomsMenuButton
+  dropdown replacing sidebar nav, etc.). Launch step works after
+  v1.1.7 install path; only selector staleness remains.
+* **BUG-W7-015** — light-theme launch CTA contrast (XS effort,
+  micro-polish).
+
+Distribution
+============
+
+arm64-only macOS DMG, same install path as v1.1.7+. The v1.1.7
+curl-bash installer auto-resolves to v1.1.9:
+
+    curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+
+    # Pin v1.1.9 explicitly:
+    curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.9
+
+Known issues (unchanged)
+========================
+
+* No Apple Developer ID + no notarisation → first-launch friction
+  on browser-downloaded DMGs (mitigated by v1.1.6 in-DMG README +
+  v1.1.7 curl installer).
+* "Hey Sigma" wake-word — Porcupine licensing forbids bundled key.
+* Win SAPI + Linux Whisper.cpp voice deferred to v1.2.
+* Gemini pane resume — gemini CLI lacks --resume.
+* x64 macOS DMG via CI matrix deferred to v1.2.
+
+Upgrade path
+============
+
+Drop the new SigmaLink.app into /Applications. Existing kv state +
+workspaces + agent sessions survive — no migrations. No user-visible
+behaviour change (perf wins are felt during sustained use; visual
+chrome unchanged from v1.1.4).

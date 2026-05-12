@@ -118,6 +118,9 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-75 | Phase 12 — v1.1.8 5-coder optimization swarm: bundle -61% gzip, 32→1 pty listeners, NMV tests recovered | shipped | 5 |
 | T-76 | state.tsx 996→553 split into types/reducer/hook siblings + 3 stub schemas promoted to real zod | shipped | 1 |
 | T-77 | Lint baseline 60→32 errors via dead utils.ts delete + 8 .data.ts splits + state.tsx refactor | shipped | 1 |
+| T-78 | Phase 13 — v1.1.9 release: PR #3 (Codex perf+lint) + 3-coder file-size sweep (factory/runClaudeCliTurn/state.tsx) | shipped | 3 |
+| T-79 | useAppStateSelector + sessionsByWorkspace/swarmsByWorkspace precomputed slices + 4 hot-consumer migrations | shipped | 1 |
+| T-80 | Lint 32→0: setState-in-effect deferred, deterministic sidebar skeleton, narrow immutability disables, .claude ignored | shipped | 1 |
 | T-78 | Codex v1.1.9 backlog branch setup: new worktree `/Users/aisigma/projects/SigmaLink-bug-backlog-codex`, branch `codex/bug-backlog-pr`, Ruflo task `task-1778545436963-gtb750` | in progress | 1 |
 | T-79 | v1.1.9 runtime perf work: `useAppStateSelector`, `useAppDispatch`, reducer-maintained `sessionsByWorkspace` / `swarmsByWorkspace`, first consumer wave converted, reducer tests added | implemented, uncommitted | 1 |
 | T-80 | v1.1.9 CI/test infra: cache path fix, Electron binary install in CI, coverage script + baseline thresholds, ShellCheck step for `app/scripts/install-macos.sh`, `app/coverage/` ignored | implemented, uncommitted | 1 |

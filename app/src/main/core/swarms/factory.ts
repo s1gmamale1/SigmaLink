@@ -1,23 +1,22 @@
 // Swarm factory — creates a swarm row, materialises one PTY agent per role,
-// and wires each agent's stdout into the SIGMA:: protocol parser so role
-// chatter persists into the mailbox.
+// and wires each agent's stdout into the SIGMA:: protocol parser. Each agent
+// gets its own role-tagged worktree (when the workspace is a Git repo) under
+// `sigmalink/<role>-<index>/<8char>`.
 //
-// Each agent gets its own role-tagged worktree (when the workspace is a Git
-// repo) under `sigmalink/<role>-<index>/<8char>` — same scheme as
-// `executeLaunchPlan` but with role/index taking the place of `pane-N`.
+// V1.1.9: spawn-side helpers live in `./factory-spawn`; this module now
+// holds only the public surface (`createSwarm`, `addAgentToSwarm`,
+// `listSwarmsForWorkspace`, `loadSwarm`, `killSwarm`).
 
 import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { getDb, getRawDb } from '../db/client';
+import { getDb } from '../db/client';
 import {
-  agentSessions,
   swarmAgents,
   swarms,
   workspaces as workspacesTable,
 } from '../db/schema';
-import { findProvider } from '../../../shared/providers';
 import type {
   AgentSession,
   CreateSwarmInput,
@@ -30,11 +29,11 @@ import type { WorktreePool } from '../git/worktree';
 import type { SwarmMailbox } from './mailbox';
 import { agentKey as makeAgentKey, defaultRoster, totalForPreset } from './types';
 import {
-  envelopeToInsert,
-  parseProtocolLine,
-  ProtocolLineBuffer,
-} from './protocol';
-import { resolveAndSpawn } from '../providers/launcher';
+  loadAgentSession,
+  materializeRosterAgent,
+  pickCoordinatorId,
+  spawnAgentSession,
+} from './factory-spawn';
 
 const MAX_SWARM_AGENTS = 20;
 
@@ -94,14 +93,10 @@ export async function createSwarm(
   if (roster.length > MAX_SWARM_AGENTS) {
     throw new Error(`Cannot create swarm: roster exceeds ${MAX_SWARM_AGENTS} agents.`);
   }
-  if (input.preset !== 'custom') {
-    const total = totalForPreset(input.preset);
-    if (total > 0 && roster.length !== total) {
-      // Defensive: if the operator handed us a partial roster for a fixed
-      // preset we still launch what we got — this matches the spec's "operator
-      // override" intent.
-    }
-  }
+  // Defensive: for non-`custom` presets we still launch the supplied roster
+  // even if its length disagrees with `totalForPreset` — matches the spec's
+  // "operator override" intent.
+  if (input.preset !== 'custom') void totalForPreset(input.preset);
 
   const swarmId = randomUUID();
   const now = Date.now();
@@ -139,166 +134,41 @@ export async function createSwarm(
 
   const agents: SwarmAgent[] = [];
 
-  // Pass 1 — coordinators.
+  // Pass 1 — coordinators. First coordinator becomes the queen
+  // (coordinatorId NULL); peers point back at the queen.
   for (const assignment of coordinatorAssignments) {
-    const aKey = makeAgentKey(assignment.role, assignment.roleIndex);
-    const agentId = randomUUID();
-    const inboxPath = deps.mailbox.ensureInbox(swarmId, aKey);
-    // First coordinator becomes the queen (coordinatorId NULL); peers point
-    // back at the queen.
-    const coordinatorId = queenId; // null for the very first iteration
-
-    db.insert(swarmAgents)
-      .values({
-        id: agentId,
-        swarmId,
-        role: assignment.role,
-        roleIndex: assignment.roleIndex,
-        providerId: assignment.providerId,
-        status: 'idle',
-        inboxPath,
-        agentKey: aKey,
-        coordinatorId,
-        createdAt: now,
-      })
-      .run();
-
+    const { agentId, agent } = await materializeRosterAgent({
+      swarmId,
+      wsRow,
+      assignment,
+      coordinatorId: queenId, // null for the very first iteration
+      baseRef: input.baseRef,
+      now,
+      deps,
+    });
     if (queenId === null) queenId = agentId;
     coordinatorIds.push(agentId);
-
-    let sessionId: string | null = null;
-    let sessionStatus: SwarmAgent['status'] = 'idle';
-    try {
-      sessionId = await spawnAgentSession({
-        wsRow,
-        swarmId,
-        agentId,
-        role: assignment.role,
-        roleIndex: assignment.roleIndex,
-        providerId: assignment.providerId,
-        baseRef: input.baseRef,
-        agentKey: aKey,
-        deps,
-      });
-      sessionStatus = 'idle';
-    } catch (err) {
-      sessionStatus = 'error';
-      const message = err instanceof Error ? err.message : String(err);
-      void deps.mailbox.append({
-        swarmId,
-        fromAgent: 'operator',
-        toAgent: aKey,
-        kind: 'SYSTEM',
-        body: `Failed to spawn ${aKey}: ${message}`,
-      });
-    }
-
-    if (sessionId) {
-      db.update(swarmAgents)
-        .set({ sessionId, status: sessionStatus })
-        .where(eq(swarmAgents.id, agentId))
-        .run();
-    } else {
-      db.update(swarmAgents)
-        .set({ status: sessionStatus })
-        .where(eq(swarmAgents.id, agentId))
-        .run();
-    }
-
-    agents.push({
-      id: agentId,
-      swarmId,
-      role: assignment.role,
-      roleIndex: assignment.roleIndex,
-      providerId: assignment.providerId,
-      sessionId,
-      status: sessionStatus,
-      inboxPath,
-      agentKey: aKey,
-    });
+    agents.push(agent);
   }
 
   // Pass 2 — non-coordinator agents, assigned round-robin across coordinators.
-  // If no coordinator was rostered (shouldn't happen for stock presets but is
-  // legal for `custom`), assignees get `coordinatorId = NULL`.
+  // If no coordinator was rostered (legal for `custom`), assignees get
+  // `coordinatorId = NULL`.
   let rrCursor = 0;
   for (const assignment of otherAssignments) {
-    const aKey = makeAgentKey(assignment.role, assignment.roleIndex);
-    const agentId = randomUUID();
-    const inboxPath = deps.mailbox.ensureInbox(swarmId, aKey);
     const coordinatorId =
       coordinatorIds.length > 0 ? coordinatorIds[rrCursor % coordinatorIds.length] : null;
     rrCursor += 1;
-
-    db.insert(swarmAgents)
-      .values({
-        id: agentId,
-        swarmId,
-        role: assignment.role,
-        roleIndex: assignment.roleIndex,
-        providerId: assignment.providerId,
-        status: 'idle',
-        inboxPath,
-        agentKey: aKey,
-        coordinatorId,
-        createdAt: now,
-      })
-      .run();
-
-    let sessionId: string | null = null;
-    let sessionStatus: SwarmAgent['status'] = 'idle';
-    try {
-      sessionId = await spawnAgentSession({
-        wsRow,
-        swarmId,
-        agentId,
-        role: assignment.role,
-        roleIndex: assignment.roleIndex,
-        providerId: assignment.providerId,
-        baseRef: input.baseRef,
-        agentKey: aKey,
-        deps,
-      });
-      sessionStatus = 'idle';
-    } catch (err) {
-      sessionStatus = 'error';
-      // We surface the error in the agent row (status='error') and continue
-      // creating the rest of the roster. The operator sees the partial swarm
-      // in the renderer and can decide whether to kill+retry.
-      const message = err instanceof Error ? err.message : String(err);
-      // Persist a SYSTEM message so the side-chat surfaces what failed.
-      void deps.mailbox.append({
-        swarmId,
-        fromAgent: 'operator',
-        toAgent: aKey,
-        kind: 'SYSTEM',
-        body: `Failed to spawn ${aKey}: ${message}`,
-      });
-    }
-
-    if (sessionId) {
-      db.update(swarmAgents)
-        .set({ sessionId, status: sessionStatus })
-        .where(eq(swarmAgents.id, agentId))
-        .run();
-    } else {
-      db.update(swarmAgents)
-        .set({ status: sessionStatus })
-        .where(eq(swarmAgents.id, agentId))
-        .run();
-    }
-
-    agents.push({
-      id: agentId,
+    const { agent } = await materializeRosterAgent({
       swarmId,
-      role: assignment.role,
-      roleIndex: assignment.roleIndex,
-      providerId: assignment.providerId,
-      sessionId,
-      status: sessionStatus,
-      inboxPath,
-      agentKey: aKey,
+      wsRow,
+      assignment,
+      coordinatorId,
+      baseRef: input.baseRef,
+      now,
+      deps,
     });
+    agents.push(agent);
   }
 
   // System message that opens the mailbox — every roll-call / broadcast will
@@ -433,193 +303,6 @@ export async function addAgentToSwarm(
   }
 
   return { sessionId, paneIndex, agentKey: aKey, session, swarm };
-}
-
-function pickCoordinatorId(
-  agentRows: Array<typeof swarmAgents.$inferSelect>,
-  role: Role,
-): string | null {
-  const coordinators = agentRows.filter((a) => a.role === 'coordinator');
-  if (coordinators.length === 0) return null;
-  const queen = coordinators.find((a) => !a.coordinatorId) ?? coordinators[0];
-  if (role === 'coordinator') return queen?.id ?? null;
-  return queen?.id ?? null;
-}
-
-async function spawnAgentSession(args: {
-  wsRow: typeof workspacesTable.$inferSelect;
-  swarmId: string;
-  agentId: string;
-  role: Role;
-  roleIndex: number;
-  providerId: string;
-  baseRef?: string;
-  agentKey: string;
-  initialPrompt?: string;
-  deps: SwarmFactoryDeps;
-}): Promise<string> {
-  const provider = findProvider(args.providerId);
-  if (!provider) {
-    throw new Error(`Unknown provider: ${args.providerId}`);
-  }
-
-  const db = getDb();
-  let worktreePath: string | null = null;
-  let branch: string | null = null;
-  if (args.wsRow.repoMode === 'git' && args.wsRow.repoRoot) {
-    const r = await args.deps.worktreePool.create({
-      repoRoot: args.wsRow.repoRoot,
-      role: args.role,
-      hint: `${args.role}-${args.roleIndex}`,
-      base: args.baseRef,
-    });
-    worktreePath = r.worktreePath;
-    branch = r.branch;
-  }
-
-  const cwd = worktreePath ?? args.wsRow.rootPath;
-  // V1.1: route swarm-agent spawns through the provider launcher façade so
-  // BridgeCode→Claude fallback, altCommands ENOENT walk, and the legacy gate
-  // all apply uniformly. Read `kv['providers.showLegacy']` defensively — if
-  // the row is missing the default is "hidden".
-  let showLegacy = false;
-  try {
-    const row = getRawDb()
-      .prepare('SELECT value FROM kv WHERE key = ?')
-      .get('providers.showLegacy') as { value?: string } | undefined;
-    showLegacy = row?.value === '1' || row?.value === 'true';
-  } catch {
-    /* ignore — default to false */
-  }
-  const extraArgs = buildExtraArgs(provider.id, args.initialPrompt);
-  const spawnResult = resolveAndSpawn(
-    { ptyRegistry: args.deps.pty },
-    {
-      providerId: provider.id,
-      cwd,
-      cols: args.deps.defaultCols ?? 120,
-      rows: args.deps.defaultRows ?? 32,
-      showLegacy,
-      extraArgs,
-    },
-  );
-  const rec = spawnResult.ptySession;
-  const effectiveProvider = findProvider(spawnResult.providerEffective) ?? provider;
-
-  // Tag the agent_sessions row with the swarm so future rooms (Review, Tasks)
-  // can correlate sessions to swarm agents.
-  db.insert(agentSessions)
-    .values({
-      id: rec.id,
-      workspaceId: args.wsRow.id,
-      providerId: provider.id,
-      cwd,
-      branch,
-      worktreePath,
-      status: 'running',
-      initialPrompt: args.initialPrompt,
-      startedAt: rec.startedAt,
-      externalSessionId: rec.externalSessionId,
-    })
-    .run();
-  // BUG-V1.1-02: persist the launcher-resolved provider tag (e.g. 'claude'
-  // when the swarm requested 'bridgecode'). Best-effort — column is added by
-  // migration 0010; older DBs swallow the failure.
-  try {
-    getRawDb()
-      .prepare('UPDATE agent_sessions SET provider_effective = ? WHERE id = ?')
-      .run(spawnResult.providerEffective, rec.id);
-  } catch {
-    /* column may not exist yet — ignore */
-  }
-
-  if (
-    args.initialPrompt &&
-    !effectiveProvider.oneshotArgs?.length &&
-    !effectiveProvider.initialPromptFlag
-  ) {
-    setTimeout(() => {
-      try {
-        args.deps.pty.write(rec.id, args.initialPrompt + '\n');
-      } catch {
-        /* ignore */
-      }
-    }, 600);
-  }
-
-  // Wire SIGMA:: protocol. The PTY ring buffer continues to receive raw bytes
-  // for live terminal rendering; we additionally split chunks by line and
-  // route SIGMA:: matches into the mailbox.
-  const buf = new ProtocolLineBuffer();
-  rec.pty.onData((chunk) => {
-    buf.push(chunk, (line) => {
-      const parsed = parseProtocolLine(line);
-      if (!parsed) return;
-      const insert = envelopeToInsert(args.swarmId, args.agentKey, parsed);
-      void args.deps.mailbox.append(insert).catch(() => {
-        /* mailbox append errors surface via the queue's reject */
-      });
-    });
-  });
-
-  // When the PTY exits, mark agent + session rows accordingly. Mirrors the
-  // logic in launcher.ts so the same "early death = error" heuristic applies.
-  const startedMs = rec.startedAt;
-  rec.pty.onExit(({ exitCode }) => {
-    const earlyDeath = exitCode < 0 && Date.now() - startedMs < 1500;
-    try {
-      db.update(agentSessions)
-        .set({
-          status: earlyDeath ? 'error' : 'exited',
-          exitCode,
-          exitedAt: Date.now(),
-        })
-        .where(eq(agentSessions.id, rec.id))
-        .run();
-      db.update(swarmAgents)
-        .set({ status: earlyDeath ? 'error' : 'done' })
-        .where(eq(swarmAgents.id, args.agentId))
-        .run();
-    } catch {
-      /* db may be closing during shutdown */
-    }
-  });
-
-  return rec.id;
-}
-
-function buildExtraArgs(providerId: string, initialPrompt?: string): string[] {
-  const provider = findProvider(providerId);
-  if (!provider || !initialPrompt) return [];
-  if (provider.oneshotArgs && provider.oneshotArgs.length) {
-    return provider.oneshotArgs.map((tok) => tok.replace('{prompt}', initialPrompt));
-  }
-  if (provider.initialPromptFlag) {
-    return [provider.initialPromptFlag, initialPrompt];
-  }
-  return [];
-}
-
-function loadAgentSession(sessionId: string): AgentSession | null {
-  const row = getDb()
-    .select()
-    .from(agentSessions)
-    .where(eq(agentSessions.id, sessionId))
-    .get();
-  if (!row) return null;
-  return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    providerId: row.providerId,
-    cwd: row.cwd,
-    branch: row.branch ?? null,
-    status: row.status as AgentSession['status'],
-    exitCode: row.exitCode ?? undefined,
-    startedAt: row.startedAt,
-    exitedAt: row.exitedAt ?? undefined,
-    worktreePath: row.worktreePath ?? null,
-    initialPrompt: row.initialPrompt ?? undefined,
-  };
 }
 
 export function loadSwarm(swarmId: string): Swarm | null {

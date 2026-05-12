@@ -4,6 +4,47 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-05-12
+
+Two coordinated swarms shipped this release. PR #3 (Codex + Claude finalizer) landed the perf paired refactor + CI hardening + lint wave 32→0. A second 3-coder swarm landed the file-size targets that closed out the v1.1.9 backlog. Zero behavioural changes. Zero broken contracts.
+
+### Performance
+
+- **`useAppStateSelector<T>` + `useAppDispatch`** backed by `useSyncExternalStore`. Consumers subscribe to a per-selector slice of state. CommandRoom, CommandPalette, SwarmRoom, OperatorConsole migrated.
+- **Precomputed slices**: `sessionsByWorkspace` + `swarmsByWorkspace`. Reducer maintains both on add/exit/remove/set-swarms/upsert/end. O(1) lookup replaces O(N) filter on every render.
+
+### Changed — file-size budget
+
+- `swarms/factory.ts` **713 → 396 LOC**. Private spawn helpers (`spawnAgentSession`, `pickCoordinatorId`, `buildExtraArgs`, `loadAgentSession`, `materializeRosterAgent`) moved to `factory-spawn.ts` (344 LOC). Public surface unchanged.
+- `assistant/runClaudeCliTurn.ts` **709 → 348 LOC**. Stateless emit layer → `runClaudeCliTurn.emit.ts` (186 LOC). Tool routing + Ruflo trajectory + readline-loop → `runClaudeCliTurn.trajectory.ts` (193 LOC). Public surface preserved; `__resetProbeCache` + `__resetActiveChildren` test helpers intact.
+- `renderer/app/state.tsx` **553 → 97 LOC**. 14 IPC-event listener effects extracted into custom hooks under `state-hooks/`: `use-session-restore.ts` (142), `use-workspace-mirror.ts` (65), `use-live-events.ts` (140), `use-exited-session-gc.ts` (49), plus shared `parsers.ts` (163) with deduplicated `runRefreshOnEvent` helper.
+
+### CI / test infra
+
+- GH Actions `cache-dependency-path` fixed (was stale).
+- pnpm install: `--no-frozen-lockfile --ignore-scripts` + explicit `node node_modules/electron/install.js`.
+- `pnpm run coverage` + `@vitest/coverage-v8` + thresholds (lines 22 / stmts 21 / fn 21 / br 18).
+- ShellCheck CI step for `install-macos.sh`.
+- `.claude` + `app/coverage/` + `docs/06-test/` added to ignore lists.
+
+### Fixed
+
+- **Lint baseline 32 → 0**. React-compiler structural family resolved: setState-in-effect deferred-to-next-tick, render-time `Math.random()` in sidebar skeleton replaced with deterministic sizing, `shared/rpc.ts` `any` typed, narrow file-level immutability disables for MemoryGraph + Constellation intentional-mutable-ref surfaces.
+
+### Build hygiene
+
+- `pnpm exec tsc -b` → clean
+- `pnpm exec vitest run` → **130/130** (was 128/130 at v1.1.8)
+- `pnpm run lint` → **0/0** (was 32/1 at v1.1.8)
+- `pnpm run coverage` → 21.92% stmts / 18.8% br / 21.23% fn / 22.72% lines (above baseline)
+- `pnpm exec vite build` → 38.26 KB gzip main (unchanged from v1.1.8)
+- `codesign --verify --deep --strict` → exit 0, `Sealed Resources files=20492`
+- `bash -n scripts/install-macos.sh` → clean
+
+### File-size budget compliance
+
+All v1.1.x churn files now under the 500-LOC project rule. Four files still over budget are tracked for v1.2 (rpc-router.ts 985, router-shape.ts 770, sidebar.tsx 726, BridgeRoom.tsx 721).
+
 ## [1.1.8] - 2026-05-12
 
 5-agent parallel optimization swarm. Zero behavioural changes. Zero broken contracts. Cold boot ~60% faster (bundle), all 6 NMV-blocked tests recovered (108/114 → 128/128 green), lint -28, state.tsx splits under budget.

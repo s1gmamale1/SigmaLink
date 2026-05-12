@@ -885,3 +885,60 @@ Then:
 5. Push `codex/bug-backlog-pr`.
 6. Open PR against `main`.
 7. Record Ruflo completion with `hooks_post_task`.
+
+---
+
+## Phase 13 — v1.1.9 release: PR #3 merge + 3-coder file-size sweep (2026-05-12)
+
+User chose Path 2 (batch the leftover file-size work into v1.1.9 instead of tagging the merged perf+lint commit standalone). Result: v1.1.9 ships PR #3 (Codex+Claude finalizer) bundled with three additional file splits.
+
+### PR #3 finalisation
+
+`codex-handoff-finalizer` agent picked up Codex's uncommitted worktree (`SigmaLink-bug-backlog-codex`, branch `codex/bug-backlog-pr`):
+- Confirmed `docs/06-test/` was test-artifact noise → added to .gitignore
+- Committed handoff doc as historical artifact
+- Added `coverage` to ESLint globalIgnores for vendor coverage HTML
+- Decided Option B for the stale Playwright selectors → new "v1.1.10 — Playwright e2e refresh" BACKLOG entry instead of fixing in-PR
+- All gates green: tsc clean, lint 0/0, vitest 130/130, coverage above thresholds, build clean
+- Opened PR #3, pushed branch
+
+Lead rebased the PR branch on main (clean — both v1.1.10 BACKLOG additions auto-merged since they touched different sections) and merged via `gh pr merge --rebase --delete-branch`. Main HEAD: `ba1212a`.
+
+### 3-coder file-size sweep
+
+Three parallel coders on disjoint file scopes, each using `sparc:optimizer` + `sparc:tester` skills:
+
+- **`coder-factory-split`** — `core/swarms/factory.ts` **713 → 396 LOC**. Private spawn helpers (`spawnAgentSession`, `pickCoordinatorId`, `buildExtraArgs`, `loadAgentSession`, plus a new `materializeRosterAgent` that dedups two near-identical roster passes in `createSwarm`) moved to `factory-spawn.ts` (344 LOC). Public surface unchanged. `factory.test.ts` 5/5 still green.
+
+- **`coder-cli-turn-split`** — `core/assistant/runClaudeCliTurn.ts` **709 → 348 LOC**. Stateless emit layer (`streamDelta`, `emitDelta`, `emitState`, `emitFinal`, `emitErrorFinal`, `persistFinal`, `createStdinWriter`, `withTimeout`) → `runClaudeCliTurn.emit.ts` (186 LOC). Tool routing + Ruflo trajectory + readline-loop dispatchers → `runClaudeCliTurn.trajectory.ts` (193 LOC). Public surface + `__resetProbeCache` + `__resetActiveChildren` test helpers preserved. `runClaudeCliTurn.test.ts` 16/16 green.
+
+- **`coder-state-residual-split`** — `renderer/app/state.tsx` **562 → 97 LOC** (way under the ≤200 target). 14 IPC-event listener effects extracted into custom hooks under `state-hooks/`: `use-session-restore.ts` (142), `use-workspace-mirror.ts` (65), `use-live-events.ts` (140), `use-exited-session-gc.ts` (49), plus shared `parsers.ts` (163) with a deduplicated `runRefreshOnEvent` helper that collapses four near-identical refresh-on-event effects. All Codex re-exports preserved: `useAppDispatch`, `useAppState`, `useAppStateSelector`, `initialAppState`, `selectActiveWorkspace`, `appStateReducer`. `sessionsByWorkspace` + `swarmsByWorkspace` slices intact.
+
+### Aggregate gates after the sweep
+
+- `pnpm exec tsc -b` → clean
+- `pnpm exec vitest run` → 130/130
+- `pnpm run lint` → 0/0 (one trailing `.claude/helpers/statusline.cjs` lint leak fixed by adding `.claude` to globalIgnores)
+- `pnpm exec vite build` → main bundle 38.26 KB gzip (unchanged)
+- `codesign --verify --deep --strict` → Sealed Resources files=20492
+
+### File-size budget compliance
+
+Every v1.1.x churn file now under the 500-LOC rule. Four feature-active files still over budget but out-of-v1.1.x-scope:
+- `rpc-router.ts` 985 LOC (wave-13 territory)
+- `router-shape.ts` 770 LOC (same)
+- `sidebar.tsx` 726 LOC (v1.2 candidate)
+- `BridgeRoom.tsx` 721 LOC (v1.2 candidate)
+
+The 5 v1.1.x flagged files are now closed:
+- `state.tsx` 996 → 97 LOC (v1.1.8 + v1.1.9 splits)
+- `factory.ts` 713 → 396 LOC (v1.1.9)
+- `runClaudeCliTurn.ts` 709 → 348 LOC (v1.1.9)
+- renderer `Sidebar.tsx` ~500 → 147 LOC (v1.1.4)
+- `PaneHeader.tsx` collapsed h-7+h-6 → h-7 (v1.1.4)
+
+### v1.1.9 commit + tag + release
+
+TBD (set at tag time).
+
+**Next session restart point**: SigmaLink at v1.1.9 on `main`. Lint at zero. Tests at 130/130. All v1.1.x file-size targets closed. v1.1.10 backlog: provider registry cleanup (Claude/Codex/Gemini/OpenCode/Kimi — drop BridgeCode/Cursor/Shell/Aider/Continue), Playwright e2e refresh for v1.1.4 layout. v1.2 candidate: Apple Developer Program for notarisation. Gemini + Kimi CLIs deployed in parallel for read-only dead-code + optimization investigation; findings expected as documentation.
