@@ -102,6 +102,13 @@ export type EventMap = {
     file: string;
     range?: { startLine: number; endLine: number };
   };
+  // v1.2.4 — auto-update lifecycle events
+  'app:update-available': { version: string };
+  'app:update-mac-dmg-progress': { version: string; downloaded: number; total: number };
+  'app:update-mac-dmg-ready': { version: string; path: string };
+  'app:update-win-progress': { version?: string; downloaded: number; total: number };
+  'app:update-win-ready': { version: string };
+  'app:update-error': { error: string };
 };
 
 export type EventName = keyof EventMap;

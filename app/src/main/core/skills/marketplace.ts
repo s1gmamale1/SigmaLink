@@ -42,6 +42,7 @@ import type { IncomingMessage } from 'node:http';
 import { parseSkillMd } from './frontmatter';
 import type { SkillsManager } from './manager';
 import type { Skill, ProviderTarget } from './types';
+import { download as httpDownload } from '../../lib/http-download';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -242,40 +243,7 @@ class NodeHttpClient implements HttpClient {
     onChunk: (delta: number, total: number) => void,
     headers: Record<string, string> = {},
   ): Promise<{ bytes: number }> {
-    return new Promise((resolve, reject) => {
-      const out = fs.createWriteStream(destPath);
-      let bytes = 0;
-      let total = 0;
-      this.requestFollowing(
-        url,
-        headers,
-        (res) => {
-          if (res.statusCode !== 200) {
-            res.resume();
-            out.close();
-            reject(new Error(`HTTP ${res.statusCode} downloading ${url}`));
-            return;
-          }
-          if (res.headers['content-length']) {
-            const n = Number(res.headers['content-length']);
-            if (Number.isFinite(n) && n > 0) total = n;
-          }
-          res.on('data', (chunk: Buffer) => {
-            bytes += chunk.length;
-            try {
-              onChunk(chunk.length, total);
-            } catch {
-              /* progress callback should not abort the download */
-            }
-          });
-          res.on('error', reject);
-          res.pipe(out);
-          out.on('finish', () => resolve({ bytes }));
-          out.on('error', reject);
-        },
-        reject,
-      );
-    });
+    return httpDownload(url, destPath, onChunk, headers);
   }
 
   private requestFollowing(

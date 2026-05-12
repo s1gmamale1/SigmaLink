@@ -1,17 +1,19 @@
-// V3-W14-008 — `electron-updater` integration. Opt-in by default. Two paths:
-//   1. Boot: when `kv['updates.optIn']==='1'` we run checkForUpdatesAndNotify()
-//      ~3s after `app.whenReady()`.
-//   2. Manual: `app.checkForUpdates` RPC from Settings → Updates.
-// Last-check stamp lives at `kv['updates.lastCheckTimestamp']`. macOS code-
-// signing is out-of-scope for v1; users get an unsigned dmg until a
-// Developer ID is attached.
+// V3-W14-008 — `electron-updater` integration. Opt-in by default.
+// v1.2.4: Windows unsigned bypass + macOS manual DMG handoff.
 
-import { app } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import path from 'node:path';
+import type { UpdateInfo } from 'electron-updater';
 import { getRawDb } from '../src/main/core/db/client';
+import { download as httpDownload } from '../src/main/lib/http-download';
 
 const KV_OPT_IN = 'updates.optIn';
 const KV_LAST_CHECK = 'updates.lastCheckTimestamp';
+
+let configured = false;
+let macDmgPath: string | null = null;
+let pendingVersion: string | null = null;
 
 function kvGet(key: string): string | null {
   try {
@@ -33,45 +35,113 @@ function kvSet(key: string, value: string): void {
       )
       .run(key, value);
   } catch {
-    /* db not initialised yet — caller will retry next tick */
+    /* db not initialised yet */
   }
 }
 
-let configured = false;
+function broadcast(channel: string, payload: unknown): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(channel, payload);
+    }
+  }
+}
+
+function resolveMacDmgUrl(info: UpdateInfo, fileUrl: string): string {
+  try {
+    return new URL(fileUrl).href;
+  } catch {
+    const tag =
+      typeof (info as UpdateInfo & { tag?: unknown }).tag === 'string'
+        ? (info as UpdateInfo & { tag: string }).tag
+        : `v${info.version}`;
+    const assetPath = fileUrl.replace(/ /g, '-');
+    return new URL(
+      `/s1gmamale1/SigmaLink/releases/download/${tag}/${assetPath}`,
+      'https://github.com',
+    ).href;
+  }
+}
 
 function configureUpdater(): void {
   if (configured) return;
   configured = true;
-  // Never auto-install. The user opts in to the *check*; an actual install
-  // still requires their explicit click in the renderer dialog.
+
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.logger = console;
+
+  autoUpdater.on('update-available', (info) => {
+    pendingVersion = info.version;
+    broadcast('app:update-available', { version: info.version });
+
+    if (process.platform === 'darwin') {
+      // macOS: extract DMG URL and download manually to bypass Squirrel.Mac signature wall
+      const dmgFile = info.files.find(f => f.url.endsWith('.dmg'));
+      if (!dmgFile) {
+        broadcast('app:update-error', { error: 'No DMG found in release manifest' });
+        return;
+      }
+      const dest = path.join(app.getPath('downloads'), `SigmaLink-${info.version}.dmg`);
+      macDmgPath = dest;
+      let cumulative = 0;
+      httpDownload(
+        resolveMacDmgUrl(info, dmgFile.url),
+        dest,
+        (delta, total) => {
+          cumulative += delta;
+          broadcast('app:update-mac-dmg-progress', { version: info.version, downloaded: cumulative, total });
+        }
+      ).then(() => {
+        broadcast('app:update-mac-dmg-ready', { version: info.version, path: dest });
+      }).catch(err => {
+        broadcast('app:update-error', { error: err.message });
+      });
+    } else if (process.platform === 'win32') {
+      // Windows: Proceed with standard download (signature check bypassed in electron-builder.yml)
+      autoUpdater.downloadUpdate().catch(err => {
+        broadcast('app:update-error', { error: err.message });
+      });
+    }
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    if (process.platform === 'win32') {
+      broadcast('app:update-win-progress', {
+        version: pendingVersion ?? undefined,
+        downloaded: progress.transferred,
+        total: progress.total,
+      });
+    }
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    if (process.platform === 'win32') {
+      pendingVersion = info.version;
+      broadcast('app:update-win-ready', { version: info.version });
+    }
+  });
+
+  autoUpdater.on('error', (err) => {
+    broadcast('app:update-error', { error: err.message });
+  });
 }
 
 function stampLastCheck(): void {
   kvSet(KV_LAST_CHECK, String(Date.now()));
 }
 
-/**
- * Run a check now. Resolves with whatever electron-updater reports; we never
- * throw on "no update available" — that's a normal outcome surfaced via the
- * `version` field being undefined.
- */
 export async function checkForUpdates(): Promise<{
   ok: boolean;
   version?: string;
   error?: string;
 }> {
   configureUpdater();
-  // In dev (un-packaged) electron-updater short-circuits to dev-app-update.yml
-  // which is missing, so flag this case explicitly to spare the user a noisy
-  // error toast.
   if (!app.isPackaged) {
     stampLastCheck();
     return {
       ok: false,
-      error: 'Updates are only checked in packaged builds. Run a release build to test.',
+      error: 'Updates are only checked in packaged builds.',
     };
   }
   try {
@@ -84,21 +154,25 @@ export async function checkForUpdates(): Promise<{
   }
 }
 
-/**
- * Boot-time: if the user has opted in, fire a check ~3s after ready so the
- * UI has settled. We use `checkForUpdatesAndNotify()` here so the OS-native
- * "update available" notification surfaces if a new release is published.
- */
 export function maybeCheckOnBoot(): void {
   configureUpdater();
   if (kvGet(KV_OPT_IN) !== '1') return;
   if (!app.isPackaged) return;
   setTimeout(() => {
-    autoUpdater
-      .checkForUpdatesAndNotify()
-      .catch(() => {
-        /* electron-updater logs the error; we just stamp the attempt */
-      })
-      .finally(() => stampLastCheck());
+    autoUpdater.checkForUpdates().catch(() => {});
   }, 3_000);
+}
+
+export async function quitAndInstallImpl(): Promise<void> {
+  if (process.platform === 'win32') {
+    autoUpdater.quitAndInstall();
+  } else if (process.platform === 'darwin') {
+    if (!macDmgPath) {
+      throw new Error('No DMG download available. Check for updates first.');
+    }
+    await shell.openPath(macDmgPath);
+    app.quit();
+  } else {
+    throw new Error(`Auto-install is not supported on ${process.platform}`);
+  }
 }

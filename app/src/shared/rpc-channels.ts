@@ -14,6 +14,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'app.diagnostics',
   // V3-W14-008 — manual electron-updater trigger from Settings → Updates.
   'app.checkForUpdates',
+  // v1.2.4 — trigger update install/quit
+  'app.quitAndInstall',
   // V3-W15-005 — read the current plan tier (default 'ultra' on SigmaLink).
   'app.tier',
   // pty
@@ -294,6 +296,13 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // local close/open list back through eventSend so main has the same source
   // of truth for later session persistence.
   'app:open-workspaces-changed',
+  // v1.2.4 — auto-update one-way events from main → renderer
+  'app:update-available',
+  'app:update-mac-dmg-progress',
+  'app:update-mac-dmg-ready',
+  'app:update-win-progress',
+  'app:update-win-ready',
+  'app:update-error',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {

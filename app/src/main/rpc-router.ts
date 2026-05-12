@@ -329,6 +329,10 @@ function buildRouter() {
     // Updates. We never throw on "no update" — the result envelope carries an
     // optional version + error string and the UI renders accordingly.
     checkForUpdates: async () => checkForUpdatesImpl(),
+    quitAndInstall: async () => {
+      const { quitAndInstallImpl } = await import('../../electron/auto-update');
+      await quitAndInstallImpl();
+    },
     // V3-W15-005 — Plan tier read. Default `'ultra'` since SigmaLink is local-
     // only / free; the override is only writable from a hidden dev-mode control
     // in Settings → Appearance, so production users always see Ultra.

@@ -92,6 +92,8 @@ export interface AppRouter {
     diagnostics: () => Promise<DiagnosticsReport>;
     /** V3-W14-008 — manually trigger an `electron-updater` check. */
     checkForUpdates: () => Promise<CheckForUpdatesResult>;
+    /** v1.2.4 — quit the app and install the downloaded update (Windows NSIS) or open the DMG (macOS). */
+    quitAndInstall: () => Promise<void>;
     /**
      * V3-W15-005 — Resolve the active plan tier. Reads `kv['plan.tier']` and
      * falls back to `'ultra'` (SigmaLink default — local-only / free).
