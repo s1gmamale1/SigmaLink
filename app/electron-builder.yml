@@ -27,6 +27,19 @@ files:
 # guarantee that the native modules load. v1.1.0 will re-introduce asar with
 # correct unpack patterns once we have a verified glob that works under pnpm.
 asar: false
+# v1.2.1 — Windows CI hotfix.
+# electron-builder defaults `npmRebuild: true`, which on Windows triggers a
+# fresh `npm rebuild node-pty@1.1.0` during the pack phase. node-pty's source
+# build runs `tsc` on its own test files (windowsPtyAgent.test.ts,
+# windowsTerminal.test.ts) and fails when `@types/mocha`/`@types/jest` aren't
+# installed (they aren't — those are node-pty's dev-only deps, not ours).
+# Our CI workflows already rebuild native modules in a prior explicit step
+# (`pnpm rebuild better-sqlite3 node-pty`) before invoking electron-builder,
+# so skipping electron-builder's redundant rebuild is safe and fixes Windows.
+# macOS local builds already go through `electron-builder install-app-deps`
+# in the package.json postinstall hook, so the modules are pre-rebuilt there
+# too.
+npmRebuild: false
 extraResources:
   - from: dist
     to: dist

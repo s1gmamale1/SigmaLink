@@ -4,6 +4,18 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-05-12
+
+Hotfix for the v1.2.0 Windows CI build. The v1.2.0 tag push triggered `release-windows.yml` correctly, but the EXE never built: `electron-builder`'s default `npmRebuild: true` ran a second `npm rebuild node-pty@1.1.0` during the pack phase, which on Windows tries to compile node-pty from source and trips over node-pty's own test files (`windowsPtyAgent.test.ts`, `windowsTerminal.test.ts`) needing `@types/mocha`. The workflow already rebuilds native modules in an earlier explicit step, so electron-builder's rebuild was redundant.
+
+### Fixed
+
+- **`app/electron-builder.yml`** — added `npmRebuild: false` so `electron-builder` skips its own rebuild pass. Our CI workflow's prior `pnpm rebuild better-sqlite3 node-pty` step covers Windows; macOS local builds are covered by `electron-builder install-app-deps` in the `package.json` postinstall.
+
+### Distribution
+
+- v1.2.0 release on GitHub was not created (workflow failed before reaching `softprops/action-gh-release@v2`). v1.2.1 is the first published Windows release. Users who tried the `install-windows.ps1` one-liner against v1.2.0 saw a "no matching `SigmaLink-Setup-*.exe`" error path; running it again after v1.2.1 lands works cleanly.
+
 ## [1.2.0] - 2026-05-12
 
 Windows 10/11 (x64) is now a peer release surface to macOS arm64. NSIS installer ships from CI on every tag push; PowerShell one-liner installer mirrors the macOS curl-bash UX. Voice on Windows routes through the Chromium Web Speech API; native SAPI5 is deferred to v1.3+. Code-signing is deferred indefinitely; SmartScreen workarounds documented inside the installer. Vitest 196 → 205. Zero behavioural regressions on macOS.
