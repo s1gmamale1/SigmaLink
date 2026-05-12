@@ -11,7 +11,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { getDb } from '../db/client';
+import { getDb, getRawDb } from '../db/client';
 import {
   swarmAgents,
   swarms,
@@ -217,41 +217,67 @@ export async function addAgentToSwarm(
     throw new Error(`Workspace not found for swarm ${input.swarmId}: ${swarmRow.workspaceId}`);
   }
 
-  const agentRows = db
-    .select()
-    .from(swarmAgents)
-    .where(eq(swarmAgents.swarmId, input.swarmId))
-    .all();
-  if (agentRows.length >= MAX_SWARM_AGENTS) {
-    throw new Error(`Cannot add agent: swarm already has ${MAX_SWARM_AGENTS} agents.`);
-  }
-
   const role = input.role ?? 'builder';
-  const maxRoleIndex = agentRows
-    .filter((a) => a.role === role)
-    .reduce((max, a) => Math.max(max, a.roleIndex), 0);
-  const roleIndex = maxRoleIndex + 1;
-  const aKey = makeAgentKey(role, roleIndex);
-  const paneIndex = agentRows.length === 0 ? 0 : agentRows.length;
   const agentId = randomUUID();
   const now = Date.now();
-  const inboxPath = deps.mailbox.ensureInbox(input.swarmId, aKey);
-  const coordinatorId = pickCoordinatorId(agentRows, role);
 
-  db.insert(swarmAgents)
-    .values({
-      id: agentId,
-      swarmId: input.swarmId,
-      role,
-      roleIndex,
-      providerId: input.providerId,
-      status: 'idle',
-      inboxPath,
-      agentKey: aKey,
-      coordinatorId,
-      createdAt: now,
-    })
-    .run();
+  // BUG-V1.1.3-ORCH-02 (audit fix): the prior implementation computed
+  // `maxRoleIndex` from a `SELECT … FROM swarm_agents WHERE swarm_id = ?`
+  // snapshot, then issued an `INSERT` *outside* any transaction. Two concurrent
+  // `addAgentToSwarm` calls for the same role would both observe the same
+  // pre-INSERT snapshot, compute identical role indices, and trip the
+  // `swarm_agents_role_uq UNIQUE(swarm_id, role, role_index)` constraint on
+  // the loser.
+  //
+  // The fix: wrap (count guard, max(role_index) lookup, INSERT) in a single
+  // better-sqlite3 transaction. better-sqlite3 transactions are synchronous
+  // BEGIN/COMMIT pairs — concurrent calls serialise on the SQLite write lock,
+  // so the second caller sees the first caller's INSERT before computing its
+  // own role index. We still hold the per-process `inboxPath` and
+  // `coordinatorId` derivation outside the transaction body because they read
+  // only the seeded roster snapshot from inside the txn — both are pure
+  // functions of `agentRows`.
+  const raw = getRawDb();
+  let roleIndex = -1;
+  let paneIndex = -1;
+  let aKey = '';
+  let inboxPath = '';
+
+  const txn = raw.transaction(() => {
+    const agentRows = db
+      .select()
+      .from(swarmAgents)
+      .where(eq(swarmAgents.swarmId, input.swarmId))
+      .all();
+    if (agentRows.length >= MAX_SWARM_AGENTS) {
+      throw new Error(`Cannot add agent: swarm already has ${MAX_SWARM_AGENTS} agents.`);
+    }
+
+    const maxRoleIndex = agentRows
+      .filter((a) => a.role === role)
+      .reduce((max, a) => Math.max(max, a.roleIndex), 0);
+    roleIndex = maxRoleIndex + 1;
+    aKey = makeAgentKey(role, roleIndex);
+    paneIndex = agentRows.length === 0 ? 0 : agentRows.length;
+    inboxPath = deps.mailbox.ensureInbox(input.swarmId, aKey);
+    const coordinatorId = pickCoordinatorId(agentRows, role);
+
+    db.insert(swarmAgents)
+      .values({
+        id: agentId,
+        swarmId: input.swarmId,
+        role,
+        roleIndex,
+        providerId: input.providerId,
+        status: 'idle',
+        inboxPath,
+        agentKey: aKey,
+        coordinatorId,
+        createdAt: now,
+      })
+      .run();
+  });
+  txn();
 
   let sessionId: string;
   try {

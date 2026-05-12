@@ -134,3 +134,14 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 - Detailed handoff: [`../08-bugs/CODEX-BACKLOG-HANDOFF-2026-05-12.md`](../08-bugs/CODEX-BACKLOG-HANDOFF-2026-05-12.md)
 - No commit, push, or PR yet.
 - Main remaining blocker: update or document stale Playwright visual-sweep selectors; decide fate of untracked `docs/06-test/` artifacts.
+
+## v1.1.10 Phase 14+15 — Gemini audit + reliability hotfix (May 12, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-83 | Phase 14 — Gemini codebase audit (3 backend bugs + 3 orchestration bugs + 4 perf wins + 2 dead code) | investigated | 1 |
+| T-84 | Phase 15 — v1.1.10 reliability hotfix: 4-coder Ruflo swarm closes Gemini audit findings | shipped | 4 |
+| T-85 | Backend reliability: resolveAndSpawn fallback + pty.forget kills + killAll single-timer + execCmd maxBuffer kill | shipped | 1 |
+| T-86 | Orchestration reliability: mailbox no-abort + addAgentToSwarm atomic role index + StdinWriter timeout | shipped | 1 |
+| T-87 | Frontend perf: Terminal/Sidebar/Launcher selector migration + Constellation visibility gate | shipped | 1 |
+| T-88 | Dead code: PhasePlaceholder + placeholders/ + RoomChrome inlined (net -82 LOC) | shipped | 1 |

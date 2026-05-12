@@ -229,3 +229,94 @@ describe('addAgentToSwarm', () => {
     expect(vi.mocked(resolveAndSpawn)).not.toHaveBeenCalled();
   });
 });
+
+// ── BUG-V1.1.3-ORCH-02: role_index race ────────────────────────────────────
+
+describe('BUG-V1.1.3-ORCH-02 — addAgentToSwarm role_index atomicity', () => {
+  it('5 concurrent same-role adds produce contiguous unique role indices', async () => {
+    // The pre-audit implementation read `agentRows` then issued the INSERT
+    // outside a transaction. Two concurrent calls would compute the same
+    // `roleIndex` and the loser would trip the
+    // UNIQUE(swarm_id, role, role_index) constraint.
+    //
+    // The fix wraps (count guard, max(role_index) lookup, INSERT) in a single
+    // better-sqlite3 transaction so the read sees every prior INSERT. This
+    // test fires 5 concurrent `addAgentToSwarm` calls for the same role and
+    // asserts no rejection and contiguous indices 1..5.
+    seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: '/tmp/ws-1', repoMode: 'plain' });
+    seedSwarm(fake, {
+      id: 'swarm-1',
+      workspaceId: 'ws-1',
+      name: 'Build',
+      mission: 'test',
+      preset: 'custom',
+      status: 'running',
+    });
+
+    const deps = makeDeps();
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        addAgentToSwarm({ swarmId: 'swarm-1', providerId: 'shell', role: 'builder' }, deps),
+      ),
+    );
+
+    // Every call resolved (no UNIQUE constraint violation).
+    expect(results).toHaveLength(5);
+
+    // Indices are exactly 1..5 with no duplicates.
+    const indices = results.map((r) => Number(r.agentKey.split('-').pop())).sort((a, b) => a - b);
+    expect(indices).toEqual([1, 2, 3, 4, 5]);
+
+    // Agent keys are unique builder-1..builder-5.
+    const keys = results.map((r) => r.agentKey).sort();
+    expect(keys).toEqual(['builder-1', 'builder-2', 'builder-3', 'builder-4', 'builder-5']);
+
+    // The swarm_agents store contains exactly 5 rows.
+    const rows = fake.store.tables.get('swarm_agents') ?? [];
+    expect(rows).toHaveLength(5);
+    // No two rows share the same (role, roleIndex) — the guard against the
+    // pre-audit race.
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const k = `${row.role as string}-${row.roleIndex as number}`;
+      expect(seen.has(k)).toBe(false);
+      seen.add(k);
+    }
+  });
+
+  it('mixed-role concurrent adds compute per-role indices independently', async () => {
+    // Five concurrent calls split across two roles must produce builder-1..N
+    // and scout-1..M with no cross-role contamination.
+    seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: '/tmp/ws-1', repoMode: 'plain' });
+    seedSwarm(fake, {
+      id: 'swarm-1',
+      workspaceId: 'ws-1',
+      name: 'Build',
+      mission: 'test',
+      preset: 'custom',
+      status: 'running',
+    });
+
+    const deps = makeDeps();
+    const pending = [
+      addAgentToSwarm({ swarmId: 'swarm-1', providerId: 'shell', role: 'builder' }, deps),
+      addAgentToSwarm({ swarmId: 'swarm-1', providerId: 'shell', role: 'scout' }, deps),
+      addAgentToSwarm({ swarmId: 'swarm-1', providerId: 'shell', role: 'builder' }, deps),
+      addAgentToSwarm({ swarmId: 'swarm-1', providerId: 'shell', role: 'scout' }, deps),
+      addAgentToSwarm({ swarmId: 'swarm-1', providerId: 'shell', role: 'builder' }, deps),
+    ];
+    const results = await Promise.all(pending);
+
+    const builders = results
+      .filter((r) => r.agentKey.startsWith('builder-'))
+      .map((r) => r.agentKey)
+      .sort();
+    const scouts = results
+      .filter((r) => r.agentKey.startsWith('scout-'))
+      .map((r) => r.agentKey)
+      .sort();
+
+    expect(builders).toEqual(['builder-1', 'builder-2', 'builder-3']);
+    expect(scouts).toEqual(['scout-1', 'scout-2']);
+  });
+});

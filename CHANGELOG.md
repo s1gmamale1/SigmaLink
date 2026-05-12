@@ -4,6 +4,49 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.10] - 2026-05-12
+
+Reliability hotfix from Gemini parallel audit. 6 P1 bugs + 4 perf wins + dead-code sweep. Vitest 130→168 (+38 new tests). Zero behavioural changes for the happy path; wins are all in failure modes (process leaks, race conditions, broadcast aborts, animation waste, hung child kills).
+
+### Fixed — backend reliability
+
+- **`resolveAndSpawn` fallback now tries alternatives on ENOENT** (`pty/local-pty.ts`). New `resolvePosixCommand` PATH pre-flight throws synchronous `ENOENT` so the launcher's existing fallback walk reaches the next candidate.
+- **`pty.forget()` kills underlying PTY** (`pty/registry.ts`). Was leaking ghost processes. SIGTERM + 5s SIGKILL fallback.
+- **`killAll()` uses ONE 5s timer regardless of session count** (`pty/registry.ts`). Was scheduling N timers (one per session) — verified via `vi.getTimerCount()`.
+- **`execCmd` kills child on maxBuffer overflow** (`lib/exec.ts`). New `handleOverflow()` destroys stdio + SIGTERMs child + 5s SIGKILL fallback. New `maxBufferExceeded: boolean` field on ExecResult (additive).
+
+### Fixed — orchestration reliability
+
+- **Mailbox broadcast continues on per-recipient failure** (`swarms/mailbox.ts`). Per-recipient try/catch + `console.warn` with `swarmId` + key. `@all` / `@coordinators` no longer aborts on one destroyed PTY.
+- **`addAgentToSwarm` role index atomic via `db.transaction()`** (`swarms/factory.ts`). Concurrent same-role adds now serialize on SQLite's write lock and produce contiguous indices instead of UNIQUE constraint violation.
+- **`StdinWriter` per-write timeout** (`assistant/runClaudeCliTurn.emit.ts`). New `STDIN_WRITE_TIMEOUT_MS = 30_000` + `onTimeout` callback. Turn driver passes `() => child.kill('SIGTERM')` so a hung child doesn't outlive its broken stdin.
+
+### Changed — frontend perf
+
+- **Terminal, Sidebar, Launcher migrated to per-slice `useAppStateSelector`**. v1.1.9 introduced the selector hook and migrated 4 rooms; v1.1.10 covers these last three. Terminal subscribes to 1 slice (`activeWorkspace.id`); Sidebar to 5; Launcher to 2 + dispatch-only inner row. Unrelated dispatches no longer trigger re-renders.
+- **Constellation animation gated by Page Visibility API + IntersectionObserver** (`operator-console/Constellation.tsx`). rAF loop pauses when either signal reports hidden; resumes when both visible. 6 new tests.
+
+### Removed
+
+- **`PhasePlaceholder.tsx` + `placeholders/` dir** — zero callers, pre-Electron remnant.
+- **`RoomChrome.tsx`** — single caller (SettingsRoom) inlined; unused props dropped. Net -82 LOC across the dead-code sweep.
+
+### Build hygiene
+
+- `pnpm exec tsc -b` clean.
+- `pnpm exec vitest run` 168/168 (was 130/130).
+- `pnpm run lint` 0/0.
+- `pnpm exec vite build` 38.26 KB gzip main (unchanged shape from v1.1.9).
+- `codesign --verify --deep --strict` Sealed Resources files=20492.
+
+### New test files
+
+- `pty/local-pty.test.ts` (8), `pty/registry.test.ts` (7), `providers/launcher.test.ts` (4), `lib/exec.test.ts` (3), `runClaudeCliTurn.emit.test.ts` (6), `operator-console/Constellation.test.tsx` (6). Plus 4 new specs added to `mailbox.test.ts` + `factory.test.ts`.
+
+### Source
+
+Gemini audit at `app/docs/investigation/codebase-audit-v1.1.3.md`. 4-coder Ruflo swarm executed the fixes on disjoint file scopes.
+
 ## [1.1.9] - 2026-05-12
 
 Two coordinated swarms shipped this release. PR #3 (Codex + Claude finalizer) landed the perf paired refactor + CI hardening + lint wave 32→0. A second 3-coder swarm landed the file-size targets that closed out the v1.1.9 backlog. Zero behavioural changes. Zero broken contracts.

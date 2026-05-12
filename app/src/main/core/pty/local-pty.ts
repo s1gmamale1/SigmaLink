@@ -84,6 +84,39 @@ export function resolveWindowsCommand(cmd: string): string | null {
   return null;
 }
 
+/**
+ * Resolve a bare command against PATH on POSIX (Linux/macOS). Returns the
+ * absolute path of the first match, or null if not found.
+ *
+ * On POSIX, node-pty's `pty.fork` forks a helper which then `execvp`s the
+ * target binary inside the child. ENOENT therefore surfaces as an
+ * **asynchronous** child exit (code 127) rather than a synchronous throw —
+ * the parent has no opportunity to fall back to an alternative command.
+ *
+ * `resolveAndSpawn` in `providers/launcher.ts` walks `[command, ...altCommands]`
+ * and relies on the registry rejecting unknown commands synchronously. Doing
+ * the existence check here is the smallest change that restores that contract
+ * on POSIX without altering the registry's caller contract.
+ */
+export function resolvePosixCommand(cmd: string): string | null {
+  if (!cmd) return null;
+  if (path.isAbsolute(cmd) || cmd.includes('/')) {
+    // Absolute path or a path-relative command (e.g. "./tool"). Caller is
+    // explicit about which file they want — only succeed if it exists.
+    return fs.existsSync(cmd) ? cmd : null;
+  }
+  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    const candidate = path.join(dir, cmd);
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      /* skip unreadable dir */
+    }
+  }
+  return null;
+}
+
 function defaultShell(): { command: string; args: string[] } {
   if (process.platform === 'win32') {
     // Prefer pwsh (PowerShell 7+) when available, then powershell.exe (Windows
@@ -169,6 +202,32 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
   // executable.
   const resolvedCwd =
     input.cwd && fs.existsSync(input.cwd) ? input.cwd : os.homedir();
+
+  // Pre-flight ENOENT check. On POSIX, node-pty surfaces missing binaries as
+  // an async exit(127) — too late for `resolveAndSpawn` to fall back to an
+  // alt-command. On Windows, `platformAwareSpawnArgs` may have already
+  // resolved the command via PATH+PATHEXT, but if it returned the literal
+  // unresolved name we'd still hit an async ConPTY failure. Throwing a
+  // synchronous ENOENT here lets the launcher's fallback walk progress.
+  // An empty `input.command` means "open the user's default shell" and
+  // `platformAwareSpawnArgs` already substituted a known shell — skip the
+  // check in that case.
+  if (input.command) {
+    const resolved =
+      process.platform === 'win32'
+        ? resolveWindowsCommand(input.command)
+        : resolvePosixCommand(input.command);
+    if (!resolved) {
+      const err = new Error(
+        `spawn ${input.command} ENOENT`,
+      ) as Error & { code: string; errno: number; syscall: string; path: string };
+      err.code = 'ENOENT';
+      err.errno = -2;
+      err.syscall = 'spawn';
+      err.path = input.command;
+      throw err;
+    }
+  }
 
   const { command, args } = platformAwareSpawnArgs(input);
   const env: NodeJS.ProcessEnv = {

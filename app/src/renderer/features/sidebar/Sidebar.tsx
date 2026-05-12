@@ -11,7 +11,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Monogram } from '@/renderer/components/Monogram';
 import { rpc } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { PLATFORM_IS_MAC } from '@/renderer/lib/shortcuts';
 import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 import type { Workspace } from '@/shared/types';
@@ -20,9 +20,15 @@ import { WorkspacesPanel } from './WorkspacesPanel';
 const COLLAPSE_BREAKPOINT_PX = 1100;
 
 export function Sidebar() {
-  const { state, dispatch } = useAppState();
-  const activeWorkspace = state.activeWorkspace;
-  const collapsed = state.sidebarCollapsed;
+  // V1.1.10 perf — slice subscriptions instead of full AppState. Sidebar
+  // previously re-rendered on every dispatch (notifications, chat events,
+  // browser state) because it consumed the entire context.
+  const dispatch = useAppDispatch();
+  const activeWorkspace = useAppStateSelector((s) => s.activeWorkspace);
+  const collapsed = useAppStateSelector((s) => s.sidebarCollapsed);
+  const openWorkspaces = useAppStateSelector((s) => s.openWorkspaces);
+  const workspaces = useAppStateSelector((s) => s.workspaces);
+  const sessions = useAppStateSelector((s) => s.sessions);
 
   // Auto-collapse on narrow windows. The user can still toggle manually; the
   // resize listener only forces collapse when the viewport actually crosses
@@ -101,9 +107,9 @@ export function Sidebar() {
       {/* V3 BridgeMind: pure workspaces panel — no room nav, no palette card. */}
       {!collapsed ? (
         <WorkspacesPanel
-          workspaces={state.openWorkspaces}
-          persistedWorkspaces={state.workspaces}
-          sessions={state.sessions}
+          workspaces={openWorkspaces}
+          persistedWorkspaces={workspaces}
+          sessions={sessions}
           activeId={activeWorkspace?.id ?? null}
           onPick={(ws) => dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: ws.id })}
           onClose={(workspaceId) => dispatch({ type: 'WORKSPACE_CLOSE', workspaceId })}

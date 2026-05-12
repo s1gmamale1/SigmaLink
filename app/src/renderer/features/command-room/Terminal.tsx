@@ -15,7 +15,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
-import { useAppState } from '@/renderer/app/state';
+import { useAppStateSelector } from '@/renderer/app/state';
 
 interface Props {
   sessionId: string;
@@ -88,14 +88,19 @@ function isPtyExitPayload(p: unknown): p is { sessionId: string; exitCode: numbe
 export function SessionTerminal({ sessionId, className }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
-  const { state } = useAppState();
+  // V1.1.10 perf — subscribe to only the workspace id slice instead of the
+  // full AppState. Terminal previously re-rendered on every dispatch (chat
+  // message, notification, etc.) because it consumed the whole context.
+  const activeWorkspaceId = useAppStateSelector(
+    (state) => state.activeWorkspace?.id,
+  );
   // Capture the current workspace id in a ref so the WebLinksAddon callback
   // (created once per terminal mount) always reads the latest value without
   // needing to re-mount xterm on workspace switches.
-  const wsIdRef = useRef<string | undefined>(state.activeWorkspace?.id);
+  const wsIdRef = useRef<string | undefined>(activeWorkspaceId);
   useEffect(() => {
-    wsIdRef.current = state.activeWorkspace?.id;
-  }, [state.activeWorkspace?.id]);
+    wsIdRef.current = activeWorkspaceId;
+  }, [activeWorkspaceId]);
 
   useEffect(() => {
     const container = containerRef.current;

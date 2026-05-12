@@ -18,6 +18,29 @@ import {
   type SessionIdExtraction,
 } from './session-id-extractor';
 
+/** Milliseconds between SIGTERM and the fallback SIGKILL on lingering PTYs. */
+const PTY_KILL_FALLBACK_MS = 5_000;
+
+/**
+ * Probe whether a PID is still resident in the OS process table.
+ *
+ * `process.kill(pid, 0)` does not deliver a signal — it just performs the
+ * permission/existence check. ESRCH means "no such process"; EPERM means the
+ * process exists but we lack permission (still alive). Any other error we
+ * treat as "unknown" → assume gone to avoid runaway SIGKILL loops.
+ */
+function isProcessAlive(pid: number): boolean {
+  if (!pid || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EPERM') return true;
+    return false;
+  }
+}
+
 export interface SessionRecord {
   id: string;
   providerId: string;
@@ -219,6 +242,32 @@ export class PtyRegistry {
     } catch {
       /* ignore */
     }
+    // If the underlying PTY is still alive, ask it to terminate before we drop
+    // our handle. Without this, dropping the only reference leaks the child
+    // process (it keeps running detached) — the registry's `alive` flag is
+    // bookkeeping, not a kernel resource.
+    const pid = rec.pid;
+    const stillAlive = rec.alive && isProcessAlive(pid);
+    if (stillAlive) {
+      try {
+        rec.pty.kill();
+      } catch {
+        /* ignore */
+      }
+      // 5s fallback: SIGKILL any survivor that ignored SIGTERM (e.g. a CLI
+      // mid-`waitpid` that's swallowing signals). PID may have been reused
+      // by then, but `process.kill(pid, 0)` will tell us if the original
+      // child is still resident before we escalate.
+      setTimeout(() => {
+        try {
+          if (pid > 0 && isProcessAlive(pid)) {
+            process.kill(pid, 'SIGKILL');
+          }
+        } catch {
+          /* ignore — already gone */
+        }
+      }, PTY_KILL_FALLBACK_MS).unref();
+    }
     rec.buffer.clear();
     this.sessions.delete(id);
   }
@@ -226,8 +275,12 @@ export class PtyRegistry {
   /**
    * Best-effort termination of every live session. Called from
    * Electron's `before-quit` hook. Does not wait for exit acknowledgement.
+   *
+   * Uses a single 5s SIGKILL fallback for all survivors instead of per-entry
+   * timers — N timers become 1, which matters when an app has many panes.
    */
   killAll(): void {
+    const survivorPids: number[] = [];
     for (const rec of this.sessions.values()) {
       if (rec.alive) {
         try {
@@ -235,8 +288,19 @@ export class PtyRegistry {
         } catch {
           /* ignore */
         }
+        if (rec.pid > 0) survivorPids.push(rec.pid);
       }
     }
+    if (survivorPids.length === 0) return;
+    setTimeout(() => {
+      for (const pid of survivorPids) {
+        try {
+          if (isProcessAlive(pid)) process.kill(pid, 'SIGKILL');
+        } catch {
+          /* ignore — already gone */
+        }
+      }
+    }, PTY_KILL_FALLBACK_MS).unref();
   }
 
   // Returns the historical buffer atomically; the caller is responsible for

@@ -308,7 +308,20 @@ export async function runClaudeCliTurn(
     deps,
     turn,
     assistantMessageId,
-    stdinWriter: createStdinWriter(child),
+    stdinWriter: createStdinWriter(child, {
+      // BUG-V1.1.3-ORCH-03 (audit fix): on stdin write timeout we kill the
+      // hung CLI child so the turn driver's `close` listener fires, the
+      // assistant state transitions to standby, and the renderer's spinner
+      // stops. Without this the CLI process would hang stdin indefinitely
+      // and the parent turn promise would never resolve.
+      onTimeout: () => {
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          /* best-effort — child may already be dead */
+        }
+      },
+    }),
     trajectoryId,
     pendingToolRoutes: new Set<Promise<void>>(),
   };

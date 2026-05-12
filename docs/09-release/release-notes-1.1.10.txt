@@ -1,0 +1,261 @@
+SigmaLink v1.1.10 — Reliability hotfix from Gemini audit
+
+Six P1 reliability bugs found by a parallel Gemini CLI + 10-agent
+Ruflo audit, plus four perf wins and a dead-code sweep. Fixed by a
+4-coder Ruflo swarm working on disjoint file scopes. Zero
+behavioural changes for the happy path; the wins are all in failure
+modes (process leaks, race conditions, broadcast aborts, animation
+waste, hung child kills, dead module deletions).
+
+Why v1.1.10 exists
+==================
+
+Gemini's audit at `app/docs/investigation/codebase-audit-v1.1.3.md`
+identified critical reliability gaps across three layers. Each was
+real, reproducible, and would degrade UX under sustained use. v1.1.9
+shipped perf paired refactor + lint zero but did not address these
+reliability findings. v1.1.10 closes them.
+
+Provider registry cleanup (Claude/Codex/Gemini/OpenCode/+Kimi) is
+NOT in this release — it gets its own scope as v1.1.11.
+
+What v1.1.10 ships
+==================
+
+Backend reliability (3 P1 bugs)
+-------------------------------
+
+1. **`resolveAndSpawn` fallback now actually tries alternatives**
+   (`src/main/core/pty/local-pty.ts`). Previously when a command
+   ENOENTed, `spawnLocalPty` swallowed the error and returned null
+   (or surfaced via async child-exit-127 on POSIX), so the
+   launcher's fallback loop terminated without trying the next
+   candidate. v1.1.10 adds a synchronous `resolvePosixCommand`
+   PATH pre-flight inside `spawnLocalPty` that throws a real
+   `ENOENT` (with `.code = 'ENOENT'`, `.errno = -2`,
+   `.syscall = 'spawn'`, `.path`) — the launcher's existing
+   `isENOENT()` heuristic + fallback walk now find the right
+   binary. Smaller-diff than refactoring the result-type contract.
+
+2. **`pty.forget()` now kills the underlying process**
+   (`src/main/core/pty/registry.ts`). Previously `forget()` just
+   removed the entry from the registry Map, leaking the underlying
+   PTY child as a ghost process. v1.1.10 SIGTERMs the live PTY +
+   arms a single `setTimeout(5000)` SIGKILL fallback (`.unref()`'d
+   so it never blocks shutdown). New `isProcessAlive(pid)` helper
+   probes via `process.kill(pid, 0)` (handles `EPERM` correctly).
+
+3. **`killAll()` now uses ONE 5s timer regardless of session count**
+   Previously scheduled a fresh setTimeout per live session (N
+   sessions → N timers). With 16 panes that was 16 timers wasting
+   timer-pool slots. Now: collect all survivor PIDs in one pass,
+   SIGTERM each via `pty.kill()`, then ONE 5s `setTimeout` SIGKILLs
+   stragglers. Verified via `vi.getTimerCount()` in the regression
+   test.
+
+4. **`execCmd` kills ghost child on maxBuffer overflow**
+   (`src/main/lib/exec.ts`). Previously when stdout/stderr bytes
+   exceeded `maxBuffer`, Node returned `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`
+   but the child kept running in the background. v1.1.10 adds
+   `handleOverflow()` that destroys both stdio streams, sends
+   SIGTERM, and arms a 5s SIGKILL fallback (shared with the
+   `timeoutMs` path — no double timers). New `maxBufferExceeded:
+   boolean` field on `ExecResult` (additive; no caller breakage).
+
+Orchestration reliability (3 P1 bugs)
+-------------------------------------
+
+5. **Mailbox broadcast no longer aborts on per-recipient failure**
+   (`src/main/core/swarms/mailbox.ts`). Previously the broadcast
+   loop for `@all` / `@coordinators` had a single try/catch
+   wrapping the entire JSONL-mirror + paneEcho pass. One destroyed
+   PTY mid-broadcast → all subsequent agents stranded without the
+   message. v1.1.10 wraps each recipient's mirror + echo in
+   per-recipient try/catch + `console.warn` with `swarmId` +
+   failing agent key. Remaining recipients still receive.
+
+6. **`addAgentToSwarm` role index is now atomic**
+   (`src/main/core/swarms/factory.ts`). Previously a non-atomic
+   read-then-write: `count = SELECT ... FROM swarm_agents WHERE
+   role = ?`; `INSERT ... role_index = count`. Concurrent
+   same-role adds computed identical `roleIndex` → DB unique
+   constraint violation. v1.1.10 wraps the count + max(roleIndex)
+   + INSERT inside `getRawDb().transaction(() => { ... })` so
+   concurrent same-role adds serialize on SQLite's write lock and
+   produce contiguous indices. The 20-cap MAX_SWARM_AGENTS check
+   stays inside the txn so the 21st-agent refusal still fires.
+
+7. **StdinWriter queue has per-write timeout**
+   (`src/main/core/assistant/runClaudeCliTurn.emit.ts`). Previously
+   if the CLI child stopped reading stdin (hung, crashed, dropped
+   the pipe), the promise chain hung indefinitely. v1.1.10 adds
+   `STDIN_WRITE_TIMEOUT_MS = 30_000` racing every enqueued write;
+   on timeout, rejects with `Error('stdin_write_timeout')` and
+   invokes a configurable `onTimeout` callback. The turn driver
+   passes `onTimeout: () => child.kill('SIGTERM')` so the child
+   doesn't outlive its broken stdin. Synchronous `child.stdin.write`
+   throws are now caught + surfaced as rejections instead of
+   escaping to unhandledRejection.
+
+Frontend perf (4 wins)
+-----------------------
+
+8. **Terminal, Sidebar, Launcher migrated to per-slice subscription**
+   v1.1.9 introduced `useAppStateSelector<T>` and migrated 4 hot
+   rooms (CommandRoom, CommandPalette, SwarmRoom, OperatorConsole).
+   Gemini found Terminal, Sidebar, and Launcher still on full
+   `useAppState()` — re-rendering on every dispatch. v1.1.10:
+
+     * Terminal subscribes to ONE slice: `state.activeWorkspace?.id`.
+     * Sidebar uses 5 independent slice selectors (`activeWorkspace`,
+       `sidebarCollapsed`, `openWorkspaces`, `workspaces`, `sessions`)
+       + `useAppDispatch`.
+     * Launcher uses 2 outer selectors + `useAppDispatch`; the
+       inner `BottomActionRow` doesn't subscribe to state at all.
+
+   Result: dispatching unrelated actions (chat messages, swarm
+   broadcasts, browser state, notifications) no longer triggers
+   re-renders in any of the three. Verified via `useSyncExternalStore`
+   + `Object.is` snapshot identity guards.
+
+9. **Constellation animation gated by visibility**
+   (`src/renderer/features/operator-console/Constellation.tsx`).
+   Previously the force-directed graph's `requestAnimationFrame`
+   loop ran continuously even when the OperatorConsole tab was
+   hidden or the user navigated to a different room. v1.1.10
+   gates the rAF loop on dual signals: Page Visibility API +
+   IntersectionObserver. Loop pauses when either reports hidden,
+   resumes when both report visible. Cleanup disconnects observer
+   + removes visibilitychange listener on unmount. 6 new tests
+   cover start/pause/resume/cleanup paths.
+
+Dead code (-82 LOC)
+--------------------
+
+10. **`PhasePlaceholder.tsx` + `placeholders/` dir deleted**.
+    Zero callers across `src/`. Pre-Electron development remnant.
+
+11. **`RoomChrome.tsx` deleted, single caller inlined**.
+    Only `SettingsRoom.tsx` used it; the unused props
+    (`RoomSkeleton`, `loading`, `errorBanner`, `actions`,
+    `loadingHint`) dropped entirely. The header strip + body
+    container inlined into SettingsRoom for ~12 LOC vs 66 LOC
+    removed.
+
+12. **Survey of `src/renderer/lib/` + `src/main/lib/`**: no other
+    zero-caller modules found. All 10 lib files have ≥1 importer.
+    File-level dead-code surface is now exhausted.
+
+Gates
+=====
+
+* `pnpm exec tsc -b` → clean
+* `pnpm exec vitest run` → **168/168 pass** (was 130/130 at v1.1.9
+  baseline; **+38 new tests** across 7 new + extended files)
+* `pnpm run lint` → 0/0 (unchanged from v1.1.9)
+* `pnpm run coverage` → above baseline thresholds (lines 22 /
+  stmts 21 / fn 21 / br 18 — unchanged)
+* `pnpm exec vite build` → main bundle 38.26 KB gzip (unchanged
+  from v1.1.9; bundle shape preserved)
+* `codesign --verify --deep --strict --verbose=2 SigmaLink.app` →
+  exit 0, `Sealed Resources version=2 rules=13 files=20492`
+* `bash -n scripts/install-macos.sh` → clean
+
+New test files
+==============
+
+* `pty/local-pty.test.ts` — 8 specs (resolvePosixCommand, sync ENOENT
+  pre-flight, default-shell bypass)
+* `pty/registry.test.ts` — 7 specs (forget kills + single fallback
+  timer, killAll single-timer, dead/empty/unknown no-ops)
+* `providers/launcher.test.ts` — 4 specs (fallback walks on ENOENT,
+  halts on non-ENOENT)
+* `lib/exec.test.ts` — 3 specs (overflow kills child, normal
+  unaffected, timedOut still works)
+* `runClaudeCliTurn.emit.test.ts` — 6 specs (happy path, timeout
+  rejects, onTimeout invoked, default 30s pinned, no-poisoning of
+  subsequent enqueues, sync throw caught)
+* `operator-console/Constellation.test.tsx` — 6 specs (rAF start /
+  pause-on-visibility / pause-on-intersection / resume / cleanup)
+* `swarms/mailbox.test.ts` (extended) — 2 new specs
+  (`BUG-V1.1.3-ORCH-01`: per-recipient failure isolation)
+* `swarms/factory.test.ts` (extended) — 2 new specs
+  (`BUG-V1.1.3-ORCH-02`: concurrent same-role + concurrent
+  mixed-role atomicity)
+
+Coordination
+============
+
+Phase 14 (Gemini parallel audit, May 12) identified 12 findings.
+Phase 15 (this release): 4-coder Ruflo swarm working on disjoint
+file scopes, each using `sparc:debug` / `sparc:optimizer` /
+`sparc:tester` / `analysis:performance-bottlenecks` skills:
+
+* `backend-reliability-fixer` — 3 P1 fixes + 22 new tests
+* `orchestration-reliability-fixer` — 3 P1 fixes + 10 new tests
+* `frontend-perf-fixer` — 4 perf wins + 6 new tests
+* `dead-code-sweeper` — 2 deletes + 1 inline + survey
+
+Lead verified aggregate gates green before tagging. No commit
+conflicts — disjoint scopes held.
+
+Carried forward
+===============
+
+Every v1.1.0..v1.1.9 surface intact:
+
+* v1.1.9 — perf paired refactor (useAppStateSelector + slices) +
+  file-size sweep + lint zero
+* v1.1.8 — bundle 97→38 KB gzip + pty-data-bus
+* v1.1.7 — curl-bash installer
+* v1.1.6 — in-DMG README
+* v1.1.5 — adhoc-sign hook
+* v1.1.4 — V3 visual parity
+* v1.1.3 — multi-workspace + pane resume + growable swarms
+* v1.1.2 — Sigma Assistant tool dispatch
+* v1.1.1 — Sigma rebrand + window drag + voice diagnostics
+
+Deferred to v1.1.11
+====================
+
+See `docs/08-bugs/BACKLOG.md` for the full ledger.
+
+* **Provider registry cleanup** (user-requested 2026-05-12) —
+  remove BridgeCode/Cursor/Shell/Aider/Continue; keep
+  Claude/Codex/Gemini/OpenCode; add Kimi Code CLI.
+* **Playwright e2e refresh** — `tests/e2e/smoke.spec.ts` v1.1.4
+  stale selectors.
+* Gemini's 🟠 optimizations (P3 — non-blocking): RingBuffer O(N)
+  shift, janitor batch updates, ON DELETE CASCADE on agent_sessions,
+  per-swarm queue isolation, out-of-order tool result guard,
+  BrowserRoom state smearing, React 19 `useActionState` /
+  `useTransition` adoption.
+
+Distribution
+============
+
+arm64-only macOS DMG, same install paths as v1.1.7+:
+
+  curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash
+
+  # Pin v1.1.10 explicitly:
+  curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.10
+
+Known issues (unchanged)
+========================
+
+* No Apple Developer ID + no notarisation — first-launch friction
+  mitigated by curl installer.
+* "Hey Sigma" wake-word — Porcupine licensing.
+* Win SAPI + Linux Whisper voice — v1.2.
+* Gemini pane resume — gemini CLI lacks --resume.
+* x64 macOS DMG via CI matrix — v1.2.
+
+Upgrade path
+============
+
+Drop the new SigmaLink.app into /Applications. Existing kv state +
+workspaces + agent sessions survive. The reliability wins are
+felt under failure modes — a crashing CLI used to hang the Sigma
+Assistant indefinitely; now it times out after 30s with a clear
+error.

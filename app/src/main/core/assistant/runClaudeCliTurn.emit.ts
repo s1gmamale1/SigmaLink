@@ -146,7 +146,43 @@ export function persistFinal(
   }
 }
 
-export function createStdinWriter(child: CliChildLike): StdinWriter {
+/** Default per-write timeout for stdin writes to the CLI child (ms). */
+export const STDIN_WRITE_TIMEOUT_MS = 30_000;
+
+export interface CreateStdinWriterOptions {
+  /** Per-write timeout. Defaults to {@link STDIN_WRITE_TIMEOUT_MS}. */
+  timeoutMs?: number;
+  /**
+   * Invoked when a write times out. Production passes `() => child.kill()` so
+   * a hung CLI is torn down; tests can stub this to avoid actually killing.
+   */
+  onTimeout?: (reason: 'stdin_write_timeout') => void;
+}
+
+/**
+ * Build the stdin-write queue used by the CLI turn driver.
+ *
+ * BUG-V1.1.3-ORCH-03 (audit fix): the prior implementation chained writes
+ * through a promise tail with no timeout. If the CLI process stopped draining
+ * stdin — say it crashed, hung in a syscall, or filled its kernel pipe buffer —
+ * the per-write Promise resolved by `child.stdin.write(line, cb)` would never
+ * settle, the chain would freeze, and the turn driver's `await
+ * stdinWriter.enqueue(...)` would hang forever (the parent turn never finishes,
+ * the renderer's "thinking" spinner spins forever).
+ *
+ * Each enqueue now races against {@link CreateStdinWriterOptions.timeoutMs}
+ * (default 30s). On timeout we reject the write with `Error('stdin_write_timeout')`
+ * AND invoke {@link CreateStdinWriterOptions.onTimeout} so the caller can kill
+ * the hung child. The chain's `.catch(() => undefined)` link is preserved so
+ * subsequent enqueues are not poisoned by a prior timeout — the turn driver
+ * decides whether to keep writing or abort.
+ */
+export function createStdinWriter(
+  child: CliChildLike,
+  opts: CreateStdinWriterOptions = {},
+): StdinWriter {
+  const timeoutMs = Math.max(1, opts.timeoutMs ?? STDIN_WRITE_TIMEOUT_MS);
+  const onTimeout = opts.onTimeout;
   let writeChain = Promise.resolve();
   return {
     enqueue(line: string): Promise<void> {
@@ -155,10 +191,38 @@ export function createStdinWriter(child: CliChildLike): StdinWriter {
         .then(
           () =>
             new Promise<void>((resolve, reject) => {
-              child.stdin.write(line, (err?: Error | null) => {
-                if (err) reject(err);
-                else resolve();
-              });
+              let settled = false;
+              let timer: NodeJS.Timeout | null = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                timer = null;
+                try {
+                  onTimeout?.('stdin_write_timeout');
+                } catch {
+                  /* best-effort — caller may have already torn down */
+                }
+                reject(new Error('stdin_write_timeout'));
+              }, timeoutMs);
+              try {
+                child.stdin.write(line, (err?: Error | null) => {
+                  if (settled) return;
+                  settled = true;
+                  if (timer) {
+                    clearTimeout(timer);
+                    timer = null;
+                  }
+                  if (err) reject(err);
+                  else resolve();
+                });
+              } catch (err) {
+                if (settled) return;
+                settled = true;
+                if (timer) {
+                  clearTimeout(timer);
+                  timer = null;
+                }
+                reject(err instanceof Error ? err : new Error(String(err)));
+              }
             }),
         );
       return writeChain;

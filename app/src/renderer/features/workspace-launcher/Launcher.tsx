@@ -8,7 +8,7 @@ import { Play, Plus, Settings as SettingsIcon, SplitSquareHorizontal } from 'luc
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { rpc } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { GridPreset, LaunchPlan, ProviderProbe, Workspace } from '@/shared/types';
 import { PickerCards, type LauncherMode } from './PickerCards';
@@ -19,8 +19,12 @@ import { AgentsStep } from './AgentsStep';
 import { gridLabel } from './grid';
 
 export function WorkspaceLauncher() {
-  const { state, dispatch } = useAppState();
-  const selectedWorkspace = state.activeWorkspace;
+  // V1.1.10 perf — slice subscriptions instead of full AppState. The
+  // Launcher only depends on the active workspace + persisted workspace
+  // recents; it does NOT need to re-render on swarm/browser/chat dispatches.
+  const dispatch = useAppDispatch();
+  const selectedWorkspace = useAppStateSelector((s) => s.activeWorkspace);
+  const persistedWorkspaces = useAppStateSelector((s) => s.workspaces);
 
   const [mode, setMode] = useState<LauncherMode>('space');
   const [step, setStep] = useState<StepId>('start');
@@ -215,7 +219,7 @@ export function WorkspaceLauncher() {
           {step === 'start' ? (
             <StartStep
               selected={selectedWorkspace}
-              recents={state.workspaces}
+              recents={persistedWorkspaces}
               onPickFolder={pickFolder}
               onChooseRecent={chooseExisting}
               onForgetRecent={removeExisting}
@@ -310,7 +314,10 @@ function StepNav({ step, onChange, canAgents }: StepNavProps) {
 // individual handlers are stubs for now (Settings routes to the Settings
 // room; new-terminal/split-right wiring lands with Command Room polish).
 function BottomActionRow() {
-  const { dispatch } = useAppState();
+  // V1.1.10 perf — useAppDispatch is a context-only read (never re-renders
+  // on state change); previous useAppState() subscribed to the full state
+  // even though only dispatch was used.
+  const dispatch = useAppDispatch();
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
       <button

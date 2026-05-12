@@ -167,20 +167,41 @@ export class SwarmMailbox {
 
     // JSONL mirror — best effort. Failure to write the debug file must not
     // roll back the durable SQLite record.
+    //
+    // BUG-V1.1.3-ORCH-01 (audit fix): wrap each recipient's mirror in its own
+    // try/catch so a single failing fs.appendFileSync (permission flap, ENOSPC,
+    // a destroyed inbox path) cannot abort the broadcast loop and silently
+    // strand the remaining recipients. Failures are logged with the recipient
+    // key + swarmId so an operator can correlate against the audit log; the
+    // outbox mirror is its own isolated step for the same reason.
+    const line = JSON.stringify(message) + '\n';
+    let recipients: string[] = [];
     try {
-      const recipients = this.recipientsFor(input.swarmId, input.toAgent);
-      const line = JSON.stringify(message) + '\n';
-      for (const key of recipients) {
+      recipients = this.recipientsFor(input.swarmId, input.toAgent);
+    } catch (err) {
+      console.warn(
+        `[mailbox] recipient expansion failed for swarm=${input.swarmId} to=${input.toAgent}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    for (const key of recipients) {
+      try {
         const p = this.inboxPathFor(input.swarmId, key);
         fs.mkdirSync(path.dirname(p), { recursive: true });
         fs.appendFileSync(p, line);
+      } catch (err) {
+        console.warn(
+          `[mailbox] JSONL mirror failed for swarm=${input.swarmId} agent=${key}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
-      // Also mirror into the outbox for a stable side-chat tail file.
+    }
+    try {
       const outboxPath = path.join(this.userDataDir, 'swarms', input.swarmId, 'outbox.jsonl');
       fs.mkdirSync(path.dirname(outboxPath), { recursive: true });
       fs.appendFileSync(outboxPath, line);
-    } catch {
-      /* best-effort mirror */
+    } catch (err) {
+      console.warn(
+        `[mailbox] outbox mirror failed for swarm=${input.swarmId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     // V3-W13-008 — board_post side effect. After the mailbox row lands, mirror
@@ -218,13 +239,28 @@ export class SwarmMailbox {
     // The closure intentionally handles concrete agent keys only so pane echo
     // stays scoped to this swarm's roster and cannot leak to same-named agents
     // in a different swarm.
+    //
+    // BUG-V1.1.3-ORCH-01 (audit fix): isolate each paneEcho call in its own
+    // try/catch so one PTY that has exited can't strand the rest of the
+    // broadcast. The closure may throw if the renderer-side write fails; we
+    // log per-recipient and keep delivering.
     if (input.kind === 'directive' && input.echo === 'pane' && this.paneEcho) {
+      let paneRecipients: string[] = [];
       try {
-        for (const key of this.recipientsFor(input.swarmId, input.toAgent)) {
+        paneRecipients = this.recipientsFor(input.swarmId, input.toAgent);
+      } catch (err) {
+        console.warn(
+          `[mailbox] paneEcho recipient expansion failed for swarm=${input.swarmId} to=${input.toAgent}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      for (const key of paneRecipients) {
+        try {
           this.paneEcho(input.swarmId, key, input.body);
+        } catch (err) {
+          console.warn(
+            `[mailbox] paneEcho failed for swarm=${input.swarmId} agent=${key}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
-      } catch {
-        /* PTY may have exited — mailbox row remains durable */
       }
     }
 

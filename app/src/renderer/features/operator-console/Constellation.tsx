@@ -219,6 +219,14 @@ export function Constellation({
   }, []);
 
   // ── Animation loop ─────────────────────────────────────────────────────
+  // V1.1.10 perf — gate the RAF loop on visibility. Two signals:
+  //   1. Page Visibility API — pause when the window/tab is hidden.
+  //      Saves CPU when the user switches away from the SigmaLink window
+  //      (Electron still fires `visibilitychange`).
+  //   2. IntersectionObserver — pause when the canvas is scrolled off
+  //      screen or hidden by a tab switch inside OperatorConsole.
+  // Both must be `true` (visible) for the loop to tick.
+  //
   // Hooks lint complains about `step`/`draw` accessed before declaration —
   // they're declared via useCallback below and only invoked from within the
   // RAF callback after the component is mounted, so the runtime ordering is
@@ -229,14 +237,74 @@ export function Constellation({
     if (!cv) return;
     const ctx = cv.getContext('2d');
     if (!ctx) return;
+
     let raf = 0;
+    let running = false;
+    // Documents in jsdom don't always implement `document.hidden`; default
+    // to "visible" when the value is missing so tests behave like a real
+    // browser unless they explicitly mock the API.
+    let pageVisible =
+      typeof document === 'undefined' ? true : !document.hidden;
+    // The IntersectionObserver fires once immediately on observe() with the
+    // current state; until that fires we assume the canvas is in view so
+    // the initial paint isn't blocked.
+    let inView = true;
+
     const tick = () => {
       step();
       draw(ctx);
       raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    const startLoop = () => {
+      if (running) return;
+      running = true;
+      raf = requestAnimationFrame(tick);
+    };
+    const stopLoop = () => {
+      if (!running) return;
+      running = false;
+      cancelAnimationFrame(raf);
+      raf = 0;
+    };
+    const reconcile = () => {
+      if (pageVisible && inView) startLoop();
+      else stopLoop();
+    };
+
+    const onVisibilityChange = () => {
+      pageVisible =
+        typeof document === 'undefined' ? true : !document.hidden;
+      reconcile();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+
+    // IntersectionObserver may be absent in older test environments. Fall
+    // back to "always in view" — the page-visibility gate still applies, so
+    // we don't regress to the old "always animating" behaviour.
+    let io: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== 'undefined') {
+      io = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          if (!entry) return;
+          inView = entry.isIntersecting;
+          reconcile();
+        },
+        { threshold: 0 },
+      );
+      io.observe(cv);
+    }
+
+    reconcile();
+    return () => {
+      stopLoop();
+      if (io) io.disconnect();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
+    };
   }, [agents, edges, filter]);
   /* eslint-enable react-hooks/exhaustive-deps */
 

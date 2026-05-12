@@ -942,3 +942,51 @@ The 5 v1.1.x flagged files are now closed:
 TBD (set at tag time).
 
 **Next session restart point**: SigmaLink at v1.1.9 on `main`. Lint at zero. Tests at 130/130. All v1.1.x file-size targets closed. v1.1.10 backlog: provider registry cleanup (Claude/Codex/Gemini/OpenCode/Kimi — drop BridgeCode/Cursor/Shell/Aider/Continue), Playwright e2e refresh for v1.1.4 layout. v1.2 candidate: Apple Developer Program for notarisation. Gemini + Kimi CLIs deployed in parallel for read-only dead-code + optimization investigation; findings expected as documentation.
+
+---
+
+## Phase 14 — Gemini Codebase Audit (May 12, 2026)
+
+Gemini CLI + 10-agent Ruflo swarm ran a read-only audit, documented at `app/docs/investigation/codebase-audit-v1.1.3.md` (path reflects when Gemini audited — against v1.1.3 codebase; most findings still applied on v1.1.9 main HEAD `d824c42`).
+
+### Key findings
+
+- **Backend (3 P1 bugs)**: `pty.forget()` leaks ghost processes; `resolveAndSpawn` fallback unreachable because `spawnLocalPty` swallows ENOENT; `execCmd` doesn't kill child on maxBuffer overflow.
+- **Orchestration (3 P1 bugs)**: Mailbox broadcast aborts on single recipient failure; `addAgentToSwarm` non-atomic role index → DB constraint violation under concurrency; StdinWriter queue hangs indefinitely if CLI stops reading.
+- **Frontend (4 perf wins)**: Terminal/Sidebar/Launcher still on full `useAppState` (Codex v1.1.9 only migrated 4 hot rooms); Constellation `requestAnimationFrame` loop runs even when tab hidden; BrowserRoom state smearing; React 19 `useActionState` + `useTransition` adoption.
+- **Dead code**: `PhasePlaceholder.tsx` zero callers; `RoomChrome.tsx` under-utilized.
+- **🟠 P3 optimizations (deferred)**: RingBuffer O(N) shift, janitor batch updates, ON DELETE CASCADE on agent_sessions, per-swarm queue isolation, out-of-order tool result guard.
+
+---
+
+## Phase 15 — v1.1.10 reliability hotfix from Gemini audit (May 12, 2026)
+
+4-coder Ruflo swarm landed Gemini's P1 findings. Disjoint file scopes per coder; each used `sparc:debug` / `sparc:optimizer` / `sparc:tester` / `analysis:performance-bottlenecks` skills:
+
+### `backend-reliability-fixer` — 3 P1 fixes + 22 new tests
+- `resolveAndSpawn` fallback now reaches alternatives via sync ENOENT pre-flight in `pty/local-pty.ts`.
+- `pty/registry.ts` `forget()` SIGTERMs alive PTY + arms 5s SIGKILL. `killAll()` uses ONE 5s timer (was N).
+- `lib/exec.ts` kills child on maxBuffer overflow + new `maxBufferExceeded` field on ExecResult.
+
+### `orchestration-reliability-fixer` — 3 P1 fixes + 10 new tests
+- `swarms/mailbox.ts` per-recipient try/catch in JSONL mirror + paneEcho loops.
+- `swarms/factory.ts` `addAgentToSwarm` wraps count + INSERT in `db.transaction()`.
+- `runClaudeCliTurn.emit.ts` StdinWriter has 30s per-write timeout + `onTimeout` callback (turn driver passes `() => child.kill('SIGTERM')`).
+
+### `frontend-perf-fixer` — 4 perf wins + 6 new tests
+- Terminal (1 slice) / Sidebar (5 slices) / Launcher (2 slices + dispatch-only inner row) migrated to `useAppStateSelector`.
+- `operator-console/Constellation.tsx` rAF loop dual-gated by Page Visibility API + IntersectionObserver.
+
+### `dead-code-sweeper` — -82 LOC
+- `PhasePlaceholder.tsx` + `placeholders/` dir deleted.
+- `RoomChrome.tsx` inlined into single SettingsRoom caller and deleted.
+- Survey of `lib/` dirs found no other zero-caller modules.
+
+### Aggregate gates
+- `pnpm exec tsc -b` → clean
+- `pnpm exec vitest run` → **168/168** (was 130/130; +38 new tests across 7 new + extended files)
+- `pnpm run lint` → 0/0 (unchanged)
+- `pnpm exec vite build` → 38.26 KB gzip main (unchanged shape)
+- `codesign --verify --deep --strict` → Sealed Resources files=20492
+
+**Next session restart point**: SigmaLink at v1.1.10 on `main`. All Gemini P1 audit findings closed. v1.1.11 backlog: provider registry cleanup (BridgeCode/Cursor/Shell/Aider/Continue out, Kimi in) + Playwright e2e refresh + Kimi report (if landed) + Gemini's 🟠 P3 optimizations.

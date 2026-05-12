@@ -99,6 +99,100 @@ afterEach(() => {
   }
 });
 
+describe('SwarmMailbox broadcast resilience (BUG-V1.1.3-ORCH-01)', () => {
+  it('continues delivering to remaining recipients when one paneEcho throws', async () => {
+    // Audit fix: a single failing recipient (PTY exited, fs flap, etc.) must
+    // not abort the broadcast loop. Every other roster member still receives
+    // the message both in their JSONL inbox AND via paneEcho.
+    const userDataDir = makeUserData();
+    initializeDatabase(userDataDir);
+    const mailbox = new SwarmMailbox(userDataDir);
+    const swarmId = randomUUID();
+    seedSwarmRoster(fake, mailbox, swarmId, [
+      { role: 'coordinator', index: 1 },
+      { role: 'coordinator', index: 2 },
+      { role: 'coordinator', index: 3 },
+    ]);
+
+    const echoed: Array<{ swarmId: string; toAgent: string; body: string }> = [];
+    mailbox.setPaneEcho((sId, toAgent, body) => {
+      // Simulate a hung/destroyed PTY for coordinator-2 — the closure throws
+      // mid-loop. The remaining coordinators must still get pane echo.
+      if (toAgent === 'coordinator-2') {
+        throw new Error('PTY exited');
+      }
+      echoed.push({ swarmId: sId, toAgent, body });
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await mailbox.append({
+      swarmId,
+      fromAgent: 'operator',
+      toAgent: '@coordinators',
+      kind: 'directive',
+      body: 'attention',
+      echo: 'pane',
+    });
+
+    // coordinator-1 and coordinator-3 still received pane echo even though
+    // coordinator-2 threw.
+    expect(sortEchoes(echoed)).toEqual([
+      { swarmId, toAgent: 'coordinator-1', body: 'attention' },
+      { swarmId, toAgent: 'coordinator-3', body: 'attention' },
+    ]);
+    // All three inboxes still got the JSONL mirror — JSONL is independent of
+    // paneEcho and runs first.
+    expect(readInbox(userDataDir, swarmId, 'coordinator-1')).toContain('attention');
+    expect(readInbox(userDataDir, swarmId, 'coordinator-2')).toContain('attention');
+    expect(readInbox(userDataDir, swarmId, 'coordinator-3')).toContain('attention');
+    // The failure was logged with the recipient key + swarmId.
+    const warnCalls = warnSpy.mock.calls.map((c) => String(c[0]));
+    expect(warnCalls.some((m) => m.includes('paneEcho failed') && m.includes('coordinator-2'))).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
+  it('continues mirroring to remaining inboxes when one JSONL write throws', async () => {
+    // Same contract as paneEcho — one bad inbox path must not strand the rest.
+    // We poison `coordinator-2`'s inbox file by replacing it with a directory
+    // so appendFileSync throws EISDIR; the other two still receive the line.
+    const userDataDir = makeUserData();
+    initializeDatabase(userDataDir);
+    const mailbox = new SwarmMailbox(userDataDir);
+    const swarmId = randomUUID();
+    seedSwarmRoster(fake, mailbox, swarmId, [
+      { role: 'coordinator', index: 1 },
+      { role: 'coordinator', index: 2 },
+      { role: 'coordinator', index: 3 },
+    ]);
+
+    // Replace coordinator-2's inbox with a directory so appendFileSync errors.
+    const badInbox = path.join(userDataDir, 'swarms', swarmId, 'inboxes', 'coordinator-2.jsonl');
+    fs.rmSync(badInbox, { force: true });
+    fs.mkdirSync(badInbox, { recursive: true });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await mailbox.append({
+      swarmId,
+      fromAgent: 'operator',
+      toAgent: '@all',
+      kind: 'directive',
+      body: 'hello',
+    });
+
+    // coordinator-1 and coordinator-3 still received their JSONL mirror.
+    expect(readInbox(userDataDir, swarmId, 'coordinator-1')).toContain('hello');
+    expect(readInbox(userDataDir, swarmId, 'coordinator-3')).toContain('hello');
+    // The failure was logged with the agent key.
+    const warnCalls = warnSpy.mock.calls.map((c) => String(c[0]));
+    expect(warnCalls.some((m) => m.includes('JSONL mirror failed') && m.includes('coordinator-2'))).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+});
+
 describe('SwarmMailbox operator broadcast delivery', () => {
   it('fans out @coordinators and @all only inside the addressed swarm', async () => {
     const userDataDir = makeUserData();
