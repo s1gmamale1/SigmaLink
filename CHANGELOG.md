@@ -4,6 +4,28 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-05-12
+
+Two-part Windows hotfix that closes both ends of the v1.2.0 install path.
+
+### Fixed — install-script asset matching (PR #5)
+
+The install one-liner failed against v1.2.1 because the script's regex looked for `SigmaLink-Setup-*.exe` (dashes), but `electron-builder` produces `SigmaLink.Setup.<version>.exe` (dots — Windows artifact-name default). Asset regex now accepts either separator and falls back to a portable-target pattern.
+
+- **`app/scripts/install-windows.ps1`** — regex `^SigmaLink[-.]Setup[-.](.*)\.exe$` + portable fallback. Bonus quality-of-life: ARM64 emulation pass-through, PS5.1 download speedup (`$ProgressPreference = 'SilentlyContinue'`), informational admin pre-flight, distinct 403 rate-limit message.
+
+### Fixed — runtime native-module loading (PR #6)
+
+The v1.2.1 EXE built successfully but crashed on launch because the packaged bundle was missing native `.node` files. Root cause: pnpm's content-addressed / symlinked node_modules layout confuses electron-builder's pack-phase file matcher (same class of bug `asar: false` mitigated in v1.0.1).
+
+- **`app/.npmrc`** — added `node-linker=hoisted` so pnpm uses flat npm-style node_modules layout that electron-builder packs correctly.
+- **`app/electron-builder.yml`** — reverted v1.2.1's `npmRebuild: false`. Now safe with the hoisted layout, and ensures native modules cross-compile against Electron 30 ABI.
+- **`app/package.json`** — added `@types/mocha` + `@types/jest` to devDependencies to satisfy node-pty 1.1.0's source-build tsc step during electron-builder's rebuild pass.
+
+### Dev-environment note
+
+After pulling, run `pnpm install --force` once locally — the `.npmrc` switch from pnpm's default isolated layout to hoisted requires a one-time re-link.
+
 ## [1.2.1] - 2026-05-12
 
 Hotfix for the v1.2.0 Windows CI build. The v1.2.0 tag push triggered `release-windows.yml` correctly, but the EXE never built: `electron-builder`'s default `npmRebuild: true` ran a second `npm rebuild node-pty@1.1.0` during the pack phase, which on Windows tries to compile node-pty from source and trips over node-pty's own test files (`windowsPtyAgent.test.ts`, `windowsTerminal.test.ts`) needing `@types/mocha`. The workflow already rebuilds native modules in an earlier explicit step, so electron-builder's rebuild was redundant.
