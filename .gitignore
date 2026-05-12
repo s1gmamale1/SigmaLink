@@ -52,8 +52,10 @@ __pycache__/
 worktrees/
 
 # Test output
+app/coverage/
 playwright-report/
 test-results/
+docs/06-test/
 
 # Third-party media kept locally for research only — not redistributed
 docs/02-research/thumbnails/

@@ -128,22 +128,27 @@ export function SkillDetailModal({ skill, onClose }: Props) {
   useEffect(() => {
     let alive = true;
     if (!skill) {
-      setBody('');
+      queueMicrotask(() => {
+        if (alive) setBody('');
+      });
       return;
     }
-    setLoading(true);
-    void (async () => {
-      try {
-        const out = await rpc.skills.getReadme(skill.id);
-        if (!alive) return;
-        setBody(out?.body ?? '');
-      } catch (err) {
-        if (!alive) return;
-        setBody(`Failed to load SKILL.md: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
+    queueMicrotask(() => {
+      if (!alive) return;
+      setLoading(true);
+      void (async () => {
+        try {
+          const out = await rpc.skills.getReadme(skill.id);
+          if (!alive) return;
+          setBody(out?.body ?? '');
+        } catch (err) {
+          if (!alive) return;
+          setBody(`Failed to load SKILL.md: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          if (alive) setLoading(false);
+        }
+      })();
+    });
     return () => {
       alive = false;
     };

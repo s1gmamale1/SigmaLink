@@ -42,14 +42,14 @@ export function OnboardingModal() {
 
   // Reset stepper whenever the modal opens.
   useEffect(() => {
-    if (open) setStep(0);
+    if (open) queueMicrotask(() => setStep(0));
   }, [open]);
 
   // Load providers + probe results when entering step 2 the first time.
   useEffect(() => {
     if (!open || step !== 1 || providers.length > 0 || probing) return;
     let alive = true;
-    setProbing(true);
+    queueMicrotask(() => setProbing(true));
     void (async () => {
       try {
         const list = await rpc.providers.list();

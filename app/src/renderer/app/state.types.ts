@@ -49,9 +49,11 @@ export interface AppState {
   /** Derived compatibility selector for existing consumers. */
   activeWorkspace: Workspace | null;
   sessions: AgentSession[];
+  sessionsByWorkspace: Record<string, AgentSession[]>;
   activeSessionId: string | null;
   // Swarm Room (Phase 2)
   swarms: Swarm[];
+  swarmsByWorkspace: Record<string, Swarm[]>;
   activeSwarmId: string | null;
   swarmMessages: Record<string, SwarmMessage[]>;
   // Browser room (Phase 3): per-workspace state slice keyed by workspaceId.
@@ -129,8 +131,10 @@ export const initialAppState: AppState = {
   activeWorkspaceId: null,
   activeWorkspace: null,
   sessions: [],
+  sessionsByWorkspace: {},
   activeSessionId: null,
   swarms: [],
+  swarmsByWorkspace: {},
   activeSwarmId: null,
   swarmMessages: {},
   browser: {},

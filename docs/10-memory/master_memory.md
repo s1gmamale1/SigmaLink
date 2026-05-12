@@ -804,3 +804,84 @@ The 31 remaining lint errors are React-compiler structural family (set-state-in-
 **Phase 12 commits**: TBD (set at tag time).
 
 **Next session restart point**: SigmaLink is at v1.1.8 on `main`. Cold boot ~60% faster, full test suite green, lint baseline halved, state.tsx splits applied. v1.1.9 backlog: `useAppStateSelector` + `sessionsByWorkspace` paired refactor, `factory.ts` + `runClaudeCliTurn.ts` splits, React-compiler structural lint wave, CI cache-dependency-path fix. v1.2 candidate still: Apple Developer Program for proper notarisation.
+
+---
+
+## Codex branch — v1.1.9 backlog PR handoff (2026-05-12)
+
+User asked Codex to create a fresh worktree, execute from `docs/08-bugs/BACKLOG.md`, and end with a PR, no merge. Work started in:
+
+- Worktree: `/Users/aisigma/projects/SigmaLink-bug-backlog-codex`
+- Branch: `codex/bug-backlog-pr`
+- Ruflo task: `task-1778545436963-gtb750`
+- Detailed handoff: [`../08-bugs/CODEX-BACKLOG-HANDOFF-2026-05-12.md`](../08-bugs/CODEX-BACKLOG-HANDOFF-2026-05-12.md)
+
+### Implemented in the dirty worktree
+
+- Added `useAppStateSelector<T>` via `useSyncExternalStore`, plus `useAppDispatch`.
+- Added reducer-maintained `sessionsByWorkspace` and `swarmsByWorkspace` slices.
+- Converted the first high-churn selector consumers: Command Room, Command Palette, Swarm Room, Operator Console.
+- Added reducer tests for session/swarms workspace indexes.
+- Fixed CI cache path drift by targeting `app/package.json`.
+- Added explicit Electron binary install after `--ignore-scripts` installs in CI.
+- Added `pnpm run coverage`, `@vitest/coverage-v8`, baseline coverage thresholds, and `app/coverage/` ignore.
+- Added CI ShellCheck step for `app/scripts/install-macos.sh`.
+- Cleared the React compiler lint wave currently visible in the branch: set-state-in-effect, purity, immutability, exhaustive-deps, and `no-explicit-any`.
+- Updated `docs/08-bugs/BACKLOG.md` with 2026-05-12 status notes for completed v1.1.9 items.
+- Fixed stale smoke failure-log path from `docs/07-bugs/OPEN.md` to `docs/08-bugs/OPEN.md`.
+
+### Validation completed before context pressure
+
+Passing in `app/`:
+
+```bash
+pnpm run lint
+pnpm exec tsc -b --pretty false
+pnpm exec vitest run
+pnpm run coverage
+pnpm run build
+```
+
+Observed results:
+
+- Vitest: 20 files passed, 130 tests passed.
+- Coverage: 21.92% statements, 18.8% branches, 21.23% functions, 22.72% lines.
+- Build: Vite production build passed.
+- `bash -n app/scripts/install-macos.sh` passed.
+- Local ShellCheck binary was absent; CI now installs ShellCheck before checking the installer.
+
+### Playwright status
+
+Initial full Playwright run failed with Electron launch timeouts because only `pnpm run build` had been run. The CI-equivalent path also needs:
+
+```bash
+node scripts/build-electron.cjs
+```
+
+After rebuilding `electron-dist`, focused smoke launched Electron successfully. It then failed on an older visual-sweep assertion:
+
+```text
+expect(conversationsPanelCount).toBeGreaterThan(0)
+Received: 0
+```
+
+Smoke logs showed stale navigation labels for rooms such as `Bridge Assistant`, `Swarm Room`, and `Operator Console`. That is now the main unresolved e2e cleanup before PR. BUG-W7-000's pure app-launch timeout did not reproduce after `node scripts/build-electron.cjs`.
+
+### Current restart point
+
+Do not restart from `main`. Continue in:
+
+```bash
+cd /Users/aisigma/projects/SigmaLink-bug-backlog-codex
+git status --short --branch
+```
+
+Then:
+
+1. Review whether untracked `docs/06-test/` smoke artifacts should be deleted or committed.
+2. Fix/update stale Playwright visual-sweep navigation selectors or document the residual test debt.
+3. Re-run final gates.
+4. Commit branch.
+5. Push `codex/bug-backlog-pr`.
+6. Open PR against `main`.
+7. Record Ruflo completion with `hooks_post_task`.

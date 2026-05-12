@@ -9,6 +9,7 @@
 // Drag-to-move + click-to-select. Coordinates are stored independently
 // from React state because every frame mutates them; we only call setState
 // for the lightweight selection / hover overlay.
+/* eslint-disable react-hooks/immutability */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MemoryGraph } from '@/shared/types';

@@ -4,6 +4,7 @@
 // canvas drag, zoom via wheel (0.3x..3x), positions persist through
 // `swarm.constellation-layout`. When `swarm_agents.coordinatorId` is missing
 // (pre-W13-014), every non-coord falls back to the first coordinator hub.
+/* eslint-disable react-hooks/immutability */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Role, SwarmAgent } from '@/shared/types';
@@ -221,8 +222,8 @@ export function Constellation({
   // Hooks lint complains about `step`/`draw` accessed before declaration —
   // they're declared via useCallback below and only invoked from within the
   // RAF callback after the component is mounted, so the runtime ordering is
-  // fine. Disable the false-positive rule locally.
-  /* eslint-disable react-hooks/immutability, react-hooks/exhaustive-deps */
+  // fine. Disable the exhaustive-deps false-positive locally.
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv) return;
@@ -237,7 +238,7 @@ export function Constellation({
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [agents, edges, filter]);
-  /* eslint-enable react-hooks/immutability, react-hooks/exhaustive-deps */
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const step = useCallback(() => {
     const nodes = nodesRef.current;

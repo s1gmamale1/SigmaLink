@@ -13,8 +13,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Network } from 'lucide-react';
 import { onEvent } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
+import type { Swarm } from '@/shared/types';
 import { TopBar, type AgentFilter, type ConsoleTab, type CountersPayload } from './TopBar';
 import { Constellation } from './Constellation';
 import { ActivityFeed } from './ActivityFeed';
@@ -27,6 +28,8 @@ interface LedgerPayload {
   messagesTotal: number;
   elapsedMs: number;
 }
+
+const EMPTY_SWARMS: Swarm[] = [];
 
 /** Side-band invoke for the `swarm.<method>` namespace. The typed `rpc` proxy
  *  only knows about controllers in `AppRouter`; the operator console channels
@@ -50,7 +53,13 @@ async function invokeSwarmRpc<T = unknown>(
 }
 
 export function OperatorConsole() {
-  const { state, dispatch } = useAppState();
+  const dispatch = useAppDispatch();
+  const activeWorkspace = useAppStateSelector((state) => state.activeWorkspace);
+  const activeSwarmId = useAppStateSelector((state) => state.activeSwarmId);
+  const swarmMessages = useAppStateSelector((state) => state.swarmMessages);
+  const swarms = useAppStateSelector((state) =>
+    activeWorkspace ? state.swarmsByWorkspace[activeWorkspace.id] ?? EMPTY_SWARMS : EMPTY_SWARMS,
+  );
   const [tab, setTab] = useState<ConsoleTab>('terminals');
   const [filter, setFilter] = useState<AgentFilter>('all');
   const [counters, setCounters] = useState<CountersPayload | null>(null);
@@ -59,20 +68,14 @@ export function OperatorConsole() {
   // dragging the scrubber on the Replays tab.
   const [replayFrame, setReplayFrame] = useState<ReplayFrame | null>(null);
 
-  const activeWorkspace = state.activeWorkspace;
-  const swarms = useMemo(
-    () =>
-      state.swarms.filter((s) => activeWorkspace && s.workspaceId === activeWorkspace.id),
-    [state.swarms, activeWorkspace],
-  );
   const activeSwarm = useMemo(
-    () => swarms.find((s) => s.id === state.activeSwarmId) ?? swarms[0] ?? null,
-    [swarms, state.activeSwarmId],
+    () => swarms.find((s) => s.id === activeSwarmId) ?? swarms[0] ?? null,
+    [swarms, activeSwarmId],
   );
 
   const messages = useMemo(
-    () => (activeSwarm ? state.swarmMessages[activeSwarm.id] ?? [] : []),
-    [activeSwarm, state.swarmMessages],
+    () => (activeSwarm ? swarmMessages[activeSwarm.id] ?? [] : []),
+    [activeSwarm, swarmMessages],
   );
 
   // Subscribe to counter + ledger events for the active swarm.

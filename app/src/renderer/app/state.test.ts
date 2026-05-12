@@ -10,7 +10,7 @@ import {
   selectActiveWorkspace,
   type AppState,
 } from './state';
-import type { Workspace } from '../../shared/types';
+import type { AgentSession, Swarm, Workspace } from '../../shared/types';
 
 function workspace(id: string, lastOpenedAt = 1): Workspace {
   return {
@@ -26,6 +26,33 @@ function workspace(id: string, lastOpenedAt = 1): Workspace {
 
 function readyState(workspaces: Workspace[]): AppState {
   return appStateReducer(initialAppState, { type: 'READY', workspaces });
+}
+
+function session(id: string, workspaceId: string): AgentSession {
+  return {
+    id,
+    workspaceId,
+    providerId: 'claude',
+    cwd: `/tmp/${workspaceId}`,
+    branch: null,
+    status: 'running',
+    startedAt: 1,
+    worktreePath: null,
+  };
+}
+
+function swarm(id: string, workspaceId: string): Swarm {
+  return {
+    id,
+    workspaceId,
+    name: `Swarm ${id}`,
+    mission: 'test',
+    preset: 'custom',
+    status: 'running',
+    createdAt: 1,
+    endedAt: null,
+    agents: [],
+  };
 }
 
 describe('appStateReducer multi-workspace state', () => {
@@ -92,5 +119,40 @@ describe('appStateReducer multi-workspace state', () => {
     expect(closed.openWorkspaces.map((w) => w.id)).toEqual(['b']);
     expect(closed.activeWorkspaceId).toBe('b');
     expect(closed.activeWorkspace).toEqual(wsB);
+  });
+
+  it('maintains sessionsByWorkspace when sessions change', () => {
+    const state = appStateReducer(readyState([workspace('a'), workspace('b')]), {
+      type: 'ADD_SESSIONS',
+      sessions: [session('s1', 'a'), session('s2', 'b'), session('s3', 'a')],
+    });
+
+    expect(state.sessionsByWorkspace.a.map((s) => s.id)).toEqual(['s1', 's3']);
+    expect(state.sessionsByWorkspace.b.map((s) => s.id)).toEqual(['s2']);
+
+    const exited = appStateReducer(state, { type: 'MARK_SESSION_EXITED', id: 's1', exitCode: 0 });
+    expect(exited.sessionsByWorkspace.a[0]?.status).toBe('exited');
+
+    const removed = appStateReducer(exited, { type: 'REMOVE_SESSION', id: 's3' });
+    expect(removed.sessionsByWorkspace.a.map((s) => s.id)).toEqual(['s1']);
+  });
+
+  it('maintains swarmsByWorkspace when swarms change', () => {
+    const state = appStateReducer(readyState([workspace('a'), workspace('b')]), {
+      type: 'SET_SWARMS',
+      swarms: [swarm('sw1', 'a'), swarm('sw2', 'b')],
+    });
+
+    expect(state.swarmsByWorkspace.a.map((s) => s.id)).toEqual(['sw1']);
+    expect(state.swarmsByWorkspace.b.map((s) => s.id)).toEqual(['sw2']);
+
+    const upserted = appStateReducer(state, {
+      type: 'UPSERT_SWARM',
+      swarm: swarm('sw3', 'a'),
+    });
+    expect(upserted.swarmsByWorkspace.a.map((s) => s.id)).toEqual(['sw3', 'sw1']);
+
+    const ended = appStateReducer(upserted, { type: 'MARK_SWARM_ENDED', id: 'sw3' });
+    expect(ended.swarmsByWorkspace.a[0]?.status).toBe('completed');
   });
 });

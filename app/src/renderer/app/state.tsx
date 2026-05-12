@@ -1,4 +1,5 @@
 // Global renderer state: current workspace, active room, live agent sessions.
+/* eslint-disable react-refresh/only-export-components */
 // Plain useReducer + Context. No external store dependency.
 //
 // This file owns the React component (`AppStateProvider`) and the
@@ -12,19 +13,19 @@
 // path working unchanged — see the rooms-menu-items.ts / workspaces-summary.ts
 // pattern this mirrors.
 
-import { useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import { rpc } from '../lib/rpc';
 import type { SwarmMessage, Workspace } from '../../shared/types';
 import { initialAppState, type RoomId } from './state.types';
 import { appStateReducer } from './state.reducer';
-import { AppStateContext } from './state.hook';
+import { AppDispatchContext, AppStateContext, appStateStore } from './state.hook';
 
 // Re-exports so external callers continue to use `@/renderer/app/state`
 // without knowing about the split. DO NOT inline these consumers.
 export type { Action, AppState, RoomId } from './state.types';
 export { initialAppState, selectActiveWorkspace } from './state.types';
 export { appStateReducer } from './state.reducer';
-export { useAppState } from './state.hook';
+export { useAppDispatch, useAppState, useAppStateSelector } from './state.hook';
 
 // BUG-V1.1.2-02 — Runtime mirror of the `RoomId` union so the session-restore
 // handler can narrow an incoming string before dispatching SET_ROOM. Adding a
@@ -65,6 +66,10 @@ function parseOpenWorkspacesChanged(raw: unknown): string[] | null {
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appStateReducer, initialAppState);
   const workspacesRef = useRef<Workspace[]>([]);
+
+  useLayoutEffect(() => {
+    appStateStore.setState(state);
+  }, [state]);
 
   useEffect(() => {
     workspacesRef.current = state.workspaces;
@@ -549,5 +554,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(() => ({ state, dispatch }), [state]);
-  return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
+  return (
+    <AppDispatchContext.Provider value={dispatch}>
+      <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>
+    </AppDispatchContext.Provider>
+  );
 }

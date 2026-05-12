@@ -70,11 +70,13 @@ export function ProvidersTab() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    void rpc.kv
-      .get(KV_SHOW_LEGACY)
-      .then((v) => setShowLegacy(v === '1'))
-      .catch(() => undefined);
+    queueMicrotask(() => {
+      void refresh();
+      void rpc.kv
+        .get(KV_SHOW_LEGACY)
+        .then((v) => setShowLegacy(v === '1'))
+        .catch(() => undefined);
+    });
   }, [refresh]);
 
   const onToggleLegacy = useCallback((next: boolean) => {

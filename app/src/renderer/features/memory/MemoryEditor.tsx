@@ -41,11 +41,13 @@ export function MemoryEditor({
   useEffect(() => {
     const nextBody = memory?.body ?? '';
     const nextTags = memory?.tags.join(', ') ?? '';
-    setBody(nextBody);
-    setTags(nextTags);
-    setErr(null);
-    dirtyRef.current = false;
-    lastSentRef.current = { body: nextBody, tags: nextTags };
+    queueMicrotask(() => {
+      setBody(nextBody);
+      setTags(nextTags);
+      setErr(null);
+      dirtyRef.current = false;
+      lastSentRef.current = { body: nextBody, tags: nextTags };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memory?.id]);
 

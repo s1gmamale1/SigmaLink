@@ -35,7 +35,7 @@ import {
   CommandSeparator,
 } from '@/components/ui/command';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
-import { useAppState, type RoomId } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector, type RoomId } from '@/renderer/app/state';
 import { useTheme } from '@/renderer/app/ThemeProvider';
 import { THEMES, type ThemeId } from '@/renderer/lib/themes';
 import { bindShortcut } from '@/renderer/lib/shortcuts';
@@ -49,7 +49,7 @@ import {
   type VoiceCaptureHandle,
 } from '@/renderer/lib/voice';
 import { toast } from 'sonner';
-import type { Workspace } from '@/shared/types';
+import type { AgentSession, Workspace } from '@/shared/types';
 
 interface PaletteCommand {
   id: string;
@@ -73,6 +73,7 @@ const AUTOPILOT_CACHE_TTL_MS = 30_000;
 const AUTOPILOT_TIMEOUT_MS = 2_000;
 let autopilotCache: AutopilotCacheEntry | null = null;
 let autopilotInflight: Promise<AutopilotCacheEntry | null> | null = null;
+const EMPTY_SESSIONS: AgentSession[] = [];
 
 async function fetchAutopilot(): Promise<AutopilotCacheEntry | null> {
   // Coalesce concurrent fetches.
@@ -116,9 +117,17 @@ const ROOM_DEFS: Array<{ id: RoomId; label: string; icon: PaletteCommand['icon']
 ];
 
 export function CommandPalette() {
-  const { state, dispatch } = useAppState();
+  const dispatch = useAppDispatch();
+  const open = useAppStateSelector((state) => state.commandPaletteOpen);
+  const activeWorkspace = useAppStateSelector((state) => state.activeWorkspace);
+  const activeWorkspaceId = activeWorkspace?.id ?? null;
+  const workspaces = useAppStateSelector((state) => state.workspaces);
+  const activeWorkspaceSessions = useAppStateSelector((state) =>
+    activeWorkspaceId ? state.sessionsByWorkspace[activeWorkspaceId] ?? EMPTY_SESSIONS : EMPTY_SESSIONS,
+  );
+  const activeSwarmId = useAppStateSelector((state) => state.activeSwarmId);
+  const activeReviewSessionId = useAppStateSelector((state) => state.activeReviewSessionId);
   const { theme, setTheme } = useTheme();
-  const open = state.commandPaletteOpen;
   const setOpen = useCallback(
     (o: boolean) => dispatch({ type: 'SET_COMMAND_PALETTE', open: o }),
     [dispatch],
@@ -175,7 +184,7 @@ export function CommandPalette() {
   useEffect(() => {
     const offToggle = bindShortcut('mod+k', (e) => {
       e.preventDefault();
-      dispatch({ type: 'SET_COMMAND_PALETTE', open: !state.commandPaletteOpen });
+      dispatch({ type: 'SET_COMMAND_PALETTE', open: !open });
     });
     const offVoice = bindShortcut('mod+shift+k', (e) => {
       e.preventDefault();
@@ -186,7 +195,7 @@ export function CommandPalette() {
       offToggle();
       offVoice();
     };
-  }, [dispatch, state.commandPaletteOpen]);
+  }, [dispatch, open]);
 
   // Phase 4 Track C — prefetch the Ruflo autopilot suggestion whenever the
   // palette opens. Uses the module-level cache (30s TTL) so back-to-back
@@ -198,7 +207,7 @@ export function CommandPalette() {
         ? autopilotCache
         : null;
     if (fresh) {
-      setAutopilot(fresh);
+      queueMicrotask(() => setAutopilot(fresh));
       return;
     }
     let alive = true;
@@ -237,7 +246,7 @@ export function CommandPalette() {
 
   const items = useMemo<PaletteCommand[]>(() => {
     const list: PaletteCommand[] = [];
-    const ws = state.activeWorkspace;
+    const ws = activeWorkspace;
     const wsId = ws?.id;
 
     // Phase 4 Track C — Ruflo autopilot suggestion. Surfaces above
@@ -291,7 +300,7 @@ export function CommandPalette() {
     }
 
     // Recent workspaces
-    for (const w of state.workspaces.slice(0, 8)) {
+    for (const w of workspaces.slice(0, 8)) {
       list.push({
         id: `ws:${w.id}`,
         label: `Open: ${w.name}`,
@@ -334,11 +343,10 @@ export function CommandPalette() {
       label: 'Kill all PTYs in active workspace',
       group: 'Actions',
       icon: Skull,
-      disabled: !ws || state.sessions.filter((s) => s.workspaceId === wsId).length === 0,
+      disabled: !ws || activeWorkspaceSessions.length === 0,
       run: () => {
         if (!wsId) return;
-        const targets = state.sessions.filter((s) => s.workspaceId === wsId);
-        for (const s of targets) {
+        for (const s of activeWorkspaceSessions) {
           void rpc.pty.kill(s.id).catch(() => undefined);
         }
         setOpen(false);
@@ -350,10 +358,10 @@ export function CommandPalette() {
       label: 'Kill active swarm',
       group: 'Actions',
       icon: Power,
-      disabled: !state.activeSwarmId,
+      disabled: !activeSwarmId,
       run: () => {
-        if (!state.activeSwarmId) return;
-        const id = state.activeSwarmId;
+        if (!activeSwarmId) return;
+        const id = activeSwarmId;
         void rpc.swarms.kill(id).then(() => {
           dispatch({ type: 'MARK_SWARM_ENDED', id });
         });
@@ -412,16 +420,16 @@ export function CommandPalette() {
       label: 'Run command in active worktree…',
       group: 'Actions',
       icon: GitBranch,
-      disabled: !state.activeReviewSessionId,
+      disabled: !activeReviewSessionId,
       run: () => {
-        if (!state.activeReviewSessionId) return;
+        if (!activeReviewSessionId) return;
         const cmd = window.prompt('Command to run:');
         if (!cmd) {
           setOpen(false);
           return;
         }
         void rpc.review
-          .runCommand({ sessionId: state.activeReviewSessionId, command: cmd })
+          .runCommand({ sessionId: activeReviewSessionId, command: cmd })
           .catch((err) => console.error('runCommand failed', err));
         setOpen(false);
       },
@@ -429,11 +437,11 @@ export function CommandPalette() {
 
     return list;
   }, [
-    state.workspaces,
-    state.activeWorkspace,
-    state.sessions,
-    state.activeSwarmId,
-    state.activeReviewSessionId,
+    workspaces,
+    activeWorkspace,
+    activeWorkspaceSessions,
+    activeSwarmId,
+    activeReviewSessionId,
     theme,
     dispatch,
     setTheme,

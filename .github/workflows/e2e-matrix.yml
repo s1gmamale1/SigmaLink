@@ -41,12 +41,15 @@ jobs:
         with:
           node-version: '20.x'
           cache: 'pnpm'
-          cache-dependency-path: app/pnpm-lock.yaml
+          cache-dependency-path: app/package.json
 
-      - name: Install (frozen lockfile, skip postinstall)
-        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install (skip postinstall)
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
         env:
           npm_config_build_from_source: 'false'
+
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
 
       - name: Rebuild native modules for Electron
         run: pnpm rebuild better-sqlite3 node-pty

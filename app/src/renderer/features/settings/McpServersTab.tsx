@@ -43,7 +43,7 @@ export function McpServersTab() {
   }, [state.workspaces]);
 
   useEffect(() => {
-    void refresh();
+    queueMicrotask(() => void refresh());
   }, [refresh]);
 
   return (

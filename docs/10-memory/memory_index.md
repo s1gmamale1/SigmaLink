@@ -118,3 +118,16 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-75 | Phase 12 — v1.1.8 5-coder optimization swarm: bundle -61% gzip, 32→1 pty listeners, NMV tests recovered | shipped | 5 |
 | T-76 | state.tsx 996→553 split into types/reducer/hook siblings + 3 stub schemas promoted to real zod | shipped | 1 |
 | T-77 | Lint baseline 60→32 errors via dead utils.ts delete + 8 .data.ts splits + state.tsx refactor | shipped | 1 |
+| T-78 | Codex v1.1.9 backlog branch setup: new worktree `/Users/aisigma/projects/SigmaLink-bug-backlog-codex`, branch `codex/bug-backlog-pr`, Ruflo task `task-1778545436963-gtb750` | in progress | 1 |
+| T-79 | v1.1.9 runtime perf work: `useAppStateSelector`, `useAppDispatch`, reducer-maintained `sessionsByWorkspace` / `swarmsByWorkspace`, first consumer wave converted, reducer tests added | implemented, uncommitted | 1 |
+| T-80 | v1.1.9 CI/test infra: cache path fix, Electron binary install in CI, coverage script + baseline thresholds, ShellCheck step for `app/scripts/install-macos.sh`, `app/coverage/` ignored | implemented, uncommitted | 1 |
+| T-81 | v1.1.9 React compiler lint wave: current branch lint clean; fixed set-state-in-effect/purity/exhaustive-deps/no-explicit-any; kept narrow canvas physics immutability disables | implemented, uncommitted | 1 |
+| T-82 | v1.1.9 verification: lint, typecheck, Vitest 130/130, coverage, build, and installer syntax pass; local ShellCheck unavailable; Playwright smoke launches after `node scripts/build-electron.cjs` but still fails stale Bridge conversations panel assertion | partial, needs e2e cleanup before PR | 1 |
+
+## Current Codex PR Restart Point — 2026-05-12
+
+- Continue in worktree: `/Users/aisigma/projects/SigmaLink-bug-backlog-codex`
+- Branch: `codex/bug-backlog-pr`
+- Detailed handoff: [`../08-bugs/CODEX-BACKLOG-HANDOFF-2026-05-12.md`](../08-bugs/CODEX-BACKLOG-HANDOFF-2026-05-12.md)
+- No commit, push, or PR yet.
+- Main remaining blocker: update or document stale Playwright visual-sweep selectors; decide fate of untracked `docs/06-test/` artifacts.

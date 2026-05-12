@@ -53,7 +53,7 @@ export function AddressBar({
 }: AddressBarProps) {
   const [value, setValue] = useState(url);
   useEffect(() => {
-    setValue(url);
+    queueMicrotask(() => setValue(url));
   }, [url]);
 
   return (

@@ -30,7 +30,7 @@ export function DiagnosticsTab() {
   }
 
   useEffect(() => {
-    void load();
+    queueMicrotask(() => void load());
   }, []);
 
   const hasFailure = !!report?.nativeModules.some((m) => !m.ok);

@@ -67,7 +67,7 @@ test('SigmaLink full visual sweep', async () => {
   } catch (e) {
     appendLog(`[FATAL] Could not launch electron app: ${(e as Error).stack || (e as Error).message}`);
     fs.appendFileSync(
-      path.resolve(__dirname, '../../../docs/07-bugs/OPEN.md'),
+      path.resolve(__dirname, '../../../docs/08-bugs/OPEN.md'),
       `\n### BUG-W7-000: Electron app failed to launch\n- **Severity**: P0\n- **Surface**: app startup\n- **Repro**: npx playwright test tests/e2e/smoke.spec.ts\n- **Expected**: app starts and renders first window\n- **Actual**: ${String(e)}\n- **Status**: open\n- **Attempts**: 1\n`,
     );
     throw e;
