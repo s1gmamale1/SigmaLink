@@ -1,7 +1,7 @@
 // V3-W14-008 / v1.2.4 — Settings → Updates.
 // Platform-aware auto-update state machine: idle → checking → downloading → ready | error.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Loader2,
   RefreshCcw,
@@ -97,7 +97,7 @@ export function UpdatesTab() {
         'app:update-mac-dmg-progress',
         ({ downloaded, total }) => {
           setProgress((prev) => ({
-            downloaded: prev.downloaded + downloaded,
+            downloaded,
             total: total || prev.total,
           }));
         },
@@ -117,7 +117,7 @@ export function UpdatesTab() {
         'app:update-win-progress',
         ({ downloaded, total }) => {
           setProgress((prev) => ({
-            downloaded: prev.downloaded + downloaded,
+            downloaded,
             total: total || prev.total,
           }));
         },

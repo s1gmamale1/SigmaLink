@@ -4,6 +4,7 @@
 import { app, BrowserWindow, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import path from 'node:path';
+import type { UpdateInfo } from 'electron-updater';
 import { getRawDb } from '../src/main/core/db/client';
 import { download as httpDownload } from '../src/main/lib/http-download';
 
@@ -12,6 +13,7 @@ const KV_LAST_CHECK = 'updates.lastCheckTimestamp';
 
 let configured = false;
 let macDmgPath: string | null = null;
+let pendingVersion: string | null = null;
 
 function kvGet(key: string): string | null {
   try {
@@ -37,11 +39,27 @@ function kvSet(key: string, value: string): void {
   }
 }
 
-function broadcast(channel: string, payload: any): void {
+function broadcast(channel: string, payload: unknown): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
       window.webContents.send(channel, payload);
     }
+  }
+}
+
+function resolveMacDmgUrl(info: UpdateInfo, fileUrl: string): string {
+  try {
+    return new URL(fileUrl).href;
+  } catch {
+    const tag =
+      typeof (info as UpdateInfo & { tag?: unknown }).tag === 'string'
+        ? (info as UpdateInfo & { tag: string }).tag
+        : `v${info.version}`;
+    const assetPath = fileUrl.replace(/ /g, '-');
+    return new URL(
+      `/s1gmamale1/SigmaLink/releases/download/${tag}/${assetPath}`,
+      'https://github.com',
+    ).href;
   }
 }
 
@@ -54,6 +72,7 @@ function configureUpdater(): void {
   autoUpdater.logger = console;
 
   autoUpdater.on('update-available', (info) => {
+    pendingVersion = info.version;
     broadcast('app:update-available', { version: info.version });
 
     if (process.platform === 'darwin') {
@@ -67,7 +86,7 @@ function configureUpdater(): void {
       macDmgPath = dest;
       let cumulative = 0;
       httpDownload(
-        dmgFile.url,
+        resolveMacDmgUrl(info, dmgFile.url),
         dest,
         (delta, total) => {
           cumulative += delta;
@@ -89,7 +108,7 @@ function configureUpdater(): void {
   autoUpdater.on('download-progress', (progress) => {
     if (process.platform === 'win32') {
       broadcast('app:update-win-progress', {
-        version: autoUpdater.updateInfo?.version,
+        version: pendingVersion ?? undefined,
         downloaded: progress.transferred,
         total: progress.total,
       });
@@ -98,6 +117,7 @@ function configureUpdater(): void {
 
   autoUpdater.on('update-downloaded', (info) => {
     if (process.platform === 'win32') {
+      pendingVersion = info.version;
       broadcast('app:update-win-ready', { version: info.version });
     }
   });

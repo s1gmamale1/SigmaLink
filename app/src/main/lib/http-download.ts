@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
-import type { IncomingMessage } from 'node:http';
 
 /**
  * Atomic download with redirect following and progress reporting.
@@ -22,25 +21,40 @@ export async function download(
 
   return new Promise((resolve, reject) => {
     const out = fs.createWriteStream(partPath);
+    let settled = false;
+
+    function removePartFile(): void {
+      fs.rmSync(partPath, { force: true });
+    }
+
+    function fail(err: Error): void {
+      if (settled) return;
+      settled = true;
+      out.close();
+      removePartFile();
+      reject(err);
+    }
+
+    out.on('error', (err) => {
+      fail(err);
+    });
     
     function requestFollowing(currentUrl: string, depth: number) {
       if (depth > 5) {
-        reject(new Error('Too many redirects'));
+        fail(new Error('Too many redirects'));
         return;
       }
 
       const req = https.get(currentUrl, { headers }, (res) => {
         if (res.statusCode && [301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
           res.resume();
-          requestFollowing(res.headers.location, depth + 1);
+          requestFollowing(new URL(res.headers.location, currentUrl).href, depth + 1);
           return;
         }
 
         if (res.statusCode !== 200) {
           res.resume();
-          out.close();
-          fs.unlinkSync(partPath);
-          reject(new Error(`HTTP ${res.statusCode} downloading ${currentUrl}`));
+          fail(new Error(`HTTP ${res.statusCode} downloading ${currentUrl}`));
           return;
         }
 
@@ -59,39 +73,31 @@ export async function download(
         });
 
         res.on('error', (err) => {
-          out.close();
-          fs.unlinkSync(partPath);
-          reject(err);
+          fail(err);
         });
 
         res.pipe(out);
         
         out.on('finish', () => {
+          if (settled) return;
           out.close();
           try {
             fs.renameSync(partPath, destPath);
+            settled = true;
             resolve({ bytes });
           } catch (err) {
-            reject(err);
+            fail(err instanceof Error ? err : new Error(String(err)));
           }
-        });
-
-        out.on('error', (err) => {
-          out.close();
-          fs.unlinkSync(partPath);
-          reject(err);
         });
       });
 
       req.on('error', (err) => {
-        out.close();
-        fs.unlinkSync(partPath);
-        reject(err);
+        fail(err);
       });
       
       req.setTimeout(30000, () => {
         req.destroy();
-        reject(new Error('Download timeout'));
+        fail(new Error('Download timeout'));
       });
     }
 
