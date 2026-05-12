@@ -4,6 +4,15 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-05-12
+
+No code changes. Re-tag from current main so the macOS release workflow (merged in PR #4 after v1.2.2 was tagged) builds + attaches the DMG + `latest-mac.yml` to the same Release as the Windows EXE. Restores the auto-update channel manifest that has been missing from every Mac release since v1.1.4.
+
+### CI / Distribution
+
+- **`.github/workflows/release-macos.yml`** (Kimi, PR #4) now active for tag pushes. v1.2.3 is the first release to attach all four macOS artefacts: `*.dmg`, `*.dmg.blockmap`, `*.zip`, `latest-mac.yml`.
+- v1.2.2 Release on GitHub has the Windows EXE only; for macOS auto-update to start working, opted-in macOS users need to manually install v1.2.3 once. From v1.2.3 onwards `electron-updater` can resolve `latest-mac.yml` from GitHub Releases.
+
 ## [1.2.2] - 2026-05-12
 
 Two-part Windows hotfix that closes both ends of the v1.2.0 install path.
