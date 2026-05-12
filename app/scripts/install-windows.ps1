@@ -68,14 +68,15 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
 # -- arch gate ----------------------------------------------------------------
 
 $Arch = $env:PROCESSOR_ARCHITECTURE
-if ($Arch -ne 'AMD64') {
+# Windows 11 ARM64 can run x64 apps via emulation; allow it to pass the gate.
+if ($Arch -ne 'AMD64' -and $Arch -ne 'ARM64') {
     Write-Host ""
-    Write-Host "x Only Windows x64 (AMD64) is supported in v1.2.0. Detected: $Arch" -ForegroundColor Red
-    Write-Host "  ARM64 and x86 builds are tracked for a future release." -ForegroundColor Yellow
+    Write-Host "x Only Windows x64 (AMD64) and ARM64 are supported. Detected: $Arch" -ForegroundColor Red
+    Write-Host "  x86 (32-bit) builds are not planned." -ForegroundColor Yellow
     Write-Host "  Please open or follow an issue at: $IssuesUrl" -ForegroundColor Yellow
     exit 2
 }
-Write-Host "-> Architecture: $Arch (x64)"
+Write-Host "-> Architecture: $Arch"
 
 # TLS 1.2 is required for github.com on older Windows PowerShell 5.1 hosts.
 try {
@@ -83,6 +84,13 @@ try {
         [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 } catch {
     # Best-effort; newer hosts already default to TLS 1.2+.
+}
+
+# -- admin check --------------------------------------------------------------
+
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "-> Note: Installer may prompt for Administrator privileges (UAC)." -ForegroundColor Yellow
 }
 
 # -- resolve release ----------------------------------------------------------
@@ -95,10 +103,14 @@ if ([string]::IsNullOrWhiteSpace($Tag)) {
             -UseBasicParsing `
             -Headers @{ 'User-Agent' = 'SigmaLink-Installer' }
     } catch {
-        Write-Host "x Failed to fetch latest release from GitHub API." -ForegroundColor Red
-        Write-Host "  Possible cause: rate-limit (anonymous quota is 60/hr/IP) or no network." -ForegroundColor Yellow
-        Write-Host "  Workaround: pass -Version <tag>, e.g. -Version v1.2.0" -ForegroundColor Yellow
-        Write-Host "  Underlying error: $($_.Exception.Message)" -ForegroundColor Yellow
+        $statusCode = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+        if ($statusCode -eq 403) {
+            Write-Host "x GitHub API rate limit exceeded (anonymous quota is 60/hr/IP)." -ForegroundColor Red
+            Write-Host "  Please try again in an hour, or pass a specific version if you have the tag." -ForegroundColor Yellow
+        } else {
+            Write-Host "x Failed to fetch latest release from GitHub API: $($_.Exception.Message)" -ForegroundColor Red
+        }
+        Write-Host "  Workaround: pass -Version <tag>, e.g. -Version v1.2.1" -ForegroundColor Yellow
         exit 3
     }
     $Tag = $release.tag_name
@@ -124,22 +136,33 @@ Write-Host "-> Target release: $Tag"
 
 # -- pick asset ---------------------------------------------------------------
 
-# electron-builder NSIS default artefact name is SigmaLink-Setup-<version>.exe.
-# electron-builder.yml does not override `artifactName`, so we match that
-# pattern. Reject any .blockmap or unrelated assets.
+# electron-builder NSIS default artefact name can vary between:
+#   SigmaLink-Setup-<version>.exe
+#   SigmaLink.Setup.<version>.exe
 $asset = $null
 foreach ($candidate in $release.assets) {
-    if ($candidate.name -like 'SigmaLink-Setup-*.exe' -and $candidate.name -notlike '*.blockmap') {
+    # Match various separators and ensure we skip blockmaps. 
+    # Use -match (regex) for robustness against . or - separators.
+    if ($candidate.name -match "^SigmaLink[-.]Setup[-.](.*)\.exe$" -and $candidate.name -notlike "*.blockmap") {
         $asset = $candidate
         break
+    }
+}
+
+# Fallback: find any .exe that looks like an installer if "Setup" is missing
+if (-not $asset) {
+    foreach ($candidate in $release.assets) {
+        if ($candidate.name -match "^SigmaLink[-.](.*)\.exe$" -and $candidate.name -notlike "*.blockmap") {
+            $asset = $candidate
+            break
+        }
     }
 }
 
 if (-not $asset) {
     Write-Host "x No matching Windows installer asset found on release $Tag." -ForegroundColor Red
     Write-Host "  Expected an asset named like 'SigmaLink-Setup-<version>.exe'." -ForegroundColor Yellow
-    Write-Host "  If this is the first Windows release, it may not be uploaded yet." -ForegroundColor Yellow
-    Write-Host "  Browse: https://github.com/$Repo/releases/tag/$Tag" -ForegroundColor Yellow
+    Write-Host "  Browse release assets: https://github.com/$Repo/releases/tag/$Tag" -ForegroundColor Yellow
     exit 4
 }
 
@@ -155,11 +178,15 @@ if (Test-Path $ExePath) {
 }
 
 Write-Host "-> Downloading to $ExePath ..."
-# ProgressPreference = 'Continue' keeps the built-in PowerShell progress bar
-# visible. On PS 5.1 Invoke-WebRequest is dramatically faster when progress
-# is suppressed, but we leave it on so the user sees a download signal.
+# On PS 5.1 Invoke-WebRequest is dramatically faster when progress is suppressed.
+# We'll show a simple "..." message instead of the heavy progress bar.
 $progressBefore = $ProgressPreference
-$ProgressPreference = 'Continue'
+if ($PSVersionTable.PSVersion.Major -le 5) {
+    $ProgressPreference = 'SilentlyContinue'
+} else {
+    $ProgressPreference = 'Continue'
+}
+
 try {
     Invoke-WebRequest -Uri $ExeUrl -OutFile $ExePath -UseBasicParsing `
         -Headers @{ 'User-Agent' = 'SigmaLink-Installer' }
