@@ -95,7 +95,10 @@ describe('PaneHeader', () => {
         onClose={() => undefined}
       />,
     );
-    const focusBtn = screen.getByRole('button', { name: 'Focus pane' });
+    // v1.2.5 — Focus button relabelled to honestly describe what it does
+    // (pin the focus ring, not fullscreen the pane). Aria-label + tooltip
+    // now read "Pin focus ring (Cmd+Alt+N)".
+    const focusBtn = screen.getByRole('button', { name: 'Pin focus ring (Cmd+Alt+N)' });
     fireEvent.click(focusBtn);
     expect(onFocus).toHaveBeenCalledTimes(1);
   });

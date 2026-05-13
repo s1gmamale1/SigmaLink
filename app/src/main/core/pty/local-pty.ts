@@ -303,8 +303,18 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
   return {
     pid: proc.pid,
     write: (d) => proc.write(d),
-    resize: (cols, rows) =>
-      proc.resize(Math.max(20, cols | 0), Math.max(5, rows | 0)),
+    resize: (cols, rows) => {
+      // node-pty throws `Error: ioctl(2) failed, EBADF` if the underlying file
+      // descriptor was already closed (e.g. a pane that exited during the
+      // 200ms graceful-exit window, then the renderer's ResizeObserver fires
+      // one last time). Swallow silently like `kill` below — the IPC layer
+      // would otherwise surface it as a red toast for an already-dead pane.
+      try {
+        proc.resize(Math.max(20, cols | 0), Math.max(5, rows | 0));
+      } catch (err) {
+        console.warn('[pty] resize on dead handle ignored:', err);
+      }
+    },
     kill: () => {
       try {
         proc.kill();

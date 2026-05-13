@@ -147,6 +147,68 @@ describe('PtyRegistry.forget()', () => {
   });
 });
 
+describe('PtyRegistry.resize()', () => {
+  // v1.2.5 — fast-exit panes (e.g. Kimi spawn → ENOENT → exit within the
+  // 200ms graceful-exit window) used to surface "ioctl(2) failed, EBADF" as
+  // a red toast when the renderer's ResizeObserver fired one last call into
+  // a dead handle. The registry now short-circuits on `!alive`, and the
+  // PtyHandle's `resize` wraps node-pty in try/catch as a belt-and-braces
+  // guard. These cases lock in the contract: never throw.
+  it('is a no-op when the session has already exited (alive=false)', () => {
+    const pty = makeFakePty(FAKE_PID);
+    const resizeSpy = vi.fn();
+    pty.resize = resizeSpy;
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+    // Simulate the post-exit grace window: the registry record still exists
+    // but the underlying PTY fd is closed.
+    sess.alive = false;
+    expect(() => registry.resize(sess.id, 100, 30)).not.toThrow();
+    expect(resizeSpy).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when called with an unknown id', () => {
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    expect(() => registry.resize('does-not-exist', 80, 24)).not.toThrow();
+  });
+
+  it('forwards to pty.resize while the session is alive', () => {
+    const pty = makeFakePty(FAKE_PID);
+    const resizeSpy = vi.fn();
+    pty.resize = resizeSpy;
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+    registry.resize(sess.id, 120, 40);
+    expect(resizeSpy).toHaveBeenCalledTimes(1);
+    expect(resizeSpy).toHaveBeenCalledWith(120, 40);
+  });
+});
+
 describe('PtyRegistry.killAll()', () => {
   it('uses ONE 5s timer regardless of session count', () => {
     // Spawn 4 fake sessions.

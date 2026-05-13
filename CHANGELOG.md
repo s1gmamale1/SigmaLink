@@ -4,6 +4,34 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-05-13
+
+Post-install bug-fix wave from a real-user DMG report on v1.2.4. The user installed the macOS DMG via the curl one-liner and hit 6 visible symptoms — 4 of which traced to a single root cause (Playwright MCP supervisor never starting in packaged builds).
+
+### Fixed
+
+- **Playwright browser MCP supervisor now starts in packaged builds.** Root cause was double: (a) `@playwright/mcp` was in `devDependencies` so electron-builder excluded it from the DMG; (b) Finder-launched Electron has minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), so the `npx @playwright/mcp` fallback hit ENOENT. Fix: moved the package to `dependencies` AND added a new `bootstrapNodeToolPath()` helper at boot that prepends `/opt/homebrew/bin`, `/usr/local/bin`, `~/.volta/bin`, and `~/.nvm/versions/node/*/bin` to `process.env.PATH` on macOS/Linux. Closes "MCP client for `browser` failed to start" in every CLI pane and the Ruflo readiness pill staying red.
+- **`ioctl(2) failed, EBADF — pty.resize` toast no longer fires** when a pane exits within the 200ms graceful-exit window. Triple defense: renderer's ResizeObserver disconnects on `pty:exit` event, registry checks `session.alive` before forwarding the resize, and `local-pty.ts` wraps `proc.resize()` in try/catch (matching the existing `kill` idiom). Surfaces when Kimi or any provider exits immediately (e.g. CLI not installed).
+- **`+ Pane` button now shows a tooltip explaining why it's disabled.** Four cases: no active workspace, swarm paused, max 20 panes, mid-add-in-flight. Uses Radix Tooltip with the `<span tabIndex={0}>` wrapper pattern for disabled-button tooltips.
+- **Empty workspaces sidebar now renders a helpful empty state** with a "+" CTA, and workspace rows with no name fall back to "Untitled workspace" + the root path basename as a subtitle. Previously the panel was visually empty even with an active workspace if the name field was blank.
+- **`Focus` pane icon honestly relabeled.** Was `Maximize2` with no fullscreen implementation — user expected pane to expand, nothing happened. Now `Target` icon with tooltip "Pin focus ring (Cmd+Alt+N)" — accurately describes what it does today (sets the active-session focus ring). True fullscreen is queued for v1.3 alongside the Split + Minimise functional implementations.
+
+### Added
+
+- **`app:browser-mcp-failed` IPC event** + supervisor error broadcast. When the Playwright supervisor fails (spawn ENOENT, port-binding timeout, restart-budget exhausted), the main process broadcasts `{ workspaceId, error, fallbackTried }` to the renderer. RufloReadinessPill subscribes and forces an "unavailable" state with the explanation in the tooltip: "Browser MCP unavailable — see Settings for fix steps."
+- **5 new vitest cases** — 3 in `registry.test.ts` (resize on dead/unknown/live sessions), 2 in `WorkspacesPanel.test.tsx` (empty state CTA, name fallback). Total now 215/215.
+- **`docs/03-plan/v1.2.5-postinstall-regressions.md`** — implementation plan with risk register, 4-agent swarm coordination, and verification checklist.
+
+### Changed
+
+- **`@playwright/mcp` moved from `devDependencies` to `dependencies`** in `app/package.json` so electron-builder includes it in packaged builds. Lockfile diff is classification-only (the package was already resolved).
+- **`docs/08-bugs/BACKLOG.md`** — added a v1.3 row: "Pane Focus → true fullscreen" (Target glyph today only pins focus ring; want sibling-hide + Esc-restore).
+
+### Known limitations (not blockers)
+
+- Kimi npm package name still unverified upstream. If users don't have `kimi` on PATH, the pane spawn now fails cleanly (no EBADF toast) but the pane still won't function. Install hint in the Kimi provider entry points users at moonshot.ai.
+- Workspaces sidebar empty-state may also reflect a fresh install with no prior data — the user's screenshot did show an active workspace in the top bar, so the underlying state was fine; the v1.2.5 fix just makes the rendering more forgiving.
+
 ## [1.2.4] - 2026-05-13
 
 Three independent fixes shipped in one release:

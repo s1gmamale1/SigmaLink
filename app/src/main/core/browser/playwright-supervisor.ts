@@ -40,6 +40,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createRequire } from 'node:module';
 import net from 'node:net';
 import path from 'node:path';
+import { BrowserWindow } from 'electron';
 
 interface SupervisedEntry {
   workspaceId: string;
@@ -79,6 +80,48 @@ function resolveBundledMcpCli(): string | null {
   return cachedBundledCli;
 }
 
+/**
+ * v1.2.5 — surface supervisor failures to the renderer.
+ *
+ * The pre-v1.2.5 supervisor silently swallowed spawn ENOENTs (when both the
+ * bundled `@playwright/mcp` AND the `npx` fallback failed) and treated the
+ * 4s port-readiness timeout as a non-fatal hint. The result: the Ruflo
+ * readiness pill stayed red, every CLI pane spammed "MCP client for
+ * `browser` failed to start", and the user had no clue what failed.
+ *
+ * This helper broadcasts an `app:browser-mcp-failed` event with a
+ * structured payload so the renderer can render a clear error state and
+ * the user knows where to look. Channel allowlist is enforced in
+ * `rpc-channels.ts`.
+ *
+ * Pattern adapted from `electron/auto-update.ts:42` (the `broadcast`
+ * helper). We iterate every live BrowserWindow because the supervisor has
+ * no handle on the active mainWindow — callers in main register the
+ * supervisor at boot, well before the window is created in some races.
+ */
+function broadcastSupervisorError(
+  workspaceId: string,
+  error: Error | string,
+  fallbackTried: boolean,
+): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(
+    `[playwright-mcp] supervisor failed: workspace=${workspaceId} fallbackTried=${fallbackTried} error=${message}`,
+  );
+  try {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed()) continue;
+      window.webContents.send('app:browser-mcp-failed', {
+        workspaceId,
+        error: message,
+        fallbackTried,
+      });
+    }
+  } catch {
+    /* never let an IPC broadcast tear down the supervisor itself */
+  }
+}
+
 export class PlaywrightMcpSupervisor {
   private readonly entries = new Map<string, SupervisedEntry>();
 
@@ -115,7 +158,25 @@ export class PlaywrightMcpSupervisor {
     // Best-effort readiness probe — never longer than 4s. If the child fails
     // to bind in time we still return the URL so the caller can write the
     // config; the supervisor will keep retrying via scheduleRestart().
-    await waitForPortListening(port, 4000).catch(() => undefined);
+    //
+    // v1.2.5 — surface the timeout to the renderer. Pre-v1.2.5 we swallowed
+    // the error completely; the user only saw "MCP client for `browser`
+    // failed to start" downstream in each CLI pane with no indication of
+    // *why*. broadcastSupervisorError lets RufloReadinessPill stay red
+    // honestly and the Settings panel can later point to the cause.
+    try {
+      await waitForPortListening(port, 4000);
+    } catch (err) {
+      // Only broadcast if the child genuinely isn't up — if a spawn error
+      // already fired we'd be double-emitting, but the renderer dedupes on
+      // the message anyway and the second emit confirms the failure.
+      const fallbackTried = resolveBundledMcpCli() === null;
+      broadcastSupervisorError(
+        workspaceId,
+        err instanceof Error ? err : new Error(String(err)),
+        fallbackTried,
+      );
+    }
     return url;
   }
 
@@ -149,6 +210,10 @@ export class PlaywrightMcpSupervisor {
     if (entry.shuttingDown) return;
     const isWin = process.platform === 'win32';
     const bundled = resolveBundledMcpCli();
+    // v1.2.5 — track whether we're on the fallback path so the broadcast
+    // payload can tell the renderer "we tried both and failed" vs "the
+    // bundled CLI threw — the fallback hasn't been exercised yet."
+    const usingFallback = bundled === null;
     let cmd: string;
     let args: string[];
     if (bundled) {
@@ -176,6 +241,17 @@ export class PlaywrightMcpSupervisor {
       });
     } catch (err) {
       entry.lastError = err instanceof Error ? err.message : String(err);
+      // v1.2.5 — surface synchronous spawn failures (ENOENT on `npx` when
+      // PATH is truncated, EACCES on a chmod 000 cli.js, etc.) so the
+      // renderer knows the supervisor is dead before scheduleRestart
+      // backs off. `fallbackTried` = true iff we're already on the npx
+      // path — the bundled path threw or wasn't resolvable, AND now npx
+      // also failed.
+      broadcastSupervisorError(
+        entry.workspaceId,
+        err instanceof Error ? err : new Error(String(err)),
+        usingFallback,
+      );
       this.scheduleRestart(entry);
       return;
     }
@@ -191,11 +267,21 @@ export class PlaywrightMcpSupervisor {
     });
     child.on('error', (err: Error) => {
       entry.lastError = err.message;
+      // v1.2.5 — async spawn errors (ENOENT delivered after spawn returns)
+      // also need to surface to the renderer. Same fallback flag as the
+      // sync path above.
+      broadcastSupervisorError(entry.workspaceId, err, usingFallback);
     });
     child.on('exit', (code, signal) => {
       entry.child = null;
       if (entry.shuttingDown) return;
       entry.lastError = `exit code=${code ?? 'null'} signal=${signal ?? 'null'} stderr=${stderrBuf.slice(-400)}`;
+      // Only broadcast on terminal failure (restart budget exhausted). The
+      // first 2 restarts are normal supervisor recovery and we'd rather
+      // not spam the renderer with transient blips.
+      if (entry.restarts + 1 >= MAX_RESTARTS) {
+        broadcastSupervisorError(entry.workspaceId, entry.lastError, usingFallback);
+      }
       this.scheduleRestart(entry);
     });
   }

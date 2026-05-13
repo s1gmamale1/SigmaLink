@@ -2,6 +2,8 @@
 // Window lifecycle + delegate every IPC channel to the typed RPC router.
 
 import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
@@ -73,6 +75,65 @@ function bootstrapShellPath(): void {
     /* shell may be missing or hang — keep the truncated PATH so probe-vs-
        launch parity remains predictable rather than silently degrade */
   }
+}
+
+// v1.2.5 — synchronous Node-tooling PATH bootstrap. Even after
+// `bootstrapShellPath()` succeeds we still see cases where the spawned
+// shell did not expose the user's actual Node install dir (e.g. fresh
+// install with no `.zshrc`, Volta/nvm not auto-sourced). The Playwright
+// MCP supervisor's `npx` fallback at `playwright-supervisor.ts:167` then
+// ENOENTs and the failure is invisible. This helper prepends the
+// well-known Node tool dirs without spawning a shell so it is safe to run
+// regardless of the user's shell config. On win32 we no-op — Windows
+// applies its own PATH resolution rules and the launcher already has the
+// user's full env.
+export function bootstrapNodeToolPath(): void {
+  if (process.platform === 'win32') return;
+
+  const home = os.homedir();
+  const candidates: string[] = [];
+
+  if (process.platform === 'darwin') {
+    candidates.push('/opt/homebrew/bin', '/usr/local/bin');
+  } else if (process.platform === 'linux') {
+    candidates.push('/usr/local/bin');
+  }
+
+  // Volta — single bin dir, all shims live there.
+  candidates.push(path.join(home, '.volta', 'bin'));
+
+  // nvm — one bin dir per installed Node version. Enumerate every
+  // `~/.nvm/versions/node/<v>/bin` that actually exists so the supervisor's
+  // `npx` shells out to the user's Node, not a stale system one.
+  try {
+    const nvmRoot = path.join(home, '.nvm', 'versions', 'node');
+    if (fs.existsSync(nvmRoot)) {
+      const entries = fs.readdirSync(nvmRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const binDir = path.join(nvmRoot, entry.name, 'bin');
+        if (fs.existsSync(binDir)) candidates.push(binDir);
+      }
+    }
+  } catch {
+    /* nvm not installed or unreadable — skip without surfacing */
+  }
+
+  const existing = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  // Prepend the candidates first so /opt/homebrew/bin/npx wins over any
+  // truncated /usr/bin/npx shim that might also exist.
+  for (const entry of [...candidates, ...existing]) {
+    if (!entry) continue;
+    if (seen.has(entry)) continue;
+    // Skip non-existent candidates to keep the merged PATH lean — saves a
+    // few stat calls per child-process spawn downstream.
+    if (candidates.includes(entry) && !fs.existsSync(entry)) continue;
+    seen.add(entry);
+    merged.push(entry);
+  }
+  process.env.PATH = merged.join(path.delimiter);
 }
 
 // Native-module self-check. Catches the dominant install-time failure mode:
@@ -346,6 +407,12 @@ void app.whenReady().then(() => {
   // process before any provider PTY spawns, so DMG-launched apps can find
   // /opt/homebrew/bin/claude etc. No-op on Win/Linux + dev server.
   bootstrapShellPath();
+
+  // v1.2.5 — synchronous Node-tool PATH augmentation. Belt-and-braces to
+  // `bootstrapShellPath()`: makes sure `/opt/homebrew/bin`, Volta, and
+  // every installed nvm Node bin dir are on PATH before the Playwright
+  // MCP supervisor's `npx @playwright/mcp` fallback spawns.
+  bootstrapNodeToolPath();
 
   const checks = checkNativeModules();
   if (checks.some((c) => !c.ok)) {

@@ -108,8 +108,11 @@ describe('<WorkspacesPanel />', () => {
     expect(activeRow?.contains(closeButtons[0]!)).toBe(true);
   });
 
-  it('renders an empty-state message when no workspaces are open', () => {
-    const { queryAllByTestId, getByText } = render(
+  it('renders an empty-state placeholder + CTA when no workspaces are open', () => {
+    // v1.2.5 — the empty state was upgraded from a one-line "No workspaces
+    // open." string to a centred placeholder with an icon + "Open workspace"
+    // CTA, matching the EmptyState idiom used elsewhere in the app.
+    const { queryAllByTestId, getByText, getByTestId } = render(
       <WorkspacesPanel
         workspaces={[]}
         persistedWorkspaces={[]}
@@ -122,6 +125,40 @@ describe('<WorkspacesPanel />', () => {
       />,
     );
     expect(queryAllByTestId('workspace-row')).toHaveLength(0);
-    expect(getByText('No workspaces open.')).toBeTruthy();
+    expect(getByTestId('workspaces-empty')).toBeTruthy();
+    expect(getByText('No workspaces yet')).toBeTruthy();
+    expect(getByTestId('workspaces-empty-cta')).toBeTruthy();
+  });
+
+  it('falls back to "Untitled workspace" when the workspace record has no name', () => {
+    const { getByText } = render(
+      <WorkspacesPanel
+        workspaces={[workspace('a', { name: '' })]}
+        persistedWorkspaces={[]}
+        sessions={[]}
+        activeId="a"
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+      />,
+    );
+    expect(getByText('Untitled workspace')).toBeTruthy();
+  });
+
+  it('renders the root-path basename as a subtitle under the workspace name', () => {
+    const { getByTestId } = render(
+      <WorkspacesPanel
+        workspaces={[workspace('a', { name: 'My Project', rootPath: '/Users/me/projects/sigmalink' })]}
+        persistedWorkspaces={[]}
+        sessions={[]}
+        activeId="a"
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+      />,
+    );
+    expect(getByTestId('workspace-subtitle').textContent).toBe('sigmalink');
   });
 });

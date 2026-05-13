@@ -158,13 +158,6 @@ export function SessionTerminal({ sessionId, className }: Props) {
     const offData = subscribePtyData(sessionId, (payload) => {
       term.write(payload.data);
     });
-    const offExit = window.sigma.eventOn('pty:exit', (raw: unknown) => {
-      if (!isPtyExitPayload(raw)) return;
-      if (raw.sessionId === sessionId) {
-        const code = typeof raw.exitCode === 'number' ? raw.exitCode : -1;
-        term.write(`\r\n\x1b[2;90m[session exited code=${code}]\x1b[0m\r\n`);
-      }
-    });
 
     // 2) Pull historical buffer atomically. Any data emitted during this await
     //    will reach us via the live listener attached above, so ordering is
@@ -189,8 +182,14 @@ export function SessionTerminal({ sessionId, className }: Props) {
     let lastRows = term.rows;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let didFirstFit = false;
+    // v1.2.5 — once the PTY has exited we disconnect the ResizeObserver so
+    // it can't forward another `pty.resize` IPC into a closed file
+    // descriptor. ptyExited is a belt-and-braces guard for any in-flight
+    // observer callback that has already been scheduled when disconnect()
+    // is called.
+    let ptyExited = false;
     const runFit = () => {
-      if (disposed) return;
+      if (disposed || ptyExited) return;
       try {
         fit.fit();
       } catch {
@@ -204,6 +203,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
       }
     };
     const ro = new ResizeObserver((entries) => {
+      if (ptyExited) return;
       const entry = entries[0];
       if (!entry) return;
       const { width, height } = entry.contentRect;
@@ -217,6 +217,30 @@ export function SessionTerminal({ sessionId, className }: Props) {
       resizeTimer = setTimeout(runFit, 25);
     });
     ro.observe(container);
+
+    // v1.2.5 — subscribe to `pty:exit` for this session. When the underlying
+    // PTY exits (e.g. Kimi spawn → ENOENT → exit within 200ms), disconnect
+    // the ResizeObserver so any pending callback or container size change
+    // does not forward a resize into a dead handle. The main process also
+    // short-circuits via `registry.resize` + try/catch in `local-pty.ts`;
+    // this is the renderer's contribution to defense-in-depth.
+    const offExit = window.sigma.eventOn('pty:exit', (raw: unknown) => {
+      if (!isPtyExitPayload(raw)) return;
+      if (raw.sessionId === sessionId) {
+        ptyExited = true;
+        if (resizeTimer) {
+          clearTimeout(resizeTimer);
+          resizeTimer = null;
+        }
+        try {
+          ro.disconnect();
+        } catch {
+          /* observer may already be disconnected — ignore */
+        }
+        const code = typeof raw.exitCode === 'number' ? raw.exitCode : -1;
+        term.write(`\r\n\x1b[2;90m[session exited code=${code}]\x1b[0m\r\n`);
+      }
+    });
 
     // V3-W13-015 — listen for cross-workspace jump-to-pane events the
     // BridgeRoom dispatches when a Bridge-spawned pane finishes. Only the

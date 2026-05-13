@@ -293,6 +293,13 @@
 - **Effort**: M (~1d each).
 - **Risk**: Med — pane grid layout already complex; splitting needs sub-grid; minimise needs collapse-to-chip animation + state slice.
 
+### Pane Focus → true fullscreen
+- **Surface**: PaneHeader Focus icon (Target glyph).
+- **Today**: clicking pins the focus ring on the active session; does NOT expand the pane to fill the grid.
+- **Want**: clicking hides sibling panes and expands the active pane to fullscreen with Esc to restore. Same behaviour as `Cmd+Shift+F` keyboard shortcut.
+- **Effort**: M (~1d) — needs a new `focusedPaneId` state in CommandRoom, sibling-hide CSS, Esc handler.
+- **Defer to**: v1.3 alongside Split + Minimise functional implementations.
+
 ### Notifications system + bell in top-right
 - **Surface**: top-right corner of Breadcrumb (v1.1.4 deferred). V3 BridgeMind showed a bell next to the settings gear; SigmaLink doesn't have one because no notification source exists yet.
 - **Required first**: define what generates notifications (PTY exits? swarm broadcasts? Ruflo readiness changes? Sigma Assistant tool errors?). Then surface (bell badge → dropdown of recent items).

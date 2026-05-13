@@ -23,6 +23,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
@@ -35,6 +41,27 @@ import type { AgentSession, Swarm } from '@/shared/types';
 
 const EMPTY_SESSIONS: AgentSession[] = [];
 const EMPTY_SWARMS: Swarm[] = [];
+
+// v1.2.5 Step 3 — derive the human-readable reason why "+ Pane" is disabled.
+// Returns `null` when the button is either enabled OR mid-flight (no tooltip
+// during the in-flight `adding` window — the dropdown is closing anyway and
+// flashing a reason would be noise). Keep this in lock-step with the
+// `disabled` prop on the trigger so a user-visible reason never falls out of
+// sync with the actual disable logic.
+function getAddPaneDisabledReason(
+  activeSwarm: Swarm | null,
+  adding: boolean,
+): string | null {
+  if (adding) return null;
+  if (!activeSwarm) return 'Open or create a workspace first';
+  if (activeSwarm.status !== 'running') {
+    return 'Swarm is paused — resume it to add panes';
+  }
+  if (activeSwarm.agents.length >= 20) {
+    return `Maximum 20 panes per swarm (current: ${activeSwarm.agents.length})`;
+  }
+  return null;
+}
 
 export function CommandRoom() {
   const dispatch = useAppDispatch();
@@ -57,6 +84,10 @@ export function CommandRoom() {
       : null;
     return selected ?? workspaceSwarms.find((s) => s.status === 'running') ?? null;
   }, [activeSwarmId, activeWorkspace, workspaceSwarms]);
+
+  // v1.2.5 Step 3 — `null` when "+ Pane" is enabled; otherwise the reason
+  // surfaced via tooltip on hover so the disabled button stops looking broken.
+  const disabledReason = getAddPaneDisabledReason(activeSwarm, adding);
 
   useEffect(() => {
     let alive = true;
@@ -196,21 +227,43 @@ export function CommandRoom() {
           {sessions.length} {sessions.length === 1 ? 'agent' : 'agents'}
         </div>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={
-                adding ||
-                !activeSwarm ||
-                activeSwarm.status !== 'running' ||
-                activeSwarm.agents.length >= 20
-              }
-              className="ml-1 h-7 gap-1 px-2 text-xs"
-            >
-              <Plus className="h-3.5 w-3.5" /> Pane
-            </Button>
-          </DropdownMenuTrigger>
+          {disabledReason ? (
+            // v1.2.5 Step 3 — when disabled, surface the reason via tooltip.
+            // The <span tabIndex={0}> wrapper is the standard Radix pattern
+            // for triggering tooltips on disabled buttons (disabled elements
+            // don't fire mouse events). The DropdownMenuTrigger still wraps
+            // the Button so the disabled-state styling stays consistent.
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} className="ml-1 inline-flex">
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        className="h-7 gap-1 px-2 text-xs"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Pane
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{disabledReason}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={adding}
+                className="ml-1 h-7 gap-1 px-2 text-xs"
+              >
+                <Plus className="h-3.5 w-3.5" /> Pane
+              </Button>
+            </DropdownMenuTrigger>
+          )}
           <DropdownMenuContent align="start">
             {providers.map((provider) => (
               <DropdownMenuItem

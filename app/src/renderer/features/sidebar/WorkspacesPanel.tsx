@@ -16,7 +16,7 @@
 // needing to add a `color` column to the Workspace record.
 
 import { useMemo } from 'react';
-import { ChevronDown, Folder, Plus, X } from 'lucide-react';
+import { ChevronDown, Folder, FolderPlus, Plus, X } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,6 +46,16 @@ const STATUS_RING: Record<WorkspaceStatusKind, string> = {
   error: 'ring-amber-500',
   idle: 'ring-zinc-600',
 };
+
+// Tiny basename helper — avoids pulling `path` into the renderer bundle.
+// Handles both POSIX (`/`) and Windows (`\`) separators and strips trailing
+// slashes so `/Users/me/projects/sigmalink/` still yields `sigmalink`.
+function basenameOf(rootPath: string | null | undefined): string {
+  if (!rootPath) return '';
+  const trimmed = rootPath.replace(/[\\/]+$/, '');
+  const match = trimmed.match(/[^\\/]+$/);
+  return match ? match[0] : trimmed;
+}
 
 export function WorkspacesPanel({
   workspaces,
@@ -139,7 +149,31 @@ export function WorkspacesPanel({
         data-testid="workspaces-list"
       >
         {workspaces.length === 0 ? (
-          <div className="px-2 py-3 text-[12px] text-muted-foreground">No workspaces open.</div>
+          <div
+            className="flex flex-col items-center justify-center gap-3 px-4 py-8 text-center"
+            data-testid="workspaces-empty"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="grid h-9 w-9 place-items-center rounded-full border border-border bg-muted/30">
+              <Folder className="h-4 w-4 text-muted-foreground" aria-hidden />
+            </div>
+            <div className="text-[12px] font-medium text-foreground">No workspaces yet</div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  aria-label="Open workspace"
+                  data-testid="workspaces-empty-cta"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" aria-hidden />
+                  Open workspace
+                </button>
+              </DropdownMenuTrigger>
+              {pickerMenu}
+            </DropdownMenu>
+          </div>
         ) : (
           workspaces.map((ws) => {
             const status = byWorkspace.get(ws.id) ?? {
@@ -148,6 +182,13 @@ export function WorkspacesPanel({
             };
             const isActive = ws.id === activeId;
             const colour = workspaceColor(ws.id);
+            // Fall back to a deterministic placeholder when the workspace
+            // record has no name set — without this, rows can render as a
+            // single dot + count badge with no readable label, which looks
+            // like an empty sidebar to the user (v1.2.5 regression report).
+            const displayName = ws.name?.trim() ? ws.name : 'Untitled workspace';
+            // Subtitle = basename of the root path. Tolerates trailing slash.
+            const subtitle = basenameOf(ws.rootPath);
             return (
               <div
                 key={ws.id}
@@ -155,7 +196,7 @@ export function WorkspacesPanel({
                 data-workspace-id={ws.id}
                 data-active={isActive ? 'true' : undefined}
                 className={cn(
-                  'group flex h-9 items-center rounded-md text-sm transition',
+                  'group flex min-h-9 items-center rounded-md text-sm transition',
                   isActive
                     ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                     : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
@@ -177,7 +218,22 @@ export function WorkspacesPanel({
                       STATUS_RING[status.kind],
                     )}
                   />
-                  <span className="flex-1 truncate text-left text-[13px]">{ws.name}</span>
+                  <span className="flex min-w-0 flex-1 flex-col text-left">
+                    <span
+                      data-testid="workspace-name"
+                      className="truncate text-[13px] leading-tight"
+                    >
+                      {displayName}
+                    </span>
+                    {subtitle && subtitle !== displayName ? (
+                      <span
+                        data-testid="workspace-subtitle"
+                        className="truncate text-[10px] leading-tight text-muted-foreground/80"
+                      >
+                        {subtitle}
+                      </span>
+                    ) : null}
+                  </span>
                   <span
                     data-testid="workspace-pane-count"
                     className={cn(
@@ -199,7 +255,7 @@ export function WorkspacesPanel({
                       onClose(ws.id);
                     }}
                     className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus:opacity-100"
-                    aria-label={`Close ${ws.name}`}
+                    aria-label={`Close ${displayName}`}
                     title="Close workspace"
                     data-testid="workspace-close"
                   >

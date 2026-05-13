@@ -216,7 +216,14 @@ export class PtyRegistry {
   }
 
   resize(id: string, cols: number, rows: number): void {
-    this.sessions.get(id)?.pty.resize(cols, rows);
+    // Mirror the `kill()` idiom below: short-circuit when the session is
+    // unknown or has already exited (its PTY fd is closed). Without this
+    // guard, the renderer's ResizeObserver firing during the
+    // gracefulExitDelayMs window after `pty:exit` would forward the resize
+    // into a dead node-pty handle and surface EBADF as a red toast.
+    const session = this.sessions.get(id);
+    if (!session?.alive) return;
+    session.pty.resize(cols, rows);
   }
 
   kill(id: string): void {

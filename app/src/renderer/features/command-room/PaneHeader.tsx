@@ -11,7 +11,7 @@
 // provider name. Split + Minimise are intentional placeholders marked
 // `disabled` — they ship visually only and pop a "Coming in v1.2" tooltip.
 
-import { Columns2, Maximize2, Minimize2, X } from 'lucide-react';
+import { Columns2, Minimize2, Target, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -107,12 +107,12 @@ export function PaneHeader({ session, paneIndex, onFocus, onClose }: Props) {
                   size="icon"
                   className="h-6 w-6"
                   onClick={onFocus}
-                  aria-label="Focus pane"
+                  aria-label="Pin focus ring (Cmd+Alt+N)"
                 >
-                  <Maximize2 className="h-3.5 w-3.5" />
+                  <Target className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Focus pane</TooltipContent>
+              <TooltipContent side="bottom">Pin focus ring (Cmd+Alt+N)</TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <TooltipProvider delayDuration={200}>
