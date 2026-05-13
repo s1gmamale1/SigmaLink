@@ -11,6 +11,7 @@
 //      fires whenever the active workspace or room actually changes.
 
 import { useEffect, useRef, type Dispatch } from 'react';
+import { toast } from 'sonner';
 import { rpc } from '../../lib/rpc';
 import type { Workspace } from '../../../shared/types';
 import type { Action, AppState } from '../state.types';
@@ -105,9 +106,20 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
       dispatch({ type: 'SET_ROOM', room: active.entry.room });
     }
     for (const item of restored) {
-      void rpc.panes.resume(item.workspace.id).catch(() => {
-        /* pane resume failures are reported by main; restore should continue */
-      });
+      void rpc.panes.resume(item.workspace.id)
+        .then((result) => {
+          if (result.failed.length === 0) return;
+          const first = result.failed[0];
+          toast.error(`Could not resume ${result.failed.length} pane${result.failed.length === 1 ? '' : 's'}`, {
+            description: first ? `${first.sessionId}: ${first.error}` : item.workspace.name,
+          });
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          toast.error('Pane resume failed', {
+            description: `${item.workspace.name}: ${message}`,
+          });
+        });
     }
     pendingRestoreRef.current = null;
   }, [state.ready, state.workspaces, dispatch]);

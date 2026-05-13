@@ -172,3 +172,7 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-112 | v1.2.6 deps: move `@playwright/mcp` from `dependencies` to `devDependencies`; update lockfile | shipped | 1 |
 | T-113 | v1.2.6 tests: rewrite `mcp-config-writer.spec.ts` for stdio output shape (Claude JSON, Codex TOML, Gemini extension) | shipped | 1 |
 | T-114 | v1.2.6 docs: `docs/04-design/browser-mcp-stdio.md` (NEW); `CHANGELOG.md` v1.2.6 entry; `docs/08-bugs/BACKLOG.md` snapshot update; `master_memory.md` Phase 20; `memory_index.md` T-109…T-114; `release-notes-1.2.6.txt` (NEW); `README.md` Playwright note | shipped | 1 |
+| T-115 | Phase 21 — v1.2.7 plan imported into Codex worktree; Ruflo MCP healthy; branch `v1.2.7-multi-workspace-state` created for PR work | implemented | 1 |
+| T-116 | v1.2.7 ring-buffer replay: `pty.snapshot` RPC + schema/channel/router typing; Terminal remount writes snapshot before live PTY bus subscription | implemented | 1 |
+| T-117 | v1.2.7 resume reliability: session-id scan 100→500 lines; missing `external_session_id` rows return failed resume results; renderer toast surfaces failures | implemented | 1 |
+| T-118 | v1.2.7 sidebar + verification: every workspace row has hover close-X; persisted dropdown tested; reducer/registry/resume tests and Playwright pid-stability spec added | implemented | 1 |

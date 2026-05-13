@@ -386,6 +386,9 @@ function buildRouter() {
     kill: async (sessionId: string) => {
       pty.kill(sessionId);
     },
+    snapshot: async (sessionId: string) => {
+      return { buffer: pty.snapshot(sessionId) };
+    },
     subscribe: async (sessionId: string) => {
       return { history: pty.snapshot(sessionId) };
     },
@@ -395,6 +398,7 @@ function buildRouter() {
         providerId: s.providerId,
         cwd: s.cwd,
         alive: s.alive,
+        pid: s.pid,
       })),
     forget: async (sessionId: string) => {
       pty.forget(sessionId);

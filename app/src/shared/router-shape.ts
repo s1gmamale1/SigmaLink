@@ -113,8 +113,9 @@ export interface AppRouter {
     write: (sessionId: string, data: string) => Promise<void>;
     resize: (sessionId: string, cols: number, rows: number) => Promise<void>;
     kill: (sessionId: string) => Promise<void>;
-    subscribe: (sessionId: string) => Promise<{ history: string }>; // returns ring buffer + registers consumer
-    list: () => Promise<Array<{ sessionId: string; providerId: string; cwd: string; alive: boolean }>>;
+    snapshot: (sessionId: string) => Promise<{ buffer: string }>; // returns current ring buffer
+    subscribe: (sessionId: string) => Promise<{ history: string }>; // legacy alias for ring buffer
+    list: () => Promise<Array<{ sessionId: string; providerId: string; cwd: string; alive: boolean; pid: number }>>;
     forget: (sessionId: string) => Promise<void>;
   };
   panes: {

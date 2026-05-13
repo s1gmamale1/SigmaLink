@@ -1,6 +1,7 @@
 // Single xterm.js terminal bound to a PTY session via the RPC bridge.
-// Subscribe order is: register live data listener FIRST, then call subscribe()
-// to fetch the historical buffer — eliminates the replay/live race.
+// Mount order is: restore the registry ring-buffer snapshot, then subscribe
+// to live data. This makes workspace switches visually lossless without
+// keeping hidden xterm instances alive.
 //
 // TODO(V3-W13-003): per-pane chrome (top-bar status dot + branch + close, plus
 // the `<model> <effort> <speed> · <cwd>` mid-strip from V3-W12-002) ships with
@@ -148,24 +149,22 @@ export function SessionTerminal({ sessionId, className }: Props) {
     // we no longer need the requestAnimationFrame workaround that caused
     // misaligned text when GridLayout was still flex-shrinking on mount.
 
-    // 1) Subscribe to live PTY data BEFORE pulling the snapshot.
-    //
-    // V1.1.8 perf-ptybus — route via the renderer-side ptyDataBus so we pay
-    // a single `window.sigma.eventOn('pty:data', …)` for the whole app
-    // regardless of pane count. The bus already filters by sessionId, so
-    // the listener body no longer needs the `payload.sessionId === sessionId`
-    // gate or the `isPtyDataPayload` type-check (the bus does both).
-    const offData = subscribePtyData(sessionId, (payload) => {
-      term.write(payload.data);
-    });
-
-    // 2) Pull historical buffer atomically. Any data emitted during this await
-    //    will reach us via the live listener attached above, so ordering is
-    //    only "history then live" if the snapshot was non-empty.
-    void rpc.pty.subscribe(sessionId).then((res) => {
+    // V1.2.7 — workspace switches unmount xterm, not PTYs. Rehydrate the
+    // visible terminal from the process-wide registry's ring buffer, then
+    // attach the shared live bus listener.
+    let offData: (() => void) | null = null;
+    void (async () => {
+      try {
+        const snap = await rpc.pty.snapshot(sessionId);
+        if (!disposed && snap.buffer) term.write(snap.buffer);
+      } catch {
+        /* snapshot is best-effort; live subscription still attaches below */
+      }
       if (disposed) return;
-      if (res.history) term.write(res.history);
-    });
+      offData = subscribePtyData(sessionId, (payload) => {
+        term.write(payload.data);
+      });
+    })();
 
     // Wire local input -> PTY.
     const onDataDisp = term.onData((data) => {
@@ -270,7 +269,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
       if (resizeTimer) clearTimeout(resizeTimer);
       ro.disconnect();
       onDataDisp.dispose();
-      offData();
+      offData?.();
       offExit();
       window.removeEventListener('sigma:pty-focus', onFocusReq);
       term.dispose();

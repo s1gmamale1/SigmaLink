@@ -90,6 +90,51 @@ describe('appStateReducer multi-workspace state', () => {
     expect(selected.openWorkspaces.map((w) => w.id)).toEqual(['a', 'b']);
   });
 
+  it('switches active workspace without mutating session state', () => {
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    let state = [wsA, wsB].reduce(
+      (next, ws) => appStateReducer(next, { type: 'WORKSPACE_OPEN', workspace: ws }),
+      readyState([wsA, wsB]),
+    );
+    state = appStateReducer(state, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('s1', 'a'), session('s2', 'b')],
+    });
+    state = appStateReducer(state, { type: 'SET_ACTIVE_SESSION', id: 's2' });
+
+    const selected = appStateReducer(state, {
+      type: 'SET_ACTIVE_WORKSPACE_ID',
+      workspaceId: 'a',
+    });
+
+    expect(selected.sessions).toEqual(state.sessions);
+    expect(selected.sessionsByWorkspace).toEqual(state.sessionsByWorkspace);
+    expect(selected.activeSessionId).toBe('s2');
+  });
+
+  it('switches active workspace without closing background swarms', () => {
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    let state = [wsA, wsB].reduce(
+      (next, ws) => appStateReducer(next, { type: 'WORKSPACE_OPEN', workspace: ws }),
+      readyState([wsA, wsB]),
+    );
+    state = appStateReducer(state, {
+      type: 'SET_SWARMS',
+      swarms: [swarm('sw-a', 'a'), swarm('sw-b', 'b')],
+    });
+
+    const selected = appStateReducer(state, {
+      type: 'SET_ACTIVE_WORKSPACE_ID',
+      workspaceId: 'a',
+    });
+
+    expect(selected.swarms).toEqual(state.swarms);
+    expect(selected.swarmsByWorkspace).toEqual(state.swarmsByWorkspace);
+    expect(selected.activeWorkspaceId).toBe('a');
+  });
+
   it('falls back to the most-recent remaining workspace when closing active', () => {
     const wsA = workspace('a');
     const wsB = workspace('b');
