@@ -7,7 +7,13 @@ export interface PaneResumeSuccess {
   sessionId: string;
   providerId: string;
   providerEffective: string;
+  /** Empty string when the resume took the universal `--continue` fallback. */
   externalSessionId: string;
+  /** v1.2.8 — `'id'` when resumed by captured external id; `'continue'` when
+   *  the universal fallback (--continue / --resume latest / resume --last) was
+   *  used because no external id was on file. The renderer surfaces this as a
+   *  hint in the resume toast. */
+  resumeMode: 'id' | 'continue';
   pid: number;
 }
 
@@ -29,6 +35,49 @@ export interface PaneResumeResult {
   resumed: PaneResumeSuccess[];
   failed: PaneResumeFailure[];
   skipped: PaneResumeSkipped[];
+}
+
+/**
+ * v1.2.8 — per-provider resume argv builder. Two flavours per provider:
+ *   - by-id: when we captured an `external_session_id`, use the provider's
+ *     native resume flag (`claude --resume <id>`, `codex resume <id>`, …).
+ *   - continue: universal "resume latest in cwd" fallback. Every shipped CLI
+ *     supports one; missing `external_session_id` is no longer a failure —
+ *     it just routes to this branch.
+ *
+ * Returns `null` when the provider has no known resume strategy at all (only
+ * the internal `shell`/`custom` sentinels in practice); the caller treats
+ * that as `skipped` rather than `failed`.
+ */
+export function buildResumeArgs(
+  providerId: string,
+  externalSessionId: string | null,
+): { args: string[]; mode: 'id' | 'continue' } | null {
+  const id = externalSessionId?.trim();
+  switch (providerId.toLowerCase()) {
+    case 'claude':
+      return id
+        ? { args: ['--resume', id], mode: 'id' }
+        : { args: ['--continue'], mode: 'continue' };
+    case 'codex':
+      return id
+        ? { args: ['resume', id], mode: 'id' }
+        : { args: ['resume', '--last'], mode: 'continue' };
+    case 'gemini':
+      return id
+        ? { args: ['--resume', id], mode: 'id' }
+        : { args: ['--resume', 'latest'], mode: 'continue' };
+    case 'kimi':
+      return id
+        ? { args: ['--session', id], mode: 'id' }
+        : { args: ['--continue'], mode: 'continue' };
+    case 'opencode':
+      return id
+        ? { args: ['--session', id], mode: 'id' }
+        : { args: ['--continue'], mode: 'continue' };
+    default:
+      return null;
+  }
 }
 
 export interface ResumeLauncherDeps {
@@ -168,6 +217,102 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
+// v1.2.8 — "Respawn fresh" recovery. When the resume flow marks rows as
+// `status='exited', exit_code=-1` (the failed-resume marker), the renderer
+// surfaces a single aggregated toast with a "Respawn fresh" action. Clicking
+// the action invokes `panes.respawnFailed(workspaceId)`, which re-uses the
+// existing worktree + cwd + providerEffective on each failed row and spawns a
+// brand-new PTY (no `--resume` / `--continue`) in-place. The DB row is
+// updated to `running` with a fresh `started_at`; on spawn failure the row is
+// re-marked failed so a follow-up retry stays idempotent.
+export interface PaneRespawnResult {
+  workspaceId: string;
+  spawned: number;
+  failed: number;
+}
+
+interface RespawnRow {
+  id: string;
+  providerId: string;
+  providerEffective: string | null;
+  cwd: string;
+}
+
+function listRespawnableRows(
+  db: Database.Database,
+  workspaceId: string,
+): RespawnRow[] {
+  // Failed-resume marker: `markResumeFailed` writes `status='exited' AND
+  // exit_code=-1`. We deliberately do NOT include rows whose exit_code is 0 or
+  // a positive provider exit — those represent a clean process death, not a
+  // resume failure, and the user would expect them to stay closed.
+  return db
+    .prepare(
+      `SELECT
+         id,
+         provider_id AS providerId,
+         provider_effective AS providerEffective,
+         cwd
+       FROM agent_sessions
+       WHERE workspace_id = ?
+         AND status = 'exited'
+         AND exit_code = -1
+       ORDER BY started_at ASC`,
+    )
+    .all(workspaceId) as RespawnRow[];
+}
+
+/**
+ * Re-spawn every pane in `workspaceId` that the resume flow previously marked
+ * as `status='exited' AND exit_code=-1`. Each row is re-launched fresh in its
+ * existing `cwd` using the resolved `providerEffective` (falling back to
+ * `providerId`) with NO resume args, so the worktree + branch stay intact but
+ * the operator gets a clean PTY in them. Returns counts so the renderer can
+ * toast a follow-up.
+ */
+export async function respawnFailedWorkspacePanes(
+  workspaceId: string,
+  deps: ResumeLauncherDeps,
+): Promise<PaneRespawnResult> {
+  const db = deps.db ?? (await getDefaultRawDb());
+  const now = deps.now ?? Date.now;
+  const resolve = deps.resolve ?? (await getDefaultResolve());
+
+  const rows = listRespawnableRows(db, workspaceId);
+  let spawned = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    const providerId = row.providerEffective ?? row.providerId;
+    try {
+      const result: ResolveAndSpawnResult = resolve(
+        { ptyRegistry: deps.pty },
+        {
+          providerId,
+          sessionId: row.id,
+          cwd: row.cwd,
+          cols: deps.cols ?? 120,
+          rows: deps.rows ?? 32,
+          showLegacy: deps.showLegacy ?? readShowLegacy(db),
+          // No resumeArgs — this is a fresh spawn in the same worktree.
+          extraArgs: [],
+        },
+      );
+      const rec = result.ptySession;
+      markResumeRunning(db, row.id, rec.startedAt);
+      writeProviderEffective(db, row.id, result.providerEffective);
+      attachExitPersistence(db, row.id, rec);
+      spawned += 1;
+    } catch {
+      // Re-mark failure so the row stays in the bucket for a future retry.
+      markResumeFailed(db, row.id, now());
+      failed += 1;
+    }
+  }
+
+  return { workspaceId, spawned, failed };
+}
+
 export async function resumeWorkspacePanes(
   workspaceId: string,
   deps: ResumeLauncherDeps,
@@ -196,18 +341,13 @@ export async function resumeWorkspacePanes(
     }
 
     const resumeProviderId = row.providerEffective ?? row.providerId;
-    const externalSessionId = row.externalSessionId?.trim();
-    if (!externalSessionId) {
-      markResumeFailed(db, row.id, now());
-      result.failed.push({
-        sessionId: row.id,
-        providerId: resumeProviderId,
-        externalSessionId: '',
-        error: 'missing external_session_id; cannot resume pane',
-      });
-      continue;
-    }
+    const externalSessionId = row.externalSessionId?.trim() ?? null;
 
+    // v1.2.8 — the provider definition is only consulted for the unknown-
+    // provider skip path. Resume argv is built locally by `buildResumeArgs`
+    // so the new universal `--continue` fallback applies even to providers
+    // whose registry entry still has `resumeArgs` undefined (e.g. gemini,
+    // kimi, opencode before this wave).
     const provider = await getProvider(resumeProviderId);
     if (!provider) {
       result.skipped.push({
@@ -217,7 +357,9 @@ export async function resumeWorkspacePanes(
       });
       continue;
     }
-    if (!provider.resumeArgs || provider.resumeArgs.length === 0) {
+    const resume = buildResumeArgs(resumeProviderId, externalSessionId);
+    if (!resume) {
+      // Internal sentinels (shell / custom) — nothing to resume.
       result.skipped.push({
         sessionId: row.id,
         providerId: resumeProviderId,
@@ -236,7 +378,7 @@ export async function resumeWorkspacePanes(
           cols: deps.cols ?? 120,
           rows: deps.rows ?? 32,
           showLegacy: deps.showLegacy ?? readShowLegacy(db),
-          extraArgs: [...provider.resumeArgs, externalSessionId],
+          extraArgs: resume.args,
         },
       );
       const rec = spawned.ptySession;
@@ -247,7 +389,8 @@ export async function resumeWorkspacePanes(
         sessionId: row.id,
         providerId: row.providerId,
         providerEffective: spawned.providerEffective,
-        externalSessionId,
+        externalSessionId: externalSessionId ?? '',
+        resumeMode: resume.mode,
         pid: rec.pid,
       });
     } catch (err) {
@@ -256,7 +399,7 @@ export async function resumeWorkspacePanes(
       result.failed.push({
         sessionId: row.id,
         providerId: resumeProviderId,
-        externalSessionId,
+        externalSessionId: externalSessionId ?? '',
         error: message,
       });
     }

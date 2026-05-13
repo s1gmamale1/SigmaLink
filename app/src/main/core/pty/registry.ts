@@ -8,15 +8,17 @@
 //     drain (and any subscribe-late history pull) is not lost.
 //   forget() → unsubscribes data/exit listeners and removes the record.
 //   killAll() → ask every record to die; called from app `before-quit`.
+//
+// v1.2.8 — the stdout `session-id-extractor` scan loop was removed in favour
+// of (a) pre-assigning UUIDs at spawn for claude/gemini and (b) async disk
+// scanning for codex/kimi/opencode. The registry now exposes an
+// `onPostSpawnCapture` hook that the rpc-router uses to schedule the
+// disk-scan retries via `pty/session-disk-scanner`.
 
 import { randomUUID } from 'node:crypto';
 import { spawnLocalPty, type PtyHandle, type SpawnInput } from './local-pty';
 import { RingBuffer } from './ring-buffer';
 import { detectLinks, type LinkHit } from './link-detector';
-import {
-  extractSessionIdFromLine,
-  type SessionIdExtraction,
-} from './session-id-extractor';
 
 /** Milliseconds between SIGTERM and the fallback SIGKILL on lingering PTYs. */
 const PTY_KILL_FALLBACK_MS = 5_000;
@@ -60,10 +62,22 @@ export interface SessionRecord {
 export type DataSink = (sessionId: string, data: string) => void;
 export type ExitSink = (sessionId: string, exitCode: number, signal?: number) => void;
 export type LinkSink = (sessionId: string, hit: LinkHit) => void;
-export type ExternalSessionIdSink = (
-  sessionId: string,
-  extraction: SessionIdExtraction,
-) => void;
+
+/**
+ * v1.2.8 — emitted right after a fresh PTY is spawned (NOT during resume).
+ * The rpc-router uses this to schedule the bounded retry loop in
+ * `pty/session-disk-scanner.ts` for codex/kimi/opencode. Providers that
+ * pre-assigned a UUID at spawn time (claude, gemini) supply it via
+ * `preassignedExternalSessionId`; receivers may persist it immediately
+ * without waiting for any output.
+ */
+export interface PostSpawnCapture {
+  sessionId: string;
+  providerId: string;
+  cwd: string;
+  preassignedExternalSessionId?: string;
+}
+export type PostSpawnSink = (capture: PostSpawnCapture) => void;
 
 export interface PtyRegistryOptions {
   /**
@@ -80,12 +94,12 @@ export interface PtyRegistryOptions {
    */
   onLinkDetected?: LinkSink;
   /**
-   * v1.1.3 Step 3 — invoked once when early provider output reveals the
-   * provider-native resumable session id.
+   * v1.2.8 — invoked once per fresh spawn (skipped on resume, which already
+   * carries `opts.sessionId`). The router uses this to schedule the disk-scan
+   * retries for codex/kimi/opencode and to persist the pre-assigned UUID
+   * (claude/gemini) into the DB without an extra round-trip.
    */
-  onExternalSessionId?: ExternalSessionIdSink;
-  /** Maximum complete output lines to scan per PTY before giving up. */
-  externalSessionScanLineLimit?: number;
+  onPostSpawnCapture?: PostSpawnSink;
 }
 
 export class PtyRegistry {
@@ -94,74 +108,35 @@ export class PtyRegistry {
   private readonly onExit: ExitSink;
   private readonly gracefulExitDelayMs: number;
   private readonly onLinkDetected: LinkSink | null;
-  private readonly onExternalSessionId: ExternalSessionIdSink | null;
-  private readonly externalSessionScanLineLimit: number;
+  private readonly onPostSpawnCapture: PostSpawnSink | null;
   constructor(onData: DataSink, onExit: ExitSink, opts: PtyRegistryOptions = {}) {
     this.onData = onData;
     this.onExit = onExit;
     this.gracefulExitDelayMs = opts.gracefulExitDelayMs ?? 200;
     this.onLinkDetected = opts.onLinkDetected ?? null;
-    this.onExternalSessionId = opts.onExternalSessionId ?? null;
-    this.externalSessionScanLineLimit = opts.externalSessionScanLineLimit ?? 500;
+    this.onPostSpawnCapture = opts.onPostSpawnCapture ?? null;
   }
 
-  create(input: { providerId: string; sessionId?: string } & SpawnInput): SessionRecord {
+  create(
+    input: {
+      providerId: string;
+      sessionId?: string;
+      /**
+       * v1.2.8 — pre-assigned provider-native session id from the launcher
+       * (claude/gemini `--session-id <uuid>`). Stamped onto the SessionRecord
+       * so the caller sees it synchronously and the post-spawn hook reports
+       * it to the router for immediate DB persistence.
+       */
+      externalSessionId?: string;
+    } & SpawnInput,
+  ): SessionRecord {
     const id = input.sessionId ?? randomUUID();
+    const isResume = input.sessionId !== undefined;
     const pty = spawnLocalPty(input);
     const buffer = new RingBuffer();
     const linkSink = this.onLinkDetected;
-    const externalSink = this.onExternalSessionId;
-    const scanLimit = this.externalSessionScanLineLimit;
-    let scanDone = scanLimit <= 0;
-    let scannedLines = 0;
-    let pendingLine = '';
-    let extractedExternalSessionId: string | undefined;
-    const recordExternalSessionId = (extraction: SessionIdExtraction) => {
-      if (scanDone) return;
-      scanDone = true;
-      extractedExternalSessionId = extraction.sessionId;
-      const rec = this.sessions.get(id);
-      if (rec) rec.externalSessionId = extraction.sessionId;
-      if (externalSink) {
-        try {
-          externalSink(id, extraction);
-        } catch {
-          /* never let persistence break the PTY data stream */
-        }
-      }
-    };
-    const scanExternalSessionId = (data: string) => {
-      if (scanDone) return;
-      pendingLine += data;
-      const lines = pendingLine.split(/\r\n|\n|\r/);
-      pendingLine = lines.pop() ?? '';
-      for (const line of lines) {
-        scannedLines += 1;
-        const hit = extractSessionIdFromLine(input.providerId, line);
-        if (hit) {
-          recordExternalSessionId(hit);
-          return;
-        }
-        if (scannedLines >= scanLimit) {
-          scanDone = true;
-          pendingLine = '';
-          return;
-        }
-      }
-      if (pendingLine.length > 8192) {
-        scannedLines += 1;
-        const hit = extractSessionIdFromLine(input.providerId, pendingLine);
-        if (hit) {
-          recordExternalSessionId(hit);
-          return;
-        }
-        pendingLine = '';
-        if (scannedLines >= scanLimit) scanDone = true;
-      }
-    };
     const unsubData = pty.onData((data) => {
       buffer.append(data);
-      scanExternalSessionId(data);
       this.onData(id, data);
       if (linkSink) {
         const hits = detectLinks(data);
@@ -193,18 +168,45 @@ export class PtyRegistry {
       pid: pty.pid,
       alive: true,
       startedAt: Date.now(),
-      externalSessionId: extractedExternalSessionId,
+      externalSessionId: input.externalSessionId,
       pty,
       buffer,
       unsubData,
       unsubExit,
     };
     this.sessions.set(id, rec);
+    // v1.2.8 — only fire the post-spawn capture hook for FRESH spawns; resume
+    // calls already carry the external id in their DB row and the disk-scan
+    // would only race the resume's own start-up I/O.
+    if (!isResume && this.onPostSpawnCapture) {
+      try {
+        this.onPostSpawnCapture({
+          sessionId: id,
+          providerId: input.providerId,
+          cwd: input.cwd,
+          preassignedExternalSessionId: input.externalSessionId,
+        });
+      } catch {
+        /* never let capture wiring break the spawn */
+      }
+    }
     return rec;
   }
 
   get(id: string): SessionRecord | undefined {
     return this.sessions.get(id);
+  }
+
+  /**
+   * v1.2.8 — set the captured external session id on a live record after a
+   * successful disk-scan. Idempotent: a second call with the same id is a
+   * no-op; a call after `forget()` silently drops the update.
+   */
+  setExternalSessionId(id: string, externalSessionId: string): void {
+    const rec = this.sessions.get(id);
+    if (!rec) return;
+    if (rec.externalSessionId === externalSessionId) return;
+    rec.externalSessionId = externalSessionId;
   }
 
   list(): SessionRecord[] {

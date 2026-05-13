@@ -48,23 +48,48 @@ function installSigmaStub(): SigmaStub {
 }
 
 const resumeMock = vi.fn<
-  (wsId: string) => Promise<{ workspaceId: string; resumed: unknown[]; failed: unknown[]; skipped: unknown[] }>
+  (wsId: string) => Promise<{
+    workspaceId: string;
+    resumed: Array<{
+      sessionId: string;
+      providerId: string;
+      providerEffective: string;
+      externalSessionId: string;
+      pid: number;
+    }>;
+    failed: Array<{
+      sessionId: string;
+      providerId: string;
+      externalSessionId: string;
+      error: string;
+    }>;
+    skipped: Array<{ sessionId: string; providerId: string; reason: string }>;
+  }>
+>();
+const respawnMock = vi.fn<
+  (wsId: string) => Promise<{ workspaceId: string; spawned: number; failed: number }>
 >();
 const kvGetMock = vi.fn<(key: string) => Promise<string | null>>();
 
 vi.mock('sonner', () => ({
-  toast: { error: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn() },
 }));
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
-    panes: { resume: (id: string) => resumeMock(id) },
+    panes: {
+      resume: (id: string) => resumeMock(id),
+      respawnFailed: (id: string) => respawnMock(id),
+    },
     kv: { get: (k: string) => kvGetMock(k) },
   },
 }));
 vi.mock('../../lib/rpc', () => ({
   rpc: {
-    panes: { resume: (id: string) => resumeMock(id) },
+    panes: {
+      resume: (id: string) => resumeMock(id),
+      respawnFailed: (id: string) => respawnMock(id),
+    },
     kv: { get: (k: string) => kvGetMock(k) },
   },
 }));
@@ -88,6 +113,10 @@ beforeEach(() => {
   resumeMock.mockReset();
   resumeMock.mockImplementation((workspaceId: string) =>
     Promise.resolve({ workspaceId, resumed: [], failed: [], skipped: [] }),
+  );
+  respawnMock.mockReset();
+  respawnMock.mockImplementation((workspaceId: string) =>
+    Promise.resolve({ workspaceId, spawned: 0, failed: 0 }),
   );
   kvGetMock.mockReset();
   kvGetMock.mockResolvedValue(null);
@@ -207,5 +236,156 @@ describe('useSessionRestore — Fix 1: per-workspace room snapshot', () => {
     };
     const rooms = Object.fromEntries(payload.openWorkspaces.map((e) => [e.workspaceId, e.room]));
     expect(rooms).toEqual({ a: 'command', b: 'swarm' });
+  });
+});
+
+describe('useSessionRestore — v1.2.8 aggregated respawn toast', () => {
+  // The toast factory in `vi.mock('sonner', ...)` is created once per file;
+  // its `error` / `success` mocks accumulate calls across tests, so reset them
+  // explicitly here. The resume Promise.all chain also needs REAL timers
+  // (vi.useRealTimers) so microtasks drain naturally — the snapshot debounce
+  // is irrelevant for these assertions.
+  beforeEach(async () => {
+    const { toast } = await import('sonner');
+    vi.mocked(toast.error).mockReset();
+    vi.mocked(toast.success).mockReset();
+    vi.useRealTimers();
+  });
+
+  it('aggregates resume failures into ONE toast with a Respawn fresh action that calls panes.respawnFailed', async () => {
+    const { toast } = await import('sonner');
+    // Workspace A has 2 panes resumed, 1 needs respawning; workspace B
+    // resumes cleanly. Expected toast copy:
+    //   "Resumed 2 panes. 1 pane needs to be respawned."
+    resumeMock.mockImplementation((workspaceId: string) => {
+      if (workspaceId === 'a') {
+        return Promise.resolve({
+          workspaceId,
+          resumed: [
+            {
+              sessionId: 's-a-1',
+              providerId: 'claude',
+              providerEffective: 'claude',
+              externalSessionId: 'ext-1',
+              pid: 1001,
+            },
+            {
+              sessionId: 's-a-2',
+              providerId: 'claude',
+              providerEffective: 'claude',
+              externalSessionId: 'ext-2',
+              pid: 1002,
+            },
+          ],
+          failed: [
+            {
+              sessionId: 's-a-3',
+              providerId: 'codex',
+              externalSessionId: '',
+              error: 'missing external_session_id; cannot resume pane',
+            },
+          ],
+          skipped: [],
+        });
+      }
+      return Promise.resolve({ workspaceId, resumed: [], failed: [], skipped: [] });
+    });
+    respawnMock.mockImplementation((workspaceId: string) =>
+      Promise.resolve({ workspaceId, spawned: 1, failed: 0 }),
+    );
+
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    const { getHarness } = await renderRestore([
+      { type: 'READY', workspaces: [wsA, wsB] },
+    ]);
+
+    act(() => {
+      sigma.emit('app:session-restore', {
+        activeWorkspaceId: 'a',
+        openWorkspaces: [
+          { workspaceId: 'a', room: 'command' },
+          { workspaceId: 'b', room: 'command' },
+        ],
+      });
+    });
+    // Bump dependency so the drain effect re-runs against the restored payload.
+    act(() => {
+      getHarness().dispatch({ type: 'READY', workspaces: [wsA, wsB] });
+    });
+
+    // The resume effect fires `Promise.all([rpc.panes.resume(a), rpc.panes.resume(b)])`
+    // and chains `.then(outcomes => ...toast.error(...))`. Wait for the
+    // toast to actually appear — `vi.waitFor` drives the microtask queue.
+    const errorToast = vi.mocked(toast.error);
+    await vi.waitFor(() => {
+      expect(errorToast).toHaveBeenCalledTimes(1);
+    });
+
+    // Exactly ONE error toast (no per-workspace spam).
+    const [summary, options] = errorToast.mock.calls[0] ?? [];
+    expect(summary).toBe('Resumed 2 panes. 1 pane needs to be respawned.');
+    expect(options).toBeDefined();
+    const opts = options as { description?: string; action?: { label: string; onClick: () => void } };
+    expect(opts.description).toBe(wsA.name);
+    expect(opts.action?.label).toBe('Respawn fresh');
+
+    // Clicking the action wires through to `panes.respawnFailed` for only
+    // the workspace that reported failures.
+    expect(respawnMock).not.toHaveBeenCalled();
+    act(() => {
+      opts.action?.onClick();
+    });
+    const successToast = vi.mocked(toast.success);
+    await vi.waitFor(() => {
+      expect(respawnMock).toHaveBeenCalledTimes(1);
+      expect(respawnMock).toHaveBeenCalledWith('a');
+      expect(successToast).toHaveBeenCalledTimes(1);
+    });
+    expect(successToast.mock.calls[0]?.[0]).toBe('Respawned 1 pane');
+  });
+
+  it('does not fire any toast when every workspace resumes cleanly', async () => {
+    const { toast } = await import('sonner');
+    resumeMock.mockImplementation((workspaceId: string) =>
+      Promise.resolve({
+        workspaceId,
+        resumed: [
+          {
+            sessionId: 's-x',
+            providerId: 'claude',
+            providerEffective: 'claude',
+            externalSessionId: 'ext-x',
+            pid: 1001,
+          },
+        ],
+        failed: [],
+        skipped: [],
+      }),
+    );
+
+    const wsA = workspace('a');
+    const { getHarness } = await renderRestore([
+      { type: 'READY', workspaces: [wsA] },
+    ]);
+    act(() => {
+      sigma.emit('app:session-restore', {
+        activeWorkspaceId: 'a',
+        openWorkspaces: [{ workspaceId: 'a', room: 'command' }],
+      });
+    });
+    act(() => {
+      getHarness().dispatch({ type: 'READY', workspaces: [wsA] });
+    });
+
+    await vi.waitFor(() => {
+      expect(resumeMock).toHaveBeenCalledWith('a');
+    });
+    // Drain microtasks so the `.then(outcomes => ...)` handler runs and
+    // we can assert no toast was queued.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+    expect(respawnMock).not.toHaveBeenCalled();
   });
 });

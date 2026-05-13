@@ -120,6 +120,16 @@ export interface AppRouter {
   };
   panes: {
     resume: (workspaceId: string) => Promise<PaneResumeResult>;
+    /**
+     * v1.2.8 — "Respawn fresh" recovery. Re-spawns every pane in the
+     * workspace that the resume flow marked as `status='exited' AND
+     * exit_code=-1`. Same worktree, same provider, no resume args. Returns
+     * the spawned + still-failed counts so the renderer can surface a
+     * follow-up toast after the user clicks the recovery button.
+     */
+    respawnFailed: (
+      workspaceId: string,
+    ) => Promise<{ workspaceId: string; spawned: number; failed: number }>;
   };
   providers: {
     list: () => Promise<

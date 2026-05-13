@@ -241,6 +241,109 @@ describe('PtyRegistry.snapshot()', () => {
   });
 });
 
+describe('PtyRegistry onPostSpawnCapture (v1.2.8)', () => {
+  it('fires the capture hook on fresh spawn with preassigned external id', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const captures: Array<{
+      sessionId: string;
+      providerId: string;
+      cwd: string;
+      preassignedExternalSessionId?: string;
+    }> = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onPostSpawnCapture: (c) => captures.push(c) },
+    );
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: ['--session-id', 'my-uuid'],
+      cwd: '/tmp/proj',
+      cols: 80,
+      rows: 24,
+      externalSessionId: 'my-uuid',
+    });
+    expect(captures).toHaveLength(1);
+    expect(captures[0]?.sessionId).toBe(sess.id);
+    expect(captures[0]?.providerId).toBe('claude');
+    expect(captures[0]?.cwd).toBe('/tmp/proj');
+    expect(captures[0]?.preassignedExternalSessionId).toBe('my-uuid');
+    // The session record itself is also stamped synchronously.
+    expect(sess.externalSessionId).toBe('my-uuid');
+  });
+
+  it('fires capture without a preassigned id for disk-scan providers', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const captures: Array<{ preassignedExternalSessionId?: string }> = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onPostSpawnCapture: (c) => captures.push(c) },
+    );
+    registry.create({
+      providerId: 'codex',
+      command: 'codex',
+      args: [],
+      cwd: '/tmp/proj',
+      cols: 80,
+      rows: 24,
+    });
+    expect(captures).toHaveLength(1);
+    expect(captures[0]?.preassignedExternalSessionId).toBeUndefined();
+  });
+
+  it('does NOT fire the capture hook when resuming (sessionId provided)', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const captures: unknown[] = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onPostSpawnCapture: (c) => captures.push(c) },
+    );
+    registry.create({
+      providerId: 'claude',
+      sessionId: 'pre-existing-id',
+      command: 'claude',
+      args: ['--continue'],
+      cwd: '/tmp/proj',
+      cols: 80,
+      rows: 24,
+    });
+    expect(captures).toHaveLength(0);
+  });
+
+  it('setExternalSessionId stamps a live record idempotently', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'codex',
+      command: 'codex',
+      args: [],
+      cwd: '/tmp/proj',
+      cols: 80,
+      rows: 24,
+    });
+    expect(sess.externalSessionId).toBeUndefined();
+    registry.setExternalSessionId(sess.id, 'captured-id');
+    expect(sess.externalSessionId).toBe('captured-id');
+    // Idempotent: second call with same value is a no-op.
+    registry.setExternalSessionId(sess.id, 'captured-id');
+    expect(sess.externalSessionId).toBe('captured-id');
+    // Unknown session: silent drop, no throw.
+    expect(() =>
+      registry.setExternalSessionId('does-not-exist', 'whatever'),
+    ).not.toThrow();
+  });
+});
+
 describe('PtyRegistry.killAll()', () => {
   it('uses ONE 5s timer regardless of session count', () => {
     // Spawn 4 fake sessions.

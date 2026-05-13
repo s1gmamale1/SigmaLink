@@ -102,12 +102,11 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     // Gemini until confirmed; the resume-launcher will skip kimi panes.
     color: '#22D3EE',
     icon: 'moon',
-    // NOTE(v1.2.4): the upstream npm package name is unverified at registry
-    // freeze. Common candidates: `@moonshot-ai/kimi-cli`, `kimi-cli`,
-    // `@kimi/cli`. Probe runs `kimi --version` against PATH so the actual
-    // install command is documentation-only; verify before shipping a final
-    // install hint string.
-    installHint: 'See moonshot.ai for Kimi Code CLI install instructions',
+    // v1.2.8: Kimi CLI ships on PyPI, NOT npm. Upstream repo:
+    //   https://github.com/MoonshotAI/kimi-cli
+    // Install via `pip install kimi-cli` or run via `uvx kimi`. On Windows a
+    // `kimi.cmd` shim is created after `pip install` so PATH probing works.
+    installHint: 'pip install kimi-cli (or: uvx kimi)',
     detectable: true,
   },
   {

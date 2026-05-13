@@ -4,6 +4,52 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-05-13
+
+Session capture is no longer a fragile stdout-banner scrape. Replaced the entire extractor pipeline with a hybrid strategy that works for every supported CLI, even when the agent is blocked at an interactive prompt at quit time (the exact failure mode the v1.2.7 toast was correctly reporting).
+
+User on Windows hit the v1.2.7 toast: spawned 4 panes, sat at MCP approval prompt, quit, relaunched → "Could not resume 4 panes: missing external_session_id." Investigation found two real bugs: (a) the stdout extractor only handled Claude — Codex/Gemini/Kimi/OpenCode all returned `null`; (b) Claude's session ID only prints AFTER the MCP approval prompt is dismissed, so spawning + quitting without interaction never captured anything. v1.2.8 replaces the whole approach.
+
+### Architecture pivot
+
+- **At spawn**: for `claude` and `gemini`, SigmaLink now generates a UUID locally via `crypto.randomUUID()` and passes it as `--session-id <uuid>` (both CLIs support this flag). The DB row is populated with the real session ID instantly, zero extraction. For `codex`, `kimi`, `opencode`, spawn proceeds normally and an async disk-scan fires at +2s / +5s / +15s post-spawn to read the provider's deterministic session directory and stamp the row.
+- **At resume**: tries the captured session ID via per-provider flag (`--resume <id>`, `--session <id>`, `resume <id>`). If the ID is missing OR the resume fails, falls back to the universal "resume latest in cwd" flag every provider supports (`--continue`, `--resume latest`, `resume --last`). Missing IDs are no longer a failure — they route silently to `--continue`. Only genuine spawn errors surface a toast now.
+- **Stdout extractor deleted** (~174 LOC across `session-id-extractor.ts` + tests). Registry scan loop removed (`scanExternalSessionId`, `recordExternalSessionId`, `pendingLine`, `scanDone`, `scannedLines`, `externalSessionScanLineLimit`). Replaced with `onPostSpawnCapture` that fires once per fresh spawn.
+
+### Added
+
+- **`app/src/main/core/pty/session-disk-scanner.ts`** (NEW) — `findLatestSessionId(providerId, cwd)` with per-provider strategies. Codex: globs `~/.codex/sessions/**/rollout-*.jsonl`, extracts UUID from filename, filters by 5-min mtime window. Kimi: walks `~/.kimi/sessions/<project>/<uuid>/` (tolerates flat layout too). OpenCode: shells `opencode session list --format json --max-count 10`, filters by `directory === cwd`, accepts ISO + epoch timestamps. 14 test cases in `session-disk-scanner.test.ts`.
+- **`buildResumeArgs(providerId, externalSessionId)`** exported from `resume-launcher.ts` — central per-provider args matrix. 10 provider × id/no-id test cases.
+- **`panes.respawnFailed(workspaceId)` RPC** — when resume fails, the new aggregate toast offers a "Respawn fresh" button that re-spawns the failed panes in their existing worktrees (no `--resume` args). Same provider, same cwd, fresh PTY. Worktree files + branches preserved.
+- **`onPostSpawnCapture` registry hook + `setExternalSessionId(id, value)` setter** — replaces `onExternalSessionId` / `externalSessionScanLineLimit`. Fires once on fresh spawns, skipped on resume.
+- **5 new vitest case clusters** — disk scanner (14), buildResumeArgs matrix (10+), continue-fallback success path (3), respawn toast aggregation (2). Total 221 → 248 tests.
+
+### Changed
+
+- **Aggregate resume-failure toast** — was per-workspace in v1.2.7; now one message per restart: "Resumed N panes. M panes need to be respawned." with single "Respawn fresh" action. Closes plan R-1.2.7-5.
+- **`providers.ts` Kimi `installHint`** — corrected from npm to PyPI: `pip install kimi-cli (or: uvx kimi)`. Kimi CLI is at https://github.com/MoonshotAI/kimi-cli, distributed via PyPI not npm. Upstream `@jacksontian/kimi-cli` on npm is an unrelated third-party client.
+- **README.md** — Supported Agents table updated with Kimi PyPI install hint + upstream repo link.
+- **Resume "skipped" semantics narrowed** — only `shell`/`custom`/unknown-provider rows skip with `provider-has-no-resume-args`. Real CLIs always route through `buildResumeArgs` to either ID-resume or `--continue` fallback.
+
+### Removed
+
+- `app/src/main/core/pty/session-id-extractor.ts` (~117 LOC) and `session-id-extractor.test.ts` (~57 LOC).
+- Registry `scanExternalSessionId` / `recordExternalSessionId` / `pendingLine` / `scanDone` / `scannedLines` / `externalSessionScanLineLimit` machinery.
+- The 500-line scan window from v1.2.7 — no longer relevant; capture is synchronous (claude/gemini) or filesystem-driven (codex/kimi/opencode).
+
+### Verification
+
+- `pnpm exec tsc -b`: clean
+- `pnpm exec vitest run`: 248/248 (was 221, net +27)
+- `pnpm exec eslint .`: clean
+- `pnpm run build`: clean
+
+### Known limitations (deferred)
+
+- Disk-scan picks "newest mtime in cwd" — if the user runs the same provider outside SigmaLink in the same cwd, we may capture the wrong session. Mitigation: 5-min mtime window scoping. Cross-reference with provider's project-hash where available is a v1.3 polish.
+- OpenCode disk-scan uses subprocess (`opencode session list --format json`). SQLite direct read is faster but needs schema reverse-engineering. Deferred.
+- Kimi PyPI install requires Python. Documented in install hint; not auto-installed.
+
 ## [1.2.7] - 2026-05-13
 
 Multi-workspace switching now preserves terminal scrollback and surfaces pane-resume failures instead of making sessions appear silently lost.

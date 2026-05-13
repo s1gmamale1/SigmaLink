@@ -17,11 +17,16 @@
 //      so a renderer that bypasses its gate cannot spawn a legacy provider.
 //      (v1.2.4: registry no longer ships a legacy row, but the capability is
 //      retained for future use.)
+//   5. v1.2.8 — UUID pre-assignment for `claude` and `gemini`. We mint a
+//      random UUID before spawn, inject `--session-id <uuid>` into args, and
+//      return it on the result so the caller can persist it as
+//      `external_session_id` without waiting for the CLI to print anything.
 //
 // The façade is deliberately thin: it does NOT touch the database, mailbox,
 // worktree pool, or RPC. Callers (executeLaunchPlan, spawnAgentSession) own
 // all of that. The façade just resolves and spawns.
 
+import { randomUUID } from 'node:crypto';
 import type { PtyRegistry, SessionRecord } from '../pty/registry';
 import {
   AGENT_PROVIDERS,
@@ -29,6 +34,13 @@ import {
   type AgentProviderDefinition,
   type ProviderId,
 } from '../../../shared/providers';
+
+/**
+ * Providers that accept a pre-assigned session UUID via `--session-id <uuid>`.
+ * For everything else (codex, kimi, opencode) we fall back to the async disk
+ * scan in `pty/session-disk-scanner.ts`.
+ */
+const PRE_ASSIGN_PROVIDERS: ReadonlySet<string> = new Set(['claude', 'gemini']);
 
 // ──────────────────────────────────────────────────────────────────────────
 // Public types
@@ -62,6 +74,17 @@ export interface ResolveAndSpawnResult {
   argsUsed: string[];
   /** True when comingSoon → fallback substitution occurred. */
   fallbackOccurred: boolean;
+  /**
+   * v1.2.8 — UUID we pre-injected into the CLI args via `--session-id <uuid>`
+   * for providers that support pre-assignment (claude, gemini). The caller
+   * stores this in `agent_sessions.external_session_id` immediately so
+   * resume-on-restart no longer waits for the CLI to print anything.
+   *
+   * Undefined for providers that do not support pre-assignment, when the
+   * caller passed `sessionId` (resume path), or when a comingSoon→fallback
+   * swap moved us off a pre-assign-capable provider.
+   */
+  preassignedExternalSessionId?: string;
 }
 
 export interface LauncherDeps {
@@ -129,22 +152,48 @@ function resolveProvider(
 }
 
 /**
- * Build the final argv: `[...provider.args, autoApproveFlag?, ...extraArgs]`.
- * The provider's own `args` come first so caller-supplied flags can override
+ * Build the final argv: `[--session-id uuid]?, [...provider.args],
+ * autoApproveFlag?, ...extraArgs`. The optional pre-assign flag (claude /
+ * gemini only) comes FIRST so the CLI sees it before any positional args.
+ *
+ * The provider's own `args` come next so caller-supplied flags can override
  * positional behaviour without surgery on the registry.
  */
 function buildArgs(
   provider: AgentProviderDefinition,
   opts: ResolveAndSpawnOpts,
+  preassignedUuid: string | null,
 ): string[] {
-  const base = [...provider.args];
+  const out: string[] = [];
+  if (preassignedUuid) {
+    out.push('--session-id', preassignedUuid);
+  }
+  out.push(...provider.args);
   if (opts.autoApprove && provider.autoApproveFlag) {
-    base.push(provider.autoApproveFlag);
+    out.push(provider.autoApproveFlag);
   }
   if (opts.extraArgs && opts.extraArgs.length) {
-    base.push(...opts.extraArgs);
+    out.push(...opts.extraArgs);
   }
-  return base;
+  return out;
+}
+
+/**
+ * Decide whether this spawn should mint a fresh external session UUID and
+ * prepend `--session-id <uuid>` to the args.
+ *
+ * Pre-assign only fires on FRESH spawns (no `opts.sessionId`) for providers
+ * known to accept the flag. The resume path supplies its own `sessionId` to
+ * reuse the SigmaLink DB row and routes the provider-native resume id through
+ * `extraArgs` (`--resume <id>` etc.), so pre-assigning there would inject a
+ * conflicting second id.
+ */
+function shouldPreAssign(
+  provider: AgentProviderDefinition,
+  opts: ResolveAndSpawnOpts,
+): boolean {
+  if (opts.sessionId) return false;
+  return PRE_ASSIGN_PROVIDERS.has(provider.id);
 }
 
 /**
@@ -190,10 +239,16 @@ export function resolveAndSpawn(
     );
   }
 
-  // 3. Build the final args.
-  const args = buildArgs(def, opts);
+  // 3. Pre-assign a UUID for providers that support `--session-id <uuid>`
+  //    (claude, gemini). The flag goes first in argv; we also stamp the
+  //    resulting SessionRecord with `externalSessionId` so the caller sees it
+  //    on the synchronous return and can persist it immediately.
+  const preassignedUuid = shouldPreAssign(def, opts) ? randomUUID() : null;
 
-  // 4. Build the candidate command list. Empty `command` means the provider
+  // 4. Build the final args.
+  const args = buildArgs(def, opts, preassignedUuid);
+
+  // 5. Build the candidate command list. Empty `command` means the provider
   //    is `shell` (open the user's default shell); we hand that through as-is.
   const candidates: string[] = def.command
     ? [def.command, ...(def.altCommands ?? [])].filter(Boolean)
@@ -205,7 +260,7 @@ export function resolveAndSpawn(
     );
   }
 
-  // 5. Walk the candidates. PtyRegistry.create either returns a SessionRecord
+  // 6. Walk the candidates. PtyRegistry.create either returns a SessionRecord
   //    or throws. `spawnLocalPty` itself catches sync spawn errors and emits
   //    a synthetic exit; in that path we cannot detect ENOENT here, so we
   //    rely on POSIX `execvp` propagating ENOENT through node-pty (it does)
@@ -223,6 +278,10 @@ export function resolveAndSpawn(
         cols: opts.cols ?? 120,
         rows: opts.rows ?? 32,
         env: opts.env,
+        // v1.2.8 — wire the pre-assigned UUID onto the session record so
+        // `executeLaunchPlan` / `spawnAgentSession` can persist it on the
+        // same INSERT they already do, without an extra UPDATE round-trip.
+        externalSessionId: preassignedUuid ?? undefined,
       });
       return {
         ptySession,
@@ -231,6 +290,7 @@ export function resolveAndSpawn(
         commandUsed: command,
         argsUsed: args,
         fallbackOccurred,
+        preassignedExternalSessionId: preassignedUuid ?? undefined,
       };
     } catch (err) {
       errors.push({ command, error: err });

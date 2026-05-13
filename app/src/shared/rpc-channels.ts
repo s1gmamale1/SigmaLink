@@ -29,6 +29,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'pty.forget',
   // panes
   'panes.resume',
+  // v1.2.8 — Recovery action behind the aggregated resume-failure toast.
+  'panes.respawnFailed',
   // providers
   'providers.list',
   'providers.probeAll',

@@ -10,7 +10,12 @@ import type { AppRouter } from '../shared/router-shape';
 import { initializeDatabase, closeDatabase, getRawDb } from './core/db/client';
 import { runBootJanitor } from './core/db/janitor';
 import { PtyRegistry } from './core/pty/registry';
-import { resumeWorkspacePanes } from './core/pty/resume-launcher';
+import {
+  DISK_SCAN_PROVIDERS,
+  DISK_SCAN_RETRY_SCHEDULE_MS,
+  findLatestSessionId,
+} from './core/pty/session-disk-scanner';
+import { resumeWorkspacePanes, respawnFailedWorkspacePanes } from './core/pty/resume-launcher';
 import { probeAllProviders, probeProviderById } from './core/providers/probe';
 import { commitAndMerge, gitDiff, gitStatus, runShellLine, worktreeRemove } from './core/git/git-ops';
 import { WorktreePool } from './core/git/worktree';
@@ -135,6 +140,70 @@ function buildRouter() {
   });
 
   const worktreePool = new WorktreePool({ baseDir: path.join(userData, 'worktrees') });
+  /**
+   * v1.2.8 — persist the captured provider-native session id into the DB. The
+   * write is idempotent (`WHERE external_session_id IS NULL OR ''`) so a stale
+   * disk-scan retry can't clobber a fresh value, and so the same UPDATE is
+   * safe to issue from both the pre-assign hot path and the disk-scan retry
+   * tail.
+   */
+  function persistExternalSessionId(sessionId: string, externalId: string): void {
+    try {
+      getRawDb()
+        .prepare(
+          `UPDATE agent_sessions
+           SET external_session_id = ?
+           WHERE id = ?
+             AND (external_session_id IS NULL OR external_session_id = '')`,
+        )
+        .run(externalId, sessionId);
+    } catch {
+      /* migration may not have run yet in dev/test boot; ignore */
+    }
+  }
+  /**
+   * v1.2.8 — bounded retry loop driving the disk-scan capture path for
+   * codex/kimi/opencode. Each attempt fires `findLatestSessionId(provider,
+   * cwd)`; on success we persist + stamp the live registry record and stop.
+   * The schedule (+2s/+5s/+15s) bounds total wall-clock to ~15s so a CLI that
+   * never writes its session file does not loop forever.
+   */
+  function scheduleDiskScanCapture(
+    sessionId: string,
+    providerId: string,
+    cwd: string,
+  ): void {
+    if (!DISK_SCAN_PROVIDERS.has(providerId.toLowerCase())) return;
+    let stopped = false;
+    const attempt = async () => {
+      if (stopped) return;
+      // Skip if the session was forgotten or already has an id.
+      const rec = sharedDeps?.pty.get(sessionId);
+      if (!rec) {
+        stopped = true;
+        return;
+      }
+      if (rec.externalSessionId && rec.externalSessionId.length > 0) {
+        stopped = true;
+        return;
+      }
+      try {
+        const captured = await findLatestSessionId(providerId, cwd);
+        if (captured && !stopped) {
+          persistExternalSessionId(sessionId, captured);
+          sharedDeps?.pty.setExternalSessionId(sessionId, captured);
+          stopped = true;
+        }
+      } catch {
+        /* disk-scan failure is non-fatal; later retries may still succeed */
+      }
+    };
+    for (const delay of DISK_SCAN_RETRY_SCHEDULE_MS) {
+      setTimeout(() => {
+        void attempt();
+      }, delay).unref();
+    }
+  }
   const pty = new PtyRegistry(
     (sessionId, data) => broadcast('pty:data', { sessionId, data }),
     (sessionId, exitCode, signal) => broadcast('pty:exit', { sessionId, exitCode, signal }),
@@ -148,19 +217,15 @@ function buildRouter() {
           url: hit.url,
           text: hit.text,
         }),
-      onExternalSessionId: (sessionId, extraction) => {
-        try {
-          getRawDb()
-            .prepare(
-              `UPDATE agent_sessions
-               SET external_session_id = ?
-               WHERE id = ?
-                 AND (external_session_id IS NULL OR external_session_id = '')`,
-            )
-            .run(extraction.sessionId, sessionId);
-        } catch {
-          /* migration may not have run yet in dev/test boot; ignore */
+      // v1.2.8 — fires once per FRESH spawn (the registry skips resume calls).
+      // Two responsibilities: (1) persist the pre-assigned UUID for
+      // claude/gemini immediately; (2) schedule the bounded disk-scan retry
+      // loop for codex/kimi/opencode.
+      onPostSpawnCapture: ({ sessionId, providerId, cwd, preassignedExternalSessionId }) => {
+        if (preassignedExternalSessionId) {
+          persistExternalSessionId(sessionId, preassignedExternalSessionId);
         }
+        scheduleDiskScanCapture(sessionId, providerId, cwd);
       },
     },
   );
@@ -407,6 +472,12 @@ function buildRouter() {
 
   const panesCtl = defineController({
     resume: async (workspaceId: string) => resumeWorkspacePanes(workspaceId, { pty }),
+    // v1.2.8 — "Respawn fresh" toast action. Re-spawns every pane the resume
+    // flow marked as `status='exited' AND exit_code=-1` using the same
+    // worktree + provider but with no resume args; returns counts so the
+    // renderer can confirm via follow-up toast.
+    respawnFailed: async (workspaceId: string) =>
+      respawnFailedWorkspacePanes(workspaceId, { pty }),
   });
 
   const providersCtl = defineController({

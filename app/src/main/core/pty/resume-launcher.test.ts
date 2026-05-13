@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type Database from 'better-sqlite3';
 
 import {
+  buildResumeArgs,
   resumeWorkspacePanes,
   type ResumeLauncherDeps,
 } from './resume-launcher.ts';
@@ -18,6 +19,11 @@ const claudeProvider = {
   icon: '',
   installHint: '',
 };
+
+const codexProvider = { ...claudeProvider, id: 'codex', name: 'Codex' };
+const geminiProvider = { ...claudeProvider, id: 'gemini', name: 'Gemini' };
+const kimiProvider = { ...claudeProvider, id: 'kimi', name: 'Kimi' };
+const opencodeProvider = { ...claudeProvider, id: 'opencode', name: 'OpenCode' };
 
 interface FakeRow {
   id: string;
@@ -161,6 +167,39 @@ function makeSession(id: string, providerId: string, startedAt = 1234): SessionR
   };
 }
 
+describe('buildResumeArgs', () => {
+  // v1.2.8 — the new per-provider matrix. Each provider has two flavours:
+  // by captured id (use the native flag) and the universal --continue fallback.
+  it.each([
+    ['claude', 'ext-id', ['--resume', 'ext-id'], 'id'],
+    ['claude', null, ['--continue'], 'continue'],
+    ['codex', 'ext-id', ['resume', 'ext-id'], 'id'],
+    ['codex', null, ['resume', '--last'], 'continue'],
+    ['gemini', 'ext-id', ['--resume', 'ext-id'], 'id'],
+    ['gemini', null, ['--resume', 'latest'], 'continue'],
+    ['kimi', 'ext-id', ['--session', 'ext-id'], 'id'],
+    ['kimi', null, ['--continue'], 'continue'],
+    ['opencode', 'ext-id', ['--session', 'ext-id'], 'id'],
+    ['opencode', null, ['--continue'], 'continue'],
+  ] as const)('%s + %s → %j (%s)', (provider, externalId, expected, mode) => {
+    const result = buildResumeArgs(provider, externalId);
+    expect(result).not.toBeNull();
+    expect(result!.args).toEqual(expected);
+    expect(result!.mode).toBe(mode);
+  });
+
+  it('returns null for providers without a known resume strategy', () => {
+    expect(buildResumeArgs('shell', null)).toBeNull();
+    expect(buildResumeArgs('custom', 'ext-id')).toBeNull();
+    expect(buildResumeArgs('unknown-provider', 'ext-id')).toBeNull();
+  });
+
+  it('treats empty + whitespace external ids as the continue fallback', () => {
+    expect(buildResumeArgs('claude', '')?.args).toEqual(['--continue']);
+    expect(buildResumeArgs('claude', '   ')?.args).toEqual(['--continue']);
+  });
+});
+
 describe('resumeWorkspacePanes', () => {
   it('appends provider resumeArgs and external session id', async () => {
     const { db, rows } = setupDb();
@@ -198,6 +237,7 @@ describe('resumeWorkspacePanes', () => {
     expect(calls[0]?.sessionId).toBe('sess-1');
     expect(calls[0]?.providerId).toBe('claude');
     expect(calls[0]?.args).toEqual(['--resume', 'external-claude-1']);
+    expect(result.resumed[0]?.resumeMode).toBe('id');
     expect(rows[0]?.status).toBe('running');
     expect(rows[0]?.exit_code).toBe(null);
     expect(rows[0]?.exited_at).toBe(null);
@@ -230,35 +270,88 @@ describe('resumeWorkspacePanes', () => {
     expect(rows[0]?.exited_at).toBe(2222);
   });
 
-  it('reports rows missing external_session_id as failed resumes', async () => {
+  it('routes missing external_session_id to --continue (no longer a failure)', async () => {
+    // v1.2.8 — the v1.2.7 behaviour was: missing id ⇒ mark exited+failed and
+    // surface "missing external_session_id" in the toast. The new contract is
+    // success-via-fallback: the resume launcher builds `['--continue']` args
+    // and spawns normally; only the spawn itself can fail now.
     const { db, rows } = setupDb();
     insertSession(rows, {
       id: 'sess-missing-external',
       external_session_id: null,
     });
+    const calls: Array<{ args: string[] }> = [];
     const registry = {
       get: () => undefined,
     } as unknown as PtyRegistry;
+    const resolve: NonNullable<ResumeLauncherDeps['resolve']> = (_deps, opts) => {
+      calls.push({ args: opts.extraArgs ?? [] });
+      return {
+        ptySession: makeSession(opts.sessionId ?? 'new-id', opts.providerId),
+        providerRequested: opts.providerId,
+        providerEffective: 'claude',
+        commandUsed: 'claude',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+      };
+    };
 
     const result = await resumeWorkspacePanes('ws-1', {
       pty: registry,
       db,
-      now: () => 3333,
       getProvider: () => claudeProvider,
-      resolve: (() => {
-        throw new Error('resolve should not run');
-      }) as NonNullable<ResumeLauncherDeps['resolve']>,
+      resolve,
     });
 
-    expect(result.resumed).toHaveLength(0);
-    expect(result.failed).toHaveLength(1);
-    expect(result.failed[0]).toMatchObject({
-      sessionId: 'sess-missing-external',
-      externalSessionId: '',
-      error: 'missing external_session_id; cannot resume pane',
-    });
-    expect(rows[0]?.status).toBe('exited');
-    expect(rows[0]?.exit_code).toBe(-1);
-    expect(rows[0]?.exited_at).toBe(3333);
+    expect(result.failed).toHaveLength(0);
+    expect(result.resumed).toHaveLength(1);
+    expect(calls[0]?.args).toEqual(['--continue']);
+    expect(result.resumed[0]?.externalSessionId).toBe('');
+    expect(result.resumed[0]?.resumeMode).toBe('continue');
+    expect(rows[0]?.status).toBe('running');
+  });
+
+  it('routes missing external id to --continue for every shipped provider', async () => {
+    // v1.2.8 — exhaustive per-provider matrix verifying the universal fallback
+    // wires the right args for each CLI. One row per provider, no external id.
+    const providers = [
+      { def: claudeProvider, expected: ['--continue'] },
+      { def: codexProvider, expected: ['resume', '--last'] },
+      { def: geminiProvider, expected: ['--resume', 'latest'] },
+      { def: kimiProvider, expected: ['--continue'] },
+      { def: opencodeProvider, expected: ['--continue'] },
+    ];
+    for (const { def, expected } of providers) {
+      const { db, rows } = setupDb();
+      insertSession(rows, {
+        id: `sess-${def.id}`,
+        provider_id: def.id,
+        provider_effective: def.id,
+        external_session_id: null,
+      });
+      const calls: Array<{ args: string[] }> = [];
+      const registry = { get: () => undefined } as unknown as PtyRegistry;
+      const resolve: NonNullable<ResumeLauncherDeps['resolve']> = (_d, opts) => {
+        calls.push({ args: opts.extraArgs ?? [] });
+        return {
+          ptySession: makeSession(opts.sessionId ?? 'new', opts.providerId),
+          providerRequested: opts.providerId,
+          providerEffective: def.id,
+          commandUsed: def.command,
+          argsUsed: opts.extraArgs ?? [],
+          fallbackOccurred: false,
+        };
+      };
+      const result = await resumeWorkspacePanes('ws-1', {
+        pty: registry,
+        db,
+        getProvider: () => def,
+        resolve,
+      });
+      expect(result.failed).toHaveLength(0);
+      expect(result.resumed).toHaveLength(1);
+      expect(calls[0]?.args).toEqual(expected);
+      expect(rows[0]?.status).toBe('running');
+    }
   });
 });

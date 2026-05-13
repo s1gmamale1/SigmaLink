@@ -105,22 +105,92 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
     if (isRoomId(active.entry.room)) {
       dispatch({ type: 'SET_ROOM', room: active.entry.room });
     }
-    for (const item of restored) {
-      void rpc.panes.resume(item.workspace.id)
-        .then((result) => {
-          if (result.failed.length === 0) return;
-          const first = result.failed[0];
-          toast.error(`Could not resume ${result.failed.length} pane${result.failed.length === 1 ? '' : 's'}`, {
-            description: first ? `${first.sessionId}: ${first.error}` : item.workspace.name,
-          });
-        })
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          toast.error('Pane resume failed', {
-            description: `${item.workspace.name}: ${message}`,
-          });
-        });
-    }
+    // v1.2.8 / R-1.2.7-5 — aggregate per-workspace resume results into ONE
+    // toast per restart. Previously this fired one toast per failing
+    // workspace, which spammed the operator on a cold boot where multiple
+    // workspaces could not resume. With v1.2.8's `--continue` universal
+    // fallback, hitting failures here is rare and almost always recoverable
+    // by a fresh respawn, so the toast carries an action button that wires
+    // through `panes.respawnFailed(workspaceId)` per affected workspace.
+    void Promise.all(
+      restored.map((item) =>
+        rpc.panes
+          .resume(item.workspace.id)
+          .then((result) => ({ workspace: item.workspace, result, error: null as string | null }))
+          .catch((err: unknown) => ({
+            workspace: item.workspace,
+            result: null as null | Awaited<ReturnType<typeof rpc.panes.resume>>,
+            error: err instanceof Error ? err.message : String(err),
+          })),
+      ),
+    ).then((outcomes) => {
+      let resumedTotal = 0;
+      let failedTotal = 0;
+      const failedWorkspaces: Array<{ id: string; name: string }> = [];
+      for (const o of outcomes) {
+        if (o.result) {
+          resumedTotal += o.result.resumed.length;
+          if (o.result.failed.length > 0) {
+            failedTotal += o.result.failed.length;
+            failedWorkspaces.push({ id: o.workspace.id, name: o.workspace.name });
+          }
+        } else if (o.error) {
+          // RPC-level failure (e.g. preload bridge gone) — surface as a
+          // single workspace failure with an unknown pane count of 1.
+          failedTotal += 1;
+          failedWorkspaces.push({ id: o.workspace.id, name: o.workspace.name });
+        }
+      }
+      if (failedTotal === 0) return;
+      const failedNoun = failedTotal === 1 ? 'pane needs' : 'panes need';
+      const summary =
+        resumedTotal > 0
+          ? `Resumed ${resumedTotal} pane${resumedTotal === 1 ? '' : 's'}. ${failedTotal} ${failedNoun} to be respawned.`
+          : `${failedTotal} ${failedNoun} to be respawned.`;
+      const description =
+        failedWorkspaces.length === 1
+          ? failedWorkspaces[0]?.name
+          : `${failedWorkspaces.length} workspaces affected`;
+      toast.error(summary, {
+        description,
+        // The action button routes through `panes.respawnFailed` for every
+        // workspace that reported a failure. Fire-and-forget — the followup
+        // toast confirms the aggregate spawn/fail count from main.
+        action: {
+          label: 'Respawn fresh',
+          onClick: () => {
+            void Promise.all(
+              failedWorkspaces.map((w) =>
+                rpc.panes
+                  .respawnFailed(w.id)
+                  .catch((err: unknown) => ({
+                    workspaceId: w.id,
+                    spawned: 0,
+                    failed: 1,
+                    error: err instanceof Error ? err.message : String(err),
+                  })),
+              ),
+            ).then((results) => {
+              let spawned = 0;
+              let stillFailed = 0;
+              for (const r of results) {
+                spawned += r.spawned;
+                stillFailed += r.failed;
+              }
+              if (stillFailed === 0 && spawned > 0) {
+                toast.success(
+                  `Respawned ${spawned} pane${spawned === 1 ? '' : 's'}`,
+                );
+              } else if (stillFailed > 0) {
+                toast.error(
+                  `Respawned ${spawned} pane${spawned === 1 ? '' : 's'}; ${stillFailed} still failing`,
+                );
+              }
+            });
+          },
+        },
+      });
+    });
     pendingRestoreRef.current = null;
   }, [state.ready, state.workspaces, dispatch]);
 

@@ -86,7 +86,7 @@ Five providers ship in the v1.2.4 default registry: Claude Code, Codex CLI, Gemi
 | Claude Code | `claude` | `npm i -g @anthropic-ai/claude-code` |
 | Codex CLI | `codex` | `npm i -g @openai/codex` |
 | Gemini CLI | `gemini` | `npm i -g @google/gemini-cli` |
-| Kimi Code CLI | `kimi` | See moonshot.ai for install instructions (upstream npm package name pending) |
+| Kimi Code CLI | `kimi` | `pip install kimi-cli` (or `uvx kimi`) — PyPI, not npm. Upstream: [MoonshotAI/kimi-cli](https://github.com/MoonshotAI/kimi-cli) |
 | OpenCode CLI | `opencode` | `npm i -g opencode` |
 
 > Earlier registries shipped BridgeCode, Cursor Agent, Aider, Continue, and a "Shell" provider row. v1.2.4 trimmed them: BridgeCode never materialised, Cursor's CLI fell out of scope, Aider/Continue moved off SigmaLink's support matrix, and "Shell" is now an internal-only sentinel that powers the launcher's "Skip — no agents" path without surfacing as a user-facing button.

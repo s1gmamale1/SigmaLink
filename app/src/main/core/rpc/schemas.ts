@@ -118,6 +118,18 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       ),
     }),
   },
+  // v1.2.8 — Recovery action behind the aggregated resume-failure toast.
+  // Wraps `respawnFailedWorkspacePanes`; same input shape as `panes.resume`
+  // (the renderer already has `workspaceId` in scope), and the output is a
+  // simple count envelope so the follow-up toast can confirm success.
+  'panes.respawnFailed': {
+    input: z.string().min(1), // workspaceId
+    output: z.object({
+      workspaceId: z.string(),
+      spawned: z.number().int().nonnegative(),
+      failed: z.number().int().nonnegative(),
+    }),
+  },
   // ── providers ────────────────────────────────────────────────────────
   'providers.list': stub,
   'providers.probeAll': stub,
