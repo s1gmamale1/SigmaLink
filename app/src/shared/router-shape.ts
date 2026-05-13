@@ -207,7 +207,7 @@ export interface AppRouter {
     getState: (workspaceId: string) => Promise<BrowserState>;
     claimDriver: (input: { workspaceId: string; agentKey: string; label?: string }) => Promise<void>;
     releaseDriver: (input: { workspaceId: string }) => Promise<void>;
-    getMcpUrl: (workspaceId: string) => Promise<string | null>;
+
     teardown: (workspaceId: string) => Promise<void>;
   };
   skills: {

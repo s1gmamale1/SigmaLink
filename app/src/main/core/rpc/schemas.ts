@@ -179,7 +179,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'browser.getState': stub,
   'browser.claimDriver': stub,
   'browser.releaseDriver': stub,
-  'browser.getMcpUrl': stub,
+
   'browser.teardown': stub,
   // ── skills ───────────────────────────────────────────────────────────
   'skills.list': stub,

@@ -1111,3 +1111,61 @@ Five implementation steps were dispatched as named coder sub-agents over a singl
 `docs/01-investigation/01-known-bug-windows-pty.md` had been carrying a "Status: Root cause confirmed by code inspection" header since Phase 1. The fix actually landed in the v1.1.x stream as part of Wave 5 + the v1.1.10 reliability sweep, but the investigation doc was never updated to reflect that. v1.2.0 appends a new "Status: RESOLVED 2026-05-12" section at the bottom citing the shipping `local-pty.ts:47-230` implementation and cross-linking to the new Windows-port design doc. The original investigation is preserved verbatim as the root-cause record.
 
 **Next session restart point**: SigmaLink at v1.2.0 on `main`. Windows 10/11 x64 is now a peer platform to macOS arm64 (unsigned EXE + PowerShell installer + Web Speech voice fallback). v1.2.1 backlog: `nsis.license` → custom NSH welcome page. v1.3+ backlog: native SAPI5 voice, WCO frameless chrome, Linux test gating. Funded-only: EV cert (Windows), Apple Developer ID (macOS), Picovoice (wake-word).
+
+---
+
+## Phase 20 — v1.2.6 browser MCP stdio switch (May 13, 2026)
+
+The v1.2.5 post-install regression sweep fixed bundling and PATH for the Playwright MCP supervisor, but the deeper bug remained: Playwright needs Chromium binaries (~170 MB) that the DMG doesn't ship, and Playwright can't auto-download without a TTY. The user's stdio suggestion (from the v1.2.5 DMG report thread) was the right answer.
+
+### Pre-flight validation
+
+Four investigator validations confirmed the diagnosis:
+1. `@playwright/mcp` needs Chromium via `playwright-core` registry — TRUE.
+2. DMG (501 MB) contains no `.local-browsers/` — TRUE.
+3. Playwright auto-downloads only with a TTY — our supervisor spawn had `stdio: ['ignore', 'pipe', 'pipe']` — TRUE.
+4. Supervisor's `app:browser-mcp-failed` broadcast fires only after 3 retries (~4.5 s) — agent MCP handshake times out first — TRUE.
+
+Conclusion: the HTTP supervisor approach (v1.2.0–v1.2.5) was fundamentally flawed for packaged builds.
+
+### Implementation — 3 steps
+
+**Step 1 — Config writer rewrite.** `mcp-config-writer.ts` changed from HTTP URL to stdio command:
+- Claude `.mcp.json`: `{ command: 'npx', args: ['-y', '@playwright/mcp@0.0.75'] }`
+- Codex `config.toml`: `transport = 'stdio'`, `command = 'npx'`, `args = ["-y", "@playwright/mcp@0.0.75"]`
+- Gemini `extension.json`: same command/args shape
+`sigmamemory` stdio config unchanged (already stdio, already works).
+
+**Step 2 — Supervisor deletion.** Deleted `playwright-supervisor.ts` (~400 LOC). Removed from:
+- `rpc-router.ts` (import, instantiation, sharedDeps field, shutdown hook)
+- `launcher.ts` (dropped `playwrightSupervisor.start()` call, dropped `mcpUrl` parameter)
+- `manager.ts` (removed supervisor from ManagerDeps/RegistryDeps, removed `ensureSupervisor()`/`getMcpUrl()`, `teardown()` no longer stops supervisor)
+- `controller.ts` (removed `getMcpUrl` RPC, `openTab` no longer calls `ensureSupervisor()`)
+- `router-shape.ts` (removed `browser.getMcpUrl` type)
+- `rpc-channels.ts` (removed `browser.getMcpUrl` from CHANNELS, `app:browser-mcp-failed` from EVENTS)
+- `schemas.ts` (removed `browser.getMcpUrl` stub)
+
+**Step 3 — Renderer cleanup + dep move.**
+- `RufloReadinessPill.tsx`: removed `app:browser-mcp-failed` subscription and `browserMcpFailed` state/map.
+- `McpServersTab.tsx`: shows static stdio command instead of querying a dynamic URL.
+- `package.json`: `@playwright/mcp` moved from `dependencies` back to `devDependencies`.
+- Test file `mcp-config-writer.spec.ts`: 3 cases rewritten for stdio output shape.
+
+### Aggregate gates
+- `pnpm exec tsc -b` → clean
+- `pnpm exec vitest run` → **194/194** (34/36 files pass; 2 pre-existing Electron install failures in assistant tests unrelated to this change)
+- `pnpm exec eslint .` → 0/0
+- DMG size reduction: ~50 MB (no `@playwright/mcp` in bundled node_modules)
+
+### Decisions taken
+- **Pin to `@playwright/mcp@0.0.75`** instead of `@latest` — avoids upstream surprise breakage.
+- **Keep `bootstrapNodeToolPath()`** — still needed because agents (spawned by our PTY launcher) inherit `process.env.PATH`; without `/opt/homebrew/bin`, `npx` is still unreachable.
+- **Accept no shared browser state across panes** — each pane spawns its own Chromium. Theoretical benefit was never realized in practice; concurrent automation drivers on one Chrome instance creates more races than it solves.
+
+### Risks documented
+1. No `npx` on PATH (rare; mitigated by PATH bootstrap + documented requirement).
+2. First-call latency (~10 s npx + ~30 s Chromium download; visible in pane terminal).
+3. Pinned version means we miss upstream fixes until we bump intentionally.
+4. Each pane gets its own browser — no shared cookies/localStorage.
+
+**Next session restart point**: SigmaLink at v1.2.6 on branch `v1.2.6-stdio-mcp`. Browser MCP is now stdio-only. v1.2.7 backlog: Playwright e2e selector refresh; provider registry edge cases; true pane fullscreen. v1.3+ backlog: Apple Developer ID / notarisation, EV cert, WCO frameless chrome, Linux test gating.

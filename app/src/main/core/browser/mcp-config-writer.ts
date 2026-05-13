@@ -1,6 +1,5 @@
 // Writes per-provider MCP server config snippets so an agent CLI launched in
-// the workspace inherits a `browser` MCP server pointing at our managed
-// Playwright endpoint.
+// the workspace inherits a `browser` MCP server via stdio (npx-on-demand).
 //
 // Idempotency: every writer searches for the SigmaLink marker (or our key)
 // before appending. Re-running is safe.
@@ -28,12 +27,17 @@ const MEMORY_END_MARKER = '# end sigmalink-memory';
 const BROWSER_BLOCK_RE = /^# sigmalink-browser\b[\s\S]*?^# end sigmalink-browser[^\n]*\n?/m;
 const MEMORY_BLOCK_RE = /^# sigmalink-memory\b[\s\S]*?^# end sigmalink-memory[^\n]*\n?/m;
 
+/**
+ * v1.2.6 — browser MCP is now stdio (npx-on-demand) instead of an HTTP
+ * supervisor. Each agent pane spawns its own `@playwright/mcp` process.
+ * The `memory` stdio server (our internal mcp-memory-server.cjs) is
+ * unchanged.
+ */
 interface WriteOptions {
   worktree: string;
-  mcpUrl: string;
   /**
    * Optional Phase-5 SigmaMemory stdio server. When supplied, the writer
-   * adds a `sigmamemory` server entry alongside the `browser` HTTP entry so
+   * adds a `sigmamemory` server entry alongside the `browser` stdio entry so
    * agent CLIs see both tool sets in the same `.mcp.json`.
    */
   memory?: {
@@ -42,6 +46,10 @@ interface WriteOptions {
     env: Record<string, string>;
   };
 }
+
+// v1.2.6 — pinned version for reproducibility. Update when testing a new
+// `@playwright/mcp` release.
+const PLAYWRIGHT_MCP_VERSION = '0.0.75';
 
 export function writeMcpConfigForAgent(opts: WriteOptions): {
   claude: string | null;
@@ -72,8 +80,8 @@ function writeClaudeMcpJson(opts: WriteOptions): string | null {
       existing.mcpServers = {};
     }
     (existing.mcpServers as Record<string, unknown>).browser = {
-      type: 'http',
-      url: opts.mcpUrl,
+      command: 'npx',
+      args: ['-y', `@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}`],
     };
     if (opts.memory) {
       (existing.mcpServers as Record<string, unknown>).sigmamemory = {
@@ -107,8 +115,9 @@ function writeCodexConfigToml(opts: WriteOptions): string | null {
     const browserBlock = [
       MARKER,
       '[mcp_servers.browser]',
-      'transport = "http"',
-      `url = "${opts.mcpUrl}"`,
+      'transport = "stdio"',
+      `command = "npx"`,
+      `args = ["-y", "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}"]`,
       END_MARKER,
       '',
     ].join('\n');
@@ -160,7 +169,10 @@ function writeGeminiExtension(opts: WriteOptions): string | null {
     fs.mkdirSync(dir, { recursive: true });
     const target = path.join(dir, 'gemini-extension.json');
     const mcpServers: Record<string, unknown> = {
-      browser: { url: opts.mcpUrl },
+      browser: {
+        command: 'npx',
+        args: ['-y', `@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}`],
+      },
     };
     if (opts.memory) {
       mcpServers.sigmamemory = {

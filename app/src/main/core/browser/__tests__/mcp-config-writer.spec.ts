@@ -1,6 +1,6 @@
-// P3-S1 — guards against the Gemini `httpUrl` regression. Snapshots the
-// produced config files and asserts the Gemini extension uses `url` (not
-// `httpUrl`) for the browser MCP server. Codex TOML must keep `url`.
+// v1.2.6 — validates that the stdio browser MCP config is written correctly
+// for Claude (.mcp.json), Codex (config.toml), and Gemini (extension.json).
+// The browser entry is now a stdio command, not an HTTP URL.
 //
 // Framework: node:test (built into Node v26, no new dep).
 
@@ -47,10 +47,10 @@ test.after(() => {
   }
 });
 
-test('Gemini extension uses `url` (not `httpUrl`) for browser MCP server', () => {
+test('Gemini extension uses stdio command for browser MCP server', () => {
   withFakeHome((home) => {
     const worktree = makeTmpDir('sigmalink-mcp-test-');
-    const out = writeMcpConfigForAgent({ worktree, mcpUrl: 'http://127.0.0.1:9999/mcp' });
+    const out = writeMcpConfigForAgent({ worktree });
     assert.ok(out.gemini, 'expected gemini path');
     const geminiManifestPath = path.join(
       home,
@@ -61,38 +61,43 @@ test('Gemini extension uses `url` (not `httpUrl`) for browser MCP server', () =>
     );
     assert.equal(out.gemini, geminiManifestPath);
     const manifest = JSON.parse(fs.readFileSync(geminiManifestPath, 'utf8'));
-    assert.deepEqual(manifest.mcpServers.browser, { url: 'http://127.0.0.1:9999/mcp' });
+    assert.deepEqual(manifest.mcpServers.browser, {
+      command: 'npx',
+      args: ['-y', '@playwright/mcp@0.0.75'],
+    });
     assert.ok(
-      !('httpUrl' in manifest.mcpServers.browser),
-      'Gemini browser entry must not contain `httpUrl`',
+      !('url' in manifest.mcpServers.browser),
+      'Gemini browser entry must not contain `url` (v1.2.6 stdio mode)',
     );
   });
 });
 
-test('Codex TOML uses `url` for browser MCP server', () => {
+test('Codex TOML uses stdio for browser MCP server', () => {
   withFakeHome((home) => {
     const worktree = makeTmpDir('sigmalink-mcp-test-');
-    const out = writeMcpConfigForAgent({ worktree, mcpUrl: 'http://127.0.0.1:9999/mcp' });
+    const out = writeMcpConfigForAgent({ worktree });
     assert.ok(out.codex, 'expected codex path');
     const codexPath = path.join(home, '.codex', 'config.toml');
     assert.equal(out.codex, codexPath);
     const toml = fs.readFileSync(codexPath, 'utf8');
     assert.match(toml, /\[mcp_servers\.browser\]/);
-    assert.match(toml, /url = "http:\/\/127\.0\.0\.1:9999\/mcp"/);
-    assert.doesNotMatch(toml, /httpUrl/);
+    assert.match(toml, /transport = "stdio"/);
+    assert.match(toml, /command = "npx"/);
+    assert.match(toml, /args = \["-y", "@playwright\/mcp@0\.0\.75"\]/);
+    assert.doesNotMatch(toml, /url = /);
   });
 });
 
-test('Claude .mcp.json uses `url` for browser MCP server', () => {
+test('Claude .mcp.json uses stdio for browser MCP server', () => {
   withFakeHome(() => {
     const worktree = makeTmpDir('sigmalink-mcp-test-');
-    const out = writeMcpConfigForAgent({ worktree, mcpUrl: 'http://127.0.0.1:9999/mcp' });
+    const out = writeMcpConfigForAgent({ worktree });
     assert.ok(out.claude, 'expected claude path');
     assert.equal(out.claude, path.join(worktree, '.mcp.json'));
     const json = JSON.parse(fs.readFileSync(out.claude!, 'utf8'));
     assert.deepEqual(json.mcpServers.browser, {
-      type: 'http',
-      url: 'http://127.0.0.1:9999/mcp',
+      command: 'npx',
+      args: ['-y', '@playwright/mcp@0.0.75'],
     });
   });
 });

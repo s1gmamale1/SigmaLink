@@ -20,10 +20,7 @@ export function buildBrowserController(deps: BrowserControllerDeps) {
 
   return defineController({
     openTab: async (input: { workspaceId: string; url?: string }): Promise<BrowserTab> => {
-      const mgr = reg.get(input.workspaceId);
-      // Best-effort spin-up of the MCP server on first tab open.
-      void mgr.ensureSupervisor().catch(() => undefined);
-      return mgr.openTab(input.url);
+      return reg.get(input.workspaceId).openTab(input.url);
     },
     closeTab: async (input: { workspaceId: string; tabId: string }): Promise<void> => {
       reg.get(input.workspaceId).closeTab(input.tabId);
@@ -71,16 +68,7 @@ export function buildBrowserController(deps: BrowserControllerDeps) {
     releaseDriver: async (input: { workspaceId: string }): Promise<void> => {
       reg.get(input.workspaceId).releaseDriver();
     },
-    getMcpUrl: async (workspaceId: string): Promise<string | null> => {
-      const mgr = reg.get(workspaceId);
-      // Ensure the supervisor is up so the URL is non-null on first call.
-      try {
-        await mgr.ensureSupervisor();
-      } catch {
-        /* allow null fallthrough */
-      }
-      return mgr.getMcpUrl();
-    },
+
     teardown: async (workspaceId: string): Promise<void> => {
       reg.teardown(workspaceId);
     },

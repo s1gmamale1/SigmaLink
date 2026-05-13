@@ -32,7 +32,6 @@ import { swarmAgents } from './core/db/schema';
 import { getDb } from './core/db/client';
 import { BrowserManagerRegistry } from './core/browser/manager';
 import { buildBrowserController } from './core/browser/controller';
-import { PlaywrightMcpSupervisor } from './core/browser/playwright-supervisor';
 import { SkillsManager } from './core/skills/manager';
 import { buildSkillsController, defaultMarketplaceTempDir } from './core/skills/controller';
 import { MemoryManager } from './core/memory/manager';
@@ -75,7 +74,6 @@ interface SharedDeps {
   worktreePool: WorktreePool;
   mailbox: SwarmMailbox;
   browserRegistry: BrowserManagerRegistry;
-  playwrightSupervisor: PlaywrightMcpSupervisor;
   skills: SkillsManager;
   memory: MemoryManager;
   memorySupervisor: MemoryMcpSupervisor;
@@ -224,7 +222,6 @@ function buildRouter() {
       /* PTY may have exited */
     }
   });
-  const playwrightSupervisor = new PlaywrightMcpSupervisor();
   const browserRegistry = new BrowserManagerRegistry({
     windowProvider: () => {
       // Prefer the focused window; fall back to the first non-destroyed one.
@@ -233,7 +230,6 @@ function buildRouter() {
       const all = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
       return all[0] ?? null;
     },
-    supervisor: playwrightSupervisor,
     onState: (state) => broadcast('browser:state', state),
   });
   const skillsManager = new SkillsManager({
@@ -286,7 +282,6 @@ function buildRouter() {
     worktreePool,
     mailbox,
     browserRegistry,
-    playwrightSupervisor,
     skills: skillsManager,
     memory: memoryManager,
     memorySupervisor,
@@ -924,11 +919,6 @@ export function shutdownRouter(): void {
   }
   try {
     sharedDeps?.browserRegistry.teardownAll();
-  } catch {
-    /* ignore */
-  }
-  try {
-    sharedDeps?.playwrightSupervisor.stopAll();
   } catch {
     /* ignore */
   }

@@ -301,6 +301,15 @@ Start at [`docs/README.md`](docs/README.md) for the full directory map. The inte
 - **v1.0.1** — DMG bindings hotfix + UI bug fixes (sidebar traffic-light overlap, CLI pane text alignment, Browser data-room flicker, missing zod schemas).
 - **v1.0.0** — V3 parity release with Persistent Swarm Replay + Sigma Assistant cross-session memory differentiators. ⚠ Known DMG runtime defect (`Cannot find module 'bindings'`) — superseded by v1.0.1.
 
+## Browser MCP first use (v1.2.6+)
+
+Since v1.2.6, the browser MCP server is no longer bundled inside SigmaLink. When an agent first calls a browser tool (e.g., "navigate to example.com"), two one-time downloads happen inside the pane terminal:
+
+1. **npx downloads `@playwright/mcp`** (~10 s on a fast connection).
+2. **Playwright downloads Chromium** (~170 MB, ~30 s with progress visible).
+
+Both are cached globally: subsequent browser tool calls in any pane are instant. If you don't have `npx` on PATH, the agent pane will show an error — make sure Node.js is installed and `bootstrapNodeToolPath()` has been run (automatic on macOS/Linux since v1.2.5).
+
 ## Known issues in v1.1.1
 
 Full triage in [`docs/08-bugs/OPEN.md`](docs/08-bugs/OPEN.md). v1.2 milestone tracks the follow-ups.
@@ -326,7 +335,7 @@ SigmaLink runs untrusted CLI agents inside PTYs against your local repositories.
 - Inspired by BridgeMind's BridgeSpace and BridgeSwarm products. SigmaLink is an independent project; we are not affiliated with, endorsed by, or sponsored by BridgeMind.
 - PTY ring-buffer plumbing, generic RPC bridge, and several Git-orchestration patterns are drawn from [Emdash](https://github.com/generalaction/emdash) (Apache-2.0). See [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md).
 - Skill format follows the public Anthropic Skills layout (SKILL.md frontmatter + body).
-- UI components use [shadcn UI](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), [lucide-react](https://lucide.dev/), and [xterm.js](https://xtermjs.org/). Database access uses [Drizzle ORM](https://orm.drizzle.team/) on top of [better-sqlite3](https://github.com/WiseLibs/better-sqlite3). PTY support comes from [node-pty](https://github.com/microsoft/node-pty). The in-app browser drives Chromium through the bundled [@playwright/mcp](https://github.com/microsoft/playwright-mcp) supervisor.
+- UI components use [shadcn UI](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), [lucide-react](https://lucide.dev/), and [xterm.js](https://xtermjs.org/). Database access uses [Drizzle ORM](https://orm.drizzle.team/) on top of [better-sqlite3](https://github.com/WiseLibs/better-sqlite3). PTY support comes from [node-pty](https://github.com/microsoft/node-pty). The in-app browser is driven by [@playwright/mcp](https://github.com/microsoft/playwright-mcp) via stdio (each agent pane spawns its own instance on demand; ~10 s npx download + ~30 s Chromium download on first use).
 
 ## License
 

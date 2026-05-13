@@ -4,6 +4,26 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-05-13
+
+Switch browser MCP from HTTP supervisor to stdio (npx-on-demand). Deletes ~400 LOC of supervisor machinery and removes three failure modes (bundling, PATH, Chromium TTY) from our code path.
+
+### Changed
+- **Browser MCP is now stdio** (`mcp-config-writer.ts`). Each agent pane spawns its own `@playwright/mcp` process via `npx -y @playwright/mcp@0.0.75`. First tool call triggers an ~10 s npx download + ~30 s Chromium download (visible in the pane terminal); subsequent calls are instant.
+- **`@playwright/mcp` moved back to `devDependencies`** — no longer bundled in the DMG. DMG shrinks ~50 MB.
+- **Deleted `playwright-supervisor.ts`** (~400 LOC) and all references: `rpc-router.ts`, `launcher.ts`, `manager.ts`, `controller.ts`, `router-shape.ts`, `rpc-channels.ts`, `schemas.ts`.
+- **Removed `browser.getMcpUrl` RPC** and `app:browser-mcp-failed` event — no longer meaningful without a supervisor.
+- **`RufloReadinessPill.tsx`** no longer subscribes to `app:browser-mcp-failed`.
+- **`McpServersTab.tsx`** now shows the static stdio command instead of querying a dynamic supervisor URL.
+
+### Added
+- **`docs/04-design/browser-mcp-stdio.md`** — architecture doc covering the stdio pivot, the failed HTTP-supervisor approach, trade-off table, and retrospective.
+
+### Verification
+- `pnpm exec tsc -b` → clean
+- `pnpm exec vitest run` → 194/194 pass (34/36 files; 2 pre-existing Electron install failures unrelated)
+- `pnpm exec eslint .` → 0/0
+
 ## [1.2.5] - 2026-05-13
 
 Post-install bug-fix wave from a real-user DMG report on v1.2.4. The user installed the macOS DMG via the curl one-liner and hit 6 visible symptoms — 4 of which traced to a single root cause (Playwright MCP supervisor never starting in packaged builds).

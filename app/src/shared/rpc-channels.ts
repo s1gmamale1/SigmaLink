@@ -75,7 +75,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'browser.getState',
   'browser.claimDriver',
   'browser.releaseDriver',
-  'browser.getMcpUrl',
+
   'browser.teardown',
   // skills
   'skills.list',
@@ -303,12 +303,7 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'app:update-win-progress',
   'app:update-win-ready',
   'app:update-error',
-  // v1.2.5 — Playwright browser-MCP supervisor failure events. Broadcast
-  // when the supervisor's spawn ENOENTs (DMG-launched PATH is truncated),
-  // when the readiness probe times out, or when the restart budget is
-  // exhausted. Payload: `{ workspaceId, error, fallbackTried }`. The
-  // renderer's RufloReadinessPill subscribes to keep the pill honest.
-  'app:browser-mcp-failed',
+
 ]);
 
 export function isAllowedChannel(channel: string): boolean {
