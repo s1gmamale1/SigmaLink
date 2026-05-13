@@ -23,6 +23,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'pty.write',
   'pty.resize',
   'pty.kill',
+  'pty.snapshot',
   'pty.subscribe',
   'pty.list',
   'pty.forget',

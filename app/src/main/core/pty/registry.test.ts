@@ -209,6 +209,38 @@ describe('PtyRegistry.resize()', () => {
   });
 });
 
+describe('PtyRegistry.snapshot()', () => {
+  it('returns the buffered bytes for a live session', () => {
+    let emitData: (data: string) => void = () => {
+      throw new Error('onData was not registered');
+    };
+    const pty = makeFakePty(FAKE_PID);
+    pty.onData = (cb) => {
+      emitData = cb;
+      return () => undefined;
+    };
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    emitData('hello ');
+    emitData('world');
+
+    expect(registry.snapshot(sess.id)).toBe('hello world');
+    expect(registry.snapshot('does-not-exist')).toBe('');
+  });
+});
+
 describe('PtyRegistry.killAll()', () => {
   it('uses ONE 5s timer regardless of session count', () => {
     // Spawn 4 fake sessions.

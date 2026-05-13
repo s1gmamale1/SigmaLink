@@ -78,6 +78,10 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'pty.write': stub,
   'pty.resize': stub,
   'pty.kill': stub,
+  'pty.snapshot': {
+    input: z.string().min(1),
+    output: z.object({ buffer: z.string() }),
+  },
   'pty.subscribe': stub,
   'pty.list': stub,
   'pty.forget': stub,

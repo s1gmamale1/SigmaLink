@@ -4,6 +4,28 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-05-13
+
+Multi-workspace switching now preserves terminal scrollback and surfaces pane-resume failures instead of making sessions appear silently lost.
+
+### Added
+
+- **`pty.snapshot` RPC** returns the process-wide PTY ring buffer for a session. Terminal mounts replay that snapshot before attaching the live PTY bus, so switching away from a workspace and back restores visible scrollback.
+- **PTY PID in `pty.list`** for verification and diagnostics.
+- **Multi-workspace Playwright spec** asserting a shell PTY pid remains alive and stable across workspace switches.
+- **Focused regression coverage** for registry snapshots, reducer non-destructive workspace switching, missing `external_session_id` resume failures, and sidebar persisted-workspace dropdown behavior.
+
+### Changed
+
+- Resume session-id extraction now scans the first 500 output lines instead of 100, giving CLI banners and MCP startup output more room before capture gives up.
+- Boot-time pane resume now reports `{ failed[] }` rows missing `external_session_id` instead of filtering them out silently.
+- Sidebar workspace close buttons appear on hover for every row, not only the active workspace.
+
+### Fixed
+
+- Workspace switching no longer looks like it interrupted running agents: PTYs continue running in main, and remounted xterms now replay buffered output.
+- Session restore failures are surfaced through a toast with the failed pane id and error.
+
 ## [1.2.6] - 2026-05-13
 
 Switch browser MCP from HTTP supervisor to stdio (npx-on-demand). Deletes ~400 LOC of supervisor machinery and removes three failure modes (bundling, PATH, Chromium TTY) from our code path.

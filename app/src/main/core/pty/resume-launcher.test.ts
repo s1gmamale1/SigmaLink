@@ -41,7 +41,6 @@ function setupDb(): { db: Database.Database; rows: FakeRow[] } {
           expect(sql).toMatch(/FROM agent_sessions/);
           return rows
             .filter((r) => r.workspace_id === workspaceId)
-            .filter((r) => r.external_session_id && r.external_session_id.trim())
             .filter(
               (r) =>
                 r.status === 'running' ||
@@ -133,7 +132,10 @@ function insertSession(
     exit_code: values.exit_code ?? null,
     started_at: values.started_at ?? 100,
     exited_at: values.exited_at ?? null,
-    external_session_id: values.external_session_id ?? 'external-claude-1',
+    external_session_id:
+      values.external_session_id !== undefined
+        ? values.external_session_id
+        : 'external-claude-1',
   });
 }
 
@@ -226,5 +228,37 @@ describe('resumeWorkspacePanes', () => {
     expect(rows[0]?.status).toBe('exited');
     expect(rows[0]?.exit_code).toBe(-1);
     expect(rows[0]?.exited_at).toBe(2222);
+  });
+
+  it('reports rows missing external_session_id as failed resumes', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'sess-missing-external',
+      external_session_id: null,
+    });
+    const registry = {
+      get: () => undefined,
+    } as unknown as PtyRegistry;
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: registry,
+      db,
+      now: () => 3333,
+      getProvider: () => claudeProvider,
+      resolve: (() => {
+        throw new Error('resolve should not run');
+      }) as NonNullable<ResumeLauncherDeps['resolve']>,
+    });
+
+    expect(result.resumed).toHaveLength(0);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0]).toMatchObject({
+      sessionId: 'sess-missing-external',
+      externalSessionId: '',
+      error: 'missing external_session_id; cannot resume pane',
+    });
+    expect(rows[0]?.status).toBe('exited');
+    expect(rows[0]?.exit_code).toBe(-1);
+    expect(rows[0]?.exited_at).toBe(3333);
   });
 });

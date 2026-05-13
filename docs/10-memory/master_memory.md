@@ -1169,3 +1169,15 @@ Conclusion: the HTTP supervisor approach (v1.2.0–v1.2.5) was fundamentally fla
 4. Each pane gets its own browser — no shared cookies/localStorage.
 
 **Next session restart point**: SigmaLink at v1.2.6 on branch `v1.2.6-stdio-mcp`. Browser MCP is now stdio-only. v1.2.7 backlog: Playwright e2e selector refresh; provider registry edge cases; true pane fullscreen. v1.3+ backlog: Apple Developer ID / notarisation, EV cert, WCO frameless chrome, Linux test gating.
+
+---
+
+## Phase 21 — v1.2.7 multi-workspace state preservation (May 13, 2026)
+
+Codex implemented the approved v1.2.7 plan in a dedicated worktree on branch `v1.2.7-multi-workspace-state`. Ruflo MCP was healthy in stdio mode and used for coordination status.
+
+The fix clarifies the actual failure mode: PTYs were not killed on workspace switch, but xterm unmounts erased visible scrollback. v1.2.7 exposes `pty.snapshot(sessionId)` over RPC and replays the existing registry ring buffer before attaching live PTY data on terminal remount.
+
+Resume reliability was hardened by extending external session id scanning from 100 to 500 lines, reporting rows missing `external_session_id` as failed resume results, and surfacing restore failures through sonner toasts. Sidebar polish makes close buttons available on every row and verifies the persisted workspace dropdown.
+
+Verification added: registry snapshot test, resume missing-id failure test, reducer non-destructive workspace-switch tests, sidebar dropdown/close tests, and a Playwright multi-workspace pid-stability spec.

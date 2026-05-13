@@ -1,0 +1,23 @@
+SigmaLink v1.2.7
+=================
+
+Focus: multi-workspace state preservation.
+
+What changed:
+- Workspace switches now replay buffered PTY output when terminals remount.
+- New pty.snapshot RPC exposes the existing main-process ring buffer.
+- Boot resume scans more startup output for provider-native session ids.
+- Missing external_session_id rows are reported as pane-resume failures instead of disappearing silently.
+- Resume failures show a toast with the affected pane id.
+- Sidebar close buttons appear on hover for every workspace row.
+- Persisted-but-closed workspaces remain available from the chevron dropdown.
+
+Verification added:
+- Registry snapshot unit test.
+- Resume missing-session-id unit test.
+- Reducer non-destructive workspace-switch tests.
+- Sidebar close/dropdown tests.
+- Playwright multi-workspace pid-stability spec.
+
+Deferred:
+- React Activity / xterm instance cache for zero-latency workspace switching is queued for v1.3.

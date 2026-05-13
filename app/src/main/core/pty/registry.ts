@@ -102,7 +102,7 @@ export class PtyRegistry {
     this.gracefulExitDelayMs = opts.gracefulExitDelayMs ?? 200;
     this.onLinkDetected = opts.onLinkDetected ?? null;
     this.onExternalSessionId = opts.onExternalSessionId ?? null;
-    this.externalSessionScanLineLimit = opts.externalSessionScanLineLimit ?? 100;
+    this.externalSessionScanLineLimit = opts.externalSessionScanLineLimit ?? 500;
   }
 
   create(input: { providerId: string; sessionId?: string } & SpawnInput): SessionRecord {

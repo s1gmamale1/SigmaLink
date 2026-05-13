@@ -9,7 +9,7 @@
 // Status semantics are preserved from the previous `WorkspaceTabs`:
 //   • dot ring = rollup of session statuses (running > error > idle)
 //   • pane-count pill counts *running* sessions only
-//   • close × surfaces on hover for the active row
+//   • close × surfaces on hover for every row
 //
 // The colour dot itself is derived from the workspace id via
 // `workspaceColor()` so users get a stable visual cue per project without us
@@ -247,21 +247,19 @@ export function WorkspacesPanel({
                     {status.running}
                   </span>
                 </button>
-                {isActive ? (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onClose(ws.id);
-                    }}
-                    className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus:opacity-100"
-                    aria-label={`Close ${displayName}`}
-                    title="Close workspace"
-                    data-testid="workspace-close"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onClose(ws.id);
+                  }}
+                  className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus:opacity-100"
+                  aria-label={`Close ${displayName}`}
+                  title="Close workspace"
+                  data-testid="workspace-close"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
             );
           })

@@ -1,7 +1,7 @@
 # SigmaLink Backlog — Open Bugs + Optimization Targets
 
-> Snapshot at **v1.2.6** (2026-05-13).
-> Latest sweep: v1.2.6 browser MCP stdio switch — deleted ~400 LOC Playwright supervisor, moved @playwright/mcp back to devDependencies, zero failure modes in our code path.
+> Snapshot at **v1.2.7** (2026-05-13).
+> Latest sweep: v1.2.7 multi-workspace state preservation — PTY ring-buffer replay on terminal remount, visible pane-resume failures, 500-line external session scan, sidebar close/dropdown polish, and pid-stability e2e coverage.
 > Bug ledger details live in [`OPEN.md`](OPEN.md); the v1.1.1 / v1.1.2 / v1.1.3 entries there are CLOSED — see "Shipped & verified" at the bottom of this file.
 > History: v1.1.8 (5-coder optimization swarm, bundle -61% gzip), v1.1.9 (perf + lint 0/0), v1.1.10 (Gemini P1 reliability), v1.1.11 (Kimi P1 + state-hook fixes), v1.2.0 (Windows port), v1.2.4 (auto-update), v1.2.5 (post-install regression sweep), v1.2.6 (browser MCP stdio).
 
@@ -20,6 +20,24 @@
 | Platform / distribution | 6 | [v1.3 platform](#v13--platform--distribution) |
 | Lint — React-compiler family | 31 errors | [v1.1.9 lint](#v119--react-compiler-lint-wave) |
 | Funded-only (Apple, Porcupine) | 2 | [Waiting on external](#waiting-on-external--needs-funding) |
+
+---
+
+## v1.2.7 — multi-workspace state preservation → **Shipped & verified**
+
+### What landed
+
+1. `pty.snapshot(sessionId)` RPC exposes the existing main-process PTY ring buffer.
+2. `SessionTerminal` replays the snapshot before attaching the live PTY data bus, so workspace switching no longer appears to wipe terminal output.
+3. `externalSessionScanLineLimit` increased from 100 to 500.
+4. `resumeWorkspacePanes` now reports missing `external_session_id` rows as failures instead of silently filtering them out.
+5. Boot restore surfaces failed resume results through a toast.
+6. Workspace sidebar close buttons show on hover for every row; the chevron dropdown opens persisted-but-closed workspaces.
+7. `pty.list` includes pid for diagnostics and e2e verification.
+
+### v1.3 follow-up
+
+- True xterm instance preservation via React Activity or a renderer-side terminal cache for zero-latency switching. v1.2.7 deliberately ships the lower-risk replay model first.
 
 ---
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import type { AgentSession, Workspace } from '@/shared/types';
 import { WorkspacesPanel } from './WorkspacesPanel';
 import { summarizeWorkspaces } from './workspaces-summary';
@@ -81,7 +81,7 @@ describe('<WorkspacesPanel />', () => {
         onBrowseWorkspaces={onBrowseWorkspaces}
       />,
     );
-    return { ...utils, onPick, onClose };
+    return { ...utils, onPick, onClose, onOpenPersisted, onBrowseWorkspaces };
   }
 
   it('renders a colour dot for every open workspace', () => {
@@ -98,14 +98,49 @@ describe('<WorkspacesPanel />', () => {
     expect(badge?.textContent).toBe('2');
   });
 
-  it('only renders a close button on the active row', () => {
-    const { getAllByTestId } = renderPanel('a');
+  it('renders a hover close button for every workspace row', () => {
+    const { getAllByTestId, onClose } = renderPanel('a');
     const closeButtons = getAllByTestId('workspace-close');
-    expect(closeButtons).toHaveLength(1);
+    expect(closeButtons).toHaveLength(3);
+    const backgroundRow = getAllByTestId('workspace-row').find(
+      (n) => n.getAttribute('data-workspace-id') === 'b',
+    );
+    const backgroundClose = backgroundRow?.querySelector('[data-testid="workspace-close"]');
+    expect(backgroundClose).toBeTruthy();
+    fireEvent.click(backgroundClose!);
+    expect(onClose).toHaveBeenCalledWith('b');
+  });
+
+  it('marks the active row with sidebar accent styling', () => {
+    const { getAllByTestId } = renderPanel('a');
     const activeRow = getAllByTestId('workspace-row').find(
       (n) => n.getAttribute('data-active') === 'true',
     );
-    expect(activeRow?.contains(closeButtons[0]!)).toBe(true);
+    expect(activeRow?.className).toContain('bg-sidebar-accent');
+  });
+
+  it('opens persisted-but-closed workspaces from the chevron dropdown', async () => {
+    const wsD = workspace('d', { name: 'Dormant Workspace', rootPath: '/tmp/dormant' });
+    const onOpenPersisted = vi.fn();
+    const { getByLabelText, findByText } = render(
+      <WorkspacesPanel
+        workspaces={[wsA, wsB, wsC]}
+        persistedWorkspaces={[wsA, wsB, wsC, wsD]}
+        sessions={sessions}
+        activeId="a"
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={onOpenPersisted}
+        onBrowseWorkspaces={vi.fn()}
+      />,
+    );
+
+    const trigger = getByLabelText('Workspace menu');
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    fireEvent.click(await findByText('Dormant Workspace'));
+
+    expect(onOpenPersisted).toHaveBeenCalledWith(wsD);
   });
 
   it('renders an empty-state placeholder + CTA when no workspaces are open', () => {

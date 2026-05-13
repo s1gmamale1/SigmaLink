@@ -67,7 +67,7 @@ interface ResumeRow {
   providerId: string;
   providerEffective: string | null;
   cwd: string;
-  externalSessionId: string;
+  externalSessionId: string | null;
 }
 
 function readShowLegacy(db: Database.Database): boolean {
@@ -154,8 +154,6 @@ function listEligibleRows(db: Database.Database, workspaceId: string): ResumeRow
          external_session_id AS externalSessionId
        FROM agent_sessions
        WHERE workspace_id = ?
-         AND external_session_id IS NOT NULL
-         AND trim(external_session_id) <> ''
          AND (
            status = 'running'
            OR (status = 'exited' AND exit_code = -1)
@@ -198,6 +196,18 @@ export async function resumeWorkspacePanes(
     }
 
     const resumeProviderId = row.providerEffective ?? row.providerId;
+    const externalSessionId = row.externalSessionId?.trim();
+    if (!externalSessionId) {
+      markResumeFailed(db, row.id, now());
+      result.failed.push({
+        sessionId: row.id,
+        providerId: resumeProviderId,
+        externalSessionId: '',
+        error: 'missing external_session_id; cannot resume pane',
+      });
+      continue;
+    }
+
     const provider = await getProvider(resumeProviderId);
     if (!provider) {
       result.skipped.push({
@@ -226,7 +236,7 @@ export async function resumeWorkspacePanes(
           cols: deps.cols ?? 120,
           rows: deps.rows ?? 32,
           showLegacy: deps.showLegacy ?? readShowLegacy(db),
-          extraArgs: [...provider.resumeArgs, row.externalSessionId],
+          extraArgs: [...provider.resumeArgs, externalSessionId],
         },
       );
       const rec = spawned.ptySession;
@@ -237,7 +247,7 @@ export async function resumeWorkspacePanes(
         sessionId: row.id,
         providerId: row.providerId,
         providerEffective: spawned.providerEffective,
-        externalSessionId: row.externalSessionId,
+        externalSessionId,
         pid: rec.pid,
       });
     } catch (err) {
@@ -246,7 +256,7 @@ export async function resumeWorkspacePanes(
       result.failed.push({
         sessionId: row.id,
         providerId: resumeProviderId,
-        externalSessionId: row.externalSessionId,
+        externalSessionId,
         error: message,
       });
     }

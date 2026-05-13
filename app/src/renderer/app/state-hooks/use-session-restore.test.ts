@@ -47,8 +47,14 @@ function installSigmaStub(): SigmaStub {
   return { eventOn, eventSend, emit };
 }
 
-const resumeMock = vi.fn<(wsId: string) => Promise<void>>();
+const resumeMock = vi.fn<
+  (wsId: string) => Promise<{ workspaceId: string; resumed: unknown[]; failed: unknown[]; skipped: unknown[] }>
+>();
 const kvGetMock = vi.fn<(key: string) => Promise<string | null>>();
+
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn() },
+}));
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -80,7 +86,9 @@ let sigma: SigmaStub;
 beforeEach(() => {
   sigma = installSigmaStub();
   resumeMock.mockReset();
-  resumeMock.mockResolvedValue(undefined);
+  resumeMock.mockImplementation((workspaceId: string) =>
+    Promise.resolve({ workspaceId, resumed: [], failed: [], skipped: [] }),
+  );
   kvGetMock.mockReset();
   kvGetMock.mockResolvedValue(null);
   vi.useFakeTimers();
