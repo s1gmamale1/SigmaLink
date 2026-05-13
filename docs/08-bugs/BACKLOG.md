@@ -1,9 +1,9 @@
 # SigmaLink Backlog — Open Bugs + Optimization Targets
 
-> Snapshot at **v1.2.0** (2026-05-12).
-> Latest sweep: v1.2.0 Windows platform port — NSIS EXE + PowerShell installer + SmartScreen workaround docs + Cascadia Mono font + VoiceTab platform-aware copy + WCO clearance + ia32 drop. Tests 196 → 205.
+> Snapshot at **v1.2.6** (2026-05-13).
+> Latest sweep: v1.2.6 browser MCP stdio switch — deleted ~400 LOC Playwright supervisor, moved @playwright/mcp back to devDependencies, zero failure modes in our code path.
 > Bug ledger details live in [`OPEN.md`](OPEN.md); the v1.1.1 / v1.1.2 / v1.1.3 entries there are CLOSED — see "Shipped & verified" at the bottom of this file.
-> History: v1.1.8 (5-coder optimization swarm, bundle -61% gzip), v1.1.9 (perf + lint 0/0), v1.1.10 (Gemini P1 reliability), v1.1.11 (Kimi P1 + state-hook fixes), v1.2.0 (Windows port).
+> History: v1.1.8 (5-coder optimization swarm, bundle -61% gzip), v1.1.9 (perf + lint 0/0), v1.1.10 (Gemini P1 reliability), v1.1.11 (Kimi P1 + state-hook fixes), v1.2.0 (Windows port), v1.2.4 (auto-update), v1.2.5 (post-install regression sweep), v1.2.6 (browser MCP stdio).
 
 ## Index
 

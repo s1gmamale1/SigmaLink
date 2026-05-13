@@ -31,12 +31,10 @@ import {
   type LockOwner,
 } from './types';
 import { attachDebugger } from './cdp';
-import type { PlaywrightMcpSupervisor } from './playwright-supervisor';
 
 interface ManagerDeps {
   workspaceId: string;
   window: BrowserWindow;
-  supervisor: PlaywrightMcpSupervisor;
 }
 
 interface TabRecord {
@@ -51,7 +49,7 @@ interface TabRecord {
 export class BrowserManager extends EventEmitter {
   private readonly workspaceId: string;
   private window: BrowserWindow;
-  private readonly supervisor: PlaywrightMcpSupervisor;
+
   private readonly tabs = new Map<string, TabRecord>();
   private activeTabId: string | null = null;
   private lockOwner: LockOwner | null = null;
@@ -61,7 +59,6 @@ export class BrowserManager extends EventEmitter {
     super();
     this.workspaceId = deps.workspaceId;
     this.window = deps.window;
-    this.supervisor = deps.supervisor;
     this.hydrateFromDb();
   }
 
@@ -307,16 +304,6 @@ export class BrowserManager extends EventEmitter {
     this.emit('lockReleased');
   }
 
-  // ─────────────────────────────────────────── MCP ──
-
-  async ensureSupervisor(): Promise<string> {
-    return this.supervisor.start(this.workspaceId);
-  }
-
-  getMcpUrl(): string | null {
-    return this.supervisor.getMcpUrl(this.workspaceId);
-  }
-
   // ─────────────────────────────────────────── state ──
 
   getState(): BrowserState {
@@ -325,7 +312,7 @@ export class BrowserManager extends EventEmitter {
       tabs: this.listTabs(),
       activeTabId: this.activeTabId,
       lockOwner: this.lockOwner,
-      mcpUrl: this.getMcpUrl(),
+      mcpUrl: null,
     };
   }
 
@@ -335,7 +322,7 @@ export class BrowserManager extends EventEmitter {
     this.activeTabId = null;
     this.lockOwner = null;
     this.bounds = null;
-    this.supervisor.stop(this.workspaceId);
+
   }
 
   // ─────────────────────────────────────────── internal ──
@@ -459,7 +446,6 @@ export class BrowserManager extends EventEmitter {
 
 interface RegistryDeps {
   windowProvider: () => BrowserWindow | null;
-  supervisor: PlaywrightMcpSupervisor;
   onState: (state: BrowserState) => void;
 }
 
@@ -482,7 +468,7 @@ export class BrowserManagerRegistry {
     mgr = new BrowserManager({
       workspaceId,
       window: win,
-      supervisor: this.deps.supervisor,
+
     });
     mgr.on('state', this.deps.onState);
     this.map.set(workspaceId, mgr);

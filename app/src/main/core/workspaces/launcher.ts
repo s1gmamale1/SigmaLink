@@ -120,15 +120,13 @@ export async function executeLaunchPlan(
 
       const cwd = worktreePath ?? wsRow.rootPath;
 
-      // Browser + Memory MCP wiring: lazily start the per-workspace
-      // Playwright MCP supervisor + the SigmaMemory stdio supervisor and
-      // drop a single combined config snippet into the cwd / per-provider
-      // user-config locations so the agent CLI inherits both `browser` and
-      // `sigmamemory` MCP servers. Best-effort — never block PTY spawn.
+      // v1.2.6 — Browser MCP is now stdio (npx-on-demand). We only need to
+      // wire the SigmaMemory stdio supervisor; the browser config is a static
+      // stdio command written into .mcp.json / config.toml / gemini-extension.
+      // Best-effort — never block PTY spawn.
       try {
         const shared = getSharedDeps();
         if (shared) {
-          const mcpUrl = await shared.playwrightSupervisor.start(wsRow.id);
           const memRoot = wsRow.repoRoot ?? wsRow.rootPath;
           try {
             await shared.memorySupervisor.start(wsRow.id, memRoot);
@@ -138,7 +136,6 @@ export async function executeLaunchPlan(
           const memCmd = shared.memorySupervisor.getCommandFor(wsRow.id);
           writeMcpConfigForAgent({
             worktree: cwd,
-            mcpUrl,
             memory: memCmd ?? undefined,
           });
         }

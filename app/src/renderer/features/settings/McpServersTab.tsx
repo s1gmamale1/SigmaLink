@@ -1,7 +1,6 @@
-// MCP servers tab — read-only listing of the per-workspace MCP services that
-// SigmaLink supervises (the Playwright-based browser MCP and the SigmaMemory
-// MCP). Both are surfaced through existing RPCs, so this tab is a passive
-// dashboard, not an editor.
+// MCP servers tab — read-only listing of the per-workspace MCP services.
+// v1.2.6: Browser MCP is now stdio (npx-on-demand); SigmaMemory remains our
+// internal stdio server. Both are surfaced passively.
 
 import { useCallback, useEffect, useState } from 'react';
 import { Globe, RefreshCcw, Server, Sparkles } from 'lucide-react';
@@ -13,7 +12,7 @@ import { EmptyState } from '@/renderer/components/EmptyState';
 interface Entry {
   workspaceId: string;
   workspaceName: string;
-  browserMcp: string | null;
+  browserMcp: { command: string; args: string[] } | null;
   memoryMcp: { command: string; args: string[] } | null;
 }
 
@@ -27,12 +26,11 @@ export function McpServersTab() {
     try {
       const out: Entry[] = [];
       for (const w of state.workspaces) {
-        const browser = await rpc.browser.getMcpUrl(w.id).catch(() => null);
         const memory = await rpc.memory.getMcpCommand({ workspaceId: w.id }).catch(() => null);
         out.push({
           workspaceId: w.id,
           workspaceName: w.name,
-          browserMcp: browser,
+          browserMcp: { command: 'npx', args: ['-y', '@playwright/mcp@0.0.75'] },
           memoryMcp: memory ?? null,
         });
       }
@@ -82,8 +80,12 @@ export function McpServersTab() {
                   <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                     <Globe className="h-3 w-3" /> Browser MCP
                   </div>
-                  <div className="mt-1 truncate font-mono" title={r.browserMcp ?? ''}>
-                    {r.browserMcp ?? <span className="text-muted-foreground">— not started —</span>}
+                  <div className="mt-1 truncate font-mono" title={r.browserMcp ? `${r.browserMcp.command} ${r.browserMcp.args.join(' ')}` : ''}>
+                    {r.browserMcp ? (
+                      `${r.browserMcp.command} ${r.browserMcp.args.join(' ')}`
+                    ) : (
+                      <span className="text-muted-foreground">— not started —</span>
+                    )}
                   </div>
                 </div>
                 <div className="rounded border border-border/60 bg-muted/20 px-2 py-1.5">

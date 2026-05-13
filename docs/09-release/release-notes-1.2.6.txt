@@ -1,0 +1,44 @@
+SigmaLink v1.2.6 — Browser MCP stdio switch
+=============================================
+Release date: 2026-05-13
+
+Highlights
+----------
+• Browser MCP moves from HTTP supervisor to stdio (npx-on-demand).
+  – Zero failure modes in SigmaLink's code path (was 3: bundling, PATH, Chromium).
+  – DMG shrinks ~50 MB (@playwright/mcp no longer bundled).
+  – Each pane gets its own browser process — the idiomatic MCP pattern.
+• Deleted ~400 LOC of supervisor machinery (playwright-supervisor.ts).
+
+What changed
+------------
+[Backend]
+• mcp-config-writer.ts now emits stdio command/args instead of HTTP url:
+  { "command": "npx", "args": ["-y", "@playwright/mcp@0.0.75"] }
+• Dropped PlaywrightMcpSupervisor class and all call sites.
+• browser.getMcpUrl RPC removed (no longer meaningful).
+• app:browser-mcp-failed event removed.
+
+[Frontend]
+• RufloReadinessPill no longer subscribes to browser-mcp-failed.
+• McpServersTab shows static stdio command instead of querying a URL.
+
+[Dependencies]
+• @playwright/mcp moved from dependencies back to devDependencies.
+
+[Docs]
+• New design doc: docs/04-design/browser-mcp-stdio.md
+
+First-use behaviour
+-------------------
+The first time any agent calls a browser tool in a pane:
+1. npx downloads @playwright/mcp (~10 s, visible in pane terminal).
+2. Playwright downloads Chromium (~170 MB, ~30 s, visible progress).
+3. Tool executes.
+Subsequent calls in any pane are instant (binaries cached).
+
+Verification
+------------
+• pnpm exec tsc -b → clean
+• pnpm exec vitest run → 194/194 pass (34/36 files; 2 pre-existing Electron install failures unrelated)
+• pnpm exec eslint . → 0/0

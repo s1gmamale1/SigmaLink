@@ -24,26 +24,11 @@ interface SkillsWorkspaceVerified {
   errors: Array<{ message: string }>;
 }
 
-// v1.2.5 — payload of `app:browser-mcp-failed`. Mirrors the broadcast
-// shape in `playwright-supervisor.ts:broadcastSupervisorError`.
-interface BrowserMcpFailedPayload {
-  workspaceId: string;
-  error: string;
-  fallbackTried: boolean;
-}
-
 export function RufloReadinessPill() {
   const { state } = useAppState();
   const active = state.activeWorkspace;
   const [ruflo, setRuflo] = useState<Record<string, RufloWorkspaceVerified>>({});
   const [skills, setSkills] = useState<Record<string, SkillsWorkspaceVerified>>({});
-  // v1.2.5 — capture the latest Playwright MCP supervisor failure so we
-  // can keep the pill red AND tell the user *why* it's red via the
-  // tooltip. Map keyed by workspaceId so multi-workspace setups don't
-  // conflate failures across roots.
-  const [browserMcpFailed, setBrowserMcpFailed] = useState<
-    Record<string, BrowserMcpFailedPayload>
-  >({});
 
   useEffect(() => {
     const offRuflo = onEvent<RufloWorkspaceVerified>('ruflo:workspace-verified', (payload) => {
@@ -55,21 +40,9 @@ export function RufloReadinessPill() {
       if (!payload || typeof payload.workspaceId !== 'string') return;
       setSkills((prev) => ({ ...prev, [payload.workspaceId]: payload }));
     });
-    // v1.2.5 — Playwright supervisor failures. When this fires the pill
-    // stays red regardless of Ruflo/Skills verification because the user
-    // genuinely can't drive the in-app browser. The Settings panel surfaces
-    // remediation steps; the pill only needs to honestly signal "broken."
-    const offBrowserMcp = onEvent<BrowserMcpFailedPayload>(
-      'app:browser-mcp-failed',
-      (payload) => {
-        if (!payload || typeof payload.workspaceId !== 'string') return;
-        setBrowserMcpFailed((prev) => ({ ...prev, [payload.workspaceId]: payload }));
-      },
-    );
     return () => {
       offRuflo();
       offSkills();
-      offBrowserMcp();
     };
   }, []);
 
@@ -103,16 +76,8 @@ export function RufloReadinessPill() {
     const s = skills[active.id];
     const rState = r ? readinessFromRuflo(r) : 'pending';
     const sState = s ? readinessFromSkills(s) : 'pending';
-    // v1.2.5 — if the Playwright MCP supervisor has failed for this
-    // workspace, the pill must stay red and the tooltip must point to
-    // Settings. Browser-MCP is upstream of every CLI agent's `browser`
-    // tool, so failure there cascades to Ruflo verification as well.
-    const browserMcp = browserMcpFailed[active.id];
-    const combined: Readiness = browserMcp
-      ? 'unavailable'
-      : combineReadiness(rState, sState);
+    const combined: Readiness = combineReadiness(rState, sState);
     const title = [
-      browserMcp ? 'Browser MCP unavailable — see Settings for fix steps.' : null,
       r
         ? `Ruflo ${r.mode}: ${r.claude && r.codex && r.gemini ? 'verified' : `${r.errors.length} issue(s)`}`
         : 'Ruflo verification pending',
@@ -123,7 +88,7 @@ export function RufloReadinessPill() {
       .filter(Boolean)
       .join('\n');
     return { combined, title };
-  }, [active, ruflo, skills, browserMcpFailed]);
+  }, [active, ruflo, skills]);
 
   if (!active || !status) return null;
 

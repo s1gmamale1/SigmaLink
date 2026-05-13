@@ -160,4 +160,15 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-100 | Step 3 — PowerShell installer: `app/scripts/install-windows.ps1` (234 lines / ~180 LOC); MOTW strip via `Unblock-File`; params `-Version`/`-Quiet`/`-KeepInstaller`; mirrors `install-macos.sh` | shipped | 1 |
 | T-101 | Step 4 — Renderer polish: `preload.ts` exposes platform; new `lib/platform.ts` (12 LOC) with `IS_WIN32`; Breadcrumb 140px WCO pad; Terminal Cascadia Mono prepend; VoiceTab platform-aware copy + grey dot; 2 new test files + 9 new cases; 196 → 205/205 | shipped | 1 |
 | T-102 | Step 5 — Docs sweep: root `README.md` (platform badge + Supported platforms table + Windows first-launch); `app/README.md` (Windows install + Distribution row + "building locally"); `docs/04-design/windows-port.md` (NEW ~150 lines); `01-known-bug-windows-pty.md` marked RESOLVED; `08-bugs/BACKLOG.md` Phase 18 closes + v1.3 platform section; `master_memory.md` Phase 18 narrative; `09-release/release-notes-1.2.0.txt` (NEW); `CHANGELOG.md` `[1.2.0]` entry | shipped | 1 |
-| T-103 | Step 6 — Release: `v1.2.0` annotated tag + push; CI workflow builds NSIS EXE on `windows-latest` and uploads to GitHub Release; macOS DMG continues from existing pipeline | pending push | 1 |
+| T-103 | Step 6 — Release: `v1.2.0` annotated tag + push; CI workflow builds NSIS EXE on `windows-latest` and uploads to GitHub Release; macOS DMG continues from existing pipeline | shipped | 1 |
+
+## v1.2.6 Phase 20 — Browser MCP stdio switch (May 13, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-109 | v1.2.6 backend: rewrite `mcp-config-writer.ts` to emit stdio `command`/`args` instead of HTTP `url` for Claude/Codex/Gemini; pin `@playwright/mcp@0.0.75` | shipped | 1 |
+| T-110 | v1.2.6 backend: delete `playwright-supervisor.ts` (~400 LOC); remove from `rpc-router.ts`, `launcher.ts`, `manager.ts`, `controller.ts`, `router-shape.ts`, `rpc-channels.ts`, `schemas.ts` | shipped | 1 |
+| T-111 | v1.2.6 frontend: remove `app:browser-mcp-failed` subscription from `RufloReadinessPill.tsx`; update `McpServersTab.tsx` to show static stdio command | shipped | 1 |
+| T-112 | v1.2.6 deps: move `@playwright/mcp` from `dependencies` to `devDependencies`; update lockfile | shipped | 1 |
+| T-113 | v1.2.6 tests: rewrite `mcp-config-writer.spec.ts` for stdio output shape (Claude JSON, Codex TOML, Gemini extension) | shipped | 1 |
+| T-114 | v1.2.6 docs: `docs/04-design/browser-mcp-stdio.md` (NEW); `CHANGELOG.md` v1.2.6 entry; `docs/08-bugs/BACKLOG.md` snapshot update; `master_memory.md` Phase 20; `memory_index.md` T-109…T-114; `release-notes-1.2.6.txt` (NEW); `README.md` Playwright note | shipped | 1 |
