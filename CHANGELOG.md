@@ -4,6 +4,40 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-05-16
+
+fix(v1.3.2): bridge Claude session-slug across worktrees + ensure project dir on fresh spawn
+
+Hot-fix for two production bugs reported against v1.3.1. A user opened a 6-pane workspace (Claude×2, Codex, Gemini, Kimi, OpenCode). Codex / Gemini / Kimi / OpenCode all worked correctly. Both Claude panes — one resuming an existing session, one starting fresh — surfaced a completely blank terminal with no banner, no prompt, no output. The four non-Claude providers spawning correctly proved the bug was specific to Claude's launch path.
+
+### Fixed
+
+- **Pane 1 (Claude resume) — session-slug mismatch.** Claude stores chat history on disk at `~/.claude/projects/<slug>/<session-id>.jsonl` where `<slug> = cwd.replace(/\//g, '-')`. The new SessionStep wizard scans for sessions at the workspace root (`selectedWorkspace.rootPath`, e.g. `/Users/aisigma/projects/SigmaLink/app`) — but each pane spawns inside a per-pane Git worktree under `<userData>/worktrees/<repo-hash>/<branch-seg>`. The worktree slug ≠ workspace slug → `claude --resume <id>` running in the worktree cannot find the workspace-slug JSONL → Claude exits silently before printing its banner → blank pane. Fix: a new `prepareClaudeResume(workspaceCwd, worktreeCwd, sessionId)` helper in `app/src/main/core/pty/claude-resume-bridge.ts` symlinks the workspace-slug JSONL into the worktree-slug dir BEFORE Claude spawn, using an ABSOLUTE target path so Claude reads and APPENDS to the original file. Symlink (not copy) is deliberate — keeps the user's project-level Claude history unified across worktrees and across launches. `executeLaunchPlan` calls the bridge in `app/src/main/core/workspaces/launcher.ts` only when `provider.id === 'claude'` AND a resume session id is present; if the source JSONL is missing on disk (deleted / pruned) the launcher drops the id and falls through to the universal `--continue` fallback so the pane still spawns instead of going blank.
+- **Pane 2 (Claude fresh spawn) — missing parent dir for `--session-id`.** When Claude is spawned with `--session-id <new-uuid>` in a brand-new per-pane worktree, the parent directory `~/.claude/projects/<worktree-slug>/` does not yet exist. Recent Claude versions silently exit when attempting to open the JSONL for write before printing the banner. Fix: `ensureClaudeProjectDir(worktreeCwd)` in the same bridge module pre-creates the worktree-slug directory with `mkdir -p` before any Claude spawn (resume or fresh). Idempotent — second call is a no-op.
+
+### Added
+
+- `app/src/main/core/pty/claude-resume-bridge.ts` (~210 LOC) — `claudeSlugForCwd`, `ensureClaudeProjectDir`, `prepareClaudeResume`. Pure async fs helpers, no shell-out. Refuses absolute paths containing `..` traversal segments. Symlink targets are always under `<homeDir>/.claude/projects/` — never outside the user's own Claude data store. Verified clean by `aidefence_scan`.
+- `app/src/main/core/pty/claude-resume-bridge.test.ts` (18 cases) — symlink creation, idempotency, missing-source handling, traversal refusal, real-world SigmaLink path shape coverage. Pins the bug-report failure mode so it cannot silently regress.
+- `app/src/main/core/workspaces/launcher.test.ts` (5 cases) — provider-gate sanity check verifying the bridge module exports are async functions, returns 'skipped' for non-Claude-compatible inputs, and slug helper matches the on-disk Claude CLI convention.
+
+### Changed
+
+- `app/src/main/core/workspaces/launcher.ts` — imports the bridge module; calls `prepareClaudeResume` before resume spawns and `ensureClaudeProjectDir` before any Claude spawn. Falls through to `--continue` when the resume source JSONL is missing on disk.
+
+### Verification
+
+- `pnpm exec tsc -b`: clean
+- `pnpm exec vitest run`: 314/314 (was 291 — net +23 cases)
+- `pnpm exec eslint .`: clean
+- `pnpm run build`: clean
+
+### Related
+
+- Release notes: `docs/09-release/release-notes-1.3.2.txt`
+- Wishlist: `docs/03-plan/WISHLIST.md` (recently shipped table updated)
+- Master memory: `docs/10-memory/master_memory.md` (Phase 24c note appended)
+
 ## [1.3.1] - 2026-05-16
 
 fix(v1.3.1): per-pane session picker dedup + resume threading

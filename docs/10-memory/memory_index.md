@@ -225,3 +225,16 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-145 | v1.3.1 ship: commit `6ca7d72`, tag `v1.3.1`, push origin main + tag; release-macos + release-windows workflows triggered | shipped | 1 |
 | T-146 | v1.3.0 Windows auto-update 404: live-patch `latest.yml` `SigmaLink-Setup-1.3.0.exe` (dash) → `SigmaLink.Setup.1.3.0.exe` (dot) to match uploaded asset | shipped | 1 |
 | T-147 | electron-builder.yml permanent fix: pin nsis `artifactName: ${productName}-Setup-${version}.${ext}` so future releases avoid dot/dash divergence (commit `1db4349`) | shipped | 1 |
+
+## v1.3.2 Phase 24c — Claude pane hotfix (May 16, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-148 | v1.3.2 diagnosis: confirm Pane 1 (resume blank) caused by Claude's slug-derived JSONL path mismatching the worktree cwd vs the workspace cwd SessionStep scanned; confirm Pane 2 (fresh blank) caused by `--session-id <uuid>` writes failing into a not-yet-existing worktree-slug project dir | shipped | 1 |
+| T-149 | v1.3.2 bridge module: new `app/src/main/core/pty/claude-resume-bridge.ts` exposing `claudeSlugForCwd`, `ensureClaudeProjectDir`, `prepareClaudeResume`; pure async fs, no shell-out; absolute-path validation, UUID-shaped id validation, `..` traversal refusal; `fs.promises.symlink` with EPERM Windows copy fallback | shipped | 1 |
+| T-150 | v1.3.2 bridge tests: new `app/src/main/core/pty/claude-resume-bridge.test.ts` — 18 cases covering symlink creation, idempotency on second call, missing-source returns 'missing' so caller falls back to `--continue`, target-already-as-regular-file returns 'exists', traversal refusal, real-world SigmaLink path shapes | shipped | 1 |
+| T-151 | v1.3.2 launcher integration: `executeLaunchPlan` imports the bridge; calls `prepareClaudeResume` before resume spawns when `provider.id === 'claude'`; drops resume id and falls through to `--continue` when bridge returns 'missing'; calls `ensureClaudeProjectDir` before every Claude spawn (fresh or resume) | shipped | 1 |
+| T-152 | v1.3.2 launcher gate test: new `app/src/main/core/workspaces/launcher.test.ts` (5 cases) pinning that bridge exports are async functions, defence-in-depth `..` traversal refusal, slug helper matches Claude CLI on-disk convention | shipped | 1 |
+| T-153 | v1.3.2 security scan: `aidefence_scan` clean on the bridge module (symlink creation is a security-sensitive op — verified cwd containment and target-path absolute under `~/.claude/projects/`) | shipped | 1 |
+| T-154 | v1.3.2 gates: `pnpm exec tsc -b` clean · `pnpm exec vitest run` 314/314 (net +23 vs v1.3.1) · `pnpm exec eslint .` clean · `pnpm run build` clean | shipped | 1 |
+| T-155 | v1.3.2 release plumbing: bump `app/package.json` 1.3.1 → 1.3.2, CHANGELOG.md `[1.3.2]` entry, `docs/09-release/release-notes-1.3.2.txt` user-facing 1-pager, WISHLIST.md recently-shipped row, `docs/10-memory/master_memory.md` Phase 24c narrative | shipped | 1 |

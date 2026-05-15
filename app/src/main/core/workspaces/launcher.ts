@@ -15,6 +15,10 @@ import { getSharedDeps } from '../../rpc-router';
 import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
 import { resolveAndSpawn, ProviderLaunchError } from '../providers/launcher';
 import { buildResumeArgs } from '../pty/resume-launcher';
+import {
+  ensureClaudeProjectDir,
+  prepareClaudeResume,
+} from '../pty/claude-resume-bridge';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -154,16 +158,57 @@ export async function executeLaunchPlan(
       // entry with a non-null sessionId for this pane slot, inject resume args
       // via `buildResumeArgs` (covers all 5 providers, id vs continue fallback).
       // The extraArgs from buildExtraArgs are only applied when NOT resuming.
+      //
+      // v1.3.2 — Claude session-slug bridge. SessionStep scans for sessions at
+      // `workspace.rootPath`, but Claude is about to spawn inside the per-pane
+      // worktree. Claude derives its JSONL path from cwd as
+      // `~/.claude/projects/<cwd.replace(/\//g, '-')>/<id>.jsonl`, so the
+      // worktree slug ≠ workspace slug and `claude --resume <id>` would not
+      // find the file → silent exit → blank pane (the v1.3.2 hotfix bug). We
+      // symlink the workspace-slug JSONL into the worktree-slug dir BEFORE
+      // spawn so resume works regardless of where Claude is launched from.
+      //
+      // For fresh Claude spawns we ensure the worktree-slug project dir exists
+      // so `--session-id <new-uuid>` does not fail on a missing parent dir
+      // (the v1.3.2 Pane 2 bug — claude versions that exit silently when
+      // attempting to write the JSONL into a non-existent parent dir).
       const resumeEntry = plan.paneResumePlan?.find(
         (r) => r.paneIndex === pane.paneIndex,
       );
-      const resumeSessionId = resumeEntry?.sessionId ?? null;
+      let resumeSessionId = resumeEntry?.sessionId ?? null;
       let extraArgs: string[];
       if (resumeSessionId) {
-        const resumeResult = buildResumeArgs(provider.id, resumeSessionId);
-        extraArgs = resumeResult?.args ?? [];
+        if (provider.id === 'claude') {
+          const outcome = await prepareClaudeResume(
+            wsRow.rootPath,
+            cwd,
+            resumeSessionId,
+          );
+          // If the workspace-slug JSONL is missing on disk (deleted by the
+          // user, scanned-but-since-pruned, etc.) drop the id and fall through
+          // to `--continue` so the pane still spawns instead of going blank.
+          if (outcome === 'missing') {
+            resumeSessionId = null;
+          }
+        }
+        if (resumeSessionId) {
+          const resumeResult = buildResumeArgs(provider.id, resumeSessionId);
+          extraArgs = resumeResult?.args ?? [];
+        } else {
+          // Resume id was unavailable on disk — switch to the universal
+          // `--continue` fallback (no extra args needed for that path; the
+          // launcher's resume-launcher branch handles the same flag mapping).
+          const resumeResult = buildResumeArgs(provider.id, null);
+          extraArgs = resumeResult?.args ?? [];
+        }
       } else {
         extraArgs = buildExtraArgs(provider.id, pane.initialPrompt);
+      }
+      if (provider.id === 'claude') {
+        // Pane 2 fix — make sure the worktree-slug project dir exists so a
+        // fresh `--session-id <uuid>` spawn can write its first JSONL line
+        // without bailing on ENOENT for the parent dir.
+        await ensureClaudeProjectDir(cwd);
       }
       const spawnResult = resolveAndSpawn(
         { ptyRegistry: deps.pty },

@@ -1,0 +1,101 @@
+SigmaLink v1.3.2 — Claude Pane Hotfix
+Released 2026-05-16
+
+WHAT WENT WRONG IN v1.3.1
+
+A user opened a 6-pane workspace assigning Claude × 2, Codex, Gemini, Kimi,
+and OpenCode. The four non-Claude providers spawned correctly and surfaced
+their banners + REPL prompts as expected. Both Claude panes — one with a
+session selected to resume, one set to "New session" — showed a completely
+blank terminal with no banner, no prompt, and no output.
+
+WHAT v1.3.2 FIXES
+
+Pane 1 — Claude resume came up blank
+------------------------------------
+Claude stores chat history on disk under a directory whose name is derived
+from the exact working directory Claude was launched in. SigmaLink scans
+for sessions at the workspace root, but each pane actually spawns inside
+a per-pane Git worktree. Those two paths are different, so Claude could
+not locate the history file and exited silently before printing anything.
+
+Fix: SigmaLink now creates a symlink from the workspace-slug history file
+into the worktree-slug directory just before launching Claude. Claude
+reads the link, the resume works, and any new messages Claude appends
+flow back to the original file so your unified project history stays
+intact across worktrees and re-launches.
+
+Pane 2 — Claude fresh session came up blank
+-------------------------------------------
+On a brand-new per-pane worktree, the Claude project directory does not
+yet exist. Recent Claude versions silently exit when they try to write
+their first history line into a missing parent directory.
+
+Fix: SigmaLink now pre-creates the worktree-slug project directory
+before every Claude spawn (both fresh and resume paths). The first write
+always succeeds and Claude prints its banner as expected.
+
+UPGRADING FROM v1.3.1
+
+No action required. No database migration. The bridge runs automatically
+on every Claude spawn.
+
+If a session you resume was already imported into a worktree by an older
+build of SigmaLink (i.e. the worktree-slug copy already exists as a
+regular file), the new bridge leaves the existing file alone. You can
+delete it manually if you want a fresh symlink — but in practice the
+copy will continue to work for that one session.
+
+VERIFICATION
+
+  - pnpm exec tsc -b        clean
+  - pnpm exec vitest run    314/314 (net +23 cases vs v1.3.1)
+  - pnpm exec eslint .      clean
+  - pnpm run build          clean
+
+KNOWN LIMITATIONS
+
+  - Windows: fs.promises.symlink may throw EPERM unless the user has
+    Developer Mode enabled or runs SigmaLink elevated. The bridge falls
+    back to a one-time file copy on Windows so resume still works, but
+    appended turns will not flow back to the workspace history file on
+    that platform. v1.3.2 ships macOS auto-update lanes only; a proper
+    Windows fix is queued for v1.3.3.
+
+  - Carry-overs from v1.3.0/v1.3.1: Gemini session enumeration empty,
+    cross-cwd session browsing not in this release.
+
+MANUAL VERIFICATION SCENARIOS
+
+Scenario A — six-pane mixed-provider workspace (the bug-report config)
+  1. Open a fresh workspace.
+  2. Pick 6 panes, assign: Claude, Claude, Codex, Gemini, Kimi, OpenCode.
+  3. For pane 1, in the SessionStep wizard, pick an existing Claude
+     session from your history. For pane 2, leave it on "New session."
+     For the other four panes, accept the defaults.
+  4. Hit Launch.
+  5. Expect: all six panes show their CLI banner + REPL prompt. Pane 1
+     should resume the chosen Claude session (verify by referring to a
+     prior turn). Pane 2 should be a fresh Claude session. None of the
+     panes should be blank.
+
+Scenario B — re-open workspace from sidebar
+  1. Close the workspace from Scenario A.
+  2. Re-open it from the sidebar workspace dropdown.
+  3. SessionStep pre-populates the previously-used session IDs for each
+     Claude pane.
+  4. Hit Launch.
+  5. Expect: Claude pane 1 resumes the same session as in Scenario A.
+     History from the resumed session is visible inside the pane.
+
+Scenario C — resume an existing Claude session whose JSONL was deleted
+  1. Open a fresh workspace.
+  2. In the SessionStep wizard, pick an existing Claude session.
+  3. Before hitting Launch, delete the corresponding JSONL file from
+     ~/.claude/projects/<workspace-slug>/. (Simulates a manually-pruned
+     history.)
+  4. Hit Launch.
+  5. Expect: the pane still spawns Claude (no blank terminal). The pane
+     falls through to `claude --continue` rather than `--resume <id>`,
+     so it resumes whatever Claude considers the latest session for the
+     current cwd. No error toast.

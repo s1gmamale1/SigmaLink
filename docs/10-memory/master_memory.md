@@ -1286,3 +1286,19 @@ Two distinct root causes:
 - **Bug B — `paneResumePlan` payload mismatch.** v1.3.0's `Launcher.launch()` emitted `sessionId` inside each `panes[i]` object, but `executeLaunchPlan` reads `plan.paneResumePlan?.find(...)` at the top level. The per-pane field was silently dropped → `resumeSessionId` was always null → `buildResumeArgs` was never called → every pane spawned fresh. Fix: extracted `buildPaneResumePlanArray(paneCount, selections)` helper that emits the top-level array shape the backend expects, plus a dedicated test file (`Launcher.test.tsx`, 7 cases) pinning the contract.
 
 Test delta: 282 → 291 (+9 cases). Files touched: 8 (1 new migration, 1 new test, 6 edits). All four gates green (`tsc`, `vitest`, `eslint`, `build`). Version bumped 1.3.0 → 1.3.1.
+
+## v1.3.2 Phase 24c — Claude pane hotfix (May 16, 2026)
+
+v1.3.2 patches two production bugs reported against v1.3.1 — both specific to Claude's launch path. User opened a 6-pane workspace (Claude × 2, Codex, Gemini, Kimi, OpenCode). The four non-Claude panes worked perfectly (banner + REPL prompt visible, OpenCode even resumed a prior session with full context). Both Claude panes — pane 1 resuming an existing session, pane 2 starting fresh — were completely blank: no banner, no prompt, no output.
+
+Two distinct root causes, both in the spawn path:
+
+- **Pane 1 (resume) — session-slug mismatch across worktrees.** Claude derives its on-disk history path from cwd: `~/.claude/projects/<cwd.replace(/\//g, '-')>/<session-id>.jsonl`. SigmaLink's v1.3.0 SessionStep scans for sessions at `workspace.rootPath` (e.g. `/Users/aisigma/projects/SigmaLink/app`), but every pane spawns inside a per-pane Git worktree at `~/Library/Application Support/SigmaLink/worktrees/<repo-hash>/<branch-seg>` — a different cwd, therefore a different slug. `claude --resume <id>` running in the worktree cannot find the workspace-slug JSONL → Claude exits silently before any output → blank pane.
+
+- **Pane 2 (fresh) — missing parent dir for `--session-id`.** v1.2.8 pre-assigns a UUID via `--session-id <uuid>` for fresh Claude spawns. On a brand-new per-pane worktree, the parent directory `~/.claude/projects/<worktree-slug>/` does not yet exist. Recent Claude versions silently exit when attempting to open the JSONL for write before printing the banner.
+
+Fix design (Option A from the hotfix brief): a new `claude-resume-bridge.ts` module exposes two pure async fs helpers. `prepareClaudeResume(workspaceCwd, worktreeCwd, sessionId)` symlinks the workspace-slug JSONL into the worktree-slug dir BEFORE Claude spawn, using an absolute target path; Claude reads and APPENDS through the link, so the user's project-level history stays unified across worktrees. `ensureClaudeProjectDir(worktreeCwd)` pre-creates the worktree-slug dir for fresh spawns. `executeLaunchPlan` calls the bridge only when `provider.id === 'claude'`. If the resume source JSONL is missing on disk (deleted / pruned) the launcher drops the id and falls through to `--continue` so the pane still spawns instead of going blank.
+
+Security: both helpers refuse paths containing `..` traversal segments, require absolute paths, and require UUID-shaped session ids. Symlink targets are always under `<homeDir>/.claude/projects/` — never outside the user's own Claude data store. `aidefence_scan` clean.
+
+Test delta: 291 → 314 (+23 cases). Files touched: 5 (1 new bridge module, 1 new bridge test, 1 new launcher gate test, 1 edit to `executeLaunchPlan`, 1 edit to `package.json` version bump). All four gates green (`tsc`, `vitest`, `eslint`, `build`). Version bumped 1.3.1 → 1.3.2.
