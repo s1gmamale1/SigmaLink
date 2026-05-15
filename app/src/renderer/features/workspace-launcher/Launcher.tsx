@@ -16,7 +16,43 @@ import { Stepper, type StepId } from './Stepper';
 import { StartStep } from './StartStep';
 import { LayoutStep } from './LayoutStep';
 import { AgentsStep } from './AgentsStep';
+import { SessionStep, fetchLastResumePlan } from './SessionStep';
+import type { PaneRow } from './SessionStep';
 import { gridLabel } from './grid';
+import { AGENT_PROVIDERS } from '@/shared/providers';
+
+/**
+ * v1.3.0 — Convert {providerId: count} + skipAgents flag into a flat ordered
+ * list of PaneRow values matching the pane grid layout. Used by SessionStep to
+ * render one row per pane with the correct provider name + dot colour.
+ */
+function buildPaneRows(
+  counts: Record<string, number>,
+  skipAgents: boolean,
+  preset: GridPreset,
+): PaneRow[] {
+  const rows: PaneRow[] = [];
+  if (skipAgents) {
+    // All panes are plain shells — render them as "Shell" rows.
+    for (let i = 0; i < preset; i++) {
+      rows.push({ paneIndex: i, providerId: 'shell', providerName: 'Shell' });
+    }
+    return rows;
+  }
+  for (const [providerId, n] of Object.entries(counts)) {
+    const id = providerId === 'custom' ? 'shell' : providerId;
+    const def = AGENT_PROVIDERS.find((p) => p.id === providerId);
+    const name = def ? (providerId === 'custom' ? 'Custom Command' : def.name) : providerId;
+    for (let j = 0; j < n; j++) {
+      rows.push({ paneIndex: rows.length, providerId: id, providerName: name });
+    }
+  }
+  // Pad remaining panes with shell rows.
+  while (rows.length < preset) {
+    rows.push({ paneIndex: rows.length, providerId: 'shell', providerName: 'Shell' });
+  }
+  return rows.slice(0, preset);
+}
 
 export function WorkspaceLauncher() {
   // V1.1.10 perf — slice subscriptions instead of full AppState. The
@@ -34,6 +70,12 @@ export function WorkspaceLauncher() {
   const [probes, setProbes] = useState<ProviderProbe[]>([]);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * v1.3.0 — per-pane session selection. Key = paneIndex, value = sessionId
+   * (string) or null meaning "New session". Populated from lastResumePlan on
+   * chooseExisting(), or by user interaction in SessionStep.
+   */
+  const [paneResumePlan, setPaneResumePlan] = useState<Record<number, string | null>>({});
 
   // Probe providers on mount so the matrix can render PATH-status badges.
   useEffect(() => {
@@ -85,6 +127,12 @@ export function WorkspaceLauncher() {
       agents:
         skipAgents ||
         Object.values(counts).reduce((a, b) => a + b, 0) === preset,
+      // sessions step is considered complete once agents step is complete
+      // (the user has viewed it or bulk-acted; we don't gate on explicit
+      // per-pane confirmation because "New session" is always a valid choice).
+      sessions:
+        skipAgents ||
+        Object.values(counts).reduce((a, b) => a + b, 0) === preset,
     }),
     [selectedWorkspace, preset, counts, skipAgents],
   );
@@ -101,6 +149,34 @@ export function WorkspaceLauncher() {
   async function chooseExisting(ws: Workspace): Promise<void> {
     const reopened = await rpc.workspaces.open(ws.rootPath);
     dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: reopened });
+
+    // v1.3.0 sidebar reroute (R-1.3.0-4): if lastResumePlan has entries,
+    // hydrate paneResumePlan + derive preset/counts, then jump directly to
+    // the sessions step instead of the Layout step. Stale IDs are silently
+    // tolerated — SessionStep's smart-default effect will overwrite them.
+    try {
+      const plan = await fetchLastResumePlan(reopened.id);
+      if (plan.length > 0) {
+        // Derive preset from the number of pane entries (best-effort).
+        const inferredPreset = plan.length as GridPreset;
+        const inferredCounts: Record<string, number> = {};
+        const hydrated: Record<number, string | null> = {};
+        for (const entry of plan) {
+          inferredCounts[entry.providerId] =
+            (inferredCounts[entry.providerId] ?? 0) + 1;
+          hydrated[entry.paneIndex] = entry.sessionId;
+        }
+        setPreset(inferredPreset);
+        setCounts(inferredCounts);
+        setPaneResumePlan(hydrated);
+        setStep('sessions');
+        return;
+      }
+    } catch (err) {
+      // Best-effort: log + fall through to normal Layout-step flow.
+      console.warn('[SessionStep] lastResumePlan fetch failed; falling through', err);
+    }
+
     maybeAdvanceFromStart();
   }
 
@@ -167,7 +243,15 @@ export function WorkspaceLauncher() {
       const plan: LaunchPlan = {
         workspaceRoot: selectedWorkspace.rootPath,
         preset,
-        panes: paneProviders.map((providerId, paneIndex) => ({ paneIndex, providerId })),
+        panes: paneProviders.map((providerId, paneIndex) => ({
+          paneIndex,
+          providerId,
+          // v1.3.0: pass sessionId when the user picked one in SessionStep.
+          // Backend ignores unknown keys gracefully; tester gates the merge.
+          ...(paneResumePlan[paneIndex] !== undefined
+            ? { sessionId: paneResumePlan[paneIndex] }
+            : {}),
+        })) as LaunchPlan['panes'],
       };
       const out = await rpc.workspaces.launch(plan);
       dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: selectedWorkspace });
@@ -241,6 +325,15 @@ export function WorkspaceLauncher() {
               probes={probes}
             />
           ) : null}
+          {step === 'sessions' ? (
+            <SessionStep
+              rows={buildPaneRows(counts, skipAgents, preset)}
+              cwd={selectedWorkspace?.rootPath ?? ''}
+              selections={paneResumePlan}
+              onSelectionsChange={setPaneResumePlan}
+              onReconfigure={() => setStep('layout')}
+            />
+          ) : null}
         </div>
 
         <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-3">
@@ -278,12 +371,14 @@ function StepNav({ step, onChange, canAgents }: StepNavProps) {
   const next: Record<StepId, StepId | null> = {
     start: 'layout',
     layout: 'agents',
-    agents: null,
+    agents: 'sessions',
+    sessions: null,
   };
   const prev: Record<StepId, StepId | null> = {
     start: null,
     layout: 'start',
     agents: 'layout',
+    sessions: 'agents',
   };
   const nextStep = next[step];
   const prevStep = prev[step];
@@ -301,7 +396,7 @@ function StepNav({ step, onChange, canAgents }: StepNavProps) {
         variant="outline"
         size="sm"
         onClick={() => nextStep && onChange(nextStep)}
-        disabled={!nextStep || (nextStep === 'agents' && !canAgents)}
+        disabled={!nextStep || ((nextStep === 'agents' || nextStep === 'sessions') && !canAgents)}
       >
         Next
       </Button>

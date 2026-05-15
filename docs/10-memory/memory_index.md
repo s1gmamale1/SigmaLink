@@ -176,3 +176,36 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-116 | v1.2.7 ring-buffer replay: `pty.snapshot` RPC + schema/channel/router typing; Terminal remount writes snapshot before live PTY bus subscription | implemented | 1 |
 | T-117 | v1.2.7 resume reliability: session-id scan 100→500 lines; missing `external_session_id` rows return failed resume results; renderer toast surfaces failures | implemented | 1 |
 | T-118 | v1.2.7 sidebar + verification: every workspace row has hover close-X; persisted dropdown tested; reducer/registry/resume tests and Playwright pid-stability spec added | implemented | 1 |
+
+## v1.2.8 Phase 22 — Session capture rewrite (May 13, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-119 | v1.2.8 spawn-time capture: pre-assign UUID for claude/gemini via `--session-id`; async disk-scan for codex/kimi/opencode at +2s/+5s/+15s | shipped | 1 |
+| T-120 | v1.2.8 resume strategy: provider-specific ID resume + universal `--continue` fallback; missing ID is success path, not failure | shipped | 1 |
+| T-121 | v1.2.8 cleanup: delete `session-id-extractor.ts` (~174 LOC) + registry scan loop; replace with `onPostSpawnCapture` hook | shipped | 1 |
+| T-122 | v1.2.8 UI: aggregate resume toast + `panes.respawnFailed` RPC; Kimi install hint corrected to PyPI | shipped | 1 |
+| T-123 | v1.2.8 tests: `session-disk-scanner.test.ts` (14 cases), `resume-launcher.test.ts` continue-fallback cases, respawn toast aggregation; 221 → 248/248 | shipped | 1 |
+
+## v1.2.9 Phase 23 — Drop Linux from supported platforms (May 16, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-124 | v1.2.9 docs: WISHLIST.md — remove BUG-W7-000 row, remove Linux AppImage row, update v1.2.9 paragraph, add Architectural decisions section | shipped | 1 |
+| T-125 | v1.2.9 docs: BACKLOG.md — Linux AppImage → wontfix, Platform/distribution count 6→5 | shipped | 1 |
+| T-126 | v1.2.9 CI: `lint-and-build.yml` — `runs-on: ubuntu-latest` → `macos-14` | shipped | 1 |
+| T-127 | v1.2.9 CI: `e2e-matrix.yml` — remove `ubuntu-latest` from matrix, delete xvfb + Linux smoke steps, unify Playwright step | shipped | 1 |
+| T-128 | v1.2.9 config: `electron-builder.yml` — comment above `linux:` block (block untouched per scope) | shipped | 1 |
+| T-129 | v1.2.9 verification: both YAMLs parse clean, tsc -b clean, grep confirms Linux only in wontfix/architectural contexts | shipped | 1 |
+
+## v1.3.0 Phase 24 — Session picker (May 16, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-130 | v1.3.0 version bump: `app/package.json` 1.2.8 → 1.3.0 | shipped | 1 |
+| T-131 | v1.3.0 design doc: `docs/04-design/session-picker-v1.3.0.md` — architecture, smart-default rules, persistence model, risk register (~120 LOC) | shipped | 1 |
+| T-132 | v1.3.0 release notes: `docs/09-release/release-notes-1.3.0.txt` — user-facing 1-pager | shipped | 1 |
+| T-133 | v1.3.0 CHANGELOG.md: prepend [1.3.0] entry with feature list, verification, and related-doc pointers | shipped | 1 |
+| T-134 | v1.3.0 WISHLIST.md: move W-1 to "Recently shipped" table; update v1.3.0 grouping paragraph | shipped | 1 |
+| T-135 | v1.3.0 master_memory.md: append Phase 24 narrative (session-picker shipment summary) | shipped | 1 |
+| T-136 | v1.3.0 memory_index.md: add Phase 24 / T-130..T-136 rows | shipped | 1 |

@@ -130,6 +130,42 @@ export interface AppRouter {
     respawnFailed: (
       workspaceId: string,
     ) => Promise<{ workspaceId: string; spawned: number; failed: number }>;
+    /**
+     * v1.3.0 — Session picker: list all provider sessions associated with
+     * `cwd`, sorted by `updatedAt` DESC and capped at `maxCount` (default 50).
+     * Never throws — returns empty array on unknown provider or no matches.
+     */
+    listSessions: (input: {
+      providerId: string;
+      cwd: string;
+      opts?: {
+        maxCount?: number;
+        sinceMs?: number;
+      };
+    }) => Promise<
+      Array<{
+        id: string;
+        providerId: string;
+        cwd: string;
+        createdAt: number;
+        updatedAt: number;
+        title?: string;
+        firstMessagePreview?: string;
+      }>
+    >;
+    /**
+     * v1.3.0 — Session picker: return the most recent `agent_sessions` row
+     * per pane slot for the given workspace, ordered by `started_at DESC`.
+     * `sessionId` is the row's `externalSessionId` (null if never captured).
+     * Returns empty array when no history exists.
+     */
+    lastResumePlan: (workspaceId: string) => Promise<
+      Array<{
+        paneIndex: number;
+        providerId: string;
+        sessionId: string | null;
+      }>
+    >;
   };
   providers: {
     list: () => Promise<

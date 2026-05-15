@@ -1181,3 +1181,96 @@ The fix clarifies the actual failure mode: PTYs were not killed on workspace swi
 Resume reliability was hardened by extending external session id scanning from 100 to 500 lines, reporting rows missing `external_session_id` as failed resume results, and surfacing restore failures through sonner toasts. Sidebar polish makes close buttons available on every row and verifies the persisted workspace dropdown.
 
 Verification added: registry snapshot test, resume missing-id failure test, reducer non-destructive workspace-switch tests, sidebar dropdown/close tests, and a Playwright multi-workspace pid-stability spec.
+
+---
+
+## Phase 22 — v1.2.8 session capture rewrite (May 13, 2026)
+
+A Windows user hit the v1.2.7 resume-failure toast: spawned 4 panes, sat at the MCP approval prompt, quit without interacting, relaunched → "Could not resume 4 panes: missing external_session_id." Investigation confirmed the toast was correctly reporting two real bugs:
+
+1. **session-id-extractor only handled Claude** — codex/gemini/kimi/opencode all returned `null`. 4 of 5 providers could never capture a session.
+2. **Claude prints its session ID only AFTER the MCP approval prompt** is dismissed. Spawning + quitting without interaction never captured anything for Claude either.
+
+### Architecture pivot
+
+Research confirmed every provider supports `--continue`-style "resume latest in cwd", and two providers (Claude, Gemini) support `--session-id <uuid>` for pre-assignment. Replaced the fragile stdout-scrape pipeline with a hybrid strategy:
+
+**Spawn-time capture:**
+- **Claude + Gemini**: SigmaLink generates a UUID locally (`crypto.randomUUID()`) BEFORE spawn, passes it via `--session-id <uuid>`, and writes the DB row synchronously. Zero extraction. Zero race.
+- **Codex + Kimi + OpenCode**: Spawn normally; async disk-scan at +2s/+5s/+15s post-spawn reads the provider's deterministic session directory and stamps the row.
+  - Codex: glob `~/.codex/sessions/**/rollout-*.jsonl` (UUID in filename, 5-min mtime window).
+  - Kimi: walk `~/.kimi/sessions/<project-hash>/<uuid>/`.
+  - OpenCode: `opencode session list --format json` filtered by `directory === cwd`.
+
+**Resume strategy:**
+- Try captured `external_session_id` via provider-specific resume flag.
+- If missing OR if ID-resume fails: fall back to universal `--continue` / `--last` / `--resume latest`. Every provider supports this fallback.
+- Missing `external_session_id` is NO LONGER a failure — silently routes to `--continue`. Only genuine spawn errors surface a toast.
+
+**UI:**
+- Aggregate toast instead of per-workspace: "Resumed N panes. M panes need to be respawned. [Respawn fresh]"
+- New `panes.respawnFailed` RPC re-spawns failed-resume rows in their existing worktrees with no resume args. Same provider, same cwd, fresh PTY. Worktree files + branches preserved.
+
+**Cleanup:**
+- DELETED `session-id-extractor.ts` + tests (~174 LOC).
+- DELETED registry scan loop (`scanExternalSessionId`, `recordExternalSessionId`, `pendingLine`, `scanDone`, `scannedLines`, `scan-line-limit`).
+- Replaced `onExternalSessionId` option with `onPostSpawnCapture` hook.
+- Kimi install hint corrected from npm to PyPI: `pip install kimi-cli`.
+
+### Files touched
+- `app/src/main/core/pty/session-disk-scanner.ts` (NEW) — per-provider disk-scan logic
+- `app/src/main/core/pty/resume-launcher.ts` — resume args matrix per provider
+- `app/src/main/core/pty/registry.ts` — onPostSpawnCapture hook, deleted scan loop
+- `app/src/main/core/workspaces/launcher.ts` — pre-assign UUID for claude/gemini
+- `app/src/shared/providers.ts` — Kimi install hint corrected
+- `app/src/main/core/pty/session-id-extractor.ts` (DELETED)
+- `CHANGELOG.md` — v1.2.8 entry
+
+### Aggregate gates
+- `pnpm exec tsc -b` → clean
+- `pnpm exec vitest run` → **248/248** (was 221/221; net +27)
+- `pnpm exec eslint .` → 0/0
+- `pnpm run build` → clean
+
+**Next session restart point**: SigmaLink at v1.2.8 on `main`. Session capture is now reliable across all 5 providers. v1.2.9 backlog: drop Ubuntu CI lanes, Playwright e2e refresh, Terminal.tsx mount race, disk-scan scoping.
+
+---
+
+## Phase 23 — v1.2.9 drop Linux from supported platforms (May 16, 2026)
+
+User decision 2026-05-16: SigmaLink will no longer support Linux. Supported platforms going forward are **macOS arm64 (primary) + Windows x64**.
+
+### Rationale
+
+Linux was never test-gated, never had a release workflow, never had an installer script, and was explicitly excluded from the supported-platform list since v1.2.0. The only remaining Linux surface was two Ubuntu CI lanes (`lint-and-build.yml` and `e2e-matrix.yml`) that were red more often than green due to node-pty prebuild mismatches and xvfb fragility. Removing them simplifies CI and makes the platform stance honest.
+
+### Edits (5 files, single commit)
+
+**Docs:**
+- `docs/03-plan/WISHLIST.md`: Removed BUG-W7-000 row (node-pty linux-x64 prebuild missing — moot without Ubuntu CI), removed Linux AppImage / .deb row from v1.3 table, updated v1.2.9 grouping paragraph, added `## Architectural decisions` section documenting the Linux drop and reversal requirements.
+- `docs/08-bugs/BACKLOG.md`: Linux AppImage section → `wontfix (2026-05-16)`; Platform / distribution index count 6 → 5.
+
+**CI:**
+- `.github/workflows/lint-and-build.yml`: `runs-on: ubuntu-latest` → `macos-14`; job name `lint + build (ubuntu)` → `lint + build (macos)`.
+- `.github/workflows/e2e-matrix.yml`: Removed `ubuntu-latest` from matrix; deleted "Install xvfb (Linux)" step; deleted "Run Playwright smoke (Linux under xvfb)" step; unified remaining Playwright step (removed redundant `if: runner.os != 'Linux'`).
+
+**Config:**
+- `app/electron-builder.yml`: Added comment above `linux:` block explaining it's for local-build completeness only. Block itself untouched per scope.
+
+### Scope clarifications honored
+- `electron-builder.yml linux:` target left alone (docs-only change per user selection).
+- No version bump — rides into v1.2.9 release.
+- No CHANGELOG.md update — small enough for v1.2.9 "CI + polish" grouping.
+
+### Verification
+- `python3 -c "import yaml; yaml.safe_load(...)"` on both workflows → parse cleanly.
+- `pnpm exec tsc -b` (from `app/`) → clean.
+- `grep` confirms Linux mentions exist only in wontfix / architectural-decision contexts.
+
+## v1.3.0 Phase 24 — Session picker shipment (May 16, 2026)
+
+v1.3.0 ships wishlist item W-1: a per-pane session picker inserted as a new `SessionStep` in the Workspace Launcher wizard (after AgentsStep, before Launch). The feature closes the user-agency gap that v1.2.8 left open — silent automatic resume with no override path. Users now see a chip per pane pre-populated with the smart default (newest session on disk for that provider + cwd) and can override any pane individually via a filterable Popover list (up to 50 sessions, timestamp + first-message preview) or bulk-apply "Resume newest for all" / "All new" / "Reset to suggested" across all panes at once. Scenario B (re-opening a persisted workspace from the sidebar dropdown) routes through SessionStep with chips pre-populated from the previous run's `agent_sessions` rows; no schema migration was needed.
+
+The data layer extension (`listSessionsInCwd` added to `session-disk-scanner.ts`) plus two new RPCs (`panes.listSessions`, `panes.lastResumePlan`) are the only backend changes. The spawn path is unchanged except that `executeLaunchPlan` now pre-stamps `externalSessionId` when the user selects a session, making the v1.2.8 `onPostSpawnCapture` hook a no-op for those rows. Gemini session enumeration is deferred to v1.3.1 (disk layout undocumented upstream). Net test delta: +12-15 Vitest cases, target 263+/263+. Version bumped from 1.2.8 to 1.3.0.
+
+**Next session restart point**: SigmaLink at v1.2.9 on branch `chore/drop-linux-platforms` (commit `a29fdb4`). CI is now macOS + Windows only. v1.3.0 backlog: W-1 session picker + W-3 Ruflo auto-bind. v1.4.0 backlog: W-2 Sigma Assistant orchestrator.

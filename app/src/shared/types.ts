@@ -73,6 +73,14 @@ export interface LaunchPlan {
   preset: GridPreset;
   baseRef?: string;
   panes: PaneAssignment[];
+  /**
+   * v1.3.0 — Session picker resume plan. When present, the launcher uses
+   * `buildResumeArgs` to inject the session id into the spawn args for each
+   * pane slot whose `sessionId` is non-null. The external session id is also
+   * pre-stamped into `agent_sessions.externalSessionId` at insert time so the
+   * v1.2.8 disk-scan capture path becomes a no-op for resumed sessions.
+   */
+  paneResumePlan?: Array<{ paneIndex: number; sessionId: string | null }>;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

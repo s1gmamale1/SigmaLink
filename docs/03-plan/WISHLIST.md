@@ -15,17 +15,11 @@
 | v1.2.6 | Stdio MCP switch (deleted ~400 LOC HTTP supervisor) | inline in CHANGELOG (plan file consumed at merge) |
 | v1.2.7 | Multi-workspace state preservation (ring-buffer replay) | [`v1.2.7-multi-workspace-state-preservation.md`](v1.2.7-multi-workspace-state-preservation.md) |
 | v1.2.8 | Session capture rewrite (pre-assign UUID + disk-scan + --continue) | [`v1.2.8-session-capture-rewrite.md`](v1.2.8-session-capture-rewrite.md) |
+| v1.3.0 | Session picker in Workspace Launcher (W-1) — per-pane chip, smart default, bulk bar, Scenario B pre-population | [`v1.3.0-session-picker.md`](v1.3.0-session-picker.md) · [CHANGELOG v1.3.0](../../CHANGELOG.md) |
 
 ---
 
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
-
-### W-1 — Session picker in Workspace Launcher
-- **What**: When creating a workspace, after directory + pane count + provider selection, show a per-provider session picker. For each provider chosen (Claude / Codex / Gemini / Kimi / OpenCode), list any existing sessions in the cwd via the v1.2.8 disk-scanner. User picks "Resume <id>" or "New".
-- **Why**: v1.2.8 only resumes sessions SigmaLink itself spawned. This adds the ability to adopt sessions the user ran outside SigmaLink, or pick a specific historical session instead of always defaulting to `--continue`.
-- **Reuses**: `findLatestSessionId()` from `app/src/main/core/pty/session-disk-scanner.ts` — extend to return a LIST not just newest.
-- **Effort**: M (~1d). Mostly UI work in `app/src/renderer/features/workspace-launcher/Launcher.tsx` + new RPC `panes.listSessions(providerId, cwd)`.
-- **Source**: User added 2026-05-15.
 
 ### W-2 — Sigma Assistant as orchestrator + session resume
 - **What**: Promote Sigma Assistant (right-rail AI) from "tool-dispatcher" to "orchestrator." Needs persistent session state, resume support same pattern as CLI providers, and the ability to drive multi-pane CLI swarms with cross-restart memory of orchestration intent.
@@ -100,7 +94,7 @@
 
 **v1.2.9 — CI + polish** (~1d): Playwright e2e refresh + Terminal.tsx mount race + disk-scan scoping + drop Ubuntu CI lanes. Pure debt clear. **Green CI on every PR going forward.**
 
-**v1.3.0 — Session picker + Ruflo binding** (~2d): W-1 + W-3. Both small, high-value, share `mcp-config-writer.ts` surface.
+**v1.3.0 — Session picker** (shipped 2026-05-16): W-1 shipped. W-3 (Ruflo auto-bind) deferred to v1.3.1 — see WISHLIST W-3 entry.
 
 **v1.4.0 — Sigma Assistant orchestrator** (~3-5d): W-2 in isolation since it's the biggest behavioral change. Needs its own design doc + careful migration.
 

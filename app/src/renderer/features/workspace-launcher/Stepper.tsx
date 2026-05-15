@@ -6,7 +6,7 @@
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type StepId = 'start' | 'layout' | 'agents';
+export type StepId = 'start' | 'layout' | 'agents' | 'sessions';
 
 interface StepSpec {
   id: StepId;
@@ -18,6 +18,7 @@ const STEPS: StepSpec[] = [
   { id: 'start', label: 'Start', num: 1 },
   { id: 'layout', label: 'Layout', num: 2 },
   { id: 'agents', label: 'Agents', num: 3 },
+  { id: 'sessions', label: 'Sessions', num: 4 },
 ];
 
 interface StepperProps {

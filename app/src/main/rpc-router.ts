@@ -14,6 +14,7 @@ import {
   DISK_SCAN_PROVIDERS,
   DISK_SCAN_RETRY_SCHEDULE_MS,
   findLatestSessionId,
+  listSessionsInCwd,
 } from './core/pty/session-disk-scanner';
 import { resumeWorkspacePanes, respawnFailedWorkspacePanes } from './core/pty/resume-launcher';
 import { probeAllProviders, probeProviderById } from './core/providers/probe';
@@ -478,6 +479,45 @@ function buildRouter() {
     // renderer can confirm via follow-up toast.
     respawnFailed: async (workspaceId: string) =>
       respawnFailedWorkspacePanes(workspaceId, { pty }),
+    // v1.3.0 — Session picker: list provider sessions for a cwd. Delegates
+    // entirely to the disk-scanner; never throws (returns []).
+    listSessions: async (input: {
+      providerId: string;
+      cwd: string;
+      opts?: { maxCount?: number; sinceMs?: number };
+    }) => {
+      return listSessionsInCwd(input.providerId, input.cwd, input.opts);
+    },
+    // v1.3.0 — Session picker: most-recent resume plan for a workspace.
+    // Returns one row per pane slot (sequential by started_at), with the
+    // provider and last-captured externalSessionId. Uses a parameterised
+    // query; never throws (returns []).
+    lastResumePlan: async (workspaceId: string) => {
+      try {
+        const rows = getRawDb()
+          .prepare(
+            `SELECT
+               (ROW_NUMBER() OVER (ORDER BY started_at DESC)) - 1 AS paneIndex,
+               provider_id AS providerId,
+               external_session_id AS externalSessionId
+             FROM agent_sessions
+             WHERE workspace_id = ?
+             ORDER BY started_at DESC`,
+          )
+          .all(workspaceId) as Array<{
+            paneIndex: number;
+            providerId: string;
+            externalSessionId: string | null;
+          }>;
+        return rows.map((r) => ({
+          paneIndex: r.paneIndex,
+          providerId: r.providerId,
+          sessionId: r.externalSessionId ?? null,
+        }));
+      } catch {
+        return [];
+      }
+    },
   });
 
   const providersCtl = defineController({

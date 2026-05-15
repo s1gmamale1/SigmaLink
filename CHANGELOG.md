@@ -4,6 +4,48 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-16
+
+Per-pane session picker in the Workspace Launcher. Users now choose which session to resume for each pane — or let the smart default (newest in cwd) do it — rather than relying solely on the silent automatic resume introduced in v1.2.8.
+
+### Added
+
+- **`SessionStep`** — new Launcher wizard step inserted between AgentsStep and Launch (`app/src/renderer/features/workspace-launcher/SessionStep.tsx`, ~250 LOC). One row per pane: provider dot, pane index, session chip, "Change..." button opening a Radix `Popover` with a shadcn `Command` (cmdk) full history list (up to 50 entries, sorted newest first, with timestamp + first-message preview). Smart default pre-selects the newest session for each (provider, cwd) pair on step mount.
+- **Bulk bar** in SessionStep — "Resume newest for all", "All new", "Reset to suggested" — bulk-applies a decision across all panes without per-row interaction.
+- **`listSessionsInCwd(providerId, cwd, opts?)`** added to `app/src/main/core/pty/session-disk-scanner.ts`. Returns `SessionListItem[]` (id, providerId, cwd, createdAt, updatedAt, title?, firstMessagePreview?) sorted DESC by `updatedAt`. Per-provider strategies: Claude globs `~/.claude/projects/<slug>/*.jsonl`; Codex globs rollout JSONL filenames; Kimi reads `state.json` per session directory; OpenCode calls `opencode session list --format json`. Gemini returns `[]` (v1.3.1 target).
+- **`panes.listSessions(providerId, cwd, opts?)`** RPC — called by picker Popover per pane (lazy, on open); by smart default (eager, maxCount 1 per pane on step mount).
+- **`panes.lastResumePlan(workspaceId)`** RPC — reads most recent `agent_sessions` row per `paneIndex` for a workspace; no schema migration (v1.2.8 columns sufficient).
+- **Scenario B** support — sidebar workspace dropdown now routes through SessionStep with chips pre-populated from the last-run session IDs. "Reconfigure layout..." link navigates back to the Layout step.
+- **12-15 new Vitest cases** — disk-scan list path, SessionStep rendering + state, `lastResumePlan` query.
+- **`docs/04-design/session-picker-v1.3.0.md`** — architecture, smart-default rules, persistence model, risk register.
+
+### Changed
+
+- `Stepper.tsx` — `sessions` step inserted after `agents`.
+- `Launcher.tsx` — new `paneResumePlan` state; `launch()` passes resume plan into `executeLaunchPlan`.
+- `executeLaunchPlan` (`app/src/main/core/workspaces/launcher.ts`) — if `paneResumePlan[idx].sessionId` is non-null, passes the ID directly to `buildResumeArgs` and pre-stamps `agent_sessions.externalSessionId` at insert; v1.2.8 `onPostSpawnCapture` is a no-op for that row.
+- Sidebar "open persisted workspace" flow now routes to SessionStep, skipping Layout + Agents when the workspace has a prior pane config.
+
+### Known limitations (deferred)
+
+- Gemini session list is empty; `listSessionsInCwd` returns `[]`. Disk layout undocumented upstream. Backlog row filed for v1.3.1.
+- Session deletion, rename, and cross-cwd search are view-only deferred.
+- OpenCode disk-scan continues to use `opencode session list --format json` subprocess (SQLite direct-read deferred).
+
+### Verification
+
+- `pnpm exec tsc -b`: clean
+- `pnpm exec vitest run`: 263+/263+ (was 248, net +12-15)
+- `pnpm exec eslint .`: clean
+- `pnpm run build`: clean
+
+### Related
+
+- Plan: `docs/03-plan/v1.3.0-session-picker.md`
+- Design: `docs/04-design/session-picker-v1.3.0.md`
+- Release notes: `docs/09-release/release-notes-1.3.0.txt`
+- Closes wishlist item W-1 (`docs/03-plan/WISHLIST.md`)
+
 ## [1.2.8] - 2026-05-13
 
 Session capture is no longer a fragile stdout-banner scrape. Replaced the entire extractor pipeline with a hybrid strategy that works for every supported CLI, even when the agent is blocked at an interactive prompt at quit time (the exact failure mode the v1.2.7 toast was correctly reporting).

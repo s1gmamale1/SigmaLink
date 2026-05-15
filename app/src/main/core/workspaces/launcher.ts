@@ -14,6 +14,7 @@ import type { WorktreePool } from '../git/worktree';
 import { getSharedDeps } from '../../rpc-router';
 import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
 import { resolveAndSpawn, ProviderLaunchError } from '../providers/launcher';
+import { buildResumeArgs } from '../pty/resume-launcher';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -148,7 +149,22 @@ export async function executeLaunchPlan(
       // ENOENT, appends `autoApproveFlag` when requested, and re-checks the
       // legacy gate main-side. The caller (this loop) still owns the DB
       // insert + worktree wiring + initial-prompt typing.
-      const extraArgs = buildExtraArgs(provider.id, pane.initialPrompt);
+      //
+      // v1.3.0 — Session picker: if the launch plan carries a paneResumePlan
+      // entry with a non-null sessionId for this pane slot, inject resume args
+      // via `buildResumeArgs` (covers all 5 providers, id vs continue fallback).
+      // The extraArgs from buildExtraArgs are only applied when NOT resuming.
+      const resumeEntry = plan.paneResumePlan?.find(
+        (r) => r.paneIndex === pane.paneIndex,
+      );
+      const resumeSessionId = resumeEntry?.sessionId ?? null;
+      let extraArgs: string[];
+      if (resumeSessionId) {
+        const resumeResult = buildResumeArgs(provider.id, resumeSessionId);
+        extraArgs = resumeResult?.args ?? [];
+      } else {
+        extraArgs = buildExtraArgs(provider.id, pane.initialPrompt);
+      }
       const spawnResult = resolveAndSpawn(
         { ptyRegistry: deps.pty },
         {
@@ -165,6 +181,11 @@ export async function executeLaunchPlan(
       const effectiveProvider =
         findProvider(spawnResult.providerEffective) ?? provider;
 
+      // v1.3.0 — pre-stamp the session id when the launch plan carries a
+      // resume entry, so the v1.2.8 disk-scan capture path is a no-op for
+      // panes that were resumed by id. Fall back to the pre-assigned id from
+      // the registry (claude/gemini pre-assign path) when no resume entry.
+      const insertExternalSessionId = resumeSessionId ?? rec.externalSessionId ?? null;
       db.insert(agentSessions)
         .values({
           id: finalSessionId,
@@ -180,7 +201,7 @@ export async function executeLaunchPlan(
           status: 'running',
           initialPrompt: pane.initialPrompt,
           startedAt: rec.startedAt,
-          externalSessionId: rec.externalSessionId,
+          externalSessionId: insertExternalSessionId,
         })
         .run();
       if (spawnResult.fallbackOccurred) {

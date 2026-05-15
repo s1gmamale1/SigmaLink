@@ -31,6 +31,10 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'panes.resume',
   // v1.2.8 — Recovery action behind the aggregated resume-failure toast.
   'panes.respawnFailed',
+  // v1.3.0 — Session picker: list provider sessions for a cwd.
+  'panes.listSessions',
+  // v1.3.0 — Session picker: most recent resume plan for a workspace.
+  'panes.lastResumePlan',
   // providers
   'providers.list',
   'providers.probeAll',

@@ -130,6 +130,41 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       failed: z.number().int().nonnegative(),
     }),
   },
+  // v1.3.0 — Session picker: list provider sessions for a cwd.
+  'panes.listSessions': {
+    input: z.object({
+      providerId: z.string().min(1),
+      cwd: z.string().min(1),
+      opts: z
+        .object({
+          maxCount: z.number().int().positive().max(200).optional(),
+          sinceMs: z.number().int().positive().optional(),
+        })
+        .optional(),
+    }),
+    output: z.array(
+      z.object({
+        id: z.string().min(1),
+        providerId: z.string(),
+        cwd: z.string(),
+        createdAt: z.number(),
+        updatedAt: z.number(),
+        title: z.string().max(80).optional(),
+        firstMessagePreview: z.string().max(80).optional(),
+      }),
+    ),
+  },
+  // v1.3.0 — Session picker: most recent resume plan for a workspace.
+  'panes.lastResumePlan': {
+    input: z.string().min(1), // workspaceId
+    output: z.array(
+      z.object({
+        paneIndex: z.number().int().nonnegative(),
+        providerId: z.string(),
+        sessionId: z.string().nullable(),
+      }),
+    ),
+  },
   // ── providers ────────────────────────────────────────────────────────
   'providers.list': stub,
   'providers.probeAll': stub,

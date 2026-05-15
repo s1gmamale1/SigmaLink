@@ -1,0 +1,73 @@
+SigmaLink v1.3.0 — Session Picker
+Released 2026-05-16
+
+WHAT'S NEW
+
+Session Picker in Workspace Launcher
+--------------------------------------
+You now have explicit control over which session is resumed for each pane when
+you create or re-open a workspace.
+
+After the Agents step, a new "Sessions" step shows one row per pane. Each row
+displays the provider, the pane index, and a chip showing the smart default
+(the most recent session for that provider in your working directory). You can
+accept all defaults in one click or override any pane individually.
+
+  Smart default
+    The newest session on disk for each (provider, cwd) pair is pre-selected
+    automatically. For a new directory with no history the chip reads
+    "New session" and spawns fresh.
+
+  Per-pane override
+    Click "Change..." on any row to open a filterable list of all sessions
+    found for that provider in the current directory (up to 50, sorted newest
+    first, with a timestamp and a preview of the first message). Pick any row
+    or search by keyword.
+
+  Bulk bar
+    Three buttons above the pane list act on all panes at once:
+    - "Resume newest for all"  pre-selects the latest session for every pane.
+    - "All new"               clears all chips to "New session".
+    - "Reset to suggested"    re-runs the smart-default logic, discarding
+                               any manual overrides.
+
+  Re-opening a persisted workspace
+    When you re-open a workspace from the sidebar dropdown, the Sessions step
+    is pre-populated with the session IDs from your last run. Confirm to
+    resume exactly where you left off, or change any pane before launching.
+    A "Reconfigure layout..." link lets you go back and change pane count or
+    providers if needed.
+
+Provider coverage
+    Claude, Codex, Kimi, and OpenCode session lists are fully supported.
+    Gemini session enumeration is deferred to v1.3.1 (disk layout
+    undocumented upstream); Gemini panes default to "New session" for now.
+
+UNDER THE HOOD
+
+  - session-disk-scanner.ts gains listSessionsInCwd() alongside the existing
+    findLatestSessionId(). The new function drops the 5-min mtime window,
+    returns up to 50 entries sorted newest-first, and adds title and
+    firstMessagePreview fields for display in the picker.
+  - New RPC: panes.listSessions(providerId, cwd, opts?) — used by the
+    picker to populate the per-pane Popover.
+  - New RPC: panes.lastResumePlan(workspaceId) — reads the most recent
+    agent_sessions rows per pane slot. No schema migration; the table
+    already carries the required columns from v1.2.8.
+  - executeLaunchPlan pre-stamps externalSessionId at row insert when a
+    user-chosen session ID is present, so the v1.2.8 post-spawn capture hook
+    is a no-op for those rows.
+  - 12-15 new Vitest cases (disk-scan list path, SessionStep, lastResumePlan).
+
+UPGRADING FROM v1.2.8
+
+No action required. The Sessions step is additive. Existing persisted
+workspaces open with the smart default applied (newest session in cwd per
+pane) on first use, then persist your choices for subsequent opens.
+
+KNOWN LIMITATIONS
+
+  - Gemini session list is empty in v1.3.0. Gemini panes spawn fresh or use
+    the --continue fallback inherited from v1.2.8. Target fix: v1.3.1.
+  - Session metadata search is scoped to the current working directory only.
+    Cross-cwd browsing and session rename/delete are not in this release.
