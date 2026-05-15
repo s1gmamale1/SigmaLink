@@ -83,6 +83,12 @@ win:
       arch: [x64]
   verifyUpdateCodeSignature: false # v1.2.4: skip signature check for unsigned adhoc builds
 nsis:
+  # Pin artifactName to dashed form so the uploaded file matches what
+  # electron-updater writes into latest.yml. v1.3.0 + v1.3.1 hit a 404 on
+  # Windows auto-update because the default template produced
+  # "SigmaLink.Setup.X.Y.Z.exe" (dots) while latest.yml referenced the
+  # dashed form.
+  artifactName: ${productName}-Setup-${version}.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
