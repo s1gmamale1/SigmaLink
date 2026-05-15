@@ -209,3 +209,19 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-134 | v1.3.0 WISHLIST.md: move W-1 to "Recently shipped" table; update v1.3.0 grouping paragraph | shipped | 1 |
 | T-135 | v1.3.0 master_memory.md: append Phase 24 narrative (session-picker shipment summary) | shipped | 1 |
 | T-136 | v1.3.0 memory_index.md: add Phase 24 / T-130..T-136 rows | shipped | 1 |
+
+## v1.3.1 Phase 24b — Session picker hotfix (May 16, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-137 | v1.3.1 diagnosis: confirm Bug A (`lastResumePlan` SQL not dedup'd → 14 pane spawn) and Bug B (frontend per-pane `sessionId` vs backend top-level `paneResumePlan` mismatch → no resume) | shipped | 1 |
+| T-138 | v1.3.1 migration: `0012_agent_session_pane_index.ts` adds INTEGER `pane_index` column + `agent_sessions_ws_pane_idx` composite index; idempotent via PRAGMA introspection | shipped | 1 |
+| T-139 | v1.3.1 schema/migrate: register migration 0012 in ordered runner; Drizzle column + index entries in `schema.ts` | shipped | 1 |
+| T-140 | v1.3.1 SQL fix: rewrite `panes.lastResumePlan` as correlated `INNER JOIN ... MAX(started_at)` subquery grouped by `(workspace_id, pane_index)`; filter legacy NULL `pane_index` rows | shipped | 1 |
+| T-141 | v1.3.1 spawn fix: write `pane_index: pane.paneIndex` on every `agent_sessions` insert in `workspaces/launcher.ts` | shipped | 1 |
+| T-142 | v1.3.1 Launcher.tsx: extract `buildPaneResumePlanArray(paneCount, selections)` helper emitting top-level array shape; new `Launcher.test.tsx` (7 cases) pins the contract | shipped | 1 |
+| T-143 | v1.3.1 tests: expand `last-resume-plan.test.ts` 5 → 9 cases (multi-launch dedup, partial-NULL externalSessionId, legacy NULL exclusion, provider-swap-at-slot); 282 → 291 total | shipped | 1 |
+| T-144 | v1.3.1 release plumbing: bump 1.3.0 → 1.3.1, CHANGELOG [1.3.1] entry, release-notes-1.3.1.txt, WISHLIST recently-shipped, master_memory Phase 24b note | shipped | 1 |
+| T-145 | v1.3.1 ship: commit `6ca7d72`, tag `v1.3.1`, push origin main + tag; release-macos + release-windows workflows triggered | shipped | 1 |
+| T-146 | v1.3.0 Windows auto-update 404: live-patch `latest.yml` `SigmaLink-Setup-1.3.0.exe` (dash) → `SigmaLink.Setup.1.3.0.exe` (dot) to match uploaded asset | shipped | 1 |
+| T-147 | electron-builder.yml permanent fix: pin nsis `artifactName: ${productName}-Setup-${version}.${ext}` so future releases avoid dot/dash divergence (commit `1db4349`) | shipped | 1 |

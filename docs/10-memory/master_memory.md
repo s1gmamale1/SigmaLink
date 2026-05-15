@@ -1275,7 +1275,7 @@ The data layer extension (`listSessionsInCwd` added to `session-disk-scanner.ts`
 
 **Next session restart point**: SigmaLink at v1.2.9 on branch `chore/drop-linux-platforms` (commit `a29fdb4`). CI is now macOS + Windows only. v1.3.0 backlog: W-1 session picker + W-3 Ruflo auto-bind. v1.4.0 backlog: W-2 Sigma Assistant orchestrator.
 
-## v1.3.1 Phase 22b — Session picker hotfix (May 16, 2026)
+## v1.3.1 Phase 24b — Session picker hotfix (May 16, 2026)
 
 v1.3.1 patches two bugs that shipped with v1.3.0 the same day. The user-reported symptom: a 4-pane workspace re-opened from the sidebar dropdown surfaced 14 panes on Launch (Claude×3, Codex×3, Gemini×3, Kimi×3, OpenCode×1, + 1 stray) AND none of the explicitly-picked sessions actually resumed — every pane started fresh.
 
