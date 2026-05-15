@@ -1,0 +1,123 @@
+# SigmaLink — Plans wishlist (consolidated)
+
+> Single source of truth for what's queued. Updated 2026-05-16 after the v1.2.4 → v1.2.8 release wave. Each row points at the original spec / backlog / plan file it was extracted from.
+
+## Recently shipped ✅
+
+| Release | What | Plan file |
+|---|---|---|
+| v1.2.0 | Windows platform port — NSIS installer + PowerShell one-liner | `docs/03-plan/` (none — implementation only) |
+| v1.2.1 | Windows CI hotfix — npmRebuild=false to skip node-pty re-rebuild | inline in CHANGELOG |
+| v1.2.2 | Windows install-script asset regex + native-module hoist (`.npmrc`) | inline in CHANGELOG |
+| v1.2.3 | Re-tag for macOS workflow so `latest-mac.yml` ships | inline in CHANGELOG |
+| v1.2.4 | Auto-update without code-signing certs | [`v1.2.4-auto-update-without-signing.md`](v1.2.4-auto-update-without-signing.md) |
+| v1.2.5 | Post-install regression sweep + macOS spawn-helper chmod + provider trim | [`v1.2.5-postinstall-regressions.md`](v1.2.5-postinstall-regressions.md) |
+| v1.2.6 | Stdio MCP switch (deleted ~400 LOC HTTP supervisor) | inline in CHANGELOG (plan file consumed at merge) |
+| v1.2.7 | Multi-workspace state preservation (ring-buffer replay) | [`v1.2.7-multi-workspace-state-preservation.md`](v1.2.7-multi-workspace-state-preservation.md) |
+| v1.2.8 | Session capture rewrite (pre-assign UUID + disk-scan + --continue) | [`v1.2.8-session-capture-rewrite.md`](v1.2.8-session-capture-rewrite.md) |
+
+---
+
+## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
+
+### W-1 — Session picker in Workspace Launcher
+- **What**: When creating a workspace, after directory + pane count + provider selection, show a per-provider session picker. For each provider chosen (Claude / Codex / Gemini / Kimi / OpenCode), list any existing sessions in the cwd via the v1.2.8 disk-scanner. User picks "Resume <id>" or "New".
+- **Why**: v1.2.8 only resumes sessions SigmaLink itself spawned. This adds the ability to adopt sessions the user ran outside SigmaLink, or pick a specific historical session instead of always defaulting to `--continue`.
+- **Reuses**: `findLatestSessionId()` from `app/src/main/core/pty/session-disk-scanner.ts` — extend to return a LIST not just newest.
+- **Effort**: M (~1d). Mostly UI work in `app/src/renderer/features/workspace-launcher/Launcher.tsx` + new RPC `panes.listSessions(providerId, cwd)`.
+- **Source**: User added 2026-05-15.
+
+### W-2 — Sigma Assistant as orchestrator + session resume
+- **What**: Promote Sigma Assistant (right-rail AI) from "tool-dispatcher" to "orchestrator." Needs persistent session state, resume support same pattern as CLI providers, and the ability to drive multi-pane CLI swarms with cross-restart memory of orchestration intent.
+- **Why**: Today Sigma Assistant is one-shot. To be a usable orchestrator ("I'll move you into Sigma Assistant and develop SigmaLink from the app"), it needs memory + resume + the ability to dispatch + monitor + retry CLI panes across app restarts.
+- **Reuses**: ReasoningBank / `sigmamemory` MCP for memory; existing tool-dispatch pipeline at `app/src/main/core/assistant/`; v1.2.8 session capture as the resume primitive.
+- **Effort**: L (~3-5d). Touches assistant core + RPC tool router + Sigma Assistant pane + new `sigma_session_id` column or parallel table.
+- **Source**: User added 2026-05-15.
+
+### W-3 — Auto-bind Ruflo MCP for every agent
+- **What**: When any CLI pane spawns, `.mcp.json` should automatically include the Ruflo MCP server alongside `browser` and `sigmamemory`. Every agent gets access to Ruflo's pattern store, hooks, memory bridge.
+- **Why**: Closes the "Ruflo readiness pill should actually mean something" gap. Today the pill reports if Ruflo's installed but agents don't automatically use it.
+- **Reuses**: v1.2.6 `mcp-config-writer.ts` — add a stdio entry: `{command: "npx", args: ["-y", "@claude-flow/cli@latest", "mcp", "serve"]}` (verify entry point against local Ruflo install).
+- **Effort**: S (~2hr). One-line addition per agent format (Claude .mcp.json, Codex TOML, Gemini extension) + 1-2 tests.
+- **Risk**: First-time pane spawn npx-downloads ruflo CLI — adds ~20s to first pane on a fresh machine.
+- **Source**: User added 2026-05-15.
+
+---
+
+## 🔴 P1 — CI is currently red (blocks all future PR reviews)
+
+| Item | Effort | Source |
+|---|---|---|
+| **BUG-W7-000** — node-pty `linux-x64` prebuild missing in Ubuntu CI test suites | S (~2hr) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) BUG-W7-000 |
+| **Playwright e2e refresh** — `tests/e2e/smoke.spec.ts` stale v1.1.4 selectors | M (~1d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.10 — Playwright e2e refresh" |
+
+## 🟡 v1.2.x deferred polish
+
+| Item | Effort | Source |
+|---|---|---|
+| **Terminal.tsx mount race** — attach live listener before snapshot await (closes v1.2.7 R-1.2.7-1 — 1-5ms IPC drop window) | XS (~5 min) | [`v1.2.7-multi-workspace-state-preservation.md`](v1.2.7-multi-workspace-state-preservation.md) "Open risks" |
+| **Disk-scan provider scoping** — cross-reference cwd against project-hash to avoid capturing sessions from outside SigmaLink | S (~1hr) | [`v1.2.8-session-capture-rewrite.md`](v1.2.8-session-capture-rewrite.md) R-1.2.8-2 |
+| **BUG-W7-015** — Launch button low-contrast in Parchment theme | XS (~30 min) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) BUG-W7-015 |
+| **React-compiler lint wave** — 31 errors documented | M (~1d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — React-compiler lint wave" |
+| **`swarms/factory.ts` (713 LOC) split** | M (~0.5d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — quality / file size" |
+| **`runClaudeCliTurn.ts` (709 LOC) split** | M (~0.5d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — quality / file size" |
+| **`state.tsx` residual 553 → < 500 LOC** | S (~3hr) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — quality / file size" |
+| **CI cache-dependency-path fix** | XS | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — CI / test infra" |
+| **vitest coverage thresholds** | S | same |
+| **shellcheck step for install-macos.sh** | XS | same |
+
+## 🟢 v1.3 — User-facing feature work
+
+| Item | Effort | Source |
+|---|---|---|
+| **Pane Focus → true fullscreen** (currently honest-labeled as "Pin focus ring") | M (~1d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "Pane Focus → true fullscreen"; v1.2.5 commit `e193943` rename |
+| **Pane Split + Minimise** functional implementations | L (~3d) | BACKLOG.md "Tooltip text 'Coming in v1.2' on disabled pane icons" |
+| **Notifications system + top-right bell** | M (~2d) | V3-W12 backlog row (deferred from v1.1.4) |
+| **Native Windows SAPI5 voice binding** | L (~1wk + Windows prebuild matrix) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.3 — platform / distribution" |
+| **`windowsControlsOverlay` frameless chrome** | M (~1d) | same |
+| **Linux AppImage / .deb test gating** | M | same |
+| **x64 macOS DMG via CI matrix** | S (~2hr) | same |
+| **Windows auto-update verification flow** | S | [`docs/03-plan/v1.2.4-auto-update-without-signing.md`](v1.2.4-auto-update-without-signing.md) "Known limitations" |
+| **Cross-machine session sync** | L | v1.2.8 "What's NOT in this scope" |
+| **OpenCode SQLite direct read** (skip subprocess) | S | v1.2.8 "What's NOT in this scope" |
+| **Provider auto-install** ("kimi not found → run pip install for me?") | M | v1.2.8 "What's NOT in this scope" |
+
+## 🔵 v1.4+ — External dependencies / funding required
+
+| Item | Cost |
+|---|---|
+| Apple Developer ID + notarisation | $99/yr |
+| EV/OV Authenticode cert | $300-700/yr |
+| Microsoft Store / WinGet distribution | M + Microsoft reviews |
+
+## P3 — polish (open in backlog, low priority)
+
+| Item | Effort | Source |
+|---|---|---|
+| **Gemini pane resume gap** | External dep on upstream `gemini --resume`; partially resolved by v1.2.8's `--resume latest` fallback | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) P3 |
+
+---
+
+## Suggested grouping for next 3 releases
+
+**v1.2.9 — CI + polish** (~1d): BUG-W7-000 + Playwright e2e refresh + Terminal.tsx mount race + disk-scan scoping. Pure debt clear. **Green CI on every PR going forward.**
+
+**v1.3.0 — Session picker + Ruflo binding** (~2d): W-1 + W-3. Both small, high-value, share `mcp-config-writer.ts` surface.
+
+**v1.4.0 — Sigma Assistant orchestrator** (~3-5d): W-2 in isolation since it's the biggest behavioral change. Needs its own design doc + careful migration.
+
+---
+
+## Sources cross-referenced
+
+This wishlist consolidates rows from:
+- [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) — full bug + optimization ledger
+- [`docs/08-bugs/OPEN.md`](../08-bugs/OPEN.md) — pointer to BACKLOG
+- [`docs/03-plan/V3_PARITY_BACKLOG.md`](V3_PARITY_BACKLOG.md) — V3 BridgeMind parity items
+- [`docs/03-plan/v1.2.4-auto-update-without-signing.md`](v1.2.4-auto-update-without-signing.md) — auto-update limitations
+- [`docs/03-plan/v1.2.5-postinstall-regressions.md`](v1.2.5-postinstall-regressions.md) — sweep notes
+- [`docs/03-plan/v1.2.7-multi-workspace-state-preservation.md`](v1.2.7-multi-workspace-state-preservation.md) — open risks
+- [`docs/03-plan/v1.2.8-session-capture-rewrite.md`](v1.2.8-session-capture-rewrite.md) — open risks + out-of-scope
+- [`CHANGELOG.md`](../../CHANGELOG.md) — historical context
+
+When you ship a wishlist item, move it to "Recently shipped" with a pointer back to the implementation commit + CHANGELOG entry.

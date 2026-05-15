@@ -6,6 +6,20 @@ app/dist/
 app/electron-dist/
 app/release/
 app/build/release/
+dist/
+electron-dist/
+release/
+
+# Packaged installers / signed bundles
+*.dmg
+*.exe
+*.zip
+*.blockmap
+*.AppImage
+*.snap
+*.deb
+*.rpm
+*.msi
 
 # Local databases / runtime data
 *.db
@@ -52,6 +66,7 @@ __pycache__/
 worktrees/
 
 # Test output
+coverage/
 app/coverage/
 playwright-report/
 test-results/
