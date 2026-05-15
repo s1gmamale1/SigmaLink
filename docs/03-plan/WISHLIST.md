@@ -48,7 +48,6 @@
 
 | Item | Effort | Source |
 |---|---|---|
-| **BUG-W7-000** — node-pty `linux-x64` prebuild missing in Ubuntu CI test suites | S (~2hr) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) BUG-W7-000 |
 | **Playwright e2e refresh** — `tests/e2e/smoke.spec.ts` stale v1.1.4 selectors | M (~1d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.10 — Playwright e2e refresh" |
 
 ## 🟡 v1.2.x deferred polish
@@ -75,7 +74,6 @@
 | **Notifications system + top-right bell** | M (~2d) | V3-W12 backlog row (deferred from v1.1.4) |
 | **Native Windows SAPI5 voice binding** | L (~1wk + Windows prebuild matrix) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.3 — platform / distribution" |
 | **`windowsControlsOverlay` frameless chrome** | M (~1d) | same |
-| **Linux AppImage / .deb test gating** | M | same |
 | **x64 macOS DMG via CI matrix** | S (~2hr) | same |
 | **Windows auto-update verification flow** | S | [`docs/03-plan/v1.2.4-auto-update-without-signing.md`](v1.2.4-auto-update-without-signing.md) "Known limitations" |
 | **Cross-machine session sync** | L | v1.2.8 "What's NOT in this scope" |
@@ -100,7 +98,7 @@
 
 ## Suggested grouping for next 3 releases
 
-**v1.2.9 — CI + polish** (~1d): BUG-W7-000 + Playwright e2e refresh + Terminal.tsx mount race + disk-scan scoping. Pure debt clear. **Green CI on every PR going forward.**
+**v1.2.9 — CI + polish** (~1d): Playwright e2e refresh + Terminal.tsx mount race + disk-scan scoping + drop Ubuntu CI lanes. Pure debt clear. **Green CI on every PR going forward.**
 
 **v1.3.0 — Session picker + Ruflo binding** (~2d): W-1 + W-3. Both small, high-value, share `mcp-config-writer.ts` surface.
 
@@ -121,3 +119,19 @@ This wishlist consolidates rows from:
 - [`CHANGELOG.md`](../../CHANGELOG.md) — historical context
 
 When you ship a wishlist item, move it to "Recently shipped" with a pointer back to the implementation commit + CHANGELOG entry.
+
+## Architectural decisions
+
+### 2026-05-16 — Linux is not a supported platform
+
+SigmaLink ships for macOS arm64 (primary) and Windows x64 only. Local `electron-builder` still emits
+AppImage + .deb artefacts for completeness, but:
+
+- No CI runs on Linux
+- No smoke tests on Linux
+- No installer scripts for Linux
+- No docs mention Linux as a supported install path
+
+To revisit this decision: write a new ADR. Reversal requires re-introducing the Ubuntu CI lanes (see
+`.github/workflows/`), adding a Linux release workflow (mirror `release-macos.yml`), and writing
+install docs.

@@ -17,7 +17,7 @@
 | Perf — sustained runtime | 2 | [v1.1.9 perf](#v119--paired-perf-refactor) |
 | Quality — refactor | 3 | [v1.1.9 quality](#v119--quality--file-size) |
 | Tests / CI | 2 | [v1.1.9 ci](#v119--ci--test-infra) |
-| Platform / distribution | 6 | [v1.3 platform](#v13--platform--distribution) |
+| Platform / distribution | 5 | [v1.3 platform](#v13--platform--distribution) |
 | Lint — React-compiler family | 31 errors | [v1.1.9 lint](#v119--react-compiler-lint-wave) |
 | Funded-only (Apple, Porcupine) | 2 | [Waiting on external](#waiting-on-external--needs-funding) |
 
@@ -276,11 +276,11 @@
 - **Cost**: EV cert $300-700/year (immediate reputation); OV cert $80-200/year (reputation accumulates over time).
 - **Defer to**: indefinitely. Funded-only. Same gating as Apple Developer ID.
 
-### Linux AppImage / .deb test gating
-- **Issue**: `electron-builder.yml` builds AppImage + .deb from the same source, but there is no Linux runner in CI and no smoke. v1.2.0 supported-platform list explicitly excludes Linux.
-- **Fix sketch**: Add `ubuntu-latest` runner to the release workflow matrix; smoke against a known Wayland + X11 setup.
-- **Effort**: M (~1-2d).
-- **Defer to**: v1.3+.
+### Linux AppImage / .deb — wontfix (2026-05-16)
+- **Status**: Closed as wontfix per user decision 2026-05-16. SigmaLink will not support Linux.
+- **Historical context**: `electron-builder.yml` still has a `linux:` target block; local builds emit
+  AppImage + .deb; no CI, no smoke, no installer, no docs. See `docs/03-plan/WISHLIST.md`
+  "Architectural decisions" section.
 
 ### Microsoft Store / WinGet distribution
 - **Issue**: GitHub Releases only as of v1.2.0. WinGet manifest needs the signed EXE; Microsoft Store needs the same plus identity validation.

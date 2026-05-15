@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-14, ubuntu-latest]
+        os: [windows-latest, macos-14]
 
     defaults:
       run:
@@ -54,23 +54,10 @@ jobs:
       - name: Rebuild native modules for Electron
         run: pnpm rebuild better-sqlite3 node-pty
 
-      - name: Install xvfb (Linux)
-        if: runner.os == 'Linux'
-        working-directory: .
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libdrm2 libgbm1 libasound2t64 || \
-          sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libdrm2 libgbm1 libasound2
-
       - name: Build renderer + electron
         run: pnpm run build && node scripts/build-electron.cjs
 
-      - name: Run Playwright smoke (Linux under xvfb)
-        if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1440x900x24" pnpm exec playwright test --reporter=line,html
-
-      - name: Run Playwright smoke (macOS / Windows)
-        if: runner.os != 'Linux'
+      - name: Run Playwright smoke
         run: pnpm exec playwright test --reporter=line,html
 
       - name: Upload e2e artefacts
