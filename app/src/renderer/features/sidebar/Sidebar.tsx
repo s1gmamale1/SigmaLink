@@ -56,6 +56,10 @@ export function Sidebar() {
       const reopened = await rpc.workspaces.open(ws.rootPath);
       dispatch({ type: 'WORKSPACE_OPEN', workspace: reopened });
       dispatch({ type: 'SET_WORKSPACES', workspaces: await rpc.workspaces.list() });
+      // v1.3.3 — route into the Command Room where the panes are visible.
+      // Without this the user lands on the Launcher's Start step even though
+      // the workspace already has running panes.
+      dispatch({ type: 'SET_ROOM', room: 'command' });
     } catch (err) {
       console.error('Failed to open workspace:', err);
     }
@@ -111,7 +115,13 @@ export function Sidebar() {
           persistedWorkspaces={workspaces}
           sessions={sessions}
           activeId={activeWorkspace?.id ?? null}
-          onPick={(ws) => dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: ws.id })}
+          onPick={(ws) => {
+            dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: ws.id });
+            // v1.3.3 — clicking an open workspace in the sidebar should
+            // surface its panes, not leave the user on whatever room they
+            // were in (typically the Launcher's Start step).
+            dispatch({ type: 'SET_ROOM', room: 'command' });
+          }}
           onClose={(workspaceId) => dispatch({ type: 'WORKSPACE_CLOSE', workspaceId })}
           onOpenPersisted={openPersistedWorkspace}
           onBrowseWorkspaces={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}
