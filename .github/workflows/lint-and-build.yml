@@ -15,8 +15,8 @@ permissions:
 
 jobs:
   lint-build:
-    name: lint + build (ubuntu)
-    runs-on: ubuntu-latest
+    name: lint + build (macos)
+    runs-on: macos-14
     timeout-minutes: 15
 
     defaults:
