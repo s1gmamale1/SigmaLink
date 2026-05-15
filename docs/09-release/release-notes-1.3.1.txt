@@ -1,0 +1,80 @@
+SigmaLink v1.3.1 — Session Picker Hotfix
+Released 2026-05-16
+
+WHAT WENT WRONG IN v1.3.0
+
+Two production bugs slipped through v1.3.0. If you created a multi-pane
+workspace, picked sessions in the new wizard, and hit Launch, you would
+see:
+
+  1. Too many panes spawning. A four-pane workspace launched repeatedly
+     ended up with 12, 14, or more panes the next time you picked it from
+     the sidebar.
+
+  2. Sessions did not actually resume. Even when you explicitly chose a
+     session in the picker, every pane started fresh.
+
+WHAT v1.3.1 FIXES
+
+Bug A — Pane multiplication
+---------------------------
+The picker now returns exactly one entry per pane in your workspace,
+showing the most-recent session for that pane slot. Previous launches no
+longer pile up into extra grid rows.
+
+Under the hood: a new database column (`pane_index`) stores which pane
+slot each session belonged to, and the picker query groups by that column
+to return one row per pane instead of one row per launch.
+
+Bug B — Sessions did not resume
+-------------------------------
+Your picker choices now reach the spawn path correctly. The CLI is
+launched with the right resume flag (`claude --resume`, `codex resume`,
+etc.) for any pane where you picked a session.
+
+The bug was a frontend/backend payload mismatch — the frontend put the
+session ID in the wrong place in the launch request. Fixed with a
+testable helper that pins the contract.
+
+UPGRADING FROM v1.3.0
+
+No action required. The database migration runs automatically on first
+launch and is idempotent.
+
+If you have legacy `agent_sessions` rows from before v1.3.1, they will
+not appear in the picker (they cannot be confidently mapped to pane
+slots). The picker will be empty for an existing workspace until you
+launch once more — at which point the new rows pick up the
+`pane_index` column and re-opens behave correctly.
+
+VERIFICATION
+
+  - pnpm exec tsc -b        clean
+  - pnpm exec vitest run    291/291 (net +9 cases vs v1.3.0)
+  - pnpm exec eslint .      clean
+  - pnpm run build          clean
+
+KNOWN LIMITATIONS (unchanged from v1.3.0)
+
+  - Gemini session enumeration is empty (disk layout undocumented).
+  - Cross-cwd session browsing and session rename/delete are not in this
+    release.
+
+MANUAL VERIFICATION SCENARIOS
+
+Scenario A — first launch, four-pane workspace
+  1. Open a fresh workspace.
+  2. Pick 4 panes, assign Claude / Codex / Gemini / Kimi.
+  3. Picker shows "New session" for all four.
+  4. Pick existing sessions where available, hit Launch.
+  5. Expect: exactly four panes spawn; each agent resumes the chosen
+     session (verify by typing a follow-up message to a prior turn).
+
+Scenario B — re-open from sidebar
+  1. Close the workspace from step A.
+  2. Re-open it from the sidebar workspace dropdown.
+  3. Picker shows exactly four rows pre-populated with the previously
+     chosen session IDs.
+  4. Hit Launch.
+  5. Expect: four panes spawn, each resuming the same session as before.
+     No 12-pane, 14-pane, or stray "shell" rows.

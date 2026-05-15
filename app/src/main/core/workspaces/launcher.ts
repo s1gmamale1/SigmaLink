@@ -202,6 +202,11 @@ export async function executeLaunchPlan(
           initialPrompt: pane.initialPrompt,
           startedAt: rec.startedAt,
           externalSessionId: insertExternalSessionId,
+          // v1.3.1: persist the launcher-issued pane slot so
+          // `panes.lastResumePlan` can return one row per pane (the most
+          // recent) instead of one row per historical launch. Without this,
+          // re-opening a workspace surfaced N×launches panes in the picker.
+          paneIndex: pane.paneIndex,
         })
         .run();
       if (spawnResult.fallbackOccurred) {

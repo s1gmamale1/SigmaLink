@@ -4,6 +4,44 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-05-16
+
+fix(v1.3.1): per-pane session picker dedup + resume threading
+
+Hot-fix for two production bugs shipped in v1.3.0. The user-reported symptom was: create a 4-pane workspace, pick sessions in the new picker, hit Launch → 14 panes spawn (Claude×3, Codex×3, Gemini×3, Kimi×3, + 2 strays) AND none of the picked sessions actually resume.
+
+### Fixed
+
+- **Bug A — `panes.lastResumePlan` returned every historical row instead of one per pane.** The v1.3.0 SQL synthesised `paneIndex` from `ROW_NUMBER() OVER (ORDER BY started_at DESC)`, which numbered every row in `agent_sessions` for the workspace. After 3 launches of a 4-pane workspace that yielded 12 rows; the Launcher's `chooseExisting()` then set `preset = plan.length` (12) and the AgentsStep matrix was wide enough to overflow into a 14-pane grid. Fix: added migration `0012_agent_session_pane_index` (`app/src/main/core/db/migrations/0012_agent_session_pane_index.ts`) adding an `INTEGER` `pane_index` column + composite index `agent_sessions_ws_pane_idx`; the launcher now writes the pane slot on every insert; the controller groups by `(workspace_id, pane_index)` and returns the most recent row per pane via a correlated `INNER JOIN ... MAX(started_at)` subquery. Legacy rows (pre-migration writes) with NULL `pane_index` are filtered out so they cannot inflate the count.
+- **Bug B — `paneResumePlan` payload mismatch caused every pane to spawn fresh.** v1.3.0's `Launcher.launch()` put `sessionId` inside each `panes[i]` object, but `executeLaunchPlan` reads the top-level `plan.paneResumePlan` array. The frontend's per-pane `sessionId` was silently dropped, so `resumeSessionId` was always null and `buildResumeArgs` was never called. Fix: extracted `buildPaneResumePlanArray(paneCount, selections)` helper (exported for testing) and call it in `launch()` to emit the top-level array shape the backend expects.
+
+### Added
+
+- `app/src/main/core/db/migrations/0012_agent_session_pane_index.ts` — forward-only migration adding the `pane_index` column + `agent_sessions_ws_pane_idx` composite index. Idempotent (PRAGMA-introspection guard).
+- `app/src/renderer/features/workspace-launcher/Launcher.test.tsx` — new test file (7 cases) pinning the `buildPaneResumePlanArray` contract so Bug B cannot silently regress.
+- Multi-launch dedup test + null-sessionId edge case + legacy `pane_index IS NULL` exclusion test added to `app/src/main/core/pty/last-resume-plan.test.ts` (5 cases → 9 cases). The new fake DB models the JOIN-on-MAX shape faithfully.
+
+### Changed
+
+- `app/src/main/core/db/schema.ts` — `agentSessions.paneIndex` column + composite index declared in Drizzle.
+- `app/src/main/core/db/migrate.ts` — register migration 0012 in the ordered runner.
+- `app/src/main/rpc-router.ts` — rewrite of the `panes.lastResumePlan` SQL.
+- `app/src/main/core/workspaces/launcher.ts` — write `pane_index` on every `agent_sessions` insert.
+- `app/src/renderer/features/workspace-launcher/Launcher.tsx` — top-level `paneResumePlan` array via `buildPaneResumePlanArray` helper.
+
+### Verification
+
+- `pnpm exec tsc -b`: clean
+- `pnpm exec vitest run`: 291/291 (was 282 — net +9 cases)
+- `pnpm exec eslint .`: clean
+- `pnpm run build`: clean
+
+### Related
+
+- Release notes: `docs/09-release/release-notes-1.3.1.txt`
+- Wishlist: `docs/03-plan/WISHLIST.md` (recently shipped table updated)
+- Master memory: `docs/10-memory/master_memory.md` (Phase 22b note appended)
+
 ## [1.3.0] - 2026-05-16
 
 Per-pane session picker in the Workspace Launcher. Users now choose which session to resume for each pane — or let the smart default (newest in cwd) do it — rather than relying solely on the silent automatic resume introduced in v1.2.8.

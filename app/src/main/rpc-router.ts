@@ -489,22 +489,41 @@ function buildRouter() {
       return listSessionsInCwd(input.providerId, input.cwd, input.opts);
     },
     // v1.3.0 — Session picker: most-recent resume plan for a workspace.
-    // Returns one row per pane slot (sequential by started_at), with the
-    // provider and last-captured externalSessionId. Uses a parameterised
-    // query; never throws (returns []).
+    // Returns ONE row per pane slot — the most recent `agent_sessions` row
+    // for each `(workspace_id, pane_index)` group — with the provider and
+    // last-captured externalSessionId. Uses a parameterised query; never
+    // throws (returns []).
+    //
+    // v1.3.1 fix: the previous query returned one row per historical session
+    // (ordered by started_at DESC, with a paneIndex synthesised from
+    // ROW_NUMBER). After 3 launches of a 4-pane workspace that yielded 12
+    // rows → the frontend set `preset = 12` and spawned 12+ panes. The
+    // correlated subquery below joins each row against the per-pane MAX
+    // `started_at` so we get back exactly one row per pane, ordered by the
+    // launcher-issued pane_index ASC. Rows with NULL pane_index (legacy,
+    // pre-v1.3.1) are excluded so the count cannot inflate.
     lastResumePlan: async (workspaceId: string) => {
       try {
         const rows = getRawDb()
           .prepare(
             `SELECT
-               (ROW_NUMBER() OVER (ORDER BY started_at DESC)) - 1 AS paneIndex,
-               provider_id AS providerId,
-               external_session_id AS externalSessionId
-             FROM agent_sessions
-             WHERE workspace_id = ?
-             ORDER BY started_at DESC`,
+               s.pane_index AS paneIndex,
+               s.provider_id AS providerId,
+               s.external_session_id AS externalSessionId
+             FROM agent_sessions s
+             INNER JOIN (
+               SELECT workspace_id, pane_index, MAX(started_at) AS max_started_at
+               FROM agent_sessions
+               WHERE workspace_id = ? AND pane_index IS NOT NULL
+               GROUP BY workspace_id, pane_index
+             ) latest
+               ON latest.workspace_id = s.workspace_id
+               AND latest.pane_index = s.pane_index
+               AND latest.max_started_at = s.started_at
+             WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
+             ORDER BY s.pane_index ASC`,
           )
-          .all(workspaceId) as Array<{
+          .all(workspaceId, workspaceId) as Array<{
             paneIndex: number;
             providerId: string;
             externalSessionId: string | null;

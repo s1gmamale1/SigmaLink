@@ -22,6 +22,37 @@ import { gridLabel } from './grid';
 import { AGENT_PROVIDERS } from '@/shared/providers';
 
 /**
+ * v1.3.1 — Build the top-level `paneResumePlan` array that the backend
+ * (`executeLaunchPlan`) reads. Bug B fix: v1.3.0 emitted `sessionId` per-pane
+ * only, so `plan.paneResumePlan` was always undefined → resume args were
+ * never injected → every pane spawned fresh.
+ *
+ * Returns an array of `{ paneIndex, sessionId }` entries for panes the user
+ * explicitly picked a non-null sessionId for. Panes the user left at "New
+ * session" (null) are omitted so the launcher's `find()` returns undefined
+ * and the pane spawns fresh.
+ *
+ * Exported for unit testing (Launcher.test.tsx). The eslint disable is the
+ * same pattern used by SessionStep.tsx for `fetchLastResumePlan` — Vite's
+ * fast-refresh contract only fires on component exports, and this helper is
+ * pure so HMR is not impacted in practice.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function buildPaneResumePlanArray(
+  paneCount: number,
+  selections: Record<number, string | null>,
+): Array<{ paneIndex: number; sessionId: string | null }> {
+  const out: Array<{ paneIndex: number; sessionId: string | null }> = [];
+  for (let i = 0; i < paneCount; i++) {
+    const picked = selections[i];
+    if (picked !== undefined && picked !== null) {
+      out.push({ paneIndex: i, sessionId: picked });
+    }
+  }
+  return out;
+}
+
+/**
  * v1.3.0 — Convert {providerId: count} + skipAgents flag into a flat ordered
  * list of PaneRow values matching the pane grid layout. Used by SessionStep to
  * render one row per pane with the correct provider name + dot colour.
@@ -240,18 +271,20 @@ export function WorkspaceLauncher() {
       const paneProviders = skipAgents
         ? Array(preset).fill('shell')
         : expandCountsToPanes();
+      // v1.3.1 fix (Bug B): the launcher backend reads `plan.paneResumePlan`
+      // (a top-level array), not `panes[i].sessionId`. v1.3.0 emitted the
+      // sessionId per-pane only, so `paneResumePlan` was undefined and every
+      // pane spawned fresh. Build the top-level array via the exported helper
+      // (covered by Launcher.test.tsx) so the contract stays testable.
+      const resumeArray = buildPaneResumePlanArray(paneProviders.length, paneResumePlan);
       const plan: LaunchPlan = {
         workspaceRoot: selectedWorkspace.rootPath,
         preset,
         panes: paneProviders.map((providerId, paneIndex) => ({
           paneIndex,
           providerId,
-          // v1.3.0: pass sessionId when the user picked one in SessionStep.
-          // Backend ignores unknown keys gracefully; tester gates the merge.
-          ...(paneResumePlan[paneIndex] !== undefined
-            ? { sessionId: paneResumePlan[paneIndex] }
-            : {}),
-        })) as LaunchPlan['panes'],
+        })),
+        ...(resumeArray.length > 0 ? { paneResumePlan: resumeArray } : {}),
       };
       const out = await rpc.workspaces.launch(plan);
       dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: selectedWorkspace });

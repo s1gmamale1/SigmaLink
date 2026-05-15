@@ -1274,3 +1274,15 @@ v1.3.0 ships wishlist item W-1: a per-pane session picker inserted as a new `Ses
 The data layer extension (`listSessionsInCwd` added to `session-disk-scanner.ts`) plus two new RPCs (`panes.listSessions`, `panes.lastResumePlan`) are the only backend changes. The spawn path is unchanged except that `executeLaunchPlan` now pre-stamps `externalSessionId` when the user selects a session, making the v1.2.8 `onPostSpawnCapture` hook a no-op for those rows. Gemini session enumeration is deferred to v1.3.1 (disk layout undocumented upstream). Net test delta: +12-15 Vitest cases, target 263+/263+. Version bumped from 1.2.8 to 1.3.0.
 
 **Next session restart point**: SigmaLink at v1.2.9 on branch `chore/drop-linux-platforms` (commit `a29fdb4`). CI is now macOS + Windows only. v1.3.0 backlog: W-1 session picker + W-3 Ruflo auto-bind. v1.4.0 backlog: W-2 Sigma Assistant orchestrator.
+
+## v1.3.1 Phase 22b — Session picker hotfix (May 16, 2026)
+
+v1.3.1 patches two bugs that shipped with v1.3.0 the same day. The user-reported symptom: a 4-pane workspace re-opened from the sidebar dropdown surfaced 14 panes on Launch (Claude×3, Codex×3, Gemini×3, Kimi×3, OpenCode×1, + 1 stray) AND none of the explicitly-picked sessions actually resumed — every pane started fresh.
+
+Two distinct root causes:
+
+- **Bug A — `panes.lastResumePlan` SQL deduplication failure.** The v1.3.0 controller synthesised `paneIndex` from `ROW_NUMBER() OVER (ORDER BY started_at DESC)` against `agent_sessions`. After three launches of a 4-pane workspace the table held 12 rows, so the picker returned 12 entries; the Launcher's `chooseExisting()` set `preset = plan.length` (12) → the AgentsStep matrix overflowed into 14 panes. Fix: migration `0012_agent_session_pane_index` adds an `INTEGER pane_index` column + `agent_sessions_ws_pane_idx` composite index; the launcher writes the slot on every insert; the controller rewrites the SQL to a correlated `INNER JOIN ... MAX(started_at)` subquery returning one row per `(workspace_id, pane_index)` group. Legacy rows with NULL `pane_index` are filtered out so they cannot inflate the count.
+
+- **Bug B — `paneResumePlan` payload mismatch.** v1.3.0's `Launcher.launch()` emitted `sessionId` inside each `panes[i]` object, but `executeLaunchPlan` reads `plan.paneResumePlan?.find(...)` at the top level. The per-pane field was silently dropped → `resumeSessionId` was always null → `buildResumeArgs` was never called → every pane spawned fresh. Fix: extracted `buildPaneResumePlanArray(paneCount, selections)` helper that emits the top-level array shape the backend expects, plus a dedicated test file (`Launcher.test.tsx`, 7 cases) pinning the contract.
+
+Test delta: 282 → 291 (+9 cases). Files touched: 8 (1 new migration, 1 new test, 6 edits). All four gates green (`tsc`, `vitest`, `eslint`, `build`). Version bumped 1.3.0 → 1.3.1.

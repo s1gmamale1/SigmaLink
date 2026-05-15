@@ -18,6 +18,7 @@ import * as mig0008 from './migrations/0008_swarm_replay';
 import * as mig0009 from './migrations/0009_swarm_origins';
 import * as mig0010 from './migrations/0010_provider_effective';
 import * as mig0011 from './migrations/0011_agent_session_external_id';
+import * as mig0012 from './migrations/0012_agent_session_pane_index';
 
 export interface Migration {
   name: string;
@@ -44,6 +45,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   mig0009,
   mig0010,
   mig0011,
+  mig0012,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `

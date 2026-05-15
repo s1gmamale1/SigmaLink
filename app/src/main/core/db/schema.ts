@@ -52,10 +52,21 @@ export const agentSessions = sqliteTable(
     // v1.1.3: provider-native session id used by CLI resume flows
     // (`claude --resume <id>`, `codex --resume <id>`, etc.).
     externalSessionId: text('external_session_id'),
+    // v1.3.1: launcher-issued pane slot index inside the workspace. Used by
+    // `panes.lastResumePlan` to return ONE row per pane (the most recent),
+    // instead of one row per historical launch. Nullable for legacy rows
+    // written before this column existed; migration 0012 adds the column +
+    // composite index `agent_sessions_ws_pane_idx`.
+    paneIndex: integer('pane_index'),
   },
   (t) => ({
     wsIdx: index('agent_sessions_ws_idx').on(t.workspaceId),
     statusIdx: index('agent_sessions_status_idx').on(t.status),
+    wsPaneIdx: index('agent_sessions_ws_pane_idx').on(
+      t.workspaceId,
+      t.paneIndex,
+      t.startedAt,
+    ),
   }),
 );
 
