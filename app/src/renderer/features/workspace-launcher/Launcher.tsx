@@ -180,6 +180,9 @@ export function WorkspaceLauncher() {
   async function chooseExisting(ws: Workspace): Promise<void> {
     const reopened = await rpc.workspaces.open(ws.rootPath);
     dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: reopened });
+    // v1.3.3 — route into the Command Room so the user sees panes instead
+    // of staying on the Launcher's Start step after re-opening a workspace.
+    dispatch({ type: 'SET_ROOM', room: 'command' });
 
     // v1.3.0 sidebar reroute (R-1.3.0-4): if lastResumePlan has entries,
     // hydrate paneResumePlan + derive preset/counts, then jump directly to

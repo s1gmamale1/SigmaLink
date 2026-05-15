@@ -178,7 +178,10 @@ function attachExitPersistence(
 ): void {
   const startedMs = rec.startedAt;
   rec.pty.onExit(({ exitCode }) => {
-    const earlyDeath = exitCode < 0 && Date.now() - startedMs < 1500;
+    // Treat any exit within 1.5s of spawn as a launch failure ('error').
+    // This catches both synthetic ENOENT failures (exitCode < 0) and real
+    // CLI crashes (e.g. Claude exiting with code 1 on bad resume).
+    const earlyDeath = Date.now() - startedMs < 1500;
     try {
       db.prepare(
         `UPDATE agent_sessions

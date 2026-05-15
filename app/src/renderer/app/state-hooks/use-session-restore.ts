@@ -211,42 +211,58 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
   // Workspaces with no entry fall back to the current active room (newly
   // opened mid-session, never moved) and ultimately to 'command' so the
   // schema's `room: string().min(1)` requirement is satisfied.
-  const lastSnapshotRef = useRef<string>('');
+  //
+  // v1.3.3 — compute the snapshot key outside the effect so we can detect
+  // no-op re-renders. The effect cleanup always runs before the new effect
+  // body (React contract), which previously cancelled the debounce timer
+  // even when the key hadn't changed — the early-return path then never
+  // rescheduled. By tracking the previous key in a ref and only cancelling
+  // when it differs, we preserve the pending timer across no-op updates.
+  const wsId = state.activeWorkspace?.id;
+  const fallbackRoom = state.room !== 'workspaces' ? state.room : 'command';
+  const snapshotEntries = wsId
+    ? state.openWorkspaces.map((workspace) => ({
+        workspaceId: workspace.id,
+        room: state.roomByWorkspace[workspace.id] ?? (workspace.id === wsId ? fallbackRoom : 'command'),
+      }))
+    : [];
+  const snapshotKey = wsId
+    ? `${wsId}::${snapshotEntries.map((e) => `${e.workspaceId}=${e.room}`).join('|')}`
+    : '';
+
+  const lastSnapshotKeyRef = useRef<string>('');
   const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cancel timer on unmount only — not on every re-render. We handle
+  // in-effect cancellation below when the key actually changes.
   useEffect(() => {
-    if (!state.ready) return;
-    const wsId = state.activeWorkspace?.id;
-    if (!wsId) return;
-    const fallbackRoom = state.room !== 'workspaces' ? state.room : 'command';
-    const entries = state.openWorkspaces.map((workspace) => ({
-      workspaceId: workspace.id,
-      room: state.roomByWorkspace[workspace.id] ?? (workspace.id === wsId ? fallbackRoom : 'command'),
-    }));
-    const key = `${wsId}::${entries.map((e) => `${e.workspaceId}=${e.room}`).join('|')}`;
-    if (key === lastSnapshotRef.current) return;
-    lastSnapshotRef.current = key;
-    if (snapshotTimerRef.current) clearTimeout(snapshotTimerRef.current);
-    snapshotTimerRef.current = setTimeout(() => {
-      try {
-        window.sigma.eventSend('app:session-snapshot', {
-          activeWorkspaceId: wsId,
-          openWorkspaces: entries,
-        });
-      } catch {
-        /* preload bridge gone — nothing actionable on the renderer side */
-      }
-    }, 250);
     return () => {
       if (snapshotTimerRef.current) {
         clearTimeout(snapshotTimerRef.current);
         snapshotTimerRef.current = null;
       }
     };
+  }, []);
+
+  useEffect(() => {
+    if (!state.ready) return;
+    if (!snapshotKey) return;
+    if (snapshotKey === lastSnapshotKeyRef.current) return;
+    lastSnapshotKeyRef.current = snapshotKey;
+    if (snapshotTimerRef.current) clearTimeout(snapshotTimerRef.current);
+    snapshotTimerRef.current = setTimeout(() => {
+      try {
+        window.sigma.eventSend('app:session-snapshot', {
+          activeWorkspaceId: wsId!,
+          openWorkspaces: snapshotEntries,
+        });
+      } catch {
+        /* preload bridge gone — nothing actionable on the renderer side */
+      }
+    }, 250);
   }, [
     state.ready,
-    state.activeWorkspace?.id,
-    state.openWorkspaces,
-    state.room,
-    state.roomByWorkspace,
+    snapshotKey,
+    snapshotEntries,
   ]);
 }

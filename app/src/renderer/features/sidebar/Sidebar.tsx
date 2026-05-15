@@ -117,10 +117,6 @@ export function Sidebar() {
           activeId={activeWorkspace?.id ?? null}
           onPick={(ws) => {
             dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: ws.id });
-            // v1.3.3 — clicking an open workspace in the sidebar should
-            // surface its panes, not leave the user on whatever room they
-            // were in (typically the Launcher's Start step).
-            dispatch({ type: 'SET_ROOM', room: 'command' });
           }}
           onClose={(workspaceId) => dispatch({ type: 'WORKSPACE_CLOSE', workspaceId })}
           onOpenPersisted={openPersistedWorkspace}
