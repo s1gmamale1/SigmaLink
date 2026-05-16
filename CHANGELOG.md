@@ -8,6 +8,10 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 docs(v1.4.2): backlog verify-and-close sweep + packet 08 closure
 
+### Added
+
+- **Worktree location discoverability UX** — pane right-click → "Reveal worktree in Finder/Explorer" via Electron `shell.showItemInFolder` + path-validated RPC. "Open shell here" pane action spawns the OS-default terminal at the worktree cwd. Per-pane tooltip shows full worktree path. First-launch info banner explains where worktrees live (`<userData>/worktrees/<repoHash>/`). New Settings → Storage tab lists all worktrees with async-computed sizes + reveal buttons. No relocation; Option D additive scope only.
+
 ### Fixed
 
 - **BUG-W7-015** — Launch button low-contrast in Parchment theme closed. Accent-filled CTA (`bg-accent`) with darker Parchment accent tokens (`--accent: 22 70% 32%`) already on main; verified WCAG AA contrast.

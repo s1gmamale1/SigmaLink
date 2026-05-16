@@ -133,22 +133,35 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** Recursively sum file sizes under a directory (synchronous, used at boot/settings time). */
-function dirSizeSync(dir: string): number {
+/** Recursively sum file sizes under a directory (async, bounded concurrency). */
+async function dirSize(dir: string): Promise<number> {
   let total = 0;
-  if (!fs.existsSync(dir)) return 0;
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      total += dirSizeSync(full);
-    } else {
-      try {
-        total += fs.statSync(full).size;
-      } catch {
-        /* symlink or permission issue — skip */
-      }
-    }
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  // Process entries in batches of 16 to avoid unbounded parallelism.
+  const BATCH = 16;
+  for (let i = 0; i < entries.length; i += BATCH) {
+    const batch = entries.slice(i, i + BATCH);
+    const sizes = await Promise.all(
+      batch.map(async (entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          return dirSize(full);
+        }
+        try {
+          const st = await fs.promises.stat(full);
+          return st.size;
+        } catch {
+          /* symlink or permission issue — skip */
+          return 0;
+        }
+      }),
+    );
+    for (const s of sizes) total += s;
   }
   return total;
 }
@@ -461,17 +474,47 @@ function buildRouter() {
     },
     // v1.4.2-06 — Worktree location UX.
     revealInFolder: async (p: string) => {
-      shell.showItemInFolder(p);
+      const resolved = path.resolve(p);
+      const userDataDir = app.getPath('userData');
+      if (!resolved.startsWith(userDataDir + path.sep) && resolved !== userDataDir) {
+        const workspaces = getRawDb()
+          .prepare('SELECT root_path FROM workspaces')
+          .all() as { root_path: string }[];
+        const allowed = workspaces.some((w) => {
+          const root = path.resolve(w.root_path);
+          return resolved.startsWith(root + path.sep) || resolved === root;
+        });
+        if (!allowed) return { ok: false, error: 'path not in allowed root' };
+      }
+      shell.showItemInFolder(resolved);
       return { ok: true };
     },
     openShell: async (cwd: string) => {
+      const resolved = path.resolve(cwd);
+      const userDataDir = app.getPath('userData');
+      if (!resolved.startsWith(userDataDir + path.sep) && resolved !== userDataDir) {
+        const workspaces = getRawDb()
+          .prepare('SELECT root_path FROM workspaces')
+          .all() as { root_path: string }[];
+        const allowed = workspaces.some((w) => {
+          const root = path.resolve(w.root_path);
+          return resolved.startsWith(root + path.sep) || resolved === root;
+        });
+        if (!allowed) return { ok: false, error: 'path not in allowed root' };
+      }
       const plat = process.platform;
       if (plat === 'darwin') {
-        spawn('open', ['-a', 'Terminal', cwd], { detached: true, stdio: 'ignore' }).unref();
+        spawn('open', ['-a', 'Terminal', resolved], { detached: true, stdio: 'ignore' }).unref();
       } else if (plat === 'win32') {
-        spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd', '/d', cwd], { detached: true, stdio: 'ignore' }).unref();
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd', '/d', resolved], {
+          detached: true,
+          stdio: 'ignore',
+        }).unref();
       } else {
-        spawn('x-terminal-emulator', ['--working-directory', cwd], { detached: true, stdio: 'ignore' }).unref();
+        spawn('x-terminal-emulator', ['--working-directory', resolved], {
+          detached: true,
+          stdio: 'ignore',
+        }).unref();
       }
       return { ok: true };
     },
@@ -732,7 +775,7 @@ function buildRouter() {
         for (const branchSeg of branchSegs) {
           const wtPath = path.join(repoDir, branchSeg);
           if (!fs.statSync(wtPath).isDirectory()) continue;
-          const sizeBytes = dirSizeSync(wtPath);
+          const sizeBytes = await dirSize(wtPath);
           result.worktrees.push({ path: wtPath, sizeBytes, repoHash, branchSeg });
           result.totalBytes += sizeBytes;
         }
