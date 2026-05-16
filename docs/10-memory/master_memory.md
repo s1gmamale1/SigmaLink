@@ -1453,3 +1453,25 @@ the `v1.4.1` annotated tag was pushed, triggering `release-macos.yml` and
 branches (`feat/v1.4.0-sigma-assistant-orchestrator`,
 `feat/v1.4.1-rename-completeness`, `feat/w3-ruflo-mcp-autobind`) were
 cleaned up. W-2 + W-3 plan files were archived under `docs/03-plan/archive/`.
+
+## v1.4.2 Packet 09 — Backlog verify-and-close sweep (May 17, 2026)
+
+Single-commit hygiene pass closing 4 BACKLOG rows flagged as "already shipped"
+but never formally verified. Executed in worktree
+`feat/v1.4.2-09-verify-sweep` → PR #19.
+
+### Results
+
+| Item | Verdict | Evidence |
+|------|---------|----------|
+| BUG-W7-015 Parchment launch contrast | ✅ Verified | `Launcher.tsx:380-386` uses `bg-accent`; `index.css:118` `--accent: 22 70% 32%` on `--accent-foreground: 38 38% 96%` clears WCAG AA |
+| CI cache-dependency-path | ✅ Verified | `lint-and-build.yml:40` → `app/package.json` |
+| vitest coverage thresholds | ✅ Verified | `vitest.config.ts:27-32` — 22% lines floor |
+| shellcheck step for install-macos.sh | ⚠️ Escalated | Step at `lint-and-build.yml:58-63` runs `apt-get` on `macos-14` — all 3 recent CI runs fail. Needs `brew install shellcheck`. |
+
+### Changes
+
+- Removed 4 BACKLOG rows from `docs/08-bugs/BACKLOG.md`
+- Added `[1.4.2]` CHANGELOG section (3 fixed + 1 known issue)
+- No source code changes
+- Commit `42188c7`, PR #19
