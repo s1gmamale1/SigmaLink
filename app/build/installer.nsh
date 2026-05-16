@@ -10,15 +10,15 @@
    SmartScreen. After that first run, normal double-click works forever.$\r$\n$\r$\n\
    You will see a blue dialog titled:$\r$\n\
    $\r$\n\
-     `"Windows protected your PC`"$\r$\n\
-     `"Microsoft Defender SmartScreen prevented an unrecognized app$\r$\n\
-      from starting. Running this app might put your PC at risk.`"$\r$\n$\r$\n\
+     $\"Windows protected your PC$\"$\r$\n\
+     $\"Microsoft Defender SmartScreen prevented an unrecognized app$\r$\n\
+      from starting. Running this app might put your PC at risk.$\"$\r$\n$\r$\n\
    This is expected. Two ways past it — pick whichever you prefer.$\r$\n$\r$\n\
    OPTION A — Click through SmartScreen (fastest)$\r$\n\
    $\r$\n\
-     1. In the `"Windows protected your PC`" dialog, click the small$\r$\n\
-        `"More info`" link below the message.$\r$\n\
-     2. The dialog expands and shows a `"Run anyway`" button at the$\r$\n\
+     1. In the $\"Windows protected your PC$\" dialog, click the small$\r$\n\
+        $\"More info$\" link below the message.$\r$\n\
+     2. The dialog expands and shows a $\"Run anyway$\" button at the$\r$\n\
         bottom. Click it.$\r$\n\
      Done. SigmaLink installs / launches. No more prompts.$\r$\n$\r$\n\
    OPTION B — Unblock the file before running (no SmartScreen prompt)$\r$\n\
@@ -29,7 +29,7 @@
      $\r$\n\
      1. Locate the downloaded `SigmaLink-Setup-*.exe` in File Explorer.$\r$\n\
      2. Right-click the EXE → Properties.$\r$\n\
-     3. At the bottom of the General tab, tick the `"Unblock`" checkbox.$\r$\n\
+     3. At the bottom of the General tab, tick the $\"Unblock$\" checkbox.$\r$\n\
      4. Click OK. Now double-click the EXE. No SmartScreen warning appears.$\r$\n$\r$\n\
    WHY THIS HAPPENS$\r$\n\
    $\r$\n\

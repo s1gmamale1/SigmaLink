@@ -18,6 +18,10 @@ docs(v1.4.2): backlog verify-and-close sweep — 4 items
 
 - **shellcheck CI step** — step exists in `lint-and-build.yml` but fails on `macos-14` runner (`apt-get` not available). Needs `brew install shellcheck` or migration to `ubuntu-latest` runner. Escalated to lead.
 
+### Changed
+
+- NSIS installer now ships a custom welcome page with Windows SmartScreen / Mark-of-the-Web workaround instructions (replaces the legacy `nsis.license` text). See `app/build/installer.nsh`.
+
 ## [1.4.1] - 2026-05-16
 
 release(v1.4.1): Bridge → Sigma rename + pane mailbox back-channel + SigmaRoom split
