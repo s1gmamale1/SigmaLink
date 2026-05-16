@@ -43,17 +43,26 @@ Net effect: the project's "Known issues" section gets meaningfully smaller, the 
 
 ## Delegation matrix
 
-| Cluster | Packets | Suggested model | Why |
-|---|---|---|---|
-| **Sigma Assistant cross-platform spawn** | 01 | Sonnet (Claude Code) | Surgical refactor; reuses existing `resolveWindowsCommand` + extracts `platformAwareSpawnArgs` private helper; tests already scaffolded in `runClaudeCliTurn.test.ts` |
-| **State / routing** | 02, 08 | Sonnet | Mechanical guard extension (1-line core) + pure LOC split refactor; reducer test infra ready |
-| **Pane-grid Cluster A** | 03, 12, 07 *(sequential)* | Opus (single agent) | xterm-preservation is architectural (React 19 `<Activity>` or terminal-cache); fullscreen + rAF audit compose on the new mount semantics |
-| **Pane-grid Cluster B** | 05, 13 *(one PR)* | Codex via OpenCode | Mid-complexity UI work + needs design judgment for Split modes; both touch `CommandRoom.tsx`/`PaneHeader.tsx` |
-| **Windows / OpenCode / installer** | 04, 11 | Kimi via OpenCode | Both Windows-targeted, both diagnostic-or-installer flavor, low-risk |
-| **Worktree UX** | 06 | Sonnet | Additive Electron `shell.showItemInFolder` + Settings panel; no risk |
-| **Backlog hygiene sweep** | 09, 10 | Qwen via OpenCode | Verify-and-close + small DAO-level scoping; mechanical |
+**Cost-aware allocation**: Qwen is free → he carries the mechanical / refactor / verify / additive-UX bulk (6 packets). Paid models (Sonnet / Opus / Codex / Kimi) reserve their cycles for architecture-critical work AND **cleanup duty** if Qwen's first-pass needs reviewer-flagged fixes.
 
-**7 delegation packets** across **5 model classes**, parallel-safe across packet boundaries (sequential within Cluster A).
+| Cluster | Packets | Primary delegate | Cleanup if needed | Why |
+|---|---|---|---|---|
+| **Mechanical refactor / verify / installer / additive-UX** | 02, 06, 08, 09, 10, 11 | **Qwen via OpenCode** | Sonnet | 6 packets that are well-scoped, low-architectural-risk, deterministic. Qwen does the first pass; Sonnet cleans up only if Opus 4.7 reviewer flags issues. |
+| **Sigma Assistant cross-platform spawn** | 01 | **Sonnet (Claude Code)** | self | P0 surgical refactor; argv-quoting + cmd-injection surface on user prompt; tests already scaffolded in `runClaudeCliTurn.test.ts`. Don't risk Qwen on a P0 security-adjacent path. |
+| **Pane-grid Cluster A** | 03, 12, 07 *(sequential)* | **Opus (single agent)** | self | xterm-preservation is architectural (React 19 `<Activity>` vs terminal-cache decision); fullscreen + rAF audit compose on the new mount semantics. Opus owns through landing. |
+| **Pane-grid Cluster B** | 05, 13 *(one PR)* | **Codex via OpenCode** | Sonnet | Mid-complexity UI work + needs design judgment for Split modes (pane-tree vs flat-group). Codex has the right judgment level. |
+| **Windows / OpenCode font** | 04 | **Kimi via OpenCode** | self | Windows VM diagnostic-gated, needs interpretation of font fallback / unicode glyph data. Kimi's strength. |
+
+**5 delegate models** running **7 parallel packets** (sequential within Cluster A). **Qwen handles ~46% of packet volume**; paid models handle the architecture-critical 54%.
+
+### Cleanup workflow (when reviewer flags Qwen's work)
+
+1. Qwen ships a packet to a feature branch
+2. Lead dispatches Opus 4.7 reviewer (standard quality gate, as we did on v1.4.0 / v1.4.1)
+3. If verdict is APPROVE → lead merges. Done.
+4. If verdict is APPROVE WITH CAVEATS or REQUEST CHANGES → lead dispatches the matching "cleanup" model (Sonnet for Qwen packets) to fix the flagged issues, then re-reviews. Same pattern as the H1/M1/M2 fix-coder → fix-tester → fix-reviewer chain we ran on PR #15.
+
+This pattern keeps Qwen's free-tier productive without inheriting his ceiling on judgment calls.
 
 ---
 

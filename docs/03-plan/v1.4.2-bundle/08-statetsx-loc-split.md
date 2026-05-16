@@ -2,8 +2,8 @@
 
 **Severity**: P3 hygiene
 **Effort**: S (~3hr)
-**Cluster**: State / routing
-**Suggested delegate**: Sonnet
+**Cluster**: Mechanical (Qwen)
+**Suggested delegate**: **Qwen via OpenCode** — pure file-organization refactor, no behavior change; cleanup by Sonnet if reviewer flags
 **Depends on**: nothing
 
 ## Context

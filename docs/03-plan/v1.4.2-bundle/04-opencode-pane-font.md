@@ -7,6 +7,7 @@
 - **Affected provider**: `opencode` (`app/src/shared/providers.ts:113-123`)
 - **Affected platform**: Windows 10/11 (NSIS build, ConPTY via node-pty)
 - **macOS**: confirmed clean on the same commit (paired screenshot)
+- **Suggested delegate**: **Kimi via OpenCode** — Windows VM diagnostic-gated; needs font/unicode interpretation. Cleanup self.
 
 ---
 

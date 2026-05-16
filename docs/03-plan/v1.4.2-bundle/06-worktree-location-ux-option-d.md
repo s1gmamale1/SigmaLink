@@ -1,9 +1,18 @@
-# v1.4.2 — Worktree Location Design Observation
+# v1.4.2 — Worktree Location Design Observation (Option D scope locked)
 
-Status: **DESIGN OBSERVATION** — no decision made. Captures the dogfood feedback,
-the as-built behavior, and the four candidate options with tradeoffs. The
+**Decision (lead, 2026-05-17)**: ship Option D only — keep current `<userData>/worktrees/` location, add discoverability UX (Reveal in Finder/Explorer, per-pane tooltip, info banner, Settings → Storage panel).
+
+**Suggested delegate**: **Qwen via OpenCode** — additive UX work, no relocation. Cleanup by Sonnet if reviewer flags.
+
+Status: **OPTION D — IMPLEMENT**. Original observation doc retained below for context on options A/B/C.
+
+---
+
+## ORIGINAL DESIGN OBSERVATION (retained for context)
+
+The four candidate options with tradeoffs are documented below for posterity. The
 recommendation at the end is one engineer's opinion only — the call belongs to
-the product owner.
+the product owner. (As of 2026-05-17 the call has been made: Option D.)
 
 ## 1. Dogfood observation (v1.4.1)
 

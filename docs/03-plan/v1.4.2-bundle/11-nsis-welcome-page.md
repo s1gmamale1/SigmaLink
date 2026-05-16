@@ -2,8 +2,8 @@
 
 **Severity**: P3 polish
 **Effort**: S (~2-4hr)
-**Cluster**: Windows / OpenCode / installer
-**Suggested delegate**: Kimi via OpenCode
+**Cluster**: Mechanical (Qwen)
+**Suggested delegate**: **Qwen via OpenCode** — NSIS script writing is mechanical (text-based config); cleanup by Sonnet/Kimi if Windows VM build reveals issues
 **Depends on**: nothing (pairs naturally with #01 which is Windows-targeted)
 
 ## Context

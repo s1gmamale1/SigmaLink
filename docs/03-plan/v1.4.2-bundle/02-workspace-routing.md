@@ -2,8 +2,8 @@
 
 **Severity**: P1
 **Effort**: XS (~30min)
-**Cluster**: State / routing
-**Suggested delegate**: Sonnet (Claude Code)
+**Cluster**: Mechanical (Qwen)
+**Suggested delegate**: **Qwen via OpenCode** (free tier) — cleanup by Sonnet if reviewer flags
 **Depends on**: nothing — parallel-safe
 
 ## Context
