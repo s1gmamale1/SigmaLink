@@ -3,18 +3,37 @@
 // writes are fail-soft. Internal-only.
 
 import { randomUUID } from 'node:crypto';
-import { parseCliLine, isAssistantEnvelope, isResultEnvelope, isResultSuccess,
-  type CliAssistantEnvelope, type CliAssistantContentBlock, type CliResultErrorEnvelope } from './cli-envelope';
+import {
+  parseCliLine,
+  isAssistantEnvelope,
+  isResultEnvelope,
+  isResultSuccess,
+  isSystemInitEnvelope,
+  type CliAssistantEnvelope,
+  type CliAssistantContentBlock,
+  type CliResultErrorEnvelope,
+} from './cli-envelope';
 import { safeSerialize, type ToolTrace, type ToolTracer } from './tool-tracer';
 import { findTool } from './tools';
 import type { CliTurnDeps, CliTurnHandle } from './runClaudeCliTurn';
-import { emitErrorFinal, emitFinal, emitState, persistFinal, streamDelta, withTimeout,
-  type StdinWriter } from './runClaudeCliTurn.emit';
+import {
+  emitErrorFinal,
+  emitFinal,
+  emitState,
+  persistFinal,
+  streamDelta,
+  withTimeout,
+  type StdinWriter,
+} from './runClaudeCliTurn.emit';
+import * as conversationsDao from './conversations';
 
 export interface TurnLoopState {
   sawResult: boolean;
   receivingEmitted: boolean;
   finalText: string;
+  capturedSessionId?: string;
+  resumeAttempted?: boolean;
+  resumeLikelyFailed?: boolean;
 }
 
 export interface TurnLoopCtx {
@@ -37,7 +56,9 @@ export function handleParsedEnvelope(
     emitState(deps, 'receiving', turn);
     state.receivingEmitted = true;
   }
-  if (isAssistantEnvelope(env)) {
+  if (isSystemInitEnvelope(env)) {
+    captureClaudeSessionId(turn.conversationId, env.session_id, state);
+  } else if (isAssistantEnvelope(env)) {
     for (const block of env.message.content ?? []) {
       if (block.type === 'text' && typeof block.text === 'string') {
         // 4-char chunks via streamDelta so BridgeRoom's typing animation fires.
@@ -53,6 +74,10 @@ export function handleParsedEnvelope(
     p.finally(() => pendingToolRoutes.delete(p));
   } else if (isResultEnvelope(env)) {
     state.sawResult = true;
+    if (state.resumeAttempted && env.subtype === 'error_during_execution') {
+      state.resumeLikelyFailed = true;
+      return;
+    }
     if (isResultSuccess(env)) {
       const text = env.result ?? state.finalText;
       if (text && text !== state.finalText) {
@@ -88,6 +113,10 @@ export function finalizeTurnOnClose(
   }
   if (!state.sawResult) {
     const tail = stderrChunks.join('').slice(-512).trim();
+    if (state.resumeAttempted && isLikelyResumeFailure(tail)) {
+      state.resumeLikelyFailed = true;
+      return;
+    }
     const message =
       code === 0
         ? 'claude CLI exited without producing a result'
@@ -96,6 +125,31 @@ export function finalizeTurnOnClose(
     emitErrorFinal(deps, turn, message, assistantMessageId);
     void endTrajectory(deps, trajectoryId, false, message.slice(0, 300));
   }
+}
+
+function captureClaudeSessionId(
+  conversationId: string,
+  sessionId: string,
+  state: TurnLoopState,
+): void {
+  if (state.capturedSessionId) return;
+  state.capturedSessionId = sessionId;
+  const dao = conversationsDao as typeof conversationsDao & {
+    setClaudeSessionId?: (conversationId: string, claudeSessionId: string | null) => void;
+  };
+  try {
+    dao.setClaudeSessionId?.(conversationId, sessionId);
+  } catch {
+    /* persistence is best-effort; resume falls through to fresh on miss */
+  }
+}
+
+export function isLikelyResumeFailure(stderrTail: string): boolean {
+  return (
+    /(?:no such|cannot find|not found|unknown|missing|invalid)\s+(?:claude\s+)?session/i.test(
+      stderrTail,
+    ) || /(?:claude\s+)?session\s+(?:not found|missing|invalid|unknown)/i.test(stderrTail)
+  );
 }
 
 async function dispatchToolBlock(

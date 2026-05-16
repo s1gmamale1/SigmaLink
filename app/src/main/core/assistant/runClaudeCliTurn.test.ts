@@ -6,7 +6,7 @@
 // asserts the emitted IPC events on the `assistant:state` /
 // `assistant:tool-trace` channels.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
 import fs from 'node:fs';
@@ -123,6 +123,14 @@ async function waitForStdinLines(child: FakeChild, count: number): Promise<void>
   throw new Error(`timed out waiting for ${count} stdin lines`);
 }
 
+async function waitForSpawnCount(children: FakeChild[], count: number): Promise<void> {
+  for (let i = 0; i < 50; i += 1) {
+    if (children.length >= count) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error(`timed out waiting for ${count} spawned children`);
+}
+
 function parseToolResultLine(line: string): {
   tool_use_id: string;
   content: string;
@@ -142,6 +150,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetProbeCache();
+  vi.doUnmock('./conversations');
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -693,6 +702,185 @@ describe('runClaudeCliTurn', () => {
       .filter((e) => e.channel === 'assistant:state' && e.payload.kind === 'delta')
       .map((e) => e.payload.delta as string);
     expect(deltas.join('')).toContain('not-valid-json');
+  });
+
+  describe('W-2 v1.4.0 session resume runtime', () => {
+    const validSessionId = '11111111-2222-4333-8444-555555555555';
+
+    async function importWithConversationDao(overrides: {
+      getClaudeSessionId?: (conversationId: string) => string | null;
+      setClaudeSessionId?: (conversationId: string, claudeSessionId: string | null) => void;
+      appendMessage?: (input: {
+        conversationId: string;
+        role: string;
+        content: string;
+        toolCallId?: string | null;
+      }) => Record<string, unknown>;
+    }) {
+      vi.resetModules();
+      vi.doMock('./conversations', () => ({
+        getConversation: (id: string) => ({
+          id,
+          workspaceId: 'ws-runtime',
+          kind: 'assistant',
+          createdAt: 1,
+        }),
+        appendMessage:
+          overrides.appendMessage ??
+          ((input: {
+            conversationId: string;
+            role: string;
+            content: string;
+            toolCallId?: string | null;
+          }) => ({
+            id: 'assistant-message-runtime',
+            conversationId: input.conversationId,
+            role: input.role,
+            content: input.content,
+            toolCallId: input.toolCallId ?? null,
+            createdAt: 2,
+          })),
+        getClaudeSessionId: overrides.getClaudeSessionId,
+        setClaudeSessionId: overrides.setClaudeSessionId,
+      }));
+      return import('./runClaudeCliTurn');
+    }
+
+    it('passes --resume when the conversation has a valid prior Claude session id', async () => {
+      const mod = await importWithConversationDao({
+        getClaudeSessionId: () => validSessionId,
+      });
+      mod.__resetProbeCache();
+      const deps = makeDeps();
+      const child = new FakeChild();
+      let capturedArgs: string[] | null = null;
+
+      const turnPromise = mod.runClaudeCliTurn(makeTurn(), 'resume please', deps, {
+        probeOverride: fakeProbe,
+        spawnOverride: () => child,
+        buildSystemPrompt: fixedSysPrompt,
+        onSpawnArgs: (_bin, args) => {
+          capturedArgs = args.slice();
+        },
+      });
+
+      await new Promise((r) => setImmediate(r));
+      child.pushLine({ type: 'result', subtype: 'success', result: 'ok', is_error: false });
+      child.finish(0);
+      await turnPromise;
+
+      expect(capturedArgs).not.toBeNull();
+      const args = capturedArgs as unknown as string[];
+      expect(args.slice(0, 2)).toEqual(['--resume', validSessionId]);
+    });
+
+    it('captures system.init session_id through the conversations DAO', async () => {
+      const setClaudeSessionId = vi.fn();
+      const mod = await importWithConversationDao({ setClaudeSessionId });
+      mod.__resetProbeCache();
+      const deps = makeDeps();
+      const child = new FakeChild();
+      const turn = makeTurn();
+
+      const turnPromise = mod.runClaudeCliTurn(turn, 'capture', deps, {
+        probeOverride: fakeProbe,
+        spawnOverride: () => child,
+        buildSystemPrompt: fixedSysPrompt,
+      });
+
+      await new Promise((r) => setImmediate(r));
+      child.pushLine({ type: 'system', subtype: 'init', session_id: validSessionId });
+      child.pushLine({ type: 'result', subtype: 'success', result: 'ok', is_error: false });
+      child.finish(0);
+      await turnPromise;
+
+      expect(setClaudeSessionId).toHaveBeenCalledWith(turn.conversationId, validSessionId);
+    });
+
+    it('creates the assistant message with a turn-scoped in-flight sentinel', async () => {
+      const appendMessage = vi.fn((input: {
+        conversationId: string;
+        role: string;
+        content: string;
+        toolCallId?: string | null;
+      }) => ({
+        id: 'assistant-message-runtime',
+        ...input,
+        createdAt: 2,
+      }));
+      const mod = await importWithConversationDao({ appendMessage });
+      mod.__resetProbeCache();
+      const deps = makeDeps();
+      const child = new FakeChild();
+      const turn = makeTurn();
+
+      const turnPromise = mod.runClaudeCliTurn(turn, 'sentinel', deps, {
+        probeOverride: fakeProbe,
+        spawnOverride: () => child,
+        buildSystemPrompt: fixedSysPrompt,
+      });
+
+      await new Promise((r) => setImmediate(r));
+      child.pushLine({ type: 'result', subtype: 'success', result: 'ok', is_error: false });
+      child.finish(0);
+      await turnPromise;
+
+      expect(appendMessage).toHaveBeenCalledWith({
+        conversationId: turn.conversationId,
+        role: 'assistant',
+        content: '',
+        toolCallId: `sigma-in-flight:${turn.turnId}`,
+      });
+    });
+
+    it('retries once without --resume on likely resume failure and clears the stale id', async () => {
+      const setClaudeSessionId = vi.fn();
+      const mod = await importWithConversationDao({
+        getClaudeSessionId: () => validSessionId,
+        setClaudeSessionId,
+      });
+      mod.__resetProbeCache();
+      const deps = makeDeps();
+      const children: FakeChild[] = [];
+      const spawnedArgs: string[][] = [];
+
+      const turnPromise = mod.runClaudeCliTurn(makeTurn(), 'recover', deps, {
+        probeOverride: fakeProbe,
+        spawnOverride: (_bin, args) => {
+          spawnedArgs.push(args.slice());
+          const child = new FakeChild();
+          children.push(child);
+          return child;
+        },
+        buildSystemPrompt: fixedSysPrompt,
+      });
+
+      await waitForSpawnCount(children, 1);
+      children[0].pushLine({
+        type: 'result',
+        subtype: 'error_during_execution',
+        is_error: true,
+        result: 'cannot find session',
+      });
+      children[0].finish(1);
+
+      await waitForSpawnCount(children, 2);
+      children[1].pushLine({ type: 'result', subtype: 'success', result: 'ok', is_error: false });
+      children[1].finish(0);
+      await turnPromise;
+
+      expect(spawnedArgs[0].slice(0, 2)).toEqual(['--resume', validSessionId]);
+      expect(spawnedArgs[1]).not.toContain('--resume');
+      expect(setClaudeSessionId).toHaveBeenCalledWith(expect.any(String), null);
+
+      const states = deps.events
+        .filter((e) => e.channel === 'assistant:state')
+        .map((e) => e.payload);
+      const errors = states.filter((s) => s.kind === 'error');
+      expect(errors).toEqual([]);
+      const final = states.find((s) => s.kind === 'final');
+      expect(final?.text).toBe('ok');
+    });
   });
 
   // ──────────────────────────────────────────── BUG-V1.1.2-01: MCP wiring ──

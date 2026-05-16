@@ -138,7 +138,7 @@ export function persistFinal(
   try {
     getDb()
       .update(messagesTable)
-      .set({ content: text })
+      .set({ content: text, toolCallId: null })
       .where(eq(messagesTable.id, messageId))
       .run();
   } catch {
