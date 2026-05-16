@@ -81,7 +81,7 @@ export function MemoryList({ memories, workspaceId, activeName, onSelect, onCrea
     if (!trimmed) {
       // Defer to a microtask so the lint rule (no synchronous setState in
       // effect bodies) is satisfied. Mirrors the pattern used in
-      // CommandPalette + BridgeRoom for empty-state resets.
+      // CommandPalette + SigmaRoom for empty-state resets.
       const id = window.setTimeout(() => {
         if (!alive) return;
         setHits(null);

@@ -1,4 +1,4 @@
-// P3-S7 — Swarm origins: link a swarm back to the Bridge Assistant chat that
+// P3-S7 — Swarm origins: link a swarm back to the Sigma Assistant chat that
 // triggered its creation.
 //
 //   swarm_origins — one row per swarm spawned via the assistant `create_swarm`

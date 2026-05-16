@@ -1,4 +1,4 @@
-// V3-W13-013 — Bridge Assistant conversations + messages.
+// V3-W13-013 — Sigma Assistant conversations + messages.
 //
 // Forward-only. Adds two new tables that back the assistant.* RPC namespace:
 //

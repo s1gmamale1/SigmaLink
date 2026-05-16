@@ -1,4 +1,4 @@
-// V3-W14-001..006 — Bridge Canvas RPC controller. Owns the `design.*`
+// V3-W14-001..006 — Sigma Canvas RPC controller. Owns the `design.*`
 // namespace. Orchestrates the picker overlay (W14-001), asset staging
 // (W14-004), HMR poke (W14-005), and canvas DAO + dispatch fan-out
 // (W14-002/003/006). The dispatcher translates a `design.dispatch` call into

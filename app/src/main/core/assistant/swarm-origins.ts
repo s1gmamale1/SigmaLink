@@ -1,5 +1,5 @@
 // P3-S7 — Swarm origins DAO. Records the (`conversationId`, `messageId`)
-// pair that triggered a swarm via the Bridge Assistant `create_swarm` tool
+// pair that triggered a swarm via the Sigma Assistant `create_swarm` tool
 // so the Operator Console can surface a back-link to the originating chat.
 //
 // Migration 0009 owns the DDL; the table is keyed on `swarmId` (one origin
@@ -20,7 +20,7 @@ export interface SwarmOrigin {
 }
 
 /** Insert (or replace) the origin row that links a swarm back to the
- *  Bridge Assistant chat-turn that created it. Best-effort: never throws —
+ *  Sigma Assistant chat-turn that created it. Best-effort: never throws —
  *  the swarm should still spin up even if the link write fails. */
 export function recordSwarmOrigin(input: {
   swarmId: string;
@@ -44,7 +44,7 @@ export function recordSwarmOrigin(input: {
 }
 
 /** Resolve the back-link for a swarm. Returns null when no origin exists
- *  (e.g. the swarm was created via the Swarm Room, not via the Bridge
+ *  (e.g. the swarm was created via the Swarm Room, not via the Sigma
  *  Assistant). */
 export function getSwarmOrigin(swarmId: string): SwarmOrigin | null {
   const row = getDb()

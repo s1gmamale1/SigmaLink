@@ -1,4 +1,4 @@
-// V3-W13-013 — Bridge Assistant tool-call inspector. Listens for
+// V3-W13-013 — Sigma Assistant tool-call inspector. Listens for
 // `assistant:tool-trace`; rows expand to show args + result JSON.
 
 import { useEffect, useState } from 'react';

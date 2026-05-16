@@ -5,14 +5,14 @@
 
 import { createContext, useContext } from 'react';
 
-export type RightRailTabId = 'browser' | 'editor' | 'bridge';
+export type RightRailTabId = 'browser' | 'editor' | 'sigma';
 
 export const KV_TAB = 'rightRail.tab';
 export const DEFAULT_TAB: RightRailTabId = 'browser';
 export const VALID_TABS: ReadonlySet<RightRailTabId> = new Set([
   'browser',
   'editor',
-  'bridge',
+  'sigma',
 ]);
 
 export interface RightRailContextValue {

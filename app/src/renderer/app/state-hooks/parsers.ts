@@ -73,7 +73,7 @@ const VALID_ROOMS: ReadonlySet<RoomId> = new Set<RoomId>([
   'memory',
   'browser',
   'skills',
-  'bridge',
+  'sigma',
   'settings',
 ]);
 

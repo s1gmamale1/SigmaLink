@@ -7,7 +7,7 @@
 //   - Telemetry toggle (default OFF; user opts in)
 //
 // We deliberately don't gate the renderer features (Memory semantic search,
-// Bridge ribbon, Command palette autopilot) on a Settings toggle — they
+// Sigma ribbon, Command palette autopilot) on a Settings toggle — they
 // already auto-degrade based on `ruflo.health.state`, so a single source of
 // truth (the supervisor) keeps the UI honest.
 
@@ -208,7 +208,7 @@ export function RufloSettings() {
         <div className="rounded-md border border-border bg-card/40 p-3 text-sm">
           <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
             Ruflo is the embedded <code className="text-[11px]">@claude-flow/cli</code>{' '}
-            MCP server that powers Memory semantic search, Bridge pattern surfacing,
+            MCP server that powers Memory semantic search, Sigma pattern surfacing,
             and Command-palette autopilot. The runtime installs into{' '}
             <code className="text-[11px]">~/Library/Application Support/SigmaLink/ruflo/</code>.
           </p>

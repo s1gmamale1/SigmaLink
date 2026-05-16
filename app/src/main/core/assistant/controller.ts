@@ -1,4 +1,4 @@
-// V3-W13-013 — Bridge Assistant RPC controller. Wires `assistant.*` to the
+// V3-W13-013 — Sigma Assistant RPC controller. Wires `assistant.*` to the
 // conversations DAO, the launcher (dispatchPane), the tool registry (10
 // tools), and the tool tracer. V3-W14-002 — `send` now drives the local
 // Claude Code CLI via runClaudeCliTurn; runStubTurn is the binary-missing
@@ -150,10 +150,10 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       // duplicated the row + lost the ulid back-link.
       const trace = recordTrace({ ...traceBase, args: parsed, ok: true, result, startedAt });
       if (conv && tool.id === 'create_swarm') {
-        // P3-S7 — Bridge → swarm cross-link. The tool result includes the
+        // P3-S7 — Sigma → swarm cross-link. The tool result includes the
         // freshly-created swarm row; persist a `swarm_origins` row keyed
         // to the trace's `messages.id` so the Operator Console can show
-        // "Started from Bridge Assistant chat: <date>" and link back to
+        // "Started from Sigma Assistant chat: <date>" and link back to
         // this exact tool call.
         const swarmId =
           typeof (result as { swarm?: { id?: string } } | null)?.swarm?.id === 'string'

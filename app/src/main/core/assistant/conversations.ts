@@ -1,6 +1,6 @@
 // V3-W13-013 — DAO for assistant conversations + messages.
 // P3-S7 — Adds list summaries (title + count + last-message ts) and a
-// delete helper so the BridgeRoom Conversations panel can render and prune
+// delete helper so the SigmaRoom Conversations panel can render and prune
 // past sessions without pulling every message body into memory first.
 
 import { randomUUID } from 'node:crypto';

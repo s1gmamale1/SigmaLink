@@ -1,4 +1,4 @@
-// V1.1-02 — BridgeCode launcher writes the resolved provider tag to
+// V1.1-02 — SigmaCode launcher writes the resolved provider tag to
 // `agent_sessions.provider_effective` (e.g. 'claude' when the session was
 // launched via the Claude CLI bridge). The CHANGELOG and V3_PARITY_BACKLOG
 // promised this column ship in Phase 2 but the migration was never authored,

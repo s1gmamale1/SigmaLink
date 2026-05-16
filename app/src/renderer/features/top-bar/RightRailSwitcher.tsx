@@ -3,7 +3,7 @@
 // (Browser / Editor / Sigma) out of the rail and parks them in the top-bar
 // as a three-button toggle, with a Settings gear immediately to the right.
 //
-// Tab ids mirror `RightRailContext` (browser | editor | bridge). The "bridge"
+// Tab ids mirror `RightRailContext` (browser | editor | sigma). The "sigma"
 // id is internal — the visible label is "Sigma" per the v1.1.1 rebrand.
 
 import { Bot, FileCode2, Globe, Settings } from 'lucide-react';
@@ -24,8 +24,8 @@ interface SegmentDef {
 const SEGMENTS: readonly SegmentDef[] = [
   { id: 'browser', label: 'Browser', Icon: Globe },
   { id: 'editor', label: 'Editor', Icon: FileCode2 },
-  // bridge is the historical id; the visible label is "Sigma" per v1.1.1.
-  { id: 'bridge', label: 'Sigma', Icon: Bot },
+  // sigma is the internal id; the visible label is "Sigma" per v1.1.1.
+  { id: 'sigma', label: 'Sigma', Icon: Bot },
 ] as const;
 
 export function RightRailSwitcher() {

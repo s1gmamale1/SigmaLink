@@ -140,7 +140,7 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
     worktreePath,
   });
   // V1.1: route swarm-agent spawns through the provider launcher façade so
-  // BridgeCode→Claude fallback, altCommands ENOENT walk, and the legacy gate
+  // SigmaCode→Claude fallback, altCommands ENOENT walk, and the legacy gate
   // all apply uniformly. Read `kv['providers.showLegacy']` defensively — if
   // the row is missing the default is "hidden".
   let showLegacy = false;

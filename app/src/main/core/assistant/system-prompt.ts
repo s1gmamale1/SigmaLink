@@ -55,7 +55,7 @@ export interface SigmaSystemPromptContext {
   workspaceName: string;
   /** Absolute path of the workspace root. */
   workspaceRoot: string;
-  /** Current room the user is viewing (e.g. "bridge", "command", "operator"). */
+  /** Current room the user is viewing (e.g. "sigma", "command", "operator"). */
   currentRoom?: string;
   /** Deprecated: live state now comes from list_* tools. */
   recentFiles?: string[];
@@ -74,7 +74,7 @@ export function buildSigmaSystemPrompt(ctx: SigmaSystemPromptContext): string {
 
   return `\
 You are Sigma Assistant, the in-app intelligence inside SigmaLink — a desktop
-developer workspace forked from BridgeMind/BridgeSpace. You help the user
+developer workspace forked from SigmaMind/SigmaSpace. You help the user
 orchestrate CLI coding agents (Claude, Codex, Gemini, Cursor) across
 isolated Git worktrees, manage swarms, edit memory notes, and coordinate
 work across panes.

@@ -4,6 +4,33 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-05-16
+
+release(v1.4.1): Bridge → Sigma rename + pane mailbox back-channel + SigmaRoom split
+
+### Changed
+
+- **Bridge → Sigma branding sweep** across all renderer UI strings, component names, directory names, room IDs, and developer comments. `bridge-agent/` → `sigma-assistant/`, `BridgeRoom.tsx` → `SigmaRoom.tsx`, `BridgeTabPlaceholder.tsx` → `SigmaTabPlaceholder.tsx`, room ID `'bridge'` → `'sigma'`.
+- **KV migration transparent on first launch.** `kv['bridge.activeConversationId']` → `kv['sigma.activeConversationId']` and `kv['bridge.autoFocusOnDispatch']` → `kv['sigma.autoFocusOnDispatch']`. Idempotent — old key deleted after copy.
+- Generic descriptive "bridge" terminology in `claude-resume-bridge.ts` + `mcp-host-bridge.ts` intentionally preserved (symlink/IPC helpers, not branding).
+
+### Added
+
+- **Pane → Sigma mailbox back-channel** — completes the W-2 vision. New `sigma_pane_events` table (migration 0014), new `sigma_monitor_conversation_id` column on `agent_sessions` (migration 0015), new `monitor_pane()` tool, new `assistant:pane-event` IPC channel. Sigma can now observe pane lifecycle events (started, exited, error) and render inline event cards in the transcript with "Reply to pane" action.
+- **Pattern ribbon** — Ruflo MCP pattern surfacing in the composer. When the supervisor is ready and the user types ≥8 chars, a debounced probe surfaces matching past patterns at ≥0.7 confidence for one-tap reuse.
+
+### Refactored
+
+- **SigmaRoom.tsx** (was BridgeRoom.tsx) split from 922 LOC into focused hooks + sub-components: `use-sigma-conversations.ts`, `use-sigma-resume-flow.ts`, `use-sigma-pane-events.ts`, `use-sigma-ruflo-health.ts`, `use-sigma-pattern-probe.ts`, `use-sigma-dispatch-echo.ts`, `use-sigma-jump-to-message.ts`, `use-sigma-voice.ts`, `use-sigma-assistant-state.ts`, plus `SigmaRailDropdown.tsx`, `InterruptedTurnBanner.tsx`, `ResumeBanner.tsx`, `PaneEventCard.tsx`, `PatternRibbon.tsx`. SigmaRoom.tsx now at 283 LOC (target was <400).
+
+### Verification
+
+- `pnpm exec tsc -b --pretty false`: clean
+- `pnpm exec vitest run`: 363/363 pass (was 354; +9 new tests for migrations + monitor_pane tool + pane events)
+- `pnpm exec eslint .`: clean (pre-existing use-session-restore warning OK)
+- `pnpm run build`: clean
+- `node scripts/build-electron.cjs`: clean
+
 ## [1.4.0] - 2026-05-16
 
 feat(v1.4.0): Sigma Assistant orchestrator resume

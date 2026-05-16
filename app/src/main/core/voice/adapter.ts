@@ -1,4 +1,4 @@
-// V3-W15-001 / V1.1 — BridgeVoice main-process adapter.
+// V3-W15-001 / V1.1 — SigmaVoice main-process adapter.
 //
 // Source: docs/02-research/v3-protocol-delta.md §6 + docs/04-design/sigmavoice-
 // native-mac.md §6 + §7. The renderer continues to drive Web Speech API

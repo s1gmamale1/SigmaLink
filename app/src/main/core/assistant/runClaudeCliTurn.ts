@@ -2,7 +2,7 @@
 // in streaming-JSON mode and bridges its envelopes onto the existing
 // `assistant:state` + `assistant:tool-trace` IPC channels. Renderer compat:
 // emit kind:'delta' for text + kind:'state'+state:'standby'+messageId so
-// BridgeRoom.tsx commits the message; kind:'final'|'error' is forward-compat.
+// SigmaRoom.tsx commits the message; kind:'final'|'error' is forward-compat.
 // Cancellation: cancelClaudeCliTurn(turnId) kills with SIGTERM.
 //
 // v1.1.9 split: emit/persist/stdin helpers in `./runClaudeCliTurn.emit`;

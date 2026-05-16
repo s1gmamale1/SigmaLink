@@ -6,7 +6,7 @@
 // newline-delimited JSON-RPC 2.0 — MCP's stdio transport — over its own
 // stdin/stdout. Diagnostics go to stderr only so they never pollute the wire.
 //
-// Bridge model (see `mcp-host-bridge.ts` for the main-process side):
+// Sigma model (see `mcp-host-bridge.ts` for the main-process side):
 //
 //   claude CLI ──stdio──> THIS SERVER ──unix socket──> SigmaLink main
 //                          (mcp tools/list,             (calls invokeTool()
@@ -28,7 +28,7 @@
 // Env vars set by `runClaudeCliTurn.ts` when writing the temp `.mcp.json`:
 //   • SIGMA_HOST_SOCKET     — Unix socket path / Windows pipe name to dial
 //   • SIGMA_CONVERSATION_ID — the conversation id (so tool traces land in
-//                              the right Bridge Room transcript). Optional.
+//                              the right Sigma Room transcript). Optional.
 //   • SIGMA_WORKSPACE_ID    — (informational) the active workspace; the
 //                              main process resolves the canonical id from
 //                              the conversation row.

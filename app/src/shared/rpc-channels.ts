@@ -141,14 +141,14 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'tasks.listComments',
   'tasks.addComment',
   'tasks.removeComment',
-  // V3-W12-017 — Bridge Assistant (W13 fills bodies)
+  // V3-W12-017 — Sigma Assistant (W13 fills bodies)
   'assistant.send',
   'assistant.list',
   'assistant.cancel',
   'assistant.dispatchPane',
   'assistant.tools',
   'assistant.invokeTool',
-  // P3-S7 — Bridge Assistant cross-session persistence: Conversations panel
+  // P3-S7 — Sigma Assistant cross-session persistence: Conversations panel
   // backing + Operator Console origin link. Channels register side-band in
   // `rpc-router.ts`; the typed AppRouter shape declares them under
   // `assistant.conversations` and `swarm.origin` for documentation.
@@ -157,11 +157,11 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'assistant.conversations.delete',
   'assistant.conversations.resumeHint',
   'swarm.origin.get',
-  // V3-W12-017 — Design Mode / Bridge Canvas (W14 fills bodies)
+  // V3-W12-017 — Design Mode / Sigma Canvas (W14 fills bodies)
   'design.captureElement',
   'design.dispatch',
   'design.history',
-  // V3-W14-001..006 — Bridge Canvas live channels.
+  // V3-W14-001..006 — Sigma Canvas live channels.
   'design.startPick',
   'design.stopPick',
   'design.attachFile',
@@ -183,7 +183,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'swarm.replay.bookmark',
   'swarm.replay.listBookmarks',
   'swarm.replay.deleteBookmark',
-  // V3-W12-017 — BridgeVoice (W15 fills bodies)
+  // V3-W12-017 — SigmaVoice (W15 fills bodies)
   'voice.start',
   'voice.stop',
   // V1.1 — SigmaVoice native macOS dispatcher hooks. `dispatch` runs the
@@ -202,7 +202,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'voice.permissionRequest',
   // Phase 4 Track C — Ruflo MCP embed (lazy-downloaded `@claude-flow/cli`).
   // The supervisor lives in main; renderer features (Memory semantic search,
-  // Bridge pattern surfacing, Command-Palette autopilot, Settings → Ruflo)
+  // Sigma pattern surfacing, Command-Palette autopilot, Settings → Ruflo)
   // exercise these channels. When the supervisor is `absent`/`down`, calls
   // resolve with `{ ok: false, code: 'ruflo-unavailable' }` rather than
   // throw, so renderer fall-back paths stay quiet.
@@ -266,11 +266,12 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // without round-tripping through the renderer voice adapter.
   'app:navigate',
   'assistant:dispatch-echo',
-  // V3-W13-013 — Bridge Assistant streaming + tool tracer events. The
+  // V3-W13-013 — Sigma Assistant streaming + tool tracer events. The
   // assistant.* RPC namespace is already declared above; these one-way
   // events drive the renderer's orb state machine + ToolCallInspector.
   'assistant:state',
   'assistant:tool-trace',
+  'assistant:pane-event',
   'design:capture',
   // V3-W14-001..005 — picker lifecycle + HMR poke notifications.
   'design:picker-state',

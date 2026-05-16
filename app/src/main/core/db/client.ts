@@ -213,6 +213,21 @@ export function initializeDatabase(userDataDir: string): {
   // installs pick up new columns; fresh installs already have the columns
   // because the migration runner short-circuits via PRAGMA introspection.
   migrate(sqlite);
+  // v1.4.1 — transparently migrate the old bridge.activeConversationId kv key
+  // to sigma.activeConversationId so existing users don't lose their active
+  // conversation reference after the RoomId rename. Idempotent.
+  try {
+    const oldRow = sqlite.prepare("SELECT value FROM kv WHERE key = 'bridge.activeConversationId'").get() as { value: string } | undefined;
+    if (oldRow) {
+      const newRow = sqlite.prepare("SELECT 1 FROM kv WHERE key = 'sigma.activeConversationId'").get() as { value: string } | undefined;
+      if (!newRow) {
+        sqlite.prepare("INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?)").run('sigma.activeConversationId', oldRow.value, Date.now());
+      }
+      sqlite.prepare("DELETE FROM kv WHERE key = 'bridge.activeConversationId'").run();
+    }
+  } catch {
+    /* kv table may not exist on very old schemas — ignore */
+  }
   rawDb = sqlite;
   dbHandle = drizzle(sqlite, { schema });
   return { db: dbHandle, raw: sqlite, filePath };

@@ -47,7 +47,7 @@ export const agentSessions = sqliteTable(
       .default(sql`(unixepoch() * 1000)`),
     exitedAt: integer('exited_at'),
     // V1.1-02: launcher-resolved provider tag (e.g. 'claude'). Nullable for
-    // sessions that predate the BridgeCode launcher façade.
+    // sessions that predate the SigmaCode launcher façade.
     providerEffective: text('provider_effective'),
     // v1.1.3: provider-native session id used by CLI resume flows
     // (`claude --resume <id>`, `codex --resume <id>`, etc.).
@@ -58,6 +58,8 @@ export const agentSessions = sqliteTable(
     // written before this column existed; migration 0012 adds the column +
     // composite index `agent_sessions_ws_pane_idx`.
     paneIndex: integer('pane_index'),
+    // v1.4.1 — which Sigma conversation is monitoring this session for pane events.
+    sigmaMonitorConversationId: text('sigma_monitor_conversation_id'),
   },
   (t) => ({
     wsIdx: index('agent_sessions_ws_idx').on(t.workspaceId),
@@ -400,7 +402,7 @@ export const boards = sqliteTable(
 export type BoardRow = typeof boards.$inferSelect;
 export type BoardInsert = typeof boards.$inferInsert;
 
-// Phase — V3-W13-013 — Bridge Assistant chat persistence.
+// Phase — V3-W13-013 — Sigma Assistant chat persistence.
 // Migration 0006_assistant owns the DDL; these Drizzle tables mirror it so
 // the assistant controller and conversations DAO stay end-to-end typed.
 export const conversations = sqliteTable(
@@ -443,7 +445,24 @@ export type ConversationInsert = typeof conversations.$inferInsert;
 export type MessageRow = typeof messages.$inferSelect;
 export type MessageInsert = typeof messages.$inferInsert;
 
-// Phase — V3-W14-006 — Bridge Canvas persistence.
+export const sigmaPaneEvents = sqliteTable(
+  'sigma_pane_events',
+  {
+    id: text('id').primaryKey(),
+    conversationId: text('conversation_id').notNull(),
+    sessionId: text('session_id').notNull(),
+    kind: text('kind', { enum: ['started', 'exited', 'error', 'output-spike', 'idle'] }).notNull(),
+    body: text('body'),
+    ts: integer('ts').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    convTsIdx: index('sigma_pane_events_conv_ts').on(t.conversationId, t.ts),
+  }),
+);
+export type SigmaPaneEventRow = typeof sigmaPaneEvents.$inferSelect;
+export type SigmaPaneEventInsert = typeof sigmaPaneEvents.$inferInsert;
+
+// Phase — V3-W14-006 — Sigma Canvas persistence.
 // Migration 0007_canvases owns the DDL; these Drizzle tables mirror it so the
 // design controller stays end-to-end typed.
 export const canvases = sqliteTable(
@@ -506,12 +525,12 @@ export const swarmReplaySnapshots = sqliteTable(
 export type SwarmReplaySnapshotRow = typeof swarmReplaySnapshots.$inferSelect;
 export type SwarmReplaySnapshotInsert = typeof swarmReplaySnapshots.$inferInsert;
 
-// Phase 3 Step 7 — Bridge Assistant cross-session persistence: swarm origins.
+// Phase 3 Step 7 — Sigma Assistant cross-session persistence: swarm origins.
 // Migration 0009_swarm_origins owns the DDL; this Drizzle table mirrors it.
 // Each row is a back-link from a `swarms.id` to the (`conversationId`,
 // `messageId`) pair that triggered the swarm via the assistant's
 // `create_swarm` tool, enabling the Operator Console to render a
-// "Started from Bridge Assistant chat" link back to the originating turn.
+// "Started from Sigma Assistant chat" link back to the originating turn.
 export const swarmOrigins = sqliteTable(
   'swarm_origins',
   {

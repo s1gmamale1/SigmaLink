@@ -1,4 +1,4 @@
-// V3-W15-001 / W15-002 / W15-003 — BridgeVoice renderer adapter.
+// V3-W15-001 / W15-002 / W15-003 — SigmaVoice renderer adapter.
 //
 // Wraps the Web Speech API (`webkitSpeechRecognition` on Chromium / Electron)
 // so the rest of the app talks to a single, source-tagged capture. Native OS

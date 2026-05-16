@@ -1,4 +1,4 @@
-// V3-W14-004 — Asset staging for Bridge Canvas drag-and-drop. Copies dropped
+// V3-W14-004 — Asset staging for Sigma Canvas drag-and-drop. Copies dropped
 // files into <userData>/canvases/<canvasId>/staging/<ulid>.<ext> and returns
 // the absolute path so the renderer can quote it into the prompt buffer.
 // Accepts either an on-disk path (preferred via webUtils.getPathForFile) or
