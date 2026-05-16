@@ -296,3 +296,9 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-186 | fix-tester agent (Sonnet): M2 new `client.kv-migration.test.ts` with 5 cases (happy / idempotent / mixed-state / fresh-install / boot-safety with missing kv table); hand-rolled `KvFakeSqlite` parser surfaces drift as `unhandled SQL`; vitest 363 → 368; push `12552d2` | shipped | 1 |
 | T-187 | fix-reviewer agent (Opus 4.7): final verdict APPROVE on reshipped PR #15 — all closure criteria met, `KvFakeSqlite` confirmed faithful to `client.ts`, gates green (tsc / vitest 368/368 / eslint / build / electron compile) | shipped | 1 |
 | T-188 | Ship: PR #15 squash-merged to main (`1c4f71a`); PR #14 closed superseded; `v1.4.1` annotated tag pushed (release-macos + release-windows triggered); worktrees + 3 stale remote branches cleaned; W-2/W-3 plans archived; memory + WISHLIST + README + Obsidian + AgentDB synced | shipped | 1 |
+
+## v1.4.2 Packet 09 — Backlog verify-and-close sweep (May 17, 2026)
+
+| Task | Description | Status | Trials |
+|------|-------------|--------|--------|
+| T-189 | v1.4.2 packet 09: verify 4 BACKLOG rows (BUG-W7-015 contrast, shellcheck CI, cache-dependency-path, vitest coverage thresholds); remove verified rows from BACKLOG.md; add CHANGELOG [1.4.2] section | shipped (3 verified, 1 escalated) | 1 |
