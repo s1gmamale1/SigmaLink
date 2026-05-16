@@ -1,7 +1,7 @@
 # SigmaLink Backlog — Open Bugs + Optimization Targets
 
 > Snapshot at **v1.2.7** (2026-05-13).
-> Latest sweep: v1.2.7 multi-workspace state preservation — PTY ring-buffer replay on terminal remount, visible pane-resume failures, 500-line external session scan, sidebar close/dropdown polish, and pid-stability e2e coverage.
+> Latest sweep: v1.4.2 packet 09 — backlog verify-and-close (4 items verified; shellcheck step escalated for macOS runner fix).
 > Bug ledger details live in [`OPEN.md`](OPEN.md); the v1.1.1 / v1.1.2 / v1.1.3 entries there are CLOSED — see "Shipped & verified" at the bottom of this file.
 > History: v1.1.8 (5-coder optimization swarm, bundle -61% gzip), v1.1.9 (perf + lint 0/0), v1.1.10 (Gemini P1 reliability), v1.1.11 (Kimi P1 + state-hook fixes), v1.2.0 (Windows port), v1.2.4 (auto-update), v1.2.5 (post-install regression sweep), v1.2.6 (browser MCP stdio).
 
@@ -16,7 +16,7 @@
 | Provider registry cleanup | 0 (shipped v1.2.4) | [v1.1.10 providers](#v1110--provider-registry-cleanup--shipped--verified--v124) |
 | Perf — sustained runtime | 2 | [v1.1.9 perf](#v119--paired-perf-refactor) |
 | Quality — refactor | 3 | [v1.1.9 quality](#v119--quality--file-size) |
-| Tests / CI | 2 | [v1.1.9 ci](#v119--ci--test-infra) |
+| Tests / CI | 0 (shipped v1.4.2) | — |
 | Platform / distribution | 5 | [v1.3 platform](#v13--platform--distribution) |
 | Lint — React-compiler family | 31 errors | [v1.1.9 lint](#v119--react-compiler-lint-wave) |
 | Funded-only (Apple, Porcupine) | 2 | [Waiting on external](#waiting-on-external--needs-funding) |
@@ -42,14 +42,6 @@
 ---
 
 ## P2 — functional / UX
-
-### BUG-W7-015 — "Launch N agents" button low-contrast in light themes
-- **Surface**: Workspace Launcher light-theme variants (Parchment, etc.).
-- **Issue**: primary CTA reads as a secondary button against the Parchment chrome; cancel/secondary actions look similar.
-- **Effort**: XS (~30min) — adjust the variant token in `src/components/ui/button.data.ts` for the `parchment` theme.
-- **Defer to**: v1.1.9 polish pass.
-- **2026-05-12 check**: Current branch already uses the accent-filled launch CTA and darker Parchment accent tokens; no additional code change was needed in this PR.
-- **Source**: [`OPEN.md`](OPEN.md) → BUG-W7-015.
 
 ### BUG-W7-000 — Test-runner reports "Electron app failed to launch" intermittently in Phase 3 visual sweep
 - **Surface**: `tests/e2e/*.spec.ts` against a fresh kv install.
@@ -208,40 +200,7 @@
 - **Effort**: M (~1d).
 - **Risk**: Med — guarded by `runClaudeCliTurn.test.ts` (830 LOC).
 
-### Reduce `state.tsx` residual from 553 → < 500 LOC
-- **Surface**: `src/renderer/app/state.tsx` after v1.1.8 split.
-- **Issue today**: provider + IPC-listener effects are 553 LOC — still over budget. Cannot be split without breaking React lifecycle cohesion (useReducer + refs + 14 effects must stay together).
-- **Fix sketch**: Extract IPC-event-listener effects into custom hooks: `useSessionRestore`, `useWorkspaceMirror`, `useLiveEvents` (PTY/swarm/browser/skills/memory/review/tasks). Provider becomes ~150 LOC orchestrator, custom hooks ~80 LOC each.
-- **Effort**: M (~1d).
-- **Risk**: Med — React lifecycle nuances; needs careful effect-dep verification.
-
 ---
-
-## v1.1.9 — CI / test infra
-
-### CI workflow `cache-dependency-path` resolves to stale path
-- **Surface**: `.github/workflows/lint-and-build.yml`, `e2e-matrix.yml`.
-- **Issue**: 4 jobs fail at "Setup Node" because the cache-dependency-path points at a moved lockfile. Local gates all green. Tracked in v1.1.4 release notes, never fixed.
-- **2026-05-12 status**: CI cache path now targets `app/package.json`; workflows install with `--no-frozen-lockfile` because this repo ignores `app/pnpm-lock.yaml`.
-- **Effort**: XS (~30min) — update the path glob.
-- **Risk**: Zero.
-
-### Add `vitest run --coverage` + threshold
-- **Surface**: `app/vitest.config.ts` + new CI job.
-- **Issue**: 16 test files cover 17/55 main-process modules; the v1.1.8 swarm grew that to maybe 19/55, but no enforcement floor. Future regressions can silently drop coverage.
-- **Fix sketch**: `@vitest/coverage-v8` is already bundled. Add baseline threshold (start lenient, e.g. 40% lines), upgrade quarterly. Expose `coverage/index.html` artifact in CI.
-- **2026-05-12 status**: Added `pnpm run coverage` and an initial repo-wide ratchet matching the current baseline: 22% lines, 21% statements/functions, 18% branches.
-- **Effort**: S (~2hr).
-- **Risk**: Low — additive.
-- **Source**: v1.1.8 `test-investigator` Win 2.
-
-### Add `shellcheck` step for `app/scripts/install-macos.sh`
-- **Surface**: CI workflow.
-- **Issue**: today only `bash -n` syntax check guards the install script. `shellcheck` catches real lint (quoting, exit-code handling, etc.).
-- **2026-05-12 status**: Added a CI step that installs ShellCheck on Ubuntu and checks `app/scripts/install-macos.sh`.
-- **Effort**: Trivial (~10min) — single `shellcheck app/scripts/install-macos.sh` step.
-- **Risk**: Zero.
-- **Source**: v1.1.8 `test-investigator` finding.
 
 ---
 
@@ -433,7 +392,6 @@ These OPEN.md entries still show `**Status**: open` but were resolved by their n
 | BUG-V1.1.5-A unverified-developer dialog | v1.1.7 (curl-bash bypass) + v1.1.6 (in-DMG README) | |
 | Bundle bloat (97 KB gzip) | v1.1.8 | React.lazy() room split |
 | pty:data 32-listener fan-out | v1.1.8 | renderer/lib/pty-data-bus.ts |
-| state.tsx > 500 LOC | v1.1.8 partial (553) | state.types/reducer/hook split; v1.1.9 closes the gap |
 | 3 stub schemas | v1.1.8 | rpc/schemas.ts promoted to real zod |
 | Dead `utils.ts` exports | v1.1.8 | parseAnsi/mockPTYBridge/generateId/formatDuration deleted |
 | 6 NMV-blocked tests | v1.1.8 | vi.mock pattern + src/test-utils/db-fake |
