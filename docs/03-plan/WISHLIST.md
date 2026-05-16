@@ -30,7 +30,7 @@
 
 | ID | What | Branch / target | Plan |
 |---|---|---|---|
-| _none — v1.4.1 bundle shipped 2026-05-17_ | | | |
+| **v1.4.2 bundle** | Dogfood fixes (8) + backlog hygiene (4) + pane operations (Focus, Split, Minimise). 13 fix packets, ~7-8 dev days, multi-model delegation. | `feat/v1.4.2-*` per cluster | [v1.4.2-bundle/00-INDEX.md](v1.4.2-bundle/00-INDEX.md) |
 
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
 
