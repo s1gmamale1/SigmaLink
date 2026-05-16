@@ -1320,11 +1320,19 @@ Fixes shipped:
 
 Verification: `pnpm exec tsc -b --pretty false` clean; focused Vitest regression set 47/47 pass; full `pnpm exec vitest run` 323/323 pass after running Electron's install script directly; `pnpm exec eslint .` clean with the existing `use-session-restore.ts:263` warning; `pnpm run build` clean; `node scripts/build-electron.cjs` clean. `pnpm install` populated dependencies but exited nonzero at the known `electron-builder install-app-deps` / ignored native-build-script step.
 
-## v1.4.0 Phase 25 — Sigma Assistant orchestrator resume (May 16, 2026)
+## v1.3.5 Phase 25 — W-3 Ruflo MCP auto-bind for 5 CLIs + canonical-args fix (2026-05-16)
+
+v1.3.5 ships wishlist item W-3. Investigation revealed that v1.3.4's RUFLO_ARGS shipped `['@claude-flow/cli@latest', 'mcp-stdio']` to every pane's MCP config, but `mcp-stdio` is not a real `claude-flow` subcommand — the canonical form is `['-y', '@claude-flow/cli@latest', 'mcp', 'start']`. Every Ruflo entry written to disk by v1.3.4 failed silently when an external CLI tried to launch the server; RufloReadinessPill's fast-mode check only verified file presence so the pill reported green even though every spawned server exited immediately. The fix ships alongside the long-pending Kimi + OpenCode coverage that closes W-3's "5 CLIs in readiness pill" promise.
+
+`mcp-autowrite.ts` was extended in-place (407 LOC final, under the 500-LOC budget) with the canonical args fix and two new provider targets. Kimi uses the same Claude-Desktop-compatible `mcpServers.{name}.{command, args, env}` schema and reuses `writeJsonMcpFile()` verbatim. OpenCode uses a fundamentally different schema with top-level `mcp` key (not `mcpServers`), entry shape `{ type: 'local', command: flat-array, environment: {...}, enabled: true }`; `mergeOpencodeRufloEntry()` preserves user-set `enabled: false`, top-level `$schema`, and unrelated keys via shallow merge. Both new targets are gated by soft PATH detection (`defaultDetectCli`) or pre-existing file presence to avoid polluting users' home dirs with empty config directories. `verify.ts` extends `RufloWorkspaceVerification` with `kimi`, `opencode`, and a `detected` tri-state so the readiness pill can treat "CLI not installed" as a vacuous pass instead of a red. R1 (npx `mcp start` works with piped stdin) and R2 (`kimi mcp list` / `opencode mcp list` are real subcommands) were verified live before merge.
+
+Test delta: 323 → 339 (+16 new cases — 9 in `mcp-autowrite.test.ts` covering Kimi/OpenCode/regression, 7 in `verify.test.ts` covering vacuous-pass + strict probes). Reviewer (Opus 4.7) approved unconditionally; one low-priority follow-up noted (PATH-detect helper duplicated between `mcp-autowrite.ts` and `verify.ts` — DRY candidate for v1.3.6+). Pre-existing v1.3.4 configs self-heal on first v1.3.5 launch because `isManagedRufloEntry()` recognises any `command === 'npx'` entry and merges the corrected args list; user-set env vars survive the merge.
+
+## v1.4.0 Phase 26 — Sigma Assistant orchestrator resume (May 16, 2026)
 
 v1.4.0 ships wishlist item W-2 in a separate worktree/branch:
-`feat/v1.4.0-sigma-assistant-orchestrator`. W-3 / v1.3.5 remains a separate
-parallel lane and was intentionally left untouched.
+`feat/v1.4.0-sigma-assistant-orchestrator`. W-3 / v1.3.5 was shipped on a
+parallel lane (Phase 25) the same day.
 
 The feature promotes Sigma Assistant from a fresh one-shot Claude call into a
 resumable orchestrator thread. Migration `0013_conversations_claude_session_id`
@@ -1340,12 +1348,18 @@ rows now start with `toolCallId=sigma-in-flight:<turnId>` and clear that marker
 when a final result is persisted, so a restart/crash can surface retry/dismiss
 instead of hiding the lost intent.
 
-Ruflo coordination was used for planning/task bookkeeping and a Codex swarm was
-used for the implementation slices. Worker commits were preserved where
-available; backend/runtime commits were added by the orchestrator after
-stabilising typecheck and tests.
+Codex executed the full W-2 plan in a single sitting against an originally-
+estimated 4.5-day budget. Reviewer audit (Opus 4.7) confirmed the estimate was
+inflated for plan-specificity reasons — Codex shipped the retry-once safety net
+as specified plus two strengthenings: a broader `isLikelyResumeFailure` regex
+covering more Claude CLI wording variants, and a `findInterruptedTurn` helper
+that requires a real assistant follow-up (not just any later message) before
+treating the sentinel as recoverable.
 
-Verification: `pnpm exec tsc -b --pretty false` clean; focused W-2 Vitest
-31/31 pass; migration node tests 5/5 pass; focused ESLint over touched W-2
-files clean. Full-suite/build packaging remains for final PR review because
-v1.3.5 is concurrently moving release docs/version context.
+Verification: `pnpm exec tsc -b --pretty false` clean; full `pnpm exec vitest run`
+338/338 pass (323 baseline + 15 new — capture, resume args, retry-once with
+stale-id clear, sentinel write, Resumable pill, rail dropdown, resume banner,
+interrupted-turn retry, migration registration + idempotency); migration node
+tests 5/5 pass; `pnpm exec eslint .` clean (one pre-existing `use-session-
+restore.ts:263` warning unchanged); `pnpm run build` clean. Pane → Sigma mailbox
+back-channel deferred to v1.4.1.

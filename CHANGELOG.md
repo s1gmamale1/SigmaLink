@@ -23,6 +23,43 @@ feat(v1.4.0): Sigma Assistant orchestrator resume
 - `node --experimental-strip-types --test src/main/core/db/__tests__/migrate.spec.ts`: 5/5 pass
 - Focused `pnpm exec eslint ...`: clean
 
+## [1.3.5] - 2026-05-16
+
+W-3 — Ruflo MCP auto-bind for every CLI pane + canonical-args fix.
+
+### Fixed
+
+- **Canonical `claude-flow` MCP invocation.** v1.3.4 wrote `RUFLO_ARGS = ['@claude-flow/cli@latest', 'mcp-stdio']` into every pane's MCP config, but `mcp-stdio` is **not** a real `claude-flow` subcommand — the correct form is `['-y', '@claude-flow/cli@latest', 'mcp', 'start']`. RufloReadinessPill's fast-mode check only verified file presence so the pill reported green even though the spawned MCP servers exited immediately. v1.3.5 fixes the args; pre-existing user configs self-heal on next `openWorkspace()` because `isManagedRufloEntry()` recognises any entry with `command === 'npx'` as managed and rewrites the args list. User-set env vars survive the merge.
+
+### Added
+
+- **Kimi MCP target** — `~/.kimi/mcp.json`, Claude-Desktop-compatible `mcpServers.{name}.{command, args, env}` schema. Soft-gated by PATH detection or pre-existing file (avoids creating empty config dirs for users who don't have Kimi installed).
+- **OpenCode MCP target** — `~/.config/opencode/opencode.json` with OpenCode's non-standard schema: top-level `mcp` key (not `mcpServers`), entry shape `{ type: 'local', command: [flat-array-no-args], environment: {...}, enabled: true }`. Preserves user-set `enabled: false`, top-level `$schema`, and unrelated keys (`model`, `mcp.{other-server}`).
+- **`detected` tri-state in `verifyForWorkspace`** — `{ kimi: boolean, opencode: boolean }` so `RufloReadinessPill` can treat "CLI not installed" as a vacuous pass instead of a red. 5-CLI readiness scoring now: `verified` when 5/5 (or 5/5 with vacuous passes), `partial` when ≥3/5, `unavailable` otherwise.
+- **Per-CLI tooltip status** — pill tooltip lists all 5 CLIs with their fast-mode verification state; undetected CLIs show "not detected".
+
+### Verification
+
+- `npx tsc -b` clean
+- `npx vitest run` **339/339** (323 baseline + 16 new — 9 in `mcp-autowrite.test.ts`, 7 in `verify.test.ts`)
+- `npx eslint .` clean (pre-existing `use-session-restore.ts:263` warning unchanged per v1.3.3 caveat)
+- `npm run build` clean
+- `node scripts/build-electron.cjs` clean
+- **R1 verified live:** `echo "" | npx -y @claude-flow/cli@latest mcp start &` — server stayed alive 3+ seconds with piped stdin.
+- **R2 verified live:** `kimi mcp --help` and `opencode mcp --help` both confirm `mcp list` is a valid subcommand on installed CLIs (no strict-mode fallback required).
+- Reviewer (Opus 4.7): **APPROVED** — 0 critical/high/med risks. One low-priority dedup opportunity noted (PATH detection logic shared between `mcp-autowrite.ts` and `verify.ts`) — non-blocking, candidate for v1.3.6 cleanup.
+
+### Migration
+
+For users on v1.3.4 with manual edits in their Ruflo MCP entries:
+- If `command !== 'npx'` (e.g., `bunx`, `uvx`, absolute path) — SigmaLink refuses to autowrite; your manual config is preserved.
+- If `command === 'npx'` (default/managed entry with broken `mcp-stdio` args) — SigmaLink rewrites the args list on next `openWorkspace()`. User-set `env` keys are merged, not replaced.
+
+### Related
+
+- [`docs/03-plan/W-3-ruflo-mcp-autobind-v1.3.5.md`](docs/03-plan/W-3-ruflo-mcp-autobind-v1.3.5.md) — expanded implementation plan.
+- v1.3.6 candidates filed in `docs/03-plan/WISHLIST.md`: detection-gated writes for Claude/Codex/Gemini, `OPENCODE_CONFIG` env override support, shared PATH-detect helper extraction.
+
 ## [1.3.4] - 2026-05-16
 
 fix(v1.3.4): make Claude resume reliable inside pane worktrees

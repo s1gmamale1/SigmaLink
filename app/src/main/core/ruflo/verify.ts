@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 
 export type RufloVerifyMode = 'fast' | 'strict';
-export type RufloVerifiedCli = 'claude' | 'codex' | 'gemini';
+export type RufloVerifiedCli = 'claude' | 'codex' | 'gemini' | 'kimi' | 'opencode';
 
 export interface RufloVerifyError {
   cli: RufloVerifiedCli;
@@ -15,6 +15,9 @@ export interface RufloWorkspaceVerification {
   claude: boolean;
   codex: boolean;
   gemini: boolean;
+  kimi: boolean;
+  opencode: boolean;
+  detected: { kimi: boolean; opencode: boolean };
   errors: RufloVerifyError[];
   mode: RufloVerifyMode;
 }
@@ -36,6 +39,8 @@ export interface RufloVerifyOptions {
   homeDir?: string;
   probeRunner?: ProbeRunner;
   strictTimeoutMs?: number;
+  /** Test hook — override PATH-based detection for kimi/opencode. */
+  detectCli?: (name: 'kimi' | 'opencode') => boolean;
 }
 
 const RUFLO_COMMAND = 'npx';
@@ -49,10 +54,15 @@ export async function verifyForWorkspace(
 ): Promise<RufloWorkspaceVerification> {
   const root = path.resolve(workspaceRoot);
   const home = opts.homeDir ?? os.homedir();
-  const fast = verifyFast(root, home);
-  if (mode === 'fast') return { ...fast, mode };
+  const detectCli = opts.detectCli ?? defaultDetectCli;
+  const detected = {
+    kimi: detectCli('kimi'),
+    opencode: detectCli('opencode'),
+  };
+  const fast = verifyFast(root, home, detected);
+  if (mode === 'fast') return { ...fast, detected, mode };
 
-  const strict = await verifyStrict(root, {
+  const strict = await verifyStrict(root, detected, {
     probeRunner: opts.probeRunner ?? defaultProbeRunner,
     timeoutMs: opts.strictTimeoutMs ?? STRICT_TIMEOUT_MS,
   });
@@ -61,21 +71,43 @@ export async function verifyForWorkspace(
     claude: fast.claude && strict.claude,
     codex: fast.codex && strict.codex,
     gemini: fast.gemini && strict.gemini,
+    kimi: fast.kimi && strict.kimi,
+    opencode: fast.opencode && strict.opencode,
+    detected,
     errors: [...fast.errors, ...strict.errors],
     mode,
   };
 }
 
-function verifyFast(root: string, home: string): Omit<RufloWorkspaceVerification, 'mode'> {
+function verifyFast(
+  root: string,
+  home: string,
+  detected: { kimi: boolean; opencode: boolean },
+): Omit<RufloWorkspaceVerification, 'mode' | 'detected'> {
   const errors: RufloVerifyError[] = [];
   const claude = checkJsonConfig('claude', path.join(root, '.mcp.json'), errors);
   const codex = checkCodexConfig(path.join(home, '.codex', 'config.toml'), errors);
   const gemini = checkJsonConfig('gemini', path.join(home, '.gemini', 'settings.json'), errors);
-  return { claude, codex, gemini, errors };
+
+  const kimiTarget = path.join(home, '.kimi', 'mcp.json');
+  // Silent-skip: when kimi is not detected AND config file is absent, vacuously pass.
+  const kimi =
+    !detected.kimi && !fs.existsSync(kimiTarget)
+      ? true
+      : checkJsonConfig('kimi', kimiTarget, errors);
+
+  const opencodeTarget = path.join(home, '.config', 'opencode', 'opencode.json');
+  // Silent-skip: when opencode is not detected AND config file is absent, vacuously pass.
+  const opencode =
+    !detected.opencode && !fs.existsSync(opencodeTarget)
+      ? true
+      : checkOpencodeConfig(opencodeTarget, errors);
+
+  return { claude, codex, gemini, kimi, opencode, errors };
 }
 
 function checkJsonConfig(
-  cli: 'claude' | 'gemini',
+  cli: 'claude' | 'gemini' | 'kimi',
   target: string,
   errors: RufloVerifyError[],
 ): boolean {
@@ -88,6 +120,31 @@ function checkJsonConfig(
     errors.push({ cli, message: `${target}: ruflo command is ${String(command ?? 'missing')}` });
   } catch (err) {
     errors.push({ cli, message: `${target}: ${err instanceof Error ? err.message : String(err)}` });
+  }
+  return false;
+}
+
+// v1.3.5 — OpenCode uses a different schema: top-level `mcp` key, flat `command` array,
+// `environment` (not `env`), `type: 'local'`, `enabled: true`.
+function checkOpencodeConfig(target: string, errors: RufloVerifyError[]): boolean {
+  try {
+    const raw = JSON.parse(fs.readFileSync(target, 'utf8')) as {
+      mcp?: Record<string, { command?: unknown }>;
+    };
+    const entry = raw?.mcp?.ruflo;
+    const command = entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+      ? (entry as Record<string, unknown>).command
+      : undefined;
+    if (Array.isArray(command) && command[0] === RUFLO_COMMAND) return true;
+    errors.push({
+      cli: 'opencode',
+      message: `${target}: ruflo command is ${Array.isArray(command) ? JSON.stringify(command) : String(command ?? 'missing')}`,
+    });
+  } catch (err) {
+    errors.push({
+      cli: 'opencode',
+      message: `${target}: ${err instanceof Error ? err.message : String(err)}`,
+    });
   }
   return false;
 }
@@ -110,12 +167,21 @@ function checkCodexConfig(target: string, errors: RufloVerifyError[]): boolean {
 
 async function verifyStrict(
   root: string,
+  detected: { kimi: boolean; opencode: boolean },
   opts: { probeRunner: ProbeRunner; timeoutMs: number },
-): Promise<Omit<RufloWorkspaceVerification, 'mode'>> {
+): Promise<Omit<RufloWorkspaceVerification, 'mode' | 'detected'>> {
   const probes: Array<{ cli: RufloVerifiedCli; command: string; args: string[] }> = [
     { cli: 'claude', command: 'claude', args: ['mcp', 'list', '--workspace', root] },
     { cli: 'codex', command: 'codex', args: ['mcp', 'list'] },
     { cli: 'gemini', command: 'gemini', args: ['mcp', 'list'] },
+    // kimi/opencode support `mcp list` (confirmed via --help); gated on detection so
+    // uninstalled CLIs don't cause spurious errors.
+    ...(detected.kimi
+      ? [{ cli: 'kimi' as RufloVerifiedCli, command: 'kimi', args: ['mcp', 'list'] }]
+      : []),
+    ...(detected.opencode
+      ? [{ cli: 'opencode' as RufloVerifiedCli, command: 'opencode', args: ['mcp', 'list'] }]
+      : []),
   ];
   const entries = await Promise.all(
     probes.map(async (probe) => {
@@ -135,10 +201,13 @@ async function verifyStrict(
   );
 
   const errors: RufloVerifyError[] = [];
-  const out: Omit<RufloWorkspaceVerification, 'mode'> = {
+  const out: Omit<RufloWorkspaceVerification, 'mode' | 'detected'> = {
     claude: false,
     codex: false,
     gemini: false,
+    // When not detected, vacuously pass in strict mode (fast result governs).
+    kimi: !detected.kimi,
+    opencode: !detected.opencode,
     errors,
   };
   for (const entry of entries) {
@@ -191,6 +260,28 @@ function defaultProbeRunner(
       resolve({ code, stdout, stderr });
     });
   });
+}
+
+// v1.3.5 — PATH-or-`.cmd` probe for Kimi / OpenCode CLI binaries, mirroring the
+// implementation in mcp-autowrite.ts. Used to gate strict-mode probes and
+// silent-skip fast-mode checks for CLIs the user hasn't installed.
+function defaultDetectCli(name: 'kimi' | 'opencode'): boolean {
+  const pathEntries = (process.env.PATH ?? '').split(path.delimiter);
+  const candidates =
+    process.platform === 'win32'
+      ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, name]
+      : [name];
+  for (const dir of pathEntries) {
+    if (!dir) continue;
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(path.join(dir, candidate))) return true;
+      } catch {
+        /* PATH entry inaccessible — ignore */
+      }
+    }
+  }
+  return false;
 }
 
 function findTomlTableBlock(source: string, table: string): string | null {
