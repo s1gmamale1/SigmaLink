@@ -20,6 +20,7 @@
 | v1.3.2 | Claude pane hotfix — `claude-resume-bridge` symlinks workspace-slug JSONL into worktree-slug dir so `claude --resume <id>` works across worktrees; pre-creates project dir so fresh `--session-id` spawns no longer silently exit | inline in [CHANGELOG v1.3.2](../../CHANGELOG.md) · [release-notes-1.3.2.txt](../09-release/release-notes-1.3.2.txt) |
 | v1.3.3 | Workspace switching from sidebar / launcher now routes to Command Room (reducer-level per-workspace room recall, defaults to `'command'`); Claude blank panes now surface as visible error UI within 1.5s instead of staying silently dark; session-restore snapshot timer no longer cancels on no-op re-renders | inline in [CHANGELOG v1.3.3](../../CHANGELOG.md) |
 | v1.3.4 | Claude resume spawn fix — panes launch from the workspace subdir inside worktrees, ignored `CLAUDE.md` / `.claude/` context is bridged, boot restore uses the Claude bridge, and resume args no longer collide with fresh `--session-id` | inline in [CHANGELOG v1.3.4](../../CHANGELOG.md) · [release-notes-1.3.4.txt](../09-release/release-notes-1.3.4.txt) |
+| v1.3.5 | W-3 Ruflo MCP auto-bind for 5 CLIs (Claude/Codex/Gemini/Kimi/OpenCode) + canonical-args fix (`mcp-stdio` was invalid; correct form `-y @claude-flow/cli@latest mcp start`). Pre-existing user configs self-heal on next openWorkspace(). 5-CLI readiness pill with vacuous-pass for undetected binaries. | inline in [CHANGELOG v1.3.5](../../CHANGELOG.md) · [release-notes-1.3.5.txt](../09-release/release-notes-1.3.5.txt) · [plan](W-3-ruflo-mcp-autobind-v1.3.5.md) |
 
 ---
 
@@ -27,8 +28,7 @@
 
 | ID | What | Branch / target | Plan |
 |---|---|---|---|
-| **W-3** | Auto-bind Ruflo MCP for every CLI pane — Kimi + OpenCode coverage + canonical-args fix (current v1.3.4 ships `mcp-stdio` which is not a real claude-flow subcommand; real form is `-y @claude-flow/cli@latest mcp start`). 5 CLIs in readiness pill with vacuous-pass for undetected binaries. | `feat/w3-ruflo-mcp-autobind` → **v1.3.5** | [`W-3-ruflo-mcp-autobind-v1.3.5.md`](W-3-ruflo-mcp-autobind-v1.3.5.md) |
-| **W-2** | Sigma Assistant orchestrator — capture Claude `session_id` from `system.init` envelope, thread `--resume <id>` on subsequent turns with retry-once-without-resume fallback, right-rail conversation dropdown + resumable pill + interrupted-turn sentinel. Mailbox back-channel deferred to v1.4.1. | hand-off to other agents → **v1.4.0** | [`W-2-sigma-assistant-orchestrator-v1.4.0.md`](W-2-sigma-assistant-orchestrator-v1.4.0.md) |
+| **W-2** | Sigma Assistant orchestrator — capture Claude `session_id` from `system.init` envelope, thread `--resume <id>` on subsequent turns with retry-once-without-resume fallback, right-rail conversation dropdown + resumable pill + interrupted-turn sentinel. Mailbox back-channel deferred to v1.4.1. | PR #12 on `feat/v1.4.0-sigma-assistant-orchestrator` → **v1.4.0** | [`W-2-sigma-assistant-orchestrator-v1.4.0.md`](W-2-sigma-assistant-orchestrator-v1.4.0.md) |
 
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
 
@@ -39,13 +39,8 @@
 - **Effort**: L (~3-5d). Touches assistant core + RPC tool router + Sigma Assistant pane + new `sigma_session_id` column or parallel table.
 - **Source**: User added 2026-05-15.
 
-### W-3 — Auto-bind Ruflo MCP for every agent
-- **What**: When any CLI pane spawns, `.mcp.json` should automatically include the Ruflo MCP server alongside `browser` and `sigmamemory`. Every agent gets access to Ruflo's pattern store, hooks, memory bridge.
-- **Why**: Closes the "Ruflo readiness pill should actually mean something" gap. Today the pill reports if Ruflo's installed but agents don't automatically use it.
-- **Reuses**: v1.2.6 `mcp-config-writer.ts` — add a stdio entry: `{command: "npx", args: ["-y", "@claude-flow/cli@latest", "mcp", "serve"]}` (verify entry point against local Ruflo install).
-- **Effort**: S (~2hr). One-line addition per agent format (Claude .mcp.json, Codex TOML, Gemini extension) + 1-2 tests.
-- **Risk**: First-time pane spawn npx-downloads ruflo CLI — adds ~20s to first pane on a fresh machine.
-- **Source**: User added 2026-05-15.
+### W-3 — Auto-bind Ruflo MCP for every agent — SHIPPED v1.3.5 (2026-05-16)
+- See [W-3 plan](W-3-ruflo-mcp-autobind-v1.3.5.md) + [CHANGELOG v1.3.5](../../CHANGELOG.md) + [release notes](../09-release/release-notes-1.3.5.txt).
 
 ---
 

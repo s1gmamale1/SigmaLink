@@ -6,19 +6,30 @@ export const KV_RUFLO_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
 
 const RUFLO_SERVER_NAME = 'ruflo';
 const RUFLO_COMMAND = 'npx';
-const RUFLO_ARGS = ['@claude-flow/cli@latest', 'mcp-stdio'];
+// v1.3.5 — canonical args. v1.3.4 shipped `mcp-stdio` which is NOT a valid
+// claude-flow subcommand; the real form is `mcp start`. The `-y` flag
+// suppresses npx's first-run prompt so the spawned MCP client doesn't hang.
+// Pre-existing user configs with `mcp-stdio` self-heal on next openWorkspace()
+// because `isManagedRufloEntry()` only checks `command === 'npx'`.
+const RUFLO_ARGS = ['-y', '@claude-flow/cli@latest', 'mcp', 'start'];
 
 type JsonObject = Record<string, unknown>;
 
 export interface WorkspaceMcpWriteOptions {
   homeDir?: string;
   logger?: Pick<Console, 'warn'>;
+  /** Test hook — override the PATH-or-file-exists detection for Kimi/OpenCode. */
+  detectCli?: (name: 'kimi' | 'opencode') => boolean;
 }
 
 export interface WorkspaceMcpWriteResult {
   claude: string | null;
   codex: string | null;
   gemini: string | null;
+  /** v1.3.5 — null when Kimi CLI isn't detected and no existing config file. */
+  kimi: string | null;
+  /** v1.3.5 — null when OpenCode CLI isn't detected and no existing config file. */
+  opencode: string | null;
   refused: string[];
 }
 
@@ -35,18 +46,30 @@ export function writeWorkspaceMcpConfig(
   const root = path.resolve(workspaceRoot);
   const home = opts.homeDir ?? os.homedir();
   const logger = opts.logger ?? console;
+  const detectCli = opts.detectCli ?? defaultDetectCli;
   const server = buildRufloServer(root);
   const refused: string[] = [];
-  const targets = {
-    claude: path.join(root, '.mcp.json'),
-    codex: path.join(home, '.codex', 'config.toml'),
-    gemini: path.join(home, '.gemini', 'settings.json'),
-  };
-  const customEntries = [
-    hasCustomJsonRufloEntry(targets.claude),
-    hasCustomTomlRufloEntry(targets.codex),
-    hasCustomJsonRufloEntry(targets.gemini),
-  ].filter((target): target is string => Boolean(target));
+
+  const claudeTarget = path.join(root, '.mcp.json');
+  const codexTarget = path.join(home, '.codex', 'config.toml');
+  const geminiTarget = path.join(home, '.gemini', 'settings.json');
+  const kimiTarget = path.join(home, '.kimi', 'mcp.json');
+  const opencodeTarget = path.join(home, '.config', 'opencode', 'opencode.json');
+
+  // v1.3.5 — Kimi + OpenCode targets are gated by soft detection. If the user
+  // doesn't have those CLIs installed AND no existing config file, skip
+  // silently so we don't pollute their home dir with empty config dirs.
+  const kimiActive = fs.existsSync(kimiTarget) || detectCli('kimi');
+  const opencodeActive = fs.existsSync(opencodeTarget) || detectCli('opencode');
+
+  const customEntries: string[] = [];
+  if (hasCustomJsonRufloEntry(claudeTarget)) customEntries.push(claudeTarget);
+  if (hasCustomTomlRufloEntry(codexTarget)) customEntries.push(codexTarget);
+  if (hasCustomJsonRufloEntry(geminiTarget)) customEntries.push(geminiTarget);
+  if (kimiActive && hasCustomJsonRufloEntry(kimiTarget)) customEntries.push(kimiTarget);
+  if (opencodeActive && hasCustomOpencodeRufloEntry(opencodeTarget)) {
+    customEntries.push(opencodeTarget);
+  }
 
   if (customEntries.length > 0) {
     refused.push(...customEntries);
@@ -55,29 +78,27 @@ export function writeWorkspaceMcpConfig(
         ', ',
       )}`,
     );
-    return { claude: null, codex: null, gemini: null, refused };
+    return {
+      claude: null,
+      codex: null,
+      gemini: null,
+      kimi: null,
+      opencode: null,
+      refused,
+    };
   }
 
-  const claude = writeJsonMcpFile({
-    target: targets.claude,
-    server,
-    refused,
-    logger,
-  });
-  const codex = writeCodexToml({
-    target: targets.codex,
-    server,
-    refused,
-    logger,
-  });
-  const gemini = writeJsonMcpFile({
-    target: targets.gemini,
-    server,
-    refused,
-    logger,
-  });
+  const claude = writeJsonMcpFile({ target: claudeTarget, server, refused, logger });
+  const codex = writeCodexToml({ target: codexTarget, server, refused, logger });
+  const gemini = writeJsonMcpFile({ target: geminiTarget, server, refused, logger });
+  const kimi = kimiActive
+    ? writeJsonMcpFile({ target: kimiTarget, server, refused, logger })
+    : null;
+  const opencode = opencodeActive
+    ? writeOpencodeMcpFile({ target: opencodeTarget, server, refused, logger })
+    : null;
 
-  return { claude, codex, gemini, refused };
+  return { claude, codex, gemini, kimi, opencode, refused };
 }
 
 function buildRufloServer(workspaceRoot: string): RufloServer {
@@ -154,6 +175,51 @@ function writeCodexToml(args: {
   return target;
 }
 
+// v1.3.5 — OpenCode uses a fundamentally different schema:
+//   - top-level key is `mcp` (not `mcpServers`)
+//   - entry is { type: 'local', command: <flat-array>, environment: {...}, enabled: true }
+//   - command is a single array (no separate args field)
+//   - env-vars key is `environment` not `env`
+// We preserve user-set `enabled: false`, `timeout`, and other arbitrary keys
+// via shallow merge. The `$schema` top-level key is preserved verbatim if set.
+function writeOpencodeMcpFile(args: {
+  target: string;
+  server: RufloServer;
+  refused: string[];
+  logger: Pick<Console, 'warn'>;
+}): string | null {
+  const { target, server, refused, logger } = args;
+  let doc: JsonObject = {};
+  if (fs.existsSync(target)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+      if (isPlainObject(parsed)) {
+        doc = parsed;
+      } else {
+        warnRefusal(refused, logger, target, 'existing JSON root is not an object');
+        return null;
+      }
+    } catch {
+      warnRefusal(refused, logger, target, 'existing JSON could not be parsed');
+      return null;
+    }
+  }
+
+  const mcp = isPlainObject(doc.mcp) ? doc.mcp : {};
+  const existing = mcp[RUFLO_SERVER_NAME];
+  if (existing !== undefined && !isManagedOpencodeRufloEntry(existing)) {
+    warnRefusal(refused, logger, target, 'existing ruflo OpenCode entry is user-managed');
+    return null;
+  }
+
+  mcp[RUFLO_SERVER_NAME] = mergeOpencodeRufloEntry(existing, server);
+  doc.mcp = mcp;
+
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  writeFileAtomic(target, JSON.stringify(doc, null, 2) + '\n');
+  return target;
+}
+
 function mergeRufloEntry(existing: unknown, server: RufloServer): RufloServer & JsonObject {
   const previous = isPlainObject(existing) ? existing : {};
   const previousEnv = normalizeStringRecord(previous.env);
@@ -168,6 +234,21 @@ function mergeRufloEntry(existing: unknown, server: RufloServer): RufloServer & 
   };
 }
 
+function mergeOpencodeRufloEntry(existing: unknown, server: RufloServer): JsonObject {
+  const previous = isPlainObject(existing) ? existing : {};
+  const previousEnv = normalizeStringRecord(previous.environment);
+  return {
+    ...previous,
+    type: 'local',
+    command: [server.command, ...server.args],
+    environment: {
+      ...previousEnv,
+      ...server.env,
+    },
+    enabled: typeof previous.enabled === 'boolean' ? previous.enabled : true,
+  };
+}
+
 function normalizeStringRecord(value: unknown): Record<string, string> {
   if (!isPlainObject(value)) return {};
   return Object.fromEntries(
@@ -177,6 +258,12 @@ function normalizeStringRecord(value: unknown): Record<string, string> {
 
 function isManagedRufloEntry(entry: unknown): boolean {
   return isPlainObject(entry) && entry.command === RUFLO_COMMAND;
+}
+
+function isManagedOpencodeRufloEntry(entry: unknown): boolean {
+  if (!isPlainObject(entry)) return false;
+  const command = entry.command;
+  return Array.isArray(command) && command[0] === RUFLO_COMMAND;
 }
 
 function hasCustomJsonRufloEntry(target: string): string | null {
@@ -199,6 +286,18 @@ function hasCustomTomlRufloEntry(target: string): string | null {
   const mainRange = ranges.find((range) => range.header === 'mcp_servers.ruflo');
   const mainBlock = mainRange ? source.slice(mainRange.start, mainRange.end) : '';
   return parseTomlStringValue(mainBlock, 'command') === RUFLO_COMMAND ? null : target;
+}
+
+function hasCustomOpencodeRufloEntry(target: string): string | null {
+  if (!fs.existsSync(target)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+    if (!isPlainObject(parsed) || !isPlainObject(parsed.mcp)) return null;
+    const entry = parsed.mcp[RUFLO_SERVER_NAME];
+    return entry !== undefined && !isManagedOpencodeRufloEntry(entry) ? target : null;
+  } catch {
+    return null;
+  }
 }
 
 function isPlainObject(value: unknown): value is JsonObject {
@@ -283,4 +382,26 @@ function writeFileAtomic(target: string, content: string): void {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// v1.3.5 — PATH-or-`.cmd` probe for Kimi / OpenCode CLI binaries. Used to
+// decide whether to write `~/.kimi/mcp.json` and `~/.config/opencode/opencode.json`
+// for users who don't have those CLIs installed.
+function defaultDetectCli(name: 'kimi' | 'opencode'): boolean {
+  const pathEntries = (process.env.PATH ?? '').split(path.delimiter);
+  const candidates =
+    process.platform === 'win32'
+      ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, name]
+      : [name];
+  for (const dir of pathEntries) {
+    if (!dir) continue;
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(path.join(dir, candidate))) return true;
+      } catch {
+        /* PATH entry inaccessible — ignore */
+      }
+    }
+  }
+  return false;
 }

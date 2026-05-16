@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { onEvent, rpcSilent } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 
-type Cli = 'claude' | 'codex' | 'gemini';
+type Cli = 'claude' | 'codex' | 'gemini' | 'kimi' | 'opencode';
 type Readiness = 'pending' | 'verified' | 'partial' | 'unavailable';
 
 interface RufloWorkspaceVerified {
@@ -13,6 +13,9 @@ interface RufloWorkspaceVerified {
   claude: boolean;
   codex: boolean;
   gemini: boolean;
+  kimi: boolean;
+  opencode: boolean;
+  detected: { kimi: boolean; opencode: boolean };
   mode: 'fast' | 'strict';
   errors: Array<{ cli: Cli; message: string }>;
 }
@@ -77,9 +80,28 @@ export function RufloReadinessPill() {
     const rState = r ? readinessFromRuflo(r) : 'pending';
     const sState = s ? readinessFromSkills(s) : 'pending';
     const combined: Readiness = combineReadiness(rState, sState);
+    const kimiLine = r
+      ? r.detected?.kimi === false
+        ? 'Kimi: not detected'
+        : `Kimi: ${r.kimi ? 'ok' : 'error'}`
+      : null;
+    const opencodeLine = r
+      ? r.detected?.opencode === false
+        ? 'OpenCode: not detected'
+        : `OpenCode: ${r.opencode ? 'ok' : 'error'}`
+      : null;
     const title = [
       r
-        ? `Ruflo ${r.mode}: ${r.claude && r.codex && r.gemini ? 'verified' : `${r.errors.length} issue(s)`}`
+        ? [
+            `Ruflo ${r.mode}: ${r.claude && r.codex && r.gemini ? 'verified' : `${r.errors.length} issue(s)`}`,
+            `Claude: ${r.claude ? 'ok' : 'error'}`,
+            `Codex: ${r.codex ? 'ok' : 'error'}`,
+            `Gemini: ${r.gemini ? 'ok' : 'error'}`,
+            kimiLine,
+            opencodeLine,
+          ]
+            .filter(Boolean)
+            .join('\n')
         : 'Ruflo verification pending',
       s
         ? `Skills: ${s.verified} verified, ${s.refanned} refreshed, ${s.errors.length} issue(s)`
@@ -120,9 +142,17 @@ export function RufloReadinessPill() {
 }
 
 function readinessFromRuflo(result: RufloWorkspaceVerified): Readiness {
-  const count = [result.claude, result.codex, result.gemini].filter(Boolean).length;
-  if (count === 3) return 'verified';
-  if (count > 0) return 'partial';
+  const cliResults = [
+    result.claude,
+    result.codex,
+    result.gemini,
+    // Vacuous pass: if kimi/opencode is not detected, treat as passing.
+    !result.detected?.kimi || result.kimi,
+    !result.detected?.opencode || result.opencode,
+  ];
+  const passed = cliResults.filter(Boolean).length;
+  if (passed === 5) return 'verified';
+  if (passed >= 3) return 'partial';
   return 'unavailable';
 }
 
