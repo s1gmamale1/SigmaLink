@@ -249,3 +249,17 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-159 | v1.3.4 resume hardening: boot restore now runs Claude JSONL bridge/project-dir setup; invalid Claude ids fall back to `--continue`; provider launcher suppresses fresh `--session-id` when resume/continue args are present | shipped | 1 |
 | T-160 | v1.3.4 tests: focused regression set covers context symlink, worktree subdir cwd, provider preassign suppression, boot resume bridge, and invalid-id fallback; 47/47 focused pass, 323/323 full Vitest pass, tsc clean, eslint clean with one existing warning, production build + Electron compile clean | shipped | 1 |
 | T-161 | v1.3.4 release plumbing: bump `app/package.json` 1.3.3 → 1.3.4, CHANGELOG `[1.3.4]`, release-notes-1.3.4.txt, WISHLIST shipped row, master_memory Phase 24e | shipped | 1 |
+
+## v1.3.5 Phase 25 — W-3 Ruflo MCP auto-bind for 5 CLIs + canonical-args fix (2026-05-16)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-162 | v1.3.5 canonical-args fix: `RUFLO_ARGS = ['-y','@claude-flow/cli@latest','mcp','start']` (was invalid `mcp-stdio` in v1.3.4); pre-existing user configs self-heal via merge | shipped | 1 |
+| T-163 | v1.3.5 Kimi target: `~/.kimi/mcp.json` with Claude-shape schema, soft PATH detection via `defaultDetectCli`, reuses `writeJsonMcpFile()` | shipped | 1 |
+| T-164 | v1.3.5 OpenCode target: `~/.config/opencode/opencode.json` with `mcp.{name}.{type:local, command:flat-array, environment, enabled:true}` schema; `mergeOpencodeRufloEntry()` preserves user `enabled:false` + `$schema` + unrelated keys | shipped | 1 |
+| T-165 | v1.3.5 verify.ts: `RufloWorkspaceVerification` gains `kimi`, `opencode`, `detected:{kimi,opencode}` tri-state; vacuous-pass when CLI not detected; new `checkOpencodeConfig` helper; strict-mode probes for `kimi mcp list` / `opencode mcp list` (R2 confirmed real subcommands) | shipped | 1 |
+| T-166 | v1.3.5 RufloReadinessPill: 5-CLI readiness count with vacuous-pass (`!detected[cli] \|\| result[cli]`); per-CLI tooltip status | shipped | 1 |
+| T-167 | v1.3.5 router-shape: additive `verifyForWorkspace` return type extension (`kimi`, `opencode`, `detected`) | shipped | 1 |
+| T-168 | v1.3.5 tests: +9 `mcp-autowrite.test.ts` cases (Kimi detect/skip/merge, OpenCode schema + $schema preservation + non-npx refusal, canonical-args regression) + 7 `verify.test.ts` cases (5-CLI configured, vacuous-pass undetected, OpenCode array-command validation, strict-mode probe gating); 323 → 339 vitest | shipped | 1 |
+| T-169 | v1.3.5 reviewer verdict (Opus 4.7): APPROVED unconditionally, 0 critical/high/med risks, one low-priority dedup follow-up filed for v1.3.6 (shared PATH-detect helper) | shipped | 1 |
+| T-170 | v1.3.5 release plumbing: bump `app/package.json` 1.3.4 → 1.3.5, CHANGELOG `[1.3.5]`, release-notes-1.3.5.txt, WISHLIST shipped row, master_memory Phase 25 | shipped | 1 |

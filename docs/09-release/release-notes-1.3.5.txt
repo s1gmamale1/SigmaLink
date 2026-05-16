@@ -1,0 +1,71 @@
+SigmaLink v1.3.5 — Ruflo MCP for every CLI + canonical-args fix
+================================================================
+
+Released: 2026-05-16
+
+What changed
+------------
+
+* Ruflo MCP now auto-binds for FIVE CLI providers (was 3): Claude, Codex,
+  Gemini, AND now Kimi + OpenCode. The Ruflo readiness pill at the top-right
+  of the workspace bar reports 5-CLI status.
+
+* Critical fix: v1.3.4 wrote a broken MCP invocation (`mcp-stdio` is not a
+  real claude-flow subcommand). v1.3.5 writes the correct form
+  (`-y @claude-flow/cli@latest mcp start`) and silently rewrites your existing
+  config files on the next workspace open. Your manual edits (custom env vars,
+  custom commands like `bunx`/`uvx`) are preserved — only the broken args list
+  is fixed.
+
+* New "vacuously verified" state in the readiness pill: if you don't have
+  Kimi or OpenCode installed at all, the pill shows them as greyed-out
+  "not detected" rather than red. Install one and the pill flips to verified
+  automatically.
+
+How to verify on your machine
+-----------------------------
+
+1. Update to v1.3.5 via the auto-updater (or download a fresh DMG/installer
+   from the GitHub Release page).
+2. Open or re-open a workspace.
+3. Click the Ruflo readiness pill at the top-right of the workspace bar.
+4. Expected: 5/5 verified, or 3/5 with Kimi+OpenCode greyed if those CLIs
+   aren't installed.
+5. Inspect `~/.codex/config.toml` — the `[mcp_servers.ruflo]` args should now
+   read `["-y", "@claude-flow/cli@latest", "mcp", "start"]` (the old
+   `["@claude-flow/cli@latest", "mcp-stdio"]` is auto-replaced).
+6. If you have Kimi: inspect `~/.kimi/mcp.json` — should contain a `ruflo`
+   entry under `mcpServers` with the canonical args.
+7. If you have OpenCode: inspect `~/.config/opencode/opencode.json` — should
+   contain `mcp.ruflo` with `type: "local"`, `command` array, `environment`,
+   `enabled: true`.
+
+Spawn a new Claude / Codex / Gemini / Kimi / OpenCode pane and verify the
+Ruflo MCP server actually starts (check the pane's MCP status indicator).
+
+Known limitations
+-----------------
+
+* OpenCode's `OPENCODE_CONFIG` env override is NOT respected — we write the
+  default `~/.config/opencode/opencode.json` path. If you override the
+  config location, copy the `mcp.ruflo` entry into your file manually.
+
+What's next (v1.3.6 candidates)
+-------------------------------
+
+* Detection-gated writes for Claude/Codex/Gemini (currently unconditional —
+  v1.3.5 only gates the new Kimi/OpenCode targets to avoid empty-dir pollution).
+* Strict-mode fallback if `kimi mcp list` / `opencode mcp list` subcommands
+  ever get removed upstream.
+* Shared PATH-detect helper extraction (currently lives in both
+  `mcp-autowrite.ts` and `verify.ts`).
+
+Plan + design
+-------------
+
+* docs/03-plan/W-3-ruflo-mcp-autobind-v1.3.5.md — expanded plan
+* docs/03-plan/WISHLIST.md — moved W-3 to "Recently shipped"
+
+Tests: 323 -> 339 (+16 new vitest cases). All gates green: tsc, vitest,
+eslint, vite build, electron-builder. Reviewer (Opus 4.7) approved with
+zero critical/high/medium risks.

@@ -775,8 +775,14 @@ export interface AppRouter {
       claude: boolean;
       codex: boolean;
       gemini: boolean;
+      /** v1.3.5 — vacuously true when kimi CLI is not detected. */
+      kimi: boolean;
+      /** v1.3.5 — vacuously true when opencode CLI is not detected. */
+      opencode: boolean;
+      /** v1.3.5 — PATH-probe results for optional CLIs. */
+      detected: { kimi: boolean; opencode: boolean };
       mode: 'fast' | 'strict';
-      errors: Array<{ cli: 'claude' | 'codex' | 'gemini'; message: string }>;
+      errors: Array<{ cli: 'claude' | 'codex' | 'gemini' | 'kimi' | 'opencode'; message: string }>;
     }>;
   };
   voice: {
