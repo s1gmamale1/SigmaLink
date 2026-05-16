@@ -2,13 +2,20 @@
 // Console origin link.
 //
 // Two reusable handler maps:
-//   buildConversationsHandlers() — `assistant.conversations.{list,get,delete}`
+//   buildConversationsHandlers() — `assistant.conversations.{list,get,delete,resumeHint}`
 //   buildSwarmOriginHandlers()   — `swarm.origin.get`
 //
 // Registered out-of-line in `rpc-router.ts` so the typed AppRouter shape
 // stays flat (the existing rpc-proxy supports a single namespace level).
 // The renderer reaches these via `window.sigma.invoke('assistant.conversations.list', …)`.
 
+import { existsSync as fsExistsSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { eq } from 'drizzle-orm';
+import { getDb } from '../db/client';
+import { workspaces as workspacesTable } from '../db/schema';
+import { claudeSlugForCwd, isClaudeSessionId } from '../pty/claude-resume-bridge';
 import {
   deleteConversation,
   getConversation,
@@ -21,8 +28,26 @@ import { getSwarmOrigin, type SwarmOrigin } from './swarm-origins';
 
 export type SideBandHandlers = Record<string, (...args: unknown[]) => unknown>;
 
+export interface ConversationsHandlerDeps {
+  homeDir?: string;
+  existsSync?: (path: string) => boolean;
+}
+
+function workspaceRootForConversation(workspaceId: string): string | null {
+  const row = getDb()
+    .select({ rootPath: workspacesTable.rootPath })
+    .from(workspacesTable)
+    .where(eq(workspacesTable.id, workspaceId))
+    .get();
+  return row?.rootPath ?? null;
+}
+
 /** Build the `assistant.conversations.*` handler map. */
-export function buildConversationsHandlers(): SideBandHandlers {
+export function buildConversationsHandlers(
+  deps: ConversationsHandlerDeps = {},
+): SideBandHandlers {
+  const homeDir = deps.homeDir ?? os.homedir();
+  const existsSync = deps.existsSync ?? fsExistsSync;
   return {
     list: async (input: unknown): Promise<ConversationSummary[]> => {
       const arg = (input as { workspaceId?: string }) ?? {};
@@ -37,7 +62,12 @@ export function buildConversationsHandlers(): SideBandHandlers {
     get: async (
       input: unknown,
     ): Promise<{
-      conversation: { id: string; workspaceId: string; createdAt: number } | null;
+      conversation: {
+        id: string;
+        workspaceId: string;
+        createdAt: number;
+        claudeSessionId: string | null;
+      } | null;
       messages: Message[];
     }> => {
       const arg = (input as { conversationId?: string }) ?? {};
@@ -51,6 +81,7 @@ export function buildConversationsHandlers(): SideBandHandlers {
           id: conv.id,
           workspaceId: conv.workspaceId,
           createdAt: conv.createdAt,
+          claudeSessionId: conv.claudeSessionId,
         },
         messages: messagesFor(conv.id),
       };
@@ -62,6 +93,34 @@ export function buildConversationsHandlers(): SideBandHandlers {
       }
       deleteConversation(arg.conversationId);
       return { ok: true };
+    },
+    resumeHint: async (
+      input: unknown,
+    ): Promise<{ available: boolean; sessionId: string | null }> => {
+      const arg = (input as { conversationId?: string }) ?? {};
+      if (typeof arg.conversationId !== 'string' || !arg.conversationId) {
+        throw new Error('assistant.conversations.resumeHint: conversationId required');
+      }
+      const conv = getConversation(arg.conversationId);
+      if (!conv?.claudeSessionId || !isClaudeSessionId(conv.claudeSessionId)) {
+        return { available: false, sessionId: conv?.claudeSessionId ?? null };
+      }
+      const workspaceRoot = workspaceRootForConversation(conv.workspaceId);
+      if (!workspaceRoot) {
+        return { available: false, sessionId: conv.claudeSessionId };
+      }
+      const slug = claudeSlugForCwd(workspaceRoot);
+      const jsonlPath = path.join(
+        homeDir,
+        '.claude',
+        'projects',
+        slug,
+        `${conv.claudeSessionId}.jsonl`,
+      );
+      return {
+        available: existsSync(jsonlPath),
+        sessionId: conv.claudeSessionId,
+      };
     },
   };
 }

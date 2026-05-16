@@ -155,6 +155,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'assistant.conversations.list',
   'assistant.conversations.get',
   'assistant.conversations.delete',
+  'assistant.conversations.resumeHint',
   'swarm.origin.get',
   // V3-W12-017 — Design Mode / Bridge Canvas (W14 fills bodies)
   'design.captureElement',
