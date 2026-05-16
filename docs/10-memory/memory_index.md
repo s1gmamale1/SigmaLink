@@ -249,3 +249,13 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-159 | v1.3.4 resume hardening: boot restore now runs Claude JSONL bridge/project-dir setup; invalid Claude ids fall back to `--continue`; provider launcher suppresses fresh `--session-id` when resume/continue args are present | shipped | 1 |
 | T-160 | v1.3.4 tests: focused regression set covers context symlink, worktree subdir cwd, provider preassign suppression, boot resume bridge, and invalid-id fallback; 47/47 focused pass, 323/323 full Vitest pass, tsc clean, eslint clean with one existing warning, production build + Electron compile clean | shipped | 1 |
 | T-161 | v1.3.4 release plumbing: bump `app/package.json` 1.3.3 → 1.3.4, CHANGELOG `[1.3.4]`, release-notes-1.3.4.txt, WISHLIST shipped row, master_memory Phase 24e | shipped | 1 |
+
+## v1.4.0 Phase 25 — Sigma Assistant orchestrator resume (May 16, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-162 | W-2 plan hardening: create isolated worktree/branch `feat/v1.4.0-sigma-assistant-orchestrator`, note v1.3.5/W-3 parallel lane, and split work into data/RPC, runtime, frontend, docs/release slices | shipped | 1 |
+| T-163 | Data/RPC slice: migration 0013 adds `conversations.claude_session_id`; conversations DAO/list/get summaries expose `claudeSessionId`; `assistant.conversations.resumeHint` checks stored Claude JSONL availability | shipped | 1 |
+| T-164 | Runtime slice: capture Claude `system.init.session_id`, pass `--resume <id>` on future Sigma Assistant turns, clear stale ids and retry once without resume, and persist `sigma-in-flight:<turnId>` sentinels until final result | shipped | 1 |
+| T-165 | Frontend slice: Bridge right-rail conversation dropdown, resumable pill, resume banner, interrupted-turn retry/dismiss banner, and ConversationsPanel resumable marker | shipped | 1 |
+| T-166 | v1.4.0 verification/docs: focused tsc clean, W-2 Vitest 31/31, migration node tests 5/5, focused ESLint clean; package 1.4.0, CHANGELOG entry, release-notes-1.4.0, WISHLIST shipped row, master memory update | shipped | 1 |

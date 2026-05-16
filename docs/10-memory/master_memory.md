@@ -1319,3 +1319,33 @@ Fixes shipped:
 - Malformed Claude resume IDs fall back to `--continue` rather than being passed to Claude.
 
 Verification: `pnpm exec tsc -b --pretty false` clean; focused Vitest regression set 47/47 pass; full `pnpm exec vitest run` 323/323 pass after running Electron's install script directly; `pnpm exec eslint .` clean with the existing `use-session-restore.ts:263` warning; `pnpm run build` clean; `node scripts/build-electron.cjs` clean. `pnpm install` populated dependencies but exited nonzero at the known `electron-builder install-app-deps` / ignored native-build-script step.
+
+## v1.4.0 Phase 25 — Sigma Assistant orchestrator resume (May 16, 2026)
+
+v1.4.0 ships wishlist item W-2 in a separate worktree/branch:
+`feat/v1.4.0-sigma-assistant-orchestrator`. W-3 / v1.3.5 remains a separate
+parallel lane and was intentionally left untouched.
+
+The feature promotes Sigma Assistant from a fresh one-shot Claude call into a
+resumable orchestrator thread. Migration `0013_conversations_claude_session_id`
+adds `conversations.claude_session_id`; the assistant runtime captures Claude's
+`system.init` `session_id`, persists it via the conversations DAO, and prepends
+`--resume <id>` on future turns in the same conversation. If a resume attempt
+fails with a likely stale/missing session error, the runtime clears the id and
+retries the turn once without resume.
+
+Renderer polish landed in the right rail: compact conversation dropdown,
+resumable pill, resume notice, and interrupted-turn banner. Assistant message
+rows now start with `toolCallId=sigma-in-flight:<turnId>` and clear that marker
+when a final result is persisted, so a restart/crash can surface retry/dismiss
+instead of hiding the lost intent.
+
+Ruflo coordination was used for planning/task bookkeeping and a Codex swarm was
+used for the implementation slices. Worker commits were preserved where
+available; backend/runtime commits were added by the orchestrator after
+stabilising typecheck and tests.
+
+Verification: `pnpm exec tsc -b --pretty false` clean; focused W-2 Vitest
+31/31 pass; migration node tests 5/5 pass; focused ESLint over touched W-2
+files clean. Full-suite/build packaging remains for final PR review because
+v1.3.5 is concurrently moving release docs/version context.

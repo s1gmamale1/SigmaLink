@@ -20,6 +20,7 @@
 | v1.3.2 | Claude pane hotfix — `claude-resume-bridge` symlinks workspace-slug JSONL into worktree-slug dir so `claude --resume <id>` works across worktrees; pre-creates project dir so fresh `--session-id` spawns no longer silently exit | inline in [CHANGELOG v1.3.2](../../CHANGELOG.md) · [release-notes-1.3.2.txt](../09-release/release-notes-1.3.2.txt) |
 | v1.3.3 | Workspace switching from sidebar / launcher now routes to Command Room (reducer-level per-workspace room recall, defaults to `'command'`); Claude blank panes now surface as visible error UI within 1.5s instead of staying silently dark; session-restore snapshot timer no longer cancels on no-op re-renders | inline in [CHANGELOG v1.3.3](../../CHANGELOG.md) |
 | v1.3.4 | Claude resume spawn fix — panes launch from the workspace subdir inside worktrees, ignored `CLAUDE.md` / `.claude/` context is bridged, boot restore uses the Claude bridge, and resume args no longer collide with fresh `--session-id` | inline in [CHANGELOG v1.3.4](../../CHANGELOG.md) · [release-notes-1.3.4.txt](../09-release/release-notes-1.3.4.txt) |
+| v1.4.0 | Sigma Assistant orchestrator resume — captures Claude `system.init` session ids, resumes later turns with retry-once fallback, and surfaces resumable/interrupted-turn state in the right rail | [`W-2-sigma-assistant-orchestrator-v1.4.0.md`](W-2-sigma-assistant-orchestrator-v1.4.0.md) · [release-notes-1.4.0.txt](../09-release/release-notes-1.4.0.txt) |
 
 ---
 
@@ -28,7 +29,6 @@
 | ID | What | Branch / target | Plan |
 |---|---|---|---|
 | **W-3** | Auto-bind Ruflo MCP for every CLI pane — Kimi + OpenCode coverage + canonical-args fix (current v1.3.4 ships `mcp-stdio` which is not a real claude-flow subcommand; real form is `-y @claude-flow/cli@latest mcp start`). 5 CLIs in readiness pill with vacuous-pass for undetected binaries. | `feat/w3-ruflo-mcp-autobind` → **v1.3.5** | [`W-3-ruflo-mcp-autobind-v1.3.5.md`](W-3-ruflo-mcp-autobind-v1.3.5.md) |
-| **W-2** | Sigma Assistant orchestrator — capture Claude `session_id` from `system.init` envelope, thread `--resume <id>` on subsequent turns with retry-once-without-resume fallback, right-rail conversation dropdown + resumable pill + interrupted-turn sentinel. Mailbox back-channel deferred to v1.4.1. | hand-off to other agents → **v1.4.0** | [`W-2-sigma-assistant-orchestrator-v1.4.0.md`](W-2-sigma-assistant-orchestrator-v1.4.0.md) |
 
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
 

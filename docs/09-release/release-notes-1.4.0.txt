@@ -1,0 +1,34 @@
+SigmaLink v1.4.0
+================
+
+Sigma Assistant now behaves like a resumable orchestrator instead of a fresh
+one-shot Claude call each turn.
+
+Highlights
+----------
+
+- Captures Claude's `system.init` session id for every Sigma Assistant
+  conversation and stores it on the conversation row.
+- Sends future turns in the same chat through `claude --resume <session-id>`.
+- Retries once without resume when a stored session id is stale or missing on
+  disk, clearing that id so the next turn starts cleanly.
+- Adds a resumable indicator, right-rail conversation dropdown, resume banner,
+  and interrupted-turn retry/dismiss banner in Sigma Assistant.
+- Adds `assistant.conversations.resumeHint` for checking whether the stored
+  Claude JSONL still exists for the conversation's workspace.
+
+Developer Notes
+---------------
+
+- Adds migration `0013_conversations_claude_session_id`.
+- Adds in-flight assistant message sentinel values shaped as
+  `sigma-in-flight:<turnId>`.
+- Defers the pane-to-Sigma mailbox back-channel to v1.4.1.
+
+Verification
+------------
+
+- `pnpm exec tsc -b --pretty false`
+- `pnpm exec vitest run src/main/core/assistant/conversations.test.ts src/main/core/assistant/runClaudeCliTurn.test.ts src/renderer/features/bridge-agent/ConversationsPanel.test.tsx src/renderer/features/bridge-agent/BridgeRoom.test.tsx`
+- `node --experimental-strip-types --test src/main/core/db/__tests__/migrate.spec.ts`
+- Focused ESLint across the W-2 files

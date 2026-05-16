@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-16
+
+feat(v1.4.0): Sigma Assistant orchestrator resume
+
+### Added
+
+- **Sigma Assistant now resumes Claude conversations.** The assistant captures Claude's `system.init` `session_id`, stores it on the conversation row via migration `0013_conversations_claude_session_id`, and passes `--resume <id>` on later turns in the same chat.
+- **Stale resume fallback.** If a stored Claude session id fails immediately with a likely resume error, Sigma clears the stale id and retries the turn once without `--resume` so the user gets an answer instead of a dead chat.
+- **Interrupted-turn sentinel.** Assistant messages now start with a `sigma-in-flight:<turnId>` marker and clear it on final persistence, letting the renderer surface a retry/dismiss banner after restart or crash.
+- **Right-rail conversation resume UI.** The compact Sigma Assistant rail now has a conversation dropdown, resumable pill, resume notice banner, and interrupted-turn retry affordance.
+- **Resume hint RPC.** `assistant.conversations.resumeHint` checks whether the stored Claude JSONL exists for the conversation's workspace slug.
+
+### Verification
+
+- `pnpm exec tsc -b --pretty false`: clean
+- `pnpm exec vitest run src/main/core/assistant/conversations.test.ts src/main/core/assistant/runClaudeCliTurn.test.ts src/renderer/features/bridge-agent/ConversationsPanel.test.tsx src/renderer/features/bridge-agent/BridgeRoom.test.tsx`: 31/31 pass
+- `node --experimental-strip-types --test src/main/core/db/__tests__/migrate.spec.ts`: 5/5 pass
+- Focused `pnpm exec eslint ...`: clean
+
 ## [1.3.4] - 2026-05-16
 
 fix(v1.3.4): make Claude resume reliable inside pane worktrees
