@@ -286,3 +286,13 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-181 | WS2: Migration 0014 (sigma_pane_events table) + 0015 (sigma_monitor_conversation_id column), monitor_pane tool, PtyRegistry onPaneEvent → DB insert + IPC emit in rpc-router.ts | shipped | 1 |
 | T-182 | WS2: Renderer-side useSigmaPaneEvents hook + PaneEventCard component with "Reply to pane" action | shipped | 1 |
 | T-183 | WS3: SigmaRoom.tsx split from 922 → 283 LOC via 9 custom hooks + 5 sub-components; all gates green (tsc, vitest 363/363, eslint, build) | shipped | 1 |
+
+## Phase 27b — v1.4.1 reship: pre-merge H1+M1+M2 closure (2026-05-17)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-184 | Reviewer-PR15 verdict (Opus 4.7): APPROVE WITH CAVEATS — 0 critical, 1 high (H1: `voice/dispatcher.ts:63` `RE_NAVIGATE` regex still routed `'bridge'` while `NAVIGATE_TARGETS` array was correctly updated; same regression Qwen also reproduced on PR #14), 2 medium (M1: `runKvMigrations` missing `bridge.autoFocusOnDispatch` second-key block contradicting CHANGELOG + T-179 claim; M2: zero test coverage for `runKvMigrations`), 2 low | shipped | 1 |
+| T-185 | fix-coder agent (Sonnet): H1 single-token regex swap + M1 second migration block in `client.ts`; commit `a7241d6` on `feat/v1.4.1-rename-completeness`; tsc + targeted eslint clean | shipped | 1 |
+| T-186 | fix-tester agent (Sonnet): M2 new `client.kv-migration.test.ts` with 5 cases (happy / idempotent / mixed-state / fresh-install / boot-safety with missing kv table); hand-rolled `KvFakeSqlite` parser surfaces drift as `unhandled SQL`; vitest 363 → 368; push `12552d2` | shipped | 1 |
+| T-187 | fix-reviewer agent (Opus 4.7): final verdict APPROVE on reshipped PR #15 — all closure criteria met, `KvFakeSqlite` confirmed faithful to `client.ts`, gates green (tsc / vitest 368/368 / eslint / build / electron compile) | shipped | 1 |
+| T-188 | Ship: PR #15 squash-merged to main (`1c4f71a`); PR #14 closed superseded; `v1.4.1` annotated tag pushed (release-macos + release-windows triggered); worktrees + 3 stale remote branches cleaned; W-2/W-3 plans archived; memory + WISHLIST + README + Obsidian + AgentDB synced | shipped | 1 |

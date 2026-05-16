@@ -1423,3 +1423,33 @@ SigmaRoom.tsx reduced to 283 LOC (target was <400).
 
 Version bump 1.4.0 → 1.4.1, CHANGELOG.md prepended, release notes created,
 master_memory.md + memory_index.md updated.
+
+### Reship — pre-merge H1+M1+M2 closure (2026-05-17)
+
+After Kimi's PR #15 opened, reviewer-PR15 (Opus 4.7) returned APPROVE WITH
+CAVEATS with three actionable findings. **H1** — `voice/dispatcher.ts:63`'s
+`RE_NAVIGATE` regex still alternated `'bridge'` while the `NAVIGATE_TARGETS`
+array above had been correctly updated to `'sigma'`, leaving "open sigma"
+unmatched and "open bridge" routing to a dead RoomId. **M1** — `runKvMigrations`
+in `client.ts` only migrated `bridge.activeConversationId` although the
+CHANGELOG and memory_index T-179 promised `bridge.autoFocusOnDispatch` also
+migrated. **M2** — no test coverage for `runKvMigrations`. H1 was the exact
+same critical regression reviewer-PR14 had flagged on Qwen's parallel branch
+the day before; both rename agents missed the same line.
+
+A 3-agent swarm (Claude Code Agent layer) closed the gaps pre-merge:
+**fix-coder** (Sonnet) shipped the H1 regex swap and the M1 second-key block
+(`a7241d6`); **fix-tester** (Sonnet) wrote `client.kv-migration.test.ts` with
+five cases (happy / idempotent / mixed / fresh / missing-kv-table boot safety)
+using a hand-rolled `KvFakeSqlite` class that mirrors `client.ts` line-for-line
+and surfaces future drift as `unhandled SQL` rather than silent test passes
+(`12552d2`, vitest 363→368); **fix-reviewer** (Opus 4.7) audited the pushed
+commits and returned APPROVE.
+
+PR #15 was then squash-merged into `main` (`1c4f71a`); PR #14 (Qwen's
+parallel rename-only branch) was closed with a comment redirecting to #15;
+the `v1.4.1` annotated tag was pushed, triggering `release-macos.yml` and
+`release-windows.yml`. Both feature worktrees and three stale remote
+branches (`feat/v1.4.0-sigma-assistant-orchestrator`,
+`feat/v1.4.1-rename-completeness`, `feat/w3-ruflo-mcp-autobind`) were
+cleaned up. W-2 + W-3 plan files were archived under `docs/03-plan/archive/`.

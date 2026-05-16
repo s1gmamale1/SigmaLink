@@ -73,9 +73,9 @@ A workspace is a saved binding of a folder, optional repo root, base branch, and
 
 | Type | Purpose | Status |
 |---|---|---|
-| Bridge Space | Single-workspace agent grid: parallel but independent CLI agents over the same repo (1..16 panes). | Phase 1 (shipped) |
-| Bridge Swarm | Role-bearing coordinated swarm with a file-mailbox bus, side chat, broadcast, and roll-call. | Phase 2 (shipped) |
-| Bridge Canvas | Visual design surface: pick an element in the embedded browser, dispatch a scoped prompt, drag assets onto a selection. | In V3 build (Wave 14) |
+| Sigma Space | Single-workspace agent grid: parallel but independent CLI agents over the same repo (1..16 panes). | Phase 1 (shipped) |
+| Sigma Swarm | Role-bearing coordinated swarm with a file-mailbox bus, side chat, broadcast, and roll-call. | Phase 2 (shipped) |
+| Sigma Canvas | Visual design surface: pick an element in the embedded browser, dispatch a scoped prompt, drag assets onto a selection. | In V3 build (Wave 14) |
 
 ## Supported agents
 
@@ -233,11 +233,11 @@ Each phase tracks a section of the build blueprint at [`docs/03-plan/BUILD_BLUEP
 | [Phase 6](docs/03-plan/BUILD_BLUEPRINT.md#phase-6--review-room-rebuild--taskskanban) | Review Room rebuild, Tasks / Kanban | Shipped |
 | [Phase 7](docs/03-plan/BUILD_BLUEPRINT.md#phase-7--ui-polish-theme-catalog-command-palette-layout-refinements-animations) | UI polish: theme catalog, command palette, animations | Shipped |
 | [Phase 8](docs/03-plan/BUILD_BLUEPRINT.md#phase-8--visual-test--bug-fix-loops) | Visual test, bug-fix loops, acceptance | Shipped (Wave 7 + Wave 8 + Wave 9 acceptance) |
-| [Phase 9](docs/03-plan/BUILD_BLUEPRINT.md) | V3 parity — credential safeStorage, bundled `@playwright/mcp`, Bridge Assistant room, Bridge Canvas, hardening | In progress (Waves 12–16) |
+| [Phase 9](docs/03-plan/BUILD_BLUEPRINT.md) | V3 parity — credential safeStorage, bundled `@playwright/mcp`, Sigma Assistant room, Sigma Canvas, hardening | In progress (Waves 12–16) |
 
-Now shipping 9 of 11 V3 rooms (Workspaces, Command Room, Swarm Room, Browser, Skills, SigmaMemory, Review, Tasks, Settings). Bridge Assistant lands in Wave 13 and Bridge Canvas in Wave 14.
+Now shipping 9 of 11 V3 rooms (Workspaces, Command Room, Swarm Room, Browser, Skills, SigmaMemory, Review, Tasks, Settings). Sigma Assistant lands in Wave 13 and Sigma Canvas in Wave 14.
 
-Last verified: 2026-05-10.
+Last verified: 2026-05-17.
 
 ## What works today
 
@@ -257,7 +257,7 @@ A short menu of flows you can confidently demo on a fresh checkout:
 | Renderer (React 19, Tailwind 3, shadcn UI, xterm.js)          |
 |   rooms (9 shipped): workspaces / command / swarm / review /  |
 |          memory / browser / skills / tasks / settings         |
-|   rooms (V3 build): bridge-assistant (W13) / bridge-canvas    |
+|   rooms (V3 build): sigma-assistant (W13) / sigma-canvas      |
 |          (W14)                                                |
 +---------------------------------------------------------------+
                      |   typed RPC + event bridge (Proxy)
@@ -295,7 +295,16 @@ Start at [`docs/README.md`](docs/README.md) for the full directory map. The inte
 
 ## Releases
 
-- **v1.1.1** (current) — UX hotfix on top of v1.1.0-rc3. Window finally draggable on macOS (chrome regions wired with `WebkitAppRegion`). "Bridge Assistant" rebranded to **Sigma Assistant** across every user-visible string. **Sigma Assistant now streams real Claude Code CLI responses** (Opus 4.7 under the hood, no raw API calls) — the long-standing W13 stub is replaced with a `child_process` driver that pipes `claude -p ... --output-format stream-json --verbose` JSONL into the existing `assistant:state` channel. **SigmaVoice diagnostics surface** added to Settings (mode radio, permission status with re-prompt, Run Diagnostics button with 4-stage probe dots). First-launch auto-enable on macOS. 8 + 7 new unit tests.
+Full Keep-a-Changelog ledger lives in [`CHANGELOG.md`](CHANGELOG.md). Highlights:
+
+- **v1.4.1** (current) — Bridge → Sigma branding sweep across renderer UI strings, component names (`BridgeRoom` → `SigmaRoom`, `bridge-agent/` → `sigma-assistant/`), and RoomId union; transparent `bridge.*` → `sigma.*` kv migration on first boot. Pane → Sigma mailbox back-channel completes the W-2 vision: new `sigma_pane_events` table, `monitor_pane` tool, and `assistant:pane-event` IPC let Sigma Assistant observe pane lifecycle events without polling. `SigmaRoom.tsx` refactored from 922 → 283 LOC via 9 custom hooks + 5 sub-components. Generic "bridge" terminology preserved in `claude-resume-bridge.ts` (symlink helper) and `mcp-host-bridge.ts` (IPC bridge).
+- **v1.4.0** — Sigma Assistant orchestrator resume. Captures Claude `system.init` session ids per conversation (migration 0013), prepends `--resume <id>` on future turns, retry-once fallback when a session goes stale. Right-rail conversation dropdown, resumable pill, resume banner, interrupted-turn banner with retry/dismiss.
+- **v1.3.5** — W-3: Ruflo MCP auto-bind for all 5 CLIs (Claude / Codex / Gemini / Kimi / OpenCode). Canonical args fix (`-y @claude-flow/cli@latest mcp start`); pre-existing user configs self-heal on next workspace open. 5-CLI readiness pill with vacuous-pass for undetected binaries.
+- **v1.3.4** — Claude resume spawn fix. Panes launch from workspace subdir inside worktrees; ignored `CLAUDE.md`/`.claude/` context bridged via symlinks; boot restore uses the Claude bridge; resume args no longer collide with fresh `--session-id`.
+- **v1.3.2 / v1.3.3** — Claude pane hotfixes: `claude-resume-bridge` symlinks workspace-slug JSONL into worktree-slug dir; workspace switching routes to Command Room; Claude blank panes surface as visible error UI within 1.5s.
+- **v1.3.0 / v1.3.1** — Session picker in Workspace Launcher (W-1) — per-pane chip with smart default, bulk bar, Scenario B pre-population. `pane_index` migration 0012 deduplicates resume rows.
+- **v1.2.x** — Windows platform port (NSIS + node-pty), auto-update without code-signing certs, stdio MCP switch (~400 LOC deleted), multi-workspace state preservation (ring-buffer replay), session capture rewrite (pre-assigned UUIDs + disk-scan + `--continue` fallback).
+- **v1.1.1** — UX hotfix on top of v1.1.0-rc3. Window finally draggable on macOS (chrome regions wired with `WebkitAppRegion`). "Bridge Assistant" rebranded to **Sigma Assistant** across every user-visible string. **Sigma Assistant now streams real Claude Code CLI responses** (Opus 4.7 under the hood, no raw API calls) — the long-standing W13 stub is replaced with a `child_process` driver that pipes `claude -p ... --output-format stream-json --verbose` JSONL into the existing `assistant:state` channel. **SigmaVoice diagnostics surface** added to Settings (mode radio, permission status with re-prompt, Run Diagnostics button with 4-stage probe dots). First-launch auto-enable on macOS. 8 + 7 new unit tests.
 - **v1.1.0-rc3** — Hotfix on rc2: inlined `lazy-val` in the esbuild bundle to dodge the pnpm content-store hoist that crashed the rc2 DMG with `Cannot find module 'lazy-val'`.
 - **v1.1.0-rc2** — Bundles Phase 4 Tracks A+B+C plus the Skills marketplace live install. Native macOS speech recognition, Ruflo MCP semantic memory + pattern surfacing + autopilot palette suggestion, IPC reliability hardening, provider launcher façade with BridgeCode silent fallback, macOS DMG PATH bootstrap. ⚠ Known DMG runtime defect (`Cannot find module 'lazy-val'`) — superseded by rc3.
 - **v1.0.1** — DMG bindings hotfix + UI bug fixes (sidebar traffic-light overlap, CLI pane text alignment, Browser data-room flicker, missing zod schemas).
@@ -310,17 +319,15 @@ Since v1.2.6, the browser MCP server is no longer bundled inside SigmaLink. When
 
 Both are cached globally: subsequent browser tool calls in any pane are instant. If you don't have `npx` on PATH, the agent pane will show an error — make sure Node.js is installed and `bootstrapNodeToolPath()` has been run (automatic on macOS/Linux since v1.2.5).
 
-## Known issues in v1.1.1
+## Known issues
 
-Full triage in [`docs/08-bugs/OPEN.md`](docs/08-bugs/OPEN.md). v1.2 milestone tracks the follow-ups.
+Full triage in [`docs/08-bugs/OPEN.md`](docs/08-bugs/OPEN.md) and [`docs/03-plan/WISHLIST.md`](docs/03-plan/WISHLIST.md).
 
-- **Wake-word "Hey Sigma"** — Porcupine free-tier licensing forbids shipping a bundled AccessKey to public users. v1.2 will add a BYO-AccessKey UX in Settings (each user creates their own free Picovoice account).
-- **Ruflo native deps** — `@claude-flow/cli`'s installer fetches the top-level tarball only in v1.1; transitive `@ruvector/sona-*` and `onnxruntime-node` are not pulled. Tools that need them surface a clear error. v1.2 will lift this to a real `npm install --omit=dev` walk.
-- **macOS notarisation + Windows code-signing** — installers are unsigned. macOS users see Gatekeeper warnings; Windows users see the SmartScreen filter. Notarisation requires an Apple Developer ID (procurement deferred).
-- **BridgeCode multi-provider dispatch** — BridgeCode is registered with `comingSoon` flag and silently falls back to Claude. Real dispatch lands when BridgeMind ships the BridgeCode SKU.
-- **macOS-only voice** — Windows SAPI + Linux Whisper.cpp deferred to v1.2; Win/Linux remain on Web Speech API fallback.
-- **`@playwright/test` 1.59 + Node 26 race** — defensive spec edits keep the suite running; proper fix (bump to ≥1.60) deferred to v1.2.
-- **V3 visual parity sprint** — 9 documented gaps in `docs/03-plan/V3_PARITY_BACKLOG.md` (right-rail dock chrome, per-pane top-bar variants, multi-pane grid layout persistence, role-color tokens, Swarm Skills 12-tile grid, Bridge orb animation polish, CLI agent provider strip, coordinator task-brief envelope, general token retheme audit). Cosmetic; held for a later sweep.
+- **macOS notarisation + Windows code-signing** — installers are unsigned. macOS users see Gatekeeper warnings (workarounds documented above and inside the DMG); Windows users see SmartScreen. Notarisation requires an Apple Developer ID (procurement deferred).
+- **CI red on `main`** — `@playwright/test` module mismatch on Linux workers + macOS `shellcheck-via-apt-get` infra issues. Local gates (tsc / vitest / eslint / build / electron compile) all green; CI infra fix is queued.
+- **Wake-word "Hey Sigma"** — Porcupine free-tier licensing forbids shipping a bundled AccessKey to public users. A BYO-AccessKey UX is on the v1.5 roadmap.
+- **macOS-only voice** — Windows SAPI + Linux Whisper.cpp not yet shipped; Win/Linux remain on Web Speech API fallback.
+- **V3 visual parity sprint** — 9 documented cosmetic gaps in `docs/03-plan/V3_PARITY_BACKLOG.md` (right-rail dock chrome, per-pane top-bar variants, multi-pane grid layout persistence, role-color tokens, Swarm Skills 12-tile grid, Sigma orb animation polish, CLI agent provider strip, coordinator task-brief envelope, general token retheme audit). Held for a later sweep.
 
 ## Contributing
 
