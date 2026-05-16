@@ -14,6 +14,8 @@ import {
   DISK_SCAN_PROVIDERS,
   DISK_SCAN_RETRY_SCHEDULE_MS,
   findLatestSessionId,
+  findWorkspaceForExternalId,
+  listSessionExternalIdsForWorkspace,
   listSessionsInCwd,
 } from './session-disk-scanner.ts';
 
@@ -460,5 +462,178 @@ describe('listSessionsInCwd — provider scope', () => {
   it('returns [] for unknown provider', async () => {
     const sessions = await listSessionsInCwd('unknown-provider', '/tmp/proj', { homeDir: tmpHome });
     expect(sessions).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// v1.4.2-10 — workspace scoping (Option B: whitelist via agent_sessions)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('findLatestSessionId — workspace scoping', () => {
+  it('rejects a candidate already claimed by a different workspace', async () => {
+    const now = 1_700_000_000_000;
+    const foreignUuid = makeUuid('foreign001');
+    const filePath = path.join(
+      tmpHome,
+      '.codex',
+      'sessions',
+      '2026',
+      '05',
+      '13',
+      `rollout-2026-05-13T10-00-00-${foreignUuid}.jsonl`,
+    );
+    touch(filePath, now - 1_000);
+
+    // Fake DB: the external id is already claimed by "ws-other".
+    const fakeDb = {
+      prepare: () => ({
+        all: () => [],
+        get: () => ({ workspace_id: 'ws-other' }),
+      }),
+    };
+
+    const id = await findLatestSessionId('codex', '/tmp/proj', {
+      homeDir: tmpHome,
+      now,
+      workspaceId: 'ws-current',
+      db: fakeDb,
+    });
+    // The candidate exists on disk but belongs to ws-other → rejected.
+    expect(id).toBe(null);
+  });
+
+  it('accepts a candidate when workspaceId is not provided (backward compat)', async () => {
+    const now = 1_700_000_000_000;
+    const uuid = makeUuid('noscop001');
+    const filePath = path.join(
+      tmpHome,
+      '.codex',
+      'sessions',
+      '2026',
+      '05',
+      '13',
+      `rollout-2026-05-13T10-00-00-${uuid}.jsonl`,
+    );
+    touch(filePath, now - 1_000);
+
+    const id = await findLatestSessionId('codex', '/tmp/proj', {
+      homeDir: tmpHome,
+      now,
+    });
+    expect(id).toBe(uuid);
+  });
+
+  it('accepts a candidate unclaimed in agent_sessions', async () => {
+    const now = 1_700_000_000_000;
+    const uuid = makeUuid('fresh0001');
+    const filePath = path.join(
+      tmpHome,
+      '.codex',
+      'sessions',
+      '2026',
+      '05',
+      '13',
+      `rollout-2026-05-13T10-00-00-${uuid}.jsonl`,
+    );
+    touch(filePath, now - 1_000);
+
+    // Fake DB: no rows match this external id.
+    const fakeDb = {
+      prepare: () => ({
+        all: () => [],
+        get: () => undefined,
+      }),
+    };
+
+    const id = await findLatestSessionId('codex', '/tmp/proj', {
+      homeDir: tmpHome,
+      now,
+      workspaceId: 'ws-current',
+      db: fakeDb,
+    });
+    expect(id).toBe(uuid);
+  });
+
+  it('accepts a candidate claimed by the same workspace', async () => {
+    const now = 1_700_000_000_000;
+    const uuid = makeUuid('same00001');
+    const filePath = path.join(
+      tmpHome,
+      '.codex',
+      'sessions',
+      '2026',
+      '05',
+      '13',
+      `rollout-2026-05-13T10-00-00-${uuid}.jsonl`,
+    );
+    touch(filePath, now - 1_000);
+
+    // Fake DB: the external id is claimed by the same workspace.
+    const fakeDb = {
+      prepare: () => ({
+        all: () => [],
+        get: () => ({ workspace_id: 'ws-current' }),
+      }),
+    };
+
+    const id = await findLatestSessionId('codex', '/tmp/proj', {
+      homeDir: tmpHome,
+      now,
+      workspaceId: 'ws-current',
+      db: fakeDb,
+    });
+    expect(id).toBe(uuid);
+  });
+});
+
+describe('listSessionExternalIdsForWorkspace', () => {
+  it('returns external ids for the given workspace via injected db', async () => {
+    const fakeDb = {
+      prepare: () => ({
+        all: () => [
+          { external_session_id: 'ext-aaa' },
+          { external_session_id: 'ext-bbb' },
+          { external_session_id: '' },
+          { external_session_id: null },
+        ],
+        get: () => undefined,
+      }),
+    };
+    const ids = await listSessionExternalIdsForWorkspace('ws-1', fakeDb);
+    expect(ids).toEqual(['ext-aaa', 'ext-bbb']);
+  });
+
+  it('returns [] when the db throws (pre-migration)', async () => {
+    const fakeDb = {
+      prepare: () => {
+        throw new Error('no such column');
+      },
+    };
+    const ids = await listSessionExternalIdsForWorkspace('ws-1', fakeDb as unknown as { prepare: (sql: string) => { all: () => unknown[] } });
+    expect(ids).toEqual([]);
+  });
+});
+
+describe('findWorkspaceForExternalId', () => {
+  it('returns the workspace_id that claimed the external id', async () => {
+    const fakeDb = {
+      prepare: () => ({
+        all: () => [],
+        get: () => ({ workspace_id: 'ws-42' }),
+      }),
+    };
+    const ws = await findWorkspaceForExternalId('ext-123', fakeDb);
+    expect(ws).toBe('ws-42');
+  });
+
+  it('returns null when no row matches', async () => {
+    const fakeDb = {
+      prepare: () => ({
+        all: () => [],
+        get: () => undefined,
+      }),
+    };
+    const ws = await findWorkspaceForExternalId('ext-missing', fakeDb);
+    expect(ws).toBe(null);
   });
 });
