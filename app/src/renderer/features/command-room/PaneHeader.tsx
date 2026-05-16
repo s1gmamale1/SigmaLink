@@ -94,6 +94,11 @@ export function PaneHeader({ session, paneIndex, onFocus, onClose }: Props) {
                 <div>model: {modelLabel}</div>
                 <div>effort: {effortLabel}</div>
                 <div>cwd: {session.cwd}</div>
+                {session.worktreePath ? (
+                  <div className="truncate text-[9px] text-muted-foreground" title={session.worktreePath}>
+                    worktree: {session.worktreePath}
+                  </div>
+                ) : null}
               </div>
             </TooltipContent>
           </Tooltip>

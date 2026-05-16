@@ -15,6 +15,7 @@ import { DiagnosticsTab } from './DiagnosticsTab';
 import { UpdatesTab } from './UpdatesTab';
 import { RufloSettings } from './RufloSettings';
 import { VoiceTab } from './VoiceTab';
+import { StorageTab } from './StorageTab';
 
 export function SettingsRoom() {
   return (
@@ -36,6 +37,7 @@ export function SettingsRoom() {
               <TabsTrigger value="voice">Voice</TabsTrigger>
               <TabsTrigger value="ruflo">Ruflo</TabsTrigger>
               <TabsTrigger value="updates">Updates</TabsTrigger>
+              <TabsTrigger value="storage">Storage</TabsTrigger>
               <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
             </TabsList>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-3">
@@ -56,6 +58,9 @@ export function SettingsRoom() {
               </TabsContent>
               <TabsContent value="updates" className="mt-0">
                 <UpdatesTab />
+              </TabsContent>
+              <TabsContent value="storage" className="mt-0">
+                <StorageTab />
               </TabsContent>
               <TabsContent value="diagnostics" className="mt-0">
                 <DiagnosticsTab />

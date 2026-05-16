@@ -99,6 +99,24 @@ export interface AppRouter {
      * falls back to `'ultra'` (SigmaLink default — local-only / free).
      */
     tier: () => Promise<AppTier>;
+    /**
+     * v1.4.2-06 — Reveal a path in the OS file manager (Finder/Explorer).
+     */
+    revealInFolder: (path: string) => Promise<{ ok: boolean }>;
+    /**
+     * v1.4.2-06 — Open a system terminal at the given directory.
+     */
+    openShell: (cwd: string) => Promise<{ ok: boolean }>;
+    /**
+     * v1.4.2-06 — Return the Electron userData path so the renderer can
+     * explain where worktrees live.
+     */
+    getUserDataPath: () => Promise<string>;
+    /**
+     * v1.4.2-06 — Read/write the kv key tracking whether the worktree
+     * info banner has been dismissed.
+     */
+    dismissedWorktreeBanner: () => Promise<boolean>;
   };
   pty: {
     create: (input: {
@@ -216,6 +234,19 @@ export interface AppRouter {
       content: string;
       repoRoot: string;
     }) => Promise<{ ok: true }>;
+    /**
+     * v1.4.2-06 — List all worktree directories under userData/worktrees
+     * with their disk sizes for the Settings → Storage panel.
+     */
+    getWorktreeSizes: () => Promise<{
+      worktrees: Array<{
+        path: string;
+        sizeBytes: number;
+        repoHash: string;
+        branchSeg: string;
+      }>;
+      totalBytes: number;
+    }>;
   };
   swarms: {
     create: (input: CreateSwarmInput) => Promise<Swarm>;

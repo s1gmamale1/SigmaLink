@@ -3,9 +3,10 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { defineController, defineRouter } from '../shared/rpc';
 import type { AppRouter } from '../shared/router-shape';
 import { initializeDatabase, closeDatabase, getRawDb } from './core/db/client';
@@ -130,6 +131,26 @@ function broadcast(event: string, payload: unknown) {
 function capitalize(s: string): string {
   if (!s) return s;
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Recursively sum file sizes under a directory (synchronous, used at boot/settings time). */
+function dirSizeSync(dir: string): number {
+  let total = 0;
+  if (!fs.existsSync(dir)) return 0;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += dirSizeSync(full);
+    } else {
+      try {
+        total += fs.statSync(full).size;
+      } catch {
+        /* symlink or permission issue — skip */
+      }
+    }
+  }
+  return total;
 }
 
 function buildRouter() {
@@ -438,6 +459,29 @@ function buildRouter() {
         .get(KV_PLAN_TIER) as { value?: string } | undefined;
       return parseTier(row?.value ?? null);
     },
+    // v1.4.2-06 — Worktree location UX.
+    revealInFolder: async (p: string) => {
+      shell.showItemInFolder(p);
+      return { ok: true };
+    },
+    openShell: async (cwd: string) => {
+      const plat = process.platform;
+      if (plat === 'darwin') {
+        spawn('open', ['-a', 'Terminal', cwd], { detached: true, stdio: 'ignore' }).unref();
+      } else if (plat === 'win32') {
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd', '/d', cwd], { detached: true, stdio: 'ignore' }).unref();
+      } else {
+        spawn('x-terminal-emulator', ['--working-directory', cwd], { detached: true, stdio: 'ignore' }).unref();
+      }
+      return { ok: true };
+    },
+    getUserDataPath: async () => app.getPath('userData'),
+    dismissedWorktreeBanner: async () => {
+      const row = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get('ui.dismissedWorktreeBanner') as { value?: string } | undefined;
+      return row?.value === '1';
+    },
   });
 
   const ptyCtl = defineController({
@@ -672,6 +716,29 @@ function buildRouter() {
     readFile: async (input: { path: string; maxBytes?: number }) => fsReadFile(input),
     writeFile: async (input: { path: string; content: string; repoRoot: string }) =>
       fsWriteFile(input),
+    // v1.4.2-06 — Storage panel: enumerate worktree dirs with sizes.
+    getWorktreeSizes: async () => {
+      const worktreesDir = path.join(app.getPath('userData'), 'worktrees');
+      const result: {
+        worktrees: Array<{ path: string; sizeBytes: number; repoHash: string; branchSeg: string }>;
+        totalBytes: number;
+      } = { worktrees: [], totalBytes: 0 };
+      if (!fs.existsSync(worktreesDir)) return result;
+      const repoHashes = fs.readdirSync(worktreesDir);
+      for (const repoHash of repoHashes) {
+        const repoDir = path.join(worktreesDir, repoHash);
+        if (!fs.statSync(repoDir).isDirectory()) continue;
+        const branchSegs = fs.readdirSync(repoDir);
+        for (const branchSeg of branchSegs) {
+          const wtPath = path.join(repoDir, branchSeg);
+          if (!fs.statSync(wtPath).isDirectory()) continue;
+          const sizeBytes = dirSizeSync(wtPath);
+          result.worktrees.push({ path: wtPath, sizeBytes, repoHash, branchSeg });
+          result.totalBytes += sizeBytes;
+        }
+      }
+      return result;
+    },
   });
 
   const swarmsCtl = buildSwarmController({
