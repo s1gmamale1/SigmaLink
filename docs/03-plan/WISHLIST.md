@@ -64,7 +64,6 @@ Confirmed root cause was cwd/context drift, not PTY death: SigmaLink created git
 | **React-compiler lint wave** — 31 errors documented | M (~1d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — React-compiler lint wave" |
 | **`swarms/factory.ts` (713 LOC) split** | M (~0.5d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — quality / file size" |
 | **`runClaudeCliTurn.ts` (709 LOC) split** | M (~0.5d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — quality / file size" |
-| **`state.tsx` residual 553 → < 500 LOC** | S (~3hr) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — quality / file size" |
 | **CI cache-dependency-path fix** | XS | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — CI / test infra" |
 | **vitest coverage thresholds** | S | same |
 | **shellcheck step for install-macos.sh** | XS | same |

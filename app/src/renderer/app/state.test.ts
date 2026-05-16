@@ -363,4 +363,47 @@ describe('appStateReducer v1.1.10 reliability fixes', () => {
     s = appStateReducer(s, { type: 'UPSERT_SWARM', swarm: swarm('sw1', 'a') });
     expect(s.activeSwarmId).toBe('sw1');
   });
+
+  it('v1.4.2: SET_ACTIVE_WORKSPACE_ID after Settings visit routes to Command Room', () => {
+    const wsA = workspace('a');
+    const opened = appStateReducer(readyState([wsA]), {
+      type: 'WORKSPACE_OPEN',
+      workspace: wsA,
+    });
+    // User visits Settings from workspace A.
+    const settings = appStateReducer(opened, { type: 'SET_ROOM', room: 'settings' });
+    expect(settings.room).toBe('settings');
+    // 'settings' must NOT be persisted into roomByWorkspace.
+    expect(settings.roomByWorkspace.a).toBeUndefined();
+
+    // Click the same workspace row in the sidebar → should land on Command Room.
+    const back = appStateReducer(settings, {
+      type: 'SET_ACTIVE_WORKSPACE_ID',
+      workspaceId: 'a',
+    });
+    expect(back.room).toBe('command');
+    expect(back.roomByWorkspace.a).toBeUndefined();
+  });
+
+  it('v1.4.2: SET_ROOM does not persist global rooms (workspaces, settings)', () => {
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    const opened = [wsA, wsB].reduce(
+      (next, ws) => appStateReducer(next, { type: 'WORKSPACE_OPEN', workspace: ws }),
+      readyState([wsA, wsB]),
+    );
+    // wsB is active.
+    const toSettings = appStateReducer(opened, { type: 'SET_ROOM', room: 'settings' });
+    expect(toSettings.room).toBe('settings');
+    expect(toSettings.roomByWorkspace.b).toBeUndefined();
+
+    const toWorkspaces = appStateReducer(toSettings, { type: 'SET_ROOM', room: 'workspaces' });
+    expect(toWorkspaces.room).toBe('workspaces');
+    expect(toWorkspaces.roomByWorkspace.b).toBeUndefined();
+
+    // Non-global rooms ARE persisted.
+    const toMemory = appStateReducer(toWorkspaces, { type: 'SET_ROOM', room: 'memory' });
+    expect(toMemory.room).toBe('memory');
+    expect(toMemory.roomByWorkspace.b).toBe('memory');
+  });
 });
