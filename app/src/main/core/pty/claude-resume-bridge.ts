@@ -67,6 +67,13 @@ export type ClaudeResumeBridgeOutcome =
   | 'missing'  // source JSONL not on disk; resume cannot proceed via id
   | 'skipped'; // inputs invalid or same cwd — no bridging needed
 
+export interface ClaudeWorkspaceContextOutcome {
+  linked: string[];
+  existing: string[];
+  missing: string[];
+  skipped: string[];
+}
+
 export interface ClaudeBridgeDeps {
   /** Override `os.homedir()` — tests inject a tmpdir. */
   homeDir?: string;
@@ -96,7 +103,7 @@ function isSafeAbsolutePath(p: string): boolean {
 
 /** Reject session ids that are not UUID-shaped. Tightens the surface area of
  *  what we are willing to pass through to a filesystem path. */
-function isUuidShaped(id: string): boolean {
+export function isClaudeSessionId(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
 
@@ -108,6 +115,57 @@ function jsonlPathFor(homeDir: string, slug: string, sessionId: string): string 
 /** Build the absolute path to `~/.claude/projects/<slug>/`. */
 function projectDirFor(homeDir: string, slug: string): string {
   return path.join(homeDir, '.claude', 'projects', slug);
+}
+
+async function linkOrCopyContextPath(
+  sourcePath: string,
+  targetPath: string,
+  platform: NodeJS.Platform,
+): Promise<'linked' | 'existing' | 'missing' | 'skipped'> {
+  let sourceStat: fs.Stats;
+  try {
+    sourceStat = await fs.promises.lstat(sourcePath);
+  } catch {
+    return 'missing';
+  }
+
+  try {
+    await fs.promises.lstat(targetPath);
+    return 'existing';
+  } catch {
+    // ENOENT is expected.
+  }
+
+  try {
+    await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
+  } catch {
+    return 'skipped';
+  }
+
+  try {
+    await fs.promises.symlink(
+      sourcePath,
+      targetPath,
+      sourceStat.isDirectory() ? 'dir' : 'file',
+    );
+    return 'linked';
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST') return 'existing';
+    if (code === 'EPERM' && platform === 'win32') {
+      try {
+        if (sourceStat.isDirectory()) {
+          await fs.promises.cp(sourcePath, targetPath, { recursive: true });
+        } else {
+          await fs.promises.copyFile(sourcePath, targetPath);
+        }
+        return 'linked';
+      } catch {
+        return 'skipped';
+      }
+    }
+    return 'skipped';
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -143,6 +201,42 @@ export async function ensureClaudeProjectDir(
 }
 
 /**
+ * Make workspace-local Claude context visible inside an isolated worktree.
+ *
+ * `git worktree add` only checks out tracked files. User-local Claude context
+ * is often intentionally ignored (`CLAUDE.md`, `.claude/`), so a pane spawned
+ * from the worktree can miss the exact project instructions/config that made
+ * the original workspace session resumable. We link those files into the
+ * worktree cwd without overwriting anything already present there.
+ */
+export async function prepareClaudeWorkspaceContext(
+  workspaceCwd: string,
+  worktreeCwd: string,
+  deps: ClaudeBridgeDeps = {},
+): Promise<ClaudeWorkspaceContextOutcome> {
+  const outcome: ClaudeWorkspaceContextOutcome = {
+    linked: [],
+    existing: [],
+    missing: [],
+    skipped: [],
+  };
+  if (!isSafeAbsolutePath(workspaceCwd) || !isSafeAbsolutePath(worktreeCwd)) {
+    outcome.skipped.push('workspace');
+    return outcome;
+  }
+  if (workspaceCwd === worktreeCwd) return outcome;
+
+  const platform = deps.platform ?? process.platform;
+  for (const name of ['CLAUDE.md', '.claude']) {
+    const sourcePath = path.join(workspaceCwd, name);
+    const targetPath = path.join(worktreeCwd, name);
+    const result = await linkOrCopyContextPath(sourcePath, targetPath, platform);
+    outcome[result].push(name);
+  }
+  return outcome;
+}
+
+/**
  * Pane 1 fix — bridge the resume JSONL from the workspace-slug dir into the
  * worktree-slug dir so `claude --resume <id>` spawned inside the worktree can
  * find it.
@@ -175,7 +269,7 @@ export async function prepareClaudeResume(
 ): Promise<ClaudeResumeBridgeOutcome> {
   if (!isSafeAbsolutePath(workspaceCwd)) return 'skipped';
   if (!isSafeAbsolutePath(worktreeCwd)) return 'skipped';
-  if (!isUuidShaped(sessionId)) return 'skipped';
+  if (!isClaudeSessionId(sessionId)) return 'skipped';
   if (workspaceCwd === worktreeCwd) return 'skipped';
 
   const homeDir = deps.homeDir ?? os.homedir();

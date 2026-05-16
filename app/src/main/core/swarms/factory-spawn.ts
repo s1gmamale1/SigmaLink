@@ -24,6 +24,11 @@ import { agentKey as makeAgentKey } from './types';
 import { envelopeToInsert, parseProtocolLine, ProtocolLineBuffer } from './protocol';
 import { resolveAndSpawn } from '../providers/launcher';
 import type { SwarmFactoryDeps } from './factory';
+import { workspaceCwdInWorktree } from '../workspaces/worktree-cwd';
+import {
+  ensureClaudeProjectDir,
+  prepareClaudeWorkspaceContext,
+} from '../pty/claude-resume-bridge';
 
 /**
  * Pick the coordinator that a newly-added agent should be assigned to.
@@ -129,7 +134,11 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
     branch = r.branch;
   }
 
-  const cwd = worktreePath ?? args.wsRow.rootPath;
+  const cwd = workspaceCwdInWorktree({
+    workspaceRoot: args.wsRow.rootPath,
+    repoRoot: args.wsRow.repoRoot,
+    worktreePath,
+  });
   // V1.1: route swarm-agent spawns through the provider launcher façade so
   // BridgeCode→Claude fallback, altCommands ENOENT walk, and the legacy gate
   // all apply uniformly. Read `kv['providers.showLegacy']` defensively — if
@@ -144,6 +153,10 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
     /* ignore — default to false */
   }
   const extraArgs = buildExtraArgs(provider.id, args.initialPrompt);
+  if (provider.id === 'claude') {
+    await prepareClaudeWorkspaceContext(args.wsRow.rootPath, cwd);
+    await ensureClaudeProjectDir(cwd);
+  }
   const spawnResult = resolveAndSpawn(
     { ptyRegistry: args.deps.pty },
     {

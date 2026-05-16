@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type Database from 'better-sqlite3';
 
 import {
@@ -24,6 +27,21 @@ const codexProvider = { ...claudeProvider, id: 'codex', name: 'Codex' };
 const geminiProvider = { ...claudeProvider, id: 'gemini', name: 'Gemini' };
 const kimiProvider = { ...claudeProvider, id: 'kimi', name: 'Kimi' };
 const opencodeProvider = { ...claudeProvider, id: 'opencode', name: 'OpenCode' };
+const VALID_CLAUDE_SESSION_ID = '01234567-89ab-4cde-9f01-23456789abcd';
+
+const tmpHomes: string[] = [];
+
+function makeClaudeHome(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-resume-'));
+  tmpHomes.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  for (const dir of tmpHomes.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 interface FakeRow {
   id: string;
@@ -31,6 +49,9 @@ interface FakeRow {
   provider_id: string;
   provider_effective: string | null;
   cwd: string;
+  worktree_path: string | null;
+  workspace_root: string;
+  repo_root: string | null;
   status: string;
   exit_code: number | null;
   started_at: number;
@@ -59,6 +80,9 @@ function setupDb(): { db: Database.Database; rows: FakeRow[] } {
               providerId: r.provider_id,
               providerEffective: r.provider_effective,
               cwd: r.cwd,
+              worktreePath: r.worktree_path,
+              workspaceRoot: r.workspace_root,
+              repoRoot: r.repo_root,
               externalSessionId: r.external_session_id,
             }));
         },
@@ -134,6 +158,9 @@ function insertSession(
     provider_id: values.provider_id ?? 'claude',
     provider_effective: values.provider_effective ?? 'claude',
     cwd: values.cwd ?? '/tmp/project',
+    worktree_path: values.worktree_path ?? null,
+    workspace_root: values.workspace_root ?? values.cwd ?? '/tmp/project',
+    repo_root: values.repo_root ?? null,
     status: values.status ?? 'running',
     exit_code: values.exit_code ?? null,
     started_at: values.started_at ?? 100,
@@ -141,7 +168,7 @@ function insertSession(
     external_session_id:
       values.external_session_id !== undefined
         ? values.external_session_id
-        : 'external-claude-1',
+        : VALID_CLAUDE_SESSION_ID,
   });
 }
 
@@ -228,6 +255,7 @@ describe('resumeWorkspacePanes', () => {
     const result = await resumeWorkspacePanes('ws-1', {
       pty: registry,
       db,
+      claudeHomeDir: makeClaudeHome(),
       getProvider: () => claudeProvider,
       resolve,
     });
@@ -236,7 +264,7 @@ describe('resumeWorkspacePanes', () => {
     expect(result.failed.length).toBe(0);
     expect(calls[0]?.sessionId).toBe('sess-1');
     expect(calls[0]?.providerId).toBe('claude');
-    expect(calls[0]?.args).toEqual(['--resume', 'external-claude-1']);
+    expect(calls[0]?.args).toEqual(['--resume', VALID_CLAUDE_SESSION_ID]);
     expect(result.resumed[0]?.resumeMode).toBe('id');
     expect(rows[0]?.status).toBe('running');
     expect(rows[0]?.exit_code).toBe(null);
@@ -257,6 +285,7 @@ describe('resumeWorkspacePanes', () => {
     const result = await resumeWorkspacePanes('ws-1', {
       pty: registry,
       db,
+      claudeHomeDir: makeClaudeHome(),
       now: () => 2222,
       getProvider: () => claudeProvider,
       resolve,
@@ -299,6 +328,7 @@ describe('resumeWorkspacePanes', () => {
     const result = await resumeWorkspacePanes('ws-1', {
       pty: registry,
       db,
+      claudeHomeDir: makeClaudeHome(),
       getProvider: () => claudeProvider,
       resolve,
     });
@@ -309,6 +339,98 @@ describe('resumeWorkspacePanes', () => {
     expect(result.resumed[0]?.externalSessionId).toBe('');
     expect(result.resumed[0]?.resumeMode).toBe('continue');
     expect(rows[0]?.status).toBe('running');
+  });
+
+  it('maps old worktree-root cwd rows back to the workspace subdir and bridges Claude resume files', async () => {
+    const claudeHomeDir = makeClaudeHome();
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-repo-'));
+    const workspaceRoot = path.join(repoRoot, 'app');
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+    const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-wt-root-'));
+    const worktreeApp = path.join(worktreePath, path.basename(workspaceRoot));
+    fs.mkdirSync(worktreeApp, { recursive: true });
+    fs.writeFileSync(path.join(workspaceRoot, 'CLAUDE.md'), '# workspace claude\n');
+    const externalId = VALID_CLAUDE_SESSION_ID;
+    const workspaceSlug = workspaceRoot.replace(/\//g, '-');
+    const sourceDir = path.join(claudeHomeDir, '.claude', 'projects', workspaceSlug);
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, `${externalId}.jsonl`), '{"ok":true}\n');
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'sess-worktree-root',
+      cwd: worktreePath,
+      worktree_path: worktreePath,
+      workspace_root: workspaceRoot,
+      repo_root: repoRoot,
+      external_session_id: externalId,
+    });
+    const calls: Array<{ cwd: string; args: string[] }> = [];
+    const registry = { get: () => undefined } as unknown as PtyRegistry;
+    const resolve: NonNullable<ResumeLauncherDeps['resolve']> = (_deps, opts) => {
+      calls.push({ cwd: opts.cwd, args: opts.extraArgs ?? [] });
+      return {
+        ptySession: makeSession(opts.sessionId ?? 'new-id', opts.providerId),
+        providerRequested: opts.providerId,
+        providerEffective: 'claude',
+        commandUsed: 'claude',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+      };
+    };
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: registry,
+      db,
+      claudeHomeDir,
+      getProvider: () => claudeProvider,
+      resolve,
+    });
+
+    expect(result.resumed).toHaveLength(1);
+    expect(calls[0]).toEqual({ cwd: worktreeApp, args: ['--resume', externalId] });
+    expect(fs.readFileSync(path.join(worktreeApp, 'CLAUDE.md'), 'utf8')).toContain(
+      'workspace claude',
+    );
+    const worktreeSlug = worktreeApp.replace(/\//g, '-');
+    expect(
+      fs.existsSync(
+        path.join(claudeHomeDir, '.claude', 'projects', worktreeSlug, `${externalId}.jsonl`),
+      ),
+    ).toBe(true);
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+  });
+
+  it('does not pass invalid Claude resume ids through to claude --resume', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'sess-invalid-id',
+      external_session_id: 'not-a-uuid',
+    });
+    const calls: Array<{ args: string[] }> = [];
+    const registry = { get: () => undefined } as unknown as PtyRegistry;
+    const resolve: NonNullable<ResumeLauncherDeps['resolve']> = (_deps, opts) => {
+      calls.push({ args: opts.extraArgs ?? [] });
+      return {
+        ptySession: makeSession(opts.sessionId ?? 'new-id', opts.providerId),
+        providerRequested: opts.providerId,
+        providerEffective: 'claude',
+        commandUsed: 'claude',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+      };
+    };
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: registry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => claudeProvider,
+      resolve,
+    });
+
+    expect(result.resumed).toHaveLength(1);
+    expect(calls[0]?.args).toEqual(['--continue']);
   });
 
   it('routes missing external id to --continue for every shipped provider', async () => {
@@ -345,6 +467,7 @@ describe('resumeWorkspacePanes', () => {
       const result = await resumeWorkspacePanes('ws-1', {
         pty: registry,
         db,
+        claudeHomeDir: makeClaudeHome(),
         getProvider: () => def,
         resolve,
       });

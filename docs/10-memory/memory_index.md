@@ -238,3 +238,14 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-153 | v1.3.2 security scan: `aidefence_scan` clean on the bridge module (symlink creation is a security-sensitive op — verified cwd containment and target-path absolute under `~/.claude/projects/`) | shipped | 1 |
 | T-154 | v1.3.2 gates: `pnpm exec tsc -b` clean · `pnpm exec vitest run` 314/314 (net +23 vs v1.3.1) · `pnpm exec eslint .` clean · `pnpm run build` clean | shipped | 1 |
 | T-155 | v1.3.2 release plumbing: bump `app/package.json` 1.3.1 → 1.3.2, CHANGELOG.md `[1.3.2]` entry, `docs/09-release/release-notes-1.3.2.txt` user-facing 1-pager, WISHLIST.md recently-shipped row, `docs/10-memory/master_memory.md` Phase 24c narrative | shipped | 1 |
+
+## v1.3.4 Phase 24e — Claude resume spawn fix (May 16, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-156 | v1.3.4 live diagnosis: captured actual `claude --resume <uuid>` argv, compared workspace cwd vs per-pane worktree cwd, confirmed the launcher spawned from repo-root worktrees while the selected workspace and Claude context lived under `app/` | shipped | 1 |
+| T-157 | v1.3.4 cwd fix: new `workspaces/worktree-cwd.ts` maps `<repo-worktree>` to `<repo-worktree>/<workspace-relative-path>`; used by workspace launcher, swarm spawn, boot resume, and failed-pane respawn | shipped | 1 |
+| T-158 | v1.3.4 Claude context bridge: `prepareClaudeWorkspaceContext()` symlinks ignored `CLAUDE.md` and `.claude/` from workspace cwd into the worktree cwd without overwriting existing files | shipped | 1 |
+| T-159 | v1.3.4 resume hardening: boot restore now runs Claude JSONL bridge/project-dir setup; invalid Claude ids fall back to `--continue`; provider launcher suppresses fresh `--session-id` when resume/continue args are present | shipped | 1 |
+| T-160 | v1.3.4 tests: focused regression set covers context symlink, worktree subdir cwd, provider preassign suppression, boot resume bridge, and invalid-id fallback; 47/47 focused pass, 323/323 full Vitest pass, tsc clean, eslint clean with one existing warning, production build + Electron compile clean | shipped | 1 |
+| T-161 | v1.3.4 release plumbing: bump `app/package.json` 1.3.3 → 1.3.4, CHANGELOG `[1.3.4]`, release-notes-1.3.4.txt, WISHLIST shipped row, master_memory Phase 24e | shipped | 1 |

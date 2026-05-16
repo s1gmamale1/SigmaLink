@@ -17,8 +17,11 @@ import { resolveAndSpawn, ProviderLaunchError } from '../providers/launcher';
 import { buildResumeArgs } from '../pty/resume-launcher';
 import {
   ensureClaudeProjectDir,
+  isClaudeSessionId,
   prepareClaudeResume,
+  prepareClaudeWorkspaceContext,
 } from '../pty/claude-resume-bridge';
+import { workspaceCwdInWorktree } from './worktree-cwd';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -123,7 +126,11 @@ export async function executeLaunchPlan(
         branch = r.branch;
       }
 
-      const cwd = worktreePath ?? wsRow.rootPath;
+      const cwd = workspaceCwdInWorktree({
+        workspaceRoot: wsRow.rootPath,
+        repoRoot: wsRow.repoRoot,
+        worktreePath,
+      });
 
       // v1.2.6 — Browser MCP is now stdio (npx-on-demand). We only need to
       // wire the SigmaMemory stdio supervisor; the browser config is a static
@@ -179,16 +186,20 @@ export async function executeLaunchPlan(
       let extraArgs: string[];
       if (resumeSessionId) {
         if (provider.id === 'claude') {
-          const outcome = await prepareClaudeResume(
-            wsRow.rootPath,
-            cwd,
-            resumeSessionId,
-          );
-          // If the workspace-slug JSONL is missing on disk (deleted by the
-          // user, scanned-but-since-pruned, etc.) drop the id and fall through
-          // to `--continue` so the pane still spawns instead of going blank.
-          if (outcome === 'missing') {
+          if (!isClaudeSessionId(resumeSessionId)) {
             resumeSessionId = null;
+          } else {
+            const outcome = await prepareClaudeResume(
+              wsRow.rootPath,
+              cwd,
+              resumeSessionId,
+            );
+            // If the workspace-slug JSONL is missing on disk (deleted by the
+            // user, scanned-but-since-pruned, etc.) drop the id and fall through
+            // to `--continue` so the pane still spawns instead of going blank.
+            if (outcome === 'missing') {
+              resumeSessionId = null;
+            }
           }
         }
         if (resumeSessionId) {
@@ -205,6 +216,7 @@ export async function executeLaunchPlan(
         extraArgs = buildExtraArgs(provider.id, pane.initialPrompt);
       }
       if (provider.id === 'claude') {
+        await prepareClaudeWorkspaceContext(wsRow.rootPath, cwd);
         // Pane 2 fix — make sure the worktree-slug project dir exists so a
         // fresh `--session-id <uuid>` spawn can write its first JSONL line
         // without bailing on ENOENT for the parent dir.

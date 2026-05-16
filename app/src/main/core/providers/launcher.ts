@@ -193,6 +193,15 @@ function shouldPreAssign(
   opts: ResolveAndSpawnOpts,
 ): boolean {
   if (opts.sessionId) return false;
+  if (
+    opts.extraArgs?.some((arg) =>
+      arg === '--resume' ||
+      arg === '--continue' ||
+      arg === 'resume',
+    )
+  ) {
+    return false;
+  }
   return PRE_ASSIGN_PROVIDERS.has(provider.id);
 }
 

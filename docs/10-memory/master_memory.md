@@ -1302,3 +1302,20 @@ Fix design (Option A from the hotfix brief): a new `claude-resume-bridge.ts` mod
 Security: both helpers refuse paths containing `..` traversal segments, require absolute paths, and require UUID-shaped session ids. Symlink targets are always under `<homeDir>/.claude/projects/` — never outside the user's own Claude data store. `aidefence_scan` clean.
 
 Test delta: 291 → 314 (+23 cases). Files touched: 5 (1 new bridge module, 1 new bridge test, 1 new launcher gate test, 1 edit to `executeLaunchPlan`, 1 edit to `package.json` version bump). All four gates green (`tsc`, `vitest`, `eslint`, `build`). Version bumped 1.3.1 → 1.3.2.
+
+## v1.3.4 Phase 24e — Claude resume spawn fix (May 16, 2026)
+
+v1.3.4 resolves the v1.3.3 reviewer caveat where `claude --resume <uuid>` could exit with code 1 almost immediately inside SigmaLink's per-pane worktrees despite the v1.3.2 JSONL bridge. Live investigation captured the actual process shape (`claude --resume e8b585d8-e103-4b55-9da2-126568111317`) and confirmed the important mismatch: the selected workspace was `/Users/aisigma/projects/SigmaLink/app`, but git worktrees are created at the repository root. The launcher persisted/spawned `cwd=<worktree-root>`, not `<worktree-root>/app`.
+
+That cwd drift broke two Claude assumptions at once. First, Claude's project identity and session history are cwd-derived, while the session picker scanned at the workspace cwd. Second, workspace-local Claude context (`CLAUDE.md`, `.claude/`) is ignored/local and therefore absent from a fresh git worktree checkout.
+
+Fixes shipped:
+
+- New `workspaceCwdInWorktree()` maps repo-root worktrees back to the selected workspace-relative subdirectory.
+- `executeLaunchPlan`, swarm agent spawns, boot-time resume, and failed-pane respawn now use that resolved cwd.
+- `prepareClaudeWorkspaceContext()` symlinks ignored `CLAUDE.md` and `.claude/` from the real workspace into the pane worktree cwd without overwriting existing files.
+- `resumeWorkspacePanes()` now runs the Claude bridge/project-dir setup before boot-time `claude --resume`, so restart restore no longer bypasses the v1.3.2 launcher-only protections.
+- Provider launcher suppresses fresh `--session-id` preassignment when resume/continue args are present, avoiding `claude --session-id <new> --resume <picked>`.
+- Malformed Claude resume IDs fall back to `--continue` rather than being passed to Claude.
+
+Verification: `pnpm exec tsc -b --pretty false` clean; focused Vitest regression set 47/47 pass; full `pnpm exec vitest run` 323/323 pass after running Electron's install script directly; `pnpm exec eslint .` clean with the existing `use-session-restore.ts:263` warning; `pnpm run build` clean; `node scripts/build-electron.cjs` clean. `pnpm install` populated dependencies but exited nonzero at the known `electron-builder install-app-deps` / ignored native-build-script step.

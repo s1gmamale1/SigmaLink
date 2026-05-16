@@ -1,0 +1,28 @@
+SigmaLink v1.3.4
+================
+
+Claude resume reliability in per-pane worktrees.
+
+What changed
+------------
+
+- Claude panes now launch from the selected workspace subdirectory inside the git worktree, not blindly from the worktree root.
+- Workspace-local Claude context (`CLAUDE.md`, `.claude/`) is symlinked into the pane worktree when those files are ignored and absent from the checkout.
+- Boot-time pane restore now runs the same Claude resume bridge as the launcher path before spawning `claude --resume <uuid>`.
+- The launcher no longer combines a fresh `--session-id` with a picked `--resume` id.
+- Malformed Claude resume ids fall back to `--continue` instead of being passed to the CLI.
+
+Why it matters
+--------------
+
+v1.3.3 made fast Claude crashes visible as red error panes. v1.3.4 fixes the most likely root cause: SigmaLink was creating worktrees at the repository root while the actual workspace was `app/`, so Claude lost workspace-local config and sometimes exited with code 1 almost immediately.
+
+Verification
+------------
+
+- `pnpm exec tsc -b --pretty false`
+- Focused Vitest regression set: 47/47 pass
+- Full Vitest suite: 323/323 pass
+- `pnpm exec eslint .`: clean with the existing `use-session-restore.ts:263` warning
+- `pnpm run build`
+- `node scripts/build-electron.cjs`

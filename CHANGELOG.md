@@ -4,6 +4,27 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-05-16
+
+fix(v1.3.4): make Claude resume reliable inside pane worktrees
+
+### Fixed
+
+- **Claude panes now spawn from the selected workspace subdirectory inside each git worktree.** SigmaLink workspaces can point at a repo subfolder (`app/`) while `git worktree add` creates a checkout at the repo root. v1.3.2/v1.3.3 launched Claude from the worktree root, so Claude missed workspace-local `CLAUDE.md`, `.claude/`, and the same cwd slug that the session picker scanned. New `workspaceCwdInWorktree()` maps `<repo-worktree>` back to `<repo-worktree>/<workspace-relative-path>` before spawning panes.
+- **Ignored Claude context is bridged into worktrees.** `prepareClaudeWorkspaceContext()` symlinks workspace-local `CLAUDE.md` and `.claude/` into the worktree cwd when those files are ignored and therefore absent from the git checkout. Existing worktree files are never overwritten.
+- **Boot-time resume now uses the same Claude bridge as launcher resume.** `resumeWorkspacePanes()` and `respawnFailedWorkspacePanes()` resolve worktree subdir cwd, prepare workspace context, create Claude's project dir, and bridge workspace-slug JSONL before spawning `claude --resume`.
+- **Resume picker no longer combines fresh `--session-id` with `--resume`.** The provider launcher suppresses pre-assigned UUID injection when resume/continue args are present, avoiding `claude --session-id <new> --resume <picked>`.
+- **Invalid Claude resume ids fall back to `--continue`.** UUID validation now applies before building `claude --resume`, so malformed values no longer produce an immediate code-1 spawn.
+
+### Verification
+
+- `pnpm exec tsc -b --pretty false`: clean
+- `pnpm exec vitest run src/main/core/pty/claude-resume-bridge.test.ts src/main/core/workspaces/worktree-cwd.test.ts src/main/core/providers/launcher.test.ts src/main/core/pty/resume-launcher.test.ts`: 47/47 pass
+- `pnpm exec vitest run`: 323/323 pass
+- `pnpm exec eslint .`: clean with the existing `use-session-restore.ts:263` exhaustive-deps warning
+- `pnpm run build`: clean
+- `node scripts/build-electron.cjs`: clean
+
 ## [1.3.3] - 2026-05-16
 
 fix(v1.3.3): workspace switching + Claude pane error visibility + session-restore timer hygiene
