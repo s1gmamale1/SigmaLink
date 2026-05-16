@@ -1456,26 +1456,39 @@ cleaned up. W-2 + W-3 plan files were archived under `docs/03-plan/archive/`.
 
 ---
 
-## Phase 28 — v1.4.2 packet 02: Workspace routing fix (2026-05-18)
+## Phase 28 — v1.4.2 bundle: dogfood fixes + backlog hygiene (2026-05-17/18)
+
+### Packet 09 — Backlog verify-and-close sweep (2026-05-17)
+
+Single-commit hygiene pass closing 4 BACKLOG rows flagged as "already shipped"
+but never formally verified. Executed in worktree
+`feat/v1.4.2-09-verify-sweep` → PR #19.
+
+| Item | Verdict | Evidence |
+|------|---------|----------|
+| BUG-W7-015 Parchment launch contrast | ✅ Verified | `Launcher.tsx:380-386` uses `bg-accent`; `index.css:118` `--accent: 22 70% 32%` on `--accent-foreground: 38 38% 96%` clears WCAG AA |
+| CI cache-dependency-path | ✅ Verified | `lint-and-build.yml:40` → `app/package.json` |
+| vitest coverage thresholds | ✅ Verified | `vitest.config.ts:27-32` — 22% lines floor |
+| shellcheck step for install-macos.sh | ⚠️ Escalated | Step at `lint-and-build.yml:58-63` runs `apt-get` on `macos-14` — all 3 recent CI runs fail. Needs `brew install shellcheck`. |
+
+Changes: 4 BACKLOG rows removed; `[1.4.2]` CHANGELOG section added (3 fixed + 1 known issue); no source code changes. Commit `42188c7`, PR #19 squash-merged.
+
+### Packet 02 — Workspace routing fix (2026-05-18)
 
 User report (P1): "When clicked to settings and tried to switch back to
 workspace via clicking to the Workspace from left panel not working, need to
 go to menu and click Command Room."
 
-### Root cause
+Root cause: `SET_ROOM` only excluded `'workspaces'` from `roomByWorkspace`
+persistence. Visiting Settings wrote `roomByWorkspace[wsId] = 'settings'`. The
+next `SET_ACTIVE_WORKSPACE_ID` replayed that stale room, landing the user back
+on Settings instead of Command Room. v1.3.3 ship-claim regression (commit
+`66b4fa6` fixed Sidebar's `SET_ROOM='command'` follow-up but the reducer-side
+per-workspace recall at lines 188-198 never excluded `'settings'`).
 
-`SET_ROOM` only excluded `'workspaces'` from `roomByWorkspace` persistence.
-Visiting Settings wrote `roomByWorkspace[wsId] = 'settings'`. The next
-`SET_ACTIVE_WORKSPACE_ID` replayed that stale room, landing the user back on
-Settings instead of Command Room. This was a v1.3.3 ship-claim regression
-(commit `66b4fa6` fixed Sidebar's `SET_ROOM='command'` follow-up but the
-reducer-side per-workspace recall at lines 188-198 never excluded `'settings'`).
-
-### Fix
-
-Introduced `GLOBAL_ROOMS = ['workspaces', 'settings'] as const` and
-`isGlobalRoom()` helper in `state.reducer.ts:13-21`. Applied the guard
-consistently across three dispatch paths:
+Fix: introduced `GLOBAL_ROOMS = ['workspaces', 'settings'] as const` and
+`isGlobalRoom()` helper in `state.reducer.ts:13-21`. Applied across three
+dispatch paths:
 
 | Location | Before | After |
 |---|---|---|
@@ -1483,30 +1496,12 @@ consistently across three dispatch paths:
 | `state.reducer.ts:121` (SET_ROOM_FOR_WORKSPACE) | `action.room === 'workspaces'` | `isGlobalRoom(action.room)` |
 | `state.reducer.ts:204` (SET_ACTIVE_WORKSPACE_ID) | `savedRoom !== 'workspaces'` | `!isGlobalRoom(savedRoom)` |
 
-### Tests added (2)
+2 new tests added: Settings-visit routing + global-room-persistence guard.
 
-- `v1.4.2: SET_ACTIVE_WORKSPACE_ID after Settings visit routes to Command Room`
-- `v1.4.2: SET_ROOM does not persist global rooms (workspaces, settings)`
+Preserved: `Sidebar.tsx:62` `SET_ROOM: 'command'` dispatch (load-bearing for
+`openPersistedWorkspace`); `CommandRoom.tsx:182` `SET_ROOM: 'workspaces'`
+dispatch (audit-aware, no fix needed).
 
-### Preserved (DO NOT TOUCH)
-
-- `Sidebar.tsx:62` `SET_ROOM: 'command'` dispatch — load-bearing for
-  `openPersistedWorkspace` path
-- `CommandRoom.tsx:182` `SET_ROOM: 'workspaces'` dispatch — audit-aware,
-  no fix needed
-
-### Verification
-
-- `pnpm exec tsc -b --pretty false`: clean
-- `pnpm exec vitest run`: 370/370 pass (368 baseline + 2 new)
-- `pnpm exec eslint src/renderer/app/`: 0 errors (1 pre-existing warning)
-- `pnpm run build`: clean
-- `node scripts/build-electron.cjs`: clean
-
-### PR
-
-https://github.com/s1gmamale1/SigmaLink/pull/17 — branch
-`feat/v1.4.2-02-routing`, not merged.
-
-**Next session restart point**: SigmaLink at v1.4.1 on `main` + PR #17 open
-for v1.4.2 packet 02. Remaining v1.4.2 bundle packets (if any) are parallel-safe.
+Verification: tsc clean, vitest 370/370 (368 + 2), eslint 0 errors (1
+pre-existing), build clean, electron compile clean. Commit `425aec9`, PR #17
+squash-merged.
