@@ -686,14 +686,14 @@ export const DISK_SCAN_PROVIDERS: ReadonlySet<string> = new Set([
  */
 export async function listSessionExternalIdsForWorkspace(
   wsId: string,
-  db?: { prepare: (sql: string) => { all: () => unknown[] } },
+  db?: { prepare: (sql: string) => { all: (...args: unknown[]) => unknown[] } },
 ): Promise<string[]> {
-  let rawDb: { prepare: (sql: string) => { all: () => unknown[] } };
+  let rawDb: { prepare: (sql: string) => { all: (...args: unknown[]) => unknown[] } };
   if (db) {
     rawDb = db;
   } else {
     const mod = await import('../db/client');
-    rawDb = mod.getRawDb();
+    rawDb = mod.getRawDb() as { prepare: (sql: string) => { all: (...args: unknown[]) => unknown[] } };
   }
   try {
     const rows = rawDb
@@ -714,14 +714,14 @@ export async function listSessionExternalIdsForWorkspace(
  */
 export async function findWorkspaceForExternalId(
   externalId: string,
-  db?: { prepare: (sql: string) => { get: () => unknown } },
+  db?: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } },
 ): Promise<string | null> {
-  let rawDb: { prepare: (sql: string) => { get: () => unknown } };
+  let rawDb: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } };
   if (db) {
     rawDb = db;
   } else {
     const mod = await import('../db/client');
-    rawDb = mod.getRawDb();
+    rawDb = mod.getRawDb() as { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } };
   }
   try {
     const row = rawDb
