@@ -8,7 +8,7 @@
 // PaneHeader's provider-name tooltip; Stop moves to the right-click menu.
 
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Square, Terminal as TerminalIcon } from 'lucide-react';
+import { FolderOpen, Plus, Square, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,6 +32,7 @@ import {
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
+import { WorktreeInfoBanner } from '@/renderer/components/WorktreeInfoBanner';
 import { SessionTerminal } from './Terminal';
 import { GridLayout } from './GridLayout';
 import { PaneHeader } from './PaneHeader';
@@ -77,6 +78,7 @@ export function CommandRoom() {
   );
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [adding, setAdding] = useState(false);
+  const [showWorktreeBanner, setShowWorktreeBanner] = useState(true);
   const activeSwarm = useMemo(() => {
     if (!activeWorkspace) return null;
     const selected = activeSwarmId
@@ -280,6 +282,9 @@ export function CommandRoom() {
           ⌘⌥&lt;N&gt; to focus pane
         </div>
       </div>
+      {showWorktreeBanner && sessions.length > 0 && (
+        <WorktreeInfoBanner onDismiss={() => setShowWorktreeBanner(false)} />
+      )}
       <div className="min-h-0 flex-1 overflow-hidden">
         <GridLayout<AgentSession>
           items={sessions}
@@ -321,6 +326,20 @@ function PaneCell({
 }) {
   const errored = session.status === 'error';
   const exited = session.status === 'exited';
+  const hasWorktree = !!session.worktreePath;
+
+  function handleReveal() {
+    if (!session.worktreePath) return;
+    void rpc.app.revealInFolder(session.worktreePath).catch(() => undefined);
+  }
+
+  function handleOpenShell() {
+    if (!session.worktreePath) return;
+    void rpc.app.openShell(session.worktreePath)
+      .then(() => toast.success('Terminal opened', { description: session.worktreePath! }))
+      .catch((err) => toast.error('Failed to open terminal', { description: err instanceof Error ? err.message : String(err) }));
+  }
+
   // V1.1.4 Step 4 — Stop functionality lives in the right-click context menu
   // now that PaneStatusStrip is gone and the header only carries Close. The
   // ContextMenu wraps just the body so right-clicks on the header chrome
@@ -355,6 +374,14 @@ function PaneCell({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          <ContextMenuItem onSelect={handleReveal} disabled={!hasWorktree}>
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span>Reveal worktree in Finder</span>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={handleOpenShell} disabled={!hasWorktree}>
+            <TerminalIcon className="h-3.5 w-3.5" />
+            <span>Open shell here</span>
+          </ContextMenuItem>
           <ContextMenuItem
             onSelect={onStop}
             disabled={exited || errored}

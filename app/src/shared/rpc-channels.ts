@@ -18,6 +18,11 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'app.quitAndInstall',
   // V3-W15-005 — read the current plan tier (default 'ultra' on SigmaLink).
   'app.tier',
+  // v1.4.2-06 — Worktree location UX.
+  'app.revealInFolder',
+  'app.openShell',
+  'app.getUserDataPath',
+  'app.dismissedWorktreeBanner',
   // pty
   'pty.create',
   'pty.write',
@@ -57,6 +62,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'fs.readDir',
   'fs.readFile',
   'fs.writeFile',
+  // v1.4.2-06 — Storage panel: list worktrees with sizes.
+  'fs.getWorktreeSizes',
   // swarms
   'swarms.create',
   'swarms.addAgent',
