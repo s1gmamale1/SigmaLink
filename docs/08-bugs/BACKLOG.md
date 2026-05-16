@@ -62,6 +62,46 @@
 
 ---
 
+## v1.4.2 — dogfood items (2026-05-17, opened)
+
+### DOGFOOD-V1.4.2-01 — "+ Pane" button reported as not working (likely discoverability, not stub)
+- **User quote** (2026-05-17): "make the + Pane button actually work alr."
+- **Surface**: `app/src/renderer/features/command-room/CommandRoom.tsx:223-282` (top-bar `Plus / Pane` button inside the Command Room header strip).
+- **Investigation finding**: the button is **fully wired**, not a no-op stub.
+  - Click handler (line 262) opens a `DropdownMenu` listing every provider from `rpc.providers.list()`.
+  - Selecting a provider calls `addPane(providerId)` (line 201) → `rpc.swarms.addAgent({ swarmId, providerId })` → main-process `addAgentToSwarm()` in `app/src/main/core/swarms/factory.ts:198`.
+  - `addAgentToSwarm` inserts the `swarm_agents` row inside a better-sqlite3 transaction (line 246), calls `spawnAgentSession()` (line 284) which spawns the PTY, and the renderer dispatches `UPSERT_SWARM` + `ADD_SESSIONS` + `SET_ACTIVE_SESSION` on success (lines 206-208). Errors are surfaced via `toast.error` (line 213).
+  - v1.2.5 Step 3 added a `disabledReason` tooltip (line 51) for the three disabled states: no workspace, swarm paused, or 20-pane cap.
+- **Hypothesis** (why the user thinks it's broken — needs verification):
+  1. **Disabled state masquerading as broken**: when the active swarm is `paused` or the workspace has no running swarm, the button renders disabled with a tooltip that requires a 200ms hover to surface. A click on the disabled span produces no feedback at all.
+  2. **DropdownMenu UX**: the button opens a dropdown rather than spawning a default pane on a single click. Users coming from the "Launch N agents" flow expect one-click "add another like the last one" semantics.
+  3. **Silent failure**: `addAgentToSwarm` can reject (e.g. provider CLI missing, mailbox path unwritable). The toast fires but is easy to miss on a busy screen.
+- **Effort**: S (~2-3hr).
+  - First: capture a screen recording of the exact click → outcome the user is seeing. Without that we can't tell which of the three hypotheses applies.
+  - If (1): add a visible inline "swarm paused — resume to add panes" pill next to the button so the reason shows without hover.
+  - If (2): change single click to spawn the last-used provider directly, and reserve the dropdown for a chevron alongside (split-button pattern).
+  - If (3): bubble the toast description into a persistent error chip in the pane header.
+- **Defer to**: v1.4.2 first patch after v1.4.1 ships.
+
+### DOGFOOD-V1.4.2-02 — Window responsiveness audit on pane re-adjustment
+- **User quote** (2026-05-17): "Need to double check the window responsiveness, when panes are getting re-adjusted."
+- **Surface**: `app/src/renderer/features/command-room/GridLayout.tsx` (divider drag) + `app/src/renderer/features/command-room/Terminal.tsx:174-217` (ResizeObserver + PTY resize IPC).
+- **Investigation finding** (static read — needs perf trace to confirm):
+  - The PTY resize path is already debounced sanely: `Terminal.tsx:215-217` clears the prior timer and reschedules `runFit` after 25ms; the first fit at non-zero dimensions runs synchronously; main-process `registry.resize` (`app/src/main/core/pty/registry.ts:239`) short-circuits on dead sessions. No obvious IPC flood.
+  - The most plausible jank source is `GridLayout.startDrag` (`GridLayout.tsx:91-132`): the `pointermove` handler updates `colFracs` / `rowFracs` state synchronously on every move event without rAF throttling. At a 4×4 / 5×4 preset that triggers up to 20 simultaneous `ResizeObserver` callbacks per move event, each scheduling its own 25ms debounced `fit.fit()` + IPC roundtrip. The drag itself stays smooth (state update is cheap) but the post-release PTY catch-up can stutter as 12-20 fits land within a ~25ms window.
+  - Window resize (dragging the OS window edge) only flows through ResizeObserver — there's no `window.addEventListener('resize', ...)` at the App or CommandRoom level. The Sidebar and BrowserViewMount have their own listeners but neither touches the pane grid. This is likely fine; ResizeObserver fires per cell so the per-pane fit cascade applies here too.
+- **Risk areas not visible without runtime profile**:
+  - Whether xterm.js `fit.fit()` reflow blocks the main thread at high cell counts.
+  - Whether `pty.resize` IPC takes long enough to backpressure when 12-20 fire near-simultaneously.
+  - Whether the CSS grid `transition-shadow` on each pane cell (line 159 of GridLayout) contributes to compositor lag during a drag.
+- **Effort**: S (~2hr investigation, M (~4hr) if rAF-throttling the divider drag is the fix).
+  - Capture a Chrome DevTools perf trace during: (a) OS window edge drag with 4 panes, 12 panes, 20 panes; (b) inter-pane divider drag at 4×3 and 5×4.
+  - If `pointermove` handler shows up in scripting time, wrap `setColFracs/setRowFracs` in `requestAnimationFrame`.
+  - If `fit.fit()` shows up in layout time, gate the per-cell ResizeObserver behind a 100ms debounce instead of 25ms during sustained resize bursts.
+- **Defer to**: v1.4.2 first patch after v1.4.1 ships. Pair with DOGFOOD-V1.4.2-01 since both touch the Command Room top bar.
+
+---
+
 ## P3 — polish
 
 ### Tooltip text "Coming in v1.2" on disabled pane icons
