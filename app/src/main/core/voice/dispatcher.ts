@@ -60,7 +60,7 @@ const RE_CREATE_SWARM =
   /^(?:please\s+)?(?:spawn|launch|create|start)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|a|an)?\s*(coder|tester|reviewer|coordinator|builder|scout)s?\b/i;
 
 const RE_NAVIGATE =
-  /^(?:open|navigate to|switch to|go to|show)\s+(?:the\s+)?(swarm|browser|review|tasks|memory|operator|workspaces|command|bridge|skills|settings)\b/i;
+  /^(?:open|navigate to|switch to|go to|show)\s+(?:the\s+)?(swarm|browser|review|tasks|memory|operator|workspaces|command|sigma|skills|settings)\b/i;
 
 const RE_BROADCAST =
   /^(?:send|broadcast|tell)\s+["'](.+?)["'](?:\s+to\s+(\w+))?\s*$/i;

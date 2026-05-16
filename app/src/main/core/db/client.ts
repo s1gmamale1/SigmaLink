@@ -228,6 +228,22 @@ export function initializeDatabase(userDataDir: string): {
   } catch {
     /* kv table may not exist on very old schemas — ignore */
   }
+  // v1.4.1 — transparently migrate the old bridge.autoFocusOnDispatch kv key
+  // to sigma.autoFocusOnDispatch. Independent of the activeConversationId
+  // migration above — a user may have toggled one preference but not the other.
+  // Idempotent.
+  try {
+    const oldAutoFocusRow = sqlite.prepare("SELECT value FROM kv WHERE key = 'bridge.autoFocusOnDispatch'").get() as { value: string } | undefined;
+    if (oldAutoFocusRow) {
+      const newAutoFocusRow = sqlite.prepare("SELECT 1 FROM kv WHERE key = 'sigma.autoFocusOnDispatch'").get() as { value: string } | undefined;
+      if (!newAutoFocusRow) {
+        sqlite.prepare("INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?)").run('sigma.autoFocusOnDispatch', oldAutoFocusRow.value, Date.now());
+      }
+      sqlite.prepare("DELETE FROM kv WHERE key = 'bridge.autoFocusOnDispatch'").run();
+    }
+  } catch {
+    /* kv table may not exist on very old schemas — ignore */
+  }
   rawDb = sqlite;
   dbHandle = drizzle(sqlite, { schema });
   return { db: dbHandle, raw: sqlite, filePath };
