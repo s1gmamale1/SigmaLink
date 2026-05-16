@@ -4,9 +4,23 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-05-17
+
+docs(v1.4.2): backlog verify-and-close sweep + packet 08 closure
+
+### Fixed
+
+- **BUG-W7-015** — Launch button low-contrast in Parchment theme closed. Accent-filled CTA (`bg-accent`) with darker Parchment accent tokens (`--accent: 22 70% 32%`) already on main; verified WCAG AA contrast.
+- **CI cache-dependency-path** — `cache-dependency-path` correctly targets `app/package.json` in `lint-and-build.yml`.
+- **vitest coverage thresholds** — `coverage.thresholds` block present in `vitest.config.ts` with 22% lines floor.
+
 ### Documentation
 
 - Verify-and-close packet 08: `state.tsx` was already split from 553 → 97 LOC in v1.1.9 (commit `d824c42`); stale BACKLOG and WISHLIST rows removed.
+
+### Known issues
+
+- **shellcheck CI step** — step exists in `lint-and-build.yml` but fails on `macos-14` runner (`apt-get` not available). Needs `brew install shellcheck` or migration to `ubuntu-latest` runner. Escalated to lead.
 
 ## [1.4.1] - 2026-05-16
 
