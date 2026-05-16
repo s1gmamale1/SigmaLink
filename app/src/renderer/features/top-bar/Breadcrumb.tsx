@@ -72,7 +72,7 @@ export function Breadcrumb() {
   if (!active) {
     // Still render the chrome bar so the layout below does not jump when a
     // workspace opens. The label reads `No workspace open`. The rooms menu
-    // button still renders here — Workspaces / Settings / Skills / Bridge are
+    // button still renders here — Workspaces / Settings / Skills / Sigma are
     // reachable without an active workspace and the user needs a way back to
     // the workspaces room.
     return (

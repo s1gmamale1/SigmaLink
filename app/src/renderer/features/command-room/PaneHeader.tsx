@@ -1,4 +1,4 @@
-// V1.1.4 Step 4: per-pane top chrome — single h-7 strip (V3 BridgeMind port).
+// V1.1.4 Step 4: per-pane top chrome — single h-7 strip (V3 SigmaMind port).
 //
 // Collapses the legacy two-strip layout (h-7 PaneHeader + h-6 PaneStatusStrip)
 // into one h-7 row matching V3 frames 0070 / 0100 / 0140. Layout:

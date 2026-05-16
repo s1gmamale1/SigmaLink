@@ -1,4 +1,4 @@
-// SigmaLink sidebar — V3 BridgeMind layout.
+// SigmaLink sidebar — V3 SigmaMind layout.
 // The rail is now a pure workspaces panel. The 12-item room nav moved to a
 // top-bar dropdown (Step 2). The Cmd+K command-palette card was dropped
 // from the rail too — the keyboard shortcut still works app-wide. Header
@@ -108,7 +108,7 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* V3 BridgeMind: pure workspaces panel — no room nav, no palette card. */}
+      {/* V3 SigmaMind: pure workspaces panel — no room nav, no palette card. */}
       {!collapsed ? (
         <WorkspacesPanel
           workspaces={openWorkspaces}

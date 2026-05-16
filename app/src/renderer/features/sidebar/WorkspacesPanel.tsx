@@ -1,4 +1,4 @@
-// V3 BridgeMind sidebar — pure workspaces panel.
+// V3 SigmaMind sidebar — pure workspaces panel.
 // Lifted out of `Sidebar.tsx` so the rail can host *just* workspaces now that
 // room navigation moved to a top-bar dropdown (Step 2). The header exposes
 // the open-workspace picker behind two equivalent affordances (`+` and a

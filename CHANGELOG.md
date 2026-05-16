@@ -4,6 +4,20 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-05-16
+
+### Changed
+
+- **Bridge → Sigma branding sweep** across renderer UI strings, component names, room ID, and comments. All user-visible "Bridge" labels now read "Sigma" (orb states, toast messages, launcher tiles, settings descriptions).
+- **Directory rename**: `bridge-agent/` → `sigma-assistant/`; `BridgeRoom.tsx` → `SigmaRoom.tsx`; `BridgeTabPlaceholder.tsx` → `SigmaTabPlaceholder.tsx`.
+- **Room ID rename**: `'bridge'` → `'sigma'` in the `RoomId` union, all room nav code, command palette, right-rail tabs, and tests.
+- **KV migration**: `bridge.activeConversationId` → `sigma.activeConversationId` (and `bridge.autoFocusOnDispatch` → `sigma.autoFocusOnDispatch`). Idempotent boot-time migration copies old keys to new names and deletes the originals.
+
+### Notes
+
+- Generic "bridge" terminology in `claude-resume-bridge.ts` and `mcp-host-bridge.ts` is preserved (descriptive symlink/IPC bridge, not branding).
+- Historical research docs (`docs/02-research/`) and screenshots (`docs/07-test/screenshots/`) are intentionally untouched.
+
 ## [1.4.0] - 2026-05-16
 
 feat(v1.4.0): Sigma Assistant orchestrator resume

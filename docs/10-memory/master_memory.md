@@ -1363,3 +1363,21 @@ interrupted-turn retry, migration registration + idempotency); migration node
 tests 5/5 pass; `pnpm exec eslint .` clean (one pre-existing `use-session-
 restore.ts:263` warning unchanged); `pnpm run build` clean. Pane → Sigma mailbox
 back-channel deferred to v1.4.1.
+
+## Phase 27 — v1.4.1 Bridge → Sigma Rename Sweep
+
+Comprehensive branding rename across the renderer: all user-visible "Bridge"
+strings → "Sigma", directory `bridge-agent/` → `sigma-assistant/`, component
+`BridgeRoom` → `SigmaRoom`, `BridgeTabPlaceholder` → `SigmaTabPlaceholder`,
+room ID `'bridge'` → `'sigma'` in the type union and all references.
+
+A boot-time KV migration copies `bridge.activeConversationId` →
+`sigma.activeConversationId` (and `bridge.autoFocusOnDispatch` →
+`sigma.autoFocusOnDispatch`) idempotently — old key deleted after copy, no-op
+if new key already exists. Generic "bridge" terminology in
+`claude-resume-bridge.ts` (symlink helper) and `mcp-host-bridge.ts` (IPC bridge)
+is preserved. Historical research docs and screenshots untouched.
+
+Verification: `pnpm exec tsc -b --pretty false` clean; `pnpm exec vitest run`
+354/354 (no regression); `pnpm exec eslint .` clean (1 pre-existing warning);
+`pnpm run build` clean; `node scripts/build-electron.cjs` clean.

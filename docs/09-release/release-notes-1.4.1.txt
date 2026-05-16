@@ -1,0 +1,48 @@
+SigmaLink v1.4.1
+================
+
+Bridge → Sigma branding sweep. All user-visible "Bridge" labels now read
+"Sigma" across the renderer UI, component names, room IDs, and developer
+comments.
+
+Highlights
+----------
+
+- **Orb states**: "Sigma — standing by. Click to listen." and all other
+  orb labels (listening, receiving, thinking) now use Sigma branding.
+- **Toast messages**: "Sigma failed to accept your message" replaces the
+  old Bridge toast.
+- **Launcher tiles**: "Open Sigma Canvas" replaces "Open Bridge Canvas".
+- **Settings descriptions**: "Sigma pattern surfacing" replaces "Bridge
+  pattern surfacing".
+- **Room navigation**: The room ID `'bridge'` is now `'sigma'` across the
+  command palette, right-rail tabs, rooms menu, and sidebar.
+- **Component names**: `BridgeRoom` → `SigmaRoom`, `BridgeTabPlaceholder`
+  → `SigmaTabPlaceholder`, directory `bridge-agent/` → `sigma-assistant/`.
+
+Transparent Upgrade
+-------------------
+
+- **KV migration**: On first boot after upgrade, `bridge.activeConversationId`
+  is copied to `sigma.activeConversationId` and the old key is deleted. The
+  migration is idempotent — if the new key already exists, nothing happens.
+  Users mid-session are unaffected; the migration runs at main-process boot
+  before any renderer reads the kv store.
+
+Developer Notes
+---------------
+
+- Generic "bridge" terminology in `claude-resume-bridge.ts` (symlink helper)
+  and `mcp-host-bridge.ts` (IPC bridge) is preserved — these are descriptive
+  terms, not branding.
+- Historical research docs (`docs/02-research/`) and screenshots
+  (`docs/07-test/screenshots/`) are intentionally untouched.
+
+Verification
+------------
+
+- `pnpm exec tsc -b --pretty false` — clean
+- `pnpm exec vitest run` — 354/354 (no regression vs v1.4.0)
+- `pnpm exec eslint .` — clean (1 pre-existing warning OK)
+- `pnpm run build` — clean
+- `node scripts/build-electron.cjs` — clean

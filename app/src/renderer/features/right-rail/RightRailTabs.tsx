@@ -12,7 +12,7 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 
-export type RightRailTabId = 'browser' | 'editor' | 'bridge';
+export type RightRailTabId = 'browser' | 'editor' | 'sigma';
 
 interface TabDef {
   id: RightRailTabId;
@@ -23,7 +23,7 @@ interface TabDef {
 const TABS: readonly TabDef[] = [
   { id: 'browser', label: 'Browser', Icon: Globe },
   { id: 'editor', label: 'Editor', Icon: FileCode2 },
-  { id: 'bridge', label: 'Sigma Assistant', Icon: Bot },
+  { id: 'sigma', label: 'Sigma Assistant', Icon: Bot },
 ] as const;
 
 interface Props {

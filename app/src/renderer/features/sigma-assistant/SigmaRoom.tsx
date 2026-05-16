@@ -1,10 +1,10 @@
-// V3-W13-012 / V3-W13-015 — Bridge Assistant root.
+// V3-W13-012 / V3-W13-015 — Sigma Assistant root.
 // Hosts orb + transcript + composer + tool-call inspector. Owns the active
 // conversation, the in-flight streaming buffer, the orb state machine, and
 // the cross-workspace dispatch echo handler (jump-to-pane + ding).
 // P3-S7 — Adds a left-side Conversations panel that lists past chats from
 // `assistant.conversations.list` and persists the active conversation id
-// in `kv['bridge.activeConversationId']` so a fresh app launch restores
+// in `kv['sigma.activeConversationId']` so a fresh app launch restores
 // the same thread the user was in.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -37,12 +37,12 @@ import {
   type VoiceCaptureHandle,
 } from '@/renderer/lib/voice';
 
-const KV_ACTIVE_CONVERSATION = 'bridge.activeConversationId';
-// BUG-V1.1-04-IPC — when a Bridge tool dispatches a pane, auto-shift focus
+const KV_ACTIVE_CONVERSATION = 'sigma.activeConversationId';
+// BUG-V1.1-04-IPC — when a Sigma tool dispatches a pane, auto-shift focus
 // to the spawned pane (workspace + room + active-session + xterm focus)
 // instead of waiting for the user to click "Jump to pane" in the toast.
-// Default ON; users can disable by writing kv['bridge.autoFocusOnDispatch']='0'.
-const KV_AUTO_FOCUS_ON_DISPATCH = 'bridge.autoFocusOnDispatch';
+// Default ON; users can disable by writing kv['sigma.autoFocusOnDispatch']='0'.
+const KV_AUTO_FOCUS_ON_DISPATCH = 'sigma.autoFocusOnDispatch';
 const IN_FLIGHT_TOOL_PREFIX = 'sigma-in-flight:';
 const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
@@ -171,7 +171,7 @@ interface Props {
   className?: string;
 }
 
-export function BridgeRoom({ variant = 'standalone', className }: Props) {
+export function SigmaRoom({ variant = 'standalone', className }: Props) {
   const { state, dispatch } = useAppState();
   const activeWorkspace = state.activeWorkspace;
   const wsId = activeWorkspace?.id;
@@ -545,7 +545,7 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
       } catch (err) {
         setBusy(false);
         setOrbState('standby');
-        toast.error('Bridge failed to accept your message', {
+        toast.error('Sigma failed to accept your message', {
           description: err instanceof Error ? err.message : String(err),
         });
       }
@@ -649,7 +649,7 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
     sendPromptRef.current = sendPrompt;
   }, [sendPrompt]);
 
-  // V3-W15-003 — orb click toggles BridgeVoice capture. STANDBY → kick off
+  // V3-W15-003 — orb click toggles SigmaVoice capture. STANDBY → kick off
   // a session and switch to LISTENING; click again to abort. The recognizer's
   // final transcript is dispatched to `assistant.send` and the orb advances
   // to THINKING (the streaming events emitted by the assistant controller

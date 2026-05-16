@@ -69,9 +69,9 @@ const SettingsRoom = lazy(() =>
     default: m.SettingsRoom,
   })),
 );
-const BridgeRoom = lazy(() =>
-  import('@/renderer/features/bridge-agent/BridgeRoom').then((m) => ({
-    default: m.BridgeRoom,
+const SigmaRoom = lazy(() =>
+  import('@/renderer/features/sigma-assistant/SigmaRoom').then((m) => ({
+    default: m.SigmaRoom,
   })),
 );
 
@@ -129,8 +129,8 @@ function RoomSwitch() {
     case 'skills':
       body = <SkillsRoom />;
       break;
-    case 'bridge':
-      body = <BridgeRoom variant="standalone" />;
+    case 'sigma':
+      body = <SigmaRoom variant="standalone" />;
       break;
     case 'settings':
       body = <SettingsRoom />;
@@ -156,10 +156,10 @@ function MainBody() {
   const { state } = useAppState();
   const { enabled, ready } = useRightRailEnabled();
   // Hide the rail when the user is in a room whose body already lives in the
-  // rail (Browser tab → 'browser', Bridge tab → 'bridge') so we don't double-
-  // mount the WebContentsView (browser) or the chat surface (bridge).
+  // rail (Browser tab → 'browser', Sigma tab → 'sigma') so we don't double-
+  // mount the WebContentsView (browser) or the chat surface (sigma).
   const showRail =
-    ready && enabled && state.room !== 'browser' && state.room !== 'bridge';
+    ready && enabled && state.room !== 'browser' && state.room !== 'sigma';
   const body = (
     <div className="flex min-h-0 flex-1 flex-col">
       <RoomSwitch />
@@ -181,7 +181,7 @@ export default function App() {
           <div className="flex h-full w-full">
             <Sidebar />
             <main className="flex min-h-0 flex-1 flex-col">
-              {/* V3-W15-001 — title-bar BridgeVoice pill overlays the breadcrumb
+              {/* V3-W15-001 — title-bar SigmaVoice pill overlays the breadcrumb
                   while a voice session is active. The pill auto-hides 200ms
                   after capture stops so we don't reserve layout space. */}
               <div className="relative">

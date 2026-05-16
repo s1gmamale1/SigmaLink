@@ -1,4 +1,4 @@
-// V3-W13-012 — Bridge Assistant transcript. Role-tagged messages stream
+// V3-W13-012 — Sigma Assistant transcript. Role-tagged messages stream
 // char-by-char (assistant rows pick up the parent's `streamingDelta`).
 // Auto-sticks to bottom unless the user has scrolled away.
 

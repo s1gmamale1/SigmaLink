@@ -242,7 +242,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
     });
 
     // V3-W13-015 — listen for cross-workspace jump-to-pane events the
-    // BridgeRoom dispatches when a Bridge-spawned pane finishes. Only the
+    // SigmaRoom dispatches when a Sigma-spawned pane finishes. Only the
     // matching session focuses; other Terminals ignore the event silently.
     // BUG-V1.1-04-IPC — guard against double-focus when the auto-focus
     // path fires immediately after the user already had this pane focused

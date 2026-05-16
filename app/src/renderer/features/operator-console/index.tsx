@@ -222,8 +222,8 @@ export function OperatorConsole() {
       />
 
       {/* P3-S7 — When the active swarm (or the swarm being replayed) was
-          created via the Bridge Assistant, render a "Started from Bridge
-          Assistant chat" link that hops the room back to `bridge` and
+          created via Sigma, render a "Started from Sigma
+          Assistant chat" link that hops the room back to `sigma` and
           scrolls to the originating tool-call message. */}
       <OriginLink
         swarmId={replayFrame?.swarmId ?? activeSwarm?.id ?? null}

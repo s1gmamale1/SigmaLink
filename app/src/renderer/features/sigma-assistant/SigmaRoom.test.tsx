@@ -68,7 +68,7 @@ vi.mock('@/renderer/lib/canDo', () => ({
   useCanDo: () => false,
 }));
 
-import { BridgeRoom } from './BridgeRoom';
+import { SigmaRoom } from './SigmaRoom';
 
 const rows = [
   {
@@ -149,7 +149,7 @@ function installSigma() {
   return invoke;
 }
 
-describe('<BridgeRoom /> resume UI', () => {
+describe('<SigmaRoom /> resume UI', () => {
   beforeEach(() => {
     mocks.dispatch.mockReset();
     mocks.send.mockResolvedValue({ conversationId: 'conversation-1', turnId: 'turn-2' });
@@ -165,7 +165,7 @@ describe('<BridgeRoom /> resume UI', () => {
   });
 
   it('renders a compact rail dropdown with resumable conversation rows', async () => {
-    render(<BridgeRoom variant="rail" />);
+    render(<SigmaRoom variant="rail" />);
 
     const trigger = await screen.findByLabelText('Conversation menu');
     expect(trigger.textContent).toContain('Launch the workspace panes');
@@ -179,7 +179,7 @@ describe('<BridgeRoom /> resume UI', () => {
   });
 
   it('shows resume and interrupted-turn banners after hydrating a resumable conversation', async () => {
-    render(<BridgeRoom variant="standalone" />);
+    render(<SigmaRoom variant="standalone" />);
 
     expect((await screen.findByTestId('bridge-resume-banner')).textContent).toMatch(
       /Resuming chat from/,
@@ -190,7 +190,7 @@ describe('<BridgeRoom /> resume UI', () => {
   });
 
   it('retries an interrupted turn with the previous user message', async () => {
-    render(<BridgeRoom variant="standalone" />);
+    render(<SigmaRoom variant="standalone" />);
 
     await screen.findByTestId('bridge-interrupted-banner');
     fireEvent.click(screen.getByText('Retry'));

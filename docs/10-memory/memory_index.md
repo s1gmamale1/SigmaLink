@@ -274,3 +274,15 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-174 | Frontend slice: Bridge right-rail conversation dropdown, resumable pill, resume banner, interrupted-turn retry/dismiss banner, and ConversationsPanel resumable marker | shipped | 1 |
 | T-175 | v1.4.0 reviewer verdict (Opus 4.7): APPROVED — 0 critical/high; 1 med (BridgeRoom 922 LOC, pre-existing condition); two strengthenings beyond plan spec (broader `isLikelyResumeFailure` regex, tighter `findInterruptedTurn` predicate) | shipped | 1 |
 | T-176 | v1.4.0 release plumbing: bump `app/package.json` 1.3.5 → 1.4.0, CHANGELOG `[1.4.0]`, release-notes-1.4.0.txt, WISHLIST shipped row, master_memory Phase 26 | shipped | 1 |
+
+## v1.4.1 Phase 27 — Bridge → Sigma rename sweep (May 16, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-177 | Tier 1 — user-visible string sweep: Orb states, toast, Launcher canvas tile, SwarmCreate, operator console, RufloSettings, DesignDock all renamed "Bridge" → "Sigma" | shipped | 1 |
+| T-178 | Tier 2 — code identifier sweep: `git mv bridge-agent/` → `sigma-assistant/`, `BridgeRoom.tsx` → `SigmaRoom.tsx`, `BridgeTabPlaceholder.tsx` → `SigmaTabPlaceholder.tsx`, component exports + imports updated across App.tsx, RightRail, SigmaTabPlaceholder, SigmaRoom.test | shipped | 1 |
+| T-179 | Tier 2 — room ID rename: `'bridge'` → `'sigma'` in RoomId union, parsers, App.tsx, CommandPalette, RightRailSwitcher, RightRailContext.data, RightRailTabs, RoomsMenuButton.test, rooms-menu-items, OriginLink | shipped | 1 |
+| T-180 | KV migration: idempotent boot-time rename of `bridge.activeConversationId` → `sigma.activeConversationId` and `bridge.autoFocusOnDispatch` → `sigma.autoFocusOnDispatch` in `client.ts` | shipped | 1 |
+| T-181 | Tier 3 — comment/dev-label sweep: 20+ files updated (BridgeMind → SigmaMind, BridgeVoice → SigmaVoice, BridgeCode → SigmaCode, BridgeRoom → SigmaRoom, Bridge Canvas → Sigma Canvas) | shipped | 1 |
+| T-182 | v1.4.1 verification: `tsc -b` clean; `vitest run` 354/354; `eslint` clean (1 pre-existing warning); `pnpm run build` clean; `build-electron.cjs` clean | shipped | 1 |
+| T-183 | v1.4.1 release plumbing: bump `app/package.json` 1.4.0 → 1.4.1, CHANGELOG `[1.4.1]`, release-notes-1.4.1.txt, master_memory Phase 27, memory_index T-rows | shipped | 1 |

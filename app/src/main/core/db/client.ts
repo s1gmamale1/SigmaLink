@@ -213,6 +213,8 @@ export function initializeDatabase(userDataDir: string): {
   // installs pick up new columns; fresh installs already have the columns
   // because the migration runner short-circuits via PRAGMA introspection.
   migrate(sqlite);
+  // v1.4.1 — KV key rename: bridge.* → sigma.*. Idempotent; runs once per key.
+  runKvMigrations(sqlite);
   rawDb = sqlite;
   dbHandle = drizzle(sqlite, { schema });
   return { db: dbHandle, raw: sqlite, filePath };
@@ -247,4 +249,29 @@ export function closeDatabase(): void {
   }
   rawDb = null;
   dbHandle = null;
+}
+
+/**
+ * v1.4.1 — KV key migration: rename `bridge.*` keys to `sigma.*`.
+ * Idempotent — only copies when old key exists and new key does not.
+ */
+function runKvMigrations(db: Database.Database): void {
+  const renames: [string, string][] = [
+    ['bridge.activeConversationId', 'sigma.activeConversationId'],
+    ['bridge.autoFocusOnDispatch', 'sigma.autoFocusOnDispatch'],
+  ];
+  const getStmt = db.prepare('SELECT value FROM kv WHERE key = ?');
+  const setStmt = db.prepare(
+    `INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  );
+  const delStmt = db.prepare('DELETE FROM kv WHERE key = ?');
+  for (const [oldKey, newKey] of renames) {
+    const oldRow = getStmt.get(oldKey) as { value: string } | undefined;
+    if (!oldRow) continue; // old key absent — nothing to migrate
+    const newRow = getStmt.get(newKey) as { value: string } | undefined;
+    if (newRow) continue; // new key already present — user already migrated
+    setStmt.run(newKey, oldRow.value);
+    delStmt.run(oldKey);
+  }
 }

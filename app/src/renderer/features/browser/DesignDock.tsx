@@ -46,7 +46,7 @@ const KV_PROVIDERS_SUFFIX = '.lastProviders';
 
 interface DesignDockProps {
   workspaceId: string;
-  /** Optional canvas id when the user opened a Bridge Canvas. */
+  /** Optional canvas id when the user opened a Sigma Canvas. */
   canvasId?: string;
   /** Compact mode renders inline (under the AddressBar) rather than as a sidebar. */
   compact?: boolean;
@@ -158,7 +158,7 @@ export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) 
     e.preventDefault();
     setStagingDrag(false);
     if (!canvasId) {
-      setError('Open a Bridge Canvas to stage assets.');
+      setError('Open a Sigma Canvas to stage assets.');
       return;
     }
     const files = Array.from(e.dataTransfer?.files ?? []);

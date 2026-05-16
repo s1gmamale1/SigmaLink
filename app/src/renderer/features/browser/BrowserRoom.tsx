@@ -31,7 +31,7 @@ interface BrowserRoomProps {
    */
   visible?: boolean;
   /**
-   * V3-W14-006 — when the room is hosted as a Bridge Canvas surface, the
+    * V3-W14-006 — when the room is hosted as a Sigma Canvas surface, the
    * launcher passes the canvas id so DesignDock can persist `lastProviders`
    * + record dispatch history.
    */

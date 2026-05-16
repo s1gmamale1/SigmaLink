@@ -1,11 +1,11 @@
-// Right-rail dock — the column that hosts the Browser / Editor / Bridge tabs
+// Right-rail dock — the column that hosts the Browser / Editor / Sigma tabs
 // alongside the main room body. Width persists to the kv store; the active
 // tab is owned by `RightRailContext` so the top-bar segmented control
 // (`RightRailSwitcher`) and the rail itself stay in sync. Mountable behind
 // `kv['rightRail.enabled']`; when disabled the parent renders the body alone.
 //
 // V3-W13-001 — depends on the existing browser feature (Browser tab body) and
-// will pick up real Editor/Bridge bodies in W13-W14.
+// will pick up real Editor/Sigma bodies in W13-W14.
 // SigmaLink v1.1.4 Step 3 — in-rail tab strip is hidden; the top-bar
 // `RightRailSwitcher` is the segmented control.
 
@@ -21,7 +21,7 @@ import {
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import { Splitter } from './Splitter';
 import { RightRailTabs } from './RightRailTabs';
-import { BridgeTabPlaceholder } from './BridgeTabPlaceholder';
+import { SigmaTabPlaceholder } from './SigmaTabPlaceholder';
 import { EditorTabPlaceholder } from './EditorTabPlaceholder';
 import { useRightRail } from './RightRailContext.data';
 
@@ -136,7 +136,7 @@ export function RightRail({ children }: Props) {
               </Suspense>
             ) : null,
             editor: <EditorTabPlaceholder />,
-            bridge: <BridgeTabPlaceholder />,
+            sigma: <SigmaTabPlaceholder />,
           }}
         />
       </aside>

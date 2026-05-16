@@ -251,7 +251,7 @@ export function SwarmCreate({ onCreated, onCancel }: Props) {
               className="min-h-[140px] w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm"
             />
             <div className="text-[11px] text-muted-foreground">
-              Drag-drop staging lands with Bridge Canvas (V3-W14).
+              Drag-drop staging lands with Sigma Canvas (V3-W14).
             </div>
           </Card>
           {/* V3-W13-011 — Swarm Skills grid persists via `swarm_skills`. */}
