@@ -1015,4 +1015,5 @@ describe('runClaudeCliTurn', () => {
       // The turn still succeeds — Sigma host is best-effort, never blocking.
     });
   });
+
 });

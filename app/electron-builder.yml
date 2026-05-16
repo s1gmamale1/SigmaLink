@@ -97,7 +97,7 @@ nsis:
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
   installerHeaderIcon: build/icon.ico
-  license: build/nsis/README — First launch.txt
+  include: build/installer.nsh
 # v1.2.9 — Linux is not a supported platform. Local builds emit these for
 # completeness; no CI, no smoke. See docs/03-plan/WISHLIST.md
 # "Architectural decisions".

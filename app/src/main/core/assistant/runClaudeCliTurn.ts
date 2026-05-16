@@ -9,7 +9,7 @@
 // tool-routing + trajectory helpers in `./runClaudeCliTurn.trajectory`.
 // Both internal-only — public surface here is unchanged.
 
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawnExecutable } from '../util/spawn-cross-platform';
 import readline from 'node:readline';
 import { eq } from 'drizzle-orm';
 import { probeProvider } from '../providers/probe';
@@ -333,9 +333,9 @@ export async function runClaudeCliTurn(
     try {
       child = opts.spawnOverride
         ? opts.spawnOverride(probe.resolvedPath, args)
-        : (spawn(probe.resolvedPath, args, {
+        : spawnExecutable(probe.resolvedPath, args, {
             stdio: ['pipe', 'pipe', 'pipe'],
-          }) as ChildProcessWithoutNullStreams);
+          });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const errMsg = `Failed to spawn claude CLI: ${msg}`;

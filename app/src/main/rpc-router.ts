@@ -3,9 +3,10 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { defineController, defineRouter } from '../shared/rpc';
 import type { AppRouter } from '../shared/router-shape';
 import { initializeDatabase, closeDatabase, getRawDb } from './core/db/client';
@@ -132,6 +133,39 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/** Recursively sum file sizes under a directory (async, bounded concurrency). */
+async function dirSize(dir: string): Promise<number> {
+  let total = 0;
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  // Process entries in batches of 16 to avoid unbounded parallelism.
+  const BATCH = 16;
+  for (let i = 0; i < entries.length; i += BATCH) {
+    const batch = entries.slice(i, i + BATCH);
+    const sizes = await Promise.all(
+      batch.map(async (entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          return dirSize(full);
+        }
+        try {
+          const st = await fs.promises.stat(full);
+          return st.size;
+        } catch {
+          /* symlink or permission issue — skip */
+          return 0;
+        }
+      }),
+    );
+    for (const s of sizes) total += s;
+  }
+  return total;
+}
+
 function buildRouter() {
   const userData = app.getPath('userData');
   initializeDatabase(userData);
@@ -164,18 +198,32 @@ function buildRouter() {
     }
   }
   /**
-   * v1.2.8 — bounded retry loop driving the disk-scan capture path for
-   * codex/kimi/opencode. Each attempt fires `findLatestSessionId(provider,
-   * cwd)`; on success we persist + stamp the live registry record and stop.
-   * The schedule (+2s/+5s/+15s) bounds total wall-clock to ~15s so a CLI that
-   * never writes its session file does not loop forever.
-   */
+    * v1.2.8 — bounded retry loop driving the disk-scan capture path for
+    * codex/kimi/opencode. Each attempt fires `findLatestSessionId(provider,
+    * cwd)`; on success we persist + stamp the live registry record and stop.
+    * The schedule (+2s/+5s/+15s) bounds total wall-clock to ~15s so a CLI that
+    * never writes its session file does not loop forever.
+    *
+    * v1.4.2-10 — the scanner now receives `workspaceId` so it can reject
+    * candidates already claimed by a different workspace (Option B scoping).
+    */
   function scheduleDiskScanCapture(
     sessionId: string,
     providerId: string,
     cwd: string,
   ): void {
     if (!DISK_SCAN_PROVIDERS.has(providerId.toLowerCase())) return;
+    // Look up the workspace_id for this session so the disk scanner can
+    // scope its capture to the correct workspace.
+    let workspaceId: string | undefined;
+    try {
+      const wsRow = getRawDb()
+        .prepare('SELECT workspace_id FROM agent_sessions WHERE id = ?')
+        .get(sessionId) as { workspace_id: string } | undefined;
+      workspaceId = wsRow?.workspace_id;
+    } catch {
+      /* pre-migration DB; scanner will fall back to unscoped behaviour */
+    }
     let stopped = false;
     const attempt = async () => {
       if (stopped) return;
@@ -190,7 +238,7 @@ function buildRouter() {
         return;
       }
       try {
-        const captured = await findLatestSessionId(providerId, cwd);
+        const captured = await findLatestSessionId(providerId, cwd, { workspaceId });
         if (captured && !stopped) {
           persistExternalSessionId(sessionId, captured);
           sharedDeps?.pty.setExternalSessionId(sessionId, captured);
@@ -438,6 +486,59 @@ function buildRouter() {
         .get(KV_PLAN_TIER) as { value?: string } | undefined;
       return parseTier(row?.value ?? null);
     },
+    // v1.4.2-06 — Worktree location UX.
+    revealInFolder: async (p: string) => {
+      const resolved = path.resolve(p);
+      const userDataDir = app.getPath('userData');
+      if (!resolved.startsWith(userDataDir + path.sep) && resolved !== userDataDir) {
+        const workspaces = getRawDb()
+          .prepare('SELECT root_path FROM workspaces')
+          .all() as { root_path: string }[];
+        const allowed = workspaces.some((w) => {
+          const root = path.resolve(w.root_path);
+          return resolved.startsWith(root + path.sep) || resolved === root;
+        });
+        if (!allowed) return { ok: false, error: 'path not in allowed root' };
+      }
+      shell.showItemInFolder(resolved);
+      return { ok: true };
+    },
+    openShell: async (cwd: string) => {
+      const resolved = path.resolve(cwd);
+      const userDataDir = app.getPath('userData');
+      if (!resolved.startsWith(userDataDir + path.sep) && resolved !== userDataDir) {
+        const workspaces = getRawDb()
+          .prepare('SELECT root_path FROM workspaces')
+          .all() as { root_path: string }[];
+        const allowed = workspaces.some((w) => {
+          const root = path.resolve(w.root_path);
+          return resolved.startsWith(root + path.sep) || resolved === root;
+        });
+        if (!allowed) return { ok: false, error: 'path not in allowed root' };
+      }
+      const plat = process.platform;
+      if (plat === 'darwin') {
+        spawn('open', ['-a', 'Terminal', resolved], { detached: true, stdio: 'ignore' }).unref();
+      } else if (plat === 'win32') {
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd', '/d', resolved], {
+          detached: true,
+          stdio: 'ignore',
+        }).unref();
+      } else {
+        spawn('x-terminal-emulator', ['--working-directory', resolved], {
+          detached: true,
+          stdio: 'ignore',
+        }).unref();
+      }
+      return { ok: true };
+    },
+    getUserDataPath: async () => app.getPath('userData'),
+    dismissedWorktreeBanner: async () => {
+      const row = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get('ui.dismissedWorktreeBanner') as { value?: string } | undefined;
+      return row?.value === '1';
+    },
   });
 
   const ptyCtl = defineController({
@@ -672,6 +773,29 @@ function buildRouter() {
     readFile: async (input: { path: string; maxBytes?: number }) => fsReadFile(input),
     writeFile: async (input: { path: string; content: string; repoRoot: string }) =>
       fsWriteFile(input),
+    // v1.4.2-06 — Storage panel: enumerate worktree dirs with sizes.
+    getWorktreeSizes: async () => {
+      const worktreesDir = path.join(app.getPath('userData'), 'worktrees');
+      const result: {
+        worktrees: Array<{ path: string; sizeBytes: number; repoHash: string; branchSeg: string }>;
+        totalBytes: number;
+      } = { worktrees: [], totalBytes: 0 };
+      if (!fs.existsSync(worktreesDir)) return result;
+      const repoHashes = fs.readdirSync(worktreesDir);
+      for (const repoHash of repoHashes) {
+        const repoDir = path.join(worktreesDir, repoHash);
+        if (!fs.statSync(repoDir).isDirectory()) continue;
+        const branchSegs = fs.readdirSync(repoDir);
+        for (const branchSeg of branchSegs) {
+          const wtPath = path.join(repoDir, branchSeg);
+          if (!fs.statSync(wtPath).isDirectory()) continue;
+          const sizeBytes = await dirSize(wtPath);
+          result.worktrees.push({ path: wtPath, sizeBytes, repoHash, branchSeg });
+          result.totalBytes += sizeBytes;
+        }
+      }
+      return result;
+    },
   });
 
   const swarmsCtl = buildSwarmController({
