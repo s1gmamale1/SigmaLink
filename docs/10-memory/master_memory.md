@@ -1453,3 +1453,55 @@ the `v1.4.1` annotated tag was pushed, triggering `release-macos.yml` and
 branches (`feat/v1.4.0-sigma-assistant-orchestrator`,
 `feat/v1.4.1-rename-completeness`, `feat/w3-ruflo-mcp-autobind`) were
 cleaned up. W-2 + W-3 plan files were archived under `docs/03-plan/archive/`.
+
+---
+
+## Phase 28 — v1.4.2 bundle: dogfood fixes + backlog hygiene (2026-05-17/18)
+
+### Packet 09 — Backlog verify-and-close sweep (2026-05-17)
+
+Single-commit hygiene pass closing 4 BACKLOG rows flagged as "already shipped"
+but never formally verified. Executed in worktree
+`feat/v1.4.2-09-verify-sweep` → PR #19.
+
+| Item | Verdict | Evidence |
+|------|---------|----------|
+| BUG-W7-015 Parchment launch contrast | ✅ Verified | `Launcher.tsx:380-386` uses `bg-accent`; `index.css:118` `--accent: 22 70% 32%` on `--accent-foreground: 38 38% 96%` clears WCAG AA |
+| CI cache-dependency-path | ✅ Verified | `lint-and-build.yml:40` → `app/package.json` |
+| vitest coverage thresholds | ✅ Verified | `vitest.config.ts:27-32` — 22% lines floor |
+| shellcheck step for install-macos.sh | ⚠️ Escalated | Step at `lint-and-build.yml:58-63` runs `apt-get` on `macos-14` — all 3 recent CI runs fail. Needs `brew install shellcheck`. |
+
+Changes: 4 BACKLOG rows removed; `[1.4.2]` CHANGELOG section added (3 fixed + 1 known issue); no source code changes. Commit `42188c7`, PR #19 squash-merged.
+
+### Packet 02 — Workspace routing fix (2026-05-18)
+
+User report (P1): "When clicked to settings and tried to switch back to
+workspace via clicking to the Workspace from left panel not working, need to
+go to menu and click Command Room."
+
+Root cause: `SET_ROOM` only excluded `'workspaces'` from `roomByWorkspace`
+persistence. Visiting Settings wrote `roomByWorkspace[wsId] = 'settings'`. The
+next `SET_ACTIVE_WORKSPACE_ID` replayed that stale room, landing the user back
+on Settings instead of Command Room. v1.3.3 ship-claim regression (commit
+`66b4fa6` fixed Sidebar's `SET_ROOM='command'` follow-up but the reducer-side
+per-workspace recall at lines 188-198 never excluded `'settings'`).
+
+Fix: introduced `GLOBAL_ROOMS = ['workspaces', 'settings'] as const` and
+`isGlobalRoom()` helper in `state.reducer.ts:13-21`. Applied across three
+dispatch paths:
+
+| Location | Before | After |
+|---|---|---|
+| `state.reducer.ts:111` (SET_ROOM writer) | `action.room !== 'workspaces'` | `!isGlobalRoom(action.room)` |
+| `state.reducer.ts:121` (SET_ROOM_FOR_WORKSPACE) | `action.room === 'workspaces'` | `isGlobalRoom(action.room)` |
+| `state.reducer.ts:204` (SET_ACTIVE_WORKSPACE_ID) | `savedRoom !== 'workspaces'` | `!isGlobalRoom(savedRoom)` |
+
+2 new tests added: Settings-visit routing + global-room-persistence guard.
+
+Preserved: `Sidebar.tsx:62` `SET_ROOM: 'command'` dispatch (load-bearing for
+`openPersistedWorkspace`); `CommandRoom.tsx:182` `SET_ROOM: 'workspaces'`
+dispatch (audit-aware, no fix needed).
+
+Verification: tsc clean, vitest 370/370 (368 + 2), eslint 0 errors (1
+pre-existing), build clean, electron compile clean. Commit `425aec9`, PR #17
+squash-merged.

@@ -9,6 +9,18 @@
 import type { AgentSession, Swarm, Workspace } from '../../shared/types';
 import { selectActiveWorkspace, type Action, type AppState, type RoomId } from './state.types';
 
+/**
+ * Rooms that are NOT workspace-scoped. These must never be persisted into
+ * `roomByWorkspace` because they are global surfaces (launcher, settings).
+ * v1.4.2 — added 'settings' to fix the "click workspace after visiting
+ * Settings stays on Settings" bug.
+ */
+const GLOBAL_ROOMS: readonly RoomId[] = ['workspaces', 'settings'] as const;
+
+function isGlobalRoom(room: RoomId): boolean {
+  return (GLOBAL_ROOMS as readonly string[]).includes(room);
+}
+
 function deriveActiveWorkspace(state: AppState): AppState {
   const activeWorkspace = selectActiveWorkspace(state);
   return state.activeWorkspace === activeWorkspace ? state : { ...state, activeWorkspace };
@@ -96,7 +108,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       // not having an entry (snapshot writer falls back to 'command').
       const wsId = state.activeWorkspaceId;
       const roomByWorkspace =
-        wsId && action.room !== 'workspaces'
+        wsId && !isGlobalRoom(action.room)
           ? { ...state.roomByWorkspace, [wsId]: action.room }
           : state.roomByWorkspace;
       return { ...state, room: action.room, roomByWorkspace };
@@ -104,9 +116,9 @@ export function appStateReducer(state: AppState, action: Action): AppState {
     case 'SET_ROOM_FOR_WORKSPACE': {
       // v1.1.10 — used by session-restore to seed the per-workspace map
       // without altering the user-visible `state.room`. No-op if the room
-      // is the picker (we drop those at SET_ROOM time too) or the entry is
+      // is a global surface (we drop those at SET_ROOM time too) or the entry is
       // already correct.
-      if (action.room === 'workspaces') return state;
+      if (isGlobalRoom(action.room)) return state;
       if (state.roomByWorkspace[action.workspaceId] === action.room) return state;
       return {
         ...state,
@@ -189,7 +201,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       // 'command' when no saved room is present so the user doesn't land on
       // the Launcher ('workspaces') when clicking an already-open workspace.
       const savedRoom = state.roomByWorkspace[action.workspaceId];
-      const room = savedRoom && savedRoom !== 'workspaces' ? savedRoom : 'command';
+      const room = savedRoom && !isGlobalRoom(savedRoom) ? savedRoom : 'command';
       return deriveActiveWorkspace({
         ...state,
         openWorkspaces: upsertOpenWorkspace(state.openWorkspaces, workspace),
