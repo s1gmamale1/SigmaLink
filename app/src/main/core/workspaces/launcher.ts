@@ -293,13 +293,13 @@ export async function executeLaunchPlan(
         initialPrompt: pane.initialPrompt,
       });
 
-      // When the PTY exits, mark the session row. If the exit code is
-      // negative (synthetic spawn-failure exit) and arrives within ~1s, mark
-      // the row as 'error' so the UI can distinguish a never-born process
-      // from a normal exit.
+      // When the PTY exits, mark the session row. If the exit happens within
+      // ~1.5s of spawn, treat it as a launch failure ('error') regardless of
+      // exit code — this catches both synthetic ENOENT failures (exitCode < 0)
+      // and real CLI crashes (e.g. Claude exiting with code 1 on bad resume).
       const startedMs = rec.startedAt;
       rec.pty.onExit(({ exitCode }) => {
-        const earlyDeath = exitCode < 0 && Date.now() - startedMs < 1500;
+        const earlyDeath = Date.now() - startedMs < 1500;
         try {
           db.update(agentSessions)
             .set({

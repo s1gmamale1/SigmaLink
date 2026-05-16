@@ -185,10 +185,16 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         );
         return state;
       }
+      // v1.3.3 — restore the per-workspace room if one exists. Default to
+      // 'command' when no saved room is present so the user doesn't land on
+      // the Launcher ('workspaces') when clicking an already-open workspace.
+      const savedRoom = state.roomByWorkspace[action.workspaceId];
+      const room = savedRoom && savedRoom !== 'workspaces' ? savedRoom : 'command';
       return deriveActiveWorkspace({
         ...state,
         openWorkspaces: upsertOpenWorkspace(state.openWorkspaces, workspace),
         activeWorkspaceId: action.workspaceId,
+        room,
       });
     }
     case 'SYNC_OPEN_WORKSPACES': {
