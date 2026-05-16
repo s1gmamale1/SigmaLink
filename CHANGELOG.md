@@ -4,6 +4,29 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-05-16
+
+fix(v1.3.3): workspace switching + Claude pane error visibility + session-restore timer hygiene
+
+### Fixed
+
+- **Workspace switching from sidebar / launcher.** Clicking a workspace in the left sidebar or re-opening a persisted workspace from the Launcher's Start step previously left the user on whatever room they were viewing — typically the Launcher itself, even when the workspace already had running panes. `SET_ACTIVE_WORKSPACE_ID` in `app/src/renderer/app/state.reducer.ts` now restores the per-workspace room from `state.roomByWorkspace`, defaulting to `'command'` when no room has been recorded yet. Sidebar `onPick` no longer has to force `SET_ROOM` (the reducer handles it). Launcher `chooseExisting` still dispatches `SET_ROOM: 'command'` explicitly because it uses the `SET_ACTIVE_WORKSPACE` action which intentionally does not auto-switch rooms (BUG-W7-001).
+- **Claude blank-pane is now a visible error, not a silent void.** v1.3.2's `claude-resume-bridge` symlink path works on most machines, but Claude can still exit with code 1 in ~200ms for reasons under spawn-level investigation (filed as v1.3.4 backlog). Both `app/src/main/core/workspaces/launcher.ts` and `app/src/main/core/pty/resume-launcher.ts` now grade any pane exit within 1.5s as `status: 'error'` instead of the previous narrower `exitCode < 0 && < 1.5s` check (which only caught synthetic ENOENT). The pane now surfaces the error UI immediately rather than showing a blank terminal that never converges.
+- **Session-restore snapshot timer no longer cancelled on no-op re-renders.** `app/src/renderer/app/state-hooks/use-session-restore.ts` hoisted the snapshot key outside the effect and added an unmount-only cleanup `useEffect`, so the in-effect `clearTimeout` only fires on real workspace key changes. Previously every parent re-render fired the effect cleanup, cancelling the in-flight snapshot RPC.
+
+### Verification
+
+- `pnpm exec tsc -b`: clean
+- `pnpm exec vitest run`: 314/314 (same as v1.3.2 — no regressions, no new tests needed since changes are within existing snapshot test coverage)
+- `pnpm exec eslint .`: clean (1 known-false-positive `react-hooks/exhaustive-deps` warning in `use-session-restore.ts:263` — `wsId` is encoded inside `snapshotKey`)
+- `pnpm run build`: clean
+- Reviewer (Opus 4.7): APPROVED WITH CAVEAT — Bug D root cause (Claude exit-code-1 inside worktree-slug dir despite v1.3.2 bridge symlink) deferred to v1.3.4 investigation. The 1.5s early-death gate is the new contract; red panes during QA mean Claude crashed, not a regression in this release.
+
+### Related
+
+- v1.3.2 `claude-resume-bridge` remains the primary fix for the Claude blank-pane scenario; v1.3.3 layers visibility on top.
+- v1.3.4 backlog: investigate why `claude --resume <uuid>` exits with code 1 in ~200ms despite the v1.3.2 bridge symlink and the v1.3.3 mkdir-p.
+
 ## [1.3.2] - 2026-05-16
 
 fix(v1.3.2): bridge Claude session-slug across worktrees + ensure project dir on fresh spawn

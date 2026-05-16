@@ -18,6 +18,7 @@
 | v1.3.0 | Session picker in Workspace Launcher (W-1) — per-pane chip, smart default, bulk bar, Scenario B pre-population | [`v1.3.0-session-picker.md`](v1.3.0-session-picker.md) · [CHANGELOG v1.3.0](../../CHANGELOG.md) |
 | v1.3.1 | Session picker hotfix — `pane_index` migration 0012 deduplicates `lastResumePlan` rows + Launcher emits top-level `paneResumePlan` array so resume args actually thread to the spawn | inline in [CHANGELOG v1.3.1](../../CHANGELOG.md) · [release-notes-1.3.1.txt](../09-release/release-notes-1.3.1.txt) |
 | v1.3.2 | Claude pane hotfix — `claude-resume-bridge` symlinks workspace-slug JSONL into worktree-slug dir so `claude --resume <id>` works across worktrees; pre-creates project dir so fresh `--session-id` spawns no longer silently exit | inline in [CHANGELOG v1.3.2](../../CHANGELOG.md) · [release-notes-1.3.2.txt](../09-release/release-notes-1.3.2.txt) |
+| v1.3.3 | Workspace switching from sidebar / launcher now routes to Command Room (reducer-level per-workspace room recall, defaults to `'command'`); Claude blank panes now surface as visible error UI within 1.5s instead of staying silently dark; session-restore snapshot timer no longer cancels on no-op re-renders | inline in [CHANGELOG v1.3.3](../../CHANGELOG.md) |
 
 ---
 
@@ -39,6 +40,12 @@
 - **Source**: User added 2026-05-15.
 
 ---
+
+## 🟠 v1.3.4 — Claude resume spawn investigation (carried over from v1.3.3 caveat)
+
+| Item | Effort | Source |
+|---|---|---|
+| **Investigate `claude --resume <uuid>` exit-code-1 in worktree** — v1.3.2 ships `claude-resume-bridge` (symlink + mkdir) and on this machine the slug derivation matches `~/.claude/projects/` exactly, yet Claude still exits with code 1 in ~200ms when launched inside the worktree dir on some user setups. v1.3.3 surfaces the failure as a visible error pane but does not fix the underlying spawn. Capture actual argv via `ps -axww`, run claude manually in the same worktree dir with the same args, diff against a working setup. Suspect candidates: (a) Claude reads parent-dir config files outside the worktree slug that the symlink doesn't cover, (b) Claude version drift between user's installed version and what v1.2.8 capture-path expects, (c) symlink target permissions / EACCES on certain macOS configurations | M (~3-4hr) | v1.3.3 review caveat |
 
 ## 🔴 P1 — CI is currently red (blocks all future PR reviews)
 
