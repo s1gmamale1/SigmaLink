@@ -297,8 +297,11 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-187 | fix-reviewer agent (Opus 4.7): final verdict APPROVE on reshipped PR #15 — all closure criteria met, `KvFakeSqlite` confirmed faithful to `client.ts`, gates green (tsc / vitest 368/368 / eslint / build / electron compile) | shipped | 1 |
 | T-188 | Ship: PR #15 squash-merged to main (`1c4f71a`); PR #14 closed superseded; `v1.4.1` annotated tag pushed (release-macos + release-windows triggered); worktrees + 3 stale remote branches cleaned; W-2/W-3 plans archived; memory + WISHLIST + README + Obsidian + AgentDB synced | shipped | 1 |
 
-## v1.4.2 Packet 09 — Backlog verify-and-close sweep (May 17, 2026)
+## Phase 28 — v1.4.2 bundle: dogfood fixes + backlog hygiene (May 17-18, 2026)
 
-| Task | Description | Status | Trials |
-|------|-------------|--------|--------|
+| task_index | task_title | result | trials |
+|---|---|---|---|
 | T-189 | v1.4.2 packet 09: verify 4 BACKLOG rows (BUG-W7-015 contrast, shellcheck CI, cache-dependency-path, vitest coverage thresholds); remove verified rows from BACKLOG.md; add CHANGELOG [1.4.2] section | shipped (3 verified, 1 escalated) | 1 |
+| T-190 | v1.4.2 packet 02: `GLOBAL_ROOMS = ['workspaces', 'settings']` constant + `isGlobalRoom()` guard applied to SET_ROOM writer, SET_ROOM_FOR_WORKSPACE, and SET_ACTIVE_WORKSPACE_ID room resolution in `state.reducer.ts` | shipped | 1 |
+| T-191 | v1.4.2 packet 02: 2 new test cases (Settings visit routing + global room persistence guard) in `state.test.ts`; vitest 368 → 370 | shipped | 1 |
+| T-192 | v1.4.2 packet 02: PR #17 squash-merged on `feat/v1.4.2-02-routing`; all gates green (tsc clean, vitest 370/370, eslint 0 errors, build clean, electron compile clean) | shipped | 1 |
