@@ -4,6 +4,10 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Documentation
+
+- Verify-and-close packet 08: `state.tsx` was already split from 553 → 97 LOC in v1.1.9 (commit `d824c42`); stale BACKLOG and WISHLIST rows removed.
+
 ## [1.4.1] - 2026-05-16
 
 release(v1.4.1): Bridge → Sigma rename + pane mailbox back-channel + SigmaRoom split

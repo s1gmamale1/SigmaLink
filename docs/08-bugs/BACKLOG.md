@@ -208,13 +208,6 @@
 - **Effort**: M (~1d).
 - **Risk**: Med — guarded by `runClaudeCliTurn.test.ts` (830 LOC).
 
-### Reduce `state.tsx` residual from 553 → < 500 LOC
-- **Surface**: `src/renderer/app/state.tsx` after v1.1.8 split.
-- **Issue today**: provider + IPC-listener effects are 553 LOC — still over budget. Cannot be split without breaking React lifecycle cohesion (useReducer + refs + 14 effects must stay together).
-- **Fix sketch**: Extract IPC-event-listener effects into custom hooks: `useSessionRestore`, `useWorkspaceMirror`, `useLiveEvents` (PTY/swarm/browser/skills/memory/review/tasks). Provider becomes ~150 LOC orchestrator, custom hooks ~80 LOC each.
-- **Effort**: M (~1d).
-- **Risk**: Med — React lifecycle nuances; needs careful effect-dep verification.
-
 ---
 
 ## v1.1.9 — CI / test infra
@@ -433,7 +426,6 @@ These OPEN.md entries still show `**Status**: open` but were resolved by their n
 | BUG-V1.1.5-A unverified-developer dialog | v1.1.7 (curl-bash bypass) + v1.1.6 (in-DMG README) | |
 | Bundle bloat (97 KB gzip) | v1.1.8 | React.lazy() room split |
 | pty:data 32-listener fan-out | v1.1.8 | renderer/lib/pty-data-bus.ts |
-| state.tsx > 500 LOC | v1.1.8 partial (553) | state.types/reducer/hook split; v1.1.9 closes the gap |
 | 3 stub schemas | v1.1.8 | rpc/schemas.ts promoted to real zod |
 | Dead `utils.ts` exports | v1.1.8 | parseAnsi/mockPTYBridge/generateId/formatDuration deleted |
 | 6 NMV-blocked tests | v1.1.8 | vi.mock pattern + src/test-utils/db-fake |
