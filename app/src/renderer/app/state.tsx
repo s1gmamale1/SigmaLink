@@ -27,6 +27,7 @@ import { useSessionRestore } from './state-hooks/use-session-restore';
 import { useWorkspaceMirror } from './state-hooks/use-workspace-mirror';
 import { useLiveEvents } from './state-hooks/use-live-events';
 import { useExitedSessionGc } from './state-hooks/use-exited-session-gc';
+import { useTerminalCacheGc } from './state-hooks/use-terminal-cache-gc';
 
 // Re-exports so external callers continue to use `@/renderer/app/state`
 // without knowing about the split. DO NOT inline these consumers.
@@ -83,10 +84,28 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('sigma:test:activate-workspace', handler as EventListener);
   }, []);
 
+  // V1.4.2 packet-03 — same test-only pattern for room navigation. The e2e
+  // suite for room-switch xterm preservation drives this rather than relying
+  // on a sidebar click whose data attribute might shift between releases.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ room?: string }>).detail ?? {};
+      if (typeof detail.room === 'string') {
+        dispatch({ type: 'SET_ROOM', room: detail.room as never });
+      }
+    };
+    window.addEventListener('sigma:test:set-room', handler as EventListener);
+    return () => window.removeEventListener('sigma:test:set-room', handler as EventListener);
+  }, []);
+
   useSessionRestore(state, dispatch);
   useWorkspaceMirror(state, dispatch);
   useLiveEvents(state, dispatch);
   useExitedSessionGc(state, dispatch);
+  // V1.4.2 packet-03 — destroy cached xterm instances when sessions vanish
+  // from state (explicit close OR 5s exited-grace timer fired). Without this
+  // the terminal-cache would grow unbounded until LRU evicts at 32 entries.
+  useTerminalCacheGc(state);
 
   const value = useMemo(() => ({ state, dispatch }), [state]);
   return (
