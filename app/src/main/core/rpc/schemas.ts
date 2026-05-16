@@ -48,7 +48,7 @@ const APP_TIER_SCHEMA: ChannelSchema = {
   output: TIER_ENUM,
 };
 
-// V3-W14-001..006 — Bridge Canvas teardown hook. The design controller exposes
+// V3-W14-001..006 — Sigma Canvas teardown hook. The design controller exposes
 // a `shutdown()` method that `rpc-router.shutdownRouter` calls to tear down
 // picker overlays + dev-server watchers. The preload bridge does NOT allow-
 // list `design.shutdown`, so the renderer can never invoke it; the schema
@@ -360,7 +360,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'assistant.dispatchPane': stub,
   'assistant.tools': stub,
   'assistant.invokeTool': stub,
-  // P3-S7 — Bridge Assistant cross-session persistence + origin back-link.
+  // P3-S7 — Sigma Assistant cross-session persistence + origin back-link.
   'assistant.conversations.list': stub,
   'assistant.conversations.get': stub,
   'assistant.conversations.delete': stub,
@@ -368,7 +368,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'design.captureElement': stub,
   'design.dispatch': stub,
   'design.history': stub,
-  // V3-W14-001..006 — Bridge Canvas live channels.
+  // V3-W14-001..006 — Sigma Canvas live channels.
   'design.startPick': stub,
   'design.stopPick': stub,
   'design.attachFile': stub,
@@ -377,7 +377,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'design.openCanvas': stub,
   'design.setDevServerRoots': stub,
   'design.reloadTab': stub,
-  // V3-W14-001..006 — Bridge Canvas teardown hook (main-process internal;
+  // V3-W14-001..006 — Sigma Canvas teardown hook (main-process internal;
   // not allow-listed in rpc-channels.ts so the renderer cannot reach it).
   'design.shutdown': DESIGN_SHUTDOWN_SCHEMA,
   'swarm.console-tab': stub,

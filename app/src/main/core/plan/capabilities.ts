@@ -1,10 +1,10 @@
 // V3-W15-005 — Plan-gating capability matrix.
 //
-// SigmaLink is a local-only/free fork of BridgeMind. The user pays nothing,
+// SigmaLink is a local-only/free fork of SigmaMind. The user pays nothing,
 // runs the app on their own hardware, and never talks to a billing surface.
 // **Default tier is `'ultra'` so every affordance is enabled out of the box**;
 // this module exists purely as forward-compat scaffolding so the codebase can
-// later sync with BridgeMind's tier matrix if SigmaLink ever adopts a hosted
+// later sync with SigmaMind's tier matrix if SigmaLink ever adopts a hosted
 // model.
 //
 // Frames 0500 / 0510 of the V3 frame log show three pricing tiles
@@ -14,7 +14,7 @@
 // is also safe to import from main-process code (see
 // `assistant.dispatchPane`, swarm factory, etc.).
 
-/** The three SigmaLink/BridgeMind plan tiers. */
+/** The three SigmaLink/SigmaMind plan tiers. */
 export type Tier = 'basic' | 'pro' | 'ultra';
 
 /**

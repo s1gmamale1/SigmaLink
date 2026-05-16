@@ -1363,3 +1363,63 @@ interrupted-turn retry, migration registration + idempotency); migration node
 tests 5/5 pass; `pnpm exec eslint .` clean (one pre-existing `use-session-
 restore.ts:263` warning unchanged); `pnpm run build` clean. Pane → Sigma mailbox
 back-channel deferred to v1.4.1.
+
+## Phase 27 — v1.4.1 Bridge → Sigma rename + pane mailbox back-channel + SigmaRoom split (May 16, 2026)
+
+v1.4.1 bundles three workstreams approved by the lead, executed in a dedicated
+worktree (`feat/v1.4.1-rename-completeness`).
+
+### Workstream 1 — Bridge → Sigma rename sweep
+
+Tier 1 (UI strings): 7 files — Orb state labels, toast, Launcher canvas tile,
+SwarmCreate, operator console, RufloSettings, DesignDock.
+
+Tier 2 (code identifiers): `git mv bridge-agent/` → `sigma-assistant/`;
+`BridgeRoom.tsx` → `SigmaRoom.tsx`; `BridgeTabPlaceholder.tsx` →
+`SigmaTabPlaceholder.tsx`; RoomId union `'bridge'` → `'sigma'` across type
+definition, parsers, command palette, right-rail tabs, rooms menu, OriginLink,
+tests. KV migration at boot: `bridge.activeConversationId` →
+`sigma.activeConversationId` and `bridge.autoFocusOnDispatch` →
+`sigma.autoFocusOnDispatch` (idempotent, old key deleted after copy).
+
+Tier 3 (comments): 23 files — Bridge Assistant → Sigma Assistant, Bridge Canvas
+→ Sigma Canvas, BridgeVoice → SigmaVoice, BridgeCode → SigmaCode, BridgeMind →
+SigmaMind, Bridge pattern → Sigma pattern across all comments/JSDoc strings.
+
+Preserved: generic "bridge" in `claude-resume-bridge.ts` (symlink helper) and
+`mcp-host-bridge.ts` (IPC bridge); historical research docs and screenshots.
+
+### Workstream 2 — Pane → Sigma mailbox back-channel
+
+Completes the W-2 vision deferred from v1.4.0. Migration 0014 creates
+`sigma_pane_events` table (id, conversation_id, session_id, kind, body, ts)
+with composite index. Migration 0015 adds `sigma_monitor_conversation_id` column
+to `agent_sessions`. New `monitor_pane({ sessionId, conversationId })` tool
+writes the subscription mapping. PtyRegistry's `onPaneEvent` sink (wired in
+`rpc-router.ts`) looks up the monitor conversation, INSERTs into
+`sigma_pane_events`, and broadcasts `assistant:pane-event` IPC. Renderer-side
+`useSigmaPaneEvents` hook subscribes to the IPC; `PaneEventCard` renders inline
+event cards in the transcript with "Reply to pane" action.
+
+### Workstream 3 — SigmaRoom.tsx file split
+
+The 922 LOC monolith (already 611 after WS1+WS2) was split into 14 focused
+files: 9 custom hooks (`use-sigma-conversations`, `use-sigma-resume-flow`,
+`use-sigma-pane-events`, `use-sigma-ruflo-health`, `use-sigma-pattern-probe`,
+`use-sigma-dispatch-echo`, `use-sigma-jump-to-message`, `use-sigma-voice`,
+`use-sigma-assistant-state`) and 5 sub-components (`SigmaRailDropdown`,
+`InterruptedTurnBanner`, `ResumeBanner`, `PaneEventCard`, `PatternRibbon`).
+SigmaRoom.tsx reduced to 283 LOC (target was <400).
+
+### Verification
+
+- `pnpm exec tsc -b --pretty false`: clean
+- `pnpm exec vitest run`: 363/363 pass (354 baseline + 9 new)
+- `pnpm exec eslint .`: clean (pre-existing warning OK)
+- `pnpm run build`: clean
+- `node scripts/build-electron.cjs`: clean
+
+### Release plumbing
+
+Version bump 1.4.0 → 1.4.1, CHANGELOG.md prepended, release notes created,
+master_memory.md + memory_index.md updated.

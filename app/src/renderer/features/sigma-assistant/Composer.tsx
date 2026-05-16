@@ -1,4 +1,4 @@
-// V3-W13-012 — Bridge Assistant composer.
+// V3-W13-012 — Sigma Assistant composer.
 // Enter submits; Shift+Enter newlines. Mic toggles the orb to LISTENING;
 // real voice intake lands in W15.
 //
@@ -20,7 +20,7 @@ interface Props {
   onMicPress?: () => void;
   placeholder?: string;
   className?: string;
-  /** Phase 4 Track C — emits the live textarea value so BridgeRoom can
+  /** Phase 4 Track C — emits the live textarea value so SigmaRoom can
    *  debounce a `ruflo.patterns.search` probe and surface a "Similar past
    *  task" ribbon. Optional; the composer works exactly as before when
    *  omitted. */

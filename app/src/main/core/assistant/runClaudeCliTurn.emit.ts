@@ -101,7 +101,7 @@ export function emitFinal(
   } catch {
     /* best-effort */
   }
-  // Renderer-compat: standby with messageId is what BridgeRoom uses to
+  // Renderer-compat: standby with messageId is what SigmaRoom uses to
   // commit the streamed message into the transcript.
   emitState(deps, 'standby', turn, { messageId });
 }

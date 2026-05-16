@@ -1,4 +1,4 @@
-// V3-W13-015 — Bridge completion ding + kv-backed mute toggle.
+// V3-W13-015 — Sigma completion ding + kv-backed mute toggle.
 //
 // Uses Web Audio to synth a brief two-note chime so we don't ship a binary
 // asset. `kv['notifications.ding']` defaults to '1' (on); set to '0' to mute.

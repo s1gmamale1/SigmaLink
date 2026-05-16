@@ -274,3 +274,15 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-174 | Frontend slice: Bridge right-rail conversation dropdown, resumable pill, resume banner, interrupted-turn retry/dismiss banner, and ConversationsPanel resumable marker | shipped | 1 |
 | T-175 | v1.4.0 reviewer verdict (Opus 4.7): APPROVED — 0 critical/high; 1 med (BridgeRoom 922 LOC, pre-existing condition); two strengthenings beyond plan spec (broader `isLikelyResumeFailure` regex, tighter `findInterruptedTurn` predicate) | shipped | 1 |
 | T-176 | v1.4.0 release plumbing: bump `app/package.json` 1.3.5 → 1.4.0, CHANGELOG `[1.4.0]`, release-notes-1.4.0.txt, WISHLIST shipped row, master_memory Phase 26 | shipped | 1 |
+
+## v1.4.1 Phase 27 — Bridge → Sigma rename + pane mailbox back-channel + SigmaRoom split (May 16, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-177 | WS1 Tier 1: Rename user-visible "Bridge" strings in 7 renderer files (Orb, SigmaRoom toast, Launcher, SwarmCreate, operator console, RufloSettings, DesignDock) | shipped | 1 |
+| T-178 | WS1 Tier 2: `git mv bridge-agent/` → `sigma-assistant/`, BridgeRoom → SigmaRoom, BridgeTabPlaceholder → SigmaTabPlaceholder, RoomId `'bridge'` → `'sigma'`, update all importers + references | shipped | 1 |
+| T-179 | WS1 Tier 2: KV migration at boot — `bridge.activeConversationId` → `sigma.activeConversationId`, `bridge.autoFocusOnDispatch` → `sigma.autoFocusOnDispatch` (idempotent) | shipped | 1 |
+| T-180 | WS1 Tier 3: 23 files comment rebranding — Bridge Assistant/Canvas/Voice/Code/Mind/pattern → Sigma equivalents | shipped | 1 |
+| T-181 | WS2: Migration 0014 (sigma_pane_events table) + 0015 (sigma_monitor_conversation_id column), monitor_pane tool, PtyRegistry onPaneEvent → DB insert + IPC emit in rpc-router.ts | shipped | 1 |
+| T-182 | WS2: Renderer-side useSigmaPaneEvents hook + PaneEventCard component with "Reply to pane" action | shipped | 1 |
+| T-183 | WS3: SigmaRoom.tsx split from 922 → 283 LOC via 9 custom hooks + 5 sub-components; all gates green (tsc, vitest 363/363, eslint, build) | shipped | 1 |

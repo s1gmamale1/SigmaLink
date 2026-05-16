@@ -1,4 +1,4 @@
-// V3-W13-013 — Bridge Assistant tool-trace bus.
+// V3-W13-013 — Sigma Assistant tool-trace bus.
 // P3-S7 — Persistence: every traced tool call is now also written to the
 // `messages` table with role='tool', `toolCallId` set to the trace id, and
 // `content` carrying a JSON-serialised {name, args, result|error} payload.

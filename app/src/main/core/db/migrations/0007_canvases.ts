@@ -1,4 +1,4 @@
-// V3-W14-006 — Bridge Canvas persistence.
+// V3-W14-006 — Sigma Canvas persistence.
 //
 // Adds two tables that back the Canvas surface:
 //

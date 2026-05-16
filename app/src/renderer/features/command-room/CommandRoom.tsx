@@ -120,7 +120,7 @@ export function CommandRoom() {
   }, [activeWorkspaceId, dispatch]);
 
   // BUG-V1.1-04-IPC — derive activeIndex from global state.activeSessionId
-  // so cross-pane jumps fired by Bridge dispatch echoes (or anywhere else
+  // so cross-pane jumps fired by Sigma dispatch echoes (or anywhere else
   // that dispatches SET_ACTIVE_SESSION) update the focus ring + footer
   // metadata without needing a local click. Falls back to 0 when the
   // active id isn't in the current pane list (e.g. workspace just
@@ -148,7 +148,7 @@ export function CommandRoom() {
 
   // BUG-V1.1-04-IPC — listen for cross-pane focus requests at the room
   // level so the active-index ring + footer metadata sync alongside the
-  // xterm focus call in Terminal.tsx. Bridge dispatch echoes fire this
+  // xterm focus call in Terminal.tsx. Sigma dispatch echoes fire this
   // event automatically; the prior implementation only updated xterm.
   useEffect(() => {
     const onFocusReq = (ev: Event) => {

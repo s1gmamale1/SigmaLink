@@ -61,7 +61,7 @@ export function handleParsedEnvelope(
   } else if (isAssistantEnvelope(env)) {
     for (const block of env.message.content ?? []) {
       if (block.type === 'text' && typeof block.text === 'string') {
-        // 4-char chunks via streamDelta so BridgeRoom's typing animation fires.
+        // 4-char chunks via streamDelta so SigmaRoom's typing animation fires.
         state.finalText += block.text;
         streamDelta(deps, turn, assistantMessageId, block.text);
       }

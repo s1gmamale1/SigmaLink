@@ -130,7 +130,7 @@ function DiagnosticsDot({ ok, label, detail }: DiagnosticsDotProps) {
 
 /**
  * Side-band invoker for the `voice.diagnostics.<method>` namespace. Mirrors
- * the helper in `BridgeRoom.tsx` — the typed `rpc` proxy only knows about
+ * the helper in `SigmaRoom.tsx` — the typed `rpc` proxy only knows about
  * flat namespaces, so 3-segment side-band channels need to call
  * `window.sigma.invoke` directly with the full channel id.
  */

@@ -423,9 +423,9 @@ export interface AppRouter {
   };
   // ────────────────────────────────────────────────────────────────────────
   // V3-W12-017 — placeholder shapes. Bodies are filled in W13/W14/W15:
-  //   • assistant.* — V3-W13-013 wires the Bridge Assistant chat panel.
-  //   • design.*    — V3-W14-001+ wires the Design Mode / Bridge Canvas.
-  //   • voice.*     — V3-W15-001 wires BridgeVoice intake.
+  //   • assistant.* — V3-W13-013 wires the Sigma Assistant chat panel.
+  //   • design.*    — V3-W14-001+ wires the Design Mode / Sigma Canvas.
+  //   • voice.*     — V3-W15-001 wires SigmaVoice intake.
   //   • swarm.*     — V3-W12-014 wires the Operator Console controller.
   // Returning `unknown` keeps the type system honest until the controllers
   // exist; renderer call-sites must narrow with their own zod parser when
@@ -681,10 +681,10 @@ export interface AppRouter {
       deleteBookmark: (input: { snapshotId: string }) => Promise<void>;
     };
     /**
-     * P3-S7 — Origin back-link. When a swarm was created via the Bridge
+     * P3-S7 — Origin back-link. When a swarm was created via the Sigma
      * Assistant `create_swarm` tool, the controller writes a row in
      * `swarm_origins` keyed on `swarmId`; this method reads the row so the
-     * Operator Console can render "Started from Bridge Assistant chat: …"
+     * Operator Console can render "Started from Sigma Assistant chat: …"
      * and link back to the originating turn. Returns `null` for swarms
      * that were created in the Swarm Room directly.
      */

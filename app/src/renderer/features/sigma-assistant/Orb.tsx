@@ -1,10 +1,10 @@
-// V3-W13-012 — Bridge Assistant orb. Four states drive CSS keyframes:
+// V3-W13-012 — Sigma Assistant orb. Four states drive CSS keyframes:
 //   STANDBY    — gentle radial pulse.
 //   LISTENING  — breathing scale + cyan tint (mic input expected).
 //   RECEIVING  — scrolling stripe overlay (assistant streaming text).
 //   THINKING   — slow rotating conic gradient (model reasoning).
 // Click handler from STANDBY transitions into LISTENING via the parent.
-// Real mic capture lands in W15 (BridgeVoice); for W13 the click flips
+// Real mic capture lands in W15 (SigmaVoice); for W13 the click flips
 // the visual state so the rest of the UI is exercised end-to-end.
 
 import { cn } from '@/lib/utils';
@@ -19,10 +19,10 @@ interface Props {
 }
 
 const STATE_LABEL: Record<OrbState, string> = {
-  standby: 'Bridge — standing by. Click to listen.',
-  listening: 'Bridge — listening.',
-  receiving: 'Bridge — receiving.',
-  thinking: 'Bridge — thinking.',
+  standby: 'Sigma — standing by. Click to listen.',
+  listening: 'Sigma — listening.',
+  receiving: 'Sigma — receiving.',
+  thinking: 'Sigma — thinking.',
 };
 
 export function Orb({ state, onClick, size = 56, className }: Props) {

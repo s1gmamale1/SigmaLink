@@ -20,6 +20,8 @@ import * as mig0010 from './migrations/0010_provider_effective';
 import * as mig0011 from './migrations/0011_agent_session_external_id';
 import * as mig0012 from './migrations/0012_agent_session_pane_index';
 import * as mig0013 from './migrations/0013_conversations_claude_session_id';
+import * as mig0014 from './migrations/0014_sigma_pane_events';
+import * as mig0015 from './migrations/0015_agent_session_sigma_monitor';
 
 export interface Migration {
   name: string;
@@ -48,6 +50,8 @@ export const ALL_MIGRATIONS: Migration[] = [
   mig0011,
   mig0012,
   mig0013,
+  mig0014,
+  mig0015,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `

@@ -3,7 +3,7 @@
 // green dot + version (when known); missing ones show the install hint
 // inline so the user can copy-paste it into their shell.
 //
-// V3-W12-003: legacy providers (Aider, Continue) and the BridgeCode "Coming
+// V3-W12-003: legacy providers (Aider, Continue) and the SigmaCode "Coming
 // Soon" stub are gated. The "Show legacy providers" switch persists to
 // kv['providers.showLegacy'] (default '0'). comingSoon rows render with a
 // chip and the install hint as their badge.

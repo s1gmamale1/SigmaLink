@@ -126,7 +126,7 @@ export function buildConversationsHandlers(
 }
 
 /** Build the `swarm.origin.*` handler map. The only method for v1 is `get`,
- *  which resolves the back-link a swarm has into the Bridge Assistant chat
+ *  which resolves the back-link a swarm has into the Sigma Assistant chat
  *  that triggered it (or returns null when none exists). */
 export function buildSwarmOriginHandlers(): SideBandHandlers {
   return {

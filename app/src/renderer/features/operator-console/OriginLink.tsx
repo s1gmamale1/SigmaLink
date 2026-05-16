@@ -1,9 +1,9 @@
-// P3-S7 — Bridge → swarm cross-link banner.
+// P3-S7 — Sigma → swarm cross-link banner.
 //
-// When a swarm was created via the Bridge Assistant `create_swarm` tool, the
+// When a swarm was created via the Sigma Assistant `create_swarm` tool, the
 // main process writes a row to `swarm_origins`. This widget reads that row
 // for the active swarm and renders a single-line link: clicking it switches
-// the active room back to `bridge`, asks BridgeRoom to load the originating
+// the active room back to `sigma`, asks SigmaRoom to load the originating
 // conversation, and scrolls to the exact tool-call message that produced
 // the swarm. When no origin row exists the component renders nothing — the
 // Operator Console swarm-room view is unchanged for swarms created via the
@@ -61,12 +61,12 @@ export function OriginLink({ swarmId }: Props) {
   const stamp = new Date(origin.createdAt).toLocaleString();
 
   const onJump = () => {
-    // 1) Switch the room. 2) Notify BridgeRoom via a window event so it
+    // 1) Switch the room. 2) Notify SigmaRoom via a window event so it
     //    hydrates the right conversation + scrolls to the message.
-    dispatch({ type: 'SET_ROOM', room: 'bridge' });
+    dispatch({ type: 'SET_ROOM', room: 'sigma' });
     try {
       window.dispatchEvent(
-        new CustomEvent('sigma:bridge-jump-to-message', {
+        new CustomEvent('sigma:sigma-jump-to-message', {
           detail: {
             conversationId: origin.conversationId,
             messageId: origin.messageId,

@@ -3,6 +3,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { defineController, defineRouter } from '../shared/rpc';
@@ -34,7 +35,7 @@ import { buildSwarmController } from './core/swarms/controller';
 import { buildConsoleController } from './core/swarms/console-controller';
 import { ReplayManager } from './core/swarms/replay';
 import { and, eq } from 'drizzle-orm';
-import { swarmAgents } from './core/db/schema';
+import { agentSessions, sigmaPaneEvents, swarmAgents } from './core/db/schema';
 import { getDb } from './core/db/client';
 import { BrowserManagerRegistry } from './core/browser/manager';
 import { buildBrowserController } from './core/browser/controller';
@@ -106,7 +107,7 @@ let consoleHandlers: Record<string, (...args: unknown[]) => unknown> | null = nu
 /** P3-S6 — Persistent Swarm Replay handlers. Registered side-band under the
  *  `swarm.replay.<method>` namespace via the same allowlist gate. */
 let replayHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
-/** P3-S7 — Bridge Assistant cross-session persistence. Two side-band
+/** P3-S7 — Sigma Assistant cross-session persistence. Two side-band
  *  handler maps: `assistant.conversations.<method>` powers the
  *  Conversations panel inside BridgeRoom; `swarm.origin.<method>` resolves
  *  the back-link from a swarm to the chat-turn that created it for the
@@ -114,7 +115,7 @@ let replayHandlers: Record<string, (...args: unknown[]) => unknown> | null = nul
  *  side-bands above. */
 let conversationsHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
 let swarmOriginHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
-/** V3-W14-001..006 — Bridge Canvas controller cleanup hook. Called from
+/** V3-W14-001..006 — Sigma Canvas controller cleanup hook. Called from
  *  `shutdownRouter` so picker overlays + dev-server watchers tear down. */
 let designShutdown: (() => void) | null = null;
 
@@ -227,6 +228,40 @@ function buildRouter() {
           persistExternalSessionId(sessionId, preassignedExternalSessionId);
         }
         scheduleDiskScanCapture(sessionId, providerId, cwd);
+      },
+      onPaneEvent: (event) => {
+        try {
+          const row = getDb()
+            .select({ conversationId: agentSessions.sigmaMonitorConversationId })
+            .from(agentSessions)
+            .where(eq(agentSessions.id, event.sessionId))
+            .get();
+          if (row?.conversationId) {
+            const id = randomUUID();
+            const ts = Date.now();
+            getDb()
+              .insert(sigmaPaneEvents)
+              .values({
+                id,
+                conversationId: row.conversationId as string,
+                sessionId: event.sessionId,
+                kind: event.kind,
+                body: event.exitCode !== undefined ? JSON.stringify({ exitCode: event.exitCode }) : null,
+                ts,
+              })
+              .run();
+            broadcast('assistant:pane-event', {
+              id,
+              conversationId: row.conversationId,
+              sessionId: event.sessionId,
+              kind: event.kind,
+              body: event.exitCode !== undefined ? { exitCode: event.exitCode } : null,
+              ts,
+            });
+          }
+        } catch {
+          // best-effort
+        }
       },
     },
   );
@@ -746,7 +781,7 @@ function buildRouter() {
     mailbox,
   });
   const kvCtl = buildKvController();
-  // V3-W13-013 — Bridge Assistant controller. Owns the `assistant.*`
+  // V3-W13-013 — Sigma Assistant controller. Owns the `assistant.*`
   // namespace and pipes tool traces + dispatch echoes back through the
   // shared broadcaster so every BrowserWindow (right-rail, standalone room)
   // sees the same stream.
@@ -792,7 +827,7 @@ function buildRouter() {
     string,
     (...args: unknown[]) => unknown
   >;
-  // V3-W14-001..006 — Bridge Canvas controller. Owns the `design.*` namespace
+  // V3-W14-001..006 — Sigma Canvas controller. Owns the `design.*` namespace
   // (element-picker overlay, asset staging, HMR poke, canvas DAO + dispatch
   // fan-out). Holds onto its own picker runtime + watch registry so the
   // shutdown path can tear them down deterministically.
@@ -804,7 +839,7 @@ function buildRouter() {
     emit: (event, payload) => broadcast(event, payload),
   });
   designShutdown = (designCtl as unknown as { shutdown: () => void }).shutdown;
-  // V3-W15-001 / V1.1 — BridgeVoice. Renderer drives Web Speech capture on
+  // V3-W15-001 / V1.1 — SigmaVoice. Renderer drives Web Speech capture on
   // Win/Linux; macOS uses the native SFSpeechRecognizer pipeline when
   // `@sigmalink/voice-mac` loads. The dispatcher hooks below let the voice
   // controller route final transcripts directly into swarm + assistant
@@ -1004,7 +1039,7 @@ export function registerRouter(): void {
     }
   }
 
-  // P3-S7 — Bridge Assistant Conversations + swarm origin link. Two more
+  // P3-S7 — Sigma Assistant Conversations + swarm origin link. Two more
   // side-band registrations: `assistant.conversations.<method>` is the
   // backing for the Conversations panel inside BridgeRoom;
   // `swarm.origin.<method>` resolves the back-link a swarm has into the

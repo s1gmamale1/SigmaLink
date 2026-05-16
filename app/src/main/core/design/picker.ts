@@ -306,7 +306,7 @@ export class DesignPickerRuntime {
         const payload = JSON.parse(json);
         this.handleCapture(sess, payload);
         // Restore a sane title so we don't leave the picker payload in the chrome.
-        void wc.executeJavaScript('document.title = location.host || "Bridge Canvas";', true);
+        void wc.executeJavaScript('document.title = location.host || "Sigma Canvas";', true);
       } catch {
         /* best-effort */
       }

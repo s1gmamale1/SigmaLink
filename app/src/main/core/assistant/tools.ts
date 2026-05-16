@@ -1,9 +1,10 @@
-// V3-W13-013 — Bridge Assistant tool registry. Ten canonical tools per
+// V3-W13-013 — Sigma Assistant tool registry. Ten canonical tools per
 // PRODUCT_SPEC §3.10. Each delegates into an existing controller.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { eq } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import {
   agentSessions,
@@ -117,6 +118,7 @@ const sRollCall = z.object({
 const sListActiveSessions = z.object({ workspaceId: z.string().optional() });
 const sListSwarms = z.object({ workspaceId: z.string().optional() });
 const sListWorkspaces = z.object({});
+const sMonitorPane = z.object({ sessionId: z.string().min(1), conversationId: z.string().min(1) });
 
 function cwdLooksInsideWorkspace(
   cwd: string,
@@ -544,6 +546,29 @@ export const TOOLS: ToolDefinition[] = [
           active: row.id === fallbackActiveId,
         })),
       };
+    },
+  ),
+  T(
+    'monitor_pane',
+    'Monitor pane',
+    'Subscribe a Sigma conversation to lifecycle events from a PTY session (started, exited, error).',
+    {
+      type: 'object',
+      required: ['sessionId', 'conversationId'],
+      properties: {
+        sessionId: { type: 'string' },
+        conversationId: { type: 'string' },
+      },
+    },
+    sMonitorPane,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    async (a, _ctx) => {
+      const db = getDb();
+      db.update(agentSessions)
+        .set({ sigmaMonitorConversationId: a.conversationId })
+        .where(eq(agentSessions.id, a.sessionId))
+        .run();
+      return { ok: true };
     },
   ),
 ];

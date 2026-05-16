@@ -47,7 +47,7 @@ describe('ROOMS_MENU_ITEMS', () => {
       'memory',
       'browser',
       'skills',
-      'bridge',
+      'sigma',
       'settings',
     ]);
   });
@@ -80,17 +80,17 @@ describe('isRoomDisabled', () => {
     }
   });
 
-  // Mirror of Sidebar.tsx line ~186: Workspaces / Settings / Skills / Bridge
+  // Mirror of Sidebar.tsx line ~186: Workspaces / Settings / Skills / Sigma
   // remain reachable so the user can recover from a "no workspace" state.
-  it('keeps Workspaces / Settings / Skills / Bridge enabled with no workspace', () => {
-    const alwaysEnabled: RoomId[] = ['workspaces', 'settings', 'skills', 'bridge'];
+  it('keeps Workspaces / Settings / Skills / Sigma enabled with no workspace', () => {
+    const alwaysEnabled: RoomId[] = ['workspaces', 'settings', 'skills', 'sigma'];
     for (const id of alwaysEnabled) {
       expect(isRoomDisabled(id, false)).toBe(false);
     }
   });
 
   it('disables every other room when no workspace is active', () => {
-    const alwaysEnabled = new Set<RoomId>(['workspaces', 'settings', 'skills', 'bridge']);
+    const alwaysEnabled = new Set<RoomId>(['workspaces', 'settings', 'skills', 'sigma']);
     for (const item of ROOMS_MENU_ITEMS) {
       if (alwaysEnabled.has(item.id)) continue;
       expect(isRoomDisabled(item.id, false)).toBe(true);

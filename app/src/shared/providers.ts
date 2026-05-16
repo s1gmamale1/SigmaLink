@@ -2,7 +2,7 @@
 //
 // v1.2.4 cleanup (user-confirmed 2026-05-13): the registry was trimmed to the
 // five CLIs SigmaLink actually targets — claude / codex / gemini / opencode /
-// kimi. BridgeCode, Cursor Agent, Aider, and Continue were removed entirely.
+// kimi. SigmaCode, Cursor Agent, Aider, and Continue were removed entirely.
 // The `'shell'` row stays as an INTERNAL sentinel so the workspace launcher
 // can still spawn a plain interactive shell when the operator skips agents;
 // it is filtered out of every user-facing picker (see `listVisibleProviders`).

@@ -1,4 +1,4 @@
-// V3 BridgeMind sidebar — deterministic per-workspace colour dot.
+// V3 SigmaMind sidebar — deterministic per-workspace colour dot.
 // The workspace record has no colour column, so we derive one from the id.
 // Same id → same colour across reloads / panes / windows.
 

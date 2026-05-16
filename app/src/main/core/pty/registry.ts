@@ -78,6 +78,12 @@ export interface PostSpawnCapture {
   preassignedExternalSessionId?: string;
 }
 export type PostSpawnSink = (capture: PostSpawnCapture) => void;
+export type PaneEventSink = (event: {
+  sessionId: string;
+  kind: 'started' | 'exited' | 'error' | 'output-spike' | 'idle';
+  exitCode?: number;
+  body?: string;
+}) => void;
 
 export interface PtyRegistryOptions {
   /**
@@ -100,6 +106,7 @@ export interface PtyRegistryOptions {
    * (claude/gemini) into the DB without an extra round-trip.
    */
   onPostSpawnCapture?: PostSpawnSink;
+  onPaneEvent?: PaneEventSink;
 }
 
 export class PtyRegistry {
@@ -109,12 +116,14 @@ export class PtyRegistry {
   private readonly gracefulExitDelayMs: number;
   private readonly onLinkDetected: LinkSink | null;
   private readonly onPostSpawnCapture: PostSpawnSink | null;
+  private readonly onPaneEvent: PaneEventSink | null;
   constructor(onData: DataSink, onExit: ExitSink, opts: PtyRegistryOptions = {}) {
     this.onData = onData;
     this.onExit = onExit;
     this.gracefulExitDelayMs = opts.gracefulExitDelayMs ?? 200;
     this.onLinkDetected = opts.onLinkDetected ?? null;
     this.onPostSpawnCapture = opts.onPostSpawnCapture ?? null;
+    this.onPaneEvent = opts.onPaneEvent ?? null;
   }
 
   create(
@@ -157,6 +166,11 @@ export class PtyRegistry {
         rec.exitedAt = Date.now();
       }
       this.onExit(id, exitCode, signal);
+      if (this.onPaneEvent) {
+        try {
+          this.onPaneEvent({ sessionId: id, kind: rec?.exitCode === 0 ? 'exited' : 'error', exitCode: rec?.exitCode });
+        } catch { /* ignore */ }
+      }
       // Forget after a short grace period so the renderer's last data drain is
       // not lost and a late subscribe() can still pull the snapshot.
       setTimeout(() => this.forget(id), this.gracefulExitDelayMs);
@@ -189,6 +203,11 @@ export class PtyRegistry {
       } catch {
         /* never let capture wiring break the spawn */
       }
+    }
+    if (this.onPaneEvent) {
+      try {
+        this.onPaneEvent({ sessionId: id, kind: 'started' });
+      } catch { /* ignore */ }
     }
     return rec;
   }

@@ -1,0 +1,43 @@
+SigmaLink v1.4.1 — Release Notes
+=================================
+
+What's New
+----------
+
+1. Everything is now "Sigma" not "Bridge"
+   The assistant, canvas, voice, code, and all UI labels have been rebranded
+   from Bridge* to Sigma* across the entire app. If you had a conversation
+   open before this update, it will still be there — the app silently migrates
+   your saved preferences on first launch.
+
+2. Sigma can watch your agent panes
+   New monitor_pane tool lets Sigma subscribe to lifecycle events from any
+   CLI pane (started, exited, error). Events appear as inline cards in the
+   transcript with a "Reply to pane" button so Sigma can react to pane
+   failures without you switching rooms.
+
+3. Pattern ribbon for composer reuse
+   When you type in the Sigma composer, a subtle ribbon may appear below it
+   suggesting a similar past task pattern from your Ruflo memory. Click
+   "Apply" to paste it into the composer for one-tap edit-then-send.
+
+4. SigmaRoom is now modular
+   The 922-line monolith has been split into 14 focused files (hooks +
+   sub-components). No user-visible change, but the codebase is much easier
+   to maintain and extend.
+
+Migration Notes
+---------------
+
+- Existing users: your active conversation and auto-focus preference are
+  migrated transparently on first launch. No action needed.
+- Generic "bridge" terminology in internal symlink/IPC helpers is preserved
+  (these are technical descriptors, not product branding).
+
+Verification
+------------
+
+- TypeScript: clean (0 errors)
+- Tests: 363/363 pass (+9 new for migrations + monitor_pane + pane events)
+- Lint: clean (pre-existing warning OK)
+- Build: clean (frontend + electron)

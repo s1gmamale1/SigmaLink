@@ -313,7 +313,7 @@ export function WorkspaceLauncher() {
     mode === 'swarm'
       ? 'Open Swarm Room'
       : mode === 'canvas'
-        ? 'Open Bridge Canvas'
+        ? 'Open Sigma Canvas'
         : skipAgents
           ? `Open ${preset} ${preset === 1 ? 'shell' : 'shells'}`
           : `Launch ${preset} ${preset === 1 ? 'agent' : 'agents'}`;
