@@ -23,6 +23,13 @@
 
 ---
 
+## 🔥 In progress
+
+| ID | What | Branch / target | Plan |
+|---|---|---|---|
+| **W-3** | Auto-bind Ruflo MCP for every CLI pane — Kimi + OpenCode coverage + canonical-args fix (current v1.3.4 ships `mcp-stdio` which is not a real claude-flow subcommand; real form is `-y @claude-flow/cli@latest mcp start`). 5 CLIs in readiness pill with vacuous-pass for undetected binaries. | `feat/w3-ruflo-mcp-autobind` → **v1.3.5** | [`W-3-ruflo-mcp-autobind-v1.3.5.md`](W-3-ruflo-mcp-autobind-v1.3.5.md) |
+| **W-2** | Sigma Assistant orchestrator — capture Claude `session_id` from `system.init` envelope, thread `--resume <id>` on subsequent turns with retry-once-without-resume fallback, right-rail conversation dropdown + resumable pill + interrupted-turn sentinel. Mailbox back-channel deferred to v1.4.1. | hand-off to other agents → **v1.4.0** | [`W-2-sigma-assistant-orchestrator-v1.4.0.md`](W-2-sigma-assistant-orchestrator-v1.4.0.md) |
+
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
 
 ### W-2 — Sigma Assistant as orchestrator + session resume
