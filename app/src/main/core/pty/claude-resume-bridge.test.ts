@@ -15,6 +15,7 @@ import {
   claudeSlugForCwd,
   ensureClaudeProjectDir,
   prepareClaudeResume,
+  prepareClaudeWorkspaceContext,
 } from './claude-resume-bridge.ts';
 
 const VALID_UUID = '01234567-89ab-4cde-9f01-23456789abcd';
@@ -317,5 +318,60 @@ describe('prepareClaudeResume — realistic SigmaLink path shapes', () => {
       `${VALID_UUID}.jsonl`,
     );
     expect(fs.readFileSync(targetPath, 'utf8')).toContain('"history":"real"');
+  });
+});
+
+describe('prepareClaudeWorkspaceContext', () => {
+  let tmpRoot: string;
+  let workspaceCwd: string;
+  let worktreeCwd: string;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-context-'));
+    workspaceCwd = path.join(tmpRoot, 'workspace', 'app');
+    worktreeCwd = path.join(tmpRoot, 'worktree', 'app');
+    fs.mkdirSync(path.join(workspaceCwd, '.claude'), { recursive: true });
+    fs.mkdirSync(worktreeCwd, { recursive: true });
+    fs.writeFileSync(path.join(workspaceCwd, 'CLAUDE.md'), '# local instructions\n');
+    fs.writeFileSync(path.join(workspaceCwd, '.claude', 'settings.json'), '{"ok":true}\n');
+  });
+
+  afterEach(() => {
+    rmRf(tmpRoot);
+  });
+
+  it('links ignored workspace-local Claude context into the worktree cwd', async () => {
+    const outcome = await prepareClaudeWorkspaceContext(workspaceCwd, worktreeCwd);
+
+    expect(outcome.linked.sort()).toEqual(['.claude', 'CLAUDE.md'].sort());
+    const claudeMd = path.join(worktreeCwd, 'CLAUDE.md');
+    const claudeDir = path.join(worktreeCwd, '.claude');
+    expect(fs.lstatSync(claudeMd).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(claudeDir).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(claudeMd, 'utf8')).toContain('local instructions');
+    expect(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8')).toContain('"ok":true');
+  });
+
+  it('is idempotent and never overwrites existing worktree files', async () => {
+    fs.writeFileSync(path.join(worktreeCwd, 'CLAUDE.md'), '# worktree override\n');
+
+    const first = await prepareClaudeWorkspaceContext(workspaceCwd, worktreeCwd);
+    const second = await prepareClaudeWorkspaceContext(workspaceCwd, worktreeCwd);
+
+    expect(first.existing).toContain('CLAUDE.md');
+    expect(second.existing.sort()).toEqual(['.claude', 'CLAUDE.md'].sort());
+    expect(fs.readFileSync(path.join(worktreeCwd, 'CLAUDE.md'), 'utf8')).toContain(
+      'worktree override',
+    );
+  });
+
+  it('reports missing context without failing the pane spawn path', async () => {
+    rmRf(path.join(workspaceCwd, '.claude'));
+    fs.rmSync(path.join(workspaceCwd, 'CLAUDE.md'));
+
+    const outcome = await prepareClaudeWorkspaceContext(workspaceCwd, worktreeCwd);
+
+    expect(outcome.missing.sort()).toEqual(['.claude', 'CLAUDE.md'].sort());
+    expect(outcome.linked).toHaveLength(0);
   });
 });

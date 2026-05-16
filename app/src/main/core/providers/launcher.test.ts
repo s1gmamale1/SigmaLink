@@ -160,4 +160,26 @@ describe('resolveAndSpawn ENOENT fallback walk', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.command).toBe('claude');
   });
+
+  it('does not prepend --session-id when caller is resuming an existing Claude session', () => {
+    const { registry, calls } = mockRegistry(() => makeFakeSession('s-resume'));
+
+    const result = resolveAndSpawn(
+      {
+        ptyRegistry: registry,
+        getProvider: (id) => (id === 'claude' ? claudeProvider : undefined),
+      },
+      {
+        providerId: 'claude',
+        cwd: '/tmp',
+        extraArgs: ['--resume', '01234567-89ab-4cde-9f01-23456789abcd'],
+      },
+    );
+
+    expect(calls[0]?.args).toEqual([
+      '--resume',
+      '01234567-89ab-4cde-9f01-23456789abcd',
+    ]);
+    expect(result.preassignedExternalSessionId).toBeUndefined();
+  });
 });

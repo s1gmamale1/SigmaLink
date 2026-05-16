@@ -2,6 +2,13 @@ import type Database from 'better-sqlite3';
 import type { PtyRegistry, SessionRecord } from './registry';
 import type { AgentProviderDefinition } from '../../../shared/providers';
 import type { resolveAndSpawn, ResolveAndSpawnResult } from '../providers/launcher';
+import {
+  ensureClaudeProjectDir,
+  isClaudeSessionId,
+  prepareClaudeResume,
+  prepareClaudeWorkspaceContext,
+} from './claude-resume-bridge';
+import { workspaceCwdInWorktree } from '../workspaces/worktree-cwd';
 
 export interface PaneResumeSuccess {
   sessionId: string;
@@ -83,6 +90,7 @@ export function buildResumeArgs(
 export interface ResumeLauncherDeps {
   pty: PtyRegistry;
   db?: Database.Database;
+  claudeHomeDir?: string;
   now?: () => number;
   cols?: number;
   rows?: number;
@@ -116,6 +124,9 @@ interface ResumeRow {
   providerId: string;
   providerEffective: string | null;
   cwd: string;
+  worktreePath: string | null;
+  workspaceRoot: string;
+  repoRoot: string | null;
   externalSessionId: string | null;
 }
 
@@ -198,19 +209,23 @@ function listEligibleRows(db: Database.Database, workspaceId: string): ResumeRow
   return db
     .prepare(
       `SELECT
-         id,
-         workspace_id AS workspaceId,
-         provider_id AS providerId,
-         provider_effective AS providerEffective,
-         cwd,
-         external_session_id AS externalSessionId
-       FROM agent_sessions
-       WHERE workspace_id = ?
+         s.id,
+         s.workspace_id AS workspaceId,
+         s.provider_id AS providerId,
+         s.provider_effective AS providerEffective,
+         s.cwd,
+         s.worktree_path AS worktreePath,
+         w.root_path AS workspaceRoot,
+         w.repo_root AS repoRoot,
+         s.external_session_id AS externalSessionId
+       FROM agent_sessions s
+       JOIN workspaces w ON w.id = s.workspace_id
+       WHERE s.workspace_id = ?
          AND (
-           status = 'running'
-           OR (status = 'exited' AND exit_code = -1)
+           s.status = 'running'
+           OR (s.status = 'exited' AND s.exit_code = -1)
          )
-       ORDER BY started_at ASC`,
+       ORDER BY s.started_at ASC`,
     )
     .all(workspaceId) as ResumeRow[];
 }
@@ -239,6 +254,9 @@ interface RespawnRow {
   providerId: string;
   providerEffective: string | null;
   cwd: string;
+  worktreePath: string | null;
+  workspaceRoot: string;
+  repoRoot: string | null;
 }
 
 function listRespawnableRows(
@@ -252,15 +270,19 @@ function listRespawnableRows(
   return db
     .prepare(
       `SELECT
-         id,
-         provider_id AS providerId,
-         provider_effective AS providerEffective,
-         cwd
-       FROM agent_sessions
-       WHERE workspace_id = ?
-         AND status = 'exited'
-         AND exit_code = -1
-       ORDER BY started_at ASC`,
+         s.id,
+         s.provider_id AS providerId,
+         s.provider_effective AS providerEffective,
+         s.cwd,
+         s.worktree_path AS worktreePath,
+         w.root_path AS workspaceRoot,
+         w.repo_root AS repoRoot
+       FROM agent_sessions s
+       JOIN workspaces w ON w.id = s.workspace_id
+       WHERE s.workspace_id = ?
+         AND s.status = 'exited'
+         AND s.exit_code = -1
+       ORDER BY s.started_at ASC`,
     )
     .all(workspaceId) as RespawnRow[];
 }
@@ -287,13 +309,24 @@ export async function respawnFailedWorkspacePanes(
 
   for (const row of rows) {
     const providerId = row.providerEffective ?? row.providerId;
+    const cwd = workspaceCwdInWorktree({
+      workspaceRoot: row.workspaceRoot,
+      repoRoot: row.repoRoot,
+      worktreePath: row.worktreePath,
+    });
     try {
+      if (providerId === 'claude') {
+        await prepareClaudeWorkspaceContext(row.workspaceRoot, cwd, {
+          homeDir: deps.claudeHomeDir,
+        });
+        await ensureClaudeProjectDir(cwd, { homeDir: deps.claudeHomeDir });
+      }
       const result: ResolveAndSpawnResult = resolve(
         { ptyRegistry: deps.pty },
         {
           providerId,
           sessionId: row.id,
-          cwd: row.cwd,
+          cwd,
           cols: deps.cols ?? 120,
           rows: deps.rows ?? 32,
           showLegacy: deps.showLegacy ?? readShowLegacy(db),
@@ -344,7 +377,12 @@ export async function resumeWorkspacePanes(
     }
 
     const resumeProviderId = row.providerEffective ?? row.providerId;
-    const externalSessionId = row.externalSessionId?.trim() ?? null;
+    let externalSessionId = row.externalSessionId?.trim() ?? null;
+    const cwd = workspaceCwdInWorktree({
+      workspaceRoot: row.workspaceRoot,
+      repoRoot: row.repoRoot,
+      worktreePath: row.worktreePath,
+    });
 
     // v1.2.8 — the provider definition is only consulted for the unknown-
     // provider skip path. Resume argv is built locally by `buildResumeArgs`
@@ -360,6 +398,27 @@ export async function resumeWorkspacePanes(
       });
       continue;
     }
+    if (resumeProviderId === 'claude') {
+      await prepareClaudeWorkspaceContext(row.workspaceRoot, cwd, {
+        homeDir: deps.claudeHomeDir,
+      });
+      if (externalSessionId && !isClaudeSessionId(externalSessionId)) {
+        externalSessionId = null;
+      }
+      if (externalSessionId) {
+        const bridge = await prepareClaudeResume(
+          row.workspaceRoot,
+          cwd,
+          externalSessionId,
+          { homeDir: deps.claudeHomeDir },
+        );
+        if (bridge === 'missing') {
+          externalSessionId = null;
+        }
+      }
+      await ensureClaudeProjectDir(cwd, { homeDir: deps.claudeHomeDir });
+    }
+
     const resume = buildResumeArgs(resumeProviderId, externalSessionId);
     if (!resume) {
       // Internal sentinels (shell / custom) — nothing to resume.
@@ -377,7 +436,7 @@ export async function resumeWorkspacePanes(
         {
           providerId: resumeProviderId,
           sessionId: row.id,
-          cwd: row.cwd,
+          cwd,
           cols: deps.cols ?? 120,
           rows: deps.rows ?? 32,
           showLegacy: deps.showLegacy ?? readShowLegacy(db),
