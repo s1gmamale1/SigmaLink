@@ -1453,3 +1453,60 @@ the `v1.4.1` annotated tag was pushed, triggering `release-macos.yml` and
 branches (`feat/v1.4.0-sigma-assistant-orchestrator`,
 `feat/v1.4.1-rename-completeness`, `feat/w3-ruflo-mcp-autobind`) were
 cleaned up. W-2 + W-3 plan files were archived under `docs/03-plan/archive/`.
+
+---
+
+## Phase 28 — v1.4.2 packet 02: Workspace routing fix (2026-05-18)
+
+User report (P1): "When clicked to settings and tried to switch back to
+workspace via clicking to the Workspace from left panel not working, need to
+go to menu and click Command Room."
+
+### Root cause
+
+`SET_ROOM` only excluded `'workspaces'` from `roomByWorkspace` persistence.
+Visiting Settings wrote `roomByWorkspace[wsId] = 'settings'`. The next
+`SET_ACTIVE_WORKSPACE_ID` replayed that stale room, landing the user back on
+Settings instead of Command Room. This was a v1.3.3 ship-claim regression
+(commit `66b4fa6` fixed Sidebar's `SET_ROOM='command'` follow-up but the
+reducer-side per-workspace recall at lines 188-198 never excluded `'settings'`).
+
+### Fix
+
+Introduced `GLOBAL_ROOMS = ['workspaces', 'settings'] as const` and
+`isGlobalRoom()` helper in `state.reducer.ts:13-21`. Applied the guard
+consistently across three dispatch paths:
+
+| Location | Before | After |
+|---|---|---|
+| `state.reducer.ts:111` (SET_ROOM writer) | `action.room !== 'workspaces'` | `!isGlobalRoom(action.room)` |
+| `state.reducer.ts:121` (SET_ROOM_FOR_WORKSPACE) | `action.room === 'workspaces'` | `isGlobalRoom(action.room)` |
+| `state.reducer.ts:204` (SET_ACTIVE_WORKSPACE_ID) | `savedRoom !== 'workspaces'` | `!isGlobalRoom(savedRoom)` |
+
+### Tests added (2)
+
+- `v1.4.2: SET_ACTIVE_WORKSPACE_ID after Settings visit routes to Command Room`
+- `v1.4.2: SET_ROOM does not persist global rooms (workspaces, settings)`
+
+### Preserved (DO NOT TOUCH)
+
+- `Sidebar.tsx:62` `SET_ROOM: 'command'` dispatch — load-bearing for
+  `openPersistedWorkspace` path
+- `CommandRoom.tsx:182` `SET_ROOM: 'workspaces'` dispatch — audit-aware,
+  no fix needed
+
+### Verification
+
+- `pnpm exec tsc -b --pretty false`: clean
+- `pnpm exec vitest run`: 370/370 pass (368 baseline + 2 new)
+- `pnpm exec eslint src/renderer/app/`: 0 errors (1 pre-existing warning)
+- `pnpm run build`: clean
+- `node scripts/build-electron.cjs`: clean
+
+### PR
+
+https://github.com/s1gmamale1/SigmaLink/pull/17 — branch
+`feat/v1.4.2-02-routing`, not merged.
+
+**Next session restart point**: SigmaLink at v1.4.1 on `main` + PR #17 open
+for v1.4.2 packet 02. Remaining v1.4.2 bundle packets (if any) are parallel-safe.
