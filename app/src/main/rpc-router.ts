@@ -164,18 +164,32 @@ function buildRouter() {
     }
   }
   /**
-   * v1.2.8 — bounded retry loop driving the disk-scan capture path for
-   * codex/kimi/opencode. Each attempt fires `findLatestSessionId(provider,
-   * cwd)`; on success we persist + stamp the live registry record and stop.
-   * The schedule (+2s/+5s/+15s) bounds total wall-clock to ~15s so a CLI that
-   * never writes its session file does not loop forever.
-   */
+    * v1.2.8 — bounded retry loop driving the disk-scan capture path for
+    * codex/kimi/opencode. Each attempt fires `findLatestSessionId(provider,
+    * cwd)`; on success we persist + stamp the live registry record and stop.
+    * The schedule (+2s/+5s/+15s) bounds total wall-clock to ~15s so a CLI that
+    * never writes its session file does not loop forever.
+    *
+    * v1.4.2-10 — the scanner now receives `workspaceId` so it can reject
+    * candidates already claimed by a different workspace (Option B scoping).
+    */
   function scheduleDiskScanCapture(
     sessionId: string,
     providerId: string,
     cwd: string,
   ): void {
     if (!DISK_SCAN_PROVIDERS.has(providerId.toLowerCase())) return;
+    // Look up the workspace_id for this session so the disk scanner can
+    // scope its capture to the correct workspace.
+    let workspaceId: string | undefined;
+    try {
+      const wsRow = getRawDb()
+        .prepare('SELECT workspace_id FROM agent_sessions WHERE id = ?')
+        .get(sessionId) as { workspace_id: string } | undefined;
+      workspaceId = wsRow?.workspace_id;
+    } catch {
+      /* pre-migration DB; scanner will fall back to unscoped behaviour */
+    }
     let stopped = false;
     const attempt = async () => {
       if (stopped) return;
@@ -190,7 +204,7 @@ function buildRouter() {
         return;
       }
       try {
-        const captured = await findLatestSessionId(providerId, cwd);
+        const captured = await findLatestSessionId(providerId, cwd, { workspaceId });
         if (captured && !stopped) {
           persistExternalSessionId(sessionId, captured);
           sharedDeps?.pty.setExternalSessionId(sessionId, captured);

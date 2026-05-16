@@ -47,6 +47,19 @@ export interface DiskScanOptions {
   scanWindowMs?: number;
   /** Tests inject a fake opencode CLI runner. */
   runOpencodeList?: (cwd: string) => Promise<string>;
+  /** v1.4.2-10 — workspace id for scoping the captured session. When set,
+   *  the scanner only accepts a candidate whose external id is already
+   *  recorded in `agent_sessions` for this workspace (whitelist via Option B).
+   *  If the candidate is recorded for a *different* workspace it is rejected
+   *  to prevent cross-workspace contamination. */
+  workspaceId?: string;
+  /** Test-only: inject a fake DB for the workspace-scoping lookup. */
+  db?: {
+    prepare: (sql: string) => {
+      all: (...args: unknown[]) => unknown[];
+      get: (...args: unknown[]) => unknown;
+    };
+  };
 }
 
 /**
@@ -616,6 +629,11 @@ export async function listSessionsInCwd(
  * Public entry point. Returns the UUID of the newest matching session for
  * `providerId` in `cwd`, or null if nothing within the scan window matched.
  *
+ * v1.4.2-10: when `workspaceId` is provided, the scanner rejects any
+ * candidate whose external id is already claimed by a *different* workspace
+ * (Option B whitelist scoping). This prevents a foreign session spawned in
+ * another repo from being captured by the current workspace's pane.
+ *
  * Providers that have a pre-assign path (claude, gemini) and the internal
  * `shell` / `custom` sentinels are out of scope and always return null.
  */
@@ -636,7 +654,17 @@ export async function findLatestSessionId(
   } else if (provider === 'opencode') {
     hit = await findOpencodeSession(cwd, now, windowMs, opts.runOpencodeList);
   }
-  return hit?.sessionId ?? null;
+  if (!hit) return null;
+
+  // v1.4.2-10 — workspace scoping: reject if already claimed by another ws.
+  if (opts.workspaceId) {
+    const claimingWs = await findWorkspaceForExternalId(hit.sessionId, opts.db);
+    if (claimingWs !== null && claimingWs !== opts.workspaceId) {
+      return null;
+    }
+  }
+
+  return hit.sessionId;
 }
 
 /** Provider ids that participate in disk-scan capture. Exported so the
@@ -646,6 +674,66 @@ export const DISK_SCAN_PROVIDERS: ReadonlySet<string> = new Set([
   'kimi',
   'opencode',
 ]);
+
+// ─────────────────────────────────────────────────────────────────────────
+// v1.4.2-10 — workspace scoping (Option B: whitelist via agent_sessions)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns all non-null `external_session_id` values recorded in
+ * `agent_sessions` for the given workspace. Used by the disk scanner to
+ * verify that a candidate session on disk belongs to the active workspace.
+ */
+export async function listSessionExternalIdsForWorkspace(
+  wsId: string,
+  db?: { prepare: (sql: string) => { all: () => unknown[] } },
+): Promise<string[]> {
+  let rawDb: { prepare: (sql: string) => { all: () => unknown[] } };
+  if (db) {
+    rawDb = db;
+  } else {
+    const mod = await import('../db/client');
+    rawDb = mod.getRawDb();
+  }
+  try {
+    const rows = rawDb
+      .prepare(
+        'SELECT external_session_id FROM agent_sessions WHERE workspace_id = ? AND external_session_id IS NOT NULL AND external_session_id != ?',
+      )
+      .all(wsId, '') as Array<{ external_session_id: string }>;
+    return rows.map((r) => r.external_session_id).filter(Boolean);
+  } catch {
+    // Column may not exist on a pre-migration DB.
+    return [];
+  }
+}
+
+/**
+ * Returns the workspace_id that has already claimed the given external
+ * session id, or null if it is unclaimed.
+ */
+export async function findWorkspaceForExternalId(
+  externalId: string,
+  db?: { prepare: (sql: string) => { get: () => unknown } },
+): Promise<string | null> {
+  let rawDb: { prepare: (sql: string) => { get: () => unknown } };
+  if (db) {
+    rawDb = db;
+  } else {
+    const mod = await import('../db/client');
+    rawDb = mod.getRawDb();
+  }
+  try {
+    const row = rawDb
+      .prepare(
+        'SELECT workspace_id FROM agent_sessions WHERE external_session_id = ? LIMIT 1',
+      )
+      .get(externalId) as { workspace_id: string } | undefined;
+    return row?.workspace_id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Retry schedule (ms post-spawn). Bounded so a CLI that never writes its
