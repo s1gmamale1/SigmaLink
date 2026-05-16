@@ -16,6 +16,7 @@ export interface Conversation {
   workspaceId: string;
   kind: ConversationKind;
   createdAt: number;
+  claudeSessionId: string | null;
 }
 
 export interface Message {
@@ -43,6 +44,7 @@ export interface ConversationSummary {
   title: string;
   lastMessageAt: number;
   messageCount: number;
+  claudeSessionId: string | null;
 }
 
 export function createConversation(input: {
@@ -55,7 +57,13 @@ export function createConversation(input: {
     .insert(conversations)
     .values({ id, workspaceId: input.workspaceId, kind: input.kind, createdAt })
     .run();
-  return { id, workspaceId: input.workspaceId, kind: input.kind, createdAt };
+  return {
+    id,
+    workspaceId: input.workspaceId,
+    kind: input.kind,
+    createdAt,
+    claudeSessionId: null,
+  };
 }
 
 export function getConversation(id: string): Conversation | null {
@@ -70,7 +78,28 @@ export function getConversation(id: string): Conversation | null {
     workspaceId: row.workspaceId,
     kind: row.kind as ConversationKind,
     createdAt: row.createdAt,
+    claudeSessionId: row.claudeSessionId,
   };
+}
+
+export function setClaudeSessionId(
+  conversationId: string,
+  claudeSessionId: string | null,
+): void {
+  getDb()
+    .update(conversations)
+    .set({ claudeSessionId })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+export function getClaudeSessionId(conversationId: string): string | null {
+  const row = getDb()
+    .select()
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return row?.claudeSessionId ?? null;
 }
 
 export function appendMessage(input: {
@@ -119,6 +148,7 @@ export function listConversations(input: {
     workspaceId: c.workspaceId,
     kind: c.kind as ConversationKind,
     createdAt: c.createdAt,
+    claudeSessionId: c.claudeSessionId,
     messages: messagesFor(c.id),
   }));
 }
@@ -212,6 +242,7 @@ export function listConversationSummaries(input: {
       title,
       lastMessageAt: agg?.lastAt ?? c.createdAt,
       messageCount: agg?.count ?? 0,
+      claudeSessionId: c.claudeSessionId,
     };
   });
   // Most recent on top — sort by lastMessageAt so reopened threads bubble.

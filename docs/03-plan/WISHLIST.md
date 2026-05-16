@@ -21,6 +21,7 @@
 | v1.3.3 | Workspace switching from sidebar / launcher now routes to Command Room (reducer-level per-workspace room recall, defaults to `'command'`); Claude blank panes now surface as visible error UI within 1.5s instead of staying silently dark; session-restore snapshot timer no longer cancels on no-op re-renders | inline in [CHANGELOG v1.3.3](../../CHANGELOG.md) |
 | v1.3.4 | Claude resume spawn fix — panes launch from the workspace subdir inside worktrees, ignored `CLAUDE.md` / `.claude/` context is bridged, boot restore uses the Claude bridge, and resume args no longer collide with fresh `--session-id` | inline in [CHANGELOG v1.3.4](../../CHANGELOG.md) · [release-notes-1.3.4.txt](../09-release/release-notes-1.3.4.txt) |
 | v1.3.5 | W-3 Ruflo MCP auto-bind for 5 CLIs (Claude/Codex/Gemini/Kimi/OpenCode) + canonical-args fix (`mcp-stdio` was invalid; correct form `-y @claude-flow/cli@latest mcp start`). Pre-existing user configs self-heal on next openWorkspace(). 5-CLI readiness pill with vacuous-pass for undetected binaries. | inline in [CHANGELOG v1.3.5](../../CHANGELOG.md) · [release-notes-1.3.5.txt](../09-release/release-notes-1.3.5.txt) · [plan](W-3-ruflo-mcp-autobind-v1.3.5.md) |
+| v1.4.0 | Sigma Assistant orchestrator resume — captures Claude `system.init` session ids, resumes later turns with retry-once fallback, and surfaces resumable/interrupted-turn state in the right rail | [`W-2-sigma-assistant-orchestrator-v1.4.0.md`](W-2-sigma-assistant-orchestrator-v1.4.0.md) · [release-notes-1.4.0.txt](../09-release/release-notes-1.4.0.txt) |
 
 ---
 
@@ -28,7 +29,7 @@
 
 | ID | What | Branch / target | Plan |
 |---|---|---|---|
-| **W-2** | Sigma Assistant orchestrator — capture Claude `session_id` from `system.init` envelope, thread `--resume <id>` on subsequent turns with retry-once-without-resume fallback, right-rail conversation dropdown + resumable pill + interrupted-turn sentinel. Mailbox back-channel deferred to v1.4.1. | PR #12 on `feat/v1.4.0-sigma-assistant-orchestrator` → **v1.4.0** | [`W-2-sigma-assistant-orchestrator-v1.4.0.md`](W-2-sigma-assistant-orchestrator-v1.4.0.md) |
+| _none — W-2 + W-3 both shipped 2026-05-16_ | | | |
 
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
 

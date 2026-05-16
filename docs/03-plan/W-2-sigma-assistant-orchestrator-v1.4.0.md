@@ -326,7 +326,9 @@ npm run product:check                                             # gate
 
 ## Version bump
 
-1.3.5 → **1.4.0** (minor — new user-visible feature with backwards-compatible additive types).
+1.3.x → **1.4.0** (minor — new user-visible feature with backwards-compatible additive types).
+
+Coordination note (Codex, 2026-05-16): v1.3.5 is already in development on a separate lane. Do not hard-code assumptions about that branch's final package version or docs shape while implementing W-2. Rebase before PR, resolve any release-note/changelog ordering then, and keep W-2 source changes scoped to the Sigma Assistant files listed above.
 
 CHANGELOG header: `## [1.4.0] - 2026-05-XX`
 Themes for release notes:
@@ -343,3 +345,12 @@ Themes for release notes:
 ## Hand-off note
 
 This plan is being implemented by a separate agent dispatch path (not in the W-3 execution lane). The W-3 worktree at `/Users/aisigma/projects/SigmaLink-feat-w3-ruflo-mcp-autobind` shares zero source files with this plan — no merge conflicts expected when both ship.
+
+## Codex execution split (added 2026-05-16)
+
+Use one shared worktree: `/Users/aisigma/projects/SigmaLink-v140-sigma-assistant-orchestrator`. Each worker must commit only its owned files after finishing its slice.
+
+1. **Backend data/RPC worker** owns migrations, schema, conversation DAO/controller, router shape/channels, and backend tests.
+2. **Runtime worker** owns `runClaudeCliTurn*`, `cli-envelope`, assistant resume/retry/sentinel behavior, and runtime tests.
+3. **Frontend worker** owns `BridgeRoom.tsx`, `ConversationsPanel.tsx`, bridge-agent UI tests, and only additive UI types needed for resumable/interrupted state.
+4. Orchestrator owns plan/doc/release notes, conflict integration, final verification, Ruflo memory storage, push, and PR.

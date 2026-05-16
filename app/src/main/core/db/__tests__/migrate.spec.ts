@@ -105,6 +105,41 @@ test('0010_provider_effective is registered (BUG-V1.1-02-PROV)', () => {
   );
 });
 
+test('0013_conversations_claude_session_id is registered and idempotent', () => {
+  const migrateSrc = fs.readFileSync(migrateSrcPath, 'utf8');
+  assert.match(
+    migrateSrc,
+    /from\s+['"]\.\/migrations\/0013_conversations_claude_session_id['"]/,
+    'migrate.ts must import 0013_conversations_claude_session_id',
+  );
+  const arrayMatch = migrateSrc.match(/ALL_MIGRATIONS:\s*Migration\[\]\s*=\s*\[([\s\S]*?)\]/);
+  assert.ok(arrayMatch, 'ALL_MIGRATIONS array literal not found');
+  assert.match(
+    arrayMatch[1],
+    /\bmig0013\b/,
+    'mig0013 must appear in ALL_MIGRATIONS',
+  );
+
+  const migPath = path.join(migrationsDir, '0013_conversations_claude_session_id.ts');
+  assert.ok(fs.existsSync(migPath), '0013_conversations_claude_session_id.ts must exist');
+  const migSrc = fs.readFileSync(migPath, 'utf8');
+  assert.match(
+    migSrc,
+    /export\s+const\s+name\s*=\s*['"]0013_conversations_claude_session_id['"]/,
+    '0013 must export name === "0013_conversations_claude_session_id"',
+  );
+  assert.match(
+    migSrc,
+    /hasColumn\(db,\s*['"]conversations['"],\s*['"]claude_session_id['"]\)/,
+    '0013 must guard ADD COLUMN with a conversations.claude_session_id check',
+  );
+  assert.match(
+    migSrc,
+    /ALTER\s+TABLE\s+conversations\s+ADD\s+COLUMN\s+claude_session_id\s+TEXT/i,
+    '0013 must ADD COLUMN claude_session_id TEXT on conversations',
+  );
+});
+
 test('every migration file exports `name` (not `id`)', () => {
   const files = fs
     .readdirSync(migrationsDir)

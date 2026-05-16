@@ -409,6 +409,8 @@ export const conversations = sqliteTable(
     id: text('id').primaryKey(),
     workspaceId: text('workspace_id').notNull(),
     kind: text('kind', { enum: ['assistant', 'swarm_dm'] }).notNull(),
+    // v1.4.0 — Claude CLI session id captured from Sigma Assistant turns.
+    claudeSessionId: text('claude_session_id'),
     createdAt: integer('created_at')
       .notNull()
       .default(sql`(unixepoch() * 1000)`),

@@ -452,6 +452,7 @@ export interface AppRouter {
         workspaceId: string;
         kind: 'assistant' | 'swarm_dm';
         createdAt: number;
+        claudeSessionId: string | null;
         messages: Array<{
           id: string;
           conversationId: string;
@@ -506,6 +507,7 @@ export interface AppRouter {
           title: string;
           lastMessageAt: number;
           messageCount: number;
+          claudeSessionId: string | null;
         }>
       >;
       get: (input: { conversationId: string }) => Promise<{
@@ -513,6 +515,7 @@ export interface AppRouter {
           id: string;
           workspaceId: string;
           createdAt: number;
+          claudeSessionId: string | null;
         } | null;
         messages: Array<{
           id: string;
@@ -524,6 +527,9 @@ export interface AppRouter {
         }>;
       }>;
       delete: (input: { conversationId: string }) => Promise<{ ok: true }>;
+      resumeHint: (input: {
+        conversationId: string;
+      }) => Promise<{ available: boolean; sessionId: string | null }>;
     };
   };
   design: {

@@ -16,7 +16,8 @@ import { probeProvider } from '../providers/probe';
 import { findProvider } from '../../../shared/providers';
 import { getDb } from '../db/client';
 import { workspaces as workspacesTable } from '../db/schema';
-import { appendMessage, getConversation } from './conversations';
+import { isClaudeSessionId } from '../pty/claude-resume-bridge';
+import * as conversationsDao from './conversations';
 import { ToolTracer } from './tool-tracer';
 import { buildSigmaSystemPrompt, estimateTokens } from './system-prompt';
 import { writeSigmaHostMcpConfig } from './mcp-host-bridge';
@@ -176,13 +177,21 @@ function resolveSystemPrompt(
   return buildSigmaSystemPrompt({ workspaceName: 'workspace', workspaceRoot: '' });
 }
 
-function buildCliArgs(prompt: string, sysPrompt: string): string[] {
-  return [
+function buildCliArgs(
+  prompt: string,
+  sysPrompt: string,
+  resumeSessionId: string | null,
+): string[] {
+  const args = [
     '-p', prompt,
     '--output-format', 'stream-json',
     '--verbose',
     '--append-system-prompt', sysPrompt,
   ];
+  if (resumeSessionId && isClaudeSessionId(resumeSessionId)) {
+    args.unshift('--resume', resumeSessionId);
+  }
+  return args;
 }
 
 // BUG-V1.1.2-01 — Write a temp `.mcp.json` and load it when the host bridge
@@ -204,9 +213,43 @@ function applyMcpHostConfig(
   }
 }
 
-function appendAssistantMessage(conversationId: string): string | null {
+type ConversationsRuntimeDao = typeof conversationsDao & {
+  getClaudeSessionId?: (conversationId: string) => string | null;
+  setClaudeSessionId?: (conversationId: string, claudeSessionId: string | null) => void;
+};
+
+function getPriorClaudeSessionId(
+  conv: ReturnType<typeof conversationsDao.getConversation> | null,
+): string | null {
+  if (!conv) return null;
+  const dao = conversationsDao as ConversationsRuntimeDao;
   try {
-    return appendMessage({ conversationId, role: 'assistant', content: '' }).id;
+    const fromDao = dao.getClaudeSessionId?.(conv.id);
+    if (typeof fromDao === 'string' || fromDao === null) return fromDao;
+  } catch {
+    /* DAO is optional until Worker A's data-layer slice lands */
+  }
+  const withField = conv as typeof conv & { claudeSessionId?: string | null };
+  return typeof withField.claudeSessionId === 'string' ? withField.claudeSessionId : null;
+}
+
+function clearPriorClaudeSessionId(conversationId: string): void {
+  const dao = conversationsDao as ConversationsRuntimeDao;
+  try {
+    dao.setClaudeSessionId?.(conversationId, null);
+  } catch {
+    /* best-effort; a stale id may retry fresh again next turn */
+  }
+}
+
+function appendAssistantMessage(conversationId: string, turnId: string): string | null {
+  try {
+    return conversationsDao.appendMessage({
+      conversationId,
+      role: 'assistant',
+      content: '',
+      toolCallId: `sigma-in-flight:${turnId}`,
+    }).id;
   } catch {
     /* persistence is best-effort; renderer still receives delta + final */
     return null;
@@ -231,14 +274,15 @@ export async function runClaudeCliTurn(
     return { handled: false, reason: 'no-binary' };
   }
 
-  let conv: ReturnType<typeof getConversation> | null = null;
+  let conv: ReturnType<typeof conversationsDao.getConversation> | null = null;
   try {
-    conv = getConversation(turn.conversationId);
+    conv = conversationsDao.getConversation(turn.conversationId);
   } catch {
     /* DB may not be initialised in tests / pre-boot — keep going with no
      * conversation context; the turn still streams. */
   }
   const workspaceId = conv?.workspaceId ?? null;
+  const priorClaudeSessionId = getPriorClaudeSessionId(conv);
   const sysPrompt = resolveSystemPrompt(workspaceId, opts.buildSystemPrompt);
 
   // R-1.1.1-2: warn if the system prompt grew past the 1500-token budget.
@@ -263,99 +307,120 @@ export async function runClaudeCliTurn(
     trajectoryId = null;
   }
 
-  const args = buildCliArgs(prompt, sysPrompt);
-  applyMcpHostConfig(args, deps.mcpHost, turn.conversationId, workspaceId);
-
-  if (opts.onSpawnArgs) {
-    try {
-      opts.onSpawnArgs(probe.resolvedPath, args);
-    } catch {
-      /* observer-only; never fail the turn */
-    }
-  }
-
-  let child: CliChildLike;
-  try {
-    child = opts.spawnOverride
-      ? opts.spawnOverride(probe.resolvedPath, args)
-      : (spawn(probe.resolvedPath, args, {
-          stdio: ['pipe', 'pipe', 'pipe'],
-        }) as ChildProcessWithoutNullStreams);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    emitErrorFinal(deps, turn, `Failed to spawn claude CLI: ${msg}`);
-    return { handled: true, reason: 'spawn-failed' };
-  }
-
-  activeChildren.set(turn.turnId, child);
-
   // Persist the assistant message envelope up-front so streaming deltas can
   // reference its `messageId`. We update its content on result; a partial
   // row is acceptable if the turn is cancelled mid-stream.
   const assistantMessageId =
-    turn.conversationId && conv ? appendAssistantMessage(turn.conversationId) : null;
+    turn.conversationId && conv ? appendAssistantMessage(turn.conversationId, turn.turnId) : null;
 
-  const stderrChunks: string[] = [];
-  child.stderr.on('data', (chunk: Buffer | string) => {
-    const s = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    stderrChunks.push(s);
-    // Cap accumulated stderr to ~16 KB so a runaway CLI can't OOM us.
-    while (stderrChunks.join('').length > 16_384) stderrChunks.shift();
-  });
+  let retryWithoutResume = false;
+  let shouldRun = true;
+  while (shouldRun) {
+    shouldRun = false;
+    const resumeSessionId = retryWithoutResume ? null : priorClaudeSessionId;
+    const args = buildCliArgs(prompt, sysPrompt, resumeSessionId);
+    applyMcpHostConfig(args, deps.mcpHost, turn.conversationId, workspaceId);
 
-  const state: TurnLoopState = { sawResult: false, receivingEmitted: false, finalText: '' };
-  const ctx: TurnLoopCtx = {
-    deps,
-    turn,
-    assistantMessageId,
-    stdinWriter: createStdinWriter(child, {
-      // BUG-V1.1.3-ORCH-03 (audit fix): on stdin write timeout we kill the
-      // hung CLI child so the turn driver's `close` listener fires, the
-      // assistant state transitions to standby, and the renderer's spinner
-      // stops. Without this the CLI process would hang stdin indefinitely
-      // and the parent turn promise would never resolve.
-      onTimeout: () => {
-        try {
-          child.kill('SIGTERM');
-        } catch {
-          /* best-effort — child may already be dead */
-        }
-      },
-    }),
-    trajectoryId,
-    pendingToolRoutes: new Set<Promise<void>>(),
-  };
-  const rl = readline.createInterface({ input: child.stdout });
-
-  await new Promise<void>((resolve) => {
-    rl.on('line', (line) => {
-      if (turn.cancelled) return;
-      const env = parseCliLine(line);
-      if (!env) {
-        // Non-JSON lines (rare) — forward as raw text so the user sees something.
-        const trimmed = line.trim();
-        if (trimmed) emitDelta(deps, turn, assistantMessageId, trimmed + '\n');
-        return;
+    if (opts.onSpawnArgs) {
+      try {
+        opts.onSpawnArgs(probe.resolvedPath, args);
+      } catch {
+        /* observer-only; never fail the turn */
       }
-      handleParsedEnvelope(env, ctx, state);
+    }
+
+    let child: CliChildLike;
+    try {
+      child = opts.spawnOverride
+        ? opts.spawnOverride(probe.resolvedPath, args)
+        : (spawn(probe.resolvedPath, args, {
+            stdio: ['pipe', 'pipe', 'pipe'],
+          }) as ChildProcessWithoutNullStreams);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const errMsg = `Failed to spawn claude CLI: ${msg}`;
+      persistFinal(turn, assistantMessageId, errMsg);
+      emitErrorFinal(deps, turn, errMsg, assistantMessageId);
+      return { handled: true, reason: 'spawn-failed' };
+    }
+
+    activeChildren.set(turn.turnId, child);
+
+    const stderrChunks: string[] = [];
+    child.stderr.on('data', (chunk: Buffer | string) => {
+      const s = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      stderrChunks.push(s);
+      // Cap accumulated stderr to ~16 KB so a runaway CLI can't OOM us.
+      while (stderrChunks.join('').length > 16_384) stderrChunks.shift();
     });
-    child.on('close', async (code: number | null) => {
-      activeChildren.delete(turn.turnId);
-      rl.close();
-      await Promise.allSettled(Array.from(ctx.pendingToolRoutes));
-      await ctx.stdinWriter.drain().catch(() => undefined);
-      finalizeTurnOnClose(code, ctx, state, stderrChunks);
-      resolve();
+
+    const state: TurnLoopState = {
+      sawResult: false,
+      receivingEmitted: false,
+      finalText: '',
+      resumeAttempted: Boolean(resumeSessionId && isClaudeSessionId(resumeSessionId)),
+      resumeLikelyFailed: false,
+    };
+    const ctx: TurnLoopCtx = {
+      deps,
+      turn,
+      assistantMessageId,
+      stdinWriter: createStdinWriter(child, {
+        // BUG-V1.1.3-ORCH-03 (audit fix): on stdin write timeout we kill the
+        // hung CLI child so the turn driver's `close` listener fires, the
+        // assistant state transitions to standby, and the renderer's spinner
+        // stops. Without this the CLI process would hang stdin indefinitely
+        // and the parent turn promise would never resolve.
+        onTimeout: () => {
+          try {
+            child.kill('SIGTERM');
+          } catch {
+            /* best-effort — child may already be dead */
+          }
+        },
+      }),
+      trajectoryId,
+      pendingToolRoutes: new Set<Promise<void>>(),
+    };
+    const rl = readline.createInterface({ input: child.stdout });
+
+    await new Promise<void>((resolve) => {
+      rl.on('line', (line) => {
+        if (turn.cancelled) return;
+        const env = parseCliLine(line);
+        if (!env) {
+          // Non-JSON lines (rare) — forward as raw text so the user sees something.
+          const trimmed = line.trim();
+          if (trimmed) emitDelta(deps, turn, assistantMessageId, trimmed + '\n');
+          return;
+        }
+        handleParsedEnvelope(env, ctx, state);
+      });
+      child.on('close', async (code: number | null) => {
+        activeChildren.delete(turn.turnId);
+        rl.close();
+        await Promise.allSettled(Array.from(ctx.pendingToolRoutes));
+        await ctx.stdinWriter.drain().catch(() => undefined);
+        finalizeTurnOnClose(code, ctx, state, stderrChunks);
+        resolve();
+      });
+      child.on('error', (err: Error) => {
+        activeChildren.delete(turn.turnId);
+        const msg = `claude CLI process error: ${err.message}`;
+        persistFinal(turn, assistantMessageId, msg);
+        emitErrorFinal(deps, turn, msg, assistantMessageId);
+        void endTrajectory(deps, trajectoryId, false, msg.slice(0, 300));
+        resolve();
+      });
     });
-    child.on('error', (err: Error) => {
-      activeChildren.delete(turn.turnId);
-      const msg = `claude CLI process error: ${err.message}`;
-      persistFinal(turn, assistantMessageId, msg);
-      emitErrorFinal(deps, turn, msg, assistantMessageId);
-      void endTrajectory(deps, trajectoryId, false, msg.slice(0, 300));
-      resolve();
-    });
-  });
+
+    if (state.resumeAttempted && state.resumeLikelyFailed && !retryWithoutResume) {
+      clearPriorClaudeSessionId(turn.conversationId);
+      retryWithoutResume = true;
+      shouldRun = true;
+      continue;
+    }
+  }
 
   return { handled: true };
 }

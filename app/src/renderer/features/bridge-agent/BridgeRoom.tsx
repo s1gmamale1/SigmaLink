@@ -7,13 +7,19 @@
 // in `kv['bridge.activeConversationId']` so a fresh app launch restores
 // the same thread the user was in.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, Sparkles, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Bot, ChevronDown, RotateCcw, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { rpc, rpcSilent, onEvent } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { cn } from '@/lib/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Orb, type OrbState } from './Orb';
 import { ChatTranscript, type ChatMessageView, type ChatRole } from './ChatTranscript';
 import { Composer } from './Composer';
@@ -37,6 +43,8 @@ const KV_ACTIVE_CONVERSATION = 'bridge.activeConversationId';
 // instead of waiting for the user to click "Jump to pane" in the toast.
 // Default ON; users can disable by writing kv['bridge.autoFocusOnDispatch']='0'.
 const KV_AUTO_FOCUS_ON_DISPATCH = 'bridge.autoFocusOnDispatch';
+const IN_FLIGHT_TOOL_PREFIX = 'sigma-in-flight:';
+const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
 /** Best-effort kv write — every persistence write in this room is
  *  decorative (the user's intent survives in DB rows; kv only restores
@@ -45,6 +53,22 @@ const KV_AUTO_FOCUS_ON_DISPATCH = 'bridge.autoFocusOnDispatch';
 const persistActiveConversation = (id: string): void => {
   void rpc.kv.set(KV_ACTIVE_CONVERSATION, id).catch(() => undefined);
 };
+
+function rel(ts: number): string {
+  const diffMs = ts - Date.now();
+  const abs = Math.abs(diffMs);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (abs < hour) return RELATIVE.format(Math.round(diffMs / minute), 'minute');
+  if (abs < day) return RELATIVE.format(Math.round(diffMs / hour), 'hour');
+  if (abs < 14 * day) return RELATIVE.format(Math.round(diffMs / day), 'day');
+  return new Date(ts).toLocaleDateString();
+}
+
+function isInFlightToolCall(toolCallId?: string | null): boolean {
+  return typeof toolCallId === 'string' && toolCallId.startsWith(IN_FLIGHT_TOOL_PREFIX);
+}
 
 /** Side-band invoke for the `assistant.conversations.<method>` namespace.
  *  The typed `rpc` proxy only knows about flat namespaces; this helper
@@ -70,7 +94,10 @@ async function invokeSideBand<T = unknown>(
 
 type ConvList = Awaited<ReturnType<AppRouter['assistant']['conversations']['list']>>;
 type ConvGet = Awaited<ReturnType<AppRouter['assistant']['conversations']['get']>>;
-type ConversationListRow = ConvList[number];
+type ConversationListRow = ConvList[number] & { claudeSessionId?: string | null };
+type HydratedConversation = NonNullable<ConvGet['conversation']> & {
+  claudeSessionId?: string | null;
+};
 
 interface AssistantStateEvent {
   kind: 'state' | 'delta';
@@ -101,6 +128,43 @@ interface PatternHit {
   score: number;
 }
 
+interface ResumeNotice {
+  conversationId: string;
+  lastMessageAt: number;
+}
+
+interface InterruptedTurn {
+  messageId: string;
+  previousPrompt: string | null;
+  startedAt: number;
+}
+
+function findInterruptedTurn(
+  messages: ChatMessageView[],
+  dismissedIds: Set<string>,
+): InterruptedTurn | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (!isInFlightToolCall(message.toolCallId) || dismissedIds.has(message.id)) continue;
+    const resultFollows = messages.slice(i + 1).some((later) => (
+      later.role === 'assistant'
+      && !isInFlightToolCall(later.toolCallId)
+      && later.content.trim().length > 0
+    ));
+    if (resultFollows) continue;
+    const previousUser = messages
+      .slice(0, i)
+      .reverse()
+      .find((row) => row.role === 'user' && row.content.trim().length > 0);
+    return {
+      messageId: message.id,
+      previousPrompt: previousUser?.content ?? null,
+      startedAt: message.createdAt,
+    };
+  }
+  return null;
+}
+
 interface Props {
   /** Compact mode trims the header chrome — used inside the right-rail tab. */
   variant?: 'standalone' | 'rail';
@@ -117,6 +181,10 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
   const [orbState, setOrbState] = useState<OrbState>('standby');
   const [busy, setBusy] = useState(false);
   const [conversations, setConversations] = useState<ConversationListRow[]>([]);
+  const [resumeNotice, setResumeNotice] = useState<ResumeNotice | null>(null);
+  const [dismissedInterruptedIds, setDismissedInterruptedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   // V3-W15-003 — live voice capture handle. Stored in a ref so onOrbClick can
@@ -252,9 +320,11 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
       if (!res.conversation) {
         setConversationId(null);
         setMessages([]);
+        setResumeNotice(null);
         return;
       }
-      setConversationId(res.conversation.id);
+      const conversation = res.conversation as HydratedConversation;
+      setConversationId(conversation.id);
       setMessages(
         res.messages.map((m) => ({
           id: m.id,
@@ -263,6 +333,15 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
           toolCallId: m.toolCallId,
           createdAt: m.createdAt,
         })),
+      );
+      setDismissedInterruptedIds(new Set());
+      setResumeNotice(
+        conversation.claudeSessionId
+          ? {
+              conversationId: conversation.id,
+              lastMessageAt: res.messages.at(-1)?.createdAt ?? conversation.createdAt,
+            }
+          : null,
       );
     } catch {
       /* keep current view on hydration failure */
@@ -280,6 +359,7 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
         setConversationId(null);
         setMessages([]);
         setConversations([]);
+        setResumeNotice(null);
         return;
       }
       const rows = await refreshConversations(wsId);
@@ -300,6 +380,7 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
       } else {
         setConversationId(null);
         setMessages([]);
+        setResumeNotice(null);
       }
     })();
     return () => {
@@ -437,6 +518,7 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
       setComposerText('');
       setComposerExternalValue('');
       setPatternHit(null);
+      setResumeNotice(null);
       setMessages((rows) => [
         ...rows,
         {
@@ -484,6 +566,8 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
     setConversationId(null);
     setMessages([]);
     setStreaming(null);
+    setResumeNotice(null);
+    setDismissedInterruptedIds(new Set());
     setOrbState('standby');
     setBusy(false);
     persistActiveConversation('');
@@ -510,6 +594,7 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
         } else {
           setConversationId(null);
           setMessages([]);
+          setResumeNotice(null);
           persistActiveConversation('');
         }
       }
@@ -622,6 +707,15 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
     };
   }, []);
 
+  const activeConversation = useMemo(
+    () => conversations.find((row) => row.id === conversationId) ?? null,
+    [conversations, conversationId],
+  );
+  const interruptedTurn = useMemo(
+    () => findInterruptedTurn(messages, dismissedInterruptedIds),
+    [messages, dismissedInterruptedIds],
+  );
+
   if (!activeWorkspace) {
     return (
       <div className={cn('flex h-full min-h-0 flex-col bg-background', className)}>
@@ -634,10 +728,8 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
     );
   }
 
-  // P3-S7 — The Conversations panel is only rendered in standalone mode.
-  // The right-rail (`variant === 'rail'`) is already narrow and doesn't
-  // have the horizontal budget to host another sidebar; the panel still
-  // exists implicitly via the standalone Bridge room.
+  // P3-S7 / W-2 — Standalone mode has room for the full conversation panel;
+  // the right rail exposes the same rows through a compact header dropdown.
   const showPanel = variant === 'standalone';
 
   return (
@@ -663,11 +755,120 @@ export function BridgeRoom({ variant = 'standalone', className }: Props) {
               {activeWorkspace.name}
             </span>
           </header>
-        ) : null}
+        ) : (
+          <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-muted/10 px-2">
+            <Bot className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-1 rounded px-1.5 py-1 text-left text-xs transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  aria-label="Conversation menu"
+                  title="Conversation menu"
+                >
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {activeConversation?.title ?? 'New conversation'}
+                  </span>
+                  {activeConversation?.claudeSessionId ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      <RotateCcw className="h-2.5 w-2.5" aria-hidden />
+                      Resumable
+                    </span>
+                  ) : null}
+                  <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" sideOffset={6} className="w-72">
+                {conversations.length === 0 ? (
+                  <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                    No saved conversations
+                  </DropdownMenuItem>
+                ) : null}
+                {conversations.map((row) => (
+                  <DropdownMenuItem
+                    key={row.id}
+                    onSelect={() => onPickConversation(row.id)}
+                    className={cn(
+                      'flex items-center gap-2 text-xs',
+                      row.id === conversationId && 'bg-accent/40 text-accent-foreground',
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{row.title}</span>
+                    {row.claudeSessionId ? (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                        <RotateCcw className="h-2.5 w-2.5" aria-hidden />
+                        Resumable
+                      </span>
+                    ) : null}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </header>
+        )}
         <div className="flex shrink-0 items-center justify-center border-b border-border/50 bg-background px-4 py-3">
           <Orb state={orbState} onClick={onOrbClick} />
         </div>
         <div ref={transcriptRef} className="flex min-h-0 flex-1 flex-col">
+          {resumeNotice && resumeNotice.conversationId === conversationId ? (
+            <div
+              className="flex shrink-0 items-center gap-2 border-b border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px] text-primary"
+              data-testid="bridge-resume-banner"
+            >
+              <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="min-w-0 truncate">
+                Resuming chat from {rel(resumeNotice.lastMessageAt)}
+              </span>
+              <button
+                type="button"
+                className="ml-auto rounded p-0.5 text-primary/70 transition hover:bg-primary/10 hover:text-primary"
+                aria-label="Dismiss resume notice"
+                onClick={() => setResumeNotice(null)}
+              >
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            </div>
+          ) : null}
+          {interruptedTurn ? (
+            <div
+              className="flex shrink-0 items-center gap-2 border-b border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-300"
+              data-testid="bridge-interrupted-banner"
+            >
+              <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">
+                Interrupted turn from {rel(interruptedTurn.startedAt)}
+              </span>
+              <button
+                type="button"
+                className="rounded border border-amber-500/30 bg-background/60 px-2 py-0.5 font-medium transition hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!interruptedTurn.previousPrompt}
+                onClick={() => {
+                  if (!interruptedTurn.previousPrompt) return;
+                  setDismissedInterruptedIds((ids) => {
+                    const next = new Set(ids);
+                    next.add(interruptedTurn.messageId);
+                    return next;
+                  });
+                  void sendPrompt(interruptedTurn.previousPrompt);
+                }}
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                className="rounded px-2 py-0.5 font-medium transition hover:bg-amber-500/15"
+                onClick={() => {
+                  setDismissedInterruptedIds((ids) => {
+                    const next = new Set(ids);
+                    next.add(interruptedTurn.messageId);
+                    return next;
+                  });
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          ) : null}
           <ChatTranscript messages={messages} streamingDelta={streaming?.delta} />
         </div>
         <ToolCallInspector />

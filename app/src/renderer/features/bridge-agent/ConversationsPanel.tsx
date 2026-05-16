@@ -5,7 +5,7 @@
 // the header carries a "+ New" button that drops the active id so the next
 // `assistant.send` lazily creates a fresh conversation.
 
-import { MessageSquarePlus, Plus, Trash2 } from 'lucide-react';
+import { MessageSquarePlus, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface ConversationListItem {
@@ -13,6 +13,7 @@ export interface ConversationListItem {
   title: string;
   lastMessageAt: number;
   messageCount: number;
+  claudeSessionId?: string | null;
 }
 
 interface Props {
@@ -107,7 +108,16 @@ export function ConversationsPanel({
                 </span>
               </div>
               <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-                <span>{rel(row.lastMessageAt)}</span>
+                <span className="min-w-0 truncate">{rel(row.lastMessageAt)}</span>
+                {row.claudeSessionId ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                    data-testid="bridge-resumable-pill"
+                  >
+                    <RotateCcw className="h-2.5 w-2.5" aria-hidden />
+                    Resumable
+                  </span>
+                ) : null}
                 {onDelete ? (
                   <button
                     type="button"

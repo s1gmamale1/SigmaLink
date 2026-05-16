@@ -14,6 +14,7 @@
 export interface CliSystemEnvelope {
   type: 'system';
   subtype?: string;
+  session_id?: string;
   [k: string]: unknown;
 }
 
@@ -80,6 +81,18 @@ export function parseCliLine(line: string): CliEnvelope | null {
 
 export function isAssistantEnvelope(env: CliEnvelope): env is CliAssistantEnvelope {
   return env.type === 'assistant';
+}
+
+export function isSystemInitEnvelope(
+  env: CliEnvelope,
+): env is CliSystemEnvelope & { subtype: 'init'; session_id: string } {
+  const system = env as CliSystemEnvelope;
+  return (
+    env.type === 'system' &&
+    system.subtype === 'init' &&
+    typeof system.session_id === 'string' &&
+    system.session_id.length > 0
+  );
 }
 
 export function isResultEnvelope(env: CliEnvelope): env is CliResultEnvelope {

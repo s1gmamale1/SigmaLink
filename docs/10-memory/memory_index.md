@@ -263,3 +263,14 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-168 | v1.3.5 tests: +9 `mcp-autowrite.test.ts` cases (Kimi detect/skip/merge, OpenCode schema + $schema preservation + non-npx refusal, canonical-args regression) + 7 `verify.test.ts` cases (5-CLI configured, vacuous-pass undetected, OpenCode array-command validation, strict-mode probe gating); 323 → 339 vitest | shipped | 1 |
 | T-169 | v1.3.5 reviewer verdict (Opus 4.7): APPROVED unconditionally, 0 critical/high/med risks, one low-priority dedup follow-up filed for v1.3.6 (shared PATH-detect helper) | shipped | 1 |
 | T-170 | v1.3.5 release plumbing: bump `app/package.json` 1.3.4 → 1.3.5, CHANGELOG `[1.3.5]`, release-notes-1.3.5.txt, WISHLIST shipped row, master_memory Phase 25 | shipped | 1 |
+
+## v1.4.0 Phase 26 — Sigma Assistant orchestrator resume (May 16, 2026)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-171 | W-2 plan hardening: isolate worktree/branch `feat/v1.4.0-sigma-assistant-orchestrator`, split work into data/RPC, runtime, frontend, docs/release slices | shipped | 1 |
+| T-172 | Data/RPC slice: migration 0013 adds `conversations.claude_session_id`; conversations DAO/list/get summaries expose `claudeSessionId`; `assistant.conversations.resumeHint` checks stored Claude JSONL availability | shipped | 1 |
+| T-173 | Runtime slice: capture Claude `system.init.session_id`, pass `--resume <id>` on future Sigma Assistant turns, clear stale ids and retry once without resume, and persist `sigma-in-flight:<turnId>` sentinels until final result | shipped | 1 |
+| T-174 | Frontend slice: Bridge right-rail conversation dropdown, resumable pill, resume banner, interrupted-turn retry/dismiss banner, and ConversationsPanel resumable marker | shipped | 1 |
+| T-175 | v1.4.0 reviewer verdict (Opus 4.7): APPROVED — 0 critical/high; 1 med (BridgeRoom 922 LOC, pre-existing condition); two strengthenings beyond plan spec (broader `isLikelyResumeFailure` regex, tighter `findInterruptedTurn` predicate) | shipped | 1 |
+| T-176 | v1.4.0 release plumbing: bump `app/package.json` 1.3.5 → 1.4.0, CHANGELOG `[1.4.0]`, release-notes-1.4.0.txt, WISHLIST shipped row, master_memory Phase 26 | shipped | 1 |
