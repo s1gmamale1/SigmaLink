@@ -87,6 +87,12 @@ export interface AppState {
   onboarded: boolean;
   commandPaletteOpen: boolean;
   sidebarCollapsed: boolean;
+  // v1.4.2 packet-12 — id of the pane currently displayed in fullscreen mode,
+  // or `null` when the regular grid is showing. Per-session only — NEVER
+  // persisted into `roomByWorkspace` or the on-disk snapshot. Resets to
+  // `null` on workspace close and active-workspace switch so the user always
+  // lands back on the regular grid.
+  focusedPaneId: string | null;
 }
 
 export type Action =
@@ -136,7 +142,10 @@ export type Action =
   | { type: 'BOOT_UI'; onboarded: boolean; sidebarCollapsed: boolean }
   | { type: 'SET_ONBOARDED'; value: boolean }
   | { type: 'SET_COMMAND_PALETTE'; open: boolean }
-  | { type: 'SET_SIDEBAR_COLLAPSED'; collapsed: boolean };
+  | { type: 'SET_SIDEBAR_COLLAPSED'; collapsed: boolean }
+  // v1.4.2 packet-12 — pane fullscreen toggle (per-session, not persisted).
+  | { type: 'FOCUS_PANE'; paneId: string }
+  | { type: 'UNFOCUS_PANE' };
 
 export const initialAppState: AppState = {
   ready: false,
@@ -167,6 +176,7 @@ export const initialAppState: AppState = {
   onboarded: true, // optimistic — corrected by BOOT_UI before the modal evaluates.
   commandPaletteOpen: false,
   sidebarCollapsed: false,
+  focusedPaneId: null,
 };
 
 export function selectActiveWorkspace(
