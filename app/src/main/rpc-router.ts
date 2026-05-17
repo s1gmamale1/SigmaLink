@@ -23,6 +23,8 @@ import { probeAllProviders, probeProviderById } from './core/providers/probe';
 import { commitAndMerge, gitDiff, gitStatus, runShellLine, worktreeRemove } from './core/git/git-ops';
 import { WorktreePool } from './core/git/worktree';
 import { listWorkspaces, openWorkspace, removeWorkspace } from './core/workspaces/factory';
+import { cleanupOrphanWorktrees } from './core/workspaces/worktree-cleanup';
+import { repoHash as computeRepoHash } from './core/git/git-ops';
 import {
   installWorkspaceLifecycleIpc,
   markWorkspaceClosed,
@@ -782,6 +784,18 @@ function buildRouter() {
         emit: (event, payload) => broadcast(event, payload),
       });
       markWorkspaceOpened(workspace.id);
+      // v1.4.3 (#04) — Best-effort orphan worktree cleanup. Removes worktree
+      // dirs under userData/worktrees/<repoHash>/ that are not referenced by
+      // any live or recently-exited agent_sessions row. Non-fatal; failures
+      // are logged but never surfaced to the user. Skipped for plain repos
+      // (no repoRoot) and on cold install (no DB rows for this repo).
+      if (workspace.repoRoot) {
+        const worktreeBase = path.join(app.getPath('userData'), 'worktrees');
+        const hash = computeRepoHash(workspace.repoRoot);
+        void cleanupOrphanWorktrees(worktreeBase, hash, getRawDb()).catch((err) => {
+          console.warn('[workspaces.open] Worktree cleanup failed (non-fatal):', err);
+        });
+      }
       return workspace;
     },
     list: async () => listWorkspaces(),

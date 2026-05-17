@@ -31,6 +31,7 @@ interface RawSessionRow {
 
 function buildFakeDb(rows: RawSessionRow[]) {
   return {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     prepare(_sql: string) {
       return {
         all(workspaceId: string, workspaceIdInner?: string) {
