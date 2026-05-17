@@ -193,6 +193,12 @@ export interface SeedAgentSession {
   exitedAt?: number | null;
   providerEffective?: string | null;
   externalSessionId?: string | null;
+  // v1.4.3 #06 — Pane Split + Minimise columns. Default to nulls/0 so legacy
+  // seeds keep behaving like standalone, non-minimised panes.
+  splitGroupId?: string | null;
+  splitDirection?: 'horizontal' | 'vertical' | null;
+  splitIndex?: number | null;
+  minimised?: number;
 }
 
 export function seedAgentSession(
@@ -213,6 +219,10 @@ export function seedAgentSession(
     exitedAt: partial.exitedAt ?? null,
     providerEffective: partial.providerEffective ?? null,
     externalSessionId: partial.externalSessionId ?? null,
+    splitGroupId: partial.splitGroupId ?? null,
+    splitDirection: partial.splitDirection ?? null,
+    splitIndex: partial.splitIndex ?? null,
+    minimised: partial.minimised ?? 0,
   };
   ensureTable(fake.store, 'agent_sessions').push(row);
   return row;

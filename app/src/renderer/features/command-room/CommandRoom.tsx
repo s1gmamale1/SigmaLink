@@ -7,7 +7,7 @@
 // Cmd+Alt+<N> focus jumps. The legacy PaneStatusStrip was collapsed into
 // PaneHeader's provider-name tooltip; Stop moves to the right-click menu.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FolderOpen, Plus, Square, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -42,6 +42,32 @@ import type { AgentSession, Swarm } from '@/shared/types';
 
 const EMPTY_SESSIONS: AgentSession[] = [];
 const EMPTY_SWARMS: Swarm[] = [];
+
+// v1.4.3 #06 — Pane Split. Each entry in the GridLayout corresponds to ONE
+// grid cell. A standalone pane occupies its own cell; the two halves of a
+// split share a cell and render as a sub-grid. We pre-group sessions into
+// these cells so GridLayout itself stays generic and unaware of the split
+// model — `renderCell` knows how to lay out either case.
+type SessionCell = AgentSession[];
+
+function groupSessionsIntoCells(sessions: AgentSession[]): SessionCell[] {
+  const cells: SessionCell[] = [];
+  const seen = new Set<string>();
+  for (const s of sessions) {
+    if (seen.has(s.id)) continue;
+    if (s.splitGroupId) {
+      const group = sessions
+        .filter((other) => other.splitGroupId === s.splitGroupId)
+        .sort((a, b) => (a.splitIndex ?? 0) - (b.splitIndex ?? 0));
+      for (const g of group) seen.add(g.id);
+      cells.push(group);
+    } else {
+      seen.add(s.id);
+      cells.push([s]);
+    }
+  }
+  return cells;
+}
 
 // v1.2.5 Step 3 — derive the human-readable reason why "+ Pane" is disabled.
 // Returns `null` when the button is either enabled OR mid-flight (no tooltip
@@ -123,19 +149,30 @@ export function CommandRoom() {
     };
   }, [activeWorkspaceId, dispatch]);
 
+  // v1.4.3 #06 — Group sessions into grid cells. Standalone panes get one
+  // cell each; the two halves of a split share a cell (rendered as a
+  // sub-grid). Computed off the raw sessions list so we always reflect the
+  // latest state.sessionsByWorkspace projection.
+  const cells = useMemo(() => groupSessionsIntoCells(sessions), [sessions]);
+
   // BUG-V1.1-04-IPC — derive activeIndex from global state.activeSessionId
   // so cross-pane jumps fired by Sigma dispatch echoes (or anywhere else
   // that dispatches SET_ACTIVE_SESSION) update the focus ring + footer
   // metadata without needing a local click. Falls back to 0 when the
   // active id isn't in the current pane list (e.g. workspace just
   // switched, session not yet hydrated).
+  //
+  // v1.4.3 #06 — `activeIndex` now indexes into `cells` (one entry per grid
+  // cell), not into the raw sessions list. A split sub-pane's activeIndex is
+  // the index of its parent cell.
   const activeIndex = useMemo(() => {
-    if (sessions.length === 0) return 0;
-    const idx = activeSessionId
-      ? sessions.findIndex((s) => s.id === activeSessionId)
-      : -1;
+    if (cells.length === 0) return 0;
+    if (!activeSessionId) return 0;
+    const idx = cells.findIndex((cell) =>
+      cell.some((s) => s.id === activeSessionId),
+    );
     return idx >= 0 ? idx : 0;
-  }, [sessions, activeSessionId]);
+  }, [cells, activeSessionId]);
 
   // Reconcile the global active session with the local pane list. If the
   // current activeSessionId is missing from this workspace's sessions, point
@@ -193,15 +230,48 @@ export function CommandRoom() {
     );
   }
   if (sessions.length === 0) {
+    // v1.4.3 #05 — defense-in-depth UX. The actual rehydration fix lives in
+    // packet #02; this branch surfaces an inline "Add first pane" affordance
+    // so a user who lands on a fresh / freshly-rehydrated workspace doesn't
+    // have to walk back through Workspaces → Launcher → grid wizard just to
+    // recover. Only shown when the swarm is running AND providers loaded;
+    // otherwise we fall back to the legacy "Go to Workspaces" CTA only so
+    // the click can't dead-end.
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        '[CommandRoom] Empty state — workspace activated but sessions slice empty. ' +
+          'Either user just landed on a fresh workspace, OR rehydration failed.',
+      );
+    }
+    const canAddPane = activeSwarm?.status === 'running' && providers.length > 0;
     return (
       <EmptyState
         icon={TerminalIcon}
         title="No agents launched yet"
-        description="Head back to the Workspaces room to pick a grid preset and launch."
+        description={
+          canAddPane
+            ? 'Add your first pane below, or go back to Workspaces to pick a grid preset.'
+            : 'Head back to the Workspaces room to pick a grid preset and launch.'
+        }
         action={
-          <Button size="sm" onClick={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}>
-            Go to Workspaces
-          </Button>
+          <div className="flex gap-2">
+            {canAddPane ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void addPane(providers[0]!.id)}
+                disabled={adding}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add first pane
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              onClick={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}
+            >
+              Go to Workspaces
+            </Button>
+          </div>
         }
       />
     );
@@ -236,6 +306,67 @@ export function CommandRoom() {
     } finally {
       setAdding(false);
     }
+  }
+
+  // v1.4.3 #06 — Pane Split. Sub-pane shares the parent's worktree (see
+  // controller-level worktree-share rationale). The new session is dispatched
+  // into state via SPLIT_PANE so the parent + child get their split_group_id
+  // annotation in one render pass — avoids the one-frame flash where the
+  // child would briefly render as a standalone tile before the next
+  // dispatch grouped them.
+  async function handleSplitPane(
+    parent: AgentSession,
+    direction: 'horizontal' | 'vertical',
+    providerId: string,
+  ): Promise<void> {
+    try {
+      const newSession = await rpc.swarms.splitPane({
+        paneId: parent.id,
+        direction,
+        provider: providerId,
+      });
+      // The RPC already persisted the split annotation on disk; the reducer
+      // dispatch mirrors that into the in-memory sessions list so the
+      // renderer's grouping logic sees both halves in one render.
+      const groupId = newSession.splitGroupId;
+      if (!groupId) {
+        // Defensive: the controller always returns the annotated session,
+        // but if a build mismatch ever drops it we fall back to a plain
+        // session add so the pane at least appears.
+        dispatch({ type: 'ADD_SESSIONS', sessions: [newSession] });
+        return;
+      }
+      dispatch({
+        type: 'SPLIT_PANE',
+        parentId: parent.id,
+        newSession,
+        groupId,
+        direction,
+      });
+      toast.success(`Split pane ${direction}`, {
+        description: `Added ${providerId}`,
+      });
+    } catch (err) {
+      toast.error('Could not split pane', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // v1.4.3 #06 — Toggle the minimised flag. PTY keeps running; only the
+  // rendered chrome shrinks to a header strip. The RPC is fire-and-forget
+  // for the success case (state is mirrored locally); on failure we revert
+  // the optimistic dispatch.
+  function handleToggleMinimise(session: AgentSession): void {
+    const next = !session.minimised;
+    dispatch({ type: 'MINIMISE_PANE', paneId: session.id, minimised: next });
+    void rpc.swarms.minimisePane({ paneId: session.id, minimised: next }).catch((err) => {
+      // Revert on RPC failure so the on-disk state and renderer agree.
+      dispatch({ type: 'MINIMISE_PANE', paneId: session.id, minimised: !next });
+      toast.error('Could not minimise pane', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   return (
@@ -304,34 +435,78 @@ export function CommandRoom() {
         <WorktreeInfoBanner onDismiss={() => setShowWorktreeBanner(false)} />
       )}
       <div className="min-h-0 flex-1 overflow-hidden">
-        <GridLayout<AgentSession>
-          items={sessions}
-          getKey={(s) => s.id}
+        <GridLayout<SessionCell>
+          items={cells}
+          getKey={(cell) => cell[0]!.id}
           activeIndex={activeIndex}
           onActiveChange={(i) => {
-            const s = sessions[i];
-            if (s && activeSessionId !== s.id) {
-              dispatch({ type: 'SET_ACTIVE_SESSION', id: s.id });
+            const cell = cells[i];
+            if (!cell) return;
+            // v1.4.3 #06 — When the active cell is a split group, pick the
+            // sub-pane the user already had focused (so a click on the cell
+            // background doesn't yank focus between the two halves). Falls
+            // back to the first sub-pane if neither is currently active.
+            const inCell = cell.find((s) => s.id === activeSessionId);
+            const target = inCell ?? cell[0]!;
+            if (activeSessionId !== target.id) {
+              dispatch({ type: 'SET_ACTIVE_SESSION', id: target.id });
             }
           }}
           focusedKey={focusedPaneId}
-          renderCell={(session, ctx) => (
-            <PaneCell
-              session={session}
-              paneIndex={ctx.index + 1}
-              onFocus={() => ctx.activate()}
-              onRemove={() => handleRemove(session)}
-              onStop={() => handleStop(session)}
-              isFullscreen={focusedPaneId === session.id}
-              onToggleFullscreen={() =>
-                dispatch(
-                  focusedPaneId === session.id
-                    ? { type: 'UNFOCUS_PANE' }
-                    : { type: 'FOCUS_PANE', paneId: session.id },
-                )
-              }
-            />
-          )}
+          renderCell={(cell, ctx) => {
+            // v1.4.3 #06 — A "cell" is either a single standalone pane or
+            // the two halves of a split group. The split sub-grid is
+            // rendered inline here so it stays scoped to one grid cell;
+            // GridLayout's outer divider math is unaffected.
+            if (cell.length === 1) {
+              const session = cell[0]!;
+              return (
+                <PaneCell
+                  session={session}
+                  paneIndex={ctx.index + 1}
+                  providers={providers}
+                  onFocus={() => ctx.activate()}
+                  onRemove={() => handleRemove(session)}
+                  onStop={() => handleStop(session)}
+                  onSplit={(dir, providerId) =>
+                    void handleSplitPane(session, dir, providerId)
+                  }
+                  onToggleMinimise={() => handleToggleMinimise(session)}
+                  isFullscreen={focusedPaneId === session.id}
+                  onToggleFullscreen={() =>
+                    dispatch(
+                      focusedPaneId === session.id
+                        ? { type: 'UNFOCUS_PANE' }
+                        : { type: 'FOCUS_PANE', paneId: session.id },
+                    )
+                  }
+                />
+              );
+            }
+            return (
+              <SplitGroupCell
+                panes={cell}
+                paneIndex={ctx.index + 1}
+                providers={providers}
+                focusedPaneId={focusedPaneId}
+                onActivate={(id) => {
+                  if (activeSessionId !== id) {
+                    dispatch({ type: 'SET_ACTIVE_SESSION', id });
+                  }
+                }}
+                onRemove={handleRemove}
+                onStop={handleStop}
+                onToggleMinimise={handleToggleMinimise}
+                onToggleFullscreen={(id) =>
+                  dispatch(
+                    focusedPaneId === id
+                      ? { type: 'UNFOCUS_PANE' }
+                      : { type: 'FOCUS_PANE', paneId: id },
+                  )
+                }
+              />
+            );
+          }}
         />
       </div>
     </div>
@@ -341,19 +516,33 @@ export function CommandRoom() {
 function PaneCell({
   session,
   paneIndex,
+  providers,
   onFocus,
   onRemove,
   onStop,
+  onSplit,
+  onToggleMinimise,
   isFullscreen,
   onToggleFullscreen,
+  /**
+   * v1.4.3 #06 — When the pane is in a split group, the Split-H/V icons are
+   * disabled (max 2-level deep in v1.4.x). The CommandRoom passes this true
+   * for sub-panes via `SplitGroupCell`. Defaults to false for the standalone
+   * pane case.
+   */
+  inSplitGroup = false,
 }: {
   session: AgentSession;
   paneIndex: number;
+  providers: { id: string; name: string }[];
   onFocus: () => void;
   onRemove: () => void;
   onStop: () => void;
+  onSplit: (direction: 'horizontal' | 'vertical', providerId: string) => void;
+  onToggleMinimise: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  inSplitGroup?: boolean;
 }) {
   const errored = session.status === 'error';
   const exited = session.status === 'exited';
@@ -375,19 +564,34 @@ function PaneCell({
   // now that PaneStatusStrip is gone and the header only carries Close. The
   // ContextMenu wraps just the body so right-clicks on the header chrome
   // (with its own buttons) don't fight Radix for the event.
+  //
+  // v1.4.3 #06 — A minimised pane collapses to its header strip only (the
+  // body is hidden via display:none). The SessionTerminal stays mounted so
+  // the terminal-cache (v1.4.2 #03) preserves scrollback and the PTY keeps
+  // emitting bytes — clicking the header restores the body view.
+  const minimised = !!session.minimised;
   return (
     <div className="sl-pane-enter flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <PaneHeader
         session={session}
         paneIndex={paneIndex}
+        providers={providers}
         onFocus={onFocus}
         onClose={onRemove}
+        onSplit={onSplit}
+        onToggleMinimise={onToggleMinimise}
+        canSplit={!inSplitGroup}
+        isMinimised={minimised}
         isFullscreen={isFullscreen}
         onToggleFullscreen={onToggleFullscreen}
       />
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            className="relative flex min-h-0 flex-1 flex-col"
+            style={minimised ? { display: 'none' } : undefined}
+            data-pane-minimised={minimised ? 'true' : undefined}
+          >
             <div className="relative min-h-0 flex-1">
               {errored ? (
                 <div className="flex h-full flex-col items-start justify-start gap-2 p-3 text-xs">
@@ -428,6 +632,140 @@ function PaneCell({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+    </div>
+  );
+}
+
+// v1.4.3 #06 — Renders the two halves of a split group in a single grid
+// cell, separated by a sub-divider. Each sub-pane is its own
+// <SessionTerminal> (and its own terminal-cache entry) so the cache handles
+// their lifecycles transparently — no special-casing needed there.
+//
+// The sub-divider resizes the two halves with a simple ratio state; the
+// outer GridLayout's divider math is unaffected because the split group
+// occupies one outer grid cell.
+function SplitGroupCell({
+  panes,
+  paneIndex,
+  providers,
+  focusedPaneId,
+  onActivate,
+  onRemove,
+  onStop,
+  onToggleMinimise,
+  onToggleFullscreen,
+}: {
+  panes: AgentSession[];
+  paneIndex: number;
+  providers: { id: string; name: string }[];
+  focusedPaneId: string | null;
+  onActivate: (id: string) => void;
+  onRemove: (s: AgentSession) => void;
+  onStop: (s: AgentSession) => void;
+  onToggleMinimise: (s: AgentSession) => void;
+  onToggleFullscreen: (id: string) => void;
+}) {
+  const direction = panes[0]?.splitDirection ?? 'horizontal';
+  const groupId = panes[0]?.splitGroupId ?? `split-${paneIndex}`;
+  // Sub-grid divider state — fractional split between the two halves.
+  // Defaults to 0.5 each. Min 0.15 to mirror GridLayout's MIN_FRAC.
+  const [ratio, setRatio] = useState(0.5);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const startSubDrag = useCallback(
+    (ev: React.PointerEvent<HTMLDivElement>) => {
+      ev.preventDefault();
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const total = direction === 'vertical' ? rect.width : rect.height;
+      const start = direction === 'vertical' ? ev.clientX : ev.clientY;
+      const initial = ratio;
+      let pendingRaf: number | null = null;
+      let latest: number | null = null;
+      const flush = () => {
+        if (latest !== null) setRatio(latest);
+        latest = null;
+        pendingRaf = null;
+      };
+      document.body.dataset.dragging = 'true';
+      const move = (e: PointerEvent) => {
+        const delta = (direction === 'vertical' ? e.clientX : e.clientY) - start;
+        const dFrac = delta / total;
+        latest = Math.min(0.85, Math.max(0.15, initial + dFrac));
+        if (pendingRaf === null) {
+          pendingRaf = requestAnimationFrame(flush);
+        }
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        if (pendingRaf !== null) {
+          cancelAnimationFrame(pendingRaf);
+          pendingRaf = null;
+          if (latest !== null) setRatio(latest);
+          latest = null;
+        }
+        delete document.body.dataset.dragging;
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    },
+    [direction, ratio],
+  );
+
+  // CSS grid template — 2 cols for vertical split (side-by-side) or 2 rows
+  // for horizontal split (top/bottom). The brief uses "horizontal" to mean
+  // "split the pane horizontally → two rows" — matches typical terminal
+  // multiplexer semantics.
+  const gridStyle =
+    direction === 'vertical'
+      ? { gridTemplateColumns: `${ratio}fr ${1 - ratio}fr` }
+      : { gridTemplateRows: `${ratio}fr ${1 - ratio}fr` };
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative grid h-full min-h-0 w-full min-w-0 gap-1"
+      style={gridStyle}
+      data-split-group={groupId}
+      data-split-direction={direction}
+    >
+      {panes.map((p, idx) => (
+        <div
+          key={p.id}
+          className="relative min-h-0 min-w-0 overflow-hidden rounded-md border border-border bg-card"
+          onMouseDown={() => onActivate(p.id)}
+        >
+          <PaneCell
+            session={p}
+            paneIndex={paneIndex}
+            providers={providers}
+            onFocus={() => onActivate(p.id)}
+            onRemove={() => onRemove(p)}
+            onStop={() => onStop(p)}
+            onSplit={() => undefined /* disabled in split sub-panes */}
+            onToggleMinimise={() => onToggleMinimise(p)}
+            isFullscreen={focusedPaneId === p.id}
+            onToggleFullscreen={() => onToggleFullscreen(p.id)}
+            inSplitGroup
+          />
+          {idx === 0 ? (
+            // Sub-divider sits at the boundary between the two halves.
+            // Positioned absolutely so it doesn't disturb the sub-grid math.
+            <div
+              onPointerDown={startSubDrag}
+              className={
+                direction === 'vertical'
+                  ? 'absolute right-0 top-0 z-30 h-full w-1.5 translate-x-1/2 cursor-col-resize hover:bg-[hsl(var(--ring)/0.4)]'
+                  : 'absolute bottom-0 left-0 z-30 h-1.5 w-full translate-y-1/2 cursor-row-resize hover:bg-[hsl(var(--ring)/0.4)]'
+              }
+              role="separator"
+              aria-label={`Resize split ${direction === 'vertical' ? 'column' : 'row'}`}
+            />
+          ) : null}
+        </div>
+      ))}
     </div>
   );
 }

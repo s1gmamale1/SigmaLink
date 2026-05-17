@@ -277,6 +277,15 @@ export interface AppRouter {
     rollCall: (swarmId: string) => Promise<SwarmMessage>;
     tail: (swarmId: string, opts?: { limit?: number }) => Promise<SwarmMessage[]>;
     kill: (id: string) => Promise<void>;
+    // v1.4.3 #06 — Pane Split + Minimise. `splitPane` shares the parent's
+    // worktree (intentional design — see controller.ts comments) and rejects
+    // panes that are already in a split group (max 2-level deep in v1.4.x).
+    splitPane: (input: {
+      paneId: string;
+      direction: 'horizontal' | 'vertical';
+      provider: string;
+    }) => Promise<AgentSession>;
+    minimisePane: (input: { paneId: string; minimised: boolean }) => Promise<void>;
   };
   browser: {
     openTab: (input: { workspaceId: string; url?: string }) => Promise<BrowserTab>;

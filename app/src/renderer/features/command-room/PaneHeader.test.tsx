@@ -118,7 +118,12 @@ describe('PaneHeader', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('renders Split and Minimise as disabled placeholders', () => {
+  it('renders Split and Minimise as disabled placeholders when callers do not wire them', () => {
+    // v1.4.3 #06 — When `onSplit` / `onToggleMinimise` are NOT supplied
+    // (legacy callers / older tests), the icons fall back to the v1.2.5
+    // disabled placeholder. Both Split-V (Columns2) and Split-H (Rows2) live
+    // as buttons with aria-label="Split pane", so `getAllByRole` picks them
+    // both up.
     render(
       <PaneHeader
         session={makeSession()}
@@ -127,13 +132,16 @@ describe('PaneHeader', () => {
         onClose={() => undefined}
       />,
     );
-    const split = screen.getByRole('button', { name: 'Split pane' }) as HTMLButtonElement;
+    const splits = screen.getAllByRole('button', { name: 'Split pane' }) as HTMLButtonElement[];
+    expect(splits.length).toBeGreaterThanOrEqual(2);
     const minimise = screen.getByRole('button', { name: 'Minimise pane' }) as HTMLButtonElement;
-    expect(split.disabled).toBe(true);
+    for (const s of splits) {
+      expect(s.disabled).toBe(true);
+      expect(s.className).toMatch(/cursor-not-allowed/);
+      expect(s.className).toMatch(/opacity-40/);
+    }
     expect(minimise.disabled).toBe(true);
-    expect(split.className).toMatch(/cursor-not-allowed/);
     expect(minimise.className).toMatch(/cursor-not-allowed/);
-    expect(split.className).toMatch(/opacity-40/);
     expect(minimise.className).toMatch(/opacity-40/);
   });
 
@@ -195,6 +203,85 @@ describe('PaneHeader', () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
     // The legacy "Pin focus ring" label must not be visible in this mode.
     expect(screen.queryByRole('button', { name: 'Pin focus ring (Cmd+Alt+N)' })).toBeNull();
+  });
+
+  // v1.4.3 #06 — Pane Split + Minimise wired surface.
+  describe('v1.4.3 #06 — Split + Minimise wiring', () => {
+    it('renders the Split buttons as enabled when onSplit + providers are wired', () => {
+      render(
+        <PaneHeader
+          session={makeSession()}
+          paneIndex={1}
+          onFocus={() => undefined}
+          onClose={() => undefined}
+          providers={[
+            { id: 'claude', name: 'Claude' },
+            { id: 'codex', name: 'Codex' },
+          ]}
+          onSplit={() => undefined}
+        />,
+      );
+      const splits = screen.getAllByRole('button', { name: 'Split pane' }) as HTMLButtonElement[];
+      expect(splits.length).toBeGreaterThanOrEqual(2);
+      for (const s of splits) {
+        expect(s.disabled).toBe(false);
+        expect(s.className).not.toMatch(/cursor-not-allowed/);
+      }
+    });
+
+    it('keeps Split disabled when canSplit=false (parent already in a split group)', () => {
+      render(
+        <PaneHeader
+          session={makeSession()}
+          paneIndex={1}
+          onFocus={() => undefined}
+          onClose={() => undefined}
+          providers={[{ id: 'claude', name: 'Claude' }]}
+          onSplit={() => undefined}
+          canSplit={false}
+        />,
+      );
+      const splits = screen.getAllByRole('button', { name: 'Split pane' }) as HTMLButtonElement[];
+      for (const s of splits) {
+        expect(s.disabled).toBe(true);
+        expect(s.className).toMatch(/opacity-40/);
+      }
+    });
+
+    it('invokes onToggleMinimise when the Minimise button is clicked', () => {
+      const onToggleMinimise = vi.fn();
+      render(
+        <PaneHeader
+          session={makeSession()}
+          paneIndex={1}
+          onFocus={() => undefined}
+          onClose={() => undefined}
+          onToggleMinimise={onToggleMinimise}
+          isMinimised={false}
+        />,
+      );
+      const btn = screen.getByRole('button', { name: 'Minimise pane' });
+      fireEvent.click(btn);
+      expect(onToggleMinimise).toHaveBeenCalledTimes(1);
+    });
+
+    it('swaps the Minimise label to "Restore pane" when isMinimised=true', () => {
+      const onToggleMinimise = vi.fn();
+      render(
+        <PaneHeader
+          session={makeSession()}
+          paneIndex={1}
+          onFocus={() => undefined}
+          onClose={() => undefined}
+          onToggleMinimise={onToggleMinimise}
+          isMinimised={true}
+        />,
+      );
+      const btn = screen.getByRole('button', { name: 'Restore pane' });
+      fireEvent.click(btn);
+      expect(onToggleMinimise).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('button', { name: 'Minimise pane' })).toBeNull();
+    });
   });
 
   it('embeds the cwd, branch, model, and effort in the tooltip body', async () => {

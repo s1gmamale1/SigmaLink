@@ -17,6 +17,8 @@ export interface Workspace {
   lastOpenedAt: number;
 }
 
+export type SplitDirection = 'horizontal' | 'vertical';
+
 export interface AgentSession {
   id: SessionId;
   workspaceId: WorkspaceId;
@@ -34,6 +36,14 @@ export interface AgentSession {
    * creation failed, PTY spawn failed). Renderer surfaces it inline.
    */
   error?: string;
+  // v1.4.3 #06 — Pane Split + Minimise. NULL fields mean the pane is a
+  // standalone tile in the grid; when set, the three split fields describe
+  // membership in a 2-pane split group (max-depth 2 in v1.4.x).
+  splitGroupId?: string | null;
+  splitDirection?: SplitDirection | null;
+  splitIndex?: number | null;
+  /** v1.4.3 #06 — collapsed-to-header-strip toggle. */
+  minimised?: boolean;
 }
 
 export interface ProviderProbe {

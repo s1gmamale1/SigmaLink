@@ -537,3 +537,58 @@ describe('appStateReducer v1.4.2 packet-12 — fullscreen pane focus', () => {
     expect(initialAppState.focusedPaneId).toBeNull();
   });
 });
+
+// v1.4.3 #06 — Pane Split + Minimise reducer coverage.
+describe('appStateReducer v1.4.3 #06 — Split + Minimise', () => {
+  it('SPLIT_PANE annotates the parent + inserts the new child in one dispatch', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('parent', 'a')],
+    });
+    const child: AgentSession = { ...session('child', 'a') };
+    const after = appStateReducer(s, {
+      type: 'SPLIT_PANE',
+      parentId: 'parent',
+      newSession: child,
+      groupId: 'g-1',
+      direction: 'horizontal',
+    });
+    expect(after.sessions).toHaveLength(2);
+    const parent = after.sessions.find((x) => x.id === 'parent');
+    const childOut = after.sessions.find((x) => x.id === 'child');
+    expect(parent?.splitGroupId).toBe('g-1');
+    expect(parent?.splitDirection).toBe('horizontal');
+    expect(parent?.splitIndex).toBe(0);
+    expect(childOut?.splitGroupId).toBe('g-1');
+    expect(childOut?.splitDirection).toBe('horizontal');
+    expect(childOut?.splitIndex).toBe(1);
+    // The new sub-pane becomes the active session for the cell.
+    expect(after.activeSessionId).toBe('child');
+  });
+
+  it('MINIMISE_PANE toggles the minimised flag without disturbing siblings', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('s1', 'a'), session('s2', 'a')],
+    });
+    const minimised = appStateReducer(s, {
+      type: 'MINIMISE_PANE',
+      paneId: 's1',
+      minimised: true,
+    });
+    expect(minimised.sessions.find((x) => x.id === 's1')?.minimised).toBe(true);
+    expect(minimised.sessions.find((x) => x.id === 's2')?.minimised).toBeFalsy();
+    const restored = appStateReducer(minimised, {
+      type: 'MINIMISE_PANE',
+      paneId: 's1',
+      minimised: false,
+    });
+    expect(restored.sessions.find((x) => x.id === 's1')?.minimised).toBe(false);
+  });
+});

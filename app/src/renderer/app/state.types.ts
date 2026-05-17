@@ -145,7 +145,19 @@ export type Action =
   | { type: 'SET_SIDEBAR_COLLAPSED'; collapsed: boolean }
   // v1.4.2 packet-12 — pane fullscreen toggle (per-session, not persisted).
   | { type: 'FOCUS_PANE'; paneId: string }
-  | { type: 'UNFOCUS_PANE' };
+  | { type: 'UNFOCUS_PANE' }
+  // v1.4.3 #06 — Pane Split + Minimise. SPLIT_PANE inserts the new sub-pane
+  // AND mutates the parent's split fields so the renderer can group them
+  // into one cell. MINIMISE_PANE toggles the collapsed-header rendering on a
+  // single pane.
+  | {
+      type: 'SPLIT_PANE';
+      parentId: string;
+      newSession: AgentSession;
+      groupId: string;
+      direction: 'horizontal' | 'vertical';
+    }
+  | { type: 'MINIMISE_PANE'; paneId: string; minimised: boolean };
 
 export const initialAppState: AppState = {
   ready: false,

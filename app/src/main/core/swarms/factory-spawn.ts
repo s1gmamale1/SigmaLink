@@ -90,6 +90,14 @@ export function loadAgentSession(sessionId: string): AgentSession | null {
     exitedAt: row.exitedAt ?? undefined,
     worktreePath: row.worktreePath ?? null,
     initialPrompt: row.initialPrompt ?? undefined,
+    // v1.4.3 #06 — surface split/minimised fields so the renderer can group
+    // sub-panes into split cells and collapse minimised panes. Drizzle types
+    // these as `string | null` / `number | null` / `number`; map nulls to
+    // explicit nulls for the renderer's `?: string | null` contract.
+    splitGroupId: row.splitGroupId ?? null,
+    splitDirection: (row.splitDirection as AgentSession['splitDirection']) ?? null,
+    splitIndex: row.splitIndex ?? null,
+    minimised: !!row.minimised,
   };
 }
 
@@ -104,6 +112,15 @@ export interface SpawnAgentSessionArgs {
   agentKey: string;
   initialPrompt?: string;
   deps: SwarmFactoryDeps;
+  /**
+   * v1.4.3 #06 — when provided, skip the WorktreePool.create() call and use
+   * the supplied worktree (the parent pane's). Pass `cwd` + `branch` together
+   * so the new `agent_sessions` row mirrors the parent's geometry. All
+   * legacy callers leave these undefined; only the splitPane RPC sets them.
+   */
+  worktreePathOverride?: string | null;
+  cwdOverride?: string;
+  branchOverride?: string | null;
 }
 
 /**
@@ -123,7 +140,15 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
   const db = getDb();
   let worktreePath: string | null = null;
   let branch: string | null = null;
-  if (args.wsRow.repoMode === 'git' && args.wsRow.repoRoot) {
+  // v1.4.3 #06 — split sub-panes inherit the parent's worktree instead of
+  // allocating a fresh one. WorktreePool.create() is the only place a new
+  // git worktree is materialised; skipping it when the caller already has a
+  // path means the two sub-panes are co-tenants on one git branch (intentional
+  // design — see splitPane RPC handler for the worktree-share rationale).
+  if (args.worktreePathOverride !== undefined) {
+    worktreePath = args.worktreePathOverride;
+    branch = args.branchOverride ?? null;
+  } else if (args.wsRow.repoMode === 'git' && args.wsRow.repoRoot) {
     const r = await args.deps.worktreePool.create({
       repoRoot: args.wsRow.repoRoot,
       role: args.role,
@@ -134,11 +159,13 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
     branch = r.branch;
   }
 
-  const cwd = workspaceCwdInWorktree({
-    workspaceRoot: args.wsRow.rootPath,
-    repoRoot: args.wsRow.repoRoot,
-    worktreePath,
-  });
+  const cwd =
+    args.cwdOverride ??
+    workspaceCwdInWorktree({
+      workspaceRoot: args.wsRow.rootPath,
+      repoRoot: args.wsRow.repoRoot,
+      worktreePath,
+    });
   // V1.1: route swarm-agent spawns through the provider launcher façade so
   // SigmaCode→Claude fallback, altCommands ENOENT walk, and the legacy gate
   // all apply uniformly. Read `kv['providers.showLegacy']` defensively — if

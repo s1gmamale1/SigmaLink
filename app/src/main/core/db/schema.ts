@@ -60,6 +60,17 @@ export const agentSessions = sqliteTable(
     paneIndex: integer('pane_index'),
     // v1.4.1 — which Sigma conversation is monitoring this session for pane events.
     sigmaMonitorConversationId: text('sigma_monitor_conversation_id'),
+    // v1.4.3 #06 — Pane Split + Minimise. NULL columns mean the pane is a
+    // standalone tile in the grid (the legacy shape). When set, the four
+    // columns describe membership in a 2-pane split group:
+    //   split_group_id  – shared id linking the two halves
+    //   split_direction – 'horizontal' (top/bottom) or 'vertical' (left/right)
+    //   split_index     – 0 or 1 (position inside the group)
+    // `minimised` is a 0/1 boolean and toggles the collapsed-header rendering.
+    splitGroupId: text('split_group_id'),
+    splitDirection: text('split_direction', { enum: ['horizontal', 'vertical'] }),
+    splitIndex: integer('split_index'),
+    minimised: integer('minimised').notNull().default(0),
   },
   (t) => ({
     wsIdx: index('agent_sessions_ws_idx').on(t.workspaceId),
@@ -68,6 +79,12 @@ export const agentSessions = sqliteTable(
       t.workspaceId,
       t.paneIndex,
       t.startedAt,
+    ),
+    // v1.4.3 #06 — accelerates "fetch every pane in this split group for the
+    // current workspace" lookups during grid layout.
+    splitIdx: index('agent_sessions_split_idx').on(
+      t.workspaceId,
+      t.splitGroupId,
     ),
   }),
 );
