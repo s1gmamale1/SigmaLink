@@ -7,20 +7,17 @@
 //
 // v1.1.9 split: emit/persist/stdin helpers in `./runClaudeCliTurn.emit`;
 // tool-routing + trajectory helpers in `./runClaudeCliTurn.trajectory`.
-// Both internal-only — public surface here is unchanged.
+// v1.4.5 split: CLI-args assembly + session-id helpers in `./runClaudeCliTurn.args`.
+// All siblings are internal-only — public surface here is unchanged.
 
 import { spawnExecutable } from '../util/spawn-cross-platform';
 import readline from 'node:readline';
-import { eq } from 'drizzle-orm';
 import { probeProvider } from '../providers/probe';
 import { findProvider } from '../../../shared/providers';
-import { getDb } from '../db/client';
-import { workspaces as workspacesTable } from '../db/schema';
 import { isClaudeSessionId } from '../pty/claude-resume-bridge';
 import * as conversationsDao from './conversations';
 import { ToolTracer } from './tool-tracer';
-import { buildSigmaSystemPrompt, estimateTokens } from './system-prompt';
-import { writeSigmaHostMcpConfig } from './mcp-host-bridge';
+import { estimateTokens } from './system-prompt';
 import type { RufloProxy } from '../ruflo/proxy';
 import { parseCliLine } from './cli-envelope';
 import {
@@ -37,6 +34,14 @@ import {
   type TurnLoopCtx,
   type TurnLoopState,
 } from './runClaudeCliTurn.trajectory';
+import {
+  applyMcpHostConfig,
+  appendAssistantMessage,
+  buildCliArgs,
+  clearPriorClaudeSessionId,
+  getPriorClaudeSessionId,
+  resolveSystemPrompt,
+} from './runClaudeCliTurn.args';
 
 export interface CliTurnHandle {
   conversationId: string;
@@ -146,113 +151,6 @@ export function cancelClaudeCliTurn(turnId: string): boolean {
     return true;
   } catch {
     return false;
-  }
-}
-
-function defaultSystemPromptForWorkspace(workspaceId: string): string {
-  let workspaceName = 'workspace';
-  let workspaceRoot = '';
-  try {
-    const wsRow = getDb()
-      .select()
-      .from(workspacesTable)
-      .where(eq(workspacesTable.id, workspaceId))
-      .get();
-    if (wsRow) {
-      workspaceName = wsRow.name;
-      workspaceRoot = wsRow.rootPath;
-    }
-  } catch {
-    /* DB miss is non-fatal — prompt still works with placeholders */
-  }
-  return buildSigmaSystemPrompt({ workspaceName, workspaceRoot });
-}
-
-function resolveSystemPrompt(
-  workspaceId: string | null,
-  build?: (id: string) => string,
-): string {
-  if (build) return build(workspaceId ?? '');
-  if (workspaceId) return defaultSystemPromptForWorkspace(workspaceId);
-  return buildSigmaSystemPrompt({ workspaceName: 'workspace', workspaceRoot: '' });
-}
-
-function buildCliArgs(
-  prompt: string,
-  sysPrompt: string,
-  resumeSessionId: string | null,
-): string[] {
-  const args = [
-    '-p', prompt,
-    '--output-format', 'stream-json',
-    '--verbose',
-    '--append-system-prompt', sysPrompt,
-  ];
-  if (resumeSessionId && isClaudeSessionId(resumeSessionId)) {
-    args.unshift('--resume', resumeSessionId);
-  }
-  return args;
-}
-
-// BUG-V1.1.2-01 — Write a temp `.mcp.json` and load it when the host bridge
-// is wired AND the bundled stdio server exists on disk. Non-fatal: the
-// turn still streams text, just without Sigma tools.
-function applyMcpHostConfig(
-  args: string[],
-  mcpHost: CliTurnDeps['mcpHost'],
-  conversationId: string,
-  workspaceId: string | null,
-): void {
-  if (!mcpHost?.serverEntry || !mcpHost?.socketPath) return;
-  try {
-    const path = writeSigmaHostMcpConfig(mcpHost, conversationId, workspaceId ?? undefined);
-    if (path) args.push('--mcp-config', path, '--strict-mcp-config');
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[runClaudeCliTurn] failed to write sigma-host mcp config: ${msg}`);
-  }
-}
-
-type ConversationsRuntimeDao = typeof conversationsDao & {
-  getClaudeSessionId?: (conversationId: string) => string | null;
-  setClaudeSessionId?: (conversationId: string, claudeSessionId: string | null) => void;
-};
-
-function getPriorClaudeSessionId(
-  conv: ReturnType<typeof conversationsDao.getConversation> | null,
-): string | null {
-  if (!conv) return null;
-  const dao = conversationsDao as ConversationsRuntimeDao;
-  try {
-    const fromDao = dao.getClaudeSessionId?.(conv.id);
-    if (typeof fromDao === 'string' || fromDao === null) return fromDao;
-  } catch {
-    /* DAO is optional until Worker A's data-layer slice lands */
-  }
-  const withField = conv as typeof conv & { claudeSessionId?: string | null };
-  return typeof withField.claudeSessionId === 'string' ? withField.claudeSessionId : null;
-}
-
-function clearPriorClaudeSessionId(conversationId: string): void {
-  const dao = conversationsDao as ConversationsRuntimeDao;
-  try {
-    dao.setClaudeSessionId?.(conversationId, null);
-  } catch {
-    /* best-effort; a stale id may retry fresh again next turn */
-  }
-}
-
-function appendAssistantMessage(conversationId: string, turnId: string): string | null {
-  try {
-    return conversationsDao.appendMessage({
-      conversationId,
-      role: 'assistant',
-      content: '',
-      toolCallId: `sigma-in-flight:${turnId}`,
-    }).id;
-  } catch {
-    /* persistence is best-effort; renderer still receives delta + final */
-    return null;
   }
 }
 

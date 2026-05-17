@@ -9,17 +9,21 @@
 // are (a) imports trimmed to what these helpers actually use, and (b) the
 // `SwarmFactoryDeps` type is re-imported from `./factory` so the spawn arg
 // shapes continue to match the public contract.
+//
+// v1.4.5: `loadSwarm` migrated here from `factory.ts` so `factory-add-agent.ts`
+// can read the final swarm state without a circular import.
 
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { getDb, getRawDb } from '../db/client';
 import {
   agentSessions,
+  swarms,
   swarmAgents,
   workspaces as workspacesTable,
 } from '../db/schema';
 import { findProvider } from '../../../shared/providers';
-import type { AgentSession, Role, SwarmAgent } from '../../../shared/types';
+import type { AgentSession, Role, Swarm, SwarmAgent } from '../../../shared/types';
 import { agentKey as makeAgentKey } from './types';
 import { envelopeToInsert, parseProtocolLine, ProtocolLineBuffer } from './protocol';
 import { resolveAndSpawn } from '../providers/launcher';
@@ -382,5 +386,43 @@ export async function materializeRosterAgent(
       inboxPath,
       agentKey: aKey,
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Swarm query helpers (v1.4.5 — migrated from factory.ts so factory-add-agent
+// can read the final swarm state without creating a circular dependency).
+// factory.ts re-exports `loadSwarm` so the public API is unchanged.
+// ---------------------------------------------------------------------------
+
+export function loadSwarm(swarmId: string): Swarm | null {
+  const db = getDb();
+  const row = db.select().from(swarms).where(eq(swarms.id, swarmId)).get();
+  if (!row) return null;
+  const agentRows = db
+    .select()
+    .from(swarmAgents)
+    .where(eq(swarmAgents.swarmId, swarmId))
+    .all();
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    name: row.name,
+    mission: row.mission,
+    preset: row.preset as Swarm['preset'],
+    status: row.status as Swarm['status'],
+    createdAt: row.createdAt,
+    endedAt: row.endedAt ?? null,
+    agents: agentRows.map((r) => ({
+      id: r.id,
+      swarmId: r.swarmId,
+      role: r.role as Role,
+      roleIndex: r.roleIndex,
+      providerId: r.providerId,
+      sessionId: r.sessionId ?? null,
+      status: r.status as SwarmAgent['status'],
+      inboxPath: r.inboxPath,
+      agentKey: r.agentKey,
+    })),
   };
 }
