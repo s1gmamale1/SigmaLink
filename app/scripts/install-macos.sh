@@ -114,7 +114,7 @@ if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
   echo "→ A running $APP_NAME instance was found; asking it to quit..."
   osascript -e "tell application \"$APP_NAME\" to quit" 2>/dev/null || true
   # Wait up to 5 seconds for the process to exit cleanly.
-  for i in 1 2 3 4 5; do
+  for _ in 1 2 3 4 5; do
     pgrep -x "$APP_NAME" >/dev/null 2>&1 || break
     sleep 1
   done
@@ -145,7 +145,6 @@ if [[ -e "$DEST" ]]; then
   if ! rm -rf "$DEST" 2>/dev/null; then
     echo "→ /Applications is write-protected; falling back to sudo..."
     sudo rm -rf "$DEST" || { echo "✗ Could not remove existing $APP_NAME." >&2; exit 5; }
-    SUDO_USED=1
   fi
 fi
 
@@ -156,7 +155,6 @@ if ! cp -R "$MOUNT_POINT/$APP_NAME.app" "$INSTALL_DIR/" 2>/dev/null; then
     echo "✗ Copy failed." >&2
     exit 5
   }
-  SUDO_USED=1
 fi
 
 # Defensive: strip quarantine from the installed bundle. cp(1) should not have
