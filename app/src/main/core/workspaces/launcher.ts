@@ -21,6 +21,10 @@ import {
   prepareClaudeResume,
   prepareClaudeWorkspaceContext,
 } from '../pty/claude-resume-bridge';
+import {
+  ensureGeminiProjectDir,
+  prepareGeminiResume,
+} from '../pty/gemini-resume-bridge';
 import { workspaceCwdInWorktree } from './worktree-cwd';
 
 /**
@@ -202,6 +206,17 @@ export async function executeLaunchPlan(
             }
           }
         }
+        // v1.4.3-01 — Gemini session-slug bridge. Gemini's --resume flag
+        // expects 'latest' or a numeric index, NOT a UUID. When the bridge
+        // outcome is 'missing' (worktree slug has empty chats/ even after
+        // aliasing), drop resume args entirely — "--resume latest" would still
+        // exit 1 in an empty chats directory.
+        if (provider.id === 'gemini') {
+          const bridge = await prepareGeminiResume(wsRow.rootPath, cwd);
+          if (bridge === 'missing') {
+            resumeSessionId = null;
+          }
+        }
         if (resumeSessionId) {
           const resumeResult = buildResumeArgs(provider.id, resumeSessionId);
           extraArgs = resumeResult?.args ?? [];
@@ -221,6 +236,13 @@ export async function executeLaunchPlan(
         // fresh `--session-id <uuid>` spawn can write its first JSONL line
         // without bailing on ENOENT for the parent dir.
         await ensureClaudeProjectDir(cwd);
+      }
+      // v1.4.3-01 — pre-create ~/.gemini/tmp/<workspace-slug>/{chats,tool-outputs}/
+      // and register the worktreeCwd → workspaceSlug alias in projects.json so
+      // gemini reads the same chats directory from any worktree that derives
+      // from this workspace. Called for every gemini spawn (fresh OR resume).
+      if (provider.id === 'gemini') {
+        await ensureGeminiProjectDir(cwd, wsRow.rootPath);
       }
       const spawnResult = resolveAndSpawn(
         { ptyRegistry: deps.pty },
