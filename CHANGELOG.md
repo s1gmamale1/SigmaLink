@@ -4,6 +4,42 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-05-18
+
+Bugfix release focused on Gemini CLI integration, pane state persistence across app restarts, and the long-deferred Pane Split + Minimise feature.
+
+### Fixed
+
+- **Gemini panes no longer exit code 1 on spawn** — SigmaLink was passing `gemini --resume <sigmalink-uuid>` but gemini's resume flag expects `"latest"` or numeric index; on top of that, per-pane git worktrees had empty `~/.gemini/tmp/<worktree-slug>/chats/` because gemini history lives under the workspace-slug not the worktree-slug. New `gemini-resume-bridge.ts` aliases `<worktreeCwd> → <workspaceSlug>` in `~/.gemini/projects.json` so gemini reads the same chats dir from both cwds. Mirrors v1.3.2's claude-resume-bridge approach with the cleaner alias model. (packet 01, #27)
+- **Workspace pane state now persists across app restart** — pre-existing missing wire (latent since v1.0.0) where the renderer's `state.sessions` slice was never hydrated on workspace open. New `panes.listForWorkspace` RPC + `ADD_SESSIONS` dispatch from three call sites (Sidebar, Launcher chooseExisting, use-session-restore). v1.4.2's xterm-cache GC made this latent bug visible for the first time; v1.4.3 closes the loop. (packet 02, #28)
+- **Stale `status='running'` rows now expire after 24h** — Electron's hard quit (`Cmd+Q`) bypasses the onExit handler, leaving sessions stuck in `running` state in `agent_sessions`. New migration 0016 (`dead_row_hygiene`) marks rows older than 24h as `status='exited', exit_code=-1`. Conservative window spares actually-active sessions. Idempotent; runs at boot before any RPC. (packet 03, #28)
+- **Disk-scanner now supports Gemini** — implemented the `gemini` case in `session-disk-scanner.ts:620-622` (was `return []` stub since v1.3.1). Reuses `geminiSlugForCwd` + workspace whitelist from v1.4.2 packet 10. (packet 01 bonus, #27)
+
+### Added
+
+- **Pane Split (horizontal + vertical)** — the long-deferred "Coming in v1.2" feature finally ships. Click Split-H or Split-V on a pane header → provider dropdown → spawns a sub-pane sharing the parent's worktree (co-tenants on one git branch). Migration 0017 adds `split_group_id`, `split_direction`, `split_index`, `minimised` columns to `agent_sessions`. Flat-group sentinel model (Option B) supports 2-level deep nesting; deeper nesting deferred to v1.5+. `addAgentToSwarm` gained optional `worktreePath`/`cwd`/`branch` parameters; legacy callers leave them undefined (fresh-worktree path unchanged). Sub-grid resize divider with rAF-coalesced drag + 0.15..0.85 ratio clamp. (packet 06, #29)
+- **Pane Minimise** — click Minimise on a pane header to collapse to a header strip while the PTY keeps emitting. Click the header to restore. Toggles the `minimised` column atomically. (packet 06, #29)
+- **Inline "Add first pane" affordance in CommandRoom empty state** — when a workspace activates with `activeSwarm.status === 'running' && sessions.length === 0` (e.g. fresh workspace or post-restore edge case), the EmptyState now offers `+ Add first pane` alongside `Go to Workspaces`. Defense-in-depth — if rehydration ever regresses, users have an in-room recovery path. (packet 05, #29)
+- **Orphan worktree cleanup on workspace open** — new `cleanupOrphanWorktrees()` helper removes worktree dirs under `<userData>/SigmaLink/worktrees/<repoHash>/` that aren't referenced by any live `agent_sessions.worktree_path`. Best-effort; non-fatal; cold-install guard skips cleanup when DB has no rows for the repo. Retention: keeps recently-exited dirs too (7d window) in case of uncommitted work. (packet 04, #28)
+
+### Changed
+
+- **`addAgentToSwarm()` signature**: 3 new optional parameters (`worktreePath`, `cwd`, `branch`) for split sub-pane support. Strictly additive; all legacy callers still work unchanged.
+
+### Documentation
+
+- v1.4.3 bundle plan (`docs/03-plan/v1.4.3-bundle/`) — 7 MD files (00-INDEX + 6 per-fix briefs). Same orchestration pattern as v1.4.2-bundle.
+- New `orchestrator` skill at `~/.claude/skills/orchestrator/SKILL.md` documenting external CLI sub-agent invocation patterns (codex, gemini, kimi, opencode-Qwen), worktree-per-agent hygiene, and the delegation matrix.
+
+### Followups deferred to v1.4.4
+
+- `--resume latest` comment wording in `launcher.ts:207-211` (reviewer-PR27 F-1)
+- `~/.gemini/projects.json` read-merge-write race documentation + file-lock (reviewer-PR27 F-2)
+- Atomic-write fault injection test for `writeProjectsJsonAtomic` (reviewer-PR27 F-3)
+- Windows path containment cross-platform robustness (reviewer-PR27 F-4)
+- `SessionStep.test.tsx` cross-suite flakiness mitigation (reviewer-PR29 INFO)
+- Empty-state `console.warn` wrapped in `useEffect` instead of render body (reviewer-PR29 LOW)
+
 ## [1.4.2] - 2026-05-17
 
 Stability, discoverability, and Windows compatibility hardening across the v1.4.x line.

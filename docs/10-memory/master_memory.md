@@ -1611,3 +1611,47 @@ packet numbers and PR references. Created user-facing release notes
 paragraph per packet). Updated memory index with T-rows through T-209.
 Updated WISHLIST.md with v1.4.2 items moved to Recently shipped. Zero source
 code changes — doc-only pass. Commit `8e821ae`, PR #25 (this PR).
+
+## Phase 29 — v1.4.3 bundle: Gemini bridge + pane rehydration + Pane Split + housekeeping (2026-05-18)
+
+v1.4.3 closes three dogfood findings from v1.4.2 + brings forward the long-deferred Pane Split feature. Three parallel PRs delivered six packets in ~3 wall-clock hours via autonomous /loop with external CLI delegation and Opus 4.7 reviewer gating.
+
+### Packet 01 — Gemini resume bridge (P0, PR #27)
+
+Gemini exited code 1 on every pane spawn in v1.4.2. Root cause: SigmaLink passed `gemini --resume <sigmalink-uuid>` but gemini's resume flag accepts only `"latest"` or numeric index; even with `--resume latest`, each per-pane worktree had empty `~/.gemini/tmp/<worktree-slug>/chats/` (history lives under workspace-slug). Same class of bug as v1.3.2 Claude. v1.4.3 ships `gemini-resume-bridge.ts` mirroring `claude-resume-bridge.ts` but using gemini's native `~/.gemini/projects.json` alias model: register `<worktreeCwd> → <workspaceSlug>` so gemini reads the same chats dir from both cwds. Atomic writes via tmp+rename. Defensive checks for path traversal, absolute paths, slug containment. Reviewer (Opus 4.7) APPROVE WITH 4 v1.4.4 followups (paper cuts). Bonus: implemented `session-disk-scanner.ts:620-622` gemini case (was stub since v1.3.1).
+
+### Packet 02 — Pane rehydration on workspace open (P1, PR #28)
+
+User report: "Workspace NOT SAVING exact pane states — close + reopen lands in empty Command Room." Investigation revealed this is **pre-existing missing wire** since v1.0.0, NOT a v1.4.2 regression. DB inspection confirmed agent_sessions HAS the rows (24+ for one workspace), but the renderer's `state.sessions` slice was never hydrated on workspace open — there was no `panes.listForWorkspace` RPC at all. v1.4.2's xterm-cache GC made the latent bug visible for the first time. v1.4.3 ships new RPC using `MAX(started_at)` per (workspaceId, paneIndex) join (copied from `lastResumePlan` shape), plus `ADD_SESSIONS` dispatch from three call sites: Sidebar.openPersistedWorkspace, Launcher.chooseExisting (early-route when sessions exist), use-session-restore (after panes.resume). Dispatch fires BEFORE terminal-cache GC, so cached terminals don't get disposed unnecessarily.
+
+### Packet 03 — Dead-row migration 0016 (P1, PR #28)
+
+Electron hard-quit (Cmd+Q) bypassed the onExit handler at `launcher.ts:313-327`, leaving every `agent_sessions` row in `status='running' WITH exited_at=NULL` forever. Without cleanup, the rehydration fix would try to resume ~30 dead sessions on first boot. Migration 0016 marks rows as `status='exited', exit_code=-1, exited_at=now()` where `status='running' AND exited_at IS NULL AND started_at < (now - 24h)`. Conservative 24h window spares any actually-active session. Idempotent. Runs at boot before any RPC handler registers — ordering enforced via `migrate.ts` registration. Bundled into PR #28 with packets 02 and 04.
+
+### Packet 04 — Orphan worktree cleanup (P2, PR #28)
+
+The user's "creating another worktrees creates a mess" complaint: `<userData>/SigmaLink/worktrees/<repoHash>/` had 34 dirs for one workspace because every "re-create" spawned a fresh worktree (no dedupe). New `cleanupOrphanWorktrees(worktreeBase, repoHash, db)` runs from `workspaces.open` handler. Best-effort, non-fatal. Two-tier cold-install guard: skip if no rows reference any path in repoDir. Retention keeps recently-exited dirs too (7d window) in case of uncommitted work. SQL anchored on `${repoDir}${path.sep}%` to prevent matching sibling repos. `fs.rm` validates repoDir is under worktreeBase.
+
+### Packet 05 — EmptyState defensive UX (P3, PR #29)
+
+Once #02 lands, restored workspaces have sessions and the +Pane top-bar renders normally. But: defense-in-depth — if rehydration ever regresses or a user genuinely lands in an empty workspace, CommandRoom EmptyState now offers an inline `+ Add first pane` button (using cached `providers[0].id`) alongside `Go to Workspaces`. Dev-only `console.warn` surfaces empty-state mounts for future diagnostic reports. New `CommandRoom.test.tsx` (file didn't exist before) with 7 cases (brief asked 5). Bundled with #06 in PR #29.
+
+### Packet 06 — Pane Split + Minimise (Feature, PR #29)
+
+The long-deferred "Coming in v1.2" tooltip finally ships. Migration 0017 adds `split_group_id`, `split_direction`, `split_index`, `minimised` columns to `agent_sessions` + composite index `agent_sessions_split_idx`. `splitPane` RPC reuses `addAgentToSwarm` with three new optional parameters (`worktreePath`, `cwd`, `branch`) so split sub-panes share the parent's worktree (co-tenants on one git branch). Max-depth 2 enforced server-side and client-side. `minimisePane` RPC toggles the boolean. CommandRoom's `groupSessionsIntoCells` pre-groups sessions with same `split_group_id` into single outer cells; sub-grid renders inside with rAF-coalesced resize divider clamped 0.15..0.85. PaneHeader Split-H/V/Minimise icons wired with legacy disabled-placeholder fallback. `terminal-cache.ts` untouched — sub-panes flow through as standard `<SessionTerminal sessionId>`.
+
+### Reviewer audits + rebase fix
+
+PR #27 APPROVE WITH CAVEATS (4 v1.4.4 followups). PR #28 APPROVE WITH CAVEATS (rebase recommended, not blocking). PR #29 APPROVE WITH CAVEATS (rebase required — single mechanical conflict on `migrate.ts` for the parallel migration 0016 entry; resolved inline in 30 seconds by re-inserting `mig0016` import + array slot before `mig0017`). All three PRs squash-merged. Test count grew from 417 (v1.4.2 baseline) to ~500 after all 6 packets land.
+
+### Release plumbing
+
+Version bump `app/package.json` 1.4.2 → 1.4.3. CHANGELOG `[1.4.3]` section with Fixed (4 entries) / Added (4 entries) / Changed / Documentation / Followups-deferred-to-v1.4.4 sub-sections, packet numbers, and PR references. New `docs/09-release/release-notes-1.4.3.txt`. Memory index T-204..T-210. WISHLIST v1.4.3 row moved from "In progress" to "Recently shipped". Plus: new `orchestrator` skill at `~/.claude/skills/orchestrator/SKILL.md` documenting external CLI sub-agent invocation patterns (codex / gemini / kimi / opencode-Qwen), worktree-per-agent hygiene, delegation matrix, cleanup-loop pattern. Tag `v1.4.3` annotated tag pushed → triggers release-macos.yml + release-windows.yml.
+
+### Autonomous orchestration patterns proven
+
+- **Three parallel PRs** dispatched simultaneously (Sonnet for #01, Sonnet for #02+#03+#04 bundle, Opus for #05+#06 bundle).
+- **Reviewer-gated cleanup loop** (Opus 4.7 reviewer → APPROVE/cleanup/REJECT branch). Two of three PRs needed rebase (mechanical, resolved inline by lead). One needed no cleanup.
+- **External CLI delegation matrix** documented in `~/.claude/skills/orchestrator/SKILL.md`: codex/gemini/kimi/opencode each with non-interactive invocation pattern + cost tier + worktree-per-CLI hygiene rules.
+- **`/loop` self-pacing** via `ScheduleWakeup` — 1800s safety net while agents work, 270s for active CI watches, 90s for final-poll-before-termination.
+

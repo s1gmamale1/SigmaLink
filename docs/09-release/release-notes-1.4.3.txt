@@ -1,0 +1,74 @@
+SigmaLink v1.4.3 — Release Notes
+================================
+
+Date: 2026-05-18
+Previous: v1.4.2 (2026-05-17)
+
+What's fixed
+------------
+
+* Gemini CLI panes work again. v1.4.2 spawned `gemini --resume <uuid>` but
+  gemini's resume flag expects "latest" or a numeric index. Combined with
+  empty session storage in per-pane worktrees, this caused gemini panes to
+  exit with code 1 on every spawn. v1.4.3 ships a `gemini-resume-bridge`
+  that aliases the worktree cwd to the workspace's existing session slug in
+  ~/.gemini/projects.json — gemini now reads the same chat history from
+  every pane.
+
+* Workspace pane state persists across app restarts. Until now, opening a
+  saved workspace would land you in an empty Command Room — the panes you'd
+  launched were silently lost on quit. Root cause: the renderer never read
+  back the per-pane state on workspace open. v1.4.3 wires up
+  `panes.listForWorkspace` and dispatches ADD_SESSIONS from three call
+  sites so every workspace open restores the pane grid as you left it.
+
+* Stale "running" sessions are now cleaned up automatically. Hard quits via
+  Cmd+Q bypassed the onExit handler and left agent_session rows stuck in
+  `status=running` forever. A new boot-time migration marks rows older
+  than 24h as exited.
+
+* Disk-scanner now supports Gemini sessions in the session picker — the
+  `gemini` case (deferred from v1.3.1) is finally implemented.
+
+What's new
+----------
+
+* Pane Split and Pane Minimise are now functional. Click Split-H or
+  Split-V on a pane's header → pick a provider → a sub-pane spawns sharing
+  the parent's worktree. Click Minimise to collapse a pane to a header
+  strip while its PTY keeps emitting. Click the header to restore.
+  Long-deferred "Coming in v1.2" feature.
+
+* CommandRoom empty state now offers an inline "+ Add first pane" button
+  when a workspace activates without panes — saves a trip back to the
+  Workspaces room.
+
+* Orphan worktree dirs left behind by old pane re-creates are now cleaned
+  up automatically on workspace open. Best-effort; safe (retains
+  recently-exited and live workspaces).
+
+Tag: v1.4.3
+Commit: <set at tag time>
+
+Verification
+------------
+
+* tsc: clean
+* vitest: ~500 passed (417 v1.4.2 baseline + ~85 new across 6 packets)
+* eslint: 0 errors (1 pre-existing warning)
+* vite build: clean
+* electron build: clean
+
+Notes
+-----
+
+* The v1.4.2 deferred packets #04 (OpenCode font on Windows) and #05
+  (+Pane discoverability) are folded into v1.4.3 in a different form:
+  #04 became "no fix needed" after Windows dogfood confirmed it works,
+  and #05 was reframed once investigation showed the user's "broken
+  button" was actually the EmptyState's "Go to Workspaces" action
+  (CommandRoom never rendered the +Pane button when sessions.length=0).
+  v1.4.3 fixes both via packets #02 (rehydration) and #05 (EmptyState
+  affordance).
+
+* No breaking changes. v1.4.2 → v1.4.3 is a drop-in upgrade.
