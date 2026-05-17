@@ -407,3 +407,133 @@ describe('appStateReducer v1.1.10 reliability fixes', () => {
     expect(toMemory.roomByWorkspace.b).toBe('memory');
   });
 });
+
+// v1.4.2 packet-12 — Pane Focus → true fullscreen. The `focusedPaneId` is
+// a per-session UI flag that must reset on workspace close / switch and must
+// never leak into the persisted `roomByWorkspace` map.
+describe('appStateReducer v1.4.2 packet-12 — fullscreen pane focus', () => {
+  it('FOCUS_PANE sets focusedPaneId', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('s1', 'a'), session('s2', 'a')],
+    });
+    expect(s.focusedPaneId).toBeNull();
+    const focused = appStateReducer(s, { type: 'FOCUS_PANE', paneId: 's1' });
+    expect(focused.focusedPaneId).toBe('s1');
+  });
+
+  it('UNFOCUS_PANE clears focusedPaneId', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, { type: 'ADD_SESSIONS', sessions: [session('s1', 'a')] });
+    s = appStateReducer(s, { type: 'FOCUS_PANE', paneId: 's1' });
+    expect(s.focusedPaneId).toBe('s1');
+    const unfocused = appStateReducer(s, { type: 'UNFOCUS_PANE' });
+    expect(unfocused.focusedPaneId).toBeNull();
+  });
+
+  it('FOCUS_PANE with same id is a no-op (strict identity preserved)', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, { type: 'ADD_SESSIONS', sessions: [session('s1', 'a')] });
+    s = appStateReducer(s, { type: 'FOCUS_PANE', paneId: 's1' });
+    const same = appStateReducer(s, { type: 'FOCUS_PANE', paneId: 's1' });
+    expect(same).toBe(s);
+  });
+
+  it('UNFOCUS_PANE when already cleared is a no-op (strict identity preserved)', () => {
+    const wsA = workspace('a');
+    const opened = appStateReducer(readyState([wsA]), {
+      type: 'WORKSPACE_OPEN',
+      workspace: wsA,
+    });
+    const same = appStateReducer(opened, { type: 'UNFOCUS_PANE' });
+    expect(same).toBe(opened);
+  });
+
+  it('WORKSPACE_CLOSE clears focusedPaneId so the next workspace lands on the grid', () => {
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    let s = readyState([wsA, wsB]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsB });
+    s = appStateReducer(s, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('s1', 'b'), session('s2', 'a')],
+    });
+    s = appStateReducer(s, { type: 'FOCUS_PANE', paneId: 's1' });
+    expect(s.focusedPaneId).toBe('s1');
+    const closed = appStateReducer(s, { type: 'WORKSPACE_CLOSE', workspaceId: 'b' });
+    expect(closed.focusedPaneId).toBeNull();
+  });
+
+  it('SET_ACTIVE_WORKSPACE_ID(null) clears focusedPaneId', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, { type: 'ADD_SESSIONS', sessions: [session('s1', 'a')] });
+    s = appStateReducer(s, { type: 'FOCUS_PANE', paneId: 's1' });
+    const cleared = appStateReducer(s, {
+      type: 'SET_ACTIVE_WORKSPACE_ID',
+      workspaceId: null,
+    });
+    expect(cleared.focusedPaneId).toBeNull();
+  });
+
+  it('switching to a different workspace clears the fullscreen pane', () => {
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    let s = readyState([wsA, wsB]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsB });
+    s = appStateReducer(s, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('s1', 'a'), session('s2', 'b')],
+    });
+    s = appStateReducer(s, { type: 'FOCUS_PANE', paneId: 's2' });
+    expect(s.activeWorkspaceId).toBe('b');
+    expect(s.focusedPaneId).toBe('s2');
+    const toA = appStateReducer(s, { type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: 'a' });
+    expect(toA.activeWorkspaceId).toBe('a');
+    expect(toA.focusedPaneId).toBeNull();
+  });
+
+  it('reactivating the current workspace keeps focusedPaneId untouched', () => {
+    // SET_ACTIVE_WORKSPACE_ID is dispatched in many places (sidebar clicks,
+    // command palette) — when the user clicks the workspace they're already
+    // on, fullscreen should not vanish. Only an actual change of workspace
+    // should clear it.
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, { type: 'ADD_SESSIONS', sessions: [session('s1', 'a')] });
+    s = appStateReducer(s, { type: 'FOCUS_PANE', paneId: 's1' });
+    const same = appStateReducer(s, { type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: 'a' });
+    expect(same.focusedPaneId).toBe('s1');
+  });
+
+  it('REMOVE_SESSION on the focused pane drops fullscreen', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('s1', 'a'), session('s2', 'a')],
+    });
+    s = appStateReducer(s, { type: 'FOCUS_PANE', paneId: 's1' });
+    const removed = appStateReducer(s, { type: 'REMOVE_SESSION', id: 's1' });
+    expect(removed.focusedPaneId).toBeNull();
+    // Removing a non-focused pane leaves fullscreen untouched.
+    const stillFocused = appStateReducer(s, { type: 'REMOVE_SESSION', id: 's2' });
+    expect(stillFocused.focusedPaneId).toBe('s1');
+  });
+
+  it('initial state has focusedPaneId === null', () => {
+    expect(initialAppState.focusedPaneId).toBeNull();
+  });
+});

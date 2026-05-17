@@ -158,6 +158,45 @@ describe('PaneHeader', () => {
     expect(trigger?.getAttribute('data-state')).toBe('closed');
   });
 
+  // v1.4.2 packet-12 — Pane Focus icon morphs into a real fullscreen toggle
+  // when callers wire `onToggleFullscreen`. Legacy callers without the new
+  // prop fall back to the v1.2.5 "Pin focus ring" behaviour (covered above).
+  it('packet-12: shows the Fullscreen pane label when not focused', () => {
+    const onToggle = vi.fn();
+    render(
+      <PaneHeader
+        session={makeSession()}
+        paneIndex={1}
+        onFocus={() => undefined}
+        onClose={() => undefined}
+        isFullscreen={false}
+        onToggleFullscreen={onToggle}
+      />,
+    );
+    const btn = screen.getByRole('button', { name: 'Fullscreen pane' });
+    fireEvent.click(btn);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('packet-12: swaps to Exit fullscreen when isFullscreen=true', () => {
+    const onToggle = vi.fn();
+    render(
+      <PaneHeader
+        session={makeSession()}
+        paneIndex={1}
+        onFocus={() => undefined}
+        onClose={() => undefined}
+        isFullscreen
+        onToggleFullscreen={onToggle}
+      />,
+    );
+    const btn = screen.getByRole('button', { name: 'Exit fullscreen (Esc)' });
+    fireEvent.click(btn);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    // The legacy "Pin focus ring" label must not be visible in this mode.
+    expect(screen.queryByRole('button', { name: 'Pin focus ring (Cmd+Alt+N)' })).toBeNull();
+  });
+
   it('embeds the cwd, branch, model, and effort in the tooltip body', async () => {
     // Render a wrapper that forces the tooltip open via the controlled
     // `open` prop. This bypasses Radix's pointer-enter timing in jsdom but

@@ -70,6 +70,8 @@ export function CommandRoom() {
   const activeWorkspaceId = activeWorkspace?.id ?? null;
   const activeSessionId = useAppStateSelector((state) => state.activeSessionId);
   const activeSwarmId = useAppStateSelector((state) => state.activeSwarmId);
+  // v1.4.2 packet-12 — non-null when a pane is rendered fullscreen.
+  const focusedPaneId = useAppStateSelector((state) => state.focusedPaneId);
   const sessions = useAppStateSelector((state) =>
     activeWorkspaceId ? state.sessionsByWorkspace[activeWorkspaceId] ?? EMPTY_SESSIONS : EMPTY_SESSIONS,
   );
@@ -164,6 +166,22 @@ export function CommandRoom() {
     window.addEventListener('sigma:pty-focus', onFocusReq);
     return () => window.removeEventListener('sigma:pty-focus', onFocusReq);
   }, [sessions, activeSessionId, dispatch]);
+
+  // v1.4.2 packet-12 — global Esc listener gated on focusedPaneId. Mounted
+  // only while a pane is fullscreen so the rest of the app (e.g. modals,
+  // command palette) keeps receiving Esc events normally when no pane is
+  // focused. `keydown` instead of `keyup` so the dispatch fires before the
+  // event would otherwise bubble to a focused xterm.
+  useEffect(() => {
+    if (!focusedPaneId) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault();
+      dispatch({ type: 'UNFOCUS_PANE' });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [focusedPaneId, dispatch]);
 
   if (!activeWorkspace) {
     return (
@@ -296,6 +314,7 @@ export function CommandRoom() {
               dispatch({ type: 'SET_ACTIVE_SESSION', id: s.id });
             }
           }}
+          focusedKey={focusedPaneId}
           renderCell={(session, ctx) => (
             <PaneCell
               session={session}
@@ -303,6 +322,14 @@ export function CommandRoom() {
               onFocus={() => ctx.activate()}
               onRemove={() => handleRemove(session)}
               onStop={() => handleStop(session)}
+              isFullscreen={focusedPaneId === session.id}
+              onToggleFullscreen={() =>
+                dispatch(
+                  focusedPaneId === session.id
+                    ? { type: 'UNFOCUS_PANE' }
+                    : { type: 'FOCUS_PANE', paneId: session.id },
+                )
+              }
             />
           )}
         />
@@ -317,12 +344,16 @@ function PaneCell({
   onFocus,
   onRemove,
   onStop,
+  isFullscreen,
+  onToggleFullscreen,
 }: {
   session: AgentSession;
   paneIndex: number;
   onFocus: () => void;
   onRemove: () => void;
   onStop: () => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
 }) {
   const errored = session.status === 'error';
   const exited = session.status === 'exited';
@@ -351,6 +382,8 @@ function PaneCell({
         paneIndex={paneIndex}
         onFocus={onFocus}
         onClose={onRemove}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={onToggleFullscreen}
       />
       <ContextMenu>
         <ContextMenuTrigger asChild>

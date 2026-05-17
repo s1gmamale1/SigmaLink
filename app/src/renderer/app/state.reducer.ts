@@ -175,6 +175,10 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         activeWorkspaceId,
         room: activeWorkspaceId ? state.room : 'workspaces',
         roomByWorkspace: rest,
+        // v1.4.2 packet-12 — closing a workspace must clear any fullscreen
+        // pane so the user lands on the regular grid in the next workspace
+        // (the focused paneId would belong to the just-closed workspace).
+        focusedPaneId: null,
       });
     }
     case 'SET_ACTIVE_WORKSPACE_ID': {
@@ -183,6 +187,8 @@ export function appStateReducer(state: AppState, action: Action): AppState {
           ...state,
           activeWorkspaceId: null,
           room: 'workspaces',
+          // v1.4.2 packet-12 — clear fullscreen on workspace switch.
+          focusedPaneId: null,
         });
       }
       const workspace = state.openWorkspaces.find((w) => w.id === action.workspaceId);
@@ -202,11 +208,18 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       // the Launcher ('workspaces') when clicking an already-open workspace.
       const savedRoom = state.roomByWorkspace[action.workspaceId];
       const room = savedRoom && !isGlobalRoom(savedRoom) ? savedRoom : 'command';
+      // v1.4.2 packet-12 — switching workspaces clears any fullscreen pane.
+      // Fullscreen is per-session and shouldn't survive a workspace jump even
+      // when we're returning to a workspace that previously had a pane
+      // focused — the focusedPaneId would refer to a stale session.
+      const focusedPaneId =
+        state.activeWorkspaceId === action.workspaceId ? state.focusedPaneId : null;
       return deriveActiveWorkspace({
         ...state,
         openWorkspaces: upsertOpenWorkspace(state.openWorkspaces, workspace),
         activeWorkspaceId: action.workspaceId,
         room,
+        focusedPaneId,
       });
     }
     case 'SYNC_OPEN_WORKSPACES': {
@@ -279,11 +292,16 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         state.activeSessionId === action.id
           ? liveFallback?.id ?? sessions[0]?.id ?? null
           : state.activeSessionId;
+      // v1.4.2 packet-12 — closing the fullscreen pane must drop us back to
+      // the grid so we don't render a fullscreen container with no contents.
+      const focusedPaneId =
+        state.focusedPaneId === action.id ? null : state.focusedPaneId;
       return {
         ...state,
         sessions,
         sessionsByWorkspace: groupSessionsByWorkspace(sessions),
         activeSessionId,
+        focusedPaneId,
       };
     }
     case 'SET_SWARMS':
@@ -453,6 +471,15 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return { ...state, commandPaletteOpen: action.open };
     case 'SET_SIDEBAR_COLLAPSED':
       return { ...state, sidebarCollapsed: action.collapsed };
+    case 'FOCUS_PANE':
+      // v1.4.2 packet-12 — toggle pane fullscreen. Returns the same state
+      // object if the requested paneId is already focused so consumers can
+      // safely no-op rerenders via shallow equality.
+      if (state.focusedPaneId === action.paneId) return state;
+      return { ...state, focusedPaneId: action.paneId };
+    case 'UNFOCUS_PANE':
+      if (state.focusedPaneId === null) return state;
+      return { ...state, focusedPaneId: null };
     default:
       return state;
   }

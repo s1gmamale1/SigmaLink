@@ -11,7 +11,7 @@
 // provider name. Split + Minimise are intentional placeholders marked
 // `disabled` — they ship visually only and pop a "Coming in v1.2" tooltip.
 
-import { Columns2, Minimize2, Target, X } from 'lucide-react';
+import { Columns2, Maximize2, Minimize2, Target, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -46,9 +46,25 @@ interface Props {
   onFocus: () => void;
   /** Close handler — keeps the existing `rpc.pty.kill(session.id)` behaviour. */
   onClose: () => void;
+  /**
+   * v1.4.2 packet-12 — true fullscreen toggle. When the pane is fullscreen
+   * the focus-ring icon (Target) is swapped for an exit-fullscreen icon
+   * (Minimize2) and the click dispatches UNFOCUS_PANE instead of FOCUS_PANE.
+   * Defaults to a no-op handler + `false` so the existing tests / consumers
+   * keep working without forced migration.
+   */
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }
 
-export function PaneHeader({ session, paneIndex, onFocus, onClose }: Props) {
+export function PaneHeader({
+  session,
+  paneIndex,
+  onFocus,
+  onClose,
+  isFullscreen = false,
+  onToggleFullscreen,
+}: Props) {
   const exited = session.status === 'exited';
   const errored = session.status === 'error';
   const dotColor = errored ? '#ef4444' : exited ? '#9ca3af' : '#22c55e';
@@ -104,6 +120,15 @@ export function PaneHeader({ session, paneIndex, onFocus, onClose }: Props) {
           </Tooltip>
         </TooltipProvider>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          {/* v1.4.2 packet-12 — Pane Focus button is now a real fullscreen
+              toggle. When the pane is fullscreen the icon swaps to Minimize2
+              and the tooltip / aria-label flip to "Exit fullscreen". The
+              legacy "Pin focus ring (Cmd+Alt+N)" focus-ring action moves to
+              click-anywhere-on-pane + the keyboard shortcut (unchanged in
+              GridLayout). When no fullscreen handler is supplied (legacy
+              callers / tests) we keep the v1.2.5 behaviour and fall back to
+              `onFocus` so the existing PaneHeader tests stay green without
+              forced migration. */}
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -111,13 +136,33 @@ export function PaneHeader({ session, paneIndex, onFocus, onClose }: Props) {
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6"
-                  onClick={onFocus}
-                  aria-label="Pin focus ring (Cmd+Alt+N)"
+                  onClick={onToggleFullscreen ?? onFocus}
+                  aria-label={
+                    onToggleFullscreen
+                      ? isFullscreen
+                        ? 'Exit fullscreen (Esc)'
+                        : 'Fullscreen pane'
+                      : 'Pin focus ring (Cmd+Alt+N)'
+                  }
                 >
-                  <Target className="h-3.5 w-3.5" />
+                  {onToggleFullscreen ? (
+                    isFullscreen ? (
+                      <Minimize2 className="h-3.5 w-3.5" />
+                    ) : (
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    )
+                  ) : (
+                    <Target className="h-3.5 w-3.5" />
+                  )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Pin focus ring (Cmd+Alt+N)</TooltipContent>
+              <TooltipContent side="bottom">
+                {onToggleFullscreen
+                  ? isFullscreen
+                    ? 'Exit fullscreen (Esc)'
+                    : 'Fullscreen pane'
+                  : 'Pin focus ring (Cmd+Alt+N)'}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <TooltipProvider delayDuration={200}>

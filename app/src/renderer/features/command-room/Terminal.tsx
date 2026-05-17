@@ -148,7 +148,14 @@ export function SessionTerminal({ sessionId, className }: Props) {
         return;
       }
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(runFit, 25);
+      // v1.4.2 packet-07 — while the user is dragging a divider, relax the
+      // fit() debounce so 20 simultaneous ResizeObserver callbacks don't
+      // each refit + IPC a pty.resize every 25ms. GridLayout.startDrag sets
+      // `document.body.dataset.dragging` for the lifetime of the drag and
+      // clears it on pointerup, at which point the final fit fires within
+      // the standard 25ms window.
+      const debounceMs = document.body.dataset.dragging === 'true' ? 100 : 25;
+      resizeTimer = setTimeout(runFit, debounceMs);
     });
     ro.observe(container);
 
