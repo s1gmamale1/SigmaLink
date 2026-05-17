@@ -1,0 +1,64 @@
+SigmaLink v1.4.2 — Release Notes
+=================================
+
+Release date: 2026-05-17
+Previous: v1.4.1 (2026-05-16)
+
+Overview
+--------
+v1.4.2 is a stability and compatibility hardening release. It resolves a
+critical Windows spawn bug, fixes two session-persistence regressions,
+adds worktree discoverability UX, scopes the disk scanner to prevent
+cross-workspace session capture, and ships a custom NSIS installer
+welcome page for Windows SmartScreen users.
+
+New features
+------------
+• Worktree location UX — Right-click any pane to reveal its worktree
+  directory in Finder/Explorer or open a system terminal there. Per-pane
+  tooltips now show the full worktree path. A first-launch info banner
+  explains where worktrees live, and Settings → Storage lists all
+  worktrees with disk sizes.
+
+• Disk-scan workspace scoping — The session disk scanner now rejects
+  candidate sessions already claimed by a different workspace, preventing
+  foreign sessions from being captured by the wrong workspace's pane.
+
+• NSIS custom welcome page — Windows installers now display a welcome
+  page with SmartScreen / Mark-of-the-Web workaround instructions,
+  replacing the legacy license text.
+
+Bug fixes
+---------
+• Windows spawn ENOENT — Sigma Assistant now correctly launches CLI
+  shims (.cmd/.bat/.ps1) on Windows via cmd.exe and powershell.exe
+  wrappers instead of bare spawn calls.
+
+• Settings room blocking workspace click — Visiting Settings no longer
+  traps the user there when clicking a workspace; the app correctly
+  routes to the Command Room.
+
+• xterm preservation across switches — Terminal content now survives
+  both room switches (Settings ↔ Command) and workspace switches
+  (A → B → A) via a renderer-side instance cache keyed by session ID.
+
+Documentation
+-------------
+• Backlog verify-and-close sweep — 4 items verified and closed;
+  shellcheck CI step escalated (runs apt-get on macOS runner).
+
+• state.tsx LOC verification — Confirmed already split to 97 LOC
+  in v1.1.9; stale tracking rows removed.
+
+Known issues
+------------
+• shellcheck CI step fails on macos-14 runner (apt-get not available).
+  Needs brew install shellcheck or migration to ubuntu-latest.
+
+Verification
+------------
+• pnpm exec tsc -b — clean
+• pnpm exec vitest run — 363/363 pass
+• pnpm exec eslint . — clean (0 errors, 1 pre-existing warning)
+• pnpm run build — clean
+• node scripts/build-electron.cjs — clean
