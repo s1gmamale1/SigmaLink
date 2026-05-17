@@ -26,9 +26,11 @@ What's fixed
   fires on every re-render. It is now wrapped in a mount-only
   useEffect so it emits at most once per CommandRoom mount.
 
-* SessionStep tests are more reliable when run alongside the full
-  vitest suite. Added vi.resetAllMocks() to beforeEach to prevent
-  shared mock state leaking between test files.
+* SessionStep tests are less prone to flake when run alongside the
+  full vitest suite. Added vi.resetAllMocks() to beforeEach to reduce
+  shared mock state leakage between test files. Occasional flake on
+  the "Resume newest for all" case still observed under heavy parallel
+  load; full module-reset (vi.resetModules) is tracked for v1.4.5.
 
 What's new (internal / test)
 -----------------------------
@@ -56,7 +58,8 @@ Verification
 ------------
 
 * tsc: clean
-* vitest: 478 passed (3 pre-existing Electron binary failures, unchanged)
+* vitest: 504 passed / 1 skipped (clean second run; one rare SessionStep
+  flake observed under parallel load — see note above)
 * eslint: 0 errors (1 pre-existing warning, unchanged)
 * vite build: clean
 * electron build: clean
