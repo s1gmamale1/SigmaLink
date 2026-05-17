@@ -31,7 +31,7 @@
 
 | ID | What | Branch / target | Plan |
 |---|---|---|---|
-| *(empty — all v1.4.2 packets shipped or deferred)* | | | |
+| **v1.4.3 bundle** | Gemini resume bridge (P0) + pane rehydration on workspace open (P1) + dead-row migration 0016 (P1) + orphan worktree cleanup (P2) + EmptyState defensive UX (P3) + Pane Split/Minimise feature (brought forward from v1.4.2 deferred). 6 packets, ~5-7 dev days, 3 parallel PRs. | `feat/v1.4.3-*` per cluster | [v1.4.3-bundle/00-INDEX.md](v1.4.3-bundle/00-INDEX.md) |
 
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
 
