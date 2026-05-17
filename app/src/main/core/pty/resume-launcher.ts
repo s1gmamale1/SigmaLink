@@ -8,6 +8,10 @@ import {
   prepareClaudeResume,
   prepareClaudeWorkspaceContext,
 } from './claude-resume-bridge';
+import {
+  ensureGeminiProjectDir,
+  prepareGeminiResume,
+} from './gemini-resume-bridge';
 import { workspaceCwdInWorktree } from '../workspaces/worktree-cwd';
 
 export interface PaneResumeSuccess {
@@ -321,6 +325,13 @@ export async function respawnFailedWorkspacePanes(
         });
         await ensureClaudeProjectDir(cwd, { homeDir: deps.claudeHomeDir });
       }
+      // v1.4.3-01 — ensure gemini project dir exists before a fresh respawn
+      // so the first write to the chats dir succeeds.
+      if (providerId === 'gemini') {
+        await ensureGeminiProjectDir(cwd, row.workspaceRoot, {
+          homeDir: deps.claudeHomeDir,
+        });
+      }
       const result: ResolveAndSpawnResult = resolve(
         { ptyRegistry: deps.pty },
         {
@@ -417,6 +428,23 @@ export async function resumeWorkspacePanes(
         }
       }
       await ensureClaudeProjectDir(cwd, { homeDir: deps.claudeHomeDir });
+    }
+    // v1.4.3-01 — Gemini boot-restore path. Mirror the claude branch above:
+    // alias the worktree cwd to the workspace slug so gemini reads the same
+    // chats directory. If the workspace slug has no sessions ('missing'),
+    // drop the external session id so buildResumeArgs falls through to
+    // '--resume latest' — which will still fail gracefully (empty chats dir
+    // is handled by ensureGeminiProjectDir pre-creating it).
+    if (resumeProviderId === 'gemini') {
+      const bridge = await prepareGeminiResume(row.workspaceRoot, cwd, {
+        homeDir: deps.claudeHomeDir,
+      });
+      if (bridge === 'missing') {
+        externalSessionId = null;
+      }
+      await ensureGeminiProjectDir(cwd, row.workspaceRoot, {
+        homeDir: deps.claudeHomeDir,
+      });
     }
 
     const resume = buildResumeArgs(resumeProviderId, externalSessionId);

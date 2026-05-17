@@ -24,6 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { geminiSlugForCwd } from './gemini-resume-bridge';
 
 const execFileAsync = promisify(execFile);
 
@@ -589,12 +590,111 @@ async function defaultOpencodeListRunner(cwd: string): Promise<string> {
 }
 
 /**
+ * v1.4.3-01 — List Gemini sessions for `cwd`.
+ *
+ * Layout: `~/.gemini/tmp/<slug>/chats/session-YYYY-MM-DDThh-mm-<short>.jsonl`
+ *
+ * The slug is resolved via projects.json (authoritative) or basename fallback.
+ * When `opts.workspaceId` is set, only sessions whose id is already recorded
+ * in `agent_sessions` for that workspace are returned (Option B whitelist from
+ * v1.4.2 packet 10 — reuses `listSessionExternalIdsForWorkspace`).
+ *
+ * Session id: we use the full filename stem (e.g.
+ * `session-2024-01-01T12-00-abc`) as the external id because gemini's
+ * `--resume` flag accepts either 'latest' or a session index number, NOT the
+ * filename stem. The id is stored for history display; actual resume uses the
+ * bridge + '--resume latest'.
+ */
+async function listGeminiSessions(
+  homeDir: string,
+  cwd: string,
+  maxCount: number,
+  sinceMs: number | undefined,
+  opts: ListSessionsOptions,
+): Promise<SessionListItem[]> {
+  const slug = await geminiSlugForCwd(homeDir, cwd);
+  const chatsDir = path.join(homeDir, '.gemini', 'tmp', slug, 'chats');
+  if (!safeStat(chatsDir)) return [];
+
+  const entries = safeReadDir(chatsDir).filter(
+    (e) => e.isFile() && e.name.startsWith('session-') && e.name.endsWith('.jsonl'),
+  );
+
+  // Workspace scoping: when workspaceId is provided, only return sessions
+  // whose id is already recorded for that workspace. This mirrors the Option B
+  // whitelist approach from v1.4.2-10.
+  let allowedIds: Set<string> | null = null;
+  if (opts.workspaceId) {
+    const wsIds = await listSessionExternalIdsForWorkspace(opts.workspaceId, opts.db);
+    allowedIds = new Set(wsIds);
+  }
+
+  const items: SessionListItem[] = [];
+  for (const entry of entries) {
+    const filePath = path.join(chatsDir, entry.name);
+    const stat = safeStat(filePath);
+    if (!stat) continue;
+    const updatedAt = stat.mtimeMs;
+    if (sinceMs !== undefined && sinceMs > 0 && Date.now() - updatedAt > sinceMs) continue;
+    // Session id is the filename stem (without .jsonl).
+    const sessionId = path.basename(entry.name, '.jsonl');
+    if (allowedIds !== null && !allowedIds.has(sessionId)) continue;
+    // Parse timestamp from filename: session-YYYY-MM-DDThh-mm-<short>
+    const tsMatch = entry.name.match(/^session-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2})/);
+    let createdAt = updatedAt;
+    if (tsMatch) {
+      // Convert gemini's dash-separated time to ISO: YYYY-MM-DDTHH:MM
+      const isoStr = tsMatch[1].replace(/T(\d{2})-(\d{2})$/, 'T$1:$2');
+      const p = Date.parse(isoStr);
+      if (Number.isFinite(p)) createdAt = p;
+    }
+    // Try to extract first user message from the JSONL.
+    let firstMessagePreview: string | undefined;
+    try {
+      const lines = fs.readFileSync(filePath, 'utf8').split('\n');
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line) as Record<string, unknown>;
+          const role = parsed.role ?? parsed.type;
+          if (role === 'user') {
+            const content = parsed.parts ?? parsed.content ?? parsed.text ?? parsed.message;
+            if (typeof content === 'string' && content.trim()) {
+              firstMessagePreview = trunc(content.trim());
+              break;
+            }
+            if (Array.isArray(content)) {
+              for (const part of content) {
+                if (typeof part === 'object' && part !== null) {
+                  const p = part as Record<string, unknown>;
+                  if (typeof p.text === 'string' && p.text.trim()) {
+                    firstMessagePreview = trunc(p.text.trim());
+                    break;
+                  }
+                }
+              }
+              if (firstMessagePreview) break;
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+    } catch {
+      // ignore — mtime fallback is sufficient for listing
+    }
+    items.push({ id: sessionId, providerId: 'gemini', cwd, createdAt, updatedAt, firstMessagePreview });
+  }
+  return items.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, maxCount);
+}
+
+/**
  * v1.3.0 — Returns all sessions for `providerId` associated with `cwd`,
  * sorted by `updatedAt` DESC. Unlike `findLatestSessionId`, this function:
  *   - Does NOT apply the 5-minute mtime gate (returns all historical sessions).
  *   - Returns an array of `SessionListItem`, not a single string id.
  *   - Supports `maxCount` (default 50) and optional `sinceMs` window.
- *   - Claude sessions are included; Gemini returns [] (deferred to v1.3.1).
+ *   - Claude and Gemini sessions are included.
  *
  * The existing `findLatestSessionId` is preserved unchanged for v1.2.8
  * capture-path compatibility.
@@ -618,8 +718,12 @@ export async function listSessionsInCwd(
     case 'opencode':
       return listOpencodeSessions(cwd, maxCount, sinceMs, opts.runOpencodeList);
     case 'gemini':
-      // Deferred to v1.3.1 — disk layout undocumented.
-      return [];
+      // v1.4.3-01 — disk layout now known. Sessions live at:
+      //   ~/.gemini/tmp/<slug>/chats/session-YYYY-MM-DDThh-mm-<short>.jsonl
+      // where slug is authoritative from ~/.gemini/projects.json, falling
+      // back to path.basename(cwd). We use listSessionExternalIdsForWorkspace
+      // to filter by workspace when opts.workspaceId is provided.
+      return listGeminiSessions(homeDir, cwd, maxCount, sinceMs, opts);
     default:
       return [];
   }
