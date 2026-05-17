@@ -408,6 +408,45 @@ describe('writeProjectsJsonAtomic — rename fault injection', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 16. Concurrent writers — proper-lockfile serialization (reviewer-PR27 F-2)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('writeProjectsJsonAtomic — concurrent writers', () => {
+  let homeDir: string;
+  beforeEach(() => { homeDir = makeTmpHome(); });
+  afterEach(() => { rmRf(homeDir); });
+
+  // 16. Five simultaneous ensureGeminiProjectDir calls with distinct worktree
+  // paths must each register their entry. The advisory lock in
+  // writeProjectsJsonAtomic serializes the writers so no entry is clobbered.
+  it('all 5 concurrent ensureGeminiProjectDir calls persist their entry', async () => {
+    const workspaceCwd = '/tmp/sigmalink-workspace';
+
+    const panes = Array.from({ length: 5 }, (_, i) => ({
+      worktreeCwd: `/tmp/sigmalink-worktree-pane-${i}`,
+      expectedSlug: path.basename(workspaceCwd),
+    }));
+
+    // Run all 5 writes simultaneously.
+    await Promise.all(
+      panes.map(({ worktreeCwd }) =>
+        ensureGeminiProjectDir(worktreeCwd, workspaceCwd, { homeDir }),
+      ),
+    );
+
+    const raw = fs.readFileSync(
+      path.join(homeDir, '.gemini', 'projects.json'),
+      'utf8',
+    );
+    const map = JSON.parse(raw) as Record<string, string>;
+    const expectedSlug = path.basename(workspaceCwd);
+
+    for (const { worktreeCwd } of panes) {
+      expect(map[worktreeCwd]).toBe(expectedSlug);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Realistic SigmaLink path shapes
 // ─────────────────────────────────────────────────────────────────────────────
 describe('prepareGeminiResume — realistic SigmaLink path shapes', () => {

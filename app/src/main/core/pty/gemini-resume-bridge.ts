@@ -35,6 +35,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import * as lockfile from 'proper-lockfile';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -110,18 +111,16 @@ async function readProjectsJson(
 }
 
 /**
- * Atomic write of `~/.gemini/projects.json`.
- * Uses a tmp file + rename so a crash mid-write leaves the old file intact.
+ * Serialized read-merge-write of `~/.gemini/projects.json`.
  *
- * **Read-merge-write race (R-01-2)**
- * Two simultaneous pane spawns can both read the existing file, each add their
- * own entry, and then write — the second writer wins and the first entry is
- * lost until the next spawn for that pane. The atomic rename prevents *file
- * corruption* (no half-written JSON), but does NOT prevent the logical race.
- * Worst case: one alias is temporarily missing; gemini falls back to a fresh
- * session for that pane on this launch, then recovers on next launch. This is
- * acceptable for v1.4.4. A proper fix (advisory file-lock) is deferred to
- * v1.4.5 via `proper-lockfile` or equivalent — see v1.4.5 candidate list.
+ * Acquires an advisory file-lock via `proper-lockfile` before reading the
+ * current contents, applies `mutator` to produce the updated map, then writes
+ * atomically via a tmp-file + rename so a crash mid-write leaves the old file
+ * intact.
+ *
+ * v1.4.5 mitigation: advisory file-lock via `proper-lockfile` serializes
+ * concurrent writers. Lock auto-released on completion or via `stale: 5000ms`
+ * if a writer crashes mid-update.
  *
  * **Schema fragility**
  * Gemini's `projects.json` format is undocumented and subject to change.
@@ -129,27 +128,56 @@ async function readProjectsJson(
  * not a plain `{ [cwd: string]: string }` object. If a future gemini release
  * changes the schema, the bridge falls back to a fresh spawn (no crash) rather
  * than corrupting the file with our own writes.
- *
- * **v1.4.5+ followup**: replace the read-merge-write loop with an advisory
- * lock (e.g. `proper-lockfile`) to eliminate the concurrent-spawn race.
- * DO NOT add a file-lock in v1.4.4 — document only.
  */
 async function writeProjectsJsonAtomic(
-  homeDir: string,
-  data: Record<string, string>,
+  filePath: string,
+  mutator: (existing: Record<string, string>) => Record<string, string>,
 ): Promise<void> {
-  const filePath = projectsJsonPath(homeDir);
-  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  const content = JSON.stringify(data, null, 2) + '\n';
+  // Ensure the target file exists — proper-lockfile.lock() requires it.
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.promises.writeFile(tmp, content, 'utf8');
   try {
-    await fs.promises.rename(tmp, filePath);
-  } catch (err) {
-    // Best-effort cleanup: remove the orphaned tmp file so no stale
-    // `.tmp.*` files accumulate under ~/.gemini/ on rename failure.
-    await fs.promises.unlink(tmp).catch(() => undefined);
-    throw err;
+    await fs.promises.access(filePath);
+  } catch {
+    await fs.promises.writeFile(filePath, '{}', 'utf8');
+  }
+
+  const release = await lockfile.lock(filePath, {
+    retries: { retries: 5, factor: 1.5, minTimeout: 50, maxTimeout: 1000 },
+    stale: 5000,
+  });
+  try {
+    // Read current contents inside the lock so concurrent writers are serialized.
+    let existing: Record<string, string> = {};
+    try {
+      const raw = await fs.promises.readFile(filePath, 'utf8');
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        !Array.isArray(parsed)
+      ) {
+        const map = parsed as Record<string, unknown>;
+        const valid = Object.values(map).every((v) => typeof v === 'string');
+        if (valid) existing = map as Record<string, string>;
+      }
+    } catch {
+      // File missing or parse error — start from empty map.
+    }
+
+    const updated = mutator(existing);
+    const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    const content = JSON.stringify(updated, null, 2) + '\n';
+    await fs.promises.writeFile(tmp, content, 'utf8');
+    try {
+      await fs.promises.rename(tmp, filePath);
+    } catch (err) {
+      // Best-effort cleanup: remove the orphaned tmp file so no stale
+      // `.tmp.*` files accumulate under ~/.gemini/ on rename failure.
+      await fs.promises.unlink(tmp).catch(() => undefined);
+      throw err;
+    }
+  } finally {
+    await release();
   }
 }
 
@@ -236,14 +264,10 @@ export async function ensureGeminiProjectDir(
   // Register the alias only when worktreeCwd differs from workspaceCwd.
   if (worktreeCwd !== workspaceCwd) {
     try {
-      // READ-MERGE-WRITE atomically so concurrent pane spawns do not clobber
-      // each other's entries. Low-level race described in R-01-2 is documented
-      // for v1.4.4; this is best-effort for v1.4.3.
-      const existing = (await readProjectsJson(homeDir)) ?? {};
-      if (existing[worktreeCwd] !== workspaceSlug) {
-        existing[worktreeCwd] = workspaceSlug;
-        await writeProjectsJsonAtomic(homeDir, existing);
-      }
+      await writeProjectsJsonAtomic(projectsJsonPath(homeDir), (existing) => {
+        if (existing[worktreeCwd] === workspaceSlug) return existing;
+        return { ...existing, [worktreeCwd]: workspaceSlug };
+      });
     } catch {
       // projects.json write failure is non-fatal; gemini may still spawn
       // fresh (without history), which is better than blocking the spawn.
@@ -302,19 +326,23 @@ export async function prepareGeminiResume(
   }
   if (!hasSession) return 'missing';
 
-  // Step 4 — check existing mapping.
-  const existing = (await readProjectsJson(homeDir)) ?? {};
-  if (existing[worktreeCwd] === workspaceSlug) return 'exists';
-
-  // Step 5 — register the alias.
+  // Steps 4 & 5 — check existing mapping; register alias if absent.
+  // Done inside a single lock acquisition so concurrent pane spawns are
+  // serialized and no entry is silently overwritten.
+  let outcome: GeminiResumeBridgeOutcome = 'aliased';
   try {
-    existing[worktreeCwd] = workspaceSlug;
-    await writeProjectsJsonAtomic(homeDir, existing);
+    await writeProjectsJsonAtomic(projectsJsonPath(homeDir), (map) => {
+      if (map[worktreeCwd] === workspaceSlug) {
+        outcome = 'exists';
+        return map; // no-op write (lock still acquired, rename still runs)
+      }
+      return { ...map, [worktreeCwd]: workspaceSlug };
+    });
   } catch {
     // Write failure: return 'skipped' so caller doesn't attempt resume with
     // a potentially wrong slug. Fresh spawn is safer than a bad resume.
     return 'skipped';
   }
 
-  return 'aliased';
+  return outcome;
 }

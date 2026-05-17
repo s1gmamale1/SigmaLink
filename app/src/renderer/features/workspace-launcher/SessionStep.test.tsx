@@ -98,6 +98,7 @@ beforeEach(() => {
   // v1.4.4 P5 — reset ALL mock state between tests to prevent module-state
   // cross-talk when SessionStep.test.tsx runs alongside the full suite.
   vi.resetAllMocks();
+  vi.resetModules(); // v1.4.5: full module-state isolation for cross-suite parallel runs
   mockListSessions.mockReset();
   mockLastResumePlan.mockReset();
   // Default: each provider returns one session.
