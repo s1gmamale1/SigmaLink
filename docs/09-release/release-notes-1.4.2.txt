@@ -9,8 +9,9 @@ Overview
 v1.4.2 is a stability and compatibility hardening release. It resolves a
 critical Windows spawn bug, fixes two session-persistence regressions,
 adds worktree discoverability UX, scopes the disk scanner to prevent
-cross-workspace session capture, and ships a custom NSIS installer
-welcome page for Windows SmartScreen users.
+cross-workspace session capture, ships a custom NSIS installer welcome
+page for Windows SmartScreen users, introduces true Pane Focus fullscreen,
+and makes pane resize smooth via requestAnimationFrame coalescing.
 
 New features
 ------------
@@ -18,47 +19,66 @@ New features
   directory in Finder/Explorer or open a system terminal there. Per-pane
   tooltips now show the full worktree path. A first-launch info banner
   explains where worktrees live, and Settings → Storage lists all
-  worktrees with disk sizes.
+  worktrees with disk sizes. (packet 06, #20)
 
 • Disk-scan workspace scoping — The session disk scanner now rejects
   candidate sessions already claimed by a different workspace, preventing
   foreign sessions from being captured by the wrong workspace's pane.
+  (packet 10, #21)
 
 • NSIS custom welcome page — Windows installers now display a welcome
   page with SmartScreen / Mark-of-the-Web workaround instructions,
-  replacing the legacy license text.
+  replacing the legacy license text. (packet 11, #18)
+
+• Pane Focus → true fullscreen — The focus icon now promotes the pane to
+  fill the full viewport (1fr × 1fr grid template) while sibling panes
+  stay mounted with display:none so PTYs keep emitting. Esc exits.
+  Composes with the #03 terminal cache. (packet 12, #26)
+
+Performance
+-----------
+• Pane resize rAF coalescing — colFracs/rowFracs updates run once per
+  frame during drag (was per pointermove event). Terminal runFit debounce
+  relaxes 25ms → 100ms during sustained drag via document.body.dataset
+  .dragging flag, eliminating redundant layout thrash. (packet 07, #26)
 
 Bug fixes
 ---------
 • Windows spawn ENOENT — Sigma Assistant now correctly launches CLI
   shims (.cmd/.bat/.ps1) on Windows via cmd.exe and powershell.exe
-  wrappers instead of bare spawn calls.
+  wrappers instead of bare spawn calls. (packet 01, #22)
 
 • Settings room blocking workspace click — Visiting Settings no longer
   traps the user there when clicking a workspace; the app correctly
-  routes to the Command Room.
+  routes to the Command Room via GLOBAL_ROOMS guard. (packet 02, #17)
 
 • xterm preservation across switches — Terminal content now survives
   both room switches (Settings ↔ Command) and workspace switches
   (A → B → A) via a renderer-side instance cache keyed by session ID.
+  (packet 03, #23)
+
+• CI shellcheck step — moved from macos-14 (apt-get not available) to
+  a dedicated ubuntu-latest job. (#24)
 
 Documentation
 -------------
 • Backlog verify-and-close sweep — 4 items verified and closed;
-  shellcheck CI step escalated (runs apt-get on macOS runner).
+  shellcheck CI step fixed. (packet 09, #19)
 
 • state.tsx LOC verification — Confirmed already split to 97 LOC
-  in v1.1.9; stale tracking rows removed.
+  in v1.1.9; stale tracking rows removed. (packet 08, #16)
 
-Known issues
-------------
-• shellcheck CI step fails on macos-14 runner (apt-get not available).
-  Needs brew install shellcheck or migration to ubuntu-latest.
+Deferred to v1.4.3
+-------------------
+• #04 OpenCode pane font rendering on Windows — gated on Windows VM
+  diagnostic capture.
+• #05 Pane button UX discoverability — gated on user screen recording.
+• #13 Pane Split + Minimise — pairs with #05, same gate.
 
 Verification
 ------------
-• pnpm exec tsc -b — clean
-• pnpm exec vitest run — 363/363 pass
-• pnpm exec eslint . — clean (0 errors, 1 pre-existing warning)
+• pnpm exec tsc -b --pretty false — clean
+• pnpm exec vitest run — 417/417 pass
+• pnpm exec eslint . — 0 errors, 1 pre-existing warning
 • pnpm run build — clean
 • node scripts/build-electron.cjs — clean

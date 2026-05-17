@@ -6,26 +6,55 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [1.4.2] - 2026-05-17
 
-docs(v1.4.2): backlog verify-and-close sweep + packet 08 closure
+Stability, discoverability, and Windows compatibility hardening across the v1.4.x line.
 
 ### Added
 
-- **Worktree location discoverability UX** — pane right-click → "Reveal worktree in Finder/Explorer" via Electron `shell.showItemInFolder` + path-validated RPC. "Open shell here" pane action spawns the OS-default terminal at the worktree cwd. Per-pane tooltip shows full worktree path. First-launch info banner explains where worktrees live (`<userData>/worktrees/<repoHash>/`). New Settings → Storage tab lists all worktrees with async-computed sizes + reveal buttons. No relocation; Option D additive scope only.
+- **Worktree location discoverability UX** — pane right-click → "Reveal worktree in Finder/Explorer" via Electron `shell.showItemInFolder` + path-validated RPC. "Open shell here" pane action spawns the OS-default terminal at the worktree cwd. Per-pane tooltip shows full worktree path. First-launch info banner explains where worktrees live (`<userData>/worktrees/<repoHash>/`). New Settings → Storage tab lists all worktrees with async-computed sizes + reveal buttons. No relocation; Option D additive scope only. (packet 06, #20)
+- **Disk-scan provider scoping via workspace whitelist** — the disk scanner now rejects candidate sessions whose external id is already claimed by a *different* workspace, preventing foreign sessions spawned in another repo from being captured by the current workspace's pane. Uses `agent_sessions` whitelist (Option B). (packet 10, #21)
+- **NSIS custom welcome page** — installer now ships a custom welcome page with Windows SmartScreen / Mark-of-the-Web workaround instructions (replaces the legacy `nsis.license` text). See `app/build/installer.nsh`. (packet 11, #18)
+- **Pane Focus → true fullscreen** — focus icon promotes pane to viewport (1fr × 1fr grid template), others kept mounted with `display:none` so PTYs keep emitting. Esc exits. New `focusedPaneId` state field + FOCUS_PANE/UNFOCUS_PANE actions with auto-clear on workspace change. Composes on v1.4.2 #03's terminal cache. (packet 12, #26)
 
 ### Fixed
 
-- **BUG-W7-015** — Launch button low-contrast in Parchment theme closed. Accent-filled CTA (`bg-accent`) with darker Parchment accent tokens (`--accent: 22 70% 32%`) already on main; verified WCAG AA contrast.
-- **CI cache-dependency-path** — `cache-dependency-path` correctly targets `app/package.json` in `lint-and-build.yml`.
-- **vitest coverage thresholds** — `coverage.thresholds` block present in `vitest.config.ts` with 22% lines floor.
-- **CI shellcheck step** — moved from `macos-14` job to a dedicated `ubuntu-latest` job (was using `apt-get` on macOS where it does not exist, red on every PR).
-
-### Documentation
-
-- Verify-and-close packet 08: `state.tsx` was already split from 553 → 97 LOC in v1.1.9 (commit `d824c42`); stale BACKLOG and WISHLIST rows removed.
+- **Sigma Assistant Windows spawn ENOENT** — `child_process.spawn` on Windows cannot execute `.cmd`/`.bat` shims with a bare arg array. New `spawn-cross-platform.ts` wraps `.cmd` via `cmd.exe /d /s /c` and `.ps1` via `powershell.exe`, mirroring `local-pty.ts` pattern. `shell: true` explicitly rejected for injection safety. (packet 01, #22)
+- **Settings room persists in `roomByWorkspace`, blocking workspace click** — `SET_ROOM` only excluded `'workspaces'` from persistence. Introduced `GLOBAL_ROOMS = ['workspaces', 'settings']` guard applied consistently across three dispatch paths. Clicking a workspace after visiting Settings now correctly routes to Command Room. (packet 02, #17)
+- **xterm preservation across room/workspace switch** — two-layer fix: (1) mount-race quick-win reorders xterm host so `pty:data` bus subscription attaches before `rpc.pty.snapshot` IPC roundtrip, closing 1-5 ms drop window; (2) renderer-side terminal-instance cache keyed by sessionId survives both room switch and workspace switch, unlike React 19 `<Activity>` which would unmount on workspace key change. (packet 03, #23)
+- **BUG-W7-015** — Launch button low-contrast in Parchment theme closed. Accent-filled CTA (`bg-accent`) with darker Parchment accent tokens (`--accent: 22 70% 32%`) already on main; verified WCAG AA contrast. (packet 09, #19)
+- **CI cache-dependency-path** — `cache-dependency-path` correctly targets `app/package.json` in `lint-and-build.yml`. (packet 09, #19)
+- **vitest coverage thresholds** — `coverage.thresholds` block present in `vitest.config.ts` with 22% lines floor. (packet 09, #19)
+- **CI shellcheck step** — moved from `macos-14` job to a dedicated `ubuntu-latest` job (was using `apt-get` on macOS where it does not exist, red on every PR). (#24)
 
 ### Changed
 
-- NSIS installer now ships a custom welcome page with Windows SmartScreen / Mark-of-the-Web workaround instructions (replaces the legacy `nsis.license` text). See `app/build/installer.nsh`.
+- **Delegation matrix rebalance** — Qwen carries mechanical bulk (docs, verify-and-close sweeps) to free Sonnet/Opus for architecture-critical packets. (docs)
+
+### Performance
+
+- **Pane resize via `requestAnimationFrame` coalesce** — `colFracs`/`rowFracs` updates run once per frame during drag (was per pointermove event). Terminal `runFit` debounce relaxes 25ms → 100ms during sustained drag via `document.body.dataset.dragging` flag. (packet 07, #26)
+
+### Documentation
+
+- **Backlog verify-and-close sweep** — 4 items verified and closed: BUG-W7-015 launch button contrast (already fixed on main), CI cache-dependency-path (correct), vitest coverage thresholds (present), shellcheck CI step (escalated — runs `apt-get` on `macos-14`). (packet 09, #19)
+- **state.tsx LOC verify-and-close** — `state.tsx` was already split from 553 → 97 LOC in v1.1.9 (commit `d824c42`); stale BACKLOG and WISHLIST rows removed. (packet 08, #16)
+
+### Known issues
+
+- **shellcheck CI step** — step exists in `lint-and-build.yml` but was running `apt-get` on `macos-14` runner (fixed in #24 by moving to ubuntu-latest). Legacy note retained for context.
+
+### Deferred to v1.4.3
+
+- **#04 OpenCode pane 6 font rendering on Windows** — H1 (font fallback) and H2 (pane-6-specific) hypotheses documented in `docs/03-plan/v1.4.2-bundle/04-opencode-pane-font.md`. Gated on Windows VM diagnostic capture (font check + OpenCode in pane 1).
+- **#05 + Pane button UX** — button is fully wired, perceived as broken due to UX discoverability. Three conditional fix shapes documented. Gated on user screen recording.
+- **#13 Pane Split + Minimise** — feature work; pairs with #05. Gated on the same user recording.
+
+### Verification
+
+- `pnpm exec tsc -b --pretty false` — clean
+- `pnpm exec vitest run` — **417/417 pass**
+- `pnpm exec eslint .` — 0 errors, 1 pre-existing warning
+- `pnpm run build` — clean
+- `node scripts/build-electron.cjs` — clean
 
 ## [1.4.1] - 2026-05-16
 
@@ -800,6 +829,43 @@ arm64-only macOS DMG, same as v1.1.1 through v1.1.3. The pre-build electron-rebu
 ### Carried forward
 
 All v1.1.0 → v1.1.3 surfaces intact: multi-workspace tabs (now in the new WorkspacesPanel), pane resume via `--resume <session_id>`, growable swarms with `add_agent` Sigma tool, Ruflo pre-flight + readiness pill, per-CLI skills verification, MCP host server bridging Sigma tools to the spawned Claude CLI, voice diagnostics, single-instance lock, window drag.
+
+## [1.1.2] - 2026-05-11
+
+Sigma Assistant end-to-end. v1.1.1 shipped streaming Claude CLI responses but the Tool calls panel exposed that `tool_use` envelopes never executed — Sigma could talk but couldn't act. v1.1.2 fixes that. The assistant now actually launches panes, dispatches prompts, sees live workspace state, broadcasts to swarm groups, and writes its own MCP config for spawned agent CLIs.
+
+### Added
+
+- **Tool dispatch parity** — `runClaudeCliTurn.ts:routeToolUse()` extended with a `dispatchTool` callback. Every `tool_use` block emitted by the Claude CLI is now routed to `controller.invokeTool(name, args)`, the result captured, and a `tool_result` envelope (correct `tool_use_id` matching, `is_error` flag, stringified content) written back to the CLI's stdin via a serialised write queue. Slow tools guarded by a 30 s `withTimeout`. The CLI continues its turn with the actual host result in scope — no more orphan tool_use intents.
+- **Live `list_*` tools** in `tools.ts` — `list_active_sessions`, `list_swarms`, `list_workspaces` read the in-memory PTY + swarm registries (not the DB), so Sigma can answer "how many agents are running right now?" accurately mid-turn. `system-prompt.ts` trimmed to remove the stale recent-files + open-swarms blob in favour of "call the `list_*` tools when you need live state".
+- **MCP autowrite façade** — new `app/src/main/core/workspaces/mcp-autowrite.ts`. On workspace open, SigmaLink writes/merges:
+  - claude code: project-local `<root>/.mcp.json`
+  - codex: global `~/.codex/config.toml` `[mcp_servers.ruflo]` table
+  - gemini: global `~/.gemini/settings.json` mcpServers block
+  Each entry points the spawned agent CLI at the shared `<root>/.claude-flow/` state dir, so every agent that boots inside a SigmaLink workspace converges on one Ruflo brain. Idempotent; merges without clobbering user-customised entries (refuses to overwrite if `command !== "npx"`). Settings toggle at `RufloSettings.tsx` (kv key `ruflo.autowriteMcp`, default ON).
+- **SONA trajectory wrapping** in `runClaudeCliTurn.ts` — `trajectoryStart` on every CLI turn, `trajectoryStep` per tool dispatch, `trajectoryEnd` on success / failure / cancel. Fail-soft when Ruflo is unavailable. Sigma Assistant now accumulates cross-session learning from its own tool-call outcomes via the existing ReasoningBank pipeline.
+
+### Fixed
+
+- **Mailbox group broadcast** (`BUG-V1.1.1-03`) — `mailbox.ts:expandRecipient` correctly resolves `@all`, `@coordinators`, `@builders`, `@scouts`, `@reviewers` to concrete agent keys before invoking the PTY pane-echo closure. Operator broadcasts now reach every recipient in the target swarm (and only that swarm — the rc3 cross-swarm-leak fix is preserved).
+- **Tool calls execute end-to-end** (`BUG-V1.1.1-01`) — see Tool dispatch parity above. Sigma's "launch a codex pane" now actually spawns the pane.
+- **Sigma can enumerate live state** (`BUG-V1.1.1-02`) — see live `list_*` tools above. Replaces the stale system-prompt blob that read from the DB at turn start.
+- **Ruflo MCP auto-connected for spawned agent CLIs** (`BUG-V1.1.1-04`) — see MCP autowrite above. Each claude/codex/gemini pane boots into a workspace with Ruflo MCP already configured.
+
+### Verification
+
+- `pnpm exec tsc -b` → clean (exit 0).
+- `pnpm exec vitest run` → **28/28 pass** (13 new tests: 5 dispatch + trajectory in `runClaudeCliTurn.test.ts`, 3 live tools in `tools.test.ts`, 4 in `mcp-autowrite.test.ts`, 1 group-fanout in `mailbox.test.ts`).
+- `pnpm exec vite build` → main bundle 335 KB raw / **92.84 KB gzipped** (well under 700 KB target).
+- `pnpm run lint` → 54 errors / 0 warnings (rc3 baseline, no new errors).
+- `pr-reviewer` agent verdict: SHIP-WITH-PATCH; six doc-only patches applied inline (master memory SHAs, this CHANGELOG entry, missing release notes file, memory_index "Latest commit + tag", `.upstream.md` provenance note). Zero P1 code issues; no regressions to v1.1.1 surfaces (drag, rebrand, voice diagnostics, single-instance lock all intact).
+- **Distribution**: arm64-only macOS DMG, same constraints as v1.1.1 (per-arch native rebuild required; x64 deferred to CI matrix in v1.2).
+
+### Deferred to v1.1.3
+
+- Refactor `runClaudeCliTurn.ts` (643 lines) + `tools.ts` (525 lines) under the 500-line/file rule.
+- `list_swarms` workspaceId-optional fix at `tools.ts:463`.
+- CI workflow `pnpm-lock.yaml` cache-path resolution (local gates pass; CI fails at Setup Node).
 
 ## [1.1.1] - 2026-05-10
 
