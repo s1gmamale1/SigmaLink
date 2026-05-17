@@ -55,12 +55,20 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash scripts/check-brand.sh
 
-      - name: Shellcheck installer
-        working-directory: ${{ github.workspace }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
-          shellcheck app/scripts/install-macos.sh
-
       - name: Build
         run: pnpm run build
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Shellcheck installer
+        run: shellcheck app/scripts/install-macos.sh
