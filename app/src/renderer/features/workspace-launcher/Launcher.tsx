@@ -180,6 +180,26 @@ export function WorkspaceLauncher() {
   async function chooseExisting(ws: Workspace): Promise<void> {
     const reopened = await rpc.workspaces.open(ws.rootPath);
     dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: reopened });
+
+    // v1.4.3 (#02) — Rehydrate persisted pane sessions BEFORE routing to
+    // Command Room so CommandRoom renders existing panes instead of EmptyState.
+    // ADD_SESSIONS dispatches first so terminal-cache GC doesn't dispose
+    // sessions that are about to become visible.
+    try {
+      const sessions = await rpc.panes.listForWorkspace(reopened.id);
+      if (sessions.length > 0) {
+        dispatch({ type: 'ADD_SESSIONS', sessions });
+        // Route to Command Room now that panes are hydrated.
+        // v1.3.3 — route into the Command Room so the user sees panes instead
+        // of staying on the Launcher's Start step after re-opening a workspace.
+        dispatch({ type: 'SET_ROOM', room: 'command' });
+        return;
+      }
+    } catch (err) {
+      // Best-effort: log + fall through to resume plan flow.
+      console.warn('[chooseExisting] listForWorkspace failed; falling through', err);
+    }
+
     // v1.3.3 — route into the Command Room so the user sees panes instead
     // of staying on the Launcher's Start step after re-opening a workspace.
     dispatch({ type: 'SET_ROOM', room: 'command' });

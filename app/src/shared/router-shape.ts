@@ -184,6 +184,14 @@ export interface AppRouter {
         sessionId: string | null;
       }>
     >;
+    /**
+     * v1.4.3 (#02) — Pane rehydration. Returns ONE full AgentSession row per
+     * pane slot (MAX started_at wins), ordered by pane_index ASC. The renderer
+     * dispatches ADD_SESSIONS from three sites so state.sessionsByWorkspace
+     * is populated on workspace reopen without requiring a fresh launch.
+     * Returns empty array for fresh workspaces with no history.
+     */
+    listForWorkspace: (workspaceId: string) => Promise<AgentSession[]>;
   };
   providers: {
     list: () => Promise<
