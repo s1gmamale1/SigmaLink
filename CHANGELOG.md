@@ -4,6 +4,31 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-05-18
+
+Tech-debt cleanup release. Closes 2 final v1.4.4 reviewer followups + retires 2 long-standing LOC debts.
+
+### Fixed
+
+- **projects.json read-merge-write race fully mitigated** — `writeProjectsJsonAtomic` in `gemini-resume-bridge.ts` now wraps the read-merge-write block in a `proper-lockfile` advisory lock (5 retries with exponential backoff + 5s stale recovery). Closes reviewer-PR27 F-2 v1.4.5 followup. New concurrent-writers test verifies serialization. (cluster α, #32)
+- **SessionStep test flake eliminated** — added `vi.resetModules()` to `beforeEach` for full module-state isolation between cross-suite parallel runs. SessionStep now passes 5/5 in repeated full-suite runs. Closes reviewer-PR28/29 INFO v1.4.5 followup. (cluster α, #32)
+
+### Refactored
+
+- **`swarms/factory.ts` split** — 443 → 271 LOC. Extracted `addAgentToSwarm` body to new `factory-add-agent.ts` (168 LOC). Public API preserved via re-export; zero caller changes. (cluster β, #31)
+- **`runClaudeCliTurn.ts` split** — 426 → 324 LOC. Extracted `buildCliArgs`, `applyMcpHostConfig`, `resolveSystemPrompt`, and session-id helpers to new `runClaudeCliTurn.args.ts` (138 LOC). Matches existing sibling-file pattern (`.emit.ts`, `.trajectory.ts`). (cluster β, #31)
+
+### Dependencies
+
+- **Added**: `proper-lockfile@^4.1.2` (advisory file-locking) + `@types/proper-lockfile@^4.1.4`
+
+### Notes
+
+- React-compiler lint wave (BACKLOG line 64) was investigated and found **already closed by prior v1.1.9 work**; no changes needed in v1.4.5.
+- `use-session-restore.ts:277` eslint warning remains pre-existing/intentional.
+- WISHLIST LOC numbers (713 / 709 for factory.ts / runClaudeCliTurn.ts) were stale; actual baselines were 443 / 426.
+- One first-attempt `opencode-Qwen` dispatch for cluster α failed silently. Fell back to Sonnet per orchestrator skill rules. Failure mode documented for v1.4.6 investigation.
+
 ## [1.4.4] - 2026-05-18
 
 Paper-cut cleanup release. Closes 7 reviewer-flagged followups from v1.4.x reviews + refreshes the stale Playwright e2e suite.

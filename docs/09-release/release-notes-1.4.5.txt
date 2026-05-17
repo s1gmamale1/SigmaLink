@@ -1,0 +1,61 @@
+SigmaLink v1.4.5 — Release Notes
+================================
+
+Date: 2026-05-18
+Previous: v1.4.4 (2026-05-18)
+
+This is a tech-debt cleanup release. No user-facing features.
+Two reviewer followups closed and two long-standing file-size
+debts retired.
+
+What's fixed
+------------
+
+* gemini-resume-bridge's projects.json read-merge-write race is now
+  fully serialized via proper-lockfile advisory locking. Two simultaneous
+  pane spawns racing to register their worktree alias can no longer
+  produce a missing entry. New concurrent-writers test verifies this.
+
+* SessionStep test suite no longer flakes when run alongside the rest
+  of the project. The remaining cross-suite module-state leak from
+  v1.4.4 is fully closed by adding vi.resetModules() in beforeEach.
+  Verified 5/5 in repeated full-suite runs.
+
+Internal refactors
+------------------
+
+* swarms/factory.ts split: 443 LOC -> 271 LOC. addAgentToSwarm moved
+  to a new factory-add-agent.ts sibling. Public API preserved.
+
+* runClaudeCliTurn.ts split: 426 LOC -> 324 LOC. CLI arg + MCP + system
+  prompt helpers moved to a new runClaudeCliTurn.args.ts sibling.
+  Matches existing .emit.ts / .trajectory.ts pattern.
+
+* React-compiler lint wave was investigated; turned out to be already
+  closed by prior v1.1.9 work. No changes needed.
+
+Dependencies
+------------
+
+* Added: proper-lockfile@^4.1.2 + @types/proper-lockfile@^4.1.4
+
+Tag: v1.4.5
+Commit: <set at tag time>
+
+Verification
+------------
+
+* tsc: clean
+* vitest: 505 passed / 1 skipped (504 v1.4.4 baseline + 1 new concurrent-writers test)
+* SessionStep stability: 5/5 full-suite runs pass cleanly
+* eslint: 0 errors (1 pre-existing warning, unchanged)
+* vite build: clean
+* electron build: clean
+
+Notes
+-----
+
+* No breaking changes. v1.4.4 -> v1.4.5 is a drop-in upgrade.
+* One first-attempt opencode-Qwen dispatch failed silently for cluster
+  alpha (the followups bundle). Falled back to Sonnet per orchestrator
+  skill rules. Investigating the opencode invocation issue separately.

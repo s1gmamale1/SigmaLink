@@ -1680,3 +1680,34 @@ The work was self-contained: seven small edits across six files + one new file. 
 ### Release plumbing
 
 Version bump `app/package.json` 1.4.3 → 1.4.4. CHANGELOG `[1.4.4]` section prepended under `[Unreleased]`. New `docs/09-release/release-notes-1.4.4.txt`. Memory index T-211..T-218. WISHLIST v1.4.4 row added to "Recently shipped". One PR (`feat/v1.4.4-paper-cuts → main`); DO NOT MERGE pending Opus 4.7 reviewer pass.
+
+## Phase 31 — v1.4.5 tech-debt cleanup (2026-05-18)
+
+v1.4.5 closes the two remaining v1.4.4-deferred reviewer followups + retires two long-standing LOC-debt items from WISHLIST. Two parallel PRs (#31 + #32) shipped in ~45 minutes via the orchestrator pattern. First real opencode-Qwen dispatch attempt failed silently; fallback to Sonnet was seamless.
+
+### Cluster α — followups (PR #32)
+
+`writeProjectsJsonAtomic` in `gemini-resume-bridge.ts` now wraps the read-merge-write block in a `proper-lockfile` advisory lock (5-retry exponential backoff + 5s stale-lock recovery). Function refactored to a mutator-callback signature so callers can compose the merge logic cleanly. Both call sites (`ensureGeminiProjectDir` + `prepareGeminiResume`) updated. New `describe('concurrent writers', ...)` test spawns 5 parallel writers with distinct keys and asserts all 5 persist — confirms serialization. Closes PR27 F-2 v1.4.5 followup. The tmp-unlink-on-rename-error logic from v1.4.4 PR30 is preserved (verified by reviewer).
+
+SessionStep test cross-suite flake fully eliminated by adding `vi.resetModules()` to `beforeEach` alongside the existing `vi.resetAllMocks()` from v1.4.4. Full module-state isolation between cross-suite parallel runs. Confirmed via 5 sequential `pnpm exec vitest run` invocations — SessionStep PASS in all 5. Closes PR28/29 INFO v1.4.5 followup.
+
+### Cluster β — tech debt (PR #31)
+
+`swarms/factory.ts` split from 443 → 271 LOC. WISHLIST claimed 713 LOC; baseline was already smaller because v1.1.x had already extracted `factory-spawn.ts` (428 LOC). New `factory-add-agent.ts` (168 LOC) holds the `addAgentToSwarm` body with its v1.4.3 optional `worktreePath`/`cwd`/`branch` overrides for split sub-pane support. Type-only cross-imports prevent runtime cycles. Public API (`createSwarm`, `addAgentToSwarm`, `loadSwarm`, `listSwarmsForWorkspace`, `killSwarm`) preserved via re-exports — zero caller changes.
+
+`runClaudeCliTurn.ts` split from 426 → 324 LOC. Same WISHLIST-staleness pattern (709 claimed; v1.1.9 had already extracted `.emit.ts` + `.trajectory.ts`). New `runClaudeCliTurn.args.ts` (138 LOC) holds 6 helpers: `buildCliArgs`, `applyMcpHostConfig`, `resolveSystemPrompt`, session-id derivations. Spawn loop + `activeChildren` sentinel + `pendingToolRoutes.allSettled` drain + retry-once-without-resume gate all intact in the core file.
+
+React-compiler lint wave (WISHLIST line 64) — investigated and found already closed by prior v1.1.9 work (`d824c42 release(v1.1.9): … lint zero` per git log). Current eslint run reports 0 errors with only the documented `use-session-restore.ts:277` warning carve-out. No code action needed; WISHLIST line retired.
+
+### Orchestrator-skill validation (first real opencode-Qwen test)
+
+First real attempt at `opencode run -m qwen/qwen3-coder-plus` for non-interactive cluster α dispatch failed silently: 0-byte stdout, no commits, no diff on the worktree. Branch unchanged. Possible causes (deferred for separate investigation): auth/permission state with opencode session, non-interactive flag interpretation, terminal/PTY buffering. Per orchestrator skill rules ("If the CLI failed (no diff, errors), fall back to my Agent tool with Sonnet"), Sonnet picked up the same brief and shipped cleanly in ~8 min. Failure mode documented in `~/.claude/skills/orchestrator/SKILL.md` for future polish.
+
+### Verification
+
+`pnpm exec tsc -b` clean; `pnpm exec vitest run` 505 passed / 1 skipped (504 baseline + 1 new concurrent-writers test); SessionStep 5/5 stable; `pnpm exec eslint .` 0 errors (1 pre-existing warning); `pnpm run build` + `node scripts/build-electron.cjs` clean. Both reviewers (Opus 4.7) APPROVE.
+
+### Wall-clock
+
+~45 minutes from "go" to both PRs merged. Sonnet on β finished first (PR #31, ~15min). opencode-Qwen on α failed silently (~5min wasted). Sonnet fallback on α finished (~8min). Reviewers in parallel (~4min each). Two merges + cleanup ~3min. Release prep + tag + CI watch + assets verified separate.
+
