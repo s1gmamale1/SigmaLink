@@ -95,6 +95,9 @@ function renderStep(
 // ─── Setup / teardown ────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  // v1.4.4 P5 — reset ALL mock state between tests to prevent module-state
+  // cross-talk when SessionStep.test.tsx runs alongside the full suite.
+  vi.resetAllMocks();
   mockListSessions.mockReset();
   mockLastResumePlan.mockReset();
   // Default: each provider returns one session.

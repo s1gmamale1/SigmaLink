@@ -112,6 +112,27 @@ async function readProjectsJson(
 /**
  * Atomic write of `~/.gemini/projects.json`.
  * Uses a tmp file + rename so a crash mid-write leaves the old file intact.
+ *
+ * **Read-merge-write race (R-01-2)**
+ * Two simultaneous pane spawns can both read the existing file, each add their
+ * own entry, and then write — the second writer wins and the first entry is
+ * lost until the next spawn for that pane. The atomic rename prevents *file
+ * corruption* (no half-written JSON), but does NOT prevent the logical race.
+ * Worst case: one alias is temporarily missing; gemini falls back to a fresh
+ * session for that pane on this launch, then recovers on next launch. This is
+ * acceptable for v1.4.4. A proper fix (advisory file-lock) is deferred to
+ * v1.4.5 via `proper-lockfile` or equivalent — see v1.4.5 candidate list.
+ *
+ * **Schema fragility**
+ * Gemini's `projects.json` format is undocumented and subject to change.
+ * `readProjectsJson` returns `null` on parse error or if the root value is
+ * not a plain `{ [cwd: string]: string }` object. If a future gemini release
+ * changes the schema, the bridge falls back to a fresh spawn (no crash) rather
+ * than corrupting the file with our own writes.
+ *
+ * **v1.4.5+ followup**: replace the read-merge-write loop with an advisory
+ * lock (e.g. `proper-lockfile`) to eliminate the concurrent-spawn race.
+ * DO NOT add a file-lock in v1.4.4 — document only.
  */
 async function writeProjectsJsonAtomic(
   homeDir: string,
@@ -122,7 +143,14 @@ async function writeProjectsJsonAtomic(
   const content = JSON.stringify(data, null, 2) + '\n';
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   await fs.promises.writeFile(tmp, content, 'utf8');
-  await fs.promises.rename(tmp, filePath);
+  try {
+    await fs.promises.rename(tmp, filePath);
+  } catch (err) {
+    // Best-effort cleanup: remove the orphaned tmp file so no stale
+    // `.tmp.*` files accumulate under ~/.gemini/ on rename failure.
+    await fs.promises.unlink(tmp).catch(() => undefined);
+    throw err;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -186,9 +214,11 @@ export async function ensureGeminiProjectDir(
   const workspaceSlug = await geminiSlugForCwd(homeDir, workspaceCwd);
 
   // Verify the slug stays within ~/.gemini/tmp/ (no breakout).
+  // path.relative-based check is cross-platform (no sep-suffix fragility on Windows).
   const chatsDir = chatsDirFor(homeDir, workspaceSlug);
   const geminiTmpRoot = path.join(homeDir, '.gemini', 'tmp');
-  if (!chatsDir.startsWith(geminiTmpRoot + path.sep)) return null;
+  const relEnsure = path.relative(geminiTmpRoot, chatsDir);
+  if (relEnsure.startsWith('..') || path.isAbsolute(relEnsure)) return null;
 
   // Pre-create chats/ and tool-outputs/ directories.
   try {
@@ -253,9 +283,11 @@ export async function prepareGeminiResume(
   const workspaceSlug = await geminiSlugForCwd(homeDir, workspaceCwd);
 
   // Verify the slug stays within ~/.gemini/tmp/ (no breakout).
+  // path.relative-based check is cross-platform (no sep-suffix fragility on Windows).
   const chatsDir = chatsDirFor(homeDir, workspaceSlug);
   const geminiTmpRoot = path.join(homeDir, '.gemini', 'tmp');
-  if (!chatsDir.startsWith(geminiTmpRoot + path.sep)) return 'skipped';
+  const relPrepare = path.relative(geminiTmpRoot, chatsDir);
+  if (relPrepare.startsWith('..') || path.isAbsolute(relPrepare)) return 'skipped';
 
   // Step 3 — check whether workspaceSlug's chats directory has sessions.
   let hasSession = false;

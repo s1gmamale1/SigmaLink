@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-05-18
+
+Paper-cut cleanup release. Closes 7 reviewer-flagged followups from v1.4.x reviews + refreshes the stale Playwright e2e suite.
+
+### Fixed
+- launcher.ts comment now accurately describes the gemini bridge 'missing' fallback (reviewer-PR27 F-1)
+- Windows path containment check uses path.relative for cross-platform robustness (reviewer-PR27 F-4)
+- EmptyState dev-only console.warn now fires once per mount via useEffect (reviewer-PR29 LOW)
+- SessionStep.test.tsx no longer flakes under parallel suite execution (reviewer-PR28 INFO)
+
+### Added
+- Atomic-write fault test for writeProjectsJsonAtomic — verifies clean error handling on fs.rename failure (reviewer-PR27 F-3)
+
+### Documentation
+- gemini-resume-bridge.ts now documents the projects.json read-merge-write race + schema fragility caveats. File-lock implementation deferred to v1.4.5 candidate (reviewer-PR27 F-2)
+
+### CI
+- Playwright e2e smoke suite refreshed against v1.4.3 DOM (selectors stale since v1.1.4)
+
 ## [1.4.3] - 2026-05-18
 
 Bugfix release focused on Gemini CLI integration, pane state persistence across app restarts, and the long-deferred Pane Split + Minimise feature.

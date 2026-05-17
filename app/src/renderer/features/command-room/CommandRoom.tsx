@@ -220,6 +220,18 @@ export function CommandRoom() {
     return () => window.removeEventListener('keydown', onKey);
   }, [focusedPaneId, dispatch]);
 
+  // v1.4.4 P6 — dev-only empty-state diagnostic. Moved from the render body
+  // (where it fired on every re-render) into a mount-only useEffect so it
+  // emits at most once per CommandRoom mount, not on every sessions update.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production' && sessions.length === 0 && activeWorkspace) {
+      console.warn(
+        '[CommandRoom] Empty state — workspace activated but sessions slice empty. ' +
+          'Either user just landed on a fresh workspace, OR rehydration failed.',
+      );
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!activeWorkspace) {
     return (
       <EmptyState
@@ -237,12 +249,6 @@ export function CommandRoom() {
     // recover. Only shown when the swarm is running AND providers loaded;
     // otherwise we fall back to the legacy "Go to Workspaces" CTA only so
     // the click can't dead-end.
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn(
-        '[CommandRoom] Empty state — workspace activated but sessions slice empty. ' +
-          'Either user just landed on a fresh workspace, OR rehydration failed.',
-      );
-    }
     const canAddPane = activeSwarm?.status === 'running' && providers.length > 0;
     return (
       <EmptyState

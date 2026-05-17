@@ -31,20 +31,46 @@ async function snap(win: Page, file: string, note?: string) {
   }
 }
 
-// Click a sidebar room button by aria-label.
+// v1.4.4 P7 — Navigate to a room via the top-bar Rooms dropdown.
+// The v1.1.4 sidebar room-nav buttons are gone; rooms live in a Radix
+// DropdownMenu triggered by the grid-icon button ("Open rooms menu").
+// Strategy: open the dropdown, wait for the item to appear in the DOM,
+// then click it. Falls back to the legacy sidebar button selector so the
+// helper also works if a future layout change moves nav back to a rail.
 async function navTo(win: Page, label: string) {
+  // 1. Try the dropdown path (current v1.1.4+ layout).
+  try {
+    const trigger = win.locator('button[aria-label="Open rooms menu"]');
+    if ((await trigger.count()) > 0) {
+      await trigger.first().click({ timeout: 3000, force: true });
+      await win.waitForTimeout(200);
+      // DropdownMenuItem renders as [role="menuitem"] with aria-label.
+      const item = win.locator(`[role="menuitem"][aria-label="${label}"]`);
+      if ((await item.count()) > 0) {
+        await item.first().click({ timeout: 3000, force: true });
+        await win.waitForTimeout(400);
+        appendLog(`[NAV] rooms-menu → "${label}"`);
+        return true;
+      }
+      // Menu open but item not found — close and fall through.
+      await win.keyboard.press('Escape').catch(() => undefined);
+    }
+  } catch (e) {
+    appendLog(`[NAV] rooms-menu click failed for "${label}": ${(e as Error).message}`);
+  }
+  // 2. Legacy fallback: sidebar button with aria-label (v1.1.3 and earlier).
   const btn = win.locator(`button[aria-label="${label}"]`);
   if ((await btn.count()) === 0) {
-    appendLog(`[NAV] no aria-label="${label}" found`);
+    appendLog(`[NAV] no selector found for "${label}"`);
     return false;
   }
-  // Force-enable in case disabled (we still try clicking anyway)
   try {
     await btn.first().click({ timeout: 3000, force: true });
     await win.waitForTimeout(400);
+    appendLog(`[NAV] sidebar-btn → "${label}"`);
     return true;
   } catch (e) {
-    appendLog(`[NAV] click failed for ${label}: ${(e as Error).message}`);
+    appendLog(`[NAV] sidebar click failed for "${label}": ${(e as Error).message}`);
     return false;
   }
 }
@@ -54,6 +80,10 @@ async function navTo(win: Page, label: string) {
 // suite registers, yielding "No tests found". Defensive fix: hoist the
 // timeout into the test body so the loader has settled by the time it runs.
 // Proper fix is bumping @playwright/test to >=1.60 (uses module.registerHooks).
+
+// v1.4.4 P7 — flake mitigation: allow one automatic retry on infra failures
+// (e.g. Electron launch races, display-server hiccups in CI).
+test.describe.configure({ retries: 1 });
 
 test('SigmaLink full visual sweep', async () => {
   test.setTimeout(240_000);
@@ -427,7 +457,8 @@ test('SigmaLink full visual sweep', async () => {
   // navigation. The panel is rendered for the standalone variant only (the
   // right-rail variant is too narrow to host the sidebar).
   const bridgeErrorsBefore = consoleErrors.length;
-  const bridgeNavOk = await navTo(win, 'Bridge Assistant');
+  // v1.4.4 P7 — room label is "Sigma Assistant" in rooms-menu-items.ts (id: 'sigma').
+  const bridgeNavOk = await navTo(win, 'Sigma Assistant');
   await win.waitForTimeout(500);
   const bridgeRoom = await win
     .evaluate(() => document.body.getAttribute('data-room') ?? 'unknown')

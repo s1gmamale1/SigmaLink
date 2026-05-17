@@ -8,7 +8,7 @@
 //      directory was always empty — history lived under the workspace slug)
 // cannot silently regress.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -325,6 +325,85 @@ describe('absolute-path requirement', () => {
   it('ensureGeminiProjectDir returns null for relative workspaceCwd', async () => {
     const result = await ensureGeminiProjectDir('/tmp/worktree', 'relative/ws', { homeDir });
     expect(result).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14–15. Atomic-write fault injection (reviewer-PR27 F-3)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('writeProjectsJsonAtomic — rename fault injection', () => {
+  let homeDir: string;
+
+  beforeEach(() => {
+    homeDir = makeTmpHome();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    rmRf(homeDir);
+    vi.restoreAllMocks();
+  });
+
+  // 14. When fs.promises.rename throws, prepareGeminiResume must not corrupt
+  //     any pre-existing projects.json and must surface the failure cleanly
+  //     (returns 'skipped' rather than 'aliased').
+  it('surfaces rename error cleanly — returns "skipped" and leaves existing projects.json intact', async () => {
+    const workspaceCwd = '/tmp/sigmalink-workspace';
+    const worktreeCwd = '/tmp/sigmalink-worktree-pane-0';
+    const slug = path.basename(workspaceCwd);
+
+    // Seed a valid projects.json with an unrelated entry.
+    seedProjectsJson(homeDir, { '/other/project': 'other-slug' });
+    // Ensure workspace has sessions so the bridge tries to write.
+    seedGeminiSession(homeDir, slug);
+
+    // Capture the contents before the failing write.
+    const projectsJsonFile = path.join(homeDir, '.gemini', 'projects.json');
+    const originalContents = fs.readFileSync(projectsJsonFile, 'utf8');
+
+    // Mock rename to throw.
+    const renameError = new Error('EACCES: permission denied (simulated)');
+    vi.spyOn(fs.promises, 'rename').mockRejectedValueOnce(renameError);
+
+    // prepareGeminiResume must not throw — it catches internally.
+    const outcome = await prepareGeminiResume(workspaceCwd, worktreeCwd, { homeDir });
+
+    // The write failed → bridge returns 'skipped' (safe fallback).
+    expect(outcome).toBe('skipped');
+
+    // The original projects.json must be untouched.
+    const afterContents = fs.readFileSync(projectsJsonFile, 'utf8');
+    expect(afterContents).toBe(originalContents);
+  });
+
+  // 15. A tmp file must not be left behind when rename fails.
+  it('cleans up the .tmp file when rename fails', async () => {
+    const workspaceCwd = '/tmp/sigmalink-workspace';
+    const worktreeCwd = '/tmp/sigmalink-worktree-pane-0';
+    const slug = path.basename(workspaceCwd);
+    seedGeminiSession(homeDir, slug);
+
+    const geminiDir = path.join(homeDir, '.gemini');
+
+    // Track tmp files before and after.
+    const tmpsBefore = fs.existsSync(geminiDir)
+      ? fs.readdirSync(geminiDir).filter((f) => f.includes('.tmp'))
+      : [];
+
+    // Mock rename to throw (the writeFile to tmp succeeds; rename fails).
+    vi.spyOn(fs.promises, 'rename').mockRejectedValueOnce(
+      new Error('ENOSPC: no space left on device (simulated)'),
+    );
+
+    await prepareGeminiResume(workspaceCwd, worktreeCwd, { homeDir });
+
+    // After the call, no new .tmp files should linger in ~/.gemini/.
+    const tmpsAfter = fs.existsSync(geminiDir)
+      ? fs.readdirSync(geminiDir).filter((f) => f.includes('.tmp'))
+      : [];
+
+    // The set of tmp files after must be no larger than before.
+    expect(tmpsAfter.length).toBe(tmpsBefore.length);
   });
 });
 

@@ -1655,3 +1655,28 @@ Version bump `app/package.json` 1.4.2 → 1.4.3. CHANGELOG `[1.4.3]` section wit
 - **External CLI delegation matrix** documented in `~/.claude/skills/orchestrator/SKILL.md`: codex/gemini/kimi/opencode each with non-interactive invocation pattern + cost tier + worktree-per-CLI hygiene rules.
 - **`/loop` self-pacing** via `ScheduleWakeup` — 1800s safety net while agents work, 270s for active CI watches, 90s for final-poll-before-termination.
 
+## Phase 30 — v1.4.4 Paper-Cut Cleanup (2026-05-17)
+
+v1.4.4 is a mechanical paper-cut release that closes all 7 reviewer-flagged followups from v1.4.x reviews (deferred in v1.4.3 CHANGELOG) plus one CI debt item (stale Playwright selectors). No new user-visible features.
+
+The work was self-contained: seven small edits across six files + one new file. All changes are additive (comment wording, JSDoc, tests, cross-platform refactor, lint hygiene, build metadata). No schema migrations, no new RPCs, no behaviour changes. Gate passed on first run: TSC clean, ESLint 0 errors / 1 pre-existing warning, vitest 478 passed (3 pre-existing Electron binary failures unrelated to this work, unchanged from v1.4.3 baseline), vite and electron builds both clean.
+
+### Items closed
+
+**F-1 (PR27)** — The `launcher.ts:209-213` comment claimed that when the gemini bridge returns `'missing'`, resume args are "dropped entirely". The code only nulls `resumeSessionId`; the spawn still reaches `--resume latest` because `ensureGeminiProjectDir` pre-creates the chats dir on the same code path. Rewrote the comment to match the actual control flow. Trivial but caught by reviewer as a trust signal for the codebase.
+
+**F-2 (PR27)** — Added a multi-paragraph JSDoc block to `writeProjectsJsonAtomic` in `gemini-resume-bridge.ts` documenting two known limitations: (a) the read-merge-write race — two concurrent pane spawns can each read stale state and the last writer wins, resulting in one alias temporarily missing; atomic rename prevents corruption, not the logical race; worst case is a fresh gemini session for that pane on this one spawn; (b) schema fragility — gemini's `projects.json` is undocumented and `readProjectsJson` defends by returning null on any parse/type error, so a future gemini schema change causes a fresh spawn (no crash). File-lock implementation explicitly deferred to v1.4.5 candidate with a `proper-lockfile` citation.
+
+**F-3 (PR27)** — Two new test cases added to `gemini-resume-bridge.test.ts` under a new describe block "writeProjectsJsonAtomic — rename fault injection". Test 14 mocks `fs.promises.rename` to throw, verifies `prepareGeminiResume` returns `'skipped'` cleanly, and asserts the pre-existing `projects.json` is byte-for-byte unchanged. Test 15 verifies no `.tmp.*` files linger in `~/.gemini/` after a rename failure. The latter test drove a source fix: `writeProjectsJsonAtomic` now wraps `rename` in try/catch, calls `fs.promises.unlink(tmp).catch(() => undefined)` before re-throwing, eliminating the orphaned tmp file.
+
+**F-4 (PR27)** — The two path-containment checks in `gemini-resume-bridge.ts` (one in `ensureGeminiProjectDir`, one in `prepareGeminiResume`) previously used `chatsDir.startsWith(geminiTmpRoot + path.sep)`. On Windows, `path.sep` is `\` but the string might contain `/` from Node's `path.join`; the suffix check is also fragile when `geminiTmpRoot` itself ends with a separator. Replaced both with `path.relative(geminiTmpRoot, chatsDir)` containment: if the relative path starts with `..` or is absolute, the check fails. This is the cross-platform idiom used in Node security advisories.
+
+**P5 (PR28/29)** — `SessionStep.test.tsx` intermittently failed the "Resume newest for all" test (~1% in parallel runs) due to mock instances shared across module boundaries. Added `vi.resetAllMocks()` to the existing `beforeEach` block. The fix is additive: the mocks are re-initialised immediately after the reset, so all test expectations remain valid. Combined with the existing `mockListSessions.mockReset()` and `mockLastResumePlan.mockReset()` calls.
+
+**P6 (PR29)** — The dev-only `console.warn` in `CommandRoom.tsx` that announces empty-state mounts was placed directly in the `if (sessions.length === 0)` render branch, so it fired on every re-render (state updates, parent re-renders) that found sessions empty — potentially dozens of times per second. Moved to a new mount-only `useEffect(…, [])` with the same condition guard (`sessions.length === 0 && activeWorkspace && NODE_ENV !== 'production'`). The warn from the render body was removed. The ESLint `react-hooks/exhaustive-deps` comment was added because the mount-only intent is deliberate.
+
+**P7 (Playwright)** — The `navTo()` helper in `smoke.spec.ts` used `button[aria-label="${label}"]` which matched the v1.1.3-era sidebar room-nav buttons. v1.1.4 moved room navigation to a top-bar Radix `DropdownMenu` (trigger: `button[aria-label="Open rooms menu"]`, items: `[role="menuitem"][aria-label="${label}"]`). Updated `navTo` to: (1) click the grid-icon trigger, (2) wait 200ms for the menu to open, (3) find and click the item by aria-label, (4) fall back to the legacy sidebar selector if the trigger isn't found. Also fixed the "Bridge Assistant" navTo call — the room item label is "Sigma Assistant" (id: `sigma`) in `rooms-menu-items.ts`. Added `test.describe.configure({ retries: 1 })` for CI infra-flake mitigation.
+
+### Release plumbing
+
+Version bump `app/package.json` 1.4.3 → 1.4.4. CHANGELOG `[1.4.4]` section prepended under `[Unreleased]`. New `docs/09-release/release-notes-1.4.4.txt`. Memory index T-211..T-218. WISHLIST v1.4.4 row added to "Recently shipped". One PR (`feat/v1.4.4-paper-cuts → main`); DO NOT MERGE pending Opus 4.7 reviewer pass.

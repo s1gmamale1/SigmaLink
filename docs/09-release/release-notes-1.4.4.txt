@@ -1,0 +1,70 @@
+SigmaLink v1.4.4 — Release Notes
+================================
+
+Date: 2026-05-18
+Previous: v1.4.3 (2026-05-18)
+
+This is a paper-cut cleanup release. No new user-visible features.
+All changes are internal quality improvements from reviewer followups.
+
+What's fixed
+------------
+
+* A misleading comment in launcher.ts now correctly describes what
+  happens when the gemini resume bridge returns 'missing': the session
+  id is dropped but the spawn still falls through to --resume latest
+  against the pre-created (empty) chats dir, yielding a clean fresh
+  session rather than an error exit.
+
+* Path containment checks in gemini-resume-bridge.ts are now
+  cross-platform. The previous check used startsWith(root + path.sep)
+  which behaves subtly differently on Windows (mixed separators).
+  Replaced with path.relative()-based containment at both the read
+  and write call sites.
+
+* The dev-only console.warn for CommandRoom's empty state no longer
+  fires on every re-render. It is now wrapped in a mount-only
+  useEffect so it emits at most once per CommandRoom mount.
+
+* SessionStep tests are more reliable when run alongside the full
+  vitest suite. Added vi.resetAllMocks() to beforeEach to prevent
+  shared mock state leaking between test files.
+
+What's new (internal / test)
+-----------------------------
+
+* Two new fault-injection tests for writeProjectsJsonAtomic verify
+  that a simulated fs.rename failure (a) returns 'skipped' cleanly
+  without corrupting any pre-existing projects.json, and (b) does not
+  leave orphaned .tmp files behind. The latter required adding a
+  best-effort unlink to the rename error path.
+
+CI
+---
+
+* Playwright smoke suite: navTo() helper updated to use the v1.1.4+
+  Rooms dropdown (grid-icon trigger + aria-label item lookup). The
+  v1.1.3 sidebar button selectors are kept as a fallback. The Bridge
+  Assistant navigation now correctly uses the menu label "Sigma
+  Assistant". Added test.describe.configure({ retries: 1 }) for
+  infra-flake mitigation.
+
+Tag: v1.4.4
+Commit: <set at tag time>
+
+Verification
+------------
+
+* tsc: clean
+* vitest: 478 passed (3 pre-existing Electron binary failures, unchanged)
+* eslint: 0 errors (1 pre-existing warning, unchanged)
+* vite build: clean
+* electron build: clean
+
+Notes
+-----
+
+* File-lock for the projects.json read-merge-write race is deferred to
+  v1.4.5 (proper-lockfile or equivalent). Documented in JSDoc.
+
+* No breaking changes. v1.4.3 -> v1.4.4 is a drop-in upgrade.
