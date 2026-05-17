@@ -1505,3 +1505,109 @@ dispatch (audit-aware, no fix needed).
 Verification: tsc clean, vitest 370/370 (368 + 2), eslint 0 errors (1
 pre-existing), build clean, electron compile clean. Commit `425aec9`, PR #17
 squash-merged.
+
+### Packet 01 — Sigma Assistant Windows spawn ENOENT (2026-05-18)
+
+Root cause: `runClaudeCliTurn.ts` called `child_process.spawn` directly with
+a resolved CLI path. On Windows, npm shims are `.cmd` files and Node's
+`CreateProcessW` cannot execute them with a bare arg array, producing ENOENT.
+Fix: new `spawn-cross-platform.ts` exports `spawnExecutable()` that wraps
+`.cmd`/`.bat` via `cmd.exe /d /s /c` and `.ps1` via `powershell.exe`,
+mirroring the private `platformAwareSpawnArgs()` in `local-pty.ts`. The
+`shell: true` option was explicitly rejected for argv-quoting/injection safety.
+7 new tests cover the cross-platform dispatch matrix. Commit `dc5818c`, PR #22
+squash-merged.
+
+### Packet 03 — xterm preservation across room/workspace switch (2026-05-18)
+
+Two-layer fix for the dogfood report of "sessions getting frozen" on switch.
+Layer 1: mount-race quick-win reorders the xterm host so `pty:data` bus
+subscription attaches before `rpc.pty.snapshot` IPC roundtrip, closing the
+1-5 ms drop window. Layer 2 (chosen approach): renderer-side terminal-instance
+cache keyed by sessionId survives both room and workspace switches, unlike
+React 19 `<Activity>` which would unmount children on workspace key change.
+The cache moves terminal instances between hosts rather than recreating them.
+Commit `d970820`, PR #23 squash-merged.
+
+### Packet 06 — Worktree location UX — Option D (2026-05-18)
+
+Additive discoverability affordances for pane worktrees without relocating them.
+Pane right-click context menu adds "Reveal worktree in Finder/Explorer" (via
+`shell.showItemInFolder` RPC) and "Open shell here" (spawns OS-default terminal).
+Per-pane tooltip shows full worktree path. First-launch info banner explains
+where worktrees live (`<userData>/worktrees/<repoHash>/`) with dismiss state.
+New Settings → Storage tab lists all worktrees with async-computed sizes and
+reveal buttons. Zero changes to `rpc-router.ts:144` baseDir wiring. Commit
+`494ff1d`, PR #20 squash-merged.
+
+### Packet 07 — Pane resize rAF coalescing (2026-05-18)
+
+Performance fix for sustained pane-drag jank. `colFracs`/`rowFracs` state
+updates were firing on every `pointermove` event during drag, triggering a
+React re-render + xterm `runFit` on each pixel of movement. Fix: a shared
+`requestAnimationFrame` loop coalesces pending fraction writes so the state
+update runs once per frame. Companion change: terminal `runFit` debounce
+raised from 25ms → 100ms while `document.body.dataset.dragging === 'true'`
+is set (cleared in `pointerup`). This eliminates the resize-thrash jitter
+observed with ≥4 open terminal panes. Commit bundled in PR #26 (2894c07).
+
+### Packet 08 — state.tsx LOC verify-and-close (2026-05-18)
+
+Verified that `state.tsx` is already at 97 LOC — well under the 500-LOC budget.
+The planned split was completed in v1.1.9 (commit `d824c42`). Stale BACKLOG
+and WISHLIST rows removed. No source code changes. Commit `c2268d2`, PR #16
+squash-merged.
+
+### Packet 10 — Disk-scan provider scoping via agent_sessions whitelist (2026-05-18)
+
+Closes open risk R-1.2.8-2: the disk scanner now rejects candidate sessions
+whose external id is already claimed by a *different* workspace, preventing
+foreign sessions spawned in another repo from being captured by the current
+workspace's pane. Uses `agent_sessions` whitelist (Option B) — simpler than
+project-hash env vars and has no provider session format dependency. New
+`listSessionExternalIdsForWorkspace()` and `findWorkspaceForExternalId()`
+helpers gate `findLatestSessionId`. Backward-compatible when no workspaceId
+is passed. Commit `5bbf52c`, PR #21 squash-merged.
+
+### Packet 11 — NSIS welcome page with SmartScreen workaround (2026-05-18)
+
+Replaced `nsis.license` (external license file) with `nsis.include` pointing
+to new `build/installer.nsh` that defines `MUI_WELCOMEPAGE_TITLE` and
+`MUI_WELCOMEPAGE_TEXT` with inline SmartScreen / Mark-of-the-Web workaround
+instructions. The welcome page explains why unsigned EXEs trigger Defender,
+provides Option A (click through SmartScreen) and Option B (right-click →
+Properties → Unblock), and links to releases/source/issues. Commit `93f16df`,
+PR #18 squash-merged.
+
+### Packet 12 — Pane Focus → true fullscreen (2026-05-18)
+
+User-facing pane focus is promoted from a "pin focus ring" label to genuine
+viewport takeover. New `focusedPaneId: string | null` field on `AppState`
+(per-session, never persisted to `roomByWorkspace` or disk). New actions
+`FOCUS_PANE` / `UNFOCUS_PANE` plus auto-clear on `WORKSPACE_CLOSE`,
+`SET_ACTIVE_WORKSPACE_ID` (different workspace), and `REMOVE_SESSION` of the
+focused pane. `GridLayout` accepts a `focusedKey` prop: when it matches an
+item the cell fills the viewport on a 1fr × 1fr grid template while siblings
+stay mounted with `display: none`, preserving the #03 terminal-cache contract
+that PTYs must never unmount during normal navigation. Focus icon in
+`PaneHeader` wired to the new actions; Esc shortcut added. Bundled in PR #26
+(2894c07).
+
+### CI shellcheck fix — PR #24 (2026-05-18)
+
+The shellcheck CI step was running `apt-get install shellcheck` on the
+`macos-14` runner (where `apt-get` does not exist), causing every PR's CI to
+fail. Fixed by moving shellcheck to a dedicated `ubuntu-latest` job. No source
+code changes. Commit `7df77a7`, PR #24 squash-merged.
+
+### Release Prep — v1.4.2 plumbing baseline (2026-05-18)
+
+Baseline release plumbing so lead can tag v1.4.2 and ship binaries the moment
+the last packet merges. Bumped `package.json` version 1.4.1 → 1.4.2. Consolidated
+the CHANGELOG `[1.4.2]` section: all 10 merged packets grouped under Added /
+Fixed / Performance / Changed / Documentation / Known issues / Deferred, with
+packet numbers and PR references. Created user-facing release notes
+(`release-notes-1.4.2.txt`). Extended Phase 28 master memory narrative (one
+paragraph per packet). Updated memory index with T-rows through T-209.
+Updated WISHLIST.md with v1.4.2 items moved to Recently shipped. Zero source
+code changes — doc-only pass. Commit `8e821ae`, PR #25 (this PR).
