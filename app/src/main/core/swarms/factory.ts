@@ -6,15 +6,17 @@
 // V1.1.9: spawn-side helpers live in `./factory-spawn`; this module now
 // holds only the public surface (`createSwarm`, `addAgentToSwarm`,
 // `listSwarmsForWorkspace`, `loadSwarm`, `killSwarm`).
+// v1.4.5: `addAgentToSwarm` body → `./factory-add-agent`;
+//          `loadSwarm` body → `./factory-spawn` (re-exported here).
 
 import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { getDb, getRawDb } from '../db/client';
+import { getDb } from '../db/client';
 import {
-  swarmAgents,
   swarms,
+  swarmAgents,
   workspaces as workspacesTable,
 } from '../db/schema';
 import type {
@@ -27,13 +29,13 @@ import type {
 import type { PtyRegistry } from '../pty/registry';
 import type { WorktreePool } from '../git/worktree';
 import type { SwarmMailbox } from './mailbox';
-import { agentKey as makeAgentKey, defaultRoster, totalForPreset } from './types';
-import {
-  loadAgentSession,
-  materializeRosterAgent,
-  pickCoordinatorId,
-  spawnAgentSession,
-} from './factory-spawn';
+import { defaultRoster, totalForPreset } from './types';
+import { loadSwarm, materializeRosterAgent } from './factory-spawn';
+
+// Re-export loadSwarm so existing callers (controller.ts, tools.ts) are unaffected.
+export { loadSwarm } from './factory-spawn';
+// Re-export addAgentToSwarm for the same reason.
+export { addAgentToSwarm } from './factory-add-agent';
 
 const MAX_SWARM_AGENTS = 20;
 
@@ -207,180 +209,6 @@ export async function createSwarm(
     createdAt: now,
     endedAt: null,
     agents,
-  };
-}
-
-export async function addAgentToSwarm(
-  input: AddAgentToSwarmInput,
-  deps: SwarmFactoryDeps,
-): Promise<AddAgentToSwarmResult> {
-  const db = getDb();
-  const swarmRow = db.select().from(swarms).where(eq(swarms.id, input.swarmId)).get();
-  if (!swarmRow) {
-    throw new Error(`Swarm not found: ${input.swarmId}`);
-  }
-  if (swarmRow.status !== 'running') {
-    throw new Error(`Cannot add agent to swarm ${input.swarmId}: status is ${swarmRow.status}.`);
-  }
-
-  const wsRow = db
-    .select()
-    .from(workspacesTable)
-    .where(eq(workspacesTable.id, swarmRow.workspaceId))
-    .get();
-  if (!wsRow) {
-    throw new Error(`Workspace not found for swarm ${input.swarmId}: ${swarmRow.workspaceId}`);
-  }
-
-  const role = input.role ?? 'builder';
-  const agentId = randomUUID();
-  const now = Date.now();
-
-  // BUG-V1.1.3-ORCH-02 (audit fix): the prior implementation computed
-  // `maxRoleIndex` from a `SELECT … FROM swarm_agents WHERE swarm_id = ?`
-  // snapshot, then issued an `INSERT` *outside* any transaction. Two concurrent
-  // `addAgentToSwarm` calls for the same role would both observe the same
-  // pre-INSERT snapshot, compute identical role indices, and trip the
-  // `swarm_agents_role_uq UNIQUE(swarm_id, role, role_index)` constraint on
-  // the loser.
-  //
-  // The fix: wrap (count guard, max(role_index) lookup, INSERT) in a single
-  // better-sqlite3 transaction. better-sqlite3 transactions are synchronous
-  // BEGIN/COMMIT pairs — concurrent calls serialise on the SQLite write lock,
-  // so the second caller sees the first caller's INSERT before computing its
-  // own role index. We still hold the per-process `inboxPath` and
-  // `coordinatorId` derivation outside the transaction body because they read
-  // only the seeded roster snapshot from inside the txn — both are pure
-  // functions of `agentRows`.
-  const raw = getRawDb();
-  let roleIndex = -1;
-  let paneIndex = -1;
-  let aKey = '';
-  let inboxPath = '';
-
-  const txn = raw.transaction(() => {
-    const agentRows = db
-      .select()
-      .from(swarmAgents)
-      .where(eq(swarmAgents.swarmId, input.swarmId))
-      .all();
-    if (agentRows.length >= MAX_SWARM_AGENTS) {
-      throw new Error(`Cannot add agent: swarm already has ${MAX_SWARM_AGENTS} agents.`);
-    }
-
-    const maxRoleIndex = agentRows
-      .filter((a) => a.role === role)
-      .reduce((max, a) => Math.max(max, a.roleIndex), 0);
-    roleIndex = maxRoleIndex + 1;
-    aKey = makeAgentKey(role, roleIndex);
-    paneIndex = agentRows.length === 0 ? 0 : agentRows.length;
-    inboxPath = deps.mailbox.ensureInbox(input.swarmId, aKey);
-    const coordinatorId = pickCoordinatorId(agentRows, role);
-
-    db.insert(swarmAgents)
-      .values({
-        id: agentId,
-        swarmId: input.swarmId,
-        role,
-        roleIndex,
-        providerId: input.providerId,
-        status: 'idle',
-        inboxPath,
-        agentKey: aKey,
-        coordinatorId,
-        createdAt: now,
-      })
-      .run();
-  });
-  txn();
-
-  let sessionId: string;
-  try {
-    sessionId = await spawnAgentSession({
-      wsRow,
-      swarmId: input.swarmId,
-      agentId,
-      role,
-      roleIndex,
-      providerId: input.providerId,
-      agentKey: aKey,
-      initialPrompt: input.initialPrompt,
-      deps,
-      // v1.4.3 #06 — propagate the worktree-share override when the caller
-      // (splitPane RPC) provides one. All other callers leave these undefined
-      // so the legacy "fresh worktree per agent" path stays intact.
-      worktreePathOverride: input.worktreePath,
-      cwdOverride: input.cwd,
-      branchOverride: input.branch,
-    });
-  } catch (err) {
-    db.update(swarmAgents)
-      .set({ status: 'error' })
-      .where(eq(swarmAgents.id, agentId))
-      .run();
-    const message = err instanceof Error ? err.message : String(err);
-    void deps.mailbox.append({
-      swarmId: input.swarmId,
-      fromAgent: 'operator',
-      toAgent: aKey,
-      kind: 'SYSTEM',
-      body: `Failed to spawn ${aKey}: ${message}`,
-    });
-    throw err;
-  }
-
-  db.update(swarmAgents)
-    .set({ sessionId, status: 'idle' })
-    .where(eq(swarmAgents.id, agentId))
-    .run();
-
-  void deps.mailbox.append({
-    swarmId: input.swarmId,
-    fromAgent: 'operator',
-    toAgent: aKey,
-    kind: 'SYSTEM',
-    body: `Added ${aKey} to swarm "${swarmRow.name}".`,
-    payload: { paneIndex, providerId: input.providerId },
-  });
-
-  const session = loadAgentSession(sessionId);
-  const swarm = loadSwarm(input.swarmId);
-  if (!session || !swarm) {
-    throw new Error(`Added ${aKey}, but failed to reload session metadata.`);
-  }
-
-  return { sessionId, paneIndex, agentKey: aKey, session, swarm };
-}
-
-export function loadSwarm(swarmId: string): Swarm | null {
-  const db = getDb();
-  const row = db.select().from(swarms).where(eq(swarms.id, swarmId)).get();
-  if (!row) return null;
-  const agentRows = db
-    .select()
-    .from(swarmAgents)
-    .where(eq(swarmAgents.swarmId, swarmId))
-    .all();
-  return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    name: row.name,
-    mission: row.mission,
-    preset: row.preset as Swarm['preset'],
-    status: row.status as Swarm['status'],
-    createdAt: row.createdAt,
-    endedAt: row.endedAt ?? null,
-    agents: agentRows.map((r) => ({
-      id: r.id,
-      swarmId: r.swarmId,
-      role: r.role as Role,
-      roleIndex: r.roleIndex,
-      providerId: r.providerId,
-      sessionId: r.sessionId ?? null,
-      status: r.status as SwarmAgent['status'],
-      inboxPath: r.inboxPath,
-      agentKey: r.agentKey,
-    })),
   };
 }
 
