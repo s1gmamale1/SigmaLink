@@ -56,6 +56,14 @@ export function Sidebar() {
       const reopened = await rpc.workspaces.open(ws.rootPath);
       dispatch({ type: 'WORKSPACE_OPEN', workspace: reopened });
       dispatch({ type: 'SET_WORKSPACES', workspaces: await rpc.workspaces.list() });
+      // v1.4.3 (#02) — Rehydrate persisted pane sessions into state before
+      // routing to Command Room so CommandRoom renders existing panes instead
+      // of EmptyState. ADD_SESSIONS dispatches BEFORE the room switch so the
+      // terminal-cache GC never sees the sessions as absent.
+      const sessions = await rpc.panes.listForWorkspace(reopened.id);
+      if (sessions.length > 0) {
+        dispatch({ type: 'ADD_SESSIONS', sessions });
+      }
       // v1.3.3 — route into the Command Room where the panes are visible.
       // Without this the user lands on the Launcher's Start step even though
       // the workspace already has running panes.
