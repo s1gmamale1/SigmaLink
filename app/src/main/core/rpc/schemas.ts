@@ -215,6 +215,25 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'swarms.rollCall': stub,
   'swarms.tail': stub,
   'swarms.kill': stub,
+  // v1.4.3 #06 — Pane Split + Minimise. Tighten the input shape so the
+  // renderer can't accidentally send a bogus direction.
+  'swarms.splitPane': {
+    input: z.object({
+      paneId: z.string().min(1),
+      direction: z.enum(['horizontal', 'vertical']),
+      provider: z.string().min(1),
+    }),
+    // AgentSession is a large shape; defer the deep-tighten in line with
+    // `swarms.addAgent`.
+    output: z.any(),
+  },
+  'swarms.minimisePane': {
+    input: z.object({
+      paneId: z.string().min(1),
+      minimised: z.boolean(),
+    }),
+    output: z.void(),
+  },
   // ── browser ──────────────────────────────────────────────────────────
   'browser.openTab': stub,
   'browser.closeTab': stub,

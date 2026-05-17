@@ -480,6 +480,46 @@ export function appStateReducer(state: AppState, action: Action): AppState {
     case 'UNFOCUS_PANE':
       if (state.focusedPaneId === null) return state;
       return { ...state, focusedPaneId: null };
+    case 'SPLIT_PANE': {
+      // v1.4.3 #06 — Annotate the parent (splitIndex 0) AND insert the new
+      // sub-pane (splitIndex 1) in a single dispatch so the GridLayout sees
+      // both panes in the same render pass. Without this, ADD_SESSIONS would
+      // run first (sub-pane appears as a standalone tile) before a later
+      // dispatch could mutate the parent — produces a one-frame flash.
+      const sessions: AgentSession[] = state.sessions.map((s) =>
+        s.id === action.parentId
+          ? {
+              ...s,
+              splitGroupId: action.groupId,
+              splitDirection: action.direction,
+              splitIndex: 0,
+            }
+          : s,
+      );
+      const child: AgentSession = {
+        ...action.newSession,
+        splitGroupId: action.groupId,
+        splitDirection: action.direction,
+        splitIndex: 1,
+      };
+      sessions.push(child);
+      return {
+        ...state,
+        sessions,
+        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
+        activeSessionId: child.id,
+      };
+    }
+    case 'MINIMISE_PANE': {
+      const sessions: AgentSession[] = state.sessions.map((s) =>
+        s.id === action.paneId ? { ...s, minimised: action.minimised } : s,
+      );
+      return {
+        ...state,
+        sessions,
+        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
+      };
+    }
     default:
       return state;
   }

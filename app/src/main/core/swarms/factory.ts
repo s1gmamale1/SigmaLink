@@ -52,6 +52,21 @@ export interface AddAgentToSwarmInput {
   providerId: string;
   role?: Role;
   initialPrompt?: string;
+  /**
+   * v1.4.3 #06 — Pane Split. When set, the new pane shares the parent's
+   * worktree (no new git worktree is allocated) and inherits the parent's
+   * `cwd`. All standalone `addAgent` callers leave this undefined so the
+   * legacy "create fresh worktree" path is unchanged.
+   */
+  worktreePath?: string;
+  /** v1.4.3 #06 — same intent as `worktreePath`; only consulted when the
+   *  worktreePath override is provided so the sub-pane lands in the same cwd
+   *  as the parent. */
+  cwd?: string;
+  /** v1.4.3 #06 — same intent as `worktreePath`; only consulted when the
+   *  worktreePath override is provided so the sub-pane lands on the same git
+   *  branch as the parent. */
+  branch?: string | null;
 }
 
 export interface AddAgentToSwarmResult {
@@ -291,6 +306,12 @@ export async function addAgentToSwarm(
       agentKey: aKey,
       initialPrompt: input.initialPrompt,
       deps,
+      // v1.4.3 #06 — propagate the worktree-share override when the caller
+      // (splitPane RPC) provides one. All other callers leave these undefined
+      // so the legacy "fresh worktree per agent" path stays intact.
+      worktreePathOverride: input.worktreePath,
+      cwdOverride: input.cwd,
+      branchOverride: input.branch,
     });
   } catch (err) {
     db.update(swarmAgents)

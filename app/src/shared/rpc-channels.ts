@@ -74,6 +74,9 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'swarms.rollCall',
   'swarms.tail',
   'swarms.kill',
+  // v1.4.3 #06 — Pane Split + Minimise.
+  'swarms.splitPane',
+  'swarms.minimisePane',
   // browser
   'browser.openTab',
   'browser.closeTab',

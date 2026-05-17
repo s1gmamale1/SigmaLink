@@ -12,6 +12,14 @@
 //   - Inter-cell drag handles to resize columns and rows. Fractional sizes
 //     persist in component memory only; cross-room persistence is out of
 //     scope for this ticket.
+//
+// v1.4.3 #06 — Pane Split + Minimise. GridLayout stays generic; the caller
+// (CommandRoom) pre-groups split panes into a single "cell item" so the
+// outer grid math still treats each split group as ONE cell. Within that
+// cell the caller's `renderCell` lays out the two sub-panes via its own
+// sub-grid + sub-divider (see CommandRoom's `SplitGroupCell`). No changes
+// to the outer divider logic are needed because each split group still
+// occupies exactly one outer cell.
 
 import {
   useCallback,

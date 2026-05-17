@@ -11,8 +11,23 @@
 // provider name. Split + Minimise are intentional placeholders marked
 // `disabled` — they ship visually only and pop a "Coming in v1.2" tooltip.
 
-import { Columns2, Maximize2, Minimize2, Target, X } from 'lucide-react';
+import {
+  Columns2,
+  Maximize2,
+  Minimize2,
+  Rows2,
+  Target,
+  X,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Tooltip,
   TooltipContent,
@@ -55,6 +70,28 @@ interface Props {
    */
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  // v1.4.3 #06 — Pane Split + Minimise. When `onSplit` is supplied the
+  // Split-H / Split-V icons become a real provider dropdown. When undefined
+  // (legacy callers / older tests) they fall back to the disabled "Coming
+  // in v1.2" placeholders so the existing PaneHeader tests keep working
+  // without forced migration.
+  providers?: { id: string; name: string }[];
+  onSplit?: (
+    direction: 'horizontal' | 'vertical',
+    providerId: string,
+  ) => void;
+  /**
+   * Force-disable the Split icons (e.g. the pane is already inside a split
+   * group — max 2-level deep in v1.4.x). Independent of `onSplit` so a
+   * caller can wire the handler but still gate it.
+   */
+  canSplit?: boolean;
+  /** v1.4.3 #06 — Toggle the minimised state. When undefined the Minimise
+   *  icon falls back to the legacy disabled placeholder. */
+  onToggleMinimise?: () => void;
+  /** v1.4.3 #06 — Reflects the current pane.minimised flag; flips the icon
+   *  and tooltip between "Minimise" and "Restore". */
+  isMinimised?: boolean;
 }
 
 export function PaneHeader({
@@ -64,6 +101,11 @@ export function PaneHeader({
   onClose,
   isFullscreen = false,
   onToggleFullscreen,
+  providers,
+  onSplit,
+  canSplit = true,
+  onToggleMinimise,
+  isMinimised = false,
 }: Props) {
   const exited = session.status === 'exited';
   const errored = session.status === 'error';
@@ -165,45 +207,69 @@ export function PaneHeader({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                {/* Disabled placeholder — wrap in a span so the tooltip still
-                    triggers on hover even though the underlying button is
-                    pointer-events:none. */}
-                <span tabIndex={0} aria-label="Split pane (coming in v1.2)">
+          {/* v1.4.3 #06 — Split icons. When the caller wires `onSplit` AND
+              the pane is not already in a split group, the icons open a
+              provider dropdown and call splitPane RPC. Otherwise they fall
+              back to the legacy disabled placeholder so older callers /
+              tests stay green and panes inside a split group can't recurse
+              (max 2-level deep in v1.4.x). */}
+          <PaneHeaderSplitButton
+            direction="vertical"
+            icon={Columns2}
+            label="Split pane vertically"
+            providers={providers}
+            onSplit={onSplit}
+            canSplit={canSplit}
+          />
+          <PaneHeaderSplitButton
+            direction="horizontal"
+            icon={Rows2}
+            label="Split pane horizontally"
+            providers={providers}
+            onSplit={onSplit}
+            canSplit={canSplit}
+          />
+          {/* v1.4.3 #06 — Minimise / Restore toggle. Falls back to disabled
+              when the caller didn't wire `onToggleMinimise`. */}
+          {onToggleMinimise ? (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6 cursor-not-allowed opacity-40"
-                    disabled
-                    aria-label="Split pane"
-                  >
-                    <Columns2 className="h-3.5 w-3.5" />
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Coming in v1.2</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span tabIndex={0} aria-label="Minimise pane (coming in v1.2)">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 cursor-not-allowed opacity-40"
-                    disabled
-                    aria-label="Minimise pane"
+                    className="h-6 w-6"
+                    onClick={onToggleMinimise}
+                    aria-label={isMinimised ? 'Restore pane' : 'Minimise pane'}
                   >
                     <Minimize2 className="h-3.5 w-3.5" />
                   </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Coming in v1.2</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {isMinimised ? 'Restore pane' : 'Minimise pane'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} aria-label="Minimise pane (coming in v1.2)">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 cursor-not-allowed opacity-40"
+                      disabled
+                      aria-label="Minimise pane"
+                    >
+                      <Minimize2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Coming in v1.2</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -223,5 +289,94 @@ export function PaneHeader({
         </div>
       </div>
     </div>
+  );
+}
+
+// v1.4.3 #06 — Split-icon button shared between the Split-V (Columns2) and
+// Split-H (Rows2) icons. When wired and enabled, clicking the icon opens a
+// provider dropdown; picking a provider calls `onSplit(direction, providerId)`.
+// When disabled (no handler OR canSplit=false) it falls back to the legacy
+// disabled-with-tooltip placeholder. The button retains the same
+// `aria-label="Split pane"` as the v1.2.5 placeholder so existing PaneHeader
+// tests that query by that label keep passing.
+interface SplitButtonProps {
+  direction: 'horizontal' | 'vertical';
+  icon: typeof Columns2;
+  label: string;
+  providers?: { id: string; name: string }[];
+  onSplit?: (direction: 'horizontal' | 'vertical', providerId: string) => void;
+  canSplit: boolean;
+}
+
+function PaneHeaderSplitButton({
+  direction,
+  icon: Icon,
+  label,
+  providers,
+  onSplit,
+  canSplit,
+}: SplitButtonProps) {
+  const wired = Boolean(onSplit) && canSplit && (providers?.length ?? 0) > 0;
+  if (!wired) {
+    const disabledReason = !onSplit
+      ? 'Coming in v1.2'
+      : !canSplit
+        ? 'Already in a split group (max 2-level deep)'
+        : 'No providers available';
+    return (
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span tabIndex={0} aria-label={`${label} (${disabledReason})`}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 cursor-not-allowed opacity-40"
+                disabled
+                aria-label="Split pane"
+              >
+                <Icon className="h-3.5 w-3.5" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{disabledReason}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                aria-label="Split pane"
+              >
+                <Icon className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{label}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-wider">
+          {label}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {(providers ?? []).map((p) => (
+          <DropdownMenuItem
+            key={p.id}
+            onClick={() => onSplit?.(direction, p.id)}
+          >
+            {p.name}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

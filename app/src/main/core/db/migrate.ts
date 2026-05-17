@@ -22,6 +22,7 @@ import * as mig0012 from './migrations/0012_agent_session_pane_index';
 import * as mig0013 from './migrations/0013_conversations_claude_session_id';
 import * as mig0014 from './migrations/0014_sigma_pane_events';
 import * as mig0015 from './migrations/0015_agent_session_sigma_monitor';
+import * as mig0017 from './migrations/0017_pane_split_columns';
 
 export interface Migration {
   name: string;
@@ -52,6 +53,11 @@ export const ALL_MIGRATIONS: Migration[] = [
   mig0013,
   mig0014,
   mig0015,
+  // NOTE: 0016 reserved for v1.4.3 #02-04 bundle (parallel work). If that
+  // bundle has not landed yet, this migration runs as 0017 in our branch and
+  // will be re-numbered at merge time if a conflict arises. Lexical ordering
+  // (0017 > 0016) keeps the "apply in order" contract intact either way.
+  mig0017,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `

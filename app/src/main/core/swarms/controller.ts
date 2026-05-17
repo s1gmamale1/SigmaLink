@@ -2,12 +2,15 @@
 // factory + mailbox. The controller is intentionally thin: every method maps
 // 1:1 to a single durable side-effect (DB write or PTY interaction).
 
+import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { defineController } from '../../../shared/rpc';
 import type {
   AddAgentToSwarmInput,
   AddAgentToSwarmResult,
+  AgentSession,
   CreateSwarmInput,
+  SplitDirection,
   Swarm,
   SwarmMessage,
   SwarmMessageKind,
@@ -30,6 +33,13 @@ import {
   formatRollCall,
   formatStdinDelivery,
 } from './protocol';
+import {
+  findPaneById,
+  getSwarmIdForPane,
+  setPaneMinimised,
+  setPaneSplit,
+} from './split-dao';
+import { loadAgentSession } from './factory-spawn';
 
 export interface SwarmControllerDeps {
   pty: PtyRegistry;
@@ -163,6 +173,88 @@ export function buildSwarmController(deps: SwarmControllerDeps) {
     },
     kill: async (id: string): Promise<void> => {
       killSwarm(id, { pty: deps.pty, userDataDir: deps.userDataDir });
+    },
+    // v1.4.3 #06 — Pane Split. Spawns a NEW swarm agent whose worktree +
+    // cwd are SHARED with the parent pane (no fresh git worktree allocated),
+    // then tags both panes with a shared `split_group_id`. Sub-panes get
+    // their own `agent_sessions` row + PTY so the terminal-cache (v1.4.2
+    // #03) handles their lifecycles transparently — no special-casing in
+    // the cache.
+    //
+    // Worktree-share rationale: the two halves of a split are intentionally
+    // co-tenants on a single git branch. Operators wanting parallel
+    // edits-on-different-branches should add a fresh pane via "+ Pane",
+    // which keeps the legacy fresh-worktree path. Documented in #06's
+    // R-06-1 risk row.
+    //
+    // Max depth: 2 (rejected when the parent is already in a split group).
+    // Deeper nesting is out of scope for v1.4.x.
+    splitPane: async (input: {
+      paneId: string;
+      direction: SplitDirection;
+      provider: string;
+    }): Promise<AgentSession> => {
+      const parent = findPaneById(input.paneId);
+      if (!parent) {
+        throw new Error(`splitPane: parent pane not found: ${input.paneId}`);
+      }
+      if (parent.splitGroupId) {
+        throw new Error(
+          'splitPane: pane is already in a split group (max 2-level deep in v1.4.x)',
+        );
+      }
+
+      const swarmId = getSwarmIdForPane(input.paneId);
+      if (!swarmId) {
+        throw new Error(
+          `splitPane: pane ${input.paneId} is not bound to a swarm`,
+        );
+      }
+
+      // Spawn the new sub-pane via the swarm factory. Worktree-share is
+      // achieved by passing the parent's worktreePath/cwd/branch as
+      // overrides — `addAgentToSwarm` forwards them to `spawnAgentSession`
+      // which skips the WorktreePool.create() call when worktreePath is set.
+      const result = await addAgentToSwarm(
+        {
+          swarmId,
+          providerId: input.provider,
+          worktreePath: parent.worktreePath ?? undefined,
+          cwd: parent.cwd,
+          branch: parent.branch ?? null,
+        },
+        {
+          pty: deps.pty,
+          worktreePool: deps.worktreePool,
+          mailbox: deps.mailbox,
+          userDataDir: deps.userDataDir,
+        },
+      );
+
+      // Tag both panes with the same split_group_id and direction; index 0
+      // is the parent (left/top), index 1 is the new sub-pane.
+      const groupId = `split-${randomUUID()}`;
+      setPaneSplit(input.paneId, groupId, input.direction, 0);
+      setPaneSplit(result.sessionId, groupId, input.direction, 1);
+
+      // Re-load so the returned session reflects the split annotation that
+      // we just persisted.
+      const session = loadAgentSession(result.sessionId);
+      if (!session) {
+        throw new Error(
+          `splitPane: spawned ${result.sessionId} but reload returned null`,
+        );
+      }
+      return session;
+    },
+    // v1.4.3 #06 — Toggle the minimised flag on a pane. The PTY keeps
+    // running; the renderer collapses the pane to its header strip. No
+    // side-effects beyond the DB write.
+    minimisePane: async (input: {
+      paneId: string;
+      minimised: boolean;
+    }): Promise<void> => {
+      setPaneMinimised(input.paneId, input.minimised);
     },
   });
 }
