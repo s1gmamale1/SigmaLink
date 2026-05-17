@@ -116,7 +116,21 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
       restored.map((item) =>
         rpc.panes
           .resume(item.workspace.id)
-          .then((result) => ({ workspace: item.workspace, result, error: null as string | null }))
+          .then(async (result) => {
+            // v1.4.3 (#02) — Rehydrate persisted pane sessions into state
+            // immediately after resume resolves. Dispatching ADD_SESSIONS here
+            // (before the toast / GC effects run) ensures CommandRoom sees the
+            // sessions and terminal-cache GC doesn't dispose them unnecessarily.
+            try {
+              const sessions = await rpc.panes.listForWorkspace(item.workspace.id);
+              if (sessions.length > 0) {
+                dispatch({ type: 'ADD_SESSIONS', sessions });
+              }
+            } catch {
+              // Best-effort — rehydration failure does not break resume flow.
+            }
+            return { workspace: item.workspace, result, error: null as string | null };
+          })
           .catch((err: unknown) => ({
             workspace: item.workspace,
             result: null as null | Awaited<ReturnType<typeof rpc.panes.resume>>,

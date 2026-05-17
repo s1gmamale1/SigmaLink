@@ -673,6 +673,64 @@ function buildRouter() {
         return [];
       }
     },
+    // v1.4.3 (#02) — Pane rehydration. Returns ONE full AgentSession row per
+    // pane slot for the given workspace (MAX started_at wins per pane_index),
+    // ordered by pane_index ASC. The renderer dispatches ADD_SESSIONS from
+    // three call-sites so state.sessionsByWorkspace is populated on workspace
+    // reopen without requiring a fresh launch.
+    //
+    // Uses the same MAX(started_at) correlated-subquery shape as lastResumePlan
+    // to guarantee exactly one row per pane slot even when the DB has multiple
+    // historical rows for the same paneIndex.
+    listForWorkspace: async (workspaceId: string) => {
+      try {
+        interface RawSessionRow {
+          id: string;
+          workspace_id: string;
+          provider_id: string;
+          cwd: string;
+          branch: string | null;
+          worktree_path: string | null;
+          status: string;
+          exit_code: number | null;
+          initial_prompt: string | null;
+          started_at: number;
+          exited_at: number | null;
+        }
+        const rows = getRawDb()
+          .prepare(
+            `SELECT s.*
+             FROM agent_sessions s
+             INNER JOIN (
+               SELECT workspace_id, pane_index, MAX(started_at) AS max_started_at
+               FROM agent_sessions
+               WHERE workspace_id = ? AND pane_index IS NOT NULL
+               GROUP BY workspace_id, pane_index
+             ) latest
+               ON latest.workspace_id = s.workspace_id
+               AND latest.pane_index = s.pane_index
+               AND latest.max_started_at = s.started_at
+             WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
+             ORDER BY s.pane_index ASC`,
+          )
+          .all(workspaceId, workspaceId) as RawSessionRow[];
+        return rows.map((r) => ({
+          id: r.id,
+          workspaceId: r.workspace_id,
+          providerId: r.provider_id,
+          cwd: r.cwd,
+          branch: r.branch ?? null,
+          worktreePath: r.worktree_path ?? null,
+          status: r.status as 'starting' | 'running' | 'exited' | 'error',
+          exitCode: r.exit_code ?? undefined,
+          startedAt: r.started_at,
+          exitedAt: r.exited_at ?? undefined,
+          initialPrompt: r.initial_prompt ?? undefined,
+        }));
+      } catch {
+        return [];
+      }
+    },
   });
 
   const providersCtl = defineController({

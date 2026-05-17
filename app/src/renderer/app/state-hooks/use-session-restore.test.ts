@@ -70,6 +70,7 @@ const respawnMock = vi.fn<
   (wsId: string) => Promise<{ workspaceId: string; spawned: number; failed: number }>
 >();
 const kvGetMock = vi.fn<(key: string) => Promise<string | null>>();
+const listForWorkspaceMock = vi.fn<(wsId: string) => Promise<unknown[]>>();
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -80,6 +81,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
     panes: {
       resume: (id: string) => resumeMock(id),
       respawnFailed: (id: string) => respawnMock(id),
+      listForWorkspace: (id: string) => listForWorkspaceMock(id),
     },
     kv: { get: (k: string) => kvGetMock(k) },
   },
@@ -89,6 +91,7 @@ vi.mock('../../lib/rpc', () => ({
     panes: {
       resume: (id: string) => resumeMock(id),
       respawnFailed: (id: string) => respawnMock(id),
+      listForWorkspace: (id: string) => listForWorkspaceMock(id),
     },
     kv: { get: (k: string) => kvGetMock(k) },
   },
@@ -120,6 +123,8 @@ beforeEach(() => {
   );
   kvGetMock.mockReset();
   kvGetMock.mockResolvedValue(null);
+  listForWorkspaceMock.mockReset();
+  listForWorkspaceMock.mockResolvedValue([]);
   vi.useFakeTimers();
 });
 
@@ -387,5 +392,122 @@ describe('useSessionRestore — v1.2.8 aggregated respawn toast', () => {
 
     expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
     expect(respawnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useSessionRestore — v1.4.3 ADD_SESSIONS rehydration on boot', () => {
+  beforeEach(async () => {
+    vi.useRealTimers();
+    const { toast } = await import('sonner');
+    vi.mocked(toast.error).mockReset();
+    vi.mocked(toast.success).mockReset();
+  });
+
+  it('dispatches ADD_SESSIONS after resume resolves when listForWorkspace returns sessions', async () => {
+    const fakeSessions = [
+      {
+        id: 'sess-1',
+        workspaceId: 'a',
+        providerId: 'claude',
+        cwd: '/tmp/a',
+        branch: null,
+        worktreePath: null,
+        status: 'exited' as const,
+        startedAt: 1000,
+      },
+    ];
+    listForWorkspaceMock.mockResolvedValue(fakeSessions);
+
+    const wsA = workspace('a');
+    const { getHarness } = await renderRestore([
+      { type: 'READY', workspaces: [wsA] },
+    ]);
+    act(() => {
+      sigma.emit('app:session-restore', {
+        activeWorkspaceId: 'a',
+        openWorkspaces: [{ workspaceId: 'a', room: 'command' }],
+      });
+    });
+    act(() => {
+      getHarness().dispatch({ type: 'READY', workspaces: [wsA] });
+    });
+
+    await vi.waitFor(() => {
+      expect(listForWorkspaceMock).toHaveBeenCalledWith('a');
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const state = getHarness().state;
+    expect(state.sessionsByWorkspace['a']).toBeDefined();
+    expect(state.sessionsByWorkspace['a']?.length).toBeGreaterThan(0);
+    expect(state.sessionsByWorkspace['a']?.[0]?.id).toBe('sess-1');
+  });
+
+  it('does not dispatch ADD_SESSIONS when listForWorkspace returns empty array', async () => {
+    listForWorkspaceMock.mockResolvedValue([]);
+
+    const wsA = workspace('a');
+    const { getHarness } = await renderRestore([
+      { type: 'READY', workspaces: [wsA] },
+    ]);
+    act(() => {
+      sigma.emit('app:session-restore', {
+        activeWorkspaceId: 'a',
+        openWorkspaces: [{ workspaceId: 'a', room: 'command' }],
+      });
+    });
+    act(() => {
+      getHarness().dispatch({ type: 'READY', workspaces: [wsA] });
+    });
+
+    await vi.waitFor(() => {
+      expect(resumeMock).toHaveBeenCalledWith('a');
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const state = getHarness().state;
+    const sessionsForA = state.sessionsByWorkspace['a'];
+    expect(!sessionsForA || sessionsForA.length === 0).toBe(true);
+  });
+
+  it('does not double-dispatch when listForWorkspace is called once per workspace', async () => {
+    const fakeSessions = [
+      {
+        id: 'sess-2',
+        workspaceId: 'b',
+        providerId: 'gemini',
+        cwd: '/tmp/b',
+        branch: null,
+        worktreePath: null,
+        status: 'exited' as const,
+        startedAt: 2000,
+      },
+    ];
+    listForWorkspaceMock.mockResolvedValue(fakeSessions);
+
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    const { getHarness } = await renderRestore([
+      { type: 'READY', workspaces: [wsA, wsB] },
+    ]);
+    act(() => {
+      sigma.emit('app:session-restore', {
+        activeWorkspaceId: 'a',
+        openWorkspaces: [
+          { workspaceId: 'a', room: 'command' },
+          { workspaceId: 'b', room: 'command' },
+        ],
+      });
+    });
+    act(() => {
+      getHarness().dispatch({ type: 'READY', workspaces: [wsA, wsB] });
+    });
+
+    await vi.waitFor(() => {
+      expect(listForWorkspaceMock).toHaveBeenCalledTimes(2);
+    });
+    // Each workspace called exactly once.
+    expect(listForWorkspaceMock).toHaveBeenCalledWith('a');
+    expect(listForWorkspaceMock).toHaveBeenCalledWith('b');
   });
 });
