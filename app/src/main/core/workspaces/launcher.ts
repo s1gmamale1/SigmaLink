@@ -206,11 +206,12 @@ export async function executeLaunchPlan(
             }
           }
         }
-        // v1.4.3-01 — Gemini session-slug bridge. Gemini's --resume flag
-        // expects 'latest' or a numeric index, NOT a UUID. When the bridge
-        // outcome is 'missing' (worktree slug has empty chats/ even after
-        // aliasing), drop resume args entirely — "--resume latest" would still
-        // exit 1 in an empty chats directory.
+        // v1.4.3-01 — Gemini session-slug bridge.
+        // If the bridge cannot alias the worktree to the workspace slug (e.g.
+        // workspace has no session history yet), drop the captured session id.
+        // The spawn still falls through to `--resume latest`, which resolves
+        // against the (now-empty) chats dir that ensureGeminiProjectDir pre-creates
+        // on the same code path — gemini exits cleanly into a fresh session.
         if (provider.id === 'gemini') {
           const bridge = await prepareGeminiResume(wsRow.rootPath, cwd);
           if (bridge === 'missing') {
