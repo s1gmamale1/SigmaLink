@@ -24,7 +24,7 @@
 | v1.4.0 | Sigma Assistant orchestrator resume — captures Claude `system.init` session ids, resumes later turns with retry-once fallback, and surfaces resumable/interrupted-turn state in the right rail | [`archive/W-2-sigma-assistant-orchestrator-v1.4.0.md`](archive/W-2-sigma-assistant-orchestrator-v1.4.0.md) · [release-notes-1.4.0.txt](../09-release/release-notes-1.4.0.txt) |
 | v1.4.1 | Bridge → Sigma rename sweep + Pane→Sigma mailbox back-channel (`sigma_pane_events` table, `monitor_pane` tool, `assistant:pane-event` IPC) + SigmaRoom.tsx 922→283 LOC split (9 hooks + 5 sub-components). Pre-merge swarm closed H1 (voice dispatcher regex orphan), M1 (autoFocus kv migration), M2 (kv migration tests) before merge. | inline in [CHANGELOG v1.4.1](../../CHANGELOG.md) · [release-notes-1.4.1.txt](../09-release/release-notes-1.4.1.txt) |
 | v1.4.2 | Stability + Windows compat hardening: Windows spawn ENOENT fix (#01), Settings-blocks-workspace routing fix (#02), xterm preservation (#03), worktree location UX (#06), disk-scan workspace scoping (#10), NSIS welcome page (#11), Pane Focus fullscreen (#12), rAF resize coalesce (#07). Backlog hygiene: state.tsx verify-close (#08), 4-item sweep (#09), shellcheck CI fix (#24). Packets #04/#05/#13 deferred to v1.4.3. | inline in [CHANGELOG v1.4.2](../../CHANGELOG.md) · [release-notes-1.4.2.txt](../09-release/release-notes-1.4.2.txt) |
-| v1.4.3 | Gemini resume bridge — `projects.json` alias unblocks gemini in per-pane worktrees (#01). Workspace pane state now persists across app restart — new `panes.listForWorkspace` RPC + ADD_SESSIONS dispatch from 3 sites (#02). Migration 0016 marks stale `status=running` rows older than 24h as exited (#03). Orphan worktree cleanup on workspace open (#04). Inline "+ Add first pane" in CommandRoom EmptyState (#05). Pane Split (H/V) + Pane Minimise functional (#06). | inline in [CHANGELOG v1.4.3](../../CHANGELOG.md) · [release-notes-1.4.3.txt](../09-release/release-notes-1.4.3.txt) · [bundle](v1.4.3-bundle/00-INDEX.md) |
+| v1.4.3 | Gemini resume bridge — `projects.json` alias unblocks gemini in per-pane worktrees (#01). Workspace pane state now persists across app restart — new `panes.listForWorkspace` RPC + ADD_SESSIONS dispatch from 3 sites (#02). Migration 0016 marks stale `status=running` rows older than 24h as exited (#03). Orphan worktree cleanup on workspace open (#04). Inline "+ Add first pane" in CommandRoom EmptyState (#05). Pane Split (H/V) + Pane Minimise functional (#06). | inline in [CHANGELOG v1.4.3](../../CHANGELOG.md) · [release-notes-1.4.3.txt](../09-release/release-notes-1.4.3.txt) · [bundle](archive/v1.4.3-bundle/00-INDEX.md) |
 | v1.4.4 | Paper-cut cleanup release. 7 reviewer followups closed: comment wording (PR27 F-1), projects.json race + schema JSDoc (PR27 F-2), atomic-write fault tests (PR27 F-3), cross-platform path containment (PR27 F-4), SessionStep flakiness mitigation (PR28 INFO), EmptyState console.warn → useEffect (PR29 LOW). Playwright smoke suite navTo() refreshed for v1.1.4+ Rooms dropdown. | inline in [CHANGELOG v1.4.4](../../CHANGELOG.md) · [release-notes-1.4.4.txt](../09-release/release-notes-1.4.4.txt) |
 | v1.4.5 | Tech-debt cleanup. proper-lockfile race fix (PR27 F-2 v1.4.5 followup); SessionStep full flake closure via vi.resetModules (PR28/29 INFO v1.4.5 followup); factory.ts 443→271 LOC + new factory-add-agent.ts sibling; runClaudeCliTurn.ts 426→324 LOC + new runClaudeCliTurn.args.ts sibling. React-compiler lint wave found already closed by v1.1.9 work — no action needed. | inline in [CHANGELOG v1.4.5](../../CHANGELOG.md) · [release-notes-1.4.5.txt](../09-release/release-notes-1.4.5.txt) |
 
@@ -63,21 +63,14 @@ Confirmed root cause was cwd/context drift, not PTY death: SigmaLink created git
 | Item | Effort | Source |
 |---|---|---|
 | **Terminal.tsx mount race** — attach live listener before snapshot await (closes v1.2.7 R-1.2.7-1 — 1-5ms IPC drop window) | XS (~5 min) | [`v1.2.7-multi-workspace-state-preservation.md`](v1.2.7-multi-workspace-state-preservation.md) "Open risks" |
-| **Disk-scan provider scoping** — cross-reference cwd against project-hash to avoid capturing sessions from outside SigmaLink | S (~1hr) | [`v1.2.8-session-capture-rewrite.md`](v1.2.8-session-capture-rewrite.md) R-1.2.8-2 |
 | **BUG-W7-015** — Launch button low-contrast in Parchment theme | XS (~30 min) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) BUG-W7-015 |
-| **React-compiler lint wave** — 31 errors documented | M (~1d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — React-compiler lint wave" |
-| **`swarms/factory.ts` (713 LOC) split** | M (~0.5d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — quality / file size" |
-| **`runClaudeCliTurn.ts` (709 LOC) split** | M (~0.5d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — quality / file size" |
 | **CI cache-dependency-path fix** | XS | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — CI / test infra" |
 | **vitest coverage thresholds** | S | same |
-| **shellcheck step for install-macos.sh** | XS | same |
 
 ## 🟢 v1.3 — User-facing feature work
 
 | Item | Effort | Source |
 |---|---|---|
-| **Pane Focus → true fullscreen** (currently honest-labeled as "Pin focus ring") | M (~1d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "Pane Focus → true fullscreen"; v1.2.5 commit `e193943` rename |
-| **Pane Split + Minimise** functional implementations | L (~3d) | BACKLOG.md "Tooltip text 'Coming in v1.2' on disabled pane icons" |
 | **Notifications system + top-right bell** | M (~2d) | V3-W12 backlog row (deferred from v1.1.4) |
 | **Native Windows SAPI5 voice binding** | L (~1wk + Windows prebuild matrix) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.3 — platform / distribution" |
 | **`windowsControlsOverlay` frameless chrome** | M (~1d) | same |
@@ -99,17 +92,23 @@ Confirmed root cause was cwd/context drift, not PTY death: SigmaLink created git
 
 | Item | Effort | Source |
 |---|---|---|
-| **Gemini pane resume gap** | External dep on upstream `gemini --resume`; partially resolved by v1.2.8's `--resume latest` fallback | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) P3 |
+| *(empty — Gemini pane resume closed by v1.4.3 #01 via `projects.json` alias bridge)* | | |
+
+## v1.4.6+ informational
+
+| Item | Effort | Source |
+|---|---|---|
+| **opencode-Qwen silent-fail investigation** — first non-interactive `opencode run -m qwen/qwen3-coder-plus` dispatched via background `Bash` produced 0-byte stdout, no commits, no diff. Sonnet fallback worked. Hypotheses: (a) auth, (b) stdin/TTY requirements, (c) bg-bash buffering. Don't depend on `opencode run` for time-sensitive work until verified. | XS (~1hr foreground probe) | `~/.claude/skills/orchestrator/SKILL.md` Maintenance notes |
 
 ---
 
-## Suggested grouping for next 3 releases
+## Suggested grouping for v1.4.6+
 
-**v1.2.9 — CI + polish** (~1d): Playwright e2e refresh + Terminal.tsx mount race + disk-scan scoping + drop Ubuntu CI lanes. Pure debt clear. **Green CI on every PR going forward.**
-
-**v1.3.0 — Session picker** (shipped 2026-05-16): W-1 shipped. W-3 (Ruflo auto-bind) deferred to v1.3.1 — see WISHLIST W-3 entry.
-
-**v1.4.0 — Sigma Assistant orchestrator** (~3-5d): W-2 in isolation since it's the biggest behavioral change. Needs its own design doc + careful migration.
+| Theme | Effort | Items |
+|---|---|---|
+| **CI hardening** | ~1d | Playwright e2e refresh + cache-dep-path + vitest coverage thresholds + opencode-Qwen silent-fail probe |
+| **Polish bugs** | ~½d | Terminal.tsx mount race (R-1.2.7-1) + BUG-W7-015 Parchment Launch button contrast |
+| **Feature pick** | varies | Notifications+bell (M ~2d) · x64 mac DMG (S ~2hr quick win) · Frameless chrome (M ~1d) · Native Win SAPI5 voice (L ~1wk) |
 
 ---
 

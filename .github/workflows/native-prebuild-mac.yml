@@ -4,7 +4,6 @@
 # Runs on:
 #   - PRs that touch `app/native/voice-mac/**` (so reviewers see whether
 #     the build still works without committing the .node binary).
-#   - Release tags `v*` (so checked-in prebuilds match the tagged binary).
 #   - Manual `workflow_dispatch` (for one-off rebuilds).
 #
 # Output: `app/native/voice-mac/prebuilds/{darwin-arm64,darwin-x64}/node.napi.node`
@@ -13,7 +12,15 @@
 # user's machine.
 #
 # Note: macOS-14 is Apple Silicon (arm64) and macOS-13 is Intel (x64).
-# Both runners are stable on GitHub-hosted matrices as of 2026-05.
+#
+# 2026-05-18: the `push: tags: ['v*']` trigger was REMOVED after 25
+# consecutive release-tag runs (v1.1.8 through v1.4.5) all timed out at
+# 24h waiting for runners — likely macos-13 (Intel) hosted-runner
+# availability is the bottleneck. Voice ships fine via release-macos.yml
+# (which builds the .node binary in-place during DMG creation), so the
+# missing prebuild commits don't block users. To re-prebuild, dispatch
+# manually via the Actions tab. Re-enable the tag trigger only after
+# verifying runner availability has recovered.
 
 name: Native voice prebuild (macOS)
 
@@ -22,9 +29,6 @@ on:
     paths:
       - 'app/native/voice-mac/**'
       - '.github/workflows/native-prebuild-mac.yml'
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:

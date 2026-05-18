@@ -4,12 +4,14 @@
 // into one h-7 row matching V3 frames 0070 / 0100 / 0140. Layout:
 //   [2px provider colour stripe along the very top]
 //   [status dot] [PROVIDER·N truncated label] [spacer]
-//   [Focus] [Split (disabled)] [Minimise (disabled)] [Close]
+//   [Focus] [Split-H] [Split-V] [Minimise] [Close]
 //
 // The branch label, working dir, model, and effort previously rendered in
 // PaneStatusStrip now surface inside a Radix tooltip anchored to the
-// provider name. Split + Minimise are intentional placeholders marked
-// `disabled` — they ship visually only and pop a "Coming in v1.2" tooltip.
+// provider name. Split (H/V) + Minimise shipped functional in v1.4.3 #06
+// (PaneHeader wires `onSplit` + `onToggleMinimise`; pane-grid handles the
+// flat-group sub-layout, max 2-level deep). The icons fall back to disabled
+// when those callbacks are undefined (legacy callers).
 
 import {
   Columns2,
