@@ -108,6 +108,10 @@ export function SessionTerminal({ sessionId, className }: Props) {
       wsIdRef,
       routeLinkClick,
     };
+    // The cache owns snapshot replay and the live PTY data listener. On a
+    // cache miss it subscribes before awaiting `pty.snapshot`, buffers live
+    // frames during the await, then writes snapshot + buffered frames in
+    // order so this host never opens a listener gap during workspace swaps.
     const entry = getOrCreateTerminal(sessionId, ctx);
     attachToHost(entry, container);
     const { terminal: term, fitAddon: fit } = entry;

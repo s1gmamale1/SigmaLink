@@ -22,6 +22,22 @@ import { cleanup, render } from '@testing-library/react';
 const attachToHostMock = vi.fn();
 const detachFromHostMock = vi.fn();
 const getOrCreateTerminalMock = vi.fn();
+const snapshotMock = vi.fn();
+
+interface MockTerm {
+  __writes: string[];
+  element: HTMLElement | undefined;
+  open: ReturnType<typeof vi.fn>;
+  write: ReturnType<typeof vi.fn>;
+  dispose: ReturnType<typeof vi.fn>;
+  loadAddon: ReturnType<typeof vi.fn>;
+  onData: ReturnType<typeof vi.fn>;
+  cols: number;
+  rows: number;
+  focus: ReturnType<typeof vi.fn>;
+}
+
+const createdTerms: MockTerm[] = [];
 
 vi.mock('@/renderer/lib/terminal-cache', () => ({
   getOrCreateTerminal: (...args: unknown[]) => getOrCreateTerminalMock(...args),
@@ -29,9 +45,52 @@ vi.mock('@/renderer/lib/terminal-cache', () => ({
   detachFromHost: (...args: unknown[]) => detachFromHostMock(...args),
 }));
 
+vi.mock('@xterm/xterm', () => {
+  class Terminal {
+    __writes: string[] = [];
+    element: HTMLElement | undefined = undefined;
+    cols = 80;
+    rows = 24;
+    open = vi.fn((parent: HTMLElement) => {
+      const el = document.createElement('div');
+      parent.appendChild(el);
+      this.element = el;
+    });
+    write = vi.fn((data: string) => {
+      this.__writes.push(data);
+    });
+    dispose = vi.fn(() => {
+      if (this.element?.parentNode) {
+        this.element.parentNode.removeChild(this.element);
+      }
+      this.element = undefined;
+    });
+    loadAddon = vi.fn();
+    onData = vi.fn(() => ({ dispose: vi.fn() }));
+    focus = vi.fn();
+
+    constructor() {
+      createdTerms.push(this as unknown as MockTerm);
+    }
+  }
+
+  return { Terminal };
+});
+
+vi.mock('@xterm/addon-fit', () => ({
+  FitAddon: class {
+    fit = vi.fn();
+  },
+}));
+
+vi.mock('@xterm/addon-web-links', () => ({
+  WebLinksAddon: class {},
+}));
+
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     pty: {
+      snapshot: (...args: unknown[]) => snapshotMock(...args),
       resize: vi.fn(() => Promise.resolve()),
       write: vi.fn(() => Promise.resolve()),
     },
@@ -53,6 +112,33 @@ vi.mock('@/renderer/app/state', () => ({
     selector({ activeWorkspace: { id: 'ws-1' } }),
 }));
 
+type EventCb = (payload: unknown) => void;
+
+interface SigmaStub {
+  eventOn: ReturnType<typeof vi.fn<(event: string, cb: EventCb) => () => void>>;
+  emit: (event: string, payload: unknown) => void;
+}
+
+function installSigmaStub(): SigmaStub {
+  const handlers = new Map<string, Set<EventCb>>();
+  const eventOn = vi.fn((event: string, cb: EventCb) => {
+    let set = handlers.get(event);
+    if (!set) {
+      set = new Set();
+      handlers.set(event, set);
+    }
+    set.add(cb);
+    return () => {
+      handlers.get(event)?.delete(cb);
+    };
+  });
+  const emit = (event: string, payload: unknown) => {
+    handlers.get(event)?.forEach((fn) => fn(payload));
+  };
+  (window as unknown as { sigma: unknown }).sigma = { eventOn };
+  return { eventOn, emit };
+}
+
 // Minimal ResizeObserver polyfill — jsdom doesn't ship one and the host
 // component constructs a real instance on mount.
 beforeEach(() => {
@@ -64,10 +150,15 @@ beforeEach(() => {
   getOrCreateTerminalMock.mockReset();
   attachToHostMock.mockReset();
   detachFromHostMock.mockReset();
+  snapshotMock.mockReset();
+  createdTerms.length = 0;
+  delete (window as unknown as { sigma?: unknown }).sigma;
 });
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  delete (window as unknown as { sigma?: unknown }).sigma;
 });
 
 function fakeEntry(sessionId: string) {
@@ -132,5 +223,46 @@ describe('<SessionTerminal> — Layer 2 host contract', () => {
     expect(getOrCreateTerminalMock.mock.calls[1][0]).toBe('sess-C');
     expect(attachToHostMock).toHaveBeenCalledTimes(2);
     expect(detachFromHostMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves live PTY data emitted while the initial snapshot is still pending', async () => {
+    vi.useFakeTimers();
+    const sigma = installSigmaStub();
+
+    vi.resetModules();
+    vi.doUnmock('@/renderer/lib/terminal-cache');
+
+    const busMod = await import('@/renderer/lib/pty-data-bus');
+    busMod.__resetPtyDataBus();
+    const cacheMod = await import('@/renderer/lib/terminal-cache');
+    cacheMod.__resetTerminalCache();
+
+    snapshotMock.mockImplementation(
+      () =>
+        new Promise<{ buffer: string }>((resolve) => {
+          setTimeout(() => resolve({ buffer: 'SNAP-PREFIX' }), 50);
+        }),
+    );
+
+    const { SessionTerminal } = await import('./Terminal');
+    render(<SessionTerminal sessionId="sess-race" />);
+
+    expect(snapshotMock).toHaveBeenCalledWith('sess-race');
+    expect(createdTerms.length).toBe(1);
+
+    sigma.emit('pty:data', { sessionId: 'sess-race', data: 'LIVE-DURING-SNAPSHOT' });
+    expect(createdTerms[0].__writes).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(50);
+    await Promise.resolve();
+
+    expect(createdTerms[0].__writes).toEqual(['SNAP-PREFIX', 'LIVE-DURING-SNAPSHOT']);
+
+    sigma.emit('pty:data', { sessionId: 'sess-race', data: 'LIVE-AFTER-SNAPSHOT' });
+    expect(createdTerms[0].__writes).toEqual([
+      'SNAP-PREFIX',
+      'LIVE-DURING-SNAPSHOT',
+      'LIVE-AFTER-SNAPSHOT',
+    ]);
   });
 });
