@@ -1,0 +1,44 @@
+SigmaLink v1.4.6 — frameless chrome + Intel-Mac voice fix + CI hardening
+
+What's new
+----------
+* Frameless chrome lands cross-platform. Windows + Linux + macOS now share
+  the same chrome model (Windows Controls Overlay on win32/linux, native
+  traffic lights on darwin). Breadcrumb auto-pads via useWcoInsets().
+* Intel Macs get a working voice path. The x64 DMG now ships an x64-compiled
+  Speech.framework binding; Web Speech API stays as the Windows fallback.
+
+CI is green again
+-----------------
+The e2e-matrix CI lane has been red on every push since v1.4.3 because
+better-sqlite3 + node-pty were rebuilt against the host Node ABI instead of
+Electron's bundled Node ABI. Replacing `pnpm rebuild` with @electron/rebuild
+across all three CI workflows (e2e-matrix, release-macos, release-windows)
+restored CI to green. The 11-test Playwright smoke suite now passes locally
+on macOS arm64 and runs in CI without the silent-crash false-green that
+masked all assertions in v1.4.3 / v1.4.4 / v1.4.5.
+
+Smaller wins
+------------
+* Parchment theme Launch CTA verified WCAG AA contrast (6.74:1).
+* Mount-race regression test for SessionTerminal snapshot ordering.
+* pnpm cache key fix shaves ~30s off each CI run.
+
+Known limitations
+-----------------
+* 3 stale e2e tests still red (dogfood:133, multi-workspace:72,
+  multi-workspace:166) — triaged and deferred to v1.4.7.
+* 2 pre-existing e2e timeouts (assistant-cli:27, dogfood:357) — not
+  introduced by v1.4.6; tracked in v1.4.7 packet #03.
+
+Install / upgrade
+-----------------
+* macOS arm64: curl -sSL https://sigmalink.dev/install.sh | bash
+* macOS x64 (Intel): same command (auto-detects arch as of v1.4.6)
+* Windows: iwr https://sigmalink.dev/install.ps1 -UseB | iex
+
+Note: v1.4.6 ships as a rolled-forward CHANGELOG section inside the v1.4.7
+tag. No separate v1.4.6 tag/release artifact is published — the v1.4.7
+release includes all v1.4.6 content plus the v1.4.7 feature wave.
+
+GitHub: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.4.7

@@ -4,6 +4,42 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-05-18
+
+Cross-platform frameless chrome + Intel-Mac voice fix + CI hardening. 15 commits between v1.4.5 and PR #36 captured here in one CHANGELOG entry; no separate v1.4.6 tag (content rolls forward into v1.4.7).
+
+### Added
+
+- **Cross-platform frameless chrome** — `titleBarStyle: 'hidden'` everywhere (was `'hiddenInset'` on darwin and `'default'` on win/linux). New `titleBarOverlay { color, symbolColor, height: 32 }` for Windows/Linux; `trafficLightPosition { x: 12, y: 10 }` for macOS. Renderer drag-region utilities removed the macOS-only guard; `useWcoInsets()` replaces the static `WIN32_WCO_RESERVE_PX` for Breadcrumb padding. (commits `145ade8`, `f52a768`)
+
+### Fixed
+
+- **x64 macOS Speech.framework voice** — pre-v1.4.6 the macos-14 release runner built only an arm64 `sigmavoice_mac.node` binary via `electron-builder`'s `npmRebuild:true`. That binary was packaged into both DMGs; on Intel Macs the `dlopen` failed and `voice-mac/index.js` fell through to the Web Speech API. Separate arm64/x64 rebuild paths in the matrix close the gap. (commit `87b51ba`)
+- **Intel macOS installer asset resolution** — `install-macos.sh` now maps `arm64` to `SigmaLink-${VERSION}-arm64.dmg` and `x86_64` to `SigmaLink-${VERSION}.dmg`, with updated unsupported-arch messaging. (commit `a8920cf`)
+- **Playwright e2e smoke refresh** — 4 navTo selector fixes against v1.4.5 UI: dropdown trigger via `getByRole` for Radix portal traversal, dropdown item via `getByRole('menuitem')` for same reason, overlay-close step to fix pointer-event interception on Memory/Browser/Sigma/Skills/Settings, and `sigma:test:set-room` test-event fallback for disabled-without-workspace rooms. Defensive `window.sigma` bridge assertion immediately after `domcontentloaded` + 2500ms settle wait. (commits `f546c1d`, `25f2017`, `9211385`)
+- **Ruflo MCP autowrite test stale args** — test asserted v1.3.4-era `['@claude-flow/cli@latest', 'mcp-stdio']`; app writes v1.3.5 canonical `['-y', '@claude-flow/cli@latest', 'mcp', 'start']`. (commit `e53f6f3`)
+
+### CI
+
+- **Electron-ABI native module rebuild in all CI lanes** — replaced `pnpm rebuild better-sqlite3 node-pty` (targets host Node ABI) with `npx @electron/rebuild -f -w better-sqlite3 -w node-pty` (targets Electron's bundled Node ABI) in `e2e-matrix.yml`, `release-macos.yml`, `release-windows.yml`. The previous rebuild path was the root cause of CI e2e-matrix red since v1.4.3 — renderer crashed silently on boot → frozen splash frame → all screenshots identical → false-green test. (commit `38964f4`)
+- **pnpm cache-dependency-path fix** — every `actions/setup-node@v4` step now points `cache-dependency-path` at `app/package.json` (was `app/pnpm-lock.yaml` which is gitignored). Restored the pnpm cache hit on CI. (commits `93abe63`, `fe35ee2`)
+- **Disabled broken native voice prebuild workflow** — `.github/workflows/native-prebuild-mac.yml` removed from the auto-trigger lanes. The workflow's `pull_request.paths` lane triggered on every PR touching `native/` even though the workflow itself was broken. (commit `f12c656`)
+
+### Verification (verify-and-close — no code change needed)
+
+- **Parchment Launch CTA contrast WCAG AA** — token check confirmed normal `#8b4218` on `#f9f6f1` = 6.74:1; hover `bg-accent/90` over `card`/`canvas` remains above 5.4:1. BUG-W7-015 closed. (commit `b1c533d`)
+- **vitest coverage thresholds present** — `coverage.thresholds` block already in `vitest.config.ts` at 22% lines floor. (commit `df698bd`)
+- **Terminal.tsx mount race race-safe** — race-safe listener/snapshot ordering lives in `terminal-cache.ts`, not `Terminal.tsx`. New regression test proves live `pty:data` emitted while `pty.snapshot` is pending is buffered and written AFTER the snapshot, preserving snapshot-first order. R-1.2.7-1 closed. (commit `64f781d`)
+
+### Documentation
+
+- Master memory + memory_index updated with Phase 32 (PR #35 polish bundle + PR #36 e2e refresh). (commits `9a56f3d`, `e1f7c04`, `c06f974`)
+- WISHLIST updated to drop Apple Developer ID from funded-only tier — explicitly not selling, won't pay $99/yr. (commit `dd8a42f`)
+
+### Deferred to v1.4.7
+
+- 3 stale e2e tests in `dogfood.spec.ts:133`, `multi-workspace.spec.ts:72`, `multi-workspace.spec.ts:166` — triaged with per-test root cause; deferred to v1.4.7 packet #02. See PR #36 `BRIEF.md ## Followup-2` for details.
+
 ## [1.4.5] - 2026-05-18
 
 Tech-debt cleanup release. Closes 2 final v1.4.4 reviewer followups + retires 2 long-standing LOC debts.
