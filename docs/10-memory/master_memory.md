@@ -1711,3 +1711,59 @@ First real attempt at `opencode run -m qwen/qwen3-coder-plus` for non-interactiv
 
 ~45 minutes from "go" to both PRs merged. Sonnet on β finished first (PR #31, ~15min). opencode-Qwen on α failed silently (~5min wasted). Sonnet fallback on α finished (~8min). Reviewers in parallel (~4min each). Two merges + cleanup ~3min. Release prep + tag + CI watch + assets verified separate.
 
+
+## Phase 32 — v1.4.6 Playwright e2e smoke refresh (2026-05-19)
+
+v1.4.6 closes the e2e-matrix CI lane that has been **red since v1.4.3**. The smoke test was passing (1/1) but producing **false-green results**: all 27 screenshots were identical (297320 bytes each), `data-room` was always `"unknown"`, and `window.sigma.invoke` was undefined — the React app never rendered past a frozen splash frame.
+
+### Root cause diagnosis
+
+Three layers of issues stacked:
+
+1. **Native module ABI mismatch** (explains CI red since v1.4.3): `pnpm rebuild better-sqlite3 node-pty` builds against the **host Node ABI** (20.16.0, NODE_MODULE_VERSION 123), but Electron 30 ships its own bundled Node (20.9.x, NODE_MODULE_VERSION 118). The renderer crashes silently on first `require('better-sqlite3')` → React never boots → frozen splash → all screenshots identical. The correct tool is `@electron/rebuild` (or `electron-builder install-app-deps`) which targets Electron's specific ABI. This is the same missing step in `release-macos.yml` that caused 2 weeks of CI red.
+
+2. **`navTo()` selector stale**: v1.4.4's partial refresh switched from sidebar buttons to Radix DropdownMenu selectors but used `locator()` which doesn't traverse Radix portals correctly. Fixed by switching to `getByRole()` which uses the a11y tree and correctly finds portal-rendered menu items.
+
+3. **Pointer-event interception**: A `<button aria-label="Close">` from a lingering modal/dialog blocked clicks on the rooms menu trigger for Memory, Browser, Sigma Assistant, Skills, and Settings rooms. Fixed by adding an overlay-close step before clicking the rooms menu.
+
+### Fixes shipped
+
+| Fix | File | Detail |
+|-----|------|--------|
+| navTo: dropdown trigger | `smoke.spec.ts` | `locator('button[aria-label="Open rooms menu"]')` → `getByRole('button', { name: 'Open rooms menu' })` |
+| navTo: dropdown item | `smoke.spec.ts` | `locator('[role="menuitem"][aria-label="${label}"]')` → `getByRole('menuitem', { name: label })` |
+| navTo: overlay close | `smoke.spec.ts` | Step 0: close `button[aria-label="Close"]` before clicking rooms menu (fixes pointer-event interception) |
+| navTo: test-event fallback | `smoke.spec.ts` | `sigma:test:set-room` CustomEvent dispatch as 3rd fallback for disabled rooms |
+
+### Verification
+
+- `pnpm exec tsc -b` → clean
+- `pnpm exec eslint .` → 0 errors (1 pre-existing warning)
+- `pnpm exec vitest run` → 505 pass / 1 skip (unchanged from v1.4.5)
+- `pnpm exec playwright test smoke.spec.ts` → **1 pass / 0 fail** (37.0s)
+- All 10 rooms navigate via rooms-menu: Swarm Room, Operator Console, Review Room, Tasks, Memory, Browser, Sigma Assistant (panel=1), Skills, Settings, Workspaces
+- Screenshots now vary in size (43 KB to 283 KB) — no more frozen-frame duplicates
+
+### Out-of-scope finding
+
+**CI e2e-matrix red since v1.4.3**: Same `@electron/rebuild` gap in `release-macos.yml`. The workflow uses `pnpm install --ignore-scripts` then `pnpm rebuild` which targets host Node ABI, not Electron's. A separate packet should add `npx @electron/rebuild -f -w better-sqlite3 -w node-pty` to that workflow.
+
+### Corrected setup for future sessions
+
+```bash
+cd app
+pnpm install --no-frozen-lockfile --ignore-scripts
+node node_modules/electron/install.js
+npx @electron/rebuild -f -w better-sqlite3 -w node-pty  # KEY STEP — was missing
+pnpm run build
+node scripts/build-electron.cjs
+pnpm exec playwright install chromium
+```
+
+### Wall-clock
+
+~2 hours (diagnosing native module ABI mismatch was the bulk; selector fixes were 15 min once app rendered).
+
+### PR
+
+Opened at https://github.com/s1gmamale1/SigmaLink/pull/36 — DO NOT MERGE (lead review pending).
