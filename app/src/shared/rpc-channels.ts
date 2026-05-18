@@ -40,6 +40,14 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'panes.listSessions',
   // v1.3.0 — Session picker: most recent resume plan for a workspace.
   'panes.lastResumePlan',
+  // v1.4.3 (#02) — Pane rehydration. Returns full AgentSession rows for the
+  // workspace so the renderer can dispatch ADD_SESSIONS on workspace reopen.
+  // The RPC was added in v1.4.3 PR #28 but the channel was never added to
+  // this allowlist — three call sites (useSessionRestore.ts, Sidebar.tsx,
+  // Launcher.tsx) were silently failing via try/catch since v1.4.3 and pane
+  // state was effectively NOT restoring on workspace reopen. Discovered while
+  // adding the v1.4.7 test reload-sessions hook. (v1.4.7 packet 02 byproduct)
+  'panes.listForWorkspace',
   // providers
   'providers.list',
   'providers.probeAll',

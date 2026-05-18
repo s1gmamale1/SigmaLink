@@ -112,7 +112,70 @@ async function activateRepoWorkspace(win: Page, repoRoot: string): Promise<strin
   return opened;
 }
 
+// v1.4.7 packet-02 refresh — rooms moved into the top-bar Radix DropdownMenu
+// in v1.1.4; direct sidebar aria-label buttons no longer exist for most
+// rooms. Same 3-step strategy as smoke.spec.ts navTo helper (v1.4.6 refresh).
 async function navTo(win: Page, label: string): Promise<boolean> {
+  // 0. Close any blocking overlays first.
+  try {
+    const closeBtn = win.locator('button[aria-label="Close"]').first();
+    if (await closeBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+      await closeBtn.click({ timeout: 1000 }).catch(() => undefined);
+      await win.waitForTimeout(200);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // 1. Rooms dropdown (v1.1.4+ layout).
+  try {
+    const trigger = win.getByRole('button', { name: 'Open rooms menu' });
+    if (await trigger.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await trigger.click({ timeout: 3000 });
+      await win.waitForTimeout(300);
+      const item = win.getByRole('menuitem', { name: label });
+      if (await item.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await item.click({ timeout: 3000 });
+        await win.waitForTimeout(500);
+        return true;
+      }
+      await win.keyboard.press('Escape').catch(() => undefined);
+    }
+  } catch {
+    /* fall through */
+  }
+
+  // 2. sigma:test:set-room event fallback (state.tsx hook).
+  const labelToId: Record<string, string> = {
+    'Swarm Room': 'swarm',
+    'Operator Console': 'operator',
+    'Review Room': 'review',
+    Tasks: 'tasks',
+    Memory: 'memory',
+    Browser: 'browser',
+    'Sigma Assistant': 'sigma',
+    Skills: 'skills',
+    Settings: 'settings',
+    Workspaces: 'workspaces',
+    'Command Room': 'command',
+  };
+  const roomId = labelToId[label];
+  if (roomId) {
+    try {
+      await win.evaluate((room: string) => {
+        window.dispatchEvent(new CustomEvent('sigma:test:set-room', { detail: { room } }));
+      }, roomId);
+      await win.waitForTimeout(500);
+      const rendered = await win
+        .evaluate(() => document.body.getAttribute('data-room') ?? 'unknown')
+        .catch(() => 'unknown');
+      if (rendered === roomId) return true;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // 3. Legacy sidebar button fallback (v1.1.3 and earlier).
   const btn = win.locator(`button[aria-label="${label}"]`);
   if ((await btn.count()) === 0) return false;
   try {
@@ -196,14 +259,17 @@ test('Differentiator surfaces render without console errors', async () => {
   expect(scrubberEmpty + scrubberPicker).toBeGreaterThan(0);
   expect(consoleErrors.length).toBe(operatorErrorsBefore);
 
-  // (b) Bridge Assistant → Conversations panel.
+  // (b) Sigma Assistant → Conversations panel.
+  // v1.4.1: Bridge → Sigma rename. Room id is now 'sigma', label 'Sigma Assistant'.
+  // The conversations panel kept its 'bridge-conversations-panel' testid for
+  // backwards compat — that testid below is intentional, not stale.
   const bridgeErrorsBefore = consoleErrors.length;
-  expect(await navTo(win, 'Bridge Assistant')).toBe(true);
+  expect(await navTo(win, 'Sigma Assistant')).toBe(true);
   await win.waitForTimeout(800);
   const bridgeRoom = await win
     .evaluate(() => document.body.getAttribute('data-room') ?? 'unknown')
     .catch(() => 'unknown');
-  expect(bridgeRoom).toBe('bridge');
+  expect(bridgeRoom).toBe('sigma');
 
   const panelCount = await win.locator('[data-testid="bridge-conversations-panel"]').count();
   expect(panelCount).toBeGreaterThan(0);
@@ -300,6 +366,15 @@ test('BUG-W7-006: swarms.create after workspaces.open has no race', async () => 
   const repoRoot = path.resolve(__dirname, '../../../');
 
   // Open + immediately create — no setTimeout/waitForTimeout between calls.
+  // v1.4.7 packet-03 — use a minimal 1-agent custom roster with the `shell`
+  // provider so the swarm spawn completes in <5s (no CLI dependency, no
+  // worktree pool churn, no proper-lockfile retries). The previous
+  // `preset: 'squad'` with `roster: []` expanded to 5 agents via defaultRoster
+  // (1 coordinator + 2 builders + 1 scout + 1 reviewer), each trying to
+  // spawn a real CLI binary — the test hung for 3 minutes waiting on
+  // worktree pool + CLI spawn under v1.4.3+ lockfile retries. The race
+  // property under test (swarms.create succeeds immediately after
+  // workspaces.open) does NOT require multi-agent spawn.
   const result = await win
     .evaluate(async (folder: string) => {
       const open = (await window.sigma.invoke('workspaces.open', folder)) as
@@ -311,9 +386,9 @@ test('BUG-W7-006: swarms.create after workspaces.open has no race', async () => 
       const wsId = open.data.id;
       const create = await window.sigma.invoke('swarms.create', {
         workspaceId: wsId,
-        mission: 'P3-S9 dogfood verification of BUG-W7-006',
+        mission: 'v1.4.7 dogfood verification of BUG-W7-006',
         preset: 'squad',
-        roster: [],
+        roster: [{ role: 'coordinator', roleIndex: 1, providerId: 'shell' }],
       });
       return { stage: 'create', wsId, open, create };
     }, repoRoot)

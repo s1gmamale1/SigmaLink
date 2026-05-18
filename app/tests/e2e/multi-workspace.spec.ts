@@ -16,8 +16,11 @@ interface PtyListItem {
   pid: number;
 }
 
+// v1.4.7 packet-02 fix: all IPC handlers wrap results in {ok:true,data:X}.
+// The typed rpc client in rpc.ts unwraps these; sigma.invoke() does not.
+// Unwrap here so callers receive the actual payload rather than the envelope.
 async function invoke<T>(win: Page, channel: string, ...args: unknown[]): Promise<T> {
-  return win.evaluate(
+  const raw = await win.evaluate(
     async ({ rpcChannel, rpcArgs }) => {
       const sigma = (window as unknown as {
         sigma: { invoke: (channelName: string, ...channelArgs: unknown[]) => Promise<unknown> };
@@ -25,7 +28,13 @@ async function invoke<T>(win: Page, channel: string, ...args: unknown[]): Promis
       return sigma.invoke(rpcChannel, ...rpcArgs);
     },
     { rpcChannel: channel, rpcArgs: args },
-  ) as Promise<T>;
+  );
+  if (raw && typeof raw === 'object' && 'ok' in (raw as Record<string, unknown>)) {
+    const env = raw as { ok: boolean; data?: unknown; error?: string };
+    if (env.ok) return env.data as T;
+    throw new Error(env.error ?? `${channel} failed`);
+  }
+  return raw as T;
 }
 
 async function waitForSigmaBridge(win: Page): Promise<boolean> {
@@ -95,6 +104,20 @@ test('room switch preserves the xterm DOM instance (no replay flash)', async () 
       preset: 1,
       panes: [{ paneIndex: 0, providerId: 'shell' }],
     });
+
+    // v1.4.7 packet-02 — push the newly-launched sessions into renderer state.
+    // workspaces.launch via IPC creates PTY sessions but the renderer's
+    // ADD_SESSIONS dispatch only fires through useSessionRestore (boot-time)
+    // or the Launcher UI click flow. The sigma:test:reload-sessions event
+    // (state.tsx:101-122) is the bridge for IPC-only launch paths. Also
+    // route to the 'command' room so CommandRoom mounts SessionTerminal —
+    // without this the renderer is in the 'workspaces' room and no xterm
+    // is rendered even with sessions in state.
+    await win.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('sigma:test:set-room', { detail: { room: 'command' } }));
+      window.dispatchEvent(new CustomEvent('sigma:test:reload-sessions'));
+    });
+    await win.waitForTimeout(800);
 
     // Wait for the xterm DOM to appear (the SessionTerminal mount).
     await expect
