@@ -178,6 +178,12 @@ test('SigmaLink full visual sweep', async () => {
   await win.waitForLoadState('domcontentloaded').catch(() => undefined);
   await win.waitForTimeout(2500);
 
+  // Defensive: fail fast if the preload bridge didn't initialize.
+  // Without this, downstream `panel count > 0` assertion catches the issue
+  // transitively but with a confusing error.
+  const bridgeType = await win.evaluate(() => typeof (window as Window & { sigma?: unknown }).sigma);
+  expect(bridgeType, 'window.sigma preload bridge must be defined — renderer likely crashed').toBe('object');
+
   // 01 — initial window (will include onboarding modal)
   await snap(win, '01-startup.png', 'startup');
 
