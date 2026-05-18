@@ -25,7 +25,7 @@
 # Exit codes:
 #   0  install succeeded
 #   1  generic failure
-#   2  wrong platform (not macOS) or wrong arch (not arm64)
+#   2  wrong platform (not macOS) or unsupported arch
 #   3  GitHub API rate-limit or network failure
 #   4  DMG download / verification failure
 #   5  install/copy failure (permission, disk-full, etc.)
@@ -44,11 +44,14 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 ARCH="$(uname -m)"
-if [[ "$ARCH" != "arm64" ]]; then
-  echo "✗ Only Apple Silicon (arm64) is currently supported. Detected: $ARCH" >&2
-  echo "  Intel-Mac builds are tracked for v1.2 once the CI matrix lands." >&2
-  exit 2
-fi
+case "$ARCH" in
+  arm64 | x86_64) ;;
+  *)
+    echo "✗ Unsupported macOS architecture: $ARCH" >&2
+    echo "  Supported architectures: arm64 (Apple Silicon) and x86_64 (Intel)." >&2
+    exit 2
+    ;;
+esac
 
 # -- pick release -------------------------------------------------------------
 
@@ -77,7 +80,15 @@ fi
 
 # Strip a leading "v" to derive the version number used in artefact filenames.
 VERSION="${TAG#v}"
-DMG_FILENAME="${APP_NAME}-${VERSION}-arm64.dmg"
+# Release asset mapping: arm64 -> SigmaLink-${VERSION}-arm64.dmg; x86_64 -> SigmaLink-${VERSION}.dmg.
+case "$ARCH" in
+  arm64)
+    DMG_FILENAME="${APP_NAME}-${VERSION}-arm64.dmg"
+    ;;
+  x86_64)
+    DMG_FILENAME="${APP_NAME}-${VERSION}.dmg"
+    ;;
+esac
 DMG_URL="https://github.com/$REPO/releases/download/$TAG/$DMG_FILENAME"
 
 echo "→ Target release: $TAG"
@@ -91,7 +102,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT INT TERM
 DMG_PATH="$WORK_DIR/$DMG_FILENAME"
 echo "→ Downloading via curl (no quarantine attribute will be set)..."
 if ! curl -fL --progress-bar "$DMG_URL" -o "$DMG_PATH"; then
-  echo "✗ Download failed. URL may be wrong or the release may not have an arm64 DMG." >&2
+  echo "✗ Download failed. URL may be wrong or the release may not have a DMG for $ARCH." >&2
   echo "  Browse https://github.com/$REPO/releases to confirm." >&2
   exit 4
 fi
