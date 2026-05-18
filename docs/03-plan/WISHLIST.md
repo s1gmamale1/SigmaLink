@@ -82,11 +82,11 @@ Confirmed root cause was cwd/context drift, not PTY death: SigmaLink created git
 
 ## 🔵 v1.4+ — External dependencies / funding required
 
-| Item | Cost |
-|---|---|
-| Apple Developer ID + notarisation | $99/yr |
-| EV/OV Authenticode cert | $300-700/yr |
-| Microsoft Store / WinGet distribution | M + Microsoft reviews |
+| Item | Cost | Status |
+|---|---|---|
+| ~~Apple Developer ID + notarisation~~ | ~~$99/yr~~ | **Dropped 2026-05-18** — not selling, won't pay. Ad-hoc signing + Gatekeeper README workaround remain canonical |
+| EV/OV Authenticode cert | $300-700/yr | Open — Windows SmartScreen workaround documented |
+| Microsoft Store / WinGet distribution | M + Microsoft reviews | Open |
 
 ## P3 — polish (open in backlog, low priority)
 
