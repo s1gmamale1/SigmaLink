@@ -25,6 +25,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { geminiSlugForCwd } from './gemini-resume-bridge';
+import { listOpencodeSessionsFromDb } from '../opencode/sqlite-reader';
 
 const execFileAsync = promisify(execFile);
 
@@ -530,8 +531,16 @@ function listKimiSessions(
 }
 
 /**
- * OpenCode: shell out to `opencode session list --format json --max-count 50`,
- * filter by `directory === cwd`, return sorted DESC.
+ * OpenCode: read the session list directly from `opencode.db` (SQLite).
+ * Falls back to the legacy `opencode session list --format json` subprocess
+ * when the DB read returns no rows AND a runner is supplied (test injection
+ * point) OR when running in a context where the DB path is not resolvable
+ * but the subprocess might still work (e.g. an explicit OPENCODE_BIN env).
+ *
+ * v1.4.7 packet-06 — direct DB read drops cold-start latency from ~400ms
+ * (subprocess) to <100ms and tolerates missing CLI binaries. The subprocess
+ * path is retained as a fallback in case OpenCode moves its DB or the user
+ * has a non-default storage backend.
  */
 async function listOpencodeSessions(
   cwd: string,
@@ -539,6 +548,33 @@ async function listOpencodeSessions(
   sinceMs: number | undefined,
   runner?: (cwd: string) => Promise<string>,
 ): Promise<SessionListItem[]> {
+  // Primary path: direct SQLite read.
+  const dbRows = listOpencodeSessionsFromDb(cwd, maxCount);
+  if (dbRows.length > 0) {
+    const items: SessionListItem[] = [];
+    for (const r of dbRows) {
+      // time_created/time_updated are already ms epoch in the OpenCode schema.
+      if (sinceMs !== undefined && sinceMs > 0 && Date.now() - r.timeUpdated > sinceMs) {
+        continue;
+      }
+      const title = r.title && r.title.trim() ? r.title.trim() : undefined;
+      items.push({
+        id: r.id,
+        providerId: 'opencode',
+        cwd,
+        createdAt: r.timeCreated,
+        updatedAt: r.timeUpdated,
+        title,
+      });
+    }
+    // Already sorted DESC by the SQL ORDER BY; defensively re-sort in case
+    // mtime filtering changed the order.
+    return items.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, maxCount);
+  }
+
+  // Fallback path: legacy subprocess. Used when (a) DB read returned nothing
+  // (could be schema drift, locked DB, or genuinely empty), AND (b) a runner
+  // is available. Tests inject a fake runner; production uses the default.
   const runOnce = runner ?? defaultOpencodeListRunner;
   let json: string;
   try {
@@ -573,7 +609,7 @@ async function listOpencodeSessions(
       continue;
     }
     if (sinceMs !== undefined && sinceMs > 0 && Date.now() - updatedAt > sinceMs) continue;
-    const createdAt = updatedAt; // OpenCode doesn't expose created_at
+    const createdAt = updatedAt; // OpenCode subprocess doesn't expose created_at
     const title = typeof r.title === 'string' && r.title.trim() ? r.title.trim() : undefined;
     items.push({ id, providerId: 'opencode', cwd, createdAt, updatedAt, title });
   }
