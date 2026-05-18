@@ -4,6 +4,58 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-05-19
+
+CI is fully green again. Closes 5 of the 6 e2e tests that have been red since v1.4.3, fixes a v1.4.3 production regression in pane rehydration, and ships the OpenCode SQLite direct read latency win. WISHLIST P1/P2 tiers fully closed; feature-tier items (notifications, Windows SAPI5 voice, cross-machine sync, Windows auto-update, provider auto-install) deferred to v1.4.8.
+
+### Fixed
+
+- **Pane rehydration on workspace reopen** — `panes.listForWorkspace` was added to the RPC controller in v1.4.3 PR #28 but never added to the channel allowlist in `app/src/shared/rpc-channels.ts`. The preload bridge rejected the channel; three v1.4.3 `ADD_SESSIONS` dispatch sites (`useSessionRestore`, Sidebar workspace-reopen, Launcher `chooseExisting`) silently failed via their try/catch wrappers. **Net effect**: pane state has NOT been restoring on workspace reopen since v1.4.3 shipped. Users never saw their previous panes unless they manually re-spawned. Surfaced by the new v1.4.7 multi-workspace e2e test that hard-failed where production code silently swallowed. (packet 02 byproduct, #37)
+- **3 deferred Playwright e2e tests** — `dogfood.spec.ts:133` (stale Bridge→Sigma references + sidebar-button navTo), `multi-workspace.spec.ts:72` (missing renderer `sigma:test:reload-sessions` hook for IPC-launched sessions), `multi-workspace.spec.ts:166` (`invoke()` helper not unwrapping `{ok,data}` IPC envelope). All deferred from PR #36 Followup-2. (packet 02, #37)
+- **2 pre-existing e2e timeouts** — `assistant-cli.spec.ts:27` stale composer selector after v1.4.1 SigmaRoom split (now `textarea[aria-label="Ask Sigma"]`) + missing workspace activation (Sigma room requires active workspace since v1.4.0) + env-gated behind `SIGMA_E2E_CLAUDE=1` for CI (needs real Anthropic credentials). `dogfood.spec.ts:358 BUG-W7-006` 3-min hang — was passing `preset: 'squad'` with `roster: []` which expanded to 5 CLI agents; under v1.4.3+ worktree pool + v1.4.5 proper-lockfile retries the spawn took >3 minutes. Race property under test doesn't require multi-agent spawn; reduced to minimal 1-agent shell roster, test now completes in 4.9s. (packet 03, #37)
+
+### Performance
+
+- **OpenCode session picker latency** — replaced the `opencode session list --format json` subprocess (~200-400ms cold start) with a direct readonly SQLite read of `~/.local/share/opencode/opencode.db`. Per-call latency drops to <100ms. Tolerates missing CLI binary, schema drift (only references columns guaranteed since v0.x), locked DB, corrupt DB — all degrade gracefully to empty list with subprocess as fallback. Five-column SELECT (`id`, `directory`, `title`, `time_created`, `time_updated`) ignores the 14 columns added by later OpenCode `ALTER TABLE` statements. (packet 06, #39)
+
+### Documentation
+
+- **opencode-Qwen silent-fail probe resolution** — the secondary failure mode from v1.4.5 cluster α (in addition to the v1.4.6 missing `--dangerously-skip-permissions` resolution) is now documented in the orchestrator skill at `~/.claude/skills/orchestrator/SKILL.md`: opencode CLI silently exits with 0-byte stdout when the model identifier is unknown AND `--print-logs` is OFF. Correct identifiers come from `opencode models` (current free-tier: `opencode/qwen3.6-plus-free`). The v1.4.5 dispatch tried `qwen/qwen3-coder-plus` which is not a valid name. (packet 04)
+- **v1.4.7 bundle plan** — 11 packet documents in `docs/03-plan/v1.4.7-bundle/` covering both shipped (#01-#04, #06, #11) and deferred (#05, #07, #08, #09, #10) work. Archived to `docs/03-plan/archive/v1.4.7-bundle/` at ship time.
+
+### CI / Tests
+
+- **Full Playwright suite green** for the first time since v1.4.3 — 8 pass / 0 fail / 3 skip (was 6 pass / 2 fail / 3 skip pre-v1.4.7). Skips are documented in the test files: `assistant-cli-launch-pane` (`manual:` describe), `assistant-cli` (env-gated `SIGMA_E2E_CLAUDE`), `pane-split` (`manual:` describe).
+- **vitest baseline expanded**: 505 → 515 pass (10 new OpenCode SQLite reader tests) | 1 skip.
+- **New renderer test hook** — `sigma:test:reload-sessions` CustomEvent (13 LOC in `state.tsx`) mirroring the existing `sigma:test:activate-workspace` and `sigma:test:set-room` patterns. Production no-op; enables e2e tests calling `workspaces.launch` via raw IPC to push the newly-launched sessions into renderer state.
+
+### Deferred to v1.4.8
+
+- Packet #05 — Windows auto-update verification flow (needs Windows VM)
+- Packet #07 — Provider auto-install prompt with consent gating (UX validation needed)
+- Packet #08 — Notifications system + top-right bell (L-effort UX)
+- Packet #09 — Native Windows SAPI5 voice binding (Windows VM + C++/node-gyp)
+- Packet #10 — Cross-machine session sync via age + git (security-critical L-effort)
+
+### Funded-only / won't-do
+
+- EV/OV Authenticode cert ($300-700/yr) — still open, no committed funding
+- Microsoft Store / WinGet — gated on EV cert
+- Apple Developer ID + notarisation — explicitly dropped 2026-05-18 (commit `dd8a42f`)
+
+### Verification
+
+- `pnpm exec tsc -b --pretty false`: clean
+- `pnpm exec vitest run`: 515 pass | 1 skip (505 baseline + 10 new for OpenCode SQLite)
+- `pnpm exec eslint .`: 0 errors, 1 pre-existing warning
+- `pnpm run build`: clean
+- `node scripts/build-electron.cjs`: clean
+- `pnpm exec playwright test tests/e2e/`: 8 pass / 0 fail / 3 skip
+
+### Migration
+
+No schema migrations. No behavior change for existing users — the `panes.listForWorkspace` channel allowlist fix simply restores the v1.4.3 pane rehydration feature that has been silently broken; users will start seeing their previous panes restore on workspace reopen automatically.
+
 ## [1.4.6] - 2026-05-18
 
 Cross-platform frameless chrome + Intel-Mac voice fix + CI hardening. 15 commits between v1.4.5 and PR #36 captured here in one CHANGELOG entry; no separate v1.4.6 tag (content rolls forward into v1.4.7).

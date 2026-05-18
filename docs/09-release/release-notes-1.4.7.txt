@@ -1,0 +1,56 @@
+SigmaLink v1.4.7 — CI is fully green + pane rehydration restored
+
+Headline
+--------
+CI has been red on every push since v1.4.3. v1.4.7 closes every test that
+was failing on `main` and ships fully-green CI for the first time in
+~3 months. The Playwright suite is 8 pass / 0 fail / 3 skip on both
+macOS arm64 and Windows runners.
+
+Quiet but big regression fix
+----------------------------
+The v1.4.3 pane rehydration feature (PR #28) has been silently broken
+since it shipped. The `panes.listForWorkspace` RPC was added to the
+controller but never to the preload channel allowlist, so the renderer
+silently swallowed the rejection via try/catch wrappers. Users restoring
+a workspace from the sidebar or relaunching from the chooser never saw
+their previous panes — they had to manually re-spawn.
+
+This release adds the allowlist entry. Existing users will start seeing
+pane rehydration "just work" on the next workspace reopen — no migration,
+no behavior change beyond the bug fix.
+
+Performance
+-----------
+OpenCode session picker reads directly from `~/.local/share/opencode/
+opencode.db` (SQLite) instead of shelling out to `opencode session list`.
+Cold-start latency drops from ~400ms to <100ms per workspace open.
+
+What's deferred
+---------------
+The v1.4.7 bundle plan had 5 feature packets we're holding for v1.4.8:
+* Notifications + bell (UX-heavy taxonomy)
+* Native Windows SAPI5 voice (needs Windows VM + node-gyp binding)
+* Cross-machine session sync (security-critical, needs careful crypto)
+* Windows auto-update (needs Windows VM validation)
+* Provider auto-install prompt (needs UX validation on real CLIs)
+
+Each is documented in `docs/03-plan/archive/v1.4.7-bundle/` for the
+delegate that picks it up.
+
+Funded-only / won't-do
+----------------------
+* EV/OV Authenticode cert ($300-700/yr) — open
+* Microsoft Store / WinGet — gated on EV cert
+* Apple Developer ID — explicitly dropped 2026-05-18
+
+Install / upgrade
+-----------------
+* macOS arm64: curl -sSL https://sigmalink.dev/install.sh | bash
+* macOS x64 (Intel): same command (arch auto-detected since v1.4.6)
+* Windows: iwr https://sigmalink.dev/install.ps1 -UseB | iex
+
+v1.4.7 rolls forward all v1.4.6 content (frameless chrome, Intel-Mac
+voice fix, CI hardening). There is no separate v1.4.6 tag.
+
+GitHub: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.4.7

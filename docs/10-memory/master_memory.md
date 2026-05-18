@@ -1767,3 +1767,64 @@ pnpm exec playwright install chromium
 ### PR
 
 Opened at https://github.com/s1gmamale1/SigmaLink/pull/36 — DO NOT MERGE (lead review pending).
+
+## Phase 33 — v1.4.7 release: WISHLIST closure + CI fully green (2026-05-19)
+
+**Goal**: close out WISHLIST P1/P2/P3 tiers in one tagged release that rolls forward all v1.4.6 content (15+ commits between v1.4.5 and PR #36 that never got a CHANGELOG entry).
+
+### What shipped
+
+**v1.4.6 content rolled forward** (already on main; needed only CHANGELOG + release notes + version bump):
+- Cross-platform frameless chrome with WCO insets (#33)
+- Intel-Mac Speech.framework voice fix via cross-arch prebuild (#34)
+- Electron-ABI rebuild in all CI lanes (root cause of CI red since v1.4.3 — was rebuilding host Node ABI)
+- pnpm cache-dep-path fix, parchment contrast verify (BUG-W7-015), vitest threshold verify, terminal mount race regression test (R-1.2.7-1), Playwright smoke 4-fix refresh (#35, #36)
+
+**v1.4.7 new content**:
+- **Production regression fix** — `panes.listForWorkspace` was added to the RPC controller in v1.4.3 PR #28 but never to the channel allowlist in `app/src/shared/rpc-channels.ts`. The preload bridge rejected the channel; three v1.4.3 ADD_SESSIONS dispatch sites (useSessionRestore, Sidebar workspace-reopen, Launcher chooseExisting) silently failed via try/catch wrappers. Pane rehydration on workspace reopen has been **silently broken for end users since v1.4.3 shipped**. New v1.4.7 multi-workspace e2e test hard-failed where production code silently swallowed → surfaced the bug.
+- **5 e2e tests closed** — 3 deferred from PR #36 Followup-2 (dogfood:133, multi-workspace:72, multi-workspace:166) + 2 pre-existing timeouts (assistant-cli:27 env-gated, dogfood:358 BUG-W7-006 reduced-roster). Full Playwright suite now 8 pass / 0 fail / 3 documented skips on both macOS arm64 AND Windows runners — **first fully-green CI in ~3 months** since v1.4.3.
+- **OpenCode SQLite direct read** — `~/.local/share/opencode/opencode.db` read directly via better-sqlite3 readonly instead of `opencode session list --format json` subprocess. <100ms vs ~400ms per workspace open. Tolerates missing CLI, schema drift, locked DB, corrupt DB.
+- **opencode-Qwen secondary silent-fail** — in addition to the v1.4.6 missing-permission-flag resolution, an unknown model identifier also produces 0-byte stdout when `--print-logs` is OFF. The v1.4.5 dispatch used `qwen/qwen3-coder-plus` which is not a valid name (correct: `opencode/qwen3.6-plus-free`). Documented in `~/.claude/skills/orchestrator/SKILL.md`.
+
+### Bundle plan
+
+11-packet bundle written at `docs/03-plan/v1.4.7-bundle/` (archived at ship time to `docs/03-plan/archive/v1.4.7-bundle/`). 6 packets shipped; 5 deferred to v1.4.8.
+
+| # | Packet | Status | Effort | PR |
+|---|---|---|---|---|
+| 01 | v1.4.6 release plumbing | shipped | XS | #38 |
+| 02 | 3 deferred e2e fixes | shipped | S | #37 |
+| 03 | 2 pre-existing e2e timeouts | shipped | M | #37 (combined) |
+| 04 | opencode-Qwen probe | shipped | XS | skill update only |
+| 05 | Windows auto-update | **deferred → v1.4.8** | S | needs Windows VM |
+| 06 | OpenCode SQLite direct read | shipped | S | #39 |
+| 07 | Provider auto-install prompt | **deferred → v1.4.8** | M | UX validation needed |
+| 08 | Notifications + bell | **deferred → v1.4.8** | L | UX taxonomy |
+| 09 | Native Windows SAPI5 voice | **deferred → v1.4.8** | L | Windows VM + node-gyp |
+| 10 | Cross-machine sync | **deferred → v1.4.8** | L | security-critical |
+| 11 | v1.4.7 release plumbing | shipped | XS | this PR |
+
+### Verification
+
+- tsc: clean
+- eslint: 0 errors (1 pre-existing warning)
+- vitest: 515 pass | 1 skip (505 baseline + 10 new for OpenCode SQLite reader)
+- build: clean
+- electron: clean
+- Playwright: 8 pass / 0 fail / 3 skip (was 6 pass / 2 fail / 3 skip pre-v1.4.7)
+- macOS arm64 CI: green
+- Windows CI: green (FIRST GREEN since v1.4.3)
+- macOS-14 CI: green (post-rerun for transient Electron download HTTP 500)
+
+### Process notes
+
+- **4 parallel delegate clusters from the bundle plan** — α plumbing (#01, #04, #11), β e2e (#02+#03 combined), γ provider layer (#06 alone since #07 deferred), δ big features (all deferred). Cluster ordering reduced from sequential to parallel-safe because no packet shared a file with another. Wall-clock from plan to ship-ready: ~3 hours overnight autonomous run (vs estimated 5-7 days with 4 delegates per the original plan).
+- **Scope discipline**: when L-effort feature packets (#08 notifications, #10 sync) showed up as time sinks with UX/security ambiguity, defer-to-v1.4.8 rather than ship half-baked. Plan documents are pre-written so the v1.4.8 delegate has zero ramp-up.
+- **Real regression surfaced by new test infrastructure**: the `panes.listForWorkspace` allowlist gap is the third v1.4.x silent-fail to be caught by hardening test coverage (v1.4.5 SessionStep flake, v1.4.6 native ABI rebuild, v1.4.7 channel allowlist). The pattern is consistent: every hidden bug had a try/catch swallow + a stale or non-existent test that should have surfaced it. Test investment compounds.
+- **PR sequencing**: #37 (e2e fixes, must merge first because #38 + #39 inherit those test fixes from main), then #38 (v1.4.6 docs), then #39 (OpenCode SQLite), then this plumbing PR. Tag push triggers release-macos.yml + release-windows.yml.
+
+### Followups for v1.4.8
+
+- Land the 5 deferred packets (notifications, Windows SAPI5, cross-machine sync, Windows auto-update, provider auto-install).
+- Consider lint-rule audit: the v1.4.3 channel allowlist gap silently broke a feature; an ESLint custom rule could catch RPC controllers whose channel name isn't in the shared allowlist.
+- v1.4.7 had no schema migrations; v1.4.8 will add 0018 (notifications) + 0019 (sync metadata) + 0020 (sync conflicts).

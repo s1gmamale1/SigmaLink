@@ -27,6 +27,8 @@
 | v1.4.3 | Gemini resume bridge — `projects.json` alias unblocks gemini in per-pane worktrees (#01). Workspace pane state now persists across app restart — new `panes.listForWorkspace` RPC + ADD_SESSIONS dispatch from 3 sites (#02). Migration 0016 marks stale `status=running` rows older than 24h as exited (#03). Orphan worktree cleanup on workspace open (#04). Inline "+ Add first pane" in CommandRoom EmptyState (#05). Pane Split (H/V) + Pane Minimise functional (#06). | inline in [CHANGELOG v1.4.3](../../CHANGELOG.md) · [release-notes-1.4.3.txt](../09-release/release-notes-1.4.3.txt) · [bundle](archive/v1.4.3-bundle/00-INDEX.md) |
 | v1.4.4 | Paper-cut cleanup release. 7 reviewer followups closed: comment wording (PR27 F-1), projects.json race + schema JSDoc (PR27 F-2), atomic-write fault tests (PR27 F-3), cross-platform path containment (PR27 F-4), SessionStep flakiness mitigation (PR28 INFO), EmptyState console.warn → useEffect (PR29 LOW). Playwright smoke suite navTo() refreshed for v1.1.4+ Rooms dropdown. | inline in [CHANGELOG v1.4.4](../../CHANGELOG.md) · [release-notes-1.4.4.txt](../09-release/release-notes-1.4.4.txt) |
 | v1.4.5 | Tech-debt cleanup. proper-lockfile race fix (PR27 F-2 v1.4.5 followup); SessionStep full flake closure via vi.resetModules (PR28/29 INFO v1.4.5 followup); factory.ts 443→271 LOC + new factory-add-agent.ts sibling; runClaudeCliTurn.ts 426→324 LOC + new runClaudeCliTurn.args.ts sibling. React-compiler lint wave found already closed by v1.1.9 work — no action needed. | inline in [CHANGELOG v1.4.5](../../CHANGELOG.md) · [release-notes-1.4.5.txt](../09-release/release-notes-1.4.5.txt) |
+| v1.4.6 | Cross-platform frameless chrome + Intel-Mac voice fix + CI hardening. 15 commits between v1.4.5 and PR #36 captured under v1.4.7 tag (no separate v1.4.6 tag): titleBarStyle:'hidden' everywhere with WCO insets (#33), x64 macOS Speech.framework binding ships in the Intel DMG (#34), Electron-ABI rebuild in all CI lanes (was rebuilding host Node ABI, root cause of CI red since v1.4.3), pnpm cache-dep-path fix, parchment contrast verify (BUG-W7-015 closed), terminal snapshot race regression test (R-1.2.7-1 closed), vitest coverage thresholds verified-and-closed, Playwright smoke refresh (4 navTo selector fixes + 1 stale-args assertion). | inline in [CHANGELOG v1.4.6](../../CHANGELOG.md) · [release-notes-1.4.6.txt](../09-release/release-notes-1.4.6.txt) |
+| v1.4.7 | CI fully green again. 5 e2e tests closed (3 deferred from PR #36 Followup-2 + 2 pre-existing timeouts). Production regression fix: `panes.listForWorkspace` channel allowlist gap silently broke pane rehydration on workspace reopen since v1.4.3 (#37). OpenCode SQLite direct read drops session picker cold-start from ~400ms to <100ms (#39). opencode-Qwen secondary silent-fail mode documented (orchestrator skill). Feature-tier packets (notifications, Windows SAPI5 voice, cross-machine sync, Windows auto-update, provider auto-install) deferred to v1.4.8. | inline in [CHANGELOG v1.4.7](../../CHANGELOG.md) · [release-notes-1.4.7.txt](../09-release/release-notes-1.4.7.txt) · [bundle](archive/v1.4.7-bundle/00-INDEX.md) |
 
 ---
 
@@ -34,7 +36,7 @@
 
 | ID | What | Branch / target | Plan |
 |---|---|---|---|
-| *(empty — v1.4.3 shipped 2026-05-18)* | | | |
+| *(empty — v1.4.7 shipped 2026-05-19)* | | | |
 
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
 
@@ -54,61 +56,38 @@ Confirmed root cause was cwd/context drift, not PTY death: SigmaLink created git
 
 ## 🔴 P1 — CI is currently red (blocks all future PR reviews)
 
-| Item | Effort | Source |
-|---|---|---|
-| **Playwright e2e refresh** — `tests/e2e/smoke.spec.ts` stale v1.1.4 selectors | M (~1d) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.10 — Playwright e2e refresh" |
+*(empty — closed in v1.4.6 (smoke suite) + v1.4.7 (5 remaining tests). 11 e2e tests / 0 fail / 3 documented skips.)*
 
 ## 🟡 v1.2.x deferred polish
 
-| Item | Effort | Source |
+*(empty — all 4 items closed in v1.4.6: terminal mount race verified-and-closed via regression test, BUG-W7-015 verified-and-closed via WCAG AA contrast check, CI cache-dep-path corrected, vitest coverage thresholds verified-and-closed.)*
+
+## 🟢 v1.4.8 — Deferred from v1.4.7 bundle
+
+These were planned in [`archive/v1.4.7-bundle/`](archive/v1.4.7-bundle/) but
+held back from the v1.4.7 ship because each needs either external testing
+infrastructure (Windows VM), L-effort UX work, or security-critical crypto
+review. Per-packet briefs are pre-written and ready to delegate.
+
+| Item | Effort | Plan |
 |---|---|---|
-| **Terminal.tsx mount race** — attach live listener before snapshot await (closes v1.2.7 R-1.2.7-1 — 1-5ms IPC drop window) | XS (~5 min) | [`v1.2.7-multi-workspace-state-preservation.md`](v1.2.7-multi-workspace-state-preservation.md) "Open risks" |
-| **BUG-W7-015** — Launch button low-contrast in Parchment theme | XS (~30 min) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) BUG-W7-015 |
-| **CI cache-dependency-path fix** | XS | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.1.9 — CI / test infra" |
-| **vitest coverage thresholds** | S | same |
+| **Notifications + top-right bell** — 3 sources (pty exits, swarm broadcasts, Sigma tool errors), persistent dropdown, migration 0018 | L (~3-4d) | [`archive/v1.4.7-bundle/08-notifications-bell.md`](archive/v1.4.7-bundle/08-notifications-bell.md) |
+| **Native Windows SAPI5 voice binding** — offline TTS/STT via ISpVoice + ISpRecognizer; node-gyp under native/voice-win/ | L (~3-5d) | [`archive/v1.4.7-bundle/09-windows-sapi5-voice.md`](archive/v1.4.7-bundle/09-windows-sapi5-voice.md) |
+| **Cross-machine session sync** — opt-in, e2ee via age, user-supplied git remote, row-level CRDT, migration 0019 | L (~4-6d) | [`archive/v1.4.7-bundle/10-cross-machine-sync.md`](archive/v1.4.7-bundle/10-cross-machine-sync.md) |
+| **Windows auto-update via electron-updater** — opt-in self-hosted feed, UAC-aware fallback toast | S (~3-4hr) | [`archive/v1.4.7-bundle/05-windows-autoupdate-verify.md`](archive/v1.4.7-bundle/05-windows-autoupdate-verify.md) |
+| **Provider auto-install prompt** — detect-then-prompt with consent gating per CLI; "Install now in a pane" UX | M (~6-8hr) | [`archive/v1.4.7-bundle/07-provider-auto-install.md`](archive/v1.4.7-bundle/07-provider-auto-install.md) |
 
-## 🟢 v1.3 — User-facing feature work
-
-| Item | Effort | Source |
-|---|---|---|
-| **Notifications system + top-right bell** | M (~2d) | V3-W12 backlog row (deferred from v1.1.4) |
-| **Native Windows SAPI5 voice binding** | L (~1wk + Windows prebuild matrix) | [`docs/08-bugs/BACKLOG.md`](../08-bugs/BACKLOG.md) "v1.3 — platform / distribution" |
-| **`windowsControlsOverlay` frameless chrome** | M (~1d) | same |
-| **x64 macOS DMG via CI matrix** | S (~2hr) | same |
-| **Windows auto-update verification flow** | S | [`docs/03-plan/v1.2.4-auto-update-without-signing.md`](v1.2.4-auto-update-without-signing.md) "Known limitations" |
-| **Cross-machine session sync** | L | v1.2.8 "What's NOT in this scope" |
-| **OpenCode SQLite direct read** (skip subprocess) | S | v1.2.8 "What's NOT in this scope" |
-| **Provider auto-install** ("kimi not found → run pip install for me?") | M | v1.2.8 "What's NOT in this scope" |
-
-## 🔵 v1.4+ — External dependencies / funding required
+## 🔵 Funded-only / won't-do
 
 | Item | Cost | Status |
 |---|---|---|
 | ~~Apple Developer ID + notarisation~~ | ~~$99/yr~~ | **Dropped 2026-05-18** — not selling, won't pay. Ad-hoc signing + Gatekeeper README workaround remain canonical |
 | EV/OV Authenticode cert | $300-700/yr | Open — Windows SmartScreen workaround documented |
-| Microsoft Store / WinGet distribution | M + Microsoft reviews | Open |
+| Microsoft Store / WinGet distribution | M + Microsoft reviews | Open — gated on EV cert |
 
 ## P3 — polish (open in backlog, low priority)
 
-| Item | Effort | Source |
-|---|---|---|
-| *(empty — Gemini pane resume closed by v1.4.3 #01 via `projects.json` alias bridge)* | | |
-
-## v1.4.6+ informational
-
-| Item | Effort | Source |
-|---|---|---|
-| **opencode-Qwen silent-fail investigation** — first non-interactive `opencode run -m qwen/qwen3-coder-plus` dispatched via background `Bash` produced 0-byte stdout, no commits, no diff. Sonnet fallback worked. Hypotheses: (a) auth, (b) stdin/TTY requirements, (c) bg-bash buffering. Don't depend on `opencode run` for time-sensitive work until verified. | XS (~1hr foreground probe) | `~/.claude/skills/orchestrator/SKILL.md` Maintenance notes |
-
----
-
-## Suggested grouping for v1.4.6+
-
-| Theme | Effort | Items |
-|---|---|---|
-| **CI hardening** | ~1d | Playwright e2e refresh + cache-dep-path + vitest coverage thresholds + opencode-Qwen silent-fail probe |
-| **Polish bugs** | ~½d | Terminal.tsx mount race (R-1.2.7-1) + BUG-W7-015 Parchment Launch button contrast |
-| **Feature pick** | varies | Notifications+bell (M ~2d) · x64 mac DMG (S ~2hr quick win) · Frameless chrome (M ~1d) · Native Win SAPI5 voice (L ~1wk) |
+*(empty — Gemini pane resume closed by v1.4.3 #01 via `projects.json` alias bridge)*
 
 ---
 
