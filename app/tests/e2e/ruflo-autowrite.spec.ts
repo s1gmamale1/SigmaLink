@@ -67,9 +67,12 @@ test('opening a workspace writes a Ruflo MCP entry', async () => {
       .poll(() => fs.existsSync(claudeConfigPath), { timeout: 5_000 })
       .toBe(true);
     const config = JSON.parse(fs.readFileSync(claudeConfigPath, 'utf8'));
+    // v1.3.5 canonical-args fix: 'mcp-stdio' was never a real claude-flow
+    // subcommand. The correct form is ['-y', '@claude-flow/cli@latest', 'mcp', 'start'].
+    // Pre-existing user configs self-heal on the next openWorkspace() call.
     expect(config.mcpServers.ruflo).toEqual({
       command: 'npx',
-      args: ['@claude-flow/cli@latest', 'mcp-stdio'],
+      args: ['-y', '@claude-flow/cli@latest', 'mcp', 'start'],
       env: { CLAUDE_FLOW_DIR: path.join(workspaceRoot, '.claude-flow') },
     });
   } finally {

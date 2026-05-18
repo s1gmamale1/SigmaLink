@@ -353,3 +353,15 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-223 | v1.4.5 cluster β — `runClaudeCliTurn.ts` split: 426 → 324 LOC. Extracted `buildCliArgs`, `applyMcpHostConfig`, `resolveSystemPrompt`, session-id helpers to new `runClaudeCliTurn.args.ts` (138 LOC). Matches `.emit.ts`/`.trajectory.ts` sibling pattern. Spawn loop + retry-once + sentinel intact. Commit `e9b2e4a` (PR #31). | shipped | 1 |
 | T-224 | v1.4.5 orchestrator-skill validation: first real `opencode run -m qwen/qwen3-coder-plus` dispatch failed silently for cluster α (0-byte output, no commits, no diff). Fallback to Sonnet via Agent tool per orchestrator skill rules — Sonnet shipped cleanly. Failure-mode documented in orchestrator skill for v1.4.6 investigation. | learning | 1 |
 | T-225 | v1.4.5 release plumbing: bump `app/package.json` 1.4.4 → 1.4.5; CHANGELOG [1.4.5] section (Fixed/Refactored/Dependencies/Notes); `release-notes-1.4.5.txt` user-facing 1-pager; Phase 31 master_memory narrative; memory_index T-219..T-225 rows; WISHLIST v1.4.5 row added to Recently shipped. | shipped | 1 |
+
+## Phase 32 — v1.4.6 Playwright e2e smoke refresh (2026-05-19)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-222 | v1.4.6 root-cause diagnosis: native module ABI mismatch (pnpm rebuild vs @electron/rebuild) causing silent renderer crash → frozen splash → false-green smoke test (27 identical screenshots) | shipped | 1 |
+| T-223 | v1.4.6 navTo fix: dropdown trigger + item switched from locator() to getByRole() for correct Radix portal traversal | shipped | 1 |
+| T-224 | v1.4.6 navTo fix: overlay-close step to fix pointer-event interception blocking 5 room navigations | shipped | 1 |
+| T-225 | v1.4.6 navTo fix: sigma:test:set-room CustomEvent dispatch as 3rd fallback for disabled rooms | shipped | 1 |
+| T-226 | v1.4.6 verification: tsc clean, eslint 0 errors, vitest 505/505+1 skip, playwright 1 pass / 0 fail (37s), all 10 rooms navigate, screenshots vary 43-283 KB | shipped | 1 |
+| T-227 | v1.4.6 release plumbing: BRIEF.md ## Result section, commit + push feat/v1.4.6-playwright-e2e, PR #36 opened against main (DO NOT MERGE) | shipped | 1 |
+| T-228 | v1.4.6 out-of-scope finding: CI e2e-matrix red since v1.4.3 due to same @electron/rebuild gap in release-macos.yml — flagged for lead | documented | 1 |

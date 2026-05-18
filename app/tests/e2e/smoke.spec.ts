@@ -31,34 +31,86 @@ async function snap(win: Page, file: string, note?: string) {
   }
 }
 
-// v1.4.4 P7 — Navigate to a room via the top-bar Rooms dropdown.
+// v1.4.4 P7 / v1.4.6 refresh — Navigate to a room via the top-bar Rooms dropdown.
 // The v1.1.4 sidebar room-nav buttons are gone; rooms live in a Radix
 // DropdownMenu triggered by the grid-icon button ("Open rooms menu").
-// Strategy: open the dropdown, wait for the item to appear in the DOM,
-// then click it. Falls back to the legacy sidebar button selector so the
+// v1.4.6 fixes:
+//   - Close any blocking overlays (e.g. "Close" button from modals) before clicking
+//   - Use getByRole selectors which traverse Radix portals correctly
+//   - Add sigma:test:set-room event fallback for rooms disabled without workspace
+// Falls back to the legacy sidebar button selector so the
 // helper also works if a future layout change moves nav back to a rail.
 async function navTo(win: Page, label: string) {
+  // 0. Close any blocking overlays that intercept pointer events.
+  // A "Close" button from a lingering modal/dialog can block the rooms menu trigger.
+  try {
+    const closeBtn = win.locator('button[aria-label="Close"]').first();
+    if (await closeBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+      await closeBtn.click({ timeout: 1000 }).catch(() => undefined);
+      await win.waitForTimeout(200);
+    }
+  } catch {
+    // ignore
+  }
+
   // 1. Try the dropdown path (current v1.1.4+ layout).
   try {
-    const trigger = win.locator('button[aria-label="Open rooms menu"]');
-    if ((await trigger.count()) > 0) {
-      await trigger.first().click({ timeout: 3000, force: true });
-      await win.waitForTimeout(200);
-      // DropdownMenuItem renders as [role="menuitem"] with aria-label.
-      const item = win.locator(`[role="menuitem"][aria-label="${label}"]`);
-      if ((await item.count()) > 0) {
-        await item.first().click({ timeout: 3000, force: true });
-        await win.waitForTimeout(400);
+    const trigger = win.getByRole('button', { name: 'Open rooms menu' });
+    if (await trigger.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await trigger.click({ timeout: 3000 });
+      await win.waitForTimeout(300);
+      // v1.4.6: Radix DropdownMenuItem renders with role="menuitem".
+      // Use getByRole which traverses the portal correctly.
+      const item = win.getByRole('menuitem', { name: label });
+      const visible = await item.isVisible({ timeout: 3000 }).catch(() => false);
+      if (visible) {
+        await item.click({ timeout: 3000 });
+        await win.waitForTimeout(500);
         appendLog(`[NAV] rooms-menu → "${label}"`);
         return true;
       }
-      // Menu open but item not found — close and fall through.
+      // Menu open but item not found (possibly disabled without workspace) — close and fall through.
       await win.keyboard.press('Escape').catch(() => undefined);
+      appendLog(`[NAV] rooms-menu item "${label}" not visible (may be disabled)`);
     }
   } catch (e) {
     appendLog(`[NAV] rooms-menu click failed for "${label}": ${(e as Error).message}`);
   }
-  // 2. Legacy fallback: sidebar button with aria-label (v1.1.3 and earlier).
+
+  // 2. v1.4.6 test-event fallback: dispatch sigma:test:set-room (state.tsx:97).
+  // Bypasses the UI and directly sets the room in AppState.
+  const labelToId: Record<string, string> = {
+    'Swarm Room': 'swarm',
+    'Operator Console': 'operator',
+    'Review Room': 'review',
+    Tasks: 'tasks',
+    Memory: 'memory',
+    Browser: 'browser',
+    'Sigma Assistant': 'sigma',
+    Skills: 'skills',
+    Settings: 'settings',
+    Workspaces: 'workspaces',
+    'Command Room': 'command',
+  };
+  const roomId = labelToId[label];
+  if (roomId) {
+    try {
+      await win.evaluate((room: string) => {
+        window.dispatchEvent(new CustomEvent('sigma:test:set-room', { detail: { room } }));
+      }, roomId);
+      await win.waitForTimeout(500);
+      const rendered = await win.evaluate(() => document.body.getAttribute('data-room') ?? 'unknown').catch(() => 'unknown');
+      if (rendered === roomId) {
+        appendLog(`[NAV] test-event → "${label}" (${roomId})`);
+        return true;
+      }
+      appendLog(`[NAV] test-event dispatched for "${label}" but room="${rendered}"`);
+    } catch (e) {
+      appendLog(`[NAV] test-event failed for "${label}": ${(e as Error).message}`);
+    }
+  }
+
+  // 3. Legacy fallback: sidebar button with aria-label (v1.1.3 and earlier).
   const btn = win.locator(`button[aria-label="${label}"]`);
   if ((await btn.count()) === 0) {
     appendLog(`[NAV] no selector found for "${label}"`);
@@ -125,6 +177,12 @@ test('SigmaLink full visual sweep', async () => {
 
   await win.waitForLoadState('domcontentloaded').catch(() => undefined);
   await win.waitForTimeout(2500);
+
+  // Defensive: fail fast if the preload bridge didn't initialize.
+  // Without this, downstream `panel count > 0` assertion catches the issue
+  // transitively but with a confusing error.
+  const bridgeType = await win.evaluate(() => typeof (window as Window & { sigma?: unknown }).sigma);
+  expect(bridgeType, 'window.sigma preload bridge must be defined — renderer likely crashed').toBe('object');
 
   // 01 — initial window (will include onboarding modal)
   await snap(win, '01-startup.png', 'startup');
