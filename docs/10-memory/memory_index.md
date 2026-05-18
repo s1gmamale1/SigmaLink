@@ -353,3 +353,14 @@ SigmaLink is at v1.1.0-rc1 on main. Real-world dogfood + visual recording valida
 | T-223 | v1.4.5 cluster β — `runClaudeCliTurn.ts` split: 426 → 324 LOC. Extracted `buildCliArgs`, `applyMcpHostConfig`, `resolveSystemPrompt`, session-id helpers to new `runClaudeCliTurn.args.ts` (138 LOC). Matches `.emit.ts`/`.trajectory.ts` sibling pattern. Spawn loop + retry-once + sentinel intact. Commit `e9b2e4a` (PR #31). | shipped | 1 |
 | T-224 | v1.4.5 orchestrator-skill validation: first real `opencode run -m qwen/qwen3-coder-plus` dispatch failed silently for cluster α (0-byte output, no commits, no diff). Fallback to Sonnet via Agent tool per orchestrator skill rules — Sonnet shipped cleanly. Failure-mode documented in orchestrator skill for v1.4.6 investigation. | learning | 1 |
 | T-225 | v1.4.5 release plumbing: bump `app/package.json` 1.4.4 → 1.4.5; CHANGELOG [1.4.5] section (Fixed/Refactored/Dependencies/Notes); `release-notes-1.4.5.txt` user-facing 1-pager; Phase 31 master_memory narrative; memory_index T-219..T-225 rows; WISHLIST v1.4.5 row added to Recently shipped. | shipped | 1 |
+
+## Phase 32 — v1.4.6 polish bundle (2026-05-18)
+
+| task_index | task_title | result | trials |
+|---|---|---|---|
+| T-226 | v1.4.6 Item 5 — macOS installer x64 gate: `install-macos.sh` now maps `arm64` to `SigmaLink-${VERSION}-arm64.dmg`, `x86_64` to `SigmaLink-${VERSION}.dmg`, rejects unsupported arch values with updated messaging, and passes `bash -n`. Commit `a8920cf`. | shipped | 1 |
+| T-227 | v1.4.6 Item 3 — CI cache path: all five `actions/setup-node@v4` workflow steps now use `cache-dependency-path: app/pnpm-lock.yaml`. Commit `93abe63`. | shipped | 1 |
+| T-228 | v1.4.6 Item 4 — vitest coverage thresholds audit: thresholds already present in `app/vitest.config.ts` (`22/21/21/18`), so no config edit needed. Coverage run completed under 5 minutes but is blocked by existing `SessionStep.test.tsx` failure outside packet scope; mixed `vitest@4.1.5` / `coverage-v8@4.1.6` also noted. Audit commit `df698bd`. | blocked-gate documented | 1 |
+| T-229 | v1.4.6 Item 2 — Parchment Launch contrast audit: current CTA tokens already clear WCAG AA (`6.74:1` normal, hover blends above `5.4:1`), so no style edit needed. Audit commit `b1c533d`. | verified closed | 1 |
+| T-230 | v1.4.6 Item 1 — Terminal snapshot/live-data race coverage: added command-room regression test that delays `rpc.pty.snapshot`, emits live `pty:data` mid-await, and asserts snapshot-first buffered replay order. Targeted test passes 4/4. Commit `64f781d`. | shipped | 1 |
+| T-231 | v1.4.6 handoff + PR: `BRIEF.md` result section added with per-item status, gate output, and out-of-scope `SessionStep.test.tsx` failure. PR #35 opened from `feat/v1.4.6-polish` to `main`; Ruflo/AgentDB completion pattern stored. Commit `c06f974` plus memory-update commit. | open-hold | 1 |

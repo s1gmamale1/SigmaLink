@@ -1711,3 +1711,28 @@ First real attempt at `opencode run -m qwen/qwen3-coder-plus` for non-interactiv
 
 ~45 minutes from "go" to both PRs merged. Sonnet on β finished first (PR #31, ~15min). opencode-Qwen on α failed silently (~5min wasted). Sonnet fallback on α finished (~8min). Reviewers in parallel (~4min each). Two merges + cleanup ~3min. Release prep + tag + CI watch + assets verified separate.
 
+## Phase 32 — v1.4.6 polish bundle (2026-05-18)
+
+v1.4.6 is a small mechanical polish PR (`feat/v1.4.6-polish`, PR #35) built from the v1.4.6 WISHLIST/BRIEF packet. Scope was intentionally narrow: five audited items, one commit per item, no CHANGELOG/release-memory edits during the original implementation pass until this explicit memory update. Ruflo MCP was used for coordination routing, sub-agent registration, post-task learning, and AgentDB pattern storage; Codex handled the actual file edits, gates, commits, push, and PR creation.
+
+### Items shipped / audited
+
+**Item 5 — macOS installer x64 gate**: `app/scripts/install-macos.sh` now supports both release asset shapes. `arm64` maps to `SigmaLink-${VERSION}-arm64.dmg`; `x86_64` maps to `SigmaLink-${VERSION}.dmg`; unsupported arch values fail with updated messaging. Syntax check passed. Commit `a8920cf`.
+
+**Item 3 — setup-node cache path**: every `actions/setup-node@v4` workflow step now pins `cache-dependency-path: app/pnpm-lock.yaml` instead of `app/package.json` or no dependency path. Files touched: e2e matrix, lint/build, native prebuild mac, macOS release, Windows release workflows. Commit `93abe63`.
+
+**Item 4 — vitest coverage thresholds audit**: no config edit required because `app/vitest.config.ts` already contained conservative thresholds (`lines: 22`, `statements: 21`, `functions: 21`, `branches: 18`) on the `main` baseline. Audit commit `df698bd` records that state. Coverage gate did run in under 5 minutes, but failed on the existing `SessionStep.test.tsx` "Resume newest for all" assertion outside this packet's allowed edit scope. Coverage also reported mixed package versions (`vitest@4.1.5` + `@vitest/coverage-v8@4.1.6`).
+
+**Item 2 — Parchment launch contrast audit**: no style edit required. Current Workspace Launcher CTA already routes through `bg-accent text-accent-foreground`, and Parchment tokens calculate above WCAG AA: normal contrast `6.74:1`; hover blends remain above `5.4:1`. Audit commit `b1c533d` records the measurement.
+
+**Item 1 — Terminal snapshot/live-data race coverage**: the source ordering had already moved into `terminal-cache.ts` during v1.4.2's xterm cache work, not in the thin `Terminal.tsx` host. v1.4.6 adds a regression test at the command-room boundary: delay `rpc.pty.snapshot`, emit `pty:data` during the await, assert xterm writes snapshot first and buffered live chunk second, then writes later live chunks directly. Commit `64f781d`.
+
+### Verification + known gate state
+
+Setup used the corrected pnpm-v9-safe path: `pnpm install --no-frozen-lockfile --ignore-scripts`, `node node_modules/electron/install.js`, `pnpm rebuild better-sqlite3 node-pty`, then build/electron compile. Passing gates: `pnpm exec tsc -b --pretty false`; `pnpm exec eslint .` with 0 errors / 1 pre-existing `use-session-restore.ts` warning; targeted Terminal test (1 file / 4 tests); `bash -n scripts/install-macos.sh`; `pnpm run build`; `node scripts/build-electron.cjs`.
+
+Blocked gates: full `pnpm exec vitest run` and `pnpm exec vitest run --coverage` both fail in pre-existing `src/renderer/features/workspace-launcher/SessionStep.test.tsx`, where `"Resume newest for all" selects top session for each pane` expects `session-aaa` but receives `null`. The packet did not touch workspace-launcher code and the brief explicitly forbade out-of-scope fixes, so the failure is documented in `BRIEF.md` and the PR body rather than papered over.
+
+### PR / memory notes
+
+PR #35 is open against `main` with branch `feat/v1.4.6-polish`. Commit order: `a8920cf` (Item 5), `93abe63` (Item 3), `df698bd` (Item 4 audit), `b1c533d` (Item 2 audit), `64f781d` (Item 1), `c06f974` (`BRIEF.md` result handoff), plus this memory update. AgentDB/Ruflo pattern stored for the constrained polish-bundle workflow: keep requested per-item commit order; use empty audit commits only when the requested state already exists; document blocked gates in `BRIEF.md` instead of editing forbidden files.
