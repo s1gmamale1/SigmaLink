@@ -52,7 +52,11 @@ jobs:
         run: node node_modules/electron/install.js
 
       - name: Rebuild native modules for Electron
-        run: pnpm rebuild better-sqlite3 node-pty
+        # Use @electron/rebuild so native modules are compiled against Electron's
+        # bundled Node ABI (20.9 in Electron 30), not the host Node ABI (20.16).
+        # Modules built against the wrong ABI fail to dlopen in Electron's renderer,
+        # causing a React boot crash that makes e2e tests false-green or all-fail.
+        run: npx @electron/rebuild -f -w better-sqlite3 -w node-pty
 
       - name: Build renderer + electron
         run: pnpm run build && node scripts/build-electron.cjs
