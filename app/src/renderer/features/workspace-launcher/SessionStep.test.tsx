@@ -97,8 +97,17 @@ function renderStep(
 beforeEach(() => {
   // v1.4.4 P5 — reset ALL mock state between tests to prevent module-state
   // cross-talk when SessionStep.test.tsx runs alongside the full suite.
+  //
+  // v1.4.7 — REMOVED vi.resetModules() that was added in v1.4.5. Under
+  // coverage instrumentation (v8/istanbul), resetModules causes the
+  // SessionStep module to be re-imported on every test but the top-of-file
+  // vi.mock('@/renderer/lib/rpc', ...) is NOT re-applied to the fresh
+  // module instance. The result was a CI flake that hit ~50% of macos-14
+  // runs under coverage (passed locally, failed in CI). The cross-suite
+  // flake v1.4.5 was trying to fix manifested as a different shape and
+  // was already mitigated by vi.resetAllMocks() + the fresh mockReset
+  // calls below; resetModules was over-correction.
   vi.resetAllMocks();
-  vi.resetModules(); // v1.4.5: full module-state isolation for cross-suite parallel runs
   mockListSessions.mockReset();
   mockLastResumePlan.mockReset();
   // Default: each provider returns one session.
