@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: '20.x'
           cache: 'pnpm'
-          cache-dependency-path: app/package.json
+          cache-dependency-path: app/pnpm-lock.yaml
 
       - name: Install (skip postinstall)
         run: pnpm install --no-frozen-lockfile --ignore-scripts
