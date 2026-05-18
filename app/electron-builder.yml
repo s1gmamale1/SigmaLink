@@ -8,6 +8,14 @@ files:
   - dist/**/*
   - electron-dist/**/*
   - package.json
+  # v1.4.6 — include the voice-mac native module so the bundled main.js can
+  # resolve `../native/voice-mac/index.js` at runtime. Both arch prebuilds
+  # (darwin-arm64 and darwin-x64) are included; node-gyp-build picks the
+  # matching one per DMG arch at process startup.
+  - native/voice-mac/index.js
+  - native/voice-mac/index.d.ts
+  - native/voice-mac/prebuilds/**/*
+  - native/voice-mac/node_modules/node-gyp-build/**/*
 # v1.0.1 — native-module packaging fix.
 # v1.0.0 shipped with asar packing enabled but no asarUnpack patterns, so
 # better-sqlite3's .node file was packed inside the asar archive. Electron

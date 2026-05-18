@@ -54,6 +54,30 @@ jobs:
       - name: Rebuild native modules for Electron
         run: pnpm rebuild better-sqlite3 node-pty
 
+      # v1.4.6 — cross-arch voice prebuild.
+      #
+      # Build voice-mac for BOTH arches before electron-builder runs so that
+      # node-gyp-build resolves the correct binary per DMG at pack time. Without
+      # this step, electron-builder's npmRebuild:true falls through to node-gyp
+      # rebuild which only targets the runner's native arch (arm64 on macos-14),
+      # and that arm64 binary ends up inside the x64 DMG too. On Intel Macs the
+      # dlopen fails and voice-mac/index.js returns the no-op stub → renderer
+      # falls back to Web Speech API instead of native Speech.framework.
+      #
+      # Post-pack verification: in dist/mac-x64/*.app/Contents/Resources/app/
+      #   native/voice-mac/prebuilds/darwin-x64/@sigmalink+voice-mac.node
+      # should be a Mach-O x86_64 bundle; darwin-arm64 should be arm64.
+      - name: Prebuild voice-mac for both arches
+        working-directory: native/voice-mac
+        run: |
+          npm install --ignore-scripts
+          npx prebuildify --napi --strip --arch=arm64
+          npx prebuildify --napi --strip --arch=x64
+          ls -la prebuilds/darwin-arm64/ prebuilds/darwin-x64/
+          file prebuilds/darwin-arm64/*.node | grep -q "arm64"
+          file prebuilds/darwin-x64/*.node  | grep -q "x86_64"
+          echo "voice-mac cross-arch prebuilds OK"
+
       - name: Build renderer + electron
         run: pnpm run build && node scripts/build-electron.cjs
 
