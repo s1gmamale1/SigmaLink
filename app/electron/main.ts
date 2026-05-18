@@ -293,7 +293,28 @@ function createWindow(): void {
     minWidth: 1024,
     minHeight: 660,
     title: 'SigmaLink',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    // v1.4.6 frameless chrome — drop the native title bar on all platforms so
+    // the app's top-bar (rooms menu, breadcrumbs, workspace switcher) blends
+    // edge-to-edge with the OS title region. 'hidden' is cross-platform; it
+    // hides the bar but keeps the window draggable via WebkitAppRegion:drag
+    // regions set in the renderer.
+    titleBarStyle: 'hidden',
+    // Windows / Linux — overlay the OS min/max/close buttons in the right
+    // corner of our top-bar. `color` matches the dark-theme background;
+    // `symbolColor` sets the glyph colour; `height: 32` matches top-bar h-8.
+    ...(process.platform !== 'darwin' && {
+      titleBarOverlay: {
+        color: '#0a0c12',
+        symbolColor: '#e5e5e5',
+        height: 32,
+      },
+    }),
+    // macOS — position the traffic-light buttons at (12, 12) so they align
+    // with our top-bar left-side padding. The WCO overlay approach is
+    // Windows/Linux-only; macOS uses trafficLightPosition instead.
+    ...(process.platform === 'darwin' && {
+      trafficLightPosition: { x: 12, y: 10 },
+    }),
     backgroundColor: '#0a0c12',
     show: false,
     webPreferences: {

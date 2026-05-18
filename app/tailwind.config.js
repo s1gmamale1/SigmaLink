@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+const plugin = require('tailwindcss/plugin');
+
 module.exports = {
   darkMode: ["class"],
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
@@ -89,5 +91,19 @@ module.exports = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    // v1.4.6 frameless chrome — Tailwind utilities for Electron WebKit drag
+    // regions. `.app-drag` makes an element a window-drag handle; `.app-no-drag`
+    // opts interactive children back out so clicks register. The renderer also
+    // uses the dragStyle() / noDragStyle() inline-style helpers from
+    // src/renderer/lib/drag-region.ts; these classes are provided for new
+    // components that prefer utility classes over inline styles.
+    plugin(function({ addUtilities }) {
+      addUtilities({
+        '.app-drag': { '-webkit-app-region': 'drag' },
+        '.app-no-drag': { '-webkit-app-region': 'no-drag' },
+      });
+    }),
+  ],
 }
