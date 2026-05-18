@@ -172,3 +172,9 @@ The lead reviews this section + the PR before merging.
   - Coverage run reports mixed versions: `vitest@4.1.5` with `@vitest/coverage-v8@4.1.6`.
 - PR: pending creation after pushing this branch.
 - Time taken: under 30 minutes.
+
+### Followup
+
+- Reviewer fix 1: reverted Item 3 cache keys away from `app/pnpm-lock.yaml` because that lockfile is gitignored and absent in CI checkouts, causing `actions/setup-node@v4` cache resolution to fail before lint/build. The active workflows now use the prior committed fallback, `app/package.json`, as the coarser but resolvable cache key.
+- Reviewer fix 2: removed the accidental `native-prebuild-mac.yml` cache-path touch entirely so PR #35 no longer modifies the deprecated native voice prebuild workflow or triggers its `pull_request.paths` lane.
+- Verification: `git diff main -- .github/workflows/native-prebuild-mac.yml` is empty after the fix; `rg -n "cache-dependency-path" .github/workflows` shows only committed `app/package.json` paths in active setup-node cache lanes; `git diff --check` passes.
