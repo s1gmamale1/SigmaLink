@@ -32,6 +32,18 @@ test('Sigma Assistant streams a real Claude CLI reply', async () => {
     return;
   }
 
+  // v1.4.7 packet-03 — also gate on SIGMA_E2E_CLAUDE=1. Even when the CLI is
+  // present, this test requires (a) valid Anthropic credentials on PATH and
+  // (b) network access to the Anthropic API. CI runners typically have the
+  // CLI binary present (auto-installed by setup-node's deps) but no
+  // credentials, so the test would hang for 90s on the "4" poll before
+  // surfacing a useless transcript-empty failure. Local dev opts in via
+  // `SIGMA_E2E_CLAUDE=1 pnpm exec playwright test tests/e2e/assistant-cli.spec.ts`.
+  if (process.env.SIGMA_E2E_CLAUDE !== '1') {
+    test.skip(true, 'Set SIGMA_E2E_CLAUDE=1 to run (requires Anthropic credentials + network).');
+    return;
+  }
+
   let app: ElectronApplication | null = null;
   try {
     app = await electron.launch({
@@ -61,22 +73,55 @@ test('Sigma Assistant streams a real Claude CLI reply', async () => {
       if ((await continueBtn.count()) === 0) break;
     }
 
-    // Open Sigma Assistant. The right-rail tab is labelled "Sigma Assistant"
-    // post-rebrand; fall back to "Bridge Assistant" when running on a
-    // pre-rebrand build.
+    // v1.4.7 packet-03 — Sigma Assistant requires an active workspace since
+    // v1.4.0 (SigmaRoom.tsx:180 renders EmptyState when activeWorkspace is null).
+    // Open the SigmaLink repo as a workspace + activate it before navigating.
+    const repoRoot = path.resolve(__dirname, '../../../');
+    await win.evaluate(async (root: string) => {
+      const sigma = (window as unknown as {
+        sigma: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> };
+      }).sigma;
+      await sigma.invoke('kv.set', 'app.onboarded', '1');
+      await sigma.invoke('workspaces.open', root);
+      window.dispatchEvent(new CustomEvent('sigma:test:activate-workspace', { detail: { rootPath: root } }));
+    }, repoRoot);
+    await win.waitForTimeout(1_200);
+
+    // Open Sigma Assistant via the rooms dropdown (v1.1.4+ layout) or fall
+    // back to the legacy tab pattern. Post-v1.4.1 rename, label is "Sigma
+    // Assistant" / room id is "sigma".
+    try {
+      const roomsTrigger = win.getByRole('button', { name: 'Open rooms menu' });
+      if (await roomsTrigger.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await roomsTrigger.click({ timeout: 3_000 });
+        await win.waitForTimeout(300);
+        const sigmaItem = win.getByRole('menuitem', { name: 'Sigma Assistant' });
+        if (await sigmaItem.isVisible({ timeout: 3_000 }).catch(() => false)) {
+          await sigmaItem.click({ timeout: 3_000 });
+        } else {
+          await win.keyboard.press('Escape').catch(() => undefined);
+        }
+      }
+    } catch {
+      // Fall through to legacy tab path.
+    }
+    // Legacy fallback: right-rail tab (pre-v1.1.4 layout).
     const sigmaTab = win
       .locator('button[role="tab"]', { hasText: /Sigma Assistant|Bridge Assistant/ })
       .first();
     if (await sigmaTab.count()) {
       await sigmaTab.click({ timeout: 5_000 }).catch(() => undefined);
     }
+    // Final fallback: sigma:test:set-room event (state.tsx hook).
+    await win.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('sigma:test:set-room', { detail: { room: 'sigma' } }));
+    });
     await win.waitForTimeout(500);
 
-    // Find the composer and submit the prompt.
-    const composer = win
-      .locator('textarea, [contenteditable="true"]')
-      .filter({ hasText: '' })
-      .last();
+    // Find the composer via its aria-label (post-v1.4.1 SigmaRoom split, the
+    // composer textarea has aria-label="Ask Sigma" — Composer.tsx:100).
+    const composer = win.locator('textarea[aria-label="Ask Sigma"]');
+    await composer.waitFor({ state: 'visible', timeout: 10_000 });
     await composer.fill("what's 2 + 2?");
     await composer.press('Enter');
 

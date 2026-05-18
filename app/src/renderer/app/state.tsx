@@ -98,6 +98,30 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('sigma:test:set-room', handler as EventListener);
   }, []);
 
+  // v1.4.7 packet-02 — Test-only hook for e2e tests that call workspaces.launch
+  // via raw IPC. The renderer's ADD_SESSIONS dispatch only fires through
+  // useSessionRestore (boot-time) or the Launcher UI click flow, so an
+  // IPC-only launch path has no way to surface the new sessions in renderer
+  // state. This event closes that gap. Listening on the active workspace id
+  // is sufficient because tests always activate-workspace BEFORE launch.
+  // No-op in production: the event is never dispatched outside tests.
+  useEffect(() => {
+    const handler = async () => {
+      const wsId = state.activeWorkspace?.id;
+      if (!wsId) return;
+      try {
+        const sessions = await rpc.panes.listForWorkspace(wsId);
+        if (sessions.length > 0) {
+          dispatch({ type: 'ADD_SESSIONS', sessions });
+        }
+      } catch {
+        /* test harness: swallow */
+      }
+    };
+    window.addEventListener('sigma:test:reload-sessions', handler as EventListener);
+    return () => window.removeEventListener('sigma:test:reload-sessions', handler as EventListener);
+  }, [state.activeWorkspace?.id]);
+
   useSessionRestore(state, dispatch);
   useWorkspaceMirror(state, dispatch);
   useLiveEvents(state, dispatch);
