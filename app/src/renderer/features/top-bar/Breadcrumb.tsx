@@ -22,17 +22,75 @@ import { RufloReadinessPill } from '@/renderer/components/RufloReadinessPill';
 import { RoomsMenuButton } from './RoomsMenuButton';
 import { RightRailSwitcher } from './RightRailSwitcher';
 
-// V1.2.0 Windows port — reserve 140px on the right edge so the breadcrumb's
-// rightmost cluster (RightRailSwitcher + settings gear) never collides with
-// Windows' native Window Caption Overlay (min / max / close buttons) which
-// render at top-right when `titleBarStyle: 'default'`. macOS / Linux leave it
-// unset because their window controls live on the left / outside the chrome.
-const WIN32_WCO_RESERVE_PX = 140;
+// v1.4.6 frameless chrome — Windows / Linux: `titleBarOverlay` places the
+// OS-managed min/max/close strip on the right side of the title bar.  We must
+// reserve that width so our rightmost cluster (RightRailSwitcher + gear) does
+// not render under the OS buttons.
+//
+// Static fallback (140 px) matches the pre-v1.4.6 default and is used when
+// the `windowControlsOverlay` geometry API is unavailable (older Electron, or
+// the app running in a non-Electron host during testing).
+//
+// macOS — traffic-light buttons sit at left (12, 10) per trafficLightPosition
+// in main.ts. We reserve ~80 px on the left so the rooms-menu button clears
+// them. No left padding is needed on Windows / Linux because the OS controls
+// are on the right.
+const WIN32_WCO_RESERVE_FALLBACK_PX = 140;
+const MACOS_TRAFFIC_LIGHT_RESERVE_PX = 80;
+
+function useWcoInsets(): { left: number | undefined; right: number | undefined } {
+  const [insets, setInsets] = useState<{ left: number | undefined; right: number | undefined }>(
+    () => computeInsets(),
+  );
+
+  useEffect(() => {
+    // Subscribe to geometry changes (e.g. display scaling, window resize) so
+    // the reserved space tracks the actual overlay position.
+    const overlay = (navigator as unknown as { windowControlsOverlay?: WindowControlsOverlay })
+      .windowControlsOverlay;
+    if (!overlay) return;
+
+    const onGeometry = () => setInsets(computeInsets());
+    overlay.addEventListener('geometrychange', onGeometry);
+    // Recompute once on mount to pick up the initial geometry after hydration.
+    onGeometry();
+    return () => overlay.removeEventListener('geometrychange', onGeometry);
+  }, []);
+
+  return insets;
+}
+
+interface WindowControlsOverlay extends EventTarget {
+  readonly visible: boolean;
+  getTitlebarAreaRect(): DOMRect;
+  addEventListener(type: 'geometrychange', listener: EventListenerOrEventListenerObject): void;
+  removeEventListener(type: 'geometrychange', listener: EventListenerOrEventListenerObject): void;
+}
+
+function computeInsets(): { left: number | undefined; right: number | undefined } {
+  const overlay = (navigator as unknown as { windowControlsOverlay?: WindowControlsOverlay })
+    .windowControlsOverlay;
+
+  if (IS_WIN32) {
+    if (overlay?.visible) {
+      const rect = overlay.getTitlebarAreaRect();
+      // The right inset = window width minus the right edge of the titlebar
+      // area (i.e. the strip the overlay buttons occupy on the far right).
+      const rightInset = window.innerWidth - rect.right;
+      return { left: undefined, right: rightInset > 0 ? rightInset : WIN32_WCO_RESERVE_FALLBACK_PX };
+    }
+    return { left: undefined, right: WIN32_WCO_RESERVE_FALLBACK_PX };
+  }
+
+  // macOS — traffic-light buttons are on the left; no dynamic API needed.
+  return { left: MACOS_TRAFFIC_LIGHT_RESERVE_PX, right: undefined };
+}
 
 export function Breadcrumb() {
   const { state } = useAppState();
   const active = state.activeWorkspace;
   const [userName, setUserName] = useState<string>('');
+  const { left: leftInset, right: rightInset } = useWcoInsets();
 
   // Hydrate kv on mount; if unset, peek at the path on the active workspace.
   useEffect(() => {
@@ -80,7 +138,8 @@ export function Breadcrumb() {
         className="flex h-8 items-center gap-2 border-b border-border bg-background/60 px-4 text-xs text-muted-foreground"
         style={{
           ...dragStyle(),
-          paddingRight: IS_WIN32 ? WIN32_WCO_RESERVE_PX : undefined,
+          paddingLeft: leftInset,
+          paddingRight: rightInset,
         }}
         data-testid="breadcrumb-empty"
       >
@@ -96,7 +155,8 @@ export function Breadcrumb() {
       className="flex h-8 items-center gap-1 border-b border-border bg-background/60 px-4 text-xs"
       style={{
         ...dragStyle(),
-        paddingRight: IS_WIN32 ? WIN32_WCO_RESERVE_PX : undefined,
+        paddingLeft: leftInset,
+        paddingRight: rightInset,
       }}
       data-testid="breadcrumb"
     >
