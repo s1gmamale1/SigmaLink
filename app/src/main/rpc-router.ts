@@ -70,6 +70,8 @@ import {
 } from './core/assistant/conversations-controller';
 import { buildDesignController } from './core/design/controller';
 import { buildVoiceController } from './core/voice/adapter';
+// v1.5.0 packet 09 — Cross-machine sync controller.
+import { buildSyncController } from './core/sync/controller';
 import { runVoiceDiagnostics } from './core/voice/diagnostics';
 import { fsReadDir, fsReadFile, fsWriteFile } from './core/fs/controller';
 import { getChannelSchema } from './core/rpc/schemas';
@@ -1265,6 +1267,12 @@ function buildRouter() {
   // notifications.markUnread, notifications.dismiss, notifications.clearRead.
   const notificationsCtl = buildNotificationsController(notificationsManager);
 
+  // v1.5.0 packet 09 — Cross-machine sync controller. Channels: sync.enable,
+  // sync.disable, sync.status, sync.listConflicts, sync.resolveConflict,
+  // sync.exportMnemonic, sync.isConfigured, sync.recoverFromMnemonic.
+  // SECURITY: the sync master key never appears in IPC responses.
+  const syncCtl = buildSyncController(getRawDb(), broadcast);
+
   return defineRouter({
     app: appCtl,
     pty: ptyCtl,
@@ -1285,6 +1293,7 @@ function buildRouter() {
     voice: voiceCtl,
     ruflo: rufloCtl,
     notifications: notificationsCtl,
+    sync: syncCtl,
   });
 }
 

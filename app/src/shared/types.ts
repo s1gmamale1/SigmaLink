@@ -471,3 +471,46 @@ export interface NotificationsDelta {
   removed: string[];
   unreadCount: number;
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Cross-machine sync (v1.5.0 packet 09)
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Packed HLC value for IPC transport (52-char hex string). */
+export type HlcPacked = string;
+
+/**
+ * User-provided configuration for the sync feature.
+ * SECURITY: username + password are renderer-supplied and forwarded to the
+ * main process only for the duration of a setup call. They are NEVER stored
+ * in IPC channels as plaintext; the main process stores them via CredentialStore.
+ */
+export interface SyncConfig {
+  remoteUrl: string;
+  /** Git HTTPS username / token prefix. */
+  username?: string;
+  /** Git HTTPS password / personal access token. */
+  password?: string;
+}
+
+/** Sync status snapshot — safe to cross IPC; contains NO key material. */
+export interface SyncStatus {
+  enabled: boolean;
+  lastPushAt?: number;
+  lastPullAt?: number;
+  lastError?: string;
+  /** Count of unresolved LWW conflicts awaiting user review. */
+  pendingConflicts: number;
+  /** Count of blobs quarantined pending a schema upgrade. */
+  pendingUpgrade: number;
+}
+
+/** Conflict record for the renderer's ConflictReview UI. */
+export interface SyncConflict {
+  id: string;
+  tableName: string;
+  rowId: string;
+  localRowJson: string;
+  remoteRowJson: string;
+  createdAt: number;
+}

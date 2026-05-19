@@ -25,6 +25,7 @@ import * as mig0015 from './migrations/0015_agent_session_sigma_monitor';
 import * as mig0016 from './migrations/0016_dead_row_hygiene';
 import * as mig0017 from './migrations/0017_pane_split_columns';
 import * as mig0018 from './migrations/0018_notifications';
+import * as mig0019 from './migrations/0019_sync_metadata';
 
 export interface Migration {
   name: string;
@@ -58,6 +59,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   mig0016,
   mig0017,
   mig0018,
+  mig0019,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `

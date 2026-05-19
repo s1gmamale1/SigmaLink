@@ -34,6 +34,9 @@ import type {
   TaskAssignment,
   TaskComment,
   TaskStatus,
+  SyncConfig,
+  SyncStatus,
+  SyncConflict,
 } from './types';
 
 export interface DiagnosticsReport {
@@ -916,5 +919,39 @@ export interface AppRouter {
     markUnread: (id: string) => Promise<void>;
     dismiss: (id: string) => Promise<void>;
     clearRead: () => Promise<{ removed: string[] }>;
+  };
+  /**
+   * v1.5.0 packet 09 — Cross-machine sync (opt-in, e2ee, git-backed).
+   *
+   * SECURITY NOTE: The sync master key NEVER appears in any response or
+   * IPC payload. Only SyncStatus + SyncConflict are safe to cross IPC.
+   * The `exportMnemonic` method is gated behind a re-confirmation prompt
+   * in the UI and returns a one-shot value that the caller must display
+   * and then discard.
+   */
+  sync: {
+    /** Enable sync with the given config. First-time call triggers setup wizard flow. */
+    enable: (config: SyncConfig) => Promise<SyncStatus>;
+    /** Disable sync on this device. Local data is preserved. */
+    disable: () => Promise<void>;
+    /** Read current sync status. */
+    status: () => Promise<SyncStatus>;
+    /** List unresolved LWW conflicts. */
+    listConflicts: () => Promise<SyncConflict[]>;
+    /** Apply a user's explicit conflict resolution choice. */
+    resolveConflict: (input: {
+      conflictId: string;
+      resolution: 'keep_local' | 'keep_remote';
+    }) => Promise<void>;
+    /**
+     * Export the mnemonic for the current device's key — one-shot, must
+     * only be called after a re-confirmation dialog (the renderer enforces
+     * this in the setup wizard + settings UX).
+     */
+    exportMnemonic: () => Promise<string | null>;
+    /** Check whether sync is configured on this device. */
+    isConfigured: () => Promise<boolean>;
+    /** Recovery: import an existing mnemonic on a new device. */
+    recoverFromMnemonic: (mnemonic: string) => Promise<void>;
   };
 }

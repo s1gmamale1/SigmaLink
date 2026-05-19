@@ -17,6 +17,7 @@ import { RufloSettings } from './RufloSettings';
 import { VoiceTab } from './VoiceTab';
 import { StorageTab } from './StorageTab';
 import { NotificationsSettings } from './NotificationsSettings';
+import { SyncTab } from './SyncTab';
 
 export function SettingsRoom() {
   return (
@@ -39,6 +40,7 @@ export function SettingsRoom() {
               <TabsTrigger value="notifications">Notifications</TabsTrigger>
               <TabsTrigger value="ruflo">Ruflo</TabsTrigger>
               <TabsTrigger value="updates">Updates</TabsTrigger>
+              <TabsTrigger value="sync">Sync</TabsTrigger>
               <TabsTrigger value="storage">Storage</TabsTrigger>
               <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
             </TabsList>
@@ -63,6 +65,9 @@ export function SettingsRoom() {
               </TabsContent>
               <TabsContent value="updates" className="mt-0">
                 <UpdatesTab />
+              </TabsContent>
+              <TabsContent value="sync" className="mt-0">
+                <SyncTab />
               </TabsContent>
               <TabsContent value="storage" className="mt-0">
                 <StorageTab />
