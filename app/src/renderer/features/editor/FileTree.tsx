@@ -47,6 +47,9 @@ interface NodeProps {
   selectedPath: string | null;
   onToggle: (p: string) => void;
   onOpen: (p: string) => void;
+  /** v1.4.8 drag-drop — passed through so the drag payload carries both paths. */
+  workspaceId: string;
+  rootPath: string;
 }
 
 interface Props {
@@ -194,6 +197,8 @@ function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Prop
           selectedPath={selectedPath}
           onToggle={toggle}
           onOpen={onOpenFile}
+          workspaceId={workspaceId}
+          rootPath={rootPath}
         />
         {error ? (
           <div className="px-2 py-1 text-[11px] text-destructive">{error}</div>
@@ -214,6 +219,8 @@ const TreeNode = memo(function TreeNode(props: NodeProps) {
     selectedPath,
     onToggle,
     onOpen,
+    workspaceId,
+    rootPath,
   } = props;
 
   const isOpen = expanded.has(fullPath);
@@ -230,6 +237,22 @@ const TreeNode = memo(function TreeNode(props: NodeProps) {
       {!isRoot ? (
         <button
           type="button"
+          draggable
+          onDragStart={(e) => {
+            // v1.4.8 — Compute workspace-relative path by stripping the
+            // rootPath prefix. Falls back to absolutePath when the file is
+            // outside the workspace root (e.g. symlink target elsewhere).
+            const sep = fullPath.includes('\\') && !fullPath.startsWith('/') ? '\\' : '/';
+            const prefix = rootPath.endsWith(sep) ? rootPath : rootPath + sep;
+            const relativePath = fullPath.startsWith(prefix)
+              ? fullPath.slice(prefix.length)
+              : fullPath;
+            e.dataTransfer.setData(
+              'application/sigmalink-file',
+              JSON.stringify({ absolutePath: fullPath, relativePath, workspaceId }),
+            );
+            e.dataTransfer.effectAllowed = 'copy';
+          }}
           onClick={() => (type === 'dir' ? onToggle(fullPath) : onOpen(fullPath))}
           onDoubleClick={() => type === 'dir' && onOpen(fullPath)}
           className={cn(
@@ -294,6 +317,8 @@ const TreeNode = memo(function TreeNode(props: NodeProps) {
                   selectedPath={selectedPath}
                   onToggle={onToggle}
                   onOpen={onOpen}
+                  workspaceId={workspaceId}
+                  rootPath={rootPath}
                 />
               );
             })
