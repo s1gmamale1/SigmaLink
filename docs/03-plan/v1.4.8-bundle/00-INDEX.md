@@ -39,14 +39,33 @@
 
 **Total all-shipped**: ~20-28 dev-days. **Recommend phased release** across v1.4.8 → v1.5.0.
 
-## Suggested release grouping (refreshed post-review)
+## Suggested release grouping — 3 work sessions (Option A, locked 2026-05-20)
 
-| Release | Packets | Total | Theme |
-|---|---|---|---|
-| **v1.4.8** | 01, 02, 03, 05 | ~1-1.5d | Paper-cuts + UAC dogfood. All XS/S/M. Ready to dispatch tonight |
-| **v1.4.9** | 06, 07 | ~4-5d | Provider auto-install + Notifications. UX-decision-heavy but no L-effort design |
-| **v1.4.10** | 04 (macOS only) | ~5d | Voice capture mac validation. Lazy-download UX shakedown |
-| **v1.5.0** | 04 (Win+Linux), 08, 09 | ~10-15d | Cross-platform voice + cross-machine sync. Threat model + security review gate |
+Each "session" = one bundled dispatch + reviewer pass + release. Compressed from a 4-release plan to 3 to reduce per-release overhead (~1hr each: CHANGELOG + version bump + release notes + memory rows + tag + CI watch).
+
+| Session | Release | Packets | Effort | Lead Q's | Status |
+|---|---|---|---|---|---|
+| **A** | v1.4.8 | 01 browser-cleanup, 02 sidebar-resize, 03 drag-drop, 05 win-autoupdate | ~1.5d | 0 | **Ready NOW** — all unblocked, no design decisions pending. Dispatch ~4 parallel agents |
+| **B** | v1.4.9 | 06 provider-install, 07 notifications, 04 voice-capture (macOS only) | ~10d | 16 (4 + 5 + 7) | Lead answers 16 questions in one sitting, then dispatch UX-decision cluster as 3 parallel agents. macOS voice capture lands here to validate lazy-download UX before fanning to Win+Linux |
+| **C** | v1.5.0 | 04 voice-capture (Win+Linux), 08 SAPI5, 09 cross-sync | ~10-12d | 6 + security signoff | Needs Windows VM + threat-model signoff for 09. Heaviest sprint of the bundle. Sequence: 09 signoff → 09+04-Win+Linux+08 parallel (or fold 08 STT into 04's whisper.cpp — open consolidation question) |
+
+### Why 3 sessions, not 4
+
+- **A** is the obvious paper-cut bundle: zero lead questions, all XS/S/M, ships in one work session
+- **B** consolidates ALL pending UX decisions (provider-install consent UX + notification taxonomy + voice hotkey/output policy) so lead answers them ONCE. Voice macOS rides along to shake out lazy-download UX before the cross-platform fan-out
+- **C** is the heavy/security cluster: Windows VM required for 3 of 3 packets, security signoff for 1 of 3. Natural single sprint
+
+### Why not 2 mega-sessions
+
+Considered. Rejected because:
+- Merging 07 (notifications) with C means it waits behind security signoff for no reason
+- Session B at ~10d is already close to reviewer-fatigue threshold; pushing to 12-14d (Option C) compounds rollback risk
+
+### Trigger conditions per session
+
+- **A → ship**: nothing blocking. Dispatch any time
+- **B → ship**: lead answers the 16 questions in this index. Dispatch within same conversation
+- **C → ship**: B's voice-capture-mac validates lazy-download UX cleanly AND lead signs off 09 threat model (S1/S5/S6/S8). Windows VM access confirmed
 
 ## All lead questions surfaced by the reviews
 
