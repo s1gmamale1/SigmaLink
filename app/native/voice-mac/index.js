@@ -40,6 +40,10 @@ function buildStub() {
     onFinal: noop,
     onError: noop,
     onState: noop,
+    // v1.4.9 — global-capture output-router helpers (stubs on non-darwin)
+    getFrontmostAppBundleId() { return ''; },
+    isTrustedAccessibility(_prompt) { return false; },
+    sendPasteKeystroke() { /* no-op on non-darwin */ },
   };
 }
 

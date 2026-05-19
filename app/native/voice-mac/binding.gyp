@@ -29,7 +29,10 @@
               "-framework Speech",
               "-framework AVFoundation",
               "-framework Foundation",
-              "-framework AudioToolbox"
+              "-framework AudioToolbox",
+              "-framework AppKit",
+              "-framework ApplicationServices",
+              "-framework CoreGraphics"
             ]
           }
         }]

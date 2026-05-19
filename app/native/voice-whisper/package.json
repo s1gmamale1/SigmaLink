@@ -1,0 +1,36 @@
+{
+  "name": "@sigmalink/voice-whisper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "whisper.cpp N-API binding for SigmaLink global voice capture. Falls back to a no-op stub when the native binary is missing.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "src",
+    "binding.gyp",
+    "prebuilds"
+  ],
+  "scripts": {
+    "install": "node-gyp-build",
+    "rebuild": "node-gyp rebuild",
+    "prebuild": "prebuildify --napi --strip"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.1.0",
+    "node-gyp-build": "^4.8.1"
+  },
+  "devDependencies": {
+    "node-gyp": "^10.2.0",
+    "prebuildify": "^6.0.1"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
