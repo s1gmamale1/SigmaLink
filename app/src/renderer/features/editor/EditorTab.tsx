@@ -12,6 +12,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -20,6 +21,7 @@ import { AlertTriangle, FileCode2, Save } from 'lucide-react';
 import { useTheme } from '@/renderer/app/ThemeProvider';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
+import { rpc } from '@/renderer/lib/rpc';
 import { FileTree } from './FileTree';
 import {
   EDITOR_FOCUS_EVENT,
@@ -59,11 +61,87 @@ function languageForPath(p: string): string {
   return LANG_MAP[p.toLowerCase().slice(dot + 1)] ?? 'plaintext';
 }
 
+const EDITOR_SIDEBAR_DEFAULT = 240;
+const EDITOR_SIDEBAR_MIN = 160;
+const EDITOR_SIDEBAR_MAX = 600;
+const EDITOR_SIDEBAR_KV_KEY = 'editor.sidebar.width';
+
 export function EditorTab() {
   const { state } = useAppState();
   const { theme } = useTheme();
   const editor = useEditor();
   const [monacoBroken, setMonacoBroken] = useState(false);
+
+  // v1.4.8 packet-02 — stateful sidebar width with kv persistence.
+  const [sidebarWidth, setSidebarWidth] = useState<number>(EDITOR_SIDEBAR_DEFAULT);
+  const isDragging = useRef(false);
+  const rafHandle = useRef<number | null>(null);
+
+  useEffect(() => {
+    void rpc.kv.get(EDITOR_SIDEBAR_KV_KEY).then((v) => {
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= EDITOR_SIDEBAR_MIN && n <= EDITOR_SIDEBAR_MAX) {
+        setSidebarWidth(n);
+      }
+    });
+  }, []);
+
+  const startEditorSidebarDrag = useCallback(
+    (ev: React.PointerEvent<HTMLDivElement>) => {
+      ev.preventDefault();
+      const startX = ev.clientX;
+      const startWidth = sidebarWidth;
+      isDragging.current = true;
+      document.body.dataset.dragging = 'true';
+
+      // `pending` holds the next value waiting for a rAF tick.
+      // `committed` holds the last value we actually applied (for kv persist on up).
+      let pending: number | null = null;
+      let committed = startWidth;
+
+      const flush = () => {
+        if (pending !== null) {
+          committed = pending;
+          setSidebarWidth(pending);
+        }
+        pending = null;
+        rafHandle.current = null;
+      };
+
+      const move = (e: PointerEvent) => {
+        pending = Math.max(
+          EDITOR_SIDEBAR_MIN,
+          Math.min(EDITOR_SIDEBAR_MAX, startWidth + (e.clientX - startX)),
+        );
+        if (rafHandle.current === null) {
+          rafHandle.current = requestAnimationFrame(flush);
+        }
+      };
+
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        isDragging.current = false;
+        delete document.body.dataset.dragging;
+        // Flush any pending rAF synchronously on pointerup.
+        if (rafHandle.current !== null) {
+          cancelAnimationFrame(rafHandle.current);
+          rafHandle.current = null;
+          if (pending !== null) {
+            committed = pending;
+            setSidebarWidth(pending);
+          }
+        }
+        pending = null;
+        // Persist the final committed width to kv.
+        void rpc.kv.set(EDITOR_SIDEBAR_KV_KEY, String(committed));
+      };
+
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    },
+    [sidebarWidth],
+  );
 
   const ws = state.activeWorkspace;
   const treeRoot = ws?.repoRoot ?? ws?.rootPath ?? null;
@@ -126,8 +204,8 @@ export function EditorTab() {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-row">
       <aside
-        className="flex h-full min-h-0 shrink-0 flex-col border-r border-border bg-sidebar"
-        style={{ width: 240 }}
+        className="flex h-full min-h-0 shrink-0 flex-col bg-sidebar"
+        style={{ width: sidebarWidth }}
         aria-label="File tree"
       >
         <FileTree
@@ -137,6 +215,19 @@ export function EditorTab() {
           onOpenFile={handleOpen}
         />
       </aside>
+      {/* v1.4.8 packet-02 — 4px drag divider; border-r lives here so it
+          doesn't move with the aside width. Double-click resets to default. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize file tree"
+        className="w-1 shrink-0 cursor-col-resize border-r border-border hover:bg-accent active:bg-accent/70"
+        onPointerDown={startEditorSidebarDrag}
+        onDoubleClick={() => {
+          setSidebarWidth(EDITOR_SIDEBAR_DEFAULT);
+          void rpc.kv.set(EDITOR_SIDEBAR_KV_KEY, String(EDITOR_SIDEBAR_DEFAULT));
+        }}
+      />
       <section className="flex h-full min-h-0 flex-1 flex-col">
         <EditorHeader
           file={editor.file}
