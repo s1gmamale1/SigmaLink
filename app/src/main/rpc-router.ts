@@ -747,6 +747,60 @@ function buildRouter() {
       })),
     probeAll: async () => probeAllProviders(),
     probe: async (id: string) => probeProviderById(id),
+    // v1.4.9-06 — Spawn the provider's installCommand in an ephemeral PTY.
+    // Uses the user's home directory as cwd so the install is not scoped
+    // to any particular workspace. The pane lifecycle matches regular panes
+    // (stays open on exit-0; user dismisses manually).
+    spawnInstall: async (providerId: string): Promise<{ paneId: string }> => {
+      const def = AGENT_PROVIDERS.find((p) => p.id === providerId);
+      if (!def) throw new Error(`providers.spawnInstall: unknown provider '${providerId}'`);
+      const platform = process.platform as 'darwin' | 'linux' | 'win32';
+      const cmd = def.installCommand?.[platform] ?? def.installCommand?.linux;
+      if (!cmd || cmd.length === 0) {
+        throw new Error(
+          `providers.spawnInstall: no installCommand for provider '${providerId}' on ${platform}`,
+        );
+      }
+      const [command, ...args] = cmd;
+      const rec = pty.create({
+        // Use a sentinel providerId so the PTY registry does not confuse
+        // this with a real agent session; 'shell' is the closest sentinel.
+        providerId: 'shell',
+        command: command!,
+        args,
+        cwd: app.getPath('home'),
+        cols: 80,
+        rows: 24,
+      });
+      return { paneId: rec.id };
+    },
+    // v1.4.9-06 — Consent gating. Key schema:
+    //   kv['provider.autoinstall.consent.<providerId>'] = 'declined'
+    // Absence means "not yet decided".
+    setInstallConsent: async (providerId: string, decision: 'declined'): Promise<void> => {
+      if (typeof providerId !== 'string' || !providerId) {
+        throw new Error('providers.setInstallConsent: providerId must be a non-empty string');
+      }
+      const allowed = ['declined'] as const;
+      if (!(allowed as readonly string[]).includes(decision)) {
+        throw new Error(`providers.setInstallConsent: invalid decision '${String(decision)}'`);
+      }
+      getRawDb()
+        .prepare(
+          `INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        )
+        .run(`provider.autoinstall.consent.${providerId}`, decision);
+    },
+    getInstallConsent: async (providerId: string): Promise<'declined' | null> => {
+      if (typeof providerId !== 'string' || !providerId) return null;
+      const row = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get(`provider.autoinstall.consent.${providerId}`) as { value?: string } | undefined;
+      const val = row?.value;
+      if (val === 'declined') return 'declined';
+      return null;
+    },
   });
 
   const workspacesCtl = defineController({

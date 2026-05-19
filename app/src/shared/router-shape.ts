@@ -199,6 +199,24 @@ export interface AppRouter {
     >;
     probeAll: () => Promise<ProviderProbe[]>;
     probe: (id: string) => Promise<ProviderProbe>;
+    /**
+     * v1.4.9-06 — Spawn the provider's install command in an ephemeral PTY
+     * pane. Returns the pane's session id so the renderer can subscribe to
+     * `pty:data` events and display live output. The pane stays open on
+     * exit-0 (consistent with existing pane lifecycle).
+     */
+    spawnInstall: (providerId: string) => Promise<{ paneId: string }>;
+    /**
+     * v1.4.9-06 — Persist the user's install-consent decision for a provider.
+     * `'declined'` means "never prompt again until reset". Absence of a stored
+     * value means the modal will appear next time.
+     */
+    setInstallConsent: (providerId: string, decision: 'declined') => Promise<void>;
+    /**
+     * v1.4.9-06 — Read the stored install-consent decision for a provider.
+     * Returns `'declined'` or `null` (not yet decided / reset).
+     */
+    getInstallConsent: (providerId: string) => Promise<'declined' | null>;
   };
   workspaces: {
     pickFolder: () => Promise<{ path: string } | null>;

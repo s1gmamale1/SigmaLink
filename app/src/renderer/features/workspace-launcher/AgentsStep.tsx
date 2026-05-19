@@ -15,11 +15,12 @@
 // "Skip — no agents / Open without AI" lives below the matrix and zeroes
 // the counts so the launcher spawns plain Shell panes.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { AGENT_PROVIDERS, type AgentProviderDefinition } from '@/shared/providers';
 import type { ProviderProbe } from '@/shared/types';
+import { ProviderInstallModal } from './ProviderInstallModal';
 
 // v1.2.4 matrix order. `custom` is a renderer-only "Custom Command" row that
 // falls back to the internal shell sentinel at launch time.
@@ -109,12 +110,8 @@ export function AgentsStep({
   const probeMap = useMemo(() => new Map(probes.map((p) => [p.id, p])), [probes]);
   const rows = useMemo(() => buildRows(probeMap), [probeMap]);
 
-  const [showHint, setShowHint] = useState<string | null>(null);
-  useEffect(() => {
-    if (!showHint) return;
-    const t = setTimeout(() => setShowHint(null), 3000);
-    return () => clearTimeout(t);
-  }, [showHint]);
+  // v1.4.9-06 — install modal state; null = closed, string = open for that provider
+  const [installModalId, setInstallModalId] = useState<string | null>(null);
 
   const used = Object.values(counts).reduce((a, b) => a + b, 0);
   const remaining = totalPanes - used;
@@ -209,7 +206,7 @@ export function AgentsStep({
                   {row.found === false && !row.comingSoon && row.id !== 'custom' ? (
                     <button
                       type="button"
-                      onClick={() => setShowHint(row.id)}
+                      onClick={() => setInstallModalId(row.id)}
                       className="rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-amber-500 hover:bg-amber-500/25"
                     >
                       Not on PATH
@@ -217,7 +214,7 @@ export function AgentsStep({
                   ) : null}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {showHint === row.id ? row.installHint : row.description}
+                  {row.description}
                 </div>
               </div>
               <CounterControls
@@ -255,6 +252,14 @@ export function AgentsStep({
           Open without AI — panes spawn plain interactive shells.
         </span>
       </label>
+
+      {/* v1.4.9-06 — provider install modal */}
+      {installModalId ? (
+        <ProviderInstallModal
+          providerId={installModalId}
+          onClose={() => setInstallModalId(null)}
+        />
+      ) : null}
     </div>
   );
 }
