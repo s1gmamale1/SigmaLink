@@ -7,7 +7,7 @@
 // Cmd+Alt+<N> focus jumps. The legacy PaneStatusStrip was collapsed into
 // PaneHeader's provider-name tooltip; Stop moves to the right-click menu.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { FolderOpen, Plus, Square, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -471,6 +471,7 @@ export function CommandRoom() {
                   session={session}
                   paneIndex={ctx.index + 1}
                   providers={providers}
+                  workspaceRootPath={activeWorkspace.rootPath}
                   onFocus={() => ctx.activate()}
                   onRemove={() => handleRemove(session)}
                   onStop={() => handleStop(session)}
@@ -495,6 +496,7 @@ export function CommandRoom() {
                 paneIndex={ctx.index + 1}
                 providers={providers}
                 focusedPaneId={focusedPaneId}
+                workspaceRootPath={activeWorkspace.rootPath}
                 onActivate={(id) => {
                   if (activeSessionId !== id) {
                     dispatch({ type: 'SET_ACTIVE_SESSION', id });
@@ -519,10 +521,27 @@ export function CommandRoom() {
   );
 }
 
+// v1.4.8 — Max number of files allowed in a single Finder multi-drop.
+const MAX_DROP_FILES = 10;
+
+/**
+ * Inserts `@<path> ` into the PTY for `sessionId`. Shows a toast when the
+ * pane is not running instead of silently no-opping (the registry already
+ * swallows unknown session writes without throwing).
+ */
+async function insertMention(sessionId: string, path: string, sessionStatus: AgentSession['status']): Promise<void> {
+  if (sessionStatus !== 'running') {
+    toast.warning('Pane is not running', { description: 'Start the pane before dropping files.' });
+    return;
+  }
+  await rpc.pty.write(sessionId, `@${path} `);
+}
+
 function PaneCell({
   session,
   paneIndex,
   providers,
+  workspaceRootPath,
   onFocus,
   onRemove,
   onStop,
@@ -541,6 +560,8 @@ function PaneCell({
   session: AgentSession;
   paneIndex: number;
   providers: { id: string; name: string }[];
+  /** v1.4.8 — workspace root used to compute relative paths for Finder drops. */
+  workspaceRootPath: string;
   onFocus: () => void;
   onRemove: () => void;
   onStop: () => void;
@@ -550,9 +571,75 @@ function PaneCell({
   onToggleFullscreen: () => void;
   inSplitGroup?: boolean;
 }) {
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [flashDrop, setFlashDrop] = useState(false);
+
   const errored = session.status === 'error';
   const exited = session.status === 'exited';
   const hasWorktree = !!session.worktreePath;
+
+  // v1.4.8 — Accept drags from the IDE file-tree (custom MIME) or Finder (Files).
+  function handleDragOver(e: DragEvent<HTMLDivElement>): void {
+    const hasSigmaFile = e.dataTransfer.types.includes('application/sigmalink-file');
+    const hasFiles = e.dataTransfer.types.includes('Files');
+    if (hasSigmaFile || hasFiles) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      if (!isDragOver) setIsDragOver(true);
+    }
+  }
+
+  function handleDragLeave(e: DragEvent<HTMLDivElement>): void {
+    // Only clear when the pointer leaves the pane body entirely, not just a child.
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setIsDragOver(false);
+    }
+  }
+
+  function handleDrop(e: DragEvent<HTMLDivElement>): void {
+    e.preventDefault();
+    setIsDragOver(false);
+    setFlashDrop(true);
+    setTimeout(() => setFlashDrop(false), 200);
+
+    const sigmaRaw = e.dataTransfer.getData('application/sigmalink-file');
+    if (sigmaRaw) {
+      try {
+        const payload = JSON.parse(sigmaRaw) as { absolutePath?: string; relativePath?: string };
+        const path = payload.relativePath ?? payload.absolutePath ?? '';
+        if (path) {
+          void insertMention(session.id, path, session.status);
+        }
+      } catch {
+        /* malformed payload — ignore */
+      }
+      return;
+    }
+
+    // Finder / external drop — use window.sigma.getPathForFile for each File.
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+    if (files.length > MAX_DROP_FILES) {
+      toast.warning(`Dropping ${files.length} files — capped at ${MAX_DROP_FILES}`, {
+        description: 'Only the first 10 files were inserted.',
+      });
+    }
+    const capped = files.slice(0, MAX_DROP_FILES);
+    const paths: string[] = [];
+    for (const file of capped) {
+      const absPath = window.sigma.getPathForFile(file);
+      if (!absPath) continue;
+      const sep = absPath.includes('\\') && !absPath.startsWith('/') ? '\\' : '/';
+      const prefix = workspaceRootPath.endsWith(sep)
+        ? workspaceRootPath
+        : workspaceRootPath + sep;
+      const rel = absPath.startsWith(prefix) ? absPath.slice(prefix.length) : absPath;
+      paths.push(rel);
+    }
+    if (paths.length === 0) return;
+    const mention = paths.join(' @');
+    void insertMention(session.id, mention, session.status);
+  }
 
   function handleReveal() {
     if (!session.worktreePath) return;
@@ -594,9 +681,19 @@ function PaneCell({
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
-            className="relative flex min-h-0 flex-1 flex-col"
+            className={[
+              'relative flex min-h-0 flex-1 flex-col',
+              isDragOver && 'ring-2 ring-inset ring-[hsl(var(--ring))]',
+              flashDrop && 'bg-[hsl(var(--ring)/0.08)]',
+            ]
+              .filter(Boolean)
+              .join(' ')}
             style={minimised ? { display: 'none' } : undefined}
             data-pane-minimised={minimised ? 'true' : undefined}
+            data-dragover={isDragOver ? 'true' : undefined}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
           >
             <div className="relative min-h-0 flex-1">
               {errored ? (
@@ -655,6 +752,7 @@ function SplitGroupCell({
   paneIndex,
   providers,
   focusedPaneId,
+  workspaceRootPath,
   onActivate,
   onRemove,
   onStop,
@@ -665,6 +763,8 @@ function SplitGroupCell({
   paneIndex: number;
   providers: { id: string; name: string }[];
   focusedPaneId: string | null;
+  /** v1.4.8 — forwarded to PaneCell for Finder-drop path normalisation. */
+  workspaceRootPath: string;
   onActivate: (id: string) => void;
   onRemove: (s: AgentSession) => void;
   onStop: (s: AgentSession) => void;
@@ -747,6 +847,7 @@ function SplitGroupCell({
             session={p}
             paneIndex={paneIndex}
             providers={providers}
+            workspaceRootPath={workspaceRootPath}
             onFocus={() => onActivate(p.id)}
             onRemove={() => onRemove(p)}
             onStop={() => onStop(p)}

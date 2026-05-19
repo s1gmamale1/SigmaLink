@@ -44,6 +44,7 @@ const addAgentMock = vi.fn();
 const listProvidersMock = vi.fn();
 const listSwarmsMock = vi.fn();
 const ptyKillMock = vi.fn();
+const ptyWriteMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -58,6 +59,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
     },
     pty: {
       kill: (...args: unknown[]) => ptyKillMock(...args),
+      write: (...args: unknown[]) => ptyWriteMock(...args),
     },
     app: {
       revealInFolder: vi.fn(),
@@ -117,6 +119,7 @@ beforeEach(() => {
   listProvidersMock.mockReset();
   listSwarmsMock.mockReset();
   ptyKillMock.mockReset();
+  ptyWriteMock.mockReset();
   listProvidersMock.mockResolvedValue([
     { id: 'claude', name: 'Claude' },
     { id: 'codex', name: 'Codex' },
@@ -296,5 +299,140 @@ describe('CommandRoom — v1.4.3 #06 cell grouping', () => {
 
     await waitFor(() => screen.getByTestId('terminal-s1'));
     expect(screen.getByTestId('terminal-s2')).toBeTruthy();
+  });
+});
+
+// ---- v1.4.8 drag-drop tests -----------------------------------------------
+//
+// jsdom does not implement a spec-compliant DataTransfer constructor, so we
+// build a minimal stub that satisfies the drop-handler's read path.
+
+function makeDataTransfer(
+  overrides: Partial<{
+    types: string[];
+    sigmaPayload: string | null;
+    files: File[];
+  }> = {},
+): DataTransfer {
+  const { types = [], sigmaPayload = null, files = [] } = overrides;
+  const dataMap = new Map<string, string>();
+  if (sigmaPayload !== null) {
+    dataMap.set('application/sigmalink-file', sigmaPayload);
+  }
+  return {
+    types,
+    files: files as unknown as FileList,
+    dropEffect: 'none',
+    effectAllowed: 'none',
+    getData: (key: string) => dataMap.get(key) ?? '',
+    setData: (key: string, value: string) => { dataMap.set(key, value); },
+    clearData: vi.fn(),
+    items: {} as DataTransferItemList,
+    setDragImage: vi.fn(),
+  } as unknown as DataTransfer;
+}
+
+describe('CommandRoom — v1.4.8 drag-drop file @-mention', () => {
+  beforeEach(() => {
+    // Stub window.sigma so PaneCell's Finder-drop path doesn't throw.
+    Object.defineProperty(window, 'sigma', {
+      configurable: true,
+      value: {
+        invoke: vi.fn(),
+        eventOn: vi.fn(() => () => undefined),
+        eventSend: vi.fn(),
+        getPathForFile: vi.fn((file: File) => `/abs/${file.name}`),
+        platform: 'darwin' as NodeJS.Platform,
+      },
+    });
+    ptyWriteMock.mockResolvedValue(undefined);
+  });
+
+  /** Find the pane body div that carries onDragOver/onDrop. */
+  function findPaneBody(): Element | null {
+    // The pane body has class tokens: 'relative flex min-h-0 flex-1 flex-col'
+    // and is not a split-group grid. We match by the subset of class tokens.
+    for (const div of document.querySelectorAll('div')) {
+      const cls = div.className;
+      if (
+        cls.includes('min-h-0') &&
+        cls.includes('flex-1') &&
+        cls.includes('flex-col') &&
+        cls.includes('relative')
+      ) {
+        return div;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Fire a synthetic drop event with a custom dataTransfer stub.
+   * jsdom's DragEvent constructor does not honour the `dataTransfer` init
+   * dict, so we dispatch a plain Event and Object.assign the dataTransfer
+   * onto it before dispatch.
+   */
+  function fireDrop(target: Element, dt: DataTransfer): void {
+    const dropEv = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(dropEv, 'dataTransfer', { value: dt });
+    target.dispatchEvent(dropEv);
+  }
+
+  function fireDragOver(target: Element, dt: DataTransfer): void {
+    const ev = new Event('dragover', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'dataTransfer', { value: dt });
+    target.dispatchEvent(ev);
+  }
+
+  it('calls rpc.pty.write with "@<relativePath> " on drop of sigmalink-file payload', async () => {
+    mockState.sessionsByWorkspace = { 'ws-1': [makeSession({ id: 's1', status: 'running' })] };
+    mockState.swarmsByWorkspace = { 'ws-1': [makeSwarm('running')] };
+    await renderCommandRoom();
+    await waitFor(() => screen.getByTestId('terminal-s1'));
+
+    const payload = JSON.stringify({
+      absolutePath: '/tmp/ws-1/src/App.tsx',
+      relativePath: 'src/App.tsx',
+      workspaceId: 'ws-1',
+    });
+    const dt = makeDataTransfer({
+      types: ['application/sigmalink-file'],
+      sigmaPayload: payload,
+    });
+
+    const paneDiv = findPaneBody();
+    expect(paneDiv).not.toBeNull();
+
+    fireDragOver(paneDiv!, dt);
+    fireDrop(paneDiv!, dt);
+
+    await waitFor(() => {
+      expect(ptyWriteMock).toHaveBeenCalledWith('s1', '@src/App.tsx ');
+    });
+  });
+
+  it('does NOT call rpc.pty.write when session status is "exited"', async () => {
+    mockState.sessionsByWorkspace = { 'ws-1': [makeSession({ id: 's1', status: 'exited' })] };
+    mockState.swarmsByWorkspace = { 'ws-1': [makeSwarm('running')] };
+    await renderCommandRoom();
+    await waitFor(() => screen.getByTestId('terminal-s1'));
+
+    const payload = JSON.stringify({
+      absolutePath: '/tmp/ws-1/foo.ts',
+      relativePath: 'foo.ts',
+      workspaceId: 'ws-1',
+    });
+    const dt = makeDataTransfer({
+      types: ['application/sigmalink-file'],
+      sigmaPayload: payload,
+    });
+
+    const paneDiv = findPaneBody();
+    fireDragOver(paneDiv!, dt);
+    fireDrop(paneDiv!, dt);
+
+    // Give async operations time to settle.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ptyWriteMock).not.toHaveBeenCalled();
   });
 });
