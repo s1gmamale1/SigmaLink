@@ -33,7 +33,7 @@ That downloads the latest release, installs `SigmaLink.app` into `/Applications`
 
 To pin a specific release tag:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.7
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.4.7
 ```
 
 ## Windows (10/11, x64)
@@ -118,7 +118,7 @@ bash install-sigmalink.sh
 
 To pin a specific release tag:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.1.7
+curl -fsSL https://raw.githubusercontent.com/s1gmamale1/SigmaLink/main/app/scripts/install-macos.sh | bash -s v1.4.7
 ```
 
 ### Option 2 — Manual DMG download
@@ -297,7 +297,8 @@ Start at [`docs/README.md`](docs/README.md) for the full directory map. The inte
 
 Full Keep-a-Changelog ledger lives in [`CHANGELOG.md`](CHANGELOG.md). Highlights:
 
-- **v1.4.1** (current) — Bridge → Sigma branding sweep across renderer UI strings, component names (`BridgeRoom` → `SigmaRoom`, `bridge-agent/` → `sigma-assistant/`), and RoomId union; transparent `bridge.*` → `sigma.*` kv migration on first boot. Pane → Sigma mailbox back-channel completes the W-2 vision: new `sigma_pane_events` table, `monitor_pane` tool, and `assistant:pane-event` IPC let Sigma Assistant observe pane lifecycle events without polling. `SigmaRoom.tsx` refactored from 922 → 283 LOC via 9 custom hooks + 5 sub-components. Generic "bridge" terminology preserved in `claude-resume-bridge.ts` (symlink helper) and `mcp-host-bridge.ts` (IPC bridge).
+- **v1.4.7** (current) — Lockfile race fix + SessionStep full flake closure. See full CHANGELOG for details.
+- **v1.4.1** — Bridge → Sigma branding sweep across renderer UI strings, component names (`BridgeRoom` → `SigmaRoom`, `bridge-agent/` → `sigma-assistant/`), and RoomId union; transparent `bridge.*` → `sigma.*` kv migration on first boot. Pane → Sigma mailbox back-channel completes the W-2 vision: new `sigma_pane_events` table, `monitor_pane` tool, and `assistant:pane-event` IPC let Sigma Assistant observe pane lifecycle events without polling. `SigmaRoom.tsx` refactored from 922 → 283 LOC via 9 custom hooks + 5 sub-components. Generic "bridge" terminology preserved in `claude-resume-bridge.ts` (symlink helper) and `mcp-host-bridge.ts` (IPC bridge).
 - **v1.4.0** — Sigma Assistant orchestrator resume. Captures Claude `system.init` session ids per conversation (migration 0013), prepends `--resume <id>` on future turns, retry-once fallback when a session goes stale. Right-rail conversation dropdown, resumable pill, resume banner, interrupted-turn banner with retry/dismiss.
 - **v1.3.5** — W-3: Ruflo MCP auto-bind for all 5 CLIs (Claude / Codex / Gemini / Kimi / OpenCode). Canonical args fix (`-y @claude-flow/cli@latest mcp start`); pre-existing user configs self-heal on next workspace open. 5-CLI readiness pill with vacuous-pass for undetected binaries.
 - **v1.3.4** — Claude resume spawn fix. Panes launch from workspace subdir inside worktrees; ignored `CLAUDE.md`/`.claude/` context bridged via symlinks; boot restore uses the Claude bridge; resume args no longer collide with fresh `--session-id`.
