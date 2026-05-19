@@ -1,30 +1,437 @@
 // V1.1.1 — Settings → Voice tab.
 //
-// Shipped after support reports of "voice not enabled or something". Three
-// rows let users (and support) verify exactly which stage of the SigmaVoice
-// pipeline is healthy:
+// v1.4.9 adds a "Global capture" section at the top with:
+//   - Enable toggle (default OFF on first launch — opt-in)
+//   - Hotkey rebinder (default Cmd+Option+Space)
+//   - Model picker with lazy-download progress bar + size disclosure
+//   - Push-to-talk vs Toggle mode radio
+//   - Output target priority
+//   - "Use Apple Speech.framework instead" alternative on macOS
 //
-//   1. Routing mode — radio (off / auto / on). Persists to `kv['voice.mode']`
-//      via the typed `voice.setMode` channel so the bootstrap reload picks it
-//      up next launch.
-//   2. Microphone permission — text status row + Re-prompt button. Calls
-//      `voice.permissionRequest` which tunnels into the native
-//      `requestPermission()` on darwin and resolves with `unsupported`
-//      everywhere else.
-//   3. Test voice pipeline — runs the four-stage diagnostics probe via the
-//      side-band `voice.diagnostics.run` channel and renders four traffic-
-//      light dots (native / permission / dispatcher / lastError) with hover
-//      tooltips so support can copy the failure text directly.
+// Existing rows (SigmaVoice mode / mic permission / diagnostics) are
+// preserved unchanged below the new section.
 //
 // All RPC calls swallow toast errors (`rpcSilent`) so the surface degrades
 // quietly when the controller isn't booted (e.g. very early Settings open).
 
-import { useCallback, useEffect, useState } from 'react';
-import { Mic, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Download, Keyboard, Mic, Radio, RefreshCw, Settings2 } from 'lucide-react';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import { IS_WIN32, getPlatform } from '@/renderer/lib/platform';
 import { cn } from '@/lib/utils';
 
+// ---------------------------------------------------------------------------
+// v1.4.9 — Global capture types
+// ---------------------------------------------------------------------------
+
+type CaptureState = 'idle' | 'recording' | 'transcribing' | 'routing';
+type CaptureMode = 'toggle' | 'push-to-talk';
+
+interface GlobalCaptureStatus {
+  state: CaptureState;
+  enabled: boolean;
+  mode: CaptureMode;
+  modelId: string;
+  hotkey: string;
+}
+
+interface ModelEntry {
+  id: string;
+  name: string;
+  sizeMb: number;
+  isDefault: boolean;
+}
+
+const GLOBAL_CAPTURE_MODELS: ReadonlyArray<ModelEntry> = [
+  { id: 'tiny.en-q5_1',   name: 'Tiny (31 MB)',   sizeMb: 31,  isDefault: false },
+  { id: 'base.en-q5_1',   name: 'Base (57 MB)',    sizeMb: 57,  isDefault: true  },
+  { id: 'small.en-q5_1',  name: 'Small (182 MB)',  sizeMb: 182, isDefault: false },
+  { id: 'medium.en-q5_0', name: 'Medium (515 MB)', sizeMb: 515, isDefault: false },
+];
+
+const CAPTURE_MODE_OPTIONS: ReadonlyArray<{ value: CaptureMode; label: string; description: string }> = [
+  {
+    value: 'toggle',
+    label: 'Toggle (recommended)',
+    description: 'First press starts recording; second press stops. Fewer "let go too early" failures.',
+  },
+  {
+    value: 'push-to-talk',
+    label: 'Push-to-talk',
+    description: 'Hold to record, release to transcribe. Best for quick one-liners.',
+  },
+];
+
+const IS_MAC = getPlatform() === 'darwin';
+
+/** Invoke a global-capture side-band channel. */
+async function invokeGlobalCapture<T = unknown>(
+  method: string,
+  payload?: unknown,
+): Promise<T> {
+  if (!('sigma' in window)) throw new Error('Preload bridge missing');
+  const ch = `voice.globalCapture.${method}`;
+  const env = (await window.sigma.invoke(ch, payload)) as
+    | { ok: true; data: T }
+    | { ok: false; error: string };
+  if (!env || typeof env !== 'object' || !('ok' in env)) {
+    throw new Error('Bad RPC response from ' + ch);
+  }
+  if (env.ok) return env.data;
+  throw new Error(env.error);
+}
+
+// ---------------------------------------------------------------------------
+// v1.4.9 — Global capture section component
+// ---------------------------------------------------------------------------
+
+function GlobalCaptureSection() {
+  const [status, setStatus] = useState<GlobalCaptureStatus | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadPercent, setDownloadPercent] = useState(0);
+  const [capturingHotkey, setCapturingHotkey] = useState(false);
+  const [pressedKeys, setPressedKeys] = useState('');
+  const hotkeyInputRef = useRef<HTMLButtonElement>(null);
+
+  // Load status on mount
+  useEffect(() => {
+    void (async () => {
+      try {
+        const s = await invokeGlobalCapture<GlobalCaptureStatus>('getStatus');
+        if (s) setStatus(s);
+      } catch {
+        /* leave null — surface shows "macOS feature" note */
+      }
+    })();
+  }, []);
+
+  // Listen for state updates pushed by main process
+  useEffect(() => {
+    if (!('sigma' in window)) return;
+    const unsub = window.sigma.eventOn('voice:global-capture-state', (s: unknown) => {
+      if (s && typeof s === 'object' && 'enabled' in s) {
+        setStatus(s as GlobalCaptureStatus);
+      }
+    });
+    // Listen for download progress toasts
+    const unsubToast = window.sigma.eventOn('voice:global-capture-toast', (msg: unknown) => {
+      const t = msg as { downloadProgress?: { fraction: number; done: boolean; modelId: string }; message?: string };
+      if (t?.downloadProgress) {
+        const { fraction, done, modelId } = t.downloadProgress;
+        setDownloadPercent(Math.round(fraction * 100));
+        if (done) {
+          setDownloadingId(null);
+          setDownloadPercent(0);
+        } else {
+          setDownloadingId(modelId);
+        }
+      }
+    });
+    return () => { unsub?.(); unsubToast?.(); };
+  }, []);
+
+  const onToggleEnabled = useCallback(async () => {
+    if (!status) return;
+    try {
+      await invokeGlobalCapture('setEnabled', { value: !status.enabled });
+    } catch { /* silent */ }
+  }, [status]);
+
+  const onSetMode = useCallback(async (m: CaptureMode) => {
+    try {
+      await invokeGlobalCapture('setMode', { mode: m });
+    } catch { /* silent */ }
+  }, []);
+
+  const onSetModel = useCallback(async (id: string) => {
+    try {
+      await invokeGlobalCapture('setModelId', { modelId: id });
+    } catch { /* silent */ }
+  }, []);
+
+  const onDownloadModel = useCallback(async (id: string) => {
+    setDownloadingId(id);
+    setDownloadPercent(0);
+    try {
+      await invokeGlobalCapture('downloadModel', { modelId: id });
+    } catch {
+      setDownloadingId(null);
+      setDownloadPercent(0);
+    }
+  }, []);
+
+  const onStartHotkeyCapture = useCallback(() => {
+    setCapturingHotkey(true);
+    setPressedKeys('');
+    hotkeyInputRef.current?.focus();
+  }, []);
+
+  const onHotkeyKeyDown = useCallback(
+    async (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (!capturingHotkey) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const mods: string[] = [];
+      if (e.metaKey) mods.push('Command');
+      if (e.ctrlKey) mods.push('Control');
+      if (e.altKey) mods.push('Alt');
+      if (e.shiftKey) mods.push('Shift');
+
+      // Ignore modifier-only presses; wait for a non-modifier key
+      const nonModKeys = ['Meta', 'Control', 'Alt', 'Shift', 'OS'];
+      if (nonModKeys.includes(e.key)) {
+        setPressedKeys(mods.join('+') + '+…');
+        return;
+      }
+
+      // Must have at least one modifier
+      if (mods.length === 0) {
+        setCapturingHotkey(false);
+        return;
+      }
+
+      const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+      const chord = [...mods, key].join('+');
+      // Map to Electron accelerator syntax
+      const electronChord = chord
+        .replace('Command', 'CommandOrControl')
+        .replace('Control', 'CommandOrControl');
+
+      setCapturingHotkey(false);
+      setPressedKeys('');
+
+      try {
+        await invokeGlobalCapture('setHotkey', { hotkey: electronChord });
+      } catch { /* silent */ }
+    },
+    [capturingHotkey],
+  );
+
+  if (!IS_MAC) {
+    return (
+      <section data-testid="voice-global-capture-section">
+        <div className="mb-2 flex items-center gap-2">
+          <Mic className="h-4 w-4 text-muted-foreground" aria-hidden />
+          <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Global capture
+          </div>
+        </div>
+        <div className="rounded-md border border-border bg-card/30 px-3 py-2 text-[11px] text-muted-foreground">
+          Global voice capture is available on macOS in v1.4.9.
+          Windows + Linux support is planned for v1.5.0.
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section data-testid="voice-global-capture-section">
+      <div className="mb-2 flex items-center gap-2">
+        <Mic className="h-4 w-4 text-muted-foreground" aria-hidden />
+        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Global capture
+        </div>
+        {status?.state === 'recording' && (
+          <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-red-400">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+            Recording
+          </span>
+        )}
+        {(status?.state === 'transcribing' || status?.state === 'routing') && (
+          <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-yellow-400">
+            <span className="h-2 w-2 animate-spin rounded-full border border-yellow-500 border-t-transparent" />
+            Transcribing
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {/* Enable toggle */}
+        <div className="flex items-center justify-between rounded-md border border-border bg-card/40 px-3 py-2">
+          <div>
+            <div className="text-sm font-medium">Enable global capture</div>
+            <div className="text-[11px] text-muted-foreground">
+              Press <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">
+                {status?.hotkey ?? 'Cmd+Option+Space'}
+              </kbd> anywhere to record. Requires Whisper model (or Apple Speech as fallback).
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={status?.enabled ?? false}
+            onClick={() => void onToggleEnabled()}
+            data-testid="voice-global-capture-toggle"
+            className={cn(
+              'relative ml-4 inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors',
+              (status?.enabled ?? false) ? 'bg-primary' : 'bg-muted',
+            )}
+          >
+            <span
+              className={cn(
+                'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+                (status?.enabled ?? false) ? 'translate-x-4' : 'translate-x-0',
+              )}
+            />
+          </button>
+        </div>
+
+        {/* Hotkey rebinder */}
+        <div className="rounded-md border border-border bg-card/40 px-3 py-2">
+          <div className="mb-1.5 flex items-center gap-2">
+            <Keyboard className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            <span className="text-xs font-medium">Hotkey</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              ref={hotkeyInputRef}
+              type="button"
+              onKeyDown={onHotkeyKeyDown}
+              onBlur={() => { setCapturingHotkey(false); setPressedKeys(''); }}
+              onClick={onStartHotkeyCapture}
+              data-testid="voice-global-capture-hotkey-btn"
+              className={cn(
+                'rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs transition',
+                capturingHotkey
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'hover:bg-card',
+              )}
+            >
+              {capturingHotkey
+                ? (pressedKeys || 'Press a key combination…')
+                : (status?.hotkey ?? 'Cmd+Option+Space')}
+            </button>
+            {capturingHotkey && (
+              <span className="text-[10px] text-muted-foreground">
+                Press modifier + key. Esc to cancel.
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Mode radio */}
+        <div className="rounded-md border border-border bg-card/40 px-3 py-2">
+          <div className="mb-1.5 flex items-center gap-2">
+            <Radio className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            <span className="text-xs font-medium">Recording mode</span>
+          </div>
+          <div role="radiogroup" aria-label="Recording mode" className="flex flex-col gap-1.5">
+            {CAPTURE_MODE_OPTIONS.map((opt) => {
+              const selected = (status?.mode ?? 'toggle') === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => void onSetMode(opt.value)}
+                  data-testid={`voice-capture-mode-${opt.value}`}
+                  className={cn(
+                    'flex items-start gap-2 rounded border px-2 py-1.5 text-left text-xs transition',
+                    selected ? 'border-primary bg-primary/10' : 'border-border bg-background hover:bg-card',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'mt-0.5 inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-full border',
+                      selected ? 'border-primary' : 'border-muted-foreground/40',
+                    )}
+                    aria-hidden
+                  >
+                    {selected ? <span className="h-1.5 w-1.5 rounded-full bg-primary" /> : null}
+                  </span>
+                  <span>
+                    <span className="block font-medium">{opt.label}</span>
+                    <span className="block text-[10px] text-muted-foreground">{opt.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Model picker + download */}
+        <div className="rounded-md border border-border bg-card/40 px-3 py-2">
+          <div className="mb-1.5 flex items-center gap-2">
+            <Settings2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            <span className="text-xs font-medium">Whisper model</span>
+            <span className="ml-auto text-[10px] text-muted-foreground">Offline transcription</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {GLOBAL_CAPTURE_MODELS.map((m) => {
+              const isSelected = (status?.modelId ?? 'base.en-q5_1') === m.id;
+              const isDownloading = downloadingId === m.id;
+              return (
+                <div
+                  key={m.id}
+                  className={cn(
+                    'flex items-center gap-2 rounded border px-2 py-1.5 text-xs transition',
+                    isSelected ? 'border-primary bg-primary/10' : 'border-border bg-background',
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => void onSetModel(m.id)}
+                    data-testid={`voice-model-${m.id}`}
+                    className="flex flex-1 items-center gap-2 text-left"
+                    aria-pressed={isSelected}
+                  >
+                    <span
+                      className={cn(
+                        'inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-full border',
+                        isSelected ? 'border-primary' : 'border-muted-foreground/40',
+                      )}
+                      aria-hidden
+                    >
+                      {isSelected ? <span className="h-1.5 w-1.5 rounded-full bg-primary" /> : null}
+                    </span>
+                    <span className="font-medium">{m.name}</span>
+                    {m.isDefault && (
+                      <span className="rounded bg-primary/20 px-1 py-0.5 text-[9px] text-primary">
+                        default
+                      </span>
+                    )}
+                  </button>
+                  {isDownloading ? (
+                    <div className="flex items-center gap-1.5">
+                      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary transition-all"
+                          style={{ width: `${downloadPercent}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">{downloadPercent}%</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void onDownloadModel(m.id)}
+                      data-testid={`voice-model-download-${m.id}`}
+                      className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-[10px] hover:bg-card"
+                      title={`Download ${m.name} (${m.sizeMb} MB)`}
+                    >
+                      <Download className="h-2.5 w-2.5" aria-hidden />
+                      {m.sizeMb} MB
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {IS_MAC && (
+            <div className="mt-2 text-[10px] text-muted-foreground">
+              Tip: If Whisper is not downloaded, global capture falls back to Apple Speech.framework
+              automatically on macOS.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // v1.2.0 Windows port — the "native macOS engine" only exists on darwin.
 // On every other platform the auto/on radio still works but quietly falls
 // back to Web Speech. We surface that fact in the radio copy and in the
@@ -208,6 +615,9 @@ export function VoiceTab() {
 
   return (
     <div className="flex flex-col gap-6" data-testid="voice-settings-tab">
+      {/* v1.4.9 — Global capture section */}
+      <GlobalCaptureSection />
+
       <section>
         <div className="mb-2 flex items-center gap-2">
           <Mic className="h-4 w-4 text-muted-foreground" aria-hidden />
