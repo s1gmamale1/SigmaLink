@@ -218,6 +218,14 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // without faking a capture session. macOS-only; on other platforms the
   // call resolves with `{ status: 'unsupported' }`.
   'voice.permissionRequest',
+  // v1.4.9 — Global voice capture (macOS only for v1.4.9).
+  'voice.globalCapture.getStatus',
+  'voice.globalCapture.setEnabled',
+  'voice.globalCapture.setHotkey',
+  'voice.globalCapture.setMode',
+  'voice.globalCapture.setModelId',
+  'voice.globalCapture.downloadModel',
+  'voice.globalCapture.abortDownload',
   // Phase 4 Track C — Ruflo MCP embed (lazy-downloaded `@claude-flow/cli`).
   // The supervisor lives in main; renderer features (Memory semantic search,
   // Sigma pattern surfacing, Command-Palette autopilot, Settings → Ruflo)
@@ -266,6 +274,12 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // toast "Routing → coordinator..." between final-transcript and controller
   // resolution. Payload mirrors `ClassifiedIntent` from voice/dispatcher.ts.
   'voice:dispatch-echo',
+  // v1.4.9 — Global capture state transitions emitted by the main process.
+  // Payload: `GlobalCaptureStatus` from voice/global-capture.ts.
+  'voice:global-capture-state',
+  // v1.4.9 — Toast messages from the global capture pipeline.
+  // Payload: `{ message: string; level: 'info' | 'warn' | 'error' }`.
+  'voice:global-capture-toast',
   // V1.1 — Result envelope for the most recent dispatch ({ ok, reason }).
   // Used by telemetry + future Voice History panel; renderer subscribes
   // optionally.

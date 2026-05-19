@@ -7,8 +7,10 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeImage } from 'electron';
+import { buildGlobalCaptureController, type GlobalCaptureController } from '../src/main/core/voice/global-capture';
 import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
+import { getRawDb } from '../src/main/core/db/client';
 import { maybeCheckOnBoot } from './auto-update';
 import { isAllowedEvent } from '../src/shared/rpc-channels';
 import {
@@ -24,6 +26,230 @@ const requireCJS = createRequire(import.meta.url);
 
 let mainWindow: BrowserWindow | null = null;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+// v1.4.9 — Global voice capture: Tray + globalShortcut + state controller.
+// The Tray keeps the process alive on macOS when the last window closes and
+// global capture is enabled (overrides window-all-closed quit logic below).
+// On non-darwin this block is a no-op for v1.4.9 (win/linux land in v1.5.0).
+let tray: Tray | null = null;
+let globalCaptureCtrl: GlobalCaptureController | null = null;
+
+/**
+ * Build or rebuild the Tray context menu based on current capture state.
+ * Called after any capture state change.
+ */
+function updateTrayMenu(): void {
+  if (!tray) return;
+  const ctrl = globalCaptureCtrl;
+  const status = ctrl?.getStatus();
+  const isEnabled = status?.enabled ?? false;
+  const captureState = status?.state ?? 'idle';
+  const isRecording = captureState === 'recording';
+
+  const menu = Menu.buildFromTemplate([
+    {
+      label: isRecording ? 'Stop recording' : (isEnabled ? 'Start recording' : 'Global capture (disabled)'),
+      enabled: isEnabled,
+      click: () => {
+        if (!ctrl) return;
+        if (isRecording) {
+          void ctrl.stopAndTranscribe();
+        } else {
+          void ctrl.startRecording();
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: isEnabled ? 'Disable global capture' : 'Enable global capture',
+      click: () => ctrl?.setEnabled(!isEnabled),
+    },
+    {
+      label: 'Open Settings → Voice',
+      click: () => {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.focus();
+          mainWindow.webContents.send('app:navigate', { pane: 'settings', tab: 'voice' });
+        } else {
+          createWindow();
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit SigmaLink',
+      click: () => app.quit(),
+    },
+  ]);
+
+  tray.setContextMenu(menu);
+  // Reflect recording state in the tooltip
+  tray.setToolTip(
+    isRecording
+      ? 'SigmaLink — Recording…'
+      : isEnabled
+        ? 'SigmaLink Voice (ready)'
+        : 'SigmaLink',
+  );
+}
+
+/**
+ * Initialise the Tray icon. macOS only for v1.4.9.
+ * Uses the 16x16 build icon; production ships a proper template image.
+ */
+function initTray(): void {
+  if (process.platform !== 'darwin') return;
+  if (tray) return; // Already created
+
+  // Use a minimal template image (16x16 white icon) so the tray renders in
+  // the macOS menu bar. In production, replace with a proper vector asset.
+  const iconPath = path.join(__dirname, '../build/icon-16.png');
+  let trayIcon: Electron.NativeImage;
+  try {
+    trayIcon = nativeImage.createFromPath(iconPath);
+    if (trayIcon.isEmpty()) {
+      trayIcon = nativeImage.createEmpty();
+    }
+  } catch {
+    trayIcon = nativeImage.createEmpty();
+  }
+  // macOS menu bar icons are template images (monochrome, auto-inverts)
+  trayIcon.setTemplateImage(true);
+
+  tray = new Tray(trayIcon);
+  tray.setToolTip('SigmaLink');
+  updateTrayMenu();
+
+  // Left-click on tray icon reveals the main window (macOS convention)
+  tray.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    } else {
+      createWindow();
+    }
+  });
+}
+
+/**
+ * Register side-band IPC handlers for the global capture channels declared
+ * in `rpc-channels.ts`. These live outside the typed AppRouter so we
+ * register them directly here rather than threading them through rpc-router.
+ */
+function registerGlobalCaptureIpc(): void {
+  const prefix = 'voice.globalCapture.';
+
+  async function handleChannel(
+    name: string,
+    handler: () => unknown,
+  ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
+    try {
+      return { ok: true, data: await handler() };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  ipcMain.handle(`${prefix}getStatus`, () =>
+    handleChannel('getStatus', () => globalCaptureCtrl?.getStatus() ?? null),
+  );
+
+  ipcMain.handle(`${prefix}setEnabled`, (_e, payload: unknown) => {
+    const value = !!(payload as { value?: boolean })?.value;
+    return handleChannel('setEnabled', () => { globalCaptureCtrl?.setEnabled(value); updateTrayMenu(); });
+  });
+
+  ipcMain.handle(`${prefix}setHotkey`, (_e, payload: unknown) => {
+    const h = (payload as { hotkey?: string })?.hotkey;
+    if (typeof h !== 'string' || !h) return { ok: false, error: 'hotkey required' };
+    return handleChannel('setHotkey', () => { globalCaptureCtrl?.setHotkey(h); updateTrayMenu(); });
+  });
+
+  ipcMain.handle(`${prefix}setMode`, (_e, payload: unknown) => {
+    const m = (payload as { mode?: string })?.mode;
+    if (m !== 'toggle' && m !== 'push-to-talk') return { ok: false, error: 'invalid mode' };
+    return handleChannel('setMode', () => { globalCaptureCtrl?.setMode(m); updateTrayMenu(); });
+  });
+
+  ipcMain.handle(`${prefix}setModelId`, (_e, payload: unknown) => {
+    const id = (payload as { modelId?: string })?.modelId;
+    if (typeof id !== 'string') return { ok: false, error: 'modelId required' };
+    return handleChannel('setModelId', () => { globalCaptureCtrl?.setModelId(id); });
+  });
+
+  ipcMain.handle(`${prefix}downloadModel`, (_e, payload: unknown) => {
+    const modelId = (payload as { modelId?: string })?.modelId;
+    if (typeof modelId !== 'string') return { ok: false, error: 'modelId required' };
+    return handleChannel('downloadModel', async () => {
+      const { getModelById, downloadModel } = await import('../src/main/core/voice/model-registry');
+      const entry = getModelById(modelId);
+      if (!entry) throw new Error(`Unknown model id: ${modelId}`);
+      await downloadModel(entry, (progress) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('voice:global-capture-toast', {
+            message: `Downloading ${entry.name}: ${Math.round(progress.fraction * 100)}%`,
+            level: 'info',
+            downloadProgress: progress,
+          });
+        }
+      });
+      return { downloaded: true };
+    });
+  });
+
+  ipcMain.handle(`${prefix}abortDownload`, (_e, payload: unknown) => {
+    const modelId = (payload as { modelId?: string })?.modelId;
+    if (typeof modelId !== 'string') return { ok: false, error: 'modelId required' };
+    return handleChannel('abortDownload', async () => {
+      const { abortDownload } = await import('../src/main/core/voice/model-registry');
+      abortDownload(modelId);
+    });
+  });
+}
+
+/**
+ * Initialise the global voice capture controller and wire IPC/KV.
+ * Called once inside app.whenReady() after the router (KV) is registered.
+ */
+function initGlobalCapture(): void {
+  if (process.platform !== 'darwin') return; // v1.4.9 macOS only
+
+  const kv = {
+    get: (key: string): string | null => {
+      try {
+        const row = getRawDb()
+          .prepare('SELECT value FROM kv WHERE key = ?')
+          .get(key) as { value: string } | undefined;
+        return row?.value ?? null;
+      } catch { return null; }
+    },
+    set: (key: string, value: string): void => {
+      try {
+        getRawDb()
+          .prepare('INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)')
+          .run(key, value);
+      } catch { /* non-fatal */ }
+    },
+  };
+
+  globalCaptureCtrl = buildGlobalCaptureController({
+    emit: (event, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(event, payload);
+      }
+    },
+    kv,
+  });
+
+  // Sync tray menu whenever state changes
+  // The controller calls emit('voice:global-capture-state') on every change;
+  // we listen via IPC-style callback embedded in the kv wrapper above but
+  // here we poll minimally by overriding the emit dep directly.
+  updateTrayMenu();
+}
 
 // v1.0.2 — macOS shell-PATH bootstrap. When SigmaLink launches from Finder
 // (DMG install), `process.env.PATH` is the truncated NSWorkspace default
@@ -429,13 +655,35 @@ void app.whenReady().then(() => {
   } catch {
     /* never block boot on update plumbing */
   }
+
+  // v1.4.9 — initialise Tray + global voice capture controller (macOS only).
+  // Must run AFTER registerRouter() so the KV store is available.
+  try {
+    initTray();
+    initGlobalCapture();
+    registerGlobalCaptureIpc();
+  } catch (err) {
+    console.warn('[global-capture] init failed (non-fatal):', err);
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // v1.4.9 — suppress quit on macOS when global capture is enabled so the
+  // Tray + hotkey persist even after the user closes all windows.
+  if (process.platform === 'darwin') {
+    const captureEnabled = globalCaptureCtrl?.getStatus().enabled ?? false;
+    if (!captureEnabled) {
+      app.quit();
+    }
+    // else: tray keeps the process alive; user can quit via Tray → "Quit SigmaLink"
+    return;
+  }
+  // Non-darwin: quit normally (v1.5.0 will add win/linux tray support)
+  app.quit();
 });
 
 // Graceful shutdown: kill live PTYs, flush + close SQLite WAL. Without this,
@@ -449,6 +697,14 @@ app.on('window-all-closed', () => {
 // at this point, so we cannot ask it for the snapshot — we rely on the
 // cached value seeded by `app:session-snapshot` IPC events during the run.
 app.on('before-quit', () => {
+  // v1.4.9 — unregister global shortcuts + tear down capture before shutting
+  // down the router so the audio engine is cleanly stopped.
+  try {
+    globalCaptureCtrl?.dispose();
+    globalShortcut.unregisterAll();
+  } catch {
+    /* non-fatal */
+  }
   try {
     if (getCachedSnapshot()) {
       persistCachedSnapshot();

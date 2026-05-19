@@ -7,5 +7,15 @@
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
   <!-- Microphone access for SigmaVoice (SFSpeechRecognizer audio buffer) -->
   <key>com.apple.security.device.audio-input</key><true/>
+  <!-- v1.4.9 — Accessibility entitlement for global-capture AX paste.
+       The AX paste helper (sendPasteKeystroke via CGEvent) requires
+       Accessibility Trust. The entitlement alone does not grant trust —
+       the user must explicitly approve in System Settings → Privacy →
+       Accessibility the first time the paste path is invoked.
+       AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: true})
+       triggers that system dialog in output-router.ts.
+       Without this entitlement, hardened-runtime builds cannot call
+       CGEventPost at all (the call is silently rejected by the kernel). -->
+  <key>com.apple.security.automation.apple-events</key><true/>
 </dict>
 </plist>
