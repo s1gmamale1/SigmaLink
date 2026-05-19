@@ -6,7 +6,7 @@
 // shows the active-workspace summary so users can see at a glance which
 // repo they're operating on.
 
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Monogram } from '@/renderer/components/Monogram';
@@ -19,6 +19,11 @@ import { WorkspacesPanel } from './WorkspacesPanel';
 
 const COLLAPSE_BREAKPOINT_PX = 1100;
 
+const APP_SIDEBAR_DEFAULT = 240;
+const APP_SIDEBAR_MIN = 180;
+const APP_SIDEBAR_MAX = 480;
+const APP_SIDEBAR_KV_KEY = 'app.sidebar.width';
+
 export function Sidebar() {
   // V1.1.10 perf — slice subscriptions instead of full AppState. Sidebar
   // previously re-rendered on every dispatch (notifications, chat events,
@@ -29,6 +34,83 @@ export function Sidebar() {
   const openWorkspaces = useAppStateSelector((s) => s.openWorkspaces);
   const workspaces = useAppStateSelector((s) => s.workspaces);
   const sessions = useAppStateSelector((s) => s.sessions);
+
+  // v1.4.8 packet-02 — stateful expanded width with kv persistence.
+  const [sidebarWidth, setSidebarWidth] = useState<number>(APP_SIDEBAR_DEFAULT);
+  // Track dragging with a ref (not state) to avoid spurious re-renders in the
+  // hot pointermove path. A React state boolean is used for the transition
+  // suppression since it needs to affect the className.
+  const [isDraggingState, setIsDraggingState] = useState(false);
+  const isDragging = useRef(false);
+  const rafHandle = useRef<number | null>(null);
+
+  useEffect(() => {
+    void rpc.kv.get(APP_SIDEBAR_KV_KEY).then((v) => {
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= APP_SIDEBAR_MIN && n <= APP_SIDEBAR_MAX) {
+        setSidebarWidth(n);
+      }
+    });
+  }, []);
+
+  const startSidebarDrag = useCallback(
+    (ev: React.PointerEvent<HTMLDivElement>) => {
+      ev.preventDefault();
+      const startX = ev.clientX;
+      const startWidth = sidebarWidth;
+      isDragging.current = true;
+      setIsDraggingState(true);
+      document.body.dataset.dragging = 'true';
+
+      // `pending` holds the next value waiting for a rAF tick.
+      // `committed` holds the last value we actually applied (for kv persist on up).
+      let pending: number | null = null;
+      let committed = startWidth;
+
+      const flush = () => {
+        if (pending !== null) {
+          committed = pending;
+          setSidebarWidth(pending);
+        }
+        pending = null;
+        rafHandle.current = null;
+      };
+
+      const move = (e: PointerEvent) => {
+        pending = Math.max(
+          APP_SIDEBAR_MIN,
+          Math.min(APP_SIDEBAR_MAX, startWidth + (e.clientX - startX)),
+        );
+        if (rafHandle.current === null) {
+          rafHandle.current = requestAnimationFrame(flush);
+        }
+      };
+
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        isDragging.current = false;
+        setIsDraggingState(false);
+        delete document.body.dataset.dragging;
+        // Flush any pending rAF synchronously on pointerup.
+        if (rafHandle.current !== null) {
+          cancelAnimationFrame(rafHandle.current);
+          rafHandle.current = null;
+          if (pending !== null) {
+            committed = pending;
+            setSidebarWidth(pending);
+          }
+        }
+        pending = null;
+        // Persist the final committed width to kv.
+        void rpc.kv.set(APP_SIDEBAR_KV_KEY, String(committed));
+      };
+
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    },
+    [sidebarWidth],
+  );
 
   // Auto-collapse on narrow windows. The user can still toggle manually; the
   // resize listener only forces collapse when the viewport actually crosses
@@ -74,11 +156,18 @@ export function Sidebar() {
   }
 
   return (
+    <>
     <aside
       className={cn(
-        'flex shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out',
-        collapsed ? 'w-14' : 'w-60',
+        'flex shrink-0 flex-col bg-sidebar text-sidebar-foreground',
+        // Collapsed state retains the border-r since no drag divider is rendered.
+        // Expanded state: border-r lives on the drag divider div (see below).
+        collapsed && 'border-r border-border w-14',
+        // Suppress the CSS transition while dragging — it creates ~200ms lag
+        // that makes the handle feel broken (HIGH-RISK drift note, v1.4.8).
+        !isDraggingState && !collapsed && 'transition-[width] duration-200 ease-out',
       )}
+      style={collapsed ? undefined : { width: sidebarWidth }}
     >
       {PLATFORM_IS_MAC ? (
         <div
@@ -163,5 +252,22 @@ export function Sidebar() {
         )}
       </div>
     </aside>
+    {/* v1.4.8 packet-02 — drag divider, shown only in expanded state.
+        The border-r separating the sidebar from main content lives here so
+        it doesn't shift when the aside width changes. */}
+    {!collapsed ? (
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        className="w-1 shrink-0 cursor-col-resize border-r border-border hover:bg-accent active:bg-accent/70"
+        onPointerDown={startSidebarDrag}
+        onDoubleClick={() => {
+          setSidebarWidth(APP_SIDEBAR_DEFAULT);
+          void rpc.kv.set(APP_SIDEBAR_KV_KEY, String(APP_SIDEBAR_DEFAULT));
+        }}
+      />
+    ) : null}
+    </>
   );
 }
