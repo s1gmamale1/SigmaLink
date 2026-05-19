@@ -108,7 +108,7 @@ export type EventMap = {
   'app:update-mac-dmg-ready': { version: string; path: string };
   'app:update-win-progress': { version?: string; downloaded: number; total: number };
   'app:update-win-ready': { version: string };
-  'app:update-error': { error: string };
+  'app:update-error': { error: string; isUacDenied?: boolean };
 };
 
 export type EventName = keyof EventMap;

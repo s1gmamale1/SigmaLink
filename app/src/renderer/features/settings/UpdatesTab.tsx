@@ -52,6 +52,7 @@ export function UpdatesTab() {
     total: 0,
   });
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [isUacDenied, setIsUacDenied] = useState<boolean>(false);
 
   const refreshLastCheck = useCallback(async () => {
     const raw = await rpc.kv.get(KV_LAST_CHECK).catch(() => null);
@@ -133,8 +134,9 @@ export function UpdatesTab() {
     );
 
     offs.push(
-      onEvent<{ error: string }>('app:update-error', ({ error }) => {
+      onEvent<{ error: string; isUacDenied?: boolean }>('app:update-error', ({ error, isUacDenied: uac }) => {
         setErrorMsg(error);
+        setIsUacDenied(uac === true);
         setState('error');
         toast.error(`Update failed: ${error}`);
       }),
@@ -189,6 +191,7 @@ export function UpdatesTab() {
   const onDismiss = useCallback(() => {
     setState('idle');
     setErrorMsg('');
+    setIsUacDenied(false);
     setProgress({ downloaded: 0, total: 0 });
   }, []);
 
@@ -216,6 +219,11 @@ export function UpdatesTab() {
             aria-label="Enable automatic update checks"
           />
         </div>
+        {platform === 'win32' && (
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            Each update will request admin permission via a Windows UAC prompt.
+          </div>
+        )}
       </section>
 
       <section>
@@ -315,9 +323,21 @@ export function UpdatesTab() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button type="button" size="sm" variant="outline" onClick={() => void onCheckNow()}>
-                  Retry
-                </Button>
+                {isUacDenied ? (
+                  <a
+                    href="https://github.com/s1gmamale1/SigmaLink/releases/latest"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary underline-offset-2 hover:underline"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Open latest release
+                  </a>
+                ) : (
+                  <Button type="button" size="sm" variant="outline" onClick={() => void onCheckNow()}>
+                    Retry
+                  </Button>
+                )}
                 <Button type="button" size="sm" variant="ghost" onClick={onDismiss} className="gap-1">
                   <X className="h-3.5 w-3.5" />
                   Dismiss

@@ -101,4 +101,25 @@ describe('<UpdatesTab />', () => {
     expect(screen.getByText('download failed')).toBeTruthy();
     expect(screen.getByText('Retry')).toBeTruthy();
   });
+
+  it('renders "Open latest release" external link when isUacDenied is true', async () => {
+    render(<UpdatesTab />);
+    await screen.findByText('Check for updates');
+
+    emit('app:update-error', {
+      error: 'Admin permission required. Re-run the SigmaLink installer to upgrade: https://github.com/s1gmamale1/SigmaLink/releases/latest',
+      isUacDenied: true,
+    });
+
+    expect(screen.getByText('Update failed')).toBeTruthy();
+
+    const link = screen.getByRole('link', { name: /open latest release/i });
+    expect(link).toBeTruthy();
+    expect((link as HTMLAnchorElement).href).toBe(
+      'https://github.com/s1gmamale1/SigmaLink/releases/latest',
+    );
+
+    // Retry button should NOT be present when isUacDenied
+    expect(screen.queryByText('Retry')).toBeNull();
+  });
 });
