@@ -6,10 +6,11 @@
 //   • AgentDrivingIndicator (overlay when an agent has the driver lock)
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Globe } from 'lucide-react';
+import { Globe, Plus } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
+import { Button } from '@/components/ui/button';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import { TabStrip } from './TabStrip';
 import { AddressBar } from './AddressBar';
@@ -68,20 +69,7 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
       try {
         const initial = await rpc.browser.getState(ws.id);
         dispatch({ type: 'SET_BROWSER_STATE', state: initial });
-        // If no tabs exist after hydration, create a default one.
-        if (initial.tabs.length === 0) {
-          const tab = await rpc.browser.openTab({ workspaceId: ws.id, url: HOME_URL });
-          dispatch({
-            type: 'SET_BROWSER_STATE',
-            state: {
-              workspaceId: ws.id,
-              tabs: [tab],
-              activeTabId: tab.id,
-              lockOwner: null,
-              mcpUrl: initial.mcpUrl,
-            },
-          });
-        } else if (initial.activeTabId) {
+        if (initial.activeTabId) {
           // Re-activate the persisted active tab so its WebContentsView attaches.
           await rpc.browser.setActiveTab({ workspaceId: ws.id, tabId: initial.activeTabId });
         }
@@ -206,9 +194,23 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
           />
         )}
         <div className="relative flex min-h-0 flex-1">
-          <BrowserViewMount workspaceId={ws.id} visible={visible} />
-          <AgentDrivingIndicator lockOwner={lockOwner} onTakeOver={handleTakeOver} />
-          <DesignOverlayBanner active={designActive} />
+          {tabs.length === 0 ? (
+            <EmptyState
+              title="No tabs open"
+              description="Open a new tab to start browsing"
+              action={
+                <Button size="sm" onClick={handleNewTab}>
+                  <Plus className="h-3.5 w-3.5" /> New tab
+                </Button>
+              }
+            />
+          ) : (
+            <>
+              <BrowserViewMount workspaceId={ws.id} visible={visible} />
+              <AgentDrivingIndicator lockOwner={lockOwner} onTakeOver={handleTakeOver} />
+              <DesignOverlayBanner active={designActive} />
+            </>
+          )}
         </div>
       </div>
       {slice ? (
