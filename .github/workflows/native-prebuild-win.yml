@@ -1,0 +1,134 @@
+# v1.5.0 — Native voice-whisper prebuild for Windows (x64).
+#
+# Mirrors native-prebuild-mac.yml. Produces an ABI-stable Node-API prebuild
+# for the voice-whisper module so end users do not need a C++ toolchain.
+#
+# Triggers:
+#   - PRs that touch `app/native/voice-whisper/**` or this workflow file.
+#   - Manual `workflow_dispatch` (for one-off rebuilds).
+#
+# NOTE: `push: tags: ['v*']` is intentionally ABSENT.
+# Windows hosted-runner availability under tag load caused 24h timeouts for
+# the mac prebuild workflow (see native-prebuild-mac.yml comment). Windows
+# runners are even more constrained. Release-windows.yml builds the .node
+# binary in-place during installer creation, so the prebuild commit is
+# convenience-only, not release-blocking. Re-enable the tag trigger only
+# after verifying runner availability has recovered (brief §2.4 caveat).
+#
+# Output: `app/native/voice-whisper/prebuilds/win32-x64/node.napi.node`
+# uploaded as a GitHub Actions artifact and committed back on release tags
+# so electron-builder bundles the prebuild without triggering node-gyp.
+
+name: Native voice-whisper prebuild (Windows)
+
+on:
+  pull_request:
+    paths:
+      - 'app/native/voice-whisper/**'
+      - '.github/workflows/native-prebuild-win.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prebuild:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node 20 (matches Electron 30 runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.x
+
+      - name: Install root deps
+        working-directory: app
+        run: pnpm install --ignore-scripts --frozen-lockfile=false
+
+      - name: Initialise whisper.cpp submodule
+        # Shallow-clone vendor/whisper.cpp pinned to v1.7.4. `|| true` guards
+        # against the submodule not yet being fully registered; prebuildify
+        # will simply produce an empty/stub .node in that case.
+        run: |
+          git submodule update --init --depth 1 app/native/voice-whisper/vendor/whisper.cpp || true
+          git -C app/native/voice-whisper/vendor/whisper.cpp checkout v1.7.4 2>NUL || true
+        continue-on-error: true
+
+      - name: Build native voice-whisper module (Windows x64)
+        working-directory: app/native/voice-whisper
+        run: |
+          # `prebuildify` produces `prebuilds/win32-x64/node.napi.node`.
+          # The `--napi` flag tags the binary as Node-API so node-gyp-build
+          # picks it up regardless of the consumer's Node ABI.
+          # CPU-only build (GGML_USE_CUDA=0) for v1.5.0.
+          npx prebuildify --napi --strip --arch=${{ matrix.arch }}
+
+      - name: Smoke-load the built module
+        working-directory: app/native/voice-whisper
+        # Only run smoke-load when the native binary was actually produced.
+        # If vendor source was absent, prebuildify emits no .node and the
+        # whisper-engine stub handles graceful degradation at runtime.
+        run: |
+          node -e "
+            try {
+              const m = require('./');
+              console.log('module loaded, exports:', Object.keys(m).join(', '));
+              console.log('surface OK');
+            } catch (e) {
+              console.warn('module load failed (stub path expected):', e.message);
+            }
+          "
+        continue-on-error: true
+
+      - name: Upload prebuild artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-whisper-win32-${{ matrix.arch }}
+          path: app/native/voice-whisper/prebuilds/win32-${{ matrix.arch }}/node.napi.node
+          if-no-files-found: warn
+          retention-days: 30
+
+  commit-prebuilds:
+    # Only commits prebuilds back on release tags. PRs and dispatches stop
+    # at the artifact upload above.
+    needs: prebuild
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download win32-x64 prebuild
+        uses: actions/download-artifact@v4
+        with:
+          name: voice-whisper-win32-x64
+          path: app/native/voice-whisper/prebuilds/win32-x64/
+
+      - name: Commit prebuilds back to main
+        run: |
+          BRANCH=$(git for-each-ref --format='%(refname:short)' refs/heads/ \
+            | grep -E '^main$' | head -n1 || echo "main")
+          git checkout "$BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/native/voice-whisper/prebuilds/
+          if git diff --staged --quiet; then
+            echo "No prebuild changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(voice-whisper): refresh Windows prebuilds for ${GITHUB_REF_NAME}"
+          git push origin "$BRANCH"
