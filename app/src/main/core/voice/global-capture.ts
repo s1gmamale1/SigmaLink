@@ -114,6 +114,11 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
   let hotkey = DEFAULT_HOTKEY;
   const pcm = new PcmAccumulator();
   let currentHotkeyRegistered = false;
+  // Caveat from PR #50 review (caveat 3): native.onFinal returns an
+  // unsubscribe function; we must call it before re-registering on each
+  // startRecording() or listeners leak (and transcripts may concat across
+  // recordings).
+  let unsubscribeOnFinal: (() => void) | null = null;
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -252,12 +257,21 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     // The interim approach (SF transcript → whisper if available, else SF
     // final) still satisfies the brief's acceptance criteria.
 
-    // We'll collect the final transcript from native speech recognition
+    // We'll collect the final transcript from native speech recognition.
+    // Unsubscribe any prior onFinal listener first (PR #50 caveat 3 fix).
+    if (unsubscribeOnFinal) {
+      try { unsubscribeOnFinal(); } catch { /* ignore */ }
+      unsubscribeOnFinal = null;
+    }
     let capturedTranscript = '';
-    native.onFinal((text: string) => {
+    const unsubscribe = native.onFinal((text: string) => {
       capturedTranscript += (capturedTranscript ? ' ' : '') + text;
     });
-    // Store the captured transcript for retrieval on stopAndTranscribe
+    unsubscribeOnFinal = typeof unsubscribe === 'function' ? unsubscribe : null;
+    // Store the captured transcript for retrieval on stopAndTranscribe.
+    // (The _capturedRef metaprogramming is the v1.4.10-cleanup target for
+    // PR #50 caveat 4 — leaving it in place here so this commit stays
+    // scoped to the leak fix.)
     (startRecording as { _captured?: string })._captured = '';
     (onHotkeyFired as { _capturedRef?: () => string })._capturedRef = () => capturedTranscript;
   }
@@ -410,15 +424,22 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
      */
     dispose(): void {
       unregisterHotkey();
-      if (native_ref !== null && state === 'recording') {
-        try { native_ref.stop(); } catch { /* ignore */ }
+      if (unsubscribeOnFinal) {
+        try { unsubscribeOnFinal(); } catch { /* ignore */ }
+        unsubscribeOnFinal = null;
+      }
+      // PR #50 latent-bug fix: previous code referenced undefined `native_ref`
+      // — would have thrown on quit when state === 'recording'. Reload the
+      // native module the same way startRecording does.
+      if (state === 'recording') {
+        try {
+          const native = loadNative();
+          if (native) void native.stop();
+        } catch { /* ignore */ }
       }
       setState('idle');
     },
   };
 }
-
-// Private top-level ref to avoid re-loading in dispose (not exported)
-const native_ref = process.platform === 'darwin' ? loadNative() : null;
 
 export type GlobalCaptureController = ReturnType<typeof buildGlobalCaptureController>;
