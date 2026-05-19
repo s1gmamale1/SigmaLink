@@ -109,6 +109,7 @@ static void DrainEvents() {
         if (ev.eEventId == SPEI_FALSE_RECOGNITION) {
           // False recognition — no usable text; stay in listening state.
           result->Release();
+          ev.lParam = 0;  // PR #53 reviewer fix: prevent SpClearEvent double-Release
           continue;
         }
         // Retrieve the best-guess phrase text.
@@ -133,6 +134,7 @@ static void DrainEvents() {
           CoTaskMemFree(pwszText);
         }
         result->Release();
+        ev.lParam = 0;  // PR #53 reviewer fix: prevent SpClearEvent double-Release
       }
     } else if (ev.eEventId == SPEI_HYPOTHESIS) {
       // Partial (hypothesis) — emit as partial transcript.
@@ -157,6 +159,7 @@ static void DrainEvents() {
           CoTaskMemFree(pwszText);
         }
         result->Release();
+        ev.lParam = 0;  // PR #53 reviewer fix: prevent SpClearEvent double-Release
       }
     } else if (ev.eEventId == SPEI_END_SR_STREAM) {
       // Stream ended — session torn down externally.
