@@ -29,6 +29,7 @@
 | v1.4.5 | Tech-debt cleanup. proper-lockfile race fix (PR27 F-2 v1.4.5 followup); SessionStep full flake closure via vi.resetModules (PR28/29 INFO v1.4.5 followup); factory.ts 443→271 LOC + new factory-add-agent.ts sibling; runClaudeCliTurn.ts 426→324 LOC + new runClaudeCliTurn.args.ts sibling. React-compiler lint wave found already closed by v1.1.9 work — no action needed. | inline in [CHANGELOG v1.4.5](../../CHANGELOG.md) · [release-notes-1.4.5.txt](../09-release/release-notes-1.4.5.txt) |
 | v1.4.6 | Cross-platform frameless chrome + Intel-Mac voice fix + CI hardening. 15 commits between v1.4.5 and PR #36 captured under v1.4.7 tag (no separate v1.4.6 tag): titleBarStyle:'hidden' everywhere with WCO insets (#33), x64 macOS Speech.framework binding ships in the Intel DMG (#34), Electron-ABI rebuild in all CI lanes (was rebuilding host Node ABI, root cause of CI red since v1.4.3), pnpm cache-dep-path fix, parchment contrast verify (BUG-W7-015 closed), terminal snapshot race regression test (R-1.2.7-1 closed), vitest coverage thresholds verified-and-closed, Playwright smoke refresh (4 navTo selector fixes + 1 stale-args assertion). | inline in [CHANGELOG v1.4.6](../../CHANGELOG.md) · [release-notes-1.4.6.txt](../09-release/release-notes-1.4.6.txt) |
 | v1.4.7 | CI fully green again. 5 e2e tests closed (3 deferred from PR #36 Followup-2 + 2 pre-existing timeouts). Production regression fix: `panes.listForWorkspace` channel allowlist gap silently broke pane rehydration on workspace reopen since v1.4.3 (#37). OpenCode SQLite direct read drops session picker cold-start from ~400ms to <100ms (#39). opencode-Qwen secondary silent-fail mode documented (orchestrator skill). Feature-tier packets (notifications, Windows SAPI5 voice, cross-machine sync, Windows auto-update, provider auto-install) deferred to v1.4.8. | inline in [CHANGELOG v1.4.7](../../CHANGELOG.md) · [release-notes-1.4.7.txt](../09-release/release-notes-1.4.7.txt) · [bundle](archive/v1.4.7-bundle/00-INDEX.md) |
+| v1.4.8 | Session A paper-cuts: drag-drop file → pane `@-mention` (#48), sidebar resize handles for IDE Editor + main Sidebar with kv persistence (#47), Browser EmptyState + `about:` normalization (#46), Windows auto-update UAC denied fallback + warning copy (#45). 4 parallel Sonnet sub-agents in git worktrees, 4 Opus 4.7 reviewers, ~45min dispatch-to-tag wall-clock. Sessions B (v1.4.9) and C (v1.5.0) planned for remaining 5 packets. | inline in [CHANGELOG v1.4.8](../../CHANGELOG.md) · [release-notes-1.4.8.txt](../09-release/release-notes-1.4.8.txt) · [bundle](v1.4.8-bundle/00-INDEX.md) |
 
 ---
 
@@ -62,18 +63,9 @@ Confirmed root cause was cwd/context drift, not PTY death: SigmaLink created git
 
 *(empty — all 4 items closed in v1.4.6: terminal mount race verified-and-closed via regression test, BUG-W7-015 verified-and-closed via WCAG AA contrast check, CI cache-dep-path corrected, vitest coverage thresholds verified-and-closed.)*
 
-## 🟢 v1.4.8 bundle — 9 packets, 3 release sessions
+## 🟢 v1.4.8 bundle — Session A shipped; Sessions B+C remaining
 
-All 9 packets briefed and reviewed against current main (HEAD `d45a004`) on 2026-05-20 by 9 parallel reviewer agents. See [**`v1.4.8-bundle/00-INDEX.md`**](v1.4.8-bundle/00-INDEX.md) for the full plan with cross-packet interactions + 22 lead questions.
-
-### Session A — v1.4.8 (ready to dispatch now, ~1.5d, 0 lead Q's)
-
-| # | Packet | Effort | Plan |
-|---|---|---|---|
-| 01 | Browser auto-spawn + `about:` normalization | XS (~20 min) | [v1.4.8-bundle/01-browser-cleanup.md](v1.4.8-bundle/01-browser-cleanup.md) |
-| 02 | Sidebar resize (IDE Editor + main Sidebar) | M (~3-5 hr) | [v1.4.8-bundle/02-sidebar-resize.md](v1.4.8-bundle/02-sidebar-resize.md) |
-| 03 | Drag-drop file → pane `@-mention` | S (~2-3 hr) — was M | [v1.4.8-bundle/03-drag-drop-file-mention.md](v1.4.8-bundle/03-drag-drop-file-mention.md) |
-| 05 | Windows auto-update verify (UAC code-5 detection + Win11 smoke) | XS (~1-2 hr) — was S; underlying auto-update already shipped v1.2.4 | [v1.4.8-bundle/05-windows-autoupdate-verify.md](v1.4.8-bundle/05-windows-autoupdate-verify.md) |
+Session A shipped as **v1.4.8** (2026-05-20) — 4 paper-cut packets (01 browser, 02 sidebar, 03 drag-drop, 05 win-autoupdate). All 9 packets briefed and reviewed against main on 2026-05-20 by 9 parallel reviewer agents. See [**`v1.4.8-bundle/00-INDEX.md`**](v1.4.8-bundle/00-INDEX.md) for the full plan with cross-packet interactions + remaining 16+6 lead questions for Sessions B+C.
 
 ### Session B — v1.4.9 (lead answers 16 Q's first, ~10d, UX-decision cluster)
 

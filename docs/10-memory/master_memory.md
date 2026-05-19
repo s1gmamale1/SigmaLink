@@ -1875,3 +1875,65 @@ Total review wall-clock: ~6 minutes. Drift items caught: 22 unique + 5 hallucina
 
 The orchestrator skill was already updated v1.4.6 with the `--dangerously-skip-permissions` requirement and the no-fire-and-forget rule. This phase adds reinforcement: **after any rogue-agent session, always run a Sonnet-or-better review pass against the affected briefs before authorizing implementation.** The review caught design errors no automated linter would have spotted (phantom components, hallucinated packages, "already shipped" assumptions).
 
+## Phase 35 — v1.4.8 Session A ship (2026-05-20)
+
+Session A of the v1.4.8 bundle: 4 paper-cut packets dispatched as 4 parallel Sonnet sub-agents (`claude-sonnet-4-6`) in git worktrees, reviewed by Opus 4.7, lead-merged. Rolled up under tag `v1.4.8`.
+
+### What shipped
+
+| # | Packet | PR | Merge SHA | Reviewer verdict |
+|---|---|---|---|---|
+| 01 | Browser EmptyState + `about:` normalization | #46 | 50399f5 | APPROVE-WITH-CAVEATS (observational; defer 2 to v1.4.9) |
+| 02 | Sidebar resize (IDE + main) | #47 | 93e5f5b | **APPROVE** (clean — 3 notable strengths) |
+| 03 | Drag-drop file → @-mention | #48 | e57d476 | APPROVE-WITH-CAVEATS (defer 4 to v1.4.9 cleanup packet) |
+| 05 | Windows auto-update UAC polish | #45 | b9a65bf | APPROVE-WITH-CAVEATS (caveats 1+2 folded `db3c717`; 3 deferred) |
+
+### Wall-clock
+
+- Worktree setup → all 4 PRs open: ~17 minutes (4 parallel Sonnet agents)
+- Reviewer dispatch → all 4 verdicts: ~13 minutes (4 parallel Opus)
+- Caveat fixes + merges + rollup: ~10 minutes
+- **Total dispatch-to-tag: ~45 minutes** (vs estimated 1.5 dev-days)
+
+### Process notes
+
+- **Worktree-per-packet** per `~/.claude/skills/orchestrator/SKILL.md`. 4 worktrees at `/Users/aisigma/projects/SigmaLink-feat-v1.4.8-NN-*`, branched from local main, pnpm-lock copied (gitignored). Each agent ran `pnpm install --no-frozen-lockfile && node node_modules/electron/install.js` to handle the v1.4.7 `@electron/rebuild` ABI fix for native modules.
+- **Rebase noise resolution mid-flight** — local main was 3 commits ahead of origin/main (planning docs) AND origin had a merged PR #44 (deep cleanup sweep, 5 unrelated files) that local hadn't pulled. First push rejected non-fast-forward. Pull-rebased onto origin/main (zero conflicts because PR #44 and the planning commits touched disjoint files); force-pushed; then rebased each feature branch onto new origin/main and force-pushed. PR diffs auto-cleaned to 3-4 files per packet. Two of the 4 agents were still running when the rebase happened — their branches were left alone until they completed, then rebased.
+- **HARD scope discipline** per `feedback_agent_scope_discipline.md` — every brief embedded a STOP CONDITION + explicit prohibitions on tags/versions/CHANGELOG/auto-merge/follow-up packets. All 4 agents respected the bound; none attempted scope creep, none tried to expand the brief based on Open Questions in the brief.
+- **Cleanup-loop**: 3 of 4 PRs landed APPROVE-WITH-CAVEATS; only #47 (sidebar) was clean APPROVE. Caveats split between "fold inline by lead" (PR #45 caveats 1+2 — `rel="noopener noreferrer"` + `EventMap['app:update-error']` type sync; lead commit `db3c717`) and "defer to v1.4.9 cleanup packet" (the rest — mostly observational or dogfood-watch items).
+- **Drift caught at planning-review time** continued to pay off. Agents had the corrected anchors from the Phase 34 review pass (e.g. `FileTree.tsx:231` not `EditorTab.tsx`; `window.sigma.getPathForFile` not `window.electron.webUtils`; `PaneCell` inside `CommandRoom.tsx` not phantom `PaneShell.tsx`; Electron 29+ not 32; inline Google fallback not `searchUrl()`; `active:bg-accent` not `accent-emphasis`). Zero rework on misnamed APIs.
+
+### Verification
+
+- `tsc -b --pretty false`: clean
+- `eslint .`: 0 errors, 1 pre-existing warning (`use-session-restore.ts:277` — known)
+- `vitest run`: **562 pass | 1 skip** (70 test files; was 515 → +47 new across 4 packets; 0 failures, post-merge electron-binary tests stable)
+- `pnpm run build`: clean
+- `node scripts/build-electron.cjs`: clean
+
+### Deferred caveats — followups for v1.4.9 cleanup packet
+
+- **#45 caveat 3**: UAC hint placement (inside card vs section helper) — visual dogfood judgment
+- **#46 caveat 1**: Export `normalizeUrl` from `AddressBar.tsx` so tests import (not duplicate inline)
+- **#46 caveat 2**: `BrowserViewMount` lifecycle (`visible={false}` vs unmount) — if first-tab flicker shows up in dogfood
+- **#48 caveat 1**: Export `insertMention` from `CommandRoom.tsx` so tests import the real function
+- **#48 caveat 2**: `data-testid="pane-body"` on PaneCell wrapper (test brittleness vs class-substring matching)
+- **#48 caveat 3**: **`CommandRoom.tsx` now 878 lines — exceeds 500-line project rule.** Extract `PaneCell` to a new `PaneShell.tsx` (was Open Question 1 in packet 03 brief; deferred for scope reasons; now a known v1.4.9 obligation)
+- **#48 caveat 4**: Extract `pathRelative(abs, root)` helper to dedupe `FileTree.tsx` + `CommandRoom.tsx` heuristic
+
+### Session B blockers (next dispatch)
+
+Lead answers 16 UX questions consolidated in `docs/03-plan/v1.4.8-bundle/00-INDEX.md`:
+- Packet 04 (voice-mac): 7 Q's (hotkey rebind, model bundling default, clipboard vs pane-focus, listening overlay, OpenAI Whisper BYOK stance, mic-permission strategy, Tray-only confirm)
+- Packet 06 (provider-install): 4 Q's (spawnInstall reuse, install-pane lifecycle, uvx alternative, detect.ts defer)
+- Packet 07 (notifications): 5 Q's (tray icon unification, persistence post-workspace-delete, per-source mute, multi-workspace bell aggregation, click-to-navigate when pane gone)
+
+After answers → dispatch 3 parallel Sonnet agents on the UX-decision cluster as Session B (~10d effort).
+
+### Lessons
+
+- **Always pre-rebase before dispatching parallel branches.** When local main is ahead of origin AND origin has merged PRs since last sync, parallel feature branches inherit the orphaned local-main commits and PR diffs balloon with planning-docs noise. Pull-rebase + force-push is non-destructive for docs-only divergences. Catch this BEFORE dispatch next time.
+- **Reviewer recommendations on caveats are usually right about which to fold inline.** PR #45 caveats 1+2 were 2-line edits the lead did inline pre-merge; PR #48 caveats were explicitly "small quality polish — roll into a v1.4.9 cleanup packet" per the reviewer. Mixing fold-inline with batch-later avoided force-push churn on already-reviewed branches.
+- **The 500-line file rule needs enforcement at brief-review time.** `CommandRoom.tsx` was already 770 LOC pre-packet 03; the drag-drop additions pushed it to 878. Open Question 1 in the packet 03 brief was about extracting `PaneShell.tsx` first, deferred for scope reasons. Now a known v1.4.9 obligation. Future packets touching `CommandRoom.tsx` should require the extraction first OR be split.
+- **No-conflict squash-merge ordering doesn't matter for parallel-safe PRs.** The 4 packets touched disjoint files, so merge order (#45 → #46 → #47 → #48 in numeric order) was arbitrary. `gh pr merge --squash` rebased each onto the latest main automatically; no manual reordering needed.
+

@@ -4,6 +4,61 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.8] - 2026-05-20
+
+Session A of the v1.4.8 bundle: 4 paper-cut packets dispatched as 4 parallel Sonnet sub-agents in git worktrees, reviewed by Opus 4.7, lead-merged. ~75 minutes wall-clock from dispatch to all-merged. Sessions B (v1.4.9) and C (v1.5.0) remain for the 5 deferred packets (provider auto-install, notifications, voice capture, SAPI5, cross-machine sync).
+
+### Added
+
+- **Drag-and-drop file → pane `@-mention`** (#48) — drag a file from the IDE Editor file-tree onto a pane and the composer auto-inserts `@<workspace-relative-path> ` with trailing space. Multi-file drop joins paths space-separated; 10-file cap with toast on overflow. Dead-pane drops show a "Pane is not running" toast instead of silently no-op'ing (`PtyRegistry.write` would otherwise swallow). Visual feedback via `data-dragover` attribute + 200ms post-drop flash. Native HTML5 drag API; `@dnd-kit` confirmed non-conflicting (only mounted under `features/tasks/`). Uses existing `window.sigma.getPathForFile` + `rpc.pty.write`; no new RPCs. 17 new tests. (`FileTree.tsx`, `CommandRoom.tsx`)
+- **Sidebar resize handles** (#47) — IDE Editor file-tree sidebar (160-600px clamp, kv `editor.sidebar.width`) and main app left Sidebar in expanded state (180-480px clamp, kv `app.sidebar.width`) now have draggable 4px Pointer Events handles with rAF coalescing. Double-click resets to default. `document.body.dataset.dragging` signal during drag so xterm relaxes fit debounce (reuses GridLayout pattern). `transition-[width]` suppressed on Sidebar during drag — without this, drag had a 200ms pixel-lag. Border-r migrates between aside and divider when expanded for clean visual continuity. 18 new tests. (`EditorTab.tsx`, `Sidebar.tsx`)
+
+### Fixed
+
+- **Browser room no longer auto-spawns `about:blank`** (#46) — entering a Browser room with zero persisted tabs now shows an `EmptyState` with "New tab" CTA instead of silently calling `openTab({ url: 'about:blank' })` on mount. `EmptyState` gates the `BrowserViewMount`+`AgentDrivingIndicator`+`DesignOverlayBanner` cluster; `TabStrip` + `AddressBar` + `BrowserRecents` stay visible. CTA wires to existing `handleNewTab` callback. (`BrowserRoom.tsx`)
+- **AddressBar `about:` normalization** (#46) — typing bare `about:`, `about:about`, or `about:newtab` in the address bar now routes through the Google search fallback instead of resolving to Chromium's internal directory page. Only literal `about:blank` (case-insensitive) passes through. `chrome:` and `file:` pass-through unchanged. 21 new tests across BrowserRoom + AddressBar. (`AddressBar.tsx`)
+- **Windows auto-update UAC denied fallback** (#45) — `autoUpdater.on('error')` now detects Windows UAC denial (`code: 5` or `EACCES` in the error message) and broadcasts `{ error, isUacDenied: true }`. `UpdatesTab.tsx` error-state branch renders an "Open latest release" external link to GitHub Releases when `isUacDenied` is true. Muted-text line under the win32 opt-in toggle now warns "Each update will request admin permission via a Windows UAC prompt." `EventMap['app:update-error']` extended for the optional `isUacDenied?: boolean` field. Manual Win11 VM smoke (steps 4-6 of the brief) deferred to lead post-merge. (`auto-update.ts`, `UpdatesTab.tsx`, `events.ts`)
+
+### Deferred to v1.4.9 (Session B)
+
+- Packet 06 — Provider auto-install prompt with consent gating (4 lead Q's first)
+- Packet 07 — Notifications + top-right bell (migration 0018, 4-level severity, IPC delta-only) (5 lead Q's first)
+- Packet 04 — Global voice capture, macOS only (whisper.cpp + Apple Speech.framework fallback) (7 lead Q's first)
+
+### Deferred to v1.5.0 (Session C)
+
+- Packet 04 — Voice capture Windows + Linux (after macOS validates lazy-download UX)
+- Packet 08 — Windows SAPI5 voice (COM threading + node-gyp prebuild matrix)
+- Packet 09 — Cross-machine session sync (libsodium + HLC + LWW + isomorphic-git; 6 user Q's + security signoff)
+
+### Process
+
+- **Worktree-per-packet dispatch** per `~/.claude/skills/orchestrator/SKILL.md` — 4 parallel Sonnet sub-agents (`claude-sonnet-4-6`), each in its own git worktree (`SigmaLink-feat-v1.4.8-NN-<name>`) branched from local main, with pnpm-lock copied (gitignored). HARD scope discipline per `feedback_agent_scope_discipline.md` embedded in every brief — STOP CONDITION + explicit prohibitions on tags/versions/CHANGELOG/auto-merge/follow-up packets. All 4 agents respected the bound.
+- **Rebase noise resolution** — local main was 3 commits ahead of origin/main (planning docs) AND origin/main had merged PR #44 (deep cleanup sweep, 5 unrelated files) that local hadn't pulled. First push rejected non-fast-forward. Pull-rebased onto origin/main (no conflicts), force-pushed; then per-feature-branch rebase + force-push. PR diffs auto-cleaned to 3-4 files per packet.
+- **Cleanup-loop per orchestrator skill** — each PR got Opus 4.7 reviewer pass. Verdicts: #45 APPROVE-WITH-CAVEATS (caveats 1+2 folded inline via lead commit `db3c717`; caveat 3 deferred), #46 APPROVE-WITH-CAVEATS (observational only — defer to v1.4.9 cleanup), #47 APPROVE (clean — 3 notable strengths called out), #48 APPROVE-WITH-CAVEATS (4 quality caveats including `CommandRoom.tsx` exceeding 500-line rule — defer to v1.4.9 cleanup packet alongside `PaneShell.tsx` extraction).
+
+### Verification
+
+- `pnpm exec tsc -b --pretty false`: clean
+- `pnpm exec vitest run`: 562 pass | 1 skip (70 test files; was 515 → +47 new across 4 packets; 0 failures, post-merge electron-binary tests stable)
+- `pnpm exec eslint .`: 0 errors, 1 pre-existing warning (`use-session-restore.ts:277` — known)
+- `pnpm run build`: clean
+- `node scripts/build-electron.cjs`: clean
+
+### Migration
+
+No schema migrations. All 4 packets are pure renderer + electron-main code. Migration 0017 (pane split columns from v1.4.3) remains the ceiling. Sessions B + C will introduce migration 0018 (whichever of notifications or cross-sync ships first claims the slot; second gets 0019).
+
+### Deferred caveats — for v1.4.9 cleanup packet
+
+- **#45 caveat 3**: UAC hint placement (inside card vs section helper) — visual dogfood judgment required
+- **#46 caveat 1**: Export `normalizeUrl` from `AddressBar.tsx` so tests import (not duplicate inline)
+- **#46 caveat 2**: `BrowserViewMount` lifecycle (`visible={false}` vs unmount) — if first-tab flicker shows up
+- **#48 caveat 1**: Export `insertMention` from `CommandRoom.tsx` so tests import
+- **#48 caveat 2**: `data-testid="pane-body"` on PaneCell wrapper (test-quality)
+- **#48 caveat 3**: **`CommandRoom.tsx` now 878 lines — exceeds 500-line project rule.** Extract `PaneCell` to `PaneShell.tsx` (was Open Question 1 in packet 03 brief, deferred for scope reasons)
+- **#48 caveat 4**: Extract `pathRelative(abs, root)` helper to dedupe `FileTree.tsx` + `CommandRoom.tsx` heuristic
+
 ## [1.4.7] - 2026-05-19
 
 CI is fully green again. Closes 5 of the 6 e2e tests that have been red since v1.4.3, fixes a v1.4.3 production regression in pane rehydration, and ships the OpenCode SQLite direct read latency win. WISHLIST P1/P2 tiers fully closed; feature-tier items (notifications, Windows SAPI5 voice, cross-machine sync, Windows auto-update, provider auto-install) deferred to v1.4.8.

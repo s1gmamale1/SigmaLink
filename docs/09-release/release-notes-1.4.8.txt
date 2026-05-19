@@ -1,0 +1,69 @@
+SigmaLink v1.4.8 — Session A paper-cuts: drag-drop, sidebar resize, browser EmptyState, UAC fallback
+
+Headline
+--------
+Four paper-cut UX improvements surfaced from post-v1.4.7 dogfood. Shipped
+as Session A of the v1.4.8 bundle — 4 parallel Sonnet sub-agents in git
+worktrees, 4 Opus reviewers, lead-merged. ~75 minutes wall-clock from
+dispatch to all-merged. No schema migrations; no behavior change for
+non-affected workflows.
+
+What's new
+----------
+* Drag a file from the IDE Editor file-tree onto a pane → the pane's
+  composer auto-inserts `@<workspace-relative-path>` with a trailing
+  space and you continue typing your prompt. Same mention syntax across
+  all 5 providers (Claude/Codex/Gemini/Kimi/OpenCode). Multi-file drop
+  joins paths space-separated with a 10-file cap. Dead-pane drops show
+  a toast instead of silently no-op'ing.
+
+* IDE Editor file-tree sidebar and the main left Sidebar are now
+  resizable via a 4px drag handle. Widths persist via kv
+  (`editor.sidebar.width` 160-600px, `app.sidebar.width` 180-480px).
+  Double-click resets to default. The main Sidebar's CSS width
+  transition is suppressed during drag so the handle tracks the
+  pointer without lag. xterm fit debounces while you drag so pane
+  terminals stay smooth.
+
+* Browser room no longer auto-spawns about:blank on entry. Zero tabs
+  now shows an EmptyState with a "New tab" CTA. Bare `about:` (or
+  `about:about`, `about:newtab`) in the address bar now routes to
+  Google search; only literal `about:blank` passes through. `chrome:`
+  and `file:` pass-through unchanged.
+
+* Windows auto-update now detects UAC denial (error code 5 or EACCES)
+  and surfaces an "Open latest release" link to the GitHub Releases
+  page instead of a raw error toast. Win32 UpdatesTab opt-in toggle
+  now warns about the UAC prompt up front. Manual Win11 VM smoke
+  deferred to lead post-release.
+
+What's deferred
+---------------
+Session B (v1.4.9): provider auto-install prompt, notifications +
+top-right bell, macOS voice capture (whisper.cpp + Apple Speech.framework
+fallback). Lead answers 16 UX questions in `docs/03-plan/v1.4.8-bundle/00-INDEX.md`
+before dispatch.
+
+Session C (v1.5.0): voice capture on Windows + Linux, native Windows
+SAPI5 voice (COM threading + node-gyp prebuild matrix), cross-machine
+session sync (libsodium-wrappers-sumo + Hybrid Logical Clock + LWW +
+isomorphic-git). Needs Windows VM access + lead signoff on the
+cross-sync threat model.
+
+Process
+-------
+4 parallel Sonnet sub-agents dispatched in worktrees with HARD scope
+discipline per `feedback_agent_scope_discipline.md` — explicit STOP
+CONDITION + prohibitions on tags/versions/CHANGELOG/auto-merge in
+every brief. Opus 4.7 reviewer pass per PR. 3 of 4 PRs landed
+APPROVE-WITH-CAVEATS (caveats split between fold-inline and defer to
+v1.4.9 cleanup); 1 (#47 sidebar) landed clean APPROVE with 3 notable
+strengths called out.
+
+Install / upgrade
+-----------------
+* macOS arm64: curl -sSL https://sigmalink.dev/install.sh | bash
+* macOS x64 (Intel): same command (arch auto-detected since v1.4.6)
+* Windows: iwr https://sigmalink.dev/install.ps1 -UseB | iex
+
+GitHub: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.4.8
