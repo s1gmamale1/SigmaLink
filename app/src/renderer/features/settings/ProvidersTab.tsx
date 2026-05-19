@@ -9,12 +9,12 @@
 // chip and the install hint as their badge.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, RefreshCcw, X } from 'lucide-react';
+import { Check, Loader2, RefreshCcw, RotateCcw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { rpc } from '@/renderer/lib/rpc';
 import type { ProviderProbe } from '@/shared/types';
-import { AGENT_PROVIDERS } from '@/shared/providers';
+import { AGENT_PROVIDERS, listVisibleProviders } from '@/shared/providers';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 
 const KV_SHOW_LEGACY = 'providers.showLegacy';
@@ -29,11 +29,19 @@ interface Row {
   probe?: ProviderProbe;
 }
 
+// v1.4.9-06 — consent-resettable providers (all 5 user-facing CLIs).
+const CONSENT_PROVIDERS = listVisibleProviders(false).filter(
+  (p) => p.installCommand !== undefined,
+);
+
 export function ProvidersTab() {
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showLegacy, setShowLegacy] = useState(false);
+  // v1.4.9-06 — consent reset section: track which providers have a stored consent.
+  const [consentStates, setConsentStates] = useState<Record<string, 'declined' | null>>({});
+  const [resetBusy, setResetBusy] = useState<Record<string, boolean>>({});
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -69,15 +77,43 @@ export function ProvidersTab() {
     }
   }, []);
 
+  // v1.4.9-06 — fetch consent states for all installable providers.
+  const refreshConsents = useCallback(async () => {
+    const entries = await Promise.all(
+      CONSENT_PROVIDERS.map(async (p) => {
+        const val = await rpc.providers.getInstallConsent(p.id).catch(() => null);
+        return [p.id, val] as const;
+      }),
+    );
+    setConsentStates(Object.fromEntries(entries));
+  }, []);
+
+  const resetConsent = useCallback(async (providerId: string) => {
+    setResetBusy((prev) => ({ ...prev, [providerId]: true }));
+    try {
+      // Resetting consent = deleting the kv key. The kv API only has set/get,
+      // so we overwrite with a sentinel that `getInstallConsent` treats as null.
+      // We use kv.set directly to write an empty string, which the consent handler
+      // will treat as null (it only recognises 'declined').
+      await rpc.kv.set(`provider.autoinstall.consent.${providerId}`, '');
+      await refreshConsents();
+    } catch {
+      /* non-fatal */
+    } finally {
+      setResetBusy((prev) => ({ ...prev, [providerId]: false }));
+    }
+  }, [refreshConsents]);
+
   useEffect(() => {
     queueMicrotask(() => {
       void refresh();
+      void refreshConsents();
       void rpc.kv
         .get(KV_SHOW_LEGACY)
         .then((v) => setShowLegacy(v === '1'))
         .catch(() => undefined);
     });
-  }, [refresh]);
+  }, [refresh, refreshConsents]);
 
   const onToggleLegacy = useCallback((next: boolean) => {
     setShowLegacy(next);
@@ -157,6 +193,43 @@ export function ProvidersTab() {
           </Button>
         </div>
       </div>
+      {/* v1.4.9-06 — consent-reset section */}
+      <div className="flex flex-col gap-2 rounded-md border border-border bg-card/40 p-3">
+        <div className="text-sm font-medium">Install prompt consent</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">
+          Reset a provider's install-prompt consent to re-enable the "Not on PATH" modal.
+        </div>
+        <ul className="flex flex-col gap-1.5 mt-1">
+          {CONSENT_PROVIDERS.map((p) => {
+            const consent = consentStates[p.id];
+            const isBusy = !!resetBusy[p.id];
+            return (
+              <li key={p.id} className="flex items-center gap-3">
+                <span className="flex-1 text-sm">{p.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {consent === 'declined' ? 'Declined (modal suppressed)' : 'No preference set'}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy || consent !== 'declined'}
+                  onClick={() => void resetConsent(p.id)}
+                  className="gap-1"
+                >
+                  {isBusy ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3 w-3" />
+                  )}
+                  Reset
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
       <ul className="flex flex-col gap-2">
         {visibleRows.map((r) => {
           const ok = !!r.probe?.found;

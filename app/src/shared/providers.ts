@@ -34,6 +34,22 @@ export interface AgentProviderDefinition {
   icon: string;               // lucide-react icon id
   installHint: string;        // human-readable install instruction
   detectable?: boolean;       // include in PATH auto-scan
+  // v1.4.9-06 — provider auto-install prompt
+  /**
+   * Per-platform install command arrays. Each element is a shell token
+   * (no quoting/escaping needed). Absent when the provider has no
+   * installable CLI (e.g. the internal `shell` sentinel).
+   */
+  installCommand?: {
+    darwin?: string[];
+    linux?: string[];
+    win32?: string[];
+  };
+  /**
+   * Fallback docs URL shown in the install modal when the prerequisite
+   * runtime (npm / pip) is itself not on PATH.
+   */
+  installDocsUrl?: string;
   // Generic capabilities retained for future stubs even though the v1.2.4
   // registry no longer ships a comingSoon / legacy / fallback provider.
   comingSoon?: boolean;          // render disabled, fall back when launched
@@ -57,6 +73,12 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     icon: 'sparkles',
     installHint: 'npm i -g @anthropic-ai/claude-code',
     detectable: true,
+    installCommand: {
+      darwin: ['npm', 'i', '-g', '@anthropic-ai/claude-code'],
+      linux: ['npm', 'i', '-g', '@anthropic-ai/claude-code'],
+      win32: ['npm', 'i', '-g', '@anthropic-ai/claude-code'],
+    },
+    installDocsUrl: 'https://docs.anthropic.com/claude-code/quickstart',
   },
   {
     id: 'codex',
@@ -72,6 +94,12 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     icon: 'cpu',
     installHint: 'npm i -g @openai/codex',
     detectable: true,
+    installCommand: {
+      darwin: ['npm', 'i', '-g', '@openai/codex'],
+      linux: ['npm', 'i', '-g', '@openai/codex'],
+      win32: ['npm', 'i', '-g', '@openai/codex'],
+    },
+    installDocsUrl: 'https://github.com/openai/codex#installation',
   },
   {
     id: 'gemini',
@@ -90,6 +118,12 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     icon: 'gem',
     installHint: 'npm i -g @google/gemini-cli',
     detectable: true,
+    installCommand: {
+      darwin: ['npm', 'i', '-g', '@google/gemini-cli'],
+      linux: ['npm', 'i', '-g', '@google/gemini-cli'],
+      win32: ['npm', 'i', '-g', '@google/gemini-cli'],
+    },
+    installDocsUrl: 'https://github.com/google-gemini/gemini-cli#installation',
   },
   {
     id: 'kimi',
@@ -108,6 +142,12 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     // `kimi.cmd` shim is created after `pip install` so PATH probing works.
     installHint: 'pip install kimi-cli (or: uvx kimi)',
     detectable: true,
+    installCommand: {
+      darwin: ['pip', 'install', 'kimi-cli'],
+      linux: ['pip', 'install', 'kimi-cli'],
+      win32: ['pip', 'install', 'kimi-cli'],
+    },
+    installDocsUrl: 'https://github.com/MoonshotAI/kimi-cli',
   },
   {
     id: 'opencode',
@@ -120,6 +160,12 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     icon: 'square-code',
     installHint: 'npm i -g opencode',
     detectable: true,
+    installCommand: {
+      darwin: ['npm', 'i', '-g', 'opencode'],
+      linux: ['npm', 'i', '-g', 'opencode'],
+      win32: ['npm', 'i', '-g', 'opencode'],
+    },
+    installDocsUrl: 'https://opencode.ai',
   },
   // INTERNAL: not surfaced in any picker. The workspace launcher routes
   // skip-agents / custom-command rows through this providerId so the spawn
