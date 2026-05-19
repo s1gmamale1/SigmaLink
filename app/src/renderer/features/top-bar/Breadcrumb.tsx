@@ -19,6 +19,7 @@ import { useAppState } from '@/renderer/app/state';
 import { dragStyle } from '@/renderer/lib/drag-region';
 import { IS_WIN32 } from '@/renderer/lib/platform';
 import { RufloReadinessPill } from '@/renderer/components/RufloReadinessPill';
+import { NotificationBell } from '@/renderer/features/notifications/NotificationBell';
 import { RoomsMenuButton } from './RoomsMenuButton';
 import { RightRailSwitcher } from './RightRailSwitcher';
 
@@ -86,6 +87,7 @@ export function Breadcrumb() {
       >
         <RoomsMenuButton />
         <span>No workspace open</span>
+        <NotificationBell />
         <RightRailSwitcher />
       </div>
     );
@@ -111,6 +113,7 @@ export function Breadcrumb() {
       <span className="ml-2 truncate text-muted-foreground" title={active.rootPath}>
         — {active.name}
       </span>
+      <NotificationBell />
       <RightRailSwitcher />
       <RufloReadinessPill />
     </div>

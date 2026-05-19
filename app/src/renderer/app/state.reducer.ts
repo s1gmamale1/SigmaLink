@@ -6,7 +6,7 @@
 // (not exported) — they are reducer implementation detail and aren't part of
 // the public API.
 
-import type { AgentSession, Swarm, Workspace } from '../../shared/types';
+import type { AgentSession, Notification, Swarm, Workspace } from '../../shared/types';
 import { selectActiveWorkspace, type Action, type AppState, type RoomId } from './state.types';
 
 /**
@@ -519,6 +519,44 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         sessions,
         sessionsByWorkspace: groupSessionsByWorkspace(sessions),
       };
+    }
+    case 'SET_NOTIFICATIONS':
+      // v1.4.9 #07 — initial mount sets the paginated list + unreadCount.
+      return {
+        ...state,
+        notifications: action.notifications,
+        notificationsUnreadCount: action.unreadCount,
+      };
+    case 'NOTIFICATIONS_DELTA': {
+      // v1.4.9 #07 — main process owns the delta. Upsert by id (added rows
+      // may overwrite an absorbing dedup row — same id, updated dup_count /
+      // severity / body), then drop any ids in `removed`.
+      const byId = new Map(state.notifications.map((n) => [n.id, n]));
+      for (const n of action.added) byId.set(n.id, n);
+      for (const id of action.removed) byId.delete(id);
+      // Sort newest-first by createdAt so the dropdown render stays stable.
+      const merged: Notification[] = Array.from(byId.values()).sort(
+        (a, b) => b.createdAt - a.createdAt,
+      );
+      return {
+        ...state,
+        notifications: merged,
+        notificationsUnreadCount: action.unreadCount,
+      };
+    }
+    case 'MARK_NOTIFICATION_READ': {
+      // Optimistic local update; the NOTIFICATIONS_DELTA echo reconciles
+      // unreadCount authoritatively.
+      const next = state.notifications.map((n) =>
+        n.id === action.id && n.readAt === null
+          ? { ...n, readAt: action.readAt }
+          : n,
+      );
+      return { ...state, notifications: next };
+    }
+    case 'DISMISS_NOTIFICATION': {
+      const next = state.notifications.filter((n) => n.id !== action.id);
+      return { ...state, notifications: next };
     }
     default:
       return state;

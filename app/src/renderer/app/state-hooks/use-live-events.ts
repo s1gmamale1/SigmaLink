@@ -17,8 +17,9 @@
 //   - workspace switch      → SET_SWARMS (rpc.swarms.list)
 
 import { useEffect, type Dispatch } from 'react';
-import { rpc } from '../../lib/rpc';
+import { rpc, rpcSilent } from '../../lib/rpc';
 import type { Action, AppState } from '../state.types';
+import type { Notification } from '../../../shared/types';
 import { parseBrowserState, parseSwarmMessage, runRefreshOnEvent } from './parsers';
 
 export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void {
@@ -122,6 +123,55 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       'tasks',
     );
   }, [state.activeWorkspace?.id, dispatch]);
+
+  // v1.4.9 #07 — Notifications. Initial paginated mount + live delta merge.
+  // The main process emits `notifications:changed` with a `{added, removed,
+  // unreadCount}` delta (D2 IPC contract); the reducer reconciles via the
+  // id-keyed upsert. The initial fetch is paginated (limit 100); the
+  // dropdown can infinite-scroll for older rows.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const list = (await (rpcSilent as any).notifications.list({ limit: 100, offset: 0 })) as Notification[];
+        if (!alive) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const counter = (await (rpcSilent as any).notifications.unreadCount()) as number;
+        if (!alive) return;
+        dispatch({
+          type: 'SET_NOTIFICATIONS',
+          notifications: list,
+          unreadCount: typeof counter === 'number' ? counter : 0,
+        });
+      } catch {
+        // Pre-migration boot or controller not yet registered — silent.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    const off = window.sigma.eventOn('notifications:changed', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as {
+        added?: unknown;
+        removed?: unknown;
+        unreadCount?: unknown;
+      };
+      const added = Array.isArray(p.added)
+        ? (p.added.filter((n) => n && typeof n === 'object') as Notification[])
+        : [];
+      const removed = Array.isArray(p.removed)
+        ? (p.removed.filter((id) => typeof id === 'string') as string[])
+        : [];
+      const unreadCount = typeof p.unreadCount === 'number' ? p.unreadCount : 0;
+      dispatch({ type: 'NOTIFICATIONS_DELTA', added, removed, unreadCount });
+    });
+    return off;
+  }, [dispatch]);
 
   // When the active workspace changes, refresh swarms for that workspace so
   // the Swarm Room can pick up persisted swarms across app restarts.

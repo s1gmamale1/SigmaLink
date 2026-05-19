@@ -9,6 +9,7 @@ import type {
   BrowserState,
   Memory,
   MemoryGraph,
+  Notification,
   ReviewState,
   Skill,
   SkillProviderState,
@@ -93,6 +94,13 @@ export interface AppState {
   // `null` on workspace close and active-workspace switch so the user always
   // lands back on the regular grid.
   focusedPaneId: string | null;
+  // v1.4.9 #07 — Notifications. Newest-first id-keyed list; the reducer
+  // upserts on every NOTIFICATIONS_DELTA. `unreadCount` is the source of
+  // truth from the main process (the reducer does NOT derive it locally,
+  // because evictions over the hard cap may DELETE rows without surfacing
+  // a markRead — the main process owns the count).
+  notifications: Notification[];
+  notificationsUnreadCount: number;
 }
 
 export type Action =
@@ -157,7 +165,21 @@ export type Action =
       groupId: string;
       direction: 'horizontal' | 'vertical';
     }
-  | { type: 'MINIMISE_PANE'; paneId: string; minimised: boolean };
+  | { type: 'MINIMISE_PANE'; paneId: string; minimised: boolean }
+  // v1.4.9 #07 — Notifications reducer actions.
+  // SET_NOTIFICATIONS: full replace (initial mount; paginated list response).
+  // NOTIFICATIONS_DELTA: merge `added` + remove `removed` + set unreadCount.
+  // MARK_NOTIFICATION_READ / DISMISS_NOTIFICATION: optimistic local edits;
+  // the main process echoes back via NOTIFICATIONS_DELTA which reconciles.
+  | { type: 'SET_NOTIFICATIONS'; notifications: Notification[]; unreadCount: number }
+  | {
+      type: 'NOTIFICATIONS_DELTA';
+      added: Notification[];
+      removed: string[];
+      unreadCount: number;
+    }
+  | { type: 'MARK_NOTIFICATION_READ'; id: string; readAt: number }
+  | { type: 'DISMISS_NOTIFICATION'; id: string };
 
 export const initialAppState: AppState = {
   ready: false,
@@ -189,6 +211,8 @@ export const initialAppState: AppState = {
   commandPaletteOpen: false,
   sidebarCollapsed: false,
   focusedPaneId: null,
+  notifications: [],
+  notificationsUnreadCount: 0,
 };
 
 export function selectActiveWorkspace(

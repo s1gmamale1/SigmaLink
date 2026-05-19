@@ -240,6 +240,17 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'ruflo.autopilot.predict',
   'ruflo.install.start',
   'ruflo.verifyForWorkspace',
+  // v1.4.9 #07 — Notifications + top-right bell. The manager is the single
+  // owner of all reads/writes; renderer exclusively goes through these
+  // channels. Live updates arrive on the `notifications:changed` one-way
+  // event registered in EVENTS below.
+  'notifications.list',
+  'notifications.unreadCount',
+  'notifications.markRead',
+  'notifications.markAllRead',
+  'notifications.markUnread',
+  'notifications.dismiss',
+  'notifications.clearRead',
 ]);
 
 /**
@@ -344,7 +355,12 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'app:update-win-progress',
   'app:update-win-ready',
   'app:update-error',
-
+  // v1.4.9 #07 — Notification delta stream. Payload shape:
+  // `{ added: Notification[], removed: string[], unreadCount: number }`.
+  // The renderer reconciles via the reducer's `NOTIFICATIONS_DELTA` action;
+  // NEVER push the full list on every change (the original v1.4.7 brief's
+  // approach would saturate IPC under broadcast flood).
+  'notifications:changed',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {

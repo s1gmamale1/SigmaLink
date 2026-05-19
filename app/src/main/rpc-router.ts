@@ -37,6 +37,16 @@ import { BoardManager } from './core/swarms/boards';
 import { buildSwarmController } from './core/swarms/controller';
 import { buildConsoleController } from './core/swarms/console-controller';
 import { ReplayManager } from './core/swarms/replay';
+// v1.4.9 #07 — Notifications. Manager owns the DB + dedup; three sources
+// (pty/swarm/tool-error) push into it; OS-notify wrapper handles native
+// Notification Center forwarding; controller exposes RPC methods.
+import { NotificationsManager } from './core/notifications/manager';
+import { buildNotificationsController } from './core/notifications/controller';
+import { pushPtyExitNotification } from './core/notifications/sources/pty-exit';
+import { pushSwarmMessageNotification } from './core/notifications/sources/swarm-message';
+import { pushToolErrorNotification } from './core/notifications/sources/tool-error';
+import { runBootNotificationsGc } from './core/notifications/gc';
+import { OsNotifier } from './core/notifications/os-notify';
 import { and, eq } from 'drizzle-orm';
 import { agentSessions, sigmaPaneEvents, swarmAgents } from './core/db/schema';
 import { getDb } from './core/db/client';
@@ -256,6 +266,32 @@ function buildRouter() {
       }, delay).unref();
     }
   }
+  // v1.4.9 #07 — Notifications. Construct manager BEFORE PtyRegistry so the
+  // existing onPaneEvent sink (D1 wiring contract) can push pty-exits in.
+  // The OS-notify wrapper consumes new rows surfaced via the manager's delta
+  // emit; the renderer subscribes to the same delta via `notifications:changed`.
+  const osNotifier = new OsNotifier();
+  const notificationsManager = new NotificationsManager({
+    emit: (delta) => {
+      // Fan out the delta to every renderer window.
+      broadcast('notifications:changed', delta);
+      // D6 — opt-in native Notification Center forwarding. Each newly added
+      // row may fire one OS notification subject to the kv gates + 5min
+      // throttle in OsNotifier. The manager surfaces dedup-absorbing rows
+      // through `added` too (same id, bumped dup_count); the throttle on
+      // `dedup_key` prevents the OS panel from re-buzzing for those.
+      for (const added of delta.added) {
+        try {
+          osNotifier.notify(added);
+        } catch {
+          /* OS notifier is best-effort; never block the IPC fan-out */
+        }
+      }
+    },
+  });
+  // D2 — boot GC. One indexed DELETE that drops read rows > 30d.
+  void runBootNotificationsGc(notificationsManager);
+
   const pty = new PtyRegistry(
     (sessionId, data) => broadcast('pty:data', { sessionId, data }),
     (sessionId, exitCode, signal) => broadcast('pty:exit', { sessionId, exitCode, signal }),
@@ -312,6 +348,17 @@ function buildRouter() {
         } catch {
           // best-effort
         }
+        // v1.4.9 #07 — Notifications source. The brief explicitly disallows
+        // adding a separate pty:exit listener; re-use this existing sink so
+        // one pane event lands in both `sigma_pane_events` (above) AND
+        // `notifications` (below). The source helper internally filters out
+        // non-exit kinds (`started` / `output-spike` / `idle`) so the bell
+        // doesn't drown in PTY chatter.
+        try {
+          pushPtyExitNotification(notificationsManager, event);
+        } catch {
+          /* notifications fan-out is best-effort */
+        }
       },
     },
   );
@@ -327,6 +374,16 @@ function buildRouter() {
       id: message.id,
       payload: message.payload,
     });
+    // v1.4.9 #07 — Notifications source. Brief §4 item 2 — wrap the SINGLE
+    // existing emitter so one mailbox append fans into both the renderer
+    // broadcast (above) and the notifications source (below). The source
+    // helper gates on `payload.broadcastToSidebar === true` AND a kind in
+    // the v1 allowlist so this stays a no-op for most swarm chatter.
+    try {
+      pushSwarmMessageNotification(notificationsManager, message);
+    } catch {
+      /* notifications fan-out is best-effort */
+    }
   });
   // V3-W13-008 — board namespace persistence. The mailbox calls into the
   // BoardManager whenever a `board_post` envelope lands so the DB row + on-
@@ -1043,7 +1100,26 @@ function buildRouter() {
     tasks: tasksManager,
     browserRegistry,
     userDataDir: userData,
-    emit: (event, payload) => broadcast(event, payload),
+    // v1.4.9 #07 — Notifications source. Brief §4 item 3 — wrap the existing
+    // emit so `assistant:tool-trace` events also feed the notifications
+    // source. The source helper gates on `trace.ok === false` so successful
+    // traces are dropped. Other events (`assistant:state`, `assistant:dispatch-echo`)
+    // pass through untouched.
+    emit: (event, payload) => {
+      broadcast(event, payload);
+      if (event === 'assistant:tool-trace' && payload && typeof payload === 'object') {
+        try {
+          pushToolErrorNotification(
+            notificationsManager,
+            // Trust the existing tool-tracer payload shape; the source
+            // helper internally type-guards on `.ok === false`.
+            payload as Parameters<typeof pushToolErrorNotification>[1],
+          );
+        } catch {
+          /* notifications fan-out is best-effort */
+        }
+      }
+    },
     ruflo: rufloProxy,
     mcpHost: {
       serverEntry: sigmaHostServerEntry,
@@ -1184,6 +1260,11 @@ function buildRouter() {
     emit: (event, payload) => broadcast(event, payload),
   });
 
+  // v1.4.9 #07 — Notifications controller. Channels: notifications.list,
+  // notifications.unreadCount, notifications.markRead, notifications.markAllRead,
+  // notifications.markUnread, notifications.dismiss, notifications.clearRead.
+  const notificationsCtl = buildNotificationsController(notificationsManager);
+
   return defineRouter({
     app: appCtl,
     pty: ptyCtl,
@@ -1203,6 +1284,7 @@ function buildRouter() {
     design: designCtl,
     voice: voiceCtl,
     ruflo: rufloCtl,
+    notifications: notificationsCtl,
   });
 }
 
