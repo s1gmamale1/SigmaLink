@@ -68,7 +68,7 @@ jobs:
         # bundled Node ABI (20.9 in Electron 30), not the host Node ABI (20.16).
         # Modules built against the wrong ABI fail to dlopen in Electron's renderer,
         # causing a React boot crash that makes e2e tests false-green or all-fail.
-        run: npx @electron/rebuild -f -w better-sqlite3 -w node-pty
+        run: npx @electron/rebuild -f -w better-sqlite3 -w node-pty -w @sigmalink/voice-win
 
       - name: Rebuild voice-whisper for Electron (Windows)
         # Build the whisper.cpp N-API binding against Electron's Node ABI.

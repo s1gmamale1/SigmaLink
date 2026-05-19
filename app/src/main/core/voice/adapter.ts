@@ -22,6 +22,7 @@ import {
   type NativeVoiceModule,
   type NativeStartOptions,
 } from './native-mac';
+import { loadNativeWin, isNativeWinVoiceAvailable } from './native-win';
 
 export type VoiceSource = 'mission' | 'assistant' | 'palette';
 
@@ -32,7 +33,7 @@ export type VoiceSource = 'mission' | 'assistant' | 'palette';
  * Manual modes let power users force a specific path (debugging, A/B).
  * `off` short-circuits both — every `start` rejects with `voice-disabled`.
  */
-export type VoiceMode = 'auto' | 'web-speech' | 'native-mac' | 'off';
+export type VoiceMode = 'auto' | 'web-speech' | 'native-mac' | 'native-win' | 'off';
 
 export type VoicePhase =
   | 'idle'
@@ -92,6 +93,7 @@ const VALID_MODES: ReadonlySet<VoiceMode> = new Set([
   'auto',
   'web-speech',
   'native-mac',
+  'native-win',
   'off',
 ]);
 
@@ -127,7 +129,10 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
     try {
       const firstLaunch = deps.kv.get(KV_VOICE_FIRST_LAUNCH);
       if (firstLaunch !== '1') {
-        if (process.platform === 'darwin' && isNativeMacVoiceAvailable()) {
+        const nativeAvailable =
+          (process.platform === 'darwin' && isNativeMacVoiceAvailable()) ||
+          (process.platform === 'win32'  && isNativeWinVoiceAvailable());
+        if (nativeAvailable) {
           if (mode === 'off') {
             mode = 'auto';
             try {
@@ -136,7 +141,7 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
               /* persistence failure is non-fatal */
             }
             console.log(
-              '[voice] auto-enabled on first launch (macOS native available)',
+              '[voice] auto-enabled on first launch (native available)',
             );
           }
           try {
@@ -150,7 +155,9 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
           // We still stamp `firstLaunch=1` so we don't re-broadcast the
           // event on every adapter rebuild.
           const reason: 'platform' | 'no-native' =
-            process.platform === 'darwin' ? 'no-native' : 'platform';
+            (process.platform === 'darwin' || process.platform === 'win32')
+              ? 'no-native'
+              : 'platform';
           try {
             deps.emit('voice:unavailable', { reason });
           } catch {
@@ -193,6 +200,13 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
   function selectEngine(): NativeVoiceModule | null {
     if (mode === 'off') return null;
     if (mode === 'web-speech') return null;
+    // win32 branch — checked before the darwin short-circuit so a win32
+    // host with mode='auto' resolves to the Windows native engine.
+    if (process.platform === 'win32') {
+      if (mode === 'native-win') return loadNativeWin();
+      if (mode === 'auto') return isNativeWinVoiceAvailable() ? loadNativeWin() : null;
+      return null; // 'native-mac' forced on win32 → fall through to null
+    }
     if (process.platform !== 'darwin') return null;
     if (mode === 'native-mac') return loadNative();
     // mode === 'auto'
@@ -345,7 +359,9 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
       const wasNative = active.native;
       active = null;
       if (wasNative) {
-        const native = loadNative();
+        // Select the correct native loader for the current platform.
+        const native =
+          process.platform === 'win32' ? loadNativeWin() : loadNative();
         if (native) {
           try {
             await native.stop();
@@ -408,6 +424,13 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
     permissionRequest: async (): Promise<{
       status: 'granted' | 'denied' | 'undetermined' | 'unsupported';
     }> => {
+      // Windows: SAPI5 prompts the user for microphone access inline on first
+      // ISpRecognizer::CreateRecoContext call. Return 'granted' optimistically
+      // here — if the mic is blocked by Windows privacy settings the error
+      // surfaces through the onError callback with code 'no-permission'.
+      if (process.platform === 'win32') {
+        return { status: 'granted' };
+      }
       if (process.platform !== 'darwin') {
         return { status: 'unsupported' };
       }

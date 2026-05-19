@@ -1,0 +1,34 @@
+{
+  "name": "@sigmalink/voice-win",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native Windows SAPI5 speech recogniser for SigmaLink. Falls back to a no-op stub on non-win32 platforms.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "src",
+    "binding.gyp",
+    "prebuilds"
+  ],
+  "scripts": {
+    "install": "node-gyp-build",
+    "rebuild": "node-gyp rebuild",
+    "prebuild": "prebuildify --napi --strip"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.1.0",
+    "node-gyp-build": "^4.8.1"
+  },
+  "devDependencies": {
+    "node-gyp": "^10.2.0",
+    "prebuildify": "^6.0.1"
+  },
+  "os": [
+    "win32"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
