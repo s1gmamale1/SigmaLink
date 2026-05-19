@@ -77,6 +77,18 @@ review. Per-packet briefs are pre-written and ready to delegate.
 | **Windows auto-update via electron-updater** — opt-in self-hosted feed, UAC-aware fallback toast | S (~3-4hr) | [`archive/v1.4.7-bundle/05-windows-autoupdate-verify.md`](archive/v1.4.7-bundle/05-windows-autoupdate-verify.md) |
 | **Provider auto-install prompt** — detect-then-prompt with consent gating per CLI; "Install now in a pane" UX | M (~6-8hr) | [`archive/v1.4.7-bundle/07-provider-auto-install.md`](archive/v1.4.7-bundle/07-provider-auto-install.md) |
 
+## 🆕 v1.4.8 — Paper cuts (dogfood findings, 2026-05-19)
+
+Surfaced after v1.4.7 ship during live dogfood. Each is small, scoped, low-risk; no
+external infra or UX taxonomy decisions needed. Bundle as a single ~½ day patch.
+
+| Item | Effort | Surface |
+|---|---|---|
+| **Browser auto-opens `about:blank` on room entry** — `BrowserRoom.tsx:72-83` auto-spawns a tab when the workspace has 0 persisted tabs. Annoying when user enters Browser room to glance/check. Fix: render an EmptyState ("No tabs open · [+ New tab]") and let user opt in. | XS (~15 min) | `app/src/renderer/features/browser/BrowserRoom.tsx` |
+| **`about:about` directory page can land via address bar** — `AddressBar.normalizeUrl` passes any `about:*` string through unchanged (line 31). Bare `about:` resolves to Chromium's directory page. Fix: only allow `about:blank` through; otherwise treat as search. | XS (~5 min) | `app/src/renderer/features/browser/AddressBar.tsx` |
+| **IDE Editor file-tree sidebar not resizable** — `EditorTab.tsx:128-139` hardcodes `style={{ width: 240 }}`. No drag handle, no persistence. Introduced in v1.1.x (commit `d4b2610`) and never refreshed. Fix: stateful width + 4px drag divider (same Pointer Events pattern as `GridLayout.tsx`), persist via `kv['editor.sidebar.width']`, clamp 160-600px. | M (~2-3 hr) | `app/src/renderer/features/editor/EditorTab.tsx` |
+| **Main left Sidebar fixed at w-14/w-60** — `Sidebar.tsx:78-81` uses Tailwind classes; only collapsed/expanded states. No fine-grained user control. Fix: optional resize handle on the expanded state + `kv['app.sidebar.width']` persistence; collapsed state unchanged. | M (~1-2 hr) | `app/src/renderer/features/sidebar/Sidebar.tsx` |
+
 ## 🔵 Funded-only / won't-do
 
 | Item | Cost | Status |
