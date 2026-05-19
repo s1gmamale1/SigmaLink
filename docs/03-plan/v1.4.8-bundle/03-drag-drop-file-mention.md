@@ -131,3 +131,154 @@ feat(v1.4.8): drag-and-drop file → pane @-mention
 - Multi-file drop joins paths with space separator
 - Visual dragover overlay; 200ms post-drop flash
 ```
+
+---
+
+## v1.4.8 review (2026-05-20)
+
+### Component naming — WRONG
+
+The brief references `PaneShell.tsx` as the drop-target component. That file
+does **not exist**. The command-room directory contains:
+
+```
+CommandRoom.tsx  GridLayout.tsx  PaneFooter.tsx  PaneHeader.tsx
+PaneSplash.tsx   Terminal.tsx    (+ test files)
+```
+
+The outer pane shell is the `PaneCell` function inside `CommandRoom.tsx` (lines
+522-643). There is no `PaneComposer.tsx` either. The drop-target `onDragOver` /
+`onDrop` handlers should be placed on the `<div className="relative flex
+min-h-0 flex-1 flex-col">` wrapper inside `PaneCell`, or extracted into a
+dedicated `PaneShell.tsx` as part of this packet. Either approach is fine; the
+brief must clarify which one is intended and update the file list accordingly.
+
+### `rpc.pty.write` — CONFIRMED EXISTS
+
+`rpc-router.ts` line 584:
+```ts
+write: async (sessionId: string, data: string) => { pty.write(sessionId, data); }
+```
+The `PtyRegistry.write` method also exists (line 235 of `registry.ts`). No new
+RPC is needed.
+
+### `window.electron.webUtils?.getPathForFile` — WRONG API SHAPE
+
+The brief calls `window.electron.webUtils?.getPathForFile?.(file)`. The actual
+preload surface (verified in `electron/preload.ts`) is:
+
+```ts
+contextBridge.exposeInMainWorld('sigma', api);
+// api.getPathForFile = (file: File): string => webUtils.getPathForFile(file)
+```
+
+The renderer must call `window.sigma.getPathForFile(file)`, **not**
+`window.electron.webUtils.getPathForFile`. The `window.electron` namespace does
+not exist; the entire API is under `window.sigma`.
+
+### Electron 30 + `webUtils.getPathForFile` — CONFIRMED AVAILABLE
+
+Package.json pins `"electron": "^30.0.0"`. The installed version is 30.x
+(productName SigmaLink, app version 1.4.7). `webUtils.getPathForFile` was
+introduced in **Electron 29** (not 32 as the brief states in the Risks section).
+The preload already imports and wraps it (line 6 + lines 30-36 of
+`electron/preload.ts`), wrapped in a try/catch that returns `''` on error.
+
+Action: remove the "added in Electron 32" caveat from the Risks section — the
+API is already present and pre-wired. The fallback to `file.path` is still
+valid insurance for unexpected edge cases but is not the primary concern.
+
+### File-tree drag source — CORRECT FILE, DIFFERENT COMPONENT
+
+`EditorTab.tsx` is not the drag source — it renders the outer shell. The actual
+file rows are `<button>` elements inside `TreeNode` in `FileTree.tsx`. The
+`draggable` attribute and `onDragStart` handler must be added to that `<button>`
+element (line 231 of `FileTree.tsx`), not to `EditorTab.tsx`. The brief's file
+list should reference `FileTree.tsx`.
+
+The `FileTree` component receives `workspaceId` and `rootPath` props; the drag
+payload can carry `fullPath` (absolute) directly — workspace-relative path must
+be computed client-side by stripping `rootPath` prefix.
+
+### `@dnd-kit` already in deps — potential conflict
+
+`package.json` includes `@dnd-kit/core ^6.3.1` and `@dnd-kit/sortable ^10.0.0`.
+These libraries install their own `DndContext` and intercept pointer events. If
+any parent of the pane grid is wrapped in a `<DndContext>`, browser drag events
+(`dragstart`, `dragover`, `drop`) may be suppressed or receive `e.preventDefault()`
+from dnd-kit's internal handlers before the custom `onDrop` fires. Verify at
+implementation time whether dnd-kit is active in the pane tree; if so, use
+dnd-kit's `useDraggable` / `useDroppable` hooks consistently instead of mixing
+the native HTML5 drag API.
+
+### `insertMention` write path — correct but needs guard
+
+The approach writes via `rpc.pty.write(sessionId, data)`. The `PtyRegistry.write`
+method silently no-ops on an unknown session (`.get(id)?.pty.write(data)`).
+The dead-pane edge case in the brief ("show toast if pane not running") requires
+an explicit alive check before the RPC call since the RPC itself never throws.
+Suggest: check `session.status !== 'running'` before calling — the session
+object is already in React state.
+
+### xterm focus-stealing — confirmed concern
+
+`Terminal.tsx` uses `term.focus()` on the `sigma:pty-focus` custom event and the
+xterm textarea captures all keystrokes. After `pty.write` injects the `@path `
+text, the next keystroke the user types goes directly into the PTY (which is
+correct — that's the intent). However, if the composer conceptually expects the
+user to keep typing in a React input, there is no React input — the pane IS the
+xterm. The "composer" in the brief is the PTY input line itself, so focus
+behaviour is correct as designed; the brief is slightly misleading when it uses
+the term "composer".
+
+### Visual overlay — no existing pattern to reuse
+
+The brief references "same shape as the existing pane-focus border". There is no
+existing dragover overlay pattern in the codebase. The 2px accent border is the
+right approach; implement via a `data-dragover` attribute + Tailwind class swap
+rather than a separate `<div>` overlay, to avoid z-index fights with `xterm`.
+
+### `PaneFooter.tsx` — not examined
+
+The brief does not reference `PaneFooter.tsx` for this feature; confirmed
+correct, no changes needed there.
+
+---
+
+## Open questions
+
+1. **New file vs edit CommandRoom?** — `PaneCell` is currently inlined in
+   `CommandRoom.tsx` (~120 lines). Extracting it to `PaneShell.tsx` is the
+   cleaner split (keeps `CommandRoom.tsx` under the 500-line project rule); but
+   it is additional scope. Decide before implementation starts.
+
+2. **dnd-kit conflict?** — Is `@dnd-kit/core` mounted in the pane tree today?
+   If yes, use dnd-kit's own drag primitives; if not, native HTML5 drag is
+   simpler.
+
+3. **Absolute vs relative path in payload?** — `FileTree` knows `rootPath` and
+   `fullPath`. Passing both in the dataTransfer payload avoids the drop handler
+   having to look up the workspace root independently. Confirm payload shape is
+   `{ absolutePath, relativePath, workspaceId }`.
+
+4. **Provider-specific syntax?** — Brief recommends universal `@<path>` for
+   v1.4.8. Codex also accepts `@file`. Gemini / Kimi / OpenCode treat it as
+   literal text — no breakage. Decision: ship `@<path> ` for all providers in
+   this release. Revisit in v1.4.9 if provider detection is already available.
+
+5. **Multi-file limit?** — No cap is specified. Dropping an entire directory
+   from Finder could enqueue hundreds of `Files` entries. Add a cap (e.g. 10)
+   with a toast warning for v1.4.8; agents parsing a 200-path line will struggle
+   more than the UX will.
+
+6. **Test setup — `DataTransfer` mock?** — jsdom does not ship a spec-compliant
+   `DataTransfer` constructor in some versions; confirm the vitest + jsdom
+   version supports `new DataTransfer()` before writing the synthetic event
+   tests, or use a minimal stub.
+
+---
+
+**Effort re-estimate**: S (2-3 hr), not M, once the naming is corrected.
+The RPC is already wired, `getPathForFile` is already in the preload, and no new
+main-process work is needed. The bulk is the drop-target + drag-source DOM wiring
+plus visual feedback.

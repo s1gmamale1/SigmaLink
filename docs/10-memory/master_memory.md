@@ -1828,3 +1828,50 @@ Opened at https://github.com/s1gmamale1/SigmaLink/pull/36 — DO NOT MERGE (lead
 - Land the 5 deferred packets (notifications, Windows SAPI5, cross-machine sync, Windows auto-update, provider auto-install).
 - Consider lint-rule audit: the v1.4.3 channel allowlist gap silently broke a feature; an ESLint custom rule could catch RPC controllers whose channel name isn't in the shared allowlist.
 - v1.4.7 had no schema migrations; v1.4.8 will add 0018 (notifications) + 0019 (sync metadata) + 0020 (sync conflicts).
+
+## Phase 34 — v1.4.8 bundle planning review (2026-05-20)
+
+Nine parallel reviewer agents (3 Opus + 6 Sonnet) cross-checked every v1.4.8 brief against the current `main` state (HEAD `d45a004`) in a single Fan-out dispatch. Goal: catch the drift introduced by the runaway-agent v1.4.7 session that wrote some briefs as if features were greenfield when they had actually shipped.
+
+### What the reviewers caught
+
+Every one of the 9 briefs had real corrections. Highlights:
+
+- **Hallucinated dependencies**: cross-sync brief referenced `@codemirror/age-encryption` which does not exist. Reviewer (Opus) replaced with `libsodium-wrappers-sumo` + XChaCha20-Poly1305 + AAD binding `(schema_version|table_name|row_id)`. The original `age`-based design would have wasted days on a non-existent package.
+- **Phantom components**: drag-drop brief referenced `PaneShell.tsx` and `PaneComposer.tsx` — neither exists. Drop target is `PaneCell` inside `CommandRoom.tsx:522-643`; drag source is `FileTree.tsx`, not `EditorTab.tsx`. The `window.electron.webUtils.getPathForFile` API path is also wrong — the actual preload surface is `window.sigma.getPathForFile`. Reviewer dropped effort estimate M → S because the foundation is already wired.
+- **"Greenfield" briefs for already-shipped features**: Windows auto-update brief assumed nothing existed. In reality v1.2.4 + v1.3.x had already shipped `auto-update.ts` (179 LOC), `UpdatesTab.tsx` (366 LOC), the RPCs, and the workflow. Only UAC error-code-5 detection + Win11 dogfood remain. Effort S → XS. Same pattern with provider-install: detection layer (`providers.probeAll` + AgentsStep amber badge) was already shipped.
+- **Stale CLI install commands**: provider-install brief still listed Kimi as `kimi-code-cli` (the package is `kimi-cli`) and OpenCode as `brew tap` (it's `npm i -g opencode`). Registry corrections also dropped Claude + Gemini brew tap fallbacks.
+- **CSS conflict not flagged**: sidebar-resize brief missed that the main Sidebar has `transition-[width] duration-200` — driving width via inline `style` will create a 200ms drag-lag unless the transition is suppressed during drag. Now captured as a required fix step.
+
+### Design locks completed
+
+Two packets received comprehensive design locks that turn them from "ready in theory" to "ready to dispatch":
+
+- **Notifications + bell** (Opus): 4-level severity (info/warn/error/critical), migration `0018` (was 0016), persistence N=500 global + 200/kind/workspace + 30d TTL + severity-aware eviction, dedup `dedup_key` tuple + 30s window + `dup_count` + critical bypass, IPC delta-only updates (prevents saturation under broadcast flood), OS-notify opt-in OFF default + 5-min throttle. Files-to-touch list grew 20 → 28. Cites VS Code, Slack, Cursor, Discord precedent.
+- **Cross-machine sync** (Opus): full threat model with explicit non-defended scenarios (A4 lost-device, A7-A9 non-goals). Crypto stack `libsodium-wrappers-sumo` + XChaCha20-Poly1305 + AAD. CRDT: Hybrid Logical Clock + LWW + `sync_conflicts` losers preserved (rejected Yjs/Automerge as 3-month refactor). Transport: `isomorphic-git` (pure JS, no system git dep). Reuses existing `safeStorage`-backed `CredentialStore` (no new keytar). Migration `0018`. 6 user questions for signoff before any code lands.
+
+### Research locks
+
+Voice-capture (Opus) did the research phase the original brief mandated. BridgeVoice is a real paid product (Tauri 2.0, $50/mo Pro, whisper.cpp local + Groq cloud) but not open source — useful as UX reference, not as a code base. Stack locked to whisper.cpp primary (base.en-Q5_1, 57 MB, MIT) + Apple Speech.framework fallback on macOS. Path A++ (Electron `globalShortcut` + `Tray` for window-all-closed persistence) — Path B (companion app) and Path C (native daemon) rejected as 2-5x effort for marginal value. Hotkey: Cmd+Opt+Space / Ctrl+Alt+Space. Bundling: lazy-download from HuggingFace ggerganov with SHA-256 verification. Effort revised L (3-7d) → L+ (7-10d) because of native N-API binding, Tray plumbing, AX-paste fallback, codesigning, CoreML build flags. Recommend splitting macOS (v1.4.9) from Windows+Linux (v1.5.0) to validate the model-download UX first.
+
+### Cross-packet interactions surfaced
+
+- Notifications + cross-sync both claim migration slot `0018`. First-to-ship gets it; second updates to `0019`.
+- whisper.cpp from voice-capture could subsume SAPI5 STT on Windows. Open question: does packet 08 still need SAPI5 STT, or only TTS via SAPI5?
+- Drag-drop's `insertMention(paneId, path)` helper should be reused by voice-capture's voice-to-pane output path. Refactor opportunity, not a blocker.
+
+### Refreshed release grouping
+
+- **v1.4.8** (~1-1.5d): packets 01, 02, 03, 05 — paper-cuts + UAC dogfood, all XS/S/M, ready to dispatch immediately
+- **v1.4.9** (~4-5d): packets 06, 07 — provider auto-install + notifications, UX-decision-heavy
+- **v1.4.10** (~5d): packet 04 macOS only — voice capture mac validation
+- **v1.5.0** (~10-15d): packet 04 Win+Linux + 08 SAPI5 + 09 cross-sync — cross-platform voice + sync, security review gate
+
+### Pattern: review-before-dispatch ROI
+
+Total review wall-clock: ~6 minutes. Drift items caught: 22 unique + 5 hallucinated dependencies. Without this review the agents would have wasted 8-30 dev-hours on incorrect implementation paths (especially the hallucinated `@codemirror/age-encryption` import + the wrong component paths in drag-drop). The cleanup-loop is cheaper than the rework loop — bake this into every subsequent bundle planning cycle.
+
+### Lessons logged to skill
+
+The orchestrator skill was already updated v1.4.6 with the `--dangerously-skip-permissions` requirement and the no-fire-and-forget rule. This phase adds reinforcement: **after any rogue-agent session, always run a Sonnet-or-better review pass against the affected briefs before authorizing implementation.** The review caught design errors no automated linter would have spotted (phantom components, hallucinated packages, "already shipped" assumptions).
+

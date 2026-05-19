@@ -102,3 +102,53 @@ feat(v1.4.8): main Sidebar resize handle on expanded state
 - Persist via kv['app.sidebar.width']
 - Collapsed state unchanged (w-14)
 ```
+
+---
+
+## v1.4.8 review (2026-05-19)
+
+### State validation
+
+**EditorTab.tsx lines 128–139** — confirmed. `<aside style={{ width: 240 }}>` is exactly as the brief describes. Line numbers are accurate; the flex container at line 127 (`flex h-full min-h-0 flex-row`) is the natural mount point for the drag divider sibling. No intervening changes since the brief was written.
+
+**Sidebar.tsx lines 78–81** — confirmed. The `<aside>` uses `cn('... transition-[width] duration-200 ease-out', collapsed ? 'w-14' : 'w-60')`. Two-state only; no width state. The `transition-[width]` CSS transition class is live on this element today (see drift note below).
+
+**GridLayout.tsx lines 91–132 (reference pattern)** — confirmed accurate. The `startDrag` implementation spans lines 139–205 (the brief's range 91–132 covers the fracs state init and pre-drag setup; the actual drag logic is lines 139–205). The rAF coalesce, `document.body.dataset.dragging` signal to Terminal.tsx, and synchronous flush on pointerup are all present and directly reusable.
+
+**kv-controller.ts** — signatures confirmed. `kv.get(key: string): Promise<string | null>` and `kv.set(key: string, value: string): Promise<void>`. The set implementation coerces non-strings via `String(value ?? '')`, so passing `String(width)` is correct. The keys `editor.sidebar.width` and `app.sidebar.width` do not exist anywhere in the codebase (`git grep` found only `app.sidebar.collapsed`); no migration needed.
+
+**boot hydration** — `use-session-restore.ts` currently loads only `app.onboarded` and `app.sidebar.collapsed` via `BOOT_UI`. The brief proposes local component state (a `useState` + `useEffect` in each component), NOT a global AppState field. This is the right call: `sidebarWidth` is not in `AppState` and adding it there would require a new action, reducer branch, and hydration path. Keep width local to each component.
+
+**tailwind.config.js** — `tw-animate-css` is listed in `package.json` devDependencies (`^1.4.0`) but is NOT referenced in `tailwind.config.js` (which uses only `tailwindcss-animate`). The brief does not reference `tw-animate-css` at all — no correction needed there.
+
+**`accent-emphasis` token** — the brief's drag-divider snippet uses `active:bg-accent-emphasis`. This token does NOT exist in `tailwind.config.js` or `src/index.css`. The config defines `accent.DEFAULT` and `accent.foreground` only. Use `active:bg-accent/70` or `active:bg-accent` instead (same pattern as the existing dividers in GridLayout, which use no explicit active color — just the hover state).
+
+### Drift
+
+1. **`transition-[width] duration-200`** is currently on the Sidebar `<aside>`. When a drag handle is added and width is driven by inline `style={{ width }}`, this CSS transition will animate every pixel of drag movement, creating a ~200ms lag that makes the handle feel broken. The transition must be suppressed during drag (e.g. add `data-dragging` to the element and use `[[data-dragging]&]:transition-none`, or conditionally omit the Tailwind transition class while `isDragging` state is true). The brief does not mention this — add to the fix steps.
+
+2. **`tw-animate-css` devDep present but unused in config** — the brief says nothing about it. No action for this packet; it is a stale devDep (separate cleanup concern, not blocking).
+
+3. **GridLayout `startDrag` is line 139, not line 91** — the brief says "reference pattern for divider drag" at lines 91–132, but the actual drag handler starts at 139. The setup state (fracs, refs) is at 85–93; the fullscreen logic is 95–108; the keyboard shortcut effect is 110–125. The drag implementation proper is 127–205. Not a blocking error — the file reference is still useful — but the implementer should read to line 205.
+
+### Updated approach
+
+- Sub-task A (EditorTab): no structural changes needed. Add `isDragging` state ref (not React state — a `useRef<boolean>`) so the drag handler can suppress unnecessary re-renders. Use `useRef` for the rAF handle. Width state via `useState`. kv load in `useEffect([], [])`.
+- Sub-task B (Sidebar): must suppress `transition-[width]` during drag. Simplest approach: track an `isDragging` boolean in a `useRef` and toggle a `dragging` data-attribute on the `<aside>` element, then add `data-[dragging=true]:transition-none` to the className. Alternative: conditionally exclude the transition classes from `cn(...)` when a `isDraggingState` React state boolean is true (triggers one extra render on pointerdown/pointerup, acceptable).
+
+### Risk updates
+
+- **New risk — Sidebar CSS transition conflict**: HIGH probability of causing a jank/lag perception during drag if not addressed. Add transition suppression as a required step (not optional polish).
+- **xterm jank risk** (existing): still valid. The `document.body.dataset.dragging` signal already used by GridLayout should be set here too; Terminal.tsx already reads it to relax the fit debounce.
+- **kv key migration**: confirmed no existing keys to migrate. Risk is resolved.
+
+### Verification gate
+
+Gate in the brief is correct. Add one manual check: verify that dragging the Sidebar handle shows no CSS transition lag (the handle should track the pointer without delay).
+
+---
+
+## Open questions
+
+1. **Sidebar `transition-[width]` suppression method** — conditional class removal (one extra React render per drag start/end) vs. `data-attribute` + Tailwind `data-*` variant. Either is acceptable; pick one approach and apply it consistently across both components.
+2. **Sidebar width and the auto-collapse breakpoint** — `Sidebar.tsx` has a `COLLAPSE_BREAKPOINT_PX = 1100` listener that force-collapses when `window.innerWidth < 1100`. If the user drags the sidebar to 480px on a 1200px window, then resizes the window to 1090px, the sidebar collapses and the persisted width is irrelevant until re-expanded. On re-expansion, should it restore the persisted width (yes — that is what `useEffect` on mount will do) or reset to 240px default? The brief's current approach (load from kv on mount) handles this correctly without special-casing.
