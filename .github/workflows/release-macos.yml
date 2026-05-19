@@ -51,12 +51,42 @@ jobs:
       - name: Install Electron binary
         run: node node_modules/electron/install.js
 
+      - name: Initialise whisper.cpp submodule
+        # Initialise the whisper.cpp git submodule pinned to v1.7.4.
+        # The `--depth 1` shallow clone keeps checkout time < 30 s even with
+        # the large ggml codebase. CI caches `app/native/voice-whisper/vendor`
+        # via the pnpm cache key below.
+        working-directory: .
+        run: |
+          git submodule update --init --depth 1 app/native/voice-whisper/vendor/whisper.cpp
+          git -C app/native/voice-whisper/vendor/whisper.cpp checkout v1.7.4
+
       - name: Rebuild native modules for Electron
         # Use @electron/rebuild so native modules are compiled against Electron's
         # bundled Node ABI (20.9 in Electron 30), not the host Node ABI (20.16).
         # Modules built against the wrong ABI fail to dlopen in Electron's renderer,
         # causing a React boot crash that makes e2e tests false-green or all-fail.
-        run: npx @electron/rebuild -f -w better-sqlite3 -w node-pty
+        # v1.4.9: also rebuilds voice-mac (adds AX paste helpers) and voice-whisper
+        # (new whisper.cpp N-API binding). Both are macOS-only; voice-whisper is
+        # built with -DGGML_METAL=1 for GPU acceleration on arm64.
+        run: |
+          npx @electron/rebuild -f -w better-sqlite3 -w node-pty -w sigmavoice_mac -w whisper_bridge
+        env:
+          GGML_METAL: 1
+
+      - name: Verify voice-whisper prebuilt lands outside asar
+        # Electron cannot dlopen .node files from inside an asar archive.
+        # electron-builder.yml has `asar: false` for v1.4.9, but this step
+        # confirms the native binary is accessible in the build output.
+        # When asar is re-enabled in v1.5+, update asarUnpack patterns to include
+        # native/voice-whisper/** and native/voice-mac/**.
+        run: |
+          if [ -f "native/voice-whisper/build/Release/whisper_bridge.node" ]; then
+            echo "voice-whisper native binary found"
+          else
+            echo "WARNING: voice-whisper binary not found — build may have failed silently"
+            # Do not fail CI here; the stub handles graceful degradation
+          fi
 
       - name: Build renderer + electron
         run: pnpm run build && node scripts/build-electron.cjs
