@@ -62,32 +62,34 @@ Confirmed root cause was cwd/context drift, not PTY death: SigmaLink created git
 
 *(empty — all 4 items closed in v1.4.6: terminal mount race verified-and-closed via regression test, BUG-W7-015 verified-and-closed via WCAG AA contrast check, CI cache-dep-path corrected, vitest coverage thresholds verified-and-closed.)*
 
-## 🟢 v1.4.8 — Deferred from v1.4.7 bundle
+## 🟢 v1.4.8 bundle — 9 packets, 3 release sessions
 
-These were planned in [`archive/v1.4.7-bundle/`](archive/v1.4.7-bundle/) but
-held back from the v1.4.7 ship because each needs either external testing
-infrastructure (Windows VM), L-effort UX work, or security-critical crypto
-review. Per-packet briefs are pre-written and ready to delegate.
+All 9 packets briefed and reviewed against current main (HEAD `d45a004`) on 2026-05-20 by 9 parallel reviewer agents. See [**`v1.4.8-bundle/00-INDEX.md`**](v1.4.8-bundle/00-INDEX.md) for the full plan with cross-packet interactions + 22 lead questions.
 
-| Item | Effort | Plan |
-|---|---|---|
-| **Notifications + top-right bell** — 3 sources (pty exits, swarm broadcasts, Sigma tool errors), persistent dropdown, migration 0018 | L (~3-4d) | [`archive/v1.4.7-bundle/08-notifications-bell.md`](archive/v1.4.7-bundle/08-notifications-bell.md) |
-| **Native Windows SAPI5 voice binding** — offline TTS/STT via ISpVoice + ISpRecognizer; node-gyp under native/voice-win/ | L (~3-5d) | [`archive/v1.4.7-bundle/09-windows-sapi5-voice.md`](archive/v1.4.7-bundle/09-windows-sapi5-voice.md) |
-| **Cross-machine session sync** — opt-in, e2ee via age, user-supplied git remote, row-level CRDT, migration 0019 | L (~4-6d) | [`archive/v1.4.7-bundle/10-cross-machine-sync.md`](archive/v1.4.7-bundle/10-cross-machine-sync.md) |
-| **Windows auto-update via electron-updater** — opt-in self-hosted feed, UAC-aware fallback toast | S (~3-4hr) | [`archive/v1.4.7-bundle/05-windows-autoupdate-verify.md`](archive/v1.4.7-bundle/05-windows-autoupdate-verify.md) |
-| **Provider auto-install prompt** — detect-then-prompt with consent gating per CLI; "Install now in a pane" UX | M (~6-8hr) | [`archive/v1.4.7-bundle/07-provider-auto-install.md`](archive/v1.4.7-bundle/07-provider-auto-install.md) |
+### Session A — v1.4.8 (ready to dispatch now, ~1.5d, 0 lead Q's)
 
-## 🆕 v1.4.8 — Paper cuts (dogfood findings, 2026-05-19)
+| # | Packet | Effort | Plan |
+|---|---|---|---|
+| 01 | Browser auto-spawn + `about:` normalization | XS (~20 min) | [v1.4.8-bundle/01-browser-cleanup.md](v1.4.8-bundle/01-browser-cleanup.md) |
+| 02 | Sidebar resize (IDE Editor + main Sidebar) | M (~3-5 hr) | [v1.4.8-bundle/02-sidebar-resize.md](v1.4.8-bundle/02-sidebar-resize.md) |
+| 03 | Drag-drop file → pane `@-mention` | S (~2-3 hr) — was M | [v1.4.8-bundle/03-drag-drop-file-mention.md](v1.4.8-bundle/03-drag-drop-file-mention.md) |
+| 05 | Windows auto-update verify (UAC code-5 detection + Win11 smoke) | XS (~1-2 hr) — was S; underlying auto-update already shipped v1.2.4 | [v1.4.8-bundle/05-windows-autoupdate-verify.md](v1.4.8-bundle/05-windows-autoupdate-verify.md) |
 
-Surfaced after v1.4.7 ship during live dogfood. Each is small, scoped, low-risk; no
-external infra or UX taxonomy decisions needed. Bundle as a single ~½ day patch.
+### Session B — v1.4.9 (lead answers 16 Q's first, ~10d, UX-decision cluster)
 
-| Item | Effort | Surface |
-|---|---|---|
-| **Browser auto-opens `about:blank` on room entry** — `BrowserRoom.tsx:72-83` auto-spawns a tab when the workspace has 0 persisted tabs. Annoying when user enters Browser room to glance/check. Fix: render an EmptyState ("No tabs open · [+ New tab]") and let user opt in. | XS (~15 min) | `app/src/renderer/features/browser/BrowserRoom.tsx` |
-| **`about:about` directory page can land via address bar** — `AddressBar.normalizeUrl` passes any `about:*` string through unchanged (line 31). Bare `about:` resolves to Chromium's directory page. Fix: only allow `about:blank` through; otherwise treat as search. | XS (~5 min) | `app/src/renderer/features/browser/AddressBar.tsx` |
-| **IDE Editor file-tree sidebar not resizable** — `EditorTab.tsx:128-139` hardcodes `style={{ width: 240 }}`. No drag handle, no persistence. Introduced in v1.1.x (commit `d4b2610`) and never refreshed. Fix: stateful width + 4px drag divider (same Pointer Events pattern as `GridLayout.tsx`), persist via `kv['editor.sidebar.width']`, clamp 160-600px. | M (~2-3 hr) | `app/src/renderer/features/editor/EditorTab.tsx` |
-| **Main left Sidebar fixed at w-14/w-60** — `Sidebar.tsx:78-81` uses Tailwind classes; only collapsed/expanded states. No fine-grained user control. Fix: optional resize handle on the expanded state + `kv['app.sidebar.width']` persistence; collapsed state unchanged. | M (~1-2 hr) | `app/src/renderer/features/sidebar/Sidebar.tsx` |
+| # | Packet | Effort | Plan |
+|---|---|---|---|
+| 06 | Provider auto-install prompt | M (~6-8 hr) — 4 lead Q's | [v1.4.8-bundle/06-provider-auto-install.md](v1.4.8-bundle/06-provider-auto-install.md) |
+| 07 | Notifications + top-right bell (migration 0018, 4-level severity, IPC delta) | L+½d (~3.5-4.5d) — 5 lead Q's | [v1.4.8-bundle/07-notifications-bell.md](v1.4.8-bundle/07-notifications-bell.md) |
+| 04 | Global voice capture — macOS only (whisper.cpp + Apple Speech.framework fallback) | ~5d of the L+ total — 7 lead Q's | [v1.4.8-bundle/04-global-voice-capture.md](v1.4.8-bundle/04-global-voice-capture.md) |
+
+### Session C — v1.5.0 (needs Windows VM + threat-model signoff, ~10-12d)
+
+| # | Packet | Effort | Plan |
+|---|---|---|---|
+| 04 | Voice capture Windows + Linux (after mac validates lazy-download UX) | ~3-5d remainder of L+ | [v1.4.8-bundle/04-global-voice-capture.md](v1.4.8-bundle/04-global-voice-capture.md) |
+| 08 | Windows SAPI5 voice (COM threading + STA + node-gyp prebuild matrix) | L (~3-5d) | [v1.4.8-bundle/08-windows-sapi5-voice.md](v1.4.8-bundle/08-windows-sapi5-voice.md) |
+| 09 | Cross-machine session sync — libsodium + HLC + LWW + isomorphic-git | L+1d (~5-7d) — 6 lead Q's + security signoff | [v1.4.8-bundle/09-cross-machine-sync.md](v1.4.8-bundle/09-cross-machine-sync.md) |
 
 ## 🔵 Funded-only / won't-do
 
