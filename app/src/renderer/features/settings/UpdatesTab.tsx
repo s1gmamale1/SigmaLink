@@ -327,7 +327,7 @@ export function UpdatesTab() {
                   <a
                     href="https://github.com/s1gmamale1/SigmaLink/releases/latest"
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-primary underline-offset-2 hover:underline"
                   >
                     <ExternalLink className="h-3 w-3" />
