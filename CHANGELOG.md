@@ -4,6 +4,51 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.9] - 2026-05-20
+
+Session B of the v1.4.8 bundle: 3 packets dispatched as parallel Sonnet + Opus sub-agents in git worktrees, reviewed by Opus 4.7, lead-merged. Ships the long-deferred notifications system, in-app provider auto-install consent flow, and macOS global voice capture (with whisper.cpp infrastructure scaffolded for v1.4.10+ activation). Session C (v1.5.0) remains for the 3 platform packets (Windows + Linux voice fan-out, SAPI5 voice, cross-machine sync).
+
+### Added
+
+- **Global voice capture, macOS only** (#50) — `Cmd+Option+Space` hotkey (rebindable via Settings → Voice → `voice.globalCapture.hotkey` kv) triggers system-wide voice capture from anywhere on macOS via Electron `globalShortcut.register` + `Tray` icon. Default OFF first launch — opt-in via Settings → Voice → "Enable global capture". When enabled, suppresses `app.quit()` on `window-all-closed` so voice survives the red-traffic-light close. Output policy is pane-focus-aware: when a SigmaLink pane is focused (`NSWorkspace frontmostApplication` check), transcript writes to the pane via existing `voice:dispatch` IPC; otherwise to clipboard + toast. Degrades to clipboard mode if Accessibility permission is denied. **Apple Speech.framework is the active transcription engine in v1.4.9**; whisper.cpp is vendored as a `voice-whisper/` git submodule (pinned `v1.7.4`) but the lazy-download path is currently dormant pending real HuggingFace model hashes (lands in v1.4.10). Adds 3 helpers to existing `voice-mac` native module (`sendPasteKeystroke`, `getFrontmostAppBundleId`, `isTrustedAccessibility`) for AX paste + frontmost-app checks. Updates `entitlements.mac.plist` for `com.apple.security.automation.apple-events` (CGEventPost requirement). 24 new tests. (`global-capture.ts`, `output-router.ts`, `model-registry.ts`, `whisper-engine.ts`, `VoiceTab.tsx`, `electron/main.ts`, native module `voice-whisper`)
+- **Provider auto-install prompt with consent gating** (#49) — clicking the "Not on PATH" amber badge in the Launcher's `AgentsStep` now opens a `ProviderInstallModal` with the per-OS install command (copy + docs link fallback), an "Install now" button that spawns the install in an ephemeral PTY pane via new `providers.spawnInstall(providerId): Promise<{paneId}>` RPC, "I'll install it myself", and "Don't ask again" controls. Consent persisted as `kv['provider.autoinstall.consent.<cliId>'] = 'declined'` (string enum; absence = prompt). New "Reset install consent" section in Settings → Providers. Extends `AgentProviderDefinition` with `installCommand: { darwin?, linux?, win32? }` + `installDocsUrl?` populated for all 5 CLIs from the canonical `providers.ts` registry (Kimi = `pip install kimi-cli`, OpenCode = `npm i -g opencode`, 3 npm CLIs via `npm i -g`). `detect.ts` for version display deferred to v1.5.0. (`providers.ts`, `router-shape.ts`, `rpc-router.ts`, `AgentsStep.tsx`, `ProviderInstallModal.tsx`, `ProvidersTab.tsx`)
+- **Notifications system + top-right bell** (#51) — migration **0018_notifications** adds a `notifications` table (12 columns, 3 indexes including a partial dedup index on `read_at IS NULL`). 4-level severity (`info | warn | error | critical`); per-source dedup via `(workspace_id, kind, dedup_key)` tuple within a 30-second window with `dup_count` increments; critical bypasses dedup. Rolling N=500 global hard cap + 30-day TTL on read; severity-aware eviction never auto-drops `error` or `critical`. **IPC delta-only `{added, removed, unreadCount}` payload** prevents saturation under broadcast flood (the original brief's full-list-on-change approach would have IPC-locked). Three sources tap existing emit paths without new listeners: PTY exit (existing `onPaneEvent`), swarm broadcasts (wrapped `mailbox.setEmitter`, gated on `payload.broadcastToSidebar === true` + envelope kind allowlist), Sigma tool errors (existing `assistant:tool-trace`, filtered on `trace.ok === false`). Bell badge in Breadcrumb: 0=hidden, 1-9=number, 10+=`9+`; red if any unread is error/critical, amber if max is warn. Dropdown filter chips: `[All | This workspace | Errors only]`. Click row deep-links to context (target ID preserved in payload — navigation wiring deferred to v1.4.10) + marks read; separate `×` dismiss DELETEs; explicit no-auto-mark-on-open (anti-pattern avoided). OS notifications opt-in OFF default with per-severity gates (`critical` forced-on) + 5-minute throttle per `dedup_key`. 49 new tests across manager + 3 sources + 3 renderer components. (`0018_notifications.ts`, `manager.ts`, `controller.ts`, `os-notify.ts`, `gc.ts`, 3 source files, `NotificationBell.tsx`, `NotificationDropdown.tsx`, `NotificationItem.tsx`, `NotificationsSettings.tsx`)
+
+### Deferred — for v1.4.10 cleanup packet
+
+**Packet 04 caveats** (PR #50 reviewer): real HuggingFace SHA-256 hashes for whisper.cpp models (currently placeholder → lazy-download fail-closed → Apple Speech.framework fallback); `PcmAccumulator` dead code (whisper.cpp wired but dormant pending AVAudioEngine raw-PCM tap); `_capturedRef` metaprogramming → proper closure refactor; `.gitmodules` canonical URL `ggml-org/whisper.cpp.git`. Caveat 3 (`native.onFinal` listener leak on re-recording) folded inline pre-merge via lead commit `caf1169` along with a latent `native_ref` dispose-bug fix.
+
+**Packet 07 caveats** (PR #51 reviewer): D2 soft-cap-collapse-to-`<kind>-summary` row (constant `SOFT_CAP_PER_KIND_WS = 200` exported but unread); `tool-error.ts CRITICAL_TOOL_NAMES` enumerates only `create_workspace` (brief D1 said "OR DB-touching tool" — define the set explicitly); D5 deep-link navigation TODO'd in click handler (payload preserves target IDs for follow-up wiring).
+
+**Session A carry-over** (PR #45/46/47/48 deferred caveats — still open): `CommandRoom.tsx` 878 LOC → extract `PaneShell.tsx`; export `normalizeUrl` + `insertMention` so tests import (not duplicate inline); `BrowserViewMount` lifecycle (`visible={false}` vs unmount) — dogfood watch; `data-testid="pane-body"` on PaneCell; `pathRelative(abs, root)` helper to dedupe `FileTree` + `CommandRoom` heuristic; UAC hint placement (visual dogfood judgment).
+
+### Deferred to v1.5.0 (Session C)
+
+- Packet 04 — Voice capture Windows + Linux fan-out (after macOS validates lazy-download UX once real hashes land in v1.4.10)
+- Packet 08 — Windows SAPI5 voice binding (COM threading + STA worker thread + node-gyp prebuild matrix)
+- Packet 09 — Cross-machine session sync (libsodium-wrappers-sumo + HLC + LWW + isomorphic-git; 6 lead Q's + security signoff)
+
+### Process
+
+- **Worktree-per-packet** per `~/.claude/skills/orchestrator/SKILL.md`. 3 worktrees branched from local main (post v1.4.8 tag `36b2f66`). Each agent ran `pnpm install --no-frozen-lockfile && node node_modules/electron/install.js` to handle the v1.4.7 `@electron/rebuild` ABI fix.
+- **Models stated per `feedback_agent_dispatch_flag_model.md`**: Sonnet for packets 04 + 06; **Opus** for packet 07 (brief mandated Opus for the irreversible schema 0018 + locked D1-D6 taxonomy — Sonnet would have re-litigated mid-PR).
+- **Autonomous mode** per `feedback_agent_scope_discipline.md` edge case ("Go fully autonomous" /goal directive). Brief defaults applied for all 16 lead Q's; lead merged + tagged without per-step user approval.
+- **Cleanup-loop**: 3 PRs all landed APPROVE-WITH-CAVEATS, **ZERO REQUEST-CHANGES** from Opus reviewers (even on the irreversible schema). Caveats split between fold-inline (PR #50 caveat 3 + dead `native_ref` removal — lead commit `caf1169`) and defer-to-v1.4.10 (the rest, all observational / documented-scope-reductions).
+- **PR #50 recovery**: an aborted `gh pr merge` (due to base-branch-modified mid-flight when PR #49 merged in the same shell command) left the PR CLOSED but unmerged with the remote branch already deleted by chained cleanup commands. Recovered via `git push origin <SHA>:refs/heads/<branch>` (commit SHA preserved in GitHub object store post-deletion), `gh pr reopen 50`, then re-merge succeeded. **Lesson logged**: chain destructive cleanup AFTER merge VERIFICATION (`gh pr view --json state` must show MERGED), never blindly with `&&`.
+- **Honest scope framing**: PR #50 ships voice capture with **Apple Speech.framework as the active transcription engine** on macOS; whisper.cpp infrastructure is fully scaffolded (native binding, model registry, output router, state machine) but dormant pending v1.4.10 work (real model hashes + AVAudioEngine PCM tap). PR #51 ships notifications with **D2 soft-cap-collapse + D5 deep-link nav + DB-touching-tools set deferred** to v1.4.10. PR body claims that overstated scope were corrected in this CHANGELOG.
+
+### Verification
+
+- `pnpm exec tsc -b --pretty false`: clean
+- `pnpm exec vitest run`: **659 pass | 1 skip** (79 test files; was 562 → +97 new across 3 Session B packets — 24 voice, 49 notifications, ~24 provider-install)
+- `pnpm exec eslint .`: 0 errors, 1 pre-existing warning (`use-session-restore.ts:277`)
+- `pnpm run build`: clean
+- `node scripts/build-electron.cjs`: clean
+
+### Migration
+
+**0018_notifications** added. Migration ceiling moves from 0017 → 0018. Packet 09 (Session C cross-sync) will use 0019.
+
 ## [1.4.8] - 2026-05-20
 
 Session A of the v1.4.8 bundle: 4 paper-cut packets dispatched as 4 parallel Sonnet sub-agents in git worktrees, reviewed by Opus 4.7, lead-merged. ~75 minutes wall-clock from dispatch to all-merged. Sessions B (v1.4.9) and C (v1.5.0) remain for the 5 deferred packets (provider auto-install, notifications, voice capture, SAPI5, cross-machine sync).

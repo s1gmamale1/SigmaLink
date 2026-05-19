@@ -1937,3 +1937,72 @@ After answers → dispatch 3 parallel Sonnet agents on the UX-decision cluster a
 - **The 500-line file rule needs enforcement at brief-review time.** `CommandRoom.tsx` was already 770 LOC pre-packet 03; the drag-drop additions pushed it to 878. Open Question 1 in the packet 03 brief was about extracting `PaneShell.tsx` first, deferred for scope reasons. Now a known v1.4.9 obligation. Future packets touching `CommandRoom.tsx` should require the extraction first OR be split.
 - **No-conflict squash-merge ordering doesn't matter for parallel-safe PRs.** The 4 packets touched disjoint files, so merge order (#45 → #46 → #47 → #48 in numeric order) was arbitrary. `gh pr merge --squash` rebased each onto the latest main automatically; no manual reordering needed.
 
+## Phase 36 — v1.4.9 Session B ship (2026-05-20)
+
+Session B of the v1.4.8 bundle: 3 packets (04 voice-mac, 06 provider-install, 07 notifications) dispatched as parallel sub-agents in autonomous mode (user "going out" per `/goal` directive). Lead-merged + rolled up + tagged v1.4.9.
+
+### What shipped
+
+| # | Packet | PR | Merge SHA | Model | Reviewer verdict |
+|---|---|---|---|---|---|
+| 06 | Provider auto-install | #49 | `ecec15e` | Sonnet | APPROVE-WITH-CAVEATS (4 minor; defer-to-v1.4.10) |
+| 04 | Global voice capture (macOS) | #50 | `0f29ade` | Sonnet | APPROVE-WITH-CAVEATS (caveat 3 + `native_ref` folded `caf1169`; 4 deferred) |
+| 07 | Notifications + bell | #51 | `6723ef6` | Opus | APPROVE-WITH-CAVEATS (3 deferred; **ZERO REQUEST-CHANGES** on irreversible schema 0018) |
+
+### Wall-clock
+
+- Worktree setup → all 3 PRs open: ~18 min (parallel dispatch, gated by Opus packet 07's 35-file scope)
+- Reviewer pass → all 3 verdicts: ~25 min total (3 Opus reviewers, ran in series as each PR opened)
+- Caveat fold + merges + PR #50 recovery + rollup: ~25 min
+- **Total dispatch-to-tag: ~70 min**
+
+### Process notes
+
+- **Autonomous mode** per `feedback_agent_scope_discipline.md` edge case (user said "Go fully autonomous I'm going out"). Brief defaults applied for all 16 lead Q's; lead merged + tagged without per-step approval.
+- **Models stated per feedback rule**: Sonnet for 04+06; Opus for 07 (brief mandate — schema irreversibility + locked D1-D6 taxonomy required Opus-tier reasoning; Sonnet would have re-litigated D1/D3 mid-PR per the brief's own reviewer recommendation).
+- **PR #50 recovery (lesson learned)**: an aborted `gh pr merge --squash` (due to base-branch-modified mid-flight from #49 just merging) left PR #50 in CLOSED-but-unmerged state. My downstream cleanup commands (`git worktree remove`, `git branch -D`, `git push origin --delete feat/v1.4.9-04-voice-mac`) were chained with `&&` AFTER the merge command but RAN ANYWAY when the merge failed — because `&&` only short-circuits if the immediately-prior command failed, and the cleanup commands' exit codes were independent of the merge's failure semantics from gh's perspective. Recovery: GitHub's git object store preserved the commit SHA `caf1169` even after branch deletion; recreated the branch via `git push origin <SHA>:refs/heads/<branch>`, `gh pr reopen 50`, then re-merge succeeded. **Lesson**: chain destructive cleanup AFTER merge VERIFICATION (`gh pr view --json state` must show MERGED) — never blindly with `&&`. Or: use `gh pr merge --squash --delete-branch` AND don't do separate cleanup (but that had its own bug in Session A — local branch still in worktree).
+- **Honest CHANGELOG framing**: Packet 04 ships with whisper.cpp **scaffolded but dormant** (placeholder model hashes + PcmAccumulator dead code mean Apple Speech.framework is the active engine for v1.4.9). PR body originally claimed "primary whisper.cpp" — corrected in v1.4.9 CHANGELOG to be honest about the v1.4.10 deferral. Packet 07 PR body claimed "D1-D6 honored without deviation" but reviewer caught D2 soft-cap-collapse + D5 deep-link nav as deferred scope reductions — corrected here.
+
+### Deferred caveats (carry into v1.4.10 cleanup packet)
+
+PR #49 (provider-install):
+- Modal screenshot in PR body
+- `checkRuntime` / `getUserHome` hardcoded path candidates (cosmetic)
+- `resetConsent` overwrites kv with `''` instead of deleting (cosmetic — `getInstallConsent` only matches exact `'declined'`)
+- Unreachable `installCommand?.linux` fallback in `spawnInstall` (defensive code, no actual fault)
+
+PR #50 (voice-mac):
+- **Real HuggingFace SHA-256 hashes for whisper.cpp models** (currently placeholder; lazy-download is fail-closed → degrades to Apple Speech.framework)
+- `PcmAccumulator` dead code (whisper.cpp wired but dormant pending AVAudioEngine raw-PCM tap)
+- `_capturedRef` metaprogramming → proper closure refactor
+- `.gitmodules` canonical URL `ggml-org/whisper.cpp.git` (current redirects through `ggerganov/whisper.cpp.git`)
+
+PR #51 (notifications):
+- D2 soft-cap-collapse-to-`<kind>-summary` row (constant `SOFT_CAP_PER_KIND_WS = 200` exported, never read; D3 dedup absorbs most flood cases so operational impact is low)
+- `CRITICAL_TOOL_NAMES` enumerate full DB-touching-tools set (currently only `create_workspace`)
+- D5 deep-link navigation (payload preserves target IDs `sessionId/swarmId+messageId/conversationId+messageId`; click only marks read for v1.4.9)
+
+Plus **7 Session A v1.4.10 carry-over** caveats from PR #45/46/47/48 reviewers — most notably the `CommandRoom.tsx` 878-LOC over the 500-line project rule (requires `PaneShell.tsx` extraction first).
+
+### Verification
+
+- `tsc -b --pretty false`: clean
+- `eslint .`: 0 errors, 1 pre-existing warning (`use-session-restore.ts:277`)
+- `vitest run`: **659 pass | 1 skip** (79 test files; was 562 → +97 new across 3 Session B packets — 24 voice + 49 notifications + ~24 provider-install)
+- `pnpm run build`: clean
+- `node scripts/build-electron.cjs`: clean
+- Migration **0018_notifications** added; **0019 reserved for Session C cross-sync**
+
+### Lessons (logged to Ruflo memory as `v1.4.9-session-b-dispatch`)
+
+- **Conditional cleanup after merge VERIFICATION**, not blind `&&` chaining. Cost of the Session B bug: ~5 min recovery time + risk of orphaned PR if SHA had been git-GC'd before recreation. Risk-adjusted lesson: every cleanup batch should be a separate Bash invocation after an explicit `gh pr view --json state | grep MERGED`.
+- **Honest CHANGELOG framing** about scope reductions is more valuable than aspirational "fully honored" claims. Reviewers caught both PR #50's whisper.cpp dormancy and PR #51's D2/D5 deviations; documenting them as v1.4.10 obligations is what the user expects.
+- **Opus for irreversible schema** worked: PR #51 had ZERO REQUEST-CHANGES on the 0018 migration despite the 35-file scope. Sonnet would have re-litigated D1-D6 mid-PR per the brief's reviewer recommendation. Cost: ~2x reviewer wall-clock vs Sonnet, but ZERO post-ship rework risk on irreversible state.
+
+### Followups for Session C (v1.5.0)
+
+- **Packet 04 voice fan-out** (Win + Linux): native module work, `release-windows.yml` node-gyp rebuild step, `native-prebuild-win.yml`, `output-router` Win/Linux paths (`GetForegroundWindow` + `xdotool`)
+- **Packet 08 SAPI5**: native COM-threading STA worker thread + Win32 message pump + `HWND_MESSAGE` + node-gyp prebuild matrix
+- **Packet 09 cross-machine sync**: libsodium-wrappers-sumo + HLC + LWW + isomorphic-git; **autonomous-mode dispatch will apply brief defaults (S5=B/safeStorage+BIP-39, S1=A4-undefended, S8=Signal-style, S6=credentials hard-DENY, S2=libsodium, S7=isomorphic-git, S3=HLC+LWW); mandatory Opus security review must validate threat model — if REQUEST-CHANGES, HOLD merge until user returns for signoff**
+- **Windows VM smoke**: Win11 needed for packets 04/08; deferred to user post-release (CI handles compile verification)
+

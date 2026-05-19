@@ -30,6 +30,7 @@
 | v1.4.6 | Cross-platform frameless chrome + Intel-Mac voice fix + CI hardening. 15 commits between v1.4.5 and PR #36 captured under v1.4.7 tag (no separate v1.4.6 tag): titleBarStyle:'hidden' everywhere with WCO insets (#33), x64 macOS Speech.framework binding ships in the Intel DMG (#34), Electron-ABI rebuild in all CI lanes (was rebuilding host Node ABI, root cause of CI red since v1.4.3), pnpm cache-dep-path fix, parchment contrast verify (BUG-W7-015 closed), terminal snapshot race regression test (R-1.2.7-1 closed), vitest coverage thresholds verified-and-closed, Playwright smoke refresh (4 navTo selector fixes + 1 stale-args assertion). | inline in [CHANGELOG v1.4.6](../../CHANGELOG.md) · [release-notes-1.4.6.txt](../09-release/release-notes-1.4.6.txt) |
 | v1.4.7 | CI fully green again. 5 e2e tests closed (3 deferred from PR #36 Followup-2 + 2 pre-existing timeouts). Production regression fix: `panes.listForWorkspace` channel allowlist gap silently broke pane rehydration on workspace reopen since v1.4.3 (#37). OpenCode SQLite direct read drops session picker cold-start from ~400ms to <100ms (#39). opencode-Qwen secondary silent-fail mode documented (orchestrator skill). Feature-tier packets (notifications, Windows SAPI5 voice, cross-machine sync, Windows auto-update, provider auto-install) deferred to v1.4.8. | inline in [CHANGELOG v1.4.7](../../CHANGELOG.md) · [release-notes-1.4.7.txt](../09-release/release-notes-1.4.7.txt) · [bundle](archive/v1.4.7-bundle/00-INDEX.md) |
 | v1.4.8 | Session A paper-cuts: drag-drop file → pane `@-mention` (#48), sidebar resize handles for IDE Editor + main Sidebar with kv persistence (#47), Browser EmptyState + `about:` normalization (#46), Windows auto-update UAC denied fallback + warning copy (#45). 4 parallel Sonnet sub-agents in git worktrees, 4 Opus 4.7 reviewers, ~45min dispatch-to-tag wall-clock. Sessions B (v1.4.9) and C (v1.5.0) planned for remaining 5 packets. | inline in [CHANGELOG v1.4.8](../../CHANGELOG.md) · [release-notes-1.4.8.txt](../09-release/release-notes-1.4.8.txt) · [bundle](v1.4.8-bundle/00-INDEX.md) |
+| v1.4.9 | Session B feature cluster: global voice capture macOS (#50) — `Cmd+Option+Space` hotkey + Tray + pane-focus-aware output via NSWorkspace check, whisper.cpp scaffolded with Apple Speech.framework as active engine; provider auto-install prompt with consent gating (#49) — new `providers.spawnInstall` RPC + `ProviderInstallModal`; notifications + top-right bell (#51) — migration 0018 + 4-level severity + dedup 30s + IPC delta + Opus reviewer on the irreversible schema. 3 parallel agents (2 Sonnet + 1 Opus), 3 Opus reviewers, ~70min dispatch-to-tag wall-clock in autonomous mode. **ZERO REQUEST-CHANGES** on the irreversible 0018 migration. Session C (v1.5.0) remains for the platform tier (Win+Linux voice fan-out, SAPI5, cross-sync). | inline in [CHANGELOG v1.4.9](../../CHANGELOG.md) · [release-notes-1.4.9.txt](../09-release/release-notes-1.4.9.txt) · [bundle](v1.4.8-bundle/00-INDEX.md) |
 
 ---
 
@@ -63,17 +64,9 @@ Confirmed root cause was cwd/context drift, not PTY death: SigmaLink created git
 
 *(empty — all 4 items closed in v1.4.6: terminal mount race verified-and-closed via regression test, BUG-W7-015 verified-and-closed via WCAG AA contrast check, CI cache-dep-path corrected, vitest coverage thresholds verified-and-closed.)*
 
-## 🟢 v1.4.8 bundle — Session A shipped; Sessions B+C remaining
+## 🟢 v1.4.8 bundle — Sessions A+B shipped; Session C remaining
 
-Session A shipped as **v1.4.8** (2026-05-20) — 4 paper-cut packets (01 browser, 02 sidebar, 03 drag-drop, 05 win-autoupdate). All 9 packets briefed and reviewed against main on 2026-05-20 by 9 parallel reviewer agents. See [**`v1.4.8-bundle/00-INDEX.md`**](v1.4.8-bundle/00-INDEX.md) for the full plan with cross-packet interactions + remaining 16+6 lead questions for Sessions B+C.
-
-### Session B — v1.4.9 (lead answers 16 Q's first, ~10d, UX-decision cluster)
-
-| # | Packet | Effort | Plan |
-|---|---|---|---|
-| 06 | Provider auto-install prompt | M (~6-8 hr) — 4 lead Q's | [v1.4.8-bundle/06-provider-auto-install.md](v1.4.8-bundle/06-provider-auto-install.md) |
-| 07 | Notifications + top-right bell (migration 0018, 4-level severity, IPC delta) | L+½d (~3.5-4.5d) — 5 lead Q's | [v1.4.8-bundle/07-notifications-bell.md](v1.4.8-bundle/07-notifications-bell.md) |
-| 04 | Global voice capture — macOS only (whisper.cpp + Apple Speech.framework fallback) | ~5d of the L+ total — 7 lead Q's | [v1.4.8-bundle/04-global-voice-capture.md](v1.4.8-bundle/04-global-voice-capture.md) |
+Sessions A + B shipped as **v1.4.8** + **v1.4.9** (2026-05-20). 6 of 9 packets landed (01 browser-cleanup, 02 sidebar-resize, 03 drag-drop, 04 voice-mac, 05 win-autoupdate, 06 provider-install, 07 notifications). Remaining: Session C v1.5.0 platform tier — packets 04 voice fan-out (Win+Linux), 08 SAPI5, 09 cross-machine sync. See [**`v1.4.8-bundle/00-INDEX.md`**](v1.4.8-bundle/00-INDEX.md) for the full plan with 6 remaining lead questions on packet 09 cross-sync threat model.
 
 ### Session C — v1.5.0 (needs Windows VM + threat-model signoff, ~10-12d)
 

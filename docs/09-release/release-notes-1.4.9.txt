@@ -1,0 +1,82 @@
+SigmaLink v1.4.9 — global voice capture (macOS), provider auto-install, notifications
+
+Headline
+--------
+Three feature packets that have been deferred since v1.4.7. Session B of
+the v1.4.8 bundle — 3 packets dispatched in parallel (Sonnet for voice
+and provider-install; Opus for the irreversible-schema notifications
+packet), reviewed by 3 Opus 4.7 reviewers, lead-merged in autonomous
+mode. Zero REQUEST-CHANGES on the migration. Session C (v1.5.0) still
+has the platform-tier packets: Windows + Linux voice fan-out, Windows
+SAPI5 binding, and cross-machine session sync.
+
+What's new
+----------
+* Global voice capture on macOS. Press Cmd+Option+Space anywhere on the
+  system to dictate; transcript writes to the focused SigmaLink pane via
+  the existing voice:dispatch IPC, OR to clipboard with a toast. Default
+  OFF first launch — opt-in via Settings -> Voice -> Enable global
+  capture. The Tray icon keeps the app alive on window-all-closed so
+  voice survives a red-traffic-light close. Apple Speech.framework is
+  the active transcription engine in v1.4.9; whisper.cpp is vendored
+  and scaffolded for v1.4.10+ activation (real model hashes + PCM tap).
+
+* Provider auto-install prompt. When a CLI is not on PATH, the
+  Launcher's "Not on PATH" amber badge now opens a modal showing the
+  per-OS install command (copy + docs link), an "Install now" button
+  that spawns the install in a watchable PTY pane via a new
+  providers.spawnInstall RPC, and a "Don't ask again" consent.
+
+* Notifications + top-right bell. New migration 0018 adds a
+  notifications table with 4-level severity (info / warn / error /
+  critical), per-source dedup with critical bypass, 30-day TTL,
+  rolling N=500 hard cap, severity-aware eviction. IPC delta-only
+  payload prevents saturation under flood. Three sources tap existing
+  emit paths: PTY exits, swarm broadcasts (gated on
+  payload.broadcastToSidebar), and Sigma tool errors. Bell in
+  Breadcrumb shows count + colour; click row marks read (no
+  auto-mark-on-open); X dismiss deletes; OS notifications opt-in OFF
+  default with per-severity gates + 5-min throttle.
+
+What's deferred to v1.4.10 cleanup
+----------------------------------
+* whisper.cpp model hashes (currently placeholder; lazy-download
+  fail-closed → Apple Speech.framework fallback)
+* PcmAccumulator wire-up (raw PCM tap from AVAudioEngine into the
+  vendored whisper.cpp pipeline)
+* Notifications D2 soft-cap-collapse to summary rows
+* Notifications D5 deep-link navigation when clicking notification
+  rows (payload IDs preserved; route wiring is the remaining piece)
+* Session A carry-over: PaneShell.tsx extraction (CommandRoom.tsx
+  is 878 LOC, over the 500-line project rule), normalizeUrl /
+  insertMention exports, BrowserViewMount lifecycle dogfood watch,
+  test-utility refactors
+
+What's deferred to v1.5.0 (Session C)
+-------------------------------------
+* Voice capture Windows + Linux fan-out (after macOS dogfoods the
+  lazy-download UX with real hashes)
+* Windows SAPI5 voice binding (COM threading + node-gyp prebuild
+  matrix)
+* Cross-machine session sync (libsodium + HLC + LWW + isomorphic-git;
+  needs Windows VM access + security signoff on the threat model)
+
+Process
+-------
+Per the orchestrator skill cleanup-loop, all 3 PRs went through Opus
+4.7 reviewers. Zero REQUEST-CHANGES; 3 APPROVE-WITH-CAVEATS. One
+caveat (PR #50 listener leak + a latent native_ref dispose bug) was
+folded inline pre-merge; the rest were documented scope reductions
+deferred to v1.4.10. The PR #50 merge had to be recovered after an
+aborted merge mid-race plus premature branch cleanup — recovery via
+git push to recreate the branch from a preserved SHA in GitHub's
+object store. Lesson logged in master_memory: chain destructive
+cleanup AFTER merge verification, not blindly with &&.
+
+Install / upgrade
+-----------------
+* macOS arm64: curl -sSL https://sigmalink.dev/install.sh | bash
+* macOS x64 (Intel): same command (arch auto-detected since v1.4.6)
+* Windows: iwr https://sigmalink.dev/install.ps1 -UseB | iex
+
+GitHub: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.4.9
