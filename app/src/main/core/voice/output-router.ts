@@ -150,9 +150,12 @@ function getWindowsForegroundExePath(): string {
         "\n\"@;" +
         '$type = Add-Type -MemberDefinition $sig -Name "Win32Util" -Namespace "PInvoke" -PassThru;' +
         '$fgHwnd = $type::GetForegroundWindow();' +
-        '$pid = [uint32]0;' +
-        '$type::GetWindowThreadProcessId($fgHwnd, [ref]$pid) | Out-Null;' +
-        'if ($pid -gt 0) { (Get-Process -Id $pid -ErrorAction SilentlyContinue).MainModule.FileName } else { "" }',
+        // NOTE: `$pid` is a PowerShell automatic read-only variable (current
+        // process id); assigning to it throws. Use `$procId` instead — caveat
+        // 1 from PR #52 reviewer.
+        '$procId = [uint32]0;' +
+        '$type::GetWindowThreadProcessId($fgHwnd, [ref]$procId) | Out-Null;' +
+        'if ($procId -gt 0) { (Get-Process -Id $procId -ErrorAction SilentlyContinue).MainModule.FileName } else { "" }',
       ],
       { timeout: 3000, encoding: 'utf8' },
     );
