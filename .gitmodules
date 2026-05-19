@@ -1,0 +1,4 @@
+[submodule "app/native/voice-whisper/vendor/whisper.cpp"]
+	path = app/native/voice-whisper/vendor/whisper.cpp
+	url = https://github.com/ggerganov/whisper.cpp.git
+	branch = master
