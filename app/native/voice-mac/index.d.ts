@@ -52,6 +52,32 @@ export interface SigmaVoiceMac {
    */
   isAvailable(): boolean;
 
+  // ── v1.4.9 global-capture helpers ─────────────────────────────────────────
+
+  /**
+   * Returns the bundle identifier of the frontmost application via
+   * `[NSWorkspace sharedWorkspace].frontmostApplication.bundleIdentifier`.
+   * Returns an empty string when unavailable (non-darwin builds use the stub
+   * which always returns '').
+   */
+  getFrontmostAppBundleId(): string;
+
+  /**
+   * Checks (and optionally triggers) the system Accessibility permission
+   * dialog via `AXIsProcessTrustedWithOptions`.
+   * @param prompt When true, triggers the system dialog if not yet trusted.
+   * @returns true when Accessibility is granted.
+   */
+  isTrustedAccessibility(prompt: boolean): boolean;
+
+  /**
+   * Posts a Cmd+V key event pair to the system input stream via CGEvent.
+   * Requires Accessibility permission; silently no-ops when not trusted.
+   * Used by the global-capture output router to paste transcripts into the
+   * focused (non-SigmaLink) application.
+   */
+  sendPasteKeystroke(): void;
+
   /**
    * Triggers the macOS authorization prompt the first time. Subsequent calls
    * resolve immediately with the cached status.

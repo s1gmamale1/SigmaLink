@@ -1,12 +1,95 @@
 // sigmavoice_mac.mm — N-API entry point. Exposes the singleton Recognizer
 // to JavaScript via the contract documented in `index.d.ts`.
+//
+// v1.4.9 — global-capture additions (~30 LOC):
+//   getFrontmostAppBundleId()   — [NSWorkspace frontmostApplication].bundleIdentifier
+//   isTrustedAccessibility(prompt) — AXIsProcessTrustedWithOptions
+//   sendPasteKeystroke()        — CGEvent Cmd+V to the frontmost app
 
 #include <napi.h>
 #include "recognizer.h"
 
+// AX + CoreGraphics for the v1.4.9 paste helper
+#import <AppKit/AppKit.h>
+#import <Foundation/Foundation.h>
+#include <ApplicationServices/ApplicationServices.h>
+#include <CoreGraphics/CoreGraphics.h>
+
 namespace {
 
 using sigmavoice::Recognizer;
+
+// ─── v1.4.9: output-router helpers ──────────────────────────────────────────
+
+/**
+ * Returns the bundle identifier of the frontmost application via
+ * [NSWorkspace sharedWorkspace].frontmostApplication.bundleIdentifier.
+ * Returns an empty string when NSWorkspace is unavailable or the bundle id
+ * is nil (sandboxed apps, login-window, etc.).
+ */
+Napi::Value GetFrontmostAppBundleId(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  @autoreleasepool {
+    NSRunningApplication* front =
+        [[NSWorkspace sharedWorkspace] frontmostApplication];
+    if (!front || !front.bundleIdentifier) {
+      return Napi::String::New(env, "");
+    }
+    const char* cstr = [front.bundleIdentifier UTF8String];
+    return Napi::String::New(env, cstr ? cstr : "");
+  }
+}
+
+/**
+ * Checks (and optionally prompts for) Accessibility trust.
+ * Equivalent to `AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: prompt})`.
+ * Returns a boolean.
+ */
+Napi::Value IsTrustedAccessibility(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  bool prompt = false;
+  if (info.Length() > 0 && info[0].IsBoolean()) {
+    prompt = info[0].As<Napi::Boolean>().Value();
+  }
+  @autoreleasepool {
+    NSDictionary* opts = @{
+      (__bridge NSString*)kAXTrustedCheckOptionPrompt: prompt ? @YES : @NO
+    };
+    bool trusted = AXIsProcessTrustedWithOptions(
+        (__bridge CFDictionaryRef)opts);
+    return Napi::Boolean::New(env, trusted);
+  }
+}
+
+/**
+ * Posts a Cmd+V key event pair (keyDown + keyUp) to the system input stream
+ * via CGEvent. Requires Accessibility permission; silently no-ops when not
+ * trusted (callers should check isTrustedAccessibility first).
+ *
+ * This is the ~30 LOC AX paste helper described in brief §4 item 5.
+ */
+Napi::Value SendPasteKeystroke(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  // kVK_ANSI_V = 0x09 (from Carbon/HIToolbox/Events.h)
+  constexpr CGKeyCode kVKeyCode = 0x09;
+
+  CGEventRef cmdDown = CGEventCreateKeyboardEvent(nullptr, kVKeyCode, true);
+  CGEventRef cmdUp   = CGEventCreateKeyboardEvent(nullptr, kVKeyCode, false);
+
+  if (cmdDown && cmdUp) {
+    CGEventSetFlags(cmdDown, kCGEventFlagMaskCommand);
+    CGEventSetFlags(cmdUp,   kCGEventFlagMaskCommand);
+    CGEventPost(kCGHIDEventTap, cmdDown);
+    CGEventPost(kCGHIDEventTap, cmdUp);
+  }
+
+  if (cmdDown) CFRelease(cmdDown);
+  if (cmdUp)   CFRelease(cmdUp);
+
+  return env.Undefined();
+}
+
+// ─── End v1.4.9 additions ────────────────────────────────────────────────────
 
 Napi::Value IsAvailable(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
@@ -155,15 +238,19 @@ Napi::Value BindCallback(const Napi::CallbackInfo& info) {
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  exports.Set("isAvailable",       Napi::Function::New(env, IsAvailable));
-  exports.Set("getAuthStatus",     Napi::Function::New(env, GetAuthStatus));
-  exports.Set("requestPermission", Napi::Function::New(env, RequestPermission));
-  exports.Set("start",             Napi::Function::New(env, Start));
-  exports.Set("stop",              Napi::Function::New(env, Stop));
-  exports.Set("onPartial",         Napi::Function::New(env, BindCallback<&Recognizer::BindPartial>));
-  exports.Set("onFinal",           Napi::Function::New(env, BindCallback<&Recognizer::BindFinal>));
-  exports.Set("onError",           Napi::Function::New(env, BindCallback<&Recognizer::BindError>));
-  exports.Set("onState",           Napi::Function::New(env, BindCallback<&Recognizer::BindState>));
+  exports.Set("isAvailable",            Napi::Function::New(env, IsAvailable));
+  exports.Set("getAuthStatus",          Napi::Function::New(env, GetAuthStatus));
+  exports.Set("requestPermission",      Napi::Function::New(env, RequestPermission));
+  exports.Set("start",                  Napi::Function::New(env, Start));
+  exports.Set("stop",                   Napi::Function::New(env, Stop));
+  exports.Set("onPartial",              Napi::Function::New(env, BindCallback<&Recognizer::BindPartial>));
+  exports.Set("onFinal",                Napi::Function::New(env, BindCallback<&Recognizer::BindFinal>));
+  exports.Set("onError",                Napi::Function::New(env, BindCallback<&Recognizer::BindError>));
+  exports.Set("onState",                Napi::Function::New(env, BindCallback<&Recognizer::BindState>));
+  // v1.4.9 — global-capture output-router helpers
+  exports.Set("getFrontmostAppBundleId", Napi::Function::New(env, GetFrontmostAppBundleId));
+  exports.Set("isTrustedAccessibility",  Napi::Function::New(env, IsTrustedAccessibility));
+  exports.Set("sendPasteKeystroke",      Napi::Function::New(env, SendPasteKeystroke));
   return exports;
 }
 
