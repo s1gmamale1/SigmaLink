@@ -1,0 +1,122 @@
+# Produces ABI-stable Node-API prebuilds for the SigmaVoice Windows native
+# module so end users do not need Visual Studio Build Tools.
+#
+# Runs on:
+#   - PRs that touch `app/native/voice-win/**` (so reviewers see whether
+#     the build works without committing the .node binary).
+#   - Manual `workflow_dispatch` (for one-off rebuilds).
+#
+# NOTE: `push: tags: ['v*']` is intentionally NOT enabled at launch. The
+# mac prebuild workflow disabled it after 25 consecutive runner timeouts.
+# We apply the same caution here until windows-11-arm runner availability
+# is confirmed stable. Use workflow_dispatch to produce prebuilds manually.
+#
+# Output: `app/native/voice-win/prebuilds/{win32-x64,win32-arm64}/node.napi.node`
+# The release-windows.yml `@electron/rebuild` step is the primary shipping
+# path; prebuilds committed here are an optional fast-path for end users.
+
+name: Native voice prebuild (Windows)
+
+on:
+  pull_request:
+    paths:
+      - 'app/native/voice-win/**'
+      - '.github/workflows/native-prebuild-win.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prebuild:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
+            continue-on-error: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.arch == 'arm64' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node 20 (matches Electron 30 runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.x
+
+      - name: Install root deps
+        working-directory: app
+        run: pnpm install --ignore-scripts --frozen-lockfile=false
+
+      - name: Build native voice module
+        working-directory: app/native/voice-win
+        run: |
+          npx prebuildify --napi --strip --arch=${{ matrix.arch }}
+          dir prebuilds\win32-${{ matrix.arch }}\
+
+      - name: Smoke-load the built module
+        working-directory: app/native/voice-win
+        run: |
+          node -e "
+            const m = require('./');
+            if (typeof m.isAvailable !== 'function') process.exit(1);
+            console.log('isAvailable:', m.isAvailable());
+            console.log('surface OK');
+          "
+
+      - name: Upload prebuild artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-win-win32-${{ matrix.arch }}
+          path: app/native/voice-win/prebuilds/win32-${{ matrix.arch }}/node.napi.node
+          if-no-files-found: error
+          retention-days: 30
+
+  commit-prebuilds:
+    # Only commits prebuilds back on release tags. PRs and dispatches stop
+    # at the artifact upload above.
+    needs: prebuild
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download x64 prebuild
+        uses: actions/download-artifact@v4
+        with:
+          name: voice-win-win32-x64
+          path: app/native/voice-win/prebuilds/win32-x64/
+
+      - name: Download arm64 prebuild (may be absent if arm64 runner failed)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: voice-win-win32-arm64
+          path: app/native/voice-win/prebuilds/win32-arm64/
+
+      - name: Commit prebuilds back to main
+        run: |
+          BRANCH=$(git for-each-ref --format='%(refname:short)' refs/heads/ \
+            | grep -E '^main$' | head -n1 || echo "main")
+          git checkout "$BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/native/voice-win/prebuilds/
+          if git diff --staged --quiet; then
+            echo "No prebuild changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(voice-win): refresh prebuilds for ${GITHUB_REF_NAME}"
+          git push origin "$BRANCH"

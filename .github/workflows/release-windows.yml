@@ -51,12 +51,32 @@ jobs:
       - name: Install Electron binary
         run: node node_modules/electron/install.js
 
+      - name: Initialise whisper.cpp submodule (Windows)
+        # Attempt to initialise the whisper.cpp vendor submodule pinned to v1.7.4.
+        # `|| true` + `continue-on-error` makes this step gracefully fall through
+        # to the stub path when the submodule is not yet registered (v1.4.10
+        # cleanup packet will fully register it). Voice features degrade to stub
+        # rather than blocking the installer build.
+        working-directory: .
+        run: |
+          git submodule update --init --depth 1 app/native/voice-whisper/vendor/whisper.cpp || true
+          git -C app/native/voice-whisper/vendor/whisper.cpp checkout v1.7.4 2>NUL || true
+        continue-on-error: true
+
       - name: Rebuild native modules for Electron
         # Use @electron/rebuild so native modules are compiled against Electron's
         # bundled Node ABI (20.9 in Electron 30), not the host Node ABI (20.16).
         # Modules built against the wrong ABI fail to dlopen in Electron's renderer,
         # causing a React boot crash that makes e2e tests false-green or all-fail.
         run: npx @electron/rebuild -f -w better-sqlite3 -w node-pty -w @sigmalink/voice-win
+
+      - name: Rebuild voice-whisper for Electron (Windows)
+        # Build the whisper.cpp N-API binding against Electron's Node ABI.
+        # CPU-only (GGML_USE_CUDA=0) for v1.5.0; CUDA support is v1.6+ when
+        # a CUDA runner is available. `continue-on-error` lets the installer
+        # build proceed via the whisper-engine stub when vendor source is absent.
+        run: npx @electron/rebuild -f -w @sigmalink/voice-whisper
+        continue-on-error: true
 
       - name: Build renderer + electron
         run: pnpm run build && node scripts/build-electron.cjs

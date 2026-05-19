@@ -27,10 +27,10 @@ const requireCJS = createRequire(import.meta.url);
 let mainWindow: BrowserWindow | null = null;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
-// v1.4.9 — Global voice capture: Tray + globalShortcut + state controller.
-// The Tray keeps the process alive on macOS when the last window closes and
-// global capture is enabled (overrides window-all-closed quit logic below).
-// On non-darwin this block is a no-op for v1.4.9 (win/linux land in v1.5.0).
+// v1.5.0 — Global voice capture: Tray + globalShortcut + state controller.
+// The Tray keeps the process alive on all platforms when the last window
+// closes and global capture is enabled (overrides window-all-closed quit
+// logic below). macOS shipped in v1.4.9; Windows + Linux fan-out in v1.5.0.
 let tray: Tray | null = null;
 let globalCaptureCtrl: GlobalCaptureController | null = null;
 
@@ -96,15 +96,19 @@ function updateTrayMenu(): void {
 }
 
 /**
- * Initialise the Tray icon. macOS only for v1.4.9.
- * Uses the 16x16 build icon; production ships a proper template image.
+ * Initialise the Tray icon for macOS, Windows, and Linux.
+ * Extended in v1.5.0 from macOS-only (v1.4.9) to all desktop platforms.
+ *
+ * Icon notes:
+ *   macOS   — template image (monochrome, auto-inverts for light/dark bar)
+ *   Windows — 16×16 or 32×32 ICO/PNG; taskbar notification area
+ *   Linux   — 22×22 PNG typical for system tray via libappindicator / StatusNotifier
+ *
+ * In production, replace the placeholder icon with a proper per-platform asset.
  */
 function initTray(): void {
-  if (process.platform !== 'darwin') return;
   if (tray) return; // Already created
 
-  // Use a minimal template image (16x16 white icon) so the tray renders in
-  // the macOS menu bar. In production, replace with a proper vector asset.
   const iconPath = path.join(__dirname, '../build/icon-16.png');
   let trayIcon: Electron.NativeImage;
   try {
@@ -115,14 +119,21 @@ function initTray(): void {
   } catch {
     trayIcon = nativeImage.createEmpty();
   }
-  // macOS menu bar icons are template images (monochrome, auto-inverts)
-  trayIcon.setTemplateImage(true);
+
+  // macOS menu bar icons are template images (monochrome, auto-inverts).
+  // On Windows and Linux this flag is a no-op per the Electron docs.
+  if (process.platform === 'darwin') {
+    trayIcon.setTemplateImage(true);
+  }
 
   tray = new Tray(trayIcon);
   tray.setToolTip('SigmaLink');
   updateTrayMenu();
 
-  // Left-click on tray icon reveals the main window (macOS convention)
+  // Left-click on tray icon reveals the main window.
+  // On Windows, double-click is the conventional trigger but single-click also
+  // works and is friendlier. On Linux, click behaviour varies by desktop
+  // environment; single-click is the safest universal default.
   tray.on('click', () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -213,9 +224,12 @@ function registerGlobalCaptureIpc(): void {
 /**
  * Initialise the global voice capture controller and wire IPC/KV.
  * Called once inside app.whenReady() after the router (KV) is registered.
+ *
+ * Extended in v1.5.0 from macOS-only to all desktop platforms (darwin, win32,
+ * linux). The underlying whisper-engine and output-router both handle platform
+ * differences internally, so the controller wiring is platform-agnostic here.
  */
 function initGlobalCapture(): void {
-  if (process.platform !== 'darwin') return; // v1.4.9 macOS only
 
   const kv = {
     get: (key: string): string | null => {
@@ -656,7 +670,7 @@ void app.whenReady().then(() => {
     /* never block boot on update plumbing */
   }
 
-  // v1.4.9 — initialise Tray + global voice capture controller (macOS only).
+  // v1.5.0 — initialise Tray + global voice capture controller (all platforms).
   // Must run AFTER registerRouter() so the KV store is available.
   try {
     initTray();
@@ -672,18 +686,29 @@ void app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  // v1.4.9 — suppress quit on macOS when global capture is enabled so the
-  // Tray + hotkey persist even after the user closes all windows.
-  if (process.platform === 'darwin') {
-    const captureEnabled = globalCaptureCtrl?.getStatus().enabled ?? false;
-    if (!captureEnabled) {
-      app.quit();
-    }
-    // else: tray keeps the process alive; user can quit via Tray → "Quit SigmaLink"
+  // v1.5.0 — suppress quit on ALL platforms when global capture is enabled so
+  // the Tray + hotkey persist after the user closes all windows.
+  //
+  // macOS: window-all-closed suppression has always been needed here — the
+  // default Electron behaviour on macOS is NOT to quit on window-all-closed
+  // (it re-creates via `activate`), but we also want to keep the process alive
+  // on macOS when the user explicitly closes the last window while voice is on.
+  //
+  // Windows + Linux: these platforms DO quit by default on window-all-closed.
+  // The Tray icon (Taskbar notification area on Windows, StatusNotifier on
+  // Linux) keeps the app icon visible so users can reopen the window or quit
+  // intentionally via Tray → "Quit SigmaLink".
+  const captureEnabled = globalCaptureCtrl?.getStatus().enabled ?? false;
+  if (captureEnabled) {
+    // Keep alive — tray icon remains; user quits via tray menu.
     return;
   }
-  // Non-darwin: quit normally (v1.5.0 will add win/linux tray support)
-  app.quit();
+  // Global capture disabled (or controller not initialised): default quit
+  // behaviour. On macOS this means no quit (app re-activates from dock);
+  // on Windows/Linux it means quit.
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });
 
 // Graceful shutdown: kill live PTYs, flush + close SQLite WAL. Without this,
