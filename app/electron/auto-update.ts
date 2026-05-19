@@ -123,7 +123,14 @@ function configureUpdater(): void {
   });
 
   autoUpdater.on('error', (err) => {
-    broadcast('app:update-error', { error: err.message });
+    if (process.platform === 'win32' && /code[:\s]*5|EACCES/i.test(err.message)) {
+      broadcast('app:update-error', {
+        error: 'Admin permission required. Re-run the SigmaLink installer to upgrade: https://github.com/s1gmamale1/SigmaLink/releases/latest',
+        isUacDenied: true,
+      });
+    } else {
+      broadcast('app:update-error', { error: err.message });
+    }
   });
 }
 
