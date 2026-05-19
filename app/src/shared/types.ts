@@ -425,3 +425,49 @@ export interface TaskComment {
   body: string;
   createdAt: number;
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Notifications (v1.4.9 #07) — top-right bell.
+// Cross-process shape; the manager owns the DB persistence and dedup logic.
+// See `docs/03-plan/v1.4.8-bundle/07-notifications-bell.md` for the locked
+// D1–D6 taxonomy this type encodes.
+// ──────────────────────────────────────────────────────────────────────────
+
+/** D1 — 4-level severity scale. `critical` reserved for future events that
+ *  block the operator's mental model (DB corruption, auth invalid). */
+export type NotificationSeverity = 'info' | 'warn' | 'error' | 'critical';
+
+/** Source channel that produced the row. Free-form so summary rows like
+ *  `'pty-exit-summary'` stay typeable without widening the union explosively. */
+export type NotificationKind = string;
+
+export interface Notification {
+  id: string;
+  /** Nullable for app-global events (auth invalid, sync conflicts). */
+  workspaceId: WorkspaceId | null;
+  kind: NotificationKind;
+  severity: NotificationSeverity;
+  title: string;
+  /** Mutated by dedup to append ` (×N)` once duplicates absorb. */
+  body: string | null;
+  /** Kind-specific JSON payload. Parsed at the renderer for deep-linking. */
+  payload: Record<string, unknown> | null;
+  /** e.g. `'pty:exit'`, `'swarm:message'`, `'assistant:tool-error'`. */
+  sourceEvent: string | null;
+  /** D3 — collapse tuple. Sources MUST supply this. */
+  dedupKey: string;
+  /** D3 — absorbed event count; ≥ 1. */
+  dupCount: number;
+  createdAt: number;
+  /** Per-row read marker (D4). `null` means unread. */
+  readAt: number | null;
+}
+
+/** D2 — IPC delta envelope. Main emits this on every change rather than the
+ *  full list (the original v1.4.7 brief's full-list approach saturates IPC
+ *  under broadcast flood). Renderer reconciles via reducer. */
+export interface NotificationsDelta {
+  added: Notification[];
+  removed: string[];
+  unreadCount: number;
+}

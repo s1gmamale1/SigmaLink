@@ -372,6 +372,14 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'tasks.listComments': stub,
   'tasks.addComment': stub,
   'tasks.removeComment': stub,
+  // ── notifications (v1.4.9 #07) ────────────────────────────────────────
+  'notifications.list': stub,
+  'notifications.unreadCount': stub,
+  'notifications.markRead': stub,
+  'notifications.markAllRead': stub,
+  'notifications.markUnread': stub,
+  'notifications.dismiss': stub,
+  'notifications.clearRead': stub,
   // ── V3-W12-017 stubs ────────────────────────────────────────────────
   'assistant.send': stub,
   'assistant.list': stub,

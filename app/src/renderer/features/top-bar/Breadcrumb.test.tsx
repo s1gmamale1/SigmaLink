@@ -48,6 +48,11 @@ vi.mock('./RoomsMenuButton', () => ({
 vi.mock('./RightRailSwitcher', () => ({
   RightRailSwitcher: () => null,
 }));
+// v1.4.9 #07 — bell is mounted from Breadcrumb. Stub to a lightweight marker
+// so we can assert it renders; the bell's own tests cover the badge math.
+vi.mock('@/renderer/features/notifications/NotificationBell', () => ({
+  NotificationBell: () => <div data-testid="notification-bell-stub" />,
+}));
 
 function stubPlatform(platform: NodeJS.Platform | undefined) {
   // Build a minimal SigmaPreloadApi-shaped stub. The component only reads
@@ -120,5 +125,13 @@ describe('Breadcrumb — Windows WCO right padding', () => {
 
     const bar = screen.getByTestId('breadcrumb-empty');
     expect(bar.style.paddingRight).toBe('');
+  });
+
+  it('mounts the notification bell in the empty-state breadcrumb (v1.4.9 #07)', async () => {
+    stubPlatform('darwin');
+    const Breadcrumb = await loadBreadcrumb();
+    render(<Breadcrumb />);
+
+    expect(screen.getByTestId('notification-bell-stub')).toBeTruthy();
   });
 });

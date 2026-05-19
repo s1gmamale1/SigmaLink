@@ -564,6 +564,48 @@ export const swarmOrigins = sqliteTable(
 export type SwarmOriginRow = typeof swarmOrigins.$inferSelect;
 export type SwarmOriginInsert = typeof swarmOrigins.$inferInsert;
 
+// v1.4.9 #07 — Notifications + top-right bell. Migration 0018 owns the DDL;
+// this Drizzle table mirrors it so the notifications manager + controller
+// stay end-to-end typed. The schema is irreversible and the column set
+// (severity / dedup_key / dup_count) is locked per the v1.4.8 reviewer's
+// D1–D6 taxonomy decisions. See
+// `docs/03-plan/v1.4.8-bundle/07-notifications-bell.md` for rationale.
+export const notifications = sqliteTable(
+  'notifications',
+  {
+    id: text('id').primaryKey(),
+    /** NULLABLE so app-global events (auth invalid, sync conflicts) coexist
+     *  with per-workspace rows in the same table. */
+    workspaceId: text('workspace_id'),
+    /** 'pty-exit' | 'swarm-message' | 'tool-error' | '<kind>-summary'. */
+    kind: text('kind').notNull(),
+    /** D1 — 4-level scale. SQLite has no CHECK; the manager validates. */
+    severity: text('severity', { enum: ['info', 'warn', 'error', 'critical'] })
+      .notNull()
+      .default('info'),
+    title: text('title').notNull(),
+    body: text('body'),
+    /** Kind-specific JSON (pane id, swarm id, conv id, message id, etc.). */
+    payload: text('payload'),
+    /** Source channel that emitted this — e.g. 'pty:exit', 'swarm:message'. */
+    sourceEvent: text('source_event'),
+    /** D3 — collapse tuple supplied by every source (NEVER null). */
+    dedupKey: text('dedup_key').notNull(),
+    /** D3 — absorbed event count; starts at 1, incremented on dedup hit. */
+    dupCount: integer('dup_count').notNull().default(1),
+    createdAt: integer('created_at').notNull(),
+    readAt: integer('read_at'),
+  },
+  (t) => ({
+    workspaceIdx: index('idx_notifications_workspace').on(t.workspaceId, t.createdAt),
+    unreadIdx: index('idx_notifications_unread').on(t.readAt),
+    dedupIdx: index('idx_notifications_dedup').on(t.workspaceId, t.dedupKey, t.createdAt),
+  }),
+);
+
+export type NotificationRow = typeof notifications.$inferSelect;
+export type NotificationInsert = typeof notifications.$inferInsert;
+
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type WorkspaceInsert = typeof workspaces.$inferInsert;
 export type AgentSessionRow = typeof agentSessions.$inferSelect;

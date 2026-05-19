@@ -261,6 +261,20 @@
   to { opacity: 1; transform: scale(1); }
 }
 
+/* v1.4.9 #07 — critical-severity bell pulse. Subtle 2s opacity cycle that
+   loops; D1 calls for ~30s of pulse on first arrival, but a CSS-only animation
+   has no notion of arrival time. The renderer applies the class while
+   `hasCritical` is true (any unread critical present) and removes it when the
+   operator marks the critical row read or dismisses it — the UX behaviour
+   matches "pulse until acknowledged" which is the operator's mental model. */
+.sl-bell-pulse {
+  animation: sl-bell-pulse 2s ease-in-out infinite;
+}
+@keyframes sl-bell-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 
 @layer base {
   * {
