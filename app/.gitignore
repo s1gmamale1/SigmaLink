@@ -13,6 +13,7 @@ dist-ssr
 electron-dist
 release
 test-results
+playwright-report
 *.local
 
 # Ruflo / Claude-Flow runtime artefacts (per-machine; never committed)
