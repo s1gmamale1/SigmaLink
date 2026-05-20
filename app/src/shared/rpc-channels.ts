@@ -251,6 +251,15 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'notifications.markUnread',
   'notifications.dismiss',
   'notifications.clearRead',
+  // v1.5.0 packet 09 — Cross-machine sync.
+  'sync.enable',
+  'sync.disable',
+  'sync.status',
+  'sync.listConflicts',
+  'sync.resolveConflict',
+  'sync.exportMnemonic',
+  'sync.isConfigured',
+  'sync.recoverFromMnemonic',
 ]);
 
 /**

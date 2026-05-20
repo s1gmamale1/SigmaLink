@@ -59,7 +59,7 @@ const SCHEMA_VERSION = 19; // matches migration 0019
 // with camelCase column names — their allowlist entries below reflect
 // that. Cross-check against `schema.ts` if you add a new synced table.
 
-const COLUMN_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+export const COLUMN_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ['workspaces', new Set(['id', 'name', 'root_path', 'repo_root', 'repo_mode', 'created_at', 'last_opened_at'])],
   ['agent_sessions', new Set(['id', 'workspace_id', 'provider_id', 'cwd', 'branch', 'worktree_path', 'status', 'exit_code', 'initial_prompt', 'started_at', 'exited_at', 'provider_effective', 'external_session_id', 'pane_index', 'sigma_monitor_conversation_id', 'split_group_id', 'split_direction', 'split_index', 'minimised'])],
   ['swarms', new Set(['id', 'workspace_id', 'name', 'mission', 'preset', 'status', 'created_at', 'ended_at'])],
