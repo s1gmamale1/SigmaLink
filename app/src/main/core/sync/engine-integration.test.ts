@@ -9,7 +9,7 @@
 // capable in-memory MockDb that faithfully implements the subset of SQLite
 // semantics the engine actually exercises.
 
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import path from 'node:path';
 import os from 'node:os';
 import { SyncEngine } from './engine';
@@ -339,6 +339,21 @@ async function simulatePullWithBlob(
 describe('integration paths (v1.5.1 reviewer follow-up)', () => {
   let db: InMemoryDb;
   let engine: SyncEngine;
+
+  afterEach(() => {
+    // v1.5.3-B flake fix: disable the engine to cancel its background timer so
+    // that the previous test's setTimeout cannot fire during the next test's
+    // beforeEach (which calls vi.clearAllMocks() and re-applies mock implementations
+    // asynchronously). Without this, a timer from the prior test could race the
+    // mock re-application and call the engine cycle with stale or cleared mocks.
+    //
+    // Also restore all spies (e.g. console.warn spy in Test 2) so that a test
+    // failure mid-body does not leave spies active for subsequent tests.
+    // vi.clearAllMocks() clears call history but does NOT restore spies;
+    // vi.restoreAllMocks() handles the restore path.
+    engine.disable();
+    vi.restoreAllMocks();
+  });
 
   beforeEach(async () => {
     db = new InMemoryDb();

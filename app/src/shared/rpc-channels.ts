@@ -52,6 +52,13 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'providers.list',
   'providers.probeAll',
   'providers.probe',
+  // v1.4.9-06 provider installation UI (ProvidersTab + ProviderInstallModal).
+  // The handlers shipped in v1.4.9 #49 but were never added here, so the preload
+  // bridge has been rejecting these calls with "IPC channel not allowed" toasts
+  // since v1.4.9. Caught by the v1.5.3 CHANNELS-vs-AppRouter defensive test.
+  'providers.spawnInstall',
+  'providers.setInstallConsent',
+  'providers.getInstallConsent',
   // workspaces
   'workspaces.pickFolder',
   'workspaces.open',
