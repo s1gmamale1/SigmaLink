@@ -53,8 +53,11 @@ const SCHEMA_VERSION = 19; // matches migration 0019
 // schema for that table at the current migration ceiling. Unknown columns
 // (e.g. from a future schema or a tampered blob) are dropped with a warning.
 //
-// NB: column names here are the SQLite column names (snake_case), NOT the
-// drizzle TypeScript property names (camelCase).
+// NB: column names here are the SQLite column names as declared in the
+// migration DDL. Most tables use snake_case, but the three V3-era tables
+// `boards`, `swarm_origins`, and `swarm_replay_snapshots` were declared
+// with camelCase column names — their allowlist entries below reflect
+// that. Cross-check against `schema.ts` if you add a new synced table.
 
 const COLUMN_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ['workspaces', new Set(['id', 'name', 'root_path', 'repo_root', 'repo_mode', 'created_at', 'last_opened_at'])],

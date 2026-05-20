@@ -435,10 +435,13 @@ export class NotificationsManager {
     const placeholders = victimIds.map(() => '?').join(',');
     db.prepare(`DELETE FROM notifications WHERE id IN (${placeholders})`).run(...victimIds);
 
-    // Insert a summary row. The count is victims.length - 1 because the summary
-    // row itself replaces one slot (D2.2 framing: "47 more <kind> notifications
-    // collapsed" when we deleted 48 rows and the first replaced one is implicit).
-    const collapsed = victims.length - 1;
+    // Insert a summary row. The count reflects how many rows we actually
+    // removed from the user's view (= victims.length). The summary row
+    // itself becomes one of the visible notifications, so net: 50 rows
+    // removed → 1 summary inserted → 49 fewer visible rows, but the
+    // surfaced text reports the work done (50 collapsed) to match the
+    // brief D2.2 user-visible accounting.
+    const collapsed = victims.length;
     const summaryId = randomUUID();
     const now = this.now();
     db.prepare(
