@@ -4,6 +4,56 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-05-20
+
+v1.5.4 — 3-cluster defensive-infrastructure packet + **ANOTHER mid-rollup hotfix for a renderer-state-hydration class regression caught by a user dogfood report**. 3 Opus 4.7 reviewers cleared all PRs with ZERO REQUEST-CHANGES.
+
+### 🚨 Critical mid-rollup hotfix — workspace-restart swarm hydration gap
+
+**User-reported during v1.5.3 dogfood**: post-update + restart, 6 panes rendered correctly in the workspace, but the +Pane button showed the misleading "Open or create a workspace first" tooltip even with a workspace open + a swarm containing the 6 panes.
+
+**Root cause**: 3 separate workspace-restart code paths (boot restore via `useSessionRestore`, sidebar click-to-open, Launcher `chooseExisting`) all dispatched `ADD_SESSIONS` after `panes.listForWorkspace` but never dispatched `UPSERT_SWARM`. Sessions hydrated → grid rendered. Swarms didn't hydrate → `state.swarmsByWorkspace[wsId]` empty → `CommandRoom.activeSwarm = null` → AddPaneButton.tsx:43 returned "Open or create a workspace first" (the `activeSwarm=null` branch).
+
+**SAME class as the v1.5.3 Sigma-dispatch-pane bug** (#60 fix in `use-sigma-dispatch-echo.ts`). Boot restore was the THIRD path with the same hydration gap. The v1.5.3 fix only patched the assistant echo handler; the user-restart flow + sidebar click + Launcher reopen all remained broken.
+
+**Fix** (commit `8ae2c5d`): `Promise.all([panes.listForWorkspace, swarms.list])` in all 3 call sites, then dispatch `ADD_SESSIONS` + per-swarm `UPSERT_SWARM` + `SET_ACTIVE_SWARM` for the first running swarm. Mirrors v1.4.3 #02 hydration pattern that's now generalized.
+
+Note: the new state-hydration test class (Cluster B, this release) catches THIS class of bug going forward — the 3 tests verify that after `assistant:dispatch-echo` (ok=true), state.sessions AND state.swarms are updated.
+
+### Cluster A — AddPaneButton hardening (#68)
+
+- **A11y**: `aria-live="polite"` + `role="status"` on disabled-reason pill; `aria-live="assertive"` + `role="alert"` on persistent error chip. Tests 10+11 assert both.
+- **Test 7+9 hardening (Option C)**: `vi.doMock('@/components/ui/dropdown-menu')` replaces Radix with synchronous passthrough components via dynamic `import('./AddPaneButton')`. Removes `if (!chip) return;` escape hatches. Adds unconditional `addAgentMock.toHaveBeenCalledTimes(N)` + `toastErrorMock.toHaveBeenCalled()` assertions that prove the error path ran regardless of chip-rendering issues.
+- **Chip positioning** (Option B): kept absolute-positioned wrapper with JSX comment explaining the flex-row-height trade-off.
+
+### Cluster B — Defensive test expansion (#67)
+
+- **`ipcMain.handle` enumeration in CHANGELOG-vs-AppRouter test**: new `DIRECT_IPC_HANDLE_CHANNELS` constant enumerating the 7 direct-in-main `voice.globalCapture.*` channels. New 4th test asserts each is in CHANNELS. `CHANNELS_REQUIRING_LEAD_REVIEW` emptied (the false-positive suppression is now a real check). Future direct ipcMain.handle calls in electron/main.ts that aren't allowlisted will fail loudly.
+- **NEW state-hydration test class** (`state-hydration.test.tsx`): 3 tests using real `useReducer` + `renderHook` + stubbed window event bus + mocked rpcSilent. Test 1 catches the pre-v1.5.3 Sigma-dispatch regression (`ADD_SESSIONS` after echo). Test 2 catches the companion `UPSERT_SWARM` gap. Test 3 verifies error path inertness. **Test 1 would have caught the workspace-restart hotfix this release ALSO — the test class now covers this entire bug family.**
+
+### Cluster C — PCM resampler + pickPreset(n=7..8) (#66)
+
+- **PCM resampler** (`global-capture.ts`): linear interpolation from `NATIVE_PCM_SAMPLE_RATE = 48000` down to whisper's 16kHz expectation. Float32 input → Float32 output (verified end-to-end, not Int16). Early-return identity when input rate matches. Unlocks the previously-deferred sample-rate fix (gated on v1.5.3 Cluster D's whisper.cpp v1.7.x port).
+- **pickPreset(n) gap fix** (`assistant/controller.ts:68-73`): extended ternary chain — n≤6→6, else→8. `8` is a valid `GridPreset` member. Both `dispatchPane` + `dispatchBulk` clamps at `Math.min(8, ...)` stay consistent.
+
+### Rollup fold — pickPreset duplicate dedupe
+
+PR #66 reviewer caught a sibling bug: `app/src/main/core/assistant/tools.ts:46-47` contained a DUPLICATE buggy `pickPreset` (still returned `6` for n=7..8). Used by the MCP `launchPane` tool which accepts count 1..8. Folded into v1.5.4 rollup: imported the now-exported `pickPreset` from `./controller`; removed the duplicate.
+
+### Combined main gate
+
+- tsc clean
+- eslint 0 errors / 1 pre-existing warning
+- vitest **97 files / 886 pass / 1 skip** (+25 from v1.5.3 baseline)
+- build + electron-builder clean
+
+### Deferred to v1.5.5
+
+- Hardware sample-rate detection from voice-mac native binding (`fmt.sampleRate` from `recognizer.mm:189`). Currently 48k is the constant; 44.1k systems may produce slightly wrong-pitched audio (whisper.cpp robust to mild mismatch). Would thread `inputRate` through to `resampleTo16k`.
+- Stronger bounds-safety assertion in resampler test (currently only no-throw on 3-sample input; add finite + min/max bounds).
+- **Terminal scrollback persistence across app restart** — currently per-PTY-process ring buffer (v1.2.7); when the app quits, the PTY dies, the buffer is gone. Conversation context inside Claude is preserved (via JSONL on --resume) but visual scrollback resets. UX-confusing on update flows. Real fix would persist the ring buffer per-session-id across app restarts; design discussion.
+- V3-W15-006 dogfood (HUMAN QA only).
+
 ## [1.5.3] - 2026-05-20
 
 v1.5.3 — 5-cluster parallel swarm + Opus 4.7 reviewers + **TWO live v1.5.2-era regressions caught + fixed mid-rollup** + internal-use posture clarified across all forward-looking docs.

@@ -19,6 +19,11 @@ import type { TasksManager } from '../tasks/manager';
 import type { BrowserManagerRegistry } from '../browser/manager';
 import type { LaunchPlan, Role, RoleAssignment, SwarmPreset } from '../../../shared/types';
 import { executeLaunchPlan } from '../workspaces/launcher';
+// v1.5.4-rollup-fold — reuse the v1.5.4-C-fixed pickPreset from controller.ts
+// instead of maintaining a duplicate-and-buggy copy. The duplicate at line 46-47
+// still returned `6` for n=7..8, leaving the MCP `launchPane` tool with the
+// same invalid-LaunchPlan.preset gap that v1.5.4-C fixed in controller.ts.
+import { pickPreset } from './controller';
 import { addAgentToSwarm, createSwarm, listSwarmsForWorkspace } from '../swarms/factory';
 import { formatBroadcast, formatRollCall } from '../swarms/protocol';
 import { defaultRoster } from '../swarms/types';
@@ -42,9 +47,6 @@ export interface ToolDefinition {
   parse: (raw: unknown) => Record<string, unknown>;
   handler: (args: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>;
 }
-
-const pickPreset = (n: number): LaunchPlan['preset'] =>
-  n <= 1 ? 1 : n <= 2 ? 2 : n <= 4 ? 4 : 6;
 
 function requireWs(ctx: ToolContext, explicit: string | undefined, label: string): string {
   const wsId = explicit ?? ctx.defaultWorkspaceId;

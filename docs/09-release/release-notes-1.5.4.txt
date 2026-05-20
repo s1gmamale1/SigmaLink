@@ -1,0 +1,137 @@
+SigmaLink v1.5.4 — 2026-05-20
+=============================
+
+v1.5.4 defensive-infrastructure packet + **CRITICAL workspace-restart
+swarm hydration hotfix** (caught by user dogfood report during v1.5.3
+testing). 3 parallel Sonnet sub-agent clusters cleared the v1.5.4
+backlog. 3 Opus 4.7 reviewers approved with ZERO REQUEST-CHANGES.
+
+🚨 Critical workspace-restart swarm hydration hotfix
+---------------------------------------------------
+
+User-reported during v1.5.3 dogfood:
+- After app update + restart, 6 panes rendered correctly in the
+  workspace
+- BUT the +Pane button showed misleading "Open or create a workspace
+  first" tooltip even with a workspace open + 6-pane swarm visible
+
+Root cause: 3 workspace-restart code paths (boot restore, sidebar
+click, Launcher reopen) all called `rpc.panes.listForWorkspace +
+dispatch ADD_SESSIONS` but never called `rpc.swarms.list + dispatch
+UPSERT_SWARM`. Sessions hydrated → grid rendered. Swarms didn't
+hydrate → `state.swarmsByWorkspace[wsId]` empty → CommandRoom
+`activeSwarm = null` → AddPaneButton showed the wrong reason.
+
+Same renderer-state-hydration class as the v1.5.3 Sigma-dispatch-pane
+bug. Boot restore was the THIRD path with the same gap. The v1.5.3
+fix only patched the assistant echo handler; the user-restart flow +
+sidebar click + Launcher reopen all remained broken until v1.5.4.
+
+Fix: Promise.all of panes.listForWorkspace + swarms.list in all 3
+call sites, then dispatch ADD_SESSIONS + per-swarm UPSERT_SWARM +
+SET_ACTIVE_SWARM (for the first running swarm). The new
+state-hydration test class (Cluster B, this release) covers the
+entire bug family going forward.
+
+About perceived "session resume failure"
+----------------------------------------
+
+The dogfood screenshots showed fresh "SessionStart:startup hook
+error" output on every Claude pane after restart. This is NOT a
+SigmaLink session-resume failure — Claude --resume IS firing
+correctly:
+- agent_sessions.external_session_id persists across restart
+- resume-launcher.ts builds the --resume <id> args correctly
+- The fresh hook errors are Claude's OWN session-start hooks running
+  on each invocation (semgrep + sonarqube-cli not on PATH in the
+  user's environment)
+
+What's preserved:
+- Conversation context inside Claude (loaded from JSONL on --resume)
+- All agent_sessions DB rows (session IDs, providers, branches,
+  worktree paths)
+- All workspace state (swarms, conversations, kv prefs, notifications)
+
+What's NOT preserved across app restart (working-as-designed for
+v1.5.x):
+- Terminal scrollback (per-PTY-process ring buffer; old process dies
+  on quit; new process starts fresh). v1.2.7 ring-buffer replay
+  shows up to ~500 lines DURING a session — across app restarts
+  the buffer is fresh.
+- The new resumed Claude session has full conversation context but
+  the terminal output you see is what's emitted on this new
+  invocation.
+
+Persisting scrollback across app restarts is queued for v1.5.5+
+design discussion.
+
+Other highlights
+----------------
+
+- **AddPaneButton a11y**: aria-live + role attributes on the
+  disabled-reason pill (polite/status) and persistent error chip
+  (assertive/alert). Screen readers now announce state changes
+  without requiring focus near the elements.
+
+- **AddPaneButton tests 7+9 hardening**: Radix DropdownMenu mocked
+  with synchronous passthrough components via vi.doMock + dynamic
+  import. Removed silent `if (!chip) return;` escape hatches that
+  could degrade tests into no-ops if Radix portal behavior changed.
+  Added unconditional assertions (addAgentMock count + toast.error
+  call) that prove the path ran regardless of chip rendering.
+
+- **CHANNELS-vs-AppRouter test extended**: now enumerates direct
+  ipcMain.handle calls in electron/main.ts (the 7
+  voice.globalCapture.* channels). Future direct-in-main handlers
+  that aren't allowlisted will fail this test loudly instead of
+  needing manual suppression.
+
+- **New state-hydration test class**: catches the exact bug class
+  that fed v1.5.3 Sigma-dispatch + v1.5.4 workspace-restart
+  hotfixes. Future controller mutations that should update
+  renderer state will be caught at PR time.
+
+- **PCM resampler 48kHz → 16kHz** (linear interpolation): unlocks
+  the previously-deferred sample-rate work now that v1.5.3 Cluster
+  D's whisper.cpp v1.7.x port is in place. Whisper.cpp transcription
+  pipeline is now complete end-to-end on macOS (still gated on
+  enabling whisper.cpp engine; Apple Speech.framework remains
+  default).
+
+- **pickPreset(n=7..8) bug fix**: was returning undefined (invalid
+  LaunchPlan.preset) for 7-8 pane spawns via assistant.dispatchPane
+  / dispatchBulk. Plus a duplicate-and-still-buggy pickPreset in
+  tools.ts (used by MCP launchPane) deduped to import from
+  controller.ts.
+
+Test count
+----------
+
+96 → 97 files (+1) / 861 → 886 pass (+25) / 1 skip.
+
+Deferred to v1.5.5
+------------------
+
+- Hardware sample-rate detection from voice-mac native binding
+  (currently hardcoded to 48k; 44.1k systems get slight pitch shift)
+- Stronger resampler bounds-safety assertions
+- Terminal scrollback persistence across app restart (design
+  discussion — currently per-PTY-process ring buffer)
+- V3-W15-006 dogfood (human QA only)
+
+Upgrade notes
+-------------
+
+If you saw the v1.5.3 "+ Pane button shows 'open a workspace first'
+with workspace already open" issue, this release fixes it. The 6
+panes you had visible were ALWAYS real (in DB, in worktrees, with
+external session IDs) — the UI was just misreporting because the
+renderer's swarm state hadn't hydrated. After updating, your full
+state restores: panes + swarm + agent badge count all consistent.
+
+No schema migrations in v1.5.4.
+
+No data loss in the v1.5.3 → v1.5.4 upgrade or in the v1.5.2 →
+v1.5.3 upgrade. Your workspaces, conversations, sessions, sync setup
+all persist across updates (per-electron-userData; see CHANGELOG
+[1.5.3] for details).

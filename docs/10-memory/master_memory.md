@@ -2245,6 +2245,69 @@ Per user directive ("completely remove any mention of license here. We are not s
 - WISHLIST.md remains genuinely empty for new feature work.
 - v1.5.4 backlog (now in WISHLIST.md): sample-rate mismatch (now unlocked), `pickPreset(n)` bug for n=7..8, AddPaneButton test hardening + a11y, AddPaneButton chip position dogfood, ipcMain.handle enumeration in defensive test, whisper.cpp Windows prebuild CI confirmation, V3-W15-006 dogfood (human-only).
 
+## Phase 41 — v1.5.4 defensive infra + mid-rollup workspace-restart hotfix (2026-05-20)
+
+3 parallel Sonnet sub-agent clusters + 3 Opus 4.7 reviewers + 1 critical workspace-restart swarm-hydration hotfix folded into rollup from user dogfood report.
+
+### Cluster dispatch (3 parallel)
+
+- **Cluster A** (PR #68): AddPaneButton hardening — a11y aria-live/role + Tests 7+9 escape-hatch hardening via `vi.doMock` (Option C) + chip absolute-position kept with explanatory comment (Option B).
+- **Cluster B** (PR #67): defensive test expansion — `DIRECT_IPC_HANDLE_CHANNELS` enumeration in CHANNELS-vs-AppRouter test (closes the 7 voice.globalCapture.* false-positive class) + NEW state-hydration test class (3 tests catching v1.5.3 Sigma-dispatch regression + v1.5.4 workspace-restart hotfix class going forward).
+- **Cluster C** (PR #66): PCM resampler 48k→16k (linear interp; Float32 end-to-end) + pickPreset(n) extended to n=7..8→8 + tests for n=0..9 + dispatchPane integration.
+
+### Reviewer cycle (3 Opus 4.7)
+
+All APPROVE / APPROVE-WITH-CAVEATS. ZERO REQUEST-CHANGES.
+
+- **reviewer-pr66**: APPROVE-WITH-CAVEATS — resampler math + pickPreset both correct. Caught sibling bug in `tools.ts:46-47` (duplicate buggy pickPreset used by MCP launchPane). Folded into rollup commit.
+- **reviewer-pr67**: APPROVE — ipcMain.handle enumeration exhaustive (7/7 voice.globalCapture.* match). State-hydration test verified non-tautological (real useReducer + real hook chain).
+- **reviewer-pr68**: APPROVE — Option C mock pattern documented as reusable template. A11y semantics correct (polite/status for state-change; assertive/alert for errors). All escape-hatch removals verified.
+
+### Mid-rollup hotfix — workspace-restart swarm hydration gap
+
+**User-reported during v1.5.3 dogfood** (with screenshot): post-update + restart, 6 panes rendered in workspace but "+Pane" tooltip said "Open or create a workspace first" — misleading because workspace + swarm were both present in the UI.
+
+**Diagnosis**: 3 workspace-restart paths (`use-session-restore.ts:115-131`, `Sidebar.tsx:145-148`, `Launcher.tsx:189-201`) all dispatched `ADD_SESSIONS` after `panes.listForWorkspace` but never dispatched `UPSERT_SWARM`. Renderer's `state.swarmsByWorkspace[wsId]` stayed empty → CommandRoom's `activeSwarm = null` → AddPaneButton:43 returned "Open or create a workspace first" (the no-swarm branch).
+
+**SAME class** as v1.5.3 Sigma-dispatch-pane bug — boot restore was the THIRD path with the same hydration gap. The v1.5.3 fix only patched `use-sigma-dispatch-echo.ts`; the v1.5.4 hotfix completes the pattern across all 4 hydration call sites.
+
+**Fix** (commit `8ae2c5d` on main pre-tag): `Promise.all([panes.listForWorkspace, swarms.list])` in all 3 call sites, then dispatch `ADD_SESSIONS` + per-swarm `UPSERT_SWARM` + `SET_ACTIVE_SWARM`. Mirrors v1.4.3 #02 hydration pattern. Test mocks updated to include `swarmsListMock`; all 7 existing tests pass.
+
+### Mid-rollup fold — tools.ts pickPreset dedupe
+
+PR #66 Opus reviewer caught duplicate buggy `pickPreset` in `assistant/tools.ts:46-47` (still returned `6` for n=7..8). Used by MCP `launchPane` tool which accepts count 1..8. Same bug v1.5.4-C fixed in controller.ts but missed by Cluster C's scope.
+
+**Fold**: removed the duplicate, imported `pickPreset` from `./controller` (now exported from v1.5.4-C). Single source of truth.
+
+### About "session resume failure" user perception
+
+User screenshot showed fresh "SessionStart:startup hook error" output on every Claude pane after restart. Investigation: NOT a SigmaLink resume failure.
+- `agent_sessions.external_session_id` persists across restart
+- `resume-launcher.ts` builds `--resume <id>` args correctly  
+- Fresh hook errors = Claude's own session-start hooks running on each invocation (semgrep/sonarqube-cli not on PATH in user env)
+- Conversation context IS preserved inside Claude (loaded from JSONL on --resume)
+- Terminal SCROLLBACK is not preserved across app restart (per-PTY-process ring buffer; old process dies on quit). This is working-as-designed for v1.5.x; persisting scrollback across app restarts is queued for v1.5.5+ design discussion.
+
+### Combined main gate
+
+- tsc clean
+- eslint 0 errors / 1 pre-existing warning (line shifted to 294 after hotfix block addition)
+- vitest **97 files / 886 pass / 1 skip** (+25 from v1.5.3 baseline of 96/861)
+- build + electron-builder clean
+- v1.5.4 release CI succeeds (verified post-tag via gh run list + assets)
+
+### Lessons logged
+
+- **Renderer-state-hydration-on-restart is now formalized as a named defensive class** (Cluster B's state-hydration.test.tsx). v1.5.3 + v1.5.4 both caught silent bugs of this class via user dogfood. Test class now covers the family going forward.
+- **Multi-call-site hydration gaps are easy to miss when a fix only patches ONE site** — v1.5.3 fixed echo handler, v1.5.4 caught the OTHER 3 sites doing the same thing. Lesson: when fixing a hydration bug, grep for ALL callers of `panes.listForWorkspace` (or analogous list-and-dispatch patterns) and fix together.
+- **Reviewer-caught sibling bugs across multiple PRs is now an established pattern** — v1.5.2 (sync regression caught by Cluster B's drift test), v1.5.3 (providers regression caught by Cluster B's drift test + Cluster C+D both flagging native-prebuild-win.yml sibling), v1.5.4 (Cluster C reviewer flagging tools.ts duplicate pickPreset). All folded into rollup. Net: defensive test infrastructure compounding correctly.
+- **Distinguishing "session resume failure" from "terminal scrollback reset"** is a critical UX clarification — both look identical to the user but mean very different things. v1.5.5 dogfood docs should explain this in the "what to expect across app restart" section.
+
+### Wishlist post-v1.5.4
+
+- WISHLIST.md remains empty for new feature work.
+- v1.5.5 backlog (in WISHLIST.md): hardware sample-rate detection from voice-mac native binding; stronger resampler bounds-safety test; terminal scrollback persistence across app restart (design discussion); V3-W15-006 dogfood (human-only).
+
 
 
 3 parallel Sonnet sub-agent clusters cleared 9 items from the v1.5.2 backlog in autonomous mode. The Opus 4.7 reviewer on Cluster C uncovered + confirmed a CRITICAL v1.5.0 production regression that's now fixed in this release: the entire `rpc.sync.*` IPC surface was missing from the preload `CHANNELS` allowlist, making cross-machine sync (the headline v1.5.0 feature) unreachable from the renderer UI since v1.5.0 shipped. **ZERO REQUEST-CHANGES across all 3 PRs.**
