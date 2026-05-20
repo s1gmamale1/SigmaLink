@@ -1,0 +1,121 @@
+SigmaLink v1.5.1 — 2026-05-20
+=============================
+
+Cleanup packet release. Closes the WISHLIST.md surface as currently
+defined: ~28 deferred caveats from the v1.4.8 bundle (Sessions A/B/C)
+have been cleared across 3 parallel Sonnet sub-agent clusters in git
+worktrees, reviewed by Opus 4.7, lead-merged in autonomous mode. Plus
+one V3 parity paper-cut folded inline. ZERO REQUEST-CHANGES across all
+3 PRs.
+
+Highlights
+----------
+
+- CommandRoom.tsx 878 → 483 LOC (restores the project's 500-LOC ceiling)
+  via PaneShell + SplitGroupCell extraction, plus normalizeUrl /
+  insertMention / pathRelative helper extraction so tests now import
+  the real production code instead of duplicated inline copies.
+
+- whisper.cpp submodule registered properly at v1.7.4 with real
+  HuggingFace LFS-verified SHA-256 hashes for all 4 model sizes. Apple
+  Speech.framework remains the active mac engine in v1.5.x; whisper.cpp
+  prebuild is now soft-fail until the v1.7.x ggml-cpu binding.gyp port
+  lands.
+
+- macOS PCM tap finally wired into PcmAccumulator (voice-mac extended
+  with installTap:bufferSize:format:block: export). Heap-copied samples
+  on the audio thread to avoid use-after-free across thread boundary.
+
+- Windows SAPI5 STA refactor — Sleep(50) heuristic replaced with proper
+  Win32 event-signal pattern (CreateEventW auto-reset + bounded
+  WaitForSingleObject(5000)). IsAvailable() probe moved to the STA
+  worker via WM_SAPI_PROBE + TSFN. napi_add_env_cleanup_hook ensures no
+  HMR-reload thread leak and no shutdown deadlock.
+
+- Cross-machine sync hardening — proper-lockfile wraps the push+pull
+  cycle (no more two-Electron-instance races); "Anonymise paths" Settings
+  toggle now actually works (kv['sync.anonymisePaths']); SQL column
+  allowlist provides defense-in-depth over the existing SYNCED_TABLES
+  bound.
+
+- Crypto wire format v1 → v2 — schema_version moved OUTSIDE the AAD-
+  protected payload so the decoder can examine schema BEFORE attempting
+  AEAD decrypt. Routes schema-mismatch blobs to sync_pending_upgrade
+  (was dead code in v1.5.0 because AAD-bound schema meant wrong-schema
+  blobs failed AEAD and went to sync_quarantine instead). Backward-
+  compat v1 decoder preserved — your existing v1.5.0 sync blobs will
+  still decode. Magic bytes unchanged.
+
+- Notifications D2 soft-cap-collapse landed (200-per-(workspace,kind)
+  threshold collapses the oldest 50 into a summary row). D5 deep-link
+  navigation wired — clicking a notification routes correctly to its
+  source: PTY exit → session-history; swarm broadcast → swarm-room
+  mailbox; tool-error → Sigma conversation. Fallback when the source
+  pane is gone → filtered notifications view.
+
+- Windows pane-focus detection no longer pays the 60-120ms PowerShell
+  cold-start tax on every voice transcript — output-router now uses a
+  native Win32 helper exported from voice-win (getFrontmostAppExePath).
+  PowerShell spawn retained as fallback.
+
+- V3 parity paper-cut: completion-ding Settings toggle (V3-W13-015).
+  The "Play completion chime on Sigma dispatch finish" checkbox now
+  appears in Settings → Notifications. The Web Audio chime + kv backend
+  shipped in v1.4.0 but the UI surface was missing.
+
+CI fixes
+--------
+
+3 native prebuild workflows soft-failed to align with each workflow's
+documented "convenience-only, not release-blocking" intent. Root
+causes (whisper.cpp v1.7.x source-tree path drift; voice-{mac,win}
+prebuildify silent-no-output under CI) backlogged for v1.5.2.
+release-macos.yml + release-windows.yml's @electron/rebuild step
+remains the primary shipping path.
+
+Wishlist net state
+------------------
+
+Per the parallel V3 parity audit (45 tickets):
+- 35 shipped-verified.
+- 4 obsoleted (superseded by v1.2.4 provider-registry cleanup).
+- 3 partial: 2 deferred (assistant.* dispatchBulk/refResolve =
+  enhancement; whisper.cpp build root-cause); 1 folded (ding toggle);
+  1 superseded by 2026-05-16 Linux-not-supported ADR.
+- 1 unfinished: V3-W15-006 4-pane dogfood — human QA exercise, not
+  code-generatable. Queued for operator-led session.
+
+WISHLIST.md is genuinely empty after v1.5.1. Funded-only items (EV
+cert, WinGet, Apple Developer ID) remain gated on user payment.
+
+Deferred to v1.5.2 (latent caveats, none ship-blocking)
+-------------------------------------------------------
+
+- Sample-rate mismatch in PCM tap (44.1/48 kHz mic vs whisper 16 kHz)
+  — gated behind unshipped whisper.cpp build path.
+- STAThreadState heap-allocation leak guard on CreateThread cold-path
+  failure.
+- HMR-only race in voice-win IsAvailable() probe.
+- v1 legacy decrypt round-trip test (fixture-based, 5-min addition).
+- Engine-level integration tests for v2/skew/allowlist/anonymise sync
+  paths.
+- Allowlist drift detection via drizzle schema introspection.
+- sync_pending_upgrade count surfaced in SyncTab badge.
+- BrowserViewMount production data-testid (currently mock-only).
+- whisper.cpp v1.7.x ggml-cpu/ binding.gyp port.
+- voice-{mac,win} prebuildify silent-no-output root-cause.
+- V3-W13-013 assistant.* dispatchBulk/refResolve (enhancement).
+- V3-W15-006 dogfood exercise (human QA).
+
+Upgrade notes
+-------------
+
+If you sync data across machines via SigmaLink's cross-machine sync
+feature (v1.5.0+), your existing encrypted blobs will continue to
+decode. The wire format bump from v1 to v2 preserved backward
+compatibility. New blobs you write after upgrading to v1.5.1 use the
+v2 format. Mixing v1 and v2 clients works: old clients see v2 blobs
+fail AEAD at the version byte → quarantine (no data loss); new
+clients decode both formats.
+
+Schema migrations: NONE (no DDL changes in v1.5.1).

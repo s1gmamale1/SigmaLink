@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
+import { getDingEnabled, setDingEnabled } from '@/renderer/lib/notifications';
 import type { NotificationSeverity } from '@/shared/types';
 
 const KV_OS_ENABLED = 'notifications.osEnabled';
@@ -49,6 +50,7 @@ function parseSeverities(raw: string | null): NotificationSeverity[] {
 export function NotificationsSettings() {
   const [enabled, setEnabled] = useState<boolean>(false);
   const [severities, setSeverities] = useState<NotificationSeverity[]>(DEFAULT_SEVERITIES);
+  const [dingEnabled, setDing] = useState<boolean>(true);
   const [ready, setReady] = useState(false);
 
   // Hydrate from kv on mount.
@@ -58,9 +60,11 @@ export function NotificationsSettings() {
       try {
         const e = await rpc.kv.get(KV_OS_ENABLED);
         const s = await rpc.kv.get(KV_OS_SEVERITIES);
+        const d = await getDingEnabled();
         if (!alive) return;
         setEnabled(e === '1');
         setSeverities(parseSeverities(s));
+        setDing(d);
       } finally {
         if (alive) setReady(true);
       }
@@ -69,6 +73,11 @@ export function NotificationsSettings() {
       alive = false;
     };
   }, []);
+
+  const persistDing = async (next: boolean) => {
+    setDing(next);
+    await setDingEnabled(next);
+  };
 
   const persistEnabled = async (next: boolean) => {
     setEnabled(next);
@@ -150,6 +159,18 @@ export function NotificationsSettings() {
           </label>
         ))}
       </fieldset>
+      {/* V3-W13-015 — surface the existing notifications.ding kv toggle in
+          the Settings UI. The Sigma Assistant plays a brief A5→E6 chime on
+          dispatch-pane completion; some users find it intrusive. */}
+      <label className="flex items-center gap-2 text-sm" data-testid="notifications-ding-row">
+        <input
+          type="checkbox"
+          checked={dingEnabled}
+          onChange={(e) => void persistDing(e.target.checked)}
+          data-testid="notifications-ding-enabled"
+        />
+        <span>Play completion chime on Sigma dispatch finish</span>
+      </label>
     </section>
   );
 }

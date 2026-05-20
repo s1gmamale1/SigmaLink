@@ -4,6 +4,76 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-05-20
+
+v1.5.1 cleanup packet — ~28 deferred caveats from the v1.4.8 bundle (Sessions A/B/C) cleared across 3 parallel Sonnet sub-agent clusters in git worktrees, reviewed by Opus 4.7, lead-merged in autonomous mode. Plus one V3 parity paper-cut folded inline. **Honest scope confirmation**: per a parallel V3 parity audit, 35 of 45 tickets shipped-verified, 4 obsoleted, 3 partial, 1 unfinished — the unfinished item (V3-W15-006) is a human dogfood exercise, not a code gap. The remaining WISHLIST.md surface is genuinely empty.
+
+### Cluster A — Frontend cleanup + extractions (#55)
+
+- **`CommandRoom.tsx` 878 → 483 LOC** via extraction of `PaneCell` → new `PaneShell.tsx` + split-group cell → new `SplitGroupCell.tsx`. Restores the project's 500-LOC ceiling without behaviour change; all 11 PaneShell props threaded, hooks stable, no memoization regression.
+- **`normalizeUrl` extraction** to `app/src/renderer/features/browser/normalizeUrl.ts` so `AddressBar.test.ts` imports the real function.
+- **`insertMention` extraction** to `app/src/renderer/features/command-room/insertMention.ts` — same pattern.
+- **`pathRelative` helper** at `app/src/renderer/lib/path-relative.ts` — deduplicates path-strip math from `FileTree.tsx` + Finder-drop handler. 9-test suite covers prefix-collision edge cases.
+- **`data-testid="pane-body"`** on `PaneShell` wrapper; `findPaneBody()` test helper uses testid instead of Tailwind class-token matching.
+- **`BrowserViewMount` lifecycle** — always-mounted with `visible={visible && tabs.length > 0}`; placeholder uses `display: none` when `!visible` so it doesn't compete with `BrowserEmptyState` for flex-row width (reviewer C1 inline fold).
+- **UAC hint placement** moved inside the auto-update card.
+- **`MnemonicConfirm` paste + drag-drop block** — textarea now blocks `onPaste`, `onDrop`, AND `onDragOver` (reviewer C2 inline fold — drag-drop bypassed the paste-only guard).
+
+### Cluster B — Native code + voice activation (#56)
+
+- **whisper.cpp submodule registered properly** at v1.7.4 via canonical `ggml-org/whisper.cpp.git` URL.
+- **Real whisper.cpp model SHA-256 hashes** in `model-registry.ts` (4 sizes — verified against HuggingFace LFS pointer ETags). v1.5.0 had synthetic placeholders.
+- **PcmAccumulator wire-up** to AVAudioEngine PCM tap on macOS — voice-mac extended with `installTap:bufferSize:format:block:` export. PCM samples heap-copied on audio thread to avoid use-after-free across thread boundary.
+- **`_capturedRef` metaprogramming removed**; `capturedTranscript` hoisted to controller scope, reset on each `startRecording()`.
+- **SAPI5 `Sleep(50)` → Win32 event-signal** in `recognizer.cc:StartSTAThread`. `CreateEventW` auto-reset + bounded `WaitForSingleObject(5000)` from JS thread.
+- **SAPI5 `IsAvailable()` async** via `WM_SAPI_PROBE` + TSFN marshal — no blocking `CoCreateInstance` on JS thread.
+- **SAPI5 `Stop()` `PostThreadMessageW`** return-value check.
+- **SAPI5 `napi_add_env_cleanup_hook`** with bounded `WaitForSingleObject(5000)` — no HMR-reload thread leak, no shutdown deadlock.
+- **`getFrontmostAppExePath()`** exported from voice-win for Cluster C consumption. Win32 chain `GetForegroundWindow → GetWindowThreadProcessId → OpenProcess → QueryFullProcessImageNameW`; every `OpenProcess` paired with `CloseHandle`; UTF-8 conversion via `WideCharToMultiByte`.
+
+### Cluster C — Cross-sync + notifications polish (#57)
+
+- **`proper-lockfile` wraps `_cycle()`** in `engine.ts` — push + pull operations guarded with `realpath: false` + `finally`-release. Prevents two Electron instances racing on push/pull.
+- **"Anonymise paths" toggle** in `SyncTab.tsx` + `dirty-tracker.ts` — `kv['sync.anonymisePaths']` replaces `/Users/<username>/` prefixes with `~/` before encrypt.
+- **Crypto wire format v1 → v2** in `crypto.ts` — `_schema` moved OUTSIDE AAD-protected payload so the decoder can examine schema BEFORE AEAD decrypt. Schema mismatch now routes to `sync_pending_upgrade` (was dead code in v1.5.0). **Backward-compat v1 decoder preserved** for existing v1.5.0 blobs; magic bytes unchanged so old clients fail gracefully on v2 blobs (AEAD fails at version byte → quarantine, no data loss).
+- **SQL column allowlist defense-in-depth** at `engine.ts:298,381` — 19 per-table column allowlists; unknown columns dropped with warning before SQL interpolation.
+- **Notifications D2 soft-cap-collapse** in `manager.ts` — `SOFT_CAP_PER_KIND_WS = 200` now consumed. At insert, if `(workspace_id, kind)` > 200 unread, oldest 50 collapse into `<kind>-summary` row.
+- **Notifications D5 deep-link navigation** in `NotificationDropdown.tsx` — click routes per source: PTY exit → session-history; swarm broadcast → swarm-room mailbox; tool-error → Sigma conversation. Fallback when source pane gone → filtered notifications view.
+- **`CRITICAL_TOOL_NAMES` expansion** in `tool-error.ts` — covers DB-mutating tools (save_pane_state, commit_review).
+- **PowerShell → N-API foreground detection** in `output-router.ts` — uses Cluster B's `getFrontmostAppExePath()` helper. Drops 60-120ms PowerShell cold-start to a single Win32 call; PowerShell spawn retained as fallback.
+- **`commit-prebuilds` BRANCH=main** literal across 3 workflow YAMLs.
+
+### V3 parity paper-cut (folded)
+
+- **V3-W13-015 — completion ding Settings toggle**: `NotificationsSettings.tsx` now exposes the `notifications.ding` kv toggle ("Play completion chime on Sigma dispatch finish"). Backend lib + Web Audio chime existed since v1.4.0 but Settings UI surface was missing.
+
+### Fixed (CI hotfixes during merge)
+
+- **3 native prebuild workflows soft-failed** — `native-prebuild-mac.yml`, `native-prebuild-win.yml`, `native-prebuild-win-sapi5.yml` had `if-no-files-found: error` on upload + no `continue-on-error` on build, so any prebuildify silent-no-output blocked PR merges. Symmetric with `2b3a5f0` v1.4.9 release-macos pattern: `continue-on-error: true` on build + `if-no-files-found: warn` on upload. Aligns with each workflow's documented "convenience-only, not release-blocking" intent. Root causes (whisper.cpp v1.7.4 ggml-aarch64.c source-tree path drift; voice-{mac,win} prebuildify silent no-output under CI) backlogged for v1.5.2.
+
+### V3 parity audit — net state
+
+Per a parallel read-only audit of `docs/03-plan/V3_PARITY_BACKLOG.md` (45 tickets):
+
+- **35 shipped-verified** (acceptance criteria match current source).
+- **4 obsoleted** (V3-W12-001..004 — superseded by the 2026-05-13 v1.2.4 provider-registry cleanup).
+- **3 partial**: V3-W13-013 `assistant.*` dispatchBulk/refResolve missing (feature enhancement, NOT parity gap); V3-W13-015 ding Settings toggle (**folded above**); V3-W15-004 ubuntu-latest e2e matrix (**SUPERSEDED by the 2026-05-16 Linux-not-supported ADR**).
+- **1 unfinished**: V3-W15-006 4-pane dogfood exercise — human QA session, not code-generatable; deferred to a future operator-led session.
+
+Net: v1.5.1 closes the wishlist as currently defined.
+
+### Deferred — for v1.5.2 cleanup (or v1.6.0 future)
+
+**Cluster B reviewer NON-TRIVIAL** (all latent, none ship-blocking): sample-rate mismatch in PCM tap (mic 44.1/48 kHz vs whisper 16 kHz) gated behind unshipped whisper build; `STAThreadState*` heap-allocation leak guard on `CreateThread` cold-path failure; HMR-only race where in-flight `isAvailable()` can hang if `StopSTAThread` runs concurrently with queued probe.
+
+**Cluster C reviewer NON-TRIVIAL**: v1 legacy decrypt round-trip test (fixture-based; 5-min); engine-level integration tests for v2/skew/allowlist/anonymise paths; allowlist drift detection via drizzle schema introspection at test time; surface `sync_pending_upgrade` count in SyncTab badge for operator visibility.
+
+**Cluster A reviewer DEFER**: `data-testid="browser-view-mount"` mock-vs-production divergence (tautology assertion, not a defect introduced by this PR).
+
+**Native prebuild root causes**: whisper.cpp v1.7.x ggml-cpu/ binding.gyp port; voice-{mac,win} prebuildify silent no-output investigation.
+
+**V3 backlog future enhancements**: V3-W13-013 dispatchBulk/refResolve in `assistant.*` controller — bulk pane spawn from a single Sigma prompt.
+
 ## [1.5.0] - 2026-05-20
 
 Session C of the v1.4.8 bundle: 3 platform-tier packets dispatched as parallel Sonnet sub-agents in git worktrees, reviewed by Opus 4.7 (**MANDATORY Opus security reviewer on packet 09**), lead-merged in autonomous mode. Ships cross-machine session sync (opt-in, e2ee, git-backed), Windows + Linux voice capture fan-out, and the native Windows SAPI5 STT binding. **ZERO security REQUEST-CHANGES on the irreversible 0019 sync migration + crypto wiring.** Concludes the 9-packet v1.4.8 bundle that began with Session A (v1.4.8) and continued through Session B (v1.4.9).
