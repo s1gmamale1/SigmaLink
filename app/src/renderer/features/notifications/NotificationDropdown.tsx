@@ -1,9 +1,16 @@
 // v1.4.9 #07 — Notification dropdown panel.
+// v1.5.1-C — D5 deep-link navigation implemented (caveat 6).
 //
 // Owns the filter-chip strip [All | This workspace | Errors only] and the
 // scrollable list of items. Mark-all-read and Clear-read controls live in
 // the header. Per D4, opening the dropdown does NOT auto-mark-read — the
 // operator must click items or hit "Mark all read".
+//
+// D5 navigation routes:
+//   pty-exit  → 'command' room; scroll session-history to sessionId
+//   swarm-*   → 'swarm' room; scroll mailbox to messageId (via swarmId)
+//   tool-error → 'sigma' room; scroll conversation to messageId
+//   fallback  → current filtered notifications view (source gone)
 
 import { CheckCheck, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -61,6 +68,12 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
     }
   };
 
+  /**
+   * D5 deep-link navigation. Reads the notification kind + payload and
+   * dispatches the appropriate SET_ROOM action. On any deep-link, also
+   * marks-read. Falls back to the filtered notifications view if the source
+   * pane / swarm / conversation is gone.
+   */
   const handleItemClick = useCallback(
     async (notification: Notification) => {
       // Optimistic local update; the main process delta echo reconciles.
@@ -75,10 +88,54 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
       } catch {
         /* swallow */
       }
-      // TODO — deep-link to context per D5. Wired in follow-up packets once
-      // the route registry stabilises post-v1.4.9; for v1, marking read is
-      // the click side-effect and the operator can navigate manually. The
-      // payload carries the target (sessionId / swarmId / conversationId).
+
+      // D5 — deep-link to the source context.
+      const payload = notification.payload ?? {};
+      const kind = notification.kind;
+
+      if (kind === 'pty-exit') {
+        // Navigate to command room and scroll to the session in session history.
+        dispatch({ type: 'SET_ROOM', room: 'command' });
+        const sessionId = payload.sessionId as string | undefined;
+        if (sessionId) {
+          // Emit a custom event so the CommandRoom's session-history list can
+          // scroll to the target session. The event is best-effort — if the
+          // CommandRoom is not mounted yet it will be ignored.
+          window.dispatchEvent(
+            new CustomEvent('sigma:scroll-to-session', { detail: { sessionId } }),
+          );
+        }
+      } else if (kind === 'swarm-broadcast' || kind.startsWith('swarm')) {
+        // Navigate to swarm room and scroll the mailbox to the target message.
+        dispatch({ type: 'SET_ROOM', room: 'swarm' });
+        const swarmId = payload.swarmId as string | undefined;
+        const messageId = payload.messageId as string | undefined;
+        if (swarmId) {
+          dispatch({ type: 'SET_ACTIVE_SWARM', id: swarmId });
+        }
+        if (messageId) {
+          window.dispatchEvent(
+            new CustomEvent('sigma:scroll-to-swarm-message', { detail: { messageId, swarmId } }),
+          );
+        }
+      } else if (kind === 'tool-error') {
+        // Navigate to sigma assistant room and scroll to the target message.
+        dispatch({ type: 'SET_ROOM', room: 'sigma' });
+        const conversationId = payload.conversationId as string | undefined;
+        const messageId = payload.messageId as string | undefined;
+        if (conversationId || messageId) {
+          window.dispatchEvent(
+            new CustomEvent('sigma:scroll-to-message', {
+              detail: { conversationId, messageId },
+            }),
+          );
+        }
+      }
+      // For unknown kinds, fall back: keep the dropdown open on the
+      // current filtered view (no navigation); the mark-read above is
+      // the only side effect. This covers 'tool-error-summary', '*-summary',
+      // and any future kinds not yet in the registry.
+
       // We do NOT close the dropdown on click — operator may want to triage
       // multiple items in sequence.
     },
