@@ -3,10 +3,14 @@
 // tools), and the tool tracer. V3-W14-002 — `send` now drives the local
 // Claude Code CLI via runClaudeCliTurn; runStubTurn is the binary-missing
 // fallback only.
+// V3-W13-013 (SHIPPED-PARTIAL) — `dispatchBulk` and `refResolve` added.
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { defineController } from '../../../shared/rpc';
+import { findProvider } from '../../../shared/providers';
 import type { PtyRegistry } from '../pty/registry';
 import type { WorktreePool } from '../git/worktree';
 import type { SwarmMailbox } from '../swarms/mailbox';
@@ -348,6 +352,205 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       args: Record<string, unknown>;
     }): Promise<{ ok: boolean; result: unknown; error?: string }> => {
       return invokeAssistantTool(input);
+    },
+
+    /**
+     * V3-W13-013 — Spawn multiple panes in one call. For each item in the
+     * array, spawns `count` panes via the existing `dispatchPane` internal
+     * path. Unknown providers produce per-pane error entries; other items
+     * continue — no fail-fast.
+     */
+    dispatchBulk: async (
+      items: Array<{
+        workspaceId: string;
+        provider: string;
+        count: number;
+        initialPrompt?: string;
+        conversationId?: string;
+      }>,
+    ): Promise<
+      Array<{
+        paneId: string | null;
+        providerId: string;
+        workspaceId: string;
+        success: boolean;
+        error?: string;
+      }>
+    > => {
+      if (!Array.isArray(items) || items.length === 0) {
+        throw new Error('assistant.dispatchBulk: items must be a non-empty array');
+      }
+      const results: Array<{
+        paneId: string | null;
+        providerId: string;
+        workspaceId: string;
+        success: boolean;
+        error?: string;
+      }> = [];
+
+      for (const item of items) {
+        const workspaceId = typeof item?.workspaceId === 'string' ? item.workspaceId : '';
+        const providerId = typeof item?.provider === 'string' ? item.provider : '';
+        const count = Math.max(1, Math.min(8, Math.trunc(item?.count ?? 1)));
+
+        if (!workspaceId) {
+          results.push({ paneId: null, providerId, workspaceId, success: false, error: 'workspaceId required' });
+          continue;
+        }
+        if (!providerId) {
+          results.push({ paneId: null, providerId, workspaceId, success: false, error: 'provider required' });
+          continue;
+        }
+
+        // Validate provider exists in the registry
+        const providerDef = findProvider(providerId);
+        if (!providerDef) {
+          for (let i = 0; i < count; i++) {
+            results.push({
+              paneId: null,
+              providerId,
+              workspaceId,
+              success: false,
+              error: `Unknown provider: ${providerId}`,
+            });
+          }
+          continue;
+        }
+
+        const wsRow = getDb()
+          .select()
+          .from(workspacesTable)
+          .where(eq(workspacesTable.id, workspaceId))
+          .get();
+        if (!wsRow) {
+          for (let i = 0; i < count; i++) {
+            results.push({
+              paneId: null,
+              providerId,
+              workspaceId,
+              success: false,
+              error: `Workspace not found: ${workspaceId}`,
+            });
+          }
+          continue;
+        }
+
+        const plan: LaunchPlan = {
+          workspaceRoot: wsRow.rootPath,
+          preset: pickPreset(count),
+          panes: Array.from({ length: count }, (_, i) => ({
+            paneIndex: i,
+            providerId,
+            initialPrompt: item.initialPrompt,
+          })),
+        };
+
+        let out: Awaited<ReturnType<typeof executeLaunchPlan>>;
+        try {
+          out = await executeLaunchPlan(plan, {
+            pty: deps.pty,
+            worktreePool: deps.worktreePool,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          for (let i = 0; i < count; i++) {
+            results.push({ paneId: null, providerId, workspaceId, success: false, error: message });
+          }
+          continue;
+        }
+
+        for (const session of out.sessions) {
+          const success = session.status !== 'error';
+          results.push({
+            paneId: success ? session.id : null,
+            providerId,
+            workspaceId,
+            success,
+            error: success ? undefined : (session.error ?? 'launch failed'),
+          });
+          try {
+            deps.emit('assistant:dispatch-echo', {
+              workspaceId,
+              sessionId: session.id,
+              providerId: session.providerId,
+              ok: success,
+              error: session.error ?? null,
+              conversationId: item.conversationId ?? null,
+            });
+          } catch {
+            /* best-effort */
+          }
+        }
+      }
+
+      return results;
+    },
+
+    /**
+     * V3-W13-013 — Resolve an `@filename` ref typed in a Sigma conversation.
+     * Walks the workspace index (or the workspace root via fs.readdirSync
+     * recursion) for files matching `atRef` (case-insensitive basename match).
+     * Returns up to 10 matches with `{ absPath, snippet }`.
+     */
+    refResolve: async (input: {
+      workspaceId: string;
+      atRef: string;
+    }): Promise<Array<{ absPath: string; snippet: string }>> => {
+      if (typeof input?.workspaceId !== 'string' || !input.workspaceId) {
+        throw new Error('assistant.refResolve: workspaceId required');
+      }
+      const atRef = typeof input?.atRef === 'string' ? input.atRef.replace(/^@/, '').trim() : '';
+      if (!atRef) return [];
+
+      const wsRow = getDb()
+        .select()
+        .from(workspacesTable)
+        .where(eq(workspacesTable.id, input.workspaceId))
+        .get();
+      if (!wsRow) return [];
+
+      const root = wsRow.rootPath;
+      if (!root) return [];
+
+      const MAX_RESULTS = 10;
+      const SNIPPET_LEN = 200;
+      const MAX_WALK_DEPTH = 8;
+      const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'out', '__pycache__', '.cache']);
+
+      const matches: Array<{ absPath: string; snippet: string }> = [];
+      const needle = atRef.toLowerCase();
+
+      function walk(dir: string, depth: number): void {
+        if (depth > MAX_WALK_DEPTH || matches.length >= MAX_RESULTS) return;
+        let entries: fs.Dirent[];
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return;
+        }
+        for (const entry of entries) {
+          if (matches.length >= MAX_RESULTS) return;
+          if (entry.isDirectory()) {
+            if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+            walk(path.join(dir, entry.name), depth + 1);
+          } else if (entry.isFile()) {
+            if (entry.name.toLowerCase().includes(needle)) {
+              const absPath = path.join(dir, entry.name);
+              let snippet = '';
+              try {
+                const raw = fs.readFileSync(absPath, 'utf8');
+                snippet = raw.slice(0, SNIPPET_LEN);
+              } catch {
+                snippet = '';
+              }
+              matches.push({ absPath, snippet });
+            }
+          }
+        }
+      }
+
+      walk(root, 0);
+      return matches;
     },
   });
   return { controller, invokeTool: invokeAssistantTool };

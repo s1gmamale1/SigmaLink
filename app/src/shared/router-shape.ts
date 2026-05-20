@@ -562,6 +562,40 @@ export interface AppRouter {
       args: Record<string, unknown>;
     }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
     /**
+     * V3-W13-013 — Spawn multiple pane batches in one call. Each item
+     * specifies a `workspaceId`, `provider`, `count`, and optional
+     * `initialPrompt`. Returns one result entry per pane attempted; failures
+     * are reported inline so callers can act on partial success without a
+     * try/catch.
+     */
+    dispatchBulk: (
+      items: Array<{
+        workspaceId: string;
+        provider: string;
+        count: number;
+        initialPrompt?: string;
+        conversationId?: string;
+      }>,
+    ) => Promise<
+      Array<{
+        paneId: string | null;
+        providerId: string;
+        workspaceId: string;
+        success: boolean;
+        error?: string;
+      }>
+    >;
+    /**
+     * V3-W13-013 — Resolve an `@filename` ref from a Sigma conversation.
+     * Walks the workspace root for files whose basename contains `atRef`
+     * (case-insensitive). Returns up to 10 matches with a short snippet.
+     * Empty array when nothing matches or the workspace is unknown.
+     */
+    refResolve: (input: {
+      workspaceId: string;
+      atRef: string;
+    }) => Promise<Array<{ absPath: string; snippet: string }>>;
+    /**
      * P3-S7 — Cross-session persistence sub-namespace. The handlers register
      * side-band in `rpc-router.ts` (the typed RPC proxy supports a single
      * namespace level), so renderer call-sites reach these via
