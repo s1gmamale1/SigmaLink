@@ -194,6 +194,10 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
           />
         )}
         <div className="relative flex min-h-0 flex-1">
+          {/* v1.5.1-A caveat 6: keep BrowserViewMount mounted; hide via visible
+              prop instead of unmounting on zero tabs to avoid WebContentsView
+              lifecycle churn. */}
+          <BrowserViewMount workspaceId={ws.id} visible={visible && tabs.length > 0} />
           {tabs.length === 0 ? (
             <EmptyState
               title="No tabs open"
@@ -206,7 +210,6 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
             />
           ) : (
             <>
-              <BrowserViewMount workspaceId={ws.id} visible={visible} />
               <AgentDrivingIndicator lockOwner={lockOwner} onTakeOver={handleTakeOver} />
               <DesignOverlayBanner active={designActive} />
             </>

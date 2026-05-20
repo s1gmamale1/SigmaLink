@@ -172,13 +172,16 @@ describe('<BrowserRoom /> — EmptyState (v1.4.8 sub-task A)', () => {
     expect(screen.getByText('Open a new tab to start browsing')).toBeTruthy();
   });
 
-  it('does NOT render the BrowserViewMount when tabs are empty', () => {
+  it('renders BrowserViewMount with visible=false (not unmounted) when tabs are empty', () => {
+    // v1.5.1-A caveat 6: BrowserViewMount stays mounted to avoid WebContentsView
+    // lifecycle churn; it receives visible={false} when tabs.length === 0.
     mockActiveWorkspace = makeWorkspace();
     mockBrowserSlice = makeBrowserSlice({ tabs: [] });
 
     render(<BrowserRoom />);
 
-    expect(screen.queryByTestId('browser-view-mount')).toBeNull();
+    // BrowserViewMount is in the DOM (not unmounted) but its visible prop is false.
+    expect(screen.getByTestId('browser-view-mount')).toBeTruthy();
   });
 
   it('clicking the EmptyState "New tab" button calls rpc.browser.openTab', async () => {
