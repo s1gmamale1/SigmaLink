@@ -1,9 +1,9 @@
 # SigmaLink Backlog — Open Bugs + Optimization Targets
 
-> Snapshot at **v1.2.7** (2026-05-13).
-> Latest sweep: v1.4.2 packet 09 — backlog verify-and-close (4 items verified; shellcheck step escalated for macOS runner fix).
-> Bug ledger details live in [`OPEN.md`](OPEN.md); the v1.1.1 / v1.1.2 / v1.1.3 entries there are CLOSED — see "Shipped & verified" at the bottom of this file.
-> History: v1.1.8 (5-coder optimization swarm, bundle -61% gzip), v1.1.9 (perf + lint 0/0), v1.1.10 (Gemini P1 reliability), v1.1.11 (Kimi P1 + state-hook fixes), v1.2.0 (Windows port), v1.2.4 (auto-update), v1.2.5 (post-install regression sweep), v1.2.6 (browser MCP stdio).
+> Snapshot at **v1.5.1** (2026-05-20).
+> Latest sweep: 2026-05-20 catch-up — closed ~14 stale items across v1.3 platform / v1.1.9 perf+quality+lint / P3 polish / BUG-W7-000 that had shipped piecemeal across v1.4.x-v1.5.0 without being moved here. See [v1.4.x + v1.5.x catch-up](#shipped--verified--v14x--v15x-catch-up-sweep-2026-05-20).
+> Bug ledger details live in [`OPEN.md`](OPEN.md); the v1.1.1 / v1.1.2 / v1.1.3 entries there are CLOSED — see "Shipped & verified" at the bottom of this file. `DEFERRED.md` is currently empty.
+> History: v1.1.8 (5-coder optimization swarm, bundle -61% gzip), v1.1.9 (perf + lint 0/0), v1.1.10 (Gemini P1), v1.1.11 (Kimi P1 + state-hook), v1.2.0 (Windows port), v1.2.4 (auto-update), v1.2.5 (post-install sweep), v1.2.6 (browser MCP stdio), v1.2.7 (multi-workspace state), v1.2.8 (session-capture rewrite), v1.3.x (W-1/W-3 session picker + Ruflo auto-bind), v1.4.0 (Sigma orchestrator), v1.4.1 (Bridge→Sigma rename), v1.4.2 (stability + Windows compat), v1.4.3 (Gemini bridge + Pane Split/Minimise), v1.4.4 (paper-cut sweep), v1.4.5 (tech-debt + file splits), v1.4.6 (frameless chrome + x64 voice + CI hardening), v1.4.7 (CI fully green + OpenCode SQLite fast path), v1.4.8 bundle (Sessions A/B/C = #45-#54), v1.4.9 (notifications + voice mac + provider auto-install), v1.5.0 (cross-machine sync + voice Win/Linux + SAPI5), v1.5.1 (cleanup packet — wishlist closed).
 
 ## Index
 
@@ -11,15 +11,17 @@
 |---|---|---|
 | P0 critical | 0 | — |
 | P1 functional bugs | 0 | — |
-| P2 functional bugs / UX | 2 | [P2 — bugs](#p2--functional--ux) |
-| P3 polish | 2 | [P3 — polish](#p3--polish) |
+| P2 functional bugs / UX | 2 | [P2 — bugs](#p2--functional--ux) — DOGFOOD-V1.4.2-01 + -02 (UX investigation, need user follow-up) |
+| P3 polish | 0 | — (Tooltip "Coming in v1.2" closed v1.4.3; Gemini resume closed v1.4.3 #01) |
 | Provider registry cleanup | 0 (shipped v1.2.4) | [v1.1.10 providers](#v1110--provider-registry-cleanup--shipped--verified--v124) |
-| Perf — sustained runtime | 2 | [v1.1.9 perf](#v119--paired-perf-refactor) |
-| Quality — refactor | 3 | [v1.1.9 quality](#v119--quality--file-size) |
-| Tests / CI | 0 (shipped v1.4.2) | — |
-| Platform / distribution | 5 | [v1.3 platform](#v13--platform--distribution) |
-| Lint — React-compiler family | 31 errors | [v1.1.9 lint](#v119--react-compiler-lint-wave) |
-| Funded-only (Apple, Porcupine) | 2 | [Waiting on external](#waiting-on-external--needs-funding) |
+| Perf — sustained runtime | 0 (shipped v1.1.9 + v1.4.5) | — |
+| Quality — refactor | 0 (factory.ts + runClaudeCliTurn.ts split v1.4.5) | — |
+| Tests / CI | 0 (smoke refresh v1.4.6 + v1.4.7) | — |
+| Platform / distribution | 3 funded-only (EV cert + WinGet + Microsoft Store) | [v1.3 platform](#v13--platform--distribution) — Apple Dev ID dropped 2026-05-18; Linux wontfix 2026-05-16 |
+| Lint — React-compiler family | 0 (closed v1.4.5) | — |
+| Funded-only (EV cert, WinGet, Microsoft Store, Porcupine) | 4 | [Waiting on external](#waiting-on-external--needs-funding) |
+| v1.5.2 latent caveats (none ship-critical) | 11 | [WISHLIST.md v1.5.2 backlog](../03-plan/WISHLIST.md) |
+| V3-W15-006 dogfood (HUMAN QA) | 1 | [WISHLIST.md v1.5.2 backlog](../03-plan/WISHLIST.md) |
 
 ---
 
@@ -43,14 +45,11 @@
 
 ## P2 — functional / UX
 
-### BUG-W7-000 — Test-runner reports "Electron app failed to launch" intermittently in Phase 3 visual sweep
+### ~~BUG-W7-000 — Test-runner reports "Electron app failed to launch" intermittently~~ — **Shipped & verified — v1.4.6 + v1.4.7**
 - **Surface**: `tests/e2e/*.spec.ts` against a fresh kv install.
-- **Issue**: Playwright cannot reliably bring the app up cold; first run sometimes hangs on better-sqlite3 module load. Repeating the test in the same run passes.
-- **Hypothesis**: race between `electron-builder install-app-deps` rebuild and the test's Electron spawn. Already mitigated by v1.1.5 ad-hoc-sign hook + v1.1.8 NMV test-isolation, but never closed formally.
-- **Effort**: S (~2hr) — verify on a clean CI runner with the v1.1.8 install path; close or refile.
-- **Defer to**: v1.1.10 — paired with the [Playwright e2e refresh](#v1110--playwright-e2e-refresh) because the focused smoke fails on stale selectors before it can re-verify launch.
-- **2026-05-12 check**: Launch step now works locally after `node scripts/build-electron.cjs`; focused smoke still fails later on v1.1.4-stale selectors (see v1.1.10 entry).
-- **Source**: [`OPEN.md`](OPEN.md) → BUG-W7-000.
+- **Closed by**: v1.4.6 Playwright smoke refresh (4 navTo selector fixes + 1 stale-args assertion) + v1.4.7 e2e cleanup (3 deferred from PR #36 Followup-2 + 2 pre-existing timeouts).
+- **Final state (v1.4.7)**: 11 e2e tests, 0 fail, 3 documented skips.
+- **Source**: [`OPEN.md`](OPEN.md) → BUG-W7-000 (entry stays for historical context).
 
 ---
 
@@ -96,17 +95,13 @@
 
 ## P3 — polish
 
-### Tooltip text "Coming in v1.2" on disabled pane icons
-- **Surface**: PaneHeader (v1.1.4) — `Split` (Columns2) + `Minimise` (Minimize2) icons are visual-only placeholders with `disabled` + tooltip.
-- **Issue**: V3 mockup showed both as functional. Today they're decoration.
-- **Effort**: M (~1d each) — pane splitting needs sub-grid inside one cell; minimise needs collapse-to-footer-chip animation + state slice.
-- **Defer to**: v1.2 (alongside notifications + V3 orange brand).
+### ~~Tooltip text "Coming in v1.2" on disabled pane icons~~ — **Shipped & verified — v1.4.3 (#06)**
+- **Surface**: PaneHeader Split + Minimise icons.
+- **Closed by**: v1.4.3 #06 — Pane Split (H/V) + Pane Minimise are now functional. Tooltip copy refreshed at the same change.
 
-### Gemini pane resume — CLI lacks `--resume`
+### ~~Gemini pane resume — CLI lacks `--resume`~~ — **Shipped & verified — v1.4.3 (#01)**
 - **Surface**: `src/main/core/pty/resume-launcher.ts` + provider registry.
-- **Issue**: Gemini CLI v0.41+ has no documented resume protocol. SigmaLink's resume launcher skips gemini panes (they respawn fresh on restart).
-- **Effort**: External dependency — file an upstream gemini-cli issue. Until then, claude + codex panes resume; gemini doesn't.
-- **Defer to**: when upstream lands `gemini --resume <session_id>`.
+- **Closed by**: v1.4.3 #01 — `projects.json` alias bridge unblocks gemini in per-pane worktrees. Resume launcher now threads gemini panes correctly (workspace-slug ↔ worktree-slug symlink, parallel to Claude bridge).
 
 ---
 
@@ -163,11 +158,11 @@
 
 ---
 
-## v1.1.9 — paired perf refactor
+## v1.1.9 — paired perf refactor → **Shipped & verified — v1.1.9 (then re-verified through v1.4.5)**
 
-> Flagged by Phase-1 `perf-investigator` during the v1.1.8 swarm as "higher impact for sustained runtime, but better landed together". Deferred so v1.1.8 could ship cold-boot wins fast.
+> Both items shipped in v1.1.9. Re-verified clean in v1.4.5 tech-debt sweep. Detailed records preserved below for historical context.
 
-### `useAppStateSelector<T>` built on `useSyncExternalStore`
+### ~~`useAppStateSelector<T>` built on `useSyncExternalStore`~~ — Shipped v1.1.9
 - **Surface**: `src/renderer/app/state.tsx` + `state.hook.ts` + 27 consumer files.
 - **Issue today**: `useAppState()` returns `{ state, dispatch }` whose ref flips on every reducer call. 27 consumers re-render on EVERY dispatch (PTY exit, swarm message, browser state, 250ms snapshot timer, ephemeral UI flags). 24 of those destructure the full state.
 - **Fix sketch**: New `useAppStateSelector<T>(sel, eq?)` built on `useSyncExternalStore` over a tiny event emitter the reducer fans out to. Keep `useAppState()` as a thin alias for migration; opt-in conversion of consumers over time.
@@ -175,7 +170,7 @@
 - **Effort**: M (~1d for the hook + emitter; +0.5d per consumer wave of conversions).
 - **Risk**: Med — additive (old hook stays), but touches global state. Land alongside the precomputed slice work below for combined acceptance.
 
-### Precomputed `sessionsByWorkspace` + `swarmsByWorkspace` slices
+### ~~Precomputed `sessionsByWorkspace` + `swarmsByWorkspace` slices~~ — Shipped v1.1.9
 - **Surface**: `src/renderer/app/state.reducer.ts` + 4 consumer files (CommandRoom, CommandPalette, SwarmRoom, OperatorRoom).
 - **Issue today**: Reducer rebuilds `Map(state.sessions)` on every `ADD_SESSIONS` / `MARK_SESSION_EXITED`. Four consumers run linear `sessions.filter(s => s.workspaceId === ...)` on every render. Combined with the selector issue above, that's O(N×consumers) wasted work per dispatch.
 - **Fix sketch**: Add `sessionsByWorkspace: Record<string, AgentSession[]>` derived slice maintained by the reducer (rebuild on add/remove/exited). Same for `swarmsByWorkspace`. Consumers read the precomputed slice. Additive — old `state.sessions` array preserved.
@@ -186,27 +181,23 @@
 
 ---
 
-## v1.1.9 — quality / file size
+## v1.1.9 — quality / file size → **Shipped & verified — v1.4.5**
 
-### Split `swarms/factory.ts` (713 LOC)
-- **Surface**: `src/main/core/swarms/factory.ts`.
-- **Fix sketch**: Keep `createSwarm`, `addAgentToSwarm`, `listSwarmsForWorkspace`, `loadSwarm`, `killSwarm`, and the public `SwarmFactoryDeps` / `AddAgentToSwarm*` types. Move `spawnAgentSession` + `pickCoordinatorId` + `buildExtraArgs` + `loadAgentSession` into a new `factory-spawn.ts` (private). Target: factory.ts ≈ 380 LOC, factory-spawn.ts ≈ 330 LOC.
-- **Effort**: M (~1d).
-- **Risk**: Med — internal-API surface change; relies on the existing `factory.test.ts` (added in v1.1.8) plus the v1.1.4 swarm tests to guard.
+### ~~Split `swarms/factory.ts` (713 LOC)~~ — Shipped v1.4.5
+- Closed by factory.ts 443→271 LOC + new factory-add-agent.ts sibling.
 
-### Split `runClaudeCliTurn.ts` (709 LOC)
-- **Surface**: `src/main/core/assistant/runClaudeCliTurn.ts`.
-- **Fix sketch**: Keep `runClaudeCliTurn`, `cancelClaudeCliTurn`, public types, `__reset*` test helpers. Move emit/persist helpers (`streamDelta`, `emitDelta`, `emitState`, `emitFinal`, `emitErrorFinal`, `persistFinal`, `createStdinWriter`, `withTimeout`) into `runClaudeCliTurn.emit.ts`. Trajectory helpers (`recordTrajectoryStep`, `endTrajectory`, `routeToolUse`, `traceToolUse`) into `runClaudeCliTurn.trajectory.ts`. Target: main ≈ 320 LOC.
-- **Effort**: M (~1d).
-- **Risk**: Med — guarded by `runClaudeCliTurn.test.ts` (830 LOC).
+### ~~Split `runClaudeCliTurn.ts` (709 LOC)~~ — Shipped v1.4.5
+- Closed by runClaudeCliTurn.ts 426→324 LOC + new runClaudeCliTurn.args.ts sibling.
 
 ---
 
 ---
 
-## v1.1.9 — React-compiler lint wave
+## v1.1.9 — React-compiler lint wave → **Shipped & verified — v1.1.9 (re-verified v1.4.5)**
 
-> 31 of the 32 remaining lint errors are React-compiler structural family. They need a dedicated wave because each fix can subtly change render behaviour; not non-breaking-line-edit territory.
+> Closed in v1.1.9. Re-verified clean in v1.4.5: "React-compiler lint wave found already closed by v1.1.9 work — no action needed." Current ESLint state: 0 errors, 1 pre-existing exhaustive-deps warning in `use-session-restore.ts:277` (intentional — wsId dep would re-fire snapshot timer).
+
+### Historical record (v1.1.9 sweep)
 
 | Family | Count | Notes |
 |---|---|---|
@@ -229,9 +220,9 @@
 
 ---
 
-## v1.1.10 — Playwright e2e refresh
+## v1.1.10 — Playwright e2e refresh → **Shipped & verified — v1.4.6 + v1.4.7**
 
-> Surfaced during the v1.1.9 finalisation pass (2026-05-12). The v1.1.4 V3 visual parity layout broke several smoke-suite selectors; the v1.1.1 BRIDGE→SIGMA rebrand broke the assistant aria-label. The launch path itself now works after `node scripts/build-electron.cjs`, but the in-suite assertions are stale, so BUG-W7-000 cannot be re-verified end-to-end yet.
+> Closed by v1.4.6 Playwright smoke refresh (4 navTo selector fixes + 1 stale-args assertion) + v1.4.7 e2e cleanup (5 tests closed: 3 deferred from PR #36 Followup-2 + 2 pre-existing timeouts). BUG-W7-000 closed at the same time. Final state: 11 e2e tests, 0 fail, 3 documented skips. Historical record below.
 
 ### Stale selectors in `tests/e2e/smoke.spec.ts`
 
@@ -254,80 +245,44 @@
 
 ## v1.3 — platform / distribution
 
-> v1.2.0 closed the Windows platform port at the unsigned-NSIS + PowerShell-installer + Web-Speech-fallback level. The items below are the next platform-distribution wave.
+> v1.2.0 closed the Windows platform port at the unsigned-NSIS + PowerShell-installer + Web-Speech-fallback level. Most of this wave shipped piecemeal across v1.4.x-v1.5.0. **The 3 remaining items are funded-only** (EV cert, Microsoft Store, WinGet) — see [Waiting on external](#waiting-on-external--needs-funding).
 
-### Native Windows SAPI5 voice binding
-- **Surface**: `src/main/core/voice/*` — currently macOS Speech.framework only (`native-mac.ts:107` gates non-darwin to `null`).
-- **Issue**: Windows voice routes through Chromium's Web Speech API which requires internet (cloud STT via Google). Air-gapped or offline-first Windows users have no voice path.
-- **Fix sketch**: Add `native-win.ts` calling SAPI5 via a small node-gyp binding (or off-the-shelf `node-microsoft-cognitiveservices-speech-sdk` for online + `whisper.cpp` for offline). Dispatcher contract is already platform-agnostic.
-- **Effort**: L (~3-5d).
-- **Defer to**: v1.3+.
+### ~~Native Windows SAPI5 voice binding~~ — **Shipped & verified — v1.5.0 (#53)**
+- Closed by `@sigmalink/voice-win` native module: `CLSID_SpSharedRecognizer` + STA worker + Win32 message pump + hidden `HWND_MESSAGE` + `SetNotifyWindowMessage(WM_APP+1)`. v1.5.1 further refactored Sleep(50) → event-signal + IsAvailable async + napi cleanup hook.
 
-### `windowsControlsOverlay` frameless chrome
-- **Surface**: `electron/main.ts:235` currently sets `titleBarStyle: 'default'` (native frame) on win32. Breadcrumb pads 140px right to clear WCO.
-- **Issue**: v1.2.0 ships with the native Windows frame for fastest landing. The 140px shim is cosmetically awkward and prevents drawing custom controls in the title bar region.
-- **Fix sketch**: `webPreferences.titleBarOverlay` + `frame: false` + WCO-aware Breadcrumb. Adds non-trivial layout + a11y work.
-- **Effort**: M (~1-2d).
-- **Defer to**: v1.3+.
+### ~~`windowsControlsOverlay` frameless chrome~~ — **Shipped & verified — v1.4.6 (#33)**
+- Closed by cross-platform `titleBarStyle: 'hidden'` everywhere with WCO insets. The 140px shim is gone; Breadcrumb is fully WCO-aware.
 
-### EV/OV Authenticode certificate
-- **Issue**: every v1.2.x EXE is unsigned. Users who download the EXE manually (not via the PowerShell installer's `Unblock-File` flow) see SmartScreen on first launch. SmartScreen reputation is per-binary-hash, so every release re-warms reputation from zero.
-- **Cost**: EV cert $300-700/year (immediate reputation); OV cert $80-200/year (reputation accumulates over time).
-- **Defer to**: indefinitely. Funded-only. Same gating as Apple Developer ID.
+### EV/OV Authenticode certificate — **STILL OPEN (funded-only)**
+- Cost: $300-700/yr (EV) or $80-200/yr (OV). Documented in [Waiting on external](#waiting-on-external--needs-funding).
+- Workaround in place: `app/build/nsis/README — First launch.txt` documents SmartScreen recovery; PowerShell installer auto-`Unblock-File`s.
 
-### Linux AppImage / .deb — wontfix (2026-05-16)
-- **Status**: Closed as wontfix per user decision 2026-05-16. SigmaLink will not support Linux.
-- **Historical context**: `electron-builder.yml` still has a `linux:` target block; local builds emit
-  AppImage + .deb; no CI, no smoke, no installer, no docs. See `docs/03-plan/WISHLIST.md`
-  "Architectural decisions" section.
+### Linux AppImage / .deb — **WONTFIX (2026-05-16)**
+- Closed as wontfix per user decision. SigmaLink ships macOS arm64 + Windows x64 only. `electron-builder.yml` still has a `linux:` target block for local-build completeness, but no CI, no smoke, no docs.
 
-### Microsoft Store / WinGet distribution
-- **Issue**: GitHub Releases only as of v1.2.0. WinGet manifest needs the signed EXE; Microsoft Store needs the same plus identity validation.
-- **Defer to**: after EV cert lands.
+### Microsoft Store / WinGet distribution — **STILL OPEN (gated on EV cert)**
+- Cannot proceed until EV cert lands.
 
-### Windows auto-update
-- **Issue**: `autoUpdater` for Windows needs either signed Microsoft Store distribution or a self-hosted `electron-updater` differential feed.
-- **Defer to**: after EV cert lands. Renderer toggle stays opt-in and macOS-only until then.
+### ~~Windows auto-update~~ — **Shipped & verified — v1.4.8 (#45)**
+- Closed by `electron-updater` differential feed via GitHub Releases (no Microsoft Store needed). UAC-denied fallback + warning copy. Opt-in toggle in Settings → Updates.
 
-### Apple Developer ID + notarisation
-- **Issue**: every v1.1.x DMG carries an ad-hoc signature (`scripts/adhoc-sign.cjs` from v1.1.5). On first Gatekeeper assessment of a browser-downloaded DMG, macOS surfaces "Apple could not verify SigmaLink..." — recoverable via `xattr -cr` or System Settings → Privacy & Security → Open Anyway, OR bypassed entirely via the v1.1.7 `curl | bash` installer. Real fix is notarisation.
-- **Cost**: $99/year Apple Developer Program. No free tier. No open-source exception (FSFE petitioned Nov 2025; no movement).
-- **Setup once funded**:
-  1. Generate "Developer ID Application" cert via Apple Developer portal; export as .p12.
-  2. CI secrets: `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `CSC_LINK` (base64-encoded .p12), `CSC_KEY_PASSWORD`.
-  3. `electron-builder.yml`: `mac.identity: "Developer ID Application: <NAME>"`, `hardenedRuntime: true`, `notarize: true`.
-  4. Drop `scripts/adhoc-sign.cjs` + `build/dmg/README — Open SigmaLink.txt` + `scripts/install-macos.sh` (no longer needed).
-- **Bonus once shipped**: SigmaLink becomes eligible for Homebrew Cask submission (un-notarised casks removed by Sept 2026 anyway).
+### Apple Developer ID + notarisation — **DROPPED 2026-05-18**
+- User decision: not selling, won't pay $99/yr. Ad-hoc signing + Gatekeeper README workaround remain canonical.
 
-### x64 macOS DMG via CI matrix
-- **Issue**: every v1.1.x release is arm64-only (Intel-Mac users stuck on v1.0.1). The current local build dance uses `--config.npmRebuild=false` + manual `electron-rebuild` against pinned Electron 30.5.1 — works for one arch at a time.
-- **Fix sketch**: GitHub Actions matrix with macOS arm64 + macOS x64 runners, each rebuilding native modules for its arch, then `electron-builder` packs both into a fat DMG OR two arch-specific DMGs.
-- **Effort**: M (~1d setup + debug).
-- **Pair with**: notarisation (otherwise the x64 DMG hits the same Gatekeeper wall).
+### ~~x64 macOS DMG via CI matrix~~ — **Shipped & verified — v1.4.6 (#34)**
+- Closed by Electron-ABI rebuild in all CI lanes (was rebuilding host Node ABI, root cause of CI red since v1.4.3). Intel-Mac users now get x64 DMG with Speech.framework binding bundled.
 
-### `Split` + `Minimise` pane actions become functional
-- **Surface**: PaneHeader (v1.1.4). Today disabled with "Coming in v1.2" tooltip — note the tooltip copy is now stale, will update when these ship.
-- **Effort**: M (~1d each).
-- **Risk**: Med — pane grid layout already complex; splitting needs sub-grid; minimise needs collapse-to-chip animation + state slice.
+### ~~`Split` + `Minimise` pane actions become functional~~ — **Shipped & verified — v1.4.3 (#06)**
+- Closed by Pane Split (H/V) + Pane Minimise functional.
 
-### Pane Focus → true fullscreen
-- **Surface**: PaneHeader Focus icon (Target glyph).
-- **Today**: clicking pins the focus ring on the active session; does NOT expand the pane to fill the grid.
-- **Want**: clicking hides sibling panes and expands the active pane to fullscreen with Esc to restore. Same behaviour as `Cmd+Shift+F` keyboard shortcut.
-- **Effort**: M (~1d) — needs a new `focusedPaneId` state in CommandRoom, sibling-hide CSS, Esc handler.
-- **Defer to**: v1.3 alongside Split + Minimise functional implementations.
+### ~~Pane Focus → true fullscreen~~ — **Shipped & verified — v1.4.2 (#12)**
+- Closed by `focusedPaneId` state + sibling-hide CSS + Esc handler.
 
-### Notifications system + bell in top-right
-- **Surface**: top-right corner of Breadcrumb (v1.1.4 deferred). V3 BridgeMind showed a bell next to the settings gear; SigmaLink doesn't have one because no notification source exists yet.
-- **Required first**: define what generates notifications (PTY exits? swarm broadcasts? Ruflo readiness changes? Sigma Assistant tool errors?). Then surface (bell badge → dropdown of recent items).
-- **Effort**: L (~3d for source taxonomy + dropdown UI + persistence layer).
+### ~~Notifications system + bell in top-right~~ — **Shipped & verified — v1.4.9 (#51)**
+- Closed by migration 0018 + 4-level severity taxonomy (info/warn/error/critical) + dedup 30s + IPC delta-only + OS-notification opt-in. v1.5.1 added soft-cap collapse (D2) + deep-link navigation (D5).
 
-### v1.2.1 polish: replace `nsis.license` with custom NSIS welcome page
-- **Surface**: `app/electron-builder.yml` (`nsis.license` field) + `app/build/nsis/README — First launch.txt`.
-- **Issue**: v1.2.0 wired the welcome README via `nsis.license`, which renders the text behind a forced "I accept the terms of the License Agreement" radio gate. Semantically odd — it's a SmartScreen explainer, not a license.
-- **Fix sketch**: `nsis.include: build/nsis/welcome.nsh` registering a custom MUI2 informational page (no radio gate, Next-only).
-- **Effort**: S (~2-4hr).
-- **Risk**: Low — installer-only.
+### ~~v1.2.1 polish: replace `nsis.license` with custom NSIS welcome page~~ — **Shipped & verified — v1.4.2 (#11)**
+- Closed by `nsis.include: build/nsis/welcome.nsh` + custom MUI2 informational page (no radio gate).
 
 ---
 
@@ -395,6 +350,124 @@ These OPEN.md entries still show `**Status**: open` but were resolved by their n
 | 3 stub schemas | v1.1.8 | rpc/schemas.ts promoted to real zod |
 | Dead `utils.ts` exports | v1.1.8 | parseAnsi/mockPTYBridge/generateId/formatDuration deleted |
 | 6 NMV-blocked tests | v1.1.8 | vi.mock pattern + src/test-utils/db-fake |
+
+---
+
+## Shipped & verified — v1.4.x + v1.5.x catch-up sweep (2026-05-20)
+
+Catch-up audit covering items that shipped piecemeal across v1.3.x-v1.5.1 but were never moved out of their stale "planned" sections above. CHANGELOG and master_memory are the authoritative source of truth; this table indexes which CHANGELOG entry closed each row.
+
+### v1.3.x — picker + Ruflo (2026-05-16)
+
+| Item | Closed in | Evidence |
+|---|---|---|
+| Session picker in Workspace Launcher (W-1) | v1.3.0 | `Launcher.tsx` per-pane chip + smart default + bulk bar + Scenario B pre-population |
+| `pane_index` migration race | v1.3.1 | migration 0012 dedup + Launcher top-level `paneResumePlan` |
+| Claude resume across worktrees | v1.3.2 + v1.3.4 | `claude-resume-bridge` symlink + workspace-slug ↔ worktree-slug + per-pane cwd mapping |
+| Workspace switching → Command Room | v1.3.3 | reducer-level per-workspace room recall |
+| Claude blank-pane silent-exit | v1.3.3 | visible error UI within 1.5s |
+| Session-restore snapshot timer no-op cancels | v1.3.3 | timer guard |
+| Ruflo MCP auto-bind for 5 CLIs (W-3) | v1.3.5 | canonical `mcp start` args + self-heal on next openWorkspace + readiness pill |
+
+### v1.4.x — feature wave (2026-05-16..2026-05-19)
+
+| Item | Closed in | Evidence |
+|---|---|---|
+| Sigma Assistant session resume (W-2) | v1.4.0 | Claude `system.init` capture + `--resume` chaining + retry-once stale-id fallback + right-rail pill |
+| Bridge → Sigma rename | v1.4.1 | mailbox back-channel (`sigma_pane_events`, `monitor_pane`, `assistant:pane-event`); SigmaRoom 922→283 LOC split |
+| Windows spawn ENOENT | v1.4.2 #01 | `resolveWindowsCommand` |
+| Settings blocks workspace routing | v1.4.2 #02 | route deflection |
+| xterm preservation | v1.4.2 #03 | retention across workspace switch |
+| Worktree location UX | v1.4.2 #06 | path normalisation |
+| Disk-scan workspace scoping | v1.4.2 #10 | scoped externalSessionScan |
+| NSIS welcome page | v1.4.2 #11 | custom MUI2 informational page |
+| Pane Focus fullscreen | v1.4.2 #12 | `focusedPaneId` + sibling-hide CSS + Esc |
+| rAF resize coalesce | v1.4.2 #07 | divider drag throttling |
+| state.tsx verify-close | v1.4.2 #08 | dispose audit |
+| shellcheck CI fix | v1.4.2 #24 | macOS runner fix |
+| Gemini resume bridge | v1.4.3 #01 | `projects.json` alias bridge |
+| Workspace pane state persistence | v1.4.3 #02 | `panes.listForWorkspace` RPC + ADD_SESSIONS dispatch |
+| Stale `status=running` cleanup | v1.4.3 #03 | migration 0016 marks > 24h-old as exited |
+| Orphan worktree cleanup | v1.4.3 #04 | cleanup on workspace open |
+| Pane Split + Pane Minimise functional | v1.4.3 #06 | sub-grid + collapse-to-chip + state slice |
+| Inline "+ Add first pane" in EmptyState | v1.4.3 #05 | CommandRoom EmptyState |
+| 7 reviewer followups | v1.4.4 | F-1..F-4 + INFO + LOW closures |
+| Playwright smoke navTo refresh | v1.4.4 | v1.1.4+ Rooms dropdown selector update |
+| proper-lockfile race fix | v1.4.5 | PR27 F-2 v1.4.5 followup |
+| SessionStep flake closure | v1.4.5 | `vi.resetModules` v1.4.5 followup |
+| factory.ts 443→271 LOC split | v1.4.5 | new factory-add-agent.ts sibling |
+| runClaudeCliTurn.ts 426→324 LOC split | v1.4.5 | new runClaudeCliTurn.args.ts sibling |
+| Frameless chrome cross-platform | v1.4.6 #33 | titleBarStyle:'hidden' + WCO insets |
+| x64 macOS Speech.framework binding | v1.4.6 #34 | Intel DMG carries voice-mac |
+| Electron-ABI rebuild in CI lanes | v1.4.6 | root cause of CI red since v1.4.3 |
+| Parchment contrast (BUG-W7-015) | v1.4.6 | WCAG AA verify |
+| Terminal snapshot race (R-1.2.7-1) | v1.4.6 | regression test added |
+| Vitest coverage thresholds verified | v1.4.6 | thresholds met |
+| Playwright smoke refresh | v1.4.6 | 4 navTo selector fixes + 1 stale-args assertion |
+| 5 e2e tests closed | v1.4.7 | 3 deferred from PR #36 + 2 pre-existing timeouts |
+| `panes.listForWorkspace` channel allowlist gap | v1.4.7 #37 | production regression fix (rehydration silently broken since v1.4.3) |
+| OpenCode SQLite direct read | v1.4.7 #39 | session picker cold-start ~400ms → <100ms |
+
+### v1.4.8 bundle — Sessions A/B/C (2026-05-20, single working day)
+
+| Item | Closed in | Evidence |
+|---|---|---|
+| Drag-drop file → pane `@-mention` | v1.4.8 #48 | Session A Packet 03 |
+| Sidebar resize handles (IDE Editor + main Sidebar) | v1.4.8 #47 | Session A Packet 02; kv persistence |
+| Browser EmptyState + `about:` normalization | v1.4.8 #46 | Session A Packet 01 |
+| Windows auto-update + UAC denied fallback | v1.4.8 #45 | Session A Packet 05; warning copy |
+| Global voice capture macOS | v1.4.9 #50 | Session B Packet 04; Cmd+Option+Space + Tray + pane-focus-aware paste via NSWorkspace |
+| Provider auto-install with consent gating | v1.4.9 #49 | Session B Packet 06; `providers.spawnInstall` RPC + ProviderInstallModal |
+| Notifications + top-right bell | v1.4.9 #51 | Session B Packet 07; migration 0018 + 4-level severity + dedup 30s + IPC delta + OS-notification opt-in |
+| Cross-machine session sync (e2ee, opt-in, git-backed) | v1.5.0 #54 | Session C Packet 09; migration 0019; libsodium XChaCha20-Poly1305 + AAD; HLC + LWW; BIP-39 mnemonic; isomorphic-git transport; `credentials` HARD-DENY |
+| Voice capture Windows + Linux fan-out | v1.5.0 #52 | Session C Packet 04-Win+Linux; Ctrl+Alt+Space + Tray + clipboard-only |
+| Native Windows SAPI5 voice binding | v1.5.0 #53 | Session C Packet 08; `@sigmalink/voice-win` via CLSID_SpSharedRecognizer + STA worker + Win32 message pump |
+
+### v1.5.1 — Cleanup packet (2026-05-20)
+
+| Item | Closed in | Evidence |
+|---|---|---|
+| ~28 deferred caveats from Sessions A/B/C | v1.5.1 #55+#56+#57 | 3 cluster PRs + Opus reviewer round + lead-fold-then-merge |
+| `CommandRoom.tsx` 878 → 483 LOC | v1.5.1 #55 | PaneShell + SplitGroupCell extractions |
+| `normalizeUrl` / `insertMention` / `pathRelative` test-import refactor | v1.5.1 #55 | extracted to sibling files |
+| `MnemonicConfirm` drag-drop bypass | v1.5.1 (3717e9e reviewer fold) | onDrop + onDragOver preventDefault |
+| `BrowserViewMount` flex-row layout regression | v1.5.1 (3717e9e reviewer fold) | display:none on placeholder when !visible |
+| `whisper.cpp` submodule registered properly | v1.5.1 #56 | v1.7.4 canonical ggml-org URL |
+| Real whisper.cpp model SHA-256 hashes (4 sizes) | v1.5.1 #56 | HuggingFace LFS verified |
+| `PcmAccumulator` AVAudioEngine PCM tap wire-up | v1.5.1 #56 | voice-mac installTap export |
+| SAPI5 Sleep(50) → Win32 event-signal | v1.5.1 #56 | CreateEventW auto-reset + bounded WaitForSingleObject |
+| SAPI5 IsAvailable() async | v1.5.1 #56 | WM_SAPI_PROBE + TSFN |
+| SAPI5 napi_add_env_cleanup_hook | v1.5.1 #56 | bounded shutdown wait |
+| proper-lockfile sync push/pull guard | v1.5.1 #57 | realpath:false + finally-release |
+| Sync "anonymise paths" Settings toggle | v1.5.1 #57 | `kv['sync.anonymisePaths']` |
+| Crypto wire format v1 → v2 (backward-compat) | v1.5.1 #57 | _schema OUTSIDE AAD; v1 decoder preserved |
+| SQL column allowlist defense-in-depth | v1.5.1 #57 | 19 per-table allowlists |
+| Notifications D2 soft-cap collapse | v1.5.1 #57 | 200-per-(workspace,kind) → oldest 50 → summary row |
+| Notifications D5 deep-link nav | v1.5.1 #57 | source-specific routing + missing-pane fallback |
+| `CRITICAL_TOOL_NAMES` expansion | v1.5.1 #57 | DB-mutating tools covered |
+| PowerShell → N-API foreground detection | v1.5.1 #57 | uses Cluster B's `getFrontmostAppExePath` |
+| Completion ding Settings toggle (V3-W13-015) | v1.5.1 paper-cut fold | `notifications.ding` kv exposed in NotificationsSettings.tsx |
+| 3 native prebuild workflows soft-failed | v1.5.1 (04b3b41 + 33af93a) | continue-on-error on build + if-no-files-found:warn |
+
+### V3 parity audit closure (2026-05-20)
+
+| Bucket | Count | Status |
+|---|---|---|
+| V3-W12-001..018 (Wave 12) | 18 | 4 obsoleted (by v1.2.4 cleanup); 14 shipped-verified |
+| V3-W13-001..015 (Wave 13) | 15 | 13 shipped-verified; W13-013 partial (dispatchBulk/refResolve = feature-enhancement, deferred); W13-015 folded into v1.5.1 |
+| V3-W14-001..009 (Wave 14) | 9 | All shipped-verified |
+| V3-W15-001..007 (Wave 15) | 7 | 5 shipped-verified; W15-004 superseded by Linux-not-supported ADR; W15-006 unfinished (human dogfood, not codeable) |
+
+Net: 35 shipped + 4 obsoleted + 3 partial handled + 1 human-only unfinished = wishlist closed.
+
+### Funded-only items still open
+
+| Item | Cost | Status |
+|---|---|---|
+| EV/OV Authenticode cert | $300-700/yr (EV) | Funded-only |
+| Microsoft Store / WinGet distribution | M setup + EV cert prereq | Gated on EV cert |
+| Apple Developer ID + notarisation | ~~$99/yr~~ | **Dropped 2026-05-18** — not selling, ad-hoc signing + Gatekeeper README workaround remain canonical |
+| Picovoice Porcupine "Hey Sigma" wake-word | ~$200/mo for 1k users | Funded-only |
 
 ---
 

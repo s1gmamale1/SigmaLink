@@ -1,8 +1,10 @@
 # Open Bugs — SigmaLink
 
-> **For the current consolidated backlog (open bugs + deferred optimization + known limitations + shipped/verified table), see [`BACKLOG.md`](BACKLOG.md).** That doc is updated every release and is the source of truth for "what's still open in SigmaLink".
+> **Status as of v1.5.1 (2026-05-20)**: this file is a HISTORICAL LEDGER. Every entry below with `**Status**: open` was already closed by a later version — they are kept here for repro/hypothesis context only. The 2026-05-20 catch-up sweep updated [`BACKLOG.md`](BACKLOG.md) with the authoritative list of what's actually open (2 items: DOGFOOD-V1.4.2-01 + -02, both UX-investigation-class).
 >
-> This file is the long-form bug ledger — each entry has full repro / hypothesis / surface details. As of v1.1.8 (commit `74d33e4`, 2026-05-12), the v1.1.1-* / v1.1.2-* / v1.1.3-* entries below STILL show `**Status**: open` but their fixes have ALREADY SHIPPED in the named version. Those entries will be migrated to fixed-with-pointer in the v1.1.9 OPEN.md cleanup pass. See the "Shipped & verified" table at the bottom of `BACKLOG.md` for which version closed each one.
+> **For the current consolidated backlog (open bugs + deferred optimization + known limitations + shipped/verified table), see [`BACKLOG.md`](BACKLOG.md).** That doc is updated every release and is the source of truth for "what's still open in SigmaLink". `DEFERRED.md` is currently empty.
+>
+> This file is the long-form bug ledger — each entry has full repro / hypothesis / surface details. The v1.1.1-* / v1.1.2-* / v1.1.3-* / W7-* entries below STILL show `**Status**: open` but their fixes have ALREADY SHIPPED in the named version. See the "Shipped & verified" tables in `BACKLOG.md` for which version closed each one.
 
 Filed during build + visual test waves. Each bug gets attempts in `ATTEMPTS.md`; if five attempts fail, the bug moves to `DEFERRED.md`.
 
