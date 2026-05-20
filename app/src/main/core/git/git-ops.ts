@@ -40,11 +40,16 @@ export function sanitizeBranchSegment(input: string): string {
   return cleaned.slice(0, 80) || 'agent-session';
 }
 
-export function generateBranchName(role: string, hint?: string): string {
-  // 8 base-36 chars (~2.8e12 states) keeps collision probability astronomical
-  // even when hundreds of panes share the same role+hint. Using randomUUID()
-  // also avoids dependence on Math.random() entropy quality.
-  const suffix = randomUUID().replace(/-/g, '').slice(0, 8);
+export function generateBranchName(role: string, hint?: string, sessionId?: string): string {
+  // When a pre-allocated session UUID is provided, derive the 8-char suffix
+  // from it (strip dashes, take first 8 hex chars) so the worktree path
+  // encodes the same UUID that will be stored in agent_sessions.id — making
+  // the filesystem self-documenting. Without a sessionId we fall back to a
+  // fresh randomUUID() to preserve backward-compatibility for callers that
+  // haven't been updated to pre-allocate.
+  const suffix = sessionId
+    ? sessionId.replace(/-/g, '').slice(0, 8)
+    : randomUUID().replace(/-/g, '').slice(0, 8);
   const base = sanitizeBranchSegment(`${role}/${hint ?? 'task'}-${suffix}`);
   return `sigmalink/${base}`;
 }

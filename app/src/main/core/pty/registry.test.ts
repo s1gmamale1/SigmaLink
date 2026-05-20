@@ -344,6 +344,57 @@ describe('PtyRegistry onPostSpawnCapture (v1.2.8)', () => {
   });
 });
 
+describe('PtyRegistry.create() — preassignedSessionId (v1.5.5-A)', () => {
+  it('uses preassignedSessionId as the row id and keeps isResume=false (onPostSpawnCapture fires)', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const captures: Array<{ sessionId: string }> = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onPostSpawnCapture: (c) => captures.push(c) },
+    );
+    const sess = registry.create({
+      providerId: 'codex',
+      command: 'codex',
+      args: [],
+      cwd: '/tmp/proj',
+      cols: 80,
+      rows: 24,
+      preassignedSessionId: 'fresh-uuid',
+    });
+    expect(sess.id).toBe('fresh-uuid');
+    // isResume was false → capture hook fires.
+    expect(captures).toHaveLength(1);
+    expect(captures[0]?.sessionId).toBe('fresh-uuid');
+  });
+
+  it('sessionId takes precedence over preassignedSessionId and isResume=true (onPostSpawnCapture suppressed)', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const captures: unknown[] = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onPostSpawnCapture: (c) => captures.push(c) },
+    );
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: ['--continue'],
+      cwd: '/tmp/proj',
+      cols: 80,
+      rows: 24,
+      sessionId: 'resume-uuid',
+      preassignedSessionId: 'should-be-ignored',
+    });
+    // sessionId wins for the row id.
+    expect(sess.id).toBe('resume-uuid');
+    // isResume=true → capture hook must NOT fire.
+    expect(captures).toHaveLength(0);
+  });
+});
+
 describe('PtyRegistry.killAll()', () => {
   it('uses ONE 5s timer regardless of session count', () => {
     // Spawn 4 fake sessions.

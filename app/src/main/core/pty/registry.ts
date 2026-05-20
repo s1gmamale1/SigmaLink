@@ -131,6 +131,15 @@ export class PtyRegistry {
       providerId: string;
       sessionId?: string;
       /**
+       * v1.5.5-A — SigmaLink-internal DB session id for FRESH spawns.
+       * Unlike `sessionId` (the resume sentinel), this field does NOT set
+       * `isResume = true`, so `onPostSpawnCapture` still fires and
+       * `shouldPreAssign` still injects `--session-id` for claude/gemini.
+       *
+       * Precedence: `sessionId` > `preassignedSessionId` > `randomUUID()`.
+       */
+      preassignedSessionId?: string;
+      /**
        * v1.2.8 — pre-assigned provider-native session id from the launcher
        * (claude/gemini `--session-id <uuid>`). Stamped onto the SessionRecord
        * so the caller sees it synchronously and the post-spawn hook reports
@@ -139,7 +148,7 @@ export class PtyRegistry {
       externalSessionId?: string;
     } & SpawnInput,
   ): SessionRecord {
-    const id = input.sessionId ?? randomUUID();
+    const id = input.sessionId ?? input.preassignedSessionId ?? randomUUID();
     const isResume = input.sessionId !== undefined;
     const pty = spawnLocalPty(input);
     const buffer = new RingBuffer();

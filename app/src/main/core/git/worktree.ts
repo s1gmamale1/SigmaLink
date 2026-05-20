@@ -7,6 +7,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import {
   generateBranchName,
   repoHash,
@@ -40,18 +41,33 @@ export class WorktreePool {
     role: string;
     hint?: string;
     base?: string;
-  }): Promise<{ worktreePath: string; branch: string }> {
+    /**
+     * v1.5.5-A — pre-allocated session UUID. When provided, the first 8 hex
+     * chars (dashes stripped) are used as the worktree path suffix so the
+     * filesystem path encodes the same id stored in agent_sessions.id.
+     *
+     * Retry semantics: if a collision occurs the loop regenerates a fresh UUID
+     * for the next attempt. The returned sessionId reflects whichever attempt
+     * actually succeeded, so callers must use the return value — not the input.
+     */
+    sessionId?: string;
+  }): Promise<{ worktreePath: string; branch: string; sessionId: string }> {
     // Retry up to 3 times in the (extremely unlikely) event of a directory
-    // collision. With 8 random base-36 chars per branch this should never
+    // collision. With 8 random UUID hex chars per branch this should never
     // actually trigger but the guard makes the failure mode loud rather than
     // a confusing `git worktree add: path already exists`.
+    //
+    // On collision: regenerate sessionId so the next attempt gets a fresh
+    // suffix. The caller MUST read r.sessionId (not the input) to learn which
+    // UUID was ultimately used.
+    let effectiveSessionId = input.sessionId ?? randomUUID();
     let lastErr: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const branch = generateBranchName(input.role, input.hint);
+      const branch = generateBranchName(input.role, input.hint, effectiveSessionId);
       const worktreePath = this.pathForBranch(input.repoRoot, branch);
       if (fs.existsSync(worktreePath)) {
-        // Collision (cosmically unlikely with 8 chars but possible with the
-        // sanitiser collapsing dotted hints). Retry with a fresh suffix.
+        // Collision: regenerate UUID for next attempt.
+        effectiveSessionId = randomUUID();
         continue;
       }
       try {
@@ -62,11 +78,12 @@ export class WorktreePool {
           branch,
           base: input.base ?? 'HEAD',
         });
-        return { worktreePath, branch };
+        return { worktreePath, branch, sessionId: effectiveSessionId };
       } catch (err) {
         lastErr = err;
         // If the directory exists post-failure, leave it for `git worktree
         // remove` cleanup elsewhere; loop will pick a new branch.
+        effectiveSessionId = randomUUID();
       }
     }
     throw lastErr instanceof Error
