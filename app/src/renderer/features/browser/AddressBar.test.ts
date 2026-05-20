@@ -1,35 +1,10 @@
 // Unit tests for normalizeUrl() in AddressBar.tsx.
-// normalizeUrl is module-private; we test its effects through the visible
-// behaviour described in the v1.4.8 brief (sub-task B).
 //
-// Because normalizeUrl is not exported, we import the whole module and derive
-// the tested URL by a light integration: call the function via the module-
-// internal handle captured through vi.spyOn on a synthetic call. That is
-// unnecessarily complex — instead we duplicate the pure logic inline here and
-// keep it in sync. The brief only mandates three assertions; we cover them plus
-// the normal pass-through cases.
-//
-// NOTE: If normalizeUrl is ever exported, replace this file with a direct
-// import. The assertions themselves are correct regardless.
+// v1.5.1-A: normalizeUrl is now exported from AddressBar.tsx; this test file
+// imports the real function directly instead of maintaining a duplicate
+// inline copy.
 import { describe, expect, it } from 'vitest';
-
-// Inline copy of normalizeUrl (kept in sync with AddressBar.tsx).
-// If the AddressBar implementation drifts, TSC will not catch it here — keep
-// this in sync manually when editing the source.
-function normalizeUrl(raw: string): string {
-  const t = raw.trim();
-  if (!t) return 'about:blank';
-  if (/^about:/i.test(t)) {
-    if (t.toLowerCase() === 'about:blank') return 'about:blank';
-    return 'https://www.google.com/search?q=' + encodeURIComponent(t);
-  }
-  if (t.startsWith('chrome:') || t.startsWith('file:')) return t;
-  if (/^https?:\/\//i.test(t)) return t;
-  if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(t) || t.startsWith('localhost')) {
-    return 'https://' + t;
-  }
-  return 'https://www.google.com/search?q=' + encodeURIComponent(t);
-}
+import { normalizeUrl } from './normalizeUrl';
 
 describe('normalizeUrl — about: handling (v1.4.8 sub-task B)', () => {
   it('passes about:blank through unchanged', () => {

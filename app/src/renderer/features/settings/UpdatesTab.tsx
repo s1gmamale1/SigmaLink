@@ -205,25 +205,27 @@ export function UpdatesTab() {
     <div className="flex flex-col gap-6">
       <section>
         <div className={sectionLabel}>Automatic updates</div>
-        <div className={`flex items-start justify-between gap-4 ${cardCls}`}>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium">Check for updates on launch</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              When on, SigmaLink checks the GitHub Releases feed shortly after each app start.
-              Downloads and installs always require your explicit click — no silent installs.
+        <div className={`flex flex-col gap-2 ${cardCls}`}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">Check for updates on launch</div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                When on, SigmaLink checks the GitHub Releases feed shortly after each app start.
+                Downloads and installs always require your explicit click — no silent installs.
+              </div>
             </div>
+            <Switch
+              checked={optIn}
+              onCheckedChange={onToggleOptIn}
+              aria-label="Enable automatic update checks"
+            />
           </div>
-          <Switch
-            checked={optIn}
-            onCheckedChange={onToggleOptIn}
-            aria-label="Enable automatic update checks"
-          />
+          {platform === 'win32' && (
+            <div className="text-[11px] text-muted-foreground">
+              Each update will request admin permission via a Windows UAC prompt.
+            </div>
+          )}
         </div>
-        {platform === 'win32' && (
-          <div className="mt-1 text-[11px] text-muted-foreground">
-            Each update will request admin permission via a Windows UAC prompt.
-          </div>
-        )}
       </section>
 
       <section>

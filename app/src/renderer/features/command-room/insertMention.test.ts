@@ -4,6 +4,9 @@
 //
 // Verifies that the PTY write RPC is called with the correct `@<path> ` format,
 // and that a toast is shown (not a write) when the session is not running.
+//
+// v1.5.1-A: now imports the real insertMention from insertMention.ts instead
+// of duplicating the logic inline.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,34 +31,9 @@ vi.mock('sonner', () => ({
   },
 }));
 
-// ---- helpers ---------------------------------------------------------------
+// ---- import the real function ---------------------------------------------
 
-// We import the `insertMention` function indirectly by re-exporting it.
-// Because it's an internal function in CommandRoom.tsx, we duplicate the
-// minimal logic here to keep the test focused and avoid pulling in the full
-// component tree. The real implementation is in CommandRoom.tsx and must stay
-// in sync with this contract.
-//
-// Contract: insertMention(sessionId, path, sessionStatus)
-//   - when status === 'running'   → calls rpc.pty.write(sessionId, `@${path} `)
-//   - when status !== 'running'   → shows toast.warning, does NOT call write
-
-import { rpc } from '@/renderer/lib/rpc';
-import { toast } from 'sonner';
-
-type SessionStatus = 'starting' | 'running' | 'exited' | 'error';
-
-async function insertMention(
-  sessionId: string,
-  path: string,
-  sessionStatus: SessionStatus,
-): Promise<void> {
-  if (sessionStatus !== 'running') {
-    toast.warning('Pane is not running', { description: 'Start the pane before dropping files.' });
-    return;
-  }
-  await rpc.pty.write(sessionId, `@${path} `);
-}
+import { insertMention } from './insertMention';
 
 // ---- tests -----------------------------------------------------------------
 
