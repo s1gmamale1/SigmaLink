@@ -593,7 +593,17 @@ void Recognizer::Start(const std::string& locale, bool /*onDevice*/, bool /*addP
 void Recognizer::Stop() {
   if (!active_.load()) return;
   active_.store(false);
-  PostThreadMessageW(sta_tid_, WM_SAPI_STOP, 0, 0);
+  // PR #53 caveat 3: check PostThreadMessageW return value and log on failure.
+  // The STA thread may have exited unexpectedly (e.g. on rapid HMR reloads).
+  if (!PostThreadMessageW(sta_tid_, WM_SAPI_STOP, 0, 0)) {
+    DWORD err = GetLastError();
+    // Log to stderr; the caller's session is already marked inactive so the
+    // state machine will not be stranded — this is diagnostic only.
+    fprintf(stderr,
+            "[voice-win] Stop: PostThreadMessageW(WM_SAPI_STOP) failed: "
+            "GetLastError=0x%lX — STA thread may have already exited\n",
+            static_cast<unsigned long>(err));
+  }
 }
 
 } // namespace sigmavoice
