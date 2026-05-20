@@ -9,6 +9,9 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Home, RotateCw, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DesignOverlayToggle } from './DesignOverlay';
+// v1.5.1-A: normalizeUrl extracted to normalizeUrl.ts (react-refresh rule
+// requires non-component exports in their own file).
+import { normalizeUrl } from './normalizeUrl';
 
 export interface AddressBarProps {
   url: string;
@@ -23,26 +26,6 @@ export interface AddressBarProps {
   workspaceId?: string;
   activeTabId?: string | null;
   onDesignActiveChange?: (active: boolean) => void;
-}
-
-function normalizeUrl(raw: string): string {
-  const t = raw.trim();
-  if (!t) return 'about:blank';
-  if (/^about:/i.test(t)) {
-    // Only the literal about:blank (case-insensitive) is allowed through;
-    // anything else (about:about, about:newtab, bare about:, etc.) is treated
-    // as a search query to avoid landing on Chromium's internal directory page.
-    if (t.toLowerCase() === 'about:blank') return 'about:blank';
-    return 'https://www.google.com/search?q=' + encodeURIComponent(t);
-  }
-  if (t.startsWith('chrome:') || t.startsWith('file:')) return t;
-  if (/^https?:\/\//i.test(t)) return t;
-  // Heuristic: looks like a domain or path → prepend https://
-  if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(t) || t.startsWith('localhost')) {
-    return 'https://' + t;
-  }
-  // Otherwise treat as a Google query.
-  return 'https://www.google.com/search?q=' + encodeURIComponent(t);
 }
 
 export function AddressBar({
