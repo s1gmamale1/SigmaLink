@@ -204,9 +204,11 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
       rows: args.deps.defaultRows ?? 32,
       showLegacy,
       extraArgs,
-      // v1.5.5-A — pass pre-allocated UUID so registry.create uses it as
-      // the session id, making agent_sessions.id === worktree suffix.
-      sessionId: spawnSessionId,
+      // v1.5.5-A — pass pre-allocated UUID via preassignedSessionId (NOT
+      // sessionId) so registry.create uses it as the row id while keeping
+      // isResume=false → onPostSpawnCapture fires for disk-scan providers
+      // and shouldPreAssign still injects --session-id for claude/gemini.
+      preassignedSessionId: spawnSessionId,
     },
   );
   const rec = spawnResult.ptySession;

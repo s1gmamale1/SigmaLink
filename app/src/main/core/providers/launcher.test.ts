@@ -161,6 +161,48 @@ describe('resolveAndSpawn ENOENT fallback walk', () => {
     expect(calls[0]?.command).toBe('claude');
   });
 
+  it('preassignedSessionId does NOT suppress pre-assignment (shouldPreAssign returns true for claude)', () => {
+    // v1.5.5-A: fresh spawns pass preassignedSessionId; shouldPreAssign must
+    // still return true so --session-id gets injected for claude/gemini.
+    const { registry, calls } = mockRegistry(() => makeFakeSession('s-fresh'));
+
+    const result = resolveAndSpawn(
+      {
+        ptyRegistry: registry,
+        getProvider: (id) => (id === 'claude' ? claudeProvider : undefined),
+      },
+      {
+        providerId: 'claude',
+        cwd: '/tmp',
+        preassignedSessionId: 'my-prealloc-uuid',
+      },
+    );
+
+    // --session-id must be present (pre-assign fired).
+    expect(calls[0]?.args[0]).toBe('--session-id');
+    expect(result.preassignedExternalSessionId).toBeDefined();
+  });
+
+  it('sessionId suppresses pre-assignment (shouldPreAssign returns false — resume path unchanged)', () => {
+    const { registry, calls } = mockRegistry(() => makeFakeSession('s-resume'));
+
+    const result = resolveAndSpawn(
+      {
+        ptyRegistry: registry,
+        getProvider: (id) => (id === 'claude' ? claudeProvider : undefined),
+      },
+      {
+        providerId: 'claude',
+        cwd: '/tmp',
+        sessionId: 'existing-db-id',
+      },
+    );
+
+    // No --session-id prepended when resuming.
+    expect(calls[0]?.args).not.toContain('--session-id');
+    expect(result.preassignedExternalSessionId).toBeUndefined();
+  });
+
   it('does not prepend --session-id when caller is resuming an existing Claude session', () => {
     const { registry, calls } = mockRegistry(() => makeFakeSession('s-resume'));
 

@@ -266,9 +266,12 @@ export async function executeLaunchPlan(
           rows: deps.defaultRows ?? 32,
           showLegacy: readShowLegacy(),
           extraArgs,
-          // v1.5.5-A — pass the pre-allocated UUID so registry.create uses it
-          // as the session id, making agent_sessions.id === worktree suffix.
-          sessionId: finalPreallocSessionId,
+          // v1.5.5-A — pass the pre-allocated UUID via preassignedSessionId
+          // (NOT sessionId) so registry.create uses it as the row id while
+          // keeping isResume=false → onPostSpawnCapture fires for disk-scan
+          // providers and shouldPreAssign still injects --session-id for
+          // claude/gemini (fixes the reviewer-blocking sentinel collision).
+          preassignedSessionId: finalPreallocSessionId,
         },
       );
       const rec = spawnResult.ptySession;

@@ -62,8 +62,19 @@ export interface ResolveAndSpawnOpts {
   showLegacy?: boolean;
   /** Extra trailing args (e.g. one-shot prompt tokens, initial-prompt flag). */
   extraArgs?: string[];
-  /** Reuse an existing SigmaLink PTY session id when relaunching a pane. */
+  /** Reuse an existing SigmaLink PTY session id when relaunching a pane (RESUME path only). */
   sessionId?: string;
+  /**
+   * v1.5.5-A — SigmaLink-internal DB session id to use for a FRESH spawn.
+   * Orthogonal to `sessionId` (the resume sentinel): setting this field does
+   * NOT suppress `shouldPreAssign` (claude/gemini still get `--session-id`)
+   * and does NOT set `isResume = true` in the registry (disk-scan + post-spawn
+   * capture hooks still fire for codex/kimi/opencode).
+   *
+   * Pass the pre-allocated UUID from the worktree pool here; leave `sessionId`
+   * undefined for fresh spawns.
+   */
+  preassignedSessionId?: string;
 }
 
 export interface ResolveAndSpawnResult {
@@ -280,6 +291,10 @@ export function resolveAndSpawn(
     try {
       const ptySession = deps.ptyRegistry.create({
         sessionId: opts.sessionId,
+        // v1.5.5-A — fresh spawns supply a pre-allocated DB row id via
+        // `preassignedSessionId`; this is forwarded as-is so the registry
+        // uses it as the session id WITHOUT triggering isResume = true.
+        preassignedSessionId: opts.preassignedSessionId,
         providerId: def.id,
         command,
         args,
