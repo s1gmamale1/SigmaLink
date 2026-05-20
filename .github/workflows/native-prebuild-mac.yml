@@ -64,14 +64,17 @@ jobs:
 
       - name: Build native voice module
         working-directory: app/native/voice-mac
-        # v1.5.1: prebuildify intermittently emits no .node at the expected
-        # path under CI (root cause TBD; local Xcode builds work fine).
-        # release-macos.yml's @electron/rebuild step is the primary shipping
-        # path, so this prebuild is "convenience-only" per the workflow
-        # header — soft-fail keeps PR merges unblocked.
+        # v1.5.3: root cause of silent-no-output resolved — prebuildify names
+        # the output file from the package.json `name` field with `/` → `+`,
+        # so the output is `@sigmalink+voice-mac.node`, not `node.napi.node`.
+        # The artifact upload path below has been updated to match.
+        # Soft-fail retained; release-macos.yml's @electron/rebuild step is
+        # the primary shipping path; prebuilds are an optional fast-path.
         continue-on-error: true
         run: |
-          # `prebuildify` produces `prebuilds/<platform>-<arch>/node.napi.node`.
+          # `prebuildify` produces `prebuilds/<platform>-<arch>/<pkgname>.node`
+          # where <pkgname> is the package.json `name` with `/` → `+`.
+          # For @sigmalink/voice-mac that is: @sigmalink+voice-mac.node
           # The `--napi` flag tags the binary as Node-API so node-gyp-build
           # picks it up regardless of the consumer's Node ABI.
           npx prebuildify --napi --strip --arch=${{ matrix.arch }}
@@ -94,10 +97,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: voice-mac-darwin-${{ matrix.arch }}
-          path: app/native/voice-mac/prebuilds/darwin-${{ matrix.arch }}/node.napi.node
-          # v1.5.1: build step is continue-on-error; downgrade upload to
-          # match (release-macos.yml's @electron/rebuild is the primary
-          # path, prebuilds are convenience).
+          # prebuildify names the output file from the package.json `name`
+          # field with `/` replaced by `+` for scoped packages.
+          # @sigmalink/voice-mac → @sigmalink+voice-mac.node  (v1.5.3 fix)
+          path: app/native/voice-mac/prebuilds/darwin-${{ matrix.arch }}/@sigmalink+voice-mac.node
+          # build step is continue-on-error; downgrade upload to match
+          # (release-macos.yml's @electron/rebuild is the primary path,
+          # prebuilds are an optional fast-path convenience).
           if-no-files-found: warn
           retention-days: 30
 
