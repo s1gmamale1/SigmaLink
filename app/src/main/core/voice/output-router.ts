@@ -1,4 +1,5 @@
 // output-router.ts — Cross-platform output routing for global voice capture.
+// v1.5.1-C caveat 8 — Wire voice-win getFrontmostAppExePath() N-API helper.
 //
 // Decision tree on transcript available:
 //   1. Is SigmaLink the frontmost application?
@@ -6,10 +7,9 @@
 //      NO  → attempt clipboard + AX/accessibility paste into the focused app
 //   2. AX paste availability varies by platform:
 //      macOS  → AXIsProcessTrustedWithOptions; fall back to clipboard if denied
-//      Windows → clipboard-only for v1.5.0; direct paste is v1.5.1
-//                (GetForegroundWindow + QueryFullProcessImageName is used only to
-//                determine if SigmaLink is focused; Win32 SendInput for paste
-//                requires UAC-elevation on some targets — deferred)
+//      Windows → N-API getFrontmostAppExePath() (v1.5.1-C, ~<1ms) with
+//                PowerShell fallback (~60-120ms cold-start) until Cluster B's
+//                voice-win PR lands and the native path becomes active.
 //      Linux  → clipboard-only for v1.5.0; xdotool paste is v1.5.1
 //
 // macOS path unchanged from v1.4.9. Windows and Linux paths added in v1.5.0.
@@ -36,6 +36,48 @@ export interface RouteResult {
   target: OutputTarget;
   /** Human-readable toast string for the renderer. Empty string on success. */
   toast: string;
+}
+
+// ---------------------------------------------------------------------------
+// voice-win N-API loader (getFrontmostAppExePath — v1.5.1-C caveat 8)
+// ---------------------------------------------------------------------------
+//
+// Cluster B is adding `getFrontmostAppExePath(): string` to @sigmalink/voice-win.
+// Until their PR lands on main, the dynamic require below resolves to null and
+// the PowerShell fallback path stays active. After both PRs merge, no code
+// change is needed — the native module will load and the fast path activates.
+//
+// The try/catch dynamic-require pattern ensures this PR compiles standalone
+// without a build-time dependency on the voice-win export.
+
+interface VoiceWinWithForeground {
+  getFrontmostAppExePath(): string;
+  isAvailable(): boolean;
+}
+
+let cachedVoiceWin: VoiceWinWithForeground | null | undefined;
+
+function loadVoiceWin(): VoiceWinWithForeground | null {
+  if (cachedVoiceWin !== undefined) return cachedVoiceWin;
+  if (process.platform !== 'win32') {
+    cachedVoiceWin = null;
+    return null;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('@sigmalink/voice-win') as VoiceWinWithForeground | undefined;
+    // Guard: the export was added in Cluster B. Older voice-win builds won't
+    // have getFrontmostAppExePath. Fall back to null so the PowerShell path
+    // stays active until the updated module is on disk.
+    if (mod && typeof mod.getFrontmostAppExePath === 'function') {
+      cachedVoiceWin = mod;
+      return cachedVoiceWin;
+    }
+  } catch {
+    // Module not found or failed to load — fall through to PowerShell path.
+  }
+  cachedVoiceWin = null;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,21 +156,31 @@ function getFrontmostBundleId(): string {
 
 /**
  * Returns the full executable path of the foreground window process on Windows,
- * or '' on error / unavailable. Uses PowerShell so no native module is needed.
+ * or '' on error / unavailable.
  *
- * Approach: PowerShell's `Get-Process` and the Win32 `GetForegroundWindow`
- * approach requires P/Invoke which is not accessible from Node without a
- * native addon. As a pragmatic alternative we shell out to a short PowerShell
- * one-liner that calls `[System.Diagnostics.Process]` via .NET to query the
- * main window process. Latency is ~60-120 ms (PowerShell cold-start) but
- * acceptable for an event-driven transcript delivery.
- *
- * TODO v1.5.1: replace with a lightweight N-API helper that calls
- * GetForegroundWindow + GetWindowThreadProcessId + QueryFullProcessImageName
- * to avoid the PowerShell cold-start penalty.
+ * Priority:
+ *   1. N-API helper via @sigmalink/voice-win `getFrontmostAppExePath()` (~<1ms).
+ *      Active once Cluster B's voice-win PR lands on main and the module is
+ *      on disk. Until then the module load returns null and we fall through.
+ *   2. PowerShell P/Invoke fallback (~60-120ms cold-start). Safe on all Windows
+ *      versions where PowerShell 5+ is available (Windows 10+).
  */
 function getWindowsForegroundExePath(): string {
   if (process.platform !== 'win32') return '';
+
+  // --- Try N-API native path first (fast, ~<1ms) ---------------------------
+  const voiceWin = loadVoiceWin();
+  if (voiceWin) {
+    try {
+      const exePath = voiceWin.getFrontmostAppExePath();
+      if (typeof exePath === 'string' && exePath.length > 0) {
+        return exePath;
+      }
+    } catch {
+      // Native call failed — fall through to PowerShell.
+    }
+  }
+  // --- PowerShell fallback (~60-120ms) --------------------------------------
   try {
     const result = spawnSync(
       'powershell',
