@@ -85,7 +85,11 @@ public:
   void EmitError(const ErrorPayload& p)  { error_.Emit(p); }
   void EmitState(const std::string& s)   { state_.Emit(s); }
 
-  // ---- STA thread lifecycle (called from sigmavoice_win.cc Init).
+  // ---- STA thread lifecycle. Intentionally not part of the public API;
+  //      only sigmavoice_win.cc (Init + env cleanup hook) should call these.
+  //      Keeping them at the bottom of the public section (not truly private
+  //      to allow the napi cleanup lambda access) but separated from the
+  //      JS-facing surface by a comment barrier. (PR #53 caveat 4)
   /** Spin up the dedicated STA worker thread and message pump. */
   void StartSTAThread();
   /** Request a graceful shutdown of the STA thread. */

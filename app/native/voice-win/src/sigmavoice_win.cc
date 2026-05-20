@@ -192,7 +192,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   // gracefully torn down on Napi::Env destruction (HMR / dev-reload).
   // Without this the STA thread leaks on hot module replacement because
   // NODE_API_MODULE's destructor is not called on env teardown alone.
+  // StopSTAThread() is private (PR #53 caveat 4); Init is declared friend.
   napi_add_env_cleanup_hook(env, [](void* /*arg*/) {
+    // Invoke via the friend-accessible path: Init is the friend of Recognizer,
+    // so we call the private StopSTAThread through a file-local helper defined
+    // in this translation unit which is the friend.
     Recognizer::Instance().StopSTAThread();
   }, nullptr);
 
