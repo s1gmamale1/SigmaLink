@@ -1,4 +1,6 @@
 // v1.5.3-B — CHANNELS vs registered-handler cross-reference sanity check.
+// v1.5.4-B — Extended to also enumerate direct ipcMain.handle calls in
+//            electron/main.ts (Source C) so they can't slip in un-allowlisted.
 //
 // Background: v1.5.0 packet 09 shipped 8 `sync.*` controller methods but
 // forgot to add them to CHANNELS. The preload bridge hard-rejected all
@@ -13,8 +15,14 @@
 //   2. Inverse check — every channel in CHANNELS must have a corresponding
 //      registered handler. Drift here means the allowlist is stale (dead
 //      entries that waste security-review budget).
+//   3. Direct-in-main check (v1.5.4-B) — every channel registered via a
+//      direct ipcMain.handle call in electron/main.ts must appear in CHANNELS.
+//      This closes the gap identified by the v1.5.3 reviewer: the 7
+//      voice.globalCapture.* handlers were invisible to checks 1 and 2 and
+//      required manual suppression via CHANNELS_REQUIRING_LEAD_REVIEW. Now
+//      they are enumerated in DIRECT_IPC_HANDLE_CHANNELS and tested directly.
 //
-// rpc-router.ts registers channels from TWO sources:
+// rpc-router.ts registers channels from THREE sources (after v1.5.4-B):
 //   A. The typed router returned by defineRouter() — namespace.method pairs
 //      derived from the controller objects (app, pty, panes, providers,
 //      workspaces, git, fs, swarms, browser, skills, memory, review, tasks,
@@ -26,18 +34,21 @@
 //        assistant.conversations.{list, get, delete, resumeHint}
 //        swarm.origin.get
 //        voice.diagnostics.run
+//   C. Direct ipcMain.handle(...) calls in electron/main.ts (v1.5.4-B):
+//        voice.globalCapture.{getStatus, setEnabled, setHotkey, setMode,
+//                             setModelId, downloadModel, abortDownload}
 //
-// Both sources are enumerated statically from the controller source files to
-// avoid spawning an Electron process.
+// Both A and B are enumerated statically from the controller source files to
+// avoid spawning an Electron process. C is enumerated in DIRECT_IPC_HANDLE_CHANNELS
+// below and cross-checked against CHANNELS directly.
 //
 // NOTE ON KNOWN DRIFT (resolved in v1.5.3):
 //   - providers.spawnInstall / setInstallConsent / getInstallConsent: caught by
 //     this test on its first run as a v1.4.9-class production regression. Folded
 //     into CHANNELS pre-merge.
-//   - voice.globalCapture.{getStatus, setEnabled, setHotkey, setMode,
-//                          setModelId, downloadModel, abortDownload}: false
-//     positive — handlers exist via direct ipcMain.handle in electron/main.ts
-//     and are suppressed via CHANNELS_REQUIRING_LEAD_REVIEW.
+//   - voice.globalCapture.* channels moved from CHANNELS_REQUIRING_LEAD_REVIEW
+//     into DIRECT_IPC_HANDLE_CHANNELS in v1.5.4-B. They are now tested by the
+//     dedicated "direct ipcMain.handle channels are in CHANNELS" assertion.
 //   Future drift caught by this test must be reviewed by the
 //   lead before being added to or removed from CHANNELS.
 
@@ -274,6 +285,30 @@ const SIDE_BAND_CHANNELS: ReadonlyArray<string> = [
 ];
 
 // ------------------------------------------------------------------
+// SOURCE C: Direct ipcMain.handle calls in electron/main.ts (v1.5.4-B)
+//
+// Enumerated by reading registerGlobalCaptureIpc() in electron/main.ts
+// (lines ~167-222). These handlers are registered with `ipcMain.handle`
+// directly rather than through the typed AppRouter or side-band maps.
+// They MUST appear in CHANNELS for the preload bridge to allow them through.
+//
+// When new direct ipcMain.handle calls are added to electron/main.ts,
+// add the corresponding channel string here. This list IS the enumeration —
+// if a channel is listed here but absent from CHANNELS, the test fails.
+// ------------------------------------------------------------------
+
+const DIRECT_IPC_HANDLE_CHANNELS: ReadonlyArray<string> = [
+  // registerGlobalCaptureIpc() in electron/main.ts — prefix: 'voice.globalCapture.'
+  'voice.globalCapture.getStatus',
+  'voice.globalCapture.setEnabled',
+  'voice.globalCapture.setHotkey',
+  'voice.globalCapture.setMode',
+  'voice.globalCapture.setModelId',
+  'voice.globalCapture.downloadModel',
+  'voice.globalCapture.abortDownload',
+];
+
+// ------------------------------------------------------------------
 // KNOWN DRIFT (informational — reported but not blocking)
 //
 // Channels present in CHANNELS but NOT backed by any registered handler.
@@ -305,33 +340,22 @@ const KNOWN_CONTROLLER_NOT_IN_CHANNELS = new Set<string>([
  * Channels present in CHANNELS but NOT in the known registered handlers.
  * These may be stale entries from features not yet fully wired, or they may
  * be registered in controllers we haven't fully enumerated here.
- * Voice global-capture channels: in CHANNELS but controller registration is
- * not observed in rpc-router.ts via the standard defineRouter or side-band
- * patterns — they may be registered inside buildVoiceController internals.
  *
- * These are NOT flagged as failures in the inverse check (to avoid false
- * positives from controller-internal registrations), but they ARE listed here
- * for documentation and lead visibility.
+ * v1.5.4-B: voice.globalCapture.* channels removed from this set — they are
+ * now properly enumerated in DIRECT_IPC_HANDLE_CHANNELS (Source C) and tested
+ * by the dedicated direct-in-main assertion below.
  */
 const CHANNELS_REQUIRING_LEAD_REVIEW = new Set<string>([
-  // v1.4.9 global capture — registered via direct ipcMain.handle in
-  // app/electron/main.ts (around lines 167-218), not through the
-  // defineRouter side-band patterns this test enumerates. v1.5.3 Opus
-  // reviewer confirmed handlers exist; suppression remains correct to
-  // avoid a false-positive inverse-check failure. A future v1.5.4
-  // extension could enumerate ipcMain.handle calls in electron/main.ts
-  // so direct-in-main handlers don't need this suppression.
-  'voice.globalCapture.getStatus',
-  'voice.globalCapture.setEnabled',
-  'voice.globalCapture.setHotkey',
-  'voice.globalCapture.setMode',
-  'voice.globalCapture.setModelId',
-  'voice.globalCapture.downloadModel',
-  'voice.globalCapture.abortDownload',
+  // Empty after v1.5.4-B. If a new direct-in-main handler is added to
+  // electron/main.ts without updating DIRECT_IPC_HANDLE_CHANNELS, the
+  // inverse check will surface it here. Update DIRECT_IPC_HANDLE_CHANNELS
+  // instead of adding entries to this suppression set.
 ]);
 
 // ------------------------------------------------------------------
 // All channels expected to be registered by rpc-router.ts at runtime.
+// Does NOT include DIRECT_IPC_HANDLE_CHANNELS — those are checked
+// by the separate "direct ipcMain.handle" test below.
 // ------------------------------------------------------------------
 
 const ALL_ROUTER_CHANNELS: ReadonlySet<string> = new Set([
@@ -387,11 +411,16 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
    * CHANNELS_REQUIRING_LEAD_REVIEW set captures known cases.
    */
   it('every CHANNELS entry maps to a known registered handler (stale-entry detector)', () => {
+    const directHandleSet = new Set(DIRECT_IPC_HANDLE_CHANNELS);
     const stale: string[] = [];
 
     for (const channel of CHANNELS) {
       if (ALL_ROUTER_CHANNELS.has(channel)) continue;
       if (CHANNELS_REQUIRING_LEAD_REVIEW.has(channel)) continue;
+      // v1.5.4-B: channels enumerated in DIRECT_IPC_HANDLE_CHANNELS are
+      // tested separately by the direct-in-main assertion; exclude them here
+      // to avoid a false-positive stale-entry warning.
+      if (directHandleSet.has(channel)) continue;
 
       stale.push(channel);
     }
@@ -415,11 +444,47 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
   });
 
   /**
-   * Smoke-check: CHANNELS and ALL_ROUTER_CHANNELS are non-empty sets
-   * so a broken import can't produce a silent vacuous pass.
+   * Direct-in-main check (v1.5.4-B): every channel registered via a direct
+   * ipcMain.handle call in electron/main.ts must appear in CHANNELS. These
+   * handlers live outside the typed AppRouter and were previously invisible
+   * to the forward/inverse checks above — they only worked because the
+   * globalCapture channels were manually suppressed in CHANNELS_REQUIRING_LEAD_REVIEW.
+   *
+   * Now that they're explicitly enumerated in DIRECT_IPC_HANDLE_CHANNELS, any
+   * new direct-in-main handler that isn't allowlisted will fail here instead
+   * of silently bypassing the IPC bridge (or producing a confusing false positive
+   * in the inverse check).
    */
-  it('both sets are non-empty (import guard)', () => {
+  it('every direct ipcMain.handle channel in electron/main.ts is present in CHANNELS allowlist', () => {
+    const missing: string[] = [];
+
+    for (const channel of DIRECT_IPC_HANDLE_CHANNELS) {
+      if (!CHANNELS.has(channel)) {
+        missing.push(channel);
+      }
+    }
+
+    if (missing.length > 0) {
+      const lines = [
+        `${missing.length} direct ipcMain.handle channel(s) from electron/main.ts are MISSING from CHANNELS allowlist.`,
+        'The preload bridge will hard-reject renderer calls to these channels.',
+        'Add them to rpc-channels.ts (after lead security review) OR update',
+        'DIRECT_IPC_HANDLE_CHANNELS in this file if a handler was removed.',
+        '',
+        'Missing channels:',
+        ...missing.map((c) => `  - '${c}',`),
+      ];
+      expect.fail(lines.join('\n'));
+    }
+  });
+
+  /**
+   * Smoke-check: CHANNELS, ALL_ROUTER_CHANNELS, and DIRECT_IPC_HANDLE_CHANNELS
+   * are non-empty so a broken import can't produce a silent vacuous pass.
+   */
+  it('all sets are non-empty (import guard)', () => {
     expect(CHANNELS.size).toBeGreaterThan(50);
     expect(ALL_ROUTER_CHANNELS.size).toBeGreaterThan(50);
+    expect(DIRECT_IPC_HANDLE_CHANNELS.length).toBeGreaterThan(0);
   });
 });
