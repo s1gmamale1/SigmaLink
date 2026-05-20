@@ -30,11 +30,15 @@
 // Both sources are enumerated statically from the controller source files to
 // avoid spawning an Electron process.
 //
-// NOTE ON KNOWN DRIFT (to be fixed by lead — do NOT auto-add here):
-//   providers.spawnInstall, providers.setInstallConsent, providers.getInstallConsent
-//   voice.globalCapture.{getStatus, setEnabled, setHotkey, setMode,
-//                        setModelId, downloadModel, abortDownload}
-//   These are intentionally flagged by this test and must be reviewed by the
+// NOTE ON KNOWN DRIFT (resolved in v1.5.3):
+//   - providers.spawnInstall / setInstallConsent / getInstallConsent: caught by
+//     this test on its first run as a v1.4.9-class production regression. Folded
+//     into CHANNELS pre-merge.
+//   - voice.globalCapture.{getStatus, setEnabled, setHotkey, setMode,
+//                          setModelId, downloadModel, abortDownload}: false
+//     positive — handlers exist via direct ipcMain.handle in electron/main.ts
+//     and are suppressed via CHANNELS_REQUIRING_LEAD_REVIEW.
+//   Future drift caught by this test must be reviewed by the
 //   lead before being added to or removed from CHANNELS.
 
 import { describe, expect, it } from 'vitest';
@@ -77,14 +81,12 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'panes.lastResumePlan',
   'panes.listForWorkspace',
   // providers (providersCtl)
-  // NOTE: spawnInstall / setInstallConsent / getInstallConsent are registered
-  // by the controller but are NOT in CHANNELS — intentional drift flag.
   'providers.list',
   'providers.probeAll',
   'providers.probe',
-  'providers.spawnInstall',     // DRIFT: not in CHANNELS
-  'providers.setInstallConsent', // DRIFT: not in CHANNELS
-  'providers.getInstallConsent', // DRIFT: not in CHANNELS
+  'providers.spawnInstall',     // v1.5.3 hotfix — added to CHANNELS pre-merge
+  'providers.setInstallConsent', // v1.5.3 hotfix — added to CHANNELS pre-merge
+  'providers.getInstallConsent', // v1.5.3 hotfix — added to CHANNELS pre-merge
   // workspaces (workspacesCtl)
   'workspaces.pickFolder',
   'workspaces.open',
@@ -290,13 +292,11 @@ const SIDE_BAND_CHANNELS: ReadonlyArray<string> = [
  * the forward-check failure — it does NOT add them to CHANNELS.
  */
 const KNOWN_CONTROLLER_NOT_IN_CHANNELS = new Set<string>([
-  // providers.spawnInstall / setInstallConsent / getInstallConsent —
-  // Registered by the controller in rpc-router.ts but absent from CHANNELS.
-  // These are renderer-facing channels for v1.4.9-06 provider installation UI.
-  // Lead must decide whether to add them to CHANNELS or remove from controller.
-  'providers.spawnInstall',
-  'providers.setInstallConsent',
-  'providers.getInstallConsent',
+  // Empty after v1.5.3 — providers.spawnInstall/setInstallConsent/getInstallConsent
+  // were the v1.4.9 production regression this test caught; folded into CHANNELS
+  // pre-merge per lead decision. If a future drift surfaces here, add an entry
+  // with a comment explaining why the controller method is intentionally NOT
+  // renderer-callable.
 ]);
 
 /**
@@ -312,8 +312,13 @@ const KNOWN_CONTROLLER_NOT_IN_CHANNELS = new Set<string>([
  * for documentation and lead visibility.
  */
 const CHANNELS_REQUIRING_LEAD_REVIEW = new Set<string>([
-  // v1.4.9 global capture — registered inside buildVoiceController or
-  // voice/adapter.ts; not visible in the top-level rpc-router.ts loop.
+  // v1.4.9 global capture — registered via direct ipcMain.handle in
+  // app/electron/main.ts (around lines 167-218), not through the
+  // defineRouter side-band patterns this test enumerates. v1.5.3 Opus
+  // reviewer confirmed handlers exist; suppression remains correct to
+  // avoid a false-positive inverse-check failure. A future v1.5.4
+  // extension could enumerate ipcMain.handle calls in electron/main.ts
+  // so direct-in-main handlers don't need this suppression.
   'voice.globalCapture.getStatus',
   'voice.globalCapture.setEnabled',
   'voice.globalCapture.setHotkey',
