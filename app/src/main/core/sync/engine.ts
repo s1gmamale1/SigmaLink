@@ -15,10 +15,12 @@
 //   - Lock file guards against concurrent Electron instances.
 
 import path from 'node:path';
+import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import lockfile from 'proper-lockfile';
 import { KeyManager } from './key-manager';
-import { encrypt, decrypt, buildAad } from './crypto';
+import { encrypt, decrypt, buildAad, buildAadV1, peekHeader } from './crypto';
 import { init as hlcInit, now as hlcNow, recv as hlcRecv, pack as hlcPack, unpack as hlcUnpack } from './hlc';
 import { listDirtyRows, markClean, markDeleted, SYNCED_TABLES } from './dirty-tracker';
 import { resolveRow, quarantineBlob, type RemoteRow } from './conflict-resolver';
@@ -40,6 +42,86 @@ import {
 const SYNC_INTERVAL_MS = 30_000;
 const SYNC_JITTER_MS = 5_000;
 const SCHEMA_VERSION = 19; // matches migration 0019
+
+// ------------------------------------------------------------------
+// SQL column allowlists (caveat 4 — defense-in-depth)
+// ------------------------------------------------------------------
+//
+// Per-table column allowlists derived from the drizzle schema. Any column
+// name NOT in this set is silently dropped before SQL interpolation.
+// Inclusion criterion: any column that is part of the declared Drizzle
+// schema for that table at the current migration ceiling. Unknown columns
+// (e.g. from a future schema or a tampered blob) are dropped with a warning.
+//
+// NB: column names here are the SQLite column names (snake_case), NOT the
+// drizzle TypeScript property names (camelCase).
+
+const COLUMN_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ['workspaces', new Set(['id', 'name', 'root_path', 'repo_root', 'repo_mode', 'created_at', 'last_opened_at'])],
+  ['agent_sessions', new Set(['id', 'workspace_id', 'provider_id', 'cwd', 'branch', 'worktree_path', 'status', 'exit_code', 'initial_prompt', 'started_at', 'exited_at', 'provider_effective', 'external_session_id', 'pane_index', 'sigma_monitor_conversation_id', 'split_group_id', 'split_direction', 'split_index', 'minimised'])],
+  ['swarms', new Set(['id', 'workspace_id', 'name', 'mission', 'preset', 'status', 'created_at', 'ended_at'])],
+  ['swarm_agents', new Set(['id', 'swarm_id', 'role', 'role_index', 'provider_id', 'session_id', 'status', 'inbox_path', 'agent_key', 'auto_approve', 'coordinator_id', 'created_at'])],
+  ['swarm_messages', new Set(['id', 'swarm_id', 'from_agent', 'to_agent', 'kind', 'body', 'payload_json', 'ts', 'delivered_at', 'read_at', 'resolved_at'])],
+  ['swarm_skills', new Set(['swarm_id', 'skill_key', 'on_flag', 'group_key', 'updated_at'])],
+  ['conversations', new Set(['id', 'workspace_id', 'kind', 'claude_session_id', 'created_at'])],
+  ['messages', new Set(['id', 'conversation_id', 'role', 'content', 'tool_call_id', 'created_at'])],
+  ['sigma_pane_events', new Set(['id', 'conversation_id', 'session_id', 'kind', 'body', 'ts'])],
+  ['memories', new Set(['id', 'workspace_id', 'name', 'body', 'frontmatter_json', 'created_at', 'updated_at'])],
+  ['memory_links', new Set(['id', 'from_memory_id', 'to_memory_name', 'created_at'])],
+  ['memory_tags', new Set(['memory_id', 'tag'])],
+  ['tasks', new Set(['id', 'workspace_id', 'title', 'description', 'status', 'assigned_session_id', 'assigned_swarm_id', 'assigned_swarm_agent_id', 'labels_json', 'created_at', 'updated_at', 'archived_at'])],
+  ['task_comments', new Set(['id', 'task_id', 'author', 'body', 'created_at'])],
+  ['canvases', new Set(['id', 'workspace_id', 'title', 'last_providers', 'created_at'])],
+  ['canvas_dispatches', new Set(['id', 'canvas_id', 'prompt', 'providers', 'ts'])],
+  ['boards', new Set(['id', 'swarmId', 'agentId', 'postId', 'title', 'bodyMd', 'attachmentsJson', 'createdAt'])],
+  ['swarm_origins', new Set(['swarmId', 'conversationId', 'messageId', 'createdAt'])],
+  ['swarm_replay_snapshots', new Set(['id', 'swarmId', 'label', 'frameIdx', 'createdAt'])],
+]);
+
+// ------------------------------------------------------------------
+// Path anonymisation helpers (caveat 2)
+// ------------------------------------------------------------------
+
+/**
+ * Anonymise the user's home-directory prefix in all string fields of a row.
+ *
+ * When `kv['sync.anonymisePaths'] === '1'`, any value of the form
+ * `/Users/<username>/...` (macOS) or `C:\Users\<username>\...` (Windows) is
+ * replaced with `~/...`. The replacement is best-effort — it only rewrites
+ * values that start with `os.homedir()`. On pull, the `~/` prefix is left
+ * as-is so the operator can re-attach the workspace by clicking it; expanding
+ * `~/` on the receiving machine would embed that machine's username.
+ */
+function anonymiseRowPaths(rowData: Record<string, unknown>): Record<string, unknown> {
+  const home = os.homedir();
+  if (!home) return rowData;
+  // Normalise trailing separator.
+  const homeWithSep = home.endsWith(path.sep) ? home : home + path.sep;
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(rowData)) {
+    if (typeof v === 'string' && v.startsWith(homeWithSep)) {
+      result[k] = '~/' + v.slice(homeWithSep.length);
+    } else {
+      result[k] = v;
+    }
+  }
+  return result;
+}
+
+/**
+ * Read `kv['sync.anonymisePaths']` from the application DB.
+ * Returns true when the value is '1'. Defaults to false if absent.
+ */
+function readAnonymisePaths(db: Database.Database): boolean {
+  try {
+    const row = db
+      .prepare(`SELECT value FROM kv WHERE key = ?`)
+      .get('sync.anonymisePaths') as { value: string } | undefined;
+    return row?.value === '1';
+  } catch {
+    return false;
+  }
+}
 
 // ------------------------------------------------------------------
 // Types
@@ -153,11 +235,20 @@ export class SyncEngine {
     if (!this._config) return;
 
     this._running = true;
+    const cloneDir = this._config.cloneDir;
+    // Acquire process-level lock so two concurrent Electron instances cannot
+    // race on the same clone directory. `realpath: false` avoids fs.realpath
+    // calls on Windows where symlinks may be restricted.
+    let release: (() => Promise<void>) | null = null;
     try {
+      release = await lockfile.lock(cloneDir, { realpath: false });
       await this._pullCycle();
       await this._pushCycle();
     } finally {
       this._running = false;
+      if (release) {
+        try { await release(); } catch { /* best-effort lock release */ }
+      }
     }
   }
 
@@ -193,8 +284,42 @@ export class SyncEngine {
         const payload = readBlob(cloneDir, tableName, rowId);
         if (!payload) continue;
 
-        // Decrypt with AAD binding.
-        const aad = buildAad(SCHEMA_VERSION, tableName, rowId);
+        // --- Schema-skew gate (caveat 3): read outer header BEFORE AEAD ----
+        // For v2 blobs the schema_version is in the unencrypted header.
+        // If schema > local, route to sync_pending_upgrade without decrypting.
+        // For v1 blobs (legacy), schema is inside the encrypted envelope; we
+        // decrypt first, then check schema from the JSON envelope below.
+        const headerPeek = peekHeader(payload);
+        if (!headerPeek) {
+          quarantineBlob(this._db, relPath, 'malformed');
+          continue;
+        }
+
+        if (headerPeek.outerVersion === 2 && headerPeek.schemaVersion !== undefined) {
+          if (headerPeek.schemaVersion > SCHEMA_VERSION) {
+            // Schema mismatch: queue for future upgrade, don't decrypt.
+            const upId = randomUUID();
+            this._db
+              .prepare(
+                `INSERT OR IGNORE INTO sync_pending_upgrade
+                   (id, blob_path, schema_version, queued_at)
+                 VALUES (?, ?, ?, ?)`,
+              )
+              .run(upId, relPath, headerPeek.schemaVersion, Date.now());
+            continue;
+          }
+        }
+
+        // Build the correct AAD for the blob's version:
+        //   v2: "${table_name}|${row_id}"
+        //   v1 (legacy): "${schema_version}|${table_name}|${row_id}" (schema from
+        //     envelope JSON; for v1 we pass SCHEMA_VERSION as a best-effort since
+        //     we haven't decrypted yet — this matches how v1 blobs were pushed).
+        const aad =
+          headerPeek.outerVersion === 2
+            ? buildAad(tableName, rowId)
+            : buildAadV1(SCHEMA_VERSION, tableName, rowId);
+
         const decResult = await decrypt({ key, payload, aad });
 
         if (!decResult.ok) {
@@ -226,7 +351,12 @@ export class SyncEngine {
             data?: Record<string, unknown>;
           };
           hlcPacked = envelope._hlc ?? '';
-          schemaVersion = envelope._schema ?? SCHEMA_VERSION;
+          // v2: schemaVersion comes from the wire header (already checked above).
+          // v1: fall back to the envelope _schema field.
+          schemaVersion =
+            headerPeek.outerVersion === 2 && headerPeek.schemaVersion !== undefined
+              ? headerPeek.schemaVersion
+              : (envelope._schema ?? SCHEMA_VERSION);
           machineIdHex = envelope._machineId ?? '0'.repeat(32);
           rowData = envelope.data ?? {};
         } catch {
@@ -286,6 +416,9 @@ export class SyncEngine {
 
     const cloneDir = this._config.cloneDir;
 
+    // Read anonymise-paths setting once per push cycle (avoids per-row lookup).
+    const doAnonymise = readAnonymisePaths(this._db);
+
     await KeyManager.withKey(async (key) => {
       // Encrypt + write each dirty row to the working tree.
       for (const row of dirtyRows) {
@@ -309,6 +442,9 @@ export class SyncEngine {
           continue; // unknown table shape — skip
         }
 
+        // Optionally anonymise home-directory paths before encryption.
+        const serialisedData = doAnonymise ? anonymiseRowPaths(rowData) : rowData;
+
         // Generate HLC for this write.
         const hlc = hlcNow();
         const hlcPacked = hlcPack(hlc);
@@ -319,12 +455,13 @@ export class SyncEngine {
           _hlc: hlcPacked,
           _schema: SCHEMA_VERSION,
           _machineId: machineIdHex,
-          data: rowData,
+          data: serialisedData,
         };
         const plaintext = JSON.stringify(envelope);
-        const aad = buildAad(SCHEMA_VERSION, tableName, rowId);
+        // v2 AAD: "${table_name}|${row_id}" (schema_version is in the outer header).
+        const aad = buildAad(tableName, rowId);
 
-        const { payload } = await encrypt({ key, plaintext, aad });
+        const { payload } = await encrypt({ key, plaintext, aad, schemaVersion: SCHEMA_VERSION });
         writeBlobToWorkTree(cloneDir, tableName, rowId, payload);
       }
 
@@ -367,12 +504,29 @@ export class SyncEngine {
     rowData: Record<string, unknown>,
     hlcPacked: string,
   ): void {
-    // Build column list from the row data.
-    const columns = Object.keys(rowData);
+    // Defense-in-depth: filter columns through the per-table allowlist (caveat 4).
+    // Unknown columns (from a future schema or tampered blob) are dropped rather
+    // than interpolated into SQL. tableName is already bounded by SYNCED_TABLES.
+    const allowed = COLUMN_ALLOWLIST.get(tableName);
+    let filteredData = rowData;
+    if (allowed) {
+      const unknownCols = Object.keys(rowData).filter((c) => !allowed.has(c));
+      if (unknownCols.length > 0) {
+        console.warn(
+          `[sync] _applyRemoteRow: dropping unknown columns for ${tableName}: ${unknownCols.join(', ')}`,
+        );
+        filteredData = Object.fromEntries(
+          Object.entries(rowData).filter(([c]) => allowed.has(c)),
+        );
+      }
+    }
+
+    // Build column list from the filtered row data.
+    const columns = Object.keys(filteredData);
     if (columns.length === 0) return;
 
     const placeholders = columns.map(() => '?').join(', ');
-    const values = columns.map((c) => rowData[c] ?? null);
+    const values = columns.map((c) => filteredData[c] ?? null);
 
     // Upsert the row using INSERT OR REPLACE (all columns present).
     try {
