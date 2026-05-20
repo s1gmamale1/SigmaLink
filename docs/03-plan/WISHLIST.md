@@ -6,6 +6,7 @@
 
 | Release | What | Plan file |
 |---|---|---|
+| v1.6.0 | Ruflo MCP HTTP daemon mode (W-7 from v1.5.6 architectural backlog) — per-workspace `RufloHttpDaemonSupervisor` (~280 LOC) spawned at workspace open; all 5 CLI clients point at one shared `http://127.0.0.1:<port>/mcp` endpoint; live in-memory shared state (HNSW, pattern cache, swarm consensus) across all panes. Restart UX routes through existing v1.4.9 NotificationsManager (bell drawer). Commit `f36b7be`. Deferred to v1.7: upstream write-mutex PR to claude-flow. Deferred to v1.6.1+: daemon Settings UI + global multi-workspace daemon mode. | inline in CHANGELOG |
 | v1.5.6 | PTY exit grace window hotfix (200ms → 3000ms) — unmasks fast-exit binary errors (ENOENT/PATH/flag) | inline in CHANGELOG |
 | v1.2.0 | Windows platform port — NSIS installer + PowerShell one-liner | `docs/03-plan/` (none — implementation only) |
 | v1.2.1 | Windows CI hotfix — npmRebuild=false to skip node-pty re-rebuild | inline in CHANGELOG |

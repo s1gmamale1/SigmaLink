@@ -2488,5 +2488,55 @@ All 3 verdicts: APPROVE-WITH-CAVEATS, ZERO REQUEST-CHANGES, all caveats DEFER.
 - WISHLIST.md surface: still empty for new feature work. v1.5.3 backlog is purely defensive infrastructure + carry-over.
 - Funded-only items: EV cert + WinGet + Microsoft Store + Picovoice — unchanged.
 
+## Phase 44 — v1.6.0 Ruflo MCP HTTP daemon mode (2026-05-21)
 
+Shipped W-7 from the v1.5.6 architectural backlog: instead of each of the 5 CLI clients spawning its own stdio Ruflo MCP process, a single per-workspace HTTP daemon is now spawned when a workspace opens, and every CLI client connects to it at `http://127.0.0.1:<port>/mcp`. All panes in a workspace share live in-memory state — HNSW index, pattern cache, and swarm consensus — without any process-level duplication.
 
+### Why stdio was fragmented
+
+The v1.3.5 auto-bind feature (W-3) solved the config-writing problem: each CLI's `.mcp.json` / config file was updated to point at the Ruflo stdio command. But stdio MCP means each CLI spawns its own `npx -y @claude-flow/cli@latest mcp start` child process in the worktree cwd. Because every pane opens a fresh PTY and the MCP process is a stdio child of that PTY, five open panes meant five independent Ruflo processes — five separate HNSW indexes, five pattern caches, five swarm consensus tables. Cross-pane coordination (e.g. one Claude pane's pattern store visible to a Codex pane) required an explicit persistence round-trip through SQLite. The in-memory hot path was siloed per-process.
+
+The deeper root cause was the worktree cwd issue documented in v1.3.4: `mcp-autowrite.ts` set the stdio command's working directory to the per-pane worktree subdirectory, so even if two panes pointed at the same binary binary they ran in disjoint cwd contexts. An HTTP daemon side-steps the cwd problem entirely — the daemon starts once in the workspace root and exposes a network endpoint; the cwd of the connecting client is irrelevant.
+
+### 3-layer architecture
+
+**Layer 1 — `RufloHttpDaemonSupervisor`** (`app/src/main/core/ruflo/http-daemon-supervisor.ts`, ~280 LOC, new file):
+- Spawns `npx -y @claude-flow/cli@latest mcp start --http` on the first `ensureRunning(workspaceId)` call.
+- Selects a free TCP port via `net.createServer().listen(0)` before spawning.
+- Watches stdout for the Ruflo "listening on" line to determine the live port.
+- Exposes `getEndpoint(workspaceId): string` returning `http://127.0.0.1:<port>/mcp`.
+- Implements supervisor restart logic: on unexpected exit, restarts with 1s back-off and emits a bell notification via `NotificationsManager.emit()`.
+- Tracks running daemons in a `Map<workspaceId, DaemonRecord>` so multiple `ensureRunning` calls are idempotent.
+- Tears down all daemons on `app.before-quit`.
+
+**Layer 2 — `mcp-autowrite.ts` HTTP-mode writer** (`app/src/main/core/workspaces/mcp-autowrite.ts`, extended):
+- Detects `daemonMode: true` in the workspace config (set by factory.ts when a daemon is running).
+- In HTTP mode, writes `url: http://127.0.0.1:<port>/mcp` (HTTP MCP shape) instead of `command/args` (stdio shape) to each CLI's config file.
+- Falls back to the existing stdio writer path when daemon mode is off (backwards-compatible).
+- OpenCode receives the `mcp.{name}.{type:"remote", url: ...}` variant per its distinct schema.
+
+**Layer 3 — factory.ts + rpc-router.ts wiring**:
+- `workspaces/factory.ts`: calls `RufloHttpDaemonSupervisor.ensureRunning(workspaceId)` immediately after workspace open, then passes the endpoint into the `mcp-autowrite` call.
+- `rpc-router.ts`: registers the supervisor as a dependency; adds a `ruflo.daemonEndpoint(workspaceId)` RPC so the renderer can display the live endpoint URL.
+
+### Restart UX — deviation from plan
+
+The v1.5.6 architectural backlog specified a bespoke `daemon:restart` event + toast notification. The implementation routes through the existing v1.4.9 `NotificationsManager` bell drawer instead — using a `warn`-severity notification with the message "Ruflo daemon restarted (workspace `<name>`)". This is cleaner: it reuses the dedup window, the unread-badge math, the bell animation, and the deep-link routing already wired for notifications. No new event type, no new toast component. Deviation is intentional and superior to the plan.
+
+### Combined main gate
+
+- tsc: clean.
+- vitest: **100 files / 924 pass / 1 skip** (+26 net new tests from v1.5.6 baseline of 99 files / 898 pass).
+- eslint: 0 errors.
+- build + electron-builder: clean.
+- smoke e2e: 36s pass.
+
+### Deferred items
+
+- **v1.7 — upstream write-mutex PR to claude-flow**: concurrent sqlite writes within a single daemon can still race in the Node async event loop. Reduced from 6 independent processes down to 1 daemon (6× improvement), but the remaining intra-daemon race requires a write-mutex at the claude-flow library level. A PR against the claude-flow upstream repo is the correct fix.
+- **v1.6.1+ — Settings UI for daemon status/restart**: a panel showing per-workspace daemon PID, port, uptime, and a manual restart button. Deferred pending UX review.
+- **v1.6.1+ — Multi-workspace global daemon mode**: route all workspaces through a single global daemon. Requires an upstream Ruflo routing patch to multiplex workspace contexts.
+
+### Wishlist post-v1.6.0
+
+- v1.7 backlog: upstream write-mutex PR to claude-flow, daemon Settings UI (v1.6.1+), global daemon mode (v1.6.1+ pending upstream patch), root cause of binary deaths, shell-first pane architecture decision, isResume explicit registry field, concurrent-spawn uniqueness gap, hardware sample-rate detection, scrollback persistence, V3-W15-006 dogfood.

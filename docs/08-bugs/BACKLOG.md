@@ -25,6 +25,19 @@
 
 ---
 
+## Shipped & verified — v1.6.0
+
+**Ruflo MCP HTTP daemon mode** (2026-05-21, commit f36b7be)
+- **Prior state**: each CLI client spawned its own stdio Ruflo MCP process in the worktree cwd, giving 5 independent processes with siloed in-memory state (HNSW, pattern cache, swarm consensus).
+- **Change**: `RufloHttpDaemonSupervisor` (~280 LOC, new `app/src/main/core/ruflo/http-daemon-supervisor.ts`) spawns a single per-workspace HTTP daemon at workspace open. All 5 CLI config files are rewritten (via `mcp-autowrite.ts` HTTP-mode path) to point at `http://127.0.0.1:<port>/mcp`. Live in-memory state is now shared across all panes in the workspace.
+- **Restart UX**: daemon restarts route through the existing v1.4.9 NotificationsManager (bell drawer, `warn` severity) — deviation from plan (bespoke event+toast), intentionally cleaner.
+- **Gate**: tsc clean / vitest 100 files / 924 pass / 1 skip / +26 net new tests / eslint 0 errors / build clean / smoke e2e 36s pass.
+- **Note**: the v1.5.6 empty-pane regression (PTY ring-buffer race, gracefulExitDelayMs hotfix) is independent of this change and remains fixed as shipped in v1.5.6.
+- **Deferred to v1.7**: upstream write-mutex PR to claude-flow (intra-daemon concurrent sqlite writes still race in Node async event loop; reduced from 6 processes → 1 daemon but not eliminated).
+- **Deferred to v1.6.1+**: Settings UI for daemon status/restart; multi-workspace global daemon mode (needs Ruflo upstream routing patch).
+
+---
+
 ## Shipped & verified — v1.5.6
 
 **PTY ring-buffer race — fast-exit binary body blank** (2026-05-21, commit 4daf478)
