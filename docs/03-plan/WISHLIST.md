@@ -44,6 +44,13 @@
 |---|---|---|---|
 | *(empty — v1.4.7 shipped 2026-05-19)* | | | |
 
+## 🔮 Planned (v1.6+ — documented, not yet scheduled)
+
+| ID | What | Trigger | Plan |
+|---|---|---|---|
+| W-4 | **Shell-first pane architecture** — pivot from PTY-direct-CLI to PTY-shell-with-auto-inject. PTY parent becomes user's shell (`/bin/zsh`); we programmatically write `claude\n` (or equivalent) into the PTY to start the CLI as a child of the shell. On CLI exit (Ctrl+D / `/quit` / crash), shell stays alive — pane usable as terminal. Removes the entire `external_session_id` tracking surface (~150 references). Multi-CLI per pane for free. | v1.5.6 user diagnostic data confirms PTY-direct-CLI model is structurally brittle, OR after one more recurrence of the empty-pane class | [`v1.6.0-shell-first-pane-architecture.md`](v1.6.0-shell-first-pane-architecture.md) (stub) |
+| W-5 | **Skills tab in right panel** — new tab next to Browser / IDE / Sigma Assistant in the right-rail icon strip. Opens a panel listing installed skills (superpowers, Ruflo MCP skills, custom) with drag-drop UX. Drag a skill onto a pane = attach it to that pane's agent context. Drag onto the workspace = workspace-wide skill availability. Discovery + activation surface for skills that currently require typing `/skill-name`. | UX request; no hard dependency. Could be sequenced before or after W-4. | [`v1.6.0-skills-tab.md`](v1.6.0-skills-tab.md) (stub) |
+
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
 
 ### W-2 — Sigma Assistant as orchestrator + session resume — SHIPPED v1.4.0 + v1.4.1 (2026-05-16/17)
