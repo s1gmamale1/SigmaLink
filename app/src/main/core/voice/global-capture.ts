@@ -64,6 +64,42 @@ const DEFAULT_MODE: CaptureMode = 'toggle';
 const DEFAULT_MODEL   = getDefaultModel().id;
 
 // ---------------------------------------------------------------------------
+// PCM sample-rate resampler (v1.5.4-C)
+// ---------------------------------------------------------------------------
+
+/**
+ * AVAudioEngine delivers PCM at the hardware's native rate (typically 48 kHz
+ * on modern Macs, or 44.1 kHz on some older / external devices). The
+ * voice-mac native binding does not expose the actual rate, so we treat
+ * NATIVE_PCM_SAMPLE_RATE as the authoritative value. whisper.cpp expects
+ * 16 kHz mono Float32, so all captured audio is downsampled before inference.
+ *
+ * Linear interpolation is intentionally simple: whisper is robust to mild
+ * aliasing artifacts and this avoids pulling in a DSP dependency.
+ */
+export const NATIVE_PCM_SAMPLE_RATE = 48000;
+export const WHISPER_SAMPLE_RATE = 16000;
+
+/**
+ * Linearly interpolate `samples` from `inputRate` down to 16 kHz.
+ * Returns the original array unchanged when `inputRate` is already 16 kHz.
+ */
+export function resampleTo16k(samples: Float32Array, inputRate: number): Float32Array {
+  if (inputRate === WHISPER_SAMPLE_RATE) return samples;
+  const ratio = inputRate / WHISPER_SAMPLE_RATE;
+  const outLen = Math.floor(samples.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const srcIdx = i * ratio;
+    const i0 = Math.floor(srcIdx);
+    const i1 = Math.min(i0 + 1, samples.length - 1);
+    const frac = srcIdx - i0;
+    out[i] = samples[i0] * (1 - frac) + samples[i1] * frac;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Audio PCM buffer accumulator
 // ---------------------------------------------------------------------------
 
@@ -308,7 +344,8 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
       if (modelPath) {
         try {
-          const result = await engine.transcribe(audio, modelPath, {
+          const audio16k = resampleTo16k(audio, NATIVE_PCM_SAMPLE_RATE);
+          const result = await engine.transcribe(audio16k, modelPath, {
             language: 'en',
             threads: 4,
           });

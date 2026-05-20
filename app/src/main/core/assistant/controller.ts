@@ -65,8 +65,13 @@ interface ActiveTurn {
   cancelled: boolean;
 }
 
-const pickPreset = (n: number): LaunchPlan['preset'] =>
-  n <= 1 ? 1 : n <= 2 ? 2 : n <= 4 ? 4 : 6;
+export function pickPreset(n: number): LaunchPlan['preset'] {
+  if (n <= 1) return 1;
+  if (n <= 2) return 2;
+  if (n <= 4) return 4;
+  if (n <= 6) return 6;
+  return 8;
+}
 
 const delay = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
 

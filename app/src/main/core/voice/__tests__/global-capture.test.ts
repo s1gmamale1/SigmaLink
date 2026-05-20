@@ -67,7 +67,7 @@ vi.mock('../model-registry', () => {
   };
 });
 
-import { buildGlobalCaptureController } from '../global-capture';
+import { buildGlobalCaptureController, resampleTo16k, NATIVE_PCM_SAMPLE_RATE, WHISPER_SAMPLE_RATE } from '../global-capture';
 import { globalShortcut } from 'electron';
 import { routeTranscript } from '../output-router';
 
@@ -92,6 +92,68 @@ function makeDeps() {
     kv,
   };
 }
+
+// ---------------------------------------------------------------------------
+// resampleTo16k tests (v1.5.4-C)
+// ---------------------------------------------------------------------------
+
+describe('resampleTo16k', () => {
+  it('returns the same array when inputRate is already 16 kHz', () => {
+    const input = new Float32Array([0.1, 0.2, 0.3]);
+    const result = resampleTo16k(input, WHISPER_SAMPLE_RATE);
+    expect(result).toBe(input); // identity — no copy
+  });
+
+  it('output length ≈ input_length × (16000 / 48000) for 48 kHz input', () => {
+    const inputLen = 48000; // 1 second at 48 kHz
+    const input = new Float32Array(inputLen).fill(0.5);
+    const output = resampleTo16k(input, 48000);
+    const expectedLen = Math.floor(inputLen / (48000 / WHISPER_SAMPLE_RATE));
+    expect(output.length).toBe(expectedLen); // 16000
+  });
+
+  it('output length ≈ input_length × (16000 / 44100) for 44.1 kHz input', () => {
+    const inputLen = 44100; // 1 second at 44.1 kHz
+    const input = new Float32Array(inputLen).fill(0.5);
+    const output = resampleTo16k(input, 44100);
+    const expectedLen = Math.floor(inputLen / (44100 / WHISPER_SAMPLE_RATE));
+    expect(output.length).toBe(expectedLen);
+  });
+
+  it('interpolates sample values correctly (48 kHz → 16 kHz)', () => {
+    // Construct a ramp: samples[i] = i * 0.001
+    const inputLen = 96; // small for determinism
+    const input = new Float32Array(inputLen);
+    for (let i = 0; i < inputLen; i++) input[i] = i * 0.01;
+
+    const output = resampleTo16k(input, 48000);
+    const ratio = 48000 / 16000; // = 3.0
+
+    // Check first few output samples manually
+    for (let i = 0; i < Math.min(5, output.length); i++) {
+      const srcIdx = i * ratio;
+      const i0 = Math.floor(srcIdx);
+      const i1 = Math.min(i0 + 1, inputLen - 1);
+      const frac = srcIdx - i0;
+      const expected = input[i0] * (1 - frac) + input[i1] * frac;
+      expect(output[i]).toBeCloseTo(expected, 5);
+    }
+  });
+
+  it('clamps the last interpolation index to input bounds', () => {
+    const input = new Float32Array([0.1, 0.2, 0.3]);
+    // Any inputRate > 16000 will attempt to read past end — must not throw
+    expect(() => resampleTo16k(input, 48000)).not.toThrow();
+  });
+
+  it('NATIVE_PCM_SAMPLE_RATE constant is 48000', () => {
+    expect(NATIVE_PCM_SAMPLE_RATE).toBe(48000);
+  });
+
+  it('WHISPER_SAMPLE_RATE constant is 16000', () => {
+    expect(WHISPER_SAMPLE_RATE).toBe(16000);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // State machine tests
