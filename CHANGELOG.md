@@ -4,6 +4,54 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-05-20
+
+v1.5.2 cleanup packet + **critical v1.5.0 cross-sync renderer hotfix**. 3 parallel Sonnet sub-agent clusters cleared 9 items from the v1.5.2 backlog. Opus 4.7 reviewer caught Cluster C uncovering a **v1.5.0 production regression** where the entire `rpc.sync.*` IPC surface was preload-blocked, making cross-machine sync (the headline v1.5.0 feature) unreachable from the renderer UI since launch. **ZERO REQUEST-CHANGES across all 3 PRs.**
+
+### Cluster A — DOGFOOD UX (#59)
+
+- **DOGFOOD-V1.4.2-01 "+ Pane button defensive UX"** — visibility pill `data-testid="add-pane-disabled-reason"` renders alongside the disabled button (hypothesis 1; replaces hover-only tooltip behavior) + persistent error chip `data-testid="add-pane-error-chip"` for 10s on `addAgentToSwarm` rejection with × dismiss + unmount cleanup (hypothesis 3). Toast still fires (chip is additive). Hypothesis 2 (split-button) deferred — needs UX call.
+- **DOGFOOD-V1.4.2-02 honest skip**: investigation found GridLayout `startDrag` already implements rAF coalescing via `pendingRaf`/`latest`/`flush` pattern (shipped in v1.4.2 packet-07). No code change needed; existing packet-07 test suite confirms.
+
+### Cluster B — Code paper-cuts (#58)
+
+- **v1 legacy decrypt round-trip test** in `crypto.test.ts` — 2 new tests using libsodium directly to construct a real v1 wire blob (`MAGIC|0x01|NONCE(24)|CT+TAG`) matching production v1 encoder exactly. Positive: full discriminated-union shape assertion; negative: ciphertext-byte flip → AEAD-integrity failure. Closes the irreversible-wire-format coverage gap from v1.5.1 reviewer.
+- **STAThreadState heap-leak guard** in `voice-win/recognizer.cc` — on `CreateThread` NULL return, `CloseHandle(ready)` + zero `state->ready_event` + `delete state` before failure return. Symmetric to success-path teardown.
+- **`data-testid="browser-view-mount"`** on production `BrowserViewMount.tsx` — closes the v1.5.1 reviewer C4 mock-vs-production tautology.
+
+### Cluster C — Sync test + UI polish (#60) **[CRITICAL HOTFIX]**
+
+- **🚨 v1.5.0 cross-sync renderer regression FIXED**: `sync.*` IPC channels (`sync.status`, `sync.isConfigured`, `sync.listConflicts`, `sync.disable`, `sync.enable`, `sync.exportMnemonic`, `sync.resolveConflict`, `sync.recoverFromMnemonic`) were ABSENT from the `CHANNELS` allowlist in `app/src/shared/rpc-channels.ts` when v1.5.0 packet 09 shipped. `app/electron/preload.ts:11-13` hard-rejects unlisted channels with `Promise.reject(new Error(...))`. **Every renderer entry point into cross-sync was broken since v1.5.0**: Settings → Sync tab error-banners; SetupWizard non-functional; SyncTab's `pendingUpgrade` count badge unreachable. Test gap explained: `SetupWizard.test.tsx` mocks the rpc layer (bypasses preload); zero e2e sync coverage. All 8 channels added to allowlist (1:1 with `syncCtl` methods in controller.ts:38-74; no over-exposure).
+- **Engine-level integration tests** in new `engine-integration.test.ts` — 4 tests using **real crypto** (not mocked) + MockDb fake covering engine's actual SQL patterns (`INSERT OR IGNORE INTO sync_pending_upgrade`, `INSERT OR REPLACE INTO <table>`, `SELECT * FROM <table> WHERE id = ?`, `SELECT COUNT(*)`). Covers: schema-skew routing to `sync_pending_upgrade`; column allowlist drop (`attack_vector` not on any synced table — verified safe); anonymise toggle full round-trip; v1 blob backward-compat through the full engine pull path (distinct from PR #58's crypto-unit-level test).
+- **Allowlist drift detector** in new `allowlist-drift.test.ts` — uses `drizzle-orm`'s `getTableColumns(t)` + `col.name` (SQL column name, NOT TS property name) to cross-reference against `COLUMN_ALLOWLIST`. **Drift findings: NONE** (all 19 synced tables' Drizzle columns match allowlist exactly). Inverse check catches stale allowlist entries pointing at non-synced tables.
+
+### Test count
+
+92 → 93 files / 831 → 839 pass / 1 skip / +8 tests across 3 clusters.
+
+### Deferred to v1.5.3 (all DEFER per reviewer recommendation)
+
+**Cluster A reviewer**:
+- Extract `AddPaneButton.tsx` sub-component (pill + chip + button + addPane state) — CommandRoom.tsx now at 544 LOC (>500 ceiling). Hot-fold not appropriate; needs its own packet.
+- RTL tests for `add-pane-disabled-reason` + `add-pane-error-chip` testids (visible/hidden, dismiss, timer reset, unmount-during-window).
+
+**Cluster C reviewer**:
+- `sync:status` event not in `EVENTS` allowlist — no current renderer subscriber (SyncTab polls), benign but worth adding for forward-compat.
+- `CHANNELS`-vs-`AppRouter` cross-reference test (would have caught this v1.5.0 regression at v1.5.0 ship time). Recommend as a v1.5.3 follow-up.
+- E2E smoke addition (1 test: open Settings → Sync, assert no "IPC channel not allowed" text) to prevent recurrence.
+
+**Carry-over (no v1.5.2 change)**:
+- Sample-rate mismatch in PCM tap (gated behind unshipped whisper build).
+- HMR-only race in voice-win `IsAvailable()` probe.
+- whisper.cpp v1.7.x ggml-cpu binding.gyp port.
+- voice-{mac,win} prebuildify silent-no-output root cause.
+- V3-W13-013 `assistant.*` dispatchBulk/refResolve (feature enhancement).
+- V3-W15-006 dogfood (human QA, ≥30 min 4-pane swarm).
+
+### Known minor
+
+- Vitest flaked once on combined-main (1 test failed first run; 2 consecutive subsequent runs all-pass) — most likely a file-system timing race in the new engine-integration test. Logged for v1.5.3 investigation; not ship-blocking.
+
 ## [1.5.1] - 2026-05-20
 
 v1.5.1 cleanup packet — ~28 deferred caveats from the v1.4.8 bundle (Sessions A/B/C) cleared across 3 parallel Sonnet sub-agent clusters in git worktrees, reviewed by Opus 4.7, lead-merged in autonomous mode. Plus one V3 parity paper-cut folded inline. **Honest scope confirmation**: per a parallel V3 parity audit, 35 of 45 tickets shipped-verified, 4 obsoleted, 3 partial, 1 unfinished — the unfinished item (V3-W15-006) is a human dogfood exercise, not a code gap. The remaining WISHLIST.md surface is genuinely empty.

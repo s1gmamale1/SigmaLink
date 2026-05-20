@@ -2181,5 +2181,67 @@ Per the V3 audit + WISHLIST.md:
 - **Prebuild workflows should be soft-fail by default** when documented as "convenience-only, not release-blocking" — the hard-fail (if-no-files-found: error + no continue-on-error on build) was a latent bug exposed by Cluster B's submodule registration. Now consistent across all 3 prebuild workflows.
 - **V3 parity backlog should not be treated as a separate wishlist** — most of W12-W15 shipped piecemeal across v1.3.x-v1.5.0 without ticket-tagging. Cross-reference current source before assuming any backlog item is open.
 
+## Phase 39 — v1.5.2 cleanup + critical v1.5.0 sync regression hotfix (2026-05-20)
+
+3 parallel Sonnet sub-agent clusters cleared 9 items from the v1.5.2 backlog in autonomous mode. The Opus 4.7 reviewer on Cluster C uncovered + confirmed a CRITICAL v1.5.0 production regression that's now fixed in this release: the entire `rpc.sync.*` IPC surface was missing from the preload `CHANNELS` allowlist, making cross-machine sync (the headline v1.5.0 feature) unreachable from the renderer UI since v1.5.0 shipped. **ZERO REQUEST-CHANGES across all 3 PRs.**
+
+### Cluster dispatch (3 parallel Sonnet sub-agents)
+
+- **Cluster A — DOGFOOD UX** (PR #59, 1 file, +69/-8 LOC):
+  - DOGFOOD-V1.4.2-01 hypotheses 1 + 3: visibility pill + persistent error chip. Hypothesis 2 (split-button) explicitly deferred per scope.
+  - DOGFOOD-V1.4.2-02 **honest skip**: investigation found GridLayout.startDrag already implements rAF coalescing (`pendingRaf`/`latest`/`flush`) from v1.4.2 packet-07. Agent confirmed via existing test suite and reported NO code change needed. Excellent scope discipline — didn't duplicate work.
+- **Cluster B — Code paper-cuts** (PR #58, 3 files, +110/-1 LOC):
+  - v1 legacy decrypt round-trip test in crypto.test.ts (positive + tampered-byte negative). Uses libsodium directly to construct a real v1 wire blob — verified line-by-line by Opus reviewer against production v1 decode branch.
+  - STAThreadState heap-leak guard in voice-win recognizer.cc on CreateThread NULL return.
+  - data-testid="browser-view-mount" on production BrowserViewMount.tsx.
+- **Cluster C — Sync test + UI polish** (PR #60, 4 files, +686/-1 LOC):
+  - Engine-level integration tests (4 tests using real crypto + MockDb covering engine SQL patterns).
+  - Allowlist drift detector via Drizzle's getTableColumns() + col.name (SQL column name). Drift findings: NONE across 19 synced tables.
+  - **DISCOVERY**: `sync.*` IPC channels (8 methods) absent from CHANNELS allowlist since v1.5.0 packet 09 shipped. Preload hard-rejects unlisted channels with error banners. Every renderer entry point into cross-sync was broken from v1.5.0 release to v1.5.2 release. Added all 8 channels 1:1 with controller.ts:38-74 (no over-exposure).
+
+### Reviewer cycle (3 parallel Opus 4.7 reviewers, rolling dispatch)
+
+All 3 verdicts: APPROVE-WITH-CAVEATS, ZERO REQUEST-CHANGES, all caveats DEFER.
+
+- **reviewer-pr58** (Cluster B): Verified crypto v1 round-trip line-by-line against production decode branch (`MAGIC`, AAD via `buildAadV1`, AEAD primitives, discriminated-union shape). STAThreadState leak guard symmetric to success-path teardown. testid trivial. **APPROVE — no caveats.**
+- **reviewer-pr59** (Cluster A): Verified visibility pill + persistent error chip correctness (timer cleanup on unmount via dedicated useEffect + deterministic overwrite-and-reset multi-error window + toast preserved). Confirmed GridLayout rAF honest-skip (packet-07 pattern intact). FLAGGED: CommandRoom.tsx now 544 LOC (>500 ceiling) — defer AddPaneButton extraction to v1.5.3. Vitest delta verified env-only (3 pre-existing Electron-install failures, unaffected by PR). APPROVE-WITH-CAVEATS (all DEFER).
+- **reviewer-pr60** (Cluster C): **CRITICAL VERIFICATION** of the v1.5.0 sync regression claim. Confirmed `git show main:rpc-channels.ts | grep sync.` → 0 matches in v1.5.0. Confirmed preload.ts:11-13 hard-rejects with Promise.reject (not silent — surfaces as error banner). 8 channels added match controller methods 1:1. Engine integration tests use real crypto (verified `encrypt`/`buildAadV1` imports). Drift detector uses `col.name` (SQL side, not TS property side — verified against schema.ts camelCase tables `boards`, `swarm_origins`, `swarm_replay_snapshots`). 3 DEFER caveats (sync:status event allowlist forward-compat; CHANNELS-vs-AppRouter cross-ref test; e2e sync smoke). **APPROVE-WITH-CAVEATS.**
+
+### v1.5.0 sync regression — root cause + production impact
+
+**What broke**: v1.5.0 packet 09 shipped the full cross-sync backend (libsodium e2ee + HLC + isomorphic-git + BIP-39 mnemonic + all 8 controller methods + migration 0019) but `app/src/shared/rpc-channels.ts` `CHANNELS` set was never updated. The preload bridge at `app/electron/preload.ts:11-13` hard-rejects with `Promise.reject(new Error('IPC channel not allowed: ' + channel))`.
+
+**Renderer impact**:
+- Settings → Sync tab: rpc.sync.status() rejected → error banner.
+- SetupWizard: rpc.sync.enable() rejected → setup hangs / fails.
+- SyncTab's pending_upgrade badge: rpc.sync.status() rejected → never renders.
+- exportMnemonic + recoverFromMnemonic + listConflicts + resolveConflict + disable + isConfigured + status + enable: all 8 methods unreachable.
+
+**Why it slipped through v1.5.0 CI**: SetupWizard.test.tsx mocks `@/renderer/lib/rpc` (bypasses preload). No e2e smoke exercises sync paths. The comment in rpc-channels.ts:2-3 about a "unit test sanity-checking CHANNELS vs AppRouter" refers to a test that does not actually exist.
+
+**Window of impact**: v1.5.0 release (2026-05-20 ~early) to v1.5.2 release (2026-05-20 ~later) — ~14 hours. Any user who tried cross-sync setup during that window saw the renderer fail. No data loss (backend wrote nothing because renderer never successfully called enable()). Encrypted blobs from any other source still decode on next pull (backward compat preserved by v1.5.1's crypto wire format change).
+
+### Combined-main gate
+
+- tsc: clean.
+- eslint: 0 errors, 1 pre-existing warning (`use-session-restore.ts:277`).
+- vitest: 93 files / 839 pass / 1 skip / +8 from v1.5.1 baseline.
+  - One vitest flake observed on first combined-main run (1 fail / 838 pass); 2 consecutive subsequent runs all-pass. Logged for v1.5.3 investigation — most likely a file-system timing race in engine-integration.test.ts.
+- build + electron-builder: clean.
+
+### Lessons logged
+
+- **Allowlist drift is a real silent-failure class**: the v1.5.0 regression was preventable by a `CHANNELS`-vs-`AppRouter` test that iterates registered router methods and asserts each is in the CHANNELS set. v1.5.3 will add this.
+- **rpc layer mocking in tests bypasses preload**: any test that mocks `@/renderer/lib/rpc` cannot catch channel allowlist gaps. Tests that exercise the preload boundary need to NOT mock rpc.
+- **BACKLOG.md staleness can hide already-shipped work**: DOGFOOD-V1.4.2-02 was already resolved in v1.4.2 packet-07 but stayed in the open ledger. Agent caught it; backlog ledger updated.
+- **Honest "no code change needed" is the correct outcome** when investigation finds the work already done — Cluster A agent's DOGFOOD-V1.4.2-02 skip is the model behavior for scope discipline.
+- **Catch-up backlog sweeps are net positive**: the 2026-05-20 v1.5.1 sweep that updated BACKLOG.md from v1.2.4 staleness to v1.5.1 reality directly enabled this v1.5.2 cycle to spot real outstanding work + an already-shipped item.
+
+### Wishlist post-v1.5.2
+
+- v1.5.2 backlog: 9 items shipped, 5 items deferred to v1.5.3 (AddPaneButton extract, RTL coverage, sync:status events, CHANNELS-vs-AppRouter test, e2e sync smoke), 6 items carry-over (sample-rate, HMR race, whisper.cpp v1.7.x port, prebuildify root cause, V3-W13-013, V3-W15-006).
+- WISHLIST.md surface: still empty for new feature work. v1.5.3 backlog is purely defensive infrastructure + carry-over.
+- Funded-only items: EV cert + WinGet + Microsoft Store + Picovoice — unchanged.
+
 
 

@@ -1,7 +1,8 @@
 # SigmaLink Backlog — Open Bugs + Optimization Targets
 
-> Snapshot at **v1.5.1** (2026-05-20).
-> Latest sweep: 2026-05-20 catch-up — closed ~14 stale items across v1.3 platform / v1.1.9 perf+quality+lint / P3 polish / BUG-W7-000 that had shipped piecemeal across v1.4.x-v1.5.0 without being moved here. See [v1.4.x + v1.5.x catch-up](#shipped--verified--v14x--v15x-catch-up-sweep-2026-05-20).
+> Snapshot at **v1.5.2** (2026-05-20).
+> Latest sweep: 2026-05-20 v1.5.2 — closed DOGFOOD-V1.4.2-01 + -02 (former was UX work in v1.5.2; latter was already shipped in v1.4.2 packet-07 and BACKLOG was stale) + **critical v1.5.0 cross-sync renderer regression hotfix** (8 `sync.*` IPC channels absent from CHANNELS allowlist since v1.5.0 packet 09).
+> v1.5.1 catch-up sweep (2026-05-20): closed ~14 stale items across v1.3 platform / v1.1.9 perf+quality+lint / P3 polish / BUG-W7-000. See [v1.4.x + v1.5.x catch-up](#shipped--verified--v14x--v15x-catch-up-sweep-2026-05-20).
 > Bug ledger details live in [`OPEN.md`](OPEN.md); the v1.1.1 / v1.1.2 / v1.1.3 entries there are CLOSED — see "Shipped & verified" at the bottom of this file. `DEFERRED.md` is currently empty.
 > History: v1.1.8 (5-coder optimization swarm, bundle -61% gzip), v1.1.9 (perf + lint 0/0), v1.1.10 (Gemini P1), v1.1.11 (Kimi P1 + state-hook), v1.2.0 (Windows port), v1.2.4 (auto-update), v1.2.5 (post-install sweep), v1.2.6 (browser MCP stdio), v1.2.7 (multi-workspace state), v1.2.8 (session-capture rewrite), v1.3.x (W-1/W-3 session picker + Ruflo auto-bind), v1.4.0 (Sigma orchestrator), v1.4.1 (Bridge→Sigma rename), v1.4.2 (stability + Windows compat), v1.4.3 (Gemini bridge + Pane Split/Minimise), v1.4.4 (paper-cut sweep), v1.4.5 (tech-debt + file splits), v1.4.6 (frameless chrome + x64 voice + CI hardening), v1.4.7 (CI fully green + OpenCode SQLite fast path), v1.4.8 bundle (Sessions A/B/C = #45-#54), v1.4.9 (notifications + voice mac + provider auto-install), v1.5.0 (cross-machine sync + voice Win/Linux + SAPI5), v1.5.1 (cleanup packet — wishlist closed).
 
@@ -11,7 +12,7 @@
 |---|---|---|
 | P0 critical | 0 | — |
 | P1 functional bugs | 0 | — |
-| P2 functional bugs / UX | 2 | [P2 — bugs](#p2--functional--ux) — DOGFOOD-V1.4.2-01 + -02 (UX investigation, need user follow-up) |
+| P2 functional bugs / UX | 0 | DOGFOOD-V1.4.2-01 closed v1.5.2 (visibility pill + error chip); DOGFOOD-V1.4.2-02 closed v1.4.2 packet-07 (rAF coalescing — BACKLOG was stale, confirmed by v1.5.2 Cluster A investigation) |
 | P3 polish | 0 | — (Tooltip "Coming in v1.2" closed v1.4.3; Gemini resume closed v1.4.3 #01) |
 | Provider registry cleanup | 0 (shipped v1.2.4) | [v1.1.10 providers](#v1110--provider-registry-cleanup--shipped--verified--v124) |
 | Perf — sustained runtime | 0 (shipped v1.1.9 + v1.4.5) | — |
@@ -53,7 +54,15 @@
 
 ---
 
-## v1.4.2 — dogfood items (2026-05-17, opened)
+## v1.4.2 — dogfood items (2026-05-17, opened) → **Both Shipped & verified by v1.5.2 (2026-05-20)**
+
+### ~~DOGFOOD-V1.4.2-01 — "+ Pane" button reported as not working~~ — Shipped & verified v1.5.2 (#59)
+**Closed by**: hypothesis 1 + 3 fixes — visibility pill `data-testid="add-pane-disabled-reason"` renders alongside disabled button (replaces hover-only tooltip); persistent error chip `data-testid="add-pane-error-chip"` for 10s on `addAgentToSwarm` rejection with × dismiss + unmount cleanup. Hypothesis 2 (split-button) deferred — needs UX call. Historical investigation preserved below.
+
+### ~~DOGFOOD-V1.4.2-02 — Window responsiveness audit on pane re-adjustment~~ — Shipped & verified v1.4.2 packet-07 (BACKLOG was stale)
+**Closed by**: GridLayout `startDrag` already implements rAF coalescing (`pendingRaf`/`latest`/`flush` pattern) from v1.4.2 packet-07. v1.5.2 Cluster A investigation confirmed via grep + existing test suite. Original BACKLOG entry was stale. Historical investigation preserved below.
+
+### Historical entries for context
 
 ### DOGFOOD-V1.4.2-01 — "+ Pane" button reported as not working (likely discoverability, not stub)
 - **User quote** (2026-05-17): "make the + Pane button actually work alr."
@@ -422,6 +431,20 @@ Catch-up audit covering items that shipped piecemeal across v1.3.x-v1.5.1 but we
 | Cross-machine session sync (e2ee, opt-in, git-backed) | v1.5.0 #54 | Session C Packet 09; migration 0019; libsodium XChaCha20-Poly1305 + AAD; HLC + LWW; BIP-39 mnemonic; isomorphic-git transport; `credentials` HARD-DENY |
 | Voice capture Windows + Linux fan-out | v1.5.0 #52 | Session C Packet 04-Win+Linux; Ctrl+Alt+Space + Tray + clipboard-only |
 | Native Windows SAPI5 voice binding | v1.5.0 #53 | Session C Packet 08; `@sigmalink/voice-win` via CLSID_SpSharedRecognizer + STA worker + Win32 message pump |
+
+### v1.5.2 — Cleanup packet + critical v1.5.0 cross-sync renderer hotfix (2026-05-20)
+
+| Item | Closed in | Evidence |
+|---|---|---|
+| **🚨 v1.5.0 cross-sync renderer regression** — `sync.*` IPC channels absent from CHANNELS allowlist since v1.5.0 packet 09; preload hard-rejected with error banners; Settings → Sync + SetupWizard + pending_upgrade badge ALL unreachable from renderer for ~14hr between v1.5.0 and v1.5.2 ship | v1.5.2 #60 | 8 channels added to `rpc-channels.ts` CHANNELS set 1:1 with `syncCtl` methods (controller.ts:38-74); reviewer-pr60 verified no over-exposure, no missing entries |
+| DOGFOOD-V1.4.2-01 +Pane button defensive UX | v1.5.2 #59 | hypothesis 1 visibility pill `data-testid="add-pane-disabled-reason"` + hypothesis 3 persistent error chip `data-testid="add-pane-error-chip"` (10s timer + dismiss × + unmount cleanup) |
+| DOGFOOD-V1.4.2-02 GridLayout responsiveness (already shipped v1.4.2 #07; BACKLOG stale) | v1.5.2 confirmation | rAF coalescing pattern in startDrag (`pendingRaf`/`latest`/`flush`) verified intact |
+| v1 legacy decrypt round-trip test | v1.5.2 #58 | 2 new crypto.test.ts cases — positive round-trip (full discriminated-union shape assertion) + tampered-byte AEAD-integrity negative; uses libsodium directly to construct real v1 wire blob |
+| STAThreadState heap-leak guard on CreateThread NULL | v1.5.2 #58 | recognizer.cc — CloseHandle(ready) + delete state before failure return; symmetric to success-path teardown |
+| `browser-view-mount` production testid | v1.5.2 #58 | added to BrowserViewMount.tsx wrapper div |
+| Engine-level integration tests for v2/skew/allowlist/anonymise | v1.5.2 #60 | 4 new tests in engine-integration.test.ts using real crypto (not mocked) + MockDb covering engine SQL patterns |
+| Column allowlist drift detector | v1.5.2 #60 | allowlist-drift.test.ts via Drizzle's `getTableColumns().col.name`; 0 drift found across 19 synced tables |
+| `sync_pending_upgrade` count visibility | v1.5.2 #60 | existing badge in SyncTab.tsx now reachable (was blocked by absent CHANNELS entry) |
 
 ### v1.5.1 — Cleanup packet (2026-05-20)
 

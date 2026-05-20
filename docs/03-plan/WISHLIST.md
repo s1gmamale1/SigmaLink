@@ -33,6 +33,7 @@
 | v1.4.9 | Session B feature cluster: global voice capture macOS (#50) — `Cmd+Option+Space` hotkey + Tray + pane-focus-aware output via NSWorkspace check, whisper.cpp scaffolded with Apple Speech.framework as active engine; provider auto-install prompt with consent gating (#49) — new `providers.spawnInstall` RPC + `ProviderInstallModal`; notifications + top-right bell (#51) — migration 0018 + 4-level severity + dedup 30s + IPC delta + Opus reviewer on the irreversible schema. 3 parallel agents (2 Sonnet + 1 Opus), 3 Opus reviewers, ~70min dispatch-to-tag wall-clock in autonomous mode. **ZERO REQUEST-CHANGES** on the irreversible 0018 migration. Session C (v1.5.0) remains for the platform tier (Win+Linux voice fan-out, SAPI5, cross-sync). | inline in [CHANGELOG v1.4.9](../../CHANGELOG.md) · [release-notes-1.4.9.txt](../09-release/release-notes-1.4.9.txt) · [bundle](v1.4.8-bundle/00-INDEX.md) |
 | v1.5.0 | Session C platform tier — closes the v1.4.8 bundle: cross-machine session sync (#54, migration 0019, libsodium XChaCha20-Poly1305 + AAD, HLC + LWW, BIP-39 mnemonic via existing CredentialStore, isomorphic-git transport, `credentials` HARD-DENY); voice capture Windows + Linux fan-out (#52, `Ctrl+Alt+Space` hotkey + Tray + clipboard-only output policy); native Windows SAPI5 voice (#53, `@sigmalink/voice-win` module via `CLSID_SpSharedRecognizer` + STA worker + Win32 message pump). 3 parallel Sonnet agents in autonomous mode, 3 Opus reviewers (MANDATORY security review on packet 09). **ZERO REQUEST-CHANGES on crypto/threat-model/AAD/BIP-39/credentials-HARD-DENY/0019 migration**; ONE REQUEST-CHANGES on SAPI5 double-Release on `ISpRecoResult` (folded inline). Plus 2 CI hotfixes (release-macos whisper.cpp gating + native-win.test.ts lint). ~3.3hr dispatch-to-tag. ~28 caveats backlogged for v1.5.1 cleanup. | inline in [CHANGELOG v1.5.0](../../CHANGELOG.md) · [release-notes-1.5.0.txt](../09-release/release-notes-1.5.0.txt) · [user doc](../09-release/cross-machine-sync.md) · [bundle](v1.4.8-bundle/00-INDEX.md) |
 | v1.5.1 | Cleanup packet (closes the wishlist as defined) — 28 deferred caveats from Sessions A/B/C cleared across 3 parallel Sonnet sub-agent clusters (#55 frontend, #56 native+voice, #57 sync+notifications), reviewed by 3 Opus 4.7 reviewers, lead-merged in autonomous mode (~2hr). Plus V3 parity audit (45 tickets: 35 shipped + 4 obsoleted + 3 partial + 1 human-QA-only) confirming no v1.6.0 V3 packet warranted. V3-W13-015 ding Settings toggle folded inline. Plus 3 CI prebuild workflow soft-fails (whisper.cpp v1.7.x source-drift + voice-{mac,win} prebuildify silent-no-output, all aligned with documented "convenience-only" intent). **ZERO REQUEST-CHANGES across all 3 PRs.** | inline in [CHANGELOG v1.5.1](../../CHANGELOG.md) · [release-notes-1.5.1.txt](../09-release/release-notes-1.5.1.txt) · [cleanup packet brief](v1.5.1-cleanup-packet.md) |
+| v1.5.2 | Cleanup packet + **CRITICAL v1.5.0 cross-sync renderer hotfix** — 3 parallel Sonnet sub-agent clusters (#58 code paper-cuts, #59 dogfood UX, #60 sync test + UI polish) reviewed by 3 Opus 4.7 reviewers. **DISCOVERY**: 8 `sync.*` IPC channels absent from CHANNELS allowlist since v1.5.0 packet 09 shipped → preload hard-rejected with error banners → entire cross-sync renderer surface (Settings → Sync, SetupWizard, badge) was UNREACHABLE for ~14hr. Fixed in PR #60. Plus DOGFOOD-V1.4.2-01 +Pane defensive UX (hypotheses 1+3); DOGFOOD-V1.4.2-02 confirmed already shipped v1.4.2 packet-07 (BACKLOG stale); v1 legacy decrypt round-trip test (irreversible wire format coverage gap); STAThreadState heap-leak guard; engine integration tests (real crypto + MockDb); allowlist drift detector (0 drift). **ZERO REQUEST-CHANGES across all 3 PRs.** | inline in [CHANGELOG v1.5.2](../../CHANGELOG.md) · [release-notes-1.5.2.txt](../09-release/release-notes-1.5.2.txt) |
 
 ---
 
@@ -74,21 +75,24 @@ The 9-packet v1.4.8 bundle shipped across 3 releases on 2026-05-20: **v1.4.8** (
 
 All ~28 deferred caveats cleared. See `v1.5.1-cleanup-packet.md` brief + the v1.5.1 row in "Recently shipped" above.
 
-## v1.5.2 backlog (latent caveats from v1.5.1 reviewer pass)
+## v1.5.3 backlog (latent caveats from v1.5.2 reviewer pass)
 
-Non-blocking observations from the v1.5.1 Opus 4.7 reviewer round. None ship-critical; all queued for the next cleanup cycle when scope-warranting work materialises.
+Non-blocking observations from the v1.5.2 Opus 4.7 reviewer round + carry-over from v1.5.1. None ship-critical.
 
-- **Sample-rate mismatch in PCM tap** (Cluster B reviewer) — mic captures at 44.1/48 kHz, whisper.cpp expects 16 kHz. Currently gated behind the still-dormant whisper.cpp build path; non-impacting until whisper.cpp v1.7.x binding.gyp is ported.
-- **`STAThreadState*` heap-allocation leak guard** on `CreateThread` failure cold-path (voice-win SAPI5).
-- **HMR-only race** where in-flight `isAvailable()` Promise can hang if `StopSTAThread` runs concurrently with a queued probe.
-- **v1 legacy decrypt round-trip test** (Cluster C reviewer) — fixture-based ~5-min addition. The v1 decode branch in `crypto.ts:291-310` is currently untested by CI.
-- **Engine-level integration tests** for the v2/schema-skew/allowlist/anonymise paths in `sync/engine.ts`.
-- **Allowlist drift detection** via drizzle schema introspection at test time.
-- **Surface `sync_pending_upgrade` count** in SyncTab badge for operator visibility.
-- **`data-testid="browser-view-mount"` mock-vs-production divergence** — tautology assertion in `BrowserRoom.test.tsx`; not a defect introduced by v1.5.1.
-- **whisper.cpp v1.7.x ggml-cpu/ binding.gyp port** — root cause of the Windows whisper prebuild soft-fail.
+**Newly added in v1.5.2 reviewer round**:
+- **Extract `AddPaneButton.tsx`** sub-component (pill + chip + button + addPane state) — CommandRoom.tsx now at 544 LOC (>500 ceiling). Hot-fold not appropriate; needs its own packet.
+- **RTL test coverage** for `data-testid="add-pane-disabled-reason"` + `data-testid="add-pane-error-chip"` (visible/hidden, dismiss, timer reset on subsequent error, unmount-during-window).
+- **`sync:status` event in EVENTS allowlist** — no current renderer subscriber (SyncTab polls), benign but worth adding for forward-compat.
+- **`CHANNELS`-vs-`AppRouter` cross-reference test** — would have caught the v1.5.0 sync regression at ship time. Iterates AppRouter shape keys, asserts each `namespace.method` is in CHANNELS set. **HIGH ROI defensive infrastructure** — the comment in rpc-channels.ts:2-3 about this test referred to a test that does not actually exist; make it real.
+- **E2E sync smoke test** — 1-test addition opening Settings → Sync and asserting no "IPC channel not allowed" text. Prevents recurrence of the v1.5.0-class regression.
+- **Vitest flake investigation** — engine-integration.test.ts flaked once on combined-main (1 fail / 838 pass first run; all-pass subsequent). Most likely file-system timing race. Pin down + fix.
+
+**Carry-over from v1.5.1 (none shipped in v1.5.2)**:
+- **Sample-rate mismatch in PCM tap** — mic 44.1/48 kHz vs whisper 16 kHz. Gated behind unshipped whisper.cpp build.
+- **HMR-only race** in voice-win `IsAvailable()` probe.
+- **whisper.cpp v1.7.x ggml-cpu/ binding.gyp port** — root cause of Windows whisper prebuild soft-fail.
 - **voice-{mac,win} prebuildify silent no-output** under CI — root cause investigation queued.
-- **V3-W13-013 dispatchBulk/refResolve** in `assistant.*` controller — bulk pane spawn from a single Sigma prompt; feature enhancement (NOT parity gap; core dispatchPane + send/cancel/tools shipped).
+- **V3-W13-013 `assistant.*` dispatchBulk/refResolve** — bulk pane spawn from a single Sigma prompt; feature enhancement (NOT parity gap; core dispatchPane + send/cancel/tools shipped).
 - **V3-W15-006 dogfood exercise** — human QA, ≥30 min 4-pane swarm (Claude+Codex+Gemini+OpenCode) against a real repo. Not code-generatable; queued for operator-led session.
 
 ## 🔵 Funded-only / won't-do

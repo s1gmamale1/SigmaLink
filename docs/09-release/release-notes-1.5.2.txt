@@ -1,0 +1,116 @@
+SigmaLink v1.5.2 — 2026-05-20
+=============================
+
+v1.5.2 cleanup packet + **critical v1.5.0 cross-sync renderer hotfix**.
+3 parallel Sonnet sub-agent clusters cleared 9 items from the v1.5.2
+backlog. Reviewer-uncovered v1.5.0 production regression confirmed by
+Opus 4.7 and fixed in the same PR.
+
+🚨 CRITICAL HOTFIX — cross-machine sync renderer surface restored
+-----------------------------------------------------------------
+
+**If you tried to use cross-machine sync via the UI on v1.5.0 and saw
+error banners / non-functional Settings → Sync / SetupWizard stuck on
+load, this release fixes that.**
+
+Root cause: v1.5.0 packet 09 shipped the entire cross-sync backend
+(libsodium e2ee, HLC, isomorphic-git transport, BIP-39 mnemonic, all
+8 controller methods) but forgot to add the `sync.*` IPC channels to
+the `CHANNELS` allowlist in `app/src/shared/rpc-channels.ts`. The
+preload bridge hard-rejects unlisted channels, so every `rpc.sync.*`
+call from the renderer (status, isConfigured, listConflicts, disable,
+enable, exportMnemonic, resolveConflict, recoverFromMnemonic) was
+rejected at the preload layer with an error banner. Settings → Sync
+showed error UI; SetupWizard couldn't progress; SyncTab's pending-
+upgrade badge was unreachable.
+
+Why it slipped through v1.5.0 tests:
+- SetupWizard.test.tsx mocks the rpc layer entirely (bypasses preload).
+- No e2e smoke test exercises sync paths.
+- The test gap is added to the v1.5.3 backlog (CHANNELS-vs-AppRouter
+  cross-reference test + e2e sync smoke).
+
+If you set up cross-sync between v1.5.0 release and v1.5.2 release
+and saw no UI errors, you weren't actually syncing — the renderer was
+hard-failing every call. Upgrade and re-attempt setup; encrypted blobs
+already on your git remote (if any) will decrypt correctly on the next
+pull (backward compat preserved).
+
+Highlights
+----------
+
+- **DOGFOOD-V1.4.2-01 +Pane button defensive UX**: when the button is
+  disabled (no workspace / swarm paused / 20-pane cap), an inline
+  visibility pill now explains why without requiring 200ms hover. On
+  `addAgentToSwarm` rejection, a persistent error chip surfaces the
+  message for 10s with a dismiss × (toast still fires alongside).
+
+- **DOGFOOD-V1.4.2-02 honest closure**: investigation found that
+  GridLayout's divider drag already implements rAF coalescing
+  (`pendingRaf`/`latest`/`flush` pattern, shipped in v1.4.2 packet-07).
+  No additional code needed. The BACKLOG entry was stale.
+
+- **v1 legacy decrypt round-trip test** for the irreversible v1→v2
+  sync wire-format bump. Two new tests (positive round-trip + tampered-
+  byte AEAD negative) construct a real v1 blob using libsodium
+  directly. Closes the test coverage gap the v1.5.1 reviewer flagged
+  as the single weakest point in cross-sync.
+
+- **STAThreadState heap-leak guard** in voice-win SAPI5: on CreateThread
+  cold-path failure, all handles are closed and state is freed before
+  the failure return. Symmetric to success-path teardown.
+
+- **`browser-view-mount` testid** on production BrowserViewMount —
+  closes the v1.5.1 reviewer C4 mock-vs-production tautology.
+
+- **Engine-level integration tests** for cross-sync: 4 new tests using
+  real crypto (not mocked) + MockDb that covers engine's actual SQL
+  patterns. Covers schema-skew routing, column allowlist drop,
+  anonymise-paths round-trip, and v1 blob backward-compat through the
+  full engine pull path.
+
+- **Sync column allowlist drift detector**: uses Drizzle's introspection
+  API (`getTableColumns`) + `col.name` (SQL column name) to verify all
+  19 synced tables' columns are present in `COLUMN_ALLOWLIST`. Drift
+  findings: NONE. Future schema additions that miss the allowlist will
+  now fail this test at PR time instead of silently dropping columns.
+
+Test count: 92 → 93 files / 831 → 839 pass / 1 skip / +8 tests.
+
+Deferred to v1.5.3
+------------------
+
+- Extract `AddPaneButton.tsx` sub-component to drop CommandRoom.tsx
+  back below the 500-LOC ceiling (currently 544 LOC).
+- RTL tests for the new pane-button testids.
+- `sync:status` event in EVENTS allowlist (forward-compat).
+- `CHANNELS`-vs-`AppRouter` cross-reference test (would have caught
+  the v1.5.0 sync regression at ship time).
+- E2E smoke 1-test addition to assert no preload-rejection errors on
+  Settings → Sync.
+
+Carry-over (no v1.5.2 change)
+-----------------------------
+
+- Sample-rate mismatch in PCM tap (44.1/48 kHz mic vs whisper 16 kHz)
+  — gated behind unshipped whisper.cpp build.
+- HMR-only race in voice-win `IsAvailable()` probe.
+- whisper.cpp v1.7.x ggml-cpu binding.gyp port.
+- voice-{mac,win} prebuildify silent-no-output root cause.
+- V3-W13-013 `assistant.*` dispatchBulk/refResolve (feature
+  enhancement, not parity gap).
+- V3-W15-006 dogfood (human QA, ≥30 min 4-pane swarm against real repo).
+
+Upgrade notes
+-------------
+
+If you set up cross-sync in v1.5.0 and saw the renderer fail silently:
+no data loss occurred. The backend wrote nothing because the renderer
+never successfully called `enable()`. Upgrade to v1.5.2, run the setup
+wizard again, and your sync will work this time.
+
+If you already had a working cross-sync setup (somehow — possibly via
+direct kv manipulation or a corner case), your existing blobs decode
+correctly on the next pull.
+
+No schema migrations in v1.5.2.
