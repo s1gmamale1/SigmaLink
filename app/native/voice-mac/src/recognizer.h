@@ -19,6 +19,10 @@ public:
   void BindFinal(Napi::Function cb)    { final_.Bind(cb, "voice-mac.onFinal"); }
   void BindError(Napi::Function cb)    { error_.Bind(cb, "voice-mac.onError"); }
   void BindState(Napi::Function cb)    { state_.Bind(cb, "voice-mac.onState"); }
+  /** Bind the raw-PCM tap callback for whisper.cpp accumulation (Float32). */
+  void BindPcm(Napi::Function cb)      { pcm_.Bind(cb, "voice-mac.onPcm"); }
+  /** True when a JS pcm callback is bound; consulted inside the audio tap. */
+  bool HasPcmListener() const          { return pcm_.IsBound(); }
 
   /**
    * Returns true when the binary loaded *and* SFSpeechRecognizer is
@@ -44,11 +48,13 @@ public:
   /** True while a recognition task is in flight. Used to enforce single-session. */
   bool IsActive();
 
-  // ---- internal: invoked from the SFSpeechRecognitionTask result handler.
+  // ---- internal: invoked from the SFSpeechRecognitionTask result handler
+  //               or the AVAudioEngine PCM tap block.
   void EmitPartial(const std::string& s) { partial_.Emit(s); }
   void EmitFinal(const std::string& s)   { final_.Emit(s); }
   void EmitError(const ErrorPayload& p)  { error_.Emit(p); }
   void EmitState(const std::string& s)   { state_.Emit(s); }
+  void EmitPcm(const float* data, size_t count) { pcm_.Emit(data, count); }
 
 private:
   Recognizer() = default;
@@ -60,6 +66,7 @@ private:
   StringEmitter final_;
   ErrorEmitter  error_;
   StringEmitter state_;
+  PcmEmitter    pcm_;
 };
 
 } // namespace sigmavoice

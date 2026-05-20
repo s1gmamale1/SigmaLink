@@ -64,4 +64,28 @@ private:
   Napi::ThreadSafeFunction tsfn_ = nullptr;
 };
 
+/**
+ * Specialised emitter for raw PCM Float32 audio chunks — delivers a
+ * std::vector<float> as a JS Float32Array to the bound callback.
+ * Used by the AVAudioEngine PCM tap for whisper.cpp accumulation.
+ */
+class PcmEmitter {
+public:
+  PcmEmitter() = default;
+  ~PcmEmitter() { Release(); }
+
+  PcmEmitter(const PcmEmitter&) = delete;
+  PcmEmitter& operator=(const PcmEmitter&) = delete;
+
+  void Bind(Napi::Function cb, const std::string& name);
+  void Release();
+  /** Enqueue `count` floats from `data` onto the JS event loop. Non-blocking;
+   *  drops silently when the queue is saturated (audio thread safety). */
+  void Emit(const float* data, size_t count);
+  bool IsBound() const { return tsfn_ != nullptr; }
+
+private:
+  Napi::ThreadSafeFunction tsfn_ = nullptr;
+};
+
 } // namespace sigmavoice

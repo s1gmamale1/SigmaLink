@@ -119,6 +119,8 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
   // startRecording() or listeners leak (and transcripts may concat across
   // recordings).
   let unsubscribeOnFinal: (() => void) | null = null;
+  // PCM tap unsubscribe handle (installed before start(); cleared in dispose()).
+  let unsubscribeOnPcm: (() => void) | null = null;
   // Hoisted transcript accumulator (PR #50 caveat 4 — replaces _capturedRef
   // metaprogramming). Written by startRecording(), read by stopAndTranscribe().
   let capturedTranscript = '';
@@ -238,6 +240,20 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
         toast('Microphone permission denied — grant access in System Settings → Privacy → Microphone', 'warn');
         return;
       }
+
+      // Install the PCM tap BEFORE start() so no audio frames are missed.
+      // Only available on macOS (voice-mac exposes onPcm; voice-win does not).
+      if (unsubscribeOnPcm) {
+        try { unsubscribeOnPcm(); } catch { /* ignore */ }
+        unsubscribeOnPcm = null;
+      }
+      if (typeof native.onPcm === 'function') {
+        const unsub = native.onPcm((chunk: Float32Array) => {
+          pcm.push(chunk);
+        });
+        unsubscribeOnPcm = typeof unsub === 'function' ? unsub : null;
+      }
+
       await native.start({ locale: 'en-US', onDevice: true, addPunctuation: true });
     } catch (err) {
       setState('idle');
@@ -273,6 +289,12 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     // Stop native audio capture
     if (native) {
       try { await native.stop(); } catch { /* ignore */ }
+    }
+
+    // Tear down the PCM tap subscription now that recording has stopped.
+    if (unsubscribeOnPcm) {
+      try { unsubscribeOnPcm(); } catch { /* ignore */ }
+      unsubscribeOnPcm = null;
     }
 
     let finalText = capturedTranscript.trim();
@@ -412,6 +434,10 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       if (unsubscribeOnFinal) {
         try { unsubscribeOnFinal(); } catch { /* ignore */ }
         unsubscribeOnFinal = null;
+      }
+      if (unsubscribeOnPcm) {
+        try { unsubscribeOnPcm(); } catch { /* ignore */ }
+        unsubscribeOnPcm = null;
       }
       // PR #50 latent-bug fix: previous code referenced undefined `native_ref`
       // — would have thrown on quit when state === 'recording'. Reload the
