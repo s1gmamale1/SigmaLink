@@ -18,7 +18,7 @@ vi.mock('../workspaces/launcher', () => ({
 
 import { getDb, getRawDb } from '../db/client';
 import { executeLaunchPlan } from '../workspaces/launcher';
-import { buildAssistantController } from './controller';
+import { buildAssistantController, pickPreset } from './controller';
 import {
   createDbFake,
   seedWorkspace,
@@ -126,6 +126,48 @@ function getTypedController(deps?: Partial<AssistantControllerDeps>): TypedAssis
   const { controller } = buildAssistantController(makeDeps(deps));
   return controller as unknown as TypedAssistantController;
 }
+
+// ── pickPreset (v1.5.4-C) ────────────────────────────────────────────────────
+
+describe('pickPreset', () => {
+  it('n=0  → 1', () => expect(pickPreset(0)).toBe(1));
+  it('n=1  → 1', () => expect(pickPreset(1)).toBe(1));
+  it('n=2  → 2', () => expect(pickPreset(2)).toBe(2));
+  it('n=3  → 4', () => expect(pickPreset(3)).toBe(4));
+  it('n=4  → 4', () => expect(pickPreset(4)).toBe(4));
+  it('n=5  → 6', () => expect(pickPreset(5)).toBe(6));
+  it('n=6  → 6', () => expect(pickPreset(6)).toBe(6));
+  it('n=7  → 8', () => expect(pickPreset(7)).toBe(8));
+  it('n=8  → 8', () => expect(pickPreset(8)).toBe(8));
+  it('n=9  → 8', () => expect(pickPreset(9)).toBe(8));
+
+  it('all return values are valid GridPreset members', () => {
+    const validPresets = new Set([1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20]);
+    for (let n = 0; n <= 9; n++) {
+      expect(validPresets.has(pickPreset(n))).toBe(true);
+    }
+  });
+});
+
+// ── dispatchPane with count=8 produces valid LaunchPlan ─────────────────────
+
+describe('assistant.dispatchPane count=8 valid preset', () => {
+  it('dispatchPane with count=8 passes a valid preset (8) to executeLaunchPlan', async () => {
+    const root = makeTmp();
+    seedWorkspace(fake, { id: 'ws-1', rootPath: root });
+    const sessions = Array.from({ length: 8 }, (_, i) => makeSession(`pane-${i}`, 'claude'));
+    vi.mocked(executeLaunchPlan).mockResolvedValue(makeLaunchResult(sessions));
+
+    const { controller } = buildAssistantController(makeDeps());
+    const ctl = controller as unknown as { dispatchPane: (input: { workspaceId: string; provider: string; count: number; initialPrompt: string }) => Promise<{ sessionIds: string[] }> };
+    const result = await ctl.dispatchPane({ workspaceId: 'ws-1', provider: 'claude', count: 8, initialPrompt: 'hi' });
+
+    expect(result.sessionIds).toHaveLength(8);
+    // Verify executeLaunchPlan received preset=8 (not undefined)
+    const callArg = vi.mocked(executeLaunchPlan).mock.calls[0][0];
+    expect(callArg.preset).toBe(8);
+  });
+});
 
 // ── dispatchBulk ─────────────────────────────────────────────────────────────
 
