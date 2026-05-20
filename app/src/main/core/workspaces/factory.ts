@@ -9,6 +9,7 @@ import { workspaces } from '../db/schema';
 import { getRepoRoot } from '../git/git-ops';
 import { KV_RUFLO_AUTOWRITE_MCP, writeWorkspaceMcpConfig } from './mcp-autowrite';
 import type { RufloMcpSupervisor } from '../ruflo/supervisor';
+import type { RufloHttpDaemonSupervisor } from '../ruflo/http-daemon-supervisor';
 import {
   KV_RUFLO_STRICT_MCP_VERIFICATION,
   verifyForWorkspace,
@@ -20,7 +21,16 @@ import type { Workspace } from '../../../shared/types';
 export interface OpenWorkspaceDeps {
   rufloSupervisor?: Pick<RufloMcpSupervisor, 'ensureStarted'>;
   skillsManager?: Pick<SkillsManager, 'verifyFanoutForWorkspace'>;
+  /** v1.6.0-A — per-workspace Ruflo HTTP daemon. When provided, openWorkspace
+   *  spawns a daemon and the mcp-autowrite writes HTTP entries pointing at it.
+   *  When omitted (or spawn fails), autowrite falls through to stdio entries
+   *  unchanged. */
+  rufloHttpDaemonSupervisor?: Pick<RufloHttpDaemonSupervisor, 'spawn'>;
   emit?: (event: string, payload: unknown) => void;
+}
+
+export interface RemoveWorkspaceDeps {
+  rufloHttpDaemonSupervisor?: Pick<RufloHttpDaemonSupervisor, 'stop'>;
 }
 
 function rowToWorkspace(row: typeof workspaces.$inferSelect): Workspace {
@@ -86,7 +96,24 @@ export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = 
       .prepare('SELECT value FROM kv WHERE key = ?')
       .get(KV_RUFLO_AUTOWRITE_MCP) as { value?: string } | undefined;
     if (autowrite?.value !== '0') {
-      writeWorkspaceMcpConfig(abs);
+      // v1.6.0-A — spawn per-workspace Ruflo HTTP daemon BEFORE autowrite so
+      // we know the port to thread into mcp-autowrite. If spawn returns null
+      // (binary missing, port collision after retries, etc.) we fall through
+      // to stdio entries — no regression vs v1.5.6.
+      let port: number | undefined;
+      if (deps.rufloHttpDaemonSupervisor) {
+        try {
+          const handle = await deps.rufloHttpDaemonSupervisor.spawn(resultId, abs);
+          if (handle) port = handle.port;
+        } catch (err) {
+          console.warn(
+            `[ruflo-http] daemon spawn failed for ${abs}; falling back to stdio: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+      writeWorkspaceMcpConfig(abs, port !== undefined ? { port } : undefined);
     }
   } catch (err) {
     console.warn(
@@ -148,7 +175,22 @@ export function listWorkspaces(): Workspace[] {
     .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
 }
 
-export function removeWorkspace(id: string): void {
+export async function removeWorkspace(id: string, deps: RemoveWorkspaceDeps = {}): Promise<void> {
+  // v1.6.0-A — stop the per-workspace Ruflo HTTP daemon BEFORE deleting the
+  // DB row so the supervisor's map entry is cleared on the same operation.
+  // Stop is best-effort; failures are logged and never block workspace
+  // removal.
+  if (deps.rufloHttpDaemonSupervisor) {
+    try {
+      await deps.rufloHttpDaemonSupervisor.stop(id);
+    } catch (err) {
+      console.warn(
+        `[ruflo-http] daemon stop failed for workspace ${id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
   const db = getDb();
   db.delete(workspaces).where(eq(workspaces.id, id)).run();
 }

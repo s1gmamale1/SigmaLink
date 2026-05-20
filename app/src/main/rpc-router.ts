@@ -78,6 +78,7 @@ import { getChannelSchema } from './core/rpc/schemas';
 // Phase 4 Track C — Ruflo MCP embed. Process-singleton supervisor + lazy
 // installer + JSON-RPC proxy fronting the renderer-facing controller.
 import { RufloMcpSupervisor } from './core/ruflo/supervisor';
+import { RufloHttpDaemonSupervisor } from './core/ruflo/http-daemon-supervisor';
 import { RufloProxy } from './core/ruflo/proxy';
 import { RufloInstaller } from './core/ruflo/installer';
 import { buildRufloController } from './core/ruflo/controller';
@@ -104,6 +105,10 @@ interface SharedDeps {
   /** Phase 4 Track C — process-singleton Ruflo supervisor. Stop in the
    *  shutdown path next to memorySupervisor.stopAll(). */
   rufloSupervisor: RufloMcpSupervisor;
+  /** v1.6.0-A — per-workspace Ruflo HTTP daemon supervisor. Spawn on workspace
+   *  open (in `workspaces.open` handler), stop on workspace close. Stop in the
+   *  shutdown path via stopAll(). */
+  rufloHttpDaemonSupervisor: RufloHttpDaemonSupervisor;
   /** V3-W12-014 — Operator Console controller. Registered side-band so the
    *  `swarm.*` namespace doesn't pollute the typed AppRouter shape. */
   consoleStop?: () => void;
@@ -488,6 +493,34 @@ function buildRouter() {
   const rufloProxy = new RufloProxy(rufloSupervisor);
   const rufloInstaller = new RufloInstaller();
   rufloInstaller.on('progress', (p) => broadcast('ruflo:install-progress', p));
+  // v1.6.0-A — per-workspace Ruflo HTTP daemon supervisor. Spawn lives in the
+  // `workspaces.open` handler (so we have the workspaceId + abs path at hand).
+  // Restart events surface to the user via the notifications bell (kind:
+  // 'ruflo-daemon', severity: warn) — reuses the v1.4.9 notifications system
+  // instead of adding a new broadcast event.
+  const rufloHttpDaemonSupervisor = new RufloHttpDaemonSupervisor();
+  rufloHttpDaemonSupervisor.on('restarted', (workspaceId: string, success: boolean) => {
+    try {
+      notificationsManager.add({
+        workspaceId,
+        kind: 'ruflo-daemon',
+        severity: success ? 'warn' : 'error',
+        title: success
+          ? 'Ruflo MCP daemon restarted'
+          : 'Ruflo MCP daemon failed to restart',
+        body: success
+          ? 'The shared MCP daemon for this workspace was restarted after a crash. Retry your last action if it appeared to hang.'
+          : 'The shared MCP daemon for this workspace failed to restart after 3 attempts. Panes fell back to per-process stdio mode; live cross-pane state is degraded.',
+        dedupKey: `ruflo-daemon-restart-${success ? 'ok' : 'fail'}`,
+      });
+    } catch (err) {
+      console.warn(
+        `[ruflo-http] failed to post restart notification: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  });
 
   sharedDeps = {
     pty,
@@ -500,6 +533,7 @@ function buildRouter() {
     reviewRunner,
     tasks: tasksManager,
     rufloSupervisor,
+    rufloHttpDaemonSupervisor,
     mcpHostBridge,
   };
 
@@ -895,6 +929,7 @@ function buildRouter() {
     open: async (root: string) => {
       const workspace = await openWorkspace(root, {
         rufloSupervisor,
+        rufloHttpDaemonSupervisor,
         skillsManager,
         emit: (event, payload) => broadcast(event, payload),
       });
@@ -915,7 +950,7 @@ function buildRouter() {
     },
     list: async () => listWorkspaces(),
     remove: async (id: string) => {
-      removeWorkspace(id);
+      await removeWorkspace(id, { rufloHttpDaemonSupervisor });
       markWorkspaceClosed(id);
     },
     launch: async (plan) => {
@@ -1449,6 +1484,13 @@ export function shutdownRouter(): void {
   // tears the process down.
   try {
     sharedDeps?.rufloSupervisor.stop();
+  } catch {
+    /* ignore */
+  }
+  // v1.6.0-A — stop ALL per-workspace HTTP daemons (one per open workspace).
+  // SIGTERM → 5s drain → SIGKILL idiom mirrors MemoryMcpSupervisor.stopAll().
+  try {
+    void sharedDeps?.rufloHttpDaemonSupervisor.stopAll();
   } catch {
     /* ignore */
   }

@@ -3,6 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const KV_RUFLO_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
+// Detector functions exported for unit tests and for factory.ts utilities.
+// They are declared later in this file (function hoisting applies).
+export { isManagedRufloEntry, isManagedOpencodeRufloEntry };
 
 const RUFLO_SERVER_NAME = 'ruflo';
 const RUFLO_COMMAND = 'npx';
@@ -20,6 +23,12 @@ export interface WorkspaceMcpWriteOptions {
   logger?: Pick<Console, 'warn'>;
   /** Test hook — override the PATH-or-file-exists detection for Kimi/OpenCode. */
   detectCli?: (name: 'kimi' | 'opencode') => boolean;
+  /**
+   * v1.6.0 — If a finite positive integer is provided, all 5 CLI configs are
+   * written in HTTP-daemon mode (`http://127.0.0.1:<port>/mcp`). Omit or pass
+   * an invalid value to get the default stdio mode.
+   */
+  port?: number;
 }
 
 export interface WorkspaceMcpWriteResult {
@@ -39,6 +48,15 @@ interface RufloServer {
   env: Record<string, string>;
 }
 
+/** Resolved transport config passed to all write helpers after opts normalization. */
+interface WriteContext {
+  server: RufloServer;
+  /** Undefined → stdio mode. Defined → HTTP mode on this port. */
+  port: number | undefined;
+  refused: string[];
+  logger: Pick<Console, 'warn'>;
+}
+
 export function writeWorkspaceMcpConfig(
   workspaceRoot: string,
   opts: WorkspaceMcpWriteOptions = {},
@@ -49,6 +67,14 @@ export function writeWorkspaceMcpConfig(
   const detectCli = opts.detectCli ?? defaultDetectCli;
   const server = buildRufloServer(root);
   const refused: string[] = [];
+  // v1.6.0 — validate port: must be a finite positive integer, otherwise stdio.
+  const rawPort = opts.port;
+  const port: number | undefined =
+    typeof rawPort === 'number' && Number.isFinite(rawPort) && rawPort > 0
+      ? rawPort
+      : undefined;
+
+  const ctx: WriteContext = { server, port, refused, logger };
 
   const claudeTarget = path.join(root, '.mcp.json');
   const codexTarget = path.join(home, '.codex', 'config.toml');
@@ -88,15 +114,11 @@ export function writeWorkspaceMcpConfig(
     };
   }
 
-  const claude = writeJsonMcpFile({ target: claudeTarget, server, refused, logger });
-  const codex = writeCodexToml({ target: codexTarget, server, refused, logger });
-  const gemini = writeJsonMcpFile({ target: geminiTarget, server, refused, logger });
-  const kimi = kimiActive
-    ? writeJsonMcpFile({ target: kimiTarget, server, refused, logger })
-    : null;
-  const opencode = opencodeActive
-    ? writeOpencodeMcpFile({ target: opencodeTarget, server, refused, logger })
-    : null;
+  const claude = writeJsonMcpFile({ target: claudeTarget, ctx });
+  const codex = writeCodexToml({ target: codexTarget, ctx });
+  const gemini = writeJsonMcpFile({ target: geminiTarget, ctx });
+  const kimi = kimiActive ? writeJsonMcpFile({ target: kimiTarget, ctx }) : null;
+  const opencode = opencodeActive ? writeOpencodeMcpFile({ target: opencodeTarget, ctx }) : null;
 
   return { claude, codex, gemini, kimi, opencode, refused };
 }
@@ -111,13 +133,9 @@ function buildRufloServer(workspaceRoot: string): RufloServer {
   };
 }
 
-function writeJsonMcpFile(args: {
-  target: string;
-  server: RufloServer;
-  refused: string[];
-  logger: Pick<Console, 'warn'>;
-}): string | null {
-  const { target, server, refused, logger } = args;
+function writeJsonMcpFile(args: { target: string; ctx: WriteContext }): string | null {
+  const { target, ctx } = args;
+  const { server, port, refused, logger } = ctx;
   let doc: JsonObject = {};
   if (fs.existsSync(target)) {
     try {
@@ -141,7 +159,8 @@ function writeJsonMcpFile(args: {
     return null;
   }
 
-  mcpServers[RUFLO_SERVER_NAME] = mergeRufloEntry(existing, server);
+  mcpServers[RUFLO_SERVER_NAME] =
+    port !== undefined ? buildHttpEntry(port) : mergeRufloEntry(existing, server);
   doc.mcpServers = mcpServers;
 
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -149,27 +168,24 @@ function writeJsonMcpFile(args: {
   return target;
 }
 
-function writeCodexToml(args: {
-  target: string;
-  server: RufloServer;
-  refused: string[];
-  logger: Pick<Console, 'warn'>;
-}): string | null {
-  const { target, server, refused, logger } = args;
+function writeCodexToml(args: { target: string; ctx: WriteContext }): string | null {
+  const { target, ctx } = args;
+  const { server, port, refused, logger } = ctx;
   const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
   const ranges = findTomlTableRanges(existing, 'mcp_servers.ruflo');
   const mainRange = ranges.find((range) => range.header === 'mcp_servers.ruflo');
 
   if (ranges.length > 0) {
     const mainBlock = mainRange ? existing.slice(mainRange.start, mainRange.end) : '';
-    const command = parseTomlStringValue(mainBlock, 'command');
-    if (command !== RUFLO_COMMAND) {
+    if (!isManagedTomlRufloBlock(mainBlock)) {
       warnRefusal(refused, logger, target, 'existing ruflo TOML entry is user-managed');
       return null;
     }
   }
 
-  const next = replaceTomlTables(existing, ranges, renderCodexRufloBlock(server));
+  const block =
+    port !== undefined ? renderCodexHttpBlock(port) : renderCodexRufloBlock(server);
+  const next = replaceTomlTables(existing, ranges, block);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   writeFileAtomic(target, next);
   return target;
@@ -182,13 +198,12 @@ function writeCodexToml(args: {
 //   - env-vars key is `environment` not `env`
 // We preserve user-set `enabled: false`, `timeout`, and other arbitrary keys
 // via shallow merge. The `$schema` top-level key is preserved verbatim if set.
-function writeOpencodeMcpFile(args: {
-  target: string;
-  server: RufloServer;
-  refused: string[];
-  logger: Pick<Console, 'warn'>;
-}): string | null {
-  const { target, server, refused, logger } = args;
+//
+// v1.6.0 — HTTP mode uses { type: 'http', url, enabled: true }. OpenCode's
+// published JSON schema uses `type: "http"` for HTTP transports (not "remote").
+function writeOpencodeMcpFile(args: { target: string; ctx: WriteContext }): string | null {
+  const { target, ctx } = args;
+  const { server, port, refused, logger } = ctx;
   let doc: JsonObject = {};
   if (fs.existsSync(target)) {
     try {
@@ -212,7 +227,10 @@ function writeOpencodeMcpFile(args: {
     return null;
   }
 
-  mcp[RUFLO_SERVER_NAME] = mergeOpencodeRufloEntry(existing, server);
+  mcp[RUFLO_SERVER_NAME] =
+    port !== undefined
+      ? buildOpencodeHttpEntry(port)
+      : mergeOpencodeRufloEntry(existing, server);
   doc.mcp = mcp;
 
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -223,8 +241,11 @@ function writeOpencodeMcpFile(args: {
 function mergeRufloEntry(existing: unknown, server: RufloServer): RufloServer & JsonObject {
   const previous = isPlainObject(existing) ? existing : {};
   const previousEnv = normalizeStringRecord(previous.env);
+  // Strip HTTP-only fields (url) so that self-healing HTTP → stdio is clean.
+  const { url: _url, ...rest } = previous;
+  void _url;
   return {
-    ...previous,
+    ...rest,
     command: server.command,
     args: [...server.args],
     env: {
@@ -237,8 +258,11 @@ function mergeRufloEntry(existing: unknown, server: RufloServer): RufloServer & 
 function mergeOpencodeRufloEntry(existing: unknown, server: RufloServer): JsonObject {
   const previous = isPlainObject(existing) ? existing : {};
   const previousEnv = normalizeStringRecord(previous.environment);
+  // Strip HTTP-only fields so self-heal HTTP → stdio is clean.
+  const { url: _url, ...rest } = previous;
+  void _url;
   return {
-    ...previous,
+    ...rest,
     type: 'local',
     command: [server.command, ...server.args],
     environment: {
@@ -249,6 +273,26 @@ function mergeOpencodeRufloEntry(existing: unknown, server: RufloServer): JsonOb
   };
 }
 
+// ─── HTTP entry builders (v1.6.0) ───────────────────────────────────────────
+
+/**
+ * Claude / Gemini / Kimi HTTP entry — `{ url: "http://127.0.0.1:<port>/mcp" }`.
+ * URL alone implies HTTP transport per Claude's MCP schema; no command/args/env.
+ */
+function buildHttpEntry(port: number): JsonObject {
+  return { url: `http://127.0.0.1:${port}/mcp` };
+}
+
+/**
+ * OpenCode HTTP entry — `{ type: "http", url, enabled: true }`.
+ * Daemon env is set by supervisor at spawn time, not per-CLI config.
+ */
+function buildOpencodeHttpEntry(port: number): JsonObject {
+  return { type: 'http', url: `http://127.0.0.1:${port}/mcp`, enabled: true };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
 function normalizeStringRecord(value: unknown): Record<string, string> {
   if (!isPlainObject(value)) return {};
   return Object.fromEntries(
@@ -256,14 +300,35 @@ function normalizeStringRecord(value: unknown): Record<string, string> {
   );
 }
 
+/** Regex matching Ruflo-managed HTTP localhost MCP endpoints (v1.6+). */
+const RUFLO_HTTP_URL_RE = /^http:\/\/127\.0\.0\.1:\d+\/mcp$/;
+
+/**
+ * Returns true for entries written by this module — both stdio (v1.3.5+) and
+ * HTTP-daemon (v1.6+) shapes. User-managed entries (different command / remote
+ * URL) return false so we refuse to clobber them.
+ */
 function isManagedRufloEntry(entry: unknown): boolean {
-  return isPlainObject(entry) && entry.command === RUFLO_COMMAND;
+  if (!isPlainObject(entry)) return false;
+  if (entry.command === RUFLO_COMMAND) return true; // stdio (v1.3.5+)
+  if (typeof entry.url === 'string' && RUFLO_HTTP_URL_RE.test(entry.url)) {
+    return true; // HTTP daemon (v1.6+) — localhost only
+  }
+  return false;
 }
 
+/**
+ * Returns true for OpenCode entries written by this module — both stdio
+ * (v1.3.5+, array command starting with 'npx') and HTTP-daemon (v1.6+) shapes.
+ */
 function isManagedOpencodeRufloEntry(entry: unknown): boolean {
   if (!isPlainObject(entry)) return false;
-  const command = entry.command;
-  return Array.isArray(command) && command[0] === RUFLO_COMMAND;
+  const cmd = entry.command;
+  if (Array.isArray(cmd) && cmd[0] === RUFLO_COMMAND) return true; // stdio
+  if (entry.type === 'http' && typeof entry.url === 'string' && RUFLO_HTTP_URL_RE.test(entry.url)) {
+    return true; // HTTP daemon (v1.6+)
+  }
+  return false;
 }
 
 function hasCustomJsonRufloEntry(target: string): string | null {
@@ -285,7 +350,7 @@ function hasCustomTomlRufloEntry(target: string): string | null {
   if (ranges.length === 0) return null;
   const mainRange = ranges.find((range) => range.header === 'mcp_servers.ruflo');
   const mainBlock = mainRange ? source.slice(mainRange.start, mainRange.end) : '';
-  return parseTomlStringValue(mainBlock, 'command') === RUFLO_COMMAND ? null : target;
+  return isManagedTomlRufloBlock(mainBlock) ? null : target;
 }
 
 function hasCustomOpencodeRufloEntry(target: string): string | null {
@@ -314,6 +379,33 @@ function renderCodexRufloBlock(server: RufloServer): string {
     `CLAUDE_FLOW_DIR = ${JSON.stringify(server.env.CLAUDE_FLOW_DIR)}`,
     '',
   ].join('\n');
+}
+
+/**
+ * v1.6.0 — Codex HTTP-daemon block. No env sub-table; daemon env is set by
+ * supervisor at spawn time.
+ */
+function renderCodexHttpBlock(port: number): string {
+  return [
+    '[mcp_servers.ruflo]',
+    'transport = "http"',
+    `url = "http://127.0.0.1:${port}/mcp"`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * Returns true if the TOML block is one written by this module: either a
+ * stdio block (has `command = "npx"`) or an HTTP-daemon block (has
+ * `transport = "http"` + a managed localhost url).
+ */
+function isManagedTomlRufloBlock(block: string): boolean {
+  if (parseTomlStringValue(block, 'command') === RUFLO_COMMAND) return true;
+  if (parseTomlStringValue(block, 'transport') === 'http') {
+    const url = parseTomlStringValue(block, 'url');
+    return typeof url === 'string' && RUFLO_HTTP_URL_RE.test(url);
+  }
+  return false;
 }
 
 interface TomlTableRange {

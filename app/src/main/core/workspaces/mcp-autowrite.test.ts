@@ -3,7 +3,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { writeWorkspaceMcpConfig } from './mcp-autowrite';
+import {
+  isManagedOpencodeRufloEntry,
+  isManagedRufloEntry,
+  writeWorkspaceMcpConfig,
+} from './mcp-autowrite';
 
 const tmpDirs: string[] = [];
 const quietLogger = { warn: () => undefined };
@@ -483,5 +487,210 @@ describe('writeWorkspaceMcpConfig', () => {
       'start',
     ]);
     expect(kimiParsed.mcpServers.ruflo.args).not.toContain('mcp-stdio');
+  });
+
+  // ─── v1.6.0 HTTP-daemon mode tests ──────────────────────────────────────────
+
+  it('HTTP mode: writes exact HTTP entry shapes for all 5 CLIs (port 12345)', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const detectCli = (name: 'kimi' | 'opencode'): boolean =>
+      name === 'kimi' || name === 'opencode';
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli,
+      port: 12345,
+    });
+
+    expect(result.refused).toEqual([]);
+    expect(result.claude).toBe(path.join(root, '.mcp.json'));
+    expect(result.codex).toBe(path.join(home, '.codex', 'config.toml'));
+    expect(result.gemini).toBe(path.join(home, '.gemini', 'settings.json'));
+    expect(result.kimi).toBe(path.join(home, '.kimi', 'mcp.json'));
+    expect(result.opencode).toBe(path.join(home, '.config', 'opencode', 'opencode.json'));
+
+    // Claude — url only, no command/args/env
+    const claude = readJson(result.claude!);
+    expect(claude.mcpServers.ruflo).toEqual({ url: 'http://127.0.0.1:12345/mcp' });
+
+    // Gemini — same shape as Claude
+    const gemini = readJson(result.gemini!);
+    expect(gemini.mcpServers.ruflo).toEqual({ url: 'http://127.0.0.1:12345/mcp' });
+
+    // Kimi — same shape as Claude/Gemini
+    const kimi = readJson(result.kimi!);
+    expect(kimi.mcpServers.ruflo).toEqual({ url: 'http://127.0.0.1:12345/mcp' });
+
+    // Codex TOML — transport + url, NO env sub-table
+    const codex = fs.readFileSync(result.codex!, 'utf8');
+    expect(codex).toContain('[mcp_servers.ruflo]');
+    expect(codex).toContain('transport = "http"');
+    expect(codex).toContain('url = "http://127.0.0.1:12345/mcp"');
+    expect(codex).not.toContain('[mcp_servers.ruflo.env]');
+    expect(codex).not.toContain('command =');
+
+    // OpenCode — type:http, url, enabled:true; no command/environment
+    const opencode = readOpencodeJson(result.opencode!);
+    expect(opencode.mcp?.ruflo).toEqual({
+      type: 'http',
+      url: 'http://127.0.0.1:12345/mcp',
+      enabled: true,
+    });
+    expect(opencode.mcp?.ruflo?.command).toBeUndefined();
+    expect(opencode.mcp?.ruflo?.environment).toBeUndefined();
+  });
+
+  it('HTTP mode: no-opts still writes stdio entries (regression)', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const detectCli = (): boolean => false;
+
+    const result = writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli });
+
+    const claude = readJson(result.claude!);
+    expect(claude.mcpServers.ruflo).toEqual({
+      command: 'npx',
+      args: ['-y', '@claude-flow/cli@latest', 'mcp', 'start'],
+      env: { CLAUDE_FLOW_DIR: path.join(root, '.claude-flow') },
+    });
+    const codex = fs.readFileSync(result.codex!, 'utf8');
+    expect(codex).toContain('command = "npx"');
+    expect(codex).not.toContain('transport = "http"');
+  });
+
+  // ─── isManagedRufloEntry unit tests ─────────────────────────────────────────
+
+  it('isManagedRufloEntry: stdio entry returns true', () => {
+    expect(
+      isManagedRufloEntry({ command: 'npx', args: ['-y', '@claude-flow/cli@latest', 'mcp', 'start'] }),
+    ).toBe(true);
+  });
+
+  it('isManagedRufloEntry: HTTP localhost entry returns true', () => {
+    expect(isManagedRufloEntry({ url: 'http://127.0.0.1:12345/mcp' })).toBe(true);
+  });
+
+  it('isManagedRufloEntry: remote host returns false (security)', () => {
+    expect(isManagedRufloEntry({ url: 'http://example.com/mcp' })).toBe(false);
+  });
+
+  it('isManagedRufloEntry: wrong path returns false', () => {
+    expect(isManagedRufloEntry({ url: 'http://127.0.0.1:12345/other' })).toBe(false);
+  });
+
+  it('isManagedRufloEntry: https returns false (only plain http)', () => {
+    expect(isManagedRufloEntry({ url: 'https://127.0.0.1:12345/mcp' })).toBe(false);
+  });
+
+  // ─── isManagedOpencodeRufloEntry unit tests ──────────────────────────────────
+
+  it('isManagedOpencodeRufloEntry: stdio array command returns true', () => {
+    expect(
+      isManagedOpencodeRufloEntry({
+        command: ['npx', '-y', '@claude-flow/cli@latest', 'mcp', 'start'],
+      }),
+    ).toBe(true);
+  });
+
+  it('isManagedOpencodeRufloEntry: HTTP type+url returns true', () => {
+    expect(
+      isManagedOpencodeRufloEntry({ type: 'http', url: 'http://127.0.0.1:12345/mcp' }),
+    ).toBe(true);
+  });
+
+  // ─── Self-heal tests ─────────────────────────────────────────────────────────
+
+  it('self-heal: pre-existing stdio Claude entry replaced with HTTP on port call', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const claudePath = path.join(root, '.mcp.json');
+    // Write a stdio entry first
+    writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli: () => false });
+    const beforeEntry = readJson(claudePath).mcpServers.ruflo;
+    expect(beforeEntry.command).toBe('npx');
+
+    // Now call with port — should replace stdio with HTTP
+    writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+      port: 12345,
+    });
+    const afterEntry = readJson(claudePath).mcpServers.ruflo;
+    expect(afterEntry).toEqual({ url: 'http://127.0.0.1:12345/mcp' });
+  });
+
+  it('self-heal: pre-existing HTTP Claude entry on port 11111 replaced with port 22222', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const claudePath = path.join(root, '.mcp.json');
+    // Write HTTP entry on port 11111
+    writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+      port: 11111,
+    });
+    expect(readJson(claudePath).mcpServers.ruflo).toEqual({ url: 'http://127.0.0.1:11111/mcp' });
+
+    // Replace with port 22222
+    writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+      port: 22222,
+    });
+    expect(readJson(claudePath).mcpServers.ruflo).toEqual({ url: 'http://127.0.0.1:22222/mcp' });
+  });
+
+  it('self-heal: pre-existing HTTP entry replaced with stdio when no port given', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const claudePath = path.join(root, '.mcp.json');
+    // Write HTTP entry first
+    writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+      port: 12345,
+    });
+    expect(readJson(claudePath).mcpServers.ruflo).toEqual({ url: 'http://127.0.0.1:12345/mcp' });
+
+    // Call without port — should revert to stdio
+    writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli: () => false });
+    const entry = readJson(claudePath).mcpServers.ruflo;
+    expect(entry.command).toBe('npx');
+    expect(entry.url).toBeUndefined();
+  });
+
+  it('self-heal: user-managed entry (custom command) still refused with warning', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const claudePath = path.join(root, '.mcp.json');
+    fs.mkdirSync(root, { recursive: true });
+    const originalContent =
+      JSON.stringify(
+        { mcpServers: { ruflo: { command: '/usr/local/bin/something-else', args: [] } } },
+        null,
+        2,
+      ) + '\n';
+    fs.writeFileSync(claudePath, originalContent);
+
+    const warnings: string[] = [];
+    const warningLogger = { warn: (msg: string) => warnings.push(msg) };
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: warningLogger,
+      detectCli: () => false,
+      port: 12345,
+    });
+
+    expect(result.claude).toBeNull();
+    expect(result.refused).toContain(claudePath);
+    expect(fs.readFileSync(claudePath, 'utf8')).toBe(originalContent);
+    expect(warnings.some((w) => w.includes('ruflo'))).toBe(true);
   });
 });

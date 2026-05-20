@@ -4,6 +4,80 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-21
+
+v1.6.0 — **Ruflo MCP HTTP daemon mode** (W-7 from v1.5.6 architectural backlog). Per-workspace daemon spawned by SigmaLink at workspace open; all 5 CLI clients in that workspace point at one shared HTTP MCP endpoint instead of each spawning its own short-lived stdio process.
+
+### Why
+
+Per v1.3.5+ behavior, SigmaLink auto-binds Ruflo MCP across Claude / Codex / Gemini / Kimi / OpenCode. Each CLI invocation was spawning its own stdio Ruflo process and pointing at the same `<workspaceRoot>/.claude-flow/` directory. All 5 CLIs got the same on-disk state — but every tool call meant a fresh process, and concurrent panes would race on the sqlite file's read-modify-write cycle. A 6-pane workspace effectively ran 6 separate Ruflo instances against the same files: shared on-disk state, but no shared HNSW index in RAM, no live swarm coordination, no pattern-cache consistency across panes.
+
+v1.6.0 collapses that to **one** Ruflo HTTP daemon per workspace. All 5 CLIs in the workspace point at `http://127.0.0.1:<port>/mcp`. Live in-memory state (HNSW, pattern cache, swarm consensus) is now shared across every pane in the workspace.
+
+### How
+
+Three layers:
+
+**1. Per-workspace daemon supervisor** (`app/src/main/core/ruflo/http-daemon-supervisor.ts`, ~280 LOC). Modeled on the existing `MemoryMcpSupervisor` (per-workspace `Map<workspaceId, DaemonHandle>` + SIGTERM→SIGKILL drain + linear backoff respawn). Key implementation details:
+
+- **Port allocation**: `net.createServer().listen(0, '127.0.0.1', ...)` to obtain a free OS-allocated port BEFORE spawning, then pass the explicit port to `ruflo mcp start -t http -p <port> --host 127.0.0.1`. Avoids relying on Ruflo's own port-zero support.
+- **Binary detection**: pre-spawn `command -v ruflo` check. Missing binary → `spawn()` returns `null`, supervisor logs a warning, autowrite falls back to stdio entries (no regression vs v1.5.6).
+- **Health probe**: polls `GET /health` at exponential backoff (200 ms / 500 ms / 1 s / 2 s / 5 s steady-state). First 200-with-`{"status":"ok"}` → mark `'running'` + resolve `spawn()`. 10 s total timeout before declaring failed.
+- **Crash recovery**: linear backoff respawn (1.5 s / 4.5 s / 13.5 s). After 3 consecutive failures → mark `'down'`, emit `restarted(workspaceId, false)`. On respawn success → emit `restarted(workspaceId, true)`. Both events surface to the user via the bell notifications (kind `ruflo-daemon`, severity `warn` for success, `error` for give-up).
+- **Concurrency**: re-spawn for the same `workspaceId` returns the existing handle when status is `'running'`. No duplicate daemons.
+
+**2. `mcp-autowrite.ts` HTTP-mode writer** (`app/src/main/core/workspaces/mcp-autowrite.ts`, ~150 LOC delta). `writeWorkspaceMcpConfig(root, opts?)` now accepts an optional `{ port?: number }`. When a port is provided, writes HTTP entries for all 5 CLIs:
+
+- **Claude / Gemini / Kimi** (`mcpServers.ruflo`): `{ "url": "http://127.0.0.1:<port>/mcp" }` (URL alone implies HTTP per Claude's MCP schema; no `type` field).
+- **Codex TOML** (`[mcp_servers.ruflo]`): `transport = "http"` + `url = "..."`.
+- **OpenCode** (`mcp.ruflo`): `{ "type": "http", "url": "...", "enabled": true }`.
+
+When no port is provided (daemon spawn failed, autowrite disabled, etc.), writes stdio entries unchanged — backward-compatible fallback. **Self-heal works both directions**: stdio → HTTP on next workspace open (daemon running), HTTP → stdio if daemon stops.
+
+**3. Detection rule extension** (`isManagedRufloEntry()` + `isManagedOpencodeRufloEntry()`):
+
+```ts
+// stdio (v1.3.5+)
+entry.command === 'npx' → managed
+
+// HTTP (v1.6.0+)
+typeof entry.url === 'string'
+  && /^http:\/\/127\.0\.0\.1:\d+\/mcp$/.test(entry.url)
+  → managed
+```
+
+The regex enforces loopback-only (`127.0.0.1`) + plain HTTP + exact `/mcp` path. Non-loopback URLs, wrong paths, and HTTPS are correctly classified as user-managed and refused.
+
+### Restart UX (deviation from plan)
+
+The original plan called for a new `ruflo:daemon-restarted` event broadcast + bespoke renderer toast component. Implementation took a cleaner path: route restart notifications through the existing v1.4.9 `NotificationsManager`. Kind = `'ruflo-daemon'`. Severity = `'warn'` on successful respawn, `'error'` on give-up. Title + body explain the situation and tell the operator to retry their last MCP-using action if it appeared to hang. The user sees this in the bell drawer (already wired, already persistent, already deduped). Saves ~30 LOC of new renderer code + 1 event allowlist entry + lots of toast plumbing.
+
+### Known issues / deferred
+
+- **Concurrent-write race within daemon** (Agent C #7 in the brainstorm): the daemon itself doesn't serialize concurrent sqlite writes across Node's async event loop. 6 panes hitting the same daemon simultaneously can still race on file read-modify-write cycles inside `.swarm/memory.db`. **Significantly reduced** from the v1.5.6 multi-process race (6 stdio processes → 1 daemon = lower contention), but not eliminated. Target: upstream write-mutex PR to claude-flow as v1.7 work.
+- **Settings UI for daemon status** (v1.6.1): no current way to see "this workspace's Ruflo daemon: running on port X / PID Y / connections Z / restart". The data is available via `RufloHttpDaemonSupervisor.status()` / `.port()`; just needs a Settings tab. Operator can probe today via `curl http://127.0.0.1:<port>/health`.
+- **Multi-workspace global daemon mode** (v1.7+): Ruflo's HTTP transport has no per-request workspace routing today (it pins to `CLAUDE_FLOW_CWD` at startup). Per-workspace daemons are the only viable model until upstream adds routing.
+- **Daemon-restart pane disruption**: when the daemon restarts, in-flight MCP calls from CLI panes hard-fail (HTTP connection reset). The notification tells the operator to retry. A future enhancement would proxy MCP traffic through SigmaLink and transparently buffer requests across daemon restarts.
+
+### Combined main gate
+
+- tsc clean
+- vitest 100 files / 924 pass / 1 skip (+26 from v1.5.6 baseline: 13 supervisor + 13 autowrite HTTP-mode tests)
+- eslint 0 errors / 1 pre-existing warning (`use-session-restore.ts`)
+- build + electron compile clean
+- Playwright smoke e2e 36 s pass
+
+### Backward compatibility
+
+- Existing v1.5.x workspaces continue to work. On first open after upgrade:
+  - SigmaLink attempts daemon spawn
+  - If `ruflo` binary is on PATH → daemon spawns, autowrite rewrites stdio MCP entries → HTTP entries on disk
+  - If `ruflo` binary missing → spawn returns null, autowrite writes stdio entries (identical to v1.5.6)
+- Existing user-managed MCP entries (non-`npx`, non-loopback URL) → still detected as user-managed and refused with warning, never overwritten.
+- Cross-machine sync wire format: unchanged. No schema migration in v1.6.0.
+
+No schema migrations in v1.6.0.
+
 ## [1.5.6] - 2026-05-21
 
 v1.5.6 — emergency hotfix unmasking fast-exit binary errors that v1.5.5 surfaced as empty pane bodies.
