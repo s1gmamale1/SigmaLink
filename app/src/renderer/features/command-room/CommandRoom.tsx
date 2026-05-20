@@ -7,16 +7,10 @@
 // Cmd+Alt+<N> focus jumps. The legacy PaneStatusStrip was collapsed into
 // PaneHeader's provider-name tooltip; Stop moves to the right-click menu.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { FolderOpen, Plus, Square, Terminal as TerminalIcon } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,11 +27,9 @@ import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { WorktreeInfoBanner } from '@/renderer/components/WorktreeInfoBanner';
-import { SessionTerminal } from './Terminal';
 import { GridLayout } from './GridLayout';
-import { PaneHeader } from './PaneHeader';
-import { PaneSplash } from './PaneSplash';
-import { PaneFooter } from './PaneFooter';
+import { PaneShell } from './PaneShell';
+import { SplitGroupCell } from './SplitGroupCell';
 import type { AgentSession, Swarm } from '@/shared/types';
 
 const EMPTY_SESSIONS: AgentSession[] = [];
@@ -155,16 +147,8 @@ export function CommandRoom() {
   // latest state.sessionsByWorkspace projection.
   const cells = useMemo(() => groupSessionsIntoCells(sessions), [sessions]);
 
-  // BUG-V1.1-04-IPC — derive activeIndex from global state.activeSessionId
-  // so cross-pane jumps fired by Sigma dispatch echoes (or anywhere else
-  // that dispatches SET_ACTIVE_SESSION) update the focus ring + footer
-  // metadata without needing a local click. Falls back to 0 when the
-  // active id isn't in the current pane list (e.g. workspace just
-  // switched, session not yet hydrated).
-  //
-  // v1.4.3 #06 — `activeIndex` now indexes into `cells` (one entry per grid
-  // cell), not into the raw sessions list. A split sub-pane's activeIndex is
-  // the index of its parent cell.
+  // BUG-V1.1-04-IPC / v1.4.3 #06 — activeIndex indexes into `cells`, not raw
+  // sessions. Falls back to 0 when activeSessionId isn't in this workspace.
   const activeIndex = useMemo(() => {
     if (cells.length === 0) return 0;
     if (!activeSessionId) return 0;
@@ -187,10 +171,7 @@ export function CommandRoom() {
     }
   }, [sessions, activeSessionId, dispatch]);
 
-  // BUG-V1.1-04-IPC — listen for cross-pane focus requests at the room
-  // level so the active-index ring + footer metadata sync alongside the
-  // xterm focus call in Terminal.tsx. Sigma dispatch echoes fire this
-  // event automatically; the prior implementation only updated xterm.
+  // BUG-V1.1-04-IPC — cross-pane focus sync via sigma:pty-focus events.
   useEffect(() => {
     const onFocusReq = (ev: Event) => {
       const detail = (ev as CustomEvent<{ sessionId?: string }>).detail;
@@ -204,11 +185,7 @@ export function CommandRoom() {
     return () => window.removeEventListener('sigma:pty-focus', onFocusReq);
   }, [sessions, activeSessionId, dispatch]);
 
-  // v1.4.2 packet-12 — global Esc listener gated on focusedPaneId. Mounted
-  // only while a pane is fullscreen so the rest of the app (e.g. modals,
-  // command palette) keeps receiving Esc events normally when no pane is
-  // focused. `keydown` instead of `keyup` so the dispatch fires before the
-  // event would otherwise bubble to a focused xterm.
+  // v1.4.2 packet-12 — global Esc exits fullscreen when a pane is focused.
   useEffect(() => {
     if (!focusedPaneId) return;
     const onKey = (ev: KeyboardEvent) => {
@@ -220,9 +197,7 @@ export function CommandRoom() {
     return () => window.removeEventListener('keydown', onKey);
   }, [focusedPaneId, dispatch]);
 
-  // v1.4.4 P6 — dev-only empty-state diagnostic. Moved from the render body
-  // (where it fired on every re-render) into a mount-only useEffect so it
-  // emits at most once per CommandRoom mount, not on every sessions update.
+  // v1.4.4 P6 — dev-only empty-state diagnostic (mount-only).
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production' && sessions.length === 0 && activeWorkspace) {
       console.warn(
@@ -314,12 +289,7 @@ export function CommandRoom() {
     }
   }
 
-  // v1.4.3 #06 — Pane Split. Sub-pane shares the parent's worktree (see
-  // controller-level worktree-share rationale). The new session is dispatched
-  // into state via SPLIT_PANE so the parent + child get their split_group_id
-  // annotation in one render pass — avoids the one-frame flash where the
-  // child would briefly render as a standalone tile before the next
-  // dispatch grouped them.
+  // v1.4.3 #06 — SPLIT_PANE dispatch annotates parent + child in one render pass.
   async function handleSplitPane(
     parent: AgentSession,
     direction: 'horizontal' | 'vertical',
@@ -331,14 +301,9 @@ export function CommandRoom() {
         direction,
         provider: providerId,
       });
-      // The RPC already persisted the split annotation on disk; the reducer
-      // dispatch mirrors that into the in-memory sessions list so the
-      // renderer's grouping logic sees both halves in one render.
       const groupId = newSession.splitGroupId;
       if (!groupId) {
-        // Defensive: the controller always returns the annotated session,
-        // but if a build mismatch ever drops it we fall back to a plain
-        // session add so the pane at least appears.
+        // Defensive fallback — controller should always return annotated session.
         dispatch({ type: 'ADD_SESSIONS', sessions: [newSession] });
         return;
       }
@@ -359,16 +324,12 @@ export function CommandRoom() {
     }
   }
 
-  // v1.4.3 #06 — Toggle the minimised flag. PTY keeps running; only the
-  // rendered chrome shrinks to a header strip. The RPC is fire-and-forget
-  // for the success case (state is mirrored locally); on failure we revert
-  // the optimistic dispatch.
+  // v1.4.3 #06 — Optimistic minimise with RPC revert on failure.
   function handleToggleMinimise(session: AgentSession): void {
     const next = !session.minimised;
     dispatch({ type: 'MINIMISE_PANE', paneId: session.id, minimised: next });
     void rpc.swarms.minimisePane({ paneId: session.id, minimised: next }).catch((err) => {
-      // Revert on RPC failure so the on-disk state and renderer agree.
-      dispatch({ type: 'MINIMISE_PANE', paneId: session.id, minimised: !next });
+      dispatch({ type: 'MINIMISE_PANE', paneId: session.id, minimised: !next }); // revert
       toast.error('Could not minimise pane', {
         description: err instanceof Error ? err.message : String(err),
       });
@@ -467,7 +428,7 @@ export function CommandRoom() {
             if (cell.length === 1) {
               const session = cell[0]!;
               return (
-                <PaneCell
+                <PaneShell
                   session={session}
                   paneIndex={ctx.index + 1}
                   providers={providers}
@@ -517,362 +478,6 @@ export function CommandRoom() {
           }}
         />
       </div>
-    </div>
-  );
-}
-
-// v1.4.8 — Max number of files allowed in a single Finder multi-drop.
-const MAX_DROP_FILES = 10;
-
-/**
- * Inserts `@<path> ` into the PTY for `sessionId`. Shows a toast when the
- * pane is not running instead of silently no-opping (the registry already
- * swallows unknown session writes without throwing).
- */
-async function insertMention(sessionId: string, path: string, sessionStatus: AgentSession['status']): Promise<void> {
-  if (sessionStatus !== 'running') {
-    toast.warning('Pane is not running', { description: 'Start the pane before dropping files.' });
-    return;
-  }
-  await rpc.pty.write(sessionId, `@${path} `);
-}
-
-function PaneCell({
-  session,
-  paneIndex,
-  providers,
-  workspaceRootPath,
-  onFocus,
-  onRemove,
-  onStop,
-  onSplit,
-  onToggleMinimise,
-  isFullscreen,
-  onToggleFullscreen,
-  /**
-   * v1.4.3 #06 — When the pane is in a split group, the Split-H/V icons are
-   * disabled (max 2-level deep in v1.4.x). The CommandRoom passes this true
-   * for sub-panes via `SplitGroupCell`. Defaults to false for the standalone
-   * pane case.
-   */
-  inSplitGroup = false,
-}: {
-  session: AgentSession;
-  paneIndex: number;
-  providers: { id: string; name: string }[];
-  /** v1.4.8 — workspace root used to compute relative paths for Finder drops. */
-  workspaceRootPath: string;
-  onFocus: () => void;
-  onRemove: () => void;
-  onStop: () => void;
-  onSplit: (direction: 'horizontal' | 'vertical', providerId: string) => void;
-  onToggleMinimise: () => void;
-  isFullscreen: boolean;
-  onToggleFullscreen: () => void;
-  inSplitGroup?: boolean;
-}) {
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [flashDrop, setFlashDrop] = useState(false);
-
-  const errored = session.status === 'error';
-  const exited = session.status === 'exited';
-  const hasWorktree = !!session.worktreePath;
-
-  // v1.4.8 — Accept drags from the IDE file-tree (custom MIME) or Finder (Files).
-  function handleDragOver(e: DragEvent<HTMLDivElement>): void {
-    const hasSigmaFile = e.dataTransfer.types.includes('application/sigmalink-file');
-    const hasFiles = e.dataTransfer.types.includes('Files');
-    if (hasSigmaFile || hasFiles) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      if (!isDragOver) setIsDragOver(true);
-    }
-  }
-
-  function handleDragLeave(e: DragEvent<HTMLDivElement>): void {
-    // Only clear when the pointer leaves the pane body entirely, not just a child.
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-      setIsDragOver(false);
-    }
-  }
-
-  function handleDrop(e: DragEvent<HTMLDivElement>): void {
-    e.preventDefault();
-    setIsDragOver(false);
-    setFlashDrop(true);
-    setTimeout(() => setFlashDrop(false), 200);
-
-    const sigmaRaw = e.dataTransfer.getData('application/sigmalink-file');
-    if (sigmaRaw) {
-      try {
-        const payload = JSON.parse(sigmaRaw) as { absolutePath?: string; relativePath?: string };
-        const path = payload.relativePath ?? payload.absolutePath ?? '';
-        if (path) {
-          void insertMention(session.id, path, session.status);
-        }
-      } catch {
-        /* malformed payload — ignore */
-      }
-      return;
-    }
-
-    // Finder / external drop — use window.sigma.getPathForFile for each File.
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length === 0) return;
-    if (files.length > MAX_DROP_FILES) {
-      toast.warning(`Dropping ${files.length} files — capped at ${MAX_DROP_FILES}`, {
-        description: 'Only the first 10 files were inserted.',
-      });
-    }
-    const capped = files.slice(0, MAX_DROP_FILES);
-    const paths: string[] = [];
-    for (const file of capped) {
-      const absPath = window.sigma.getPathForFile(file);
-      if (!absPath) continue;
-      const sep = absPath.includes('\\') && !absPath.startsWith('/') ? '\\' : '/';
-      const prefix = workspaceRootPath.endsWith(sep)
-        ? workspaceRootPath
-        : workspaceRootPath + sep;
-      const rel = absPath.startsWith(prefix) ? absPath.slice(prefix.length) : absPath;
-      paths.push(rel);
-    }
-    if (paths.length === 0) return;
-    const mention = paths.join(' @');
-    void insertMention(session.id, mention, session.status);
-  }
-
-  function handleReveal() {
-    if (!session.worktreePath) return;
-    void rpc.app.revealInFolder(session.worktreePath).catch(() => undefined);
-  }
-
-  function handleOpenShell() {
-    if (!session.worktreePath) return;
-    void rpc.app.openShell(session.worktreePath)
-      .then(() => toast.success('Terminal opened', { description: session.worktreePath! }))
-      .catch((err) => toast.error('Failed to open terminal', { description: err instanceof Error ? err.message : String(err) }));
-  }
-
-  // V1.1.4 Step 4 — Stop functionality lives in the right-click context menu
-  // now that PaneStatusStrip is gone and the header only carries Close. The
-  // ContextMenu wraps just the body so right-clicks on the header chrome
-  // (with its own buttons) don't fight Radix for the event.
-  //
-  // v1.4.3 #06 — A minimised pane collapses to its header strip only (the
-  // body is hidden via display:none). The SessionTerminal stays mounted so
-  // the terminal-cache (v1.4.2 #03) preserves scrollback and the PTY keeps
-  // emitting bytes — clicking the header restores the body view.
-  const minimised = !!session.minimised;
-  return (
-    <div className="sl-pane-enter flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <PaneHeader
-        session={session}
-        paneIndex={paneIndex}
-        providers={providers}
-        onFocus={onFocus}
-        onClose={onRemove}
-        onSplit={onSplit}
-        onToggleMinimise={onToggleMinimise}
-        canSplit={!inSplitGroup}
-        isMinimised={minimised}
-        isFullscreen={isFullscreen}
-        onToggleFullscreen={onToggleFullscreen}
-      />
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div
-            className={[
-              'relative flex min-h-0 flex-1 flex-col',
-              isDragOver && 'ring-2 ring-inset ring-[hsl(var(--ring))]',
-              flashDrop && 'bg-[hsl(var(--ring)/0.08)]',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            style={minimised ? { display: 'none' } : undefined}
-            data-pane-minimised={minimised ? 'true' : undefined}
-            data-dragover={isDragOver ? 'true' : undefined}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
-            <div className="relative min-h-0 flex-1">
-              {errored ? (
-                <div className="flex h-full flex-col items-start justify-start gap-2 p-3 text-xs">
-                  <div className="font-medium text-destructive">Failed to launch</div>
-                  <div className="whitespace-pre-wrap break-words text-muted-foreground">
-                    {session.error ?? 'unknown error'}
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <PaneSplash session={session} />
-                  <SessionTerminal sessionId={session.id} />
-                </>
-              )}
-            </div>
-            <PaneFooter session={session} />
-          </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onSelect={handleReveal} disabled={!hasWorktree}>
-            <FolderOpen className="h-3.5 w-3.5" />
-            <span>Reveal worktree in Finder</span>
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={handleOpenShell} disabled={!hasWorktree}>
-            <TerminalIcon className="h-3.5 w-3.5" />
-            <span>Open shell here</span>
-          </ContextMenuItem>
-          <ContextMenuItem
-            onSelect={onStop}
-            disabled={exited || errored}
-            variant="destructive"
-          >
-            <Square className="h-3.5 w-3.5" />
-            <span>Stop</span>
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={onRemove} variant="destructive">
-            <span>Close pane</span>
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    </div>
-  );
-}
-
-// v1.4.3 #06 — Renders the two halves of a split group in a single grid
-// cell, separated by a sub-divider. Each sub-pane is its own
-// <SessionTerminal> (and its own terminal-cache entry) so the cache handles
-// their lifecycles transparently — no special-casing needed there.
-//
-// The sub-divider resizes the two halves with a simple ratio state; the
-// outer GridLayout's divider math is unaffected because the split group
-// occupies one outer grid cell.
-function SplitGroupCell({
-  panes,
-  paneIndex,
-  providers,
-  focusedPaneId,
-  workspaceRootPath,
-  onActivate,
-  onRemove,
-  onStop,
-  onToggleMinimise,
-  onToggleFullscreen,
-}: {
-  panes: AgentSession[];
-  paneIndex: number;
-  providers: { id: string; name: string }[];
-  focusedPaneId: string | null;
-  /** v1.4.8 — forwarded to PaneCell for Finder-drop path normalisation. */
-  workspaceRootPath: string;
-  onActivate: (id: string) => void;
-  onRemove: (s: AgentSession) => void;
-  onStop: (s: AgentSession) => void;
-  onToggleMinimise: (s: AgentSession) => void;
-  onToggleFullscreen: (id: string) => void;
-}) {
-  const direction = panes[0]?.splitDirection ?? 'horizontal';
-  const groupId = panes[0]?.splitGroupId ?? `split-${paneIndex}`;
-  // Sub-grid divider state — fractional split between the two halves.
-  // Defaults to 0.5 each. Min 0.15 to mirror GridLayout's MIN_FRAC.
-  const [ratio, setRatio] = useState(0.5);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const startSubDrag = useCallback(
-    (ev: React.PointerEvent<HTMLDivElement>) => {
-      ev.preventDefault();
-      const container = containerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const total = direction === 'vertical' ? rect.width : rect.height;
-      const start = direction === 'vertical' ? ev.clientX : ev.clientY;
-      const initial = ratio;
-      let pendingRaf: number | null = null;
-      let latest: number | null = null;
-      const flush = () => {
-        if (latest !== null) setRatio(latest);
-        latest = null;
-        pendingRaf = null;
-      };
-      document.body.dataset.dragging = 'true';
-      const move = (e: PointerEvent) => {
-        const delta = (direction === 'vertical' ? e.clientX : e.clientY) - start;
-        const dFrac = delta / total;
-        latest = Math.min(0.85, Math.max(0.15, initial + dFrac));
-        if (pendingRaf === null) {
-          pendingRaf = requestAnimationFrame(flush);
-        }
-      };
-      const up = () => {
-        window.removeEventListener('pointermove', move);
-        window.removeEventListener('pointerup', up);
-        if (pendingRaf !== null) {
-          cancelAnimationFrame(pendingRaf);
-          pendingRaf = null;
-          if (latest !== null) setRatio(latest);
-          latest = null;
-        }
-        delete document.body.dataset.dragging;
-      };
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', up);
-    },
-    [direction, ratio],
-  );
-
-  // CSS grid template — 2 cols for vertical split (side-by-side) or 2 rows
-  // for horizontal split (top/bottom). The brief uses "horizontal" to mean
-  // "split the pane horizontally → two rows" — matches typical terminal
-  // multiplexer semantics.
-  const gridStyle =
-    direction === 'vertical'
-      ? { gridTemplateColumns: `${ratio}fr ${1 - ratio}fr` }
-      : { gridTemplateRows: `${ratio}fr ${1 - ratio}fr` };
-
-  return (
-    <div
-      ref={containerRef}
-      className="relative grid h-full min-h-0 w-full min-w-0 gap-1"
-      style={gridStyle}
-      data-split-group={groupId}
-      data-split-direction={direction}
-    >
-      {panes.map((p, idx) => (
-        <div
-          key={p.id}
-          className="relative min-h-0 min-w-0 overflow-hidden rounded-md border border-border bg-card"
-          onMouseDown={() => onActivate(p.id)}
-        >
-          <PaneCell
-            session={p}
-            paneIndex={paneIndex}
-            providers={providers}
-            workspaceRootPath={workspaceRootPath}
-            onFocus={() => onActivate(p.id)}
-            onRemove={() => onRemove(p)}
-            onStop={() => onStop(p)}
-            onSplit={() => undefined /* disabled in split sub-panes */}
-            onToggleMinimise={() => onToggleMinimise(p)}
-            isFullscreen={focusedPaneId === p.id}
-            onToggleFullscreen={() => onToggleFullscreen(p.id)}
-            inSplitGroup
-          />
-          {idx === 0 ? (
-            // Sub-divider sits at the boundary between the two halves.
-            // Positioned absolutely so it doesn't disturb the sub-grid math.
-            <div
-              onPointerDown={startSubDrag}
-              className={
-                direction === 'vertical'
-                  ? 'absolute right-0 top-0 z-30 h-full w-1.5 translate-x-1/2 cursor-col-resize hover:bg-[hsl(var(--ring)/0.4)]'
-                  : 'absolute bottom-0 left-0 z-30 h-1.5 w-full translate-y-1/2 cursor-row-resize hover:bg-[hsl(var(--ring)/0.4)]'
-              }
-              role="separator"
-              aria-label={`Resize split ${direction === 'vertical' ? 'column' : 'row'}`}
-            />
-          ) : null}
-        </div>
-      ))}
     </div>
   );
 }

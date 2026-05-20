@@ -350,20 +350,9 @@ describe('CommandRoom — v1.4.8 drag-drop file @-mention', () => {
 
   /** Find the pane body div that carries onDragOver/onDrop. */
   function findPaneBody(): Element | null {
-    // The pane body has class tokens: 'relative flex min-h-0 flex-1 flex-col'
-    // and is not a split-group grid. We match by the subset of class tokens.
-    for (const div of document.querySelectorAll('div')) {
-      const cls = div.className;
-      if (
-        cls.includes('min-h-0') &&
-        cls.includes('flex-1') &&
-        cls.includes('flex-col') &&
-        cls.includes('relative')
-      ) {
-        return div;
-      }
-    }
-    return null;
+    // v1.5.1-A: PaneShell sets data-testid="pane-body" — use stable testid
+    // instead of brittle Tailwind class-token matching.
+    return document.querySelector('[data-testid="pane-body"]');
   }
 
   /**
