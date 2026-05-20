@@ -1,0 +1,120 @@
+SigmaLink v1.5.5 — 2026-05-21
+=============================
+
+v1.5.5 — single-cluster UX-correlation feature plus a 2-cycle Opus
+reviewer round that caught a critical resume-pipeline regression
+mid-flight.
+
+Worktree paths now visually correlate with agent_sessions.id
+----------------------------------------------------------------
+
+What changed: each pane's worktree directory name now ends in the
+first 8 hex characters of that pane's agent_sessions.id, instead of a
+fresh random 8-char hash.
+
+Before (v1.5.4 and earlier):
+    sigmalink/codex/pane-0-ef30d4c8
+    sigmalink/codex/pane-1-a02bef74
+
+After (v1.5.5+):
+    sigmalink/codex/pane-0-<first 8 chars of agent_sessions.id>
+    sigmalink/codex/pane-1-<first 8 chars of agent_sessions.id>
+
+You can now:
+- `cd ~/Library/Application\ Support/SigmaLink/worktrees/.../sigmalink/<provider>/`
+- `ls` to see which pane each worktree belongs to
+- `sqlite3` the DB, query `agent_sessions`, and immediately see the
+  correlation: `id[0:8]` matches the trailing 8 chars of `worktree_path`
+
+This is a UX improvement only. The DB layer always had full correlation
+via `pane_index` + `worktree_path` + `id`; the filesystem just didn't
+surface it.
+
+🚨 Opus reviewer caught a critical resume-pipeline regression
+------------------------------------------------------------
+
+The first iteration of the implementation threaded the pre-allocated
+session UUID through `resolveAndSpawn` via the existing `sessionId`
+parameter. The reviewer flagged that `sessionId` is the resume sentinel
+throughout the codebase:
+
+- `providers/launcher.ts:195` `shouldPreAssign` returns false when
+  `opts.sessionId` is set, suppressing the v1.2.8 `--session-id <uuid>`
+  injection for fresh Claude/Gemini spawns
+- `pty/registry.ts:143,195` `isResume = opts.sessionId !== undefined`
+  suppresses `onPostSpawnCapture` for codex/kimi/opencode disk-scan
+
+If shipped unfixed, every fresh pane would have persisted
+`agent_sessions.external_session_id = null`, silently breaking
+resume-by-id for ALL 5 providers.
+
+The fix (applied in the same PR before merge):
+- Added orthogonal `preassignedSessionId?: string` field to
+  `ResolveAndSpawnOpts` and `PtyRegistry.create`
+- `sessionId` field keeps its resume-sentinel semantics
+- `preassignedSessionId` is used ONLY as the row id; never triggers
+  `isResume = true`
+- `id = sessionId ?? preassignedSessionId ?? randomUUID()` — resume id
+  wins when both set
+- Callers pass `preassignedSessionId: <uuid>` for fresh spawns;
+  `sessionId: <uuid>` only for actual resumes
+
+Both capture pipelines verified post-fix:
+- Pre-assign (Claude/Gemini) `--session-id <uuid>` injection restored
+- Disk-scan (codex/kimi/opencode) `onPostSpawnCapture` restored
+
+11 new test cases (3 git-ops + 4 worktree + 2 registry + 2 launcher)
+cover both the correlation feature and the resume-pipeline invariants.
+
+Investigation summary
+---------------------
+
+Two parallel Explore agents audited the change for backward-compat
+issues:
+
+- No production code parses the worktree-path suffix shape
+- No test factory hardcodes a specific suffix format
+- v1.5.4 worktrees on disk are safe — they keep their random-hash
+  suffixes; v1.4.3 #04 orphan cleanup eventually removes stale ones
+- Sync engine treats `worktree_path` per-machine + path-anonymization
+  handles cross-machine — new format actually improves cross-sync
+  determinism
+- Entropy: 4.3e9 states (vs prior 2.8e12) — ample for typical 2-20
+  panes per workspace; retry loop regenerates sessionId on rare
+  collision
+
+Combined main gate
+------------------
+
+- tsc clean
+- eslint 0 errors / 1 pre-existing warning (use-session-restore.ts)
+- vitest 99 files / 897 pass / 1 skip (+11 from v1.5.4 baseline)
+- build + electron-builder clean
+
+Backward-compat
+---------------
+
+- Existing v1.5.4-and-earlier worktrees on disk: NEVER renamed; keep
+  random-hash suffixes
+- v1.4.3 #04 orphan-cleanup removes stale ones naturally on workspace
+  open (7-day grace period)
+- No DB schema change
+- No data loss
+
+Deferred to v1.5.6
+------------------
+
+- Informational reviewer observation: `isResume=false` now fires
+  `onPostSpawnCapture` on resumes too. Safe due to existing NULL guard
+  and DISK_SCAN_PROVIDERS exclusion. Could be cleaner with an explicit
+  `isResume: boolean` registry field. Not a regression, just
+  efficiency.
+- Concurrent-spawn `(workspace_id, pane_index)` uniqueness gap
+  (pre-existing, surfaced by Cluster B audit during v1.5.5
+  investigation)
+- Hardware sample-rate detection from voice-mac native binding
+- Terminal scrollback persistence across app restart (design
+  discussion)
+- V3-W15-006 dogfood (human QA only)
+
+No schema migrations in v1.5.5.

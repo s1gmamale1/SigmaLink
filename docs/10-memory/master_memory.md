@@ -2308,6 +2308,74 @@ User screenshot showed fresh "SessionStart:startup hook error" output on every C
 - WISHLIST.md remains empty for new feature work.
 - v1.5.5 backlog (in WISHLIST.md): hardware sample-rate detection from voice-mac native binding; stronger resampler bounds-safety test; terminal scrollback persistence across app restart (design discussion); V3-W15-006 dogfood (human-only).
 
+## Phase 42 — v1.5.5 session-id-correlated worktree paths + reviewer-caught resume regression (2026-05-21)
+
+Single-cluster UX-correlation feature triggered by user feedback (v1.5.3/v1.5.4 dogfood about opaque worktree-path hashes). Two-cycle Opus review caught a critical resume-pipeline regression in the initial implementation.
+
+### Investigation phase (plan mode)
+
+User invoked `/ultraplan` with `ultrathink`. Two parallel Explore agents dispatched (worktree-path pipeline trace + backward-compat audit). Key findings:
+
+- **Timing constraint**: `agent_sessions.id` allocated AFTER worktree creation (`registry.ts:142` vs `launcher.ts:122`). To make the feature work, session UUID had to be pre-allocated at top of spawn pipeline.
+- **Backward-compat**: SAFE across all 6 audited surfaces (path parsers, resume launcher, orphan cleanup, disk-scan, claude-resume-bridge, sync engine). No production parser depends on suffix shape.
+- **Entropy reduction**: 8 hex chars (4.3e9 states) vs prior 8 base-36 chars (2.8e12 states), 650× reduction. Acceptable for typical 2-20 panes per workspace; retry regenerates on collision.
+- **Risk**: retry loop becomes problematic if sessionId is fixed. Fix: regenerate sessionId on collision; return final sessionId in WorktreePool.create result.
+
+Plan approved via ExitPlanMode. Dispatched Sonnet `coder` agent.
+
+### Cluster A — initial implementation (PR #69)
+
+- `generateBranchName(role, hint, sessionId?)` — extended signature; sessionId.slice(0,8) suffix when provided, else random fallback
+- `WorktreePool.create({ ..., sessionId })` — new input/output sessionId; retry regenerates on collision
+- `executeLaunchPlan` + `materializeRosterAgent` — pre-allocate at top; pass through
+
+### Opus reviewer-pr69: **REQUEST-CHANGES**
+
+Critical finding: PR threaded `preallocSessionId` through `sessionId` field of `resolveAndSpawn`. But `opts.sessionId` is the RESUME SENTINEL:
+- `providers/launcher.ts:195` `shouldPreAssign` returns false when sessionId set → killed `--session-id` injection for Claude/Gemini
+- `pty/registry.ts:143,195` `isResume = sessionId !== undefined` → suppressed `onPostSpawnCapture` for codex/kimi/opencode
+
+Unfixed, every fresh pane post-merge would have persisted `external_session_id = null` → broken resume-by-id for ALL 5 providers. The feature would have shipped while resume pipeline collapsed silently.
+
+### Fix cycle — decoupling (Sonnet fix-agent on same PR branch)
+
+- Added `preassignedSessionId?: string` field orthogonal to `sessionId`
+- `id = sessionId ?? preassignedSessionId ?? randomUUID()` (resume id wins precedence)
+- `isResume` line UNCHANGED — still gates on sessionId only
+- Callers pass `preassignedSessionId` for fresh spawns; `sessionId` only for actual resumes
+- 4 new test cases (2 in registry.test.ts, 2 in providers/launcher.test.ts) verify both paths
+
+### Opus reviewer-pr69-fix: **APPROVE**
+
+All 8 verification checks pass:
+- registry.ts precedence + isResume invariant
+- providers/launcher.ts shouldPreAssign untouched (still gates on sessionId)
+- callers thread preassignedSessionId correctly
+- agent_sessions.id ↔ worktree_path suffix correlation holds end-to-end (rec.id = preallocSessionId for fresh spawns, equals first 8 chars of worktree suffix)
+- onPostSpawnCapture restored for fresh spawns (codex/kimi/opencode disk-scan works)
+- --session-id injection restored for fresh spawns (Claude/Gemini)
+
+Informational note (non-blocking, deferred to v1.5.6): isResume=false now fires onPostSpawnCapture on resume path too. Safe due to NULL guard + DISK_SCAN_PROVIDERS exclusion; just wasted disk reads. Could be cleaner with explicit `isResume: boolean` field.
+
+### Combined main gate
+
+- tsc clean
+- eslint 0 errors / 1 pre-existing warning
+- vitest **99 files / 897 pass / 1 skip** (+11 from v1.5.4 baseline of 97/886)
+- build + electron-builder clean
+
+### Lessons logged
+
+- **Two-cycle Opus reviewer pattern works at scale** — a single high-rigor review caught what would have been a 5-provider resume-pipeline regression. The cost of one round-trip (~25 min) prevented a silent production bug that would have affected every new pane.
+- **Sentinel-field overloading is a hidden hazard** — `opts.sessionId` was doing two jobs (resume target + DB id). When we tried to use it for a third (visual correlation suffix), the overlap collapsed. Orthogonal fields > overloaded fields. Note for future architecture: audit `opts.X` fields that gate behavioral flags before threading them with new semantics.
+- **Pre-allocation can be safe IF you respect existing sentinels** — the fix decoupled allocation from resume semantics cleanly. No DB schema change, no breaking change, retry-safe.
+- **Plan-mode + Explore agents + Plan-mode-approved → dispatch → reviewer-cycle is now the established pattern for non-trivial single-cluster changes**. ~3hr total wall clock with 2 review iterations on a real architectural change.
+
+### Wishlist post-v1.5.5
+
+- WISHLIST.md remains empty for new feature work.
+- v1.5.6 backlog: isResume explicit field on registry input (reviewer non-blocking observation); concurrent-spawn (workspace_id, pane_index) uniqueness gap (pre-existing, surfaced by audit); hardware sample-rate detection; scrollback persistence; V3-W15-006 dogfood.
+
 
 
 3 parallel Sonnet sub-agent clusters cleared 9 items from the v1.5.2 backlog in autonomous mode. The Opus 4.7 reviewer on Cluster C uncovered + confirmed a CRITICAL v1.5.0 production regression that's now fixed in this release: the entire `rpc.sync.*` IPC surface was missing from the preload `CHANNELS` allowlist, making cross-machine sync (the headline v1.5.0 feature) unreachable from the renderer UI since v1.5.0 shipped. **ZERO REQUEST-CHANGES across all 3 PRs.**

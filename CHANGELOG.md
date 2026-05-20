@@ -4,6 +4,79 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-05-21
+
+v1.5.5 — single-cluster UX-correlation feature with **2-cycle Opus reviewer round** that caught a critical resume-pipeline regression mid-flight.
+
+### Worktree paths now visually correlate with `agent_sessions.id`
+
+User feedback (v1.5.3/v1.5.4 dogfood): worktree paths like `sigmalink/codex/pane-0-ef30d4c8` had a random 8-char suffix that didn't visually tie to the session row in `agent_sessions`. Inspecting `~/Library/Application Support/SigmaLink/worktrees/` was opaque.
+
+**v1.5.5 change**: pre-allocate the session UUID at the top of the spawn pipeline (in `executeLaunchPlan` and `materializeRosterAgent`); pass it through both the worktree creation AND the PTY registry. New format: `sigmalink/<provider>/pane-<N>-<sessionid8>` where `<sessionid8>` is the first 8 hex chars of `agent_sessions.id`.
+
+After upgrading, you can:
+```bash
+sqlite3 ~/Library/Application\ Support/SigmaLink/sigmalink.db \
+  "SELECT id, pane_index, worktree_path FROM agent_sessions ORDER BY pane_index"
+```
+…and see that each row's `id[0:8]` matches the trailing 8 chars of its `worktree_path`. Filesystem navigation (`cd ~/Library/Application\ Support/SigmaLink/worktrees/.../sigmalink/<provider>/`) now lets you correlate pane → session at a glance.
+
+### 🚨 Opus reviewer caught critical resume-pipeline regression in initial PR
+
+The first iteration of PR #69 passed `sessionId: preallocSessionId` through `resolveAndSpawn` → `PtyRegistry.create`. But `opts.sessionId` is the **resume sentinel** throughout the codebase:
+- `providers/launcher.ts:195` `shouldPreAssign` returns false when `opts.sessionId` is set → killed the v1.2.8 `--session-id <uuid>` injection for fresh Claude/Gemini spawns
+- `pty/registry.ts:143,195` `isResume = opts.sessionId !== undefined` → suppressed `onPostSpawnCapture` for codex/kimi/opencode disk-scan path
+
+**Net effect of the unfixed version**: every fresh pane post-merge would have persisted `agent_sessions.external_session_id = null`, silently breaking resume-by-id for ALL 5 providers. The visible correlation feature would have shipped while the underlying resume pipeline collapsed.
+
+**Fix** (decoupling, applied in same PR): added orthogonal `preassignedSessionId?: string` field to `ResolveAndSpawnOpts` + `PtyRegistry.create`. The `sessionId` field keeps its resume-sentinel semantics; the new field is used ONLY as the row id and never triggers `isResume = true`. Per-component:
+- `pty/registry.ts:142-143`: `id = sessionId ?? preassignedSessionId ?? randomUUID()` (precedence: resume id wins); `isResume` line unchanged (`sessionId !== undefined` only).
+- `providers/launcher.ts:195` `shouldPreAssign()` unchanged — still gates on `sessionId` only. Claude/Gemini `--session-id` injection restored on fresh spawns.
+- `workspaces/launcher.ts` + `swarms/factory-spawn.ts`: callers pass `preassignedSessionId: <preallocUuid>` instead of `sessionId: <preallocUuid>`.
+
+Both pre-assign (Claude/Gemini) AND disk-scan (codex/kimi/opencode) external-session-id capture pipelines verified working post-fix via 4 new test cases.
+
+### Investigation prompted by user feedback
+
+Two parallel Explore agents (worktree-path pipeline trace + backward-compat audit) confirmed:
+- No production code parses worktree-path suffix shape (all callers treat as opaque)
+- No test factory hardcodes a specific suffix format
+- v1.5.4 worktrees on disk are SAFE — they keep their random-hash suffixes; v1.4.3 #04 orphan cleanup eventually removes stale ones
+- Sync engine treats `worktree_path` per-machine + path-anonymization handles cross-machine — new format actually improves cross-sync determinism
+- Entropy: 8 hex chars (4.3e9 states) vs prior 8 base-36 chars (2.8e12 states). 650× reduction; still ample for typical 2-20 panes per workspace. Retry loop regenerates sessionId on rare collision.
+
+### Files touched
+
+- `app/src/main/core/git/git-ops.ts` — `generateBranchName(role, hint, sessionId?)` extended signature
+- `app/src/main/core/git/worktree.ts` — `WorktreePool.create({ ..., sessionId })`; returns `sessionId` on success; retry regenerates on collision
+- `app/src/main/core/workspaces/launcher.ts` — pre-allocate at top of per-pane loop; pass via `preassignedSessionId`
+- `app/src/main/core/swarms/factory-spawn.ts` — same pattern for swarm roster materialization
+- `app/src/main/core/providers/launcher.ts` — `ResolveAndSpawnOpts` adds `preassignedSessionId?`; forwarded to registry
+- `app/src/main/core/pty/registry.ts` — accepts `preassignedSessionId?`; `id` derivation falls through; `isResume` unchanged
+- New tests: `git-ops.test.ts` (3 cases), `worktree.test.ts` (4 cases incl. retry-regen), `registry.test.ts` (2 cases), `providers/launcher.test.ts` (2 cases) — 11 new tests total
+
+### Combined main gate
+
+- tsc clean
+- eslint 0 errors / 1 pre-existing warning
+- vitest **99 files / 897 pass / 1 skip** (+11 from v1.5.4 baseline of 97/886)
+- build + electron-builder clean
+
+### Backward-compat
+
+- Existing v1.5.4-and-earlier worktrees on disk keep their random-hash suffixes — NEVER renamed
+- v1.4.3 #04 orphan-cleanup removes stale ones naturally on workspace open (7-day grace)
+- No DB schema change
+- No data loss
+
+### Deferred to v1.5.6
+
+- Informational reviewer observation: a few wasted disk reads on codex/kimi/opencode RESUME path because `isResume=false` now fires `onPostSpawnCapture` even on resumes. Safe due to `external_session_id IS NULL` guard in `persistExternalSessionId` (rpc-router.ts:200-213) and `DISK_SCAN_PROVIDERS` exclusion. Could be cleaner with an explicit `isResume: boolean` registry field. Not a regression of behavior, just efficiency.
+- Concurrent-spawn `(workspace_id, pane_index)` uniqueness gap surfaced by Cluster B's audit during v1.5.5 investigation — pre-existing, not introduced by this change; separate refactor.
+- Hardware sample-rate detection from voice-mac native binding (carry-over from v1.5.4 backlog)
+- Terminal scrollback persistence across app restart (carry-over)
+- V3-W15-006 dogfood (human QA only)
+
 ## [1.5.4] - 2026-05-20
 
 v1.5.4 — 3-cluster defensive-infrastructure packet + **ANOTHER mid-rollup hotfix for a renderer-state-hydration class regression caught by a user dogfood report**. 3 Opus 4.7 reviewers cleared all PRs with ZERO REQUEST-CHANGES.
