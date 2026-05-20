@@ -298,6 +298,8 @@ function buildRouter() {
     (sessionId, data) => broadcast('pty:data', { sessionId, data }),
     (sessionId, exitCode, signal) => broadcast('pty:exit', { sessionId, exitCode, signal }),
     {
+      // v1.5.6 — 3s grace window prevents fast-exit binaries from clearing the ring buffer before the renderer's pty.snapshot IPC resolves (race surfaced when v1.5.5-A removed async timing slack from the worktree pool path).
+      gracefulExitDelayMs: 3_000,
       // V3-W13-002 — surface OSC8 + plain URLs to the renderer so the click
       // handler can route them into the in-app browser. The renderer-side
       // gate (`kv['browser.captureLinks']`) decides whether to intercept.

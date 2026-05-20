@@ -395,6 +395,66 @@ describe('PtyRegistry.create() — preassignedSessionId (v1.5.5-A)', () => {
   });
 });
 
+describe('v1.5.6 — gracefulExitDelayMs race fix', () => {
+  it('v1.5.6 — ring buffer survives gracefulExitDelayMs window after PTY exit so renderer snapshot wins the race', () => {
+    // Arrange: wire up onExit so we can trigger it manually.
+    let triggerExit: (code: number, signal: number) => void = () => {
+      throw new Error('onExit was not registered');
+    };
+    const pty = makeFakePty(FAKE_PID);
+    pty.onExit = (cb) => {
+      triggerExit = (exitCode, signal) => cb({ exitCode, signal });
+      return () => undefined;
+    };
+    let emitData: (data: string) => void = () => undefined;
+    pty.onData = (cb) => {
+      emitData = cb;
+      return () => undefined;
+    };
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const gracefulExitDelayMs = 1_000;
+    const epsilon = 50;
+
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { gracefulExitDelayMs },
+    );
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    // Write content into the buffer before exit.
+    emitData('hello from fast-exit binary');
+
+    // Sanity: snapshot returns content while alive.
+    expect(registry.snapshot(sess.id)).toBe('hello from fast-exit binary');
+
+    // Simulate PTY exit (onExit callback fires).
+    triggerExit(1, 0);
+
+    // Immediately after exit — still within the grace window — snapshot must
+    // still return the buffered content (the renderer's IPC round-trip wins).
+    expect(registry.snapshot(sess.id)).toBe('hello from fast-exit binary');
+
+    // Advance time to just before the grace window expires (gracefulExitDelayMs - epsilon).
+    vi.advanceTimersByTime(gracefulExitDelayMs - epsilon);
+    // Buffer must still be intact — forget() has NOT been called yet.
+    expect(registry.snapshot(sess.id)).toBe('hello from fast-exit binary');
+
+    // Advance time past the grace window (gracefulExitDelayMs + epsilon total).
+    vi.advanceTimersByTime(epsilon * 2);
+    // Now forget() has fired: the record is gone and snapshot returns ''.
+    expect(registry.snapshot(sess.id)).toBe('');
+  });
+});
+
 describe('PtyRegistry.killAll()', () => {
   it('uses ONE 5s timer regardless of session count', () => {
     // Spawn 4 fake sessions.

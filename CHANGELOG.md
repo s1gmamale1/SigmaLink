@@ -4,6 +4,75 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.5.6] - 2026-05-21
+
+v1.5.6 — emergency hotfix unmasking fast-exit binary errors that v1.5.5 surfaced as empty pane bodies.
+
+### Bug
+
+After updating to v1.5.5 some users reported all panes rendering with proper headers (provider/role/index visible, sidebar agent badge correct) but **completely empty bodies** — no Claude/Codex/OpenCode startup banner, no error text, nothing. All providers affected uniformly.
+
+### Root cause
+
+`PtyRegistry.gracefulExitDelayMs` (default 200 ms) governs how long the ring buffer survives after `pty.onExit` fires before `forget()` clears it. For binaries that exit very fast on startup (missing CLI binary, ENOENT, bad PATH, version-incompatible flag), the sequence becomes:
+
+```
+t=0      PTY spawns
+t=50ms   Binary exits (fast failure)
+t=50ms   registry.onExit fires; setTimeout(forget, 200) scheduled
+t=150ms  Renderer mounts SessionTerminal, calls rpc.pty.snapshot(sessionId)
+t=250ms  forget() fires → buffer.clear() → sessions.delete(id)
+t=251ms  snapshot IPC resolves → sessions.get(id) = undefined → returns ''
+         → nothing written to xterm → empty body
+```
+
+Because the buffer cleared before the renderer's IPC round-trip resolved, whatever the CLI emitted (banner, error message, stack trace) was silently dropped on the floor.
+
+### Why v1.5.5 surfaced it (and not v1.5.4)
+
+The race has been latent since the PTY layer was built. v1.5.5-A's pre-allocated session UUID pipeline removed async timing slack from `worktreePool.create` (the path was tighter and more synchronous), narrowing the window between PTY spawn and renderer mount. Fast-failing binaries now reliably beat the 200 ms grace window where v1.5.4's looser timing usually kept them under it.
+
+### Fix
+
+`app/src/main/rpc-router.ts:298-300` — bumped `gracefulExitDelayMs` from 200 ms to 3 000 ms in the `PtyRegistry` opts:
+
+```ts
+new PtyRegistry(
+  (sessionId, data) => broadcast('pty:data', { sessionId, data }),
+  (sessionId, exitCode, signal) => broadcast('pty:exit', { sessionId, exitCode, signal }),
+  {
+    gracefulExitDelayMs: 3_000,  // v1.5.6 — buffer survives renderer's snapshot IPC
+    // …existing fields
+  },
+);
+```
+
+3-second window is comfortably above Electron IPC round-trip variance (typically <50 ms even under load). After 3 s `forget()` still runs — no memory leak, just delayed teardown. The session record is still removed; only the ring buffer's lifetime extended.
+
+### What this does NOT fix
+
+This hotfix surfaces fast-exit error output. It does NOT prevent the binaries from exiting. If your panes still come up "empty" with v1.5.6, the renderer will now display whatever the CLI emits before dying — which is the actual diagnostic information (e.g. `claude: command not found`, `ENOENT`, `bad flag`). Use that output to chase the root cause on your machine (likely CLI binary version drift, missing PATH, or workspace-specific config).
+
+### Regression test
+
+`app/src/main/core/pty/registry.test.ts` — new test "v1.5.6 — ring buffer survives gracefulExitDelayMs window after PTY exit so renderer snapshot wins the race" using `vi.useFakeTimers()` to assert:
+- At `gracefulExitDelayMs - epsilon` after `onExit`, `snapshot(id)` still returns buffered content
+- At `gracefulExitDelayMs + epsilon` after `onExit`, `snapshot(id)` returns `''`
+
+### Combined main gate
+
+- tsc clean
+- vitest 99 files / 898 pass / 1 skip (+1 regression test)
+- eslint 0 errors / 1 pre-existing warning (use-session-restore.ts, unrelated)
+- Playwright smoke (35 s) passes — app boots, workspaces render, basic flows intact
+
+### Deferred to v1.5.7+
+
+- The root cause of the binaries dying fast on the user's machine — still unknown. Hypothesis: CLI version drift after external Claude/Codex/OpenCode upgrades. Diagnostic data will arrive once users see the unmasked error output.
+- Shell-first pane architecture (spawn shell as PTY parent, auto-inject CLI command) — under brainstorming as a possible v1.6 packet. Would make pane lifetime durable across CLI exits and remove the entire ~150-reference `external_session_id` tracking surface. Decision deferred until v1.5.6 diagnostic data lands.
+
+No schema migrations in v1.5.6.
+
 ## [1.5.5] - 2026-05-21
 
 v1.5.5 — single-cluster UX-correlation feature with **2-cycle Opus reviewer round** that caught a critical resume-pipeline regression mid-flight.
