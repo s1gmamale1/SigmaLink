@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// v1.5.3-A — RTL tests for the extracted AddPaneButton component.
+// v1.5.4-A — RTL tests for the extracted AddPaneButton component.
 //
 // Tests cover:
 //   1. Pill visible when disabled (each of the 3 disabledReason variants)
@@ -9,9 +9,11 @@
 //   4. Selecting a provider calls addAgent rpc
 //   5. Error chip appears on rpc rejection
 //   6. Error chip dismisses on × click
-//   7. Error chip auto-dismisses after 10s (vi.useFakeTimers)
+//   7. Error chip auto-dismisses after 10s (vi.useFakeTimers) — hardened (v1.5.4-A)
 //   8. Error chip cleanup on unmount (no setState-on-unmounted warning)
-//   9. Multiple errors in <10s reset the timer
+//   9. Multiple errors reset the timer — hardened (v1.5.4-A)
+//  10. Disabled-reason pill has aria-live="polite" and role="status"
+//  11. Error chip has aria-live="assertive" and role="alert"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-library/react';
@@ -36,11 +38,49 @@ vi.mock('@/renderer/app/state', () => ({
   useAppStateSelector: vi.fn(),
 }));
 
+const toastErrorMock = vi.fn();
+const toastSuccessMock = vi.fn();
+
 vi.mock('sonner', () => ({
   toast: {
-    success: vi.fn(),
-    error: vi.fn(),
+    success: (...args: unknown[]) => toastSuccessMock(...args),
+    error: (...args: unknown[]) => toastErrorMock(...args),
   },
+}));
+
+// ---- dropdown-menu mock for all tests (Option C) ----------------------------
+//
+// Radix DropdownMenu relies on pointer-event internals and animation frames
+// that do not cooperate reliably with vi.useFakeTimers() or jsdom. We replace
+// the entire DropdownMenu stack with synchronous passthrough components so the
+// menu items are always rendered and clickable — eliminating the Radix-may-not-
+// open escape hatch in every test.
+//
+// vi.doMock (not vi.mock) is used because:
+//   a) vi.mock factories are hoisted before imports and cannot use JSX syntax
+//      (the JSX transform runs after hoisting).
+//   b) AddPaneButton is imported dynamically inside renderAddPaneButton(), so
+//      vi.doMock applies before each dynamic import call.
+//
+// We call vi.doMock once at module scope; it registers the mock for all
+// subsequent dynamic imports of AddPaneButton within this file.
+
+vi.doMock('@/components/ui/dropdown-menu', () => ({
+  DropdownMenu: ({ children }: { children: import('react').ReactNode }) =>
+    <>{children}</>,
+  DropdownMenuTrigger: ({ children, asChild }: { children: import('react').ReactNode; asChild?: boolean }) =>
+    asChild ? <>{children}</> : <div>{children}</div>,
+  DropdownMenuContent: ({ children }: { children: import('react').ReactNode }) =>
+    <div data-testid="dropdown-content">{children}</div>,
+  DropdownMenuItem: ({
+    children,
+    onClick,
+    disabled,
+  }: {
+    children: import('react').ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+  }) => <div role="menuitem" onClick={onClick} aria-disabled={disabled}>{children}</div>,
 }));
 
 // ---- setup -------------------------------------------------------------------
@@ -62,6 +102,8 @@ beforeEach(() => {
 
   dispatchMock.mockReset();
   addAgentMock.mockReset();
+  toastErrorMock.mockReset();
+  toastSuccessMock.mockReset();
 });
 
 afterEach(() => {
@@ -125,16 +167,11 @@ async function renderAddPaneButton(props: RenderProps = {}) {
   );
 }
 
-/** Open the Pane dropdown.
- *  Radix DropdownMenu opens on pointerdown, not click; we fire both to be safe. */
-async function openDropdown(): Promise<void> {
-  const btn = screen.getAllByRole('button').find((b) => b.textContent?.includes('Pane'));
-  expect(btn).toBeTruthy();
-  // Radix listens for pointerdown to open the menu.
-  fireEvent.pointerDown(btn!, { button: 0, ctrlKey: false });
-  fireEvent.click(btn!);
-  // Radix renders items into a portal; wait for them to appear.
-  await waitFor(() => screen.getByText('Claude'), { timeout: 3000 });
+/** Click a provider menu item via the (mocked) dropdown.
+ *  Works under both real and fake timers because the dropdown is always rendered. */
+function clickProvider(name: string): void {
+  const item = screen.getByText(name);
+  fireEvent.click(item);
 }
 
 // ---- tests -------------------------------------------------------------------
@@ -164,10 +201,34 @@ describe('AddPaneButton — disabled reason pill', () => {
   });
 });
 
-describe('AddPaneButton — dropdown and rpc', () => {
-  it('3: clicking the enabled button opens the dropdown with provider items', async () => {
+describe('AddPaneButton — a11y attributes', () => {
+  it('10: disabled-reason pill has aria-live="polite" and role="status"', async () => {
+    await renderAddPaneButton({ activeSwarm: null, swarmId: null });
+    const pill = screen.getByTestId('add-pane-disabled-reason');
+    expect(pill.getAttribute('aria-live')).toBe('polite');
+    expect(pill.getAttribute('role')).toBe('status');
+  });
+
+  it('11: error chip has aria-live="assertive" and role="alert" when rendered', async () => {
+    addAgentMock.mockRejectedValue(new Error('a11y test error'));
+
     await renderAddPaneButton();
-    await openDropdown();
+    // The mocked dropdown renders items inline — no Radix portal required.
+    clickProvider('Claude');
+
+    await waitFor(() => {
+      const chip = screen.getByTestId('add-pane-error-chip');
+      expect(chip.getAttribute('aria-live')).toBe('assertive');
+      expect(chip.getAttribute('role')).toBe('alert');
+    });
+  });
+});
+
+describe('AddPaneButton — dropdown and rpc', () => {
+  it('3: clicking the enabled button shows provider items in the dropdown', async () => {
+    await renderAddPaneButton();
+    // With mocked DropdownMenu the content is always rendered.
+    expect(screen.getByText('Claude')).toBeTruthy();
     expect(screen.getByText('Codex')).toBeTruthy();
   });
 
@@ -181,8 +242,7 @@ describe('AddPaneButton — dropdown and rpc', () => {
     });
 
     await renderAddPaneButton();
-    await openDropdown();
-    fireEvent.click(screen.getByText('Claude'));
+    clickProvider('Claude');
 
     await waitFor(() => {
       expect(addAgentMock).toHaveBeenCalledWith({
@@ -198,8 +258,7 @@ describe('AddPaneButton — error chip', () => {
     addAgentMock.mockRejectedValue(new Error('network timeout'));
 
     await renderAddPaneButton();
-    await openDropdown();
-    fireEvent.click(screen.getByText('Claude'));
+    clickProvider('Claude');
 
     await waitFor(() => {
       expect(screen.getByTestId('add-pane-error-chip')).toBeTruthy();
@@ -211,8 +270,7 @@ describe('AddPaneButton — error chip', () => {
     addAgentMock.mockRejectedValue(new Error('some error'));
 
     await renderAddPaneButton();
-    await openDropdown();
-    fireEvent.click(screen.getByText('Claude'));
+    clickProvider('Claude');
     await waitFor(() => screen.getByTestId('add-pane-error-chip'));
 
     fireEvent.click(screen.getByRole('button', { name: /dismiss error/i }));
@@ -223,64 +281,41 @@ describe('AddPaneButton — error chip', () => {
   });
 
   it('7: error chip auto-dismisses after 10 seconds', async () => {
+    // Hardened (v1.5.4-A, Option C): DropdownMenu is mocked synchronously so
+    // addAgent is always invoked — no "Radix-may-not-open" escape hatch.
     vi.useFakeTimers();
     addAgentMock.mockRejectedValue(new Error('auto dismiss'));
 
     await renderAddPaneButton();
 
-    // With fake timers, open the dropdown and trigger the error.
-    const btn = screen.getAllByRole('button').find((b) => b.textContent?.includes('Pane'));
-    expect(btn).toBeTruthy();
-
-    // Wrap interactions in act so React state flushes with fake timers.
+    // Click the provider — mocked dropdown renders items synchronously.
     await act(async () => {
-      fireEvent.click(btn!);
-    });
-
-    // Radix may not open synchronously with fake timers; use act+findBy.
-    let claudeItem: HTMLElement | null = null;
-    try {
-      await act(async () => {
-        await vi.runAllTimersAsync();
-      });
-      claudeItem = screen.queryByText('Claude');
-    } catch {
-      // fallback
-    }
-
-    if (claudeItem) {
-      await act(async () => {
-        fireEvent.click(claudeItem!);
-        await Promise.resolve();
-      });
-    } else {
-      // Radix didn't open — simulate the addAgent error directly by calling
-      // the mock and then verifying timer behaviour via state manipulation.
-      // Trigger error by forcing the mock to reject and clicking again.
-      await act(async () => {
-        fireEvent.click(btn!);
-        await Promise.resolve();
-      });
-    }
-
-    // Wait for chip to appear (rejection is async).
-    await act(async () => {
+      clickProvider('Claude');
+      // Pump microtask queue enough times for the async catch block to run
+      // (click → addPane called → await rpc.addAgent → rejects → catch runs
+      //  → setLastAddError → React re-render). Use multiple ticks; do NOT call
+      // vi.runAllTimersAsync() here because that would also fire the 10s timer.
+      await Promise.resolve();
+      await Promise.resolve();
       await Promise.resolve();
     });
 
-    // Advance 10s + 1ms.
+    // Unconditional: the rpc must have been called (proves the error path ran).
+    expect(addAgentMock).toHaveBeenCalledTimes(1);
+    // Unconditional: toast.error must have been called (proves catch path ran).
+    expect(toastErrorMock).toHaveBeenCalledWith('Could not add pane', expect.objectContaining({ description: 'auto dismiss' }));
+
+    // Chip must be present before we advance time.
+    expect(screen.getByTestId('add-pane-error-chip')).toBeTruthy();
+
+    // Advance 10s + 1ms — only the auto-dismiss timer fires, then flush the
+    // resulting React state update. waitFor is NOT used here because it
+    // internally uses real setTimeout which hangs under fake timers.
     await act(async () => {
       vi.advanceTimersByTime(10_001);
     });
-
-    // If chip appeared, it should be gone now.
-    const chip = screen.queryByTestId('add-pane-error-chip');
-    if (chip !== null) {
-      // Chip was set — timer should have cleared it.
-      expect(chip).toBeNull();
-    }
-    // If chip never appeared (Radix portal didn't open in fake-timer env),
-    // the test still validates the timer cleanup path doesn't throw.
+    // The act() above flushes state updates synchronously; chip must be gone.
+    expect(screen.queryByTestId('add-pane-error-chip')).toBeNull();
   }, 15_000);
 
   it('8: no setState-after-unmount warning during the 10s window', async () => {
@@ -289,16 +324,13 @@ describe('AddPaneButton — error chip', () => {
     addAgentMock.mockRejectedValue(new Error('unmount race'));
 
     const { unmount } = await renderAddPaneButton();
-    const btn = screen.getAllByRole('button').find((b) => b.textContent?.includes('Pane'));
 
     await act(async () => {
-      fireEvent.click(btn!);
+      clickProvider('Claude');
+      // Pump microtasks to let the rejection propagate without firing timers.
       await Promise.resolve();
-    });
-
-    // Attempt to trigger the chip.
-    await act(async () => {
-      await vi.runAllTimersAsync();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     // Unmount while the 10s timer may still be ticking.
@@ -317,51 +349,59 @@ describe('AddPaneButton — error chip', () => {
   }, 15_000);
 
   it('9: multiple errors within 10s reset the auto-dismiss timer', async () => {
+    // Hardened (v1.5.4-A, Option C): removed the `if (!chipAfterFirst) return;`
+    // escape hatch. Mocked dropdown guarantees addAgent is always called, so if
+    // the chip-rendering path breaks these assertions FAIL LOUDLY.
+    // Note: vi.runAllTimersAsync() is NOT used after clicks because it would
+    // also fire the 10s auto-dismiss timer. We pump microtasks only.
     vi.useFakeTimers();
     addAgentMock.mockRejectedValue(new Error('first error'));
 
     await renderAddPaneButton();
-    const btn = screen.getAllByRole('button').find((b) => b.textContent?.includes('Pane'));
 
-    // First failure — trigger addAgent rejection by forcing a click path.
+    // First failure — pump microtasks to let the rejection reach the catch block.
     await act(async () => {
-      fireEvent.click(btn!);
+      clickProvider('Claude');
+      await Promise.resolve();
+      await Promise.resolve();
       await Promise.resolve();
     });
-    await act(async () => { await vi.runAllTimersAsync(); });
 
-    const chipAfterFirst = screen.queryByTestId('add-pane-error-chip');
-    if (!chipAfterFirst) {
-      // Radix portal didn't open in fake-timer env; skip behavioural assertion.
-      return;
-    }
+    // Unconditional: rpc was called (proves the first error path ran).
+    expect(addAgentMock).toHaveBeenCalledTimes(1);
+
+    // Chip MUST be present — if it's missing the test FAILS (no silent skip).
+    const chipAfterFirst = screen.getByTestId('add-pane-error-chip');
     expect(chipAfterFirst.textContent).toContain('first error');
 
-    // Advance 5s (mid-window).
+    // Advance 5s (mid-window) — chip still visible.
     await act(async () => { vi.advanceTimersByTime(5_000); });
     expect(screen.queryByTestId('add-pane-error-chip')).not.toBeNull();
 
-    // Second error.
+    // Second error — addPane is callable again because `adding` is false after
+    // the first rejection's finally block.
     addAgentMock.mockRejectedValue(new Error('second error'));
     await act(async () => {
-      fireEvent.click(btn!);
+      clickProvider('Claude');
+      await Promise.resolve();
+      await Promise.resolve();
       await Promise.resolve();
     });
-    await act(async () => { await vi.runAllTimersAsync(); });
 
-    await waitFor(() => {
-      const chip = screen.queryByTestId('add-pane-error-chip');
-      expect(chip?.textContent).toContain('second error');
-    });
+    // Unconditional: rpc was called twice total.
+    expect(addAgentMock).toHaveBeenCalledTimes(2);
 
-    // 6s more (total 11s from first, 6s from second) — chip still visible.
+    // Chip updates to second error message.
+    expect(screen.getByTestId('add-pane-error-chip').textContent).toContain('second error');
+
+    // 6s more (total 11s from first, 6s from second) — chip still visible
+    // because the timer was reset when the second error arrived.
     await act(async () => { vi.advanceTimersByTime(6_000); });
     expect(screen.queryByTestId('add-pane-error-chip')).not.toBeNull();
 
-    // Remaining 4s to pass second error's 10s window.
+    // Remaining 4s to pass second error's 10s window — chip must disappear.
+    // Act flushes state updates; waitFor is NOT used (hangs under fake timers).
     await act(async () => { vi.advanceTimersByTime(4_001); });
-    await waitFor(() => {
-      expect(screen.queryByTestId('add-pane-error-chip')).toBeNull();
-    });
+    expect(screen.queryByTestId('add-pane-error-chip')).toBeNull();
   }, 20_000);
 });
