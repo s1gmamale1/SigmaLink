@@ -17,6 +17,7 @@
 //   - timingSafeEqual.
 
 import { describe, expect, it } from 'vitest';
+import sodium from 'libsodium-wrappers-sumo';
 import {
   encrypt,
   decrypt,
@@ -337,6 +338,99 @@ describe('malformed payload detection', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe('unknown_version');
+  });
+});
+
+describe('v1 legacy decrypt round-trip', () => {
+  // Constructs a v1 wire-format blob in-memory using libsodium directly
+  // (the production module has no v1 encoder — v1 blobs only exist from
+  // pre-v1.5.1 peers). This tests the backward-compat decrypt() path that
+  // was flagged as uncovered in the v1.5.1 reviewer round.
+  //
+  // v1 wire format: MAGIC(4) | OUTER_VERSION=1(1) | NONCE(24) | CT+TAG(N+16)
+  // v1 AAD:         "${schema_version}|${table_name}|${row_id}"
+
+  it('decrypts a manually-constructed v1 blob and returns outerVersion=1 schemaVersion=0', async () => {
+    await sodium.ready;
+
+    const key = await makeKey();
+    const schemaV = 7;
+    const tableName = 'messages';
+    const rowId = 'row-v1-001';
+    const row = { id: rowId, text: 'legacy payload', schema_version: schemaV };
+    const plaintext = JSON.stringify(row);
+
+    // Build v1 AAD
+    const aadStr = buildAadV1(schemaV, tableName, rowId);
+    const aadBytes = sodium.from_string(aadStr);
+
+    // Encrypt using libsodium directly (v1 format: no schema in header)
+    const nonce = sodium.randombytes_buf(24);
+    const ptBytes = sodium.from_string(plaintext);
+    const ciphertextWithTag = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+      ptBytes,
+      aadBytes,
+      null,
+      nonce,
+      key,
+    );
+
+    // Assemble the v1 wire format
+    const MAGIC = Buffer.from([0x53, 0x47, 0x53, 0x59]);
+    const v1Blob = Buffer.concat([
+      MAGIC,
+      Buffer.from([0x01]), // OUTER_VERSION = 1
+      Buffer.from(nonce),
+      Buffer.from(ciphertextWithTag),
+    ]);
+
+    // Now verify decrypt() handles this v1 blob via its legacy path
+    const result = await decrypt({ key, payload: v1Blob, aad: aadStr });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.outerVersion).toBe(1);
+    // v1 sentinel: schema is not in the header, so decrypt returns 0
+    expect(result.schemaVersion).toBe(0);
+    const decoded = new TextDecoder().decode(result.plaintext);
+    expect(decoded).toBe(plaintext);
+    expect(JSON.parse(decoded)).toEqual(row);
+  });
+
+  it('returns aead_fail when a v1 blob has a tampered ciphertext byte', async () => {
+    await sodium.ready;
+
+    const key = await makeKey();
+    const aadStr = buildAadV1(3, 'tasks', 'row-tamper-test');
+    const aadBytes = sodium.from_string(aadStr);
+
+    const nonce = sodium.randombytes_buf(24);
+    const ptBytes = sodium.from_string('tamper me');
+    const ciphertextWithTag = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+      ptBytes,
+      aadBytes,
+      null,
+      nonce,
+      key,
+    );
+
+    const MAGIC = Buffer.from([0x53, 0x47, 0x53, 0x59]);
+    const v1Blob = Buffer.concat([
+      MAGIC,
+      Buffer.from([0x01]),
+      Buffer.from(nonce),
+      Buffer.from(ciphertextWithTag),
+    ]);
+
+    // Flip a byte in the ciphertext region (after MAGIC+VERSION+NONCE = 29 bytes)
+    const tampered = Buffer.from(v1Blob);
+    tampered[29] ^= 0xff;
+
+    const result = await decrypt({ key, payload: tampered, aad: aadStr });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('aead_fail');
   });
 });
 
