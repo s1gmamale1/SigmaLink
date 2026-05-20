@@ -6,7 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'electron-dist', 'release', 'coverage', '.claude']),
+  globalIgnores(['dist', 'electron-dist', 'release', 'coverage', '.claude',
+    // whisper.cpp submodule — third-party code, not subject to project lint rules
+    'native/voice-whisper/vendor']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
