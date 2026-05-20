@@ -144,6 +144,10 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
   const db = getDb();
   let worktreePath: string | null = null;
   let branch: string | null = null;
+  // v1.5.5-A — pre-allocate session UUID before worktree creation so the
+  // worktree suffix and agent_sessions.id are the same value.
+  const preallocSessionId = randomUUID();
+  let spawnSessionId: string = preallocSessionId;
   // v1.4.3 #06 — split sub-panes inherit the parent's worktree instead of
   // allocating a fresh one. WorktreePool.create() is the only place a new
   // git worktree is materialised; skipping it when the caller already has a
@@ -158,9 +162,12 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
       role: args.role,
       hint: `${args.role}-${args.roleIndex}`,
       base: args.baseRef,
+      sessionId: preallocSessionId,
     });
     worktreePath = r.worktreePath;
     branch = r.branch;
+    // Use the sessionId actually used (may differ on retry).
+    spawnSessionId = r.sessionId;
   }
 
   const cwd =
@@ -197,6 +204,9 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
       rows: args.deps.defaultRows ?? 32,
       showLegacy,
       extraArgs,
+      // v1.5.5-A — pass pre-allocated UUID so registry.create uses it as
+      // the session id, making agent_sessions.id === worktree suffix.
+      sessionId: spawnSessionId,
     },
   );
   const rec = spawnResult.ptySession;

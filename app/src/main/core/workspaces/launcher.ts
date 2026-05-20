@@ -4,6 +4,7 @@
 // worktree (if any) and surfaces an `error` AgentSession to the renderer
 // without inserting a "running" row into agent_sessions.
 
+import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { getDb, getRawDb } from '../db/client';
 import { agentSessions, workspaces as workspacesTable } from '../db/schema';
@@ -118,6 +119,13 @@ export async function executeLaunchPlan(
 
     let worktreePath: string | null = null;
     let branch: string | null = null;
+    // v1.5.5-A — pre-allocate the session UUID so the worktree suffix and
+    // agent_sessions.id are the same value. For git repos, worktreePool.create
+    // consumes this; for non-git workspaces we mint one inline. Either way
+    // the same UUID flows into resolveAndSpawn → registry.create, which
+    // honours input.sessionId and skips its own randomUUID() call.
+    const preallocSessionId = randomUUID();
+    let finalPreallocSessionId: string = preallocSessionId;
     try {
       if (wsRow.repoMode === 'git' && wsRow.repoRoot) {
         const r = await deps.worktreePool.create({
@@ -125,9 +133,13 @@ export async function executeLaunchPlan(
           role: provider.id,
           hint: `pane-${pane.paneIndex}`,
           base: plan.baseRef,
+          sessionId: preallocSessionId,
         });
         worktreePath = r.worktreePath;
         branch = r.branch;
+        // Use whichever sessionId the pool actually used (may differ from
+        // preallocSessionId if a collision triggered a retry).
+        finalPreallocSessionId = r.sessionId;
       }
 
       const cwd = workspaceCwdInWorktree({
@@ -254,6 +266,9 @@ export async function executeLaunchPlan(
           rows: deps.defaultRows ?? 32,
           showLegacy: readShowLegacy(),
           extraArgs,
+          // v1.5.5-A — pass the pre-allocated UUID so registry.create uses it
+          // as the session id, making agent_sessions.id === worktree suffix.
+          sessionId: finalPreallocSessionId,
         },
       );
       const rec = spawnResult.ptySession;
