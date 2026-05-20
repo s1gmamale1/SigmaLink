@@ -1,4 +1,5 @@
 // v1.5.0 packet 09 — Settings → Sync tab.
+// v1.5.1-C — Added "Anonymise paths" toggle (caveat 2).
 //
 // Mounted in SettingsRoom.tsx next to the existing settings tabs.
 // Shows sync status, conflict badge, and entry point to the setup wizard.
@@ -19,23 +20,38 @@ export function SyncTab() {
   const [view, setView] = useState<View>('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [anonymisePaths, setAnonymisePaths] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
-      const [s, configured, c] = await Promise.all([
+      const [s, configured, c, anonRaw] = await Promise.all([
         rpc.sync.status(),
         rpc.sync.isConfigured(),
         rpc.sync.listConflicts(),
+        rpc.kv.get('sync.anonymisePaths'),
       ]);
       setStatus(s);
       setIsConfigured(configured);
       setConflicts(c);
+      setAnonymisePaths(anonRaw === '1');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const handleToggleAnonymise = useCallback(async () => {
+    const next = !anonymisePaths;
+    setAnonymisePaths(next);
+    try {
+      await rpc.kv.set('sync.anonymisePaths', next ? '1' : '0');
+    } catch (e) {
+      // Revert optimistic update on failure.
+      setAnonymisePaths(!next);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [anonymisePaths]);
 
   useEffect(() => {
     queueMicrotask(() => void refreshStatus());
@@ -197,6 +213,36 @@ export function SyncTab() {
           <RefreshCw className="mr-1.5 inline h-3 w-3" />
           Refresh
         </button>
+      </div>
+
+      {/* Anonymise paths toggle (v1.5.1-C caveat 2) */}
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={anonymisePaths}
+          onClick={() => void handleToggleAnonymise()}
+          className={[
+            'relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent',
+            'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            anonymisePaths ? 'bg-primary' : 'bg-muted',
+          ].join(' ')}
+        >
+          <span
+            className={[
+              'pointer-events-none inline-block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+              anonymisePaths ? 'translate-x-4' : 'translate-x-0',
+            ].join(' ')}
+          />
+        </button>
+        <div>
+          <p className="text-sm font-medium leading-none">Anonymise paths</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Replaces your home directory with{' '}
+            <code className="font-mono">~/</code> in synced workspace paths so
+            other machines can&apos;t see your username.
+          </p>
+        </div>
       </div>
 
       {/* Security note */}
