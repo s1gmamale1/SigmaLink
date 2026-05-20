@@ -20,10 +20,31 @@ import { conversations } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 import type { ToolTrace } from '../../assistant/tool-tracer';
 
-/** Tools whose failure escalates to `critical` per D1. The taxonomy reviewer
- *  reserved `critical` for events that break Sigma's mental model; failures
- *  in these tools mean the operator can no longer trust workspace state. */
-const CRITICAL_TOOL_NAMES = new Set<string>(['create_workspace']);
+/**
+ * Tools whose failure escalates to `critical` per D1. The taxonomy reviewer
+ * reserved `critical` for events that break Sigma's mental model; failures
+ * in these tools mean the operator can no longer trust workspace state.
+ *
+ * Inclusion criterion: any assistant tool that writes to the SQLite DB and
+ * whose failure leaves Sigma's internal state in an inconsistent or
+ * irrecoverable condition — i.e., the operator can no longer trust workspaces,
+ * sessions, swarms, or memories to reflect reality.
+ *
+ *   create_workspace — workspace creation failure; operator has no workspace.
+ *   launch_pane      — PTY session not created; pane grid is out of sync.
+ *   create_swarm     — swarm not created; swarm room shows phantom entry.
+ *   add_agent        — agent row not created; swarm roster is inconsistent.
+ *   create_memory    — memory not persisted; operator's note is silently lost.
+ *   monitor_pane     — session not linked to conversation; pane events go dark.
+ */
+const CRITICAL_TOOL_NAMES = new Set<string>([
+  'create_workspace',
+  'launch_pane',
+  'create_swarm',
+  'add_agent',
+  'create_memory',
+  'monitor_pane',
+]);
 
 function resolveWorkspaceForConversation(conversationId: string): string | null {
   try {

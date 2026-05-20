@@ -1,5 +1,8 @@
 // v1.4.9 #07 — tool-error source unit tests. Verifies the trace.ok=false
-// gate, D1 critical-bypass for create_workspace, and dedup key shape.
+// gate, D1 critical-bypass for create_workspace and other DB-touching tools,
+// and dedup key shape.
+// v1.5.1-C caveat 7 — launch_pane, create_swarm, add_agent, create_memory,
+// monitor_pane added to CRITICAL_TOOL_NAMES.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -67,17 +70,37 @@ describe('pushToolErrorNotification', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('maps a generic tool failure to error (D1)', () => {
+  it('maps a truly generic (non-DB-touching) tool failure to error (D1)', () => {
     const { mgr, calls } = makeMgr();
-    pushToolErrorNotification(mgr, makeTrace({ name: 'launch_pane' }));
+    pushToolErrorNotification(mgr, makeTrace({ name: 'read_files' }));
     expect(calls).toHaveLength(1);
     expect(calls[0].severity).toBe('error');
-    expect(calls[0].dedupKey).toBe('tool-error:launch_pane:conv-1');
+    expect(calls[0].dedupKey).toBe('tool-error:read_files:conv-1');
   });
 
   it('escalates create_workspace failure to critical (D1)', () => {
     const { mgr, calls } = makeMgr();
     pushToolErrorNotification(mgr, makeTrace({ name: 'create_workspace' }));
+    expect(calls[0].severity).toBe('critical');
+  });
+
+  it('escalates launch_pane failure to critical (v1.5.1-C: DB-touching tool)', () => {
+    const { mgr, calls } = makeMgr();
+    pushToolErrorNotification(mgr, makeTrace({ name: 'launch_pane' }));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].severity).toBe('critical');
+    expect(calls[0].dedupKey).toBe('tool-error:launch_pane:conv-1');
+  });
+
+  it('escalates create_swarm failure to critical (v1.5.1-C)', () => {
+    const { mgr, calls } = makeMgr();
+    pushToolErrorNotification(mgr, makeTrace({ name: 'create_swarm' }));
+    expect(calls[0].severity).toBe('critical');
+  });
+
+  it('escalates add_agent failure to critical (v1.5.1-C)', () => {
+    const { mgr, calls } = makeMgr();
+    pushToolErrorNotification(mgr, makeTrace({ name: 'add_agent' }));
     expect(calls[0].severity).toBe('critical');
   });
 
