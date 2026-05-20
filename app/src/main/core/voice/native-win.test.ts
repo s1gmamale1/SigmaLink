@@ -107,25 +107,25 @@ describe('NativeVoiceModule interface contract', () => {
 
   it('onPartial returns an unsubscribe function', () => {
     const mod = makeMockModule();
-    const unsub = mod.onPartial((_text) => {});
+    const unsub = mod.onPartial(() => {});
     expect(typeof unsub).toBe('function');
   });
 
   it('onFinal returns an unsubscribe function', () => {
     const mod = makeMockModule();
-    const unsub = mod.onFinal((_text) => {});
+    const unsub = mod.onFinal(() => {});
     expect(typeof unsub).toBe('function');
   });
 
   it('onError returns an unsubscribe function', () => {
     const mod = makeMockModule();
-    const unsub = mod.onError((_err) => {});
+    const unsub = mod.onError(() => {});
     expect(typeof unsub).toBe('function');
   });
 
   it('onState returns an unsubscribe function', () => {
     const mod = makeMockModule();
-    const unsub = mod.onState((_state) => {});
+    const unsub = mod.onState(() => {});
     expect(typeof unsub).toBe('function');
   });
 });
