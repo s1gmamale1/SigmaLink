@@ -237,6 +237,39 @@ Napi::Value BindCallback(const Napi::CallbackInfo& info) {
   return unsubscribe;
 }
 
+// ─── onPcm: bind raw-PCM tap callback for whisper.cpp accumulation ──────────
+
+/**
+ * Bind a JS callback that receives Float32Array chunks from the AVAudioEngine
+ * input-node PCM tap. Install this BEFORE calling start() to ensure no audio
+ * is missed. The callback is invoked on the JS event loop via TSFN.
+ *
+ *   const unsub = native.onPcm((chunk: Float32Array) => pcm.push(chunk));
+ */
+Napi::Value OnPcm(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsFunction()) {
+    Napi::TypeError::New(env, "callback must be a function").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  Napi::Function cb = info[0].As<Napi::Function>();
+  try {
+    Recognizer::Instance().BindPcm(cb);
+  } catch (const Napi::Error& e) {
+    Napi::Error::New(env, std::string("voice-mac: onPcm bind failed: ") + e.Message())
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  } catch (const std::exception& e) {
+    Napi::Error::New(env, std::string("voice-mac: onPcm: ") + e.what())
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  // Returns an unsubscribe stub (rebind to no-op to unsubscribe).
+  return Napi::Function::New(env, [](const Napi::CallbackInfo& ci) -> Napi::Value {
+    return ci.Env().Undefined();
+  });
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("isAvailable",            Napi::Function::New(env, IsAvailable));
   exports.Set("getAuthStatus",          Napi::Function::New(env, GetAuthStatus));
@@ -247,6 +280,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("onFinal",                Napi::Function::New(env, BindCallback<&Recognizer::BindFinal>));
   exports.Set("onError",                Napi::Function::New(env, BindCallback<&Recognizer::BindError>));
   exports.Set("onState",                Napi::Function::New(env, BindCallback<&Recognizer::BindState>));
+  // v1.5.1-B — raw PCM tap for whisper.cpp accumulation
+  exports.Set("onPcm",                  Napi::Function::New(env, OnPcm));
   // v1.4.9 — global-capture output-router helpers
   exports.Set("getFrontmostAppBundleId", Napi::Function::New(env, GetFrontmostAppBundleId));
   exports.Set("isTrustedAccessibility",  Napi::Function::New(env, IsTrustedAccessibility));

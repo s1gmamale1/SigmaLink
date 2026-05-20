@@ -35,10 +35,20 @@ public:
   void BindState(Napi::Function cb)    { state_.Bind(cb, "voice-win.onState"); }
 
   /**
-   * Returns true when the binary loaded on win32 AND the SAPI5 shared
-   * recogniser service is reachable. Safe to call at startup.
+   * Synchronous availability probe. Used only pre-STA-init (before Init()
+   * runs). Returns false conservatively when the STA thread is live — use
+   * IsAvailableAsync() for post-init queries (runs CoCreateInstance on STA).
    */
   bool IsAvailable();
+
+  /**
+   * Asynchronous availability probe. Posts WM_SAPI_PROBE to the STA thread;
+   * CoCreateInstance(SpSharedRecognizer) runs there to avoid blocking the JS
+   * event loop. Result delivered via TSFN → resolved into `deferred`.
+   * Ownership of `deferred` is transferred.
+   */
+  void IsAvailableAsync(Napi::ThreadSafeFunction tsfn,
+                        Napi::Promise::Deferred* deferred);
 
   /**
    * Returns one of: 'granted' | 'denied' | 'not-determined'.
@@ -75,7 +85,11 @@ public:
   void EmitError(const ErrorPayload& p)  { error_.Emit(p); }
   void EmitState(const std::string& s)   { state_.Emit(s); }
 
-  // ---- STA thread lifecycle (called from sigmavoice_win.cc Init).
+  // ---- STA thread lifecycle. Intentionally not part of the public API;
+  //      only sigmavoice_win.cc (Init + env cleanup hook) should call these.
+  //      Keeping them at the bottom of the public section (not truly private
+  //      to allow the napi cleanup lambda access) but separated from the
+  //      JS-facing surface by a comment barrier. (PR #53 caveat 4)
   /** Spin up the dedicated STA worker thread and message pump. */
   void StartSTAThread();
   /** Request a graceful shutdown of the STA thread. */

@@ -67,7 +67,9 @@ export const MODEL_CATALOG: ReadonlyArray<ModelEntry> = [
     id: 'tiny.en-q5_1',
     name: 'Tiny (English, 31 MB) — fastest, lower accuracy',
     sizeMb: 31,
-    sha256: 'ae9e2dc3ef35b70dd5e52a65ce543f57f7f0f11870e0dd67d7ac9c1c08bce9ab',
+    // SHA-256 sourced from HuggingFace LFS pointer (ggerganov/whisper.cpp)
+    // oid sha256:c77c5766... size 32166155
+    sha256: 'c77c5766f1cef09b6b7d47f21b546cbddd4157886b3b5d6d4f709e91e66c7c2b',
     url: `${HF_BASE}/ggml-tiny.en-q5_1.bin`,
     filename: 'ggml-tiny.en-q5_1.bin',
     isDefault: false,
@@ -76,7 +78,9 @@ export const MODEL_CATALOG: ReadonlyArray<ModelEntry> = [
     id: 'base.en-q5_1',
     name: 'Base (English, 57 MB) — recommended',
     sizeMb: 57,
-    sha256: '4e7d3553f89e2cede073dfb93a22da1a4e8c4ff13a7f5c35cd756e30b3c55f0e',
+    // SHA-256 sourced from HuggingFace LFS pointer (ggerganov/whisper.cpp)
+    // oid sha256:4baf70dd... size 59721011
+    sha256: '4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f',
     url: `${HF_BASE}/ggml-base.en-q5_1.bin`,
     filename: 'ggml-base.en-q5_1.bin',
     isDefault: true,
@@ -85,7 +89,9 @@ export const MODEL_CATALOG: ReadonlyArray<ModelEntry> = [
     id: 'small.en-q5_1',
     name: 'Small (English, 182 MB) — better for accented speech',
     sizeMb: 182,
-    sha256: '7a5f2aab5bb6ced5ef87f30c6a1b0da2bb9dc7e5ff56c72a4b58e27498eb8a12',
+    // SHA-256 sourced from HuggingFace LFS pointer (ggerganov/whisper.cpp)
+    // oid sha256:bfdff489... size 190098681
+    sha256: 'bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30',
     url: `${HF_BASE}/ggml-small.en-q5_1.bin`,
     filename: 'ggml-small.en-q5_1.bin',
     isDefault: false,
@@ -94,7 +100,9 @@ export const MODEL_CATALOG: ReadonlyArray<ModelEntry> = [
     id: 'medium.en-q5_0',
     name: 'Medium (English, 515 MB) — near-large quality; uses ~2 GB RAM',
     sizeMb: 515,
-    sha256: 'e3e0c0e8d0c5ab1d8b7d97a0b9b2c6e7f1a3d9c2e4b8a0f7e2c5d1b3a6f4e9c8',
+    // SHA-256 sourced from HuggingFace LFS pointer (ggerganov/whisper.cpp)
+    // oid sha256:76733e26... size 539225533
+    sha256: '76733e26ad8fe1c7a5bf7531a9d41917b2adc0f20f2e4f5531688a8c6cd88eb0',
     url: `${HF_BASE}/ggml-medium.en-q5_0.bin`,
     filename: 'ggml-medium.en-q5_0.bin',
     isDefault: false,

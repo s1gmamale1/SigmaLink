@@ -80,7 +80,9 @@ export function loadNativeWin(): import('./native-mac').NativeVoiceModule | null
     for (const p of tryPaths) {
       try {
         const loaded = requireCJS(p) as import('./native-mac').NativeVoiceModule | undefined;
-        if (loaded && typeof loaded.isAvailable === 'function') {
+        // voice-win isAvailable() is now async (PR #53 caveat 2) — detect
+        // the module by checking `start` (always synchronously callable).
+        if (loaded && typeof loaded.start === 'function') {
           mod = loaded;
           break;
         }
@@ -119,9 +121,10 @@ export function loadNativeWin(): import('./native-mac').NativeVoiceModule | null
 
 /**
  * Convenience: returns true only when the host is win32 AND the native
- * module successfully loaded AND the SAPI5 recogniser reports available.
+ * module successfully loaded. The actual SAPI5 availability check is now
+ * async (PR #53 caveat 2) — use `loadNativeWin()?.isAvailable()` directly
+ * when you need the Promise.
  */
 export function isNativeWinVoiceAvailable(): boolean {
-  const mod = loadNativeWin();
-  return mod !== null && mod.isAvailable();
+  return loadNativeWin() !== null;
 }

@@ -61,6 +61,14 @@ export interface NativeVoiceModule {
   onFinal(cb: (text: string) => void): UnsubscribeFn;
   onError(cb: (err: NativeVoiceError) => void): UnsubscribeFn;
   onState(cb: (state: NativeVoiceState) => void): UnsubscribeFn;
+  /**
+   * Register a callback that receives raw Float32 PCM chunks from the
+   * AVAudioEngine input-node tap (macOS only). Call this BEFORE start().
+   * Each chunk is 1024 frames of mono audio at the device's native sample
+   * rate. Feed chunks to PcmAccumulator for whisper.cpp transcription.
+   * Returns an unsubscribe stub (no-op; rebind to clear).
+   */
+  onPcm?: (cb: (chunk: Float32Array) => void) => UnsubscribeFn;
 }
 
 let cached: NativeVoiceModule | null | undefined;

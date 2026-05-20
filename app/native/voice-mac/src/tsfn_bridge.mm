@@ -5,6 +5,8 @@
 // language to keep linker symbols aligned with ARC.
 
 #include "tsfn_bridge.h"
+#include <algorithm>
+#include <vector>
 
 namespace sigmavoice {
 
@@ -77,6 +79,46 @@ void ErrorEmitter::Emit(const ErrorPayload& payload) {
       obj.Set("message",    Napi::String::New(env, p->message));
       obj.Set("nativeCode", Napi::Number::New(env, p->nativeCode));
       js.Call({ obj });
+    }
+    delete p;
+  });
+  if (status != napi_ok) {
+    delete copy;
+  }
+}
+
+void PcmEmitter::Bind(Napi::Function cb, const std::string& name) {
+  Release();
+  tsfn_ = Napi::ThreadSafeFunction::New(
+      cb.Env(),
+      cb,
+      name.c_str(),
+      0,  // max_queue_size: 0 == unlimited
+      1   // initial_thread_count
+  );
+}
+
+void PcmEmitter::Release() {
+  if (tsfn_) {
+    tsfn_.Release();
+    tsfn_ = nullptr;
+  }
+}
+
+void PcmEmitter::Emit(const float* data, size_t count) {
+  if (!tsfn_ || count == 0) return;
+  // Heap-copy the PCM samples; the audio thread's AVAudioPCMBuffer is
+  // recycled by CoreAudio immediately after the tap block returns.
+  auto* copy = new std::vector<float>(data, data + count);
+  napi_status status = tsfn_.NonBlockingCall(copy,
+      [](Napi::Env env, Napi::Function js, std::vector<float>* p) {
+    if (env != nullptr && js != nullptr && p != nullptr) {
+      // Construct a Float32Array backed by a new ArrayBuffer.
+      Napi::ArrayBuffer ab = Napi::ArrayBuffer::New(env, p->size() * sizeof(float));
+      float* dst = reinterpret_cast<float*>(ab.Data());
+      std::copy(p->begin(), p->end(), dst);
+      Napi::Float32Array fa = Napi::Float32Array::New(env, p->size(), ab, 0);
+      js.Call({ fa });
     }
     delete p;
   });

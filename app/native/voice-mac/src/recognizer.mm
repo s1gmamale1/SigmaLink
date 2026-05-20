@@ -198,10 +198,29 @@ void Recognizer::Start(const std::string& locale, bool onDevice, bool addPunctua
                 bufferSize:1024
                     format:fmt
                      block:^(AVAudioPCMBuffer * _Nonnull buffer, AVAudioTime * _Nonnull when) {
-      // Audio thread; minimal work.
+      // Audio thread; minimal work — feed both the SF recognition request
+      // and the whisper.cpp PCM accumulator in a single tap block.
+      // AVAudioEngine only allows one tap per bus; combining both consumers
+      // here avoids a second installTapOnBus call.
+
+      // 1. Feed SFSpeechRecognizer (SF result = fallback when no model).
       SFSpeechAudioBufferRecognitionRequest* req = impl.request;
       if (req != nil) {
         [req appendAudioPCMBuffer:buffer];
+      }
+
+      // 2. Feed whisper.cpp PCM accumulator via TSFN.
+      // Only emit when a JS pcm callback is bound (avoids unnecessary alloc).
+      Recognizer& rec = Recognizer::Instance();
+      if (rec.HasPcmListener()) {
+        AVAudioFrameCount frameCount = buffer.frameLength;
+        if (frameCount > 0) {
+          // floatChannelData[0] is the left/mono channel; whisper expects mono.
+          const float* samples = buffer.floatChannelData ? buffer.floatChannelData[0] : nullptr;
+          if (samples != nullptr) {
+            rec.EmitPcm(samples, static_cast<size_t>(frameCount));
+          }
+        }
       }
     }];
 
