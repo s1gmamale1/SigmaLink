@@ -7,7 +7,9 @@
         "<!(node -p \"require('node-addon-api').include_dir\")",
         "vendor/whisper.cpp",
         "vendor/whisper.cpp/include",
-        "vendor/whisper.cpp/ggml/include"
+        "vendor/whisper.cpp/ggml/include",
+        "vendor/whisper.cpp/ggml/src",
+        "vendor/whisper.cpp/ggml/src/ggml-cpu"
       ],
       "defines": [ "NAPI_VERSION=8" ],
       "conditions": [
@@ -18,11 +20,16 @@
             "vendor/whisper.cpp/ggml/src/ggml.c",
             "vendor/whisper.cpp/ggml/src/ggml-alloc.c",
             "vendor/whisper.cpp/ggml/src/ggml-backend.cpp",
-            "vendor/whisper.cpp/ggml/src/ggml-metal.m",
+            "vendor/whisper.cpp/ggml/src/ggml-backend-reg.cpp",
             "vendor/whisper.cpp/ggml/src/ggml-quants.c",
-            "vendor/whisper.cpp/ggml/src/ggml-aarch64.c",
-            "vendor/whisper.cpp/ggml/src/ggml-cpu.c",
-            "vendor/whisper.cpp/ggml/src/ggml-cpu.cpp"
+            "vendor/whisper.cpp/ggml/src/ggml-threading.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-metal/ggml-metal.m",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu.c",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.c",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp"
           ],
           "defines": [
             "GGML_USE_METAL=1",
@@ -30,7 +37,7 @@
             "WHISPER_NO_ENCODER_FALLBACK"
           ],
           "xcode_settings": {
-            "CLANG_ENABLE_OBJC_ARC": "YES",
+            "CLANG_ENABLE_OBJC_ARC": "NO",
             "MACOSX_DEPLOYMENT_TARGET": "11.0",
             "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
             "CLANG_CXX_LANGUAGE_STANDARD": "c++17",
@@ -63,10 +70,15 @@
             "vendor/whisper.cpp/ggml/src/ggml.c",
             "vendor/whisper.cpp/ggml/src/ggml-alloc.c",
             "vendor/whisper.cpp/ggml/src/ggml-backend.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-backend-reg.cpp",
             "vendor/whisper.cpp/ggml/src/ggml-quants.c",
-            "vendor/whisper.cpp/ggml/src/ggml-aarch64.c",
-            "vendor/whisper.cpp/ggml/src/ggml-cpu.c",
-            "vendor/whisper.cpp/ggml/src/ggml-cpu.cpp"
+            "vendor/whisper.cpp/ggml/src/ggml-threading.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu.c",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.c",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp"
           ],
           "defines": [
             "GGML_USE_CUDA=0"
@@ -85,10 +97,15 @@
             "vendor/whisper.cpp/ggml/src/ggml.c",
             "vendor/whisper.cpp/ggml/src/ggml-alloc.c",
             "vendor/whisper.cpp/ggml/src/ggml-backend.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-backend-reg.cpp",
             "vendor/whisper.cpp/ggml/src/ggml-quants.c",
-            "vendor/whisper.cpp/ggml/src/ggml-aarch64.c",
-            "vendor/whisper.cpp/ggml/src/ggml-cpu.c",
-            "vendor/whisper.cpp/ggml/src/ggml-cpu.cpp"
+            "vendor/whisper.cpp/ggml/src/ggml-threading.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu.c",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.c",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.cpp",
+            "vendor/whisper.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp"
           ],
           "cflags": ["-O3", "-std=c99", "-fexceptions"],
           "cflags_cc": ["-O3", "-std=c++17", "-fexceptions"]
