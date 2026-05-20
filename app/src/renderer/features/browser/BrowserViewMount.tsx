@@ -115,9 +115,11 @@ function BrowserViewMountInner({ workspaceId, visible }: Props) {
     <div
       ref={ref}
       className="relative min-h-0 flex-1 bg-card"
-      // The WebContentsView lives above this DOM node — we size and position
-      // it absolutely from the main process. Showing a subtle background lets
-      // the user see "browser pane" before the content paints.
+      // When the renderer says "not visible", we already told the main process
+      // bounds: null. Hiding the DOM placeholder via display:none keeps it out
+      // of the flex row so a sibling EmptyState (e.g. Browser EmptyState when
+      // tabs.length === 0) gets the full row instead of competing for width.
+      style={!visible ? { display: 'none' } : undefined}
     />
   );
 }

@@ -334,7 +334,7 @@ function makeDataTransfer(
 
 describe('CommandRoom — v1.4.8 drag-drop file @-mention', () => {
   beforeEach(() => {
-    // Stub window.sigma so PaneCell's Finder-drop path doesn't throw.
+    // Stub window.sigma so PaneShell's Finder-drop path doesn't throw.
     Object.defineProperty(window, 'sigma', {
       configurable: true,
       value: {

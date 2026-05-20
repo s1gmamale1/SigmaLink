@@ -72,8 +72,11 @@ export function MnemonicConfirm({ mnemonic, onConfirmed, onBack }: MnemonicConfi
           rows={5}
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
-          // v1.5.1-A caveat 8: block paste so users must type the phrase manually.
+          // v1.5.1-A caveat 8: block paste AND drag-drop so users must type the
+          // phrase manually (drag-drop into a textarea bypasses onPaste).
           onPaste={(e) => e.preventDefault()}
+          onDrop={(e) => e.preventDefault()}
+          onDragOver={(e) => e.preventDefault()}
           placeholder="word1 word2 word3 … (24 words, space-separated)"
           spellCheck={false}
           autoCorrect="off"
