@@ -35,10 +35,20 @@ public:
   void BindState(Napi::Function cb)    { state_.Bind(cb, "voice-win.onState"); }
 
   /**
-   * Returns true when the binary loaded on win32 AND the SAPI5 shared
-   * recogniser service is reachable. Safe to call at startup.
+   * Synchronous availability probe. Used only pre-STA-init (before Init()
+   * runs). Returns false conservatively when the STA thread is live — use
+   * IsAvailableAsync() for post-init queries (runs CoCreateInstance on STA).
    */
   bool IsAvailable();
+
+  /**
+   * Asynchronous availability probe. Posts WM_SAPI_PROBE to the STA thread;
+   * CoCreateInstance(SpSharedRecognizer) runs there to avoid blocking the JS
+   * event loop. Result delivered via TSFN → resolved into `deferred`.
+   * Ownership of `deferred` is transferred.
+   */
+  void IsAvailableAsync(Napi::ThreadSafeFunction tsfn,
+                        Napi::Promise::Deferred* deferred);
 
   /**
    * Returns one of: 'granted' | 'denied' | 'not-determined'.

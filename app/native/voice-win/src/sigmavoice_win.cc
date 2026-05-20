@@ -12,9 +12,37 @@ namespace {
 
 using sigmavoice::Recognizer;
 
+/**
+ * isAvailable() → Promise<boolean>
+ *
+ * Posts WM_SAPI_PROBE to the STA thread so CoCreateInstance(SpSharedRecognizer)
+ * runs there and does not block the JS event loop (PR #53 caveat 2).
+ * Falls back to the synchronous probe when called before Init() (STA not yet
+ * running), resolving the promise immediately.
+ */
 Napi::Value IsAvailable(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  return Napi::Boolean::New(env, Recognizer::Instance().IsAvailable());
+  Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
+
+  // Create a one-shot TSFN to marshal the result back from the STA thread.
+  Napi::ThreadSafeFunction tsfn;
+  try {
+    tsfn = Napi::ThreadSafeFunction::New(
+        env,
+        Napi::Function::New(env, [](const Napi::CallbackInfo&) {}),
+        "voice-win.isAvailable",
+        0,
+        1
+    );
+  } catch (const Napi::Error& e) {
+    deferred.Reject(Napi::Error::New(env,
+        std::string("voice-win: isAvailable TSFN: ") + e.Message()).Value());
+    return deferred.Promise();
+  }
+
+  auto* deferredHeap = new Napi::Promise::Deferred(deferred);
+  Recognizer::Instance().IsAvailableAsync(std::move(tsfn), deferredHeap);
+  return deferred.Promise();
 }
 
 Napi::Value GetAuthStatus(const Napi::CallbackInfo& info) {

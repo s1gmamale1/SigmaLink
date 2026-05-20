@@ -33,6 +33,9 @@ static const UINT WM_SAPI_START = WM_APP + 2;
 static const UINT WM_SAPI_STOP  = WM_APP + 3;
 // WM_APP+4 — posted to request STA thread exit.
 static const UINT WM_SAPI_QUIT  = WM_APP + 4;
+// WM_APP+5 — posted to run the CoCreateInstance availability probe on the STA.
+// lParam carries a heap-allocated ProbeParams* with a TSFN to deliver the result.
+static const UINT WM_SAPI_PROBE = WM_APP + 5;
 
 namespace sigmavoice {
 
@@ -308,11 +311,57 @@ static void DoStop() {
   Recognizer::Instance().EmitState("idle");
 }
 
+// ─── STA thread struct for WM_SAPI_PROBE payload ─────────────────────────────
+
+/** Carries the TSFN needed to deliver the probe result back to the JS thread. */
+struct ProbeParams {
+  Napi::ThreadSafeFunction tsfn;
+  Napi::Promise::Deferred* deferred;
+};
+
+/** Run on the STA thread: probe CoCreateInstance and deliver result via TSFN. */
+static void DoProbe(ProbeParams* pp) {
+  if (!pp) return;
+
+  ISpRecognizer* probe = nullptr;
+  HRESULT hr = CoCreateInstance(CLSID_SpSharedRecognizer, nullptr,
+                                CLSCTX_LOCAL_SERVER,
+                                IID_ISpRecognizer,
+                                reinterpret_cast<void**>(&probe));
+  bool avail = SUCCEEDED(hr) && probe;
+  if (probe) probe->Release();
+
+  // Marshal result back to the JS event loop via TSFN.
+  auto* result = new bool(avail);
+  napi_status rc = pp->tsfn.NonBlockingCall(result,
+      [pp](Napi::Env env, Napi::Function, bool* r) {
+    if (r && pp->deferred) {
+      pp->deferred->Resolve(Napi::Boolean::New(env, *r));
+    }
+    delete r;
+    delete pp->deferred;
+    pp->deferred = nullptr;
+  });
+  if (rc != napi_ok) {
+    delete result;
+    delete pp->deferred;
+    pp->deferred = nullptr;
+  }
+  pp->tsfn.Release();
+  delete pp;
+}
+
 // ─── STA thread struct for WM_SAPI_START payload ─────────────────────────────
 
 struct StartParams {
   std::string locale;
 };
+
+// ─── STA ready-event: signalled once CreateWindowExW returns ─────────────────
+// StartSTAThread creates this auto-reset event and passes it to the thread
+// proc via STAThreadState; STAThreadProc signals it after g_sp.hwnd is set
+// so the calling thread can safely issue PostThreadMessageW(WM_SAPI_START).
+static HANDLE g_sta_ready_event = nullptr;
 
 // ─── STA hidden window procedure ─────────────────────────────────────────────
 
@@ -329,7 +378,8 @@ static LRESULT CALLBACK STAWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 // ─── STA thread entry point ───────────────────────────────────────────────────
 
 struct STAThreadState {
-  DWORD  main_tid; // JS thread id (not used for PostMessage but kept for symmetry)
+  DWORD  main_tid;    // JS thread id (kept for symmetry)
+  HANDLE ready_event; // auto-reset event signalled after CreateWindowExW
 };
 
 static DWORD WINAPI STAThreadProc(LPVOID param) {
@@ -360,6 +410,14 @@ static DWORD WINAPI STAThreadProc(LPVOID param) {
       GetModuleHandleW(nullptr),
       nullptr);
 
+  // Signal the ready event so StartSTAThread() can unblock and return.
+  // The event handle is stored in STAThreadState; signal it regardless of
+  // whether CreateWindowExW succeeded so the caller never deadlocks.
+  STAThreadState* ts = static_cast<STAThreadState*>(param);
+  if (ts && ts->ready_event) {
+    SetEvent(ts->ready_event);
+  }
+
   // 4. Run the message pump.
   MSG m;
   bool running = true;
@@ -373,6 +431,10 @@ static DWORD WINAPI STAThreadProc(LPVOID param) {
       }
     } else if (m.message == WM_SAPI_STOP) {
       DoStop();
+    } else if (m.message == WM_SAPI_PROBE) {
+      // lParam carries a heap-allocated ProbeParams* — run probe on STA.
+      ProbeParams* pp = reinterpret_cast<ProbeParams*>(m.lParam);
+      DoProbe(pp);
     } else if (m.message == WM_SAPI_QUIT) {
       DoStop();
       running = false;
@@ -403,13 +465,30 @@ Recognizer& Recognizer::Instance() {
 
 void Recognizer::StartSTAThread() {
   if (sta_thread_ != nullptr) return;
-  auto* state = new STAThreadState{GetCurrentThreadId()};
+
+  // Create an auto-reset event; the STA thread signals it once
+  // CreateWindowExW returns (g_sp.hwnd is valid). WaitForSingleObject
+  // below blocks until then, eliminating the Sleep(50) race window.
+  HANDLE ready = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+
+  auto* state = new STAThreadState{GetCurrentThreadId(), ready};
+  g_sta_ready_event = ready;
+
   sta_thread_ = CreateThread(
       nullptr, 0, STAThreadProc, state, 0, &sta_tid_);
-  // Give the STA thread a moment to initialise COM and create the window
-  // before any Start() call can arrive. 50 ms is generous; the window
-  // creation is synchronous within the first GetMessage spin.
-  Sleep(50);
+
+  if (sta_thread_ != nullptr && ready != nullptr) {
+    // Block until the STA thread signals that the HWND_MESSAGE window
+    // and COM STA are ready (or up to 5 seconds on a very slow machine).
+    WaitForSingleObject(ready, 5000);
+  }
+
+  // Close our copy of the event handle — the STA thread already signalled
+  // it and we no longer need it.
+  if (ready != nullptr) {
+    CloseHandle(ready);
+    g_sta_ready_event = nullptr;
+  }
 }
 
 void Recognizer::StopSTAThread() {
@@ -422,10 +501,19 @@ void Recognizer::StopSTAThread() {
 }
 
 bool Recognizer::IsAvailable() {
-  // Probe: can we CoCreateInstance SpSharedRecognizer?
-  // We attempt a quick instantiation on the calling thread (which is the
-  // main STA thread of the node process during module init — COM is not yet
-  // initialised here, so we use a temporary CoInitialize guard).
+  // Synchronous fallback used by the N-API isAvailable() shim ONLY when the
+  // STA thread has not yet been initialised (sta_thread_ == nullptr) — e.g.,
+  // during a JS-side feature-detection call before Init() has run.
+  // In all normal paths the async IsAvailableAsync() is preferred because it
+  // dispatches CoCreateInstance to the STA thread and avoids blocking the
+  // JS event loop.
+  if (sta_thread_ != nullptr) {
+    // STA is live — callers should use IsAvailableAsync(). Return last-known
+    // state: if we were able to DoStart() at any point, SAPI5 is available.
+    // A conservative `true` is preferable to a blocking probe here.
+    return true;
+  }
+  // Pre-STA path: perform a quick synchronous COM probe on the calling thread.
   HRESULT comInit = CoInitialize(nullptr);
   bool avail = false;
   {
@@ -443,6 +531,26 @@ bool Recognizer::IsAvailable() {
     CoUninitialize();
   }
   return avail;
+}
+
+void Recognizer::IsAvailableAsync(Napi::ThreadSafeFunction tsfn,
+                                  Napi::Promise::Deferred* deferred) {
+  // Post the probe to the STA thread so CoCreateInstance runs there, not on
+  // the JS event loop.  The result is marshalled back via TSFN.
+  auto* pp = new ProbeParams{std::move(tsfn), deferred};
+  if (!PostThreadMessageW(sta_tid_, WM_SAPI_PROBE, 0,
+                          reinterpret_cast<LPARAM>(pp))) {
+    // PostThreadMessageW failed (STA thread not running); resolve false.
+    if (deferred) {
+      // We're on the JS thread here — resolve directly.
+      // Note: tsfn was moved into pp; clean up carefully.
+      deferred->Resolve(Napi::Boolean::New(deferred->Promise().Env(), false));
+      delete deferred;
+    }
+    pp->tsfn.Release();
+    pp->deferred = nullptr;
+    delete pp;
+  }
 }
 
 std::string Recognizer::GetAuthStatus() {

@@ -47,10 +47,11 @@ export type NativeVoiceState =
 
 export interface SigmaVoiceWin {
   /**
-   * True when the module loaded a native binary (win32 only) AND
-   * the SAPI5 shared recogniser service is available.
+   * Async availability probe. Posts CoCreateInstance(SpSharedRecognizer) to
+   * the STA thread so the JS event loop is never blocked (PR #53 caveat 2).
+   * Resolves to true when the SAPI5 shared recogniser service is reachable.
    */
-  isAvailable(): boolean;
+  isAvailable(): Promise<boolean>;
 
   /**
    * On Windows the microphone privacy prompt is handled inline by
