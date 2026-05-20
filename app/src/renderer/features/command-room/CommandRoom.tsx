@@ -7,7 +7,7 @@
 // Cmd+Alt+<N> focus jumps. The legacy PaneStatusStrip was collapsed into
 // PaneHeader's provider-name tooltip; Stop moves to the right-click menu.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -99,6 +99,11 @@ export function CommandRoom() {
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [adding, setAdding] = useState(false);
   const [showWorktreeBanner, setShowWorktreeBanner] = useState(true);
+  // DOGFOOD-V1.4.2-01 hypothesis 3 — persistent error chip for ~10s after
+  // addAgentToSwarm rejects. The toast remains for screen-reader visibility;
+  // this chip is the persistent inline record.
+  const [lastAddError, setLastAddError] = useState<string | null>(null);
+  const lastAddErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSwarm = useMemo(() => {
     if (!activeWorkspace) return null;
     const selected = activeSwarmId
@@ -197,6 +202,15 @@ export function CommandRoom() {
     return () => window.removeEventListener('keydown', onKey);
   }, [focusedPaneId, dispatch]);
 
+  // DOGFOOD-V1.4.2-01 — clear the error-chip timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (lastAddErrorTimerRef.current !== null) {
+        clearTimeout(lastAddErrorTimerRef.current);
+      }
+    };
+  }, []);
+
   // v1.4.4 P6 — dev-only empty-state diagnostic (mount-only).
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production' && sessions.length === 0 && activeWorkspace) {
@@ -281,9 +295,18 @@ export function CommandRoom() {
         description: `Pane ${result.paneIndex + 1}`,
       });
     } catch (err) {
-      toast.error('Could not add pane', {
-        description: err instanceof Error ? err.message : String(err),
-      });
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error('Could not add pane', { description: msg });
+      // DOGFOOD-V1.4.2-01 hypothesis 3 — persist the error inline for ~10s
+      // so users on a busy screen have a non-transient record of the failure.
+      if (lastAddErrorTimerRef.current !== null) {
+        clearTimeout(lastAddErrorTimerRef.current);
+      }
+      setLastAddError(msg);
+      lastAddErrorTimerRef.current = setTimeout(() => {
+        setLastAddError(null);
+        lastAddErrorTimerRef.current = null;
+      }, 10_000);
     } finally {
       setAdding(false);
     }
@@ -347,10 +370,10 @@ export function CommandRoom() {
         <DropdownMenu>
           {disabledReason ? (
             // v1.2.5 Step 3 — when disabled, surface the reason via tooltip.
-            // The <span tabIndex={0}> wrapper is the standard Radix pattern
-            // for triggering tooltips on disabled buttons (disabled elements
-            // don't fire mouse events). The DropdownMenuTrigger still wraps
-            // the Button so the disabled-state styling stays consistent.
+            // DOGFOOD-V1.4.2-01 hypothesis 1 — the tooltip (200ms hover delay)
+            // is kept for screen-reader / keyboard users, but we ALSO render
+            // an always-visible inline pill so the reason is immediately clear
+            // without requiring a hover interaction.
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -394,10 +417,48 @@ export function CommandRoom() {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+        {/* DOGFOOD-V1.4.2-01 hypothesis 1 — always-visible inline reason pill
+            shown whenever the +Pane button is disabled. Replaces the
+            invisible-until-hover tooltip behaviour so the user immediately
+            understands why clicking the button does nothing. */}
+        {disabledReason && (
+          <span
+            data-testid="add-pane-disabled-reason"
+            className="text-[10px] italic text-muted-foreground/80"
+          >
+            {disabledReason}
+          </span>
+        )}
         <div className="ml-auto text-[10px] text-muted-foreground/70">
           ⌘⌥&lt;N&gt; to focus pane
         </div>
       </div>
+      {/* DOGFOOD-V1.4.2-01 hypothesis 3 — persistent inline error chip shown
+          for ~10s after addAgentToSwarm rejects. The toast is still fired for
+          momentary / screen-reader visibility; this chip is the non-transient
+          record that survives the toast's auto-dismiss. */}
+      {lastAddError && (
+        <div
+          data-testid="add-pane-error-chip"
+          className="flex items-center gap-1.5 border-b border-destructive/30 bg-destructive/10 px-3 py-1 text-[11px] text-destructive"
+        >
+          <span className="flex-1 truncate">{lastAddError}</span>
+          <button
+            type="button"
+            aria-label="Dismiss error"
+            className="ml-1 shrink-0 opacity-70 hover:opacity-100"
+            onClick={() => {
+              if (lastAddErrorTimerRef.current !== null) {
+                clearTimeout(lastAddErrorTimerRef.current);
+                lastAddErrorTimerRef.current = null;
+              }
+              setLastAddError(null);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
       {showWorktreeBanner && sessions.length > 0 && (
         <WorktreeInfoBanner onDismiss={() => setShowWorktreeBanner(false)} />
       )}
