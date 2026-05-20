@@ -13,6 +13,7 @@ import {
 import { ChevronRight, File as FileIcon, Folder, FolderOpen, RefreshCw } from 'lucide-react';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
+import { pathRelative } from '@/renderer/lib/path-relative';
 
 // Tiny renderer-side path helpers — `path-browserify` isn't in our deps and
 // the renderer can't import the Node `path` module. We only need `join` +
@@ -239,14 +240,9 @@ const TreeNode = memo(function TreeNode(props: NodeProps) {
           type="button"
           draggable
           onDragStart={(e) => {
-            // v1.4.8 — Compute workspace-relative path by stripping the
-            // rootPath prefix. Falls back to absolutePath when the file is
-            // outside the workspace root (e.g. symlink target elsewhere).
-            const sep = fullPath.includes('\\') && !fullPath.startsWith('/') ? '\\' : '/';
-            const prefix = rootPath.endsWith(sep) ? rootPath : rootPath + sep;
-            const relativePath = fullPath.startsWith(prefix)
-              ? fullPath.slice(prefix.length)
-              : fullPath;
+            // v1.4.8 — workspace-relative path via shared pathRelative helper.
+            // Falls back to absolutePath when the file is outside the workspace root.
+            const relativePath = pathRelative(fullPath, rootPath);
             e.dataTransfer.setData(
               'application/sigmalink-file',
               JSON.stringify({ absolutePath: fullPath, relativePath, workspaceId }),
