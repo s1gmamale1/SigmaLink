@@ -2376,6 +2376,56 @@ Informational note (non-blocking, deferred to v1.5.6): isResume=false now fires 
 - WISHLIST.md remains empty for new feature work.
 - v1.5.6 backlog: isResume explicit field on registry input (reviewer non-blocking observation); concurrent-spawn (workspace_id, pane_index) uniqueness gap (pre-existing, surfaced by audit); hardware sample-rate detection; scrollback persistence; V3-W15-006 dogfood.
 
+## Phase 43 — v1.5.6 PTY ring-buffer race hotfix (2026-05-21)
+
+Targeted single-file hotfix for a v1.5.5-era user-visible regression: panes rendered with correct headers but completely empty bodies across all providers when the launched binary exited immediately (ENOENT / missing PATH / incompatible CLI flag).
+
+### Bug symptoms
+
+- Every provider pane header rendered normally (provider name, status pill).
+- Terminal body was blank — no output at all, not even an error line.
+- Affected only fast-exit binaries: `claude: command not found`, version-flag errors, PATH not set.
+- Slow-exit binaries (ones that write output before exiting) were unaffected.
+
+### Root cause — PTY-exit / renderer-snapshot race
+
+`PtyRegistry` called `forget(sessionId)` (which discards the ring buffer) on process exit via a 200 ms `gracefulExitDelayMs` timeout. The renderer's `pty.snapshot` IPC call to read terminal output is fired shortly after the pane mounts. For fast-exit binaries that wrote output and died in < 200 ms, the sequence was:
+
+1. Binary exits → 200 ms timer starts.
+2. Timer fires → `forget()` clears the ring buffer.
+3. Renderer mounts → `pty.snapshot` IPC fires → buffer already gone → returns empty array.
+4. Pane renders with empty body.
+
+The fix (`app/src/main/rpc-router.ts:298-300`): `gracefulExitDelayMs` bumped from `200` ms to `3_000` ms. The ring buffer now lives for 3 seconds post-exit, long enough for the renderer to read it in all realistic cases.
+
+### What the fix does (and does not do)
+
+The fix **surfaces** the underlying binary errors — users now see actual error text (e.g. `claude: command not found`) instead of a blank pane. It does **not** prevent the binary deaths themselves. Root cause diagnosis (missing PATH, incompatible flags) is deferred to v1.5.7+ pending diagnostic data from the field.
+
+### Regression test
+
+New test in `app/src/main/core/pty/registry.test.ts` using `vi.useFakeTimers`:
+
+- Verifies that `snapshot()` returns buffered lines when called at t=0 ms (process just exited).
+- Verifies that `snapshot()` returns empty after `vi.advanceTimersByTime(3001)` (buffer expired).
+- Confirms `forget()` is not called before `gracefulExitDelayMs` elapses.
+
+### Combined main gate
+
+- tsc: clean.
+- eslint: 0 errors.
+- vitest: 99 files / 898 pass / 1 skip (+1 from v1.5.5 baseline of 897).
+- smoke e2e: 35 s pass.
+
+### Deferred to v1.5.7+
+
+- Root cause of binary deaths (ENOENT / PATH / flag incompatibilities) — waiting on field diagnostic data.
+- Shell-first pane architecture pivot decision (launch a shell, exec the CLI inside it — prevents the race class entirely by keeping the PTY alive regardless of binary exit).
+
+### Wishlist post-v1.5.6
+
+- v1.5.7 backlog: root cause of binary deaths, shell-first pane architecture decision, isResume explicit registry field, concurrent-spawn uniqueness gap, hardware sample-rate detection, scrollback persistence, V3-W15-006 dogfood.
+
 
 
 3 parallel Sonnet sub-agent clusters cleared 9 items from the v1.5.2 backlog in autonomous mode. The Opus 4.7 reviewer on Cluster C uncovered + confirmed a CRITICAL v1.5.0 production regression that's now fixed in this release: the entire `rpc.sync.*` IPC surface was missing from the preload `CHANNELS` allowlist, making cross-machine sync (the headline v1.5.0 feature) unreachable from the renderer UI since v1.5.0 shipped. **ZERO REQUEST-CHANGES across all 3 PRs.**

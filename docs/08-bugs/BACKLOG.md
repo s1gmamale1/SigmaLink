@@ -25,6 +25,17 @@
 
 ---
 
+## Shipped & verified — v1.5.6
+
+**PTY ring-buffer race — fast-exit binary body blank** (2026-05-21, commit 4daf478)
+- **Bug class**: PTY-exit / renderer-snapshot race — `forget()` cleared the ring buffer before `pty.snapshot` IPC fired for fast-exit binaries (ENOENT / missing PATH / incompatible flag).
+- **Symptom**: panes rendered with correct headers but empty bodies across all providers in v1.5.5.
+- **Fix**: `gracefulExitDelayMs` bumped 200 ms → 3 000 ms in `app/src/main/rpc-router.ts:298-300`.
+- **Regression test**: `app/src/main/core/pty/registry.test.ts` — `vi.useFakeTimers` verifies buffer survives at t=0 and clears after 3 001 ms advance.
+- **Deferred**: root cause of binary deaths + shell-first pane architecture pivot → v1.5.7+.
+
+---
+
 ## v1.2.7 — multi-workspace state preservation → **Shipped & verified**
 
 ### What landed

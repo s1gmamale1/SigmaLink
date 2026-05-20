@@ -6,6 +6,7 @@
 
 | Release | What | Plan file |
 |---|---|---|
+| v1.5.6 | PTY exit grace window hotfix (200ms → 3000ms) — unmasks fast-exit binary errors (ENOENT/PATH/flag) | inline in CHANGELOG |
 | v1.2.0 | Windows platform port — NSIS installer + PowerShell one-liner | `docs/03-plan/` (none — implementation only) |
 | v1.2.1 | Windows CI hotfix — npmRebuild=false to skip node-pty re-rebuild | inline in CHANGELOG |
 | v1.2.2 | Windows install-script asset regex + native-module hoist (`.npmrc`) | inline in CHANGELOG |
