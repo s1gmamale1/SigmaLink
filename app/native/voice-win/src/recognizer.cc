@@ -477,7 +477,21 @@ void Recognizer::StartSTAThread() {
   sta_thread_ = CreateThread(
       nullptr, 0, STAThreadProc, state, 0, &sta_tid_);
 
-  if (sta_thread_ != nullptr && ready != nullptr) {
+  if (sta_thread_ == nullptr) {
+    // CreateThread failed — the STA thread proc will never run, so we are
+    // responsible for releasing every resource allocated above.
+    if (ready != nullptr) {
+      CloseHandle(ready);
+      g_sta_ready_event = nullptr;
+    }
+    // STAThreadState owns the ready handle; it was already closed above, so
+    // null it out before deleting to avoid a double-close in any future path.
+    state->ready_event = nullptr;
+    delete state;
+    return;
+  }
+
+  if (ready != nullptr) {
     // Block until the STA thread signals that the HWND_MESSAGE window
     // and COM STA are ready (or up to 5 seconds on a very slow machine).
     WaitForSingleObject(ready, 5000);

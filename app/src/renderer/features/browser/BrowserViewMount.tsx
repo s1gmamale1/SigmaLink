@@ -114,6 +114,7 @@ function BrowserViewMountInner({ workspaceId, visible }: Props) {
   return (
     <div
       ref={ref}
+      data-testid="browser-view-mount"
       className="relative min-h-0 flex-1 bg-card"
       // When the renderer says "not visible", we already told the main process
       // bounds: null. Hiding the DOM placeholder via display:none keeps it out
