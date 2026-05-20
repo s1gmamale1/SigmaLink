@@ -606,6 +606,100 @@ export const notifications = sqliteTable(
 export type NotificationRow = typeof notifications.$inferSelect;
 export type NotificationInsert = typeof notifications.$inferInsert;
 
+// v1.5.0 packet 09 — Cross-machine sync metadata tables.
+// Migration 0019_sync_metadata owns the DDL; these Drizzle tables mirror it
+// so the sync engine stays end-to-end typed. NO plaintext row bodies are
+// stored here — only pointers, packed HLC values, and JSON snapshots for
+// conflict resolution review.
+export const syncState = sqliteTable(
+  'sync_state',
+  {
+    tableName: text('table_name').notNull(),
+    rowId: text('row_id').notNull(),
+    hlcWallMs: integer('hlc_wall_ms').notNull(),
+    hlcLogical: integer('hlc_logical').notNull(),
+    hlcMachineId: text('hlc_machine_id').notNull(), // hex-encoded 16 bytes
+    rowHash: text('row_hash').notNull(),
+    dirty: integer('dirty').notNull().default(0),
+    lastPushedAt: integer('last_pushed_at'),
+  },
+);
+
+export const syncConflicts = sqliteTable(
+  'sync_conflicts',
+  {
+    id: text('id').primaryKey(),
+    tableName: text('table_name').notNull(),
+    rowId: text('row_id').notNull(),
+    localHlcPacked: text('local_hlc_packed').notNull(), // hex-encoded
+    remoteHlcPacked: text('remote_hlc_packed').notNull(),
+    remoteMachineId: text('remote_machine_id').notNull(), // hex-encoded
+    localRowJson: text('local_row_json').notNull(),
+    remoteRowJson: text('remote_row_json').notNull(),
+    resolved: integer('resolved').notNull().default(0),
+    resolution: text('resolution'),
+    resolvedAt: integer('resolved_at'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => ({
+    unresolvedIdx: index('idx_sync_conflicts_unresolved').on(t.resolved, t.createdAt),
+  }),
+);
+
+export const syncHistory = sqliteTable(
+  'sync_history',
+  {
+    id: text('id').primaryKey(),
+    tableName: text('table_name').notNull(),
+    rowId: text('row_id').notNull(),
+    appliedAt: integer('applied_at').notNull(),
+    source: text('source').notNull(), // 'remote' | 'conflict_resolution'
+  },
+  (t) => ({
+    appliedIdx: index('idx_sync_history_applied').on(t.appliedAt),
+  }),
+);
+
+export const syncQuarantine = sqliteTable('sync_quarantine', {
+  id: text('id').primaryKey(),
+  blobPath: text('blob_path').notNull(),
+  reason: text('reason').notNull(), // 'aead_fail' | 'schema_unknown' | 'malformed'
+  detectedAt: integer('detected_at').notNull(),
+});
+
+export const syncPendingUpgrade = sqliteTable('sync_pending_upgrade', {
+  id: text('id').primaryKey(),
+  blobPath: text('blob_path').notNull(),
+  schemaVersion: integer('schema_version').notNull(),
+  queuedAt: integer('queued_at').notNull(),
+});
+
+export const syncTombstones = sqliteTable(
+  'sync_tombstones',
+  {
+    tableName: text('table_name').notNull(),
+    rowId: text('row_id').notNull(),
+    deletedAt: integer('deleted_at').notNull(),
+    hlcPacked: text('hlc_packed').notNull(), // hex-encoded
+  },
+  (t) => ({
+    gcIdx: index('idx_sync_tombstones_gc').on(t.deletedAt),
+  }),
+);
+
+export type SyncStateRow = typeof syncState.$inferSelect;
+export type SyncStateInsert = typeof syncState.$inferInsert;
+export type SyncConflictRow = typeof syncConflicts.$inferSelect;
+export type SyncConflictInsert = typeof syncConflicts.$inferInsert;
+export type SyncHistoryRow = typeof syncHistory.$inferSelect;
+export type SyncHistoryInsert = typeof syncHistory.$inferInsert;
+export type SyncQuarantineRow = typeof syncQuarantine.$inferSelect;
+export type SyncQuarantineInsert = typeof syncQuarantine.$inferInsert;
+export type SyncPendingUpgradeRow = typeof syncPendingUpgrade.$inferSelect;
+export type SyncPendingUpgradeInsert = typeof syncPendingUpgrade.$inferInsert;
+export type SyncTombstoneRow = typeof syncTombstones.$inferSelect;
+export type SyncTombstoneInsert = typeof syncTombstones.$inferInsert;
+
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type WorkspaceInsert = typeof workspaces.$inferInsert;
 export type AgentSessionRow = typeof agentSessions.$inferSelect;
