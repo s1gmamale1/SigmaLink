@@ -1,0 +1,147 @@
+SigmaLink v1.5.3 — 2026-05-20
+=============================
+
+v1.5.3 cleanup packet + **TWO live v1.5.2-era regressions caught and
+fixed mid-rollup**. 5 parallel Sonnet sub-agent clusters cleared the
+v1.5.3 backlog; the new defensive test infrastructure caught one
+regression on its first run; a user dogfood report caught the other.
+Internal-use distribution posture clarified across all forward-looking
+docs.
+
+🚨 Critical Sigma-dispatch-pane invisible-pane hotfix
+-----------------------------------------------------
+
+If you used the Sigma Assistant on v1.4.0–v1.5.2 to spawn a pane via
+"open codex as pane N" or similar, the pane was created on disk +
+in the database + as a running CLI process, but the renderer's
+sessions state and swarm state never learned about it. The pane was
+invisible in the Command Room grid + the sidebar agent badge stayed
+at the pre-spawn count.
+
+Root cause: the `assistant:dispatch-echo` handler dispatched
+`SET_ACTIVE_SESSION` + `SET_ROOM` to navigate the user TO the new
+pane, but never dispatched `ADD_SESSIONS` + `UPSERT_SWARM` to actually
+add the new pane to the renderer's state. The +Pane button correctly
+dispatched all three; the Sigma path skipped two.
+
+Fix: in `use-sigma-dispatch-echo.ts`, the handler now refreshes
+swarms + sessions via `rpcSilent.panes.listForWorkspace(workspaceId)`
+and `rpcSilent.swarms.list(workspaceId)` immediately after each
+dispatch-echo event, and dispatches `ADD_SESSIONS` + per-swarm
+`UPSERT_SWARM` for the refreshed state. Mirrors the v1.4.3 #02
+boot-restore hydration pattern.
+
+If you have orphan panes from v1.5.2 or earlier (running CLI
+processes that don't appear in your Command Room), you can either:
+- Close + reopen the workspace (boot restore will pick them up), OR
+- Re-launch SigmaLink — the orphan panes will reattach via the
+  existing v1.2.7 session-restore + v1.4.3 panes.listForWorkspace
+  pipeline.
+
+No data loss; the panes were always real, just invisible.
+
+🚨 Critical v1.4.9 provider-install renderer regression
+--------------------------------------------------------
+
+Caught by the new `CHANGELOG`-vs-`AppRouter` defensive test on its
+first run against current main. `providers.spawnInstall`,
+`providers.setInstallConsent`, and `providers.getInstallConsent`
+have been missing from the `CHANGELOG` allowlist in
+`app/src/shared/rpc-channels.ts` since v1.4.9 PR #49 shipped.
+
+The preload bridge hard-rejected the calls with "IPC channel not
+allowed" errors. `ProvidersTab.tsx:84` silently swallowed via
+`.catch(() => null)` — so the consent-state UI showed wrong values
+without any user-facing error. `ProviderInstallModal.tsx:153,163,175`
+raised sonner error toasts on user click.
+
+Live broken since 2026-05-20 v1.4.9 release.
+
+Fixed in this release: 3 channels added to `CHANGELOG`.
+
+Other highlights
+----------------
+
+- **CommandRoom 544 → 405 LOC**: extracted `AddPaneButton.tsx` with
+  full RTL test coverage (visibility pill, persistent error chip,
+  10s auto-dismiss, unmount cleanup, multi-error timer reset).
+
+- **CHANGELOG-vs-AppRouter cross-reference test**: prevents
+  v1.5.0/v1.4.9-class regressions where a new controller method
+  ships without its channel being added to the preload allowlist.
+  Forward + inverse + import-guard checks. Caught the providers.*
+  regression on first run.
+
+- **E2E sync smoke**: 1 Playwright test that opens Settings → Sync
+  and asserts no "IPC channel not allowed" text appears — catches
+  preload-allowlist regressions at e2e level.
+
+- **voice-win IsAvailable() HMR race fixed**: two-mechanism guard
+  (`g_sta_draining` atomic flag with acquire/release ordering +
+  post-loop `PeekMessageW` drain that rejects queued probes). Every
+  code path through `IsAvailableAsync()` now terminates in resolve
+  or reject; no silent-hang.
+
+- **Native prebuild silent-no-output root-cause found + fixed**:
+  prebuildify names scoped-package output `/`→`+` substitution
+  (`@sigmalink/voice-mac` → `@sigmalink+voice-mac.node`). Workflows
+  were hard-coded to `node.napi.node`. Fixed in all 3 workflow
+  YAMLs (mac voice, win voice-win SAPI5, win voice-whisper).
+
+- **whisper.cpp v1.7.x ggml-cpu binding.gyp port**: voice-whisper
+  now builds against whisper.cpp v1.7.4's new ggml-cpu/ source
+  layout. File mapping: `ggml-aarch64.c` → `ggml-cpu/ggml-cpu-aarch64.cpp`
+  (moved + C→C++). 5 NEW source files: `ggml-backend-reg.cpp`,
+  `ggml-threading.cpp`, `ggml-cpu-quants.c`, `ggml-cpu-traits.cpp`,
+  `llamafile/sgemm.cpp`. `CLANG_ENABLE_OBJC_ARC: NO` for manual
+  retain/release in ggml-metal.m. Local mac prebuildify confirmed.
+  **Unlocks** the previously-deferred sample-rate fix (44.1/48 kHz
+  mic → 16 kHz whisper resample).
+
+- **V3-W13-013 `assistant.dispatchBulk` + `assistant.refResolve`**:
+  closes the V3 parity partial gap. dispatchBulk spawns N panes
+  per item via the existing executeLaunchPlan; refResolve walks the
+  workspace tree (depth ≤ 8) for `@filename` matches with IGNORED_DIRS
+  set; up to 10 matches with 200-char snippets.
+
+- **`sync:status` event** added to EVENTS allowlist (forward-compat
+  for future renderer subscribers; SyncTab currently polls).
+
+Internal-use distribution posture
+---------------------------------
+
+SigmaLink is currently developed for internal use only. Not selling,
+not publicly distributing. The forward-looking "funded-only / EV
+cert / WinGet / Microsoft Store / Apple Developer Program /
+Picovoice licensing" framing has been removed from WISHLIST.md and
+BACKLOG.md. Signed-distribution paths are explicitly OFF-ROADMAP.
+The SmartScreen workaround in `app/build/nsis/README — First launch.txt`
+and Gatekeeper ad-hoc-signing in `scripts/install-macos.sh` are
+canonical for internal users. "Hey Sigma" wake-word options updated
+to whisper.cpp continuous mode and OS-level dictation (no third-party
+licensing needed).
+
+Test count
+----------
+
+92 → 96 files (+4) / 831 → 861 pass (+30) / 1 skip.
+
+Deferred to v1.5.4
+------------------
+
+- Sample-rate mismatch in PCM tap (now actionable after Cluster D).
+- `pickPreset(n)` bug for n=7..8 (pre-existing in controller; mirrored
+  to dispatchBulk for parity).
+- AddPaneButton tests 7+9 Radix-may-not-open escape hatches.
+- A11y posture on AddPaneButton pill/chip (no aria-live).
+- AddPaneButton error chip absolute-positioning (visual change).
+- `ipcMain.handle` enumeration in electron/main.ts for
+  CHANGELOG-vs-AppRouter test (currently misses direct-in-main
+  handlers like voice.globalCapture.*; suppressed via
+  CHANNELS_REQUIRING_LEAD_REVIEW).
+- whisper.cpp Windows prebuild CI confirmation (should now pass
+  with v1.5.3-D binding.gyp port + Cluster C upload path fix;
+  soft-fail stays as safety net).
+- V3-W15-006 dogfood (human QA only).
+
+No schema migrations in v1.5.3.

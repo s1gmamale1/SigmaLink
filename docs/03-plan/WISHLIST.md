@@ -95,13 +95,9 @@ Non-blocking observations from the v1.5.2 Opus 4.7 reviewer round + carry-over f
 - **V3-W13-013 `assistant.*` dispatchBulk/refResolve** — bulk pane spawn from a single Sigma prompt; feature enhancement (NOT parity gap; core dispatchPane + send/cancel/tools shipped).
 - **V3-W15-006 dogfood exercise** — human QA, ≥30 min 4-pane swarm (Claude+Codex+Gemini+OpenCode) against a real repo. Not code-generatable; queued for operator-led session.
 
-## 🔵 Funded-only / won't-do
+## Distribution posture (internal use)
 
-| Item | Cost | Status |
-|---|---|---|
-| ~~Apple Developer ID + notarisation~~ | ~~$99/yr~~ | **Dropped 2026-05-18** — not selling, won't pay. Ad-hoc signing + Gatekeeper README workaround remain canonical |
-| EV/OV Authenticode cert | $300-700/yr | Open — Windows SmartScreen workaround documented |
-| Microsoft Store / WinGet distribution | M + Microsoft reviews | Open — gated on EV cert |
+SigmaLink is currently developed for **internal use only**. Not selling, not distributing globally. Signed distribution paths (EV cert, Microsoft Store, WinGet, Apple Developer Program, third-party wake-word licensing) are NOT on the roadmap — the SmartScreen-on-first-launch + Gatekeeper-ad-hoc-signing workflows in `app/build/nsis/README — First launch.txt` and `scripts/install-macos.sh` are canonical for internal distribution.
 
 ## P3 — polish (open in backlog, low priority)
 

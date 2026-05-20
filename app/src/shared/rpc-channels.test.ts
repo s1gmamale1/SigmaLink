@@ -191,6 +191,8 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'assistant.list',
   'assistant.cancel',
   'assistant.dispatchPane',
+  'assistant.dispatchBulk',  // v1.5.3-E (V3-W13-013 partial gap close)
+  'assistant.refResolve',    // v1.5.3-E (V3-W13-013 partial gap close)
   'assistant.tools',
   'assistant.invokeTool',
   // design (designCtl — from buildDesignController)

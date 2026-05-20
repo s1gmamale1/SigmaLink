@@ -18,9 +18,8 @@
 | Perf — sustained runtime | 0 (shipped v1.1.9 + v1.4.5) | — |
 | Quality — refactor | 0 (factory.ts + runClaudeCliTurn.ts split v1.4.5) | — |
 | Tests / CI | 0 (smoke refresh v1.4.6 + v1.4.7) | — |
-| Platform / distribution | 3 funded-only (EV cert + WinGet + Microsoft Store) | [v1.3 platform](#v13--platform--distribution) — Apple Dev ID dropped 2026-05-18; Linux wontfix 2026-05-16 |
+| Platform / distribution | 0 (internal-use only; signed-distribution paths off-roadmap) | [v1.3 platform](#v13--platform--distribution) — Apple Dev ID dropped 2026-05-18; Linux wontfix 2026-05-16 |
 | Lint — React-compiler family | 0 (closed v1.4.5) | — |
-| Funded-only (EV cert, WinGet, Microsoft Store, Porcupine) | 4 | [Waiting on external](#waiting-on-external--needs-funding) |
 | v1.5.2 latent caveats (none ship-critical) | 11 | [WISHLIST.md v1.5.2 backlog](../03-plan/WISHLIST.md) |
 | V3-W15-006 dogfood (HUMAN QA) | 1 | [WISHLIST.md v1.5.2 backlog](../03-plan/WISHLIST.md) |
 
@@ -254,7 +253,7 @@
 
 ## v1.3 — platform / distribution
 
-> v1.2.0 closed the Windows platform port at the unsigned-NSIS + PowerShell-installer + Web-Speech-fallback level. Most of this wave shipped piecemeal across v1.4.x-v1.5.0. **The 3 remaining items are funded-only** (EV cert, Microsoft Store, WinGet) — see [Waiting on external](#waiting-on-external--needs-funding).
+> v1.2.0 closed the Windows platform port at the unsigned-NSIS + PowerShell-installer + Web-Speech-fallback level. Most of this wave shipped piecemeal across v1.4.x-v1.5.0. **Signed-distribution paths (EV cert, Microsoft Store, WinGet, Apple Developer Program) are off-roadmap — SigmaLink is internal-use only**; the SmartScreen + Gatekeeper-ad-hoc-signing workflows are canonical.
 
 ### ~~Native Windows SAPI5 voice binding~~ — **Shipped & verified — v1.5.0 (#53)**
 - Closed by `@sigmalink/voice-win` native module: `CLSID_SpSharedRecognizer` + STA worker + Win32 message pump + hidden `HWND_MESSAGE` + `SetNotifyWindowMessage(WM_APP+1)`. v1.5.1 further refactored Sleep(50) → event-signal + IsAvailable async + napi cleanup hook.
@@ -262,21 +261,20 @@
 ### ~~`windowsControlsOverlay` frameless chrome~~ — **Shipped & verified — v1.4.6 (#33)**
 - Closed by cross-platform `titleBarStyle: 'hidden'` everywhere with WCO insets. The 140px shim is gone; Breadcrumb is fully WCO-aware.
 
-### EV/OV Authenticode certificate — **STILL OPEN (funded-only)**
-- Cost: $300-700/yr (EV) or $80-200/yr (OV). Documented in [Waiting on external](#waiting-on-external--needs-funding).
-- Workaround in place: `app/build/nsis/README — First launch.txt` documents SmartScreen recovery; PowerShell installer auto-`Unblock-File`s.
+### EV/OV Authenticode certificate — **OFF-ROADMAP (internal use only)**
+- SigmaLink is not publicly distributed. SmartScreen workaround in `app/build/nsis/README — First launch.txt` + PowerShell installer `Unblock-File` flow are canonical for internal users.
 
 ### Linux AppImage / .deb — **WONTFIX (2026-05-16)**
 - Closed as wontfix per user decision. SigmaLink ships macOS arm64 + Windows x64 only. `electron-builder.yml` still has a `linux:` target block for local-build completeness, but no CI, no smoke, no docs.
 
-### Microsoft Store / WinGet distribution — **STILL OPEN (gated on EV cert)**
-- Cannot proceed until EV cert lands.
+### Microsoft Store / WinGet distribution — **OFF-ROADMAP (internal use only)**
+- Not publicly distributed; storefront submission off-roadmap.
 
 ### ~~Windows auto-update~~ — **Shipped & verified — v1.4.8 (#45)**
 - Closed by `electron-updater` differential feed via GitHub Releases (no Microsoft Store needed). UAC-denied fallback + warning copy. Opt-in toggle in Settings → Updates.
 
-### Apple Developer ID + notarisation — **DROPPED 2026-05-18**
-- User decision: not selling, won't pay $99/yr. Ad-hoc signing + Gatekeeper README workaround remain canonical.
+### Apple Developer ID + notarisation — **OFF-ROADMAP (internal use only)**
+- Internal distribution path; ad-hoc signing + Gatekeeper README workaround are canonical.
 
 ### ~~x64 macOS DMG via CI matrix~~ — **Shipped & verified — v1.4.6 (#34)**
 - Closed by Electron-ABI rebuild in all CI lanes (was rebuilding host Node ABI, root cause of CI red since v1.4.3). Intel-Mac users now get x64 DMG with Speech.framework binding bundled.
@@ -295,18 +293,12 @@
 
 ---
 
-## Waiting on external — needs funding
+## "Hey Sigma" wake-word — OPEN (no licensing required for internal use)
 
-### "Hey Sigma" wake-word
-- **Blocker**: Porcupine licensing forbids bundled key.
-- **Options**:
-  1. **Picovoice paid license** — ~$200/mo for 1k users. Bundled key OK.
-  2. **whisper.cpp continuous mode** — open source, runs locally, but ~5% CPU per active wake-word listener.
-  3. **OS-level integration** — macOS dictation + custom shortcut. No wake-word, but free.
-- **Decision needed**: pick option 1, 2, or 3 once monetisation lands.
-
-### Apple Developer Program ($99/year)
-- Documented in [v1.2 platform](#v12--platform--distribution) above.
+- For internal-use builds, viable options without third-party licensing:
+  - **whisper.cpp continuous mode** — open source, runs locally, ~5% CPU per active wake-word listener. Already vendored as of v1.5.1 (submodule v1.7.4). After v1.5.3 the binding.gyp is ported to v1.7.x layout.
+  - **OS-level integration** — macOS dictation + custom shortcut. No wake-word but zero CPU overhead.
+- Implementation deferred; not v1.5.x-critical.
 
 ---
 
@@ -483,14 +475,9 @@ Catch-up audit covering items that shipped piecemeal across v1.3.x-v1.5.1 but we
 
 Net: 35 shipped + 4 obsoleted + 3 partial handled + 1 human-only unfinished = wishlist closed.
 
-### Funded-only items still open
+### Distribution posture (internal use only)
 
-| Item | Cost | Status |
-|---|---|---|
-| EV/OV Authenticode cert | $300-700/yr (EV) | Funded-only |
-| Microsoft Store / WinGet distribution | M setup + EV cert prereq | Gated on EV cert |
-| Apple Developer ID + notarisation | ~~$99/yr~~ | **Dropped 2026-05-18** — not selling, ad-hoc signing + Gatekeeper README workaround remain canonical |
-| Picovoice Porcupine "Hey Sigma" wake-word | ~$200/mo for 1k users | Funded-only |
+SigmaLink is developed for **internal use**. Not publicly distributed. Signed-distribution paths (EV cert, Microsoft Store, WinGet, Apple Developer Program) and third-party wake-word licensing (Picovoice Porcupine) are off-roadmap. The SmartScreen + Gatekeeper-ad-hoc-signing workflows in `app/build/nsis/README — First launch.txt` and `scripts/install-macos.sh` are canonical for internal users.
 
 ---
 

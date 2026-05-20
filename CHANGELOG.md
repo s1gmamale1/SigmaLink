@@ -4,6 +4,85 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-05-20
+
+v1.5.3 — 5-cluster parallel swarm + Opus 4.7 reviewers + **TWO live v1.5.2-era regressions caught + fixed mid-rollup** + internal-use posture clarified across all forward-looking docs.
+
+### 🚨 Critical v1.5.2 Sigma-dispatch-pane invisible-pane hotfix
+
+User-reported bug during v1.5.2 dogfood: "Sigma says he opened codex pane but nothing appeared in the command room." Diagnosis: `assistant:dispatch-echo` handler in `use-sigma-dispatch-echo.ts` dispatched `SET_ACTIVE_SESSION` + `SET_ROOM` + `SET_ACTIVE_WORKSPACE` but never dispatched `UPSERT_SWARM` + `ADD_SESSIONS`. Backend correctly spawned the PTY + created the `swarm_agents` row + assigned worktree path + emitted the echo event with the new session id — but the renderer's `state.sessionsByWorkspace` + `state.swarms` never learned about the new pane. Sidebar badge stayed at "5 agents", grid layout didn't extend to slot 6, even though the backend was running the new codex CLI in its isolated worktree.
+
+Fix: in the echo handler, refresh swarms + sessions via `rpcSilent.panes.listForWorkspace(workspaceId)` + `rpcSilent.swarms.list(workspaceId)` immediately after the echo arrives, then dispatch `ADD_SESSIONS` + `UPSERT_SWARM` for each. Mirrors the v1.4.3 #02 boot-restore hydration pattern. Best-effort try/catch so failure falls back to "pane visible on next workspace reopen" rather than breaking the dispatch flow.
+
+Affected versions: every release with the Sigma orchestrator dispatch-pane path (v1.4.0 → v1.5.2). Anyone who used Sigma to spawn a pane during that window had the pane created on disk but invisible in the UI. The pane was real — they could see its worktree on filesystem and the database had the agent_sessions row; the renderer just didn't know.
+
+### 🚨 Defensive test caught providers.* regression (live since v1.4.9 #49)
+
+The new `CHANNELS-vs-AppRouter` cross-reference test (Cluster B) fired on its first run against current main and exposed that `providers.spawnInstall`, `providers.setInstallConsent`, and `providers.getInstallConsent` were missing from the `CHANNELS` allowlist since v1.4.9 PR #49 (~2 days live broken). Same regression class as the v1.5.0 cross-sync gap fixed in v1.5.2:
+- Controller handlers registered + AppRouter declared them + `ProviderInstallModal` + `ProvidersTab` called them
+- Preload bridge hard-rejected with "IPC channel not allowed" errors
+- `ProvidersTab.tsx:84` swallowed silently via `.catch(() => null)` → wrong consent state displayed
+- `ProviderInstallModal.tsx:153,163,175` raised sonner toasts on user click
+
+Folded into Cluster B's PR pre-merge (added 3 channels to CHANNELS, removed from `KNOWN_CONTROLLER_NOT_IN_CHANNELS` suppression in the test). The defensive test now catches this CLASS of regression at PR time instead of post-ship.
+
+### Cluster A — AddPaneButton extraction + RTL coverage (#65)
+
+- Extracted `AddPaneButton.tsx` (195 LOC) from CommandRoom.tsx — disabled-reason pill + persistent error chip + addPane action all moved into a single sub-component with `swarmId` + `activeSwarm` + `providers` props.
+- CommandRoom.tsx: 544 → 405 LOC (restores 500-LOC ceiling).
+- 11 RTL tests covering: 3 pill-visible variants, pill-hidden-when-enabled, dropdown open/close, addAgent rpc call, error chip render/dismiss/10s-auto-dismiss/unmount-cleanup/multi-error-timer-reset.
+
+### Cluster B — Defensive test infrastructure (#64)
+
+- **`rpc-channels.test.ts`** — new 418-line `CHANNELS`-vs-`AppRouter` cross-reference test. Hand-rolled static enumeration of 158 channels (20 namespaces from `defineRouter` body + 16 channels from 5 side-band maps). Forward check (every router handler is in CHANNELS) + inverse check (every CHANNELS entry has a registered handler) + import guard (both sets non-empty). **Caught the providers.* regression on first run.**
+- **`sync-smoke.spec.ts`** — new Playwright e2e test (1 minimal test): launches app, navigates to Settings → Sync via `sigma:test:set-room`, asserts no "IPC channel not allowed" text in DOM, invokes `rpc.sync.status()` directly, verifies Sync section renders. Prevents recurrence of the v1.5.0-class regression at e2e level.
+- **`engine-integration.test.ts` flake fix** — `afterEach` calls `engine.disable()` (cancels 30s background timer) + `vi.restoreAllMocks()` (handles spy-leak path that `vi.clearAllMocks()` misses). Both tests pass cleanly across consecutive serial runs.
+
+### Cluster C — voice-win HMR race + prebuildify root cause (#61)
+
+- **voice-win `IsAvailable()` HMR race FIXED**: two-mechanism guard — `g_sta_draining` `std::atomic<bool>` with acquire/release ordering (set true before posting `WM_SAPI_QUIT`; checked in `IsAvailableAsync` to reject Deferred immediately) + post-loop `PeekMessageW` drain that catches any `WM_SAPI_PROBE` messages that raced past the flag and rejects their TSFNs explicitly. Every code path through `IsAvailableAsync()` now terminates in either resolve or reject; no silent-hang.
+- **Prebuildify silent-no-output ROOT CAUSE FOUND + FIXED**: prebuildify names the output file from `package.json` `name` field with `/`→`+` substitution for scoped packages. `@sigmalink/voice-win` → `@sigmalink+voice-win.node`, not `node.napi.node`. Workflows hard-coded the latter → upload path missed the actual file. Fixed in `native-prebuild-mac.yml` + `native-prebuild-win-sapi5.yml`. Plus 3-line fold at v1.5.3 rollup time for `native-prebuild-win.yml` (whisper) which had the same bug.
+
+### Cluster D — whisper.cpp v1.7.x ggml-cpu binding.gyp port (#62)
+
+- Ported `app/native/voice-whisper/binding.gyp` to whisper.cpp v1.7.4's new ggml-cpu/ layout. File mapping: `ggml-aarch64.c → ggml-cpu/ggml-cpu-aarch64.cpp` (moved + C→C++); `ggml-cpu.c/.cpp → ggml-cpu/ggml-cpu.{c,cpp}`; `ggml-metal.m → ggml-metal/ggml-metal.m`. 5 NEW source files: `ggml-backend-reg.cpp`, `ggml-threading.cpp`, `ggml-cpu-quants.c`, `ggml-cpu-traits.cpp`, `llamafile/sgemm.cpp`.
+- Added `ggml/src` + `ggml/src/ggml-cpu` to `include_dirs` for the new flat-relative `#include "ggml-backend-impl.h"` style.
+- `CLANG_ENABLE_OBJC_ARC: YES → NO` for `ggml-metal.m` manual retain/release (`[release]` + `(void*)` casts). Scoped to whisper_bridge target only via `xcode_settings`; sibling voice-mac unaffected.
+- No whisper.cpp public-API breakage between v1.6.x and v1.7.4 — verified against `include/whisper.h`.
+- Local mac prebuildify output: `prebuilds/darwin-arm64/@sigmalink+voice-whisper.node` (1.2 MB) loads with `{ transcribe, default }` exports.
+- **Unlocks the previously-gated sample-rate fix** (44.1/48 kHz mic vs whisper 16 kHz expectation) — addressable as a follow-up packet.
+
+### Cluster E — V3-W13-013 `assistant.dispatchBulk` + `assistant.refResolve` + `sync:status` event (#63)
+
+- **`assistant.dispatchBulk({ provider, count, initialPrompt? }[])`**: spawns N panes per item via `executeLaunchPlan`. Provider validation via `findProvider()` emits per-pane error entries on unknown providers without aborting subsequent items. Per-item count clamped to `Math.max(1, Math.min(8, ...))`. Returns `{ paneId, providerId, workspaceId, success, error? }[]`.
+- **`assistant.refResolve({ atRef })`**: walks workspace tree via `node:fs` (depth ≤ 8) with `IGNORED_DIRS` set (`node_modules`, `.git`, `dist`, `build`, `.next`, `out`, `__pycache__`, `.cache`). Basename substring match (no path joins — no traversal vector). Up to 10 matches with 200-char snippet. Empty result → `[]`.
+- **`sync:status` event** added to `EVENTS` allowlist for forward-compat (no current renderer subscriber; SyncTab polls).
+- New `app/src/shared/router-shape.ts` (34 LOC) exposing the typed AppRouter for Cluster B's CHANNELS-vs-AppRouter test consumption.
+- 247 LOC of controller.test.ts coverage (8 tests).
+
+### Documentation — internal-use posture clarified
+
+Per user directive: all forward-looking "funded-only / EV cert / WinGet / Microsoft Store / Apple Developer Program / Picovoice licensing" framing scrubbed from `WISHLIST.md` and `BACKLOG.md`. **SigmaLink is internal-use only** — not selling, not publicly distributing. Signed-distribution paths are explicitly OFF-ROADMAP. The SmartScreen workaround (`app/build/nsis/README — First launch.txt`) + Gatekeeper ad-hoc-signing (`scripts/install-macos.sh`) flows are canonical for internal users. Historical CHANGELOG entries (e.g. "Apple Dev ID dropped 2026-05-18") stay as factual record of state at the time. The "Hey Sigma" wake-word entry rewritten around whisper.cpp continuous mode + OS-level dictation (no third-party licensing required).
+
+### Combined main gate
+
+- tsc: clean.
+- eslint: 0 errors, 1 pre-existing warning (`use-session-restore.ts:277`).
+- vitest: **96 files / 861 pass / 1 skip** (+22 from v1.5.2 baseline).
+- One initial regression: Cluster E's 2 new assistant channels weren't in Cluster B's hand-rolled `TYPED_ROUTER_CHANNELS` list (Cluster B branched before E merged). The new test caught it. Folded into rollup: added `assistant.dispatchBulk` + `assistant.refResolve` to TYPED_ROUTER_CHANNELS. This is the exact maintenance contract the test enforces — works as designed.
+- build + electron-builder: clean.
+
+### Deferred to v1.5.4
+
+- **Sample-rate mismatch in PCM tap** (44.1/48 kHz mic → 16 kHz whisper resample) — now actionable after Cluster D's binding.gyp port. Real feature work.
+- **`pickPreset(n)` bug for n=7..8** — pre-existing in `assistant/controller.ts:68-69` + `:293`; mirrored into new dispatchBulk for parity. Returns `undefined` for n=7/8, invalid LaunchPlan.preset.
+- **AddPaneButton tests 7+9 Radix-may-not-open escape hatches** — can silently degrade. Test 8 pattern (unconditional warning assertion) is the gold standard.
+- **A11y posture on AddPaneButton** — no `aria-live` on pill/chip. Carry-over from v1.5.2.
+- **AddPaneButton error chip absolute-positioning** — visual change vs v1.5.2's full-width-sibling layout. Worth manual dogfood eyeball.
+- **`ipcMain.handle` enumeration in `electron/main.ts`** — current CHANNELS-vs-AppRouter test misses direct `ipcMain.handle()` registrations (e.g. `voice.globalCapture.*`). Suppressed via `CHANNELS_REQUIRING_LEAD_REVIEW`; v1.5.4 should enumerate these too.
+- **whisper.cpp Windows prebuild** — should now succeed under CI with v1.5.3-D's binding.gyp port + Cluster C's scoped-package upload path; soft-fail stays as safety net until CI confirms.
+- **V3-W15-006 dogfood** — human QA, ≥30 min 4-pane swarm. Not codeable.
+
 ## [1.5.2] - 2026-05-20
 
 v1.5.2 cleanup packet + **critical v1.5.0 cross-sync renderer hotfix**. 3 parallel Sonnet sub-agent clusters cleared 9 items from the v1.5.2 backlog. Opus 4.7 reviewer caught Cluster C uncovering a **v1.5.0 production regression** where the entire `rpc.sync.*` IPC surface was preload-blocked, making cross-machine sync (the headline v1.5.0 feature) unreachable from the renderer UI since launch. **ZERO REQUEST-CHANGES across all 3 PRs.**

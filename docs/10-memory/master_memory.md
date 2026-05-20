@@ -2181,7 +2181,71 @@ Per the V3 audit + WISHLIST.md:
 - **Prebuild workflows should be soft-fail by default** when documented as "convenience-only, not release-blocking" — the hard-fail (if-no-files-found: error + no continue-on-error on build) was a latent bug exposed by Cluster B's submodule registration. Now consistent across all 3 prebuild workflows.
 - **V3 parity backlog should not be treated as a separate wishlist** — most of W12-W15 shipped piecemeal across v1.3.x-v1.5.0 without ticket-tagging. Cross-reference current source before assuming any backlog item is open.
 
-## Phase 39 — v1.5.2 cleanup + critical v1.5.0 sync regression hotfix (2026-05-20)
+## Phase 40 — v1.5.3 cleanup + 2 mid-rollup hotfixes (2026-05-20)
+
+5 parallel Sonnet sub-agent clusters + 5 Opus 4.7 reviewers + 2 critical regressions caught and folded into the rollup mid-flight: (1) `providers.*` v1.4.9-class CHANNELS-allowlist drift caught by the new defensive test on its first run; (2) Sigma-dispatch-pane invisible-pane bug caught by a user dogfood report during v1.5.2 testing.
+
+### Cluster dispatch (5 parallel agents)
+
+- **Cluster A** (PR #65, frontend): AddPaneButton extraction from CommandRoom 544→405 LOC + 11 RTL tests (visibility pill, persistent error chip, 10s timer, unmount cleanup, multi-error reset).
+- **Cluster B** (PR #64, defensive tests): CHANGELOG-vs-AppRouter cross-reference test (forward + inverse + import-guard) + e2e sync smoke + engine-integration.test.ts flake fix. **Caught providers.* regression on first run.**
+- **Cluster C** (PR #61, native): voice-win IsAvailable() HMR race fix (two-mechanism guard with atomic flag + post-loop drain) + prebuildify silent-no-output root cause (scoped-package `/`→`+` naming) + fixed in 2 of 3 prebuild workflows.
+- **Cluster D** (PR #62, build): whisper.cpp v1.7.x ggml-cpu binding.gyp port (file mapping table; 5 new sources; ARC=NO for ggml-metal.m manual retain/release). Local mac prebuildify confirmed; unlocks the previously-deferred sample-rate fix.
+- **Cluster E** (PR #63, feature): V3-W13-013 dispatchBulk + refResolve in assistant controller + sync:status event allowlist + new router-shape.ts for Cluster B's test consumption.
+
+### Reviewer cycle (5 Opus 4.7 reviewers, all APPROVE-WITH-CAVEATS or APPROVE)
+
+- **reviewer-pr58/61/62/63/64/65**: Zero REQUEST-CHANGES across all 5 PRs.
+- **reviewer-pr64 (highest-rigor)**: confirmed live providers.* regression since v1.4.9 — same class as v1.5.0 sync. Caught by the new defensive test on its first run. False positive on voice.globalCapture.* (handlers exist via direct `ipcMain.handle` in electron/main.ts:167-218, not visible to the test's static enumeration; suppressed via CHANNELS_REQUIRING_LEAD_REVIEW).
+- All trivial caveats folded inline pre-merge; non-trivial DEFERRED to v1.5.4.
+
+### Mid-rollup hotfix #1 — providers.* CHANNELS regression (folded into PR #64)
+
+Cluster B's defensive test caught `providers.spawnInstall`, `providers.setInstallConsent`, `providers.getInstallConsent` registered by controller + on AppRouter + called by ProvidersTab.tsx + ProviderInstallModal.tsx but absent from CHANNELS Set since v1.4.9 PR #49. Preload bridge hard-rejected with "IPC channel not allowed" errors. ProvidersTab silently caught via `.catch(() => null)`; ProviderInstallModal raised sonner toasts.
+
+Same class as v1.5.0 cross-sync regression fixed in v1.5.2. Live broken for ~3 days.
+
+Folded into PR #64 pre-merge: 3 channels added to CHANNELS, removed from KNOWN_CONTROLLER_NOT_IN_CHANNELS suppression in the test. Defensive test now passes with empty suppression set as baseline.
+
+### Mid-rollup hotfix #2 — Sigma-dispatch-pane invisible-pane bug (folded into v1.5.3 rollup)
+
+User reported during v1.5.2 dogfood: "Sigma says he opened codex pane but nothing appeared in the command room." Screenshot showed 5-pane grid + "5 agents" badge while Sigma confirmed "Codex pane launched as the 6th pane (session `180e6fbd...`) in an isolated worktree on branch `sigmalink/codex/pane-0-ef30d4c8`."
+
+Diagnosis: `assistant:dispatch-echo` handler in `use-sigma-dispatch-echo.ts` dispatched `SET_ACTIVE_SESSION` + `SET_ROOM` + `SET_ACTIVE_WORKSPACE` for navigation, but NEVER dispatched `UPSERT_SWARM` + `ADD_SESSIONS` for state. Backend correctly: created the swarm_agents row + spawned the PTY + assigned worktree + emitted the echo event. Renderer's `state.sessionsByWorkspace` + `state.swarms` never learned about the new pane → grid + sidebar badge stuck.
+
+Affected versions: v1.4.0 → v1.5.2 (any release where Sigma's dispatch-pane path existed). Every Sigma-dispatched pane during that ~5-day window was created on disk but invisible in the UI until the next workspace reopen (boot-restore's `panes.listForWorkspace` pulled them in).
+
+Fix: in the echo handler, after `ok === true`, `Promise.all([rpcSilent.panes.listForWorkspace(workspaceId), rpcSilent.swarms.list(workspaceId)])` then `dispatch ADD_SESSIONS` + per-swarm `UPSERT_SWARM`. Mirrors the v1.4.3 #02 boot-restore hydration pattern. Best-effort try/catch — failure falls back to "pane visible on next reopen", doesn't break dispatch flow.
+
+Comparison: the regular +Pane button in AddPaneButton.tsx correctly does all 3 dispatches (`UPSERT_SWARM` + `ADD_SESSIONS` + `SET_ACTIVE_SESSION`) because rpc.swarms.addAgent's response includes the new swarm + session inline. The Sigma path's dispatch-echo event doesn't carry those (it has only `workspaceId + sessionId + providerId + ok + error + conversationId`), so the renderer must re-fetch.
+
+### Internal-use distribution posture clarified
+
+Per user directive ("completely remove any mention of license here. We are not selling or going global. This is currently being developed for internal use."), all forward-looking funded-only/license framing scrubbed from WISHLIST.md and BACKLOG.md:
+- WISHLIST.md "🔵 Funded-only / won't-do" section replaced with "Distribution posture (internal use)" paragraph.
+- BACKLOG.md Index "Funded-only" row removed; "Platform / distribution" row reframed; v1.3 platform section header reframed; EV/OV cert + Microsoft Store + Apple Dev ID + WinGet entries reframed as "OFF-ROADMAP (internal use only)" instead of "STILL OPEN (funded-only)"; "Waiting on external — needs funding" section title removed; Porcupine licensing entry rewritten around whisper.cpp continuous mode + OS-level dictation alternatives; "Funded-only items still open" table replaced with "Distribution posture" paragraph.
+- Historical CHANGELOG entries (Apple Dev ID dropped 2026-05-18, etc.) left intact — factual record of state at the time.
+
+### Combined main gate
+
+- tsc clean.
+- eslint 0 errors / 1 pre-existing warning (use-session-restore.ts:277).
+- vitest **96 files / 861 pass / 1 skip** (+30 from v1.5.2 baseline of 96/831). One initial failure (assistant.dispatchBulk + refResolve weren't in Cluster B's hand-rolled TYPED_ROUTER_CHANNELS — Cluster B branched before E merged) caught + folded into rollup: added the 2 channels to TYPED_ROUTER_CHANNELS. This is the maintenance contract the test enforces — works as designed.
+- build + electron-builder clean.
+
+### Lessons logged
+
+- **Allowlist drift IS the v1.x dominant regression class** — v1.5.0 sync, v1.4.9 providers, two events of the same shape within a week. The CHANGELOG-vs-AppRouter defensive test (v1.5.3-B) is now the primary guardrail; v1.5.4 should extend it to enumerate `ipcMain.handle()` calls in electron/main.ts so direct-in-main handlers are also covered.
+- **Renderer state hydration after main-process state mutations is a second silent-failure class** — the Sigma dispatch-pane bug is structurally identical to the v1.4.3 #02 boot-restore gap, just in a different code path. Whenever a controller spawns/creates a row that the renderer should see, the corresponding code path needs to dispatch UPSERT_SWARM + ADD_SESSIONS (either directly from rpc response shape OR via listForWorkspace refresh). v1.5.4 should audit all such paths.
+- **User dogfood + screenshots remain the fastest path to catching state-sync bugs** that no unit/integration test will see. The test infrastructure for "renderer state matches backend state after operation X" doesn't exist yet — that's a v1.5.4+ defensive-test addition.
+- **Maintenance contract on hand-rolled static enumeration is fragile but acceptable** when the alternative is spawning Electron in unit tests. Mismatches caught at PR time + on combined-main are the cost of admission. Worth a v1.5.4 review of whether to introspect router-shape.ts directly instead.
+
+### Wishlist post-v1.5.3
+
+- WISHLIST.md remains genuinely empty for new feature work.
+- v1.5.4 backlog (now in WISHLIST.md): sample-rate mismatch (now unlocked), `pickPreset(n)` bug for n=7..8, AddPaneButton test hardening + a11y, AddPaneButton chip position dogfood, ipcMain.handle enumeration in defensive test, whisper.cpp Windows prebuild CI confirmation, V3-W15-006 dogfood (human-only).
+
+
 
 3 parallel Sonnet sub-agent clusters cleared 9 items from the v1.5.2 backlog in autonomous mode. The Opus 4.7 reviewer on Cluster C uncovered + confirmed a CRITICAL v1.5.0 production regression that's now fixed in this release: the entire `rpc.sync.*` IPC surface was missing from the preload `CHANNELS` allowlist, making cross-machine sync (the headline v1.5.0 feature) unreachable from the renderer UI since v1.5.0 shipped. **ZERO REQUEST-CHANGES across all 3 PRs.**
 

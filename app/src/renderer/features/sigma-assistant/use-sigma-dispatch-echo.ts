@@ -62,6 +62,31 @@ export function useSigmaDispatchEcho({
       };
 
       void (async () => {
+        // v1.5.3 hotfix for v1.5.2-and-earlier — refresh renderer's swarms +
+        // sessions state from the source of truth before navigation. The echo
+        // event tells us a pane was spawned, but the backend creates the swarm
+        // agent row + AgentSession row asynchronously and doesn't push them
+        // back through this event payload. Without these refreshes the
+        // sidebar agent badge and Command Room grid don't include the new
+        // pane (it exists on disk + in DB, just invisible in the UI until a
+        // workspace reopen). Mirrors the v1.4.3 #02 panes.listForWorkspace
+        // hydration pattern used in boot-restore + workspace open.
+        try {
+          const [sessions, swarms] = await Promise.all([
+            rpcSilent.panes.listForWorkspace(echo.workspaceId),
+            rpcSilent.swarms.list(echo.workspaceId),
+          ]);
+          if (sessions && sessions.length > 0) {
+            dispatch({ type: 'ADD_SESSIONS', sessions });
+          }
+          if (swarms) {
+            for (const swarm of swarms) {
+              dispatch({ type: 'UPSERT_SWARM', swarm });
+            }
+          }
+        } catch {
+          /* best-effort — pane will populate on next workspace reopen */
+        }
         let autoFocus = true;
         try {
           const raw = await rpcSilent.kv.get(KV_AUTO_FOCUS_ON_DISPATCH);
