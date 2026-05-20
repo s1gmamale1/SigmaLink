@@ -156,10 +156,15 @@ export function AddPaneButton({ swarmId, activeSwarm, providers }: AddPaneButton
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      {/* DOGFOOD-V1.4.2-01 hypothesis 1 — always-visible inline reason pill */}
+      {/* DOGFOOD-V1.4.2-01 hypothesis 1 — always-visible inline reason pill.
+          aria-live="polite" + role="status": SR announces the reason when
+          it changes (no-workspace → paused → cap) without interrupting
+          current speech. */}
       {disabledReason && (
         <span
           data-testid="add-pane-disabled-reason"
+          aria-live="polite"
+          role="status"
           className="text-[10px] italic text-muted-foreground/80"
         >
           {disabledReason}
@@ -167,10 +172,16 @@ export function AddPaneButton({ swarmId, activeSwarm, providers }: AddPaneButton
       )}
       {/* DOGFOOD-V1.4.2-01 hypothesis 3 — persistent inline error chip.
           absolute-positioned below the toolbar so it doesn't alter the
-          flex-row height. */}
+          flex-row height (Option B: chip floats over content rather than
+          pushing it down; this avoids layout shifts in the parent flex row
+          while keeping the error immediately visible beneath the toolbar).
+          aria-live="assertive" + role="alert": errors interrupt current SR
+          speech so the user is notified immediately. */}
       {lastAddError && (
         <div
           data-testid="add-pane-error-chip"
+          aria-live="assertive"
+          role="alert"
           className="absolute left-0 right-0 top-full z-10 flex items-center gap-1.5 border-b border-destructive/30 bg-destructive/10 px-3 py-1 text-[11px] text-destructive"
         >
           <span className="flex-1 truncate">{lastAddError}</span>
