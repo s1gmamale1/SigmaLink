@@ -1,0 +1,80 @@
+SigmaLink v1.5.0 — cross-machine sync + voice capture Win/Linux + SAPI5
+
+Headline
+--------
+The v1.4.8 bundle ships. Session C of the bundle — 3 platform-tier
+packets dispatched in parallel (Sonnet implementers + Opus reviewers,
+MANDATORY Opus security review on packet 09), lead-merged in
+autonomous mode. ZERO REQUEST-CHANGES on the irreversible 0019 sync
+migration + crypto wiring. This concludes the 9-packet bundle that
+began with v1.4.8 (Session A paper-cuts) and v1.4.9 (Session B feature
+cluster).
+
+What's new
+----------
+* Cross-machine session sync (opt-in, e2ee, git-backed). Set up via
+  Settings -> Sync. Your conversations, panes, swarms, memories, tasks,
+  canvases, and replay snapshots sync between machines via a private
+  git remote (GitHub/Gitea/GitLab). End-to-end encrypted with
+  libsodium XChaCha20-Poly1305 + AAD binding. A 24-word BIP-39
+  mnemonic is your recovery key — write it down; SigmaLink cannot
+  recover it for you if lost. Provider API tokens never sync (hard
+  deny). New migration 0019 adds 6 sync_* metadata tables.
+
+* Voice capture on Windows and Linux. Press Ctrl+Alt+Space anywhere on
+  the system to dictate; transcript goes to your clipboard (paste-into-
+  focused-app deferred to v1.5.1). Tray icon survives window-close on
+  all platforms when enabled. Voice-whisper falls through gracefully to
+  the platform-native engine if the model isn't downloaded.
+
+* Native Windows SAPI5 voice. New voice-win native binding for offline
+  STT via Windows Speech (ISpRecognizer). COM-threading hardened: STA
+  worker thread + Win32 message pump + HWND_MESSAGE + TSFN marshalling.
+  Mandatory Opus review caught and blocked a double-Release on the hot
+  recognition event path (heap corruption risk on Windows runtime that
+  macOS CI could not catch); fix folded inline pre-merge.
+
+CI hotfixes shipped during this release cycle
+---------------------------------------------
+* release-macos.yml whisper.cpp submodule gating - graceful fallback
+  to Apple Speech.framework when vendor sources absent.
+
+* native-win.test.ts unused-var lint cleanup.
+
+What's deferred to v1.5.1 cleanup
+---------------------------------
+* whisper.cpp real model SHA-256 hashes (lazy-download path activation
+  + PcmAccumulator wire-up + AVAudioEngine raw-PCM tap)
+* CommandRoom.tsx 878 LOC extraction to PaneShell.tsx
+* Cross-sync lock file (proper-lockfile import, schema-skew design
+  refactor moving _schema outside AAD, anonymise-paths toggle)
+* SAPI5 STA thread event-signal pattern + napi finalizer for HMR
+* PowerShell N-API helper for v1.5.0 Win foreground detection (60-120ms
+  cold-start → fast native call)
+* Notifications D2 soft-cap collapse + D5 deep-link navigation
+* normalize-url + insertMention exports
+* ~20+ other caveats from Session A/B/C reviewers
+
+Process
+-------
+3 parallel Sonnet implementers in worktrees, 3 Opus reviewers (one
+MANDATORY security review for crypto packet 09). 1 REQUEST-CHANGES
+(SAPI5 double-Release) folded inline pre-merge. 1 conflict resolution
+(workflow-file add/add → renamed to coexist). 2 CI hotfixes during the
+release cycle. Total dispatch-to-tag wall-clock: ~3 hours in autonomous
+mode while user was away.
+
+Install / upgrade
+-----------------
+* macOS arm64: curl -sSL https://sigmalink.dev/install.sh | bash
+* macOS x64 (Intel): same command (arch auto-detected since v1.4.6)
+* Windows: iwr https://sigmalink.dev/install.ps1 -UseB | iex
+
+Cross-machine sync security
+---------------------------
+Read docs/09-release/cross-machine-sync.md for the full security FAQ —
+threat model, AAD construction, BIP-39 mnemonic recovery, scope of
+synced data, and what's explicitly NOT defended. Or click "Help" in
+the Settings -> Sync setup wizard for the in-app version.
+
+GitHub: https://github.com/s1gmamale1/SigmaLink/releases/tag/v1.5.0

@@ -31,6 +31,7 @@
 | v1.4.7 | CI fully green again. 5 e2e tests closed (3 deferred from PR #36 Followup-2 + 2 pre-existing timeouts). Production regression fix: `panes.listForWorkspace` channel allowlist gap silently broke pane rehydration on workspace reopen since v1.4.3 (#37). OpenCode SQLite direct read drops session picker cold-start from ~400ms to <100ms (#39). opencode-Qwen secondary silent-fail mode documented (orchestrator skill). Feature-tier packets (notifications, Windows SAPI5 voice, cross-machine sync, Windows auto-update, provider auto-install) deferred to v1.4.8. | inline in [CHANGELOG v1.4.7](../../CHANGELOG.md) · [release-notes-1.4.7.txt](../09-release/release-notes-1.4.7.txt) · [bundle](archive/v1.4.7-bundle/00-INDEX.md) |
 | v1.4.8 | Session A paper-cuts: drag-drop file → pane `@-mention` (#48), sidebar resize handles for IDE Editor + main Sidebar with kv persistence (#47), Browser EmptyState + `about:` normalization (#46), Windows auto-update UAC denied fallback + warning copy (#45). 4 parallel Sonnet sub-agents in git worktrees, 4 Opus 4.7 reviewers, ~45min dispatch-to-tag wall-clock. Sessions B (v1.4.9) and C (v1.5.0) planned for remaining 5 packets. | inline in [CHANGELOG v1.4.8](../../CHANGELOG.md) · [release-notes-1.4.8.txt](../09-release/release-notes-1.4.8.txt) · [bundle](v1.4.8-bundle/00-INDEX.md) |
 | v1.4.9 | Session B feature cluster: global voice capture macOS (#50) — `Cmd+Option+Space` hotkey + Tray + pane-focus-aware output via NSWorkspace check, whisper.cpp scaffolded with Apple Speech.framework as active engine; provider auto-install prompt with consent gating (#49) — new `providers.spawnInstall` RPC + `ProviderInstallModal`; notifications + top-right bell (#51) — migration 0018 + 4-level severity + dedup 30s + IPC delta + Opus reviewer on the irreversible schema. 3 parallel agents (2 Sonnet + 1 Opus), 3 Opus reviewers, ~70min dispatch-to-tag wall-clock in autonomous mode. **ZERO REQUEST-CHANGES** on the irreversible 0018 migration. Session C (v1.5.0) remains for the platform tier (Win+Linux voice fan-out, SAPI5, cross-sync). | inline in [CHANGELOG v1.4.9](../../CHANGELOG.md) · [release-notes-1.4.9.txt](../09-release/release-notes-1.4.9.txt) · [bundle](v1.4.8-bundle/00-INDEX.md) |
+| v1.5.0 | Session C platform tier — closes the v1.4.8 bundle: cross-machine session sync (#54, migration 0019, libsodium XChaCha20-Poly1305 + AAD, HLC + LWW, BIP-39 mnemonic via existing CredentialStore, isomorphic-git transport, `credentials` HARD-DENY); voice capture Windows + Linux fan-out (#52, `Ctrl+Alt+Space` hotkey + Tray + clipboard-only output policy); native Windows SAPI5 voice (#53, `@sigmalink/voice-win` module via `CLSID_SpSharedRecognizer` + STA worker + Win32 message pump). 3 parallel Sonnet agents in autonomous mode, 3 Opus reviewers (MANDATORY security review on packet 09). **ZERO REQUEST-CHANGES on crypto/threat-model/AAD/BIP-39/credentials-HARD-DENY/0019 migration**; ONE REQUEST-CHANGES on SAPI5 double-Release on `ISpRecoResult` (folded inline). Plus 2 CI hotfixes (release-macos whisper.cpp gating + native-win.test.ts lint). ~3.3hr dispatch-to-tag. ~28 caveats backlogged for v1.5.1 cleanup. | inline in [CHANGELOG v1.5.0](../../CHANGELOG.md) · [release-notes-1.5.0.txt](../09-release/release-notes-1.5.0.txt) · [user doc](../09-release/cross-machine-sync.md) · [bundle](v1.4.8-bundle/00-INDEX.md) |
 
 ---
 
@@ -64,17 +65,18 @@ Confirmed root cause was cwd/context drift, not PTY death: SigmaLink created git
 
 *(empty — all 4 items closed in v1.4.6: terminal mount race verified-and-closed via regression test, BUG-W7-015 verified-and-closed via WCAG AA contrast check, CI cache-dep-path corrected, vitest coverage thresholds verified-and-closed.)*
 
-## 🟢 v1.4.8 bundle — Sessions A+B shipped; Session C remaining
+## ✅ v1.4.8 bundle — COMPLETE (all 9 packets shipped)
 
-Sessions A + B shipped as **v1.4.8** + **v1.4.9** (2026-05-20). 6 of 9 packets landed (01 browser-cleanup, 02 sidebar-resize, 03 drag-drop, 04 voice-mac, 05 win-autoupdate, 06 provider-install, 07 notifications). Remaining: Session C v1.5.0 platform tier — packets 04 voice fan-out (Win+Linux), 08 SAPI5, 09 cross-machine sync. See [**`v1.4.8-bundle/00-INDEX.md`**](v1.4.8-bundle/00-INDEX.md) for the full plan with 6 remaining lead questions on packet 09 cross-sync threat model.
+The 9-packet v1.4.8 bundle shipped across 3 releases on 2026-05-20: **v1.4.8** (Session A paper-cuts), **v1.4.9** (Session B feature cluster), **v1.5.0** (Session C platform tier — cross-machine sync, voice Win+Linux, SAPI5). Plan reference preserved at [`v1.4.8-bundle/00-INDEX.md`](v1.4.8-bundle/00-INDEX.md) for historical traceability.
 
-### Session C — v1.5.0 (needs Windows VM + threat-model signoff, ~10-12d)
+### 🟡 v1.5.1 cleanup packet — ~28 deferred caveats
 
-| # | Packet | Effort | Plan |
-|---|---|---|---|
-| 04 | Voice capture Windows + Linux (after mac validates lazy-download UX) | ~3-5d remainder of L+ | [v1.4.8-bundle/04-global-voice-capture.md](v1.4.8-bundle/04-global-voice-capture.md) |
-| 08 | Windows SAPI5 voice (COM threading + STA + node-gyp prebuild matrix) | L (~3-5d) | [v1.4.8-bundle/08-windows-sapi5-voice.md](v1.4.8-bundle/08-windows-sapi5-voice.md) |
-| 09 | Cross-machine session sync — libsodium + HLC + LWW + isomorphic-git | L+1d (~5-7d) — 6 lead Q's + security signoff | [v1.4.8-bundle/09-cross-machine-sync.md](v1.4.8-bundle/09-cross-machine-sync.md) |
+Bundle into one ~½-1d Sonnet packet. Grouping suggestion:
+- Crypto/sync polish (PR #54 caveats: lock file, anonymise-paths toggle, schema-skew redesign, MnemonicConfirm paste-block, SQL column allowlist): ~3hr
+- Native code refinement (PR #53 caveats: Sleep(50) event-signal, IsAvailable async, napi finalizer; PR #50 caveats: real whisper.cpp model hashes + PcmAccumulator wire-up + AVAudioEngine PCM tap; PR #52: PowerShell N-API helper): ~3-4hr
+- Renderer + UI consistency (PR #46/47/48 carry-over: normalizeUrl/insertMention exports, BrowserViewMount lifecycle, data-testid, pathRelative helper, UAC hint placement): ~2-3hr
+- File extractions (CommandRoom.tsx 878 LOC → PaneShell.tsx): ~2hr
+- Notifications follow-ups (D2 soft-cap collapse + D5 deep-link nav): ~2hr
 
 ## 🔵 Funded-only / won't-do
 
