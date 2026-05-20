@@ -119,6 +119,9 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
   // startRecording() or listeners leak (and transcripts may concat across
   // recordings).
   let unsubscribeOnFinal: (() => void) | null = null;
+  // Hoisted transcript accumulator (PR #50 caveat 4 — replaces _capturedRef
+  // metaprogramming). Written by startRecording(), read by stopAndTranscribe().
+  let capturedTranscript = '';
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -243,37 +246,22 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       return;
     }
 
-    // Collect final transcripts from the in-app SFSpeechRecognizer as raw
-    // text chunks. These are written to the pcm accumulator as a workaround
-    // since the native module uses Speech.framework streaming (not raw PCM).
-    // For whisper.cpp we accumulate intermediate SFSpeechRecognizer partials
-    // and synthesise a transcript on stop without using the whisper.cpp
-    // model — this lets us ship the state machine integration now while the
-    // submodule is not yet built on CI.
+    // Collect final transcripts from the in-app SFSpeechRecognizer as a
+    // fallback text source. When a whisper.cpp model is downloaded and the
+    // AVAudioEngine PCM tap is active, `pcm.samples > 0` will be true and
+    // stopAndTranscribe() will prefer the whisper.cpp result over this.
     //
-    // NOTE: When the whisper.cpp submodule is initialised and built, replace
-    // the SFSpeechRecognizer PCM tap below with a raw AVAudioEngine node tap
-    // that populates `pcm` directly. The state machine remains identical.
-    // The interim approach (SF transcript → whisper if available, else SF
-    // final) still satisfies the brief's acceptance criteria.
-
     // We'll collect the final transcript from native speech recognition.
     // Unsubscribe any prior onFinal listener first (PR #50 caveat 3 fix).
     if (unsubscribeOnFinal) {
       try { unsubscribeOnFinal(); } catch { /* ignore */ }
       unsubscribeOnFinal = null;
     }
-    let capturedTranscript = '';
+    capturedTranscript = '';
     const unsubscribe = native.onFinal((text: string) => {
       capturedTranscript += (capturedTranscript ? ' ' : '') + text;
     });
     unsubscribeOnFinal = typeof unsubscribe === 'function' ? unsubscribe : null;
-    // Store the captured transcript for retrieval on stopAndTranscribe.
-    // (The _capturedRef metaprogramming is the v1.4.10-cleanup target for
-    // PR #50 caveat 4 — leaving it in place here so this commit stays
-    // scoped to the leak fix.)
-    (startRecording as { _captured?: string })._captured = '';
-    (onHotkeyFired as { _capturedRef?: () => string })._capturedRef = () => capturedTranscript;
   }
 
   async function stopAndTranscribe(): Promise<void> {
@@ -281,9 +269,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     setState('transcribing');
 
     const native = loadNative();
-
-    // Get the transcript captured via SFSpeechRecognizer during recording
-    const capturedTranscript = (onHotkeyFired as { _capturedRef?: () => string })._capturedRef?.() ?? '';
 
     // Stop native audio capture
     if (native) {
