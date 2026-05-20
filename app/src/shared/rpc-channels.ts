@@ -164,6 +164,9 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'assistant.list',
   'assistant.cancel',
   'assistant.dispatchPane',
+  // V3-W13-013 (SHIPPED-PARTIAL) — bulk pane dispatch + @ref resolution
+  'assistant.dispatchBulk',
+  'assistant.refResolve',
   'assistant.tools',
   'assistant.invokeTool',
   // P3-S7 — Sigma Assistant cross-session persistence: Conversations panel
@@ -370,6 +373,10 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // NEVER push the full list on every change (the original v1.4.7 brief's
   // approach would saturate IPC under broadcast flood).
   'notifications:changed',
+  // v1.5.0 (v1.5.2 reviewer DEFER) — sync controller emits this on every
+  // status transition; adding to the allowlist here for forward-compat even
+  // though no renderer subscriber exists yet (SyncTab uses polling).
+  'sync:status',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {
