@@ -37,6 +37,31 @@ static const UINT WM_SAPI_QUIT  = WM_APP + 4;
 // lParam carries a heap-allocated ProbeParams* with a TSFN to deliver the result.
 static const UINT WM_SAPI_PROBE = WM_APP + 5;
 
+// ─── HMR-race guard ──────────────────────────────────────────────────────────
+//
+// HMR race (dev-only): the JS thread can call IsAvailableAsync() and queue a
+// WM_SAPI_PROBE message.  If StopSTAThread() fires between PostThreadMessageW
+// and the STA thread processing the message, Windows message ordering means
+// WM_SAPI_QUIT can be processed first (both are posted from different threads
+// with no ordering guarantee).  The STA thread then exits and the PROBE
+// message is never dequeued — its TSFN callback is never invoked and the JS
+// Promise hangs indefinitely, blocking HMR reload.
+//
+// Fix (Option 2 + drain on exit):
+//   1. g_sta_draining: set to true in StopSTAThread() BEFORE posting
+//      WM_SAPI_QUIT.  IsAvailableAsync() checks this flag at queue time and
+//      rejects the Promise immediately instead of posting the message.
+//   2. Probe drain loop: after the STA message loop exits (WM_SAPI_QUIT
+//      processed), the STA thread drains any WM_SAPI_PROBE messages that
+//      raced in before the flag was visible and rejects their TSFNs.  This
+//      closes the tiny window between PostThreadMessageW(probe) and the flag
+//      becoming visible on the STA thread.
+//
+// Together these two mechanisms guarantee every IsAvailableAsync() Promise
+// either resolves (probe ran normally) or rejects (teardown in progress) —
+// it never silently hangs.
+static std::atomic<bool> g_sta_draining{false};
+
 namespace sigmavoice {
 
 namespace {
@@ -444,7 +469,43 @@ static DWORD WINAPI STAThreadProc(LPVOID param) {
     }
   }
 
-  // 5. Clean up.
+  // 5. Drain any WM_SAPI_PROBE messages that raced past the draining flag.
+  //    (HMR race fix, Option 2 drain — see g_sta_draining comment above.)
+  //    After WM_SAPI_QUIT is processed the STA thread is the only consumer of
+  //    its own queue, so a non-blocking PeekMessageW loop is safe here.
+  {
+    MSG drain{};
+    while (PeekMessageW(&drain, nullptr, WM_SAPI_PROBE, WM_SAPI_PROBE,
+                        PM_REMOVE)) {
+      ProbeParams* pp = reinterpret_cast<ProbeParams*>(drain.lParam);
+      if (pp) {
+        // Reject the in-flight deferred so the JS Promise rejects rather
+        // than hanging indefinitely.
+        auto* result = new bool(false);
+        napi_status rc = pp->tsfn.NonBlockingCall(result,
+            [pp](Napi::Env env, Napi::Function, bool* r) {
+          if (r && pp->deferred) {
+            pp->deferred->Reject(
+                Napi::Error::New(env,
+                    "SAPI5 STA thread shutting down (HMR teardown)")
+                    .Value());
+          }
+          delete r;
+          delete pp->deferred;
+          pp->deferred = nullptr;
+        });
+        if (rc != napi_ok) {
+          delete result;
+          delete pp->deferred;
+          pp->deferred = nullptr;
+        }
+        pp->tsfn.Release();
+        delete pp;
+      }
+    }
+  }
+
+  // 6. Clean up.
   if (g_sp.hwnd) {
     DestroyWindow(g_sp.hwnd);
     g_sp.hwnd = nullptr;
@@ -507,11 +568,19 @@ void Recognizer::StartSTAThread() {
 
 void Recognizer::StopSTAThread() {
   if (sta_thread_ == nullptr) return;
+  // Set the draining flag BEFORE posting WM_SAPI_QUIT.  IsAvailableAsync()
+  // checks this flag at queue time and rejects immediately, preventing new
+  // WM_SAPI_PROBE messages from being enqueued after this point.
+  // Any probe that was already queued before the flag became visible is
+  // handled by the drain loop in STAThreadProc after it exits its message
+  // loop.  (HMR race fix — see g_sta_draining comment above.)
+  g_sta_draining.store(true, std::memory_order_release);
   PostThreadMessageW(sta_tid_, WM_SAPI_QUIT, 0, 0);
   WaitForSingleObject(sta_thread_, 5000);
   CloseHandle(sta_thread_);
   sta_thread_ = nullptr;
   sta_tid_    = 0;
+  g_sta_draining.store(false, std::memory_order_release);
 }
 
 bool Recognizer::IsAvailable() {
@@ -549,6 +618,23 @@ bool Recognizer::IsAvailable() {
 
 void Recognizer::IsAvailableAsync(Napi::ThreadSafeFunction tsfn,
                                   Napi::Promise::Deferred* deferred) {
+  // HMR race fix: if StopSTAThread() has already set the draining flag, reject
+  // the Promise immediately rather than queuing a probe that will never be
+  // served.  This is the fast path that prevents the hang when IsAvailable()
+  // is called during a dev-server HMR reload while the STA thread is tearing
+  // down.  (See g_sta_draining comment above for the full race description.)
+  if (g_sta_draining.load(std::memory_order_acquire)) {
+    if (deferred) {
+      deferred->Reject(
+          Napi::Error::New(deferred->Promise().Env(),
+              "SAPI5 STA thread shutting down (HMR teardown)")
+              .Value());
+      delete deferred;
+    }
+    tsfn.Release();
+    return;
+  }
+
   // Post the probe to the STA thread so CoCreateInstance runs there, not on
   // the JS event loop.  The result is marshalled back via TSFN.
   auto* pp = new ProbeParams{std::move(tsfn), deferred};
