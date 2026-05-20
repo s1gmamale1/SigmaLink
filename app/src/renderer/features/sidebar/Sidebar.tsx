@@ -142,9 +142,24 @@ export function Sidebar() {
       // routing to Command Room so CommandRoom renders existing panes instead
       // of EmptyState. ADD_SESSIONS dispatches BEFORE the room switch so the
       // terminal-cache GC never sees the sessions as absent.
-      const sessions = await rpc.panes.listForWorkspace(reopened.id);
+      // v1.5.3-hotfix — also hydrate swarms; without UPSERT_SWARM the
+      // renderer's activeSwarm stays null and AddPaneButton shows misleading
+      // "Open or create a workspace first" even with panes visible.
+      const [sessions, swarms] = await Promise.all([
+        rpc.panes.listForWorkspace(reopened.id),
+        rpc.swarms.list(reopened.id),
+      ]);
       if (sessions.length > 0) {
         dispatch({ type: 'ADD_SESSIONS', sessions });
+      }
+      if (swarms.length > 0) {
+        for (const swarm of swarms) {
+          dispatch({ type: 'UPSERT_SWARM', swarm });
+        }
+        const running = swarms.find((s) => s.status === 'running');
+        if (running) {
+          dispatch({ type: 'SET_ACTIVE_SWARM', id: running.id });
+        }
       }
       // v1.3.3 — route into the Command Room where the panes are visible.
       // Without this the user lands on the Launcher's Start step even though

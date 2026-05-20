@@ -186,9 +186,25 @@ export function WorkspaceLauncher() {
     // ADD_SESSIONS dispatches first so terminal-cache GC doesn't dispose
     // sessions that are about to become visible.
     try {
-      const sessions = await rpc.panes.listForWorkspace(reopened.id);
+      // v1.5.3-hotfix — Promise.all of sessions + swarms so AddPaneButton's
+      // activeSwarm resolves correctly after Launcher-driven workspace open
+      // (was dispatching ADD_SESSIONS only → renderer thought no swarm
+      // existed → +Pane disabled with misleading reason).
+      const [sessions, swarms] = await Promise.all([
+        rpc.panes.listForWorkspace(reopened.id),
+        rpc.swarms.list(reopened.id),
+      ]);
       if (sessions.length > 0) {
         dispatch({ type: 'ADD_SESSIONS', sessions });
+        if (swarms.length > 0) {
+          for (const swarm of swarms) {
+            dispatch({ type: 'UPSERT_SWARM', swarm });
+          }
+          const running = swarms.find((s) => s.status === 'running');
+          if (running) {
+            dispatch({ type: 'SET_ACTIVE_SWARM', id: running.id });
+          }
+        }
         // Route to Command Room now that panes are hydrated.
         // v1.3.3 — route into the Command Room so the user sees panes instead
         // of staying on the Launcher's Start step after re-opening a workspace.

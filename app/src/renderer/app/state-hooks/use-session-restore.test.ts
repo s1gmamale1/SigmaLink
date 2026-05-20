@@ -71,6 +71,7 @@ const respawnMock = vi.fn<
 >();
 const kvGetMock = vi.fn<(key: string) => Promise<string | null>>();
 const listForWorkspaceMock = vi.fn<(wsId: string) => Promise<unknown[]>>();
+const swarmsListMock = vi.fn<(wsId: string) => Promise<unknown[]>>();
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -83,6 +84,9 @@ vi.mock('@/renderer/lib/rpc', () => ({
       respawnFailed: (id: string) => respawnMock(id),
       listForWorkspace: (id: string) => listForWorkspaceMock(id),
     },
+    swarms: {
+      list: (id: string) => swarmsListMock(id),
+    },
     kv: { get: (k: string) => kvGetMock(k) },
   },
 }));
@@ -92,6 +96,9 @@ vi.mock('../../lib/rpc', () => ({
       resume: (id: string) => resumeMock(id),
       respawnFailed: (id: string) => respawnMock(id),
       listForWorkspace: (id: string) => listForWorkspaceMock(id),
+    },
+    swarms: {
+      list: (id: string) => swarmsListMock(id),
     },
     kv: { get: (k: string) => kvGetMock(k) },
   },
@@ -125,6 +132,8 @@ beforeEach(() => {
   kvGetMock.mockResolvedValue(null);
   listForWorkspaceMock.mockReset();
   listForWorkspaceMock.mockResolvedValue([]);
+  swarmsListMock.mockReset();
+  swarmsListMock.mockResolvedValue([]);
   vi.useFakeTimers();
 });
 

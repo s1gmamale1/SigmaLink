@@ -121,10 +121,27 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
             // immediately after resume resolves. Dispatching ADD_SESSIONS here
             // (before the toast / GC effects run) ensures CommandRoom sees the
             // sessions and terminal-cache GC doesn't dispose them unnecessarily.
+            // v1.5.3-hotfix — also hydrate swarms; without this `activeSwarm`
+            // stays null in CommandRoom even after panes appear, so
+            // AddPaneButton shows the misleading "Open or create a workspace
+            // first" disabledReason even with a workspace + 6 panes visible.
+            // Same hydration-gap class as the v1.5.3 Sigma dispatch fix.
             try {
-              const sessions = await rpc.panes.listForWorkspace(item.workspace.id);
+              const [sessions, swarms] = await Promise.all([
+                rpc.panes.listForWorkspace(item.workspace.id),
+                rpc.swarms.list(item.workspace.id),
+              ]);
               if (sessions.length > 0) {
                 dispatch({ type: 'ADD_SESSIONS', sessions });
+              }
+              if (swarms.length > 0) {
+                for (const swarm of swarms) {
+                  dispatch({ type: 'UPSERT_SWARM', swarm });
+                }
+                const running = swarms.find((s) => s.status === 'running');
+                if (running) {
+                  dispatch({ type: 'SET_ACTIVE_SWARM', id: running.id });
+                }
               }
             } catch {
               // Best-effort — rehydration failure does not break resume flow.
