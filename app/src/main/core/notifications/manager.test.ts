@@ -5,6 +5,7 @@
 // generic shim. The point of these tests is the D1–D6 taxonomy semantics —
 // dedup window, severity bump, hard-cap eviction order, GC TTL — NOT SQL
 // engine fidelity.
+// v1.5.1-C caveat 5 — Added soft-cap collapse SQL handlers + tests.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,6 +22,8 @@ import {
   HARD_CAP_TOTAL,
   NotificationsManager,
   READ_TTL_MS,
+  SOFT_CAP_PER_KIND_WS,
+  SOFT_CAP_COLLAPSE_BATCH,
 } from './manager';
 import type {
   Notification,
@@ -311,6 +314,81 @@ class NotificationsTestDb {
         },
       };
     }
+    // ── Soft-cap COUNT (workspace) — softCapCollapse ─────────────────
+    if (
+      s.includes('COUNT(*) AS n FROM notifications') &&
+      s.includes('workspace_id = ?') &&
+      s.includes('kind = ?') &&
+      s.includes('read_at IS NULL')
+    ) {
+      return {
+        get: (workspaceId: string, kind: string): { n: number } => ({
+          n: this.rows.filter(
+            (r) =>
+              r.workspace_id === workspaceId &&
+              r.kind === kind &&
+              r.read_at === null,
+          ).length,
+        }),
+      };
+    }
+    // ── Soft-cap COUNT (global) — softCapCollapse ─────────────────────
+    if (
+      s.includes('COUNT(*) AS n FROM notifications') &&
+      s.includes('workspace_id IS NULL') &&
+      s.includes('kind = ?') &&
+      s.includes('read_at IS NULL')
+    ) {
+      return {
+        get: (kind: string): { n: number } => ({
+          n: this.rows.filter(
+            (r) => r.workspace_id === null && r.kind === kind && r.read_at === null,
+          ).length,
+        }),
+      };
+    }
+    // ── Soft-cap victim SELECT (workspace) ────────────────────────────
+    if (
+      s.includes('workspace_id = ?') &&
+      s.includes('kind = ?') &&
+      s.includes('read_at IS NULL') &&
+      s.includes('ORDER BY created_at ASC') &&
+      s.includes('LIMIT ?')
+    ) {
+      return {
+        all: (workspaceId: string, kind: string, lim: number): { id: string }[] => {
+          const sorted = this.rows
+            .filter(
+              (r) =>
+                r.workspace_id === workspaceId &&
+                r.kind === kind &&
+                r.read_at === null,
+            )
+            .sort((a, b) => a.created_at - b.created_at)
+            .slice(0, lim);
+          return sorted.map((r) => ({ id: r.id }));
+        },
+      };
+    }
+    // ── Soft-cap victim SELECT (global) ───────────────────────────────
+    if (
+      s.includes('workspace_id IS NULL') &&
+      s.includes('kind = ?') &&
+      s.includes('read_at IS NULL') &&
+      s.includes('ORDER BY created_at ASC') &&
+      s.includes('LIMIT ?')
+    ) {
+      return {
+        all: (kind: string, lim: number): { id: string }[] => {
+          const sorted = this.rows
+            .filter((r) => r.workspace_id === null && r.kind === kind && r.read_at === null)
+            .sort((a, b) => a.created_at - b.created_at)
+            .slice(0, lim);
+          return sorted.map((r) => ({ id: r.id }));
+        },
+      };
+    }
+
     // ── LIST query ───────────────────────────────────────────────────
     if (s.startsWith('SELECT * FROM notifications') && s.includes('ORDER BY created_at DESC')) {
       return {
@@ -624,13 +702,16 @@ describe('NotificationsManager.gc', () => {
 });
 
 describe('NotificationsManager hard-cap eviction (D2)', () => {
+  // Each seeded row gets its own unique kind (kind-<id>) so no single
+  // (workspace, kind) bucket exceeds SOFT_CAP_PER_KIND_WS=200 and
+  // soft-cap collapse never fires during hard-cap eviction tests.
   function seedRow(
     fake: NotificationsTestDb,
     partial: Partial<Row> & { id: string; created_at: number; severity: NotificationSeverity },
   ): Row {
     const row: Row = {
       workspace_id: 'ws-1',
-      kind: 'pty-exit',
+      kind: `kind-${partial.id}`,
       title: 't',
       body: null,
       payload: null,
@@ -749,5 +830,100 @@ describe('NotificationsManager.list', () => {
     mgr.add({ workspaceId: 'ws-1', kind: 'a', severity: 'critical', title: 'd', dedupKey: 'k4' });
     const errs = mgr.list({ severities: ['error', 'critical'] });
     expect(errs.map((n: Notification) => n.title).sort()).toEqual(['c', 'd']);
+  });
+});
+
+describe('NotificationsManager soft-cap collapse (D2.2)', () => {
+  function seedUnreadRow(
+    fake: NotificationsTestDb,
+    partial: Partial<Row> & { id: string; created_at: number },
+  ): Row {
+    const row: Row = {
+      workspace_id: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'info',
+      title: 't',
+      body: null,
+      payload: null,
+      source_event: null,
+      dedup_key: `k-${partial.id}`,
+      dup_count: 1,
+      read_at: null,
+      ...partial,
+    };
+    fake.rows.push(row);
+    return row;
+  }
+
+  it('does not collapse when under the soft cap', () => {
+    const mgr = makeManager();
+    // Seed SOFT_CAP_PER_KIND_WS rows (exactly at cap, not over).
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `r-${i.toString().padStart(4, '0')}`,
+        created_at: 100 + i,
+      });
+    }
+    const before = fakeDb.rows.length;
+    // Adding one more puts us at cap+1. But collapse only fires when count
+    // EXCEEDS the cap (> SOFT_CAP_PER_KIND_WS). At exactly cap+1 it DOES fire.
+    // Let's verify by seeding one LESS than cap and adding normally — no collapse.
+    fakeDb.rows = []; // reset
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS - 1; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `r-${i.toString().padStart(4, '0')}`,
+        created_at: 100 + i,
+      });
+    }
+    void before;
+    now = 2_000_000;
+    mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'info',
+      title: 'new',
+      dedupKey: 'dk-new',
+    });
+    // Count is now exactly SOFT_CAP_PER_KIND_WS — no collapse (not over cap).
+    expect(fakeDb.rows.length).toBe(SOFT_CAP_PER_KIND_WS);
+    expect(fakeDb.rows.filter((r) => r.kind === 'pty-exit-summary')).toHaveLength(0);
+  });
+
+  it('collapses oldest SOFT_CAP_COLLAPSE_BATCH rows and inserts a summary when over cap', () => {
+    // Seed SOFT_CAP_PER_KIND_WS + 1 rows (over cap from the start).
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS + 1; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `r-${i.toString().padStart(4, '0')}`,
+        created_at: 100 + i,
+      });
+    }
+    const mgr = makeManager();
+    now = 3_000_000;
+    // Trigger collapse by adding another row; soft-cap check sees > 200 unread.
+    mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'info',
+      title: 'trigger',
+      dedupKey: 'dk-trigger',
+    });
+
+    // SOFT_CAP_COLLAPSE_BATCH oldest rows replaced by 1 summary row.
+    // Net: (201 + 1 fresh) - 50 victims + 1 summary = 153
+    const expectedCount = SOFT_CAP_PER_KIND_WS + 2 - SOFT_CAP_COLLAPSE_BATCH + 1;
+    expect(fakeDb.rows.length).toBe(expectedCount);
+
+    // Oldest SOFT_CAP_COLLAPSE_BATCH rows (r-0000 through r-0049) must be gone.
+    expect(fakeDb.rows.find((r) => r.id === 'r-0000')).toBeUndefined();
+    const lastVictim = `r-${(SOFT_CAP_COLLAPSE_BATCH - 1).toString().padStart(4, '0')}`;
+    expect(fakeDb.rows.find((r) => r.id === lastVictim)).toBeUndefined();
+    // First survivor must still be present.
+    const firstSurvivor = `r-${SOFT_CAP_COLLAPSE_BATCH.toString().padStart(4, '0')}`;
+    expect(fakeDb.rows.find((r) => r.id === firstSurvivor)).toBeDefined();
+
+    // One summary row with kind 'pty-exit-summary' must have been inserted.
+    const summaryRows = fakeDb.rows.filter((r) => r.kind === 'pty-exit-summary');
+    expect(summaryRows).toHaveLength(1);
+    expect(summaryRows[0].body).toContain('collapsed');
   });
 });

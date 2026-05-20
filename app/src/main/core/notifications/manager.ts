@@ -6,6 +6,10 @@
 //   D2 — Rolling window: hard cap N=500 global + 200/kind/workspace soft cap;
 //        30d TTL on read; severity-aware eviction (never auto-drop error or
 //        critical). IPC delta `{added, removed, unreadCount}` — NOT full list.
+//        v1.5.1-C: soft-cap-collapse implemented (D2.2 framing):
+//          When unread rows per (workspace_id, kind) exceeds SOFT_CAP_PER_KIND_WS,
+//          the oldest 50 unread rows are deleted and replaced with a single
+//          `<kind>-summary` row whose body states how many were collapsed.
 //   D3 — Dedup tuple `(workspace_id, kind, dedup_key)` within 30s window;
 //        critical never dedups; matches only `read_at IS NULL` rows.
 //   D4 — Per-row `read_at`; no auto-mark-on-open.
@@ -33,12 +37,14 @@ export const DEDUP_WINDOW_MS = 30_000;
  *  eviction pass drops oldest read rows first, then oldest `info` unread. */
 export const HARD_CAP_TOTAL = 500;
 
-/** D2 — soft per-workspace, per-kind cap. Currently informational; the
- *  reviewer punted the actual collapse-to-summary mechanic to a follow-up
- *  packet (it requires a richer summary-row format than the v1 shape can
- *  carry without painting itself into a corner). Eviction still respects
- *  this number when the hard cap fires. */
+/** D2 — soft per-workspace, per-kind cap. When unread rows per
+ *  (workspace_id, kind) exceeds this threshold, the manager collapses the
+ *  oldest 50 unread rows into a single summary row (D2.2 framing). This
+ *  prevents unbounded queue growth without losing the operator's attention. */
 export const SOFT_CAP_PER_KIND_WS = 200;
+
+/** D2.2 — number of oldest unread rows to delete when soft-cap fires. */
+export const SOFT_CAP_COLLAPSE_BATCH = 50;
 
 /** D2 — TTL on read rows (30 days). Boot GC runs this. */
 export const READ_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -250,6 +256,10 @@ export class NotificationsManager {
       inserted = rowToNotification(row);
     }
 
+    // D2.2 — soft-cap collapse. Run after dedup/insert but before hard-cap
+    // eviction so the summary row itself counts toward the hard cap.
+    removed.push(...this.softCapCollapse(input.workspaceId, input.kind));
+
     // D2 — hard-cap eviction. Run synchronously so the emitted unreadCount
     // matches the post-eviction state.
     removed.push(...this.evictOverHardCap());
@@ -368,6 +378,89 @@ export class NotificationsManager {
     const removed = rows.map((r) => r.id);
     this.broadcast({ removed });
     return removed;
+  }
+
+  /**
+   * D2.2 — Soft-cap collapse. When unread rows for a given (workspace_id, kind)
+   * exceed SOFT_CAP_PER_KIND_WS, delete the oldest SOFT_CAP_COLLAPSE_BATCH
+   * unread rows and INSERT a single `<kind>-summary` row describing how many
+   * were collapsed.
+   *
+   * Returns the ids of the collapsed rows (to include in the broadcast delta).
+   * The summary row is NOT included in the returned ids — it is emitted via
+   * the caller's `added` payload.
+   */
+  private softCapCollapse(workspaceId: string | null, kind: string): string[] {
+    const db = getRawDb();
+    const countRow = (
+      workspaceId === null
+        ? db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM notifications
+               WHERE workspace_id IS NULL AND kind = ? AND read_at IS NULL`,
+            )
+            .get(kind)
+        : db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM notifications
+               WHERE workspace_id = ? AND kind = ? AND read_at IS NULL`,
+            )
+            .get(workspaceId, kind)
+    ) as { n: number };
+
+    if (countRow.n <= SOFT_CAP_PER_KIND_WS) return [];
+
+    // Find the oldest SOFT_CAP_COLLAPSE_BATCH unread rows for this (ws, kind).
+    const victims = (
+      workspaceId === null
+        ? db
+            .prepare(
+              `SELECT id FROM notifications
+               WHERE workspace_id IS NULL AND kind = ? AND read_at IS NULL
+               ORDER BY created_at ASC LIMIT ?`,
+            )
+            .all(kind, SOFT_CAP_COLLAPSE_BATCH)
+        : db
+            .prepare(
+              `SELECT id FROM notifications
+               WHERE workspace_id = ? AND kind = ? AND read_at IS NULL
+               ORDER BY created_at ASC LIMIT ?`,
+            )
+            .all(workspaceId, kind, SOFT_CAP_COLLAPSE_BATCH)
+    ) as { id: string }[];
+
+    if (victims.length === 0) return [];
+
+    const victimIds = victims.map((v) => v.id);
+    const placeholders = victimIds.map(() => '?').join(',');
+    db.prepare(`DELETE FROM notifications WHERE id IN (${placeholders})`).run(...victimIds);
+
+    // Insert a summary row. The count is victims.length - 1 because the summary
+    // row itself replaces one slot (D2.2 framing: "47 more <kind> notifications
+    // collapsed" when we deleted 48 rows and the first replaced one is implicit).
+    const collapsed = victims.length - 1;
+    const summaryId = randomUUID();
+    const now = this.now();
+    db.prepare(
+      `INSERT INTO notifications
+        (id, workspace_id, kind, severity, title, body, payload, source_event, dedup_key, dup_count, created_at, read_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      summaryId,
+      workspaceId,
+      `${kind}-summary`,
+      'info',
+      `${collapsed} ${kind} notifications collapsed`,
+      `${collapsed} more ${kind} notifications collapsed`,
+      null,
+      null,
+      `${kind}-summary:${now}`,
+      1,
+      now,
+      null,
+    );
+
+    return victimIds;
   }
 
   /** D2 — hard-cap eviction. Returns deleted ids. Severity-aware: never
