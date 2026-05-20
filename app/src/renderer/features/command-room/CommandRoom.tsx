@@ -7,22 +7,10 @@
 // Cmd+Alt+<N> focus jumps. The legacy PaneStatusStrip was collapsed into
 // PaneHeader's provider-name tooltip; Stop moves to the right-click menu.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
@@ -30,6 +18,7 @@ import { WorktreeInfoBanner } from '@/renderer/components/WorktreeInfoBanner';
 import { GridLayout } from './GridLayout';
 import { PaneShell } from './PaneShell';
 import { SplitGroupCell } from './SplitGroupCell';
+import { AddPaneButton } from './AddPaneButton';
 import type { AgentSession, Swarm } from '@/shared/types';
 
 const EMPTY_SESSIONS: AgentSession[] = [];
@@ -61,27 +50,6 @@ function groupSessionsIntoCells(sessions: AgentSession[]): SessionCell[] {
   return cells;
 }
 
-// v1.2.5 Step 3 — derive the human-readable reason why "+ Pane" is disabled.
-// Returns `null` when the button is either enabled OR mid-flight (no tooltip
-// during the in-flight `adding` window — the dropdown is closing anyway and
-// flashing a reason would be noise). Keep this in lock-step with the
-// `disabled` prop on the trigger so a user-visible reason never falls out of
-// sync with the actual disable logic.
-function getAddPaneDisabledReason(
-  activeSwarm: Swarm | null,
-  adding: boolean,
-): string | null {
-  if (adding) return null;
-  if (!activeSwarm) return 'Open or create a workspace first';
-  if (activeSwarm.status !== 'running') {
-    return 'Swarm is paused — resume it to add panes';
-  }
-  if (activeSwarm.agents.length >= 20) {
-    return `Maximum 20 panes per swarm (current: ${activeSwarm.agents.length})`;
-  }
-  return null;
-}
-
 export function CommandRoom() {
   const dispatch = useAppDispatch();
   const activeWorkspace = useAppStateSelector((state) => state.activeWorkspace);
@@ -97,13 +65,11 @@ export function CommandRoom() {
     activeWorkspaceId ? state.swarmsByWorkspace[activeWorkspaceId] ?? EMPTY_SWARMS : EMPTY_SWARMS,
   );
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
-  const [adding, setAdding] = useState(false);
+  // v1.5.3-A — "Add first pane" in the empty-state uses its own adding flag
+  // so the EmptyState branch stays self-contained (the full dropdown version
+  // lives in AddPaneButton which owns its own flag).
+  const [emptyStateAdding, setEmptyStateAdding] = useState(false);
   const [showWorktreeBanner, setShowWorktreeBanner] = useState(true);
-  // DOGFOOD-V1.4.2-01 hypothesis 3 — persistent error chip for ~10s after
-  // addAgentToSwarm rejects. The toast remains for screen-reader visibility;
-  // this chip is the persistent inline record.
-  const [lastAddError, setLastAddError] = useState<string | null>(null);
-  const lastAddErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSwarm = useMemo(() => {
     if (!activeWorkspace) return null;
     const selected = activeSwarmId
@@ -111,10 +77,6 @@ export function CommandRoom() {
       : null;
     return selected ?? workspaceSwarms.find((s) => s.status === 'running') ?? null;
   }, [activeSwarmId, activeWorkspace, workspaceSwarms]);
-
-  // v1.2.5 Step 3 — `null` when "+ Pane" is enabled; otherwise the reason
-  // surfaced via tooltip on hover so the disabled button stops looking broken.
-  const disabledReason = getAddPaneDisabledReason(activeSwarm, adding);
 
   useEffect(() => {
     let alive = true;
@@ -202,15 +164,6 @@ export function CommandRoom() {
     return () => window.removeEventListener('keydown', onKey);
   }, [focusedPaneId, dispatch]);
 
-  // DOGFOOD-V1.4.2-01 — clear the error-chip timer on unmount.
-  useEffect(() => {
-    return () => {
-      if (lastAddErrorTimerRef.current !== null) {
-        clearTimeout(lastAddErrorTimerRef.current);
-      }
-    };
-  }, []);
-
   // v1.4.4 P6 — dev-only empty-state diagnostic (mount-only).
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production' && sessions.length === 0 && activeWorkspace) {
@@ -220,6 +173,24 @@ export function CommandRoom() {
       );
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // v1.5.3-A — minimal addPane for the empty-state CTA (no chip/toast beyond
+  // the toast from rpc failure; the full AddPaneButton owns chip state).
+  async function addEmptyStatePane(): Promise<void> {
+    if (!activeSwarm || emptyStateAdding || providers.length === 0) return;
+    setEmptyStateAdding(true);
+    try {
+      const result = await rpc.swarms.addAgent({ swarmId: activeSwarm.id, providerId: providers[0]!.id });
+      dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
+      dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
+      dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error('Could not add pane', { description: msg });
+    } finally {
+      setEmptyStateAdding(false);
+    }
+  }
 
   if (!activeWorkspace) {
     return (
@@ -254,8 +225,8 @@ export function CommandRoom() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void addPane(providers[0]!.id)}
-                disabled={adding}
+                onClick={() => void addEmptyStatePane()}
+                disabled={emptyStateAdding}
               >
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add first pane
               </Button>
@@ -281,35 +252,6 @@ export function CommandRoom() {
 
   function handleStop(session: AgentSession) {
     void rpc.pty.kill(session.id).catch(() => undefined);
-  }
-
-  async function addPane(providerId: string): Promise<void> {
-    if (!activeSwarm || adding) return;
-    setAdding(true);
-    try {
-      const result = await rpc.swarms.addAgent({ swarmId: activeSwarm.id, providerId });
-      dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
-      dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
-      dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
-      toast.success(`Added ${result.agentKey}`, {
-        description: `Pane ${result.paneIndex + 1}`,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error('Could not add pane', { description: msg });
-      // DOGFOOD-V1.4.2-01 hypothesis 3 — persist the error inline for ~10s
-      // so users on a busy screen have a non-transient record of the failure.
-      if (lastAddErrorTimerRef.current !== null) {
-        clearTimeout(lastAddErrorTimerRef.current);
-      }
-      setLastAddError(msg);
-      lastAddErrorTimerRef.current = setTimeout(() => {
-        setLastAddError(null);
-        lastAddErrorTimerRef.current = null;
-      }, 10_000);
-    } finally {
-      setAdding(false);
-    }
   }
 
   // v1.4.3 #06 — SPLIT_PANE dispatch annotates parent + child in one render pass.
@@ -367,98 +309,17 @@ export function CommandRoom() {
         <div className="text-muted-foreground">
           {sessions.length} {sessions.length === 1 ? 'agent' : 'agents'}
         </div>
-        <DropdownMenu>
-          {disabledReason ? (
-            // v1.2.5 Step 3 — when disabled, surface the reason via tooltip.
-            // DOGFOOD-V1.4.2-01 hypothesis 1 — the tooltip (200ms hover delay)
-            // is kept for screen-reader / keyboard users, but we ALSO render
-            // an always-visible inline pill so the reason is immediately clear
-            // without requiring a hover interaction.
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span tabIndex={0} className="ml-1 inline-flex">
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled
-                        className="h-7 gap-1 px-2 text-xs"
-                      >
-                        <Plus className="h-3.5 w-3.5" /> Pane
-                      </Button>
-                    </DropdownMenuTrigger>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{disabledReason}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          ) : (
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={adding}
-                className="ml-1 h-7 gap-1 px-2 text-xs"
-              >
-                <Plus className="h-3.5 w-3.5" /> Pane
-              </Button>
-            </DropdownMenuTrigger>
-          )}
-          <DropdownMenuContent align="start">
-            {providers.map((provider) => (
-              <DropdownMenuItem
-                key={provider.id}
-                onClick={() => void addPane(provider.id)}
-                disabled={adding}
-              >
-                {provider.name}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {/* DOGFOOD-V1.4.2-01 hypothesis 1 — always-visible inline reason pill
-            shown whenever the +Pane button is disabled. Replaces the
-            invisible-until-hover tooltip behaviour so the user immediately
-            understands why clicking the button does nothing. */}
-        {disabledReason && (
-          <span
-            data-testid="add-pane-disabled-reason"
-            className="text-[10px] italic text-muted-foreground/80"
-          >
-            {disabledReason}
-          </span>
-        )}
+        {/* v1.5.3-A — +Pane button extracted to AddPaneButton (owns disabled
+            pill, error chip, and rpc.swarms.addAgent call). */}
+        <AddPaneButton
+          swarmId={activeSwarm?.id ?? null}
+          activeSwarm={activeSwarm}
+          providers={providers}
+        />
         <div className="ml-auto text-[10px] text-muted-foreground/70">
           ⌘⌥&lt;N&gt; to focus pane
         </div>
       </div>
-      {/* DOGFOOD-V1.4.2-01 hypothesis 3 — persistent inline error chip shown
-          for ~10s after addAgentToSwarm rejects. The toast is still fired for
-          momentary / screen-reader visibility; this chip is the non-transient
-          record that survives the toast's auto-dismiss. */}
-      {lastAddError && (
-        <div
-          data-testid="add-pane-error-chip"
-          className="flex items-center gap-1.5 border-b border-destructive/30 bg-destructive/10 px-3 py-1 text-[11px] text-destructive"
-        >
-          <span className="flex-1 truncate">{lastAddError}</span>
-          <button
-            type="button"
-            aria-label="Dismiss error"
-            className="ml-1 shrink-0 opacity-70 hover:opacity-100"
-            onClick={() => {
-              if (lastAddErrorTimerRef.current !== null) {
-                clearTimeout(lastAddErrorTimerRef.current);
-                lastAddErrorTimerRef.current = null;
-              }
-              setLastAddError(null);
-            }}
-          >
-            ×
-          </button>
-        </div>
-      )}
       {showWorktreeBanner && sessions.length > 0 && (
         <WorktreeInfoBanner onDismiss={() => setShowWorktreeBanner(false)} />
       )}

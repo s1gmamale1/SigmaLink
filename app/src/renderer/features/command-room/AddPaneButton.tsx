@@ -1,0 +1,195 @@
+// v1.5.3-A — Extract AddPaneButton from CommandRoom.
+//
+// Owns:
+//   - The +Pane button (Plus icon + chevron DropdownMenu)
+//   - `disabledReason` derivation (no workspace / swarm paused / 20-pane cap)
+//   - Always-visible inline reason pill (data-testid="add-pane-disabled-reason")
+//   - Persistent error chip (data-testid="add-pane-error-chip", 10s timer, dismiss ×, unmount cleanup)
+//   - addPane() → rpc.swarms.addAgent with error capture + toast
+//
+// Layout note: this component renders a `relative` wrapper so the error chip
+// can be positioned absolutely below the toolbar bar without disturbing the
+// flex row layout in CommandRoom's top bar.
+
+import { useEffect, useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { rpc } from '@/renderer/lib/rpc';
+import { useAppDispatch } from '@/renderer/app/state';
+import type { Swarm } from '@/shared/types';
+
+// v1.2.5 Step 3 — derive the human-readable reason why "+ Pane" is disabled.
+// Returns `null` when the button is either enabled OR mid-flight (no tooltip
+// during the in-flight `adding` window — the dropdown is closing anyway and
+// flashing a reason would be noise).
+function getAddPaneDisabledReason(
+  activeSwarm: Swarm | null,
+  adding: boolean,
+): string | null {
+  if (adding) return null;
+  if (!activeSwarm) return 'Open or create a workspace first';
+  if (activeSwarm.status !== 'running') {
+    return 'Swarm is paused — resume it to add panes';
+  }
+  if (activeSwarm.agents.length >= 20) {
+    return `Maximum 20 panes per swarm (current: ${activeSwarm.agents.length})`;
+  }
+  return null;
+}
+
+export interface AddPaneButtonProps {
+  swarmId: string | null;
+  activeSwarm: Swarm | null;
+  providers: { id: string; name: string }[];
+}
+
+export function AddPaneButton({ swarmId, activeSwarm, providers }: AddPaneButtonProps) {
+  const dispatch = useAppDispatch();
+  const [adding, setAdding] = useState(false);
+  // DOGFOOD-V1.4.2-01 hypothesis 3 — persistent error chip for ~10s after
+  // addAgentToSwarm rejects.
+  const [lastAddError, setLastAddError] = useState<string | null>(null);
+  const lastAddErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // DOGFOOD-V1.4.2-01 — clear the error-chip timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (lastAddErrorTimerRef.current !== null) {
+        clearTimeout(lastAddErrorTimerRef.current);
+      }
+    };
+  }, []);
+
+  const disabledReason = getAddPaneDisabledReason(activeSwarm, adding);
+
+  async function addPane(providerId: string): Promise<void> {
+    if (!activeSwarm || !swarmId || adding) return;
+    setAdding(true);
+    try {
+      const result = await rpc.swarms.addAgent({ swarmId: activeSwarm.id, providerId });
+      dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
+      dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
+      dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
+      toast.success(`Added ${result.agentKey}`, {
+        description: `Pane ${result.paneIndex + 1}`,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error('Could not add pane', { description: msg });
+      // DOGFOOD-V1.4.2-01 hypothesis 3 — persist the error inline for ~10s
+      // so users on a busy screen have a non-transient record of the failure.
+      if (lastAddErrorTimerRef.current !== null) {
+        clearTimeout(lastAddErrorTimerRef.current);
+      }
+      setLastAddError(msg);
+      lastAddErrorTimerRef.current = setTimeout(() => {
+        setLastAddError(null);
+        lastAddErrorTimerRef.current = null;
+      }, 10_000);
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  return (
+    // relative wrapper so the error chip can absolute-position below the toolbar
+    // without disturbing the parent flex row height.
+    <div className="relative flex items-center gap-2">
+      <DropdownMenu>
+        {disabledReason ? (
+          // v1.2.5 Step 3 — when disabled, surface the reason via tooltip.
+          // DOGFOOD-V1.4.2-01 hypothesis 1 — tooltip kept for a11y; inline
+          // pill gives immediate visibility without requiring hover.
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0} className="ml-1 inline-flex">
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled
+                      className="h-7 gap-1 px-2 text-xs"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Pane
+                    </Button>
+                  </DropdownMenuTrigger>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{disabledReason}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={adding}
+              className="ml-1 h-7 gap-1 px-2 text-xs"
+            >
+              <Plus className="h-3.5 w-3.5" /> Pane
+            </Button>
+          </DropdownMenuTrigger>
+        )}
+        <DropdownMenuContent align="start">
+          {providers.map((provider) => (
+            <DropdownMenuItem
+              key={provider.id}
+              onClick={() => void addPane(provider.id)}
+              disabled={adding}
+            >
+              {provider.name}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {/* DOGFOOD-V1.4.2-01 hypothesis 1 — always-visible inline reason pill */}
+      {disabledReason && (
+        <span
+          data-testid="add-pane-disabled-reason"
+          className="text-[10px] italic text-muted-foreground/80"
+        >
+          {disabledReason}
+        </span>
+      )}
+      {/* DOGFOOD-V1.4.2-01 hypothesis 3 — persistent inline error chip.
+          absolute-positioned below the toolbar so it doesn't alter the
+          flex-row height. */}
+      {lastAddError && (
+        <div
+          data-testid="add-pane-error-chip"
+          className="absolute left-0 right-0 top-full z-10 flex items-center gap-1.5 border-b border-destructive/30 bg-destructive/10 px-3 py-1 text-[11px] text-destructive"
+        >
+          <span className="flex-1 truncate">{lastAddError}</span>
+          <button
+            type="button"
+            aria-label="Dismiss error"
+            className="ml-1 shrink-0 opacity-70 hover:opacity-100"
+            onClick={() => {
+              if (lastAddErrorTimerRef.current !== null) {
+                clearTimeout(lastAddErrorTimerRef.current);
+                lastAddErrorTimerRef.current = null;
+              }
+              setLastAddError(null);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
