@@ -188,6 +188,14 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   // Spin up the dedicated STA COM thread at module init.
   Recognizer::Instance().StartSTAThread();
 
+  // PR #53 caveat 5: register an env cleanup hook so the STA thread is
+  // gracefully torn down on Napi::Env destruction (HMR / dev-reload).
+  // Without this the STA thread leaks on hot module replacement because
+  // NODE_API_MODULE's destructor is not called on env teardown alone.
+  napi_add_env_cleanup_hook(env, [](void* /*arg*/) {
+    Recognizer::Instance().StopSTAThread();
+  }, nullptr);
+
   exports.Set("isAvailable",       Napi::Function::New(env, IsAvailable));
   exports.Set("getAuthStatus",     Napi::Function::New(env, GetAuthStatus));
   exports.Set("requestPermission", Napi::Function::New(env, RequestPermission));
