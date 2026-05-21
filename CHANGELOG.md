@@ -4,6 +4,33 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-05-22
+
+v1.13.0 — **Bridge\* → Sigma\* brand rename (copyright cleanup)** + **SigmaVoice** standalone-app rename. One Opus coder (isolated worktree) + lead diff-review + full gate. 455 files, +1702/−1706.
+
+### Brand rename: Bridge\* → Sigma\*
+
+Eliminates the third-party "Bridge\*" branding across the codebase — product-suite names + internal mechanism identifiers → Sigma\*:
+
+- **Product/brand**: BridgeVoice→SigmaVoice, BridgeMind→SigmaMind, BridgeCode→SigmaCode, BridgeSpace→SigmaSpace, BridgeSwarm→SigmaSwarm, BridgeCanvas→SigmaCanvas, BridgeMCP→SigmaMCP, BridgeMemory→SigmaMemory, BridgeJarvis→SigmaJarvis, BridgeRoom→SigmaRoom (+ kebab/lowercase/appId/capability-key forms).
+- **Standalone voice app**: `apps/bridge-voice/`→`apps/sigma-voice/`, package `@sigmalink/bridge-voice`→`@sigmalink/sigma-voice`, appId `ai.sigma.bridgevoice`→`ai.sigma.sigmavoice`, workflow `release-bridge-voice.yml`→`release-sigma-voice.yml` (tag `sigmavoice-v*`). Released separately as **sigmavoice-v0.2.0**.
+- **Internal mechanisms**: `mcp-host-bridge`→`mcp-host-sigma`, `claude-resume-bridge`→`claude-resume-sigma`, `gemini-resume-bridge`→`gemini-resume-sigma`, `bridge-dist`→`sigma-dist`, `bridgeReady`→`sigmaReady`, `BridgeClient`/`BridgeResponse` types → Sigma\* (all consumers updated).
+- **capabilities.ts dedup**: removed the duplicate `bridgevoice.enabled` (kept `sigmavoice.enabled`); `bridgemcp.slotCount`→`sigmamcp.slotCount`, `bridgejarvis.enabled`→`sigmajarvis.enabled` (compile-time tier keys, not persisted).
+
+### Preserved (NOT renamed — by design)
+
+- `contextBridge` (Electron API), native napi `tsfn_bridge` / `whisper_bridge` binding symbols — renaming would break the build / native modules.
+- **Persisted / cross-referenced values** kept verbatim (renaming would break user data or cross-machine sync): `bridge_dispatch` (`swarm_mailbox.kind` DB value), the `bridge.activeConversationId` / `bridge.autoFocusOnDispatch` legacy KV-migration source keys, and the W-6 backward-compat test-ids `bridge-conversations-panel` / `bridge-resumable-pill`.
+- Generic English "bridge" nouns in prose/comments; external/upstream-product research captures in `docs/02-research/**` (URLs/org-slugs left for provenance).
+
+### Gate
+
+- tsc clean | eslint 0 errors / 0 warnings
+- vitest 114 files / 1197 pass / 1 skip
+- build + electron:compile clean | Playwright smoke e2e 38 s in main
+
+No schema migrations. Old `bridgevoice-*` releases left published (rename is forward-only, per operator).
+
 ## [1.12.1] - 2026-05-21
 
 v1.12.1 — **W-6 Cluster B: DB-table + cross-sync Sigma→Jorvis rename** (completes W-6). One Sonnet coder + an Opus reviewer (GO verdict) + lead-applied nits.

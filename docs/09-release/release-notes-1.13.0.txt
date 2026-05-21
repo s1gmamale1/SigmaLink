@@ -1,0 +1,70 @@
+SigmaLink v1.13.0 — 2026-05-22
+==============================
+
+v1.13.0 — Bridge* → Sigma* brand rename (copyright cleanup) + SigmaVoice
+standalone-app rename. One Opus coder in an isolated worktree + lead
+diff-review + full gate. 455 files, +1702/-1706.
+
+
+Brand rename: Bridge* → Sigma*
+------------------------------
+
+Eliminates the third-party "Bridge*" branding across the codebase. The
+product-suite names AND internal mechanism identifiers are renamed to
+Sigma*.
+
+Product / brand:
+- BridgeVoice→SigmaVoice, BridgeMind→SigmaMind, BridgeCode→SigmaCode,
+  BridgeSpace→SigmaSpace, BridgeSwarm→SigmaSwarm, BridgeCanvas→SigmaCanvas,
+  BridgeMCP→SigmaMCP, BridgeMemory→SigmaMemory, BridgeJarvis→SigmaJarvis,
+  BridgeRoom→SigmaRoom (+ kebab/lowercase/appId/capability-key forms).
+
+Standalone voice app (released separately as sigmavoice-v0.2.0):
+- apps/bridge-voice/ → apps/sigma-voice/
+- package @sigmalink/bridge-voice → @sigmalink/sigma-voice
+- appId ai.sigma.bridgevoice → ai.sigma.sigmavoice
+- workflow release-bridge-voice.yml → release-sigma-voice.yml
+  (tag trigger bridgevoice-v* → sigmavoice-v*)
+
+Internal mechanisms:
+- mcp-host-bridge → mcp-host-sigma
+- claude-resume-bridge → claude-resume-sigma
+- gemini-resume-bridge → gemini-resume-sigma
+- bridge-dist → sigma-dist, bridgeReady → sigmaReady
+- BridgeClient / BridgeResponse types → Sigma* (consumers updated)
+
+capabilities.ts dedup:
+- removed duplicate bridgevoice.enabled (kept sigmavoice.enabled)
+- bridgemcp.slotCount → sigmamcp.slotCount
+- bridgejarvis.enabled → sigmajarvis.enabled
+  (compile-time tier keys; not persisted)
+
+
+Preserved (NOT renamed — by design)
+------------------------------------
+
+Renaming these would break the build, native modules, user data, or
+cross-machine sync, so they are kept verbatim:
+
+- contextBridge (Electron API)
+- native napi binding symbols tsfn_bridge / whisper_bridge
+- bridge_dispatch (persisted swarm_mailbox.kind DB value)
+- bridge.activeConversationId / bridge.autoFocusOnDispatch
+  (legacy KV-migration source keys, v1.4.0→v1.4.1 user-data migration)
+- bridge-conversations-panel / bridge-resumable-pill (W-6 test-ids)
+- generic English "bridge" nouns in prose/comments
+- docs/02-research/** external/upstream-product captures (URLs/org-slugs
+  left intact for research provenance)
+
+
+Combined main gate
+------------------
+
+- tsc clean
+- eslint 0 errors / 0 warnings
+- vitest 114 files / 1197 pass / 1 skip
+- build + electron compile clean
+- Playwright smoke e2e 38 s pass in main
+
+No schema migrations in v1.13.0. The old bridgevoice-v0.1.x releases are
+left published (the rename is forward-only).
