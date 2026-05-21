@@ -241,6 +241,39 @@ export function buildShellCommandLine(command: string, args: string[], withSenti
 }
 
 /**
+ * v1.6.0 Phase 3 — Compute the effective per-pane spawn mode.
+ *
+ * When the global mode is 'shell-first' and this pane's provider delivers its
+ * initial prompt via a post-spawn `pty.write` (i.e. has neither `oneshotArgs`
+ * nor `initialPromptFlag`), that write would race the shell→CLI startup.
+ * The safe-scope fix: override that pane's mode to 'direct' so the write
+ * lands reliably. Other panes in the same workspace keep 'shell-first'.
+ *
+ * When the global mode is 'direct' this function is a no-op — returns 'direct'
+ * always, keeping the CRITICAL INVARIANT that direct-mode is byte-for-byte
+ * unchanged.
+ *
+ * Provider taxonomy:
+ *   Path A (arg injection via oneshotArgs):  claude (-p), codex (-q)
+ *   Path A (arg injection via initialPromptFlag): gemini (-i)
+ *   Path B (post-spawn pty.write): kimi, opencode — these trigger the override
+ *
+ * Exported so workspaces/launcher.ts (production) and local-pty.test.ts (tests)
+ * can share the same implementation without the Electron-heavy launcher module.
+ */
+export function effectivePaneSpawnMode(
+  globalSpawnMode: 'direct' | 'shell-first',
+  hasInitialPrompt: boolean,
+  providerHasOneshotArgs: boolean,
+  providerHasInitialPromptFlag: boolean,
+): 'direct' | 'shell-first' {
+  if (globalSpawnMode !== 'shell-first') return 'direct';
+  const promptNeedsPostWrite =
+    hasInitialPrompt && !providerHasOneshotArgs && !providerHasInitialPromptFlag;
+  return promptNeedsPostWrite ? 'direct' : 'shell-first';
+}
+
+/**
  * Build the spawn argv for the current platform.
  *  - non-Windows: pass through unchanged.
  *  - Windows: resolve extensionless commands via PATH+PATHEXT first, then wrap

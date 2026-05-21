@@ -27,7 +27,7 @@ import {
   prepareGeminiResume,
 } from '../pty/gemini-resume-bridge';
 import { workspaceCwdInWorktree } from './worktree-cwd';
-import { KV_PTY_SPAWN_MODE, parseSpawnMode } from '../pty/local-pty';
+import { KV_PTY_SPAWN_MODE, parseSpawnMode, effectivePaneSpawnMode } from '../pty/local-pty';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -274,6 +274,44 @@ export async function executeLaunchPlan(
       if (provider.id === 'gemini') {
         await ensureGeminiProjectDir(cwd, wsRow.rootPath);
       }
+      // v1.6.0 Phase 3 — per-pane safe-scope spawn-mode override.
+      //
+      // When the global spawn mode is 'shell-first' we need the initial prompt
+      // to reach the CLI. There are two working delivery paths:
+      //
+      //   Path A — provider has `initialPromptFlag` or `oneshotArgs`:
+      //     The prompt is baked into the CLI argv (via buildExtraArgs), so
+      //     shell-first works fine — the entire command line (including the
+      //     prompt flag) is written to the shell by spawnLocalPty.
+      //
+      //   Path B — provider has NEITHER flag NOR oneshotArgs (e.g. kimi,
+      //     opencode): the prompt is delivered by a post-spawn `pty.write`
+      //     600 ms after spawn. In direct mode the CLI is the PTY child and is
+      //     ready within a few hundred milliseconds, so the write lands safely.
+      //     In shell-first mode the PTY child is the *shell*, and the write
+      //     races shell→CLI startup — the 600 ms is not a reliable signal
+      //     (timing would be environment-dependent and fragile).
+      //
+      //   Safe-scope fix: when global mode is 'shell-first' but this pane uses
+      //   Path B, override the *pane-local* spawn mode to 'direct'. That pane
+      //   loses shell-durability for this launch but the prompt is delivered
+      //   correctly. All other panes in the same workspace keep shell-first.
+      //
+      //   A "stdin-prompt + shell-durability" solution (e.g. a CLI-ready signal
+      //   that defers the write until the CLI has launched inside the shell)
+      //   is the correct long-term fix for Path B providers; it is intentionally
+      //   deferred as a future enhancement (Phase 3+).
+      //
+      // CRITICAL INVARIANT: when global mode is 'direct' this block is a no-op
+      // — the per-pane override never fires, and behaviour is byte-for-byte
+      // identical to pre-Phase-3.
+      const effectiveSpawnMode = effectivePaneSpawnMode(
+        readSpawnMode(),
+        !!pane.initialPrompt,
+        !!(provider.oneshotArgs?.length),
+        !!provider.initialPromptFlag,
+      );
+
       const spawnResult = resolveAndSpawn(
         { ptyRegistry: deps.pty },
         {
@@ -291,9 +329,10 @@ export async function executeLaunchPlan(
           preassignedSessionId: finalPreallocSessionId,
           // v1.5.5 — explicit: this is always a fresh spawn (no sessionId).
           isResume: false,
-          // v1.6.0 Phase 1 — read the feature flag from KV at spawn time.
-          // Default is 'direct' (CRITICAL INVARIANT: unchanged behaviour).
-          spawnMode: readSpawnMode(),
+          // v1.6.0 Phase 3 — use the per-pane effective spawn mode (may be
+          // overridden to 'direct' for Path B providers in shell-first mode;
+          // see comment above). Default is 'direct' (CRITICAL INVARIANT).
+          spawnMode: effectiveSpawnMode,
         },
       );
       const rec = spawnResult.ptySession;

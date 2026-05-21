@@ -4,6 +4,31 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-05-21
+
+v1.10.2 — **W-4 shell-first Phase 3 of 7: dispatch correctness** (flagged, default-off). One Sonnet coder cluster, lead-merged.
+
+### Sigma/Jorvis dispatch works in shell-first mode (all providers)
+
+`assistant.dispatchPane` spawns panes with an `initialPrompt`. There are three prompt-delivery mechanisms across providers; Phase 3 makes all of them correct under shell-first:
+
+- **`initialPromptFlag`** (gemini `-i`) and **`oneshotArgs`** (claude `-p {prompt}`, codex `-q {prompt}`) — the prompt is a CLI arg, so Phase 1's shell-first injection already writes `<cli> <flag> "<prompt>"\n` to the shell. These panes stay shell-first. Verified + tested.
+- **Path B / stdin** (kimi, opencode — no prompt flag) — the prompt is delivered by a post-spawn `pty.write`, which would RACE the shell→CLI startup in shell-first mode. Rather than a half-built timing fix, Phase 3 applies a clean **per-pane fallback**: when global `pty.spawnMode` is `'shell-first'` but a pane has an `initialPrompt` AND its provider has neither prompt flag, that pane spawns in `'direct'` mode (`effectivePaneSpawnMode()` in `local-pty.ts`, applied in `executeLaunchPlan`). The prompt is delivered correctly (no race); that one pane forgoes shell-durability — a documented, fully-functional degradation. Other panes keep shell-first.
+
+The "stdin-prompt + shell-durability via a CLI-ready signal" combination is a deliberately-deferred future enhancement (not half-built here).
+
+**Zero regression at default**: `effectivePaneSpawnMode('direct', …)` always returns `'direct'`; the per-pane override fires only when global mode is `'shell-first'`. Smoke e2e boots at default.
+
+### Combined main gate
+
+- tsc clean
+- vitest 106 files / 1062 pass / 1 skip (+10 from v1.10.1: per-pane spawn-mode resolution across all prompt-delivery mechanisms + direct-mode regression guards)
+- eslint 0 errors / 0 warnings
+- build + electron compile clean
+- Playwright smoke e2e 38 s pass (default-direct boots — zero-regression proof; run in main, as the worktree lacked an Electron binary)
+
+No schema migrations in v1.10.2.
+
 ## [1.10.1] - 2026-05-21
 
 v1.10.1 — **W-4 shell-first Phase 2 of 7: CLI-exit detection** (flagged, default-off). One Sonnet coder cluster, lead-merged.

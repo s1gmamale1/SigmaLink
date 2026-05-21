@@ -15,9 +15,12 @@
 // not break those panes (the bridge is a no-op for non-Claude slugs) but it
 // would slow first-launch by a stat() per pane. We assert the bridge is never
 // invoked for non-Claude providers by spying on the module.
+//
+// v1.6.0 Phase 3 — also covers `effectivePaneSpawnMode` (pure helper, no deps).
 
 import { describe, it, expect, vi } from 'vitest';
 import * as bridge from '../pty/claude-resume-bridge.ts';
+import { effectivePaneSpawnMode } from '../pty/local-pty';
 
 describe('Claude resume bridge — provider gate semantics', () => {
   it('exports both helpers as async functions', () => {
@@ -60,5 +63,82 @@ describe('Claude resume bridge — provider gate semantics', () => {
   it('imports the production bridge module (not a mock)', () => {
     expect(vi.isMockFunction(bridge.prepareClaudeResume)).toBe(false);
     expect(vi.isMockFunction(bridge.ensureClaudeProjectDir)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 3 — effectivePaneSpawnMode: per-pane safe-scope override
+//
+// These tests are pure (no DB/pty deps). They verify the decision table for
+// the per-pane spawn-mode override introduced by the SAFE-SCOPE approach.
+//
+// Provider taxonomy by prompt-delivery path:
+//   Path A (arg injection) — oneshotArgs:  claude, codex
+//   Path A (arg injection) — initialPromptFlag: gemini
+//   Path B (post-spawn write) — neither:  kimi, opencode
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('effectivePaneSpawnMode — per-pane safe-scope override (Phase 3)', () => {
+  // ── CRITICAL INVARIANT: direct mode is always a no-op ──────────────────
+
+  it('direct mode, no prompt → stays direct', () => {
+    expect(effectivePaneSpawnMode('direct', false, false, false)).toBe('direct');
+  });
+
+  it('direct mode, prompt + oneshotArgs provider → stays direct', () => {
+    // claude / codex — oneshotArgs present, global mode is direct
+    expect(effectivePaneSpawnMode('direct', true, true, false)).toBe('direct');
+  });
+
+  it('direct mode, prompt + initialPromptFlag provider → stays direct', () => {
+    // gemini — initialPromptFlag present, global mode is direct
+    expect(effectivePaneSpawnMode('direct', true, false, true)).toBe('direct');
+  });
+
+  it('direct mode, prompt + Path B provider (no flag, no oneshotArgs) → stays direct', () => {
+    // kimi / opencode — global mode is direct; override must NOT fire
+    expect(effectivePaneSpawnMode('direct', true, false, false)).toBe('direct');
+  });
+
+  // ── shell-first mode, Path A providers: prompt is in CLI args — no override needed ──
+
+  it('shell-first, no prompt, oneshotArgs provider → stays shell-first', () => {
+    // Dispatch without initialPrompt — shell-first should survive unchanged
+    expect(effectivePaneSpawnMode('shell-first', false, true, false)).toBe('shell-first');
+  });
+
+  it('shell-first, prompt + oneshotArgs provider (claude/codex) → stays shell-first', () => {
+    // Path A: prompt becomes a CLI arg via oneshotArgs; shell-first injection
+    // handles it correctly. No fallback to direct.
+    expect(effectivePaneSpawnMode('shell-first', true, true, false)).toBe('shell-first');
+  });
+
+  it('shell-first, prompt + initialPromptFlag provider (gemini) → stays shell-first', () => {
+    // Path A: prompt becomes a CLI arg via initialPromptFlag; shell-first
+    // injection handles it. No fallback.
+    expect(effectivePaneSpawnMode('shell-first', true, false, true)).toBe('shell-first');
+  });
+
+  // ── shell-first mode, Path B providers: post-spawn write races → override to direct ──
+
+  it('shell-first, prompt + Path B provider (kimi/opencode) → overrides to direct', () => {
+    // THE CORE CASE: no oneshotArgs, no initialPromptFlag, but has initialPrompt.
+    // The post-spawn pty.write would race the shell→CLI startup. Must fall back
+    // to direct so the write lands safely.
+    expect(effectivePaneSpawnMode('shell-first', true, false, false)).toBe('direct');
+  });
+
+  it('shell-first, NO prompt + Path B provider → stays shell-first (no fallback needed)', () => {
+    // Without an initialPrompt there is no post-spawn write, so no race.
+    // The pane should keep shell-first for durability.
+    expect(effectivePaneSpawnMode('shell-first', false, false, false)).toBe('shell-first');
+  });
+
+  // ── Edge: both oneshotArgs AND initialPromptFlag set ──────────────────────
+
+  it('shell-first, prompt + both flags set → stays shell-first', () => {
+    // Both flags present; oneshotArgs takes precedence in buildExtraArgs but
+    // either way the prompt is in the CLI args. No post-spawn write needed.
+    expect(effectivePaneSpawnMode('shell-first', true, true, true)).toBe('shell-first');
   });
 });
