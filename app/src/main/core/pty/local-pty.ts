@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import * as nodePty from 'node-pty';
-import { buildSentinelSnippet } from './sentinel';
+import { buildSentinelSnippet, buildPowerShellSentinelSnippet, buildCmdSentinelSnippet } from './sentinel';
 
 export interface SpawnInput {
   command: string;          // empty string means: open user's default shell
@@ -257,6 +257,123 @@ export function buildShellCommandLine(command: string, args: string[], withSenti
   return base + '\n';
 }
 
+// ---------------------------------------------------------------------------
+// v1.6.0 Phase 5 — win32 shell-first helpers.
+// ---------------------------------------------------------------------------
+
+/**
+ * Win32 command-line argument quoting for PowerShell.
+ *
+ * PowerShell accepts two forms: single-quoted literals and double-quoted
+ * strings. We use double-quoted strings (easier to compose with variable
+ * expansion). Inside double quotes the only characters that need escaping are:
+ *   `  (backtick — PowerShell's escape char) → ``
+ *   "  (double quote) → `"
+ *   $  (variable expansion) → `$
+ *   (  )  { }  (subexpressions) → `` -prefixed  (`(  etc.)
+ *
+ * For safe literal-value quoting (no variable expansion desired), we escape
+ * ALL $ signs so that a value like `--apikey=$MY_KEY` does not expand $MY_KEY
+ * in the caller's PowerShell context.
+ *
+ * Examples:
+ *   win32QuotePwshArg('hello')        → '"hello"'
+ *   win32QuotePwshArg('say hello')    → '"say hello"'
+ *   win32QuotePwshArg('--key=$FOO')   → '"--key=`$FOO"'
+ *   win32QuotePwshArg('he said "hi"') → '"he said `"hi`""'
+ */
+export function win32QuotePwshArg(arg: string): string {
+  const escaped = arg
+    .replace(/`/g, '``')       // backtick first (it's the escape char itself)
+    .replace(/"/g, '`"')       // double quote
+    .replace(/\$/g, '`$')      // dollar sign (prevent variable expansion)
+    .replace(/\(/g, '`(')      // open paren (subexpression)
+    .replace(/\)/g, '`)')      // close paren
+    .replace(/\{/g, '`{')      // open brace
+    .replace(/\}/g, '`}');     // close brace
+  return `"${escaped}"`;
+}
+
+/**
+ * Win32 command-line argument quoting for cmd.exe.
+ *
+ * cmd.exe's quoting rules are notoriously complex. The safest portable
+ * approach for passing literal values is to:
+ *   1. Wrap the argument in double quotes.
+ *   2. Escape any double quotes inside with `\"` (backslash-quote).
+ *   3. Escape percent signs (`%`) with `%%` to prevent variable expansion.
+ *   4. Escape `!` with `^!` to prevent delayed-expansion interpretation
+ *      (harmless even when DELAYEDEXPANSION is off).
+ *   5. Escape cmd meta-characters (`& | < > ^ ( ) @ ~`) that are not inside
+ *      quotes in some contexts with `^` — inside double-quoted strings these
+ *      are safe WITHOUT further escaping, with the exception of `"` itself
+ *      (handled above).
+ *
+ * Inside double-quoted strings, most cmd meta-characters lose their special
+ * meaning. The residual risk is with `"` (already handled) and `%`/`!`
+ * (variable expansion, handled above). This is sufficient for the literal
+ * CLI-arg use case.
+ *
+ * Examples:
+ *   win32QuoteCmdArg('hello')         → '"hello"'
+ *   win32QuoteCmdArg('say hello')     → '"say hello"'
+ *   win32QuoteCmdArg('--key=%FOO%')   → '"--key=%%FOO%%"'
+ *   win32QuoteCmdArg('he said "hi"')  → '"he said \\"hi\\""'
+ */
+export function win32QuoteCmdArg(arg: string): string {
+  const escaped = arg
+    .replace(/%/g, '%%')         // percent — prevent variable expansion
+    .replace(/!/g, '^!')          // exclamation — prevent delayed expansion
+    .replace(/"/g, '\\"');        // double quote — literal quote inside string
+  return `"${escaped}"`;
+}
+
+/**
+ * Build the command line to inject into a win32 PowerShell PTY in shell-first
+ * mode.
+ *
+ * Quotes each argument with `win32QuotePwshArg` and optionally appends the
+ * PowerShell sentinel snippet so the shell emits the exit-code marker when the
+ * CLI exits.
+ *
+ * NOTE: win32 e2e verification requires a Windows host. This function is
+ * unit-tested (pure logic, runnable on macOS) but marked
+ * "pending-Windows-dogfood" for full integration testing.
+ *
+ * The caller appends `\n` (the Enter keystroke).
+ */
+export function buildWin32PwshCommandLine(command: string, args: string[], withSentinel = false): string {
+  const parts = [command, ...args.map(win32QuotePwshArg)];
+  const base = parts.join(' ');
+  if (withSentinel) {
+    return base + buildPowerShellSentinelSnippet() + '\n';
+  }
+  return base + '\n';
+}
+
+/**
+ * Build the command line to inject into a win32 cmd.exe PTY in shell-first
+ * mode.
+ *
+ * Quotes each argument with `win32QuoteCmdArg` and optionally appends the
+ * cmd.exe sentinel snippet so the shell emits the exit-code marker when the
+ * CLI exits.
+ *
+ * NOTE: win32 e2e verification requires a Windows host. This function is
+ * unit-tested (pure logic, runnable on macOS) but marked
+ * "pending-Windows-dogfood" for full integration testing.
+ *
+ * The caller appends `\n`.
+ */
+export function buildWin32CmdCommandLine(command: string, args: string[], withSentinel = false): string {
+  const parts = [command, ...args.map(win32QuoteCmdArg)];
+  const base = parts.join(' ');
+  if (withSentinel) {
+    return base + buildCmdSentinelSnippet() + '\n';
+  }
+  return base + '\n';
+}
+
 /**
  * v1.6.0 Phase 3 — Compute the effective per-pane spawn mode.
  *
@@ -324,19 +441,32 @@ function platformAwareSpawnArgs(input: SpawnInput): { command: string; args: str
 
 export function spawnLocalPty(input: SpawnInput): PtyHandle {
   // ---------------------------------------------------------------------------
-  // v1.6.0 Phase 1 — shell-first mode branch.
+  // v1.6.0 Phase 1/5 — shell-first mode branch.
   //
   // CRITICAL INVARIANT: when spawnMode is 'direct' (the DEFAULT), or when
-  // input.command is empty, or on win32, we take EXACTLY the existing code
-  // path below — behaviour is byte-for-byte identical to pre-Phase-1.
+  // input.command is empty, we take EXACTLY the existing code path below —
+  // behaviour is byte-for-byte identical to pre-Phase-1.
   //
-  // On win32 shell-first is deferred to a later phase because PowerShell/cmd
-  // quoting semantics are non-trivial. We silently fall through to direct mode.
+  // Phase 5: win32 shell-first is now wired behind the same flag. It is
+  // flagged default-off and marked "pending-Windows-dogfood" — the win32
+  // quoting and sentinel logic is unit-tested (pure logic, runnable on macOS)
+  // but full e2e verification requires a Windows host.
+  //
+  // 3-condition guard (unchanged from Phase 1):
+  //   1. spawnMode === 'shell-first'   (operator opt-in)
+  //   2. command !== ''                (non-empty → launching a CLI, not just opening a shell)
+  //   [win32 platform check removed in Phase 5 — win32 now takes the shell-first path]
+  //
+  // Phase 7 flip-wiring note: the default-flip to 'shell-first' is
+  // operator-gated post-dogfood (both POSIX and win32). The mechanism —
+  // parseSpawnMode() + the Settings toggle in RufloSettings.tsx — is fully
+  // wired and tested. The lead engineer flips the default by changing the
+  // fallback in parseSpawnMode() from 'direct' to 'shell-first' AFTER
+  // completing human dogfood validation. DO NOT flip the default here without
+  // that operator sign-off.
   // ---------------------------------------------------------------------------
   const effectiveMode: 'direct' | 'shell-first' =
-    input.spawnMode === 'shell-first' &&
-    input.command !== '' &&
-    process.platform !== 'win32'
+    input.spawnMode === 'shell-first' && input.command !== ''
       ? 'shell-first'
       : 'direct';
 
@@ -485,7 +615,7 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
 }
 
 // ---------------------------------------------------------------------------
-// v1.6.0 Phase 1 — shell-first spawn implementation (POSIX only).
+// v1.6.0 Phase 1/5 — shell-first spawn implementation (POSIX + win32).
 //
 // Spawns the user's default shell as the PTY child. After the shell emits its
 // first data chunk (its prompt), writes the composed command line ONCE into
@@ -496,8 +626,41 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
 // Resume-arg machinery: command + args already include any resume args (they
 // are composed by the launcher before reaching spawnLocalPty). shell-first
 // simply writes that composed line to the shell — no extra handling needed.
+//
+// Phase 5: win32 now supported. The command-line builder is selected based on
+// the default shell resolved for win32 (PowerShell vs cmd.exe), mirroring the
+// POSIX sentinel/quoting path. Win32 e2e is pending-Windows-dogfood.
 // ---------------------------------------------------------------------------
 const SHELL_FIRST_PROMPT_TIMEOUT_MS = 250;
+
+/**
+ * Classify the win32 default shell for command-line building purposes.
+ * Returns 'pwsh' if the command resolves to a PowerShell family executable,
+ * 'cmd' otherwise (covers cmd.exe and unknown shells).
+ */
+function win32ShellKind(command: string): 'pwsh' | 'cmd' {
+  return isPowerShell(command) ? 'pwsh' : 'cmd';
+}
+
+/**
+ * Build the command line to inject into the PTY master for the given shell.
+ * Dispatches to the per-shell builder based on platform + shell kind.
+ */
+function buildCommandLineForShell(
+  shellCommand: string,
+  command: string,
+  args: string[],
+  withSentinel: boolean,
+): string {
+  if (process.platform === 'win32') {
+    const kind = win32ShellKind(shellCommand);
+    if (kind === 'pwsh') {
+      return buildWin32PwshCommandLine(command, args, withSentinel);
+    }
+    return buildWin32CmdCommandLine(command, args, withSentinel);
+  }
+  return buildShellCommandLine(command, args, withSentinel);
+}
 
 function spawnShellFirstPty(input: SpawnInput): PtyHandle {
   const resolvedCwd =
@@ -511,6 +674,11 @@ function spawnShellFirstPty(input: SpawnInput): PtyHandle {
     COLORTERM: 'truecolor',
     FORCE_COLOR: '1',
   };
+  // BUG-W7-007: silence the PowerShell upgrade banner when the shell itself is
+  // PowerShell (shell-first mode spawns the shell directly).
+  if (isPowerShell(shell.command)) {
+    env.POWERSHELL_UPDATECHECK = 'Off';
+  }
 
   const dataSubs = new Set<(d: string) => void>();
   const exitSubs = new Set<(i: { exitCode: number; signal?: number }) => void>();
@@ -543,10 +711,12 @@ function spawnShellFirstPty(input: SpawnInput): PtyHandle {
   }
 
   // Compose the command line to inject.
-  // Phase 2: pass withSentinel=true so the shell prints the exit-code sentinel
-  // after the CLI exits.  The registry's onData path strips it from the forwarded
-  // data and emits the 'cli-exited' signal.
-  const commandLine = buildShellCommandLine(input.command, input.args, true);
+  // Phase 2/5: pass withSentinel=true so the shell prints the exit-code
+  // sentinel after the CLI exits.  The registry's onData path strips it from
+  // the forwarded data and emits the 'cli-exited' signal.
+  // Phase 5: dispatches to the per-shell builder (POSIX printf / PowerShell
+  // Write-Host / cmd.exe echo) based on platform and resolved shell kind.
+  const commandLine = buildCommandLineForShell(shell.command, input.command, input.args, true);
 
   // Injection latch — write the command line exactly ONCE.
   let injected = false;

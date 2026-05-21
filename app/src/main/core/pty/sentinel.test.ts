@@ -1,4 +1,6 @@
-// v1.6.0 Phase 2 — sentinel constants, detection regex, and extraction helper.
+// v1.6.0 Phase 2/5 — sentinel constants, detection regex, and extraction helper.
+// Phase 5 additions: win32 per-shell sentinel snippets (PowerShell + cmd.exe).
+// These tests run on any platform (pure logic, no win32 host required).
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -8,6 +10,8 @@ import {
   containsSentinel,
   extractSentinel,
   buildSentinelSnippet,
+  buildPowerShellSentinelSnippet,
+  buildCmdSentinelSnippet,
 } from './sentinel';
 
 describe('sentinel constants', () => {
@@ -160,5 +164,121 @@ describe('sentinel round-trip', () => {
       SENTINEL_RE.lastIndex = 0;
       expect(SENTINEL_RE.test(out)).toBe(true);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 5 — win32 PowerShell sentinel snippet
+//
+// NOTE: win32 e2e verification requires a Windows host. These tests cover
+// the pure logic (snippet format, marker presence, regex match) and are
+// runnable on any platform (macOS CI included).
+// pending-Windows-dogfood: full PTY integration test runs on a Windows host.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildPowerShellSentinelSnippet (Phase 5 — win32 pwsh)', () => {
+  it('contains the sentinel prefix and suffix', () => {
+    const snippet = buildPowerShellSentinelSnippet();
+    expect(snippet).toContain(SENTINEL_PREFIX);
+    expect(snippet).toContain(SENTINEL_SUFFIX);
+  });
+
+  it('starts with "; Write-Host" so it can be appended to a command line', () => {
+    const snippet = buildPowerShellSentinelSnippet();
+    expect(snippet.trimStart()).toMatch(/^; Write-Host/);
+  });
+
+  it('uses $LASTEXITCODE so PowerShell substitutes the actual exit code', () => {
+    const snippet = buildPowerShellSentinelSnippet();
+    expect(snippet).toContain('$LASTEXITCODE');
+  });
+
+  it('includes a backtick-n newline escape for the leading newline', () => {
+    const snippet = buildPowerShellSentinelSnippet();
+    // PowerShell uses `n inside double-quoted strings for newline
+    expect(snippet).toContain('`n');
+  });
+});
+
+describe('buildPowerShellSentinelSnippet round-trip (Phase 5)', () => {
+  it('simulated PowerShell output (exit 0) matches SENTINEL_RE', () => {
+    // PowerShell would expand: Write-Host "`n__SIGMALINK_CLI_EXIT_0__"
+    // producing: \n__SIGMALINK_CLI_EXIT_0__ (with a real newline before)
+    const simulatedOutput = `\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`;
+    SENTINEL_RE.lastIndex = 0;
+    expect(SENTINEL_RE.test(simulatedOutput)).toBe(true);
+  });
+
+  it('simulated PowerShell output (exit 127) is extracted correctly', () => {
+    const simulatedOutput = `CLI output\n${SENTINEL_PREFIX}127${SENTINEL_SUFFIX}\nPS C:\\> `;
+    const result = extractSentinel(simulatedOutput);
+    expect(result).not.toBeNull();
+    expect(result!.exitCode).toBe(127);
+    expect(result!.strippedData).not.toContain(SENTINEL_PREFIX);
+    expect(result!.strippedData).toContain('CLI output');
+  });
+
+  it('CRLF line endings (Windows PTY normalisation) are recognised', () => {
+    const simulatedOutput = `CLI output\r\n${SENTINEL_PREFIX}1${SENTINEL_SUFFIX}\r\nPS C:\\> `;
+    SENTINEL_RE.lastIndex = 0;
+    expect(SENTINEL_RE.test(simulatedOutput)).toBe(true);
+    const result = extractSentinel(simulatedOutput);
+    expect(result!.exitCode).toBe(1);
+    expect(result!.strippedData).not.toContain(SENTINEL_PREFIX);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 5 — win32 cmd.exe sentinel snippet
+//
+// NOTE: pending-Windows-dogfood for PTY e2e. Unit-only on macOS.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildCmdSentinelSnippet (Phase 5 — win32 cmd.exe)', () => {
+  it('contains the sentinel prefix and suffix', () => {
+    const snippet = buildCmdSentinelSnippet();
+    expect(snippet).toContain(SENTINEL_PREFIX);
+    expect(snippet).toContain(SENTINEL_SUFFIX);
+  });
+
+  it('starts with " & SET" to capture %ERRORLEVEL% before echo. resets it', () => {
+    const snippet = buildCmdSentinelSnippet();
+    expect(snippet.trimStart()).toMatch(/^& SET/);
+  });
+
+  it('uses %ERRORLEVEL% to capture the CLI exit code', () => {
+    const snippet = buildCmdSentinelSnippet();
+    expect(snippet).toContain('%ERRORLEVEL%');
+  });
+
+  it('uses a SET intermediate variable to avoid echo. reset', () => {
+    // The snippet must save ERRORLEVEL before the echo. command resets it
+    const snippet = buildCmdSentinelSnippet();
+    expect(snippet).toContain('__SL_EC');
+  });
+});
+
+describe('buildCmdSentinelSnippet round-trip (Phase 5)', () => {
+  it('simulated cmd.exe output (exit 0) matches SENTINEL_RE', () => {
+    // cmd.exe would print a blank line then: __SIGMALINK_CLI_EXIT_0__
+    const simulatedOutput = `\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`;
+    SENTINEL_RE.lastIndex = 0;
+    expect(SENTINEL_RE.test(simulatedOutput)).toBe(true);
+  });
+
+  it('simulated cmd.exe output (exit 1) is extracted correctly', () => {
+    const simulatedOutput = `CLI output\n${SENTINEL_PREFIX}1${SENTINEL_SUFFIX}\nC:\\> `;
+    const result = extractSentinel(simulatedOutput);
+    expect(result).not.toBeNull();
+    expect(result!.exitCode).toBe(1);
+    expect(result!.strippedData).not.toContain(SENTINEL_PREFIX);
+  });
+
+  it('CRLF line endings from ConPTY are recognised', () => {
+    const simulatedOutput = `CLI output\r\n${SENTINEL_PREFIX}42${SENTINEL_SUFFIX}\r\nC:\\> `;
+    SENTINEL_RE.lastIndex = 0;
+    expect(SENTINEL_RE.test(simulatedOutput)).toBe(true);
+    const result = extractSentinel(simulatedOutput);
+    expect(result!.exitCode).toBe(42);
   });
 });

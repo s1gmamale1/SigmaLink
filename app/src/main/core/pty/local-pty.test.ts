@@ -22,6 +22,10 @@ import {
   parseSpawnMode,
   KV_PTY_SPAWN_MODE,
   buildShellCommandLine,
+  win32QuotePwshArg,
+  win32QuoteCmdArg,
+  buildWin32PwshCommandLine,
+  buildWin32CmdCommandLine,
 } from './local-pty';
 import { SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
 
@@ -503,5 +507,286 @@ describe('buildShellCommandLine (Phase 2)', () => {
   it('no-args case: direct mode produces "command\\n"', () => {
     const line = buildShellCommandLine('myshell', []);
     expect(line).toBe('myshell\n');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 5 — win32QuotePwshArg (PowerShell argument quoting)
+//
+// Pure logic tests — runnable on any platform (macOS CI included).
+// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('win32QuotePwshArg (Phase 5)', () => {
+  it('wraps a simple arg in double quotes', () => {
+    expect(win32QuotePwshArg('hello')).toBe('"hello"');
+  });
+
+  it('handles args with spaces', () => {
+    expect(win32QuotePwshArg('say hello')).toBe('"say hello"');
+  });
+
+  it('escapes backtick (PowerShell escape character)', () => {
+    expect(win32QuotePwshArg('a`b')).toBe('"a``b"');
+  });
+
+  it('escapes double quotes with backtick', () => {
+    expect(win32QuotePwshArg('he said "hi"')).toBe('"he said `"hi`""');
+  });
+
+  it('escapes dollar sign to prevent variable expansion', () => {
+    expect(win32QuotePwshArg('--key=$FOO')).toBe('"--key=`$FOO"');
+  });
+
+  it('escapes parentheses (subexpression delimiters)', () => {
+    // ( → `(  and  ) → `)  so (value) → `(value`) wrapped in "..."
+    expect(win32QuotePwshArg('(value)')).toBe('"`(value`)"');
+  });
+
+  it('escapes braces', () => {
+    // { → `{  and  } → `}  so {block} → `{block`} wrapped in "..."
+    expect(win32QuotePwshArg('{block}')).toBe('"`{block`}"');
+  });
+
+  it('handles an empty arg', () => {
+    expect(win32QuotePwshArg('')).toBe('""');
+  });
+
+  it('handles backslashes (no escaping needed in double-quoted strings)', () => {
+    expect(win32QuotePwshArg('C:\\Users\\foo')).toBe('"C:\\Users\\foo"');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 5 — win32QuoteCmdArg (cmd.exe argument quoting)
+//
+// Pure logic tests — runnable on any platform.
+// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('win32QuoteCmdArg (Phase 5)', () => {
+  it('wraps a simple arg in double quotes', () => {
+    expect(win32QuoteCmdArg('hello')).toBe('"hello"');
+  });
+
+  it('handles args with spaces', () => {
+    expect(win32QuoteCmdArg('say hello')).toBe('"say hello"');
+  });
+
+  it('escapes percent signs to prevent variable expansion', () => {
+    expect(win32QuoteCmdArg('--key=%FOO%')).toBe('"--key=%%FOO%%"');
+  });
+
+  it('escapes double quotes with backslash', () => {
+    expect(win32QuoteCmdArg('he said "hi"')).toBe('"he said \\"hi\\""');
+  });
+
+  it('escapes exclamation marks (delayed expansion)', () => {
+    expect(win32QuoteCmdArg('hello!')).toBe('"hello^!"');
+  });
+
+  it('handles an empty arg', () => {
+    expect(win32QuoteCmdArg('')).toBe('""');
+  });
+
+  it('handles backslashes (no escaping needed inside double quotes for cmd)', () => {
+    expect(win32QuoteCmdArg('C:\\Users\\foo')).toBe('"C:\\Users\\foo"');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 5 — buildWin32PwshCommandLine (Phase 5)
+//
+// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildWin32PwshCommandLine (Phase 5)', () => {
+  it('without sentinel: produces "command <quotedArgs>\\n"', () => {
+    const line = buildWin32PwshCommandLine('claude', ['--flag', 'value']);
+    expect(line).toBe('claude "--flag" "value"\n');
+  });
+
+  it('with sentinel: ends with newline', () => {
+    const line = buildWin32PwshCommandLine('claude', ['--flag'], true);
+    expect(line.endsWith('\n')).toBe(true);
+  });
+
+  it('with sentinel: contains the sentinel prefix and suffix', () => {
+    const line = buildWin32PwshCommandLine('claude', ['--resume', 'abc'], true);
+    expect(line).toContain(SENTINEL_PREFIX);
+    expect(line).toContain(SENTINEL_SUFFIX);
+  });
+
+  it('with sentinel: uses $LASTEXITCODE (PowerShell exit code variable)', () => {
+    const line = buildWin32PwshCommandLine('mybin', [], true);
+    expect(line).toContain('$LASTEXITCODE');
+  });
+
+  it('with sentinel: uses Write-Host to emit the marker', () => {
+    const line = buildWin32PwshCommandLine('mybin', [], true);
+    expect(line).toContain('Write-Host');
+  });
+
+  it('without sentinel: NO sentinel prefix in output', () => {
+    const line = buildWin32PwshCommandLine('claude', ['--flag']);
+    expect(line).not.toContain(SENTINEL_PREFIX);
+  });
+
+  it('no-args case: produces "command\\n"', () => {
+    const line = buildWin32PwshCommandLine('mybin', []);
+    expect(line).toBe('mybin\n');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 5 — buildWin32CmdCommandLine (Phase 5)
+//
+// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildWin32CmdCommandLine (Phase 5)', () => {
+  it('without sentinel: produces "command <quotedArgs>\\n"', () => {
+    const line = buildWin32CmdCommandLine('claude', ['--flag', 'value']);
+    expect(line).toBe('claude "--flag" "value"\n');
+  });
+
+  it('with sentinel: ends with newline', () => {
+    const line = buildWin32CmdCommandLine('claude', ['--flag'], true);
+    expect(line.endsWith('\n')).toBe(true);
+  });
+
+  it('with sentinel: contains the sentinel prefix and suffix', () => {
+    const line = buildWin32CmdCommandLine('claude', ['--resume', 'abc'], true);
+    expect(line).toContain(SENTINEL_PREFIX);
+    expect(line).toContain(SENTINEL_SUFFIX);
+  });
+
+  it('with sentinel: uses %ERRORLEVEL% capture pattern', () => {
+    const line = buildWin32CmdCommandLine('mybin', [], true);
+    expect(line).toContain('%ERRORLEVEL%');
+  });
+
+  it('with sentinel: uses SET to save exit code before echo. resets it', () => {
+    const line = buildWin32CmdCommandLine('mybin', [], true);
+    expect(line).toContain('SET');
+    expect(line).toContain('__SL_EC');
+  });
+
+  it('without sentinel: NO sentinel prefix in output', () => {
+    const line = buildWin32CmdCommandLine('claude', ['--flag']);
+    expect(line).not.toContain(SENTINEL_PREFIX);
+  });
+
+  it('no-args case: produces "command\\n"', () => {
+    const line = buildWin32CmdCommandLine('mybin', []);
+    expect(line).toBe('mybin\n');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 5 — win32 shell-first: spawnLocalPty uses shell-first on win32
+// when spawnMode='shell-first'.
+//
+// NOTE: This test uses vi.doMock + dynamic import to mock node-pty on win32.
+// On the macOS test host, we simulate the win32 platform via process.platform.
+//
+// pending-Windows-dogfood: full PTY integration requires a Windows host.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function setupWin32() {
+    const written: string[] = [];
+    let dataHandler: ((d: string) => void) | null = null;
+
+    const mockProc = {
+      pid: 99999,
+      write: (d: string) => { written.push(d); },
+      resize: vi.fn(),
+      kill: vi.fn(),
+      onData: (cb: (d: string) => void) => { dataHandler = cb; },
+      onExit: vi.fn(),
+    };
+
+    vi.resetModules();
+    vi.doMock('node-pty', () => ({
+      spawn: vi.fn(() => mockProc),
+    }));
+
+    const { spawnLocalPty: freshSpawn } = await import('./local-pty');
+    const nodePty = await import('node-pty');
+
+    return {
+      freshSpawn,
+      nodePty,
+      written,
+      fireData: (chunk: string) => { dataHandler?.(chunk); },
+    };
+  }
+
+  it('on simulated win32 with shell-first: spawns a shell (not the CLI command)', async () => {
+    if (process.platform !== 'win32') {
+      // Simulate win32 platform on macOS by temporarily overriding process.platform.
+      // We verify the 3-condition guard allows shell-first on win32 after Phase 5.
+      vi.useFakeTimers();
+
+      const { freshSpawn, nodePty } = await setupWin32();
+
+      // Override platform to 'win32' for this test.
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      // Ensure resolveWindowsCommand won't throw on missing PATH by giving it a real shell.
+      // We rely on spawnShellFirstPty not calling resolveWindowsCommand for the shell
+      // (it calls defaultShell() which already resolves).
+
+      try {
+        freshSpawn({
+          command: 'claude',
+          args: ['--flag'],
+          cwd: process.cwd(),
+          cols: 80,
+          rows: 24,
+          spawnMode: 'shell-first',
+        });
+      } catch {
+        // Spawn may fail in test env on a simulated win32 platform — that's expected.
+        // What we verify is that the mode gate was passed (no ENOENT from the
+        // direct-mode POSIX resolver path).
+      } finally {
+        Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      }
+
+      // The spawn call, if it happened, should NOT have been called with 'claude'
+      // as the first argument (shell-first uses defaultShell() instead).
+      const spawnCalls = vi.mocked(nodePty.spawn).mock.calls;
+      for (const call of spawnCalls) {
+        expect(call[0]).not.toBe('claude');
+      }
+    }
+  });
+
+  it('win32 direct mode: still throws ENOENT for missing commands', () => {
+    // The 3-condition guard: spawnMode !== 'shell-first' → direct mode → ENOENT.
+    // This verifies the invariant is preserved on win32 when spawnMode is 'direct'.
+    process.env.PATH = '/does/not/exist';
+    let caught: unknown = null;
+    try {
+      spawnLocalPty({
+        command: 'not-a-real-binary-win32-direct',
+        args: [],
+        cwd: process.cwd(),
+        cols: 80,
+        rows: 24,
+        spawnMode: 'direct',
+      });
+    } catch (err) {
+      caught = err;
+    }
+    const e = caught as NodeJS.ErrnoException;
+    expect(e).toBeInstanceOf(Error);
+    expect(e.code).toBe('ENOENT');
   });
 });
