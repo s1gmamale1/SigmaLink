@@ -1,8 +1,8 @@
-// BUG-V1.1.2-01 — Sigma Assistant MCP host bridge (main-process side).
+// BUG-V1.1.2-01 — Jorvis Assistant MCP host bridge (main-process side).
 //
 // The Claude CLI's tool-use protocol requires tools to be REGISTERED via an
 // MCP server, not described in prose in the system prompt. With no MCP server
-// publishing the 13 Sigma tools to the child CLI, Claude never emits a
+// publishing the 13 Jorvis tools to the child CLI, Claude never emits a
 // `tool_use` envelope and the live dispatcher in `runClaudeCliTurn.ts` never
 // fires.
 //
@@ -11,7 +11,7 @@
 //   main process (SigmaLink)
 //     └── McpHostBridge.start()  → listens on a Unix socket / Windows pipe
 //   spawns claude CLI as child
-//     └── claude spawns mcp-sigma-host-server.cjs as ITS child
+//     └── claude spawns mcp-jorvis-host-server.cjs as ITS child
 //           └── the child connects BACK to the main process via that socket
 //                and proxies MCP tools/call → main → invokeTool() → tools.ts
 //
@@ -82,7 +82,7 @@ interface OutgoingResult {
  * `net.createServer` understands directly.
  */
 function defaultSocketPath(): string {
-  const id = `sigma-host-${process.pid}-${randomUUID().slice(0, 8)}`;
+  const id = `jorvis-host-${process.pid}-${randomUUID().slice(0, 8)}`;
   if (process.platform === 'win32') {
     return `\\\\.\\pipe\\${id}.sock`;
   }
@@ -191,7 +191,7 @@ export class McpHostBridge {
           this.send(socket, {
             jsonrpc: '2.0',
             id,
-            error: { code: -32000, message: 'sigma host: invoker not wired' },
+            error: { code: -32000, message: 'jorvis host: invoker not wired' },
           });
           return;
         }
@@ -243,7 +243,7 @@ export class McpHostBridge {
 
 // ────────────────────────────────────────────────────────────── temp config ──
 
-export interface SigmaHostMcpDecl {
+export interface JorvisHostMcpDecl {
   serverEntry: string;
   socketPath: string;
   workspaceRoot?: string;
@@ -251,9 +251,9 @@ export interface SigmaHostMcpDecl {
 
 /**
  * Write the temp `.mcp.json` the Claude CLI consumes via `--mcp-config`.
- * Prefers `<workspaceRoot>/.claude-flow/sigma-host.mcp.json` so the file
+ * Prefers `<workspaceRoot>/.claude-flow/jorvis-host.mcp.json` so the file
  * lives alongside the rest of our workspace-scoped MCP state, and falls
- * back to `<os.tmpdir()>/sigma-host-<random>.mcp.json` when the workspace
+ * back to `<os.tmpdir()>/jorvis-host-<random>.mcp.json` when the workspace
  * directory is not writable (or none was supplied). Returns the path on
  * success or null on failure.
  *
@@ -262,20 +262,20 @@ export interface SigmaHostMcpDecl {
  * `process.execPath` IS Electron and `ELECTRON_RUN_AS_NODE=1` instructs it
  * to run as plain node. The CLI does not know or care.
  */
-export function writeSigmaHostMcpConfig(
-  decl: SigmaHostMcpDecl,
+export function writeJorvisHostMcpConfig(
+  decl: JorvisHostMcpDecl,
   conversationId: string | undefined,
   workspaceId: string | undefined,
 ): string | null {
   // Verify the bundled server entry actually exists. If the dev forgot to
   // run `pnpm electron:compile` the file is missing and we'd hand the CLI
   // a config it cannot satisfy — better to skip the flag and let Claude
-  // run without Sigma tools than to abort the turn entirely.
+  // run without Jorvis tools than to abort the turn entirely.
   if (!fs.existsSync(decl.serverEntry)) return null;
 
   const config = {
     mcpServers: {
-      'sigma-host': {
+      'jorvis-host': {
         type: 'stdio',
         command: process.execPath,
         args: [decl.serverEntry],
@@ -283,10 +283,10 @@ export function writeSigmaHostMcpConfig(
           // Electron's bundled node, so the CJS file runs as a normal
           // node script — see mcp-supervisor.ts for the same pattern.
           ELECTRON_RUN_AS_NODE: '1',
-          SIGMA_HOST_SOCKET: decl.socketPath,
-          SIGMA_HOST_AUTOBOOT: '1',
-          ...(conversationId ? { SIGMA_CONVERSATION_ID: conversationId } : {}),
-          ...(workspaceId ? { SIGMA_WORKSPACE_ID: workspaceId } : {}),
+          JORVIS_HOST_SOCKET: decl.socketPath,
+          JORVIS_HOST_AUTOBOOT: '1',
+          ...(conversationId ? { JORVIS_CONVERSATION_ID: conversationId } : {}),
+          ...(workspaceId ? { JORVIS_WORKSPACE_ID: workspaceId } : {}),
         },
       },
     },
@@ -297,15 +297,15 @@ export function writeSigmaHostMcpConfig(
     try {
       const dir = path.join(decl.workspaceRoot, '.claude-flow');
       fs.mkdirSync(dir, { recursive: true });
-      target = path.join(dir, 'sigma-host.mcp.json');
+      target = path.join(dir, 'jorvis-host.mcp.json');
     } catch {
       target = null;
     }
   }
   if (!target) {
     try {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigma-host-mcp-'));
-      target = path.join(dir, 'sigma-host.mcp.json');
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jorvis-host-mcp-'));
+      target = path.join(dir, 'jorvis-host.mcp.json');
     } catch {
       return null;
     }

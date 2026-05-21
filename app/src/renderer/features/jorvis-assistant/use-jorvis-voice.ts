@@ -8,25 +8,25 @@ import {
 } from '@/renderer/lib/voice';
 import type { OrbState } from './Orb';
 
-export interface UseSigmaVoiceArgs {
+export interface UseJorvisVoiceArgs {
   composerRef: React.MutableRefObject<HTMLTextAreaElement | null>;
   sendPromptRef: React.MutableRefObject<(prompt: string) => Promise<void>>;
   setOrbState: React.Dispatch<React.SetStateAction<OrbState>>;
 }
 
-export interface UseSigmaVoiceReturn {
+export interface UseJorvisVoiceReturn {
   onOrbClick: () => void;
 }
 
-/** V3-W15-003 — orb click toggles SigmaVoice capture. STANDBY → kick off
+/** V3-W15-003 — orb click toggles voice capture. STANDBY → kick off
  *  a session and switch to LISTENING; click again to abort. The recognizer's
  *  final transcript is dispatched to `assistant.send` and the orb advances
  *  to THINKING. */
-export function useSigmaVoice({
+export function useJorvisVoice({
   composerRef,
   sendPromptRef,
   setOrbState,
-}: UseSigmaVoiceArgs): UseSigmaVoiceReturn {
+}: UseJorvisVoiceArgs): UseJorvisVoiceReturn {
   const voiceHandleRef = useRef<VoiceCaptureHandle | null>(null);
 
   const onOrbClick = useCallback(() => {

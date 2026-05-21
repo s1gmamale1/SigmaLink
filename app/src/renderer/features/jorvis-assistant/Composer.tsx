@@ -20,7 +20,7 @@ interface Props {
   onMicPress?: () => void;
   placeholder?: string;
   className?: string;
-  /** Phase 4 Track C — emits the live textarea value so SigmaRoom can
+  /** Phase 4 Track C — emits the live textarea value so JorvisRoom can
    *  debounce a `ruflo.patterns.search` probe and surface a "Similar past
    *  task" ribbon. Optional; the composer works exactly as before when
    *  omitted. */

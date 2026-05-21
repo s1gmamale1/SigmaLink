@@ -52,7 +52,7 @@ export interface AssistantControllerDeps {
    * the live `list_*` dispatchers as dead code).
    */
   mcpHost?: {
-    /** Absolute path to `electron-dist/mcp-sigma-host-server.cjs`. */
+    /** Absolute path to `electron-dist/mcp-jorvis-host-server.cjs`. */
     serverEntry: string;
     /** Unix socket path or `\\.\pipe\…` the bridge is listening on. */
     socketPath: string;
@@ -217,7 +217,7 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       // when the binary is missing on disk. The stub keeps the demo path
       // alive so a fresh DMG without `claude` installed still feels alive.
       // BUG-V1.1.2-01 — resolve the workspace root for the temp `.mcp.json`
-      // anchor. Falls back to the OS temp dir inside writeSigmaHostMcpConfig
+      // anchor. Falls back to the OS temp dir inside writeJorvisHostMcpConfig
       // when the workspace row is missing or the directory isn't writable.
       let mcpWorkspaceRoot: string | undefined;
       try {

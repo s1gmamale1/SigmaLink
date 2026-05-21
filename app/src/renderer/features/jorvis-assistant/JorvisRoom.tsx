@@ -1,4 +1,4 @@
-// V3-W13-012 / V3-W13-015 — Sigma Assistant root.
+// V3-W13-012 / V3-W13-015 — Jorvis Assistant root.
 // Hosts orb + transcript + composer + tool-call inspector. Owns the active
 // conversation, the in-flight streaming buffer, the orb state machine, and
 // the cross-workspace dispatch echo handler (jump-to-pane + ding).
@@ -20,22 +20,22 @@ import { Composer } from './Composer';
 import { ToolCallInspector } from './ToolCallInspector';
 import { ConversationsPanel } from './ConversationsPanel';
 import { PaneEventCard, type PaneEvent } from './PaneEventCard';
-import { useSigmaPaneEvents } from './use-sigma-pane-events';
+import { useJorvisPaneEvents } from './use-jorvis-pane-events';
 import {
-  useSigmaConversations,
+  useJorvisConversations,
   persistActiveConversation,
-} from './use-sigma-conversations';
-import { useSigmaResumeFlow } from './use-sigma-resume-flow';
+} from './use-jorvis-conversations';
+import { useJorvisResumeFlow } from './use-jorvis-resume-flow';
 import { SigmaRailDropdown } from './SigmaRailDropdown';
 import { ResumeBanner } from './ResumeBanner';
 import { InterruptedTurnBanner } from './InterruptedTurnBanner';
 import { PatternRibbon } from './PatternRibbon';
-import { useSigmaRufloHealth } from './use-sigma-ruflo-health';
-import { useSigmaPatternProbe } from './use-sigma-pattern-probe';
-import { useSigmaDispatchEcho } from './use-sigma-dispatch-echo';
-import { useSigmaJumpToMessage } from './use-sigma-jump-to-message';
-import { useSigmaVoice } from './use-sigma-voice';
-import { useSigmaAssistantState } from './use-sigma-assistant-state';
+import { useJorvisRufloHealth } from './use-jorvis-ruflo-health';
+import { useJorvisPatternProbe } from './use-jorvis-pattern-probe';
+import { useJorvisDispatchEcho } from './use-jorvis-dispatch-echo';
+import { useJorvisJumpToMessage } from './use-jorvis-jump-to-message';
+import { useJorvisVoice } from './use-jorvis-voice';
+import { useJorvisAssistantState } from './use-jorvis-assistant-state';
 
 interface Props {
   /** Compact mode trims the header chrome — used inside the right-rail tab. */
@@ -43,7 +43,7 @@ interface Props {
   className?: string;
 }
 
-export function SigmaRoom({ variant = 'standalone', className }: Props) {
+export function JorvisRoom({ variant = 'standalone', className }: Props) {
   const { state, dispatch } = useAppState();
   const activeWorkspace = state.activeWorkspace;
   const wsId = activeWorkspace?.id;
@@ -61,9 +61,9 @@ export function SigmaRoom({ variant = 'standalone', className }: Props) {
     onPickConversation,
     onDeleteConversation,
     clearConversation,
-  } = useSigmaConversations();
+  } = useJorvisConversations();
 
-  const { interruptedTurn, dismissInterrupted, resetDismissed } = useSigmaResumeFlow(messages);
+  const { interruptedTurn, dismissInterrupted, resetDismissed } = useJorvisResumeFlow(messages);
 
   const [streaming, setStreaming] = useState<{ turnId: string; delta: string } | null>(null);
   const [orbState, setOrbState] = useState<OrbState>('standby');
@@ -76,15 +76,15 @@ export function SigmaRoom({ variant = 'standalone', className }: Props) {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const sendPromptRef = useRef<(prompt: string) => Promise<void>>(async () => {});
 
-  const { rufloReady, rufloReadyRef } = useSigmaRufloHealth();
-  const { patternHit } = useSigmaPatternProbe({ composerText, rufloReady });
-  useSigmaDispatchEcho({
+  const { rufloReady, rufloReadyRef } = useJorvisRufloHealth();
+  const { patternHit } = useJorvisPatternProbe({ composerText, rufloReady });
+  useJorvisDispatchEcho({
     workspaces: state.workspaces,
     activeWorkspaceId: state.activeWorkspace?.id,
     dispatch,
   });
-  useSigmaJumpToMessage({ conversationId, hydrateConversation, transcriptRef });
-  useSigmaAssistantState({
+  useJorvisJumpToMessage({ conversationId, hydrateConversation, transcriptRef });
+  useJorvisAssistantState({
     conversationId,
     setMessages,
     setOrbState,
@@ -93,7 +93,7 @@ export function SigmaRoom({ variant = 'standalone', className }: Props) {
     lastSentPromptRef,
     rufloReadyRef,
   });
-  const { onOrbClick } = useSigmaVoice({ composerRef, sendPromptRef, setOrbState });
+  const { onOrbClick } = useJorvisVoice({ composerRef, sendPromptRef, setOrbState });
 
   // Reset ribbon dismissal when the conversation or workspace changes.
   useEffect(() => {
@@ -115,7 +115,7 @@ export function SigmaRoom({ variant = 'standalone', className }: Props) {
   const sendPrompt = useCallback(
     async (prompt: string) => {
       if (!activeWorkspace) {
-        toast.error('Open a workspace before talking to Sigma.');
+        toast.error('Open a workspace before talking to Jorvis.');
         return;
       }
       lastSentPromptRef.current = prompt;
@@ -165,7 +165,7 @@ export function SigmaRoom({ variant = 'standalone', className }: Props) {
     composerRef.current?.focus();
   }, [clearConversation, resetDismissed]);
 
-  const paneEvents = useSigmaPaneEvents(conversationId);
+  const paneEvents = useJorvisPaneEvents(conversationId);
 
   const handlePaneReply = useCallback((evt: PaneEvent) => {
     const context = `Pane event: ${evt.kind} for session ${evt.sessionId.slice(0, 8)}${evt.body?.exitCode !== undefined ? ` (exit ${evt.body.exitCode})` : ''}`;
@@ -194,7 +194,7 @@ export function SigmaRoom({ variant = 'standalone', className }: Props) {
   return (
     <div
       className={cn('flex h-full min-h-0 flex-row bg-background', className)}
-      data-sigma-room={variant}
+      data-jorvis-room={variant}
     >
       {showPanel ? (
         <ConversationsPanel

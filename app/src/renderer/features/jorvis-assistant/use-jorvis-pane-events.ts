@@ -46,7 +46,7 @@ class PaneEventStore {
 
 const store = new PaneEventStore();
 
-export function useSigmaPaneEvents(conversationId: string | null): PaneEvent[] {
+export function useJorvisPaneEvents(conversationId: string | null): PaneEvent[] {
   useEffect(() => {
     store.setActiveConversationId(conversationId);
     store.clear();

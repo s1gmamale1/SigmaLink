@@ -1,23 +1,23 @@
 import { useEffect } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
-import { KV_ACTIVE_CONVERSATION } from './use-sigma-conversations';
+import { KV_ACTIVE_CONVERSATION } from './use-jorvis-conversations';
 
-export interface UseSigmaJumpToMessageArgs {
+export interface UseJorvisJumpToMessageArgs {
   conversationId: string | null;
   hydrateConversation: (id: string) => Promise<void>;
   transcriptRef: React.MutableRefObject<HTMLDivElement | null>;
 }
 
 /** P3-S7 — External jump-to-message hook. The Operator Console fires a
- *  `sigma:bridge-jump-to-message` window event after switching the room
- *  back to `bridge`; we hydrate the requested conversation (if it isn't
+ *  `jorvis:jump-to-message` window event after switching the room
+ *  back to `jorvis`; we hydrate the requested conversation (if it isn't
  *  already active) and scroll the matching `[data-message-id]` element
  *  into view. */
-export function useSigmaJumpToMessage({
+export function useJorvisJumpToMessage({
   conversationId,
   hydrateConversation,
   transcriptRef,
-}: UseSigmaJumpToMessageArgs): void {
+}: UseJorvisJumpToMessageArgs): void {
   useEffect(() => {
     const handler = (raw: Event) => {
       const ev = raw as CustomEvent<{ conversationId: string; messageId?: string }>;
@@ -50,8 +50,8 @@ export function useSigmaJumpToMessage({
         }
       })();
     };
-    window.addEventListener('sigma:sigma-jump-to-message', handler);
-    return () => window.removeEventListener('sigma:sigma-jump-to-message', handler);
+    window.addEventListener('jorvis:jump-to-message', handler);
+    return () => window.removeEventListener('jorvis:jump-to-message', handler);
     // transcriptRef is a stable ref — no need to re-subscribe when it changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, hydrateConversation]);

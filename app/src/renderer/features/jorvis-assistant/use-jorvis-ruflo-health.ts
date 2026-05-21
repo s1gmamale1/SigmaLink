@@ -5,13 +5,13 @@ interface RufloHealthEvent {
   state: 'absent' | 'starting' | 'ready' | 'degraded' | 'down';
 }
 
-export interface UseSigmaRufloHealthReturn {
+export interface UseJorvisRufloHealthReturn {
   rufloReady: boolean;
   rufloReadyRef: React.MutableRefObject<boolean>;
 }
 
 /** Phase 4 Track C — track Ruflo health. */
-export function useSigmaRufloHealth(): UseSigmaRufloHealthReturn {
+export function useJorvisRufloHealth(): UseJorvisRufloHealthReturn {
   const [rufloReady, setRufloReady] = useState(false);
   const rufloReadyRef = useRef(false);
 

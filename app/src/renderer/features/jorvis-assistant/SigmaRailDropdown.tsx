@@ -6,7 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { ConversationListRow } from './use-sigma-conversations';
+import type { ConversationListRow } from './use-jorvis-conversations';
 
 interface Props {
   conversations: ConversationListRow[];

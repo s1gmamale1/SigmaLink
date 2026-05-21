@@ -44,7 +44,7 @@ async function invokeSideBand<T = unknown>(
   throw new Error(env.error);
 }
 
-export interface UseSigmaConversationsReturn {
+export interface UseJorvisConversationsReturn {
   conversations: ConversationListRow[];
   conversationId: string | null;
   setConversationId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -59,7 +59,7 @@ export interface UseSigmaConversationsReturn {
   clearConversation: () => void;
 }
 
-export function useSigmaConversations(): UseSigmaConversationsReturn {
+export function useJorvisConversations(): UseJorvisConversationsReturn {
   const { state } = useAppState();
   const wsId = state.activeWorkspace?.id;
   const [conversations, setConversations] = useState<ConversationListRow[]>([]);

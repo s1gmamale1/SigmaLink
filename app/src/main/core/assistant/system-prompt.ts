@@ -50,7 +50,7 @@ Style rules:
   • If the user's intent is ambiguous, ask exactly one clarifying question.
 `;
 
-export interface SigmaSystemPromptContext {
+export interface JorvisSystemPromptContext {
   /** Human-readable workspace name (e.g. "SigmaLink"). */
   workspaceName: string;
   /** Absolute path of the workspace root. */
@@ -69,7 +69,7 @@ export interface SigmaSystemPromptContext {
  * dynamic context block is intentionally static: live sessions, swarms, and
  * workspaces change during a turn and must be refreshed via list_* tools.
  */
-export function buildSigmaSystemPrompt(ctx: SigmaSystemPromptContext): string {
+export function buildJorvisSystemPrompt(ctx: JorvisSystemPromptContext): string {
   const room = ctx.currentRoom ? ` (currently in the "${ctx.currentRoom}" room)` : '';
 
   return `\

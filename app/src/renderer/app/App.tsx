@@ -19,7 +19,7 @@ import { AppStateProvider, useAppState } from '@/renderer/app/state';
 
 // --- Lazy rooms ----------------------------------------------------------
 // Each room is wrapped in `React.lazy` so its module (and the heavy feature
-// subtrees it pulls in — operator-console, sigma-assistant, memory, skills,
+// subtrees it pulls in — operator-console, jorvis-assistant, memory, skills,
 // browser, etc.) stays out of the main chunk until the user actually
 // navigates there. Named exports are adapted to default exports via the
 // `then(m => ({ default: m.X }))` shim — see `EditorTab.tsx` for the
@@ -69,9 +69,9 @@ const SettingsRoom = lazy(() =>
     default: m.SettingsRoom,
   })),
 );
-const SigmaRoom = lazy(() =>
-  import('@/renderer/features/sigma-assistant/SigmaRoom').then((m) => ({
-    default: m.SigmaRoom,
+const JorvisRoom = lazy(() =>
+  import('@/renderer/features/jorvis-assistant/JorvisRoom').then((m) => ({
+    default: m.JorvisRoom,
   })),
 );
 
@@ -129,8 +129,8 @@ function RoomSwitch() {
     case 'skills':
       body = <SkillsRoom />;
       break;
-    case 'sigma':
-      body = <SigmaRoom variant="standalone" />;
+    case 'jorvis':
+      body = <JorvisRoom variant="standalone" />;
       break;
     case 'settings':
       body = <SettingsRoom />;
@@ -156,10 +156,10 @@ function MainBody() {
   const { state } = useAppState();
   const { enabled, ready } = useRightRailEnabled();
   // Hide the rail when the user is in a room whose body already lives in the
-  // rail (Browser tab → 'browser', Sigma tab → 'sigma') so we don't double-
+  // rail (Browser tab → 'browser', Jorvis tab → 'jorvis') so we don't double-
   // mount the WebContentsView (browser) or the chat surface (bridge).
   const showRail =
-    ready && enabled && state.room !== 'browser' && state.room !== 'sigma';
+    ready && enabled && state.room !== 'browser' && state.room !== 'jorvis';
   const body = (
     <div className="flex min-h-0 flex-1 flex-col">
       <RoomSwitch />

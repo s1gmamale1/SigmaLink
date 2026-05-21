@@ -42,7 +42,7 @@ const NAVIGATE_TARGETS = [
   'operator',
   'workspaces',
   'command',
-  'sigma',
+  'jorvis',
   'skills',
   'settings',
 ] as const;

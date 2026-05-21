@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// v1.5.4-B — State-hydration regression tests for the Sigma dispatch-pane bug class.
+// v1.5.4-B — State-hydration regression tests for the Jorvis dispatch-pane bug class.
 //
 // ROOT CAUSE (v1.5.3): The `assistant:dispatch-echo` handler dispatched
 // SET_ACTIVE_SESSION + SET_ROOM but never ADD_SESSIONS + UPSERT_SWARM.
@@ -13,7 +13,7 @@
 //   visible in state.sessionsByWorkspace without requiring a workspace reopen.
 //
 // Strategy:
-//   - Render `useSigmaDispatchEcho` in a real useReducer harness (same
+//   - Render `useJorvisDispatchEcho` in a real useReducer harness (same
 //     pattern as use-session-restore.test.ts).
 //   - Stub `rpcSilent.panes.listForWorkspace` + `rpcSilent.swarms.list` +
 //     `rpcSilent.kv.get` to return controlled data.
@@ -154,13 +154,13 @@ interface Harness {
 }
 
 async function renderEchoHook() {
-  const { useSigmaDispatchEcho } = await import('./use-sigma-dispatch-echo');
+  const { useJorvisDispatchEcho } = await import('./use-jorvis-dispatch-echo');
   let harness: Harness | null = null;
 
   const Wrapper = () => {
     const [state, dispatch] = useReducer(appStateReducer, initialAppState);
     harness = { state, dispatch };
-    useSigmaDispatchEcho({
+    useJorvisDispatchEcho({
       workspaces: state.workspaces,
       activeWorkspaceId: state.activeWorkspaceId ?? undefined,
       dispatch,
@@ -206,7 +206,7 @@ describe('state-hydration: assistant:dispatch-echo handler (v1.5.4-B regression 
    * and dispatches ADD_SESSIONS + UPSERT_SWARM before navigating.
    *
    * This test asserts the post-fix behavior. If the ADD_SESSIONS dispatch is
-   * removed from useSigmaDispatchEcho, this test FAILS.
+   * removed from useJorvisDispatchEcho, this test FAILS.
    */
   it('after dispatch-echo ok:true, state.sessionsByWorkspace[wsId] contains the new session', async () => {
     const wsId = 'ws-alpha';

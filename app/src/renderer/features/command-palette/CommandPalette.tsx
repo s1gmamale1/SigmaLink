@@ -111,8 +111,8 @@ const ROOM_DEFS: Array<{ id: RoomId; label: string; icon: PaletteCommand['icon']
   { id: 'memory', label: 'Memory', icon: Sparkles },
   { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'skills', label: 'Skills', icon: Wand2 },
-  // V3-W13-012 — Sigma Assistant standalone room shortcut.
-  { id: 'sigma', label: 'Jorvis', icon: Bot },
+  // V3-W13-012 — Jorvis Assistant standalone room shortcut.
+  { id: 'jorvis', label: 'Jorvis', icon: Bot },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
 
@@ -283,9 +283,9 @@ export function CommandPalette() {
         room.id !== 'workspaces' &&
         room.id !== 'settings' &&
         room.id !== 'skills' &&
-        // V3-W13-012 — Sigma Assistant gracefully renders an empty state
+        // V3-W13-012 — Jorvis Assistant gracefully renders an empty state
         // when no workspace is active so the room is always reachable.
-        room.id !== 'sigma';
+        room.id !== 'jorvis';
       list.push({
         id: `nav:${room.id}`,
         label: `Go to ${room.label}`,

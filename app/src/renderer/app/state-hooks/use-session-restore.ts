@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import { rpc } from '../../lib/rpc';
 import type { Workspace } from '../../../shared/types';
 import type { Action, AppState } from '../state.types';
-import { isRoomId, parseSessionRestore, type PendingRestore } from './parsers';
+import { isRoomId, normalizeRoomId, parseSessionRestore, type PendingRestore } from './parsers';
 
 export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): void {
   // Hydrate persisted UI flags (onboarded, sidebar collapse) from the kv
@@ -94,16 +94,18 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
     // next snapshot doesn't lose state for inactive workspaces. The active
     // workspace's room rides on the visible SET_ROOM below as well.
     for (const item of restored) {
-      if (isRoomId(item.entry.room)) {
+      const normalizedRoom = normalizeRoomId(item.entry.room);
+      if (isRoomId(normalizedRoom)) {
         dispatch({
           type: 'SET_ROOM_FOR_WORKSPACE',
           workspaceId: item.workspace.id,
-          room: item.entry.room,
+          room: normalizedRoom,
         });
       }
     }
-    if (isRoomId(active.entry.room)) {
-      dispatch({ type: 'SET_ROOM', room: active.entry.room });
+    const normalizedActiveRoom = normalizeRoomId(active.entry.room);
+    if (isRoomId(normalizedActiveRoom)) {
+      dispatch({ type: 'SET_ROOM', room: normalizedActiveRoom });
     }
     // v1.2.8 / R-1.2.7-5 — aggregate per-workspace resume results into ONE
     // toast per restart. Previously this fired one toast per failing

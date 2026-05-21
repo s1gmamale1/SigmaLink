@@ -1,4 +1,4 @@
-// P3-S7 — Sigma Assistant Conversations panel. Sidebar inside SigmaRoom
+// P3-S7 — Jorvis Assistant Conversations panel. Sidebar inside JorvisRoom
 // listing past chats persisted to the `conversations` + `messages` tables.
 // Each row shows a title (derived from the first user message), a relative
 // last-touched timestamp, and a count badge. Click loads the conversation;

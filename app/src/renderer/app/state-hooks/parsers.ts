@@ -47,7 +47,7 @@ export function runRefreshOnEvent(
       try {
         await fetcher(() => alive);
       } catch (err) {
-        if (alive) console.error(`Failed to load ${label}:`, err);
+        if (alive) console.error('Failed to load', label, err);
       }
     })();
   };
@@ -73,12 +73,22 @@ const VALID_ROOMS: ReadonlySet<RoomId> = new Set<RoomId>([
   'memory',
   'browser',
   'skills',
-  'sigma',
+  'jorvis',
   'settings',
 ]);
 
 export function isRoomId(value: unknown): value is RoomId {
   return typeof value === 'string' && VALID_ROOMS.has(value as RoomId);
+}
+
+/**
+ * Normalize a persisted room string, applying backward-compat mappings.
+ * Persisted sessions/localStorage may hold `room: 'sigma'` from before the
+ * W-6 identifier rename; map it to `'jorvis'` so restore still works.
+ */
+export function normalizeRoomId(value: string): string {
+  if (value === 'sigma') return 'jorvis';
+  return value;
 }
 
 export function parseOpenWorkspacesChanged(raw: unknown): string[] | null {

@@ -34,11 +34,11 @@ export const ROOMS_MENU_ITEMS: readonly RoomMenuItem[] = [
   { id: 'memory', label: 'Memory', icon: Sparkles },
   { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'skills', label: 'Skills', icon: Wand2 },
-  { id: 'sigma', label: 'Jorvis', icon: Bot },
+  { id: 'jorvis', label: 'Jorvis', icon: Bot },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-// Mirror of Sidebar.tsx line ~186: Workspaces / Settings / Skills / Sigma
+// Mirror of Sidebar.tsx line ~186: Workspaces / Settings / Skills / Jorvis
 // stay reachable so the user can recover from a "no workspace" state; the
 // rest require an active workspace.
 export function isRoomDisabled(roomId: RoomId, hasActiveWorkspace: boolean): boolean {
@@ -47,6 +47,6 @@ export function isRoomDisabled(roomId: RoomId, hasActiveWorkspace: boolean): boo
     roomId !== 'workspaces' &&
     roomId !== 'settings' &&
     roomId !== 'skills' &&
-    roomId !== 'sigma'
+    roomId !== 'jorvis'
   );
 }

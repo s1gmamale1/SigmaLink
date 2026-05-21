@@ -68,7 +68,7 @@ vi.mock('@/renderer/lib/canDo', () => ({
   useCanDo: () => false,
 }));
 
-import { SigmaRoom } from './SigmaRoom';
+import { JorvisRoom } from './JorvisRoom';
 
 const rows = [
   {
@@ -149,7 +149,7 @@ function installSigma() {
   return invoke;
 }
 
-describe('<SigmaRoom /> resume UI', () => {
+describe('<JorvisRoom /> resume UI', () => {
   beforeEach(() => {
     mocks.dispatch.mockReset();
     mocks.send.mockResolvedValue({ conversationId: 'conversation-1', turnId: 'turn-2' });
@@ -165,7 +165,7 @@ describe('<SigmaRoom /> resume UI', () => {
   });
 
   it('renders a compact rail dropdown with resumable conversation rows', async () => {
-    render(<SigmaRoom variant="rail" />);
+    render(<JorvisRoom variant="rail" />);
 
     const trigger = await screen.findByLabelText('Conversation menu');
     expect(trigger.textContent).toContain('Launch the workspace panes');
@@ -179,7 +179,7 @@ describe('<SigmaRoom /> resume UI', () => {
   });
 
   it('shows resume and interrupted-turn banners after hydrating a resumable conversation', async () => {
-    render(<SigmaRoom variant="standalone" />);
+    render(<JorvisRoom variant="standalone" />);
 
     expect((await screen.findByTestId('sigma-resume-banner')).textContent).toMatch(
       /Resuming chat from/,
@@ -190,7 +190,7 @@ describe('<SigmaRoom /> resume UI', () => {
   });
 
   it('retries an interrupted turn with the previous user message', async () => {
-    render(<SigmaRoom variant="standalone" />);
+    render(<JorvisRoom variant="standalone" />);
 
     await screen.findByTestId('sigma-interrupted-banner');
     fireEvent.click(screen.getByText('Retry'));

@@ -1,4 +1,4 @@
-// BUG-V1.1.2-01 — Unit tests for the Sigma host stdio MCP server.
+// BUG-V1.1.2-01 — Unit tests for the Jorvis host stdio MCP server.
 //
 // The server is a thin proxy: MCP `initialize` / `tools/list` are answered
 // locally, and `tools/call` is forwarded to the main process via the
@@ -8,7 +8,7 @@
 // `{ content: [{type:'text', text:...}], isError: bool }`).
 
 import { describe, it, expect } from 'vitest';
-import { handleMcpLine, SIGMA_HOST_TOOLS, type McpHostServerDeps } from './mcp-host-server';
+import { handleMcpLine, JORVIS_HOST_TOOLS, type McpHostServerDeps } from './mcp-host-server';
 
 interface CapturedResponse {
   jsonrpc: '2.0';
@@ -66,11 +66,11 @@ describe('mcp-host-server / handleMcpLine', () => {
       capabilities: { tools: { listChanged: boolean } };
     };
     expect(result.protocolVersion).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(result.serverInfo.name).toBe('sigma-host');
+    expect(result.serverInfo.name).toBe('jorvis-host');
     expect(result.capabilities.tools.listChanged).toBe(false);
   });
 
-  it('answers tools/list with every Sigma tool and a well-formed schema', async () => {
+  it('answers tools/list with every Jorvis tool and a well-formed schema', async () => {
     const h = makeDeps();
     await handleMcpLine(
       JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
@@ -79,7 +79,7 @@ describe('mcp-host-server / handleMcpLine', () => {
     const out = h.responses();
     expect(out).toHaveLength(1);
     const tools = (out[0].result as { tools: unknown[] }).tools;
-    // The 13 canonical Sigma tools (see PRODUCT_SPEC §3.10).
+    // The 13 canonical Jorvis tools (see PRODUCT_SPEC §3.10).
     expect(tools.length).toBe(13);
     for (const t of tools as Array<{
       name: string;
@@ -109,14 +109,14 @@ describe('mcp-host-server / handleMcpLine', () => {
     expect(out[0].result).toEqual({});
   });
 
-  it('SIGMA_HOST_TOOLS shape matches the tools/list response', async () => {
+  it('JORVIS_HOST_TOOLS shape matches the tools/list response', async () => {
     const h = makeDeps();
     await handleMcpLine(
       JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list' }),
       h.deps,
     );
     const tools = (h.responses()[0].result as { tools: unknown[] }).tools;
-    expect(tools).toEqual(SIGMA_HOST_TOOLS);
+    expect(tools).toEqual(JORVIS_HOST_TOOLS);
   });
 
   it('forwards tools/call to the bridge and wraps a successful result in MCP content', async () => {

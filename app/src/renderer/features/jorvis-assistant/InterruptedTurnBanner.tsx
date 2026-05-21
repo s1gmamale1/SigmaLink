@@ -1,6 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import { rel } from './rel-time';
-import type { InterruptedTurn } from './use-sigma-resume-flow';
+import type { InterruptedTurn } from './use-jorvis-resume-flow';
 
 interface Props {
   turn: InterruptedTurn;

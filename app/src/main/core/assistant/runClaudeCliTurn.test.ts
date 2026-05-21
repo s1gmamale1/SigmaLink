@@ -534,7 +534,7 @@ describe('runClaudeCliTurn', () => {
     await turnPromise;
 
     expect(calls.map((c) => c.method)).toEqual(['start', 'step', 'end']);
-    expect(calls[0].input).toEqual({ task: 'launch one pane', agent: 'sigma-assistant' });
+    expect(calls[0].input).toEqual({ task: 'launch one pane', agent: 'jorvis-assistant' });
     expect(calls[1].input).toMatchObject({
       trajectoryId: 'traj-test',
       action: 'launch_pane',
@@ -886,12 +886,12 @@ describe('runClaudeCliTurn', () => {
   // ──────────────────────────────────────────── BUG-V1.1.2-01: MCP wiring ──
 
   describe('BUG-V1.1.2-01 — passes --mcp-config when mcpHost is wired', () => {
-    it('adds --mcp-config + --strict-mcp-config and writes a sigma-host stdio entry', async () => {
-      // Stage a fake server-entry file so writeSigmaHostMcpConfig accepts it.
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigma-host-test-'));
-      const serverEntry = path.join(tmpDir, 'mcp-sigma-host-server.cjs');
+    it('adds --mcp-config + --strict-mcp-config and writes a jorvis-host stdio entry', async () => {
+      // Stage a fake server-entry file so writeJorvisHostMcpConfig accepts it.
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jorvis-host-test-'));
+      const serverEntry = path.join(tmpDir, 'mcp-jorvis-host-server.cjs');
       fs.writeFileSync(serverEntry, '// stub\n', 'utf8');
-      const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sigma-host-ws-'));
+      const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'jorvis-host-ws-'));
 
       try {
         const deps = makeDeps();
@@ -904,7 +904,7 @@ describe('runClaudeCliTurn', () => {
             ...deps,
             mcpHost: {
               serverEntry,
-              socketPath: '/tmp/sigma-host-test.sock',
+              socketPath: '/tmp/jorvis-host-test.sock',
               workspaceRoot,
             },
           },
@@ -945,12 +945,12 @@ describe('runClaudeCliTurn', () => {
             }
           >;
         };
-        expect(cfg.mcpServers['sigma-host']).toBeDefined();
-        expect(cfg.mcpServers['sigma-host'].type).toBe('stdio');
-        expect(cfg.mcpServers['sigma-host'].args).toEqual([serverEntry]);
-        expect(cfg.mcpServers['sigma-host'].env.SIGMA_HOST_SOCKET).toBe('/tmp/sigma-host-test.sock');
-        expect(cfg.mcpServers['sigma-host'].env.SIGMA_HOST_AUTOBOOT).toBe('1');
-        expect(cfg.mcpServers['sigma-host'].env.ELECTRON_RUN_AS_NODE).toBe('1');
+        expect(cfg.mcpServers['jorvis-host']).toBeDefined();
+        expect(cfg.mcpServers['jorvis-host'].type).toBe('stdio');
+        expect(cfg.mcpServers['jorvis-host'].args).toEqual([serverEntry]);
+        expect(cfg.mcpServers['jorvis-host'].env.JORVIS_HOST_SOCKET).toBe('/tmp/jorvis-host-test.sock');
+        expect(cfg.mcpServers['jorvis-host'].env.JORVIS_HOST_AUTOBOOT).toBe('1');
+        expect(cfg.mcpServers['jorvis-host'].env.ELECTRON_RUN_AS_NODE).toBe('1');
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
         fs.rmSync(workspaceRoot, { recursive: true, force: true });
@@ -991,8 +991,8 @@ describe('runClaudeCliTurn', () => {
         {
           ...deps,
           mcpHost: {
-            serverEntry: '/does/not/exist/mcp-sigma-host-server.cjs',
-            socketPath: '/tmp/sigma-host-test.sock',
+            serverEntry: '/does/not/exist/mcp-jorvis-host-server.cjs',
+            socketPath: '/tmp/jorvis-host-test.sock',
           },
         },
         {

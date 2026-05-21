@@ -16,7 +16,7 @@ interface DispatchEchoEvent {
   conversationId: string | null;
 }
 
-export interface UseSigmaDispatchEchoArgs {
+export interface UseJorvisDispatchEchoArgs {
   workspaces: AppState['workspaces'];
   activeWorkspaceId: string | undefined;
   dispatch: React.Dispatch<Action>;
@@ -26,11 +26,11 @@ export interface UseSigmaDispatchEchoArgs {
  *  pane, auto-shift focus to the spawned pane. Cross-workspace jump: swap
  *  workspace (if needed), hop to the Command Room, set the global active
  *  session, and emit `sigma:pty-focus`. */
-export function useSigmaDispatchEcho({
+export function useJorvisDispatchEcho({
   workspaces,
   activeWorkspaceId,
   dispatch,
-}: UseSigmaDispatchEchoArgs): void {
+}: UseJorvisDispatchEchoArgs): void {
   useEffect(() => {
     const off = onEvent<DispatchEchoEvent>('assistant:dispatch-echo', (raw) => {
       if (!raw || typeof raw !== 'object') return;

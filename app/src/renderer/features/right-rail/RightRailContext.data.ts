@@ -5,16 +5,25 @@
 
 import { createContext, useContext } from 'react';
 
-export type RightRailTabId = 'browser' | 'editor' | 'sigma' | 'skills';
+export type RightRailTabId = 'browser' | 'editor' | 'jorvis' | 'skills';
 
 export const KV_TAB = 'rightRail.tab';
 export const DEFAULT_TAB: RightRailTabId = 'browser';
 export const VALID_TABS: ReadonlySet<RightRailTabId> = new Set([
   'browser',
   'editor',
-  'sigma',
+  'jorvis',
   'skills',
 ]);
+
+/**
+ * Backward-compat: persisted KV may hold `'sigma'` from before the v1.8.x
+ * Jorvis rename. Map it to the current tab id so the rail opens correctly.
+ */
+export function normalizeTabId(value: string): string {
+  if (value === 'sigma') return 'jorvis';
+  return value;
+}
 
 export interface RightRailContextValue {
   activeTab: RightRailTabId;

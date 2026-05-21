@@ -522,10 +522,10 @@ function buildRouter() {
   const mcpHostBridge = new McpHostBridge({
     resolveInvoker: () => resolvedToolInvoker,
   });
-  const sigmaHostServerEntry = path.join(
+  const jorvisHostServerEntry = path.join(
     app.getAppPath(),
     'electron-dist',
-    'mcp-sigma-host-server.cjs',
+    'mcp-jorvis-host-server.cjs',
   );
   const memoryManager = new MemoryManager({
     emit: (event) => broadcast('memory:changed', event),
@@ -1267,7 +1267,7 @@ function buildRouter() {
     },
     ruflo: rufloProxy,
     mcpHost: {
-      serverEntry: sigmaHostServerEntry,
+      serverEntry: jorvisHostServerEntry,
       socketPath: mcpHostBridge.getSocketPath(),
     },
   });

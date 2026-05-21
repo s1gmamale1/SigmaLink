@@ -8,12 +8,12 @@ export interface PatternHit {
   score: number;
 }
 
-export interface UseSigmaPatternProbeArgs {
+export interface UseJorvisPatternProbeArgs {
   composerText: string;
   rufloReady: boolean;
 }
 
-export interface UseSigmaPatternProbeReturn {
+export interface UseJorvisPatternProbeReturn {
   patternHit: PatternHit | null;
 }
 
@@ -21,10 +21,10 @@ export interface UseSigmaPatternProbeReturn {
  *  supervisor is `ready` and the composer holds enough text to be worth a
  *  round-trip. The `Promise.allSettled`-style ignore-on-fail keeps the
  *  ribbon silent on degraded supervisors. */
-export function useSigmaPatternProbe({
+export function useJorvisPatternProbe({
   composerText,
   rufloReady,
-}: UseSigmaPatternProbeArgs): UseSigmaPatternProbeReturn {
+}: UseJorvisPatternProbeArgs): UseJorvisPatternProbeReturn {
   const [patternHit, setPatternHit] = useState<PatternHit | null>(null);
 
   useEffect(() => {

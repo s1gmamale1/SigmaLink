@@ -1,8 +1,8 @@
-// V3-W14-002 — Sigma Assistant turn driver. Spawns the local `claude` CLI
+// V3-W14-002 — Jorvis Assistant turn driver. Spawns the local `claude` CLI
 // in streaming-JSON mode and bridges its envelopes onto the existing
 // `assistant:state` + `assistant:tool-trace` IPC channels. Renderer compat:
 // emit kind:'delta' for text + kind:'state'+state:'standby'+messageId so
-// SigmaRoom.tsx commits the message; kind:'final'|'error' is forward-compat.
+// JorvisRoom.tsx commits the message; kind:'final'|'error' is forward-compat.
 // Cancellation: cancelClaudeCliTurn(turnId) kills with SIGTERM.
 //
 // v1.1.9 split: emit/persist/stdin helpers in `./runClaudeCliTurn.emit`;
@@ -58,14 +58,14 @@ export interface CliTurnDeps {
   /** Optional Ruflo bridge for SONA trajectory learning. Fail-soft. */
   ruflo?: Pick<RufloProxy, 'trajectoryStart' | 'trajectoryStep' | 'trajectoryEnd'>;
   /**
-   * BUG-V1.1.2-01 — Sigma host MCP wiring. When supplied AND `serverEntry`
+   * BUG-V1.1.2-01 — Jorvis host MCP wiring. When supplied AND `serverEntry`
    * exists, the driver writes a temp `.mcp.json` declaring the
-   * `sigma-host` stdio server and passes `--mcp-config <path>` to the CLI;
+   * `jorvis-host` stdio server and passes `--mcp-config <path>` to the CLI;
    * the spawned server dials back via `socketPath` and forwards
    * `tools/call` into the same `dispatchTool` path. Omitted ⇒ v1.1.1 behaviour.
    */
   mcpHost?: {
-    /** Absolute path to `electron-dist/mcp-sigma-host-server.cjs`. */
+    /** Absolute path to `electron-dist/mcp-jorvis-host-server.cjs`. */
     serverEntry: string;
     /** Unix socket path or `\\.\pipe\…` name the bridge listens on. */
     socketPath: string;
@@ -199,7 +199,7 @@ export async function runClaudeCliTurn(
     trajectoryId =
       (await deps.ruflo?.trajectoryStart({
         task: prompt.slice(0, 200),
-        agent: 'sigma-assistant',
+        agent: 'jorvis-assistant',
       })) ?? null;
   } catch {
     trajectoryId = null;

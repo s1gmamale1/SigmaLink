@@ -160,7 +160,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
     ro.observe(container);
 
     // V3-W13-015 — listen for cross-workspace jump-to-pane events the
-    // SigmaRoom dispatches when a Sigma-spawned pane finishes. Only the
+    // JorvisRoom dispatches when a Jorvis-spawned pane finishes. Only the
     // matching session focuses; other Terminals ignore the event silently.
     // BUG-V1.1-04-IPC — guard against double-focus when the auto-focus
     // path fires immediately after the user already had this pane focused

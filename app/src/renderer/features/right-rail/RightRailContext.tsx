@@ -17,6 +17,7 @@ import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import {
   DEFAULT_TAB,
   KV_TAB,
+  normalizeTabId,
   RightRailCtx,
   VALID_TABS,
   type RightRailContextValue,
@@ -34,8 +35,9 @@ export function RightRailProvider({ children }: { children: ReactNode }) {
       try {
         const raw = await rpcSilent.kv.get(KV_TAB);
         if (!alive) return;
-        if (typeof raw === 'string' && VALID_TABS.has(raw as RightRailTabId)) {
-          setActiveTabState(raw as RightRailTabId);
+        const normalized = typeof raw === 'string' ? normalizeTabId(raw) : raw;
+        if (typeof normalized === 'string' && VALID_TABS.has(normalized as RightRailTabId)) {
+          setActiveTabState(normalized as RightRailTabId);
         }
       } catch {
         // kv unavailable — leave at DEFAULT_TAB.

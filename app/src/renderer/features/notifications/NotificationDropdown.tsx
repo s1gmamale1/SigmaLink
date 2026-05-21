@@ -120,7 +120,7 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
         }
       } else if (kind === 'tool-error') {
         // Navigate to sigma assistant room and scroll to the target message.
-        dispatch({ type: 'SET_ROOM', room: 'sigma' });
+        dispatch({ type: 'SET_ROOM', room: 'jorvis' });
         const conversationId = payload.conversationId as string | undefined;
         const messageId = payload.messageId as string | undefined;
         if (conversationId || messageId) {

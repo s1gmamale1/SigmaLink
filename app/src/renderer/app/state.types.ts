@@ -33,10 +33,10 @@ export type RoomId =
   | 'memory'
   | 'browser'
   | 'skills'
-  // V3-W13-012 — Sigma Assistant standalone room. Available as a fallback
-  // when the right-rail is gated off; otherwise the Sigma tab inside the
+  // V3-W13-012 — Jorvis Assistant standalone room. Available as a fallback
+  // when the right-rail is gated off; otherwise the Jorvis tab inside the
   // rail hosts the same surface.
-  | 'sigma'
+  | 'jorvis'
   | 'settings';
 
 export interface AppState {

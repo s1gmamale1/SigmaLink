@@ -3,8 +3,8 @@
 // (Browser / Editor / Sigma) out of the rail and parks them in the top-bar
 // as a three-button toggle, with a Settings gear immediately to the right.
 //
-// Tab ids mirror `RightRailContext` (browser | editor | sigma). The "sigma"
-// id is internal — the visible label is "Sigma" per the v1.1.1 rebrand.
+// Tab ids mirror `RightRailContext` (browser | editor | jorvis). The "jorvis"
+// id is internal — the visible label is "Jorvis" per the v1.8.x rebrand.
 
 import { Bot, FileCode2, Globe, Settings, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -24,8 +24,8 @@ interface SegmentDef {
 const SEGMENTS: readonly SegmentDef[] = [
   { id: 'browser', label: 'Browser', Icon: Globe },
   { id: 'editor', label: 'Editor', Icon: FileCode2 },
-  // sigma is the internal id; the visible label is "Jorvis" per v1.4.8 rebrand.
-  { id: 'sigma', label: 'Jorvis', Icon: Bot },
+  // jorvis is the internal id; the visible label is "Jorvis" per v1.4.8 rebrand.
+  { id: 'jorvis', label: 'Jorvis', Icon: Bot },
   // v1.6.1 B3 — Skills discovery tab.
   { id: 'skills', label: 'Skills', Icon: Zap },
 ] as const;

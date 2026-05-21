@@ -1,12 +1,12 @@
-// BUG-V1.1.2-01 — Sigma Assistant stdio MCP server entry point.
+// BUG-V1.1.2-01 — Jorvis Assistant stdio MCP server entry point.
 //
-// This file is the bundled CJS entry (`electron-dist/mcp-sigma-host-server.cjs`)
+// This file is the bundled CJS entry (`electron-dist/mcp-jorvis-host-server.cjs`)
 // spawned by the Claude CLI as ITS child whenever a turn carries
 // `--mcp-config <path>` pointing at our temp `.mcp.json`. It speaks
 // newline-delimited JSON-RPC 2.0 — MCP's stdio transport — over its own
 // stdin/stdout. Diagnostics go to stderr only so they never pollute the wire.
 //
-// Sigma model (see `mcp-host-bridge.ts` for the main-process side):
+// Jorvis model (see `mcp-host-bridge.ts` for the main-process side):
 //
 //   claude CLI ──stdio──> THIS SERVER ──unix socket──> SigmaLink main
 //                          (mcp tools/list,             (calls invokeTool()
@@ -16,7 +16,7 @@
 //                                                        mailbox, browser…)
 //
 // Why a thin proxy and not a self-contained tool host:
-//   • The 13 Sigma tools NEED live access to the PTY registry, the browser
+//   • The 13 Jorvis tools NEED live access to the PTY registry, the browser
 //     manager, the worktree pool, etc., which only exist in the main process.
 //   • Re-instantiating those from a stdio child would deadlock against the
 //     better-sqlite3 WAL writer and miss live in-memory state (BUG-V1.1.1-02
@@ -26,10 +26,10 @@
 //     back through the SAME path as direct `assistant.invokeTool` RPC.
 //
 // Env vars set by `runClaudeCliTurn.ts` when writing the temp `.mcp.json`:
-//   • SIGMA_HOST_SOCKET     — Unix socket path / Windows pipe name to dial
-//   • SIGMA_CONVERSATION_ID — the conversation id (so tool traces land in
-//                              the right Sigma Room transcript). Optional.
-//   • SIGMA_WORKSPACE_ID    — (informational) the active workspace; the
+//   • JORVIS_HOST_SOCKET     — Unix socket path / Windows pipe name to dial
+//   • JORVIS_CONVERSATION_ID — the conversation id (so tool traces land in
+//                              the right Jorvis Room transcript). Optional.
+//   • JORVIS_WORKSPACE_ID    — (informational) the active workspace; the
 //                              main process resolves the canonical id from
 //                              the conversation row.
 
@@ -228,7 +228,7 @@ const TOOLS = [
   },
 ];
 
-export const SIGMA_HOST_TOOLS = TOOLS;
+export const JORVIS_HOST_TOOLS = TOOLS;
 
 interface PendingBridgeCall {
   resolve: (value: BridgeResponse['result']) => void;
@@ -369,7 +369,7 @@ export async function handleMcpLine(
         sendResult(deps, id, {
           protocolVersion: PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: 'sigma-host', version: '1.0.0' },
+          serverInfo: { name: 'jorvis-host', version: '1.0.0' },
         });
         return;
       case 'initialized':
@@ -440,13 +440,13 @@ function writeStderr(msg: string): void {
 }
 
 async function main(): Promise<void> {
-  const socketPath = process.env.SIGMA_HOST_SOCKET;
+  const socketPath = process.env.JORVIS_HOST_SOCKET;
   if (!socketPath) {
-    writeStderr('sigma-host: SIGMA_HOST_SOCKET env var is required');
+    writeStderr('jorvis-host: JORVIS_HOST_SOCKET env var is required');
     process.exit(1);
   }
   const bridge = new BridgeClient(socketPath);
-  const conversationId = process.env.SIGMA_CONVERSATION_ID || undefined;
+  const conversationId = process.env.JORVIS_CONVERSATION_ID || undefined;
   const deps: McpHostServerDeps = { bridge, conversationId };
 
   let pending = 0;
@@ -461,7 +461,7 @@ async function main(): Promise<void> {
     handleMcpLine(line, deps)
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        writeStderr(`sigma-host line handler crashed: ${message}`);
+        writeStderr('jorvis-host line handler crashed: ' + message);
       })
       .finally(() => {
         pending -= 1;
@@ -479,18 +479,17 @@ async function main(): Promise<void> {
 void path;
 
 /**
- * The bundled CJS file (`mcp-sigma-host-server.cjs`) sets
- * `SIGMA_HOST_AUTOBOOT=1` via a banner — see `scripts/build-electron.cjs`.
+ * The bundled CJS file (`mcp-jorvis-host-server.cjs`) sets
+ * `JORVIS_HOST_AUTOBOOT=1` via a banner — see `scripts/build-electron.cjs`.
  * Without that banner, importing this file from a unit test is side-effect
  * free, and `runClaudeCliTurn.ts` always supplies the env var when spawning
  * a child via supervisor / `--mcp-config`. We deliberately do NOT autoboot
  * unconditionally because the test harness imports `handleMcpLine` directly.
  */
-if (process.env.SIGMA_HOST_AUTOBOOT === '1') {
+if (process.env.JORVIS_HOST_AUTOBOOT === '1') {
   main().catch((err: unknown) => {
-    writeStderr(
-      `sigma-host failed to start: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
-    );
+    const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    writeStderr('jorvis-host failed to start: ' + message);
     process.exit(1);
   });
 }

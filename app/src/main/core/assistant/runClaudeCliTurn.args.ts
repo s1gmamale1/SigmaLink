@@ -9,8 +9,8 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { workspaces as workspacesTable } from '../db/schema';
 import { isClaudeSessionId } from '../pty/claude-resume-bridge';
-import { buildSigmaSystemPrompt } from './system-prompt';
-import { writeSigmaHostMcpConfig } from './mcp-host-bridge';
+import { buildJorvisSystemPrompt } from './system-prompt';
+import { writeJorvisHostMcpConfig } from './mcp-host-bridge';
 import * as conversationsDao from './conversations';
 import type { CliTurnDeps } from './runClaudeCliTurn';
 
@@ -34,7 +34,7 @@ function defaultSystemPromptForWorkspace(workspaceId: string): string {
   } catch {
     /* DB miss is non-fatal — prompt still works with placeholders */
   }
-  return buildSigmaSystemPrompt({ workspaceName, workspaceRoot });
+  return buildJorvisSystemPrompt({ workspaceName, workspaceRoot });
 }
 
 export function resolveSystemPrompt(
@@ -43,7 +43,7 @@ export function resolveSystemPrompt(
 ): string {
   if (build) return build(workspaceId ?? '');
   if (workspaceId) return defaultSystemPromptForWorkspace(workspaceId);
-  return buildSigmaSystemPrompt({ workspaceName: 'workspace', workspaceRoot: '' });
+  return buildJorvisSystemPrompt({ workspaceName: 'workspace', workspaceRoot: '' });
 }
 
 // ---------------------------------------------------------------------------
@@ -78,11 +78,11 @@ export function applyMcpHostConfig(
 ): void {
   if (!mcpHost?.serverEntry || !mcpHost?.socketPath) return;
   try {
-    const path = writeSigmaHostMcpConfig(mcpHost, conversationId, workspaceId ?? undefined);
+    const path = writeJorvisHostMcpConfig(mcpHost, conversationId, workspaceId ?? undefined);
     if (path) args.push('--mcp-config', path, '--strict-mcp-config');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[runClaudeCliTurn] failed to write sigma-host mcp config: ${msg}`);
+    console.warn('[runClaudeCliTurn] failed to write jorvis-host mcp config:', msg);
   }
 }
 

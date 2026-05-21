@@ -1,4 +1,4 @@
-// BUG-V1.1.2-01 — Unit tests for McpHostBridge + writeSigmaHostMcpConfig.
+// BUG-V1.1.2-01 — Unit tests for McpHostBridge + writeJorvisHostMcpConfig.
 //
 // We use real Unix sockets here because the bridge is intentionally thin
 // (no abstraction over `net.Server`), and round-tripping a real connection
@@ -11,7 +11,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { McpHostBridge, writeSigmaHostMcpConfig } from './mcp-host-bridge';
+import { McpHostBridge, writeJorvisHostMcpConfig } from './mcp-host-bridge';
 
 interface BridgeResponse {
   jsonrpc: '2.0';
@@ -21,7 +21,7 @@ interface BridgeResponse {
 }
 
 function makeSocketPath(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigma-host-bridge-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jorvis-host-bridge-'));
   // socket paths on darwin must be ≤ 104 bytes; mkdtemp under TMPDIR fits.
   return path.join(dir, 's.sock');
 }
@@ -144,21 +144,21 @@ describe.skipIf(process.platform === 'win32')('McpHostBridge', () => {
   });
 });
 
-describe('writeSigmaHostMcpConfig', () => {
+describe('writeJorvisHostMcpConfig', () => {
   let workspaceRoot = '';
   let serverEntry = '';
 
   beforeEach(() => {
-    workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sigma-host-ws-'));
-    serverEntry = path.join(workspaceRoot, 'mcp-sigma-host-server.cjs');
+    workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'jorvis-host-ws-'));
+    serverEntry = path.join(workspaceRoot, 'mcp-jorvis-host-server.cjs');
     fs.writeFileSync(serverEntry, '// stub\n', 'utf8');
   });
   afterEach(() => {
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
-  it('writes a stdio mcpServers.sigma-host entry pointing at the bundled server', () => {
-    const cfgPath = writeSigmaHostMcpConfig(
+  it('writes a stdio mcpServers.jorvis-host entry pointing at the bundled server', () => {
+    const cfgPath = writeJorvisHostMcpConfig(
       { serverEntry, socketPath: '/tmp/x.sock', workspaceRoot },
       'conv-1',
       'ws-1',
@@ -171,17 +171,17 @@ describe('writeSigmaHostMcpConfig', () => {
         { type: string; command: string; args: string[]; env: Record<string, string> }
       >;
     };
-    expect(cfg.mcpServers['sigma-host'].type).toBe('stdio');
-    expect(cfg.mcpServers['sigma-host'].args).toEqual([serverEntry]);
-    expect(cfg.mcpServers['sigma-host'].env.SIGMA_HOST_SOCKET).toBe('/tmp/x.sock');
-    expect(cfg.mcpServers['sigma-host'].env.SIGMA_CONVERSATION_ID).toBe('conv-1');
-    expect(cfg.mcpServers['sigma-host'].env.SIGMA_WORKSPACE_ID).toBe('ws-1');
-    expect(cfg.mcpServers['sigma-host'].env.SIGMA_HOST_AUTOBOOT).toBe('1');
-    expect(cfg.mcpServers['sigma-host'].env.ELECTRON_RUN_AS_NODE).toBe('1');
+    expect(cfg.mcpServers['jorvis-host'].type).toBe('stdio');
+    expect(cfg.mcpServers['jorvis-host'].args).toEqual([serverEntry]);
+    expect(cfg.mcpServers['jorvis-host'].env.JORVIS_HOST_SOCKET).toBe('/tmp/x.sock');
+    expect(cfg.mcpServers['jorvis-host'].env.JORVIS_CONVERSATION_ID).toBe('conv-1');
+    expect(cfg.mcpServers['jorvis-host'].env.JORVIS_WORKSPACE_ID).toBe('ws-1');
+    expect(cfg.mcpServers['jorvis-host'].env.JORVIS_HOST_AUTOBOOT).toBe('1');
+    expect(cfg.mcpServers['jorvis-host'].env.ELECTRON_RUN_AS_NODE).toBe('1');
   });
 
   it('falls back to the OS temp dir when no workspaceRoot is given', () => {
-    const cfgPath = writeSigmaHostMcpConfig(
+    const cfgPath = writeJorvisHostMcpConfig(
       { serverEntry, socketPath: '/tmp/x.sock' },
       undefined,
       undefined,
@@ -192,8 +192,8 @@ describe('writeSigmaHostMcpConfig', () => {
     const cfg = JSON.parse(fs.readFileSync(cfgPath as string, 'utf8')) as {
       mcpServers: Record<string, { env: Record<string, string> }>;
     };
-    expect(cfg.mcpServers['sigma-host'].env.SIGMA_CONVERSATION_ID).toBeUndefined();
-    expect(cfg.mcpServers['sigma-host'].env.SIGMA_WORKSPACE_ID).toBeUndefined();
+    expect(cfg.mcpServers['jorvis-host'].env.JORVIS_CONVERSATION_ID).toBeUndefined();
+    expect(cfg.mcpServers['jorvis-host'].env.JORVIS_WORKSPACE_ID).toBeUndefined();
     // Best-effort cleanup of the temp dir.
     try {
       fs.rmSync(path.dirname(cfgPath as string), { recursive: true, force: true });
@@ -203,7 +203,7 @@ describe('writeSigmaHostMcpConfig', () => {
   });
 
   it('returns null when the server entry is missing on disk', () => {
-    const cfgPath = writeSigmaHostMcpConfig(
+    const cfgPath = writeJorvisHostMcpConfig(
       { serverEntry: '/nope/does/not/exist.cjs', socketPath: '/tmp/x.sock' },
       undefined,
       undefined,

@@ -12,7 +12,7 @@ interface AssistantStateEvent {
   messageId?: string;
 }
 
-export interface UseSigmaAssistantStateArgs {
+export interface UseJorvisAssistantStateArgs {
   conversationId: string | null;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessageView[]>>;
   setOrbState: React.Dispatch<React.SetStateAction<OrbState>>;
@@ -24,7 +24,7 @@ export interface UseSigmaAssistantStateArgs {
 
 /** assistant:state event handler for streaming. Handles state transitions,
  *  delta accumulation, and fire-and-forget pattern store on standby. */
-export function useSigmaAssistantState({
+export function useJorvisAssistantState({
   conversationId,
   setMessages,
   setOrbState,
@@ -32,7 +32,7 @@ export function useSigmaAssistantState({
   setStreaming,
   lastSentPromptRef,
   rufloReadyRef,
-}: UseSigmaAssistantStateArgs): void {
+}: UseJorvisAssistantStateArgs): void {
   useEffect(() => {
     const off = onEvent<AssistantStateEvent>('assistant:state', (raw) => {
       if (!raw || typeof raw !== 'object') return;

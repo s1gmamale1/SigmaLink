@@ -1,5 +1,5 @@
 // Tab bar for the right-rail dock. Three permanent tabs: Browser, Editor,
-// Sigma Assistant. The active tab id is owned by `RightRail.tsx`; inactive
+// Jorvis Assistant. The active tab id is owned by `RightRail.tsx`; inactive
 // tabs are kept mounted under `display:none` so per-pane state survives a
 // switch.
 //
@@ -12,7 +12,7 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 
-export type RightRailTabId = 'browser' | 'editor' | 'sigma' | 'skills';
+export type RightRailTabId = 'browser' | 'editor' | 'jorvis' | 'skills';
 
 interface TabDef {
   id: RightRailTabId;
@@ -23,7 +23,7 @@ interface TabDef {
 const TABS: readonly TabDef[] = [
   { id: 'browser', label: 'Browser', Icon: Globe },
   { id: 'editor', label: 'Editor', Icon: FileCode2 },
-  { id: 'sigma', label: 'Jorvis', Icon: Bot },
+  { id: 'jorvis', label: 'Jorvis', Icon: Bot },
   { id: 'skills', label: 'Skills', Icon: Zap },
 ] as const;
 

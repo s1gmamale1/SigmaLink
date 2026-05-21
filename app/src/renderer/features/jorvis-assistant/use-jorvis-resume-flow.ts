@@ -39,13 +39,13 @@ function findInterruptedTurn(
   return null;
 }
 
-export interface UseSigmaResumeFlowReturn {
+export interface UseJorvisResumeFlowReturn {
   interruptedTurn: InterruptedTurn | null;
   dismissInterrupted: (messageId: string) => void;
   resetDismissed: () => void;
 }
 
-export function useSigmaResumeFlow(messages: ChatMessageView[]): UseSigmaResumeFlowReturn {
+export function useJorvisResumeFlow(messages: ChatMessageView[]): UseJorvisResumeFlowReturn {
   const [dismissedInterruptedIds, setDismissedInterruptedIds] = useState<Set<string>>(
     () => new Set(),
   );
