@@ -4,6 +4,35 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-05-21
+
+v1.12.0 — **W-4 shell-first Phases 5-7 + W-5 Phase 3 skill activation + W-8 IDE per-pane worktree browsing + Hermes PR-review skill**. Four parallel Sonnet coder clusters (isolated worktrees) + lead diff-review + combined main gate.
+
+### W-4 shell-first — Phases 5-7 (win32 + validation + flip-wiring)
+
+win32 shell-first support, **flagged default-off** (`pty.spawnMode` stays `'direct'` → zero regression on all platforms; the win32 platform guard was removed from the shell-first branch but the default never selects it). win32 sentinel variants (PowerShell `$LASTEXITCODE`, cmd `%ERRORLEVEL%`) emit the same `__SIGMALINK_CLI_EXIT_<code>__` marker registry.ts already parses; per-shell command quoting (`win32QuotePwshArg` / `win32QuoteCmdArg`). The Phase 7 flip mechanism is wired but the default is **HELD at `'direct'`** pending operator dogfood. win32 e2e is pending-Windows-dogfood (can't be verified on the macOS build host). +46 tests.
+
+### W-5 Phase 3 — skill slash-command activation
+
+Dropping a skill on a pane now injects a native `/skill-name` slash command into that pane's input (new `insertSkillCommand.ts`, mirroring the file→`@`-mention drop — no newline, lands in the input line), gated on provider compatibility: claude/codex/gemini inject; kimi/opencode get a chip-only binding + a toast. The Skills tab shows per-skill provider-compat badges sourced from the fan-out state. Worktree-agnostic (slash commands are CLI-config-resolved, not path-resolved).
+
+### W-8 — IDE per-pane worktree file browsing
+
+The Editor file tree gains a root selector — *Workspace root* + each open pane's worktree + a "Follow focused pane" mode — persisted in `editor.<workspaceId>.rootSelection`. Closes the gap where files unique to one pane's worktree (untracked/agent-created) weren't browsable/draggable. Save path-containment accepts worktree roots. Zero behavior change when no pane worktrees exist (the selector renders nothing).
+
+### Hermes PR-review skill (marketplace)
+
+Added `NousResearch/hermes-agent`'s `github-code-review` skill to the marketplace catalog as a one-click, subpath-targeted install that fans out to Claude/Codex/Gemini (surfaced by an agent investigation).
+
+### Gate
+
+- tsc clean | eslint 0 errors / 0 warnings
+- vitest 113 files / 1190 pass / 1 skip (+88 vs v1.11.0)
+- build + electron:compile clean
+- Playwright smoke e2e 38.5 s pass in main
+
+No schema migrations in v1.12.0 (the DB-table rename is W-6 Cluster B, shipping next).
+
 ## [1.11.0] - 2026-05-21
 
 v1.11.0 — **W-6 full Sigma→Jorvis assistant identifier rename (Cluster A)**. One Sonnet coder cluster (isolated worktree) + lead diff-review + lead-fixed e2e label sync.

@@ -1,0 +1,77 @@
+SigmaLink v1.12.0 — 2026-05-21
+==============================
+
+v1.12.0 — W-4 shell-first Phases 5-7 + W-5 Phase 3 skill activation +
+W-8 IDE per-pane worktree browsing + Hermes PR-review skill. Four
+parallel Sonnet coder clusters in isolated worktrees + lead diff-review
++ a combined main gate.
+
+
+W-4 shell-first — Phases 5-7 (win32 + validation + flip-wiring)
+---------------------------------------------------------------
+
+win32 shell-first support, FLAGGED DEFAULT-OFF. `pty.spawnMode` stays
+'direct' → byte-for-byte zero regression on all platforms (the win32
+platform guard was removed from the shell-first branch, but the default
+never selects shell-first).
+
+- sentinel.ts: PowerShell (`Write-Host ...$LASTEXITCODE...`) and cmd.exe
+  (`...%ERRORLEVEL%...`) variants emit the SAME
+  __SIGMALINK_CLI_EXIT_<code>__ marker registry.ts already parses.
+- local-pty.ts: per-shell quoting (win32QuotePwshArg / win32QuoteCmdArg)
+  + a shell-kind dispatcher.
+- Phase 7 flip mechanism wired, but the default is HELD at 'direct'
+  pending an operator dogfood. NEVER flipped automatically.
+- win32 e2e is pending-Windows-dogfood — it cannot be verified on the
+  macOS build host. +46 unit tests cover the win32 logic.
+
+
+W-5 Phase 3 — skill slash-command activation
+--------------------------------------------
+
+Dropping a skill onto a pane now injects a native `/skill-name` slash
+command into that pane's input — modeled on the existing file→pane
+@-mention drag-drop (no trailing newline; it lands in the input line and
+you press Enter). New insertSkillCommand.ts.
+
+- Gated on provider compatibility: claude / codex / gemini inject the
+  command; kimi / opencode get a chip-only binding + a toast.
+- The Skills tab shows per-skill provider-compat badges sourced from the
+  fan-out state.
+- Worktree-agnostic — a slash command is resolved by the CLI from its
+  config dirs, not from a file path.
+
+
+W-8 — IDE per-pane worktree file browsing
+------------------------------------------
+
+The Editor file tree gains a root selector: Workspace root + each open
+pane's worktree + a "Follow focused pane" mode, persisted in
+editor.<workspaceId>.rootSelection. Closes the gap where files unique to
+one pane's worktree (untracked / agent-created) were invisible in the
+single-root tree. Save path-containment accepts worktree roots.
+
+Zero behavior change when no pane worktrees exist — the selector renders
+nothing and the tree roots at the workspace as before.
+
+
+Hermes PR-review skill (marketplace)
+------------------------------------
+
+Added NousResearch/hermes-agent's github-code-review skill to the
+marketplace catalog as a one-click, subpath-targeted install that fans
+out to Claude / Codex / Gemini. (Shell-based + provider-agnostic;
+surfaced by an agent investigation of the operator's Hermes request.)
+
+
+Combined main gate
+------------------
+
+- tsc clean
+- eslint 0 errors / 0 warnings
+- vitest 113 files / 1190 pass / 1 skip (+88 vs v1.11.0)
+- build + electron compile clean
+- Playwright smoke e2e 38.5 s pass in main
+
+No schema migrations in v1.12.0 — the DB-table rename (sigma_pane_events
+→ jorvis_pane_events) is W-6 Cluster B, shipping in the next release.
