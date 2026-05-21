@@ -27,7 +27,7 @@ const ROUTING_LABEL: Record<string, string> = {
   'app.navigate': 'Switching pane…',
   'swarms.broadcast': 'Broadcasting…',
   'swarms.rollCall': 'Calling roll…',
-  'assistant.freeform': 'Asking Sigma…',
+  'assistant.freeform': 'Asking Jorvis…',
 };
 
 interface VoiceStateDetail {

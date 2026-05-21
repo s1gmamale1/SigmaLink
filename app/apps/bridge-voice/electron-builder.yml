@@ -1,0 +1,102 @@
+appId: ai.sigma.bridgevoice
+productName: BridgeVoice
+copyright: Copyright © 2026 SigmaLink
+
+# Output goes to bridge-voice/release/ rather than app/release/ so the two
+# apps' build artefacts do not clobber each other in CI.
+directories:
+  output: release
+  buildResources: build
+
+# Bundle root: electron-builder resolves all paths relative to the directory
+# containing this config file (app/apps/bridge-voice/).
+files:
+  - bridge-dist/**/*
+  - renderer/**/*
+  - package.json
+
+# asar: false — mirrors app/electron-builder.yml rationale: native .node files
+# (voice-mac, voice-win, voice-whisper) cannot be dlopen'd from inside an asar
+# archive. Until the correct asarUnpack globs are verified under pnpm's
+# content-addressed layout, we ship with asar disabled.
+asar: false
+
+npmRebuild: true
+
+# asarUnpack: kept here as documentation for when asar is re-enabled.
+# The voice native binaries live two directory levels above this config at
+# ../../native/voice-*/build/Release/*.node.  electron-builder resolves
+# asarUnpack patterns relative to the bundle root (same as `files:`), so the
+# patterns below will match once asar is turned back on.
+#
+# asarUnpack:
+#   - "../../native/voice-mac/build/Release/*.node"
+#   - "../../native/voice-win/build/Release/*.node"
+#   - "../../native/voice-whisper/build/Release/*.node"
+
+extraResources:
+  - from: bridge-dist
+    to: bridge-dist
+
+mac:
+  category: public.app-category.productivity
+  # UNSIGNED / ad-hoc — mirrors app/electron-builder.yml.
+  # identity: null tells electron-builder to skip its own signing pass.
+  # The afterSign hook below runs `codesign --force --deep --sign -` to produce
+  # a proper _CodeSignature/CodeResources seal so Gatekeeper shows the
+  # recoverable "unidentified developer" prompt rather than "is damaged".
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: "BridgeVoice needs microphone access for system-wide dictation."
+    NSSpeechRecognitionUsageDescription: "BridgeVoice uses speech recognition to transcribe your voice into any app."
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    # No Authenticode cert — SmartScreen shows on first launch only.
+    # User clicks "More info" → "Run anyway" once; no further prompts.
+  verifyUpdateCodeSignature: false
+
+nsis:
+  artifactName: ${productName}-Setup-${version}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: BridgeVoice
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  include: build/installer.nsh
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+    - x: 270
+      y: 380
+      path: build/dmg/README — Open BridgeVoice.txt
+      type: file
+
+publish:
+  provider: github
+  owner: s1gmamale1
+  repo: SigmaLink
+
+# Ad-hoc codesign sweep — same pattern as app/scripts/adhoc-sign.cjs.
+# Path is relative to this config file (app/apps/bridge-voice/).
+afterSign: scripts/adhoc-sign.cjs

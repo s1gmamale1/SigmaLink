@@ -1,0 +1,206 @@
+name: release-bridge-voice
+
+# Trigger on tags that match `bridgevoice-v*` only.
+# This is intentionally distinct from the `v*` tags that trigger
+# release-macos.yml / release-windows.yml so a BridgeVoice release does NOT
+# fire the main SigmaLink CI and vice-versa.
+on:
+  push:
+    tags: ['bridgevoice-v*']
+  workflow_dispatch:
+    inputs:
+      attach_to_release:
+        description: Attach to the GitHub Release matching this tag (must already exist)
+        required: false
+        default: 'false'
+
+concurrency:
+  group: release-bridge-voice-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # macOS — unsigned ad-hoc DMG (arm64 + x64)
+  # ---------------------------------------------------------------------------
+  build-macos:
+    name: build macos installer (bridge-voice)
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+          cache-dependency-path: app/package.json
+
+      - name: Install (skip postinstall)
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
+        env:
+          npm_config_build_from_source: 'false'
+
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Initialise whisper.cpp submodule
+        # Same continue-on-error pattern as release-macos.yml.
+        # When vendor source is absent, voice-whisper falls back to the stub
+        # and Apple Speech.framework remains the active engine.
+        working-directory: .
+        continue-on-error: true
+        run: |
+          git submodule update --init --depth 1 app/native/voice-whisper/vendor/whisper.cpp 2>/dev/null || true
+          git -C app/native/voice-whisper/vendor/whisper.cpp checkout v1.7.4 2>/dev/null || true
+
+      - name: Rebuild native modules for Electron
+        # Rebuild the voice native modules against Electron's bundled Node ABI
+        # so that .node files dlopen correctly inside the packaged .app.
+        run: |
+          if [ -d "native/voice-whisper/vendor/whisper.cpp" ] && [ "$(ls -A native/voice-whisper/vendor/whisper.cpp 2>/dev/null)" ]; then
+            npx @electron/rebuild -f -w sigmavoice_mac -w whisper_bridge
+          else
+            echo "voice-whisper vendor sources absent — rebuilding without whisper_bridge"
+            npx @electron/rebuild -f -w sigmavoice_mac
+          fi
+        env:
+          GGML_METAL: 1
+
+      - name: Verify voice-whisper prebuilt lands outside asar
+        run: |
+          if [ -f "native/voice-whisper/build/Release/whisper_bridge.node" ]; then
+            echo "voice-whisper native binary found"
+          else
+            echo "WARNING: voice-whisper binary not found — build may have fallen back to stub"
+          fi
+
+      - name: Bundle bridge-voice main + preload
+        run: node apps/bridge-voice/scripts/build.cjs
+
+      - name: Build macOS DMG (ad-hoc signed, unnotarized)
+        run: pnpm exec electron-builder --mac dmg --config apps/bridge-voice/electron-builder.yml --publish never
+        working-directory: app/apps/bridge-voice
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload macOS installer artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridgevoice-macos-installer
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            app/apps/bridge-voice/release/*.dmg
+            app/apps/bridge-voice/release/*.dmg.blockmap
+            app/apps/bridge-voice/release/*.zip
+            app/apps/bridge-voice/release/latest-mac.yml
+
+      - name: Attach macOS installer to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/bridgevoice-v') || github.event.inputs.attach_to_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/apps/bridge-voice/release/*.dmg
+            app/apps/bridge-voice/release/*.dmg.blockmap
+            app/apps/bridge-voice/release/*.zip
+            app/apps/bridge-voice/release/latest-mac.yml
+          fail_on_unmatched_files: true
+
+  # ---------------------------------------------------------------------------
+  # Windows — unsigned NSIS installer (x64)
+  # ---------------------------------------------------------------------------
+  build-windows:
+    name: build windows installer (bridge-voice)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+          cache-dependency-path: app/package.json
+
+      - name: Install (skip postinstall)
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
+        env:
+          npm_config_build_from_source: 'false'
+
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Initialise whisper.cpp submodule (Windows)
+        # Same continue-on-error pattern as release-windows.yml.
+        working-directory: .
+        run: |
+          git submodule update --init --depth 1 app/native/voice-whisper/vendor/whisper.cpp || true
+          git -C app/native/voice-whisper/vendor/whisper.cpp checkout v1.7.4 2>NUL || true
+        continue-on-error: true
+
+      - name: Rebuild native modules for Electron
+        run: npx @electron/rebuild -f -w whisper_bridge -w sigvoice_mac
+
+      - name: Rebuild voice-whisper for Electron (Windows)
+        # CPU-only for v1.5.0; CUDA support is v1.6+.
+        # continue-on-error lets the installer build proceed via the stub
+        # when vendor source is absent.
+        run: npx @electron/rebuild -f -w @sigmalink/voice-whisper
+        continue-on-error: true
+
+      - name: Bundle bridge-voice main + preload
+        run: node apps/bridge-voice/scripts/build.cjs
+
+      - name: Build Windows NSIS installer (unsigned)
+        run: pnpm exec electron-builder --win nsis --config apps/bridge-voice/electron-builder.yml --publish never
+        working-directory: app/apps/bridge-voice
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload Windows installer artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridgevoice-windows-installer
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            app/apps/bridge-voice/release/*.exe
+            app/apps/bridge-voice/release/*.exe.blockmap
+            app/apps/bridge-voice/release/latest.yml
+
+      - name: Attach Windows installer to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/bridgevoice-v') || github.event.inputs.attach_to_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/apps/bridge-voice/release/*.exe
+            app/apps/bridge-voice/release/*.exe.blockmap
+            app/apps/bridge-voice/release/latest.yml
+          fail_on_unmatched_files: true

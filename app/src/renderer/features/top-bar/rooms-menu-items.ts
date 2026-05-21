@@ -34,7 +34,7 @@ export const ROOMS_MENU_ITEMS: readonly RoomMenuItem[] = [
   { id: 'memory', label: 'Memory', icon: Sparkles },
   { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'skills', label: 'Skills', icon: Wand2 },
-  { id: 'sigma', label: 'Sigma Assistant', icon: Bot },
+  { id: 'sigma', label: 'Jorvis', icon: Bot },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 

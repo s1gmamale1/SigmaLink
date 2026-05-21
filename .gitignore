@@ -117,3 +117,7 @@ app/pnpm-lock.yaml
 # vault container directory + .obsidian config + plugin data + Welcome scaffold
 # stay local.
 SigmaLink/
+
+# BridgeVoice app build output
+app/apps/bridge-voice/bridge-dist/
+app/apps/bridge-voice/release/

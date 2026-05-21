@@ -112,7 +112,7 @@ const ROOM_DEFS: Array<{ id: RoomId; label: string; icon: PaletteCommand['icon']
   { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'skills', label: 'Skills', icon: Wand2 },
   // V3-W13-012 — Sigma Assistant standalone room shortcut.
-  { id: 'sigma', label: 'Sigma Assistant', icon: Bot },
+  { id: 'sigma', label: 'Jorvis', icon: Bot },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
 

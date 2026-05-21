@@ -62,7 +62,7 @@ describe('RightRailSwitcher', () => {
 
     expect(screen.getByRole('tab', { name: 'Browser' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Editor' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Sigma' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Jorvis' })).toBeTruthy();
     expect(screen.getByLabelText('Settings')).toBeTruthy();
   });
 
@@ -72,7 +72,7 @@ describe('RightRailSwitcher', () => {
     // Default tab is 'browser'.
     const browserTab = screen.getByRole('tab', { name: 'Browser' });
     const editorTab = screen.getByRole('tab', { name: 'Editor' });
-    const sigmaTab = screen.getByRole('tab', { name: 'Sigma' });
+    const sigmaTab = screen.getByRole('tab', { name: 'Jorvis' });
     expect(browserTab.getAttribute('aria-selected')).toBe('true');
     expect(editorTab.getAttribute('aria-selected')).toBe('false');
     expect(sigmaTab.getAttribute('aria-selected')).toBe('false');

@@ -90,14 +90,14 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
           onChange?.(e.target.value);
         }}
         onKeyDown={onKeyDown}
-        placeholder={placeholder ?? 'Ask Sigma…'}
+        placeholder={placeholder ?? 'Ask Jorvis…'}
         rows={2}
         className={cn(
           'min-h-[44px] flex-1 resize-none rounded-md border border-input bg-muted/30 px-3 py-2 text-sm shadow-xs outline-none transition placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring',
           'disabled:cursor-not-allowed disabled:opacity-60',
         )}
         disabled={busy}
-        aria-label="Ask Sigma"
+        aria-label="Ask Jorvis"
       />
       <div className="flex flex-col gap-1">
         {voiceEnabled ? (

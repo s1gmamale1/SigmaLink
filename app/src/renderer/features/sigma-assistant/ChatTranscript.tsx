@@ -23,7 +23,7 @@ interface Props {
 
 const ROLE_LABEL: Record<ChatRole, string> = {
   user: 'YOU',
-  assistant: 'SIGMA',
+  assistant: 'JORVIS',
   tool: 'TOOL',
   system: 'SYSTEM',
 };
@@ -49,7 +49,7 @@ export function ChatTranscript({ messages, streamingDelta, className }: Props) {
     >
       {messages.length === 0 ? (
         <div className="m-auto max-w-sm text-center text-xs text-muted-foreground">
-          Ask Sigma to launch panes, search memory, or open a URL. Press
+          Ask Jorvis to launch panes, search memory, or open a URL. Press
           <kbd className="mx-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
             Enter
           </kbd>

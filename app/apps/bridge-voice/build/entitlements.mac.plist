@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Electron's V8 + native modules need JIT + unsigned-mem permissions -->
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+  <!-- Microphone access for BridgeVoice dictation (AVAudioEngine / whisper.cpp) -->
+  <key>com.apple.security.device.audio-input</key><true/>
+  <!-- Speech recognition for Apple Speech.framework fallback engine -->
+  <key>com.apple.security.speech-recognition</key><true/>
+  <!-- NSMicrophoneUsageDescription and NSSpeechRecognitionUsageDescription are
+       set via electron-builder extendInfo in electron-builder.yml -->
+  <!-- Accessibility entitlement for global AX-paste output.
+       The AX paste helper (sendPasteKeystroke via CGEvent) requires
+       Accessibility Trust.  This entitlement alone does not grant trust —
+       the user must approve BridgeVoice in System Settings → Privacy →
+       Accessibility the first time the paste path is invoked.
+       AXIsProcessTrustedWithOptions triggers the system dialog.
+       Without this entitlement, CGEventPost is silently rejected by the
+       kernel (same behaviour as SigmaLink — see app/build/entitlements.mac.plist). -->
+  <key>com.apple.security.automation.apple-events</key><true/>
+</dict>
+</plist>

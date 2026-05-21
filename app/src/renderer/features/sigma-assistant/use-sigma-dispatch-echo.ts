@@ -36,7 +36,7 @@ export function useSigmaDispatchEcho({
       if (!raw || typeof raw !== 'object') return;
       const echo = raw as DispatchEchoEvent;
       if (!echo.ok) {
-        toast.error('Sigma dispatch failed', {
+        toast.error('Jorvis dispatch failed', {
           description: echo.error ?? 'Unknown error',
         });
         return;
@@ -95,7 +95,7 @@ export function useSigmaDispatchEcho({
           /* default ON when kv unreachable */
         }
         if (autoFocus) jumpToPane();
-        toast.success(`Sigma dispatched a ${echo.providerId} pane`, {
+        toast.success(`Jorvis dispatched a ${echo.providerId} pane`, {
           description: `${wsLabel} · session ${echo.sessionId.slice(0, 8)}`,
           action: {
             label: 'Jump to pane',

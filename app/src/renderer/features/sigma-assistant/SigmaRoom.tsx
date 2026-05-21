@@ -144,7 +144,7 @@ export function SigmaRoom({ variant = 'standalone', className }: Props) {
       } catch (err) {
         setBusy(false);
         setOrbState('standby');
-        toast.error('Sigma failed to accept your message', {
+        toast.error('Jorvis failed to accept your message', {
           description: err instanceof Error ? err.message : String(err),
         });
       }
@@ -182,8 +182,8 @@ export function SigmaRoom({ variant = 'standalone', className }: Props) {
       <div className={cn('flex h-full min-h-0 flex-col bg-background', className)}>
         <EmptyState
           icon={Bot}
-          title="Sigma Assistant"
-          description="Open a workspace to talk to Sigma."
+          title="Jorvis"
+          description="Open a workspace to talk to Jorvis."
         />
       </div>
     );
@@ -209,7 +209,7 @@ export function SigmaRoom({ variant = 'standalone', className }: Props) {
         {variant === 'standalone' ? (
           <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/10 px-3 text-sm">
             <Bot className="h-4 w-4 text-primary" aria-hidden />
-            <h2 className="text-sm font-semibold tracking-tight">Sigma Assistant</h2>
+            <h2 className="text-sm font-semibold tracking-tight">Jorvis</h2>
             <span className="ml-2 truncate text-xs text-muted-foreground">
               {activeWorkspace.name}
             </span>

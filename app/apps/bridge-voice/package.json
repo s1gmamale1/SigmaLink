@@ -3,11 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "description": "BridgeVoice — standalone system-wide dictation app powered by @sigmalink/voice-core. Hotkey → capture → whisper transcribe → clipboard/AX-paste into any focused app.",
+  "author": "SigmaLink Team",
   "type": "module",
-  "main": "src/main.ts",
+  "main": "bridge-dist/main.js",
   "scripts": {
     "dev": "electron src/main.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "compile": "node scripts/build.cjs",
+    "build": "node scripts/build.cjs",
+    "pack:mac": "node scripts/build.cjs && electron-builder --mac dmg --config electron-builder.yml",
+    "pack:win": "node scripts/build.cjs && electron-builder --win nsis --config electron-builder.yml"
   },
   "dependencies": {
     "@sigmalink/voice-core": "workspace:*"
@@ -16,6 +21,8 @@
     "electron": "*"
   },
   "devDependencies": {
+    "esbuild": "^0.28.0",
+    "electron-builder": "^24.13.0",
     "typescript": "~5.9.3"
   },
   "engines": {

@@ -24,8 +24,8 @@ interface SegmentDef {
 const SEGMENTS: readonly SegmentDef[] = [
   { id: 'browser', label: 'Browser', Icon: Globe },
   { id: 'editor', label: 'Editor', Icon: FileCode2 },
-  // sigma is the internal id; the visible label is "Sigma" per v1.1.1.
-  { id: 'sigma', label: 'Sigma', Icon: Bot },
+  // sigma is the internal id; the visible label is "Jorvis" per v1.4.8 rebrand.
+  { id: 'sigma', label: 'Jorvis', Icon: Bot },
   // v1.6.1 B3 — Skills discovery tab.
   { id: 'skills', label: 'Skills', Icon: Zap },
 ] as const;

@@ -25,7 +25,7 @@ export function SigmaTabPlaceholder() {
       fallback={
         <div
           role="status"
-          aria-label="Loading Sigma Assistant"
+          aria-label="Loading Jorvis"
           className="h-full min-h-0 flex-1 animate-pulse bg-muted/30"
         />
       }

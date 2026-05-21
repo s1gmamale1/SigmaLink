@@ -23,7 +23,7 @@ interface TabDef {
 const TABS: readonly TabDef[] = [
   { id: 'browser', label: 'Browser', Icon: Globe },
   { id: 'editor', label: 'Editor', Icon: FileCode2 },
-  { id: 'sigma', label: 'Sigma Assistant', Icon: Bot },
+  { id: 'sigma', label: 'Jorvis', Icon: Bot },
   { id: 'skills', label: 'Skills', Icon: Zap },
 ] as const;
 

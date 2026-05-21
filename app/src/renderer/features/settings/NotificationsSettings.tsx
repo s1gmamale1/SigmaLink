@@ -126,7 +126,7 @@ export function NotificationsSettings() {
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">
           Control OS notifications surfaced from PTY exits, swarm broadcasts,
-          and Sigma Assistant tool errors. In-app notifications always appear
+          and Jorvis tool errors. In-app notifications always appear
           in the bell dropdown regardless of these settings.
         </p>
       </header>
@@ -169,7 +169,7 @@ export function NotificationsSettings() {
           onChange={(e) => void persistDing(e.target.checked)}
           data-testid="notifications-ding-enabled"
         />
-        <span>Play completion chime on Sigma dispatch finish</span>
+        <span>Play completion chime on Jorvis dispatch finish</span>
       </label>
     </section>
   );

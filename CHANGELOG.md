@@ -4,6 +4,48 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-21
+
+v1.8.0 — completes two more open items on top of v1.7.1: the standalone BridgeVoice app now produces real (unsigned) installers, and the assistant is renamed "Jorvis" in the UI. Two parallel Sonnet coder clusters (worktree-isolated), lead-merged.
+
+### BridgeVoice standalone app — real unsigned installers
+
+v1.7.0 shipped the `@sigmalink/bridge-voice` app as a runnable dev scaffold; v1.8.0 makes it packageable into actual installers using SigmaLink's internal-use **unsigned / ad-hoc** distribution model (no funded codesigning — same Gatekeeper-bypass + SmartScreen-on-first-launch UX SigmaLink already uses):
+
+- `app/apps/bridge-voice/scripts/build.cjs` — esbuild bundler (main ESM + preload CJS), mirroring `app/scripts/build-electron.cjs`.
+- `app/apps/bridge-voice/electron-builder.yml` — `appId: ai.sigma.bridgevoice`, productName "BridgeVoice", `identity: null` (ad-hoc), macOS DMG (arm64 + x64) + Windows NSIS, voice `.node` asarUnpack, `afterSign` ad-hoc codesign hook.
+- `app/apps/bridge-voice/build/entitlements.mac.plist` — microphone, speech-recognition, audio-input, apple-events (AX paste), V8 JIT entitlements + `NSMicrophoneUsageDescription` / `NSSpeechRecognitionUsageDescription`.
+- `app/apps/bridge-voice/build/installer.nsh` + `build/dmg/README — Open BridgeVoice.txt` — SmartScreen / Gatekeeper bypass UX.
+- `.github/workflows/release-bridge-voice.yml` — NEW CI lane triggered on `bridgevoice-v*` tags ONLY (never fires on SigmaLink `v*` tags). macOS + Windows jobs, `@electron/rebuild -w whisper_bridge -w sigmavoice_mac`, `CSC_IDENTITY_AUTO_DISCOVERY=false`, uploads to a GitHub release.
+
+Local validation: `electron-builder --mac dir` ran cleanly, ad-hoc sign + `codesign --verify` succeeded. Full DMG/NSIS production runs on CI when a `bridgevoice-v*` tag is pushed (first is `bridgevoice-v0.1.0`). This is the standalone-app deliverable the operator requested ("make SigmaVoice a separate app like the original BridgeVoice").
+
+### Assistant renamed "Jorvis" (UI label-only)
+
+The in-app assistant is now displayed as "Jorvis" — 20 user-facing display strings across 11 renderer files: right-rail tab label, chat speaker label (SIGMA → JORVIS), "Ask Jorvis…" placeholders + aria-labels, command-palette + rooms-menu entries, notification copy ("Jorvis tool errors", "chime on Jorvis dispatch finish"), dispatch toasts, voice pill ("Asking Jorvis…").
+
+**Scope: label-only.** IPC channels (`assistant:*`, `sigma:*`), DB tables (`sigma_pane_events`), file/folder names (`sigma-assistant/`, `SigmaRoom.tsx`), TypeScript identifiers, KV/capability keys, and test-ids are deliberately UNCHANGED — the full identifier sweep is a separate high-blast-radius packet (touches the CHANNELS allowlist + a schema migration) deferred per the operator's earlier "full rename but not for now." Three "Sigma Canvas" / "Sigma pattern surfacing" strings were correctly left untouched (they name a design-tool feature + a Ruflo capability, not the assistant persona).
+
+### Combined main gate
+
+- tsc clean
+- vitest 102 files / 962 pass / 1 skip
+- eslint 0 errors / 0 warnings
+- bridge-voice esbuild bundle clean + electron-builder config validated (`--mac dir` + ad-hoc sign)
+- SigmaLink build + electron compile clean
+- Playwright smoke e2e 38 s pass (Jorvis labels render, app boots)
+
+### Still deferred (genuinely multi-day-to-multi-month — NOT force-shipped)
+
+- **W-4 shell-first pane architecture** (~14 days, incl. schema migration; v1.5.6 empty-pane root cause).
+- **V3 Wave 12-15 parity** (45 tickets, multi-month).
+- **W-5 Skills tab Phase 2** (drag-drop + persistence, ~5-7 days; Phase 1 shipped v1.7.0).
+- **W-6 full Jorvis identifier rename** (IPC channels + DB tables + file names — the label rename shipped here; the internal sweep is its own packet).
+- **BridgeVoice signed/notarized installers** (would require funded Apple Developer + EV cert — out of scope for internal use; unsigned is canonical).
+- **V3-W15-006 dogfood** (human-only QA).
+
+No schema migrations in v1.8.0.
+
 ## [1.7.1] - 2026-05-21
 
 v1.7.1 — build hotfix for v1.7.0. The v1.7.0 tag's CI installer build failed (no release was published), so this is the first shippable v1.7.x.
