@@ -2,10 +2,10 @@
 //
 // Owns:
 //   - The +Pane button (Plus icon + chevron DropdownMenu)
-//   - `disabledReason` derivation (no workspace / swarm paused / 20-pane cap)
+//   - `disabledReason` derivation (no workspace / swarms loading / swarm paused / 20-pane cap)
 //   - Always-visible inline reason pill (data-testid="add-pane-disabled-reason")
 //   - Persistent error chip (data-testid="add-pane-error-chip", 10s timer, dismiss ×, unmount cleanup)
-//   - addPane() → rpc.swarms.addAgent with error capture + toast
+//   - addPane() → rpc.swarms.addAgent (creates a default swarm first if none exists)
 //
 // Layout note: this component renders a `relative` wrapper so the error chip
 // can be positioned absolutely below the toolbar bar without disturbing the
@@ -29,18 +29,32 @@ import {
 } from '@/components/ui/tooltip';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch } from '@/renderer/app/state';
-import type { Swarm } from '@/shared/types';
+import type { Swarm, Workspace } from '@/shared/types';
 
-// v1.2.5 Step 3 — derive the human-readable reason why "+ Pane" is disabled.
-// Returns `null` when the button is either enabled OR mid-flight (no tooltip
-// during the in-flight `adding` window — the dropdown is closing anyway and
-// flashing a reason would be noise).
+// v1.13.1 — derive the human-readable reason why "+ Pane" is disabled.
+//
+// Three-tier logic:
+//   1. No workspace open         → "Open or create a workspace first"
+//      (the ONLY case this exact message fires)
+//   2. Workspace open, swarms
+//      still loading            → "Loading workspace…" (transient, accurate)
+//   3. Workspace + swarm ready,
+//      swarm not running        → pause / cap messages
+//   4. Everything OK             → null (button enabled)
+//
+// Returns `null` during the in-flight `adding` window — the dropdown is
+// closing anyway and flashing a reason would be noise.
 function getAddPaneDisabledReason(
+  activeWorkspace: Workspace | null,
   activeSwarm: Swarm | null,
+  swarmsLoading: boolean,
   adding: boolean,
 ): string | null {
   if (adding) return null;
-  if (!activeSwarm) return 'Open or create a workspace first';
+  if (!activeWorkspace) return 'Open or create a workspace first';
+  if (swarmsLoading) return 'Loading workspace…';
+  // No swarm yet but workspace exists → allow; addPane() will create one.
+  if (!activeSwarm) return null;
   if (activeSwarm.status !== 'running') {
     return 'Swarm is paused — resume it to add panes';
   }
@@ -51,12 +65,20 @@ function getAddPaneDisabledReason(
 }
 
 export interface AddPaneButtonProps {
-  swarmId: string | null;
+  /** The active workspace — null means no workspace is open. */
+  activeWorkspace: Workspace | null;
   activeSwarm: Swarm | null;
+  /** True while rpc.swarms.list for the active workspace is still in flight. */
+  swarmsLoading: boolean;
   providers: { id: string; name: string }[];
 }
 
-export function AddPaneButton({ swarmId, activeSwarm, providers }: AddPaneButtonProps) {
+export function AddPaneButton({
+  activeWorkspace,
+  activeSwarm,
+  swarmsLoading,
+  providers,
+}: AddPaneButtonProps) {
   const dispatch = useAppDispatch();
   const [adding, setAdding] = useState(false);
   // DOGFOOD-V1.4.2-01 hypothesis 3 — persistent error chip for ~10s after
@@ -73,13 +95,30 @@ export function AddPaneButton({ swarmId, activeSwarm, providers }: AddPaneButton
     };
   }, []);
 
-  const disabledReason = getAddPaneDisabledReason(activeSwarm, adding);
+  const disabledReason = getAddPaneDisabledReason(activeWorkspace, activeSwarm, swarmsLoading, adding);
 
   async function addPane(providerId: string): Promise<void> {
-    if (!activeSwarm || !swarmId || adding) return;
+    if (!activeWorkspace || adding) return;
     setAdding(true);
     try {
-      const result = await rpc.swarms.addAgent({ swarmId: activeSwarm.id, providerId });
+      // v1.13.1 — when a workspace is active but no swarm exists yet (e.g. the
+      // user opened the workspace before the swarm wizard ran), create a minimal
+      // default swarm before adding the agent. `swarms.create` with an empty
+      // roster simply provisions the swarm row; `addAgent` will attach the pane.
+      let targetSwarmId: string;
+      if (activeSwarm) {
+        targetSwarmId = activeSwarm.id;
+      } else {
+        const newSwarm = await rpc.swarms.create({
+          workspaceId: activeWorkspace.id,
+          mission: 'Default swarm',
+          preset: 'custom',
+          roster: [],
+        });
+        dispatch({ type: 'UPSERT_SWARM', swarm: newSwarm });
+        targetSwarmId = newSwarm.id;
+      }
+      const result = await rpc.swarms.addAgent({ swarmId: targetSwarmId, providerId });
       dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
       dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
       dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });

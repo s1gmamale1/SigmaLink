@@ -15,7 +15,12 @@
 
 import { useEffect, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
-import { getDingEnabled, setDingEnabled } from '@/renderer/lib/notifications';
+import {
+  getDingEnabled,
+  setDingEnabled,
+  getNotificationSoundEnabled,
+  setNotificationSoundEnabled,
+} from '@/renderer/lib/notifications';
 import type { NotificationSeverity } from '@/shared/types';
 
 const KV_OS_ENABLED = 'notifications.osEnabled';
@@ -51,6 +56,8 @@ export function NotificationsSettings() {
   const [enabled, setEnabled] = useState<boolean>(false);
   const [severities, setSeverities] = useState<NotificationSeverity[]>(DEFAULT_SEVERITIES);
   const [dingEnabled, setDing] = useState<boolean>(true);
+  // v1.13.1 — notification bell sound toggle (default ON).
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [ready, setReady] = useState(false);
 
   // Hydrate from kv on mount.
@@ -61,10 +68,12 @@ export function NotificationsSettings() {
         const e = await rpc.kv.get(KV_OS_ENABLED);
         const s = await rpc.kv.get(KV_OS_SEVERITIES);
         const d = await getDingEnabled();
+        const snd = await getNotificationSoundEnabled();
         if (!alive) return;
         setEnabled(e === '1');
         setSeverities(parseSeverities(s));
         setDing(d);
+        setSoundEnabled(snd);
       } finally {
         if (alive) setReady(true);
       }
@@ -77,6 +86,12 @@ export function NotificationsSettings() {
   const persistDing = async (next: boolean) => {
     setDing(next);
     await setDingEnabled(next);
+  };
+
+  // v1.13.1
+  const persistSound = async (next: boolean) => {
+    setSoundEnabled(next);
+    await setNotificationSoundEnabled(next);
   };
 
   const persistEnabled = async (next: boolean) => {
@@ -170,6 +185,16 @@ export function NotificationsSettings() {
           data-testid="notifications-ding-enabled"
         />
         <span>Play completion chime on Jorvis dispatch finish</span>
+      </label>
+      {/* v1.13.1 — notification bell sound toggle (mirrors ding toggle above). */}
+      <label className="flex items-center gap-2 text-sm" data-testid="notifications-sound-row">
+        <input
+          type="checkbox"
+          checked={soundEnabled}
+          onChange={(e) => void persistSound(e.target.checked)}
+          data-testid="notifications-sound-enabled"
+        />
+        <span>Play sound on new notifications (warn, error, critical)</span>
       </label>
     </section>
   );

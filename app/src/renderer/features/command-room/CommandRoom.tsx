@@ -75,6 +75,10 @@ export function CommandRoom() {
     activeWorkspaceId ? state.swarmsByWorkspace[activeWorkspaceId] ?? EMPTY_SWARMS : EMPTY_SWARMS,
   );
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
+  // v1.13.1 — true while rpc.swarms.list for the active workspace is in flight.
+  // Prevents the AddPaneButton from showing "Open or create a workspace first"
+  // during the async hydration window when a workspace IS open.
+  const [swarmsLoading, setSwarmsLoading] = useState(false);
   // v1.5.3-A — "Add first pane" in the empty-state uses its own adding flag
   // so the EmptyState branch stays self-contained (the full dropdown version
   // lives in AddPaneButton which owns its own flag).
@@ -104,15 +108,22 @@ export function CommandRoom() {
   useEffect(() => {
     if (!activeWorkspaceId) return;
     let alive = true;
-    void rpc.swarms
-      .list(activeWorkspaceId)
-      .then((list) => {
+    // v1.13.1 — set loading inside an async IIFE so the lint rule is satisfied
+    // (setState called from a callback, not synchronously in the effect body).
+    void (async () => {
+      setSwarmsLoading(true);
+      try {
+        const list = await rpc.swarms.list(activeWorkspaceId);
         if (!alive) return;
         for (const swarm of list) {
           dispatch({ type: 'UPSERT_SWARM', swarm });
         }
-      })
-      .catch(() => undefined);
+      } catch {
+        // Swarm load failure is non-fatal; user can retry.
+      } finally {
+        if (alive) setSwarmsLoading(false);
+      }
+    })();
     return () => {
       alive = false;
     };
@@ -186,11 +197,25 @@ export function CommandRoom() {
 
   // v1.5.3-A — minimal addPane for the empty-state CTA (no chip/toast beyond
   // the toast from rpc failure; the full AddPaneButton owns chip state).
+  // v1.13.1 — creates a default swarm when activeSwarm is null but workspace exists.
   async function addEmptyStatePane(): Promise<void> {
-    if (!activeSwarm || emptyStateAdding || providers.length === 0) return;
+    if (!activeWorkspace || emptyStateAdding || providers.length === 0) return;
     setEmptyStateAdding(true);
     try {
-      const result = await rpc.swarms.addAgent({ swarmId: activeSwarm.id, providerId: providers[0]!.id });
+      let targetSwarmId: string;
+      if (activeSwarm) {
+        targetSwarmId = activeSwarm.id;
+      } else {
+        const newSwarm = await rpc.swarms.create({
+          workspaceId: activeWorkspace.id,
+          mission: 'Default swarm',
+          preset: 'custom',
+          roster: [],
+        });
+        dispatch({ type: 'UPSERT_SWARM', swarm: newSwarm });
+        targetSwarmId = newSwarm.id;
+      }
+      const result = await rpc.swarms.addAgent({ swarmId: targetSwarmId, providerId: providers[0]!.id });
       dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
       dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
       dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
@@ -216,10 +241,17 @@ export function CommandRoom() {
     // packet #02; this branch surfaces an inline "Add first pane" affordance
     // so a user who lands on a fresh / freshly-rehydrated workspace doesn't
     // have to walk back through Workspaces → Launcher → grid wizard just to
-    // recover. Only shown when the swarm is running AND providers loaded;
-    // otherwise we fall back to the legacy "Go to Workspaces" CTA only so
-    // the click can't dead-end.
-    const canAddPane = activeSwarm?.status === 'running' && providers.length > 0;
+    // recover. Only shown when swarms are not loading AND providers are ready.
+    // v1.13.1 — allow zero-swarms case: "Add first pane" is shown when swarms
+    // are done loading and either (a) a running swarm exists or (b) NO swarms
+    // exist at all (addEmptyStatePane will create one). A paused/completed swarm
+    // keeps canAddPane=false so the user goes back to the workspace wizard.
+    const hasRunningSwarm = workspaceSwarms.some((s) => s.status === 'running');
+    const hasNoSwarms = workspaceSwarms.length === 0;
+    const canAddPane =
+      !swarmsLoading &&
+      providers.length > 0 &&
+      (hasRunningSwarm || hasNoSwarms);
     return (
       <EmptyState
         icon={TerminalIcon}
@@ -363,9 +395,12 @@ export function CommandRoom() {
         </div>
         {/* v1.5.3-A — +Pane button extracted to AddPaneButton (owns disabled
             pill, error chip, and rpc.swarms.addAgent call). */}
+        {/* v1.13.1 — also passes activeWorkspace + swarmsLoading so the button
+            shows the correct message during the async hydration window. */}
         <AddPaneButton
-          swarmId={activeSwarm?.id ?? null}
+          activeWorkspace={activeWorkspace}
           activeSwarm={activeSwarm}
+          swarmsLoading={swarmsLoading}
           providers={providers}
         />
         {/* v1.7.1 W-5 Phase 2 — Workspace-wide skill binding chips (INFORMATIONAL). */}

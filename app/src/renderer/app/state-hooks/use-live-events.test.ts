@@ -5,10 +5,16 @@
 // causing `runRefreshOnEvent` to tear down and re-subscribe (plus fire an
 // immediate RPC fetch) on every session add/remove. Under rapid session
 // churn (multi-pane spawn/teardown) this spammed `rpc.review.list`.
+//
+// v1.13.1 — adds tests for the notification-sound subscriber:
+//   - tone plays on warn/error/critical added delta when enabled
+//   - silent on info-only delta
+//   - silent when toggle off
+//   - silent on removed-only / empty deltas
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import type { AgentSession, ReviewState } from '@/shared/types';
+import type { AgentSession, Notification, ReviewState } from '@/shared/types';
 import type { Action, AppState } from '../state.types';
 import { initialAppState } from '../state.types';
 
@@ -51,23 +57,35 @@ function emptyReview(workspaceId: string): ReviewState {
   return { workspaceId, sessions: [] };
 }
 
-vi.mock('@/renderer/lib/rpc', () => ({
-  rpc: {
-    review: { list: (id: string) => reviewListMock(id) },
-    skills: { list: () => Promise.resolve({ skills: [], states: [] }) },
-    memory: { list_memories: () => Promise.resolve([]) },
-    tasks: { list: () => Promise.resolve([]) },
-    swarms: { list: () => Promise.resolve([]) },
+// v1.13.1 — mock playNotificationTone so we can assert it was called/not called.
+const playNotificationToneMock = vi.fn();
+
+vi.mock('../../lib/notifications', () => ({
+  playNotificationTone: (...args: unknown[]) => playNotificationToneMock(...args),
+}));
+
+const rpcMock = {
+  review: { list: (id: string) => reviewListMock(id) },
+  skills: { list: () => Promise.resolve({ skills: [], states: [] }) },
+  memory: { list_memories: () => Promise.resolve([]) },
+  tasks: { list: () => Promise.resolve([]) },
+  swarms: { list: () => Promise.resolve([]) },
+};
+const rpcSilentMock = {
+  notifications: {
+    list: () => Promise.resolve([]),
+    unreadCount: () => Promise.resolve(0),
   },
+  kv: { get: () => Promise.resolve(null) },
+};
+
+vi.mock('@/renderer/lib/rpc', () => ({
+  rpc: rpcMock,
+  rpcSilent: rpcSilentMock,
 }));
 vi.mock('../../lib/rpc', () => ({
-  rpc: {
-    review: { list: (id: string) => reviewListMock(id) },
-    skills: { list: () => Promise.resolve({ skills: [], states: [] }) },
-    memory: { list_memories: () => Promise.resolve([]) },
-    tasks: { list: () => Promise.resolve([]) },
-    swarms: { list: () => Promise.resolve([]) },
-  },
+  rpc: rpcMock,
+  rpcSilent: rpcSilentMock,
 }));
 
 function session(id: string, status: AgentSession['status'] = 'running'): AgentSession {
@@ -112,6 +130,7 @@ beforeEach(() => {
   dispatch = vi.fn();
   reviewListMock.mockReset();
   reviewListMock.mockResolvedValue(emptyReview('a'));
+  playNotificationToneMock.mockReset();
 });
 
 afterEach(() => {
@@ -165,5 +184,160 @@ describe('useLiveEvents — Fix 6: review refresh churn on session add/remove', 
     });
 
     expect(reviewListMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---- v1.13.1 notification sound tests ---------------------------------------
+
+function makeNotification(
+  overrides: Partial<Notification> = {},
+): Notification {
+  return {
+    id: `n-${Math.random()}`,
+    workspaceId: 'a',
+    title: 'Test',
+    body: '',
+    severity: 'warn',
+    readAt: null,
+    createdAt: Date.now(),
+    source: 'system',
+    ...overrides,
+  };
+}
+
+describe('useLiveEvents — v1.13.1 notification sound', () => {
+  it('plays tone once per delta when added contains unread warn notification', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        added: [makeNotification({ severity: 'warn', readAt: null })],
+        removed: [],
+        unreadCount: 1,
+      });
+      await Promise.resolve();
+    });
+
+    expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('plays tone on error severity', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        added: [makeNotification({ severity: 'error', readAt: null })],
+        removed: [],
+        unreadCount: 1,
+      });
+      await Promise.resolve();
+    });
+
+    expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('plays tone on critical severity', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        added: [makeNotification({ severity: 'critical', readAt: null })],
+        removed: [],
+        unreadCount: 1,
+      });
+      await Promise.resolve();
+    });
+
+    expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('plays tone ONCE even when multiple alertable notifications are in the delta', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        added: [
+          makeNotification({ severity: 'warn', readAt: null }),
+          makeNotification({ severity: 'error', readAt: null }),
+        ],
+        removed: [],
+        unreadCount: 2,
+      });
+      await Promise.resolve();
+    });
+
+    // Once per delta, not once per notification row.
+    expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT play tone for info-only delta', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        added: [makeNotification({ severity: 'info', readAt: null })],
+        removed: [],
+        unreadCount: 1,
+      });
+      await Promise.resolve();
+    });
+
+    expect(playNotificationToneMock).not.toHaveBeenCalled();
+  });
+
+  it('does NOT play tone for removed-only delta', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        added: [],
+        removed: ['n-1'],
+        unreadCount: 0,
+      });
+      await Promise.resolve();
+    });
+
+    expect(playNotificationToneMock).not.toHaveBeenCalled();
+  });
+
+  it('does NOT play tone for empty delta', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        added: [],
+        removed: [],
+        unreadCount: 0,
+      });
+      await Promise.resolve();
+    });
+
+    expect(playNotificationToneMock).not.toHaveBeenCalled();
+  });
+
+  it('does NOT play tone when notification is already read (readAt set)', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        added: [makeNotification({ severity: 'warn', readAt: Date.now() })],
+        removed: [],
+        unreadCount: 0,
+      });
+      await Promise.resolve();
+    });
+
+    expect(playNotificationToneMock).not.toHaveBeenCalled();
   });
 });

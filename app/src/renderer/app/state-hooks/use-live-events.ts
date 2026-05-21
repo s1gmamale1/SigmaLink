@@ -21,6 +21,7 @@ import { rpc, rpcSilent } from '../../lib/rpc';
 import type { Action, AppState } from '../state.types';
 import type { Notification } from '../../../shared/types';
 import { parseBrowserState, parseSwarmMessage, runRefreshOnEvent } from './parsers';
+import { playNotificationTone } from '../../lib/notifications';
 
 export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void {
   // Listen for PTY exit so the UI can mark sessions accordingly.
@@ -169,6 +170,16 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
         : [];
       const unreadCount = typeof p.unreadCount === 'number' ? p.unreadCount : 0;
       dispatch({ type: 'NOTIFICATIONS_DELTA', added, removed, unreadCount });
+      // v1.13.1 — play a distinct tone once per delta when the delta contains
+      // new unread notifications of severity warn/error/critical. `info` stays
+      // silent. playNotificationTone() respects the `notifications.sound` kv
+      // toggle (default ON). Fire-and-forget — tone is non-critical.
+      const hasAlertable = added.some(
+        (n) => n.readAt == null && (n.severity === 'warn' || n.severity === 'error' || n.severity === 'critical'),
+      );
+      if (hasAlertable) {
+        void playNotificationTone();
+      }
     });
     return off;
   }, [dispatch]);

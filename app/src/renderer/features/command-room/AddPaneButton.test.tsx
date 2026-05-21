@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 //
 // v1.5.4-A — RTL tests for the extracted AddPaneButton component.
+// v1.13.1 — covers new getAddPaneDisabledReason(activeWorkspace, activeSwarm, swarmsLoading)
+//           and zero-swarms swarm-creation path.
 //
 // Tests cover:
-//   1. Pill visible when disabled (each of the 3 disabledReason variants)
+//   1. Pill visible when disabled (each of the 4 disabledReason variants)
 //   2. Pill hidden when enabled
 //   3. Click on enabled button opens DropdownMenu
 //   4. Selecting a provider calls addAgent rpc
@@ -14,19 +16,24 @@
 //   9. Multiple errors reset the timer — hardened (v1.5.4-A)
 //  10. Disabled-reason pill has aria-live="polite" and role="status"
 //  11. Error chip has aria-live="assertive" and role="alert"
+//  12. (v1.13.1) "Loading workspace…" pill while swarmsLoading
+//  13. (v1.13.1) Button enabled when workspace exists + swarm null + not loading
+//  14. (v1.13.1) Add-with-zero-swarms: swarms.create called before addAgent
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-library/react';
-import type { Swarm } from '@/shared/types';
+import type { Swarm, Workspace } from '@/shared/types';
 
 // ---- mocks -------------------------------------------------------------------
 
 const addAgentMock = vi.fn();
+const createSwarmMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     swarms: {
       addAgent: (...args: unknown[]) => addAgentMock(...args),
+      create: (...args: unknown[]) => createSwarmMock(...args),
     },
   },
 }));
@@ -102,6 +109,7 @@ beforeEach(() => {
 
   dispatchMock.mockReset();
   addAgentMock.mockReset();
+  createSwarmMock.mockReset();
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
 });
@@ -146,22 +154,38 @@ const DEFAULT_PROVIDERS = [
   { id: 'codex', name: 'Codex' },
 ];
 
+function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
+  return {
+    id: 'ws-1',
+    name: 'Workspace 1',
+    rootPath: '/tmp/ws-1',
+    repoRoot: null,
+    repoMode: 'plain',
+    createdAt: 0,
+    lastOpenedAt: 0,
+    ...overrides,
+  };
+}
+
 // Distinguish "not passed" (use default) vs "explicitly passed as null".
 interface RenderProps {
-  swarmId?: string | null;
+  activeWorkspace?: Workspace | null;
   activeSwarm?: Swarm | null;
+  swarmsLoading?: boolean;
   providers?: { id: string; name: string }[];
 }
 
 async function renderAddPaneButton(props: RenderProps = {}) {
   const { AddPaneButton } = await import('./AddPaneButton');
-  const swarmId = 'swarmId' in props ? (props.swarmId as string | null) : 'swarm-1';
+  const activeWorkspace = 'activeWorkspace' in props ? (props.activeWorkspace as Workspace | null) : makeWorkspace();
   const activeSwarm = 'activeSwarm' in props ? (props.activeSwarm as Swarm | null) : makeSwarm();
+  const swarmsLoading = props.swarmsLoading ?? false;
   const providers = 'providers' in props ? (props.providers as { id: string; name: string }[]) : DEFAULT_PROVIDERS;
   return render(
     <AddPaneButton
-      swarmId={swarmId}
+      activeWorkspace={activeWorkspace}
       activeSwarm={activeSwarm}
+      swarmsLoading={swarmsLoading}
       providers={providers}
     />,
   );
@@ -177,8 +201,8 @@ function clickProvider(name: string): void {
 // ---- tests -------------------------------------------------------------------
 
 describe('AddPaneButton — disabled reason pill', () => {
-  it('1a: shows pill "Open or create a workspace first" when activeSwarm is null', async () => {
-    await renderAddPaneButton({ activeSwarm: null, swarmId: null });
+  it('1a: shows pill "Open or create a workspace first" ONLY when activeWorkspace is null', async () => {
+    await renderAddPaneButton({ activeWorkspace: null, activeSwarm: null });
     const pill = screen.getByTestId('add-pane-disabled-reason');
     expect(pill.textContent).toContain('Open or create a workspace first');
   });
@@ -199,11 +223,23 @@ describe('AddPaneButton — disabled reason pill', () => {
     await renderAddPaneButton({ activeSwarm: makeSwarm({}, 5) });
     expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
   });
+
+  // v1.13.1 new cases
+  it('12: shows "Loading workspace…" while swarmsLoading is true (workspace set, swarm null)', async () => {
+    await renderAddPaneButton({ activeWorkspace: makeWorkspace(), activeSwarm: null, swarmsLoading: true });
+    const pill = screen.getByTestId('add-pane-disabled-reason');
+    expect(pill.textContent).toContain('Loading workspace');
+  });
+
+  it('13: button enabled (no pill) when workspace is set + swarm null + swarmsLoading false', async () => {
+    await renderAddPaneButton({ activeWorkspace: makeWorkspace(), activeSwarm: null, swarmsLoading: false });
+    expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
+  });
 });
 
 describe('AddPaneButton — a11y attributes', () => {
   it('10: disabled-reason pill has aria-live="polite" and role="status"', async () => {
-    await renderAddPaneButton({ activeSwarm: null, swarmId: null });
+    await renderAddPaneButton({ activeWorkspace: null, activeSwarm: null });
     const pill = screen.getByTestId('add-pane-disabled-reason');
     expect(pill.getAttribute('aria-live')).toBe('polite');
     expect(pill.getAttribute('role')).toBe('status');
@@ -404,4 +440,55 @@ describe('AddPaneButton — error chip', () => {
     await act(async () => { vi.advanceTimersByTime(4_001); });
     expect(screen.queryByTestId('add-pane-error-chip')).toBeNull();
   }, 20_000);
+});
+
+// ---- v1.13.1 zero-swarms path -----------------------------------------------
+
+describe('AddPaneButton — zero-swarms path (v1.13.1)', () => {
+  it('14: swarms.create is called before addAgent when activeSwarm is null but workspace is set', async () => {
+    const newSwarm = {
+      id: 'swarm-new',
+      workspaceId: 'ws-1',
+      name: 'Default swarm',
+      mission: 'Default swarm',
+      preset: 'custom',
+      status: 'running',
+      createdAt: 0,
+      endedAt: null,
+      agents: [],
+    };
+    createSwarmMock.mockResolvedValue(newSwarm);
+    addAgentMock.mockResolvedValue({
+      sessionId: 's-new',
+      paneIndex: 0,
+      agentKey: 'builder-1',
+      session: { id: 's-new', workspaceId: 'ws-1' },
+      swarm: newSwarm,
+    });
+
+    // No activeSwarm, workspace is set, not loading.
+    await renderAddPaneButton({
+      activeWorkspace: makeWorkspace(),
+      activeSwarm: null,
+      swarmsLoading: false,
+    });
+
+    // Button must be enabled (no disabled reason pill).
+    expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
+
+    clickProvider('Claude');
+
+    await waitFor(() => {
+      expect(createSwarmMock).toHaveBeenCalledTimes(1);
+    });
+    expect(createSwarmMock).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'ws-1', preset: 'custom' }),
+    );
+    await waitFor(() => {
+      expect(addAgentMock).toHaveBeenCalledWith({
+        swarmId: 'swarm-new',
+        providerId: 'claude',
+      });
+    });
+  });
 });
