@@ -131,10 +131,11 @@ export function EditorTab() {
   // W-8 — Sessions for the active workspace that carry a worktreePath.
   const paneWorktrees = useMemo(() => {
     if (!ws) return [];
-    return state.sessions
+    const sessions = state.sessions;
+    return sessions
       .filter((s) => s.workspaceId === ws.id && s.worktreePath)
       // Deduplicate by worktreePath so multiple panes on the same branch show once.
-      .reduce<typeof state.sessions>((acc, s) => {
+      .reduce<typeof sessions>((acc, s) => {
         if (!acc.some((a) => a.worktreePath === s.worktreePath)) acc.push(s);
         return acc;
       }, []);

@@ -2,7 +2,7 @@
 // Verifies that files inside a worktree root are accepted and files outside
 // are rejected, ensuring the save path-containment fix for per-pane worktrees.
 
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -74,12 +74,10 @@ describe('fsWriteFile — path-containment guard', () => {
 
   it('rejects missing path or repoRoot', async () => {
     await expect(
-      // @ts-expect-error — intentional bad input
       fsWriteFile({ path: '', content: 'x', repoRoot: '/tmp' }),
     ).rejects.toThrow('path and repoRoot required');
 
     await expect(
-      // @ts-expect-error — intentional bad input
       fsWriteFile({ path: '/tmp/foo', content: 'x', repoRoot: '' }),
     ).rejects.toThrow('path and repoRoot required');
   });

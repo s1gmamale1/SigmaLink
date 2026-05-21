@@ -370,13 +370,13 @@ describe('EditorTab — W-8 root selector', () => {
   it('"Follow focused pane" falls back to workspace root when active session has no worktreePath', async () => {
     const sessionNoWorktree = { ...mockSession1, worktreePath: null };
     mockStateOverride = {
-      sessions: [sessionNoWorktree as typeof mockSession1],
+      sessions: [sessionNoWorktree as unknown as typeof mockSession1],
       activeSessionId: 'sess-1',
     };
     // We need at least one pane WITH worktreePath for the selector to render.
     // Add a second session that has a worktree.
     mockStateOverride.sessions = [
-      sessionNoWorktree as typeof mockSession1,
+      sessionNoWorktree as unknown as typeof mockSession1,
       mockSession2,
     ];
     kvGetMock.mockResolvedValue(null);
