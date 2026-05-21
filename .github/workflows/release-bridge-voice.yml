@@ -93,7 +93,7 @@ jobs:
         run: node apps/bridge-voice/scripts/build.cjs
 
       - name: Build macOS DMG (ad-hoc signed, unnotarized)
-        run: pnpm exec electron-builder --mac dmg --config electron-builder.yml --publish never
+        run: pnpm exec electron-builder --mac --config electron-builder.yml --publish never
         working-directory: app/apps/bridge-voice
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
