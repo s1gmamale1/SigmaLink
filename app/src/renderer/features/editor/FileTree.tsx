@@ -1,6 +1,8 @@
 // V3-W14-007 — Recursive file tree for the Editor tab. Roots at the active
 // workspace's repoRoot (or rootPath for plain folders). Directory contents
-// load lazily; expanded paths persist as `editor.<workspaceId>.expandedPaths`.
+// load lazily; expanded paths persist per root as
+// `editor.<workspaceId>.<encodedRoot>.expandedPaths` so that switching to a
+// different tree root (W-8 worktree browsing) does not bleed expansion state.
 
 import {
   memo,
@@ -63,8 +65,12 @@ interface Props {
 const KV_PREFIX = 'editor.';
 const KV_SUFFIX = '.expandedPaths';
 
-function kvKey(workspaceId: string): string {
-  return `${KV_PREFIX}${workspaceId}${KV_SUFFIX}`;
+// W-8 — Include rootPath in the KV key so different tree roots (workspace root
+// vs. pane worktrees) maintain independent expansion state. The rootPath is
+// URL-encoded to strip path separators from the key string.
+function kvKey(workspaceId: string, rootPath: string): string {
+  const encodedRoot = encodeURIComponent(rootPath);
+  return `${KV_PREFIX}${workspaceId}.${encodedRoot}${KV_SUFFIX}`;
 }
 
 // Remount-on-workspace-change wrapper. Keying the inner component gives us a
@@ -87,7 +93,7 @@ function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Prop
     hydratedRef.current = false;
     void (async () => {
       try {
-        const raw = await rpcSilent.kv.get(kvKey(workspaceId));
+        const raw = await rpcSilent.kv.get(kvKey(workspaceId, rootPath));
         if (!alive) return;
         if (raw) {
           const parsed = JSON.parse(raw) as unknown;
@@ -149,8 +155,8 @@ function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Prop
   useEffect(() => {
     if (!hydratedRef.current) return;
     const arr = Array.from(expanded);
-    void rpcSilent.kv.set(kvKey(workspaceId), JSON.stringify(arr)).catch(() => undefined);
-  }, [expanded, workspaceId]);
+    void rpcSilent.kv.set(kvKey(workspaceId, rootPath), JSON.stringify(arr)).catch(() => undefined);
+  }, [expanded, workspaceId, rootPath]);
 
   const toggle = useCallback((p: string) => {
     setExpanded((prev) => {

@@ -4,6 +4,12 @@
 // read-only <pre> fallback. Theme map: parchment → vs-light, all others
 // → vs-dark. External callers focus a file by dispatching the
 // `editor:focus` CustomEvent (see useEditor.ts).
+//
+// W-8 — Per-pane worktree browsing. A root selector above the FileTree lets
+// the user switch between the workspace root, any open pane's worktreePath,
+// or the "Follow focused pane" auto-mode. Selection persists in KV under
+// `editor.<workspaceId>.rootSelection`. Save path-containment passes the
+// active root so worktree edits are accepted by the fs.writeFile guard.
 
 import {
   Component,
@@ -17,11 +23,12 @@ import {
   type ComponentType,
   type ReactNode,
 } from 'react';
-import { AlertTriangle, FileCode2, Save } from 'lucide-react';
+import { AlertTriangle, ChevronDown, FileCode2, Save } from 'lucide-react';
 import { useTheme } from '@/renderer/app/ThemeProvider';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { rpc } from '@/renderer/lib/rpc';
+import type { AgentSession } from '@/shared/types';
 import { FileTree } from './FileTree';
 import {
   EDITOR_FOCUS_EVENT,
@@ -66,6 +73,13 @@ const EDITOR_SIDEBAR_MIN = 160;
 const EDITOR_SIDEBAR_MAX = 600;
 const EDITOR_SIDEBAR_KV_KEY = 'editor.sidebar.width';
 
+// W-8 — Root selection KV key template.
+const ROOT_SELECTION_KV_KEY = (workspaceId: string) =>
+  `editor.${workspaceId}.rootSelection`;
+
+// W-8 — Possible persisted values for the root selector.
+type RootSelection = 'workspace' | 'follow' | string; // string = specific worktreePath
+
 export function EditorTab() {
   const { state } = useAppState();
   const { theme } = useTheme();
@@ -77,6 +91,9 @@ export function EditorTab() {
   const isDragging = useRef(false);
   const rafHandle = useRef<number | null>(null);
 
+  // W-8 — Root selector state. Default 'workspace' = zero behaviour change.
+  const [rootSelection, setRootSelectionState] = useState<RootSelection>('workspace');
+
   useEffect(() => {
     void rpc.kv.get(EDITOR_SIDEBAR_KV_KEY).then((v) => {
       const n = Number(v);
@@ -85,6 +102,65 @@ export function EditorTab() {
       }
     });
   }, []);
+
+  const ws = state.activeWorkspace;
+
+  // W-8 — Hydrate root selection from KV on workspace change.
+  useEffect(() => {
+    if (!ws) return;
+    void rpc.kv.get(ROOT_SELECTION_KV_KEY(ws.id)).then((v) => {
+      if (v === 'workspace' || v === 'follow' || (typeof v === 'string' && v.startsWith('/'))) {
+        setRootSelectionState(v);
+      } else {
+        setRootSelectionState('workspace');
+      }
+    });
+  }, [ws?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // W-8 — Persist root selection to KV whenever it changes.
+  const setRootSelection = useCallback(
+    (next: RootSelection) => {
+      setRootSelectionState(next);
+      if (ws) {
+        void rpc.kv.set(ROOT_SELECTION_KV_KEY(ws.id), next);
+      }
+    },
+    [ws],
+  );
+
+  // W-8 — Sessions for the active workspace that carry a worktreePath.
+  const paneWorktrees = useMemo(() => {
+    if (!ws) return [];
+    return state.sessions
+      .filter((s) => s.workspaceId === ws.id && s.worktreePath)
+      // Deduplicate by worktreePath so multiple panes on the same branch show once.
+      .reduce<typeof state.sessions>((acc, s) => {
+        if (!acc.some((a) => a.worktreePath === s.worktreePath)) acc.push(s);
+        return acc;
+      }, []);
+  }, [state.sessions, ws]);
+
+  // W-8 — The session currently focused (by sigma:pty-focus / activeSessionId).
+  const activeSession = useMemo(
+    () => (state.activeSessionId
+      ? state.sessions.find((s) => s.id === state.activeSessionId) ?? null
+      : null),
+    [state.sessions, state.activeSessionId],
+  );
+
+  // W-8 — Resolve the actual tree root from the selection.
+  const treeRoot = useMemo((): string | null => {
+    const wsRoot = ws?.repoRoot ?? ws?.rootPath ?? null;
+    if (!ws || !wsRoot) return null;
+    if (rootSelection === 'workspace') return wsRoot;
+    if (rootSelection === 'follow') {
+      // Use focused pane's worktree if it has one, else fall back to workspace root.
+      return activeSession?.worktreePath ?? wsRoot;
+    }
+    // Explicit worktree path selected — verify it still exists in open panes.
+    const stillOpen = paneWorktrees.some((s) => s.worktreePath === rootSelection);
+    return stillOpen ? rootSelection : wsRoot;
+  }, [ws, rootSelection, activeSession, paneWorktrees]);
 
   const startEditorSidebarDrag = useCallback(
     (ev: React.PointerEvent<HTMLDivElement>) => {
@@ -143,9 +219,6 @@ export function EditorTab() {
     [sidebarWidth],
   );
 
-  const ws = state.activeWorkspace;
-  const treeRoot = ws?.repoRoot ?? ws?.rootPath ?? null;
-
   // External "open this file" listener — lets chat/pane footers focus a file
   // path here without needing a direct ref.
   useEffect(() => {
@@ -165,10 +238,12 @@ export function EditorTab() {
     [editor],
   );
 
+  // W-8 — Save must pass the active treeRoot (which may be a worktree path) so
+  // the fs.writeFile containment guard accepts files under that worktree.
   const handleSave = useCallback(() => {
-    if (!ws?.repoRoot) return;
-    void editor.save(ws.repoRoot);
-  }, [editor, ws]);
+    if (!treeRoot) return;
+    void editor.save(treeRoot);
+  }, [editor, treeRoot]);
 
   // Cmd/Ctrl+S triggers save while focus is anywhere in the tab.
   useEffect(() => {
@@ -208,6 +283,12 @@ export function EditorTab() {
         style={{ width: sidebarWidth }}
         aria-label="File tree"
       >
+        {/* W-8 — Root selector dropdown above the file tree. */}
+        <RootSelector
+          paneWorktrees={paneWorktrees}
+          selection={rootSelection}
+          onSelect={setRootSelection}
+        />
         <FileTree
           workspaceId={ws.id}
           rootPath={treeRoot}
@@ -233,7 +314,7 @@ export function EditorTab() {
           file={editor.file}
           dirty={editor.dirty}
           onSave={handleSave}
-          canSave={!!ws.repoRoot}
+          canSave={!!treeRoot}
         />
         <div className="relative flex min-h-0 flex-1">
           {editor.error ? (
@@ -284,6 +365,65 @@ export function EditorTab() {
           </div>
         ) : null}
       </section>
+    </div>
+  );
+}
+
+// W-8 — Root selector component. Lists workspace root, each open pane's
+// worktreePath, and the "Follow focused pane" auto-mode option.
+function RootSelector({
+  paneWorktrees,
+  selection,
+  onSelect,
+}: {
+  paneWorktrees: AgentSession[];
+  selection: RootSelection;
+  onSelect: (v: RootSelection) => void;
+}) {
+  // Only render the selector when there are pane worktrees to show.
+  if (paneWorktrees.length === 0) return null;
+
+  // Derive a short label for a worktree path: provider · branch.
+  function paneLabel(s: AgentSession): string {
+    const branch = s.branch ?? s.worktreePath?.split('/').pop() ?? 'worktree';
+    return `${s.providerId} · ${branch}`;
+  }
+
+  // Human-readable label for the current selection.
+  function currentLabel(): string {
+    if (selection === 'workspace') return 'Workspace root';
+    if (selection === 'follow') return 'Follow focused pane';
+    const found = paneWorktrees.find((s) => s.worktreePath === selection);
+    return found ? paneLabel(found) : 'Workspace root';
+  }
+
+  return (
+    <div className="border-b border-border px-2 py-1">
+      <label className="sr-only" htmlFor="editor-root-selector">
+        File tree root
+      </label>
+      <div className="relative">
+        <select
+          id="editor-root-selector"
+          value={selection}
+          onChange={(e) => onSelect(e.target.value as RootSelection)}
+          aria-label="File tree root"
+          className="w-full appearance-none truncate rounded bg-transparent py-0.5 pl-1 pr-5 text-[11px] text-muted-foreground hover:bg-accent/30 focus:outline-none cursor-pointer"
+          title={currentLabel()}
+        >
+          <option value="workspace">Workspace root</option>
+          <option value="follow">Follow focused pane</option>
+          {paneWorktrees.map((s) => (
+            <option key={s.id} value={s.worktreePath!}>
+              {paneLabel(s)}
+            </option>
+          ))}
+        </select>
+        <ChevronDown
+          className="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+      </div>
     </div>
   );
 }
