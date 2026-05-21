@@ -10,6 +10,11 @@ dist/
 electron-dist/
 release/
 
+# Native module compile artifacts (node-gyp / node-api builds)
+app/native/*/build/
+app/packages/*/dist/
+app/apps/*/dist/
+
 # Packaged installers / signed bundles
 *.dmg
 *.exe
@@ -100,8 +105,11 @@ opencode.json
 # Ruflo init footprint inside app/ (CLAUDE.md is tracked at repo root only)
 app/CLAUDE.md
 app/scripts/ruflo-mcp-filter.mjs
-app/pnpm-workspace.yaml
 app/pnpm-lock.yaml
+# NOTE: app/pnpm-workspace.yaml is now TRACKED (v1.7.0) — it holds the
+# monorepo workspace `packages:` list (voice-core, bridge-voice, native/*)
+# that CI's `pnpm install` needs to resolve @sigmalink/voice-core. It was
+# previously a gitignored Ruflo-init footprint (allowBuilds stub only).
 
 # Obsidian vault — per-machine workspace state + plugin data + graph layout.
 # The vault content (00-Index.md and the 01..10 numbered notes) are symlinks

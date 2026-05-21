@@ -382,6 +382,13 @@ export interface AppRouter {
         message: string;
       }>;
     }>;
+    /** v1.6.1 B3 — Discover superpowers + Ruflo skills from the on-disk plugin
+     *  cache. Returns an empty array if no cache directories are present. */
+    listInstalled: () => Promise<Array<{
+      name: string;
+      description: string;
+      source: 'superpowers' | 'ruflo' | 'custom';
+    }>>;
   };
   memory: {
     // CRUD (6)
@@ -895,6 +902,18 @@ export interface AppRouter {
       mode: 'fast' | 'strict';
       errors: Array<{ cli: 'claude' | 'codex' | 'gemini' | 'kimi' | 'opencode'; message: string }>;
     }>;
+    /** v1.6.1 B2 — Returns status rows for all tracked per-workspace HTTP daemons.
+     *  Pass a workspaceId to filter to one; omit to list all. */
+    daemonStatus: (workspaceId?: string) => Promise<Array<{
+      workspaceId: string;
+      status: string;
+      port: number;
+      pid: number;
+      uptime: number;
+      connections: number | null;
+    }>>;
+    /** v1.6.1 B2 — Stop + re-spawn the HTTP daemon for a single workspace. */
+    restartDaemon: (workspaceId: string) => Promise<{ ok: boolean; error?: string }>;
   };
   voice: {
     start: (input: {

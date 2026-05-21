@@ -4,6 +4,65 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-05-21
+
+v1.7.0 — "finish open items" bundle: closes the remaining small/medium wishlist items + extracts the voice-capture stack into a shared package with a standalone BridgeVoice app scaffold. Three parallel Sonnet coder clusters (worktree-isolated), lead-merged.
+
+### SigmaVoice → BridgeVoice extraction (groundwork)
+
+"BridgeVoice" was the original product name for SigmaLink's voice module (still visible in `app/native/voice-mac/package.json` description). This release extracts the self-contained global-capture stack into a shared package so a standalone dictation app can consume it:
+
+- **`@sigmalink/voice-core`** (new package, `app/packages/voice-core/`) — extracts `global-capture.ts` + `output-router.ts` + `whisper-engine.ts` + `model-registry.ts` with full dependency injection (Electron APIs, `emit`, KV accessors, `modelsDir`, `clipboard` all injected — no SigmaLink-specific imports).
+- **Native packages promoted to pnpm workspace members** — `@sigmalink/voice-mac`, `@sigmalink/voice-win`, `@sigmalink/voice-whisper` are now real workspace members (via `app/pnpm-workspace.yaml`) instead of `createRequire` path-walking.
+- **SigmaLink consumes `@sigmalink/voice-core`** — `app/electron/main.ts` imports `buildGlobalCaptureController` from the shared package (added as a `workspace:*` dependency). No behavior change; all existing voice IPC channels + events work identically.
+- **`@sigmalink/bridge-voice`** (new app scaffold, `app/apps/bridge-voice/`) — a runnable standalone Electron app: Tray + global hotkey + `buildGlobalCaptureController` + minimal settings window (model download, hotkey rebind, output mode). System-wide dictation: hotkey → capture → whisper transcribe → clipboard/AX-paste into the focused app. No workspace/pane/session logic.
+- **A1 hardware sample-rate detection** — the macOS native binding (`voice-mac`) now reports the actual hardware sample rate through the `onPcm` callback (`{ samples, sampleRate }`); `voice-core`'s resampler uses the real rate instead of a hardcoded 48 kHz constant, falling back to 48 kHz for bare-array chunks (Win/other). Fixes mild pitch error on 44.1 kHz hardware.
+
+**Explicitly deferred** (documented in `app/apps/bridge-voice/README.md`): production packaging for the standalone app — its own `electron-builder.yml` target, macOS entitlements (`NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription`, audio-input), codesigning identity, DMG/NSIS build matrix, CI lane. The standalone app is a runnable dev scaffold this release, not a signed installer.
+
+### Ruflo HTTP daemon Settings UI (B2)
+
+v1.6.0 shipped the per-workspace Ruflo HTTP daemon but had no UI to observe it. This release adds a "Ruflo Daemon" section to Settings → Ruflo:
+
+- New `RufloHttpDaemonSupervisor.list()` returns all tracked daemon handles.
+- New RPC handlers `ruflo.daemonStatus(workspaceId?)` (best-effort `/health` probe for live connection counts) + `ruflo.restartDaemon(workspaceId)`.
+- Settings table: workspace / status badge / port / PID / uptime / connections + per-row Restart button. Polls every 5 s while the tab is open.
+
+### Skills tab in right panel — Phase 1 (B3, read-only discovery)
+
+New "Skills" tab in the right-rail icon strip next to Browser / IDE / Sigma Assistant:
+
+- New RPC handler `skills.listInstalled()` discovers superpowers skills (`~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/*/SKILL.md`, frontmatter-parsed) + Ruflo skills, tolerant of missing directories.
+- Searchable list; each row shows name + description + source badge (superpowers / ruflo / custom); click to expand full description + "Copy /name" to clipboard.
+- Phase 1 is read-only discovery only. Drag-drop activation + per-pane/workspace binding + persistence are Phase 2 (deferred — requires resolving activation-semantics + persistence-layer design questions).
+
+### Correctness + hygiene
+
+- **A2 — `(workspace_id, pane_index)` uniqueness** — migration 0020 dedupes existing duplicate rows (keeps most-recent `started_at`, tie-break highest id) then creates a partial UNIQUE index `WHERE pane_index IS NOT NULL`. Spawn paths in `launcher.ts` + `factory-spawn.ts` now catch the UNIQUE violation gracefully instead of crashing. Closes the concurrent-rapid-spawn race surfaced by the v1.5.5 Cluster B audit.
+- **A5 — eslint warning eliminated** — `use-session-restore.ts` `react-hooks/exhaustive-deps` warning (flagged in every gate since v1.5.3) properly fixed via `useMemo` stabilization of `snapshotEntries` + adding `wsId` to the effect deps. The whole repo now passes `eslint --max-warnings 0`.
+- **OPEN.md doc cleanup** — 15 stale `Status: open` bug entries (all closed in v1.1.2–v1.4.7) flipped to `closed (shipped <version>)` with the closing version noted.
+
+### Combined main gate
+
+- tsc clean
+- vitest 102 files / 962 pass / 1 skip (+30 from v1.6.0 baseline: voice-core 83-test suite reorg + migration 0020 + A1 resample tests)
+- eslint **0 errors / 0 warnings** (first zero-warning gate since v1.5.3 — A5 closed the long-standing one)
+- build + electron compile clean (after wiring `@sigmalink/voice-core` as a `workspace:*` dependency so esbuild resolves the bundle)
+- Playwright smoke e2e 37 s pass — app boots, voice-core integrated, native modules load (ABI verified)
+
+### Deferred (NOT in this release — honest scope)
+
+These are genuinely multi-day-to-multi-month and were not force-shipped:
+
+- **W-4 shell-first pane architecture** (~14 days) — the v1.5.6 empty-pane root cause lives here; trigger-gated, not yet met.
+- **V3 Wave 12-15 parity** (45 tickets, multi-month) — launcher chrome, swarm wizard, right-rail dock, Operator Console body, Bridge Assistant chat panel, constellation graph, Bridge Canvas, BridgeVoice intake.
+- **W-5 Skills tab Phase 2** (drag-drop + persistence, ~5-7 days).
+- **W-6 Sigma Assistant → Jorvis rename** — full IPC-channel + DB-table + file-name sweep is high-blast-radius; deferred to its own focused release with a reviewer cycle rather than rushed into this bundle.
+- **BridgeVoice production installers** — codesigning + 2nd electron-builder target + CI matrix (the multi-day packaging tail of the voice extraction).
+- **V3-W15-006 dogfood** — human-only QA exercise.
+
+No schema migrations beyond 0020 in v1.7.0.
+
 ## [1.6.0] - 2026-05-21
 
 v1.6.0 — **Ruflo MCP HTTP daemon mode** (W-7 from v1.5.6 architectural backlog). Per-workspace daemon spawned by SigmaLink at workspace open; all 5 CLI clients in that workspace point at one shared HTTP MCP endpoint instead of each spawning its own short-lived stdio process.

@@ -1,0 +1,16 @@
+# pnpm workspace configuration.
+#
+# Native packages are promoted to workspace members so that:
+#   1. `pnpm install` resolves them as symlinked workspace deps rather than
+#      path-resolved CJS requires.
+#   2. `@sigmalink/voice-core` and `@sigmalink/bridge-voice` can declare
+#      workspace:* dependencies on them without falling back to path-walking.
+#
+# v1.4.8 Cluster B — added native/*, packages/voice-core, apps/bridge-voice.
+
+packages:
+  - native/voice-mac
+  - native/voice-win
+  - native/voice-whisper
+  - packages/voice-core
+  - apps/bridge-voice

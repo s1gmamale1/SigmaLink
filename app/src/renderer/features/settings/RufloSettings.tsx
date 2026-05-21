@@ -11,8 +11,8 @@
 // already auto-degrade based on `ruflo.health.state`, so a single source of
 // truth (the supervisor) keeps the UI honest.
 
-import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Sparkles, AlertTriangle, CheckCircle2, Power, Download } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2, Sparkles, AlertTriangle, CheckCircle2, Power, Download, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -23,7 +23,18 @@ const KV_TELEMETRY_OPT_IN = 'ruflo.telemetry.optIn';
 const KV_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
 const KV_STRICT_MCP_VERIFICATION = 'ruflo.strictMcpVerification';
 
+const DAEMON_POLL_INTERVAL_MS = 5_000;
+
 type RufloState = 'absent' | 'starting' | 'ready' | 'degraded' | 'down';
+
+interface DaemonStatusRow {
+  workspaceId: string;
+  status: string;
+  port: number;
+  pid: number;
+  uptime: number;
+  connections: number | null;
+}
 
 interface RufloHealth {
   state: RufloState;
@@ -80,6 +91,9 @@ export function RufloSettings() {
   const [telemetry, setTelemetry] = useState<boolean>(false);
   const [autowriteMcp, setAutowriteMcp] = useState<boolean>(true);
   const [strictMcpVerification, setStrictMcpVerification] = useState<boolean>(false);
+  const [daemons, setDaemons] = useState<DaemonStatusRow[]>([]);
+  const [restartingDaemon, setRestartingDaemon] = useState<string | null>(null);
+  const daemonPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Hydrate health + telemetry on mount.
   useEffect(() => {
@@ -129,6 +143,41 @@ export function RufloSettings() {
       offHealth();
       offProgress();
     };
+  }, []);
+
+  // Poll daemon status every 5s while settings tab is mounted.
+  useEffect(() => {
+    let alive = true;
+    const fetchDaemons = async () => {
+      try {
+        const rows = await rpcSilent.ruflo.daemonStatus();
+        if (alive && Array.isArray(rows)) setDaemons(rows as DaemonStatusRow[]);
+      } catch {
+        /* ignore — daemon status is best-effort */
+      }
+    };
+    void fetchDaemons();
+    daemonPollRef.current = setInterval(() => { void fetchDaemons(); }, DAEMON_POLL_INTERVAL_MS);
+    return () => {
+      alive = false;
+      if (daemonPollRef.current) clearInterval(daemonPollRef.current);
+    };
+  }, []);
+
+  const onRestartDaemon = useCallback(async (workspaceId: string) => {
+    setRestartingDaemon(workspaceId);
+    try {
+      const result = await rpc.ruflo.restartDaemon(workspaceId);
+      if (!result.ok) {
+        toast.error(result.error ?? 'Daemon restart failed');
+      } else {
+        toast.success('Daemon restarting…');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRestartingDaemon(null);
+    }
   }, []);
 
   const onInstall = useCallback(async () => {
@@ -196,6 +245,72 @@ export function RufloSettings() {
             </div>
           ) : null}
         </div>
+      </section>
+
+      {/* v1.6.1 B2 — Per-workspace Ruflo HTTP daemon table. */}
+      <section>
+        <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Ruflo Daemon
+        </div>
+        {daemons.length === 0 ? (
+          <div className="rounded-md border border-border bg-card/40 p-3 text-xs text-muted-foreground">
+            No workspace daemons running.
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-md border border-border bg-card/40">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border text-muted-foreground">
+                  <th className="px-3 py-2 text-left font-medium">Workspace</th>
+                  <th className="px-3 py-2 text-left font-medium">Status</th>
+                  <th className="px-3 py-2 text-left font-medium">Port</th>
+                  <th className="px-3 py-2 text-left font-medium">PID</th>
+                  <th className="px-3 py-2 text-left font-medium">Uptime</th>
+                  <th className="px-3 py-2 text-left font-medium">Conn.</th>
+                  <th className="px-3 py-2 text-left font-medium" />
+                </tr>
+              </thead>
+              <tbody>
+                {daemons.map((row) => (
+                  <tr key={row.workspaceId} className="border-b border-border last:border-0">
+                    <td className="max-w-[160px] truncate px-3 py-2 font-mono" title={row.workspaceId}>
+                      {row.workspaceId}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={cn(
+                        'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium',
+                        row.status === 'running' && 'bg-emerald-100/10 text-emerald-300',
+                        row.status === 'starting' && 'bg-yellow-100/10 text-yellow-300',
+                        (row.status === 'crashed' || row.status === 'down') && 'bg-red-100/10 text-red-400',
+                      )}>
+                        {row.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-mono">{row.port > 0 ? row.port : '—'}</td>
+                    <td className="px-3 py-2 font-mono">{row.pid > 0 ? row.pid : '—'}</td>
+                    <td className="px-3 py-2">{formatUptime(row.uptime)}</td>
+                    <td className="px-3 py-2">{row.connections !== null ? row.connections : '—'}</td>
+                    <td className="px-3 py-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={restartingDaemon === row.workspaceId}
+                        onClick={() => void onRestartDaemon(row.workspaceId)}
+                        className="h-6 gap-1 px-2 text-[10px]"
+                      >
+                        {restartingDaemon === row.workspaceId
+                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                          : <RefreshCw className="h-3 w-3" />
+                        }
+                        Restart
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {/* Phase 4 Track C — Install / re-download. Option B (lazy-download)
@@ -306,6 +421,16 @@ export function RufloSettings() {
       </section>
     </div>
   );
+}
+
+function formatUptime(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '0s';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
 }
 
 function progressLabel(phase: InstallProgress['phase']): string {

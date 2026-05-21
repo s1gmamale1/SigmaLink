@@ -2,16 +2,25 @@
 // renderer. Every method that mutates state emits `skills:changed` via the
 // manager-supplied broadcaster (registered in `rpc-router.ts`).
 
+import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { defineController } from '../../../shared/rpc';
 import type { Skill, SkillProviderState } from '../../../shared/types';
 import type { SkillFanoutVerification, SkillsManager } from './manager';
 import { isProviderTarget, type ProviderTarget } from './types';
+import { parseSkillMd } from './frontmatter';
 import {
   installFromUrl as runInstallFromUrl,
   type InstallFromUrlResult,
   type InstallProgressEvent,
 } from './marketplace';
+
+export interface InstalledSkillEntry {
+  name: string;
+  description: string;
+  source: 'superpowers' | 'ruflo' | 'custom';
+}
 
 export interface SkillsControllerDeps {
   manager: SkillsManager;
@@ -101,6 +110,14 @@ export function buildSkillsController(deps: SkillsControllerDeps) {
       emit('skills:workspace-verified', result);
       return result;
     },
+
+    // v1.6.1 B3 — Skills tab Phase 1 read-only discovery.
+    // Discovers superpowers skills from the official plugins cache; Ruflo skills
+    // from the embedded Ruflo plugin cache (best-effort); falls back gracefully
+    // to an empty list when directories are absent.
+    listInstalled: async (): Promise<InstalledSkillEntry[]> => {
+      return discoverInstalledSkills();
+    },
   });
 }
 
@@ -108,4 +125,102 @@ export function buildSkillsController(deps: SkillsControllerDeps) {
  *  managed-skills root so admins can wipe both with a single rm. */
 export function defaultMarketplaceTempDir(userData: string): string {
   return path.join(userData, 'marketplace-tmp');
+}
+
+/**
+ * Discover installed superpowers (and optionally Ruflo) skills by scanning
+ * the on-disk plugin cache directories. Tolerates missing directories by
+ * returning an empty list — never throws.
+ *
+ * Scan path: ~/.claude/plugins/cache/claude-plugins-official/superpowers/<plugin>/skills/<skill>/SKILL.md
+ */
+function discoverInstalledSkills(): InstalledSkillEntry[] {
+  const results: InstalledSkillEntry[] = [];
+
+  // Superpowers skills: ~/.claude/plugins/cache/claude-plugins-official/superpowers/<plugin>/skills/<skill>/SKILL.md
+  try {
+    const superpowersBase = path.join(
+      os.homedir(),
+      '.claude',
+      'plugins',
+      'cache',
+      'claude-plugins-official',
+      'superpowers',
+    );
+    if (fs.existsSync(superpowersBase)) {
+      const pluginDirs = safeReaddir(superpowersBase);
+      for (const pluginDir of pluginDirs) {
+        const skillsDir = path.join(superpowersBase, pluginDir, 'skills');
+        if (!fs.existsSync(skillsDir)) continue;
+        const skillDirs = safeReaddir(skillsDir);
+        for (const skillDir of skillDirs) {
+          const skillMd = path.join(skillsDir, skillDir, 'SKILL.md');
+          if (!fs.existsSync(skillMd)) continue;
+          try {
+            const text = fs.readFileSync(skillMd, 'utf8');
+            const parsed = parseSkillMd(text, skillDir);
+            if (parsed.ok) {
+              results.push({
+                name: parsed.data.name,
+                description: parsed.data.description,
+                source: 'superpowers',
+              });
+            }
+          } catch {
+            /* skip unreadable files */
+          }
+        }
+      }
+    }
+  } catch {
+    /* tolerate any fs error */
+  }
+
+  // Ruflo skills: ~/.claude/plugins/cache/ruflo/*/skills/*/SKILL.md (best-effort)
+  try {
+    const rufloBase = path.join(
+      os.homedir(),
+      '.claude',
+      'plugins',
+      'cache',
+      'ruflo',
+    );
+    if (fs.existsSync(rufloBase)) {
+      const pluginDirs = safeReaddir(rufloBase);
+      for (const pluginDir of pluginDirs) {
+        const skillsDir = path.join(rufloBase, pluginDir, 'skills');
+        if (!fs.existsSync(skillsDir)) continue;
+        const skillDirs = safeReaddir(skillsDir);
+        for (const skillDir of skillDirs) {
+          const skillMd = path.join(skillsDir, skillDir, 'SKILL.md');
+          if (!fs.existsSync(skillMd)) continue;
+          try {
+            const text = fs.readFileSync(skillMd, 'utf8');
+            const parsed = parseSkillMd(text, skillDir);
+            if (parsed.ok) {
+              results.push({
+                name: parsed.data.name,
+                description: parsed.data.description,
+                source: 'ruflo',
+              });
+            }
+          } catch {
+            /* skip unreadable files */
+          }
+        }
+      }
+    }
+  } catch {
+    /* best-effort */
+  }
+
+  return results;
+}
+
+function safeReaddir(dir: string): string[] {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
 }

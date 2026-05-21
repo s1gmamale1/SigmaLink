@@ -45,6 +45,23 @@ export type NativeVoiceState =
   | 'final'
   | 'error';
 
+/**
+ * PCM chunk payload delivered by `onPcm`.
+ *
+ * A1 (v1.4.8): the binding now wraps each PCM buffer in an object that also
+ * carries the actual hardware sample rate from `AVAudioFormat.sampleRate`.
+ * Callers must resample to 16 kHz using this rate rather than assuming 48 kHz.
+ */
+export interface PcmChunkPayload {
+  /** Mono Float32 PCM samples at `sampleRate` Hz. */
+  samples: Float32Array;
+  /**
+   * Hardware sample rate in Hz (e.g. 48000, 44100).
+   * Sourced from `[AVAudioInputNode outputFormatForBus:0].sampleRate`.
+   */
+  sampleRate: number;
+}
+
 export interface SigmaVoiceMac {
   /**
    * True when the module loaded a native binary (darwin only) AND
@@ -114,6 +131,18 @@ export interface SigmaVoiceMac {
    * 'idle' → 'listening' → 'partial' → 'final' → 'idle' (or 'error').
    */
   onState(cb: (state: NativeVoiceState) => void): UnsubscribeFn;
+
+  /**
+   * Register a callback that receives raw Float32 PCM chunks from the
+   * AVAudioEngine input-node tap (macOS only). Call this BEFORE start().
+   *
+   * A1 (v1.4.8): the payload is `{ samples: Float32Array, sampleRate: number }`
+   * where `sampleRate` is the actual hardware rate from AVAudioFormat.
+   * Callers must resample to 16 kHz using this rate rather than assuming 48 kHz.
+   *
+   * Returns an unsubscribe stub (rebind to clear).
+   */
+  onPcm(cb: (chunk: PcmChunkPayload) => void): UnsubscribeFn;
 }
 
 declare const voiceMac: SigmaVoiceMac;

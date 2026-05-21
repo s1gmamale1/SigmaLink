@@ -7,8 +7,8 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeImage } from 'electron';
-import { buildGlobalCaptureController, type GlobalCaptureController } from '../src/main/core/voice/global-capture';
+import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeImage, clipboard } from 'electron';
+import { buildGlobalCaptureController, type GlobalCaptureController } from '@sigmalink/voice-core';
 import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
 import { getRawDb } from '../src/main/core/db/client';
 import { maybeCheckOnBoot } from './auto-update';
@@ -256,6 +256,12 @@ function initGlobalCapture(): void {
       }
     },
     kv,
+    // Deliver models to <userData>/voice-models/ (same as before; now explicit DI)
+    getModelsDir: () => path.join(app.getPath('userData'), 'voice-models'),
+    // Inject Electron's clipboard — voice-core no longer imports electron directly
+    clipboard: {
+      writeText: (text: string) => clipboard.writeText(text),
+    },
   });
 
   // Sync tray menu whenever state changes

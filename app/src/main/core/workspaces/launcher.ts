@@ -284,29 +284,45 @@ export async function executeLaunchPlan(
       // panes that were resumed by id. Fall back to the pre-assigned id from
       // the registry (claude/gemini pre-assign path) when no resume entry.
       const insertExternalSessionId = resumeSessionId ?? rec.externalSessionId ?? null;
-      db.insert(agentSessions)
-        .values({
-          id: finalSessionId,
-          workspaceId: wsRow.id,
-          // BUG-V1.1-01: store the requested id in `providerId` so the UI
-          // continues to show what the operator picked, and the resolved id
-          // in `provider_effective` so the runtime knows which CLI actually
-          // launched (relevant when a comingSoon → fallback swap occurs).
-          providerId: provider.id,
-          cwd,
-          branch,
-          worktreePath,
-          status: 'running',
-          initialPrompt: pane.initialPrompt,
-          startedAt: rec.startedAt,
-          externalSessionId: insertExternalSessionId,
-          // v1.3.1: persist the launcher-issued pane slot so
-          // `panes.lastResumePlan` can return one row per pane (the most
-          // recent) instead of one row per historical launch. Without this,
-          // re-opening a workspace surfaced N×launches panes in the picker.
-          paneIndex: pane.paneIndex,
-        })
-        .run();
+      try {
+        db.insert(agentSessions)
+          .values({
+            id: finalSessionId,
+            workspaceId: wsRow.id,
+            // BUG-V1.1-01: store the requested id in `providerId` so the UI
+            // continues to show what the operator picked, and the resolved id
+            // in `provider_effective` so the runtime knows which CLI actually
+            // launched (relevant when a comingSoon → fallback swap occurs).
+            providerId: provider.id,
+            cwd,
+            branch,
+            worktreePath,
+            status: 'running',
+            initialPrompt: pane.initialPrompt,
+            startedAt: rec.startedAt,
+            externalSessionId: insertExternalSessionId,
+            // v1.3.1: persist the launcher-issued pane slot so
+            // `panes.lastResumePlan` can return one row per pane (the most
+            // recent) instead of one row per historical launch. Without this,
+            // re-opening a workspace surfaced N×launches panes in the picker.
+            paneIndex: pane.paneIndex,
+          })
+          .run();
+      } catch (insertErr) {
+        // v1.5.5 Cluster A — guard against UNIQUE violation on
+        // (workspace_id, pane_index). This can occur in a concurrent
+        // rapid-spawn race where two executeLaunchPlan calls race the same
+        // pane slot. Log and continue; the caller will surface an error
+        // session for the pane that lost the race.
+        const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
+        if (/UNIQUE constraint failed/i.test(msg)) {
+          console.warn(
+            `[launcher] UNIQUE violation on agent_sessions (ws=${wsRow.id}, pane=${pane.paneIndex}) — duplicate spawn suppressed`,
+          );
+        } else {
+          throw insertErr;
+        }
+      }
       if (spawnResult.fallbackOccurred) {
         writeProviderEffective(finalSessionId, spawnResult.providerEffective);
       } else {

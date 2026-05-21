@@ -38,7 +38,7 @@ Filed from user dogfood + plan-mode review of v1.1.2-rev3. Implementation will b
 - **Repro**: open Sigma Assistant, send a message, observe assistant reply's role chip reads "BRIDGE"
 - **Expected**: assistant reply role chip reads "SIGMA"
 - **Owner**: coder-rebrand-chat (planned)
-- **Status**: open
+- **Status**: closed (shipped v1.1.3 — `ChatTranscript.tsx:26` `assistant: 'SIGMA'`)
 - **Notes**: last user-facing brand string the v1.1.1 sweep missed. 30-min fix; Step 1 in v1.1.3 plan.
 
 ### BUG-V1.1.3-02: Workspace switching is destructive — prior workspace runtime state lost
@@ -47,7 +47,7 @@ Filed from user dogfood + plan-mode review of v1.1.2-rev3. Implementation will b
 - **Repro**: open workspace A, spawn 2 agents, switch to workspace B; switch back to A — sessions still in DB but renderer no longer treats A as "open"
 - **Expected**: switching is a tab swap; both workspaces stay live; close button per tab dismisses just one
 - **Owner**: coder-multi-workspace (planned)
-- **Status**: open
+- **Status**: closed (shipped v1.1.3 — `openWorkspaces[]` state model + `activeWorkspaceId`)
 - **Notes**: Step 2 in v1.1.3 plan. Requires state model change from `activeWorkspace` to `openWorkspaces[]` + `activeWorkspaceId`.
 
 ### BUG-V1.1.3-03: All previously-open workspaces don't restore on app relaunch
@@ -56,7 +56,7 @@ Filed from user dogfood + plan-mode review of v1.1.2-rev3. Implementation will b
 - **Repro**: open 3 workspaces, quit, relaunch — only 1 workspace (the active one) restores
 - **Expected**: every workspace open at quit-time reappears as a tab; active workspace matches last; per-workspace last-room is preserved
 - **Owner**: coder-session-restore (planned)
-- **Status**: open
+- **Status**: closed (shipped v1.1.3 — `SessionSnapshotSchema` extended to list-of-workspaces shape)
 - **Notes**: Step 6 in v1.1.3 plan. Extends v1.1.2 BUG-V1.1.2-02 single-workspace snapshot to list-of-workspaces shape.
 
 ### BUG-V1.1.3-04: PTY panes don't resume on app restart — CLI sessions evaporate
@@ -65,7 +65,7 @@ Filed from user dogfood + plan-mode review of v1.1.2-rev3. Implementation will b
 - **Repro**: open workspace, spawn claude pane, have a conversation, quit app, relaunch — pane is gone; row is stale in DB
 - **Expected**: pane respawns with `<provider> --resume <session_id>` and the prior chat history continues
 - **Owner**: coder-pane-resume (planned)
-- **Status**: open
+- **Status**: closed (shipped v1.1.3 — session-id-extractor + resume-launcher + migration 0011 `external_session_id`)
 - **Notes**: Step 3 in v1.1.3 plan. Needs migration 0011 to add `external_session_id` column + session-id extractor parsing CLI early output + resume launcher consuming the existing `resumeArgs` registry field (declared but unused since v1.1.0). Per-CLI extractor fixtures need capture during implementation.
 
 ### BUG-V1.1.3-05: Cannot add agents to an existing swarm — pane count locked at preset
@@ -74,7 +74,7 @@ Filed from user dogfood + plan-mode review of v1.1.2-rev3. Implementation will b
 - **Repro**: create swarm with 5-pane preset; want to add a 6th — no affordance exists
 - **Expected**: "+pane" button in Command Room top bar; "+agent" in Swarm Room header; Sigma Assistant tool `add_agent` callable via MCP
 - **Owner**: coder-add-pane (planned)
-- **Status**: open
+- **Status**: closed (shipped v1.1.3 — `swarms.addAgent` RPC + `add_agent` Sigma tool; cap 20)
 - **Notes**: Step 4 in v1.1.3 plan. Reuses existing `spawnAgentSession` helper in `swarms/factory.ts`. Cap at 20 (existing preset max).
 
 ### BUG-V1.1.3-06: Ruflo bootstrap is lazy + verifies nothing on workspace open
@@ -83,7 +83,7 @@ Filed from user dogfood + plan-mode review of v1.1.2-rev3. Implementation will b
 - **Repro**: open a fresh workspace; observe Ruflo supervisor stays in `absent` or `down` state until user clicks Download in Settings; mcp-autowrite ran but nothing verified the agents can actually discover the server
 - **Expected**: `openWorkspace` calls `rufloSupervisor.ensureStarted()` + `verifyForWorkspace(root, 'fast')`; readiness pill in the breadcrumb area animates green when ready; strict-verification toggle available in Settings
 - **Owner**: coder-ruflo-preflight (planned)
-- **Status**: open
+- **Status**: closed (shipped v1.1.3 — `rufloSupervisor.ensureStarted()` + `verifyForWorkspace` on workspace open)
 - **Notes**: Step 5 in v1.1.3 plan. Fast mode: ~50ms config file readback. Strict mode (opt-in toggle): ~3-5s per CLI MCP handshake probe.
 
 ### BUG-V1.1.3-07: Skills not verified per-CLI on workspace open
@@ -92,7 +92,7 @@ Filed from user dogfood + plan-mode review of v1.1.2-rev3. Implementation will b
 - **Repro**: install skill, fanout succeeds, manually delete the skill from `~/.claude/skills/<name>/`, re-open workspace — skill is missing but SigmaLink doesn't notice
 - **Expected**: on workspace open, `skillsManager.verifyFanoutForWorkspace(workspaceId)` checks each enabled skill's content hash at each enabled CLI path; missing/stale triggers reFanout
 - **Owner**: coder-skills-verify (planned)
-- **Status**: open
+- **Status**: closed (shipped v1.1.3 — `skillsManager.verifyFanoutForWorkspace` on workspace open)
 - **Notes**: Step 7 in v1.1.3 plan. Non-blocking on failure; just a hygiene pass.
 
 ### BUG-W7-001: `workspaces.open` RPC succeeds but does not activate the workspace
@@ -316,17 +316,17 @@ Filed from user dogfood + plan-mode review of v1.1.2-rev3. Implementation will b
 - **Actual**: The Launch button background uses a dark rust accent with white text — readable, but in the corner of a cream canvas, the visual emphasis is weaker than the dark theme's neon-cyan equivalent. No regression test — just a contrast nit.
 - **Hypothesis**: Parchment uses `--brand-warm` for the accent which is also the Pick folder button — they read as siblings. Make Launch use `--accent` only.
 - **Owner**: unassigned
-- **Status**: open
-- **Attempts**: 0
-- **Notes**: `screenshots/31-theme-parchment.png`.
+- **Status**: closed (shipped v1.4.6 — WCAG AA contrast pass; all four themes verified)
+- **Attempts**: 1
+- **Notes**: `screenshots/31-theme-parchment.png`. Verified by v1.4.6 theme contrast sweep; BACKLOG.md "Parchment contrast (BUG-W7-015)" entry confirmed.
 
 ### BUG-W7-000: Electron app failed to launch
 - **Severity**: P0
 - **Surface**: app startup
 - **Repro**: npx playwright test tests/e2e/smoke.spec.ts
 - **Expected**: app starts and renders first window
-- **Actual**: Error: electron.launch: Electron failed to install correctly, please delete node_modules/electron and try installing again
-- **Status**: open
+- **Actual**: Error: electron.launch: Electron Failed to install correctly, please delete node_modules/electron and try installing again
+- **Status**: closed (shipped v1.4.6 + v1.4.7 — Playwright smoke refresh + Electron-ABI rebuild in CI lanes; final state 11 e2e tests, 0 fail, 3 documented skips)
 - **Attempts**: 1
 
 ### BUG-DF-02: Two RPC channels lack zod schema entries (`app.tier`, `design.shutdown`)
@@ -374,8 +374,8 @@ User dogfooded the v1.1.2-arm64 DMG (built off branch `v1.1.2-final` at commit `
 - **Actual**: Sigma replies: "I don't actually have access to the `list_active_sessions` tool in this environment — the Sigma tools listed in my prompt aren't wired up here. I can't see live pane or swarm state right now."
 - **Hypothesis**: the v1.1.2 work built the *receiving* side of tool dispatch (`runClaudeCliTurn.ts:routeToolUse` extended with `dispatchTool` callback + stdin write queue + `tool_result` envelopes) but did NOT build the *announcing* side. The Claude CLI is spawned with `claude -p ... --output-format stream-json --verbose --append-system-prompt "<ctx>"` — the `<ctx>` lists tools by NAME but the CLI's tool-use protocol requires tools be REGISTERED via an MCP server, not just described in prose. With no MCP server exposing the 13 Sigma tools to the child CLI, Claude never emits a `tool_use` envelope, the dispatcher never fires, and the live `list_*` tools are dead code.
 - **Owner**: coder-mcp-server (target v1.1.2 — must-fix)
-- **Status**: in-progress
-- **Attempts**: 0
+- **Status**: closed (shipped v1.1.2-rev3 — `mcp-host-server.cjs` MCP stdio bridge wired into `runClaudeCliTurn`)
+- **Attempts**: 1
 - **Notes**: Fix: build a `sigma-host-mcp-server.cjs` (model after the existing `app/src/main/core/memory/mcp-server.ts` → `electron-dist/mcp-memory-server.cjs` pattern). The server exposes the 13 tools from `tools.ts` via MCP stdio. `runClaudeCliTurn` writes a temp `.mcp.json` referencing the spawned server and passes `--mcp-config <temp.path>` to the `claude` CLI. The CLI then auto-discovers the tools, emits `tool_use` envelopes for them, the existing dispatcher catches them, and the round-trip we built actually fires.
 
 ### BUG-V1.1.2-02: Workspace session state not persisted across restarts
@@ -386,8 +386,8 @@ User dogfooded the v1.1.2-arm64 DMG (built off branch `v1.1.2-final` at commit `
 - **Actual**: app launches to the workspace picker as if first-run; user must manually re-pick their workspace
 - **Hypothesis**: no `kv['app.lastSession']` write on quit / no auto-restore on `whenReady`. The kv pattern is already wired (used by `plan.tier`, `voice.mode`, `sidebar.collapsed`, etc); just needs a session-restore hook.
 - **Owner**: coder-session-state (target v1.1.2)
-- **Status**: in-progress
-- **Attempts**: 0
+- **Status**: closed (shipped v1.1.2 — `app:session-snapshot` emitter + `app:session-restore` listener; v1.1.3 extended to multi-workspace list shape)
+- **Attempts**: 1
 - **Notes**: Minimum viable fix: emit `app:session-snapshot` from renderer on every SET_ACTIVE_WORKSPACE / SET_ROOM; main process caches + writes to kv on `before-quit`; on next boot after `did-finish-load`, send `app:session-restore` to renderer which dispatches the state. Pane-level restore (provider, count, prompts) deferred — falls to v1.2 (already persisted in `agent_sessions` table).
 
 ## v1.1.1 smoke-test follow-ups (2026-05-11)
@@ -402,8 +402,8 @@ User dogfooded the v1.1.1 DMG (window drag + Sigma rebrand + Claude CLI streamin
 - **Actual**: tool call returns `{ fromCli: true, input: {...}, result: { ... } }` but the host bridge does not consume the tool_use envelope to spawn an actual pane. The CLI emits the intent, the renderer logs it, but `launch_pane` is not in the deferred-tools list and direct calls fail with "No such tool available."
 - **Hypothesis**: `runClaudeCliTurn`'s `tool_use` handler routes through `ToolTracer` (visualisation) but never feeds the result back into the controller's `invokeTool('launch_pane', …)` path. coder-cli's follow-up #2 from the Step 3 exit summary already flagged this.
 - **Owner**: unassigned (target v1.1.2)
-- **Status**: open
-- **Attempts**: 0
+- **Status**: closed (shipped v1.1.2 — `tools.ts` wired to factory; `launch_pane`/`dispatch_pane`/`dispatch_bulk`/`create_swarm` envelopes routed through `assistant.invokeTool()`)
+- **Attempts**: 1
 - **Notes**: To unblock — wire the CLI driver's `tool_use` envelopes into the existing `assistant.invokeTool()` controller method (controller.ts:189-259). Same for `dispatch_pane`, `dispatch_bulk`, and `create_swarm`.
 
 ### BUG-V1.1.1-02: Sigma Assistant cannot enumerate active sessions / swarm state
@@ -414,8 +414,8 @@ User dogfooded the v1.1.1 DMG (window drag + Sigma rebrand + Claude CLI streamin
 - **Actual**: Sigma replies "No active swarms or panes in the SigmaLink workspace right now — the session header shows '(no active swarms)' and no recent files."
 - **Hypothesis**: `buildSigmaSystemPrompt()` reads workspace + swarm state at turn start, but the renderer's active session list is not threaded through to the system prompt builder. The state queried is from the fresh main-process DB read, not the renderer's live session map.
 - **Owner**: unassigned (target v1.1.2)
-- **Status**: open
-- **Attempts**: 0
+- **Status**: closed (shipped v1.1.2 — `list_active_sessions` tool queries live PTY registry; `list_active_swarms` added)
+- **Attempts**: 1
 - **Notes**: Likely `system-prompt.ts` reads via a query path that doesn't include the just-spawned PTY rows (race vs. eventual-consistency in the session table). Add an explicit `list_active_sessions` tool that queries the live `sessions` registry instead of the DB.
 
 ### BUG-V1.1.1-03: Inter-agent broadcast / chat surface inert
@@ -426,8 +426,8 @@ User dogfooded the v1.1.1 DMG (window drag + Sigma rebrand + Claude CLI streamin
 - **Actual**: every agent shows `0 msgs` after the broadcast lands; operator side chat shows `MSG OPERATOR → @COORDINATORS` rows but no agent reads them
 - **Hypothesis**: the side chat → mailbox plumbing was last touched in Phase 4 Track A (group-recipient grammar). Either `expandRecipient` is returning empty, or the mailbox writer is targeting a different swarm-id than the active panes use, or the renderer's per-agent counter isn't subscribing to the right event.
 - **Owner**: unassigned (target v1.1.2)
-- **Status**: open
-- **Attempts**: 0
+- **Status**: closed (shipped v1.1.2 — `expandRecipient` group-broadcast grammar fixed; `controller.broadcast`/`rollCall` dual-delivery wired)
+- **Attempts**: 1
 - **Notes**: Cross-check with the rc3 fix for cross-swarm-leak (BUG-V1.1-02-IPC) — possible regression where the swarm-id scoping was tightened too aggressively. Reproduce with the existing `mailbox.test.ts` first.
 
 ### BUG-V1.1.1-04: Ruflo MCP not auto-connected for spawned agent CLIs
@@ -438,8 +438,8 @@ User dogfooded the v1.1.1 DMG (window drag + Sigma rebrand + Claude CLI streamin
 - **Actual**: claude says "RuFlo is not initialized in this directory"; codex sees `ruflo.mcp_status { running: true }` but only because *its own* user-config has Ruflo wired; gemini lists only `browser` + `sigmamemory` (both disconnected)
 - **Hypothesis**: SigmaLink's embedded Ruflo daemon is main-process-only — there is no per-workspace `.mcp.json` (or codex/gemini equivalent) auto-written that points spawned CLIs at a shared `.claude-flow/` state dir.
 - **Owner**: unassigned (target v1.1.2)
-- **Status**: open
-- **Attempts**: 0
+- **Status**: closed (shipped v1.1.3 — `mcp-autowrite` writes per-workspace MCP config files + `rufloSupervisor.ensureStarted()` on workspace open)
+- **Attempts**: 1
 - **Notes**: Two paths: (a) v1.1.x stop-gap — auto-write workspace-scoped MCP config files pointing each agent at a shared `.claude-flow/` dir; (b) v1.2 federation — Ruflo runs as a TCP/WS MCP server on a per-workspace localhost port; agents connect as clients sharing one in-memory daemon. (a) gets you 90% of the value with ~50ms boot per agent.
 
 ## Phase 4 v1.1.0-rc1 fixes (2026-05-10)

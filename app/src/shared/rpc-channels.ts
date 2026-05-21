@@ -123,6 +123,9 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'skills.uninstall',
   'skills.getReadme',
   'skills.verifyForWorkspace',
+  // v1.6.1 B3 — Skills tab Phase 1: read-only discovery of superpowers +
+  // Ruflo skills from the on-disk plugin cache. Returns InstalledSkillEntry[].
+  'skills.listInstalled',
   // memory
   'memory.list_memories',
   'memory.read_memory',
@@ -250,6 +253,10 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'ruflo.autopilot.predict',
   'ruflo.install.start',
   'ruflo.verifyForWorkspace',
+  // v1.6.1 B2 — Settings → Ruflo Daemon table: list + restart per-workspace
+  // HTTP daemons. Request/response (not one-way events), so they live here.
+  'ruflo.daemonStatus',
+  'ruflo.restartDaemon',
   // v1.4.9 #07 — Notifications + top-right bell. The manager is the single
   // owner of all reads/writes; renderer exclusively goes through these
   // channels. Live updates arrive on the `notifications:changed` one-way

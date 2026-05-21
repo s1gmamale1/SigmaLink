@@ -1,31 +1,35 @@
 // global-capture.ts — Global voice capture state machine.
 //
+// Extracted from app/src/main/core/voice/global-capture.ts into @sigmalink/voice-core
+// as part of the v1.4.8 Cluster B voice-core extraction.
+//
+// Changes from the original:
+//   1. `routeTranscript` now receives `clipboard` as an extra argument
+//      (injected via GlobalCaptureDeps) so this module works in both
+//      SigmaLink and BridgeVoice without importing a specific app's electron
+//      instance.
+//   2. `modelsDir` is injected via `GlobalCaptureDeps.getModelsDir()` so
+//      model-registry helpers receive the correct path without importing
+//      Electron's `app.getPath('userData')` directly.
+//   3. A1 (hardware sample-rate detection): the onPcm callback now accepts
+//      either a bare Float32Array (old stub behaviour, rate assumed 48000)
+//      or a `{ samples, sampleRate }` payload (v1.4.8+ mac binding). The
+//      actual hardware rate is threaded through to `resampleTo16k` instead
+//      of always using the hardcoded NATIVE_PCM_SAMPLE_RATE constant.
+//
 // State machine: idle → recording → transcribing → routing → idle
-//
-// On hotkey activation (Cmd+Option+Space default):
-//   - Toggle mode (default): first press starts recording; second press stops.
-//   - Push-to-talk mode: hold starts recording; release stops.
-//
-// Audio capture uses the macOS native voice-mac module's AVAudioEngine
-// session (separate from the in-app SigmaVoice session — no mixer conflict).
-// On stop, the Float32 PCM buffer is handed to whisper-engine for offline
-// transcription. On completion, output-router decides the output target.
-//
-// KV keys:
-//   voice.globalCapture.enabled       '1' | '0'    (default '0' = off)
-//   voice.globalCapture.hotkey        Electron accelerator string
-//   voice.globalCapture.mode          'toggle' | 'push-to-talk'  (default 'toggle')
-//   voice.globalCapture.modelId       one of the MODEL_CATALOG ids
-//   voice.globalCapture.outputTarget  'auto' | 'clipboard'  (future: more)
-//
-// v1.4.9 — macOS only for transcription. The state machine runs on all
-// platforms but only macOS has the native audio capture + whisper build.
 
 import { globalShortcut } from 'electron';
-import { getWhisperEngine } from './whisper-engine';
-import { routeTranscript } from './output-router';
-import { getDefaultModel, getModelById, getDownloadedModelPath, MODEL_CATALOG } from './model-registry';
-import { loadNative } from './native-mac';
+import { getWhisperEngine } from './whisper-engine.js';
+import { routeTranscript } from './output-router.js';
+import {
+  getDefaultModel,
+  getModelById,
+  getDownloadedModelPath,
+  MODEL_CATALOG,
+} from './model-registry.js';
+import { loadNative, type PcmChunk } from './native-mac-loader.js';
+import type { ClipboardApi } from './output-router.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -48,33 +52,33 @@ export interface GlobalCaptureDeps {
     get: (key: string) => string | null;
     set: (key: string, value: string) => void;
   };
+  /** Returns the absolute path to the voice-models storage directory. */
+  getModelsDir: () => string;
+  /** Electron clipboard API — injected for portability. */
+  clipboard: ClipboardApi;
 }
 
 // ---------------------------------------------------------------------------
 // KV keys
 // ---------------------------------------------------------------------------
 
-const KV_ENABLED      = 'voice.globalCapture.enabled';
-const KV_HOTKEY       = 'voice.globalCapture.hotkey';
-const KV_MODE         = 'voice.globalCapture.mode';
-const KV_MODEL_ID     = 'voice.globalCapture.modelId';
+const KV_ENABLED  = 'voice.globalCapture.enabled';
+const KV_HOTKEY   = 'voice.globalCapture.hotkey';
+const KV_MODE     = 'voice.globalCapture.mode';
+const KV_MODEL_ID = 'voice.globalCapture.modelId';
 
-const DEFAULT_HOTKEY  = 'CommandOrControl+Alt+Space';
+const DEFAULT_HOTKEY = 'CommandOrControl+Alt+Space';
 const DEFAULT_MODE: CaptureMode = 'toggle';
-const DEFAULT_MODEL   = getDefaultModel().id;
+const DEFAULT_MODEL  = getDefaultModel().id;
 
 // ---------------------------------------------------------------------------
-// PCM sample-rate resampler (v1.5.4-C / A1 hardware sample-rate detection)
+// PCM sample-rate constants and resampler (A1 — hardware sample-rate detection)
 // ---------------------------------------------------------------------------
 
 /**
- * Fallback native PCM sample rate used when the native binding does not
- * report the actual hardware rate (older builds, voice-win stub, etc.).
+ * Fallback native PCM sample rate. Used when the native binding does not
+ * report the actual hardware rate (e.g. voice-win stub, older voice-mac builds).
  * Modern Macs typically deliver 48 kHz; some older / external devices use 44.1 kHz.
- *
- * v1.4.8 (A1): the voice-mac binding now reports the actual hardware rate via
- * the onPcm `{ samples, sampleRate }` payload. `NATIVE_PCM_SAMPLE_RATE` is
- * kept as a fallback for Win/other platforms and for the stub.
  */
 export const NATIVE_PCM_SAMPLE_RATE = 48000;
 export const WHISPER_SAMPLE_RATE = 16000;
@@ -82,6 +86,9 @@ export const WHISPER_SAMPLE_RATE = 16000;
 /**
  * Linearly interpolate `samples` from `inputRate` down to 16 kHz.
  * Returns the original array unchanged when `inputRate` is already 16 kHz.
+ *
+ * Linear interpolation is intentionally simple: whisper is robust to mild
+ * aliasing artifacts and this avoids pulling in a DSP dependency.
  */
 export function resampleTo16k(samples: Float32Array, inputRate: number): Float32Array {
   if (inputRate === WHISPER_SAMPLE_RATE) return samples;
@@ -99,20 +106,21 @@ export function resampleTo16k(samples: Float32Array, inputRate: number): Float32
 }
 
 /**
- * A1 — Unpack the onPcm callback payload.
- * - New mac binding (v1.4.8+): delivers `{ samples: Float32Array, sampleRate: number }`.
- * - Old stub / non-darwin: delivers a bare Float32Array; fallback to NATIVE_PCM_SAMPLE_RATE.
+ * Unpack a PcmChunk into `{ samples, sampleRate }`.
+ *
+ * A1 — hardware sample-rate detection:
+ *   - New mac binding (v1.4.8+): delivers `{ samples: Float32Array, sampleRate: number }`.
+ *   - Old stub / Win: delivers a bare Float32Array; fall back to NATIVE_PCM_SAMPLE_RATE.
  */
-type PcmPayload = Float32Array | { samples: Float32Array; sampleRate: number };
-
-function unpackPcm(payload: PcmPayload): { samples: Float32Array; sampleRate: number } {
-  if (payload instanceof Float32Array) {
-    return { samples: payload, sampleRate: NATIVE_PCM_SAMPLE_RATE };
+export function unpackPcmChunk(chunk: PcmChunk): { samples: Float32Array; sampleRate: number } {
+  if (chunk instanceof Float32Array) {
+    return { samples: chunk, sampleRate: NATIVE_PCM_SAMPLE_RATE };
   }
-  const sampleRate = typeof payload.sampleRate === 'number' && payload.sampleRate > 0
-    ? payload.sampleRate
+  // Structured payload from updated native binding
+  const sampleRate = typeof chunk.sampleRate === 'number' && chunk.sampleRate > 0
+    ? chunk.sampleRate
     : NATIVE_PCM_SAMPLE_RATE;
-  return { samples: payload.samples, sampleRate };
+  return { samples: chunk.samples, sampleRate };
 }
 
 // ---------------------------------------------------------------------------
@@ -120,19 +128,18 @@ function unpackPcm(payload: PcmPayload): { samples: Float32Array; sampleRate: nu
 // ---------------------------------------------------------------------------
 
 /**
- * Simple ring buffer that accumulates Float32 PCM chunks from the native
- * audio tap and produces a single Float32Array on demand.
- *
- * A1: also tracks the hardware sample rate reported by the first chunk in
- * each recording session. All chunks in one session share the same rate.
+ * Simple ring buffer that accumulates Float32 PCM chunks and tracks the
+ * hardware sample rate reported by the first chunk (all chunks in one
+ * recording session share the same rate).
  */
 class PcmAccumulator {
   private chunks: Float32Array[] = [];
   private totalSamples = 0;
   private _sampleRate = NATIVE_PCM_SAMPLE_RATE;
 
-  push(payload: PcmPayload): void {
-    const { samples, sampleRate } = unpackPcm(payload);
+  push(chunk: PcmChunk): void {
+    const { samples, sampleRate } = unpackPcmChunk(chunk);
+    // Capture the rate from the first chunk; hardware rate is constant per session.
     if (this.chunks.length === 0) {
       this._sampleRate = sampleRate;
     }
@@ -168,7 +175,6 @@ class PcmAccumulator {
 // ---------------------------------------------------------------------------
 
 export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
-  // ── State ────────────────────────────────────────────────────────────────
   let state: CaptureState = 'idle';
   let enabled = false;
   let mode: CaptureMode = DEFAULT_MODE;
@@ -176,18 +182,9 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
   let hotkey = DEFAULT_HOTKEY;
   const pcm = new PcmAccumulator();
   let currentHotkeyRegistered = false;
-  // Caveat from PR #50 review (caveat 3): native.onFinal returns an
-  // unsubscribe function; we must call it before re-registering on each
-  // startRecording() or listeners leak (and transcripts may concat across
-  // recordings).
   let unsubscribeOnFinal: (() => void) | null = null;
-  // PCM tap unsubscribe handle (installed before start(); cleared in dispose()).
   let unsubscribeOnPcm: (() => void) | null = null;
-  // Hoisted transcript accumulator (PR #50 caveat 4 — replaces _capturedRef
-  // metaprogramming). Written by startRecording(), read by stopAndTranscribe().
   let capturedTranscript = '';
-
-  // ── Helpers ──────────────────────────────────────────────────────────────
 
   function kvGet(key: string): string | null {
     try { return deps.kv.get(key); } catch { return null; }
@@ -214,8 +211,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     deps.emit('voice:global-capture-toast', { message, level });
   }
 
-  // ── Bootstrap from KV ────────────────────────────────────────────────────
-
   function loadFromKv(): void {
     const rawEnabled  = kvGet(KV_ENABLED);
     const rawHotkey   = kvGet(KV_HOTKEY);
@@ -228,8 +223,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     modelId = MODEL_CATALOG.find((m) => m.id === rawModelId)?.id ?? DEFAULT_MODEL;
   }
 
-  // ── Hotkey registration ───────────────────────────────────────────────────
-
   function registerHotkey(): void {
     if (currentHotkeyRegistered) {
       globalShortcut.unregister(hotkey);
@@ -239,9 +232,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
     const ok = globalShortcut.register(hotkey, onHotkeyFired);
     if (!ok) {
-      console.warn(
-        `[global-capture] Failed to register hotkey "${hotkey}" — it may be taken by another app.`,
-      );
+      console.warn(`[global-capture] Failed to register hotkey "${hotkey}" — it may be taken by another app.`);
       toast(`Could not register hotkey ${hotkey}. Try rebinding in Settings → Voice.`, 'warn');
       return;
     }
@@ -255,8 +246,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     }
   }
 
-  // ── Hotkey handler ────────────────────────────────────────────────────────
-
   function onHotkeyFired(): void {
     if (!enabled) return;
 
@@ -266,12 +255,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       } else if (state === 'recording') {
         void stopAndTranscribe();
       }
-      // Ignore presses while transcribing / routing
     } else {
-      // push-to-talk: same button used for both start and stop
-      // The distinction (hold vs press-release) can't be made with Electron's
-      // globalShortcut (fires on keydown only). We map it to toggle semantics
-      // for v1.4.9 and expose it as a "quick tap = toggle" fallback.
       if (state === 'idle') {
         void startRecording();
       } else if (state === 'recording') {
@@ -280,8 +264,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     }
   }
 
-  // ── Audio capture ─────────────────────────────────────────────────────────
-
   async function startRecording(): Promise<void> {
     if (state !== 'idle') return;
     setState('recording');
@@ -289,7 +271,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
     const native = loadNative();
     if (!native) {
-      // No native audio module — cannot capture on this platform
       setState('idle');
       toast('Voice capture unavailable (native module not loaded)', 'error');
       return;
@@ -303,17 +284,14 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
         return;
       }
 
-      // Install the PCM tap BEFORE start() so no audio frames are missed.
-      // Only available on macOS (voice-mac exposes onPcm; voice-win does not).
       if (unsubscribeOnPcm) {
         try { unsubscribeOnPcm(); } catch { /* ignore */ }
         unsubscribeOnPcm = null;
       }
+      // A1 — pass the raw PcmChunk (may include sampleRate) to the accumulator
       if (typeof native.onPcm === 'function') {
-        // A1: receive PcmPayload (may be Float32Array for old stubs, or
-        // { samples, sampleRate } for updated mac binding).
-        const unsub = native.onPcm((payload: PcmPayload) => {
-          pcm.push(payload);
+        const unsub = native.onPcm((chunk: PcmChunk) => {
+          pcm.push(chunk);
         });
         unsubscribeOnPcm = typeof unsub === 'function' ? unsub : null;
       }
@@ -326,13 +304,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       return;
     }
 
-    // Collect final transcripts from the in-app SFSpeechRecognizer as a
-    // fallback text source. When a whisper.cpp model is downloaded and the
-    // AVAudioEngine PCM tap is active, `pcm.samples > 0` will be true and
-    // stopAndTranscribe() will prefer the whisper.cpp result over this.
-    //
-    // We'll collect the final transcript from native speech recognition.
-    // Unsubscribe any prior onFinal listener first (PR #50 caveat 3 fix).
     if (unsubscribeOnFinal) {
       try { unsubscribeOnFinal(); } catch { /* ignore */ }
       unsubscribeOnFinal = null;
@@ -350,12 +321,10 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
     const native = loadNative();
 
-    // Stop native audio capture
     if (native) {
       try { await native.stop(); } catch { /* ignore */ }
     }
 
-    // Tear down the PCM tap subscription now that recording has stopped.
     if (unsubscribeOnPcm) {
       try { unsubscribeOnPcm(); } catch { /* ignore */ }
       unsubscribeOnPcm = null;
@@ -363,30 +332,25 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
     let finalText = capturedTranscript.trim();
 
-    // If whisper.cpp is available and we have PCM audio, prefer it
     const engine = getWhisperEngine();
     if (engine && pcm.samples > 0) {
-      // A1: use the hardware sample rate captured from the onPcm payload
+      // A1 — use the hardware rate reported by the accumulator (from onPcm payload)
       const { audio, sampleRate: hwRate } = pcm.flush();
       const model = getModelById(modelId) ?? getDefaultModel();
-      const modelPath = getDownloadedModelPath(model);
+      const modelsDir = deps.getModelsDir();
+      const modelPath = getDownloadedModelPath(model, modelsDir);
 
       if (modelPath) {
         try {
           const audio16k = resampleTo16k(audio, hwRate);
-          const result = await engine.transcribe(audio16k, modelPath, {
-            language: 'en',
-            threads: 4,
-          });
+          const result = await engine.transcribe(audio16k, modelPath, { language: 'en', threads: 4 });
           if (result.text.trim()) {
             finalText = result.text.trim();
           }
         } catch (err) {
-          // Whisper failed — fall through to SFSpeechRecognizer result
           console.warn('[global-capture] whisper transcription failed, using SF result:', err);
         }
       } else {
-        // Model not downloaded yet — use SF result
         toast('Whisper model not downloaded — using Apple Speech. Download in Settings → Voice.', 'info');
       }
     }
@@ -398,10 +362,9 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       return;
     }
 
-    // Route the transcript
     setState('routing');
     try {
-      const result = routeTranscript(finalText, deps.emit);
+      const result = routeTranscript(finalText, deps.emit, deps.clipboard);
       if (result.toast) {
         toast(result.toast, 'info');
       }
@@ -413,8 +376,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     }
   }
 
-  // ── Bootstrap ─────────────────────────────────────────────────────────────
-
   function init(): void {
     loadFromKv();
     if (enabled) {
@@ -424,17 +385,9 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
   init();
 
-  // ── Public API ────────────────────────────────────────────────────────────
-
   return {
     getStatus,
 
-    /**
-     * Enable or disable global capture.
-     * When enabling for the first time, the caller should ensure the model is
-     * downloaded before calling this (the Settings UI enforces this via the
-     * download flow).
-     */
     setEnabled(value: boolean): void {
       enabled = value;
       kvSet(KV_ENABLED, value ? '1' : '0');
@@ -442,7 +395,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
         registerHotkey();
       } else {
         unregisterHotkey();
-        // Cancel any in-flight capture
         if (state === 'recording') {
           void stopAndTranscribe();
         }
@@ -450,7 +402,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       broadcastStatus();
     },
 
-    /** Rebind the global hotkey. Applies immediately. */
     setHotkey(newHotkey: string): void {
       unregisterHotkey();
       hotkey = newHotkey;
@@ -459,14 +410,12 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       broadcastStatus();
     },
 
-    /** Switch between 'toggle' and 'push-to-talk'. */
     setMode(newMode: CaptureMode): void {
       mode = newMode;
       kvSet(KV_MODE, newMode);
       broadcastStatus();
     },
 
-    /** Switch the active model (must be downloaded before calling). */
     setModelId(id: string): void {
       const found = MODEL_CATALOG.find((m) => m.id === id);
       if (!found) return;
@@ -475,26 +424,14 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       broadcastStatus();
     },
 
-    /**
-     * Programmatic start (for testing / accessibility bypass).
-     * No-op when already recording.
-     */
     startRecording(): Promise<void> {
       return startRecording();
     },
 
-    /**
-     * Programmatic stop + transcribe.
-     * No-op when idle.
-     */
     stopAndTranscribe(): Promise<void> {
       return stopAndTranscribe();
     },
 
-    /**
-     * Clean up: unregister hotkey and tear down any active session.
-     * Called from `before-quit`.
-     */
     dispose(): void {
       unregisterHotkey();
       if (unsubscribeOnFinal) {
@@ -505,9 +442,6 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
         try { unsubscribeOnPcm(); } catch { /* ignore */ }
         unsubscribeOnPcm = null;
       }
-      // PR #50 latent-bug fix: previous code referenced undefined `native_ref`
-      // — would have thrown on quit when state === 'recording'. Reload the
-      // native module the same way startRecording does.
       if (state === 'recording') {
         try {
           const native = loadNative();

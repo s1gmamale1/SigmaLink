@@ -13,7 +13,12 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    include: [
+      'src/**/*.test.ts',
+      'src/**/*.test.tsx',
+      'packages/**/*.test.ts',
+      'packages/**/*.test.tsx',
+    ],
     exclude: ['node_modules', 'dist', 'electron-dist', 'tests/e2e'],
     environment: 'node',
     globals: false,

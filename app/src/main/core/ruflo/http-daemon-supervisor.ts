@@ -181,6 +181,14 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
     return entry.port;
   }
 
+  /**
+   * Returns a snapshot of all tracked daemon handles.
+   * Callers use this to populate the Settings → Ruflo daemon table.
+   */
+  list(): DaemonHandle[] {
+    return Array.from(this.entries.values()).map((e) => this.handleFor(e));
+  }
+
   // ── internals ──────────────────────────────────────────────────────────────
 
   private binaryAvailable(): boolean {

@@ -86,6 +86,14 @@ export const agentSessions = sqliteTable(
       t.workspaceId,
       t.splitGroupId,
     ),
+    // v1.5.5 Cluster A — uniqueness constraint on (workspace_id, pane_index).
+    // Partial: only applies when pane_index IS NOT NULL so legacy rows (pre-v1.3.1)
+    // and swarm sessions (no pane slot) do not collide. Migration 0020 creates
+    // the corresponding index and dedupes any existing duplicate rows.
+    wsPaneUq: uniqueIndex('agent_sessions_ws_pane_uq').on(
+      t.workspaceId,
+      t.paneIndex,
+    ),
   }),
 );
 

@@ -10,7 +10,7 @@
 //   4. `app:session-snapshot` emitter: debounced 250ms snapshot writer that
 //      fires whenever the active workspace or room actually changes.
 
-import { useEffect, useRef, type Dispatch } from 'react';
+import { useEffect, useMemo, useRef, type Dispatch } from 'react';
 import { toast } from 'sonner';
 import { rpc } from '../../lib/rpc';
 import type { Workspace } from '../../../shared/types';
@@ -251,12 +251,24 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
   // when it differs, we preserve the pending timer across no-op updates.
   const wsId = state.activeWorkspace?.id;
   const fallbackRoom = state.room !== 'workspaces' ? state.room : 'command';
-  const snapshotEntries = wsId
-    ? state.openWorkspaces.map((workspace) => ({
-        workspaceId: workspace.id,
-        room: state.roomByWorkspace[workspace.id] ?? (workspace.id === wsId ? fallbackRoom : 'command'),
-      }))
-    : [];
+  // v1.5.5 A5 — wrap in useMemo so the array reference is stable across
+  // re-renders where the content hasn't changed.  Without this the deps
+  // array of the snapshot effect below would see a new array on every render,
+  // causing the exhaustive-deps rule to flag it as a potentially-changing
+  // conditional dep.  useMemo ties the reference identity to the primitives
+  // that actually govern the content.
+  const snapshotEntries = useMemo(
+    () =>
+      wsId
+        ? state.openWorkspaces.map((workspace) => ({
+            workspaceId: workspace.id,
+            room:
+              state.roomByWorkspace[workspace.id] ??
+              (workspace.id === wsId ? fallbackRoom : 'command'),
+          }))
+        : [],
+    [wsId, state.openWorkspaces, state.roomByWorkspace, fallbackRoom],
+  );
   const snapshotKey = wsId
     ? `${wsId}::${snapshotEntries.map((e) => `${e.workspaceId}=${e.room}`).join('|')}`
     : '';
@@ -291,9 +303,5 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
         /* preload bridge gone — nothing actionable on the renderer side */
       }
     }, 250);
-  }, [
-    state.ready,
-    snapshotKey,
-    snapshotEntries,
-  ]);
+  }, [state.ready, snapshotKey, snapshotEntries, wsId]);
 }

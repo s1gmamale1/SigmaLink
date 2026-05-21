@@ -1292,10 +1292,12 @@ function buildRouter() {
   // Phase 4 Track C — Ruflo controller. Channels: ruflo.health,
   // ruflo.embeddings.search, ruflo.embeddings.generate, ruflo.patterns.search,
   // ruflo.patterns.store, ruflo.autopilot.predict, ruflo.install.start.
+  // v1.6.1 B2 — ruflo.daemonStatus, ruflo.restartDaemon.
   const rufloCtl = buildRufloController({
     supervisor: rufloSupervisor,
     proxy: rufloProxy,
     installer: rufloInstaller,
+    httpDaemonSupervisor: rufloHttpDaemonSupervisor,
     emit: (event, payload) => broadcast(event, payload),
   });
 

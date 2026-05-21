@@ -54,7 +54,8 @@ public:
   void EmitFinal(const std::string& s)   { final_.Emit(s); }
   void EmitError(const ErrorPayload& p)  { error_.Emit(p); }
   void EmitState(const std::string& s)   { state_.Emit(s); }
-  void EmitPcm(const float* data, size_t count) { pcm_.Emit(data, count); }
+  /** A1: sampleRate is the actual AVAudioFormat sample rate from the tap. */
+  void EmitPcm(const float* data, size_t count, double sampleRate) { pcm_.Emit(data, count, sampleRate); }
 
 private:
   Recognizer() = default;

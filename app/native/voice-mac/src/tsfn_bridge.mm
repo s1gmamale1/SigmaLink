@@ -105,25 +105,36 @@ void PcmEmitter::Release() {
   }
 }
 
-void PcmEmitter::Emit(const float* data, size_t count) {
+// A1: PcmChunk carries both the samples and the hardware sample rate.
+struct PcmChunk {
+  std::vector<float> samples;
+  double sampleRate;
+};
+
+void PcmEmitter::Emit(const float* data, size_t count, double sampleRate) {
   if (!tsfn_ || count == 0) return;
   // Heap-copy the PCM samples; the audio thread's AVAudioPCMBuffer is
   // recycled by CoreAudio immediately after the tap block returns.
-  auto* copy = new std::vector<float>(data, data + count);
-  napi_status status = tsfn_.NonBlockingCall(copy,
-      [](Napi::Env env, Napi::Function js, std::vector<float>* p) {
+  auto* chunk = new PcmChunk{ std::vector<float>(data, data + count), sampleRate };
+  napi_status status = tsfn_.NonBlockingCall(chunk,
+      [](Napi::Env env, Napi::Function js, PcmChunk* p) {
     if (env != nullptr && js != nullptr && p != nullptr) {
-      // Construct a Float32Array backed by a new ArrayBuffer.
-      Napi::ArrayBuffer ab = Napi::ArrayBuffer::New(env, p->size() * sizeof(float));
+      // A1: deliver { samples: Float32Array, sampleRate: number } to JS so
+      // the whisper resampler can use the actual hardware rate instead of
+      // assuming 48 kHz.
+      Napi::ArrayBuffer ab = Napi::ArrayBuffer::New(env, p->samples.size() * sizeof(float));
       float* dst = reinterpret_cast<float*>(ab.Data());
-      std::copy(p->begin(), p->end(), dst);
-      Napi::Float32Array fa = Napi::Float32Array::New(env, p->size(), ab, 0);
-      js.Call({ fa });
+      std::copy(p->samples.begin(), p->samples.end(), dst);
+      Napi::Float32Array fa = Napi::Float32Array::New(env, p->samples.size(), ab, 0);
+      Napi::Object payload = Napi::Object::New(env);
+      payload.Set("samples", fa);
+      payload.Set("sampleRate", Napi::Number::New(env, p->sampleRate));
+      js.Call({ payload });
     }
     delete p;
   });
   if (status != napi_ok) {
-    delete copy;
+    delete chunk;
   }
 }
 

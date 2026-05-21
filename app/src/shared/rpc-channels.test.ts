@@ -154,6 +154,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'skills.uninstall',
   'skills.getReadme',
   'skills.verifyForWorkspace',
+  'skills.listInstalled',    // v1.6.1 B3 — Skills tab Phase 1 discovery
   // memory (memoryCtl — from buildMemoryController)
   'memory.list_memories',
   'memory.read_memory',
@@ -233,6 +234,8 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'ruflo.autopilot.predict',
   'ruflo.install.start',
   'ruflo.verifyForWorkspace',
+  'ruflo.daemonStatus',       // v1.6.1 B2 — Settings → Ruflo Daemon table
+  'ruflo.restartDaemon',      // v1.6.1 B2 — restart a single workspace daemon
   // notifications (notificationsCtl — from buildNotificationsController)
   'notifications.list',
   'notifications.unreadCount',

@@ -218,7 +218,14 @@ void Recognizer::Start(const std::string& locale, bool onDevice, bool addPunctua
           // floatChannelData[0] is the left/mono channel; whisper expects mono.
           const float* samples = buffer.floatChannelData ? buffer.floatChannelData[0] : nullptr;
           if (samples != nullptr) {
-            rec.EmitPcm(samples, static_cast<size_t>(frameCount));
+            // A1: pass the actual hardware sample rate from AVAudioFormat so
+            // the JS resampler does not have to assume 48 kHz. fmt is the
+            // format passed to installTapOnBus:bufferSize:format: — it reflects
+            // the AVAudioInputNode's outputFormatForBus:0 which equals the
+            // hardware's native rate (e.g. 48000 on M-series, 44100 on some
+            // older / external audio devices).
+            double hwRate = fmt.sampleRate > 0 ? fmt.sampleRate : 48000.0;
+            rec.EmitPcm(samples, static_cast<size_t>(frameCount), hwRate);
           }
         }
       }

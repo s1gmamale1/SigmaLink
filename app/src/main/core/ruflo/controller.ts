@@ -13,16 +13,20 @@
 //   ruflo.patterns.store     → forwards to `agentdb_pattern-store`
 //   ruflo.autopilot.predict  → forwards to `autopilot_predict`
 //   ruflo.install.start      → kicks off the lazy installer
+//   ruflo.daemonStatus       → list all per-workspace HTTP daemon handles
+//   ruflo.restartDaemon      → stop + re-spawn one workspace's HTTP daemon
 //
 // This controller mirrors the `defineController` pattern used by every other
 // main-process controller — bodies are async, errors throw, the rpc-router
 // wraps them into the `{ ok, data, error }` envelope.
 
+import http from 'node:http';
 import { defineController } from '../../../shared/rpc';
 import type { RufloMcpSupervisor } from './supervisor';
 import type { RufloProxy } from './proxy';
 import type { RufloInstaller } from './installer';
 import type { RufloHealth } from './types';
+import type { RufloHttpDaemonSupervisor } from './http-daemon-supervisor';
 import { getRawDb } from '../db/client';
 import {
   KV_RUFLO_STRICT_MCP_VERIFICATION,
@@ -30,10 +34,20 @@ import {
   type RufloWorkspaceVerification,
 } from './verify';
 
+export interface DaemonStatusRow {
+  workspaceId: string;
+  status: string;
+  port: number;
+  pid: number;
+  uptime: number;
+  connections: number | null;
+}
+
 export interface RufloControllerDeps {
   supervisor: RufloMcpSupervisor;
   proxy: RufloProxy;
   installer: RufloInstaller;
+  httpDaemonSupervisor?: RufloHttpDaemonSupervisor;
   emit?: (event: string, payload: unknown) => void;
 }
 
@@ -224,6 +238,59 @@ export function buildRufloController(deps: RufloControllerDeps) {
       emit('ruflo:workspace-verified', { workspaceRoot, ...result });
       return result;
     },
+
+    // v1.6.1 B2 — Settings → Ruflo Daemon table.
+    // Returns a status row for every tracked per-workspace HTTP daemon.
+    // `connections` is fetched best-effort via GET /health; null on failure.
+    daemonStatus: async (workspaceId?: string): Promise<DaemonStatusRow[]> => {
+      const httpSup = deps.httpDaemonSupervisor;
+      if (!httpSup) return [];
+      const handles = typeof workspaceId === 'string'
+        ? (() => {
+            const h = httpSup.list().find((x) => x.workspaceRoot === workspaceId || (x as { workspaceId?: string }).workspaceId === workspaceId);
+            return h ? [h] : [];
+          })()
+        : httpSup.list();
+      const rows = await Promise.all(
+        handles.map(async (h) => {
+          const uptime = Date.now() - h.startedAt;
+          let connections: number | null = null;
+          if (h.status === 'running' && h.port > 0) {
+            try {
+              const body = await httpGetWithTimeout(`http://127.0.0.1:${h.port}/health`, 1_500);
+              const parsed = JSON.parse(body) as { connections?: number };
+              if (typeof parsed.connections === 'number') connections = parsed.connections;
+            } catch {
+              /* best-effort — leave null */
+            }
+          }
+          return {
+            workspaceId: (h as unknown as { workspaceId?: string }).workspaceId ?? h.workspaceRoot,
+            status: h.status,
+            port: h.port,
+            pid: h.pid,
+            uptime,
+            connections,
+          } satisfies DaemonStatusRow;
+        }),
+      );
+      return rows;
+    },
+
+    // v1.6.1 B2 — Restart a single per-workspace HTTP daemon from Settings.
+    restartDaemon: async (workspaceId: string): Promise<{ ok: boolean; error?: string }> => {
+      const httpSup = deps.httpDaemonSupervisor;
+      if (!httpSup) return { ok: false, error: 'HTTP daemon supervisor not available' };
+      if (typeof workspaceId !== 'string' || !workspaceId.trim()) {
+        return { ok: false, error: 'ruflo.restartDaemon: missing workspaceId' };
+      }
+      try {
+        await httpSup.restart(workspaceId);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
   });
 }
 
@@ -264,4 +331,23 @@ function normalizePatternHit(
     confidence: typeof r.confidence === 'number' ? r.confidence : 0,
     score: typeof r.score === 'number' ? r.score : 0,
   };
+}
+
+/** Minimal HTTP GET with a ms timeout. Returns the body string or throws. */
+function httpGetWithTimeout(url: string, timeoutMs: number): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const req = http.get(url, (res) => {
+      if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume();
+        reject(new Error(`HTTP ${res.statusCode ?? 'unknown'}`));
+        return;
+      }
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => { body += chunk; });
+      res.on('end', () => resolve(body));
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(new Error('request timeout')); });
+  });
 }

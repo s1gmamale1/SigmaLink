@@ -216,20 +216,36 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
 
   // Tag the agent_sessions row with the swarm so future rooms (Review, Tasks)
   // can correlate sessions to swarm agents.
-  db.insert(agentSessions)
-    .values({
-      id: rec.id,
-      workspaceId: args.wsRow.id,
-      providerId: provider.id,
-      cwd,
-      branch,
-      worktreePath,
-      status: 'running',
-      initialPrompt: args.initialPrompt,
-      startedAt: rec.startedAt,
-      externalSessionId: rec.externalSessionId,
-    })
-    .run();
+  // v1.5.5 Cluster A — guard against UNIQUE violation on (workspace_id, pane_index).
+  // Swarm agents do not set paneIndex (NULL), so this guard only fires for callers
+  // that somehow supply a duplicate slot. Log and re-throw so the swarm factory
+  // can surface an error agent rather than crashing the whole swarm spawn.
+  try {
+    db.insert(agentSessions)
+      .values({
+        id: rec.id,
+        workspaceId: args.wsRow.id,
+        providerId: provider.id,
+        cwd,
+        branch,
+        worktreePath,
+        status: 'running',
+        initialPrompt: args.initialPrompt,
+        startedAt: rec.startedAt,
+        externalSessionId: rec.externalSessionId,
+      })
+      .run();
+  } catch (insertErr) {
+    const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
+    if (/UNIQUE constraint failed/i.test(msg)) {
+      console.warn(
+        `[factory-spawn] UNIQUE violation on agent_sessions (ws=${args.wsRow.id}, agent=${args.agentKey}) — duplicate spawn suppressed`,
+      );
+      // Return the existing session id so callers stay operational.
+      return rec.id;
+    }
+    throw insertErr;
+  }
   // BUG-V1.1-02: persist the launcher-resolved provider tag. The launcher
   // façade always records `providerEffective`, even when no comingSoon swap
   // occurred, so downstream queries don't have to special-case nulls.

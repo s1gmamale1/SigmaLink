@@ -79,9 +79,16 @@ public:
 
   void Bind(Napi::Function cb, const std::string& name);
   void Release();
-  /** Enqueue `count` floats from `data` onto the JS event loop. Non-blocking;
-   *  drops silently when the queue is saturated (audio thread safety). */
-  void Emit(const float* data, size_t count);
+  /**
+   * Enqueue `count` floats from `data` onto the JS event loop. Non-blocking;
+   * drops silently when the queue is saturated (audio thread safety).
+   *
+   * A1 (hardware sample-rate detection): `sampleRate` is the actual hardware
+   * rate reported by AVAudioFormat (fmt.sampleRate from the AVAudioEngine
+   * input node). The JS callback receives `{ samples: Float32Array, sampleRate: number }`
+   * so callers can resample accurately rather than assuming 48 kHz.
+   */
+  void Emit(const float* data, size_t count, double sampleRate);
   bool IsBound() const { return tsfn_ != nullptr; }
 
 private:

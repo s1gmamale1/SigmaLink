@@ -44,6 +44,9 @@ function buildStub() {
     getFrontmostAppBundleId() { return ''; },
     isTrustedAccessibility(_prompt) { return false; },
     sendPasteKeystroke() { /* no-op on non-darwin */ },
+    // A1 (v1.4.8) — onPcm stub delivers no chunks; payload type kept for
+    // interface compatibility with the real binding.
+    onPcm: noop,
   };
 }
 

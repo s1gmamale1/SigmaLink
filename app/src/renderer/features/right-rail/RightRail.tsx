@@ -25,6 +25,14 @@ import { SigmaTabPlaceholder } from './SigmaTabPlaceholder';
 import { EditorTabPlaceholder } from './EditorTabPlaceholder';
 import { useRightRail } from './RightRailContext.data';
 
+// v1.6.1 B3 — Skills discovery tab. Lazy-loaded like BrowserRoom so its
+// import chain (rpc call + list rendering) doesn't bloat the initial bundle.
+const SkillsTab = lazy(() =>
+  import('@/renderer/features/skills/SkillsTab').then((m) => ({
+    default: m.SkillsTab,
+  })),
+);
+
 // Bundle-lazy: BrowserRoom (TabStrip, BrowserViewMount, BrowserRecents,
 // DesignOverlay, plus the `browser:state` listener subscription) is loaded
 // on-demand. The wrapping Suspense fallback paints a neutral placeholder
@@ -68,6 +76,11 @@ export function RightRail({ children }: Props) {
   const [browserActivated, setBrowserActivated] = useState(activeTab === 'browser');
   if (activeTab === 'browser' && !browserActivated) {
     setBrowserActivated(true);
+  }
+  // v1.6.1 B3 — Same lazy-mount pattern for Skills tab.
+  const [skillsActivated, setSkillsActivated] = useState(activeTab === 'skills');
+  if (activeTab === 'skills' && !skillsActivated) {
+    setSkillsActivated(true);
   }
 
   // Hydrate persisted width once on mount. The active tab is hydrated by
@@ -137,6 +150,19 @@ export function RightRail({ children }: Props) {
             ) : null,
             editor: <EditorTabPlaceholder />,
             sigma: <SigmaTabPlaceholder />,
+            skills: skillsActivated ? (
+              <Suspense
+                fallback={
+                  <div
+                    role="status"
+                    aria-label="Loading skills"
+                    className="h-full min-h-0 flex-1 animate-pulse bg-muted/30"
+                  />
+                }
+              >
+                <SkillsTab />
+              </Suspense>
+            ) : null,
           }}
         />
       </aside>

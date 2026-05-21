@@ -64,11 +64,14 @@ export interface NativeVoiceModule {
   /**
    * Register a callback that receives raw Float32 PCM chunks from the
    * AVAudioEngine input-node tap (macOS only). Call this BEFORE start().
-   * Each chunk is 1024 frames of mono audio at the device's native sample
-   * rate. Feed chunks to PcmAccumulator for whisper.cpp transcription.
+   *
+   * A1 (v1.4.8): the callback payload is `{ samples: Float32Array, sampleRate: number }`
+   * where `sampleRate` is the actual hardware rate from AVAudioFormat.
+   * Old stubs deliver a bare Float32Array; callers should handle both.
+   *
    * Returns an unsubscribe stub (no-op; rebind to clear).
    */
-  onPcm?: (cb: (chunk: Float32Array) => void) => UnsubscribeFn;
+  onPcm?: (cb: (chunk: Float32Array | { samples: Float32Array; sampleRate: number }) => void) => UnsubscribeFn;
 }
 
 let cached: NativeVoiceModule | null | undefined;
