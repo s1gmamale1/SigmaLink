@@ -75,7 +75,7 @@ export type LinkSink = (sessionId: string, hit: LinkHit) => void;
  * v1.6.0 Phase 2 — emitted when the CLI exits inside a shell-first pane.
  *
  * Distinct from `ExitSink` (which fires when the SHELL/PTY itself exits) and
- * from `PaneEventSink` (which is wired to the `sigma_pane_events` DB table whose
+ * from `PaneEventSink` (which is wired to the `jorvis_pane_events` DB table whose
  * SQLite enum does not include 'cli-exited').  A separate sink keeps the status
  * model additive and avoids a schema migration.
  *

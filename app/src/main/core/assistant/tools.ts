@@ -567,7 +567,7 @@ export const TOOLS: ToolDefinition[] = [
     async (a, _ctx) => {
       const db = getDb();
       db.update(agentSessions)
-        .set({ sigmaMonitorConversationId: a.conversationId })
+        .set({ jorvisMonitorConversationId: a.conversationId })
         .where(eq(agentSessions.id, a.sessionId))
         .run();
       return { ok: true };

@@ -10,7 +10,7 @@
 //
 // SYNC SCOPE (per brief S6 — autonomous default applied):
 //   IN: workspaces, agent_sessions, swarms, swarm_agents, swarm_messages,
-//       swarm_skills, conversations, messages, sigma_pane_events, memories,
+//       swarm_skills, conversations, messages, jorvis_pane_events, memories,
 //       memory_links, memory_tags, tasks, task_comments, canvases,
 //       canvas_dispatches, boards, swarm_origins, swarm_replay_snapshots
 //   OUT: credentials (HARD-DENY), kv, skills, skill_provider_state,
@@ -41,7 +41,7 @@ export const SYNCED_TABLES = new Set<string>([
   'swarm_skills',
   'conversations',
   'messages',
-  'sigma_pane_events',
+  'jorvis_pane_events',
   'memories',
   'memory_links',
   'memory_tags',

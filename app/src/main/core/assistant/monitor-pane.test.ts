@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('monitor_pane tool', () => {
-  it('writes sigmaMonitorConversationId to the session row', async () => {
+  it('writes jorvisMonitorConversationId to the session row', async () => {
     seedAgentSession(fake, { id: 'sess-1', workspaceId: 'ws-1', providerId: 'codex', cwd: '/tmp' });
     const out = await findTool('monitor_pane')!.handler(
       { sessionId: 'sess-1', conversationId: 'conv-1' },
@@ -42,6 +42,6 @@ describe('monitor_pane tool', () => {
     expect(out).toEqual({ ok: true });
     const row = fake.store.tables.get('agent_sessions')?.find((r) => r.id === 'sess-1');
     expect(row).toBeDefined();
-    expect(row!.sigmaMonitorConversationId).toBe('conv-1');
+    expect(row!.jorvisMonitorConversationId).toBe('conv-1');
   });
 });

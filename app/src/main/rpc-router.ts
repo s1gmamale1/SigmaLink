@@ -48,7 +48,7 @@ import { pushToolErrorNotification } from './core/notifications/sources/tool-err
 import { runBootNotificationsGc } from './core/notifications/gc';
 import { OsNotifier } from './core/notifications/os-notify';
 import { and, eq } from 'drizzle-orm';
-import { agentSessions, sigmaPaneEvents, swarmAgents } from './core/db/schema';
+import { agentSessions, jorvisPaneEvents, swarmAgents } from './core/db/schema';
 import { getDb } from './core/db/client';
 import { BrowserManagerRegistry } from './core/browser/manager';
 import { buildBrowserController } from './core/browser/controller';
@@ -344,7 +344,7 @@ function buildRouter() {
       onPaneEvent: (event) => {
         try {
           const row = getDb()
-            .select({ conversationId: agentSessions.sigmaMonitorConversationId })
+            .select({ conversationId: agentSessions.jorvisMonitorConversationId })
             .from(agentSessions)
             .where(eq(agentSessions.id, event.sessionId))
             .get();
@@ -352,7 +352,7 @@ function buildRouter() {
             const id = randomUUID();
             const ts = Date.now();
             getDb()
-              .insert(sigmaPaneEvents)
+              .insert(jorvisPaneEvents)
               .values({
                 id,
                 conversationId: row.conversationId as string,
@@ -376,7 +376,7 @@ function buildRouter() {
         }
         // v1.4.9 #07 — Notifications source. The brief explicitly disallows
         // adding a separate pty:exit listener; re-use this existing sink so
-        // one pane event lands in both `sigma_pane_events` (above) AND
+        // one pane event lands in both `jorvis_pane_events` (above) AND
         // `notifications` (below). The source helper internally filters out
         // non-exit kinds (`started` / `output-spike` / `idle`) so the bell
         // doesn't drown in PTY chatter.
@@ -388,7 +388,7 @@ function buildRouter() {
       },
       // v1.6.0 Phase 2 — CLI-exit detection in shell-first mode.
       // Fires when the sentinel is detected in the PTY data stream (CLI exited,
-      // shell/pane stays alive).  We skip the sigma_pane_events DB insert (its
+      // shell/pane stays alive).  We skip the jorvis_pane_events DB insert (its
       // SQLite enum does not include 'cli-exited' and we don't want a migration)
       // but we DO fire the "agent done" notification via the same path as PTY
       // exit, so shell-first panes notify on CLI completion exactly like direct-

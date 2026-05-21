@@ -123,13 +123,16 @@ export function clearPriorClaudeSessionId(conversationId: string): void {
 // Message persistence helpers
 // ---------------------------------------------------------------------------
 
+// W-6 Cluster B: new writes use 'jorvis-in-flight:' prefix.
+// The renderer isInFlightToolCall() accepts both 'jorvis-in-flight:' and
+// 'sigma-in-flight:' for backward-compat with persisted pre-rename rows.
 export function appendAssistantMessage(conversationId: string, turnId: string): string | null {
   try {
     return conversationsDao.appendMessage({
       conversationId,
       role: 'assistant',
       content: '',
-      toolCallId: `sigma-in-flight:${turnId}`,
+      toolCallId: `jorvis-in-flight:${turnId}`,
     }).id;
   } catch {
     /* persistence is best-effort; renderer still receives delta + final */

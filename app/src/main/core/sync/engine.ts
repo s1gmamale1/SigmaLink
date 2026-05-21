@@ -61,14 +61,18 @@ const SCHEMA_VERSION = 19; // matches migration 0019
 
 export const COLUMN_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ['workspaces', new Set(['id', 'name', 'root_path', 'repo_root', 'repo_mode', 'created_at', 'last_opened_at'])],
-  ['agent_sessions', new Set(['id', 'workspace_id', 'provider_id', 'cwd', 'branch', 'worktree_path', 'status', 'exit_code', 'initial_prompt', 'started_at', 'exited_at', 'provider_effective', 'external_session_id', 'pane_index', 'sigma_monitor_conversation_id', 'split_group_id', 'split_direction', 'split_index', 'minimised'])],
+  ['agent_sessions', new Set(['id', 'workspace_id', 'provider_id', 'cwd', 'branch', 'worktree_path', 'status', 'exit_code', 'initial_prompt', 'started_at', 'exited_at', 'provider_effective', 'external_session_id', 'pane_index', 'jorvis_monitor_conversation_id', 'split_group_id', 'split_direction', 'split_index', 'minimised'])],
   ['swarms', new Set(['id', 'workspace_id', 'name', 'mission', 'preset', 'status', 'created_at', 'ended_at'])],
   ['swarm_agents', new Set(['id', 'swarm_id', 'role', 'role_index', 'provider_id', 'session_id', 'status', 'inbox_path', 'agent_key', 'auto_approve', 'coordinator_id', 'created_at'])],
   ['swarm_messages', new Set(['id', 'swarm_id', 'from_agent', 'to_agent', 'kind', 'body', 'payload_json', 'ts', 'delivered_at', 'read_at', 'resolved_at'])],
   ['swarm_skills', new Set(['swarm_id', 'skill_key', 'on_flag', 'group_key', 'updated_at'])],
   ['conversations', new Set(['id', 'workspace_id', 'kind', 'claude_session_id', 'created_at'])],
   ['messages', new Set(['id', 'conversation_id', 'role', 'content', 'tool_call_id', 'created_at'])],
-  ['sigma_pane_events', new Set(['id', 'conversation_id', 'session_id', 'kind', 'body', 'ts'])],
+  // W-6 Cluster B: renamed from 'sigma_pane_events'. See migration 0022.
+  // CROSS-SYNC CAVEAT: this rename changes the wire format — a v1.10.x peer
+  // syncing 'sigma_pane_events' won't match a renamed peer syncing
+  // 'jorvis_pane_events'. This is an intentional coordinated rename.
+  ['jorvis_pane_events', new Set(['id', 'conversation_id', 'session_id', 'kind', 'body', 'ts'])],
   ['memories', new Set(['id', 'workspace_id', 'name', 'body', 'frontmatter_json', 'created_at', 'updated_at'])],
   ['memory_links', new Set(['id', 'from_memory_id', 'to_memory_name', 'created_at'])],
   ['memory_tags', new Set(['memory_id', 'tag'])],

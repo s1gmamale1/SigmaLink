@@ -58,8 +58,8 @@ export const agentSessions = sqliteTable(
     // written before this column existed; migration 0012 adds the column +
     // composite index `agent_sessions_ws_pane_idx`.
     paneIndex: integer('pane_index'),
-    // v1.4.1 — which Sigma conversation is monitoring this session for pane events.
-    sigmaMonitorConversationId: text('sigma_monitor_conversation_id'),
+    // v1.4.1 — which Jorvis conversation is monitoring this session for pane events.
+    jorvisMonitorConversationId: text('jorvis_monitor_conversation_id'),
     // v1.4.3 #06 — Pane Split + Minimise. NULL columns mean the pane is a
     // standalone tile in the grid (the legacy shape). When set, the four
     // columns describe membership in a 2-pane split group:
@@ -470,8 +470,8 @@ export type ConversationInsert = typeof conversations.$inferInsert;
 export type MessageRow = typeof messages.$inferSelect;
 export type MessageInsert = typeof messages.$inferInsert;
 
-export const sigmaPaneEvents = sqliteTable(
-  'sigma_pane_events',
+export const jorvisPaneEvents = sqliteTable(
+  'jorvis_pane_events',
   {
     id: text('id').primaryKey(),
     conversationId: text('conversation_id').notNull(),
@@ -481,11 +481,11 @@ export const sigmaPaneEvents = sqliteTable(
     ts: integer('ts').notNull().default(sql`(unixepoch() * 1000)`),
   },
   (t) => ({
-    convTsIdx: index('sigma_pane_events_conv_ts').on(t.conversationId, t.ts),
+    convTsIdx: index('jorvis_pane_events_conv_ts').on(t.conversationId, t.ts),
   }),
 );
-export type SigmaPaneEventRow = typeof sigmaPaneEvents.$inferSelect;
-export type SigmaPaneEventInsert = typeof sigmaPaneEvents.$inferInsert;
+export type JorvisPaneEventRow = typeof jorvisPaneEvents.$inferSelect;
+export type JorvisPaneEventInsert = typeof jorvisPaneEvents.$inferInsert;
 
 // Phase — V3-W14-006 — Sigma Canvas persistence.
 // Migration 0007_canvases owns the DDL; these Drizzle tables mirror it so the

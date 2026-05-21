@@ -1,10 +1,16 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { ChatMessageView } from './ChatTranscript';
 
-const IN_FLIGHT_TOOL_PREFIX = 'sigma-in-flight:';
+// W-6 Cluster B: new writes use 'jorvis-in-flight:' prefix.
+// Backward-compat read: also accept persisted 'sigma-in-flight:' values from
+// pre-rename clients so cross-machine resume detection keeps working.
+const IN_FLIGHT_PREFIXES = ['jorvis-in-flight:', 'sigma-in-flight:'] as const;
 
 function isInFlightToolCall(toolCallId?: string | null): boolean {
-  return typeof toolCallId === 'string' && toolCallId.startsWith(IN_FLIGHT_TOOL_PREFIX);
+  return (
+    typeof toolCallId === 'string' &&
+    IN_FLIGHT_PREFIXES.some((prefix) => toolCallId.startsWith(prefix))
+  );
 }
 
 export interface InterruptedTurn {
