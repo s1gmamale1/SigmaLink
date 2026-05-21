@@ -43,13 +43,13 @@ The previously-Pending-CI rows resolved on the P3-S8 local Playwright run (40/40
 
 Backlog ticket IDs are the authoritative spec: `docs/03-plan/V3_PARITY_BACKLOG.md`. Every Wave 12-14 ticket in that backlog ships in v1.0.0 except V3-W15-006 (dogfood, deferred).
 
-W12 chrome (1-16): V3-W12-005 3-card picker · V3-W12-006 stepper · V3-W12-007 layout grid · V3-W12-008 sidebar status dot + breadcrumb · V3-W12-009 Battalion 20 · V3-W12-010 role colour tokens · V3-W12-011 5-step wizard · V3-W12-012 global provider strip · V3-W12-013/014 Operator Console TopBar · V3-W12-016 9 mailbox kinds · V3-W12-017 RPC allowlist groups (17 channels + 5 events) · V3-W12-018 per-row Auto-approve · V3-W12-001 BridgeCode stub · V3-W12-002 Kimi as OpenCode model · V3-W12-003 Aider/Continue legacy toggle · V3-W12-004 wizard quick-fills.
+W12 chrome (1-16): V3-W12-005 3-card picker · V3-W12-006 stepper · V3-W12-007 layout grid · V3-W12-008 sidebar status dot + breadcrumb · V3-W12-009 Battalion 20 · V3-W12-010 role colour tokens · V3-W12-011 5-step wizard · V3-W12-012 global provider strip · V3-W12-013/014 Operator Console TopBar · V3-W12-016 9 mailbox kinds · V3-W12-017 RPC allowlist groups (17 channels + 5 events) · V3-W12-018 per-row Auto-approve · V3-W12-001 SigmaCode stub · V3-W12-002 Kimi as OpenCode model · V3-W12-003 Aider/Continue legacy toggle · V3-W12-004 wizard quick-fills.
 
 W13 right-rail + Operator Console body + Bridge Assistant (17-29): V3-W13-001 right-rail dock · V3-W13-002 Browser recents + link routing · V3-W13-003 per-pane chrome + splash · V3-W13-004 multi-pane CSS grid · V3-W13-005/014 Constellation graph (multi-hub) · V3-W13-006 ActivityFeed · V3-W13-007 task_brief render · V3-W13-008 per-agent boards · V3-W13-009 Operator DM echo · V3-W13-010 mission @-autocomplete · V3-W13-011 Swarm Skills 12-tile · V3-W13-012 Bridge Assistant orb + chat · V3-W13-013 assistant.* RPC + 10 tools + tracer.
 
 W14 Bridge Canvas pipeline (30): V3-W14-001..006 (picker, DesignDock, provider chips, drop staging, HMR poke, GA toggle).
 
-Bonus shipped: V3-W14-007 Editor Monaco tab · V3-W14-008 auto-update · V3-W14-009 Re-probe + rebuild modal · V3-W15-001/002/003 BridgeVoice · V3-W15-004 CI matrix · V3-W15-005 plan capabilities · V3-W15-007 Marketplace stub · V3-W13-015 Jump-to-pane + ding.
+Bonus shipped: V3-W14-007 Editor Monaco tab · V3-W14-008 auto-update · V3-W14-009 Re-probe + rebuild modal · V3-W15-001/002/003 SigmaVoice · V3-W15-004 CI matrix · V3-W15-005 plan capabilities · V3-W15-007 Marketplace stub · V3-W13-015 Jump-to-pane + ding.
 
 ## Risk register update (A1..A16 + R1..R11)
 
@@ -127,7 +127,7 @@ Mitigated: 21. Partial: 4. Open: 1 (A11 multi-window). Out of scope: 1 (A16 tele
 | 9 | ebc5794 | feat(W13): right-rail dock + per-pane chrome + multi-pane grid + Operator Console |
 | 10 | 584cdcf | feat(W13): Bridge Assistant chat panel + 10 tools + tool tracer + jump-to-pane |
 | 11 | d4b2610 | feat(W14): Bridge Canvas + Editor tab (Monaco lazy) + electron-updater |
-| 12 | dd5cf51 | feat(W15): BridgeVoice + CI matrix + plan capabilities + skills marketplace stub |
+| 12 | dd5cf51 | feat(W15): SigmaVoice + CI matrix + plan capabilities + skills marketplace stub |
 | 13 | dc16f5f | chore(W16): release docs — ACCEPTANCE_REPORT_V1 + release-notes-1.0.0 + CHANGELOG [1.0.0] |
 | 14 | 0af5b5d | fix(P3): emergency P1 + Operator Console rescue + brand sweep + P2 sweep |
 | 15 | e6df802 | chore: remove dead Phase-1 _legacy directory (2,791 LoC) |

@@ -7,7 +7,7 @@
 //
 // Frame references:
 //   0045 — Claude:   `Claude Code v2.1.116 · Opus 4.7 (1M) · Claude Max`
-//   0070 — Codex:    `OpenAI Codex (v0.121.0) · gpt-5.4 high fast · directory: ~/Desktop/bridgemind`
+//   0070 — Codex:    `OpenAI Codex (v0.121.0) · gpt-5.4 high fast · directory: ~/Desktop/sigmamind`
 //   0100/0140 — OpenCode ASCII + `Build · Kimi K2.6 OpenRouter`
 
 import { useEffect, useState } from 'react';

@@ -22,7 +22,7 @@
 // Gemini reads this file on startup and uses the mapped slug for the worktree
 // path, so it reads from the SAME chats directory as the workspace cwd.
 //
-// NOT symlinks (contrast with claude-resume-bridge.ts which uses symlinks).
+// NOT symlinks (contrast with claude-resume-sigma.ts which uses symlinks).
 // Gemini's projects.json design supports the alias approach natively; it is
 // cleaner and avoids platform-specific symlink permission issues.
 //

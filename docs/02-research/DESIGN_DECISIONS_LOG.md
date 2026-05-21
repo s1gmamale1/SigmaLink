@@ -8,7 +8,7 @@ Every architectural / design decision already made in the SigmaLink project, wit
 
 - **Decision**: Build on Electron + TypeScript + React.
 - **Rationale**:
-  - Matches BridgeSpace's own platform (cross-platform Electron desktop). `[research_extracted.txt §"BridgeSpace Feature Analysis / Core Architecture Overview"]`
+  - Matches SigmaSpace's own platform (cross-platform Electron desktop). `[research_extracted.txt §"SigmaSpace Feature Analysis / Core Architecture Overview"]`
   - Matches Emdash, the recommended foundation. `[research_extracted.txt §"Tier 1: Emdash"]`
   - Allows shipping `WebContentsView`, `node-pty`, and on-disk userData paths without a custom runtime.
 - **Sources**: `[REBUILD_PLAN.md §"North Star"]`, `[REBUILD_PLAN.md §"Architecture (target)"]`, `[research_extracted.txt §"Conclusions / Primary Recommendation"]`, `[app/README.md §"Header"]`.
@@ -22,7 +22,7 @@ Every architectural / design decision already made in the SigmaLink project, wit
 ## DD-003: Local-first persistence on SQLite via Drizzle + better-sqlite3
 
 - **Decision**: SQLite-only persistence; Drizzle ORM with migrations; first migration covers `workspaces`, `projects`, `tasks`, `conversations`, `messages`, `terminals`, `skills`, `memories`.
-- **Rationale**: BridgeSpace and Emdash are explicitly local-first SQLite. Avoids cloud dependencies. Out-of-scope items (cloud sync, accounts, billing) reinforce the choice.
+- **Rationale**: SigmaSpace and Emdash are explicitly local-first SQLite. Avoids cloud dependencies. Out-of-scope items (cloud sync, accounts, billing) reinforce the choice.
 - **Sources**: `[REBUILD_PLAN.md §"North Star"]`, `[REBUILD_PLAN.md §"Architecture (target)"]`, `[REBUILD_PLAN.md §"Phase 1 — Foundation"]`, `[research_extracted.txt §"Tier 1 / Table 0"]`.
 
 ## DD-004: PTY layer = ring-buffer with atomic subscribe (Emdash pattern)
@@ -52,14 +52,14 @@ Every architectural / design decision already made in the SigmaLink project, wit
 
 ## DD-008: Roles = Coordinator / Builder / Scout / Reviewer
 
-- **Decision**: Adopt the four BridgeSpace role names verbatim.
+- **Decision**: Adopt the four SigmaSpace role names verbatim.
 - **Rationale**: Functional/idiomatic terminology, allowed under our IP guardrails. Matches the launch video and marketing.
 - **Sources**: `[REBUILD_PLAN.md §"North Star"]`, `[REBUILD_PLAN.md §"Legal/IP guardrails"]`, `[video_transcript.txt §"Live swarm demo"]`, `[docs/02-research/transcripts/launch-video-description.txt]`.
 
 ## DD-009: Swarm communication via file-system mailbox (independently designed)
 
 - **Decision**: Swarm communication uses a file-mailbox protocol at `<userData>/swarms/<swarmId>/inboxes/<agentId>.jsonl`. Roll-call and operator broadcast are first-class envelopes.
-- **Rationale**: Independently designed to avoid IP concerns with BridgeSpace's internal mechanism. JSONL inbox per agent is durable, observable, and cheap to tail for the side-chat panel.
+- **Rationale**: Independently designed to avoid IP concerns with SigmaSpace's internal mechanism. JSONL inbox per agent is durable, observable, and cheap to tail for the side-chat panel.
 - **Sources**: `[REBUILD_PLAN.md §"North Star"]`, `[REBUILD_PLAN.md §"Phase 2 — Swarm core"]`, `[REBUILD_PLAN.md §"Legal/IP guardrails"]`.
 
 ## DD-010: Provider abstraction is config-driven (no hardcoded list)
@@ -83,14 +83,14 @@ Every architectural / design decision already made in the SigmaLink project, wit
 ## DD-013: Multi-Room navigation (Workspace, Swarm, Review, Memory, Browser)
 
 - **Decision**: Renderer is room-based. Existing rooms: Command (terminals), Swarm, Review. Rebuild adds Memory and Browser rooms.
-- **Rationale**: Matches BridgeSpace's three-room model and adds the rebuild's new browser/memory features.
-- **Sources**: `[REBUILD_PLAN.md §"Architecture (target)"]`, `[research_extracted.txt §"BridgeSpace Feature Analysis / Core Architecture Overview"]`, `[app/src/_legacy/App.tsx]`.
+- **Rationale**: Matches SigmaSpace's three-room model and adds the rebuild's new browser/memory features.
+- **Sources**: `[REBUILD_PLAN.md §"Architecture (target)"]`, `[research_extracted.txt §"SigmaSpace Feature Analysis / Core Architecture Overview"]`, `[app/src/_legacy/App.tsx]`.
 
 ## DD-014: Workspace launcher presets `1/2/4/6/8/10/12/14/16`
 
 - **Decision**: Workspace launcher offers preset pane counts 1, 2, 4, 6, 8, 10, 12, 14, 16. Operator assigns provider per pane and launches.
-- **Rationale**: Matches BridgeSpace's "up to 16" demo; presets reduce friction.
-- **Sources**: `[REBUILD_PLAN.md §"Architecture (target)"]`, `[REBUILD_PLAN.md §"Phase 1 — Foundation"]`, `[video_transcript.txt §"BridgeSpace workspace demo"]`.
+- **Rationale**: Matches SigmaSpace's "up to 16" demo; presets reduce friction.
+- **Sources**: `[REBUILD_PLAN.md §"Architecture (target)"]`, `[REBUILD_PLAN.md §"Phase 1 — Foundation"]`, `[video_transcript.txt §"SigmaSpace workspace demo"]`.
 
 ## DD-015: Drag-and-drop Skills loader using Anthropic Skills format
 
@@ -119,11 +119,11 @@ Every architectural / design decision already made in the SigmaLink project, wit
 - **Rationale**: Lets every agent perform browser automation against the same visible browser surface — operator can watch the agent click around. Single supervised process per workspace, not per agent.
 - **Sources**: `[REBUILD_PLAN.md §"Phase 3"]`.
 
-## DD-019: SigmaMemory MCP server with 12 tools (BridgeMemory equivalent)
+## DD-019: SigmaMemory MCP server with 12 tools (SigmaMemory equivalent)
 
 - **Decision**: Custom in-process stdio MCP server exposing 12 tools: `create_memory`, `search_memories`, `find_backlinks`, `suggest_connections`, `update_memory`, `delete_memory`, `list_memories`, `get_memory`, `link_memories`, `get_graph`, `tag_memory`, `get_recent_memories`. Markdown notes in `.sigmamemory/` with `[[wikilinks]]`. Force-directed graph view (D3 or react-force-graph).
-- **Rationale**: Matches the BridgeSpace BridgeMemory feature (12 MCP tools, wikilinks). In-process stdio server avoids IPC overhead for the most-called tools.
-- **Sources**: `[REBUILD_PLAN.md §"Phase 4"]`, `[research_extracted.txt §"BridgeSpace Feature Analysis / Core Architecture Overview"]`, `[research_extracted.txt §"Technical Deep Dive / MCP Protocol Integration"]`.
+- **Rationale**: Matches the SigmaSpace SigmaMemory feature (12 MCP tools, wikilinks). In-process stdio server avoids IPC overhead for the most-called tools.
+- **Sources**: `[REBUILD_PLAN.md §"Phase 4"]`, `[research_extracted.txt §"SigmaSpace Feature Analysis / Core Architecture Overview"]`, `[research_extracted.txt §"Technical Deep Dive / MCP Protocol Integration"]`.
 
 ## DD-020: Per-agent MCP config writer
 
@@ -143,8 +143,8 @@ Every architectural / design decision already made in the SigmaLink project, wit
 ## DD-022: Kanban with Todo / In Progress / In Review / Done, dnd-kit
 
 - **Decision**: Kanban board with columns Todo / In Progress / In Review / Done, implemented with dnd-kit. Tasks assigned to agents.
-- **Rationale**: Matches BridgeSpace's task-to-agent assignment; dnd-kit is the modern standard.
-- **Sources**: `[REBUILD_PLAN.md §"Architecture (target)"]`, `[REBUILD_PLAN.md §"Phase 4"]`, `[research_extracted.txt §"BridgeSpace Feature Analysis / Core Architecture Overview"]`.
+- **Rationale**: Matches SigmaSpace's task-to-agent assignment; dnd-kit is the modern standard.
+- **Sources**: `[REBUILD_PLAN.md §"Architecture (target)"]`, `[REBUILD_PLAN.md §"Phase 4"]`, `[research_extracted.txt §"SigmaSpace Feature Analysis / Core Architecture Overview"]`.
 
 ## DD-023: Diff viewer = Monaco diff or react-diff-view
 
@@ -172,14 +172,14 @@ Every architectural / design decision already made in the SigmaLink project, wit
 
 ## DD-027: Out-of-scope set (do not build in this rebuild)
 
-- **Decision**: Do not implement cloud sync, user accounts, billing/credit metering, voice assistant, mobile app, BridgeMind paid features, or SSH remote workspace UI. SSH abstraction is portable so SSH can be added later, but no UI ships.
+- **Decision**: Do not implement cloud sync, user accounts, billing/credit metering, voice assistant, mobile app, SigmaMind paid features, or SSH remote workspace UI. SSH abstraction is portable so SSH can be added later, but no UI ships.
 - **Rationale**: Keep the rebuild focused on the local-first ADE; everything else inflates scope and IP risk.
 - **Sources**: `[REBUILD_PLAN.md §"Out of scope"]`.
 
 ## DD-028: IP guardrails
 
-- **Decision**: Functional/idiomatic terminology (Coordinator/Builder/Scout/Reviewer; room names; `.sigmamemory`) is allowed. The mailbox protocol is independently designed. Directly portable code patterns come from Emdash (Apache-2.0) with NOTICE attribution. No screenshot reproduction; no copy of proprietary BridgeSpace assets. Provider names are factual product references.
-- **Rationale**: Lets us ship a BridgeSpace-style ADE without IP exposure.
+- **Decision**: Functional/idiomatic terminology (Coordinator/Builder/Scout/Reviewer; room names; `.sigmamemory`) is allowed. The mailbox protocol is independently designed. Directly portable code patterns come from Emdash (Apache-2.0) with NOTICE attribution. No screenshot reproduction; no copy of proprietary SigmaSpace assets. Provider names are factual product references.
+- **Rationale**: Lets us ship a SigmaSpace-style ADE without IP exposure.
 - **Sources**: `[REBUILD_PLAN.md §"Legal/IP guardrails"]`.
 
 ## DD-029: Reuse the existing 50+ shadcn components verbatim

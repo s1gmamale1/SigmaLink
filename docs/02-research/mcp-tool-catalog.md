@@ -1,11 +1,11 @@
 # MCP Tool Catalog
 Compiled: 2026-05-09
 
-Documented BridgeMCP tools across BridgeMCP server and BridgeMemory hub. Sources: docs-mcp, mcp-setup, blog-bridgememory, products-bridgespace.
+Documented SigmaMCP tools across SigmaMCP server and SigmaMemory hub. Sources: docs-mcp, mcp-setup, blog-sigmamemory, products-sigmaspace.
 
-## BridgeMCP server (10 tools)
+## SigmaMCP server (10 tools)
 
-Server URL: `https://mcp.bridgemind.ai/mcp`
+Server URL: `https://mcp.sigmamind.ai/mcp`
 API key format: `bm_live_xxxxxxxxxxxx`
 Auth: header `Authorization: Bearer KEY` or `?apiKey=KEY` query.
 
@@ -35,7 +35,7 @@ Auth: header `Authorization: Bearer KEY` or `?apiKey=KEY` query.
 Note: docs-mcp lists 10; mcp-setup omits `delete_agent` from public list — safe to include.
 
 ### Built-in prompt
-- `bridgemind_developer_guide` — internal LLM-facing prompt teaching agents tool use and brand voice.
+- `sigmamind_developer_guide` — internal LLM-facing prompt teaching agents tool use and brand voice.
 
 ### Task lifecycle states
 todo → in-progress → in-review → complete; or cancelled.
@@ -46,8 +46,8 @@ todo → in-progress → in-review → complete; or cancelled.
 
 ---
 
-## BridgeMemory MCP tools (12, three groups)
-Source: blog-bridgememory ("Twelve tools, three groups").
+## SigmaMemory MCP tools (12, three groups)
+Source: blog-sigmamemory ("Twelve tools, three groups").
 Parameter signatures NOT documented publicly for these — open question.
 
 ### CRUD (6)
@@ -69,20 +69,20 @@ Parameter signatures NOT documented publicly for these — open question.
 - hub_status
 
 ### Storage
-- Local-first directory: `.bridgememory/` at workspace root.
+- Local-first directory: `.sigmamemory/` at workspace root.
 - Markdown files; titles are unique IDs.
 - Edges = `[[Title]]` wikilinks.
 - Atomic writes via temp-file-plus-rename.
 - Appends use POSIX O_APPEND.
-- Token storage at `~/.bridgespace/runtime.session` mode 0600.
+- Token storage at `~/.sigmaspace/runtime.session` mode 0600.
 
 ### Visualization
-- Force-directed graph in BridgeSpace (canvas-based). Drag, zoom, search with pulse highlight, shift-hover for ego mode.
+- Force-directed graph in SigmaSpace (canvas-based). Drag, zoom, search with pulse highlight, shift-hover for ego mode.
 
 ---
 
-## Comparison to bridgemcp landing page (4 tools cited)
-The bridgemcp page cites 4 tools (create_memory, search_memories, find_backlinks, suggest_connections) as the headline subset of the 12 BridgeMemory tools.
+## Comparison to sigmamcp landing page (4 tools cited)
+The sigmamcp page cites 4 tools (create_memory, search_memories, find_backlinks, suggest_connections) as the headline subset of the 12 SigmaMemory tools.
 
 ---
 

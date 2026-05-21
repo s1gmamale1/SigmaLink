@@ -236,7 +236,7 @@ test('SigmaLink full visual sweep', async () => {
   // P3-S8: use the actual repo root (cross-platform). Previously a hardcoded
   // Windows path was used, which failed on macOS/Linux runners and left the
   // app without an active workspace — every downstream room rendered as
-  // `workspaces` instead of its real surface, and BridgeRoom showed
+  // `workspaces` instead of its real surface, and SigmaRoom showed
   // EmptyState (no Conversations panel) which broke the P3-S7 assertion.
   const repoRoot = path.resolve(__dirname, '../../../');
   const openResult = await win

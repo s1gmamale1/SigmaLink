@@ -1,5 +1,5 @@
 = . a ers i
 : A= =
-Sek (> BridgeMindi) ee
+Sek (> SigmaMindi) ee
 | a am DD a — ——
 LY

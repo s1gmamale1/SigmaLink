@@ -1,5 +1,5 @@
 # Learn: Vibe Coding
-URL: https://www.bridgemind.ai/learn/vibe-coding
+URL: https://www.sigmamind.ai/learn/vibe-coding
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
@@ -30,7 +30,7 @@ Fetched: 2026-05-09
 | Quality Control | Code review + testing | Structured workflow with human approval gates |
 
 ## Toolkit
-- BridgeSpace, BridgeCode, BridgeMCP, BridgeVoice.
+- SigmaSpace, SigmaCode, SigmaMCP, SigmaVoice.
 
 ## Source quote (≤15 words, in quotes)
 "Architect and reviewer."

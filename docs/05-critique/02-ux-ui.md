@@ -7,7 +7,7 @@ Date: 2026-05-09.
 ## Summary
 
 - **6 CRITICAL, 9 HIGH, 9 MEDIUM, 3 LOW** (27 issues total).
-- The spec is unusually thorough on tokens, motion budgets, and component inventories. Where it falls down is squarely on the *operator's mental model* of running a 16-pane, multi-swarm session: the sidebar is over-broad, the launcher is one-shot rather than progressive, and several rooms collapse two distinct jobs (build vs. monitor) onto the same surface. The visual identity also drifts from the BridgeSpace research without an explicit IP/divergence rationale.
+- The spec is unusually thorough on tokens, motion budgets, and component inventories. Where it falls down is squarely on the *operator's mental model* of running a 16-pane, multi-swarm session: the sidebar is over-broad, the launcher is one-shot rather than progressive, and several rooms collapse two distinct jobs (build vs. monitor) onto the same surface. The visual identity also drifts from the SigmaSpace research without an explicit IP/divergence rationale.
 
 **Top 5 changes that materially improve usability**
 
@@ -285,17 +285,17 @@ Reviewer         [6]    [Codex ▾]         [▶ 6 indiv]
 
 ---
 
-### U17. Visual identity drifts from BridgeSpace research without rationale [HIGH]
+### U17. Visual identity drifts from SigmaSpace research without rationale [HIGH]
 
 **Spec ref**: `UI_SPEC.md` §1.1 (default theme `obsidian` with cool-blue `--brand-cool` and warm-amber `--brand-warm`); compare `visual-spec.md` §1 (amber→blue gradient on hero surfaces).
 
-**Concern**: Research says BridgeSpace's signature is the *amber-to-blue gradient* on hero surfaces. The spec ports warm/cool as discrete tokens but never composes them as a gradient; hero glow is described as monochrome. This is either intentional IP divergence (fine — but say so) or accidental reduction (the visual signature is the *pairing*, not either color alone).
+**Concern**: Research says SigmaSpace's signature is the *amber-to-blue gradient* on hero surfaces. The spec ports warm/cool as discrete tokens but never composes them as a gradient; hero glow is described as monochrome. This is either intentional IP divergence (fine — but say so) or accidental reduction (the visual signature is the *pairing*, not either color alone).
 
 **User impact**: Brand recognition, marketing confidence.
 
 **Remedy**: Pick a position and document it.
 
-- Option A (recommended, IP safety): replace the warm-cool pair with a single distinct accent (e.g. `#4FD1C5` teal or `#A78BFA` violet). Today's `--accent #3FA9F5` is identical to BridgeSpace's blue. Drop warm-amber entirely.
+- Option A (recommended, IP safety): replace the warm-cool pair with a single distinct accent (e.g. `#4FD1C5` teal or `#A78BFA` violet). Today's `--accent #3FA9F5` is identical to SigmaSpace's blue. Drop warm-amber entirely.
 - Option B (homage with attribution): keep the pair but actually compose it — `--brand-gradient: linear-gradient(90deg, var(--brand-warm), var(--brand-cool))` — and use it on the swarm-window ring, launcher header, and wordmark. Document in §1 with NOTICE attribution.
 
 **Effort**: small.

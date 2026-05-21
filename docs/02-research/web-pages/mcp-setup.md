@@ -1,9 +1,9 @@
-# BridgeMind MCP Setup Page
-URL: https://www.bridgemind.ai/mcp
+# SigmaMind MCP Setup Page
+URL: https://www.sigmamind.ai/mcp
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
-- H1: BridgeMCP
+- H1: SigmaMCP
 - H2: Quick Start
 - H2: One-Click Install
 - H2: Available Tools
@@ -15,14 +15,14 @@ Fetched: 2026-05-09
 - H3: Projects, Tasks, Agents
 
 ## Configuration (verbatim)
-Server URL: `https://mcp.bridgemind.ai/mcp`
+Server URL: `https://mcp.sigmamind.ai/mcp`
 API Key format: `bm_live_xxxxxxxxxxxx`
 
 ```json
 {
   "mcpServers": {
-    "bridgemind": {
-      "url": "https://mcp.bridgemind.ai/mcp",
+    "sigmamind": {
+      "url": "https://mcp.sigmamind.ai/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }

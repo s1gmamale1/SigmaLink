@@ -41,13 +41,13 @@ place.
 --------------------------------------------------
 
 Every user-visible "Bridge Assistant" string is now "Sigma Assistant".
-Every "BridgeVoice" string is "SigmaVoice". The composer placeholder
+Every "SigmaVoice" string is "SigmaVoice". The composer placeholder
 reads "Ask Sigma…" instead of "Ask the Bridge…". Folder paths and the
 internal `bridge-agent` directory stay untouched so the diff is small
 and reversible.
 
 The plan-tier capability matrix gained a `sigmavoice.enabled` key
-mirroring the legacy `bridgevoice.enabled` for one release; the renderer
+mirroring the legacy `sigmavoice.enabled` for one release; the renderer
 reads the new key. Future SigmaLink/Bridge Mind sync points can drop
 the alias.
 

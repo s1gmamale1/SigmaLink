@@ -3,14 +3,14 @@ SigmaLink v1.7.0 — 2026-05-21
 
 v1.7.0 — "finish open items" bundle: closes the remaining
 small/medium wishlist items + extracts the voice-capture stack into a
-shared package with a standalone BridgeVoice app scaffold. Three
+shared package with a standalone SigmaVoice app scaffold. Three
 parallel Sonnet coder clusters (worktree-isolated), lead-merged.
 
 
-SigmaVoice → BridgeVoice extraction (groundwork)
+SigmaVoice → SigmaVoice extraction (groundwork)
 ------------------------------------------------
 
-"BridgeVoice" was the original product name for SigmaLink's voice
+"SigmaVoice" was the original product name for SigmaLink's voice
 module. This release extracts the self-contained global-capture stack
 into a shared package so a standalone dictation app can consume it:
 
@@ -23,7 +23,7 @@ into a shared package so a standalone dictation app can consume it:
   createRequire path-walking.
 - SigmaLink consumes @sigmalink/voice-core (electron/main.ts) — no
   behavior change; all voice IPC channels + events work identically.
-- @sigmalink/bridge-voice (new app scaffold, app/apps/bridge-voice/)
+- @sigmalink/sigma-voice (new app scaffold, app/apps/sigma-voice/)
   — runnable standalone Electron app: Tray + global hotkey +
   buildGlobalCaptureController + minimal settings window. System-wide
   dictation, no workspace/pane/session logic.
@@ -32,7 +32,7 @@ into a shared package so a standalone dictation app can consume it:
   it instead of hardcoded 48 kHz (fixes mild pitch error on 44.1 kHz
   hardware).
 
-Deferred (documented in app/apps/bridge-voice/README.md): production
+Deferred (documented in app/apps/sigma-voice/README.md): production
 packaging for the standalone app — its own electron-builder target,
 macOS entitlements, codesigning, DMG/NSIS matrix, CI lane. The
 standalone app is a runnable dev scaffold this release, not a signed
@@ -103,7 +103,7 @@ Genuinely multi-day-to-multi-month; not force-shipped:
 - W-6 Sigma Assistant → Jorvis rename — high-blast-radius IPC + DB +
   file sweep; deferred to its own focused release with reviewer
   cycle.
-- BridgeVoice production installers — codesigning + 2nd
+- SigmaVoice production installers — codesigning + 2nd
   electron-builder target + CI matrix.
 - V3-W15-006 dogfood — human-only QA.
 

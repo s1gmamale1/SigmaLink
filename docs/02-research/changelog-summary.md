@@ -1,7 +1,7 @@
-# BridgeSpace + BridgeVoice Changelog Summary
-Source: https://www.bridgemind.ai/changelog (fetched 2026-05-09)
+# SigmaSpace + SigmaVoice Changelog Summary
+Source: https://www.sigmamind.ai/changelog (fetched 2026-05-09)
 
-## BridgeSpace (@bridgespace-tauri)
+## SigmaSpace (@sigmaspace-tauri)
 
 | Version | Date | Highlights |
 |---------|------|-----------|
@@ -21,25 +21,25 @@ Notes
 - Bridge Assistant voice integration referenced in v3.0.8.
 - Built with Tauri (Rust + web stack).
 
-## BridgeVoice (@bridgevoice)
+## SigmaVoice (@sigmavoice)
 
 | Version | Date | Highlights |
 |---------|------|-----------|
 | v2.2.22 | 2026-04-23 | Fix: desktop email/password sign-in; subscription refresh; macOS matrix race; multi-platform release workflow repair. |
 | v2.2.20 | 2026-04-22 | Fix: Tailwind config restored for standalone builds. Change: changelog capture alongside hardening. |
 | v2.2.19 | 2026-04-22 | Fix: Windows keyboard hook for push-to-talk; onboarding persistence. Change: floating pill now single-click toggle (was double-click). |
-| v2.2.17 | 2026-04-13 | Fix: BridgeSpace dictation through dedicated IPC handoff. |
+| v2.2.17 | 2026-04-13 | Fix: SigmaSpace dictation through dedicated IPC handoff. |
 | v2.2.16 | 2026-04-11 | Fix: hook retry + exponential backoff; transparent widget rendering. Change: hook-error event, deferred listener startup. |
 | v2.2.15 | 2026-04-11 | Fix: widget hit-area padding; microphone fallback resolution. |
 | v2.2.14 | 2026-04-11 | Fix: Windows 11 opaque widget styling; tray icon behavior. |
 | v1.0.0 | 2026-02-23 | Add: Whisper transcription, push-to-talk, floating widget, dashboard history. |
 
 Notes
-- v1.0.0 is the original BridgeVoice GA.
+- v1.0.0 is the original SigmaVoice GA.
 - Many April 2026 fixes target Windows widget rendering and macOS sign-in.
-- IPC handoff to BridgeSpace ensures dictation works inside BridgeSpace panes.
+- IPC handoff to SigmaSpace ensures dictation works inside SigmaSpace panes.
 
 ## Cross-product observations
-- Heavy April 2026 release cadence (8 BridgeSpace and 7 BridgeVoice releases in 4 days at peak).
-- BridgeSpace v3 + BridgeVoice v2.2 are the current versions.
-- No public changelog yet for BridgeMCP, BridgeCode, or BridgeMemory.
+- Heavy April 2026 release cadence (8 SigmaSpace and 7 SigmaVoice releases in 4 days at peak).
+- SigmaSpace v3 + SigmaVoice v2.2 are the current versions.
+- No public changelog yet for SigmaMCP, SigmaCode, or SigmaMemory.

@@ -4,7 +4,7 @@ Compiled: 2026-05-09
 Status: canonical for the rebuild. Source of truth for the build agents in Phase 2 onward. Supersedes ad-hoc notes in `REBUILD_PLAN.md` where they disagree.
 
 Marker conventions:
-- `[CONFIRMED]` — directly attested in BridgeMind public sources.
+- `[CONFIRMED]` — directly attested in SigmaMind public sources.
 - `[INFERRED]` — design call we made from research synthesis.
 - `[CHOSEN]` — answer picked by this spec to close an open question.
 
@@ -15,17 +15,17 @@ Marker conventions:
 Every conflict surfaced in `docs/02-research/CONFLICTS.md` is resolved here once and applied consistently across this file, `BUILD_BLUEPRINT.md`, and `UI_SPEC.md`.
 
 **C-016 — V3 supersedes original spec where they diverge.** After Wave 11's three-walker
-frame-by-frame study of the BridgeSpace V3 video (553 frames, `docs/02-research/v3-frame-by-frame.md`)
+frame-by-frame study of the SigmaSpace V3 video (553 frames, `docs/02-research/v3-frame-by-frame.md`)
 and Wave 11.5 scope-freeze, V3 is the canonical reference for every divergent surface
 listed below. The execution backlog lives at `docs/03-plan/V3_PARITY_BACKLOG.md`. Divergent items:
 - Roster preset reset: **Legion 50 dropped, Battalion 20 added** (`v3-agent-roles-delta.md` §2; supersedes C-006).
-- Provider matrix: **11 → 9 default**; `BridgeCode` added; `kimi` demoted to model option under OpenCode; `aider`/`continue` hidden behind Settings legacy toggle (`v3-providers-delta.md`; supersedes C-004).
+- Provider matrix: **11 → 9 default**; `SigmaCode` added; `kimi` demoted to model option under OpenCode; `aider`/`continue` hidden behind Settings legacy toggle (`v3-providers-delta.md`; supersedes C-004).
 - Bridge Canvas: **promoted from research-deferred to first-class room** (frames 0368-0405; supersedes master_memory deferred list).
 - Bridge Assistant: **promoted from research-deferred to first-class right-rail tab + mobile tile** (frames 0080-0150, 0410, 0455; supersedes master_memory deferred list).
 - Right-rail dock: **NEW** Browser / Editor / Bridge tabs (frames 0080, 0340, 0410).
 - Operator Console: **NEW** TERMINALS / CHAT / ACTIVITY tabs + ESCALATIONS / REVIEW / QUIET / ERRORS counters + constellation graph (frames 0250, 0265, 0295).
 - Swarm Skills: **NEW** 12-tile toggleable behavior modifiers (frames 0210, 0220).
-- Voice / BridgeVoice: **NEW** title-bar mic indicator + `voice:state` event (frame 0220; supersedes "voice out of scope" line in §15).
+- Voice / SigmaVoice: **NEW** title-bar mic indicator + `voice:state` event (frame 0220; supersedes "voice out of scope" line in §15).
 - Mobile companion: **NEW** 6-tile dashboard sketch — high-level only, full mobile spec out of scope for v1.0 (frame 0455).
 
 | ID | Decision | Why |
@@ -50,7 +50,7 @@ listed below. The execution backlog lives at `docs/03-plan/V3_PARITY_BACKLOG.md`
 
 ## 1. Product description (one paragraph)
 
-SigmaLink is a local-first, Electron + React desktop **agentic development environment** that lets a single human operator run a grid of CLI coding agents (BridgeCode, Claude Code, Codex, Gemini, OpenCode, Cursor, Droid, Copilot, plus a Custom Command — V3 9-provider matrix per §4) in real PTYs against a Git repository, isolating each agent in its own worktree, optionally coordinating those agents as a role-bearing swarm (Coordinator / Builder / Scout / Reviewer) over a deterministic file-system mailbox, with a Bridge Assistant orchestrator (right-rail tab + chat + tool-trace), a Bridge Canvas visual design tool (element-pick → per-prompt provider picker → live-DOM HMR poke), drag-and-drop Anthropic Skills loading, an embedded controllable browser, a 12-tool wikilink memory MCP server, and a SQLite-backed Kanban + review pipeline — all without cloud sync, accounts, or billing. It is for power users who already use one or more coding-agent CLIs and who want to orchestrate them on their own hardware. (Sources: `docs/02-research/REQUIREMENTS_MASTER.md`; `docs/02-research/v3-frame-by-frame.md`; V3 deltas under `docs/02-research/v3-*-delta.md`.)
+SigmaLink is a local-first, Electron + React desktop **agentic development environment** that lets a single human operator run a grid of CLI coding agents (SigmaCode, Claude Code, Codex, Gemini, OpenCode, Cursor, Droid, Copilot, plus a Custom Command — V3 9-provider matrix per §4) in real PTYs against a Git repository, isolating each agent in its own worktree, optionally coordinating those agents as a role-bearing swarm (Coordinator / Builder / Scout / Reviewer) over a deterministic file-system mailbox, with a Bridge Assistant orchestrator (right-rail tab + chat + tool-trace), a Bridge Canvas visual design tool (element-pick → per-prompt provider picker → live-DOM HMR poke), drag-and-drop Anthropic Skills loading, an embedded controllable browser, a 12-tool wikilink memory MCP server, and a SQLite-backed Kanban + review pipeline — all without cloud sync, accounts, or billing. It is for power users who already use one or more coding-agent CLIs and who want to orchestrate them on their own hardware. (Sources: `docs/02-research/REQUIREMENTS_MASTER.md`; `docs/02-research/v3-frame-by-frame.md`; V3 deltas under `docs/02-research/v3-*-delta.md`.)
 
 ---
 
@@ -93,7 +93,7 @@ A "workspace" is the user-level construct: a saved binding of a folder, optional
 V3 demos this surface end-to-end across frames 0368-0405. Promoted from research-deferred to **first-class room** (C-016). Sources: `v3-frame-by-frame.md` Chapter C; `v3-protocol-delta.md` §4 (`design.*` RPC); `v3-delta-vs-current.md` §"Bridge Canvas".
 
 - **When to use**: select an HTML element in the in-app browser preview, dispatch a prompt scoped to that element to one or more chosen providers, optionally drag an asset onto the selection. The agent edits the underlying source file; an HMR poke reflects the change live in the preview.
-- **Who creates it**: operator, via Workspaces room → "+" → BridgeCanvas card (`⌘K`, `ALPHA` chip — frames 0020, 0180). Also auto-spawned when the operator clicks "Activate Design Tool" inside the Browser room of any other workspace.
+- **Who creates it**: operator, via Workspaces room → "+" → SigmaCanvas card (`⌘K`, `ALPHA` chip — frames 0020, 0180). Also auto-spawned when the operator clicks "Activate Design Tool" inside the Browser room of any other workspace.
 - **Element-picker overlay** (frames 0368, 0369; RPC `design:start-pick / design:pick-result`):
   - Banner *"Click an element in the preview"* during pick mode.
   - DevTools-style hover highlight; click freezes selection.
@@ -106,7 +106,7 @@ V3 demos this surface end-to-end across frames 0368-0405. Promoted from research
   - Selection persists per-canvas via `canvases.lastProviders`.
 - **Drag-and-drop asset injection** (frames 0398, 0405; RPC `design:attach-file`):
   - HTML5 drop into the prompt buffer stages the file under `<userData>/canvases/<canvasId>/staging/<ulid>.<ext>`.
-  - Absolute staging path is inserted into the prompt as a quoted string (matches V3 buffer `'/Users/.../bridgespace-v3.mp4'`).
+  - Absolute staging path is inserted into the prompt as a quoted string (matches V3 buffer `'/Users/.../sigmaspace-v3.mp4'`).
 - **Live-DOM HMR poke** (frame 0405; event `design:patch-applied`):
   - When an agent writes a file under the active dev server's source root, the browser tab posts a `location.reload()` if no HMR socket detected, otherwise nudges the dev server's HMR endpoint with a no-op WebSocket frame so the change repaints without a hard reload.
 - **Persists**: `canvases (id, workspace_id, current_url, current_selector, asset_count, last_providers, created_at, updated_at)`. Each spawned builder writes to `agent_sessions` like a normal pane.
@@ -156,7 +156,7 @@ The renderer mounts one of eleven surfaces at a time. Sidebar + workspace tab st
 ### 3.5 Memory (route `memory`)
 
 - **Purpose**: notes editor + force-directed graph for SigmaMemory. (Source: `REBUILD_PLAN.md` Phase 4.)
-- **Affordances**: search box, list of notes, markdown editor with `[[wikilink]]` autocomplete, backlinks panel, suggest-connections panel, tag filter, full-screen graph view (zoom/pan/drag, hover-to-pulse, shift-hover for ego mode — pattern from `mcp-tool-catalog.md` BridgeMemory visualization).
+- **Affordances**: search box, list of notes, markdown editor with `[[wikilink]]` autocomplete, backlinks panel, suggest-connections panel, tag filter, full-screen graph view (zoom/pan/drag, hover-to-pulse, shift-hover for ego mode — pattern from `mcp-tool-catalog.md` SigmaMemory visualization).
 - **Data shape**: `Memory { id, title, body, tagsCsv, createdAt, updatedAt }`, `MemoryEdge { from, to, kind: 'wikilink'|'manual' }`.
 - **Persistence**: `memories`, `memory_edges`. The on-disk markdown copy lives in `<workspaceRoot>/.sigmamemory/<title>.md`; SQLite is the index of record.
 
@@ -256,7 +256,7 @@ V3 frame 0455 shows a mobile dashboard with **six tiles**: Terminal · Kanban ·
 
 ## 4. Agent providers (canonical list — v1.2.4 5-provider matrix)
 
-> **Updated 2026-05-13 (v1.2.4 provider-registry cleanup).** The previous V3 9-provider matrix (which included BridgeCode, Cursor, Droid, Copilot, and the demoted Kimi-as-model) is **superseded** by this 5-provider matrix. BridgeCode never materialised, Cursor's CLI fell out of scope, Droid + Copilot stubs were never implemented, Aider + Continue were removed entirely, and Kimi was promoted back to a first-class CLI provider with its own registry row. See `docs/08-bugs/BACKLOG.md` → "v1.1.10 — provider registry cleanup → Shipped & verified — v1.2.4". Sections 4.1–4.5 below are kept for historical context but no longer reflect the shipping registry.
+> **Updated 2026-05-13 (v1.2.4 provider-registry cleanup).** The previous V3 9-provider matrix (which included SigmaCode, Cursor, Droid, Copilot, and the demoted Kimi-as-model) is **superseded** by this 5-provider matrix. SigmaCode never materialised, Cursor's CLI fell out of scope, Droid + Copilot stubs were never implemented, Aider + Continue were removed entirely, and Kimi was promoted back to a first-class CLI provider with its own registry row. See `docs/08-bugs/BACKLOG.md` → "v1.1.10 — provider registry cleanup → Shipped & verified — v1.2.4". Sections 4.1–4.5 below are kept for historical context but no longer reflect the shipping registry.
 
 ### 4.0 v1.2.4 shipping registry (current source of truth)
 
@@ -303,7 +303,7 @@ ModelOption { providerId, modelId, label, via?: 'openrouter'|'native', defaultEf
 
 | id | command | install hint | resume / oneshot | recommended roles |
 |---|---|---|---|---|
-| **bridgecode** *(NEW; `comingSoon: true`, fallback `claude`)* | `bridgecode` (alt `bridgecode.cmd`) | (Coming Soon — falls back to Claude) | `--resume` / `-p {prompt}` | Builder, Coordinator |
+| **sigmacode** *(NEW; `comingSoon: true`, fallback `claude`)* | `sigmacode` (alt `sigmacode.cmd`) | (Coming Soon — falls back to Claude) | `--resume` / `-p {prompt}` | Builder, Coordinator |
 | claude | `claude` (alt `claude.cmd`) | `npm i -g @anthropic-ai/claude-code` | `--resume` / `-p {prompt}` | Builder, Reviewer, Assistant default |
 | codex | `codex` (alt `codex.cmd`) | `npm i -g @openai/codex` | `--resume` / `-q {prompt}` | Coordinator, Reviewer |
 | gemini | `gemini` (alt `gemini.cmd`) | `npm i -g @google/gemini-cli` | `--resume` / `--prompt {prompt}` | Scout |
@@ -331,7 +331,7 @@ Mid-strip prompt-bar formats `<model> <effort> <speed> · <cwd>` for any (provid
 
 ### 4.5 Wizard quick-fills + Custom Command row (frame 0055)
 
-Wizard provider matrix renders three quick-fill macros — *Enable all · One of each · Split evenly* — at the top, and a **Custom Command** row + `+ Add custom command` button at the bottom. *One of each* skips any provider with `comingSoon === true` (so BridgeCode is excluded until the binary ships).
+Wizard provider matrix renders three quick-fill macros — *Enable all · One of each · Split evenly* — at the top, and a **Custom Command** row + `+ Add custom command` button at the bottom. *One of each* skips any provider with `comingSoon === true` (so SigmaCode is excluded until the binary ships).
 
 Sources: `v3-providers-delta.md`; `v3-frame-by-frame.md` 0055/0184/0205/0380/0510.
 
@@ -364,7 +364,7 @@ Sources: `glossary.md` Workspace concepts; `video-frames-log.md` swarm-test coun
 
 ### 5.3 Mailbox
 
-- **Path**: `<userData>/swarms/<swarmId>/inboxes/<agentId>.jsonl`. JSON-Lines, one envelope per line, append-only via POSIX `O_APPEND` for crash safety. (Source: `REBUILD_PLAN.md` Phase 2; `mcp-tool-catalog.md` BridgeMemory storage style.)
+- **Path**: `<userData>/swarms/<swarmId>/inboxes/<agentId>.jsonl`. JSON-Lines, one envelope per line, append-only via POSIX `O_APPEND` for crash safety. (Source: `REBUILD_PLAN.md` Phase 2; `mcp-tool-catalog.md` SigmaMemory storage style.)
 - **Outbox** mirror at `<userData>/swarms/<swarmId>/outbox.jsonl` for the side-chat tail (every message also appears here in arrival order). `[INFERRED]`
 - **DB mirror** in `swarm_messages`. The watcher streams new lines into SQLite; the renderer subscribes to `swarm:message` events.
 
@@ -400,18 +400,18 @@ Per-kind required fields (`payload`):
 
 ### 5.5 Behavioral rules (8 — the 4 confirmed plus 4 inferred)
 
-The bridgeswarm landing page lists 8 rules; the bridgeswarm blog only spells out 4 verbatim. We ship all 8; the 4 added by the marketing page are kept verbatim. (Source: `agent-roles-and-protocol.md`.)
+The sigmaswarm landing page lists 8 rules; the sigmaswarm blog only spells out 4 verbatim. We ship all 8; the 4 added by the marketing page are kept verbatim. (Source: `agent-roles-and-protocol.md`.)
 
 | # | Rule | Source |
 |---|---|---|
-| 1 | Agents always know full project context before starting. | bridgeswarm landing |
-| 2 | Real-time status tracking keeps the swarm synchronized. | bridgeswarm landing |
-| 3 | Strict file ownership prevents merge conflicts by design. | bridgeswarm landing |
-| 4 | Zero idle chatter — every message advances the goal. | bridgeswarm landing + blog |
-| 5 | Structured completion reporting prevents falling through cracks. | bridgeswarm landing (text only) `[INFERRED schema in §5.4]` |
-| 6 | Automatic escalation when agents are blocked. | bridgeswarm landing (text only) `[INFERRED escalation envelope in §5.4]` |
-| 7 | Safe Git practices enforced at orchestration layer. | bridgeswarm landing (text only) `[INFERRED concrete rules below]` |
-| 8 | Agents prioritize shipping code over sending messages. | bridgeswarm landing |
+| 1 | Agents always know full project context before starting. | sigmaswarm landing |
+| 2 | Real-time status tracking keeps the swarm synchronized. | sigmaswarm landing |
+| 3 | Strict file ownership prevents merge conflicts by design. | sigmaswarm landing |
+| 4 | Zero idle chatter — every message advances the goal. | sigmaswarm landing + blog |
+| 5 | Structured completion reporting prevents falling through cracks. | sigmaswarm landing (text only) `[INFERRED schema in §5.4]` |
+| 6 | Automatic escalation when agents are blocked. | sigmaswarm landing (text only) `[INFERRED escalation envelope in §5.4]` |
+| 7 | Safe Git practices enforced at orchestration layer. | sigmaswarm landing (text only) `[INFERRED concrete rules below]` |
+| 8 | Agents prioritize shipping code over sending messages. | sigmaswarm landing |
 
 Concrete enforcement of rule 7 in SigmaLink `[INFERRED]`:
 - No force-push from agents (the orchestration layer rejects `--force` / `--force-with-lease`).
@@ -427,11 +427,11 @@ Concrete enforcement of rule 7 in SigmaLink `[INFERRED]`:
 
 ---
 
-## 6. SigmaMemory (BridgeMemory equivalent)
+## 6. SigmaMemory (SigmaMemory equivalent)
 
 ### 6.1 Tools (12, full signatures) `[CHOSEN]` for parameter shapes
 
-The 12 tool names come from `REBUILD_PLAN.md` Phase 4. Their parameter signatures are not published by BridgeMind, so we pick the following:
+The 12 tool names come from `REBUILD_PLAN.md` Phase 4. Their parameter signatures are not published by SigmaMind, so we pick the following:
 
 ```ts
 type Memory = {
@@ -493,7 +493,7 @@ All tools speak MCP JSON-RPC over stdio; a thin in-process server lives in `core
 
 ### 6.2 Storage layout
 
-- Disk: `<workspaceRoot>/.sigmamemory/<title>.md`. Title is the unique id; body is the file. Frontmatter is YAML between `---` markers carrying `id`, `tags`, `createdAt`, `updatedAt`. (Source: `REBUILD_PLAN.md` Phase 4; `mcp-tool-catalog.md` BridgeMemory storage.)
+- Disk: `<workspaceRoot>/.sigmamemory/<title>.md`. Title is the unique id; body is the file. Frontmatter is YAML between `---` markers carrying `id`, `tags`, `createdAt`, `updatedAt`. (Source: `REBUILD_PLAN.md` Phase 4; `mcp-tool-catalog.md` SigmaMemory storage.)
 - Index: SQLite `memories` and `memory_edges`. The disk file is the source of truth for body; SQLite is the index of record for search and graph queries.
 
 ### 6.3 Wikilink syntax
@@ -1111,24 +1111,24 @@ Detailed pixel work lives in `UI_SPEC.md`. The headline tokens are:
 
 ---
 
-## 13. Voice / BridgeVoice (NEW per C-016)
+## 13. Voice / SigmaVoice (NEW per C-016)
 
 V3 ships voice intake as a cross-app primitive (frames 0220, 0235; transcript L86-96, L190). Source: `v3-protocol-delta.md` §6. Supersedes the original "voice out of scope" line in §17 (was §15).
 
-- **Title-bar pill**: a centred **`BridgeVoice`** pill appears in the title bar **whenever any capture is active**, regardless of which surface initiated it (frame 0220). Disappears on capture end.
+- **Title-bar pill**: a centred **`SigmaVoice`** pill appears in the title bar **whenever any capture is active**, regardless of which surface initiated it (frame 0220). Disappears on capture end.
 - **Global event**: `voice:state` `{ active: boolean, source: 'mission'|'assistant'|'palette' }`. Exactly one capture session is active across the app at a time; opening a new source automatically tears down the previous one.
 - **OS speech adapter**: one shared adapter (macOS Speech Recognizer / Windows SAPI / Linux PocketSphinx fallback). No second capture session is ever opened.
 - **Intake surfaces**:
   - **Mission textarea** (frame 0235): mic icon on the swarm wizard's mission step; streamed transcription drops into the textarea verbatim. Cmd+Enter submits.
   - **Bridge orb** (frames 0080, 0090; transcript L86-96): tapping the orb in STANDBY enters LISTENING and transcribes into the Bridge Assistant `assistant.listen` conversation.
   - **Command Palette** (transcript L190): `Cmd+Shift+K` voice-mode toggle in the palette transcribes into the search field.
-- **Out-of-scope for v1.0**: BridgeJarvis-style wake word (transcript L472-475); BridgeVoice as a separate desktop sibling app (frame 0520). The pill + `voice:state` ship; the standalone app does not.
+- **Out-of-scope for v1.0**: SigmaJarvis-style wake word (transcript L472-475); SigmaVoice as a separate desktop sibling app (frame 0520). The pill + `voice:state` ship; the standalone app does not.
 
 ---
 
 ## 14. Swarm Skills (NEW per C-016)
 
-V3 frames 0210/0220 show a **12-tile grid** of toggleable behavior modifiers shown during the BridgeSwarm wizard's mission step. Source: `v3-frame-by-frame.md` Chapter B (0210-0220); `v3-protocol-delta.md` §1 (`skill_toggle` envelope).
+V3 frames 0210/0220 show a **12-tile grid** of toggleable behavior modifiers shown during the SigmaSwarm wizard's mission step. Source: `v3-frame-by-frame.md` Chapter B (0210-0220); `v3-protocol-delta.md` §1 (`skill_toggle` envelope).
 
 - **Purpose**: each tile, when ON, injects an instruction into the coordinator's system prompt that biases the swarm's behaviour without changing the mission. Distinct from §7 Anthropic Skills: those are operator-installed prompt assets; Swarm Skills are built-in coordinator-prompt modifiers.
 - **Layout**: 3 × 4 grid grouped into four bands.
@@ -1149,7 +1149,7 @@ Final binding table. macOS uses `Cmd`; Windows/Linux use `Ctrl`. (Source: `keybo
 | action | mac | win/linux | notes |
 |---|---|---|---|
 | New workspace dialog | Cmd+T | Ctrl+T | Confirmed (G54 03:50). |
-| Close active tab | Cmd+W | Ctrl+W | Confirmed (BridgeSpace docs). |
+| Close active tab | Cmd+W | Ctrl+W | Confirmed (SigmaSpace docs). |
 | Quick Open (file in repo) | Cmd+P | Ctrl+P | Confirmed. |
 | Search in active terminal | Cmd+F | Ctrl+F | Confirmed. |
 | Split active pane | Cmd+D | Ctrl+D | Confirmed (mac); mirror on Win. |
@@ -1191,15 +1191,15 @@ For forward-compat only, a `Capability` enum (`src/main/core/plan/capabilities.t
 | feature | rationale |
 |---|---|
 | SSH remote development UI | Touches network/auth; out of scope per `REBUILD_PLAN.md`; the provider abstraction keeps a transport seam. |
-| BridgeJarvis wake-word | Always-on STT raises vendor + privacy cost; OS dictation already covers explicit-trigger cases. *(BridgeVoice intake itself is in-scope per §13.)* |
-| BridgeVoice as a standalone sibling app (frame 0520) | The intake pill ships in-app; a separate STT-only product is independent scope. |
+| SigmaJarvis wake-word | Always-on STT raises vendor + privacy cost; OS dictation already covers explicit-trigger cases. *(SigmaVoice intake itself is in-scope per §13.)* |
+| SigmaVoice as a standalone sibling app (frame 0520) | The intake pill ships in-app; a separate STT-only product is independent scope. |
 | Ticket integrations (Linear / Jira / GitHub Issues) | OAuth + cloud writes; conflicts with local-first stance. |
 | Cloud sync of workspaces/memory | Would require accounts and a server; out of scope. |
 | Full mobile companion app (auth, push, native UI) | Tracked for post-1.0 per §3.13; v1 ships RPC compatibility seams only. |
 | Account creation, billing, credit metering | The clone is free. |
 | Telemetry by default | We respect `[CHOSEN]` an explicit opt-in; default off. |
 | BridgeBench-style benchmark runner | Independent product, separate scope. |
-| Plugin marketplace (`@bridgemind-plugins` style) | Skills are loaded from disk; we do not host a marketplace. |
+| Plugin marketplace (`@sigmamind-plugins` style) | Skills are loaded from disk; we do not host a marketplace. |
 | Auto-update server | Use OS package managers for now; ship a static installer. |
 | Bug-bounty program | Operational, not a product feature. |
 
@@ -1207,4 +1207,4 @@ For forward-compat only, a `Capability` enum (`src/main/core/plan/capabilities.t
 
 ## Status note
 
-After the V3 scope freeze (Wave 11.5; C-016), SigmaLink targets the V3 surface set: 9-provider matrix with BridgeCode (`comingSoon`), three workspace types (Bridge Space, **Bridge Swarm**, **Bridge Canvas — promoted to first-class**), Command room with multi-pane grid + per-pane chrome variants, Swarm room with the file-mailbox bus + V3 Operator Console (TERMINALS/CHAT/ACTIVITY tabs, ESCALATIONS/REVIEW/QUIET/ERRORS counters, constellation graph, Swarm Skills, structured task briefs, board namespaces, operator → pane echo), Review room with diff viewer + command runner + commit/merge, Memory room with 12-tool MCP server and force-directed graph, Browser room with controllable WebContentsView, Skills drag-and-drop ingest with three-target fan-out, Tasks Kanban with file-ownership locks, **Bridge Assistant first-class right-rail tab + mobile tile** (chat, orb state machine, bulk-spawn, per-pane dispatch, `@filename` resolve, tool-trace), **right-rail Browser/Editor/Bridge dock**, **BridgeVoice intake**, Command Palette overlay, Settings with 4 themes (V3 still 4-day-one per UX critique), per-agent Git worktree isolation, per-workspace CDP endpoint, full keyboard binding table, and the shared spawn-resolution helper. Roster preset reset to **Squad 5 / Team 10 / Platoon 15 / Battalion 20**. RPC surface: **~95 methods across 17 namespaces** (was 75/13 pre-V3). Persistence: **26 base tables** + 3 V3 additions (`boards`, `swarm_skills`, plus `swarm_messages.resolvedAt` column) + the `kv` settings store + `migrations` ledger. Execution backlog at `docs/03-plan/V3_PARITY_BACKLOG.md`.
+After the V3 scope freeze (Wave 11.5; C-016), SigmaLink targets the V3 surface set: 9-provider matrix with SigmaCode (`comingSoon`), three workspace types (Bridge Space, **Bridge Swarm**, **Bridge Canvas — promoted to first-class**), Command room with multi-pane grid + per-pane chrome variants, Swarm room with the file-mailbox bus + V3 Operator Console (TERMINALS/CHAT/ACTIVITY tabs, ESCALATIONS/REVIEW/QUIET/ERRORS counters, constellation graph, Swarm Skills, structured task briefs, board namespaces, operator → pane echo), Review room with diff viewer + command runner + commit/merge, Memory room with 12-tool MCP server and force-directed graph, Browser room with controllable WebContentsView, Skills drag-and-drop ingest with three-target fan-out, Tasks Kanban with file-ownership locks, **Bridge Assistant first-class right-rail tab + mobile tile** (chat, orb state machine, bulk-spawn, per-pane dispatch, `@filename` resolve, tool-trace), **right-rail Browser/Editor/Bridge dock**, **SigmaVoice intake**, Command Palette overlay, Settings with 4 themes (V3 still 4-day-one per UX critique), per-agent Git worktree isolation, per-workspace CDP endpoint, full keyboard binding table, and the shared spawn-resolution helper. Roster preset reset to **Squad 5 / Team 10 / Platoon 15 / Battalion 20**. RPC surface: **~95 methods across 17 namespaces** (was 75/13 pre-V3). Persistence: **26 base tables** + 3 V3 additions (`boards`, `swarm_skills`, plus `swarm_messages.resolvedAt` column) + the `kv` settings store + `migrations` ledger. Execution backlog at `docs/03-plan/V3_PARITY_BACKLOG.md`.

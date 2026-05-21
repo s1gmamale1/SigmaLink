@@ -63,7 +63,7 @@ import { TasksManager } from './core/tasks/manager';
 import { buildTasksController } from './core/tasks/controller';
 import { buildKvController } from './core/db/kv-controller';
 import { buildAssistantController } from './core/assistant/controller';
-import { McpHostBridge, type ToolInvoker } from './core/assistant/mcp-host-bridge';
+import { McpHostSigma, type ToolInvoker } from './core/assistant/mcp-host-sigma';
 import {
   buildConversationsHandlers,
   buildSwarmOriginHandlers,
@@ -118,7 +118,7 @@ interface SharedDeps {
    *  socket (Windows named pipe); each Claude CLI turn writes a temp
    *  `.mcp.json` declaring the stdio server, which dials back here and
    *  proxies `tools/call` envelopes into the assistant controller. */
-  mcpHostBridge?: McpHostBridge;
+  mcpHostSigma?: McpHostSigma;
 }
 
 let router: ReturnType<typeof buildRouter> | null = null;
@@ -131,7 +131,7 @@ let consoleHandlers: Record<string, (...args: unknown[]) => unknown> | null = nu
 let replayHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
 /** P3-S7 — Sigma Assistant cross-session persistence. Two side-band
  *  handler maps: `assistant.conversations.<method>` powers the
- *  Conversations panel inside BridgeRoom; `swarm.origin.<method>` resolves
+ *  Conversations panel inside SigmaRoom; `swarm.origin.<method>` resolves
  *  the back-link from a swarm to the chat-turn that created it for the
  *  Operator Console. Same envelope contract as the console + replay
  *  side-bands above. */
@@ -519,7 +519,7 @@ function buildRouter() {
   // lazily because the assistant controller is built later in this boot
   // sequence.
   let resolvedToolInvoker: ToolInvoker | null = null;
-  const mcpHostBridge = new McpHostBridge({
+  const mcpHostSigma = new McpHostSigma({
     resolveInvoker: () => resolvedToolInvoker,
   });
   const jorvisHostServerEntry = path.join(
@@ -591,7 +591,7 @@ function buildRouter() {
     tasks: tasksManager,
     rufloSupervisor,
     rufloHttpDaemonSupervisor,
-    mcpHostBridge,
+    mcpHostSigma,
   };
 
   const appCtl = defineController({
@@ -1268,7 +1268,7 @@ function buildRouter() {
     ruflo: rufloProxy,
     mcpHost: {
       serverEntry: jorvisHostServerEntry,
-      socketPath: mcpHostBridge.getSocketPath(),
+      socketPath: mcpHostSigma.getSocketPath(),
     },
   });
   const assistantCtl = assistantBundle.controller;
@@ -1282,9 +1282,9 @@ function buildRouter() {
   // Start listening; failure here is non-fatal because the controller's
   // direct tool dispatch path still works (the CLI just won't see any
   // Sigma tools registered, exactly like v1.1.1 behaviour).
-  void mcpHostBridge.start().catch((err) => {
+  void mcpHostSigma.start().catch((err) => {
     console.warn(
-      `[mcp-host-bridge] failed to start: ${err instanceof Error ? err.message : String(err)}`,
+      `[mcp-host-sigma] failed to start: ${err instanceof Error ? err.message : String(err)}`,
     );
   });
   // P3-S7 — Side-band handlers for the Conversations panel + Operator
@@ -1527,7 +1527,7 @@ export function registerRouter(): void {
 
   // P3-S7 — Sigma Assistant Conversations + swarm origin link. Two more
   // side-band registrations: `assistant.conversations.<method>` is the
-  // backing for the Conversations panel inside BridgeRoom;
+  // backing for the Conversations panel inside SigmaRoom;
   // `swarm.origin.<method>` resolves the back-link a swarm has into the
   // chat that triggered it. Both use the same envelope as the side-bands
   // above so the preload bridge can speak to them with no special-casing.
@@ -1608,7 +1608,7 @@ export function shutdownRouter(): void {
     /* ignore */
   }
   try {
-    sharedDeps?.mcpHostBridge?.stop();
+    sharedDeps?.mcpHostSigma?.stop();
   } catch {
     /* ignore */
   }

@@ -6,7 +6,7 @@
 // Changes from the original:
 //   1. `routeTranscript` now receives `clipboard` as an extra argument
 //      (injected via GlobalCaptureDeps) so this module works in both
-//      SigmaLink and BridgeVoice without importing a specific app's electron
+//      SigmaLink and SigmaVoice without importing a specific app's electron
 //      instance.
 //   2. `modelsDir` is injected via `GlobalCaptureDeps.getModelsDir()` so
 //      model-registry helpers receive the correct path without importing

@@ -1,6 +1,6 @@
 # @sigmalink/voice-mac
 
-Native macOS speech recognition module for SigmaLink (BridgeVoice). Wraps
+Native macOS speech recognition module for SigmaLink (SigmaVoice). Wraps
 `SFSpeechRecognizer` + `AVAudioEngine` behind a thin Node-API surface and
 emits live partial / final transcripts back to JS via
 `Napi::ThreadSafeFunction`.

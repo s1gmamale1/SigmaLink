@@ -4,15 +4,15 @@ to be vibe coding with the newly
 released Opus 4.6 and using a new
 feature in Claude Code called agent
 teams. Okay, so right here I'm using
-BridgeSpace and as you can see I have
+SigmaSpace and as you can see I have
 six Claude Opus 4.6 terminals opened up
-in BridgeSpace. This is actually an ADE
+in SigmaSpace. This is actually an ADE
 product that we are working on right
 now, but before we dive right into the
 video, I have a light goal of 200 likes
 video. So, if you haven't already liked
 and subscribed, make sure you do so.
-BridgeMind is also the fastest growing
+SigmaMind is also the fastest growing
 vibe coding community on the internet
 right now. So, if you haven't already
 joined our Discord community, make sure
@@ -152,7 +152,7 @@ Let's just do a single, and then we'll
 launch uh we'll launch one Claude Code
 instance in this. Um but, let's just
 launch a new new Claude Code instance.
-And this is Again, this is BridgeSpace,
+And this is Again, this is SigmaSpace,
 which is very useful. But, if we are in
 Opus 4.6, right? And let's do model,
 okay? And what you're going to see is
@@ -201,7 +201,7 @@ it's interesting. Like if we go back to
 the benchmarks, I'm not going to hype
 this stuff up. I think that of a lot of
 people that watch this channel and watch
-BridgeMind um and are in the BridgeMind
+SigmaMind um and are in the SigmaMind
 community know that I don't really I
 don't really perceive myself as a
 content creator. I'm not going to hype
@@ -256,12 +256,12 @@ so, I'm just going to use bridge voice
 and give uh Claude Code a quick prompt
 here. I want you to launch five
 sub-agents to do an in-depth review of
-the BridgeMind UI and identify any
+the SigmaMind UI and identify any
 inconsistencies in the theme and styling
 on different pages on the website. So,
 we're going to launch some sub-agents
 right now, okay? So, we're going to drop
-in BridgeMind UI and let's just drop
+in SigmaMind UI and let's just drop
 this in with Opus 4.6 and give it that
 prompt, right? So, what this is going to
 be doing is this is going to be
@@ -362,7 +362,7 @@ with this you can see that these teams,
 for example, code quality fixed. So, the
 purpose of this team is to fix all bugs
 and clean up AI slop across the
-BridgeMind mono repo. So, there's a team
+SigmaMind mono repo. So, there's a team
 lead and that is that that's that's the
 team lead. That's this here. So, rather
 than it just being a main agent that all
@@ -391,7 +391,7 @@ on, I'm not going to say enable. I'm
 just going to say
 I want to work with the API security
 review team and I want this team to do
-an in-depth review of the BridgeMind API
+an in-depth review of the SigmaMind API
 and do an audit of our API security. Any
 findings that the team finds should be
 outputted and inputted into a readme
@@ -404,7 +404,7 @@ And what you guys are going to see is
 you're going to see Opus 4.6 be able to
 work as a team. So, it says, "I'll set
 up a security audit team to thoroughly
-review the BridgeMind API. Let me create
+review the SigmaMind API. Let me create
 the team and organize the work, okay?"
 So, actually what it did here, hold on.
 Did it just create a new team?
@@ -452,7 +452,7 @@ So, one thing that I want to test just
 briefly is like let's go over and let's
 actually launch um let's launch
 localhost here, and let's go into the
-BridgeMind UI, right? Let's go over
+SigmaMind UI, right? Let's go over
 here, and hold on. I think there were
 some updates being made, so we may have
 to kill our terminal real quick. Um
@@ -468,7 +468,7 @@ All right. So, you can see our home page
 here, and let's just try a brief UI fix,
 right? And look at this. So, this is
 this agent here, and it's making
-updates. Um let's go over to BridgeSpace
+updates. Um let's go over to SigmaSpace
 real quick. So, it's this agent, and
 it's actually asking high impact only
 recommend. Okay, what what agent is
@@ -478,12 +478,12 @@ Let's go back over here, and let's just
 drop this issue, and um let's let's have
 an agent fix that real quick.
 I want you to fix this error that I'm
-getting in the BridgeMind UI. So, let's
-um BridgeMind. Okay, and that's why
+getting in the SigmaMind UI. So, let's
+um SigmaMind. Okay, and that's why
 we're going to need to set up a
-dictionary for BridgeVoice. Um so,
+dictionary for SigmaVoice. Um so,
 speaking of which, let's actually pull
-up BridgeVoice real quick, and we are
+up SigmaVoice real quick, and we are
 going to have to solve a couple issues
 here. Um so, we are having a storage
 error here. So, what I want to do is I'm
@@ -586,13 +586,13 @@ section as well inside of our website.
 So, let's drop in this section here, and
 let's just say, "I need you to review
 this section on the homepage of the
-Bridgemind UI, and what I need you to do
+Sigmamind UI, and what I need you to do
 is I need you to update it with a
 completely different component and
 looking section focused more on um
 different particular products in the
-Bridgemind suite. I want you to focus on
-the Bridgemind MCP. I want you to focus
+Sigmamind suite. I want you to focus on
+the Sigmamind MCP. I want you to focus
 on Bridge Code. I want you to focus on
 um
 Bridge Space, and I want you to focus on
@@ -630,12 +630,12 @@ code quality fix, which was basically
 just focused on making it so that
 there's no AI slop, right? So, we can go
 and we can add, for example, let's just
-add the BridgeMind API, and let's say
+add the SigmaMind API, and let's say
 that we want to enact this team, right?
 So, this this here, I want to say
 I want you to enact the code quality fix
 team that will do a thorough review of
-the BridgeMind API and identify any
+the SigmaMind API and identify any
 areas where the code quality needs to be
 fixed and updated. Do not update any
 code, but compile all the findings from
@@ -646,7 +646,7 @@ quality is bad, and how to fix it, and
 make sure that the changes in the
 instructions will not break any of the
 functionality. So, again, I'm using
-BridgeVoice for that. It's a very very
+SigmaVoice for that. It's a very very
 good text-to-speech tool. We're going to
 have that launching probably next week.
 Um this agent is now done. So, this was
@@ -661,7 +661,7 @@ So, it says all done, the security team
 has been fully shut down and cleaned up.
 To recap what was delivered, three
 auditors ran in parallel across the
-entire BridgeMind API code base, 23
+entire SigmaMind API code base, 23
 findings documented, zero critical, five
 high, 10 medium, eight low. All findings
 consolidated into this readme with
@@ -777,7 +777,7 @@ that actually was not working. And what
 I did is I had GPT 5.3 review what was
 actually causing that issue, right? Cuz
 signing in was not working. So, this is
-the BridgeVoice dashboard, so I can see
+the SigmaVoice dashboard, so I can see
 for example like some of my recent
 activities. Here's the prompts that I've
 been giving it in this session. You can
@@ -808,7 +808,7 @@ was there previously, and then update it
 with different sections about each
 product in the suite of Vibe coding
 tools that we're building. So, you can
-see here, Bridgemind MCP. This is
+see here, Sigmamind MCP. This is
 perfect. Get started with the MCP.
 Um that looks nice. Um ship from your
 terminal, Bridge Code. That looks good.
@@ -818,7 +818,7 @@ good job. Um there's going to be a
 couple things that we're going to want
 to change with this, but this actually
 did Oh, look at this. It even did like a
-little SVG background for BridgeVoice.
+little SVG background for SigmaVoice.
 That's really cool. Yeah, I mean, the
 backgrounds did really nice. It was able
 to know like the different colors and

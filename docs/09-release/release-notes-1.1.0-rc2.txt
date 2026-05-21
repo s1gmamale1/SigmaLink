@@ -23,7 +23,7 @@ What's new vs rc1:
 Carried over from rc1:
 
 * macOS DMG PATH bootstrap (Finder-launched apps now find providers)
-* Provider launcher façade (BridgeCode silent fallback + altCommands
+* Provider launcher façade (SigmaCode silent fallback + altCommands
   ENOENT walk + autoApproveFlag append + legacy-gate recheck)
 * Migration 0010 (agent_sessions.provider_effective)
 * Mailbox group-recipient grammar end-to-end

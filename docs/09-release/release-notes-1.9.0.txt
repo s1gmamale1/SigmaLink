@@ -55,8 +55,8 @@ Still deferred (genuinely multi-day-to-multi-month — NOT force-shipped)
   informational; activation semantics need a design decision).
 - W-6 full Jorvis identifier rename (label rename shipped v1.8.0;
   full IPC+DB+file sweep deferred per "not for now").
-- BridgeVoice signed/notarized installers (funded certs; unsigned
-  canonical — unsigned installers shipped bridgevoice-v0.1.4).
+- SigmaVoice signed/notarized installers (funded certs; unsigned
+  canonical — unsigned installers shipped sigmavoice-v0.1.4).
 - V3-W15-006 dogfood (human-only QA).
 
 No schema migrations beyond 0021 in v1.9.0.

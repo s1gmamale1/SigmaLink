@@ -1,14 +1,14 @@
 # In-app Browser Sidebar — Documented Spec
 Compiled: 2026-05-09
 
-Sources: changelog (BridgeSpace v3.0.8), bridgecode (BridgeCode panels), products-bridgespace (Review Room reference), discord-and-socials (Twitter quote).
+Sources: changelog (SigmaSpace v3.0.8), sigmacode (SigmaCode panels), products-sigmaspace (Review Room reference), discord-and-socials (Twitter quote).
 
 ## Confirmed facts
 
-- BridgeSpace v3.0.8 (2026-04-22) shipped "Browser sidebar capability" (verbatim).
-- BridgeCode docs list "Browser preview" as one of six panels (Chat / Terminal / Browser preview / File Explorer / Plan / Source).
-- BridgeSpace product page mentions a "Review Room" — likely the surface where the browser sidebar lives.
-- Twitter quote (BridgeMind official): "Three modes. One platform" — implies BridgeSpace orchestrates Command Room, Swarm Room, Review Room.
+- SigmaSpace v3.0.8 (2026-04-22) shipped "Browser sidebar capability" (verbatim).
+- SigmaCode docs list "Browser preview" as one of six panels (Chat / Terminal / Browser preview / File Explorer / Plan / Source).
+- SigmaSpace product page mentions a "Review Room" — likely the surface where the browser sidebar lives.
+- Twitter quote (SigmaMind official): "Three modes. One platform" — implies SigmaSpace orchestrates Command Room, Swarm Room, Review Room.
 - Tauri-based desktop app (Cargo configuration appears in changelog v3.0.4) — browser implemented via webview, likely Tauri's native webview.
 
 ## Inferred facts (not directly documented; treat as open question)

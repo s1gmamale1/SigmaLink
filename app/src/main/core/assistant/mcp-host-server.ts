@@ -6,7 +6,7 @@
 // newline-delimited JSON-RPC 2.0 — MCP's stdio transport — over its own
 // stdin/stdout. Diagnostics go to stderr only so they never pollute the wire.
 //
-// Jorvis model (see `mcp-host-bridge.ts` for the main-process side):
+// Jorvis model (see `mcp-host-sigma.ts` for the main-process side):
 //
 //   claude CLI ──stdio──> THIS SERVER ──unix socket──> SigmaLink main
 //                          (mcp tools/list,             (calls invokeTool()
@@ -53,7 +53,7 @@ interface JsonRpcResponse {
   error?: { code: number; message: string };
 }
 
-interface BridgeRequest {
+interface SigmaRequest {
   jsonrpc: '2.0';
   id: string;
   method: 'tools.invoke';
@@ -64,7 +64,7 @@ interface BridgeRequest {
   };
 }
 
-interface BridgeResponse {
+interface SigmaResponse {
   jsonrpc: '2.0';
   id: string;
   result?: { ok: boolean; result: unknown; error?: string };
@@ -230,15 +230,15 @@ const TOOLS = [
 
 export const JORVIS_HOST_TOOLS = TOOLS;
 
-interface PendingBridgeCall {
-  resolve: (value: BridgeResponse['result']) => void;
+interface PendingSigmaCall {
+  resolve: (value: SigmaResponse['result']) => void;
   reject: (err: Error) => void;
 }
 
-class BridgeClient {
+class SigmaClient {
   private socket: net.Socket | null = null;
   private connecting: Promise<void> | null = null;
-  private readonly pending = new Map<string, PendingBridgeCall>();
+  private readonly pending = new Map<string, PendingSigmaCall>();
   private buf = '';
   private readonly socketPath: string;
 
@@ -281,7 +281,7 @@ class BridgeClient {
       const trimmed = line.trim();
       if (!trimmed) continue;
       try {
-        const resp = JSON.parse(trimmed) as BridgeResponse;
+        const resp = JSON.parse(trimmed) as SigmaResponse;
         const pending = this.pending.get(resp.id);
         if (!pending) continue;
         this.pending.delete(resp.id);
@@ -311,12 +311,12 @@ class BridgeClient {
     name: string,
     args: Record<string, unknown>,
     conversationId: string | undefined,
-  ): Promise<BridgeResponse['result']> {
+  ): Promise<SigmaResponse['result']> {
     await this.ensureConnected();
     const socket = this.socket;
     if (!socket) throw new Error('bridge not connected');
     const id = randomUUID();
-    const req: BridgeRequest = {
+    const req: SigmaRequest = {
       jsonrpc: '2.0',
       id,
       method: 'tools.invoke',
@@ -335,7 +335,7 @@ class BridgeClient {
 }
 
 export interface McpHostServerDeps {
-  bridge: Pick<BridgeClient, 'invoke'>;
+  sigma: Pick<SigmaClient, 'invoke'>;
   conversationId: string | undefined;
   /** Inject a writer (testing). Defaults to stdout. */
   write?: (line: string) => void;
@@ -391,7 +391,7 @@ export async function handleMcpLine(
           sendError(deps, id, -32602, 'tools/call requires { name }');
           return;
         }
-        const result = await deps.bridge.invoke(name, args, deps.conversationId);
+        const result = await deps.sigma.invoke(name, args, deps.conversationId);
         const ok = result?.ok ?? false;
         const payload = result?.error
           ? { error: result.error, result: result.result }
@@ -445,9 +445,9 @@ async function main(): Promise<void> {
     writeStderr('jorvis-host: JORVIS_HOST_SOCKET env var is required');
     process.exit(1);
   }
-  const bridge = new BridgeClient(socketPath);
+  const sigma = new SigmaClient(socketPath);
   const conversationId = process.env.JORVIS_CONVERSATION_ID || undefined;
-  const deps: McpHostServerDeps = { bridge, conversationId };
+  const deps: McpHostServerDeps = { sigma, conversationId };
 
   let pending = 0;
   let stdinClosed = false;

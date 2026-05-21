@@ -193,7 +193,7 @@ No schema migrations in v1.10.1.
 
 ## [1.10.0] - 2026-05-21
 
-v1.10.0 — **W-4 shell-first pane architecture, Phase 1 of 7** (flagged, default-off). The first increment of the multi-session pivot away from the brittle PTY-direct-CLI model toward a durable shell-first model (BridgeSpace-style). One Sonnet coder cluster (worktree-isolated), lead-merged.
+v1.10.0 — **W-4 shell-first pane architecture, Phase 1 of 7** (flagged, default-off). The first increment of the multi-session pivot away from the brittle PTY-direct-CLI model toward a durable shell-first model (SigmaSpace-style). One Sonnet coder cluster (worktree-isolated), lead-merged.
 
 ### Shell-first spawn mode (experimental, opt-in)
 
@@ -254,7 +254,7 @@ The `onPostSpawnCapture` disk-scan gate (`if (!isResume && ...)`) is unchanged. 
 
 ### Still deferred (unchanged from v1.9.0)
 
-W-4 shell-first (~14d), V3 Wave 12-15 (multi-month), W-5 behavioral activation (design-first), W-6 full Jorvis identifier rename, BridgeVoice signed installers (funded certs), V3-W15-006 dogfood, terminal scrollback persistence (design question).
+W-4 shell-first (~14d), V3 Wave 12-15 (multi-month), W-5 behavioral activation (design-first), W-6 full Jorvis identifier rename, SigmaVoice signed installers (funded certs), V3-W15-006 dogfood, terminal scrollback persistence (design question).
 
 No schema migrations in v1.9.1.
 
@@ -286,26 +286,26 @@ Phase 1 (v1.7.0) shipped the read-only Skills discovery tab. Phase 2 adds the ab
 - **V3 Wave 12-15 parity** (45 tickets, multi-month).
 - **W-5 behavioral skill activation** (the binding layer shipped here is informational; activation semantics need a design decision).
 - **W-6 full Jorvis identifier rename** (IPC channels + DB tables + file names; label rename shipped v1.8.0 — full sweep deferred per "not for now").
-- **BridgeVoice signed/notarized installers** (funded certs; unsigned canonical for internal use — unsigned installers shipped bridgevoice-v0.1.4).
+- **SigmaVoice signed/notarized installers** (funded certs; unsigned canonical for internal use — unsigned installers shipped sigmavoice-v0.1.4).
 - **V3-W15-006 dogfood** (human-only QA).
 
 No schema migrations beyond 0021 in v1.9.0.
 
 ## [1.8.0] - 2026-05-21
 
-v1.8.0 — completes two more open items on top of v1.7.1: the standalone BridgeVoice app now produces real (unsigned) installers, and the assistant is renamed "Jorvis" in the UI. Two parallel Sonnet coder clusters (worktree-isolated), lead-merged.
+v1.8.0 — completes two more open items on top of v1.7.1: the standalone SigmaVoice app now produces real (unsigned) installers, and the assistant is renamed "Jorvis" in the UI. Two parallel Sonnet coder clusters (worktree-isolated), lead-merged.
 
-### BridgeVoice standalone app — real unsigned installers
+### SigmaVoice standalone app — real unsigned installers
 
-v1.7.0 shipped the `@sigmalink/bridge-voice` app as a runnable dev scaffold; v1.8.0 makes it packageable into actual installers using SigmaLink's internal-use **unsigned / ad-hoc** distribution model (no funded codesigning — same Gatekeeper-bypass + SmartScreen-on-first-launch UX SigmaLink already uses):
+v1.7.0 shipped the `@sigmalink/sigma-voice` app as a runnable dev scaffold; v1.8.0 makes it packageable into actual installers using SigmaLink's internal-use **unsigned / ad-hoc** distribution model (no funded codesigning — same Gatekeeper-bypass + SmartScreen-on-first-launch UX SigmaLink already uses):
 
-- `app/apps/bridge-voice/scripts/build.cjs` — esbuild bundler (main ESM + preload CJS), mirroring `app/scripts/build-electron.cjs`.
-- `app/apps/bridge-voice/electron-builder.yml` — `appId: ai.sigma.bridgevoice`, productName "BridgeVoice", `identity: null` (ad-hoc), macOS DMG (arm64 + x64) + Windows NSIS, voice `.node` asarUnpack, `afterSign` ad-hoc codesign hook.
-- `app/apps/bridge-voice/build/entitlements.mac.plist` — microphone, speech-recognition, audio-input, apple-events (AX paste), V8 JIT entitlements + `NSMicrophoneUsageDescription` / `NSSpeechRecognitionUsageDescription`.
-- `app/apps/bridge-voice/build/installer.nsh` + `build/dmg/README — Open BridgeVoice.txt` — SmartScreen / Gatekeeper bypass UX.
-- `.github/workflows/release-bridge-voice.yml` — NEW CI lane triggered on `bridgevoice-v*` tags ONLY (never fires on SigmaLink `v*` tags). macOS + Windows jobs, `@electron/rebuild -w whisper_bridge -w sigmavoice_mac`, `CSC_IDENTITY_AUTO_DISCOVERY=false`, uploads to a GitHub release.
+- `app/apps/sigma-voice/scripts/build.cjs` — esbuild bundler (main ESM + preload CJS), mirroring `app/scripts/build-electron.cjs`.
+- `app/apps/sigma-voice/electron-builder.yml` — `appId: ai.sigma.sigmavoice`, productName "SigmaVoice", `identity: null` (ad-hoc), macOS DMG (arm64 + x64) + Windows NSIS, voice `.node` asarUnpack, `afterSign` ad-hoc codesign hook.
+- `app/apps/sigma-voice/build/entitlements.mac.plist` — microphone, speech-recognition, audio-input, apple-events (AX paste), V8 JIT entitlements + `NSMicrophoneUsageDescription` / `NSSpeechRecognitionUsageDescription`.
+- `app/apps/sigma-voice/build/installer.nsh` + `build/dmg/README — Open SigmaVoice.txt` — SmartScreen / Gatekeeper bypass UX.
+- `.github/workflows/release-sigma-voice.yml` — NEW CI lane triggered on `sigmavoice-v*` tags ONLY (never fires on SigmaLink `v*` tags). macOS + Windows jobs, `@electron/rebuild -w whisper_bridge -w sigmavoice_mac`, `CSC_IDENTITY_AUTO_DISCOVERY=false`, uploads to a GitHub release.
 
-Local validation: `electron-builder --mac dir` ran cleanly, ad-hoc sign + `codesign --verify` succeeded. Full DMG/NSIS production runs on CI when a `bridgevoice-v*` tag is pushed (first is `bridgevoice-v0.1.0`). This is the standalone-app deliverable the operator requested ("make SigmaVoice a separate app like the original BridgeVoice").
+Local validation: `electron-builder --mac dir` ran cleanly, ad-hoc sign + `codesign --verify` succeeded. Full DMG/NSIS production runs on CI when a `sigmavoice-v*` tag is pushed (first is `sigmavoice-v0.1.0`). This is the standalone-app deliverable the operator requested ("make SigmaVoice a separate app like the original SigmaVoice").
 
 ### Assistant renamed "Jorvis" (UI label-only)
 
@@ -318,7 +318,7 @@ The in-app assistant is now displayed as "Jorvis" — 20 user-facing display str
 - tsc clean
 - vitest 102 files / 962 pass / 1 skip
 - eslint 0 errors / 0 warnings
-- bridge-voice esbuild bundle clean + electron-builder config validated (`--mac dir` + ad-hoc sign)
+- sigma-voice esbuild bundle clean + electron-builder config validated (`--mac dir` + ad-hoc sign)
 - SigmaLink build + electron compile clean
 - Playwright smoke e2e 38 s pass (Jorvis labels render, app boots)
 
@@ -328,7 +328,7 @@ The in-app assistant is now displayed as "Jorvis" — 20 user-facing display str
 - **V3 Wave 12-15 parity** (45 tickets, multi-month).
 - **W-5 Skills tab Phase 2** (drag-drop + persistence, ~5-7 days; Phase 1 shipped v1.7.0).
 - **W-6 full Jorvis identifier rename** (IPC channels + DB tables + file names — the label rename shipped here; the internal sweep is its own packet).
-- **BridgeVoice signed/notarized installers** (would require funded Apple Developer + EV cert — out of scope for internal use; unsigned is canonical).
+- **SigmaVoice signed/notarized installers** (would require funded Apple Developer + EV cert — out of scope for internal use; unsigned is canonical).
 - **V3-W15-006 dogfood** (human-only QA).
 
 No schema migrations in v1.8.0.
@@ -350,25 +350,25 @@ Moved the three native packages from `dependencies` to **`devDependencies`** in 
 - Removes them from electron-builder's production rebuild scope (devDependencies are not followed for the packaged app), restoring the known-good pre-v1.7.0 behavior where only the explicit `@electron/rebuild` CI step builds the voice natives.
 - Runtime loading is unaffected — `voice-core`'s native loaders try `@sigmalink/voice-*` first, then fall back to `app/native/voice-*/index.js` path-walking (the same mechanism SigmaLink used before v1.7.0). The voice `.node` binaries are packaged via electron-builder's existing `native/` asarUnpack config, independent of the dependency tree.
 
-No other changes — all v1.7.0 features (voice-core extraction, BridgeVoice scaffold, Ruflo daemon Settings UI, Skills tab Phase 1, migration 0020, A5 eslint fix) ship intact.
+No other changes — all v1.7.0 features (voice-core extraction, SigmaVoice scaffold, Ruflo daemon Settings UI, Skills tab Phase 1, migration 0020, A5 eslint fix) ship intact.
 
 Local gate after fix: pnpm install clean, tsc clean, electron:compile clean (voice-core resolves), full vitest + smoke verified at v1.7.0.
 
 ## [1.7.0] - 2026-05-21
 
-v1.7.0 — "finish open items" bundle: closes the remaining small/medium wishlist items + extracts the voice-capture stack into a shared package with a standalone BridgeVoice app scaffold. Three parallel Sonnet coder clusters (worktree-isolated), lead-merged.
+v1.7.0 — "finish open items" bundle: closes the remaining small/medium wishlist items + extracts the voice-capture stack into a shared package with a standalone SigmaVoice app scaffold. Three parallel Sonnet coder clusters (worktree-isolated), lead-merged.
 
-### SigmaVoice → BridgeVoice extraction (groundwork)
+### SigmaVoice → SigmaVoice extraction (groundwork)
 
-"BridgeVoice" was the original product name for SigmaLink's voice module (still visible in `app/native/voice-mac/package.json` description). This release extracts the self-contained global-capture stack into a shared package so a standalone dictation app can consume it:
+"SigmaVoice" was the original product name for SigmaLink's voice module (still visible in `app/native/voice-mac/package.json` description). This release extracts the self-contained global-capture stack into a shared package so a standalone dictation app can consume it:
 
 - **`@sigmalink/voice-core`** (new package, `app/packages/voice-core/`) — extracts `global-capture.ts` + `output-router.ts` + `whisper-engine.ts` + `model-registry.ts` with full dependency injection (Electron APIs, `emit`, KV accessors, `modelsDir`, `clipboard` all injected — no SigmaLink-specific imports).
 - **Native packages promoted to pnpm workspace members** — `@sigmalink/voice-mac`, `@sigmalink/voice-win`, `@sigmalink/voice-whisper` are now real workspace members (via `app/pnpm-workspace.yaml`) instead of `createRequire` path-walking.
 - **SigmaLink consumes `@sigmalink/voice-core`** — `app/electron/main.ts` imports `buildGlobalCaptureController` from the shared package (added as a `workspace:*` dependency). No behavior change; all existing voice IPC channels + events work identically.
-- **`@sigmalink/bridge-voice`** (new app scaffold, `app/apps/bridge-voice/`) — a runnable standalone Electron app: Tray + global hotkey + `buildGlobalCaptureController` + minimal settings window (model download, hotkey rebind, output mode). System-wide dictation: hotkey → capture → whisper transcribe → clipboard/AX-paste into the focused app. No workspace/pane/session logic.
+- **`@sigmalink/sigma-voice`** (new app scaffold, `app/apps/sigma-voice/`) — a runnable standalone Electron app: Tray + global hotkey + `buildGlobalCaptureController` + minimal settings window (model download, hotkey rebind, output mode). System-wide dictation: hotkey → capture → whisper transcribe → clipboard/AX-paste into the focused app. No workspace/pane/session logic.
 - **A1 hardware sample-rate detection** — the macOS native binding (`voice-mac`) now reports the actual hardware sample rate through the `onPcm` callback (`{ samples, sampleRate }`); `voice-core`'s resampler uses the real rate instead of a hardcoded 48 kHz constant, falling back to 48 kHz for bare-array chunks (Win/other). Fixes mild pitch error on 44.1 kHz hardware.
 
-**Explicitly deferred** (documented in `app/apps/bridge-voice/README.md`): production packaging for the standalone app — its own `electron-builder.yml` target, macOS entitlements (`NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription`, audio-input), codesigning identity, DMG/NSIS build matrix, CI lane. The standalone app is a runnable dev scaffold this release, not a signed installer.
+**Explicitly deferred** (documented in `app/apps/sigma-voice/README.md`): production packaging for the standalone app — its own `electron-builder.yml` target, macOS entitlements (`NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription`, audio-input), codesigning identity, DMG/NSIS build matrix, CI lane. The standalone app is a runnable dev scaffold this release, not a signed installer.
 
 ### Ruflo HTTP daemon Settings UI (B2)
 
@@ -405,10 +405,10 @@ New "Skills" tab in the right-rail icon strip next to Browser / IDE / Sigma Assi
 These are genuinely multi-day-to-multi-month and were not force-shipped:
 
 - **W-4 shell-first pane architecture** (~14 days) — the v1.5.6 empty-pane root cause lives here; trigger-gated, not yet met.
-- **V3 Wave 12-15 parity** (45 tickets, multi-month) — launcher chrome, swarm wizard, right-rail dock, Operator Console body, Bridge Assistant chat panel, constellation graph, Bridge Canvas, BridgeVoice intake.
+- **V3 Wave 12-15 parity** (45 tickets, multi-month) — launcher chrome, swarm wizard, right-rail dock, Operator Console body, Bridge Assistant chat panel, constellation graph, Bridge Canvas, SigmaVoice intake.
 - **W-5 Skills tab Phase 2** (drag-drop + persistence, ~5-7 days).
 - **W-6 Sigma Assistant → Jorvis rename** — full IPC-channel + DB-table + file-name sweep is high-blast-radius; deferred to its own focused release with a reviewer cycle rather than rushed into this bundle.
-- **BridgeVoice production installers** — codesigning + 2nd electron-builder target + CI matrix (the multi-day packaging tail of the voice extraction).
+- **SigmaVoice production installers** — codesigning + 2nd electron-builder target + CI matrix (the multi-day packaging tail of the voice extraction).
 - **V3-W15-006 dogfood** — human-only QA exercise.
 
 No schema migrations beyond 0020 in v1.7.0.
@@ -1252,7 +1252,7 @@ release(v1.4.1): Bridge → Sigma rename + pane mailbox back-channel + SigmaRoom
 
 ### Changed
 
-- **Bridge → Sigma branding sweep** across all renderer UI strings, component names, directory names, room IDs, and developer comments. `bridge-agent/` → `sigma-assistant/`, `BridgeRoom.tsx` → `SigmaRoom.tsx`, `BridgeTabPlaceholder.tsx` → `SigmaTabPlaceholder.tsx`, room ID `'bridge'` → `'sigma'`.
+- **Bridge → Sigma branding sweep** across all renderer UI strings, component names, directory names, room IDs, and developer comments. `bridge-agent/` → `sigma-assistant/`, `SigmaRoom.tsx` → `SigmaRoom.tsx`, `BridgeTabPlaceholder.tsx` → `SigmaTabPlaceholder.tsx`, room ID `'bridge'` → `'sigma'`.
 - **KV migration transparent on first launch.** `kv['bridge.activeConversationId']` → `kv['sigma.activeConversationId']` and `kv['bridge.autoFocusOnDispatch']` → `kv['sigma.autoFocusOnDispatch']`. Idempotent — old key deleted after copy.
 - Generic descriptive "bridge" terminology in `claude-resume-bridge.ts` + `mcp-host-bridge.ts` intentionally preserved (symlink/IPC helpers, not branding).
 
@@ -1263,7 +1263,7 @@ release(v1.4.1): Bridge → Sigma rename + pane mailbox back-channel + SigmaRoom
 
 ### Refactored
 
-- **SigmaRoom.tsx** (was BridgeRoom.tsx) split from 922 LOC into focused hooks + sub-components: `use-sigma-conversations.ts`, `use-sigma-resume-flow.ts`, `use-sigma-pane-events.ts`, `use-sigma-ruflo-health.ts`, `use-sigma-pattern-probe.ts`, `use-sigma-dispatch-echo.ts`, `use-sigma-jump-to-message.ts`, `use-sigma-voice.ts`, `use-sigma-assistant-state.ts`, plus `SigmaRailDropdown.tsx`, `InterruptedTurnBanner.tsx`, `ResumeBanner.tsx`, `PaneEventCard.tsx`, `PatternRibbon.tsx`. SigmaRoom.tsx now at 283 LOC (target was <400).
+- **SigmaRoom.tsx** (was SigmaRoom.tsx) split from 922 LOC into focused hooks + sub-components: `use-sigma-conversations.ts`, `use-sigma-resume-flow.ts`, `use-sigma-pane-events.ts`, `use-sigma-ruflo-health.ts`, `use-sigma-pattern-probe.ts`, `use-sigma-dispatch-echo.ts`, `use-sigma-jump-to-message.ts`, `use-sigma-voice.ts`, `use-sigma-assistant-state.ts`, plus `SigmaRailDropdown.tsx`, `InterruptedTurnBanner.tsx`, `ResumeBanner.tsx`, `PaneEventCard.tsx`, `PatternRibbon.tsx`. SigmaRoom.tsx now at 283 LOC (target was <400).
 
 ### Verification
 
@@ -1288,7 +1288,7 @@ feat(v1.4.0): Sigma Assistant orchestrator resume
 ### Verification
 
 - `pnpm exec tsc -b --pretty false`: clean
-- `pnpm exec vitest run src/main/core/assistant/conversations.test.ts src/main/core/assistant/runClaudeCliTurn.test.ts src/renderer/features/bridge-agent/ConversationsPanel.test.tsx src/renderer/features/bridge-agent/BridgeRoom.test.tsx`: 31/31 pass
+- `pnpm exec vitest run src/main/core/assistant/conversations.test.ts src/main/core/assistant/runClaudeCliTurn.test.ts src/renderer/features/bridge-agent/ConversationsPanel.test.tsx src/renderer/features/bridge-agent/SigmaRoom.test.tsx`: 31/31 pass
 - `node --experimental-strip-types --test src/main/core/db/__tests__/migrate.spec.ts`: 5/5 pass
 - Focused `pnpm exec eslint ...`: clean
 
@@ -1609,7 +1609,7 @@ Three independent fixes shipped in one release:
 
 1. **Auto-update without code-signing certs (PR #7)** — opt-in users on both platforms now actually receive updates. Windows: `verifyUpdateCodeSignature: false` bypasses the Authenticode publisher check. macOS: `autoDownload = false` + manual DMG download via new `http-download.ts` util, bypassing Squirrel.Mac's hard signature wall. Renderer state machine in Settings → Updates with progress bar.
 2. **macOS spawn-helper chmod hotfix** — closes the "Native module mismatch: node-pty posix_spawnp failed" boot-time crash. v1.2.3 DMG shipped `prebuilds/darwin-*/spawn-helper` at perms `0644` instead of `0755`; node-pty's runtime `posix_spawn()` got EACCES → boot probe popped the NativeRebuildModal on every fresh install.
-3. **Provider registry trim** — long-deferred v1.1.10 cleanup. Removed BridgeCode, Cursor Agent, Aider, Continue, Droid/Copilot stubs. Shell kept as internal sentinel (filtered from user-facing pickers). Kimi Code CLI promoted to first-class provider.
+3. **Provider registry trim** — long-deferred v1.1.10 cleanup. Removed SigmaCode, Cursor Agent, Aider, Continue, Droid/Copilot stubs. Shell kept as internal sentinel (filtered from user-facing pickers). Kimi Code CLI promoted to first-class provider.
 
 ### Added
 - **`app/src/main/lib/http-download.ts`** — shared atomic-download util (download to `.part`, rename on completion, redirect following up to 5 hops, idle-socket timeout, progress callback, `.part` cleanup on every error path via `fs.rmSync(..., { force: true })`).
@@ -1624,7 +1624,7 @@ Three independent fixes shipped in one release:
 - **`app/electron-builder.yml`** — added `verifyUpdateCodeSignature: false` to `win:` block. macOS retains adhoc-only signing (no cert required).
 - **`app/electron/auto-update.ts`** — rewrite. Platform-split `update-available` handler: Windows path calls `autoUpdater.downloadUpdate()`; macOS path resolves the relative `info.files[].url` against `https://github.com/<owner>/<repo>/releases/download/v<version>/` and downloads via the shared util. Module-scoped `pendingVersion` captures the version for `download-progress` (avoids non-existent `autoUpdater.updateInfo`).
 - **`app/src/main/core/skills/marketplace.ts`** — refactored to consume shared `httpDownload`.
-- **Provider registry (`app/src/shared/providers.ts`)** — removed 4 entries (BridgeCode, Cursor Agent, Aider, Continue), added Kimi. Shell sentinel filtered out of `listVisibleProviders()` so it doesn't surface in user-facing pickers (default-shell-spawn capability preserved internally via the empty-command path).
+- **Provider registry (`app/src/shared/providers.ts`)** — removed 4 entries (SigmaCode, Cursor Agent, Aider, Continue), added Kimi. Shell sentinel filtered out of `listVisibleProviders()` so it doesn't surface in user-facing pickers (default-shell-spawn capability preserved internally via the empty-command path).
 
 ### Fixed
 - **macOS `spawn-helper` exec bit** — `app/scripts/adhoc-sign.cjs` (afterSign hook) now walks the packed bundle and `fs.chmodSync(path, 0o755)` on every `spawn-helper` it finds, BEFORE the codesign sweep (chmod after sign would invalidate the seal). Two passes: hardcoded `node-pty/prebuilds/darwin-*/spawn-helper` plus a future-proof recursive `**/spawn-helper` walk. Dedupe Set prevents double-logging.
@@ -1854,7 +1854,7 @@ Two coordinated swarms shipped this release. PR #3 (Codex + Claude finalizer) la
 
 ### File-size budget compliance
 
-All v1.1.x churn files now under the 500-LOC project rule. Four files still over budget are tracked for v1.2 (rpc-router.ts 985, router-shape.ts 770, sidebar.tsx 726, BridgeRoom.tsx 721).
+All v1.1.x churn files now under the 500-LOC project rule. Four files still over budget are tracked for v1.2 (rpc-router.ts 985, router-shape.ts 770, sidebar.tsx 726, SigmaRoom.tsx 721).
 
 ## [1.1.8] - 2026-05-12
 
@@ -1862,7 +1862,7 @@ All v1.1.x churn files now under the 500-LOC project rule. Four files still over
 
 ### Performance
 
-- **Main bundle 97.57 → 38.26 KB gzip (-61%, -59 KB)** — 10 rooms now `React.lazy()`-loaded (CommandRoom stays eager). BridgeRoom + OperatorConsole + MemoryRoom + SkillsRoom + BrowserRoom + ReviewRoom + TasksRoom + SettingsRoom + SwarmRoom + Launcher emitted as sibling chunks. BridgeTabPlaceholder + RightRail also converted to lazy (no vite "dynamic import will not move module" warnings).
+- **Main bundle 97.57 → 38.26 KB gzip (-61%, -59 KB)** — 10 rooms now `React.lazy()`-loaded (CommandRoom stays eager). SigmaRoom + OperatorConsole + MemoryRoom + SkillsRoom + BrowserRoom + ReviewRoom + TasksRoom + SettingsRoom + SwarmRoom + Launcher emitted as sibling chunks. BridgeTabPlaceholder + RightRail also converted to lazy (no vite "dynamic import will not move module" warnings).
 - **BrowserRoom latch-on-first-activation** — instead of unconditionally mounting `<BrowserRoom visible={activeTab==='browser'}/>`, RightRail now only renders the subtree once `activeTab === 'browser'` has been true at least once. Keeps the browser:state listener + DesignOverlay + BrowserViewMount + BrowserRecents tree out of cold boot.
 - **`renderer/lib/pty-data-bus.ts`** (88 lines) — new module routes `pty:data` events by sessionId through a `Map<string, Set<Listener>>`. With 16 panes, previously each chunk paid 32 `eventOn` dispatches + 32 sessionId string-compares + 31 drops; now: 1 dispatch + 1 Map.get + 1-2 actual listener calls. IPC + main-process untouched. 9 new bus tests cover routing, isolation, unsubscribe, install-once, mid-dispatch self-unsubscribe.
 
@@ -1989,7 +1989,7 @@ open /Applications/SigmaLink.app
 
 ## [1.1.4] - 2026-05-11
 
-V3 BridgeMind visual parity sweep. Frontend-only release; backend touches: zero. RPC channels touched: zero. The functional pipeline from v1.1.3 is preserved exactly; what changes is the chrome around it. (For v1.1.2 + v1.1.3 release narrative, see `docs/09-release/release-notes-1.1.2.txt` + `release-notes-1.1.3.txt`.)
+V3 SigmaMind visual parity sweep. Frontend-only release; backend touches: zero. RPC channels touched: zero. The functional pipeline from v1.1.3 is preserved exactly; what changes is the chrome around it. (For v1.1.2 + v1.1.3 release narrative, see `docs/09-release/release-notes-1.1.2.txt` + `release-notes-1.1.3.txt`.)
 
 ### Added
 
@@ -2071,7 +2071,7 @@ UX hotfix on top of v1.1.0-rc3. Four user-reported defects fixed in one pass: th
 
 - **Drag-region helper** — new `app/src/renderer/lib/drag-region.ts` `dragStyle()` / `noDragStyle()` returning typed `CSSProperties` with the WebKit-prefixed `WebkitAppRegion` value. Single chokepoint replaces ad-hoc style objects.
 
-- **`sigmavoice.enabled` capability key** — added to all three tier rows (basic=false, pro=true, ultra=true) in `capabilities.ts`. Composer reads the new key. Legacy `bridgevoice.enabled` retained for one release as an alias.
+- **`sigmavoice.enabled` capability key** — added to all three tier rows (basic=false, pro=true, ultra=true) in `capabilities.ts`. Composer reads the new key. Legacy `sigmavoice.enabled` retained for one release as an alias.
 
 ### Fixed
 
@@ -2085,7 +2085,7 @@ UX hotfix on top of v1.1.0-rc3. Four user-reported defects fixed in one pass: th
 
 ### Changed
 
-- **Bridge → Sigma rebrand** — 8 user-visible strings swapped (sidebar nav, right-rail tab, command-palette entry, BridgeRoom EmptyState + standalone header, OriginLink banner, Composer placeholder + aria-label, VoicePill label). Comments + `Voice input (W15)` button title also updated. Folder paths and IPC channel names (`assistant:*`, `voice:*`) unchanged — protocol-level, breaks the renderer to rename.
+- **Bridge → Sigma rebrand** — 8 user-visible strings swapped (sidebar nav, right-rail tab, command-palette entry, SigmaRoom EmptyState + standalone header, OriginLink banner, Composer placeholder + aria-label, VoicePill label). Comments + `Voice input (W15)` button title also updated. Folder paths and IPC channel names (`assistant:*`, `voice:*`) unchanged — protocol-level, breaks the renderer to rename.
 
 - **`vitest` added as a dev dependency** for the new unit-test files.
 
@@ -2140,9 +2140,9 @@ Phase 4 release candidate. Three feature tracks landed in one autonomous overnig
 
 * **Ruflo MCP embed** (Track C) — three new user-facing features powered by an Option B lazy-download supervisor. **Semantic Memory Search** in Memory room runs `ruflo.embeddings.search` in parallel with token search; "Semantic" chip on Ruflo-sourced rows. **Bridge Assistant pattern surfacing** debounces composer input 800 ms → `ruflo.patterns.search`; ribbon at ≥0.7 confidence with Apply / dismiss. **Autopilot Command Palette** prefetches `ruflo.autopilot.predict` on cmdk open with 30 s cache. New Settings → Ruflo tab with download button (350 MB) + health row + telemetry opt-in. 14/14 proxy unit tests pass.
 
-* **Provider launcher façade** — new `providers/launcher.ts` `resolveAndSpawn()` consolidates the three direct call sites; honors `comingSoon` + `fallbackProviderId` (BridgeCode → Claude with `provider_effective` populated), walks `[command, ...altCommands]` on ENOENT, appends `provider.autoApproveFlag` when `autoApprove=true`, re-checks `kv['providers.showLegacy']` main-side. 9/9 unit tests pass.
+* **Provider launcher façade** — new `providers/launcher.ts` `resolveAndSpawn()` consolidates the three direct call sites; honors `comingSoon` + `fallbackProviderId` (SigmaCode → Claude with `provider_effective` populated), walks `[command, ...altCommands]` on ENOENT, appends `provider.autoApproveFlag` when `autoApprove=true`, re-checks `kv['providers.showLegacy']` main-side. 9/9 unit tests pass.
 
-* **Migration 0010 — `agent_sessions.provider_effective`** column. Idempotent ALTER TABLE inside BEGIN/COMMIT/ROLLBACK. Populated by the launcher façade on every spawn so the renderer can render "BridgeCode (using claude)" chrome.
+* **Migration 0010 — `agent_sessions.provider_effective`** column. Idempotent ALTER TABLE inside BEGIN/COMMIT/ROLLBACK. Populated by the launcher façade on every spawn so the renderer can render "SigmaCode (using claude)" chrome.
 
 * **Group-recipient grammar** — `expandRecipient(swarmId, recipient)` resolves `*`/`@all`/`@coordinators`/`@builders`/`@scouts`/`@reviewers` end-to-end (mailbox row + JSONL mirror + PTY fan-out). Skill-toggle producer + SideChat sends to roles now actually reach all the role's PTYs.
 
@@ -2214,8 +2214,8 @@ Wave 11.5 — scope freeze:
 
 Wave 12 — V3 quick-wins + infrastructure (6 parallel agents):
 
-- Workspace launcher: 3-card picker (BridgeSpace / Swarm / Canvas-ALPHA, `⌘T`/`⌘S`/`⌘K`) + Start → Layout → Agents stepper + tile grid 1/2/4/6/8/10/12 + recents autocomplete + preset row + sidebar status dot + agent-count pill + breadcrumb `Workspace <N> / <user>`.
-- Provider matrix reset: BridgeCode stub (silent Claude fallback via `agent_sessions.providerEffective`); Kimi → OpenCode model option (`ModelOption` type, per-pane status strip `<model> <effort> <speed> · <cwd>`); Aider + Continue behind `kv['providers.showLegacy']`; wizard quick-fills (Enable all / One of each / Split evenly).
+- Workspace launcher: 3-card picker (SigmaSpace / Swarm / Canvas-ALPHA, `⌘T`/`⌘S`/`⌘K`) + Start → Layout → Agents stepper + tile grid 1/2/4/6/8/10/12 + recents autocomplete + preset row + sidebar status dot + agent-count pill + breadcrumb `Workspace <N> / <user>`.
+- Provider matrix reset: SigmaCode stub (silent Claude fallback via `agent_sessions.providerEffective`); Kimi → OpenCode model option (`ModelOption` type, per-pane status strip `<model> <effort> <speed> · <cwd>`); Aider + Continue behind `kv['providers.showLegacy']`; wizard quick-fills (Enable all / One of each / Split evenly).
 - Battalion 20 preset (3/11/3/3 [INFERRED]); cap 50→20; >20-agent swarms read-only with `legacy: true`.
 - Role colour CSS tokens (`--role-coordinator/-builder/-scout/-reviewer`) across all themes; `bg-role-<n>` utilities.
 - Swarm wizard 5-step shell (Roster → Mission → Directory → Context → Name); CLI-agent-for-all global provider strip; per-row Auto-approve + provider override + model + count -/+ + colour stripe.
@@ -2244,14 +2244,14 @@ Wave 14 — Bridge Canvas + Editor + auto-update (3 parallel agents):
 - Per-prompt provider chips (Claude / Codex / Gemini / OpenCode) Shift-add / Alt-remove; persists per-canvas in `canvases.lastProviders`.
 - Drag-and-drop asset staging into `<userData>/canvases/<canvasId>/staging/<ulid>.<ext>`.
 - Live-DOM HMR poke: `design:patch-applied` on agent file writes; `location.reload()` fallback or no-op WebSocket nudge.
-- BridgeCanvas card ALPHA chip until `kv['canvas.gaSign']='1'`.
+- SigmaCanvas card ALPHA chip until `kv['canvas.gaSign']='1'`.
 - Editor right-rail tab: Monaco lazy-loaded as 14.57 KB chunk (separate from 990 KB main); CodeMirror fallback; file tree + click-path focus + `fs.readDir`/`readFile`/`writeFile` RPC.
 - Auto-update via `electron-updater@6.8.3`; opt-in behind `kv['updates.optIn']='1'`; Settings → Updates tab with Check button + last-check timestamp.
 - Re-probe agents button (Settings → Providers); `NativeRebuildModal` on `better-sqlite3` ABI mismatch.
 
 Wave 15 — voice + CI matrix + plan capabilities (4 parallel agents):
 
-- BridgeVoice intake: title-bar pill + global `voice:state { active, source: 'mission'|'assistant'|'palette' }`. Web Speech API stub; native bindings deferred to v1.1.
+- SigmaVoice intake: title-bar pill + global `voice:state { active, source: 'mission'|'assistant'|'palette' }`. Web Speech API stub; native bindings deferred to v1.1.
 - Voice into swarm mission textarea, Bridge orb tap, Command Palette (`Cmd+Shift+K`).
 - `.github/workflows/e2e-matrix.yml` runs the smoke on `windows-latest` / `macos-14` / `ubuntu-latest` under Node 20; per-OS artefacts; required PR check.
 - Plan-gating matrix at `app/src/main/core/plan/capabilities.ts` + `canDo(cap)`; default tier `'ultra'` (free, local-only); QA override via `kv['plan.tier']`.
@@ -2260,7 +2260,7 @@ Wave 15 — voice + CI matrix + plan capabilities (4 parallel agents):
 ### Changed
 
 - Roster preset rename Legion → Battalion. Preset list = Squad 5 (1/2/1/1) · Team 10 (2/5/2/1) · Platoon 15 (2/7/3/3) · Battalion 20 (3/11/3/3 [INFERRED]) · Custom 1..20. `swarms.preset` CHECK constraint accepts `'battalion'`; existing `'legion'` rows survive but new swarms reject `legion`. Supersedes original PRODUCT_SPEC C-006.
-- Provider matrix 11 → 9 default. BridgeCode added; Kimi demoted to OpenCode model option; Aider + Continue hidden behind legacy toggle; Custom row renamed to "Custom Command". Supersedes original PRODUCT_SPEC C-004.
+- Provider matrix 11 → 9 default. SigmaCode added; Kimi demoted to OpenCode model option; Aider + Continue hidden behind legacy toggle; Custom row renamed to "Custom Command". Supersedes original PRODUCT_SPEC C-004.
 - `[Unreleased]` section reset to empty after this release cuts.
 - README status table flips Phase 9 to In progress (Waves 12–16) → Shipped pending W15 CI matrix completion.
 

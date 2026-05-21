@@ -1,5 +1,5 @@
 # Blog: Observability for Agentic Workflows
-URL: https://www.bridgemind.ai/blog/observability-ai-systems
+URL: https://www.sigmamind.ai/blog/observability-ai-systems
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
@@ -28,8 +28,8 @@ Fetched: 2026-05-09
 - Lint pass, type check (TS), test pass, security scan, build pass.
 
 ## Tooling
-- BridgeSpace — session history with auto metrics.
-- BridgeMCP — quality gates as project settings.
+- SigmaSpace — session history with auto metrics.
+- SigmaMCP — quality gates as project settings.
 
 ## Source quote (≤15 words, in quotes)
 "You Cannot Improve What You Cannot See"

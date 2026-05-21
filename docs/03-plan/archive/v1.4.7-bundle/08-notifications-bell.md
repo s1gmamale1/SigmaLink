@@ -5,7 +5,7 @@
 
 ## Problem
 
-The top-right Breadcrumb has a settings gear but no notification bell. The V3 BridgeMind mockup showed a bell next to the gear. SigmaLink doesn't have one because no notification source exists yet.
+The top-right Breadcrumb has a settings gear but no notification bell. The V3 SigmaMind mockup showed a bell next to the gear. SigmaLink doesn't have one because no notification source exists yet.
 
 This is a long-deferred wishlist item (originally from v1.1.4 deferred → v1.3 → v1.4+ → still open). Effort estimate: L (~3-4 days for source taxonomy + dropdown UI + persistence + GC).
 

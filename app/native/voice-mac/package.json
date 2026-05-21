@@ -2,7 +2,7 @@
   "name": "@sigmalink/voice-mac",
   "version": "0.1.0",
   "private": true,
-  "description": "Native macOS Speech.framework recognizer for SigmaLink (BridgeVoice). Falls back to a no-op stub on non-darwin platforms.",
+  "description": "Native macOS Speech.framework recognizer for SigmaLink (SigmaVoice). Falls back to a no-op stub on non-darwin platforms.",
   "main": "index.js",
   "types": "index.d.ts",
   "files": [

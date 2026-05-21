@@ -1,5 +1,5 @@
 # Open Source Page
-URL: https://www.bridgemind.ai/opensource
+URL: https://www.sigmamind.ai/opensource
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
@@ -10,7 +10,7 @@ Fetched: 2026-05-09
 - H2: Contribute
 
 ## Feature list (verbatim)
-- "Plugins, skills, and agents for the AI coding ecosystem — MIT licensed, compatible with 30+ tools, and maintained by the BridgeMind community."
+- "Plugins, skills, and agents for the AI coding ecosystem — MIT licensed, compatible with 30+ tools, and maintained by the SigmaMind community."
 
 ## Plugin Architecture (6 layers)
 1. MCP Servers (universal, 15+ agents)

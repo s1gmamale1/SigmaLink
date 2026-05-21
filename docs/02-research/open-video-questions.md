@@ -1,6 +1,6 @@
 # Open Video Questions
 
-Things mentioned, glimpsed, or implied in the BridgeMind video corpus that I could not nail down with confidence in this pass. Each entry: **what's unclear** → **why it matters** → **next step**.
+Things mentioned, glimpsed, or implied in the SigmaMind video corpus that I could not nail down with confidence in this pass. Each entry: **what's unclear** → **why it matters** → **next step**.
 
 Conventions: same source codes as glossary (**L** launch / **V3** / **G54** / **AT**).
 
@@ -43,7 +43,7 @@ Conventions: same source codes as glossary (**L** launch / **V3** / **G54** / **
 
 7. **`branch dev` indicator**
    - Every pane header in the launch thumbnail shows `ⵎ dev`. Is `dev` the literal git branch the pane's worktree is on, or a label of a worktree slot?
-   - Implication for clone work: confirms BridgeSpace uses git worktrees (consistent with the supporting Emdash research).
+   - Implication for clone work: confirms SigmaSpace uses git worktrees (consistent with the supporting Emdash research).
 
 8. **The `Agent X` label**
    - First pane is labelled `Agent X` (capital X), the rest are numbered `Agent 2`, `Agent 3`, etc. Is `X` literally the focused/active pane, or a placeholder rendered before naming?
@@ -125,12 +125,12 @@ Conventions: same source codes as glossary (**L** launch / **V3** / **G54** / **
 
 ---
 
-## I. Voice (BridgeVoice / BridgeJarvis)
+## I. Voice (SigmaVoice / SigmaJarvis)
 
 26. **Are they the same product or two layers?**
-    - **BridgeVoice** ships in Pro plan; described as "voice-to-text".
-    - **BridgeJarvis** ships in Basic plan; described as a "voice assistant that orchestrates all of those agents".
-    - **Hypothesis**: BridgeVoice = STT primitive; BridgeJarvis = command-grammar/agent layer that routes voice to Bridge / swarm. Need a UI screenshot of each.
+    - **SigmaVoice** ships in Pro plan; described as "voice-to-text".
+    - **SigmaJarvis** ships in Basic plan; described as a "voice assistant that orchestrates all of those agents".
+    - **Hypothesis**: SigmaVoice = STT primitive; SigmaJarvis = command-grammar/agent layer that routes voice to Bridge / swarm. Need a UI screenshot of each.
 
 27. **Hotkey to start a voice prompt**
     - Push-to-talk? Hot-word? Click-mic-icon? Not stated.
@@ -143,7 +143,7 @@ Conventions: same source codes as glossary (**L** launch / **V3** / **G54** / **
     - "I can open up as many browsers I want" — does each browser get its own sub-tab inside the side panel, or do they tile?
 
 29. **`@`-mention bindings**
-    - V3 06:48: `@BridgeSpace Tauri` in a swarm prompt. Is `@` a global symbol that resolves to known projects/files/agents? Autocomplete dropdown?
+    - V3 06:48: `@SigmaSpace Tauri` in a swarm prompt. Is `@` a global symbol that resolves to known projects/files/agents? Autocomplete dropdown?
 
 ---
 
@@ -157,34 +157,34 @@ Conventions: same source codes as glossary (**L** launch / **V3** / **G54** / **
 ## L. Pricing details
 
 31. **Pro plan price**
-    - V3 16:34 lists Pro plan features but the actual `$/mo` is not in the audio. Need to land on `bridgemind.ai/pricing` or grab the V3 frame at 16:35.
+    - V3 16:34 lists Pro plan features but the actual `$/mo` is not in the audio. Need to land on `sigmamind.ai/pricing` or grab the V3 frame at 16:35.
 
 32. **Credits — what counts as a credit**
     - 5,000 vs 12,500 credits — is it tokens? agent-minutes? swarm-launches?
 
 ---
 
-## M. Other channel videos that probably contain more BridgeSpace UI but were not pulled this pass
+## M. Other channel videos that probably contain more SigmaSpace UI but were not pulled this pass
 
-(Decision: prioritised V3, GPT5.4, AT because they were explicitly about BridgeSpace usage. The following are likely to add new frames if pulled. Spaced ≥ 5 s apart per yt-dlp loop to avoid 429.)
+(Decision: prioritised V3, GPT5.4, AT because they were explicitly about SigmaSpace usage. The following are likely to add new frames if pulled. Spaced ≥ 5 s apart per yt-dlp loop to avoid 429.)
 
 | Video ID | Title | Why useful |
 |---|---|---|
-| `dvRxOPXSeGQ` | 5 Things I've Learned After 154 Days Of Vibe Coding | Recap content typically reuses BridgeSpace screen-recordings of recent UI |
-| `LC2bbkf-uo0` | Vibe Coding With Claude Code Desktop App | Likely contrasts BridgeSpace with Anthropic's desktop app |
-| `ZwyGtjiHlp4` | Vibe Coding With Grok 4.3 in a Full Self Driving Tesla | Demonstrates BridgeSpace from a phone-tether scenario |
-| `gViyPI7n-xo` | How Claude Code Stopped A DDoS Attack | Probably uses BridgeSpace swarms for incident response |
-| `5GODcBhDX9U` | GPT 5.5 VS Claude Opus 4.7 | Side-by-side BridgeSpace panes |
+| `dvRxOPXSeGQ` | 5 Things I've Learned After 154 Days Of Vibe Coding | Recap content typically reuses SigmaSpace screen-recordings of recent UI |
+| `LC2bbkf-uo0` | Vibe Coding With Claude Code Desktop App | Likely contrasts SigmaSpace with Anthropic's desktop app |
+| `ZwyGtjiHlp4` | Vibe Coding With Grok 4.3 in a Full Self Driving Tesla | Demonstrates SigmaSpace from a phone-tether scenario |
+| `gViyPI7n-xo` | How Claude Code Stopped A DDoS Attack | Probably uses SigmaSpace swarms for incident response |
+| `5GODcBhDX9U` | GPT 5.5 VS Claude Opus 4.7 | Side-by-side SigmaSpace panes |
 | `jVFX-9kP6RQ` | Claude Opus 4.7 Is Complicated | Likely agent-team / Claude Code splash screens |
-| `H7an7yS6bWo` | Vibe Coding With Qwen 3.6 Plus Preview For Free | New provider in BridgeSpace? |
+| `H7an7yS6bWo` | Vibe Coding With Qwen 3.6 Plus Preview For Free | New provider in SigmaSpace? |
 | `ho3_WsLxmyA` | The Only GLM 5.1 Review You Need To Watch | Same |
 | `rwCjrcoif7U` | Vibe Coding With Composer 2 | Same |
 | `8X4G14JDwyM` | Vibe Coding With Claude Sonnet 4.6 | Same |
-| `Urw7C7d6E_8` | I Cloned Myself Into a Hermes Agent | "Hermes Agent" as a provider in BridgeSpace? |
-| `JKf-Zi5Y9Aw` | GPT 5.4 VS Opus 4.6 | Side-by-side BridgeSpace |
+| `Urw7C7d6E_8` | I Cloned Myself Into a Hermes Agent | "Hermes Agent" as a provider in SigmaSpace? |
+| `JKf-Zi5Y9Aw` | GPT 5.4 VS Opus 4.6 | Side-by-side SigmaSpace |
 | `0_ggmG6f-sE` | Vibe Coding With Kimi K2.6 | New provider |
-| `141n8k-5K14` | My OpenClaw Strategy Starts Today | Pulled — minimal BridgeSpace UI inside |
-| `VplNyFNo2oI` | Officially Launching BridgeVoice | Will explicitly demo the voice surface (BridgeVoice vs BridgeJarvis question) |
+| `141n8k-5K14` | My OpenClaw Strategy Starts Today | Pulled — minimal SigmaSpace UI inside |
+| `VplNyFNo2oI` | Officially Launching SigmaVoice | Will explicitly demo the voice surface (SigmaVoice vs SigmaJarvis question) |
 
 Pulling all of these would probably **fully** answer the open questions above. The launch and V3 videos already cover ~80% of what a clone needs visually.
 
@@ -194,7 +194,7 @@ Pulling all of these would probably **fully** answer the open questions above. T
 
 - **Exact pixel measurements** of margins, tab heights, etc. — only solvable by extracting individual frames at 1080p+ and pixel-picking. yt-dlp can pull the full mp4 if `ffmpeg` is installed (it is *not* in this environment, per the warnings); a single-frame extract via the storyboard mhtml is too low-res for pixel-level work. Recommend either:
   - install ffmpeg, redo `yt-dlp -f 18 …` and `ffmpeg -ss <t> -frames:v 1`, or
-  - request the user record a 1-minute screen capture of their own BridgeSpace install.
+  - request the user record a 1-minute screen capture of their own SigmaSpace install.
 
 - **Exact font** — confirming SF Mono vs JetBrains Mono vs Fira Code requires a screenshot of a glyph like `g` or `&` in the terminal. The 1080p crops are too small to disambiguate.
 

@@ -91,7 +91,7 @@ After this release, every source file in `app/src/` is under the
     rpc-router.ts            985 LOC  — wave-13 territory; out of v1.1.x scope
     router-shape.ts          770 LOC  — same
     sidebar.tsx              726 LOC  — feature-active; v1.2 candidate
-    BridgeRoom.tsx           721 LOC  — feature-active; v1.2 candidate
+    SigmaRoom.tsx           721 LOC  — feature-active; v1.2 candidate
 
 The 5 v1.1.x churn-files that did exceed are now closed:
 
@@ -144,7 +144,7 @@ Deferred to v1.1.10
 See `docs/08-bugs/BACKLOG.md` for the full ledger.
 
 * **Provider registry cleanup** (user-requested 2026-05-12) —
-  remove BridgeCode + Cursor Agent + Shell + Aider + Continue;
+  remove SigmaCode + Cursor Agent + Shell + Aider + Continue;
   keep Claude/Codex/Gemini/OpenCode; add Kimi Code CLI. 14
   concrete touch points enumerated.
 * **Playwright e2e refresh** — `tests/e2e/smoke.spec.ts` has

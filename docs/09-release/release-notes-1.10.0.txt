@@ -4,7 +4,7 @@ SigmaLink v1.10.0 — 2026-05-21
 v1.10.0 — W-4 shell-first pane architecture, Phase 1 of 7 (flagged,
 default-off). First increment of the multi-session pivot away from
 the brittle PTY-direct-CLI model toward a durable shell-first model
-(BridgeSpace-style). One Sonnet coder cluster (worktree-isolated),
+(SigmaSpace-style). One Sonnet coder cluster (worktree-isolated),
 lead-merged.
 
 

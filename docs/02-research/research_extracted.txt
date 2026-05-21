@@ -1,10 +1,10 @@
 [Normal] Multi-Agent AI
 [Normal] Orchestration Workspace
-[Normal] Research Report: Building a BridgeSpace-Style Unified Environment
+[Normal] Research Report: Building a SigmaSpace-Style Unified Environment
 [Normal] May 2026  |  Comprehensive Technical Analysis & Implementation Blueprint
 [Heading 1] Table of Contents
 [toc 1] Executive Summary	3
-[toc 1] BridgeSpace Feature Analysis	4
+[toc 1] SigmaSpace Feature Analysis	4
 [toc 2] Core Architecture Overview	4
 [toc 2] Key Differentiators	5
 [toc 1] Open Source Foundation Candidates	6
@@ -29,30 +29,30 @@
 [toc 2] MCP Protocol Integration	18
 [toc 1] Conclusions & Recommendations	19
 [Heading 1] Executive Summary
-[Normal] This research report provides a comprehensive analysis of how to build a unified workspace environment for orchestrating multiple AI coding agents — similar to BridgeMind's BridgeSpace product. The core innovation requested is a dynamic multi-provider system where any CLI agent (Claude Code, Codex, Gemini CLI, OpenCode, Aider, etc.) can be launched in parallel terminals, connected to each other, and delegated tasks by a central orchestrator AI.
+[Normal] This research report provides a comprehensive analysis of how to build a unified workspace environment for orchestrating multiple AI coding agents — similar to SigmaMind's SigmaSpace product. The core innovation requested is a dynamic multi-provider system where any CLI agent (Claude Code, Codex, Gemini CLI, OpenCode, Aider, etc.) can be launched in parallel terminals, connected to each other, and delegated tasks by a central orchestrator AI.
 [Normal] After evaluating 15+ open-source tools and frameworks across the rapidly evolving agent orchestration landscape, this report identifies Emdash as the strongest foundation for transformation, with dux and Claude Squad as viable alternatives for terminal-first workflows. The report provides a complete architecture blueprint, comparative analysis matrix, and a 16-week implementation roadmap.
-[Normal] Key Findings: Emdash (Apache-2.0, Electron) is the strongest foundation for a BridgeSpace alternative. Dux (Go TUI) offers the best terminal-first experience. Bernstein provides the most sophisticated orchestrator architecture. The combination of Emdash + a custom orchestrator layer inspired by Bernstein patterns represents the optimal path to a production-quality multi-agent workspace with dynamic provider support.
-[Heading 1] BridgeSpace Feature Analysis
-[Normal] BridgeSpace by BridgeMind is a commercial Agentic Development Environment (ADE) that provides a desktop workspace for orchestrating up to 16 AI coding agents in parallel. It represents the current state-of-the-art in multi-agent workspace design and serves as the primary reference for the desired system.
+[Normal] Key Findings: Emdash (Apache-2.0, Electron) is the strongest foundation for a SigmaSpace alternative. Dux (Go TUI) offers the best terminal-first experience. Bernstein provides the most sophisticated orchestrator architecture. The combination of Emdash + a custom orchestrator layer inspired by Bernstein patterns represents the optimal path to a production-quality multi-agent workspace with dynamic provider support.
+[Heading 1] SigmaSpace Feature Analysis
+[Normal] SigmaSpace by SigmaMind is a commercial Agentic Development Environment (ADE) that provides a desktop workspace for orchestrating up to 16 AI coding agents in parallel. It represents the current state-of-the-art in multi-agent workspace design and serves as the primary reference for the desired system.
 [Heading 2] Core Architecture Overview
 [Normal] •  Desktop Application: Cross-platform Electron-based app (macOS, Windows, Linux)
 [Normal] •  Terminal-First Design: Multiple terminal panes running real CLI agents via PTY
 [Normal] •  Git Worktree Isolation: Each agent gets its own isolated working directory
 [Normal] •  Multi-Room Workspace: Command Room (terminals), Swarm Room (parallel agents), Review Room (human oversight)
-[Normal] •  BridgeMemory: Local-first knowledge graph with 12 MCP tools for shared agent memory
+[Normal] •  SigmaMemory: Local-first knowledge graph with 12 MCP tools for shared agent memory
 [Normal] •  Kanban Task Board: Integrated project management with task-to-agent assignment
 [Heading 2] Key Differentiators
-[Normal] What separates BridgeSpace from simpler multi-terminal managers is its orchestration intelligence. The system includes an orchestrator CLI AI that can:
+[Normal] What separates SigmaSpace from simpler multi-terminal managers is its orchestration intelligence. The system includes an orchestrator CLI AI that can:
 [Normal] •  Decompose high-level tasks into sub-tasks suitable for parallel execution
 [Normal] •  Delegate sub-tasks to specialized agent instances with appropriate context
 [Normal] •  Monitor agent progress and verify outputs before merging
-[Normal] •  Maintain shared context through BridgeMemory (wikilink-based knowledge graph)
+[Normal] •  Maintain shared context through SigmaMemory (wikilink-based knowledge graph)
 [Normal] •  Support agent-to-agent communication for collaborative problem-solving
 [Heading 1] Open Source Foundation Candidates
-[Normal] The open-source ecosystem for multi-agent orchestration has matured rapidly in 2025-2026. The following tools were evaluated as potential foundations, ranked by their suitability for building a BridgeSpace-style unified workspace with dynamic multi-provider support.
+[Normal] The open-source ecosystem for multi-agent orchestration has matured rapidly in 2025-2026. The following tools were evaluated as potential foundations, ranked by their suitability for building a SigmaSpace-style unified workspace with dynamic multi-provider support.
 [Heading 2] Tier 1: Emdash (Primary Recommendation)
-[Normal] Emdash is the strongest open-source foundation for building a BridgeSpace alternative. It is an Electron desktop app (TypeScript/React) with native multi-provider support, SSH remoting, ticket integration, and active YC-backed development.
-[Normal] Emdash (generalaction/emdash on GitHub, 4,300+ stars, Apache-2.0) is an open-source Agentic Development Environment from Y Combinator W26 graduates. It directly competes with BridgeSpace and shares the same fundamental architecture.
+[Normal] Emdash is the strongest open-source foundation for building a SigmaSpace alternative. It is an Electron desktop app (TypeScript/React) with native multi-provider support, SSH remoting, ticket integration, and active YC-backed development.
+[Normal] Emdash (generalaction/emdash on GitHub, 4,300+ stars, Apache-2.0) is an open-source Agentic Development Environment from Y Combinator W26 graduates. It directly competes with SigmaSpace and shares the same fundamental architecture.
 [Heading 3] Key Specifications
 [Heading 3] Supported Agents (Auto-Detected)
 [Normal] Claude Code, OpenAI Codex, Gemini CLI, OpenCode, Amp, Droid (Factory CLI), Hermes Agent, Qwen Code, Cursor CLI, GitHub Copilot CLI, Aider, and others. Adding a new provider requires only a configuration entry — no code changes.
@@ -93,7 +93,7 @@
 [Normal] •  Nimbalyst (Crystal successor): Desktop app with visual editing, successor to the deprecated Crystal project
 [Normal] •  Microsoft Conductor: YAML-defined multi-agent workflows with GitHub Copilot SDK
 [Heading 1] Comparative Analysis Matrix
-[Normal] The following matrix compares all evaluated tools across the dimensions that matter most for building a BridgeSpace-style unified workspace.
+[Normal] The following matrix compares all evaluated tools across the dimensions that matter most for building a SigmaSpace-style unified workspace.
 [Heading 1] Architecture Blueprint
 [Normal] Based on the research, the recommended architecture combines Emdash as the Electron desktop foundation with a custom orchestrator layer built on proven patterns from Bernstein, dux, and Microsoft Agent Framework.
 [Heading 2] System Architecture
@@ -174,7 +174,7 @@ install_hint = "npm install -g @google/gemini-cli"
 [Normal] •  Build verification agent pattern (execute -> verify -> retry)
 [Normal] Deliverable: Working multi-agent workspace with orchestrator delegating to 3+ parallel agents.
 [Heading 2] Phase 3: Orchestrator Intelligence (Weeks 9-12)
-[Normal] •  Implement MCP server for shared memory (BridgeMemory equivalent)
+[Normal] •  Implement MCP server for shared memory (SigmaMemory equivalent)
 [Normal] •  Add wikilink-style knowledge graph with bidirectional connections
 [Normal] •  Build Review Room with human-in-the-loop approval gates
 [Normal] •  Add auto-merge with Janitor verification (Bernstein pattern)
@@ -213,7 +213,7 @@ git branch -D agent/task-001
 [Normal] •  Shared memory tools: create_memory, search_memories, find_backlinks
 [Normal] •  Enables any MCP-compatible agent to participate in the workspace
 [Heading 1] Conclusions & Recommendations
-[Normal] Building a BridgeSpace-style unified workspace with dynamic multi-provider orchestration is achievable today using existing open-source foundations. The ecosystem has matured significantly, with multiple viable starting points.
+[Normal] Building a SigmaSpace-style unified workspace with dynamic multi-provider orchestration is achievable today using existing open-source foundations. The ecosystem has matured significantly, with multiple viable starting points.
 [Heading 3] Primary Recommendation
 [Normal] Fork Emdash and build the orchestrator layer on top. Emdash provides the Electron desktop shell, multi-provider agent abstraction, worktree management, and SSH support — all under Apache-2.0. The missing orchestrator intelligence can be added incrementally without rewriting the foundation.
 [Heading 3] Alternative: Greenfield Build

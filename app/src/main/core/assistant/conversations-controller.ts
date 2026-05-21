@@ -15,7 +15,7 @@ import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { workspaces as workspacesTable } from '../db/schema';
-import { claudeSlugForCwd, isClaudeSessionId } from '../pty/claude-resume-bridge';
+import { claudeSlugForCwd, isClaudeSessionId } from '../pty/claude-resume-sigma';
 import {
   deleteConversation,
   getConversation,

@@ -82,16 +82,16 @@ Microsoft's Playwright MCP server. Bundled as a devDependency from Wave 12 onwar
 
 ## V3 UX divergence
 
-Per UX critique U17, SigmaLink intentionally diverges from BridgeMind's BridgeSpace V3 on visual and information-architecture details for IP safety, even when the underlying interaction model is similar. We document the inspirations here so readers can see what is parallel-evolution and what is a deliberate departure.
+Per UX critique U17, SigmaLink intentionally diverges from SigmaMind's SigmaSpace V3 on visual and information-architecture details for IP safety, even when the underlying interaction model is similar. We document the inspirations here so readers can see what is parallel-evolution and what is a deliberate departure.
 
 ### Right-rail dock layout
 
-BridgeSpace V3 uses a fixed right-rail dock with stacked toolbar tiles for room switching. SigmaLink V3 also uses a right-rail dock for the secondary action stack, but renders the tiles with a different visual language (rounded-square icons with a Tailwind-driven theme palette per the four-theme catalog) and does not mirror BridgeMind's exact iconography or chrome. The interaction pattern (click-to-pin, drag-to-reorder) is functional and idiomatic to the dock affordance, not copied.
+SigmaSpace V3 uses a fixed right-rail dock with stacked toolbar tiles for room switching. SigmaLink V3 also uses a right-rail dock for the secondary action stack, but renders the tiles with a different visual language (rounded-square icons with a Tailwind-driven theme palette per the four-theme catalog) and does not mirror SigmaMind's exact iconography or chrome. The interaction pattern (click-to-pin, drag-to-reorder) is functional and idiomatic to the dock affordance, not copied.
 
 ### Bridge Assistant and Bridge Canvas
 
-The product names "Bridge Assistant" (W13) and "Bridge Canvas" (W14) are inherited from the BridgeMind product family because they describe what the rooms do (a chat-style assistant pane and a visual design surface). The implementations are independently authored against `docs/03-plan/PRODUCT_SPEC.md`, not derived from any leaked or reverse-engineered BridgeSpace internals.
+The product names "Bridge Assistant" (W13) and "Bridge Canvas" (W14) are inherited from the SigmaMind product family because they describe what the rooms do (a chat-style assistant pane and a visual design surface). The implementations are independently authored against `docs/03-plan/PRODUCT_SPEC.md`, not derived from any leaked or reverse-engineered SigmaSpace internals.
 
 ## Affiliation disclaimer
 
-SigmaLink is not affiliated with, endorsed by, or sponsored by BridgeMind, BridgeSpace, or BridgeSwarm. The product was inspired by public documentation, marketing material, and the launch video for those products, but every line of SigmaLink's code is independently authored. Any superficial similarity in terminology (Coordinator, Builder, Scout, Reviewer roles; Command Room, Swarm Room, Review Room) is functional and idiomatic, not copied.
+SigmaLink is not affiliated with, endorsed by, or sponsored by SigmaMind, SigmaSpace, or SigmaSwarm. The product was inspired by public documentation, marketing material, and the launch video for those products, but every line of SigmaLink's code is independently authored. Any superficial similarity in terminology (Coordinator, Builder, Scout, Reviewer roles; Command Room, Swarm Room, Review Room) is functional and idiomatic, not copied.

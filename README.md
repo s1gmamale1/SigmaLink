@@ -65,7 +65,7 @@ The project is in active rebuild. Phases 1–8 (foundation, swarms, in-app brows
 - Role-bearing swarms (Coordinator, Builder, Scout, Reviewer) coordinated through a deterministic JSONL file-mailbox bus and persisted in SQLite, with broadcast and roll-call patterns built in.
 - An in-app Chromium pane (planned, Phase 3) that any agent can drive through Playwright MCP over CDP, so agents can navigate, take screenshots, and click without a separate browser context.
 - Drag-and-drop Anthropic-format Skills (planned, Phase 4) that fan out to each provider's native skills/extensions location after Zod validation.
-- Local SigmaMemory (planned, Phase 5): a wikilink-driven notes system backed by an in-process MCP server with twelve tools and a force-directed graph view, modelled on the BridgeMemory pattern.
+- Local SigmaMemory (planned, Phase 5): a wikilink-driven notes system backed by an in-process MCP server with twelve tools and a force-directed graph view, modelled on the SigmaMemory pattern.
 
 ## Workspace types
 
@@ -89,7 +89,7 @@ Five providers ship in the v1.2.4 default registry: Claude Code, Codex CLI, Gemi
 | Kimi Code CLI | `kimi` | `pip install kimi-cli` (or `uvx kimi`) — PyPI, not npm. Upstream: [MoonshotAI/kimi-cli](https://github.com/MoonshotAI/kimi-cli) |
 | OpenCode CLI | `opencode` | `npm i -g opencode` |
 
-> Earlier registries shipped BridgeCode, Cursor Agent, Aider, Continue, and a "Shell" provider row. v1.2.4 trimmed them: BridgeCode never materialised, Cursor's CLI fell out of scope, Aider/Continue moved off SigmaLink's support matrix, and "Shell" is now an internal-only sentinel that powers the launcher's "Skip — no agents" path without surfacing as a user-facing button.
+> Earlier registries shipped SigmaCode, Cursor Agent, Aider, Continue, and a "Shell" provider row. v1.2.4 trimmed them: SigmaCode never materialised, Cursor's CLI fell out of scope, Aider/Continue moved off SigmaLink's support matrix, and "Shell" is now an internal-only sentinel that powers the launcher's "Skip — no agents" path without surfacing as a user-facing button.
 
 ## Install options
 
@@ -298,7 +298,7 @@ Start at [`docs/README.md`](docs/README.md) for the full directory map. The inte
 Full Keep-a-Changelog ledger lives in [`CHANGELOG.md`](CHANGELOG.md). Highlights:
 
 - **v1.4.7** (current) — Lockfile race fix + SessionStep full flake closure. See full CHANGELOG for details.
-- **v1.4.1** — Bridge → Sigma branding sweep across renderer UI strings, component names (`BridgeRoom` → `SigmaRoom`, `bridge-agent/` → `sigma-assistant/`), and RoomId union; transparent `bridge.*` → `sigma.*` kv migration on first boot. Pane → Sigma mailbox back-channel completes the W-2 vision: new `sigma_pane_events` table, `monitor_pane` tool, and `assistant:pane-event` IPC let Sigma Assistant observe pane lifecycle events without polling. `SigmaRoom.tsx` refactored from 922 → 283 LOC via 9 custom hooks + 5 sub-components. Generic "bridge" terminology preserved in `claude-resume-bridge.ts` (symlink helper) and `mcp-host-bridge.ts` (IPC bridge).
+- **v1.4.1** — Bridge → Sigma branding sweep across renderer UI strings, component names (`SigmaRoom` → `SigmaRoom`, `bridge-agent/` → `sigma-assistant/`), and RoomId union; transparent `bridge.*` → `sigma.*` kv migration on first boot. Pane → Sigma mailbox back-channel completes the W-2 vision: new `sigma_pane_events` table, `monitor_pane` tool, and `assistant:pane-event` IPC let Sigma Assistant observe pane lifecycle events without polling. `SigmaRoom.tsx` refactored from 922 → 283 LOC via 9 custom hooks + 5 sub-components. Generic "bridge" terminology preserved in `claude-resume-bridge.ts` (symlink helper) and `mcp-host-bridge.ts` (IPC bridge).
 - **v1.4.0** — Sigma Assistant orchestrator resume. Captures Claude `system.init` session ids per conversation (migration 0013), prepends `--resume <id>` on future turns, retry-once fallback when a session goes stale. Right-rail conversation dropdown, resumable pill, resume banner, interrupted-turn banner with retry/dismiss.
 - **v1.3.5** — W-3: Ruflo MCP auto-bind for all 5 CLIs (Claude / Codex / Gemini / Kimi / OpenCode). Canonical args fix (`-y @claude-flow/cli@latest mcp start`); pre-existing user configs self-heal on next workspace open. 5-CLI readiness pill with vacuous-pass for undetected binaries.
 - **v1.3.4** — Claude resume spawn fix. Panes launch from workspace subdir inside worktrees; ignored `CLAUDE.md`/`.claude/` context bridged via symlinks; boot restore uses the Claude bridge; resume args no longer collide with fresh `--session-id`.
@@ -307,7 +307,7 @@ Full Keep-a-Changelog ledger lives in [`CHANGELOG.md`](CHANGELOG.md). Highlights
 - **v1.2.x** — Windows platform port (NSIS + node-pty), auto-update without code-signing certs, stdio MCP switch (~400 LOC deleted), multi-workspace state preservation (ring-buffer replay), session capture rewrite (pre-assigned UUIDs + disk-scan + `--continue` fallback).
 - **v1.1.1** — UX hotfix on top of v1.1.0-rc3. Window finally draggable on macOS (chrome regions wired with `WebkitAppRegion`). "Bridge Assistant" rebranded to **Sigma Assistant** across every user-visible string. **Sigma Assistant now streams real Claude Code CLI responses** (Opus 4.7 under the hood, no raw API calls) — the long-standing W13 stub is replaced with a `child_process` driver that pipes `claude -p ... --output-format stream-json --verbose` JSONL into the existing `assistant:state` channel. **SigmaVoice diagnostics surface** added to Settings (mode radio, permission status with re-prompt, Run Diagnostics button with 4-stage probe dots). First-launch auto-enable on macOS. 8 + 7 new unit tests.
 - **v1.1.0-rc3** — Hotfix on rc2: inlined `lazy-val` in the esbuild bundle to dodge the pnpm content-store hoist that crashed the rc2 DMG with `Cannot find module 'lazy-val'`.
-- **v1.1.0-rc2** — Bundles Phase 4 Tracks A+B+C plus the Skills marketplace live install. Native macOS speech recognition, Ruflo MCP semantic memory + pattern surfacing + autopilot palette suggestion, IPC reliability hardening, provider launcher façade with BridgeCode silent fallback, macOS DMG PATH bootstrap. ⚠ Known DMG runtime defect (`Cannot find module 'lazy-val'`) — superseded by rc3.
+- **v1.1.0-rc2** — Bundles Phase 4 Tracks A+B+C plus the Skills marketplace live install. Native macOS speech recognition, Ruflo MCP semantic memory + pattern surfacing + autopilot palette suggestion, IPC reliability hardening, provider launcher façade with SigmaCode silent fallback, macOS DMG PATH bootstrap. ⚠ Known DMG runtime defect (`Cannot find module 'lazy-val'`) — superseded by rc3.
 - **v1.0.1** — DMG bindings hotfix + UI bug fixes (sidebar traffic-light overlap, CLI pane text alignment, Browser data-room flicker, missing zod schemas).
 - **v1.0.0** — V3 parity release with Persistent Swarm Replay + Sigma Assistant cross-session memory differentiators. ⚠ Known DMG runtime defect (`Cannot find module 'bindings'`) — superseded by v1.0.1.
 
@@ -340,7 +340,7 @@ SigmaLink runs untrusted CLI agents inside PTYs against your local repositories.
 
 ## Acknowledgements
 
-- Inspired by BridgeMind's BridgeSpace and BridgeSwarm products. SigmaLink is an independent project; we are not affiliated with, endorsed by, or sponsored by BridgeMind.
+- Inspired by SigmaMind's SigmaSpace and SigmaSwarm products. SigmaLink is an independent project; we are not affiliated with, endorsed by, or sponsored by SigmaMind.
 - PTY ring-buffer plumbing, generic RPC bridge, and several Git-orchestration patterns are drawn from [Emdash](https://github.com/generalaction/emdash) (Apache-2.0). See [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md).
 - Skill format follows the public Anthropic Skills layout (SKILL.md frontmatter + body).
 - UI components use [shadcn UI](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), [lucide-react](https://lucide.dev/), and [xterm.js](https://xtermjs.org/). Database access uses [Drizzle ORM](https://orm.drizzle.team/) on top of [better-sqlite3](https://github.com/WiseLibs/better-sqlite3). PTY support comes from [node-pty](https://github.com/microsoft/node-pty). The in-app browser is driven by [@playwright/mcp](https://github.com/microsoft/playwright-mcp) via stdio (each agent pane spawns its own instance on demand; ~10 s npx download + ~30 s Chromium download on first use).

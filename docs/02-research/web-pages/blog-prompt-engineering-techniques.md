@@ -1,5 +1,5 @@
 # Blog: Prompt Engineering for Vibe Coding — Techniques That Ship
-URL: https://www.bridgemind.ai/blog/prompt-engineering-techniques
+URL: https://www.sigmamind.ai/blog/prompt-engineering-techniques
 Fetched: 2026-05-09
 
 ## Headings (verbatim)

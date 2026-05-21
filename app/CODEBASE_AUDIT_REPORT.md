@@ -89,7 +89,7 @@
 - **Line ~116** — `useCanDo('swarm.maxSize')` may return `undefined`; `Math.min(CUSTOM_ROSTER_CAP, undefined)` → `NaN`, disabling the roster cap entirely. *(Warning)*
 
 ### `src/renderer/features/bridge-agent/Composer.tsx`
-- **Line ~40** — Comment says gate key is `bridgevoice.enabled` but code uses `'sigmavoice.enabled'`. Mismatch between documentation and implementation. *(Warning)*
+- **Line ~40** — Comment says gate key is `sigmavoice.enabled` but code uses `'sigmavoice.enabled'`. Mismatch between documentation and implementation. *(Warning)*
 
 ### `src/renderer/features/settings/VoiceTab.tsx`
 - **Line ~77** — `wireModeToUi` maps wire value `'web-speech'` to UI mode `'on'`, contradicting the "Auto (recommended)" option. Radio button may jump to "On" unexpectedly. *(Warning)*
@@ -100,7 +100,7 @@
 ### `src/renderer/features/swarm-room/SwarmRoom.tsx`
 - **Line ~45** — Tail `useEffect` depends on entire `swarmMessages` object. Any message in any swarm re-runs the effect. *(Warning)*
 
-### `src/renderer/features/bridge-agent/BridgeRoom.tsx`
+### `src/renderer/features/bridge-agent/SigmaRoom.tsx`
 - **Line ~365** — `assistant:dispatch-echo` listener effect depends on `state.workspaces` array reference. Any workspace mutation tears down and recreates the listener, risking missed events during the gap. *(Warning)*
 
 ### `src/renderer/features/tasks/TaskDetailDrawer.tsx`
@@ -470,7 +470,7 @@
 | `src/renderer/features/swarm-room/SwarmRoom.tsx` | 2 | bug, optimization |
 | `src/renderer/features/swarm-room/MissionStep.tsx` | 1 | bug (critical) |
 | `src/renderer/features/bridge-agent/Composer.tsx` | 1 | bug |
-| `src/renderer/features/bridge-agent/BridgeRoom.tsx` | 1 | bug |
+| `src/renderer/features/bridge-agent/SigmaRoom.tsx` | 1 | bug |
 | `src/renderer/features/bridge-agent/ChatTranscript.tsx` | 1 | optimization |
 | `src/renderer/features/settings/VoiceTab.tsx` | 1 | bug |
 | `src/renderer/features/memory/MemoryRoom.tsx` | 1 | bug |

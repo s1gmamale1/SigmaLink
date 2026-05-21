@@ -1,9 +1,9 @@
-# BridgeMCP Documentation
-URL: https://docs.bridgemind.ai/docs/mcp
+# SigmaMCP Documentation
+URL: https://docs.sigmamind.ai/docs/mcp
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
-- BridgeMCP / MCP server reference
+- SigmaMCP / MCP server reference
 - Project Tools, Task Tools, Agent Tools
 - Setup: Cursor, Claude Code, Claude Desktop, Windsurf, Codex CLI
 - Core Concepts (Task Lifecycle, Knowledge Field)
@@ -32,12 +32,12 @@ Fetched: 2026-05-09
 ## Setup snippets
 
 ### Cursor
-- One-click button OR Settings → Tools & MCP → Add new MCP server (name=bridgemind, type=streamableHttp, url=https://mcp.bridgemind.ai/mcp, header Authorization: Bearer ...).
+- One-click button OR Settings → Tools & MCP → Add new MCP server (name=sigmamind, type=streamableHttp, url=https://mcp.sigmamind.ai/mcp, header Authorization: Bearer ...).
 - `.cursor/mcp.json` config file.
 
 ### Claude Code (CLI)
 ```
-claude mcp add --transport http --header "Authorization: Bearer KEY" bridgemind https://mcp.bridgemind.ai/mcp
+claude mcp add --transport http --header "Authorization: Bearer KEY" sigmamind https://mcp.sigmamind.ai/mcp
 ```
 Scopes: local (default), project, user.
 
@@ -53,9 +53,9 @@ Scopes: local (default), project, user.
 
 ### Codex CLI
 ```
-codex mcp add --transport http --header "Authorization: Bearer KEY" bridgemind https://mcp.bridgemind.ai/mcp
+codex mcp add --transport http --header "Authorization: Bearer KEY" sigmamind https://mcp.sigmamind.ai/mcp
 ```
-Or `~/.codex/config.toml` `[mcp_servers.bridgemind]`.
+Or `~/.codex/config.toml` `[mcp_servers.sigmamind]`.
 
 ## Core concepts
 - Task lifecycle states: todo, in-progress, in-review, complete, cancelled.
@@ -64,14 +64,14 @@ Or `~/.codex/config.toml` `[mcp_servers.bridgemind]`.
 ## Authentication
 - Header: `Authorization: Bearer your_api_key_here`.
 - Fallback query: `?apiKey=your_api_key_here`.
-- Keys generated at bridgemind.ai dashboard; scoped per account.
+- Keys generated at sigmamind.ai dashboard; scoped per account.
 
 ## Transport protocols
 - Streamable HTTP (recommended): POST /mcp; stateless.
 - SSE (legacy): GET /sse; POST /messages; 30-min session timeout.
 
 ## Built-in prompt
-- `bridgemind_developer_guide` — comprehensive prompt teaching agents tool usage and brand voice.
+- `sigmamind_developer_guide` — comprehensive prompt teaching agents tool usage and brand voice.
 
 ## Source quote (≤15 words, in quotes)
-"Give your AI coding agent access to BridgeMind projects and tasks."
+"Give your AI coding agent access to SigmaMind projects and tasks."

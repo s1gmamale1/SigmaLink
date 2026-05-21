@@ -72,11 +72,11 @@ revenue's at 40k. It knows that the
 MRR's at 2,000 plus. So, there's all
 these different elements that it knows
 about me, different products,
-viewcreator.ai, bridgespace,
-bridgevoice, bridgecode, bridgemcp,
-bridgebench, bridgemindpro, all of the
+viewcreator.ai, sigmaspace,
+sigmavoice, sigmacode, sigmamcp,
+bridgebench, sigmamindpro, all of the
 the website, the information about
-bridgemind, the information about me.
+sigmamind, the information about me.
 So, this is what I'm going to be sharing
 with it, and it says teaches by doing,
 not lecturing. You know, all this stuff
@@ -106,7 +106,7 @@ engineering specialist. So, all I have
 to do is copy I had Claude come up with
 a soul, and every all the information,
 so it's has my information from
-bridgemind, it has everything that needs
+sigmamind, it has everything that needs
 to do, and I'm now going to copy and
 paste that into Sam. So, I'm going to
 drop in the soul and I'm now going to
@@ -141,7 +141,7 @@ paste in this. And this is going to be a
 learning process for sure, but what I
 want to do is for each agent, they are
 going to be specialized for a particular
-part of the BridgeMind organization as a
+part of the SigmaMind organization as a
 whole. A general purpose assistant, a
 marketing specialist, and an engineering
 specialist. I want to give Dario a quick
@@ -149,7 +149,7 @@ test so that we can test the
 capabilities. So, I just passed in a
 prompt. You can see it here. The first
 thing I want you to do is go to the
-BridgeMind YouTube and review how things
+SigmaMind YouTube and review how things
 are currently performing. So, this is
 going to give Dario the task of going to
 my YouTube channel because he's the
@@ -165,7 +165,7 @@ and I have all everything I need, Claude
 code, everything I need installed uh, on
 all of these open Claude bots. So, I'm
 going to use Sam real quick. I want you
-to now revisit the bridgemind.ai
+to now revisit the sigmamind.ai
 website.
 Um, and
 I want you to create an updated

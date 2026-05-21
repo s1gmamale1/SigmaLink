@@ -1,5 +1,5 @@
 # Blog: Scaling Vibe Coding — From Solo Builder to Agentic Team
-URL: https://www.bridgemind.ai/blog/scaling-ai-systems
+URL: https://www.sigmamind.ai/blog/scaling-ai-systems
 Fetched: 2026-05-09
 
 ## Headings (verbatim)

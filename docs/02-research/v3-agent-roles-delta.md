@@ -45,7 +45,7 @@ at top). Each role row in `RoleRoster.tsx` exposes: 8-provider chip strip, model
 ## 5. Provider-default mapping (carried forward)
 
 V3 doesn't contradict the launch video's role-defaults (Video 1, ch. 03:03-03:52, L99-104):
-Coordinator → Codex, Builder → Claude *or* BridgeCode when available, Scout → Gemini,
+Coordinator → Codex, Builder → Claude *or* SigmaCode when available, Scout → Gemini,
 Reviewer → Codex. Update `recommendedRoles`. Per-row override (§4) supersedes.
 
 ## 6. Constellation graph topology

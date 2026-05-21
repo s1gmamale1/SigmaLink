@@ -1,5 +1,5 @@
-# About BridgeMind
-URL: https://www.bridgemind.ai/about
+# About SigmaMind
+URL: https://www.sigmamind.ai/about
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
@@ -30,7 +30,7 @@ Fetched: 2026-05-09
 - 2025.
 
 ## Products mentioned
-- BridgeMCP, BridgeCode, BridgeSpace, BridgeVoice.
+- SigmaMCP, SigmaCode, SigmaSpace, SigmaVoice.
 
 ## Anything else of note
 - "AI agents are autonomous teammates here—not tools."

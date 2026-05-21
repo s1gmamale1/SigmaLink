@@ -4,20 +4,20 @@ Predecessor: v0.1.0-alpha (2026-05-09)
 
 SigmaLink is a local-first Electron desktop workspace for orchestrating
 grids of CLI coding agents in real PTYs, isolated by Git worktrees.
-v1.0.0 is the V3-parity build: every BridgeSpace V3 surface that the
+v1.0.0 is the V3-parity build: every SigmaSpace V3 surface that the
 Wave 11 multimodal study (553 frames, 4 transcripts, synthesizer
 verdict) marked canonical now ships.
 
 The v0.1.0-alpha tag captured Phase 1 through Wave 9. v1.0.0 adds the
 V3 parity surfaces, a first-class Bridge Assistant, the Bridge Canvas
-visual-design pipeline, the BridgeVoice intake stub, the Editor right-
+visual-design pipeline, the SigmaVoice intake stub, the Editor right-
 rail tab, an opt-in auto-update channel, a cross-platform CI matrix,
 and a plan-capability matrix (default Ultra; SigmaLink ships free).
 
 WHAT'S NEW IN V3
 
   Workspace launcher (Wave 12)
-  - 3-card picker: BridgeSpace, BridgeSwarm, BridgeCanvas (ALPHA chip).
+  - 3-card picker: SigmaSpace, SigmaSwarm, SigmaCanvas (ALPHA chip).
   - Start -> Layout -> Agents stepper.
   - Layout step tile grid 1/2/4/6/8/10/12 with hover tooltips; recents
     autocomplete; preset row.
@@ -25,7 +25,7 @@ WHAT'S NEW IN V3
     "Workspace <N> / <user>".
 
   Provider matrix reset (Wave 12)
-  - 11 providers -> 9 default. BridgeCode added (coming-soon, silent
+  - 11 providers -> 9 default. SigmaCode added (coming-soon, silent
     fallback to Claude when binary missing). Kimi demoted to a model
     option under OpenCode. Aider and Continue hidden behind
     kv['providers.showLegacy'].
@@ -90,12 +90,12 @@ BRIDGE CANVAS (Wave 14)
   - Live-DOM HMR poke: when an agent writes a file under the active
     dev-server source root, design:patch-applied fires; Browser tab
     posts location.reload() (or a no-op WebSocket frame) to nudge HMR.
-  - BridgeCanvas card retains the ALPHA chip until kv['canvas.gaSign']
+  - SigmaCanvas card retains the ALPHA chip until kv['canvas.gaSign']
     flips to '1'.
 
-BRIDGEVOICE (Wave 15)
+SIGMAVOICE (Wave 15)
 
-  BridgeVoice intake is wired through three capture sources.
+  SigmaVoice intake is wired through three capture sources.
 
   - Centred title-bar pill appears whenever any capture is active.
   - Global voice:state event { active, source: 'mission'|'assistant'|
@@ -117,8 +117,8 @@ EDITOR RIGHT-RAIL TAB (Wave 14)
 PLAN CAPABILITIES (Wave 15)
 
   app/src/main/core/plan/capabilities.ts enumerates every plan-gated
-  affordance (BridgeMCP slot count, BridgeVoice on/off, max swarm size,
-  BridgeCode access). canDo(cap) helper consulted by all gated UIs.
+  affordance (SigmaMCP slot count, SigmaVoice on/off, max swarm size,
+  SigmaCode access). canDo(cap) helper consulted by all gated UIs.
   Default tier = 'ultra' since SigmaLink is local-only and free. The
   capability matrix exists for forward compatibility only; no billing
   UI ships in v1.0.0.
@@ -143,9 +143,9 @@ CI MATRIX (Wave 15)
 
 ACKNOWLEDGEMENTS
 
-  - BridgeMind for the BridgeSpace V3 product that inspired and
+  - SigmaMind for the SigmaSpace V3 product that inspired and
     grounded the V3 parity build. SigmaLink is independent and not
-    affiliated with, endorsed by, or sponsored by BridgeMind.
+    affiliated with, endorsed by, or sponsored by SigmaMind.
   - Anthropic Claude Code for serving as a primary provider and for
     the Skills format we ingest unchanged.
   - OpenAI Codex CLI for the second provider lane.
@@ -168,7 +168,7 @@ KNOWN LIMITATIONS
   - Dogfood cycle (V3-W15-006) deferred to v1.1: requires a real human
     GUI session driving a 4-pane swarm against a non-trivial repo for
     >=30 minutes.
-  - BridgeVoice ships the Web Speech API adapter only; native OS voice
+  - SigmaVoice ships the Web Speech API adapter only; native OS voice
     bindings queued for v1.1.
   - macOS notarisation and Windows code-signing certificate are not
     yet wired; auto-update works against unsigned builds but power-

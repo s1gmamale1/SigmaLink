@@ -29,6 +29,6 @@ Verification
 ------------
 
 - `pnpm exec tsc -b --pretty false`
-- `pnpm exec vitest run src/main/core/assistant/conversations.test.ts src/main/core/assistant/runClaudeCliTurn.test.ts src/renderer/features/bridge-agent/ConversationsPanel.test.tsx src/renderer/features/bridge-agent/BridgeRoom.test.tsx`
+- `pnpm exec vitest run src/main/core/assistant/conversations.test.ts src/main/core/assistant/runClaudeCliTurn.test.ts src/renderer/features/bridge-agent/ConversationsPanel.test.tsx src/renderer/features/bridge-agent/SigmaRoom.test.tsx`
 - `node --experimental-strip-types --test src/main/core/db/__tests__/migrate.spec.ts`
 - Focused ESLint across the W-2 files

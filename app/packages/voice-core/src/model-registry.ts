@@ -5,7 +5,7 @@
 //
 // The only SigmaLink-specific dependency that was removed is the direct
 // `app.getPath('userData')` call. Callers must supply `getModelsDir` so this
-// module can run inside BridgeVoice (standalone Electron app) or SigmaLink
+// module can run inside SigmaVoice (standalone Electron app) or SigmaLink
 // without importing SigmaLink's db/client.
 //
 // All other logic is identical to the original.

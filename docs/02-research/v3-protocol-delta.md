@@ -69,9 +69,9 @@ Staging dir `<userData>/canvases/<canvasId>/staging/<ulid>.<ext>`.
 `swarm:ledger` (event) `{ agentsTotal, messagesTotal, elapsedMs }`,
 `swarm:mission-rename { swarmId, mission }`.
 
-## 6. BridgeVoice signal
+## 6. SigmaVoice signal
 
-Voice capture anywhere in the app shows a centred title-bar **`BridgeVoice`** pill (0220).
+Voice capture anywhere in the app shows a centred title-bar **`SigmaVoice`** pill (0220).
 Global event `voice:state` `{ active, source: 'mission'\|'assistant'\|'palette' }`. One OS
 speech adapter; no second capture session.
 
@@ -85,4 +85,4 @@ existing tables untouched except for `swarm_messages.resolvedAt INTEGER NULL`.
 **W12** envelope kinds + zod, `resolvedAt` migration + counter projector, Operator Console
 RPCs (`stop-all`/`counters`/`constellation-layout`/`ledger`). **W13** `assistant.*` + tool
 tracer, board namespace + `boards` table. **W14** `design.*` + drag-drop staging.
-**W15** `voice:state` + BridgeVoice pill.
+**W15** `voice:state` + SigmaVoice pill.

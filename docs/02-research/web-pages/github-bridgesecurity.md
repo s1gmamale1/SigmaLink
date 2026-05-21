@@ -46,7 +46,7 @@ Trust boundaries / AuthN+AuthZ server-side / Input validation / Output encoding 
 - `/security-audit "all server actions in this app"`
 
 ## Installation (verbatim)
-- `claude plugin install bridgesecurity@bridgemind-plugins`
+- `claude plugin install bridgesecurity@sigmamind-plugins`
 - Or manual: cp -r skills/bridgesecurity .claude/skills/ etc.
 
 ## Project layout

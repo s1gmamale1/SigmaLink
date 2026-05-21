@@ -2,7 +2,7 @@
 // Enter submits; Shift+Enter newlines. Mic toggles the orb to LISTENING;
 // real voice intake lands in W15.
 //
-// V3-W15-005 — Mic visibility gated by `canDo('bridgevoice.enabled')`. Ultra
+// V3-W15-005 — Mic visibility gated by `canDo('sigmavoice.enabled')`. Ultra
 // (SigmaLink default) returns true so users see no UI change. The gate is
 // here to prove the capability matrix wires through; lower tiers (Pro/Basic
 // in a hypothetical hosted SigmaLink) hide the affordance instead of

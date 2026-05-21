@@ -221,7 +221,7 @@ Deferred to v1.1.11
 See `docs/08-bugs/BACKLOG.md` for the full ledger.
 
 * **Provider registry cleanup** (user-requested 2026-05-12) —
-  remove BridgeCode/Cursor/Shell/Aider/Continue; keep
+  remove SigmaCode/Cursor/Shell/Aider/Continue; keep
   Claude/Codex/Gemini/OpenCode; add Kimi Code CLI.
 * **Playwright e2e refresh** — `tests/e2e/smoke.spec.ts` v1.1.4
   stale selectors.

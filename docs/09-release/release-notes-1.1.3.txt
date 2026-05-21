@@ -31,7 +31,7 @@ workspace selected.
 
 State model change: `activeWorkspace` (single) → `openWorkspaces[]` +
 `activeWorkspaceId` selector pattern. Consumers read via the derived
-selector so existing components (BridgeRoom, Composer, RightRail)
+selector so existing components (SigmaRoom, Composer, RightRail)
 keep working without changes.
 
 2. Pane resume across restart

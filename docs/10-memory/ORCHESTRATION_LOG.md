@@ -1,10 +1,10 @@
-# SigmaLink BridgeSpace-Clone Orchestration Log
+# SigmaLink SigmaSpace-Clone Orchestration Log
 
 Master log of every wave, every agent, every output. Owner: orchestrator. Updated as work progresses.
 
 ## Mission
 
-Rebuild SigmaLink as a complete clone of BridgeMind's BridgeSpace + Bridgeswarm — visually and functionally — using sub-agent swarms. The orchestrator delegates; orchestrator does not write product code. Each task is documented in markdown. Bugs that resist five fix attempts get marked-and-skipped. Stop only when product is ready.
+Rebuild SigmaLink as a complete clone of SigmaMind's SigmaSpace + Sigmaswarm — visually and functionally — using sub-agent swarms. The orchestrator delegates; orchestrator does not write product code. Each task is documented in markdown. Bugs that resist five fix attempts get marked-and-skipped. Stop only when product is ready.
 
 ## Operating principles
 
@@ -19,7 +19,7 @@ Rebuild SigmaLink as a complete clone of BridgeMind's BridgeSpace + Bridgeswarm 
 docs/
   ORCHESTRATION_LOG.md        ← this file
   01-investigation/           bug audit, app architecture notes
-  02-research/                BridgeSpace research (web + video + docs)
+  02-research/                SigmaSpace research (web + video + docs)
   03-plan/                    master spec, build blueprint
   04-critique/                critique outputs + reconciliation
   05-build/                   per-feature build agent outputs
@@ -34,8 +34,8 @@ Launched 2026-05-09.
 | ID  | Agent | Scope | Output dir |
 |-----|-------|-------|------------|
 | W1A | Bug auditor | Find every defect in current Phase 1 build, especially the Windows .cmd shim issue causing "Cannot create process, error code: 2" | `docs/01-investigation/` |
-| W1B | Video deep-dive | Re-mine the launch video + every BridgeMind YouTube video found via search; extract visual spec, glossary, workflows | `docs/02-research/` |
-| W1C | Web exhaustive crawl | Fetch every public BridgeMind page; produce per-page records, feature matrix, MCP catalog, skills/browser specs | `docs/02-research/` |
+| W1B | Video deep-dive | Re-mine the launch video + every SigmaMind YouTube video found via search; extract visual spec, glossary, workflows | `docs/02-research/` |
+| W1C | Web exhaustive crawl | Fetch every public SigmaMind page; produce per-page records, feature matrix, MCP catalog, skills/browser specs | `docs/02-research/` |
 | W1D | Doc consolidator | Read existing project docs (rebuild plan, research report, video transcript) and produce unified requirements + decision log | `docs/02-research/` |
 
 ## Wave 2 — Synthesis (orchestrator, after Wave 1)
@@ -62,10 +62,10 @@ Sequential foundation patch first (so later agents inherit a working build):
 Then parallel feature builds (each owns its own directory, no overlap):
 - W4-BROWSER: in-app browser pane + Playwright MCP supervisor
 - W4-SKILLS: drag-and-drop SKILL.md loader + per-provider fan-out
-- W4-MEMORY: BridgeMemory-equivalent MCP server + notes UI + graph
+- W4-MEMORY: SigmaMemory-equivalent MCP server + notes UI + graph
 - W4-SWARM: Swarm Room with role roster + mailbox bus + side chat
 - W4-REVIEW: Review Room with diff viewer + commit/merge + auto cleanup
-- W4-UI: UI polish to match BridgeSpace look (theme, command palette, layout)
+- W4-UI: UI polish to match SigmaSpace look (theme, command palette, layout)
 
 ## Wave 5 — Visual testing (single agent + playwright-cli)
 

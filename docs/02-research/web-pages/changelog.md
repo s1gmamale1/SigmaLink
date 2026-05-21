@@ -1,12 +1,12 @@
 # Changelog Page
-URL: https://www.bridgemind.ai/changelog
+URL: https://www.sigmamind.ai/changelog
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
-- BridgeSpace (@bridgespace-tauri) — chronological versions
-- BridgeVoice (@bridgevoice) — chronological versions
+- SigmaSpace (@sigmaspace-tauri) — chronological versions
+- SigmaVoice (@sigmavoice) — chronological versions
 
-## BridgeSpace releases (verbatim summaries)
+## SigmaSpace releases (verbatim summaries)
 
 ### v3.0.9 — April 23, 2026
 - Fixed: Resolved packaged WSL terminal startup by resolving wsl.exe from System32.
@@ -44,7 +44,7 @@ Fetched: 2026-05-09
 ### v3.0.1 — April 20, 2026
 - Fixed: Bridge panel styles extraction to real CSS file.
 
-## BridgeVoice releases (verbatim summaries)
+## SigmaVoice releases (verbatim summaries)
 
 ### v2.2.22 — April 23, 2026
 - Fixed: Desktop email/password sign-in; subscription refresh; macOS matrix race condition.
@@ -59,7 +59,7 @@ Fetched: 2026-05-09
 - Changed: Single-click floating pill toggle (removed double-click).
 
 ### v2.2.17 — April 13, 2026
-- Fixed: BridgeSpace dictation through dedicated IPC handoff.
+- Fixed: SigmaSpace dictation through dedicated IPC handoff.
 
 ### v2.2.16 — April 11, 2026
 - Fixed: Hook retry and exponential backoff; transparent widget rendering.
@@ -78,12 +78,12 @@ Fetched: 2026-05-09
 - Standard nav links only.
 
 ## Screenshots / images present
-- /images/products/bridgespace-icon.svg
-- /images/products/bridgevoice-icon.svg
+- /images/products/sigmaspace-icon.svg
+- /images/products/sigmavoice-icon.svg
 
 ## Anything else of note
-- Repos referenced: @bridgespace-tauri, @bridgevoice.
-- BridgeSpace v3 is current major release line.
+- Repos referenced: @sigmaspace-tauri, @sigmavoice.
+- SigmaSpace v3 is current major release line.
 
 ## Source quote (≤15 words, in quotes)
 "Resolved packaged WSL terminal startup by resolving wsl.exe from System32."

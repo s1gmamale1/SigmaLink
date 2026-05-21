@@ -4,7 +4,7 @@
 //
 // The only change from the original: `clipboard` is injected rather than
 // imported directly from 'electron', making this module usable from any
-// Electron app (SigmaLink or BridgeVoice) without referencing SigmaLink's
+// Electron app (SigmaLink or SigmaVoice) without referencing SigmaLink's
 // build context.
 
 import { createRequire } from 'node:module';

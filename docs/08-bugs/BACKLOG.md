@@ -141,7 +141,7 @@
 
 > Moved to "Shipped & verified" 2026-05-13. The registry was trimmed to the
 > five CLIs SigmaLink actually targets: Claude Code, Codex CLI, Gemini CLI,
-> Kimi Code CLI, and OpenCode CLI. BridgeCode, Cursor Agent, Aider, Continue,
+> Kimi Code CLI, and OpenCode CLI. SigmaCode, Cursor Agent, Aider, Continue,
 > and the user-facing "Shell" row were removed. The `'shell'` literal stays
 > as an INTERNAL registry sentinel so the workspace launcher's "Skip — no
 > agents" / "Custom Command" rows continue to route through `defaultShell()`
@@ -159,17 +159,17 @@
 
 ### What landed (file-by-file)
 
-1. `app/src/shared/providers.ts` — dropped `bridgecode`, `cursor`, `aider`, `continue` registry rows; added `kimi`. `ProviderId` union narrowed accordingly. `'shell'` kept as internal sentinel and filtered out of `listVisibleProviders`.
+1. `app/src/shared/providers.ts` — dropped `sigmacode`, `cursor`, `aider`, `continue` registry rows; added `kimi`. `ProviderId` union narrowed accordingly. `'shell'` kept as internal sentinel and filtered out of `listVisibleProviders`.
 2. `app/src/renderer/features/workspace-launcher/AgentsStep.tsx` — `MATRIX_ORDER` rewritten to `[claude, codex, gemini, kimi, opencode, custom]`; Droid + Copilot stubs deleted.
 3. `app/src/renderer/features/swarm-room/RoleRoster.tsx` — `V3_PROVIDER_ORDER` + `DEFAULT_MODEL_BY_PROVIDER` rewritten to the 5-keep set.
-4. `app/src/renderer/features/command-room/PaneHeader.tsx` + `PaneSplash.tsx` — `DEFAULT_MODELS` / `DEFAULT_MODEL_LABEL` lookup tables rewritten; BridgeCode / Cursor / Droid / Copilot rows dropped; Kimi added; OpenCode default model corrected (no longer mislabelled as Kimi K2.6 OpenRouter).
-5. `app/src/renderer/features/onboarding/OnboardingModal.tsx` — welcome copy updated to "Claude Code, Codex, Gemini, Kimi, OpenCode"; BridgeCode "coming soon" lines were never present, no further changes.
+4. `app/src/renderer/features/command-room/PaneHeader.tsx` + `PaneSplash.tsx` — `DEFAULT_MODELS` / `DEFAULT_MODEL_LABEL` lookup tables rewritten; SigmaCode / Cursor / Droid / Copilot rows dropped; Kimi added; OpenCode default model corrected (no longer mislabelled as Kimi K2.6 OpenRouter).
+5. `app/src/renderer/features/onboarding/OnboardingModal.tsx` — welcome copy updated to "Claude Code, Codex, Gemini, Kimi, OpenCode"; SigmaCode "coming soon" lines were never present, no further changes.
 6. `app/src/main/core/design/controller.ts` — `VALID_PROVIDERS` allowlist trimmed to `[claude, codex, gemini, kimi, opencode, shell, custom]`.
-7. `app/src/main/core/pty/session-id-extractor.ts` — dropped `bridgecode` from `CLAUDE_PROVIDER_IDS`.
-8. `app/src/main/core/providers/models.ts` — dropped `bridgecode-default` + `kimi-k2.6 (OpenRouter, under opencode)` model rows; added native `kimi-k2.6` row.
-9. `app/src/main/core/plan/capabilities.ts` — dropped the `'bridgecode.access'` capability (no consumers).
-10. `app/src/main/core/providers/__tests__/launcher.spec.ts` — `bridgecodeProvider` / `aiderProvider` fixtures renamed to `comingSoonStub` / `legacyStub` (synthetic — the shipping registry no longer carries those rows).
-11. `app/src/main/core/assistant/tools.test.ts` — replaced `'bridgecode'` provider-id literal in the `list_active_sessions` fixture with synthetic `'future-cli'`.
+7. `app/src/main/core/pty/session-id-extractor.ts` — dropped `sigmacode` from `CLAUDE_PROVIDER_IDS`.
+8. `app/src/main/core/providers/models.ts` — dropped `sigmacode-default` + `kimi-k2.6 (OpenRouter, under opencode)` model rows; added native `kimi-k2.6` row.
+9. `app/src/main/core/plan/capabilities.ts` — dropped the `'sigmacode.access'` capability (no consumers).
+10. `app/src/main/core/providers/__tests__/launcher.spec.ts` — `sigmacodeProvider` / `aiderProvider` fixtures renamed to `comingSoonStub` / `legacyStub` (synthetic — the shipping registry no longer carries those rows).
+11. `app/src/main/core/assistant/tools.test.ts` — replaced `'sigmacode'` provider-id literal in the `list_active_sessions` fixture with synthetic `'future-cli'`.
 12. `README.md` — Supported agents table rewritten to the 5-row v1.2.4 set; the "kimi-is-a-model-not-a-CLI" paragraph removed.
 13. `docs/08-bugs/BACKLOG.md` (this entry) — moved to Shipped & verified.
 
@@ -177,7 +177,7 @@
 
 - **Skills fanout / Ruflo verify** — Kimi MCP support is unverified upstream. `app/src/main/core/skills/fanout.ts`, `app/src/main/core/skills/types.ts`, and `app/src/main/core/ruflo/verify.ts` still hard-code `[claude, codex, gemini]`. File a follow-up once Kimi's `~/.kimi/` layout + MCP config behaviour is confirmed.
 - **CHANGELOG / release notes** — handled by lead at release time.
-- **Migration for historical agent_sessions** — the proposed kv-migration that rewrites stale `provider_id = 'bridgecode'|'cursor-agent'|'aider'|'continue'|'shell'` rows to `'claude'` was NOT shipped in this pass. The launcher tolerates unknown ids (creates an `error` session that the renderer surfaces) so users on a stale DB just see an error pane and pick a current provider; if real users surface, refile.
+- **Migration for historical agent_sessions** — the proposed kv-migration that rewrites stale `provider_id = 'sigmacode'|'cursor-agent'|'aider'|'continue'|'shell'` rows to `'claude'` was NOT shipped in this pass. The launcher tolerates unknown ids (creates an `error` session that the renderer surfaces) so users on a stale DB just see an error pane and pick a current provider; if real users surface, refile.
 
 ### Verification gates (2026-05-13)
 
@@ -186,7 +186,7 @@
 - `pnpm exec eslint .` — clean.
 - `pnpm exec vite build` — clean.
 - `node --import tsx --test app/src/main/core/providers/__tests__/launcher.spec.ts` — 9/9 pass.
-- Grep `bridgecode|cursor-agent|'aider'|'cursor'|'continue'` over `app/src` — zero hits.
+- Grep `sigmacode|cursor-agent|'aider'|'cursor'|'continue'` over `app/src` — zero hits.
 
 ---
 
@@ -243,7 +243,7 @@
 ### Plan
 1. Fix `no-var-requires` + `no-explicit-any` first (XS each).
 2. Then `exhaustive-deps` + `purity` (S total).
-3. Tackle `set-state-in-effect` in 3 sub-waves of ~5 each — easiest first (cached value derivations), hardest last (Composer.tsx + BridgeRoom).
+3. Tackle `set-state-in-effect` in 3 sub-waves of ~5 each — easiest first (cached value derivations), hardest last (Composer.tsx + SigmaRoom).
 4. `immutability` last — usually exposes deeper architecture issues.
 
 **Total effort**: L (~3-5d sustained).

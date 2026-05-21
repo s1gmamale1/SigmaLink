@@ -89,7 +89,7 @@ What's NOT in this release
 * Linux AppImage + .deb test gating — built from the same source
   but no CI runner and no smoke; not on the supported platform list.
 * `Split` + `Minimise` pane functions — still placeholder.
-* Provider Registry Cleanup (BridgeCode + Cursor + Shell + Aider +
+* Provider Registry Cleanup (SigmaCode + Cursor + Shell + Aider +
   Continue out, Kimi in as first-class) — pushed to v1.1.12 again.
 * Kimi audit warning sweep (~100 findings across 20+ feature
   files) — v1.1.12.

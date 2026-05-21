@@ -14,7 +14,7 @@ import { spawnExecutable } from '../util/spawn-cross-platform';
 import readline from 'node:readline';
 import { probeProvider } from '../providers/probe';
 import { findProvider } from '../../../shared/providers';
-import { isClaudeSessionId } from '../pty/claude-resume-bridge';
+import { isClaudeSessionId } from '../pty/claude-resume-sigma';
 import * as conversationsDao from './conversations';
 import { ToolTracer } from './tool-tracer';
 import { estimateTokens } from './system-prompt';

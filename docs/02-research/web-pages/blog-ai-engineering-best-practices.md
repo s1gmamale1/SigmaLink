@@ -1,5 +1,5 @@
 # Blog: Agentic Engineering — Best Practices for Vibe Coding Teams
-URL: https://www.bridgemind.ai/blog/ai-engineering-best-practices
+URL: https://www.sigmamind.ai/blog/ai-engineering-best-practices
 Fetched: 2026-05-09
 
 ## Headings (verbatim)

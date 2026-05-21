@@ -1,5 +1,5 @@
 # Blog: The Vibe Coding Revolution
-URL: https://www.bridgemind.ai/blog/vibe-coding-revolution
+URL: https://www.sigmamind.ai/blog/vibe-coding-revolution
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
@@ -9,7 +9,7 @@ Fetched: 2026-05-09
 - 1. Large Language Models Reached Critical Mass
 - 2. Tooling Caught Up
 - 3. The Agentic Mindset Shift
-- The BridgeMind Approach
+- The SigmaMind Approach
 - Getting Started with Vibe Coding
 - Write Better Prompts
 - Choose the Right Tools

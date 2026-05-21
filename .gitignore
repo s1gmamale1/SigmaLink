@@ -107,7 +107,7 @@ app/CLAUDE.md
 app/scripts/ruflo-mcp-filter.mjs
 app/pnpm-lock.yaml
 # NOTE: app/pnpm-workspace.yaml is now TRACKED (v1.7.0) — it holds the
-# monorepo workspace `packages:` list (voice-core, bridge-voice, native/*)
+# monorepo workspace `packages:` list (voice-core, sigma-voice, native/*)
 # that CI's `pnpm install` needs to resolve @sigmalink/voice-core. It was
 # previously a gitignored Ruflo-init footprint (allowBuilds stub only).
 
@@ -118,6 +118,6 @@ app/pnpm-lock.yaml
 # stay local.
 SigmaLink/
 
-# BridgeVoice app build output
-app/apps/bridge-voice/bridge-dist/
-app/apps/bridge-voice/release/
+# SigmaVoice app build output
+app/apps/sigma-voice/sigma-dist/
+app/apps/sigma-voice/release/

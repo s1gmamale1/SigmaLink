@@ -93,8 +93,8 @@ test('room switch preserves the xterm DOM instance (no replay flash)', async () 
     });
     const win = await app.firstWindow({ timeout: 30_000 });
     await win.waitForLoadState('domcontentloaded').catch(() => undefined);
-    const bridgeReady = await waitForSigmaBridge(win);
-    test.skip(!bridgeReady, `Sigma preload bridge unavailable; window title="${await win.title()}"`);
+    const sigmaReady = await waitForSigmaBridge(win);
+    test.skip(!sigmaReady, `Sigma preload bridge unavailable; window title="${await win.title()}"`);
 
     await invoke(win, 'kv.set', 'app.onboarded', '1');
     await invoke(win, 'workspaces.open', wsA);
@@ -203,8 +203,8 @@ test('workspace switching keeps PTY pid alive and stable', async () => {
     });
     const win = await app.firstWindow({ timeout: 30_000 });
     await win.waitForLoadState('domcontentloaded').catch(() => undefined);
-    const bridgeReady = await waitForSigmaBridge(win);
-    test.skip(!bridgeReady, `Sigma preload bridge unavailable; window title="${await win.title()}"`);
+    const sigmaReady = await waitForSigmaBridge(win);
+    test.skip(!sigmaReady, `Sigma preload bridge unavailable; window title="${await win.title()}"`);
 
     await invoke(win, 'kv.set', 'app.onboarded', '1');
     await invoke(win, 'workspaces.open', wsA);

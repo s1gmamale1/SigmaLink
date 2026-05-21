@@ -3,7 +3,7 @@ gaze ara
 ; =
 a © bridgebting |
 P
-@ BridgeMind BridgeSpace
+@ SigmaMind SigmaSpace
 Build the future. Where Builders Ship With Al Teammates.
 = E
 a Re

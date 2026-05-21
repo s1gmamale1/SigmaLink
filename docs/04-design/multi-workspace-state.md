@@ -4,7 +4,7 @@
 
 ## Why
 
-Today (v1.1.2) SigmaLink models the world as a single `activeWorkspace`. Switching workspaces in the sidebar is destructive: the prior workspace's runtime context (Sigma transcript, Command Room state, Operator Console focus) is replaced. Sessions persist in DB but the renderer treats them as inert until the workspace is re-activated. Users running multiple projects simultaneously (a BridgeSpace-style workflow) have no good answer — they either bounce between workspaces and lose context, or close everything and reopen one at a time.
+Today (v1.1.2) SigmaLink models the world as a single `activeWorkspace`. Switching workspaces in the sidebar is destructive: the prior workspace's runtime context (Sigma transcript, Command Room state, Operator Console focus) is replaced. Sessions persist in DB but the renderer treats them as inert until the workspace is re-activated. Users running multiple projects simultaneously (a SigmaSpace-style workflow) have no good answer — they either bounce between workspaces and lose context, or close everything and reopen one at a time.
 
 v1.1.3 fixes this by introducing a real "open workspaces" set distinct from "persisted workspaces". Switching is a tab swap, not a teardown.
 
@@ -67,7 +67,7 @@ Runtime cap: none. The state model can hold any number; memory pressure is the o
 
 Per locked decision: **shared right-rail panel; switching workspace swaps active conversation**.
 
-Conversations are already DB-keyed by `workspaceId` in v1.1.2 (`conversations` table). The renderer just needs to pass the current `state.activeWorkspaceId` to `rpc.assistant.send` calls (already does this). When `activeWorkspaceId` changes, `BridgeRoom` re-fetches the conversation list for the new workspace.
+Conversations are already DB-keyed by `workspaceId` in v1.1.2 (`conversations` table). The renderer just needs to pass the current `state.activeWorkspaceId` to `rpc.assistant.send` calls (already does this). When `activeWorkspaceId` changes, `SigmaRoom` re-fetches the conversation list for the new workspace.
 
 No data leak between workspaces. No new UI surface — same orb, same composer, same transcript area; the content swaps.
 
@@ -78,7 +78,7 @@ No data leak between workspaces. No new UI surface — same orb, same composer, 
 - `app/src/main/core/workspaces/lifecycle.ts` (NEW) — backend event emitter for open/close
 - `app/src/shared/rpc-channels.ts` — `app:open-workspaces-changed` allowlist
 - `app/src/main/core/rpc/schemas.ts` — array shape zod
-- `app/src/renderer/features/bridge-agent/BridgeRoom.tsx` — already reads activeWorkspace via accessor; verify selector swap works transparently
+- `app/src/renderer/features/bridge-agent/SigmaRoom.tsx` — already reads activeWorkspace via accessor; verify selector swap works transparently
 
 ## Verification
 

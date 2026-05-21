@@ -2,7 +2,7 @@
 aaa .
 ees
 Forest
-$ bridgespace theme next
+$ sigmaspace theme next
 12 handcrafted themes
 / swap applied
 ac =200L

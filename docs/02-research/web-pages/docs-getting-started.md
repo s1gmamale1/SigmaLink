@@ -1,5 +1,5 @@
 # Docs: Getting Started
-URL: https://docs.bridgemind.ai/docs/getting-started
+URL: https://docs.sigmamind.ai/docs/getting-started
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
@@ -7,15 +7,15 @@ Fetched: 2026-05-09
 2. Prerequisites
 3. Step 1: Create Your Account
 4. Step 2: Generate an API Key
-5. Step 3: Connect BridgeMCP
+5. Step 3: Connect SigmaMCP
 6. Step 4: Create Your First Project
 7. Step 5: Create a Task
 8. Step 6: Ship It
 9. What's Next
 
 ## Prerequisites
-- BridgeMind account at bridgemind.ai.
-- AI coding agent: Cursor, Claude Code, Windsurf, Codex CLI, or BridgeCode.
+- SigmaMind account at sigmamind.ai.
+- AI coding agent: Cursor, Claude Code, Windsurf, Codex CLI, or SigmaCode.
 - Node.js 18+.
 
 ## Steps (paraphrased)

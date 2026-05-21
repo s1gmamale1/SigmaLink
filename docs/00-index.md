@@ -23,7 +23,7 @@ Bug audit, architecture notes, and the manual test plan written before any rebui
 
 ## `02-research/`
 
-Public-source research on BridgeMind, BridgeSpace, and BridgeSwarm, plus the Anthropic Skills and MCP work that informs SigmaLink's design.
+Public-source research on SigmaMind, SigmaSpace, and SigmaSwarm, plus the Anthropic Skills and MCP work that informs SigmaLink's design.
 
 - [`CONFLICTS.md`](02-research/CONFLICTS.md) — places where existing project docs disagreed and how each conflict was resolved.
 - [`CONSOLIDATED_SOURCES.md`](02-research/CONSOLIDATED_SOURCES.md) — every source consulted, with a short note per source.
@@ -32,14 +32,14 @@ Public-source research on BridgeMind, BridgeSpace, and BridgeSwarm, plus the Ant
 - [`RESEARCH_SUMMARY.md`](02-research/RESEARCH_SUMMARY.md) — top-level summary of what research found.
 - [`agent-roles-and-protocol.md`](02-research/agent-roles-and-protocol.md) — Coordinator / Builder / Scout / Reviewer role definitions and mailbox protocol.
 - [`browser-spec.md`](02-research/browser-spec.md) — documented behaviour of the in-app browser sidebar.
-- [`changelog-summary.md`](02-research/changelog-summary.md) — public BridgeSpace and BridgeVoice changelog summary.
-- [`feature-matrix.md`](02-research/feature-matrix.md) — feature-by-feature comparison across BridgeMind products.
-- [`glossary.md`](02-research/glossary.md) — terminology used across BridgeMind, BridgeSpace, and BridgeSwarm.
+- [`changelog-summary.md`](02-research/changelog-summary.md) — public SigmaSpace and SigmaVoice changelog summary.
+- [`feature-matrix.md`](02-research/feature-matrix.md) — feature-by-feature comparison across SigmaMind products.
+- [`glossary.md`](02-research/glossary.md) — terminology used across SigmaMind, SigmaSpace, and SigmaSwarm.
 - [`keyboard-shortcuts.md`](02-research/keyboard-shortcuts.md) — documented shortcuts pulled from public sources.
 - [`mcp-tool-catalog.md`](02-research/mcp-tool-catalog.md) — catalog of MCP servers and tools relevant to SigmaLink.
 - [`open-questions.md`](02-research/open-questions.md) — unresolved product questions.
 - [`open-video-questions.md`](02-research/open-video-questions.md) — unresolved questions raised by the launch video.
-- [`skills-spec.md`](02-research/skills-spec.md) — Anthropic Skills frontmatter spec and how BridgeMind extended it.
+- [`skills-spec.md`](02-research/skills-spec.md) — Anthropic Skills frontmatter spec and how SigmaMind extended it.
 - [`v3-delta-vs-current.md`](02-research/v3-delta-vs-current.md) — v3 capability delta vs. current ship.
 - [`v3-frame-by-frame.md`](02-research/v3-frame-by-frame.md) — 553-frame log of the public v3 launch video.
 - [`v3-protocol-delta.md`](02-research/v3-protocol-delta.md) — v3 RPC/event protocol delta.

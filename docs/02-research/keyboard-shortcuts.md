@@ -1,9 +1,9 @@
 # Keyboard Shortcuts (Documented)
 Compiled: 2026-05-09
 
-All shortcuts below are sourced from public BridgeMind documentation. Unknown / not-yet-documented shortcuts are listed in `open-questions.md`.
+All shortcuts below are sourced from public SigmaMind documentation. Unknown / not-yet-documented shortcuts are listed in `open-questions.md`.
 
-## BridgeSpace (docs-bridgespace)
+## SigmaSpace (docs-sigmaspace)
 
 ### macOS
 | Shortcut | Action |
@@ -20,10 +20,10 @@ All shortcuts below are sourced from public BridgeMind documentation. Unknown / 
 |----------|--------|
 | Ctrl+F | Search in terminal (per Terminal Features section) |
 
-### BridgeSpace settings
+### SigmaSpace settings
 - Theme picker available in nav bar; cycles themes.
 
-## BridgeVoice (docs-bridgevoice)
+## SigmaVoice (docs-sigmavoice)
 
 | Shortcut | Action | Platform |
 |----------|--------|----------|
@@ -36,18 +36,18 @@ All shortcuts below are sourced from public BridgeMind documentation. Unknown / 
 | (No PTT documented yet) | — | Linux (experimental) |
 | Double-click widget (legacy) → single-click after v2.2.19 | Toggle recording from floating pill | All |
 
-## Docs site (docs.bridgemind.ai)
+## Docs site (docs.sigmamind.ai)
 | Shortcut | Action |
 |----------|--------|
 | Cmd+K / Ctrl+K | Search documentation |
 
-## Windsurf (used to install BridgeMCP)
+## Windsurf (used to install SigmaMCP)
 | Shortcut | Action |
 |----------|--------|
 | Cmd+Shift+P | Open command palette |
 | Ctrl+Shift+P | Same on Windows/Linux |
 
 ## Notes
-- BridgeSwarm and BridgeCode pages do not document explicit keyboard shortcuts.
+- SigmaSwarm and SigmaCode pages do not document explicit keyboard shortcuts.
 - Voice global hotkey defaults are not standardized across platforms beyond Right Option on macOS.
-- "Fast room switching" is mentioned on the BridgeSpace landing page but no key binding is given (open question).
+- "Fast room switching" is mentioned on the SigmaSpace landing page but no key binding is given (open question).

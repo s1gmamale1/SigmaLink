@@ -2,7 +2,7 @@
   "name": "@sigmalink/voice-core",
   "version": "0.1.0",
   "private": true,
-  "description": "Shared voice-capture stack for SigmaLink and BridgeVoice: global-capture state machine, output-router, whisper-engine facade, and model-registry.",
+  "description": "Shared voice-capture stack for SigmaLink and SigmaVoice: global-capture state machine, output-router, whisper-engine facade, and model-registry.",
   "type": "module",
   "exports": {
     ".": {

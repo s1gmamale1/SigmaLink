@@ -15,7 +15,7 @@ These were already on disk when this run began. They were read for context but n
 ## Files created in this run
 
 - `CODE_OF_CONDUCT.md` — short pointer file adopting the Contributor Covenant 2.1, with the canonical URL and the private security-advisory reporting channel. No quoted policy text.
-- `ATTRIBUTIONS.md` — third-party project list with URLs, licenses, and a one-paragraph use note for each. Covers Emdash (pattern source, Apache-2.0), the Anthropic Skills format, xterm.js, node-pty, Drizzle ORM, better-sqlite3, shadcn UI, Radix UI, lucide-react, and Tailwind CSS, plus an explicit non-affiliation paragraph for BridgeMind / BridgeSpace / BridgeSwarm.
+- `ATTRIBUTIONS.md` — third-party project list with URLs, licenses, and a one-paragraph use note for each. Covers Emdash (pattern source, Apache-2.0), the Anthropic Skills format, xterm.js, node-pty, Drizzle ORM, better-sqlite3, shadcn UI, Radix UI, lucide-react, and Tailwind CSS, plus an explicit non-affiliation paragraph for SigmaMind / SigmaSpace / SigmaSwarm.
 - `.editorconfig` — repo-wide editor rules: UTF-8, LF, trim trailing whitespace, final newline, two-space indent, with overrides for Markdown (no trim), YAML, the JS/TS/HTML/CSS/JSON family, and Makefile (tab indent).
 - `docs/README.md` — index of every doc file under `docs/`, grouped by directory, with a "start here" reading order at the top. Notes that `03-plan/FINAL_BLUEPRINT.md` is a Wave 4 output that may not yet exist.
 - `.github/ISSUE_TEMPLATE/bug_report.md` — bug report template with frontmatter, environment fields including the Electron 30.x version pulled from `app/package.json`, and a logs section.

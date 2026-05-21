@@ -1,5 +1,5 @@
 # Pricing Page
-URL: https://www.bridgemind.ai/pricing
+URL: https://www.sigmamind.ai/pricing
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
@@ -8,14 +8,14 @@ Fetched: 2026-05-09
 - H2: Affiliate Program
 - H2: Questions & Answers
 - H3: Basic, Pro, Ultra
-- H3: BridgeSpace, BridgeMCP, BridgeVoice, BridgeCode
+- H3: SigmaSpace, SigmaMCP, SigmaVoice, SigmaCode
 
 ## Feature list (verbatim per tier)
 
 ### Basic — $16/mo annual ($192/yr) | $20/mo monthly
 - 5,000 credits / month
-- BridgeMind account access
-- BridgeSpace (ADE)
+- SigmaMind account access
+- SigmaSpace (ADE)
 - Multi-agent swarms
 - Bridge Assistant
 - Email support
@@ -23,10 +23,10 @@ Fetched: 2026-05-09
 ### Pro — $40/mo annual ($480/yr) | $50/mo monthly
 - Everything in Basic
 - 12,500 credits/month
-- BridgeMemory (Live)
-- BridgeMCP
-- BridgeVoice
-- BridgeCode (Coming Soon)
+- SigmaMemory (Live)
+- SigmaMCP
+- SigmaVoice
+- SigmaCode (Coming Soon)
 - Priority support
 - Early access
 

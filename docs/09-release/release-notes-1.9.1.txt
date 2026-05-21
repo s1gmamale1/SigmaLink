@@ -47,7 +47,7 @@ Still deferred (unchanged from v1.9.0)
 
 W-4 shell-first (~14d), V3 Wave 12-15 (multi-month), W-5 behavioral
 activation (design-first), W-6 full Jorvis identifier rename,
-BridgeVoice signed installers (funded certs), V3-W15-006 dogfood,
+SigmaVoice signed installers (funded certs), V3-W15-006 dogfood,
 terminal scrollback persistence (design question).
 
 No schema migrations in v1.9.1.

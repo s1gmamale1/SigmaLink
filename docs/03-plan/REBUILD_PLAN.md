@@ -5,7 +5,7 @@
 
 # SigmaLink Ground-Up Rebuild Plan
 
-Synthesis of research from: existing app audit, BridgeSpace public docs/marketing, Emdash (Apache-2.0) source patterns, Anthropic Skills + Playwright MCP patterns, BridgeSpace_Research_Report.docx, and the YouTube launch video transcript.
+Synthesis of research from: existing app audit, SigmaSpace public docs/marketing, Emdash (Apache-2.0) source patterns, Anthropic Skills + Playwright MCP patterns, SigmaSpace_Research_Report.docx, and the YouTube launch video transcript.
 
 ## North Star
 
@@ -16,7 +16,7 @@ A local-first, Electron desktop **agentic development environment** that:
 3. Lets the operator launch a *swarm* of role-bearing agents (Coordinator / Builder / Scout / Reviewer) that talk to each other through a file-system mailbox.
 4. Ships a drag-and-drop Skills loader (Anthropic Skills format) that fans out to each provider's native location.
 5. Ships an in-app browser pane that any agent can drive via Playwright MCP over CDP.
-6. Provides a shared-memory MCP server (wikilink notes, BridgeMemory-equivalent) that every agent can read/write.
+6. Provides a shared-memory MCP server (wikilink notes, SigmaMemory-equivalent) that every agent can read/write.
 7. Persists everything (workspaces, tasks, conversations, messages, terminals) in SQLite.
 
 ## Architecture (target)
@@ -123,11 +123,11 @@ These already work and survive the rebuild:
 - Voice assistant
 - Mobile app
 - SSH remote workspaces (port the abstraction so it can be added later, but no UI)
-- BridgeMind-specific paid features
+- SigmaMind-specific paid features
 
 ## Legal/IP guardrails
 
 - Visual layout, terminology (Coordinator/Builder/Scout/Reviewer roles, room naming, `.sigmamemory` directory) is allowed because it's functional/idiomatic; the file-mailbox protocol is independently designed.
 - All directly portable code patterns come from Emdash (Apache-2.0). Add NOTICE attribution.
-- No screenshot reproduction, no copy of proprietary BridgeSpace assets.
+- No screenshot reproduction, no copy of proprietary SigmaSpace assets.
 - Provider names (Claude Code, Codex, etc.) are factual product references.

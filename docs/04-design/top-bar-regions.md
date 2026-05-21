@@ -1,6 +1,6 @@
 # Top-bar regions — v1.1.4
 
-The top breadcrumb bar gained two new chrome regions in v1.1.4 to port the V3 BridgeMind layout. This doc maps the regions and the drag-region behaviour around them.
+The top breadcrumb bar gained two new chrome regions in v1.1.4 to port the V3 SigmaMind layout. This doc maps the regions and the drag-region behaviour around them.
 
 ## Regions
 

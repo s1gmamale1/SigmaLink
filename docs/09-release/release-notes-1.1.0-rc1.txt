@@ -10,7 +10,7 @@ Track A — Agent IPC reliability:
   found" failure mode that hit users launching from the .app bundle.
 
 * Provider launcher façade (`providers/launcher.ts`) consolidates the
-  three call sites and adds: BridgeCode → Claude silent fallback with
+  three call sites and adds: SigmaCode → Claude silent fallback with
   `provider_effective` column populated, ENOENT walk through
   altCommands, autoApproveFlag append, main-side legacy-gate recheck.
   9/9 unit tests pass.

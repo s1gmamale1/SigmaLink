@@ -10,7 +10,7 @@ Sigma Assistant currently has:
 - A 10-tool registry (`tools.ts`) including `launch_pane`, `create_swarm`, `read_files`, `write_files`, etc.
 - Conversation persistence in SQLite (`conversations` + `messages` tables, no JSONL).
 - Working multi-pane dispatch (`dispatchPane` RPC + `launch_pane` tool) with `assistant:dispatch-echo` events.
-- A right-rail UI `BridgeRoom.tsx` that restores active conversation from `kv['bridge.activeConversationId']`.
+- A right-rail UI `SigmaRoom.tsx` that restores active conversation from `kv['bridge.activeConversationId']`.
 
 What's missing for W-2:
 - **Multi-turn context.** Every `send()` is a fresh Claude CLI invocation with no `--resume` chaining. After the first turn the Claude session id is lost and context drops on the floor.
@@ -169,7 +169,7 @@ Cap at one retry to avoid infinite loop on a genuinely-broken CLI.
 
 ### Phase 4 — UI surface (0.75 day)
 
-Three additions to `app/src/renderer/features/bridge-agent/BridgeRoom.tsx`:
+Three additions to `app/src/renderer/features/bridge-agent/SigmaRoom.tsx`:
 
 **1. Right-rail compact dropdown.** The `variant === 'rail'` branch currently skips the conversations panel entirely. Add a Radix `DropdownMenu` (already in `app/package.json`) in the rail header:
 
@@ -235,7 +235,7 @@ export function persistFinal(turn, messageId, text): void {
 }
 ```
 
-**Interrupted-turn banner** in `BridgeRoom.tsx` hydration path: detect messages where `toolCallId?.startsWith('sigma-in-flight:')` AND no result row follows. Render banner with "Dismiss" / "Retry" actions. Retry re-sends the previous user message — the Phase 3 resume path picks up from the captured session id.
+**Interrupted-turn banner** in `SigmaRoom.tsx` hydration path: detect messages where `toolCallId?.startsWith('sigma-in-flight:')` AND no result row follows. Render banner with "Dismiss" / "Retry" actions. Retry re-sends the previous user message — the Phase 3 resume path picks up from the captured session id.
 
 ## Critical files
 
@@ -252,7 +252,7 @@ export function persistFinal(turn, messageId, text): void {
 | `app/src/main/core/assistant/conversations-controller.ts` | New `resumeHint` handler; extend list/get projections |
 | `app/src/main/rpc-router.ts` | Register `resumeHint` |
 | `app/src/shared/router-shape.ts` | Additive types — `resumeHint`, `claudeSessionId` on list items |
-| `app/src/renderer/features/bridge-agent/BridgeRoom.tsx` | Right-rail dropdown, hint banner, interrupt banner |
+| `app/src/renderer/features/bridge-agent/SigmaRoom.tsx` | Right-rail dropdown, hint banner, interrupt banner |
 | `app/src/renderer/features/bridge-agent/ConversationsPanel.tsx` | Resumable pill |
 
 ## Reuse callouts — DO NOT reinvent
@@ -263,7 +263,7 @@ export function persistFinal(turn, messageId, text): void {
 - `swarms/mailbox.ts` — leave alone (mailbox back-channel deferred to v1.4.1)
 - Radix `DropdownMenu` from `@radix-ui/react-dropdown-menu` already in bundle
 - Migration scaffold from `0011_agent_session_external_id.ts` / `0012_agent_session_pane_index.ts`
-- `sonner` for toast notifications (already used by BridgeRoom)
+- `sonner` for toast notifications (already used by SigmaRoom)
 
 ## Test plan
 
@@ -352,5 +352,5 @@ Use one shared worktree: `/Users/aisigma/projects/SigmaLink-v140-sigma-assistant
 
 1. **Backend data/RPC worker** owns migrations, schema, conversation DAO/controller, router shape/channels, and backend tests.
 2. **Runtime worker** owns `runClaudeCliTurn*`, `cli-envelope`, assistant resume/retry/sentinel behavior, and runtime tests.
-3. **Frontend worker** owns `BridgeRoom.tsx`, `ConversationsPanel.tsx`, bridge-agent UI tests, and only additive UI types needed for resumable/interrupted state.
+3. **Frontend worker** owns `SigmaRoom.tsx`, `ConversationsPanel.tsx`, bridge-agent UI tests, and only additive UI types needed for resumable/interrupted state.
 4. Orchestrator owns plan/doc/release notes, conflict integration, final verification, Ruflo memory storage, push, and PR.

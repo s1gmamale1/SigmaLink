@@ -21,10 +21,10 @@ Path: `features/workspace-launcher/`, `features/sidebar/`, `electron/main.ts`. A
 
 | V3 affordance | Source | Status | Effort |
 |---|---|---|---|
-| 3-card picker BridgeSpace/BridgeSwarm/**BridgeCanvas `ALPHA`** + `⌘T`/`⌘S`/`⌘K` | 0020, 0180 | partial | S |
+| 3-card picker SigmaSpace/SigmaSwarm/**SigmaCanvas `ALPHA`** + `⌘T`/`⌘S`/`⌘K` | 0020, 0180 | partial | S |
 | Stepper Start → Layout → Agents | 0030, 0040, 0055 | partial | S |
-| Folder field + picker + autocomplete; tile grid 1/2/4/6/8/10/12 (hover *"4 terminals · 2×2 grid"*); preset row (BridgeMind / Test 3 / Test 2 / Test / NEW) | 0030, 0035, 0040 | missing | M |
-| Provider matrix (BridgeCode → Copilot, -/+ counters, `0/N`) + quick-fills *Enable all/One of each/Split evenly* + Custom Command row | 0055 | missing | M |
+| Folder field + picker + autocomplete; tile grid 1/2/4/6/8/10/12 (hover *"4 terminals · 2×2 grid"*); preset row (SigmaMind / Test 3 / Test 2 / Test / NEW) | 0030, 0035, 0040 | missing | M |
+| Provider matrix (SigmaCode → Copilot, -/+ counters, `0/N`) + quick-fills *Enable all/One of each/Split evenly* + Custom Command row | 0055 | missing | M |
 | *Skip — no agents* / *Open without AI* | 0030, 0055 | missing | S |
 | Sidebar tabs (name + status dot + agent-count pill) + app breadcrumb `Workspace 10 / matthewmiller` | 0020+, 0080, 0185 | partial | S |
 
@@ -66,7 +66,7 @@ Path: new `features/browser/DesignOverlay.tsx`, `main/core/design/`.
 
 | V3 affordance | Source | Status | Effort | Wave |
 |---|---|---|---|---|
-| BridgeCanvas card `ALPHA` in workspace picker | 0020, 0180 | missing | S | 12 |
+| SigmaCanvas card `ALPHA` in workspace picker | 0020, 0180 | missing | S | 12 |
 | Element-picker overlay (`Click an element in the preview`) | 0368, 0369 | missing | L | 14 |
 | Captured-element source paste in left dock | 0368, 0380 | missing | M | 14 |
 | Per-prompt provider picker (Claude / Codex / Gemini / OpenCode) + Shift/Alt multi-select | 0380 | missing | M | 14 |
@@ -99,8 +99,8 @@ toggle, `code V3 at checkout` (L461-466). **One in-app concern**: plan feature l
 
 ## Voice / SKUs / Provider chrome
 
-**W12** BridgeCode provider stub w/ `comingSoon` fallback to Claude (0055, 0184, 0510);
+**W12** SigmaCode provider stub w/ `comingSoon` fallback to Claude (0055, 0184, 0510);
 OpenCode → Kimi-K2.6 model option (0100, 0140); hide `aider`/`continue` behind Settings
 toggle. **W15** voice intake → mission/Bridge orb/palette (0235; L86-96, L190).
-**Divergent / out of scope**: BridgeJarvis wake-word (L472-475), BridgeVoice desktop sibling
-app (0520), BridgeMCP entitlement UI (0510, undefined).
+**Divergent / out of scope**: SigmaJarvis wake-word (L472-475), SigmaVoice desktop sibling
+app (0520), SigmaMCP entitlement UI (0510, undefined).

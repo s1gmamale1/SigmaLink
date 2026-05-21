@@ -7,7 +7,7 @@ import {
   isClaudeSessionId,
   prepareClaudeResume,
   prepareClaudeWorkspaceContext,
-} from './claude-resume-bridge';
+} from './claude-resume-sigma';
 import {
   ensureGeminiProjectDir,
   prepareGeminiResume,

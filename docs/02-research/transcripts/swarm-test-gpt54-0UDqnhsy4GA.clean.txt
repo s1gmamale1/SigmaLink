@@ -93,13 +93,13 @@ get right into actually launching our
 swarms and putting GPT 5.4 for to the
 test. All right, so I am now over inside
 of Bridgepace. So if you guys are
-unfamiliar with Bridgespace, this is an
+unfamiliar with Sigmaspace, this is an
 ADE, an agentic development environment
 where you are able to manage AI coding
 agents at scale. This is the product
-that I've built um with Bridgemind. If
-you guys are unfamiliar with Bridgemind,
-make sure you go to bridgemind.ai and
+that I've built um with Sigmamind. If
+you guys are unfamiliar with Sigmamind,
+make sure you go to sigmamind.ai and
 check this out as you can download this
 now and it works very well on Mac OS.
 There's a couple of bugs with Windows
@@ -187,7 +187,7 @@ the swarm name. Uh, browser FPS game.
 We're also going to CD back into um that
 directory. So, I'm going to CD into
 desktop and I'm going to CD into
-Bridgemind and then I'm going to CD into
+Sigmamind and then I'm going to CD into
 GPT54 test. Um, so that is going to
 launch this swarm inside of that
 directory. And now let's launch this
@@ -226,8 +226,8 @@ is going to be the swarm name is just
 going to be flight simulator. And then
 we're going to just drop in the prompt.
 And then we're going to CD back into um
-that directory. CD Bridgemind. And then
-hold on here. Uh, CD Bridgemind. And
+that directory. CD Sigmamind. And then
+hold on here. Uh, CD Sigmamind. And
 then, okay, hold up. Okay, I spelled it
 wrong. Uh, CD Bridge.
 CDGPT54
@@ -296,7 +296,7 @@ Paste in this prompt. And then this one
 we'll just call um D3 chat. Um we'll
 just do D3. And then I'm going to do CD
 into desktop. And then I'm going to CD
-into uh Bridgemind. And then I'm going
+into uh Sigmamind. And then I'm going
 to CD into um the GPT5 for test here. Um
 CD GPT 54 test. Um so let's do that. And
 let's see here. Okay, so this is um this
@@ -589,7 +589,7 @@ the start. If you have errors or you
 have bugs, that's what our bug bounty
 program is. You can literally earn
 Bitcoin for reporting bugs. So, just
-note that. But, go to bridgemind.ai, get
+note that. But, go to sigmamind.ai, get
 a subscription to Bridgepace, and try
 out Bridgewarm today. It's currently 50%
 off. You literally get access to
@@ -633,14 +633,14 @@ minute long YouTube video. Um, that's
 what my live streams are for because I'm
 not a content creator. I have no
 interest in creating content. I do it
-because that's what Bridgemind is all
+because that's what Sigmamind is all
 about. That's what this brand is all
 about. Building in public, being on the
 front end of this technological
 revolution, this AI revolution, this
 vibe coding movement. So, if you guys
 are watching and you have not subscribed
-to Bridgemind, if you have not joined
+to Sigmamind, if you have not joined
 the Discord community, make sure you do
 so because this is the place to be in
 2026 and um there are over 6,500

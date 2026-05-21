@@ -21,7 +21,7 @@ import {
   isClaudeSessionId,
   prepareClaudeResume,
   prepareClaudeWorkspaceContext,
-} from '../pty/claude-resume-bridge';
+} from '../pty/claude-resume-sigma';
 import {
   ensureGeminiProjectDir,
   prepareGeminiResume,

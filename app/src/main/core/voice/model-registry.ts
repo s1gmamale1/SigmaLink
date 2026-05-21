@@ -7,7 +7,7 @@
 //   medium.en-q5_0 515 MB  — near-Whisper-large quality; heavy RAM
 //
 // Storage: `<userData>/voice-models/<filename>` following the convention
-//   used by BridgeVoice (§ R2 research outcome).
+//   used by SigmaVoice (§ R2 research outcome).
 //
 // Download contract:
 //   1. Check `<filepath>.partial` — resume if present.

@@ -1,7 +1,7 @@
-# Skills Spec — BridgeMind + Anthropic
+# Skills Spec — SigmaMind + Anthropic
 Compiled: 2026-05-09
 
-## What BridgeMind says about skills
+## What SigmaMind says about skills
 
 Sources: opensource, github-bridgeward, github-bridgesecurity.
 
@@ -13,11 +13,11 @@ Sources: opensource, github-bridgeward, github-bridgesecurity.
 5. Custom Subagents — deep integration.
 6. Agent SDK — full integration.
 
-### BridgeMind plugin marketplace
-- Install syntax: `claude plugin install <name>@bridgemind-plugins`.
+### SigmaMind plugin marketplace
+- Install syntax: `claude plugin install <name>@sigmamind-plugins`.
 - Status: marketplace launching soon (per /opensource), but BridgeWard and BridgeSecurity already shipping.
 
-### Concrete BridgeMind skill repos
+### Concrete SigmaMind skill repos
 
 #### BridgeWard (skill + skill + agent)
 - Skill: `bridgeward` — auto-loads on untrusted content; provenance tagging, red-flag patterns, refusal templates, capability scoping.
@@ -130,7 +130,7 @@ Instructions for the agent…
 
 ---
 
-## Cross-check: do BridgeMind skills follow the canonical format?
+## Cross-check: do SigmaMind skills follow the canonical format?
 Yes. BridgeWard and BridgeSecurity both:
 - Place SKILL.md inside `skills/<name>/` directories.
 - Provide subagents via `agents/<name>.md`.
@@ -139,5 +139,5 @@ Yes. BridgeWard and BridgeSecurity both:
 - Use `.claude-plugin/plugin.json` for marketplace metadata.
 
 ## Open
-- BridgeMind has not yet published its plugin.json schema or detailed skill authoring guide.
+- SigmaMind has not yet published its plugin.json schema or detailed skill authoring guide.
 - BridgeUI / BridgeRemotion / BridgeMotion mentioned in BridgeWard README but not yet on GitHub.

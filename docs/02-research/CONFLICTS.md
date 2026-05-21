@@ -18,16 +18,16 @@ Places where the existing SigmaLink documents disagree. The build phase needs to
 
 ## C-002: Maximum number of agent panes / sessions
 
-- **Position A**: 16 simultaneous agent terminal sessions (BridgeSpace official).
-  - `[video_transcript.txt §"BridgeSpace workspace demo"]`
+- **Position A**: 16 simultaneous agent terminal sessions (SigmaSpace official).
+  - `[video_transcript.txt §"SigmaSpace workspace demo"]`
   - `[docs/02-research/transcripts/launch-video-description.txt]`
-  - `[research_extracted.txt §"BridgeSpace Feature Analysis / Core Architecture Overview"]`
+  - `[research_extracted.txt §"SigmaSpace Feature Analysis / Core Architecture Overview"]`
 - **Position B**: Workspace launcher presets cap at 16 (1, 2, 4, 6, 8, 10, 12, 14, 16).
   - `[REBUILD_PLAN.md §"Architecture (target)"]`, `[REBUILD_PLAN.md §"Phase 1 — Foundation"]`
 - **Position C**: Current MVP `CommandDock`'s "launch N" parser clamps at 12.
   - `[app/src/_legacy/sections/CommandDock.tsx]`
 - **Position D**: Swarm roster preset slider goes "between 5 agents or 50 agents".
-  - `[video_transcript.txt §"BridgeSwarm demo"]`
+  - `[video_transcript.txt §"SigmaSwarm demo"]`
 - **Recommendation**: Workspace panes cap at 16 (Positions A+B). Swarms can scale to 50 (Position D) — they share the cap with the renderer's pane grid only when displayed in the Command Room. Lift the MVP `CommandDock` parser cap from 12 → 16 to match.
 
 ---
@@ -48,7 +48,7 @@ Places where the existing SigmaLink documents disagree. The build phase needs to
   - `[REBUILD_PLAN.md §"North Star"]`
 - **Position B**: Six providers in the current MVP registry: Claude Code, Codex, Gemini CLI, Kimi CLI, Continue, Custom CLI.
   - `[app/src/_legacy/lib/providers.ts]`, `[app/README.md §"What is working now"]`
-- **Position C**: BridgeSpace launch demo uses Claude, Codex, Gemini, and Cursor. `[video_transcript.txt §"BridgeSpace workspace demo"]`
+- **Position C**: SigmaSpace launch demo uses Claude, Codex, Gemini, and Cursor. `[video_transcript.txt §"SigmaSpace workspace demo"]`
 - **Position D**: Emdash auto-detects 20+ providers (Claude Code, Codex, Gemini CLI, OpenCode, Amp, Droid, Hermes, Qwen, Cursor CLI, GitHub Copilot CLI, Aider, …).
   - `[research_extracted.txt §"Tier 1: Emdash"]`
 - **Recommendation**: Ship the rebuild plan's eight (Position A) as definitions; auto-detect any additional providers from PATH (Emdash style). Drop `Continue` from the canonical list unless explicitly requested.
@@ -62,7 +62,7 @@ Places where the existing SigmaLink documents disagree. The build phase needs to
   - Builders → Claude.
   - Scouts → Gemini.
   - Reviewers → Codex.
-  - `[video_transcript.txt §"BridgeSwarm demo"]`
+  - `[video_transcript.txt §"SigmaSwarm demo"]`
 - **Position B**: Rebuild plan does not prescribe defaults; the user picks per role at launch.
   - `[REBUILD_PLAN.md §"Phase 2 — Swarm core"]`
 - **Recommendation**: Use the speaker's mapping as the default preset; allow per-role override at launch.
@@ -71,20 +71,20 @@ Places where the existing SigmaLink documents disagree. The build phase needs to
 
 ## C-006: Swarm "presets between 5 agents or 50 agents" vs. our discrete launcher presets
 
-- **Position A**: BridgeSpace presents two roster presets — "5 agents" and "50 agents".
-  - `[video_transcript.txt §"BridgeSwarm demo"]`
+- **Position A**: SigmaSpace presents two roster presets — "5 agents" and "50 agents".
+  - `[video_transcript.txt §"SigmaSwarm demo"]`
 - **Position B**: Workspace launcher in the rebuild offers 1/2/4/6/8/10/12/14/16. (No swarm preset enumerated.)
   - `[REBUILD_PLAN.md §"Phase 1 — Foundation"]`
 - **Recommendation**: Adopt two clear swarm sizing presets (e.g., "Small ≈ 5", "Large ≈ 50") plus a custom roster builder. Keep the workspace pane presets distinct.
 
 ---
 
-## C-007: BridgeMemory tool list — three named vs. our 12
+## C-007: SigmaMemory tool list — three named vs. our 12
 
 - **Position A**: Research blueprint's deep dive names three shared-memory tools: `create_memory`, `search_memories`, `find_backlinks`.
   - `[research_extracted.txt §"Technical Deep Dive / MCP Protocol Integration"]`
 - **Position B**: Research feature analysis references "12 MCP tools" without naming them.
-  - `[research_extracted.txt §"BridgeSpace Feature Analysis / Core Architecture Overview"]`
+  - `[research_extracted.txt §"SigmaSpace Feature Analysis / Core Architecture Overview"]`
 - **Position C**: Rebuild plan enumerates our concrete 12: `create_memory`, `search_memories`, `find_backlinks`, `suggest_connections`, `update_memory`, `delete_memory`, `list_memories`, `get_memory`, `link_memories`, `get_graph`, `tag_memory`, `get_recent_memories`.
   - `[REBUILD_PLAN.md §"Phase 4"]`
 - **Recommendation**: Position C is the source of truth. The research blueprint's three are a subset.
@@ -159,8 +159,8 @@ Places where the existing SigmaLink documents disagree. The build phase needs to
 
 ## C-014: Renderer "rooms" set — three vs. five
 
-- **Position A**: BridgeSpace docs and current MVP App: three rooms (Command, Swarm, Review).
-  - `[research_extracted.txt §"BridgeSpace Feature Analysis / Core Architecture Overview"]`, `[app/src/_legacy/App.tsx]`
+- **Position A**: SigmaSpace docs and current MVP App: three rooms (Command, Swarm, Review).
+  - `[research_extracted.txt §"SigmaSpace Feature Analysis / Core Architecture Overview"]`, `[app/src/_legacy/App.tsx]`
 - **Position B**: Rebuild plan: five rooms (workspace / swarm / review / memory / browser).
   - `[REBUILD_PLAN.md §"Architecture (target)"]`
 - **Recommendation**: Position B. The rebuild adds Memory and Browser as first-class rooms.

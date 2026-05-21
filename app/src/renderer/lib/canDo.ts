@@ -15,7 +15,7 @@
 //   const max = canDo<number>('swarm.maxSize');
 //
 //   // React-hook variant that re-renders if the override changes.
-//   const voiceOn = useCanDo<boolean>('bridgevoice.enabled');
+//   const voiceOn = useCanDo<boolean>('sigmavoice.enabled');
 //
 // The helper warm-loads the tier on import. While the load is in flight the
 // cached value is `DEFAULT_TIER` ('ultra'), so the worst case is "everything

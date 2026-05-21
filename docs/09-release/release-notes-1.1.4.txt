@@ -1,7 +1,7 @@
 SigmaLink v1.1.4 — V3 visual parity layout sweep
 
 v1.1.3 nailed the runtime behaviour (multi-workspace, pane resume,
-growable swarms). v1.1.4 makes SigmaLink LOOK like V3 BridgeMind —
+growable swarms). v1.1.4 makes SigmaLink LOOK like V3 SigmaMind —
 the layout the user has been referencing as the target design.
 
 This is a frontend-only release. Backend touches: zero. RPC channels

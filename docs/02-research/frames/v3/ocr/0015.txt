@@ -1,7 +1,7 @@
 ro OO ;
 
 3 . |
-| ek: () BridgeMind ee
+| ek: () SigmaMind ee
 Bos z Pa oan
 
 LY

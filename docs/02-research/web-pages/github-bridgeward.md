@@ -17,7 +17,7 @@ Fetched: 2026-05-09
 - Authoritative References
 - Contributing
 - License
-- About BridgeMind
+- About SigmaMind
 
 ## Components (verbatim)
 | Component | Type | Purpose |
@@ -40,7 +40,7 @@ Fetched: 2026-05-09
 "Cut any one leg per flow."
 
 ## Installation (verbatim)
-- Plugin: `claude plugin install bridgeward@bridgemind-plugins`
+- Plugin: `claude plugin install bridgeward@sigmamind-plugins`
 - Manual project: `mkdir -p .claude/skills .claude/agents` then cp -r ...
 - Manual global: `~/.claude/skills/`, `~/.claude/agents/`
 - Symlink for development.

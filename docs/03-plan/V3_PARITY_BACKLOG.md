@@ -48,7 +48,7 @@ W14 (Bridge Canvas + Editor + auto-update)
         ▼
 W15 (CI matrix + voice + dogfood)
   └─ depends on full W12-W14 surface set
-  └─ BridgeVoice intake; CI matrix; dogfood cycle; plan-gating capability matrix
+  └─ SigmaVoice intake; CI matrix; dogfood cycle; plan-gating capability matrix
 ```
 
 Cross-wave guarantees:
@@ -73,8 +73,8 @@ agents never block on a schema or channel-allowlist change.
 > tickets below are kept for historical context; their original acceptance
 > criteria no longer apply.
 
-#### [V3-W12-001] ~~Add BridgeCode provider stub~~ — **obsoleted v1.2.4**
-- BridgeCode placeholder was removed from the registry. The launcher's
+#### [V3-W12-001] ~~Add SigmaCode provider stub~~ — **obsoleted v1.2.4**
+- SigmaCode placeholder was removed from the registry. The launcher's
   comingSoon → fallback machinery (the original deliverable of this ticket)
   is retained as generic infrastructure for future stubs but ships unused.
 - Original spec preserved in git history.
@@ -92,17 +92,17 @@ agents never block on a schema or channel-allowlist change.
 
 #### [V3-W12-004] Wizard matrix order + quick-fills + Custom Command row — **superseded v1.2.4**
 - v1.2.4 matrix order is `Claude | Codex | Gemini | Kimi | OpenCode | Custom
-  Command` (Droid + Copilot stubs removed; BridgeCode removed; Cursor
+  Command` (Droid + Copilot stubs removed; SigmaCode removed; Cursor
   removed). Quick-fill buttons and the Custom Command row continue to ship.
 
 ### Workspace launcher chrome (source `v3-delta-vs-current.md` §"Workspace launcher")
 
-#### [V3-W12-005] 3-card picker: BridgeSpace / BridgeSwarm / BridgeCanvas (ALPHA)
+#### [V3-W12-005] 3-card picker: SigmaSpace / SigmaSwarm / SigmaCanvas (ALPHA)
 - Frames: 0020, 0180. Citation: *"Build the future."* / `⌘T · ⌘S · ⌘K`.
 - Files: `app/src/renderer/features/workspace-launcher/Launcher.tsx`.
 - Acceptance:
   - Picker renders three cards with hotkey hints `⌘T`/`⌘S`/`⌘K`.
-  - BridgeCanvas card carries `ALPHA` chip and routes to canvas-creation flow (V3-W14-001+).
+  - SigmaCanvas card carries `ALPHA` chip and routes to canvas-creation flow (V3-W14-001+).
   - Bottom action row `+ NEW TERMINAL · SPLIT RIGHT · SETTINGS`.
 - Effort: S.
 - Depends on: none.
@@ -118,7 +118,7 @@ agents never block on a schema or channel-allowlist change.
 - Depends on: V3-W12-005.
 
 #### [V3-W12-007] Layout step: tile grid + folder picker + presets
-- Frames: 0030, 0035, 0040. Citation: `1/2/4/6/8/10/12` tiles, hover *"4 terminals · 2x2 grid"*; preset row `BridgeMind | Test 3 | Test 2 | Test | NEW`.
+- Frames: 0030, 0035, 0040. Citation: `1/2/4/6/8/10/12` tiles, hover *"4 terminals · 2x2 grid"*; preset row `SigmaMind | Test 3 | Test 2 | Test | NEW`.
 - Files: `app/src/renderer/features/workspace-launcher/LayoutStep.tsx` (new), `app/src/renderer/features/workspace-launcher/PresetRow.tsx` (new).
 - Acceptance:
   - Folder field with picker + autocomplete (recents from `workspaces` table).
@@ -257,7 +257,7 @@ Goal: every parity-blocking V3 surface lands. Bridge Assistant ships full.
 - Depends on: V3-W12-013.
 
 #### [V3-W13-002] Browser tab — recents panel + click-link-in-pane → built-in browser
-- Frames: 0340. Citation: recents `localhost / openrouter.ai / www.bridgemind.ai`; *L209* link-routing.
+- Frames: 0340. Citation: recents `localhost / openrouter.ai / www.sigmamind.ai`; *L209* link-routing.
 - Files: `app/src/renderer/features/browser/BrowserRoom.tsx`, `app/src/main/core/browser/manager.ts`.
 - Acceptance:
   - Recents panel lists last 10 distinct origins, filtered to current workspace.
@@ -266,7 +266,7 @@ Goal: every parity-blocking V3 surface lands. Bridge Assistant ships full.
 - Depends on: V3-W13-001.
 
 #### [V3-W13-003] Per-pane top-bar chrome variants + provider splash + footer hints
-- Frames: 0045, 0070, 0100, 0140. Citation: `Claude Code v2.1.116 · Opus 4.7 (1M) · Claude Max`, Codex `OpenAI Codex (v0.121.0) · gpt-5.4 high fast · directory: ~/Desktop/bridgemind`, OpenCode ASCII + `Build · Kimi K2.6 OpenRouter`, `auto mode on (shift+tab to cycle)`, `bypass permissions on`.
+- Frames: 0045, 0070, 0100, 0140. Citation: `Claude Code v2.1.116 · Opus 4.7 (1M) · Claude Max`, Codex `OpenAI Codex (v0.121.0) · gpt-5.4 high fast · directory: ~/Desktop/sigmamind`, OpenCode ASCII + `Build · Kimi K2.6 OpenRouter`, `auto mode on (shift+tab to cycle)`, `bypass permissions on`.
 - Files: `app/src/renderer/features/command-room/PaneHeader.tsx`, `PaneSplash.tsx`, `PaneFooter.tsx`.
 - Acceptance:
   - Per-provider splash variants render at pane boot (Claude / Codex / OpenCode visuals).
@@ -360,7 +360,7 @@ Goal: every parity-blocking V3 surface lands. Bridge Assistant ships full.
 
 #### [V3-W13-012] Bridge Assistant chat panel + orb state machine
 - Frames: 0080, 0090, 0100, 0150, 0410. Citation: orb states `STANDBY · LISTENING · RECEIVING · THINKING`; chat labels `BRIDGE` / `YOU` rounded pills.
-- Files: new `app/src/renderer/features/bridge-agent/BridgeRoom.tsx`, `Orb.tsx`, `ChatTranscript.tsx`.
+- Files: new `app/src/renderer/features/bridge-agent/SigmaRoom.tsx`, `Orb.tsx`, `ChatTranscript.tsx`.
 - Acceptance:
   - Orb component with 4 states; tap orb → enters LISTENING (W15 wires real mic).
   - Transcript renders rounded-pill role labels; assistant messages stream char-by-char.
@@ -391,7 +391,7 @@ Goal: every parity-blocking V3 surface lands. Bridge Assistant ships full.
 
 #### [V3-W13-015] Bridge Assistant cross-workspace Jump-to-pane + completion ding
 - Transcript L122-137. Citation: completion ding + jump-to-pane toast.
-- Files: `app/src/renderer/features/bridge-agent/BridgeRoom.tsx`, `app/src/renderer/lib/notifications.ts`.
+- Files: `app/src/renderer/features/bridge-agent/SigmaRoom.tsx`, `app/src/renderer/lib/notifications.ts`.
 - Acceptance:
   - Completion of an `assistant:dispatch-pane` fires a sonner toast with `Jump to pane` action.
   - Clicking action sets `state.activeWorkspace` + `state.room='command'` + focuses target sessionId.
@@ -436,7 +436,7 @@ Goal: visual design tool ships; Editor right-rail tab ships; auto-update channel
 - Depends on: V3-W14-002.
 
 #### [V3-W14-004] Drag-and-drop asset → absolute path in prompt buffer
-- Frames: 0398, 0405. Citation: drag video → buffer `'/Users/matthewmiller/Desktop/bridgemind/bridgespace-v3.mp4'`.
+- Frames: 0398, 0405. Citation: drag video → buffer `'/Users/matthewmiller/Desktop/sigmamind/sigmaspace-v3.mp4'`.
 - Files: `app/src/renderer/features/browser/DesignDock.tsx`, `app/src/main/core/design/staging.ts`.
 - Acceptance:
   - HTML5 drag of file from desktop into prompt buffer triggers `design:attach-file`.
@@ -453,11 +453,11 @@ Goal: visual design tool ships; Editor right-rail tab ships; auto-update channel
 - Effort: L.
 - Depends on: V3-W14-004.
 
-#### [V3-W14-006] BridgeCanvas card live in workspace picker (no longer ALPHA-only)
+#### [V3-W14-006] SigmaCanvas card live in workspace picker (no longer ALPHA-only)
 - Frames: 0020, 0180.
 - Files: `app/src/renderer/features/workspace-launcher/Launcher.tsx`.
 - Acceptance:
-  - BridgeCanvas card retains `ALPHA` chip until W14 acceptance smoke; toggleable via `kv['canvas.gaSign']`.
+  - SigmaCanvas card retains `ALPHA` chip until W14 acceptance smoke; toggleable via `kv['canvas.gaSign']`.
   - Selecting it creates a `canvases` row + opens Canvas surface.
 - Effort: S.
 - Depends on: V3-W12-005, V3-W14-001.
@@ -498,21 +498,21 @@ Goal: visual design tool ships; Editor right-rail tab ships; auto-update channel
 
 ## Wave 15 — CI Matrix + Voice + Dogfood
 
-Goal: BridgeVoice intake; Windows/macOS/Linux CI matrix; dogfood cycle; plan-gating
+Goal: SigmaVoice intake; Windows/macOS/Linux CI matrix; dogfood cycle; plan-gating
 capability matrix lands as a `kv` row (no billing UI).
 
-#### [V3-W15-001] BridgeVoice intake — title-bar pill + `voice:state` event
+#### [V3-W15-001] SigmaVoice intake — title-bar pill + `voice:state` event
 - Frames: 0220. Source: `v3-protocol-delta.md` §6.
 - Files: new `app/src/renderer/features/voice/VoicePill.tsx`, `app/src/main/core/voice/adapter.ts`.
 - Acceptance:
-  - Centred title-bar `BridgeVoice` pill appears whenever any capture is active.
+  - Centred title-bar `SigmaVoice` pill appears whenever any capture is active.
   - One OS speech adapter (macOS Speech / Windows SAPI / Linux PocketSphinx fallback); only one capture session at a time.
   - Global `voice:state` event `{ active, source: 'mission'|'assistant'|'palette' }` fires on transitions.
 - Effort: M.
 - Depends on: V3-W12-017.
 
 #### [V3-W15-002] Voice intake → swarm-mission textarea
-- Frames: 0235. Citation: `@bridgespace-tauri  I want you to create a 30 second marketing video…`.
+- Frames: 0235. Citation: `@sigmaspace-tauri  I want you to create a 30 second marketing video…`.
 - Files: `app/src/renderer/features/swarm-room/MissionStep.tsx`.
 - Acceptance:
   - Mic button on mission textarea routes to `voice:state { source: 'mission' }`.
@@ -543,7 +543,7 @@ capability matrix lands as a `kv` row (no billing UI).
 - Frames: 0500, 0510. Citation: Basic / Pro / Ultra feature lists.
 - Files: new `app/src/main/core/plan/capabilities.ts`, `app/src/renderer/lib/canDo.ts`.
 - Acceptance:
-  - `Capability` enum lists every plan-gated affordance (BridgeMCP slot count, BridgeVoice on/off, max swarm size, BridgeCode access).
+  - `Capability` enum lists every plan-gated affordance (SigmaMCP slot count, SigmaVoice on/off, max swarm size, SigmaCode access).
   - `canDo(cap): boolean` consulted by all gated UIs; default tier = `'ultra'` since SigmaLink is local-only/free (capability matrix exists for forward compat only).
   - Settings exposes hidden tier-override for QA via `kv['plan.tier']`.
 - Effort: S.

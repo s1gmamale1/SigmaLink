@@ -1,4 +1,4 @@
 P
-BridgeSpace 3
+SigmaSpace 3
 Launching today.
-bridgemind.ai/bridgespace
+sigmamind.ai/sigmaspace

@@ -1,5 +1,5 @@
 # Blog: Introducing BridgeBench
-URL: https://www.bridgemind.ai/blog/bridgebench-ai-coding-benchmark
+URL: https://www.sigmamind.ai/blog/bridgebench-ai-coding-benchmark
 Fetched: 2026-05-09
 
 ## Headings (verbatim)

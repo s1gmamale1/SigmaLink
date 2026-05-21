@@ -26,10 +26,9 @@ export type Tier = 'basic' | 'pro' | 'ultra';
  */
 export type Capability =
   | 'swarm.maxSize'
-  | 'bridgemcp.slotCount'
-  | 'bridgevoice.enabled'
+  | 'sigmamcp.slotCount'
   | 'sigmavoice.enabled'
-  | 'bridgejarvis.enabled'
+  | 'sigmajarvis.enabled'
   | 'canvas.enabled';
 
 /** Strongly typed value union. Helps IDE inference at call sites. */
@@ -38,34 +37,31 @@ export type CapabilityValue = number | boolean;
 /**
  * Tier × capability matrix. Numbers come from frames 0500/0510:
  *   - swarm.maxSize:       basic=5, pro=15, ultra=20 (matches V3 pricing tiles)
- *   - bridgemcp.slotCount: basic=1, pro=10, ultra=999 (effectively unlimited)
- *   - bridgevoice.enabled: pro+ only
- *   - bridgejarvis.enabled: ultra only
+ *   - sigmamcp.slotCount: basic=1, pro=10, ultra=999 (effectively unlimited)
+ *   - sigmavoice.enabled: pro+ only
+ *   - sigmajarvis.enabled: ultra only
  *   - canvas.enabled:      pro+ only
  */
 export const CAPABILITIES_BY_TIER: Record<Tier, Record<Capability, CapabilityValue>> = {
   basic: {
     'swarm.maxSize': 5,
-    'bridgemcp.slotCount': 1,
-    'bridgevoice.enabled': false,
+    'sigmamcp.slotCount': 1,
     'sigmavoice.enabled': false,
-    'bridgejarvis.enabled': false,
+    'sigmajarvis.enabled': false,
     'canvas.enabled': false,
   },
   pro: {
     'swarm.maxSize': 15,
-    'bridgemcp.slotCount': 10,
-    'bridgevoice.enabled': true,
+    'sigmamcp.slotCount': 10,
     'sigmavoice.enabled': true,
-    'bridgejarvis.enabled': false,
+    'sigmajarvis.enabled': false,
     'canvas.enabled': true,
   },
   ultra: {
     'swarm.maxSize': 20,
-    'bridgemcp.slotCount': 999,
-    'bridgevoice.enabled': true,
+    'sigmamcp.slotCount': 999,
     'sigmavoice.enabled': true,
-    'bridgejarvis.enabled': true,
+    'sigmajarvis.enabled': true,
     'canvas.enabled': true,
   },
 };
@@ -92,7 +88,7 @@ export function parseTier(raw: string | null | undefined): Tier {
  * Read the value for a capability under the given tier. Generic so call sites
  * can document the expected runtime type without casts:
  *   const max = getCapability<number>('ultra', 'swarm.maxSize');
- *   const voice = getCapability<boolean>(tier, 'bridgevoice.enabled');
+ *   const voice = getCapability<boolean>(tier, 'sigmavoice.enabled');
  *
  * Never throws — if a row is missing (which would be a programmer error), the
  * Ultra value is returned as a permissive fallback.

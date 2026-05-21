@@ -12,7 +12,7 @@ Highlights
 * **Main bundle: 97.57 → 38.26 KB gzip (-61%, -59 KB)**.
   10 rooms now `React.lazy()`-loaded; `CommandRoom` stays eager. Cold
   paint is dramatically faster because the renderer no longer ships
-  ~8.5 KLOC of room code (BridgeRoom 1790, OperatorRoom 1712,
+  ~8.5 KLOC of room code (SigmaRoom 1790, OperatorRoom 1712,
   MemoryRoom 1136, SkillsRoom 1100, plus 6 others) before the user
   has picked a room.
 
@@ -76,7 +76,7 @@ Gates
   — set-state-in-effect, immutability, exhaustive-deps — scheduled
   for a v1.1.9 dedicated React-compiler wave)
 * `pnpm exec vite build` → main bundle **38.26 KB gzip** (was
-  97.57); 10 new lazy chunks (BridgeRoom, OperatorConsole,
+  97.57); 10 new lazy chunks (SigmaRoom, OperatorConsole,
   MemoryRoom, SkillsRoom, BrowserRoom, ReviewRoom, TasksRoom,
   SettingsRoom, SwarmRoom, Launcher)
 * `codesign --verify --deep --strict --verbose=2 SigmaLink.app` →

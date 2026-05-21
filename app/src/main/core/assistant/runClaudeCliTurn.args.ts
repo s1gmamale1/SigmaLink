@@ -8,9 +8,9 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { workspaces as workspacesTable } from '../db/schema';
-import { isClaudeSessionId } from '../pty/claude-resume-bridge';
+import { isClaudeSessionId } from '../pty/claude-resume-sigma';
 import { buildJorvisSystemPrompt } from './system-prompt';
-import { writeJorvisHostMcpConfig } from './mcp-host-bridge';
+import { writeJorvisHostMcpConfig } from './mcp-host-sigma';
 import * as conversationsDao from './conversations';
 import type { CliTurnDeps } from './runClaudeCliTurn';
 

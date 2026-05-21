@@ -8,7 +8,7 @@
 // via `if (provider.id === 'claude')` blocks; the bridge module also returns
 // 'skipped' for the safety conditions it can detect internally.
 //
-// Coverage at the bridge level (`claude-resume-bridge.test.ts`) already pins
+// Coverage at the bridge level (`claude-resume-sigma.test.ts`) already pins
 // symlink creation / idempotency / missing-source handling / traversal refusal.
 // This file's job is to keep the launcher contract honest: a regression that
 // accidentally fires `prepareClaudeResume` on codex/gemini/kimi/opencode would
@@ -19,7 +19,7 @@
 // v1.6.0 Phase 3 — also covers `effectivePaneSpawnMode` (pure helper, no deps).
 
 import { describe, it, expect, vi } from 'vitest';
-import * as bridge from '../pty/claude-resume-bridge.ts';
+import * as bridge from '../pty/claude-resume-sigma.ts';
 import { effectivePaneSpawnMode } from '../pty/local-pty';
 
 describe('Claude resume bridge — provider gate semantics', () => {

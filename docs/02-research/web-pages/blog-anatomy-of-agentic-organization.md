@@ -1,5 +1,5 @@
 # Blog: The Anatomy of an Agentic Organization
-URL: https://www.bridgemind.ai/blog/anatomy-of-agentic-organization
+URL: https://www.sigmamind.ai/blog/anatomy-of-agentic-organization
 Fetched: 2026-05-09
 
 ## Headings (paraphrased)

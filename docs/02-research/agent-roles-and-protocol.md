@@ -1,7 +1,7 @@
-# BridgeSwarm Agent Roles and Protocol
+# SigmaSwarm Agent Roles and Protocol
 Compiled: 2026-05-09
 
-Sources: bridgeswarm, blog-bridgeswarm, products-bridgespace, blog-anatomy-of-agentic-organization, blog-scaling-ai-systems, blog-ai-engineering-best-practices.
+Sources: sigmaswarm, blog-sigmaswarm, products-sigmaspace, blog-anatomy-of-agentic-organization, blog-scaling-ai-systems, blog-ai-engineering-best-practices.
 
 ## The four canonical roles
 
@@ -29,7 +29,7 @@ Sources: bridgeswarm, blog-bridgeswarm, products-bridgespace, blog-anatomy-of-ag
 
 ## Behavioral rules
 
-### From bridgeswarm landing page (8)
+### From sigmaswarm landing page (8)
 1. Agents always know full project context before starting.
 2. Real-time status tracking keeps swarm synchronized.
 3. Strict file ownership prevents merge conflicts by design.
@@ -39,7 +39,7 @@ Sources: bridgeswarm, blog-bridgeswarm, products-bridgespace, blog-anatomy-of-ag
 7. Safe git practices enforced at orchestration layer.
 8. Agents prioritize shipping code over sending messages.
 
-### From bridgeswarm blog post (4 named)
+### From sigmaswarm blog post (4 named)
 - Rule 1: No idle chatter. Every message must advance the goal.
 - Rule 2: Strict scope. Agents only modify what they're assigned.
 - Rule 3: Work over talk. Agents prioritize doing work over messaging.
@@ -57,7 +57,7 @@ Sources: bridgeswarm, blog-bridgeswarm, products-bridgespace, blog-anatomy-of-ag
 ---
 
 ## Shared source of truth
-- All agents read/write through the same task board (BridgeMCP project + tasks + knowledge).
+- All agents read/write through the same task board (SigmaMCP project + tasks + knowledge).
 - Task knowledge field (≤50,000 chars) accumulates discoveries across agents.
 - Real-time status sync; no out-of-band channels.
 
@@ -79,10 +79,10 @@ Sources: bridgeswarm, blog-bridgeswarm, products-bridgespace, blog-anatomy-of-ag
 ## Inter-agent communication protocol
 - Public docs do not specify message format, transport, or schema (open question).
 - Hints from sources:
-  - Mediated via BridgeMCP task lifecycle (todo → in-progress → in-review → complete → cancelled).
+  - Mediated via SigmaMCP task lifecycle (todo → in-progress → in-review → complete → cancelled).
   - Mentions: "real-time status tracking" (rule 2), "automatic escalation when agents are blocked" (rule 6).
-  - Status updates flow through BridgeMCP, not chat.
-  - "Mention textarea" added in BridgeSpace v3.0.7 — likely surface for human → agent comms.
+  - Status updates flow through SigmaMCP, not chat.
+  - "Mention textarea" added in SigmaSpace v3.0.7 — likely surface for human → agent comms.
 
 ---
 
@@ -98,7 +98,7 @@ Sources: bridgeswarm, blog-bridgeswarm, products-bridgespace, blog-anatomy-of-ag
 - Blog "Anatomy of an Agentic Organization" frames humans as Technical Director, agents as autonomous executors.
 - Blog "Scaling Vibe Coding" introduces Supervisor Agent for stage-3 swarms.
 - Blog "Agentic Coding" cites Architect / Frontend / Backend / QA roles as examples.
-- BridgeCode docs add 5 built-in agents: vibe / build / plan / architect / ship.
+- SigmaCode docs add 5 built-in agents: vibe / build / plan / architect / ship.
 
 ---
 

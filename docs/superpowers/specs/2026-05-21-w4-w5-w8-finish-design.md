@@ -118,4 +118,4 @@ Today bindings are pure metadata; nothing in the dispatch path reads them
 - W-4 P5 Windows e2e verification (needs Windows host), P6 human dogfood, P7 actual flip,
   P8–P9 schema cleanup.
 - W-5 — non-slash providers (kimi/opencode) get chip-only, no injection.
-- BridgeVoice signing (funded certs; explicitly off-roadmap for internal use).
+- SigmaVoice signing (funded certs; explicitly off-roadmap for internal use).

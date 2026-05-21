@@ -2,7 +2,7 @@
 //
 // The server is a thin proxy: MCP `initialize` / `tools/list` are answered
 // locally, and `tools/call` is forwarded to the main process via the
-// `BridgeClient`. These tests inject a fake bridge so we never touch a
+// `SigmaClient`. These tests inject a fake sigma client so we never touch a
 // real Unix socket — the focus is on the JSON-RPC envelope shape and
 // error-mapping (MCP wraps tool-call results in
 // `{ content: [{type:'text', text:...}], isError: bool }`).
@@ -23,10 +23,10 @@ interface TestHarness {
   responses: () => CapturedResponse[];
 }
 
-function makeDeps(invoke?: McpHostServerDeps['bridge']['invoke']): TestHarness {
+function makeDeps(invoke?: McpHostServerDeps['sigma']['invoke']): TestHarness {
   const written: string[] = [];
   const deps: McpHostServerDeps = {
-    bridge: {
+    sigma: {
       invoke:
         invoke ??
         (async () => ({

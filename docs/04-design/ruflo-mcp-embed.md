@@ -107,7 +107,7 @@ The `simplify` skill recommends keeping the public surface to `proxy.call(toolNa
 
 If `ruflo.embeddings.search` rejects (timeout, supervisor degraded), the merge silently falls back to token-only results — no toast, no error. The chip simply doesn't appear.
 
-### Feature 2 — Bridge Pattern Surfacing (`BridgeRoom.tsx`)
+### Feature 2 — Bridge Pattern Surfacing (`SigmaRoom.tsx`)
 
 **Behavior**
 
@@ -121,7 +121,7 @@ If `ruflo.embeddings.search` rejects (timeout, supervisor degraded), the merge s
 
 **UI affordances**
 
-- Ribbon uses the same design language as the existing "Bridge tip" surface (see `BridgeRoom` empty-state).
+- Ribbon uses the same design language as the existing "Bridge tip" surface (see `SigmaRoom` empty-state).
 - Visible only when supervisor is `ready`. Hidden, never disabled, when `down`.
 
 **Failure mode**
@@ -272,7 +272,7 @@ CHANNEL_SCHEMAS['ruflo.install.start']      = { input: z.object({}).strict(), ou
 ## 8. Files Touched (Reference)
 
 - **New**: `app/src/main/core/ruflo/{supervisor,proxy,installer,controller,types}.ts`, `app/src/renderer/features/settings/RufloSettings.tsx`
-- **Edit**: `app/src/shared/rpc-channels.ts` (+6 channels, +2 events), `app/src/main/core/rpc/schemas.ts` (+6 schemas), `app/src/main/rpc-router.ts` (build + register `RufloController`, add to `SharedDeps`), `app/electron/main.ts` (`before-quit` hook supervisor.stop), `app/src/renderer/features/memory/MemoryRoom.tsx` (semantic toggle + chip), `app/src/renderer/features/bridge-agent/BridgeRoom.tsx` (pattern ribbon + post-turn store), `app/src/renderer/features/command-palette/CommandPalette.tsx` (autopilot suggested group)
+- **Edit**: `app/src/shared/rpc-channels.ts` (+6 channels, +2 events), `app/src/main/core/rpc/schemas.ts` (+6 schemas), `app/src/main/rpc-router.ts` (build + register `RufloController`, add to `SharedDeps`), `app/electron/main.ts` (`before-quit` hook supervisor.stop), `app/src/renderer/features/memory/MemoryRoom.tsx` (semantic toggle + chip), `app/src/renderer/features/bridge-agent/SigmaRoom.tsx` (pattern ribbon + post-turn store), `app/src/renderer/features/command-palette/CommandPalette.tsx` (autopilot suggested group)
 - **Reference only**: `app/src/main/core/memory/mcp-supervisor.ts`, `app/scripts/ruflo-mcp-filter.mjs`
 
 ---

@@ -1,0 +1,32 @@
+{
+  "name": "@sigmalink/sigma-voice",
+  "version": "0.1.4",
+  "private": true,
+  "description": "SigmaVoice — standalone system-wide dictation app powered by @sigmalink/voice-core. Hotkey → capture → whisper transcribe → clipboard/AX-paste into any focused app.",
+  "author": "SigmaLink Team",
+  "type": "module",
+  "main": "sigma-dist/main.js",
+  "scripts": {
+    "dev": "electron src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "compile": "node scripts/build.cjs",
+    "build": "node scripts/build.cjs",
+    "pack:mac": "node scripts/build.cjs && electron-builder --mac dmg --config electron-builder.yml",
+    "pack:win": "node scripts/build.cjs && electron-builder --win nsis --config electron-builder.yml"
+  },
+  "dependencies": {
+    "@sigmalink/voice-core": "workspace:*"
+  },
+  "peerDependencies": {
+    "electron": "*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.0",
+    "typescript": "~5.9.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

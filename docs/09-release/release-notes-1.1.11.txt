@@ -218,7 +218,7 @@ See `docs/08-bugs/BACKLOG.md` for the full ledger.
   20+ feature files (Composer voice gate key mismatch, MemoryRoom
   keystroke RPC spam, EditorTab listener thrash, NotesTab edit
   clobber, ReplayScrubber off-by-one + stale callback, Constellation
-  + MemoryGraph rAF hover stale closure, BridgeRoom listener thrash,
+  + MemoryGraph rAF hover stale closure, SigmaRoom listener thrash,
   TaskDetailDrawer stale prop, etc.).
 * **Kimi's 🟠 P3 optimizations** — 35 catalogued, deferred until
   the warning sweep lands first.

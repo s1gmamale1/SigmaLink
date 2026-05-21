@@ -1,4 +1,4 @@
-# Packet 04 — Global voice capture (BridgeVoice-style)
+# Packet 04 — Global voice capture (SigmaVoice-style)
 
 **Severity**: Feature (user-requested 2026-05-19)
 **Effort**: L (3-7 dev-days) — **research phase first** (~½ day)
@@ -12,7 +12,7 @@
 ## Context
 
 User flow ask (2026-05-19):
-> "BridgeMind has product called BridgeVoice which I believe a separate product or app that from what I understood u activate via hotkey and start yapping, once done it will auto transcribe your voice to prompt or to clip board and gg. Need investigation on this one as well maybe there's an opensource for this"
+> "SigmaMind has product called SigmaVoice which I believe a separate product or app that from what I understood u activate via hotkey and start yapping, once done it will auto transcribe your voice to prompt or to clip board and gg. Need investigation on this one as well maybe there's an opensource for this"
 
 What this is:
 - A **global** hotkey-triggered voice capture (works app-wide, not just inside SigmaLink)
@@ -45,11 +45,11 @@ Could be:
 
 Recommend research a tight comparison: **whisper.cpp** (cross-platform offline) vs **Apple Speech.framework** (mac-only, already integrated). For Windows specifically: whisper.cpp or Win11's built-in voice access.
 
-### R2 — Investigate BridgeMind's BridgeVoice product specifically
+### R2 — Investigate SigmaMind's SigmaVoice product specifically
 
-The user said BridgeMind has a product called BridgeVoice. Quick research questions:
-- Is it open source? Check GitHub: `gh search repos bridgemind voice` and `gh api -X GET /search/repositories?q=BridgeMind+voice`
-- Is there a marketing page describing the UX? Use the WebFetch tool against likely URLs (bridgemind.com, bridgemind.ai, github.com/bridgemind)
+The user said SigmaMind has a product called SigmaVoice. Quick research questions:
+- Is it open source? Check GitHub: `gh search repos sigmamind voice` and `gh api -X GET /search/repositories?q=SigmaMind+voice`
+- Is there a marketing page describing the UX? Use the WebFetch tool against likely URLs (sigmamind.com, sigmamind.ai, github.com/sigmamind)
 - What's the stack? If they open-sourced it, leverage their patterns
 
 ### R3 — Architecture decision
@@ -113,7 +113,7 @@ A short MD in this same dir: `04-global-voice-capture-research.md` (or appended 
 - Decision: Hotkey default (chord + rationale)
 - Decision: Output target priority (clipboard always vs pane-focus-aware)
 - Bundling decision (lazy-download model vs ship-in-DMG)
-- BridgeMind/BridgeVoice research findings (if any)
+- SigmaMind/SigmaVoice research findings (if any)
 
 Lead reviews the research-phase MD before authorizing implementation.
 
@@ -149,25 +149,25 @@ Research conducted by Opus reviewer agent. All decisions LOCKED unless lead over
 - OpenAI Whisper API: $0.006/min (Whisper-1, legacy) or $0.003/min (gpt-4o-mini-transcribe). 2.1s median latency, no streaming, 25 MB upload cap.
 - Vosk WER lags Whisper by ~30-50% on English clean speech; only wins on tiny-RAM/CPU envelopes that don't apply to Mac/Win desktop targets.
 
-### R2 — BridgeMind / BridgeVoice public research
+### R2 — SigmaMind / SigmaVoice public research
 
-**Verdict: BridgeVoice IS real, IS a competitor, NOT open source. Use as UX reference, ship our own.**
+**Verdict: SigmaVoice IS real, IS a competitor, NOT open source. Use as UX reference, ship our own.**
 
-Confirmed via WebFetch + WebSearch (sources: bridgemind.ai/products/bridgevoice, docs.bridgemind.ai/docs/bridgevoice, YouTube launch video, MOGE product profile):
+Confirmed via WebFetch + WebSearch (sources: sigmamind.ai/products/sigmavoice, docs.sigmamind.ai/docs/sigmavoice, YouTube launch video, MOGE product profile):
 
 - **What it is**: Desktop dictation app for developers, ships across macOS / Windows / Linux on Tauri 2.0
 - **Stack**: whisper.cpp for local (English only, 6 model sizes: Tiny 75 MB → Large-v3 3.1 GB); Groq Whisper Large-v3-Turbo for cloud (99+ languages, Pro tier)
 - **UX**: Push-to-talk OR toggle, fully customizable global hotkey, no published default
 - **Output**: Pastes directly into focused app (code editor, terminal, Slack, Notion, browser) — Accessibility/AX-driven paste
 - **Latency claim**: <10 ms record start, end-to-end <1 s (cloud Groq path) / sub-second (local turbo)
-- **Pricing**: $20/mo Basic, **$50/mo Pro (BridgeVoice included)**, $100/mo Ultra. 20% off annual.
-- **Open source**: NOT confirmed open source in any public docs or repo. github.com/bridgemind returns 404.
+- **Pricing**: $20/mo Basic, **$50/mo Pro (SigmaVoice included)**, $100/mo Ultra. 20% off annual.
+- **Open source**: NOT confirmed open source in any public docs or repo. github.com/sigmamind returns 404.
 - **Bundling**: Lazy-download — user picks model size in Settings → Recording, app downloads it. No DMG bundling.
 
 **Implications for SigmaLink:**
-1. Stack validation: BridgeVoice independently chose whisper.cpp local + cloud-fallback — confirms our R3 path.
+1. Stack validation: SigmaVoice independently chose whisper.cpp local + cloud-fallback — confirms our R3 path.
 2. Differentiation must come from **deeper SigmaLink integration** (pane-aware paste targeting per packet 03, agent voice routing via existing `dispatcher.ts`), NOT raw transcription. They beat us on cross-app paste; we beat them on in-app intent dispatch.
-3. We have a free moat: BridgeVoice is $50/mo Pro tier. A free, native voice capture integrated with SigmaLink agents is a real lure for users who'd rather not pay $600/yr for what whisper.cpp gives them.
+3. We have a free moat: SigmaVoice is $50/mo Pro tier. A free, native voice capture integrated with SigmaLink agents is a real lure for users who'd rather not pay $600/yr for what whisper.cpp gives them.
 
 ### R3 — Architecture path: **LOCKED → Path A++ (Electron-extension WITH menu-bar persistence)**
 
@@ -207,7 +207,7 @@ Implementation skeleton (mac-first, win/linux v1.4.9):
 
 **Default chosen: `base.en` Q5_1 (57 MB on disk, ~200 MB RAM, ~2x real-time on M2)** — strikes the speed/accuracy/disk balance. Quantized = same WER as full base.en within 1-2%.
 
-Storage layout: `<userData>/voice-models/ggml-base.en-q5_1.bin` (mirrors BridgeVoice convention). Model registry in `src/main/core/voice/model-registry.ts` (NEW) tracks `{id, name, sizeMB, sha256, url, downloaded, default}` rows; HuggingFace hosts the official ggml-org/whisper.cpp builds (CDN, no auth).
+Storage layout: `<userData>/voice-models/ggml-base.en-q5_1.bin` (mirrors SigmaVoice convention). Model registry in `src/main/core/voice/model-registry.ts` (NEW) tracks `{id, name, sizeMB, sha256, url, downloaded, default}` rows; HuggingFace hosts the official ggml-org/whisper.cpp builds (CDN, no auth).
 
 First-launch flow when user toggles global capture ON:
 1. Settings → Voice → "Enable global capture" toggle flips
@@ -228,7 +228,7 @@ Survey of conflicts (avoid stomping on common bindings):
 | `Cmd+Option+Space` | None default (Spotlight-without-Spotlight is `Cmd+Space`) | N/A | N/A | Three-finger but reachable | **CHOSEN for macOS** |
 | `Ctrl+Alt+Space` | N/A | None default | None default | Same shape as mac | **CHOSEN for win/linux** |
 | `Fn+F-key` | Function-key remap fights | Volume/brightness | TTY-switch on linux | Inconsistent across hardware | REJECTED |
-| Right Option (push-to-talk) | None | N/A (no Right Alt on most US layouts) | None | BridgeVoice default; great when it works | OFFER as alternative in Settings, not default |
+| Right Option (push-to-talk) | None | N/A (no Right Alt on most US layouts) | None | SigmaVoice default; great when it works | OFFER as alternative in Settings, not default |
 
 Default lands on `Cmd+Option+Space` because:
 1. Zero default conflicts on stock macOS (verified via System Settings → Keyboard → Shortcuts inventory)
@@ -319,13 +319,13 @@ Ready-to-dispatch v1.4.9+ implementation packet. Suggested model: **Sonnet** for
 
 ## Open questions for lead
 
-1. **Cloud Whisper fallback (yes/no)?** BridgeVoice ships Groq cloud as a paid Pro feature. SigmaLink could add OpenAI Whisper API ($0.006/min) as a Settings opt-in with BYOK (user supplies API key). Cheap to implement (no billing infra), wins us 99-language support that whisper.cpp medium gives us at 1.5 GB local. **Recommendation: ship local-only in v1.4.9, add BYOK cloud in v1.5 if user demand emerges.**
+1. **Cloud Whisper fallback (yes/no)?** SigmaVoice ships Groq cloud as a paid Pro feature. SigmaLink could add OpenAI Whisper API ($0.006/min) as a Settings opt-in with BYOK (user supplies API key). Cheap to implement (no billing infra), wins us 99-language support that whisper.cpp medium gives us at 1.5 GB local. **Recommendation: ship local-only in v1.4.9, add BYOK cloud in v1.5 if user demand emerges.**
 
 2. **Default ON vs OFF on first launch?** Locked OFF in this brief (surprise-avoidance), but if the user wants a "voice-first" pitch in marketing, default ON post-tutorial might land harder. **Recommendation: keep OFF, but show a coachmark in the Composer that says "Tip: enable global voice capture in Settings → Voice."**
 
 3. **Bundle tiny.en-Q5_1 (31 MB) in DMG as fallback?** Adds 31 MB to the DMG (~25% bump from ~120 MB to ~150 MB). Trade: instant-on for first-launch users vs slimmer download. **Recommendation: DON'T bundle; the 3-15 second download is acceptable for opt-in feature.**
 
-4. **Push-to-talk vs Toggle: which is default mode?** BridgeVoice defaults to push-to-talk (hold). Toggle is friendlier for long dictation; push-to-talk is friendlier for quick utterances. **Recommendation: Toggle by default — fewer "I let go too early" failures for new users; push-to-talk available in Settings.**
+4. **Push-to-talk vs Toggle: which is default mode?** SigmaVoice defaults to push-to-talk (hold). Toggle is friendlier for long dictation; push-to-talk is friendlier for quick utterances. **Recommendation: Toggle by default — fewer "I let go too early" failures for new users; push-to-talk available in Settings.**
 
 5. **Windows + Linux: ship in same release as macOS or stagger?** Native build matrix doubles the test surface. **Recommendation: ship macOS in v1.4.9, Windows+Linux in v1.4.10. Use the v1.4.9 window to validate the model-download UX before fanning out.**
 

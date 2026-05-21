@@ -1,5 +1,5 @@
 # Learn: Agentic Coding
-URL: https://www.bridgemind.ai/learn/agentic-coding
+URL: https://www.sigmamind.ai/learn/agentic-coding
 Fetched: 2026-05-09
 
 ## Headings (verbatim)
@@ -7,7 +7,7 @@ Fetched: 2026-05-09
 2. The Agentic Approach to Software Development
 3. How AI Agents Work as Teammates
 4. Agentic Coding in Practice
-5. BridgeMind's Agentic Platform
+5. SigmaMind's Agentic Platform
 6. Getting Started
 7. FAQ
 

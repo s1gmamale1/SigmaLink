@@ -20,7 +20,7 @@ export interface ModelOption {
 
 // Default model catalog. Sensible defaults per V3 evidence:
 //  - Claude pane chrome: `Claude Code v2.1.116 · Opus 4.7 (1M) · Claude Max` (frame 0045)
-//  - Codex pane chrome: `gpt-5.4 high fast · ~/Desktop/bridgemind` (frame 0070)
+//  - Codex pane chrome: `gpt-5.4 high fast · ~/Desktop/sigmamind` (frame 0070)
 //  - Gemini pane chrome: `gemini-2.5-pro` (frame 0090 area)
 //  - OpenCode pane chrome: `Build · OpenCode default` (frames 0100, 0140)
 export const MODEL_OPTIONS: ModelOption[] = [

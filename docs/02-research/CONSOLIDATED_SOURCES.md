@@ -8,7 +8,7 @@ Item-by-item bullet summary of every input document already in the SigmaLink pro
 
 ### `[REBUILD_PLAN.md §"Header / Synthesis"]`
 - Document title: "SigmaLink Ground-Up Rebuild Plan".
-- Synthesis sources called out: existing app audit, BridgeSpace public docs/marketing, Emdash (Apache-2.0) source patterns, Anthropic Skills + Playwright MCP patterns, `BridgeSpace_Research_Report.docx`, YouTube launch video transcript.
+- Synthesis sources called out: existing app audit, SigmaSpace public docs/marketing, Emdash (Apache-2.0) source patterns, Anthropic Skills + Playwright MCP patterns, `SigmaSpace_Research_Report.docx`, YouTube launch video transcript.
 
 ### `[REBUILD_PLAN.md §"North Star"]`
 - Product is a **local-first Electron desktop agentic development environment**.
@@ -17,7 +17,7 @@ Item-by-item bullet summary of every input document already in the SigmaLink pro
 - Capability 3: operator can launch a **swarm of role-bearing agents** with roles **Coordinator / Builder / Scout / Reviewer**, talking through a **file-system mailbox**.
 - Capability 4: **drag-and-drop Skills loader** (Anthropic Skills format) with fan-out to each provider's native location.
 - Capability 5: **in-app browser pane** that any agent can drive via **Playwright MCP over CDP**.
-- Capability 6: **shared-memory MCP server** (wikilink notes, BridgeMemory-equivalent) readable/writable by every agent.
+- Capability 6: **shared-memory MCP server** (wikilink notes, SigmaMemory-equivalent) readable/writable by every agent.
 - Capability 7: **persistence in SQLite** for workspaces, tasks, conversations, messages, terminals.
 
 ### `[REBUILD_PLAN.md §"Architecture (target)"]`
@@ -94,46 +94,46 @@ Item-by-item bullet summary of every input document already in the SigmaLink pro
 - Voice assistant.
 - Mobile app.
 - SSH remote workspaces (port the abstraction so it can be added later, but no UI).
-- BridgeMind-specific paid features.
+- SigmaMind-specific paid features.
 
 ### `[REBUILD_PLAN.md §"Legal/IP guardrails"]`
 - Visual layout, terminology (Coordinator/Builder/Scout/Reviewer roles, room naming, `.sigmamemory` directory) is allowed because it's functional/idiomatic.
 - File-mailbox protocol is independently designed.
 - All directly portable code patterns come from Emdash (Apache-2.0). Add NOTICE attribution.
-- No screenshot reproduction, no copy of proprietary BridgeSpace assets.
+- No screenshot reproduction, no copy of proprietary SigmaSpace assets.
 - Provider names (Claude Code, Codex, etc.) are factual product references.
 
 ---
 
-## 2. `research_extracted.txt` (extracted from `BridgeSpace_Research_Report.docx`)
+## 2. `research_extracted.txt` (extracted from `SigmaSpace_Research_Report.docx`)
 
 ### `[research_extracted.txt §"Cover / Title"]`
-- Title: "Multi-Agent AI Orchestration Workspace — Research Report: Building a BridgeSpace-Style Unified Environment".
+- Title: "Multi-Agent AI Orchestration Workspace — Research Report: Building a SigmaSpace-Style Unified Environment".
 - Date: May 2026. Subtitle: "Comprehensive Technical Analysis & Implementation Blueprint".
 
 ### `[research_extracted.txt §"Executive Summary"]`
-- Reference is BridgeMind's BridgeSpace product.
+- Reference is SigmaMind's SigmaSpace product.
 - Core innovation requested: dynamic multi-provider system where any CLI agent (Claude Code, Codex, Gemini CLI, OpenCode, Aider, etc.) can be launched in parallel terminals, connected to each other, and delegated tasks by a central orchestrator AI.
 - Identifies **Emdash** as the strongest foundation; **dux** and **Claude Squad** as terminal-first alternatives.
 - Proposes Emdash + a custom orchestrator layer inspired by **Bernstein** patterns as optimal path.
 - Evaluates 15+ open-source tools.
 - Includes architecture blueprint, comparative analysis matrix, **16-week implementation roadmap**.
 
-### `[research_extracted.txt §"BridgeSpace Feature Analysis / Core Architecture Overview"]`
-- BridgeSpace is a commercial Agentic Development Environment (ADE) for orchestrating **up to 16 AI coding agents in parallel**.
+### `[research_extracted.txt §"SigmaSpace Feature Analysis / Core Architecture Overview"]`
+- SigmaSpace is a commercial Agentic Development Environment (ADE) for orchestrating **up to 16 AI coding agents in parallel**.
 - Cross-platform Electron app (macOS, Windows, Linux).
 - Terminal-first: multiple terminal panes running real CLI agents via PTY.
 - Per-agent **Git worktree isolation**.
 - **Multi-Room** workspace: Command Room (terminals), Swarm Room (parallel agents), Review Room (human oversight).
-- **BridgeMemory**: local-first knowledge graph with **12 MCP tools** for shared agent memory.
+- **SigmaMemory**: local-first knowledge graph with **12 MCP tools** for shared agent memory.
 - **Kanban Task Board**: integrated PM with task-to-agent assignment.
 
-### `[research_extracted.txt §"BridgeSpace Feature Analysis / Key Differentiators"]`
+### `[research_extracted.txt §"SigmaSpace Feature Analysis / Key Differentiators"]`
 - Orchestrator CLI AI capabilities:
   - Decompose high-level tasks into sub-tasks suitable for parallel execution.
   - Delegate sub-tasks to specialized agent instances with appropriate context.
   - Monitor agent progress and verify outputs before merging.
-  - Maintain shared context through BridgeMemory (wikilink-based knowledge graph).
+  - Maintain shared context through SigmaMemory (wikilink-based knowledge graph).
   - Support agent-to-agent communication for collaborative problem-solving.
 
 ### `[research_extracted.txt §"Tier 1: Emdash"]`
@@ -217,7 +217,7 @@ Item-by-item bullet summary of every input document already in the SigmaLink pro
 - 16-week phased approach.
 - **Phase 1 (Weeks 1-4) Foundation**: fork Emdash, audit codebase, set up dev env (Electron + TS), understand worktree manager / agent runner / IPC bridge, add custom provider definitions, basic orchestrator config UI. Deliverable: modified Emdash with custom provider set + orchestrator config panel.
 - **Phase 2 (Weeks 5-8) Multi-Agent Core**: agent-to-agent message bus over local HTTP; agent session manager with fork/branch; Swarm Room UI; task decomposition with structured LLM output; verification agent pattern. Deliverable: orchestrator delegating to 3+ parallel agents.
-- **Phase 3 (Weeks 9-12) Orchestrator Intelligence**: MCP server for shared memory (BridgeMemory equivalent); wikilink knowledge graph with bidirectional connections; Review Room with human-in-the-loop gates; auto-merge with Janitor verification; deterministic scheduling for zero-token coordination.
+- **Phase 3 (Weeks 9-12) Orchestrator Intelligence**: MCP server for shared memory (SigmaMemory equivalent); wikilink knowledge graph with bidirectional connections; Review Room with human-in-the-loop gates; auto-merge with Janitor verification; deterministic scheduling for zero-token coordination.
 - **Phase 4 (Weeks 13-16) Polish & Scale**: performance for 16+ parallel agents; SSH remote dev; ticket integration (Linear, Jira, GitHub Issues); themes + UI customization; documentation and community onboarding.
 
 ### `[research_extracted.txt §"Technical Deep Dive / Git Worktree Isolation"]`
@@ -249,8 +249,8 @@ Item-by-item bullet summary of every input document already in the SigmaLink pro
 ## 3. `video_transcript.txt` (and identical `docs/02-research/transcripts/launch-video-RG38jA-DFeM.txt`)
 
 ### `[video_transcript.txt §"Launch framing"]`
-- Speaker says BridgeMind is launching BridgeSpace after "145 days of vibe coding".
-- Claim: BridgeSpace empowers builders to ship code "at the speed of thought".
+- Speaker says SigmaMind is launching SigmaSpace after "145 days of vibe coding".
+- Claim: SigmaSpace empowers builders to ship code "at the speed of thought".
 
 ### `[video_transcript.txt §"Live swarm demo"]`
 - Demo swarm composition: **2 coordinators, 5 builders, 1 reviewer, 2 scouts**.
@@ -260,16 +260,16 @@ Item-by-item bullet summary of every input document already in the SigmaLink pro
 - Coordinator returns final "job complete" confirmation after polling.
 - Speaker says he "built BridgePace using BridgePace".
 
-### `[video_transcript.txt §"BridgeSpace workspace demo"]`
+### `[video_transcript.txt §"SigmaSpace workspace demo"]`
 - Operator picks any project directory.
 - Operator picks how many Claude Code or Codex agents to launch.
 - "I can launch up to **16 terminal sessions**".
 - Operator selects which agents to use; example mix: "two codex, one Gemini, one cursor agent".
 - Click launch → workspace ready.
-- "BridgeSwarm is the other core product inside of BridgeSpace."
+- "SigmaSwarm is the other core product inside of SigmaSpace."
 
-### `[video_transcript.txt §"BridgeSwarm demo"]`
-- Differentiation: BridgeSpace = isolated agents; BridgeSwarm = coordinating swarm.
+### `[video_transcript.txt §"SigmaSwarm demo"]`
+- Differentiation: SigmaSpace = isolated agents; SigmaSwarm = coordinating swarm.
 - Example prompt: "I want this swarm to be able to identify any security vulnerabilities and fix them."
 - Knowledge upload: "You can upload PDFs, images, anything that you want in the swarm's brain." (Skipped in demo.)
 - Roster preset selector: "presets between **5 agents or 50 agents**".
@@ -280,20 +280,20 @@ Item-by-item bullet summary of every input document already in the SigmaLink pro
   - Reviewers → Codex.
 - Click "launch swarm" launches a 5-agent swarm.
 - Right panel shows live coordination chat. Example: "builder 2 asks the operator, 'How are you feeling?'"
-- Speaker positions BridgeSwarm for hand-off of long-running difficult tasks with minimal intervention.
+- Speaker positions SigmaSwarm for hand-off of long-running difficult tasks with minimal intervention.
 
 ### `[video_transcript.txt §"Pricing"]`
-- BridgeSpace is gated behind "BridgeMind basic plan".
+- SigmaSpace is gated behind "SigmaMind basic plan".
 - Price: **$20 per month**.
 - Limited-time discount: 20% off with code `LAUNCH20` at checkout.
-- Distribution: download from `bridgemind.ai`.
+- Distribution: download from `sigmamind.ai`.
 
 ### `[docs/02-research/transcripts/launch-video-description.txt]`
 - Promotional description repeating: "Run up to 16 simultaneous AI agent sessions, mixing Claude, Codex, and Gemini, each assigned a specific role: coordinators, builders, scouts, and reviewers."
-- "With BridgeSwarm, your agents communicate, coordinate, and complete long-running tasks with minimal intervention."
+- "With SigmaSwarm, your agents communicate, coordinate, and complete long-running tasks with minimal intervention."
 - Tagline: "Stop typing. Start shipping."
-- Chapter list: BridgeSwarm Live, "I Built BridgeSpace Using BridgeSpace", BridgeSpace Workspaces (mix Claude/Codex/Gemini), BridgeSwarm Deep Dive (Coordinators/Builders/Scouts/Reviewers), Real-World Demo: Security Vulnerability Swarm Task, Setting Up Your Agent Roster, Watching the Swarm Come to Life, Pricing/Launch Discount.
-- Keywords: vibe coding, agentic coding, agentic development environment, AI IDE, multi-agent orchestration, "Claude Opus 4.6", "GPT 5.4", Gemini, BridgeSpace, BridgeSwarm, BridgeMind, etc.
+- Chapter list: SigmaSwarm Live, "I Built SigmaSpace Using SigmaSpace", SigmaSpace Workspaces (mix Claude/Codex/Gemini), SigmaSwarm Deep Dive (Coordinators/Builders/Scouts/Reviewers), Real-World Demo: Security Vulnerability Swarm Task, Setting Up Your Agent Roster, Watching the Swarm Come to Life, Pricing/Launch Discount.
+- Keywords: vibe coding, agentic coding, agentic development environment, AI IDE, multi-agent orchestration, "Claude Opus 4.6", "GPT 5.4", Gemini, SigmaSpace, SigmaSwarm, SigmaMind, etc.
 
 ---
 

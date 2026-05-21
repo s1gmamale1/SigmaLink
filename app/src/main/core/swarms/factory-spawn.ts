@@ -32,7 +32,7 @@ import { workspaceCwdInWorktree } from '../workspaces/worktree-cwd';
 import {
   ensureClaudeProjectDir,
   prepareClaudeWorkspaceContext,
-} from '../pty/claude-resume-bridge';
+} from '../pty/claude-resume-sigma';
 
 /**
  * Pick the coordinator that a newly-added agent should be assigned to.

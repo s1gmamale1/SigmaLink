@@ -1,4 +1,4 @@
-# BridgeSpace / BridgeSwarm — Visual Style Spec
+# SigmaSpace / SigmaSwarm — Visual Style Spec
 
 Distilled visual style guide derived from the saved thumbnails (1080p) and from the transcripts. Every claim is annotated:
 
@@ -14,13 +14,13 @@ When a hex value is given without a colour-picker measurement, it is an **estima
 
 | Element | Spec | Confidence |
 |---|---|---|
-| Brand name | **BridgeMind** (parent), **BridgeSpace** (the desktop ADE), **BridgeSwarm** (multi-agent coordination product inside BridgeSpace), **Bridge Canvas** (V3, third workspace type), **Bridge** (in-app autonomous orchestrator agent), **BridgeVoice** (voice-to-text), **BridgeJarvis** (voice assistant), **BridgeMemory** (knowledge graph; mentioned in supporting research), **BridgeMind MCP** (MCP server tooling). | T+V |
-| Wordmark | "BRIDGESPACE" set in a heavy condensed sans (looks like Inter/Plus Jakarta-style geometric sans, all-caps, tight tracking) with a **left-to-right horizontal gradient** — amber/orange on the left letters, fading through neutral, into steel/electric blue on the right letters. | V-confirmed |
-| Logo glyph (window-corner monogram) | A stylised lightning-bolt "Z" glyph, tilted ≈75°, set inside a soft rounded square. Two-tone gradient: cyan/teal in the top half, amber/gold in the bottom half. Appears at the **top-right of the BridgeSpace window** (where you'd put a help icon) and embroidered on the founder's hoodie. | V-confirmed |
+| Brand name | **SigmaMind** (parent), **SigmaSpace** (the desktop ADE), **SigmaSwarm** (multi-agent coordination product inside SigmaSpace), **Bridge Canvas** (V3, third workspace type), **Bridge** (in-app autonomous orchestrator agent), **SigmaVoice** (voice-to-text), **SigmaJarvis** (voice assistant), **SigmaMemory** (knowledge graph; mentioned in supporting research), **SigmaMind MCP** (MCP server tooling). | T+V |
+| Wordmark | "SIGMASPACE" set in a heavy condensed sans (looks like Inter/Plus Jakarta-style geometric sans, all-caps, tight tracking) with a **left-to-right horizontal gradient** — amber/orange on the left letters, fading through neutral, into steel/electric blue on the right letters. | V-confirmed |
+| Logo glyph (window-corner monogram) | A stylised lightning-bolt "Z" glyph, tilted ≈75°, set inside a soft rounded square. Two-tone gradient: cyan/teal in the top half, amber/gold in the bottom half. Appears at the **top-right of the SigmaSpace window** (where you'd put a help icon) and embroidered on the founder's hoodie. | V-confirmed |
 | Product app icon | Rounded-square icon (macOS-style, ≈22% corner radius). Background dark navy/black with subtle radial gradient. Foreground is **four white stroked panels arranged in a 2 × 2 grid**, each panel showing 2–3 short horizontal bars (representing agent panes / lines of code / chat bubbles). Strong dual glow behind the icon: **amber** on the left edge, **electric blue** on the right edge — exactly mirroring the wordmark gradient. | V-confirmed |
-| Mascot | None of BridgeSpace's own. The pixel-art crab/critter shown in the panes is **Claude Code's own mascot** rendered by the embedded `claude` CLI, not BridgeMind's. | V-confirmed |
+| Mascot | None of SigmaSpace's own. The pixel-art crab/critter shown in the panes is **Claude Code's own mascot** rendered by the embedded `claude` CLI, not SigmaMind's. | V-confirmed |
 
-The amber-to-blue gradient is the brand's primary visual signature and appears on: wordmark, app icon glow, swarm-window border (BridgeSpace 3 thumbnail), and hoodie monogram.
+The amber-to-blue gradient is the brand's primary visual signature and appears on: wordmark, app icon glow, swarm-window border (SigmaSpace 3 thumbnail), and hoodie monogram.
 
 ---
 
@@ -120,9 +120,9 @@ No serif faces visible anywhere.
 - Every pane appears equal-size; no obvious focused/zoomed pane state observed in the thumbnails (V3 may add zoom-into-pane — implied by "jump to pane").
 - Resizable splitters between panes implied by V3 narration about a draggable side-panel.
 
-### 4.3 BridgeSwarm Operator Console grid
+### 4.3 SigmaSwarm Operator Console grid
 
-(From the BridgeSpace 3 thumbnail: a separate window/panel showing the swarm.)
+(From the SigmaSpace 3 thumbnail: a separate window/panel showing the swarm.)
 
 - **4 columns × 4 rows = 16 cells** of small "agent cards" within a single rounded-rectangle window.
 - Each card ≈ 1/16 of the window area, ≈ 130 × 70 px at thumbnail scale.
@@ -166,14 +166,14 @@ Confirmed glyph set (from thumbnails + transcript):
 - **`x`** close button on tabs and panes [V-confirmed].
 - **`+`** to create a new workspace tab [V-confirmed].
 - **`⚙` settings gear** in top-right [V-confirmed].
-- **Lightning-bolt monogram** in extreme top-right (BridgeMind brand) [V-confirmed].
+- **Lightning-bolt monogram** in extreme top-right (SigmaMind brand) [V-confirmed].
 - **Branch indicator** with text `dev` in pane header — implies the pane is bound to a git worktree on branch `dev` [V-confirmed]. The glyph itself looks like the macOS branch glyph (small fork shape).
 - **Status dot** at left of pane header — colour likely encodes idle / running / done [V-est colour, role mapping inferred].
 - **Crown** glyph on coordinator node (topology art) [V-confirmed].
 - **Hammer** glyph on builder node (topology art) [V-confirmed].
 - **Eye / scope** for scout (referenced in transcript only) [T-only].
 - **Check / shield** for reviewer (referenced in transcript only) [T-only].
-- **Pixel-art crab** = Claude Code's own mascot, not BridgeSpace's. Several panes show it because every fresh `claude` invocation prints its splash. Same for Codex, Gemini, etc.
+- **Pixel-art crab** = Claude Code's own mascot, not SigmaSpace's. Several panes show it because every fresh `claude` invocation prints its splash. Same for Codex, Gemini, etc.
 
 ---
 
@@ -202,11 +202,11 @@ Confirmed glyph set (from thumbnails + transcript):
 
 | Claim | Status |
 |---|---|
-| BridgeSpace window has a top tab strip with workspace tabs, agent-count pills, `+` and gear icons | V-confirmed |
+| SigmaSpace window has a top tab strip with workspace tabs, agent-count pills, `+` and gear icons | V-confirmed |
 | Pane headers show status dot · folder icon · agent label · `branch dev` · close | V-confirmed |
 | Default theme is very dark with amber+blue brand glow accents | V-confirmed |
-| BridgeSpace product icon is a 2×2 panel-grid in a rounded square | V-confirmed |
-| Agent panes display each agent's native CLI splash (Claude Code shown verbatim as `Claude Code v2.1.72 / Opus 4.6 with high effort / Claude Max / ~/Desktop/bridgemind`) | V-confirmed |
+| SigmaSpace product icon is a 2×2 panel-grid in a rounded square | V-confirmed |
+| Agent panes display each agent's native CLI splash (Claude Code shown verbatim as `Claude Code v2.1.72 / Opus 4.6 with high effort / Claude Max / ~/Desktop/sigmamind`) | V-confirmed |
 | Workspace tabs can show an agent count badge ("5", "12") | V-confirmed |
 | Up to 16 panes per workspace | T-only (consistent with grid math, V-est) |
 | Three workspace types: Bridge Space, Bridge Swarm, Bridge Canvas | T-only |
@@ -218,7 +218,7 @@ Confirmed glyph set (from thumbnails + transcript):
 | Swarm topology rendered as crown / hammer hex nodes connected by mint edges | V-confirmed (in brand graphic; in-app rendering not confirmed) |
 | Roster presets: 5-agent squad / 50-agent (mentioned). Verified labels: **Squad (5)**, **Team (≈10)**, **Platoon (15)**, plus "Legion" used colloquially, plus 50-agent preset | T-only (squad confirmed numerically; team/platoon labels from V3 transcript) |
 | `⌘T` opens new-workspace dialog | T-only |
-| Voice prompts via BridgeVoice / BridgeJarvis | T-only |
+| Voice prompts via SigmaVoice / SigmaJarvis | T-only |
 | Notification "ding" + jump-to-pane (V3) | T-only |
 | Pricing: $20/mo basic, V3 coupon = 50% off, launch20 (older) = 20% off | T-only |
 | Fast-mode toggle on Codex / GPT 5.4 panes | T-only |

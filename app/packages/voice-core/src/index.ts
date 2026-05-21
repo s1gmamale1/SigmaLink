@@ -1,7 +1,7 @@
 // @sigmalink/voice-core — Public API
 //
 // Shared voice-capture stack extracted from SigmaLink for use by both
-// SigmaLink (app/src/main/core/voice/) and BridgeVoice (apps/bridge-voice/).
+// SigmaLink (app/src/main/core/voice/) and SigmaVoice (apps/sigma-voice/).
 //
 // Consumers import what they need:
 //   import { buildGlobalCaptureController } from '@sigmalink/voice-core';
