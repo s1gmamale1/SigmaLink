@@ -1,0 +1,54 @@
+SigmaLink v1.13.1 — 2026-05-22
+==============================
+
+v1.13.1 — Two audited UX bug fixes. A read-only feature audit surfaced
+both; brainstormed the fixes, then one Sonnet coder + lead gate.
+
+
+Pane "+" no longer mis-reports "Open or create a workspace first"
+-----------------------------------------------------------------
+
+The Add-Pane "+" button gated on `activeSwarm`, which is null during the
+async swarm-hydration window — so it showed "Open or create a workspace
+first" even while a workspace was open (a boot-window race, worse on slow
+startup / many panes).
+
+Fixed:
+- `getAddPaneDisabledReason` now keys off `activeWorkspace` + a
+  `swarmsLoading` flag. The "Open or create a workspace first" message
+  fires ONLY when no workspace is active.
+- During swarm hydration the button shows a transient "Loading workspace…"
+  (disabled, accurate) instead of the misleading message.
+- When a workspace genuinely has no swarm, the button is ENABLED and
+  addPane() creates a default swarm (rpc.swarms.create) before adding the
+  agent.
+- canAddPane checks workspaceSwarms directly (also fixes panes on a paused
+  swarm).
+
+
+Notification bell/panel now plays a sound
+-----------------------------------------
+
+Operator-facing notifications (pty-exit, tool-error, swarm-message → bell
+→ dropdown) were silent.
+
+Fixed:
+- New playNotificationTone() — a distinct descending D4→A3 tone, audibly
+  different from the Jorvis dispatch-completion chime (playDing).
+- Fired from the notifications:changed subscriber when a delta's `added`
+  contains new UNREAD rows of severity warn / error / critical. Once per
+  delta; info stays silent.
+- Gated on a new `notifications.sound` toggle (default ON), in Notification
+  settings next to the existing Jorvis-chime toggle.
+
+
+Combined main gate
+------------------
+
+- tsc clean
+- eslint 0 errors / 0 warnings
+- vitest 114 files / 1208 pass / 1 skip (+11 tests)
+- build + electron compile clean
+- Playwright smoke e2e 36 s pass in main
+
+No schema migrations in v1.13.1.

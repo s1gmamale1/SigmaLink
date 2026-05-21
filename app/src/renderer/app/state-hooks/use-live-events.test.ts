@@ -194,13 +194,17 @@ function makeNotification(
 ): Notification {
   return {
     id: `n-${Math.random()}`,
-    workspaceId: 'a',
+    workspaceId: 'a' as Notification['workspaceId'],
+    kind: 'pty-exit',
+    severity: 'warn',
     title: 'Test',
     body: '',
-    severity: 'warn',
-    readAt: null,
+    payload: null,
+    sourceEvent: null,
+    dedupKey: `dk-${Math.random()}`,
+    dupCount: 1,
     createdAt: Date.now(),
-    source: 'system',
+    readAt: null,
     ...overrides,
   };
 }

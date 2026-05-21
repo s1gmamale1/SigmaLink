@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-05-22
+
+v1.13.1 — **Two audited UX bug fixes** (read-only feature audit → brainstorm → 1 Sonnet coder + lead gate).
+
+### Pane "+" no longer says "Open or create a workspace first" while a workspace is open
+
+The Add-Pane button gated on `activeSwarm`, which is `null` during the async swarm-hydration window even with a workspace open (residual boot-window race). Reworked `getAddPaneDisabledReason` to key off `activeWorkspace` + a `swarmsLoading` flag: the "Open or create a workspace first" message now fires **only** when no workspace is active; during hydration it shows a transient "Loading workspace…"; and when a workspace genuinely has no swarm, the button is enabled and `addPane()` creates a default swarm (`rpc.swarms.create`) before adding the agent. `canAddPane` now checks `workspaceSwarms` directly (also fixes paused-swarm panes).
+
+### Notification bell/panel now plays a sound
+
+Operator-facing notifications (pty-exit, tool-error, swarm-message → bell/dropdown) were silent. Added a distinct `playNotificationTone()` (descending D4→A3, audibly different from the Jorvis `playDing()` chime) fired from the `notifications:changed` subscriber when a delta's `added` contains new **unread** rows of severity ∈ {warn, error, critical} — once per delta; `info` stays silent. Gated on a new `notifications.sound` toggle (**default ON**) in Notification settings.
+
+### Gate
+
+- tsc clean | eslint 0/0 | vitest 114 files / 1208 pass / 1 skip (+11)
+- build + electron:compile clean | smoke e2e 36 s in main
+
+No schema migrations.
+
 ## [1.13.0] - 2026-05-22
 
 v1.13.0 — **Bridge\* → Sigma\* brand rename (copyright cleanup)** + **SigmaVoice** standalone-app rename. One Opus coder (isolated worktree) + lead diff-review + full gate. 455 files, +1702/−1706.
