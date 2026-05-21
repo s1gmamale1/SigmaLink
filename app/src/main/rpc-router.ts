@@ -1060,7 +1060,13 @@ function buildRouter() {
       markWorkspaceClosed(id);
     },
     launch: async (plan) => {
-      const out = await executeLaunchPlan(plan, { pty, worktreePool });
+      const out = await executeLaunchPlan(plan, {
+        pty,
+        worktreePool,
+        // crash-classification IPC — fan out pty:error to all renderer windows
+        // when an exit is classified as a crash (earlyDeath OR non-zero exitCode/signal).
+        broadcastPtyError: (payload) => broadcast('pty:error', payload),
+      });
       return { sessions: out.sessions };
     },
   });

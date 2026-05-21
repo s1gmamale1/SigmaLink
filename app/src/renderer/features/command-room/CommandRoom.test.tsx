@@ -41,6 +41,7 @@ vi.mock('@/renderer/components/WorktreeInfoBanner', () => ({
 }));
 
 const addAgentMock = vi.fn();
+const createSwarmMock = vi.fn();
 const listProvidersMock = vi.fn();
 const listSwarmsMock = vi.fn();
 const ptyKillMock = vi.fn();
@@ -53,6 +54,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
     },
     swarms: {
       addAgent: (...args: unknown[]) => addAgentMock(...args),
+      create: (...args: unknown[]) => createSwarmMock(...args),
       list: (...args: unknown[]) => listSwarmsMock(...args),
       splitPane: vi.fn(),
       minimisePane: vi.fn(),
@@ -116,6 +118,7 @@ beforeEach(() => {
   };
   dispatchMock.mockReset();
   addAgentMock.mockReset();
+  createSwarmMock.mockReset();
   listProvidersMock.mockReset();
   listSwarmsMock.mockReset();
   ptyKillMock.mockReset();
@@ -258,6 +261,61 @@ describe('CommandRoom — v1.4.3 #05 EmptyState defensive UX', () => {
       swarmId: 'swarm-1',
       providerId: 'claude',
     });
+  });
+});
+
+// ---- v1.13.2 — empty-state UPSERT ordering + relaunch -----------------------
+describe('CommandRoom — v1.13.2 hardened pane-add', () => {
+  it('does NOT UPSERT_SWARM when addAgent rejects (no orphaned empty swarm)', async () => {
+    // Zero-swarms case: create resolves, addAgent rejects. The new swarm must
+    // never be written into state, so no agent-less orphan survives.
+    mockState.sessionsByWorkspace = {};
+    mockState.swarmsByWorkspace = { 'ws-1': [] };
+    mockState.activeSwarmId = null;
+    const newSwarm = makeSwarm('running');
+    listSwarmsMock.mockResolvedValue([]);
+    createSwarmMock.mockResolvedValue(newSwarm);
+    addAgentMock.mockRejectedValue(new Error('addAgent boom'));
+
+    await renderCommandRoom();
+    await waitFor(() => screen.getByText('Add first pane'));
+    fireEvent.click(screen.getByText('Add first pane'));
+
+    await waitFor(() => {
+      expect(addAgentMock).toHaveBeenCalledTimes(1);
+    });
+    // No UPSERT_SWARM dispatch occurred — the orphan is never created.
+    const upserts = dispatchMock.mock.calls
+      .map(([a]) => a)
+      .filter((a) => (a as { type: string }).type === 'UPSERT_SWARM');
+    expect(upserts).toHaveLength(0);
+  });
+
+  it('relaunches a crashed pane: addAgent same provider, then REMOVE_SESSION', async () => {
+    const crashed = makeSession({ id: 's1', status: 'error', exitCode: 1, providerId: 'codex' });
+    mockState.sessionsByWorkspace = { 'ws-1': [crashed] };
+    mockState.swarmsByWorkspace = { 'ws-1': [makeSwarm('running')] };
+    mockState.activeSwarmId = 'swarm-1';
+    addAgentMock.mockResolvedValue({
+      sessionId: 's-new',
+      paneIndex: 1,
+      agentKey: 'codex-1',
+      session: makeSession({ id: 's-new', providerId: 'codex' }),
+      swarm: makeSwarm('running'),
+    });
+
+    await renderCommandRoom();
+    await waitFor(() => screen.getByTestId('terminal-s1'));
+
+    fireEvent.click(screen.getByTestId('pane-relaunch-button'));
+
+    await waitFor(() => {
+      expect(addAgentMock).toHaveBeenCalledWith({ swarmId: 'swarm-1', providerId: 'codex' });
+    });
+    await waitFor(() => {
+      expect(dispatchMock).toHaveBeenCalledWith({ type: 'ADD_SESSIONS', sessions: expect.any(Array) });
+    });
+    expect(dispatchMock).toHaveBeenCalledWith({ type: 'REMOVE_SESSION', id: 's1' });
   });
 });
 

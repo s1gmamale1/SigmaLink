@@ -592,3 +592,75 @@ describe('appStateReducer v1.4.3 #06 — Split + Minimise', () => {
     expect(restored.sessions.find((x) => x.id === 's1')?.minimised).toBe(false);
   });
 });
+
+// --- v1.13.2 — crash handling + swarm-loader flag --------------------------
+describe('appStateReducer v1.13.2 — MARK_SESSION_ERROR', () => {
+  it('marks the session status "error" (not "exited") and records the exit code', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, { type: 'ADD_SESSIONS', sessions: [session('s1', 'a')] });
+
+    const crashed = appStateReducer(s, {
+      type: 'MARK_SESSION_ERROR',
+      id: 's1',
+      exitCode: 137,
+      signal: 'SIGKILL',
+    });
+
+    const out = crashed.sessions.find((x) => x.id === 's1');
+    expect(out?.status).toBe('error');
+    expect(out?.exitCode).toBe(137);
+    expect(out?.exitedAt).toEqual(expect.any(Number));
+    // No `error` string is set — PaneShell uses its absence + numeric exitCode
+    // to render the "Pane crashed" surface rather than "Failed to launch".
+    expect(out?.error).toBeUndefined();
+    expect(crashed.sessionsByWorkspace.a[0]?.status).toBe('error');
+  });
+
+  it('coerces a null exitCode (signal-only death) to undefined', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, { type: 'ADD_SESSIONS', sessions: [session('s1', 'a')] });
+
+    const crashed = appStateReducer(s, {
+      type: 'MARK_SESSION_ERROR',
+      id: 's1',
+      exitCode: null,
+      signal: 'SIGTERM',
+    });
+
+    const out = crashed.sessions.find((x) => x.id === 's1');
+    expect(out?.status).toBe('error');
+    expect(out?.exitCode).toBeUndefined();
+  });
+
+  it('does not touch sibling sessions', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('s1', 'a'), session('s2', 'a')],
+    });
+
+    const crashed = appStateReducer(s, { type: 'MARK_SESSION_ERROR', id: 's1', exitCode: 1 });
+    expect(crashed.sessions.find((x) => x.id === 's2')?.status).toBe('running');
+  });
+});
+
+describe('appStateReducer v1.13.2 — SET_SWARMS_LOADING', () => {
+  it('toggles the swarmsLoading slice', () => {
+    expect(initialAppState.swarmsLoading).toBe(false);
+    const loading = appStateReducer(initialAppState, { type: 'SET_SWARMS_LOADING', loading: true });
+    expect(loading.swarmsLoading).toBe(true);
+    const settled = appStateReducer(loading, { type: 'SET_SWARMS_LOADING', loading: false });
+    expect(settled.swarmsLoading).toBe(false);
+  });
+
+  it('returns the same state reference when the flag is unchanged (no needless rerender)', () => {
+    const same = appStateReducer(initialAppState, { type: 'SET_SWARMS_LOADING', loading: false });
+    expect(same).toBe(initialAppState);
+  });
+});

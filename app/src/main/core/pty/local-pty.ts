@@ -186,19 +186,27 @@ function windowsExtensionFor(cmd: string): 'cmd' | 'ps1' | null {
 
 /**
  * KV key for the Phase 1 shell-first pane mode feature flag.
- * Value: 'direct' (default) | 'shell-first'.
+ * Value: 'shell-first' (DEFAULT as of Phase 7) | 'direct'.
  * Exported so registry.ts (and tests) can read the canonical key name.
  */
 export const KV_PTY_SPAWN_MODE = 'pty.spawnMode';
 
 /**
  * Parse the raw KV value for `pty.spawnMode`.
- * Returns 'direct' for any unrecognised or missing value — preserving the
- * CRITICAL INVARIANT that the default is always 'direct'.
+ *
+ * Phase 7 default flip (2026-05-22): the default is now 'shell-first'.
+ * An unset/absent/null/undefined key resolves to 'shell-first' so that a
+ * crashed CLI leaves a live shell in the pane (the operator-requested
+ * terminal-fallback behaviour). Explicit 'direct' values are still honoured.
+ *
+ * win32 note: win32 shell-first is NOT yet Windows-dogfooded. The flip
+ * applies to all platforms per operator choice (2026-05-22 sign-off). If
+ * win32 issues arise, operators can revert to direct mode by setting the KV
+ * flag to 'direct' explicitly.
  */
 export function parseSpawnMode(raw: string | null | undefined): 'direct' | 'shell-first' {
-  if (raw === 'shell-first') return 'shell-first';
-  return 'direct';
+  if (raw === 'direct') return 'direct';
+  return 'shell-first';
 }
 
 /**
@@ -457,13 +465,9 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
   //   2. command !== ''                (non-empty → launching a CLI, not just opening a shell)
   //   [win32 platform check removed in Phase 5 — win32 now takes the shell-first path]
   //
-  // Phase 7 flip-wiring note: the default-flip to 'shell-first' is
-  // operator-gated post-dogfood (both POSIX and win32). The mechanism —
-  // parseSpawnMode() + the Settings toggle in RufloSettings.tsx — is fully
-  // wired and tested. The lead engineer flips the default by changing the
-  // fallback in parseSpawnMode() from 'direct' to 'shell-first' AFTER
-  // completing human dogfood validation. DO NOT flip the default here without
-  // that operator sign-off.
+  // Phase 7 (DONE — 2026-05-22): default is now 'shell-first'.
+  // parseSpawnMode() returns 'shell-first' for any unset/absent KV value.
+  // Explicit 'direct' KV values are still honoured.
   // ---------------------------------------------------------------------------
   const effectiveMode: 'direct' | 'shell-first' =
     input.spawnMode === 'shell-first' && input.command !== ''

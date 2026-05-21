@@ -75,10 +75,12 @@ export function CommandRoom() {
     activeWorkspaceId ? state.swarmsByWorkspace[activeWorkspaceId] ?? EMPTY_SWARMS : EMPTY_SWARMS,
   );
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
-  // v1.13.1 — true while rpc.swarms.list for the active workspace is in flight.
-  // Prevents the AddPaneButton from showing "Open or create a workspace first"
-  // during the async hydration window when a workspace IS open.
-  const [swarmsLoading, setSwarmsLoading] = useState(false);
+  // v1.13.2 — `swarmsLoading` now derives from the CANONICAL swarm loader in
+  // `use-live-events` (SET_SWARMS_LOADING), not a CommandRoom-local fetch. The
+  // old dual loader raced the canonical one and could overwrite the swarms
+  // slice; the duplicate fetch effect has been removed. Reading the slice keeps
+  // the "+Pane" gate honest during the single hydration window.
+  const swarmsLoading = useAppStateSelector((state) => state.swarmsLoading ?? false);
   // v1.5.3-A — "Add first pane" in the empty-state uses its own adding flag
   // so the EmptyState branch stays self-contained (the full dropdown version
   // lives in AddPaneButton which owns its own flag).
@@ -105,29 +107,11 @@ export function CommandRoom() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!activeWorkspaceId) return;
-    let alive = true;
-    // v1.13.1 — set loading inside an async IIFE so the lint rule is satisfied
-    // (setState called from a callback, not synchronously in the effect body).
-    void (async () => {
-      setSwarmsLoading(true);
-      try {
-        const list = await rpc.swarms.list(activeWorkspaceId);
-        if (!alive) return;
-        for (const swarm of list) {
-          dispatch({ type: 'UPSERT_SWARM', swarm });
-        }
-      } catch {
-        // Swarm load failure is non-fatal; user can retry.
-      } finally {
-        if (alive) setSwarmsLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [activeWorkspaceId, dispatch]);
+  // v1.13.2 — the CommandRoom-local `rpc.swarms.list` effect was REMOVED here.
+  // It duplicated the canonical loader in `use-live-events` and raced it: when
+  // its UPSERT_SWARM dispatches landed after the canonical SET_SWARMS they could
+  // re-sort/overwrite the swarms slice (and flip activeSwarmId). The canonical
+  // loader now also owns the `swarmsLoading` flag, which we read from state.
 
   // v1.4.3 #06 — Group sessions into grid cells. Standalone panes get one
   // cell each; the two halves of a split share a cell (rendered as a
@@ -202,6 +186,12 @@ export function CommandRoom() {
     if (!activeWorkspace || emptyStateAdding || providers.length === 0) return;
     setEmptyStateAdding(true);
     try {
+      // v1.13.2 — do NOT dispatch UPSERT_SWARM for the freshly-created swarm
+      // until addAgent succeeds. The v1.13.1 ordering optimistically upserted
+      // the empty swarm BEFORE addAgent resolved, leaving an orphaned
+      // agent-less swarm in state if addAgent rejected. The backend (v1.13.2)
+      // accepts `swarms.create({ preset:'custom', roster:[] })`, so the create
+      // itself succeeds — we just defer the slice write until the pane lands.
       let targetSwarmId: string;
       if (activeSwarm) {
         targetSwarmId = activeSwarm.id;
@@ -212,10 +202,12 @@ export function CommandRoom() {
           preset: 'custom',
           roster: [],
         });
-        dispatch({ type: 'UPSERT_SWARM', swarm: newSwarm });
         targetSwarmId = newSwarm.id;
       }
       const result = await rpc.swarms.addAgent({ swarmId: targetSwarmId, providerId: providers[0]!.id });
+      // addAgent resolved → now it is safe to write the swarm (which now has
+      // the agent attached) into state. A single UPSERT carries the populated
+      // swarm; no orphan can survive a rejection above.
       dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
       dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
       dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
@@ -246,6 +238,15 @@ export function CommandRoom() {
     // are done loading and either (a) a running swarm exists or (b) NO swarms
     // exist at all (addEmptyStatePane will create one). A paused/completed swarm
     // keeps canAddPane=false so the user goes back to the workspace wizard.
+    //
+    // v1.13.2 — `swarmsLoading` is the CANONICAL loader's in-flight flag and
+    // flips to false only AFTER SET_SWARMS has landed for the active workspace
+    // (the loader dispatches SET_SWARMS then SET_SWARMS_LOADING:false in its
+    // finally). So `!swarmsLoading && hasNoSwarms` now reliably means "the
+    // server confirmed zero swarms" — not a stale slice from a prior workspace
+    // mid-hydration. The dual-loader race that made this gate fire spuriously
+    // is gone (the duplicate CommandRoom fetch was removed). The `!activeWorkspace`
+    // empty-state branch above already guarantees a workspace is active here.
     const hasRunningSwarm = workspaceSwarms.some((s) => s.status === 'running');
     const hasNoSwarms = workspaceSwarms.length === 0;
     const canAddPane =
@@ -294,6 +295,36 @@ export function CommandRoom() {
 
   function handleStop(session: AgentSession) {
     void rpc.pty.kill(session.id).catch(() => undefined);
+  }
+
+  // v1.13.2 — Relaunch a crashed pane: re-add an agent of the same provider to
+  // the same swarm, then drop the crashed session. Mirrors the addPane flow
+  // (a fresh PTY in the same swarm), so the recovered pane behaves identically
+  // to a freshly-added one. Falls back to the active swarm when the crashed
+  // session predates the swarm derivation. No-op if no target swarm is known.
+  async function handleRelaunch(session: AgentSession): Promise<void> {
+    const targetSwarmId = activeSwarm?.id;
+    if (!targetSwarmId) {
+      toast.error('Could not relaunch pane', {
+        description: 'No active swarm to attach the new pane to.',
+      });
+      return;
+    }
+    try {
+      const result = await rpc.swarms.addAgent({
+        swarmId: targetSwarmId,
+        providerId: session.providerId,
+      });
+      dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
+      dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
+      dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
+      // Drop the crashed pane only after the replacement lands.
+      dispatch({ type: 'REMOVE_SESSION', id: session.id });
+    } catch (err) {
+      toast.error('Could not relaunch pane', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   // v1.4.3 #06 — SPLIT_PANE dispatch annotates parent + child in one render pass.
@@ -457,6 +488,7 @@ export function CommandRoom() {
                   onFocus={() => ctx.activate()}
                   onRemove={() => handleRemove(session)}
                   onStop={() => handleStop(session)}
+                  onRelaunch={() => void handleRelaunch(session)}
                   onSplit={(dir, providerId) =>
                     void handleSplitPane(session, dir, providerId)
                   }

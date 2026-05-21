@@ -4,6 +4,32 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-05-22
+
+v1.14.0 — **Crash visibility + Gemini spawn/resume + shell-first default.** Closes the remaining three findings from the 10-lane pane/swarm investigation (`docs/08-bugs/2026-05-22-pane-swarm-investigation/`) that v1.13.2 deferred. Three parallel coders in isolated worktrees (A: main process, B: renderer, C: shell-first), lead-merged + full hard gate in main.
+
+### Crashed panes stay visible (no more silent disappearance)
+
+A crashed Codex/Gemini pane used to vanish: the main process classified the crash but never told the renderer, so `MARK_SESSION_EXITED` hardcoded `status:'exited'` and the GC removed the pane after 5 s. Now the main process emits a new **`pty:error`** IPC event (`{ sessionId; exitCode: number|null; signal?: string|null }`) on crash/earlyDeath (clean exits still emit only `pty:exit`). The renderer subscribes via a new `MARK_SESSION_ERROR` action → `status:'error'`, which the exited-session GC deliberately **skips**, so the pane persists. `PaneShell` discriminates **launch-failure** (ENOENT → full-screen "Failed to launch", no terminal) from **crash** (PTY started then died → a `CrashBanner` "Pane crashed (exit N)" floated over the still-mounted terminal so scrollback stays readable) with a **Relaunch** button (re-adds a same-provider agent, removes the dead pane).
+
+### Gemini spawn/resume fix
+
+`'gemini'` was wrongly in `PRE_ASSIGN_PROVIDERS`, so fresh spawns got an unsupported `--session-id`; and resume passed a stored filename **stem** instead of `latest`. Fresh Gemini spawns no longer receive `--session-id`; resume now always uses `--resume latest`.
+
+### Shell-first panes ON by default
+
+`pty.spawnMode` now defaults to **`shell-first`** (only the literal `'direct'` opts out): a crashed CLI drops back to a **live shell prompt in the same pane** instead of an empty/dead pane — the "fall back to a normal terminal" behavior. The per-pane stdin-prompt override (kimi/opencode) and sentinel CLI-exit detection are unchanged. Settings toggle defaults ON. **win32 caveat:** shell-first is not yet Windows-dogfooded; it ships enabled on all platforms per operator sign-off (2026-05-22). Revert path: set `pty.spawnMode = 'direct'` (or toggle Settings off).
+
+### Also hardened (v1.13.1 pane-add path)
+
+Removed the dual `swarms.list` loader race (single canonical loader drives `swarmsLoading`); moved `UPSERT_SWARM` to **after** `addAgent` resolves in both `CommandRoom` and `AddPaneButton` (no orphaned empty swarm on rejection); tightened `canAddPane`.
+
+### Gate
+
+- tsc -b (strict, incl. test files) | eslint 0/0 | vitest 114 files / **1243 pass** / 1 skip (+34) | vite build + electron:compile | Playwright smoke e2e (35 s) — all in main.
+
+No schema migrations in v1.14.0.
+
 ## [1.13.2] - 2026-05-22
 
 v1.13.2 — **Hotfix: pane creation unblocked.** Fixes the v1.13.1 regression where adding a pane (or opening certain existing workspaces) failed with **"Cannot create swarm: empty roster."** Root-caused by a 10-lane investigation (`docs/08-bugs/2026-05-22-pane-swarm-investigation/`).

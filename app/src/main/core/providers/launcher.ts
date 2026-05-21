@@ -37,10 +37,15 @@ import {
 
 /**
  * Providers that accept a pre-assigned session UUID via `--session-id <uuid>`.
- * For everything else (codex, kimi, opencode) we fall back to the async disk
- * scan in `pty/session-disk-scanner.ts`.
+ * For everything else (codex, kimi, opencode, gemini) we fall back to the async
+ * disk scan in `pty/session-disk-scanner.ts`.
+ *
+ * Note: 'gemini' was removed from this set because the Gemini CLI does NOT
+ * support the `--session-id` flag. Passing it causes Gemini to print a usage
+ * error and exit immediately (earlyDeath). Gemini session identity is derived
+ * from the chats JSONL filename on disk, managed by gemini-resume-sigma.ts.
  */
-const PRE_ASSIGN_PROVIDERS: ReadonlySet<string> = new Set(['claude', 'gemini']);
+const PRE_ASSIGN_PROVIDERS: ReadonlySet<string> = new Set(['claude']);
 
 // ──────────────────────────────────────────────────────────────────────────
 // Public types

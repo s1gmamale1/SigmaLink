@@ -294,6 +294,11 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
 export const EVENTS: ReadonlySet<string> = new Set<string>([
   'pty:data',
   'pty:exit',
+  // crash-classification IPC — emitted instead of (or in addition to) pty:exit
+  // when the process exit is classified as a crash: earlyDeath (<1.5s) OR
+  // non-zero exitCode/signal. Payload: { sessionId, exitCode, signal? }.
+  // The renderer subscribes to keep crashed panes visible instead of GC-removing them.
+  'pty:error',
   // V3-W13-002 — emitted when the PTY data stream contains a URL (plain or
   // OSC8 hyperlink). The renderer routes the click into the in-app browser
   // when `kv['browser.captureLinks']` is on.

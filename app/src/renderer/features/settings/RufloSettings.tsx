@@ -95,8 +95,8 @@ export function RufloSettings() {
   const [telemetry, setTelemetry] = useState<boolean>(false);
   const [autowriteMcp, setAutowriteMcp] = useState<boolean>(true);
   const [strictMcpVerification, setStrictMcpVerification] = useState<boolean>(false);
-  // v1.6.0 Phase 1 — shell-first pane mode flag (default OFF = 'direct').
-  const [shellFirstPanes, setShellFirstPanes] = useState<boolean>(false);
+  // v1.6.0 Phase 7 — shell-first pane mode flag (default ON = 'shell-first').
+  const [shellFirstPanes, setShellFirstPanes] = useState<boolean>(true);
   // v1.9-scrollback — persist terminal scrollback across restart (DEFAULT OFF).
   const [scrollbackPersistence, setScrollbackPersistence] = useState<boolean>(false);
   const [daemons, setDaemons] = useState<DaemonStatusRow[]>([]);
@@ -133,9 +133,10 @@ export function RufloSettings() {
       }
       try {
         const m = await rpc.kv.get(KV_PTY_SPAWN_MODE);
-        if (alive) setShellFirstPanes(m === 'shell-first');
+        // Phase 7: default is ON ('shell-first'). Only explicit 'direct' turns it off.
+        if (alive) setShellFirstPanes(m !== 'direct');
       } catch {
-        /* default OFF (direct mode) */
+        /* default ON (shell-first mode) */
       }
       try {
         const sb = await rpc.kv.get(KV_PTY_SCROLLBACK_PERSISTENCE);
@@ -467,12 +468,12 @@ export function RufloSettings() {
             <div className="min-w-0 pr-3">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
-                Shell-first panes (experimental)
+                Shell-first panes
               </div>
               <div className="mt-0.5 text-[11px] text-muted-foreground">
-                Spawn an interactive shell as the PTY parent and launch the agent
-                CLI inside it. Panes survive CLI exits and show shell-level errors.
-                Takes effect on the next pane spawn. Default is off.
+                Spawns an interactive shell as the PTY parent and launches the
+                agent CLI inside it. A crashed CLI returns to a live shell prompt
+                in the pane. Takes effect on the next pane spawn. On by default.
               </div>
             </div>
             <Switch checked={shellFirstPanes} onCheckedChange={onToggleShellFirstPanes} />

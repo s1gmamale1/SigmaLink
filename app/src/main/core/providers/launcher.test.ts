@@ -82,6 +82,66 @@ const claudeProvider: AgentProviderDefinition = {
   installHint: 'npm i -g @anthropic-ai/claude-code',
 };
 
+// G-1 fix: Gemini fresh-spawn must never receive --session-id
+const geminiProvider: AgentProviderDefinition = {
+  id: 'gemini',
+  name: 'Gemini CLI',
+  description: "Google's Gemini CLI",
+  command: 'gemini',
+  altCommands: ['gemini.cmd'],
+  args: [],
+  initialPromptFlag: '-i',
+  autoApproveFlag: '--yolo',
+  color: '#4285F4',
+  icon: 'gem',
+  installHint: 'npm i -g @google/gemini-cli',
+};
+
+describe('resolveAndSpawn — Gemini fresh-spawn args (G-1 fix)', () => {
+  it('gemini fresh spawn does not include --session-id', () => {
+    const { registry, calls } = mockRegistry(() => makeFakeSession('gemini-sess'));
+
+    resolveAndSpawn(
+      {
+        ptyRegistry: registry,
+        getProvider: (id) => (id === 'gemini' ? geminiProvider : undefined),
+      },
+      { providerId: 'gemini', cwd: '/tmp' },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.args).not.toContain('--session-id');
+    // The preassignedExternalSessionId must be absent for gemini
+    const result = resolveAndSpawn(
+      {
+        ptyRegistry: registry,
+        getProvider: (id) => (id === 'gemini' ? geminiProvider : undefined),
+      },
+      { providerId: 'gemini', cwd: '/tmp' },
+    );
+    expect(result.preassignedExternalSessionId).toBeUndefined();
+  });
+
+  it('gemini resume with --resume latest does not prepend --session-id', () => {
+    const { registry, calls } = mockRegistry(() => makeFakeSession('gemini-resume'));
+
+    resolveAndSpawn(
+      {
+        ptyRegistry: registry,
+        getProvider: (id) => (id === 'gemini' ? geminiProvider : undefined),
+      },
+      {
+        providerId: 'gemini',
+        cwd: '/tmp',
+        extraArgs: ['--resume', 'latest'],
+      },
+    );
+
+    expect(calls[0]?.args).toEqual(['--resume', 'latest']);
+    expect(calls[0]?.args).not.toContain('--session-id');
+  });
+});
+
 describe('resolveAndSpawn ENOENT fallback walk', () => {
   it('continues to altCommands when the primary command ENOENTs', () => {
     let attempt = 0;

@@ -22,6 +22,11 @@ export function useExitedSessionGc(state: AppState, dispatch: Dispatch<Action>):
   useEffect(() => {
     const timers = timersRef.current;
     for (const session of state.sessions) {
+      // v1.13.2 — INVARIANT: only `status: 'exited'` (a CLEAN exit) is
+      // auto-removed. Crashed panes land as `status: 'error'` (via
+      // MARK_SESSION_ERROR) and are intentionally NOT enqueued here so they
+      // persist with their scrollback + Relaunch affordance until the user
+      // closes them. Do not broaden this guard to include 'error'.
       if (session.status === 'exited' && !timers.has(session.id)) {
         const sessionId = session.id;
         const t = setTimeout(() => {

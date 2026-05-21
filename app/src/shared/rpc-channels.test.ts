@@ -53,7 +53,7 @@
 //   lead before being added to or removed from CHANNELS.
 
 import { describe, expect, it } from 'vitest';
-import { CHANNELS } from './rpc-channels';
+import { CHANNELS, EVENTS } from './rpc-channels';
 
 // ------------------------------------------------------------------
 // SOURCE A: Typed router namespace.method pairs
@@ -494,5 +494,18 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
     expect(CHANNELS.size).toBeGreaterThan(50);
     expect(ALL_ROUTER_CHANNELS.size).toBeGreaterThan(50);
     expect(DIRECT_IPC_HANDLE_CHANNELS.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * crash-classification IPC — pty:error must be in EVENTS so the renderer
+   * can subscribe to it via the preload bridge. It must NOT be in CHANNELS
+   * (it is a one-way event from main → renderer, not an invocable RPC method).
+   */
+  it('pty:error is in EVENTS allowlist (crash-classification IPC)', () => {
+    expect(EVENTS.has('pty:error')).toBe(true);
+  });
+
+  it('pty:error is NOT in CHANNELS (it is a one-way event, not an RPC method)', () => {
+    expect(CHANNELS.has('pty:error')).toBe(false);
   });
 });

@@ -104,7 +104,14 @@ export function AddPaneButton({
       // v1.13.1 — when a workspace is active but no swarm exists yet (e.g. the
       // user opened the workspace before the swarm wizard ran), create a minimal
       // default swarm before adding the agent. `swarms.create` with an empty
-      // roster simply provisions the swarm row; `addAgent` will attach the pane.
+      // roster provisions a bare swarm row (backend accepts preset:'custom' +
+      // roster:[] as of v1.13.2); `addAgent` then attaches the pane.
+      //
+      // v1.13.2 — defer the UPSERT_SWARM dispatch until addAgent SUCCEEDS. The
+      // v1.13.1 ordering upserted the empty swarm into state BEFORE addAgent
+      // resolved, so an addAgent rejection left an orphaned agent-less swarm in
+      // the slice. A single UPSERT of the populated `result.swarm` after the
+      // await covers both the create-then-add and the existing-swarm cases.
       let targetSwarmId: string;
       if (activeSwarm) {
         targetSwarmId = activeSwarm.id;
@@ -115,7 +122,6 @@ export function AddPaneButton({
           preset: 'custom',
           roster: [],
         });
-        dispatch({ type: 'UPSERT_SWARM', swarm: newSwarm });
         targetSwarmId = newSwarm.id;
       }
       const result = await rpc.swarms.addAgent({ swarmId: targetSwarmId, providerId });

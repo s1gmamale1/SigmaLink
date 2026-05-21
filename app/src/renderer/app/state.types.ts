@@ -65,6 +65,13 @@ export interface AppState {
   swarmsByWorkspace: Record<string, Swarm[]>;
   activeSwarmId: string | null;
   swarmMessages: Record<string, SwarmMessage[]>;
+  // v1.13.2 — true while the canonical `use-live-events` swarm loader has an
+  // `rpc.swarms.list` in flight for the active workspace. Single source of
+  // truth: CommandRoom reads this slice instead of running its own parallel
+  // fetch (the v1.13.1 dual-loader race overwrote the swarms slice). The
+  // AddPaneButton "+Pane" gate consumes it so the button never enables on a
+  // stale/empty slice mid-hydration.
+  swarmsLoading: boolean;
   // Browser room (Phase 3): per-workspace state slice keyed by workspaceId.
   browser: Record<string, BrowserState>;
   // Skills room (Phase 4)
@@ -123,8 +130,18 @@ export type Action =
   | { type: 'ADD_SESSIONS'; sessions: AgentSession[] }
   | { type: 'SET_ACTIVE_SESSION'; id: string | null }
   | { type: 'MARK_SESSION_EXITED'; id: string; exitCode: number }
+  // v1.13.2 — runtime crash (or fast-crash) exit. Distinct from
+  // MARK_SESSION_EXITED: sets `status: 'error'` so the pane stays VISIBLE
+  // (the exited-session GC only auto-removes `status: 'exited'`) and so
+  // PaneShell can render the crash banner + Relaunch affordance. Dispatched
+  // from the `pty:error` subscriber in use-live-events.
+  | { type: 'MARK_SESSION_ERROR'; id: string; exitCode: number | null; signal?: string | null }
   | { type: 'REMOVE_SESSION'; id: string }
   | { type: 'SET_SWARMS'; swarms: Swarm[] }
+  // v1.13.2 — toggle the canonical swarm-loader in-flight flag (see
+  // AppState.swarmsLoading). Dispatched by use-live-events around its
+  // rpc.swarms.list call for the active workspace.
+  | { type: 'SET_SWARMS_LOADING'; loading: boolean }
   | { type: 'UPSERT_SWARM'; swarm: Swarm }
   | { type: 'SET_ACTIVE_SWARM'; id: string | null }
   | { type: 'SET_SWARM_MESSAGES'; swarmId: string; messages: SwarmMessage[] }
@@ -196,6 +213,7 @@ export const initialAppState: AppState = {
   swarmsByWorkspace: {},
   activeSwarmId: null,
   swarmMessages: {},
+  swarmsLoading: false,
   browser: {},
   skills: [],
   skillProviderStates: [],

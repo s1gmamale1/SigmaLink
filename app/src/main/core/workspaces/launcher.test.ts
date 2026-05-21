@@ -21,6 +21,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as bridge from '../pty/claude-resume-sigma.ts';
 import { effectivePaneSpawnMode } from '../pty/local-pty';
+import { isPtyCrash } from './launcher';
 
 describe('Claude resume bridge — provider gate semantics', () => {
   it('exports both helpers as async functions', () => {
@@ -140,5 +141,62 @@ describe('effectivePaneSpawnMode — per-pane safe-scope override (Phase 3)', ()
     // Both flags present; oneshotArgs takes precedence in buildExtraArgs but
     // either way the prompt is in the CLI args. No post-spawn write needed.
     expect(effectivePaneSpawnMode('shell-first', true, true, true)).toBe('shell-first');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// isPtyCrash — crash-classification IPC helper (pty:error broadcast gate)
+//
+// This pure helper is extracted from the inline onExit closure so it can be
+// unit-tested without spinning up the full executeLaunchPlan context.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('isPtyCrash — crash vs clean exit classification', () => {
+  // ── Clean exit ──────────────────────────────────────────────────────────────
+
+  it('code 0, no signal, not earlyDeath → NOT a crash', () => {
+    expect(isPtyCrash(false, 0, undefined)).toBe(false);
+  });
+
+  it('code 0, signal 0, not earlyDeath → NOT a crash', () => {
+    expect(isPtyCrash(false, 0, 0)).toBe(false);
+  });
+
+  it('code 0, signal null, not earlyDeath → NOT a crash', () => {
+    expect(isPtyCrash(false, 0, null)).toBe(false);
+  });
+
+  // ── Crash via earlyDeath ────────────────────────────────────────────────────
+
+  it('earlyDeath=true, code 0, no signal → IS a crash (early exit)', () => {
+    expect(isPtyCrash(true, 0, undefined)).toBe(true);
+  });
+
+  it('earlyDeath=true, code 0, signal 0 → IS a crash (early exit)', () => {
+    expect(isPtyCrash(true, 0, 0)).toBe(true);
+  });
+
+  // ── Crash via non-zero exit code ────────────────────────────────────────────
+
+  it('code 1, not earlyDeath → IS a crash', () => {
+    expect(isPtyCrash(false, 1, undefined)).toBe(true);
+  });
+
+  it('code -1 (synthetic ENOENT), not earlyDeath → IS a crash', () => {
+    expect(isPtyCrash(false, -1, undefined)).toBe(true);
+  });
+
+  it('code 127 (command not found), not earlyDeath → IS a crash', () => {
+    expect(isPtyCrash(false, 127, undefined)).toBe(true);
+  });
+
+  // ── Crash via signal ────────────────────────────────────────────────────────
+
+  it('code 0, signal SIGTERM (15) → IS a crash', () => {
+    expect(isPtyCrash(false, 0, 15)).toBe(true);
+  });
+
+  it('code 0, signal SIGKILL (9) → IS a crash', () => {
+    expect(isPtyCrash(false, 0, 9)).toBe(true);
   });
 });

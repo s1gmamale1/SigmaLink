@@ -1,0 +1,73 @@
+SigmaLink v1.14.0 — 2026-05-22
+==============================
+
+v1.14.0 — Crash visibility + Gemini spawn/resume + shell-first default.
+
+Closes the remaining three findings from the 10-lane pane/swarm
+investigation (docs/08-bugs/2026-05-22-pane-swarm-investigation/) that the
+v1.13.2 hotfix deferred. Built by three parallel coders in isolated
+worktrees (main process / renderer / shell-first), lead-merged with one
+combined hard gate in main.
+
+
+Crashed panes stay visible
+--------------------------
+
+A crashed Codex/Gemini pane used to vanish. The main process classified
+the crash but never told the renderer, so the pane was marked 'exited' and
+garbage-collected after 5 s.
+
+Now the main process emits a new 'pty:error' IPC event
+  { sessionId: string; exitCode: number | null; signal?: string | null }
+on crash / early-death (clean exits still emit only 'pty:exit'). The
+renderer marks the session 'error' (a status the GC skips), so the pane
+persists. PaneShell distinguishes:
+  - launch failure (ENOENT)  -> full-screen "Failed to launch", no terminal
+  - crash (started then died) -> a CrashBanner "Pane crashed (exit N)"
+    floated over the still-mounted terminal (scrollback stays readable),
+    with a Relaunch button.
+
+
+Gemini spawn/resume fix
+-----------------------
+
+'gemini' was wrongly in PRE_ASSIGN_PROVIDERS, so fresh spawns received an
+unsupported --session-id; resume passed a stored filename stem instead of
+'latest'. Fresh Gemini spawns no longer get --session-id; resume now always
+uses '--resume latest'.
+
+
+Shell-first panes ON by default
+-------------------------------
+
+pty.spawnMode now defaults to 'shell-first' (only the literal 'direct' opts
+out): a crashed CLI drops back to a LIVE shell prompt in the same pane
+instead of a dead/empty pane. The per-pane stdin-prompt override
+(kimi/opencode) and sentinel CLI-exit detection are unchanged. The Settings
+toggle now defaults ON.
+
+  win32 caveat: shell-first is not yet Windows-dogfooded. It ships enabled
+  on all platforms per operator sign-off (2026-05-22). Revert path: set
+  pty.spawnMode = 'direct' in the KV store, or toggle Settings off.
+
+
+Also hardened (v1.13.1 pane-add path)
+-------------------------------------
+
+- Removed the dual swarms.list loader race (one canonical loader drives
+  swarmsLoading).
+- Moved UPSERT_SWARM to AFTER addAgent resolves in both CommandRoom and
+  AddPaneButton (no orphaned empty swarm if addAgent rejects).
+- Tightened canAddPane.
+
+
+Gate
+----
+
+- tsc -b (strict, includes test files)
+- eslint 0 errors / 0 warnings
+- vitest 114 files / 1243 pass / 1 skip (+34 new tests)
+- vite build + electron:compile clean
+- Playwright smoke e2e in main (35 s)
+
+No schema migrations in v1.14.0.

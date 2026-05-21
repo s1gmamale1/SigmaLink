@@ -143,29 +143,31 @@ describe('resolveWindowsCommand (smoke test on non-Windows host)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('parseSpawnMode', () => {
-  it('returns "direct" for null (unset)', () => {
-    expect(parseSpawnMode(null)).toBe('direct');
+  // Phase 7 default flip: unset/absent/null/undefined now resolves to 'shell-first'.
+
+  it('returns "shell-first" for null (unset) — Phase 7 default', () => {
+    expect(parseSpawnMode(null)).toBe('shell-first');
   });
 
-  it('returns "direct" for undefined', () => {
-    expect(parseSpawnMode(undefined)).toBe('direct');
+  it('returns "shell-first" for undefined — Phase 7 default', () => {
+    expect(parseSpawnMode(undefined)).toBe('shell-first');
   });
 
-  it('returns "direct" for empty string', () => {
-    expect(parseSpawnMode('')).toBe('direct');
+  it('returns "shell-first" for empty string — Phase 7 default', () => {
+    expect(parseSpawnMode('')).toBe('shell-first');
   });
 
-  it('returns "direct" for an unrecognised value', () => {
-    expect(parseSpawnMode('shell_first')).toBe('direct');
-    expect(parseSpawnMode('1')).toBe('direct');
-    expect(parseSpawnMode('true')).toBe('direct');
+  it('returns "shell-first" for an unrecognised value — Phase 7 default', () => {
+    expect(parseSpawnMode('shell_first')).toBe('shell-first');
+    expect(parseSpawnMode('1')).toBe('shell-first');
+    expect(parseSpawnMode('true')).toBe('shell-first');
   });
 
   it('returns "shell-first" for the exact string "shell-first"', () => {
     expect(parseSpawnMode('shell-first')).toBe('shell-first');
   });
 
-  it('returns "direct" for "direct"', () => {
+  it('returns "direct" for explicit "direct" — still honoured', () => {
     expect(parseSpawnMode('direct')).toBe('direct');
   });
 
@@ -211,7 +213,8 @@ describe('posixQuoteArg', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 1 — spawnLocalPty: direct mode (default) regression guard
+// v1.6.0 Phase 1 — spawnLocalPty: direct mode regression guard
+// (Phase 7: 'direct' is still fully supported via explicit KV flag)
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('spawnLocalPty: direct mode (regression guard)', () => {
@@ -235,7 +238,12 @@ describe('spawnLocalPty: direct mode (regression guard)', () => {
     expect(e.code).toBe('ENOENT');
   });
 
-  it('throws ENOENT synchronously when spawnMode is omitted (default is direct)', () => {
+  it('treats omitted spawnMode as direct in spawnLocalPty (field-level default)', () => {
+    // Phase 7 note: the KV-layer default is now 'shell-first' (parseSpawnMode).
+    // However, spawnLocalPty's 3-condition guard treats a missing/undefined
+    // spawnMode field as NOT matching 'shell-first', so it falls through to
+    // direct mode. In practice the KV layer always supplies an explicit mode
+    // after Phase 7, so this code path is not exercised in production.
     process.env.PATH = '/does/not/exist';
     let caught: unknown = null;
     try {
@@ -245,7 +253,7 @@ describe('spawnLocalPty: direct mode (regression guard)', () => {
         cwd: process.cwd(),
         cols: 80,
         rows: 24,
-        // spawnMode intentionally omitted
+        // spawnMode intentionally omitted (undefined)
       });
     } catch (err) {
       caught = err;

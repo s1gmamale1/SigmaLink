@@ -7,7 +7,8 @@
 // remain identical.
 //
 // Covered events / fetches:
-//   - pty:exit              → MARK_SESSION_EXITED
+//   - pty:exit              → MARK_SESSION_EXITED (clean exit)
+//   - pty:error             → MARK_SESSION_ERROR  (runtime / fast crash)
 //   - swarm:message         → APPEND_SWARM_MESSAGE
 //   - browser:state         → SET_BROWSER_STATE
 //   - skills:changed        → SET_SKILLS (initial + live)
@@ -32,6 +33,25 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       if (typeof p.sessionId !== 'string') return;
       const exitCode = typeof p.exitCode === 'number' ? p.exitCode : -1;
       dispatch({ type: 'MARK_SESSION_EXITED', id: p.sessionId, exitCode });
+    });
+    return off;
+  }, [dispatch]);
+
+  // v1.13.2 — Listen for PTY crash. The main process emits a DISTINCT
+  // `pty:error` event for runtime / fast crashes (contract:
+  // `{ sessionId: string; exitCode: number | null; signal?: string | null }`).
+  // Unlike `pty:exit` (clean exit → MARK_SESSION_EXITED → GC'd after 5s) this
+  // dispatches MARK_SESSION_ERROR so the pane stays visible in an error state
+  // with its scrollback intact for a Relaunch. Subscribed alongside (not in
+  // place of) the `pty:exit` listener.
+  useEffect(() => {
+    const off = window.sigma.eventOn('pty:error', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown; exitCode?: unknown; signal?: unknown };
+      if (typeof p.sessionId !== 'string') return;
+      const exitCode = typeof p.exitCode === 'number' ? p.exitCode : null;
+      const signal = typeof p.signal === 'string' ? p.signal : null;
+      dispatch({ type: 'MARK_SESSION_ERROR', id: p.sessionId, exitCode, signal });
     });
     return off;
   }, [dispatch]);
@@ -186,13 +206,21 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
 
   // When the active workspace changes, refresh swarms for that workspace so
   // the Swarm Room can pick up persisted swarms across app restarts.
+  //
+  // v1.13.2 — this is the CANONICAL swarm loader. CommandRoom previously ran
+  // its own parallel `rpc.swarms.list` (a dual-loader race that could overwrite
+  // the swarms slice); that fetch is now removed. The `swarmsLoading` slice is
+  // driven from HERE so the AddPaneButton "+Pane" gate reflects this loader's
+  // in-flight window and never enables on a stale/empty slice mid-hydration.
   useEffect(() => {
     let alive = true;
     const wsId = state.activeWorkspace?.id;
     if (!wsId) {
+      dispatch({ type: 'SET_SWARMS_LOADING', loading: false });
       dispatch({ type: 'SET_SWARMS', swarms: [] });
       return;
     }
+    dispatch({ type: 'SET_SWARMS_LOADING', loading: true });
     void (async () => {
       try {
         const list = await rpc.swarms.list(wsId);
@@ -200,6 +228,8 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
         dispatch({ type: 'SET_SWARMS', swarms: list });
       } catch (err) {
         console.error('Failed to load swarms:', err);
+      } finally {
+        if (alive) dispatch({ type: 'SET_SWARMS_LOADING', loading: false });
       }
     })();
     return () => {

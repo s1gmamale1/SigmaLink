@@ -66,6 +66,13 @@ interface LauncherDeps {
   worktreePool: WorktreePool;
   defaultCols?: number;
   defaultRows?: number;
+  /**
+   * crash-classification IPC — called by the launcher's onExit handler to
+   * broadcast `pty:error` when the exit is a crash (earlyDeath <1.5s OR
+   * non-zero exitCode/signal). Optional so existing callers (tests, pty.create
+   * controller) do not need to provide it; missing means no broadcast.
+   */
+  broadcastPtyError?: (payload: { sessionId: string; exitCode: number | null; signal?: string | null }) => void;
 }
 
 /**
@@ -93,6 +100,17 @@ function buildExtraArgs(providerId: string, oneshotPrompt?: string): string[] {
  * not have run yet on legacy DBs, so we fall back to a no-op on column-missing
  * errors instead of crashing the spawn.
  */
+/**
+ * Classify a PTY exit as a crash for the `pty:error` IPC event.
+ * Exported for unit testing only; internal logic gate for the onExit handler.
+ *
+ * Crash = earlyDeath (<1.5s from spawn) OR non-zero exitCode OR non-zero signal.
+ * Clean exit (code 0, signal 0/null/undefined, not earlyDeath) → NOT a crash.
+ */
+export function isPtyCrash(earlyDeath: boolean, exitCode: number, signal?: number | null): boolean {
+  return earlyDeath || exitCode !== 0 || (signal != null && signal !== 0);
+}
+
 function writeProviderEffective(sessionId: string, providerEffective: string): void {
   try {
     getRawDb()
@@ -427,9 +445,15 @@ export async function executeLaunchPlan(
       // ~1.5s of spawn, treat it as a launch failure ('error') regardless of
       // exit code — this catches both synthetic ENOENT failures (exitCode < 0)
       // and real CLI crashes (e.g. Claude exiting with code 1 on bad resume).
+      //
+      // crash-classification IPC: also broadcast `pty:error` when the exit is
+      // a crash so the renderer can keep the pane visible with an error banner
+      // instead of GC-removing it. Crash = earlyDeath OR non-zero exitCode/signal.
+      // Clean exits (code 0, not earlyDeath) only receive the regular `pty:exit`.
       const startedMs = rec.startedAt;
-      rec.pty.onExit(({ exitCode }) => {
+      rec.pty.onExit(({ exitCode, signal }) => {
         const earlyDeath = Date.now() - startedMs < 1500;
+        const isCrash = isPtyCrash(earlyDeath, exitCode, signal);
         try {
           db.update(agentSessions)
             .set({
@@ -441,6 +465,17 @@ export async function executeLaunchPlan(
             .run();
         } catch {
           /* ignore: db may be closing during shutdown */
+        }
+        if (isCrash) {
+          try {
+            deps.broadcastPtyError?.({
+              sessionId: finalSessionId,
+              exitCode: exitCode ?? null,
+              signal: signal != null ? String(signal) : null,
+            });
+          } catch {
+            /* broadcast is best-effort */
+          }
         }
       });
     } catch (err) {

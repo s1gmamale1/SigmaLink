@@ -281,6 +281,31 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         sessionsByWorkspace: groupSessionsByWorkspace(sessions),
       };
     }
+    case 'MARK_SESSION_ERROR': {
+      // v1.13.2 — a runtime crash. Mark `status: 'error'` so the pane is NOT
+      // swept by the exited-session GC (which only removes `status: 'exited'`)
+      // and stays visible with its scrollback for a Relaunch. We deliberately
+      // do NOT set `s.error` here: PaneShell uses the presence of `s.error`
+      // (a string set at launch time on ENOENT/pre-flight failure) vs a numeric
+      // `exitCode` to pick between the "Failed to launch" and "Pane crashed"
+      // surfaces. `exitCode` may be null for a signal-only death; we coerce to
+      // undefined so the AgentSession shape stays `number | undefined`.
+      const sessions: AgentSession[] = state.sessions.map((s) =>
+        s.id === action.id
+          ? {
+              ...s,
+              status: 'error',
+              exitCode: action.exitCode ?? undefined,
+              exitedAt: Date.now(),
+            }
+          : s,
+      );
+      return {
+        ...state,
+        sessions,
+        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
+      };
+    }
     case 'REMOVE_SESSION': {
       const sessions = state.sessions.filter((s) => s.id !== action.id);
       // v1.1.10 — when the active session is removed, prefer a live (running)
@@ -314,6 +339,9 @@ export function appStateReducer(state: AppState, action: Action): AppState {
             ? state.activeSwarmId
             : action.swarms[0]?.id ?? null,
       };
+    case 'SET_SWARMS_LOADING':
+      if (state.swarmsLoading === action.loading) return state;
+      return { ...state, swarmsLoading: action.loading };
     case 'UPSERT_SWARM': {
       const without = state.swarms.filter((s) => s.id !== action.swarm.id);
       const swarms = [action.swarm, ...without];

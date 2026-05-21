@@ -144,6 +144,100 @@ async function renderLiveEvents(state: AppState) {
   });
 }
 
+// ---- v1.13.2 pty:error / pty:exit subscribers -------------------------------
+
+describe('useLiveEvents — v1.13.2 crash vs clean-exit subscribers', () => {
+  it('dispatches MARK_SESSION_ERROR on pty:error (runtime crash → pane persists)', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      sigma.emit('pty:error', { sessionId: 's1', exitCode: 137, signal: 'SIGKILL' });
+      await Promise.resolve();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'MARK_SESSION_ERROR',
+      id: 's1',
+      exitCode: 137,
+      signal: 'SIGKILL',
+    });
+    // Crash must NOT be reported as a clean exit.
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'MARK_SESSION_EXITED', id: 's1' }),
+    );
+  });
+
+  it('coerces a non-numeric pty:error exitCode to null', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('pty:error', { sessionId: 's1' });
+      await Promise.resolve();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'MARK_SESSION_ERROR',
+      id: 's1',
+      exitCode: null,
+      signal: null,
+    });
+  });
+
+  it('ignores a pty:error payload with no sessionId', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+    dispatch.mockClear();
+
+    await act(async () => {
+      sigma.emit('pty:error', { exitCode: 1 });
+      await Promise.resolve();
+    });
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'MARK_SESSION_ERROR' }),
+    );
+  });
+
+  it('still dispatches MARK_SESSION_EXITED on pty:exit (clean exit unchanged)', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('pty:exit', { sessionId: 's1', exitCode: 0 });
+      await Promise.resolve();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'MARK_SESSION_EXITED',
+      id: 's1',
+      exitCode: 0,
+    });
+  });
+});
+
+describe('useLiveEvents — v1.13.2 canonical swarm loader drives swarmsLoading', () => {
+  it('dispatches SET_SWARMS_LOADING true then false around rpc.swarms.list', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const loadingCalls = dispatch.mock.calls
+      .map(([a]) => a)
+      .filter((a): a is { type: 'SET_SWARMS_LOADING'; loading: boolean } =>
+        (a as { type: string }).type === 'SET_SWARMS_LOADING',
+      );
+    // At least one true and a trailing false (the finally settles it).
+    expect(loadingCalls.some((a) => a.loading === true)).toBe(true);
+    expect(loadingCalls.at(-1)?.loading).toBe(false);
+  });
+});
+
 describe('useLiveEvents — Fix 6: review refresh churn on session add/remove', () => {
   it('does NOT refetch review state when sessions change but workspace stays', async () => {
     const initialState = stateWith([session('s1')]);

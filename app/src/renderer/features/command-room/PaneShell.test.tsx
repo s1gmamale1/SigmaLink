@@ -308,6 +308,79 @@ describe('PaneShell — tab switching', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 6. v1.13.2 — runtime-crash banner vs ENOENT launch-failure
+// ---------------------------------------------------------------------------
+describe('PaneShell — v1.13.2 crash banner', () => {
+  async function renderWith(session: AgentSession, onRelaunch?: () => void) {
+    const { PaneShell } = await import('./PaneShell');
+    return render(
+      <PaneShell
+        session={session}
+        paneIndex={0}
+        providers={[{ id: 'claude', name: 'Claude' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+        onRelaunch={onRelaunch}
+      />,
+    );
+  }
+
+  it('renders the crash banner + keeps the scrollback terminal mounted for a runtime crash', async () => {
+    // Runtime crash: status 'error' + numeric exitCode, NO error string.
+    await renderWith(makeSession({ status: 'error', exitCode: 1 }));
+
+    const banner = screen.getByTestId('pane-crash-banner');
+    expect(banner.textContent).toContain('Pane crashed (exit 1)');
+    // The terminal stays mounted so the user can read the crash output.
+    expect(screen.getByTestId('terminal-main-session')).toBeTruthy();
+    // It is NOT the ENOENT "Failed to launch" surface.
+    expect(screen.queryByText('Failed to launch')).toBeNull();
+  });
+
+  it('shows a Relaunch button that fires onRelaunch', async () => {
+    const onRelaunch = vi.fn();
+    await renderWith(makeSession({ status: 'error', exitCode: 137 }), onRelaunch);
+
+    const btn = screen.getByTestId('pane-relaunch-button');
+    fireEvent.click(btn);
+    expect(onRelaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the Relaunch button when no handler is wired', async () => {
+    await renderWith(makeSession({ status: 'error', exitCode: 2 }));
+    expect(screen.queryByTestId('pane-relaunch-button')).toBeNull();
+  });
+
+  it('renders "Failed to launch" (no terminal, no crash banner) for an ENOENT launch failure', async () => {
+    // Launch failure: status 'error' + error string, NO numeric exitCode.
+    await renderWith(makeSession({ status: 'error', error: 'spawn codex ENOENT', exitCode: undefined }));
+
+    expect(screen.getByText('Failed to launch')).toBeTruthy();
+    expect(screen.getByText('spawn codex ENOENT')).toBeTruthy();
+    // No crash banner and no terminal in the pure launch-failure surface.
+    expect(screen.queryByTestId('pane-crash-banner')).toBeNull();
+    expect(screen.queryByTestId('terminal-main-session')).toBeNull();
+  });
+
+  it('treats a signal-only death (no exitCode, no error string) as a crash with scrollback', async () => {
+    // A signal kill has no numeric exitCode and never sets `session.error`.
+    // The discriminator is the absent error string → crash surface, with the
+    // exit code rendered as "unknown" and the terminal kept mounted.
+    await renderWith(makeSession({ status: 'error' }));
+    const banner = screen.getByTestId('pane-crash-banner');
+    expect(banner.textContent).toContain('Pane crashed (exit unknown)');
+    expect(screen.getByTestId('terminal-main-session')).toBeTruthy();
+    expect(screen.queryByText('Failed to launch')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 5. W-5 Phase 3 — skill-drop slash-command injection
 // ---------------------------------------------------------------------------
 

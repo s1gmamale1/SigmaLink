@@ -13,7 +13,7 @@
 // Extracted to keep CommandRoom.tsx under 500 LOC (v1.5.1-A caveat 1).
 
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
-import { FolderOpen, Square, Terminal as TerminalIcon } from 'lucide-react';
+import { FolderOpen, RotateCw, Square, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ContextMenu,
@@ -60,6 +60,9 @@ export function PaneShell({
   skillBindings = [],
   onSkillDrop,
   onSkillDetach,
+  // v1.13.2 — Relaunch affordance for a crashed pane (status:'error' with a
+  // numeric exitCode). When omitted the crash banner shows no Relaunch button.
+  onRelaunch,
 }: {
   session: AgentSession;
   paneIndex: number;
@@ -74,6 +77,12 @@ export function PaneShell({
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   inSplitGroup?: boolean;
+  /**
+   * v1.13.2 — Called when the user clicks "Relaunch" on a crashed pane. The
+   * parent (CommandRoom) re-adds an agent of the same provider to the swarm
+   * and removes the crashed session. Optional — split sub-panes omit it.
+   */
+  onRelaunch?: () => void;
   /**
    * v1.7.1 W-5 Phase 2 — INFORMATIONAL bindings for this pane session.
    * These are purely visual chips; no behavioral activation.
@@ -167,6 +176,18 @@ export function PaneShell({
   }, [spawnScratch]);
 
   const errored = session.status === 'error';
+  // v1.13.2 — distinguish the TWO error shapes a pane can land in:
+  //   • launch failure (ENOENT / pre-flight): `session.error` string set at
+  //     launch time. The PTY never started, so there is no scrollback. →
+  //     "Failed to launch" full-screen surface.
+  //   • runtime crash (pty:error → MARK_SESSION_ERROR): the PTY started then
+  //     died, so a `session.error` string is NEVER set; `exitCode` may be a
+  //     number (exit code) or undefined (signal-only death). → "Pane crashed"
+  //     banner OVER the live scrollback, plus a Relaunch button.
+  // The discriminator is the presence of `session.error`, NOT the exitCode —
+  // a signal-only death has no exit code but is still a crash with scrollback.
+  const crashed = errored && !session.error;
+  const launchFailed = errored && !crashed;
   const exited = session.status === 'exited';
   const hasWorktree = !!session.worktreePath;
 
@@ -348,13 +369,27 @@ export function PaneShell({
             onDrop={handleDrop}
           >
             <div className="relative min-h-0 flex-1">
-              {errored ? (
+              {launchFailed ? (
+                // ENOENT / pre-flight failure: no PTY ever started, so there is
+                // no scrollback to surface — show the launch error full-screen.
                 <div className="flex h-full flex-col items-start justify-start gap-2 p-3 text-xs">
                   <div className="font-medium text-destructive">Failed to launch</div>
                   <div className="whitespace-pre-wrap break-words text-muted-foreground">
                     {session.error ?? 'unknown error'}
                   </div>
                 </div>
+              ) : crashed ? (
+                // v1.13.2 — Runtime crash. Keep the SessionTerminal mounted so
+                // the crash scrollback stays readable, and float a banner above
+                // it with the exit code + a Relaunch affordance. Distinct from
+                // the ENOENT "Failed to launch" surface above.
+                <>
+                  <CrashBanner
+                    exitCode={session.exitCode}
+                    onRelaunch={onRelaunch}
+                  />
+                  <SessionTerminal sessionId={session.id} />
+                </>
               ) : scratchTabs.length === 0 ? (
                 // W-4 Phase 4 — Zero-subtab FAST PATH: byte-for-byte the
                 // pre-Phase-4 render. PaneSplash + SessionTerminal are direct
@@ -411,6 +446,43 @@ export function PaneShell({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+    </div>
+  );
+}
+
+/**
+ * v1.13.2 — Runtime-crash banner. Floats over the top of the (still-mounted)
+ * SessionTerminal so the crash scrollback below stays readable. Distinct from
+ * the ENOENT "Failed to launch" surface — this is for a CLI that started and
+ * then died. Shows the exit code and a Relaunch button when a handler is wired.
+ */
+function CrashBanner({
+  exitCode,
+  onRelaunch,
+}: {
+  exitCode: number | undefined;
+  onRelaunch?: () => void;
+}) {
+  const codeLabel = typeof exitCode === 'number' ? exitCode : 'unknown';
+  return (
+    <div
+      data-testid="pane-crash-banner"
+      role="alert"
+      className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 border-b border-destructive/40 bg-destructive/15 px-3 py-1.5 text-[11px] text-destructive"
+    >
+      <span className="font-medium">Pane crashed (exit {codeLabel})</span>
+      <span className="text-destructive/80">Scrollback preserved below.</span>
+      {onRelaunch ? (
+        <button
+          type="button"
+          data-testid="pane-relaunch-button"
+          onClick={onRelaunch}
+          className="ml-auto inline-flex shrink-0 items-center gap-1 rounded border border-destructive/40 px-1.5 py-0.5 font-medium hover:bg-destructive/20"
+        >
+          <RotateCw className="h-3 w-3" />
+          Relaunch
+        </button>
+      ) : null}
     </div>
   );
 }

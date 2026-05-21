@@ -95,3 +95,29 @@ describe('useExitedSessionGc — BUG-C3 timer race on unmount', () => {
     expect(dispatch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('useExitedSessionGc — v1.13.2 crashed panes persist', () => {
+  it('does NOT auto-remove a session with status "error" (crash)', () => {
+    const crashed = session('s1', 'error');
+    renderHook(() => useExitedSessionGc(stateWith([crashed]), dispatch));
+
+    vi.advanceTimersByTime(10_000);
+
+    // The GC only enqueues 'exited' sessions; an 'error' (crashed) pane must
+    // stay visible until the user closes it.
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('removes a clean-exit "exited" sibling but leaves the crashed "error" pane', () => {
+    const crashed = session('s1', 'error');
+    const cleanExit = session('s2', 'exited');
+    renderHook(() => useExitedSessionGc(stateWith([crashed, cleanExit]), dispatch));
+
+    vi.advanceTimersByTime(5_000);
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith({ type: 'REMOVE_SESSION', id: 's2' });
+    // The crashed pane was never enqueued.
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'REMOVE_SESSION', id: 's1' });
+  });
+});

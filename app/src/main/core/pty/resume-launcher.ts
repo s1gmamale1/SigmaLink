@@ -75,9 +75,13 @@ export function buildResumeArgs(
         ? { args: ['resume', id], mode: 'id' }
         : { args: ['resume', '--last'], mode: 'continue' };
     case 'gemini':
-      return id
-        ? { args: ['--resume', id], mode: 'id' }
-        : { args: ['--resume', 'latest'], mode: 'continue' };
+      // Gemini's --resume flag only accepts 'latest' or an index number, NOT a
+      // filename stem. The session-disk-scanner stores the JSONL filename stem as
+      // external_session_id for history display only; the projects.json alias
+      // bridge (gemini-resume-sigma.ts) ensures the correct chats directory is
+      // resolved, so actual resume always uses '--resume latest'.
+      // See: session-disk-scanner.ts:639-642 and bug investigation 04-gemini-errors.md.
+      return { args: ['--resume', 'latest'], mode: 'continue' };
     case 'kimi':
       return id
         ? { args: ['--session', id], mode: 'id' }

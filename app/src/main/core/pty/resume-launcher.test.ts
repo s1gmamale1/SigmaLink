@@ -197,12 +197,15 @@ function makeSession(id: string, providerId: string, startedAt = 1234): SessionR
 describe('buildResumeArgs', () => {
   // v1.2.8 — the new per-provider matrix. Each provider has two flavours:
   // by captured id (use the native flag) and the universal --continue fallback.
+  // Note: gemini always uses '--resume latest' regardless of externalSessionId
+  // because the Gemini CLI only accepts 'latest' or an index — not a filename stem.
   it.each([
     ['claude', 'ext-id', ['--resume', 'ext-id'], 'id'],
     ['claude', null, ['--continue'], 'continue'],
     ['codex', 'ext-id', ['resume', 'ext-id'], 'id'],
     ['codex', null, ['resume', '--last'], 'continue'],
-    ['gemini', 'ext-id', ['--resume', 'ext-id'], 'id'],
+    // gemini: always '--resume latest' — flag fix (G-2); see 04-gemini-errors.md
+    ['gemini', 'ext-id', ['--resume', 'latest'], 'continue'],
     ['gemini', null, ['--resume', 'latest'], 'continue'],
     ['kimi', 'ext-id', ['--session', 'ext-id'], 'id'],
     ['kimi', null, ['--continue'], 'continue'],
@@ -224,6 +227,19 @@ describe('buildResumeArgs', () => {
   it('treats empty + whitespace external ids as the continue fallback', () => {
     expect(buildResumeArgs('claude', '')?.args).toEqual(['--continue']);
     expect(buildResumeArgs('claude', '   ')?.args).toEqual(['--continue']);
+  });
+
+  // G-2 fix: gemini --resume never passes a filename stem — always 'latest'
+  it('gemini resume always uses --resume latest regardless of stored externalSessionId', () => {
+    const withId = buildResumeArgs('gemini', 'session-2024-01-01T12-00-abc');
+    expect(withId).not.toBeNull();
+    expect(withId!.args).toEqual(['--resume', 'latest']);
+    expect(withId!.mode).toBe('continue');
+
+    const withoutId = buildResumeArgs('gemini', null);
+    expect(withoutId).not.toBeNull();
+    expect(withoutId!.args).toEqual(['--resume', 'latest']);
+    expect(withoutId!.mode).toBe('continue');
   });
 });
 
