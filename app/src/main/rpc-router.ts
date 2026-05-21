@@ -370,6 +370,24 @@ function buildRouter() {
           /* notifications fan-out is best-effort */
         }
       },
+      // v1.6.0 Phase 2 — CLI-exit detection in shell-first mode.
+      // Fires when the sentinel is detected in the PTY data stream (CLI exited,
+      // shell/pane stays alive).  We skip the sigma_pane_events DB insert (its
+      // SQLite enum does not include 'cli-exited' and we don't want a migration)
+      // but we DO fire the "agent done" notification via the same path as PTY
+      // exit, so shell-first panes notify on CLI completion exactly like direct-
+      // mode panes notify on PTY exit.
+      onCliExited: ({ sessionId, exitCode }) => {
+        try {
+          pushPtyExitNotification(notificationsManager, {
+            sessionId,
+            kind: exitCode === 0 ? 'exited' : 'error',
+            exitCode,
+          });
+        } catch {
+          /* notifications fan-out is best-effort */
+        }
+      },
     },
   );
   const mailbox = new SwarmMailbox(userData);

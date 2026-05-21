@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import * as nodePty from 'node-pty';
+import { buildSentinelSnippet } from './sentinel';
 
 export interface SpawnInput {
   command: string;          // empty string means: open user's default shell
@@ -219,11 +220,24 @@ export function posixQuoteArg(arg: string): string {
 
 /**
  * Build the shell command line to inject into the PTY master in shell-first
- * mode.  Returns `"<command> <quotedArgs>\n"`.
+ * mode.
+ *
+ * Phase 1: `"<command> <quotedArgs>\n"`
+ * Phase 2 (withSentinel=true): appends `; printf '\n...' "$?" '...'` so that
+ * when the CLI exits the shell prints the sentinel line before returning to its
+ * prompt.  The registry's onData path strips the sentinel from the forwarded
+ * data and emits the cli-exited signal.
+ *
+ * The sentinel snippet is POSIX-only and is only injected when
+ * `withSentinel === true` (i.e. shell-first mode on non-win32).
  */
-function buildShellCommandLine(command: string, args: string[]): string {
+export function buildShellCommandLine(command: string, args: string[], withSentinel = false): string {
   const parts = [command, ...args.map(posixQuoteArg)];
-  return parts.join(' ') + '\n';
+  const base = parts.join(' ');
+  if (withSentinel) {
+    return base + buildSentinelSnippet() + '\n';
+  }
+  return base + '\n';
 }
 
 /**
@@ -479,7 +493,10 @@ function spawnShellFirstPty(input: SpawnInput): PtyHandle {
   }
 
   // Compose the command line to inject.
-  const commandLine = buildShellCommandLine(input.command, input.args);
+  // Phase 2: pass withSentinel=true so the shell prints the exit-code sentinel
+  // after the CLI exits.  The registry's onData path strips it from the forwarded
+  // data and emits the 'cli-exited' signal.
+  const commandLine = buildShellCommandLine(input.command, input.args, true);
 
   // Injection latch — write the command line exactly ONCE.
   let injected = false;

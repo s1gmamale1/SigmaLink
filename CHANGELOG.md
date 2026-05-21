@@ -4,6 +4,35 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-05-21
+
+v1.10.1 — **W-4 shell-first Phase 2 of 7: CLI-exit detection** (flagged, default-off). One Sonnet coder cluster, lead-merged.
+
+### CLI-exit detection in shell-first mode
+
+In shell-first mode (v1.10.0), when the CLI exits the shell stays alive (the durability win) — but SigmaLink's pane-status + "agent done" notification key off PTY exit, which now only fires when the shell itself dies. Phase 2 adds a sentinel so SigmaLink detects CLI completion while keeping the pane alive.
+
+- **Sentinel** (`app/src/main/core/pty/sentinel.ts`, new): shell-first injection now appends `; printf '\n%s%d%s\n' '__SIGMALINK_CLI_EXIT_' "$?" '__'` after the CLI command, so on CLI exit the shell prints `__SIGMALINK_CLI_EXIT_<code>__` then returns to its prompt. `extractSentinel()` parses the code + strips the marker; `buildShellCommandLine(cmd, args, withSentinel)` composes it (direct mode passes `withSentinel=false` / doesn't use it at all).
+- **Detection** (`registry.ts`): in shell-first mode only, the `onData` stream is scanned for the sentinel; on match it strips the marker from the renderer-forwarded data and fires a new `onCliExited` sink with the parsed exit code — DISTINCT from PTY `onExit` (which fires only when the shell dies). The pane/PTY is NOT torn down (`forget()`/`kill()` not called).
+- **Notification** (`rpc-router.ts`): `onCliExited` calls the same `pushPtyExitNotification` path that direct-mode PTY-exit uses, so shell-first panes get the identical "agent done" notification.
+- **Status-representation choice**: a separate additive `onCliExited` callback — NOT a new `sigma_pane_events.kind` enum value (which would force a migration + risk direct-mode consumers). Zero schema change, zero enum extension, zero direct-mode impact.
+
+**Zero regression at default**: detection runs only when `spawnMode === 'shell-first'`; direct mode never composes or scans for the sentinel. Smoke e2e boots at the default flag.
+
+### Plan re-ordering
+
+`external_session_id` removal (originally Phases 2-3) is re-ordered to **after** the Phase 7 default-flip — direct mode still needs it pre-flip. Pre-flip additive phases: exit-detection (this) → Sigma/Jorvis dispatch rewrite → Cmd+T → win32 → dogfood → flip default → then resume simplification + schema drop.
+
+### Combined main gate
+
+- tsc clean
+- vitest 106 files / 1052 pass / 1 skip (+37 from v1.10.0: sentinel suite + injection + detection + direct-mode regression + notification)
+- eslint 0 errors / 0 warnings
+- build + electron compile clean
+- Playwright smoke e2e 38 s pass (default-direct boots — zero-regression proof)
+
+No schema migrations in v1.10.1.
+
 ## [1.10.0] - 2026-05-21
 
 v1.10.0 — **W-4 shell-first pane architecture, Phase 1 of 7** (flagged, default-off). The first increment of the multi-session pivot away from the brittle PTY-direct-CLI model toward a durable shell-first model (BridgeSpace-style). One Sonnet coder cluster (worktree-isolated), lead-merged.

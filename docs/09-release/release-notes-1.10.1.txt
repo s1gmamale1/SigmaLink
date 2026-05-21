@@ -1,0 +1,59 @@
+SigmaLink v1.10.1 — 2026-05-21
+==============================
+
+v1.10.1 — W-4 shell-first Phase 2 of 7: CLI-exit detection (flagged,
+default-off). One Sonnet coder cluster, lead-merged.
+
+
+CLI-exit detection in shell-first mode
+--------------------------------------
+
+In shell-first mode (v1.10.0), when the CLI exits the shell stays
+alive (the durability win) — but SigmaLink's pane-status + "agent
+done" notification key off PTY exit, which now only fires when the
+shell itself dies. Phase 2 adds a sentinel so SigmaLink detects CLI
+completion while keeping the pane alive.
+
+- Sentinel (app/src/main/core/pty/sentinel.ts, new): shell-first
+  injection appends `; printf '\n%s%d%s\n' '__SIGMALINK_CLI_EXIT_'
+  "$?" '__'` after the CLI command, so on CLI exit the shell prints
+  __SIGMALINK_CLI_EXIT_<code>__ then returns to its prompt.
+  extractSentinel() parses the code + strips the marker.
+- Detection (registry.ts): shell-first mode only — the onData stream
+  is scanned for the sentinel; on match it strips the marker from the
+  renderer-forwarded data + fires a new onCliExited sink with the
+  exit code, DISTINCT from PTY onExit (shell-died). Pane/PTY NOT torn
+  down.
+- Notification (rpc-router.ts): onCliExited calls the same
+  pushPtyExitNotification path direct-mode PTY-exit uses → identical
+  "agent done" notification.
+- Status-repr choice: a separate additive onCliExited callback, NOT a
+  new sigma_pane_events.kind enum value (which would force a migration
+  + risk direct-mode consumers). Zero schema change, zero direct-mode
+  impact.
+
+Zero regression at default: detection runs only when
+spawnMode==='shell-first'; direct mode never composes or scans for
+the sentinel. Smoke e2e boots at default.
+
+
+Plan re-ordering
+----------------
+
+external_session_id removal (originally Phases 2-3) re-ordered to
+AFTER the Phase 7 default-flip — direct mode needs it pre-flip.
+Pre-flip additive phases: exit-detection (this) → Sigma/Jorvis
+dispatch rewrite → Cmd+T → win32 → dogfood → flip default → then
+resume simplification + schema drop.
+
+
+Combined main gate
+------------------
+
+- tsc clean
+- vitest 106 files / 1052 pass / 1 skip (+37 from v1.10.0)
+- eslint 0 errors / 0 warnings
+- build + electron compile clean
+- Playwright smoke e2e 38 s pass (default-direct boots)
+
+No schema migrations in v1.10.1.

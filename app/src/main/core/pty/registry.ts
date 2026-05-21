@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { spawnLocalPty, type PtyHandle, type SpawnInput } from './local-pty';
 import { RingBuffer } from './ring-buffer';
 import { detectLinks, type LinkHit } from './link-detector';
+import { extractSentinel } from './sentinel';
 
 /** Milliseconds between SIGTERM and the fallback SIGKILL on lingering PTYs. */
 const PTY_KILL_FALLBACK_MS = 5_000;
@@ -57,11 +58,31 @@ export interface SessionRecord {
   buffer: RingBuffer;
   unsubData: () => void;
   unsubExit: () => void;
+  /**
+   * v1.6.0 Phase 2 — the effective spawn mode used for this session.
+   * 'shell-first' sessions watch the data stream for the CLI-exit sentinel.
+   * 'direct' sessions (the default) never have the sentinel in their data stream.
+   * Optional for backwards compatibility with existing SessionRecord mocks in tests.
+   */
+  spawnMode?: 'direct' | 'shell-first';
 }
 
 export type DataSink = (sessionId: string, data: string) => void;
 export type ExitSink = (sessionId: string, exitCode: number, signal?: number) => void;
 export type LinkSink = (sessionId: string, hit: LinkHit) => void;
+
+/**
+ * v1.6.0 Phase 2 — emitted when the CLI exits inside a shell-first pane.
+ *
+ * Distinct from `ExitSink` (which fires when the SHELL/PTY itself exits) and
+ * from `PaneEventSink` (which is wired to the `sigma_pane_events` DB table whose
+ * SQLite enum does not include 'cli-exited').  A separate sink keeps the status
+ * model additive and avoids a schema migration.
+ *
+ * CRITICAL INVARIANT: never fired in direct mode — only in shell-first mode
+ * when the sentinel is detected in the PTY data stream.
+ */
+export type CliExitedSink = (info: { sessionId: string; exitCode: number }) => void;
 
 /**
  * v1.2.8 — emitted right after a fresh PTY is spawned (NOT during resume).
@@ -107,6 +128,16 @@ export interface PtyRegistryOptions {
    */
   onPostSpawnCapture?: PostSpawnSink;
   onPaneEvent?: PaneEventSink;
+  /**
+   * v1.6.0 Phase 2 — called when the CLI exits inside a shell-first pane
+   * (sentinel detected in the PTY data stream).  The shell/PTY stays alive.
+   *
+   * IMPORTANT: this fires INSTEAD OF (not in addition to) `onPaneEvent` for
+   * the CLI-exit event in shell-first mode.  Direct-mode panes use the normal
+   * `onExit` → `onPaneEvent` path.  The sentinel line is stripped from the data
+   * forwarded to the renderer before this callback fires.
+   */
+  onCliExited?: CliExitedSink;
 }
 
 export class PtyRegistry {
@@ -117,6 +148,7 @@ export class PtyRegistry {
   private readonly onLinkDetected: LinkSink | null;
   private readonly onPostSpawnCapture: PostSpawnSink | null;
   private readonly onPaneEvent: PaneEventSink | null;
+  private readonly onCliExited: CliExitedSink | null;
   constructor(onData: DataSink, onExit: ExitSink, opts: PtyRegistryOptions = {}) {
     this.onData = onData;
     this.onExit = onExit;
@@ -124,6 +156,7 @@ export class PtyRegistry {
     this.onLinkDetected = opts.onLinkDetected ?? null;
     this.onPostSpawnCapture = opts.onPostSpawnCapture ?? null;
     this.onPaneEvent = opts.onPaneEvent ?? null;
+    this.onCliExited = opts.onCliExited ?? null;
   }
 
   create(
@@ -158,10 +191,37 @@ export class PtyRegistry {
   ): SessionRecord {
     const id = input.sessionId ?? input.preassignedSessionId ?? randomUUID();
     const isResume = input.isResume ?? (input.sessionId !== undefined);
+    // v1.6.0 Phase 2: resolve the effective spawn mode so the data handler knows
+    // whether to watch for the CLI-exit sentinel.  Mirrors the logic in
+    // spawnLocalPty so the registry stays consistent with what was actually spawned.
+    const effectiveSpawnMode: 'direct' | 'shell-first' =
+      input.spawnMode === 'shell-first' &&
+      (input.command ?? '') !== '' &&
+      process.platform !== 'win32'
+        ? 'shell-first'
+        : 'direct';
     const pty = spawnLocalPty(input);
     const buffer = new RingBuffer();
     const linkSink = this.onLinkDetected;
-    const unsubData = pty.onData((data) => {
+    const cliExitedSink = this.onCliExited;
+    const unsubData = pty.onData((rawData) => {
+      // v1.6.0 Phase 2 — sentinel detection (shell-first mode only).
+      // In shell-first mode the injected command line ends with a `; printf …`
+      // snippet that emits the sentinel after the CLI exits.  We intercept it
+      // here, strip it from the forwarded data (users must not see the raw
+      // marker), and fire the cli-exited signal without tearing down the pane.
+      let data = rawData;
+      if (effectiveSpawnMode === 'shell-first' && cliExitedSink) {
+        const match = extractSentinel(rawData);
+        if (match !== null) {
+          data = match.strippedData;
+          try {
+            cliExitedSink({ sessionId: id, exitCode: match.exitCode });
+          } catch {
+            /* never let a cli-exited listener break the data stream */
+          }
+        }
+      }
       buffer.append(data);
       this.onData(id, data);
       if (linkSink) {
@@ -204,6 +264,7 @@ export class PtyRegistry {
       buffer,
       unsubData,
       unsubExit,
+      spawnMode: effectiveSpawnMode,
     };
     this.sessions.set(id, rec);
     // v1.2.8 — only fire the post-spawn capture hook for FRESH spawns; resume

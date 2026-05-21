@@ -18,6 +18,7 @@ vi.mock('./local-pty', () => {
 import { spawnLocalPty } from './local-pty';
 import { PtyRegistry } from './registry';
 import type { PtyHandle } from './local-pty';
+import { SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
 
 interface FakePty extends PtyHandle {
   killCalls: number;
@@ -622,5 +623,338 @@ describe('PtyRegistry.killAll()', () => {
     expect(ptys[0]?.killCalls).toBe(1);
     expect(ptys[1]?.killCalls).toBe(0);
     expect(s1.id).toBe('alive');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 2 — sentinel detection in registry (shell-first mode)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Helper: create a fake PTY that lets us manually emit data and exit events,
+ * plus capture the data forwarded to the registry's DataSink.
+ */
+function makeSentinelTestPty(pid: number = FAKE_PID) {
+  let dataHandler: ((d: string) => void) | null = null;
+  let exitHandler: ((info: { exitCode: number; signal?: number }) => void) | null = null;
+
+  const pty: FakePty = {
+    pid,
+    killCalls: 0,
+    write: () => undefined,
+    resize: () => undefined,
+    kill: function (this: FakePty) { this.killCalls += 1; },
+    onData: (cb) => {
+      dataHandler = cb;
+      return () => undefined;
+    },
+    onExit: (cb) => {
+      exitHandler = cb;
+      return () => undefined;
+    },
+  } as FakePty;
+
+  return {
+    pty,
+    fireData: (d: string) => dataHandler?.(d),
+    fireExit: (code: number, signal?: number) =>
+      exitHandler?.({ exitCode: code, signal }),
+  };
+}
+
+describe('PtyRegistry — Phase 2 sentinel detection', () => {
+  it('fires onCliExited with parsed exit code when sentinel appears in data (exit 0)', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      {
+        onCliExited: (info) => cliExits.push(info),
+      },
+    );
+
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
+
+    // Simulate the shell printing the sentinel after the CLI exits with code 0.
+    fireData(`CLI done\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`);
+
+    expect(cliExits).toHaveLength(1);
+    expect(cliExits[0]?.sessionId).toBe(sess.id);
+    expect(cliExits[0]?.exitCode).toBe(0);
+  });
+
+  it('fires onCliExited with non-zero exit code', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const cliExits: Array<{ exitCode: number }> = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onCliExited: (info) => cliExits.push(info) },
+    );
+    registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
+
+    fireData(`\n${SENTINEL_PREFIX}42${SENTINEL_SUFFIX}\n`);
+
+    expect(cliExits).toHaveLength(1);
+    expect(cliExits[0]?.exitCode).toBe(42);
+  });
+
+  it('strips the sentinel line from data forwarded to the DataSink', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const forwarded: string[] = [];
+    const registry = new PtyRegistry(
+      (_sid, data) => forwarded.push(data),
+      () => undefined,
+      { onCliExited: () => undefined },
+    );
+    registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
+
+    fireData(`visible output\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\nshell prompt`);
+
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]).not.toContain(SENTINEL_PREFIX);
+    expect(forwarded[0]).not.toContain(SENTINEL_SUFFIX);
+    // Content before and after sentinel is preserved.
+    expect(forwarded[0]).toContain('visible output');
+    expect(forwarded[0]).toContain('shell prompt');
+  });
+
+  it('does NOT call onCliExited in direct mode even if sentinel-like data appears', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const cliExits: unknown[] = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onCliExited: (info) => cliExits.push(info) },
+    );
+    // No spawnMode or explicit 'direct'
+    registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      spawnMode: 'direct',
+    });
+
+    // Even if the sentinel text somehow appeared in direct-mode output, it must
+    // not trigger onCliExited.
+    fireData(`\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`);
+
+    expect(cliExits).toHaveLength(0);
+  });
+
+  it('direct mode with no spawnMode field: sentinel ignored (default=direct)', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const cliExits: unknown[] = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onCliExited: (info) => cliExits.push(info) },
+    );
+    registry.create({
+      providerId: 'codex',
+      command: 'codex',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      // spawnMode intentionally omitted — defaults to direct
+    });
+
+    fireData(`\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`);
+    expect(cliExits).toHaveLength(0);
+  });
+
+  it('does NOT call forget()/kill() on cli-exited — pane stays alive', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onCliExited: () => undefined },
+    );
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
+
+    fireData(`\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`);
+
+    // Session must still be alive and accessible — the shell is still running.
+    expect(registry.get(sess.id)).toBeDefined();
+    expect(registry.get(sess.id)?.alive).toBe(true);
+    expect(pty.killCalls).toBe(0);
+  });
+
+  it('sentinel-detected session still records spawnMode=shell-first', () => {
+    const { pty } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
+
+    expect(sess.spawnMode).toBe('shell-first');
+  });
+
+  it('direct-mode session records spawnMode=direct', () => {
+    const { pty } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'codex',
+      command: 'codex',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      // no spawnMode — default is direct
+    });
+
+    expect(sess.spawnMode).toBe('direct');
+  });
+
+  it('onCliExited fires notification path (integration: notification sink called on sentinel)', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const notifCalls: Array<{ sessionId: string; exitCode: number }> = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      {
+        onCliExited: ({ sessionId, exitCode }) => {
+          // This simulates what rpc-router.ts does: call pushPtyExitNotification
+          // with the same kind/exitCode mapping as the direct-mode onPaneEvent path.
+          notifCalls.push({ sessionId, exitCode });
+        },
+      },
+    );
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
+
+    fireData(`\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`);
+
+    expect(notifCalls).toHaveLength(1);
+    expect(notifCalls[0]?.sessionId).toBe(sess.id);
+    expect(notifCalls[0]?.exitCode).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 2 — direct-mode regression guard
+// Verifies that the PTY-exit path (onExit → onPaneEvent) is UNCHANGED for
+// direct-mode sessions — no sentinel processing, no onCliExited calls.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PtyRegistry — Phase 2 direct-mode regression guard', () => {
+  it('direct mode: onPaneEvent fires on PTY exit (unchanged behavior)', () => {
+    // Use a container object so TypeScript control-flow narrowing doesn't
+    // restrict the call at the bottom of the test to `never`.
+    const state: { exitHandler: ((info: { exitCode: number; signal?: number }) => void) | null } =
+      { exitHandler: null };
+    const pty = makeFakePty(FAKE_PID);
+    pty.onExit = (cb) => {
+      state.exitHandler = (info) => cb(info);
+      return () => undefined;
+    };
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const paneEvents: Array<{ kind: string; exitCode?: number }> = [];
+    const cliExitsCalled: unknown[] = [];
+
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      {
+        onPaneEvent: (ev) => paneEvents.push({ kind: ev.kind, exitCode: ev.exitCode }),
+        onCliExited: (info) => cliExitsCalled.push(info),
+      },
+    );
+    registry.create({
+      providerId: 'codex',
+      command: 'codex',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      // no spawnMode — direct
+    });
+
+    // Simulate PTY exit (the shell/CLI dying in direct mode)
+    state.exitHandler?.({ exitCode: 0 });
+
+    // onPaneEvent fires twice: 'started' at create(), then 'exited' at PTY exit.
+    // We only care that an 'exited' event appeared (direct-mode PTY-exit path unchanged).
+    const exitedEvents = paneEvents.filter((e) => e.kind === 'exited');
+    expect(exitedEvents).toHaveLength(1);
+    expect(exitedEvents[0]?.exitCode).toBe(0);
+
+    // onCliExited must NOT have fired
+    expect(cliExitsCalled).toHaveLength(0);
   });
 });

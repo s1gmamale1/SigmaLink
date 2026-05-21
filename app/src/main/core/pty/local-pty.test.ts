@@ -21,7 +21,9 @@ import {
   posixQuoteArg,
   parseSpawnMode,
   KV_PTY_SPAWN_MODE,
+  buildShellCommandLine,
 } from './local-pty';
+import { SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
 
 const originalPath = process.env.PATH;
 const originalPlatform = process.platform;
@@ -335,7 +337,7 @@ describe('spawnLocalPty: shell-first mode', () => {
     expect(isShell).toBe(true);
   });
 
-  it('injects the command line after the first onData chunk', async () => {
+  it('injects the command line (with sentinel) after the first onData chunk', async () => {
     if (process.platform === 'win32') return;
     vi.useFakeTimers();
 
@@ -354,7 +356,14 @@ describe('spawnLocalPty: shell-first mode', () => {
     fireData('% ');
 
     expect(written.length).toBe(1);
-    expect(written[0]).toBe("claude '--resume' 'abc-123'\n");
+    // Phase 2: injected line now includes the sentinel snippet so the shell
+    // prints the exit marker when the CLI exits.
+    const injected = written[0]!;
+    expect(injected).toMatch(/^claude '--resume' 'abc-123'/);
+    expect(injected).toContain(SENTINEL_PREFIX);
+    expect(injected).toContain(SENTINEL_SUFFIX);
+    expect(injected).toContain('"$?"');
+    expect(injected.endsWith('\n')).toBe(true);
   });
 
   it('double-inject guard: second onData does not re-write', async () => {
@@ -379,7 +388,7 @@ describe('spawnLocalPty: shell-first mode', () => {
     expect(written.length).toBe(1);
   });
 
-  it('fallback timer writes the command if no onData arrives within 250 ms', async () => {
+  it('fallback timer writes the command (with sentinel) if no onData arrives within 250 ms', async () => {
     if (process.platform === 'win32') return;
     vi.useFakeTimers();
 
@@ -398,7 +407,11 @@ describe('spawnLocalPty: shell-first mode', () => {
     vi.advanceTimersByTime(251);
 
     expect(written.length).toBe(1);
-    expect(written[0]).toBe("claude '--flag'\n");
+    const injected = written[0]!;
+    expect(injected).toMatch(/^claude '--flag'/);
+    expect(injected).toContain(SENTINEL_PREFIX);
+    expect(injected).toContain(SENTINEL_SUFFIX);
+    expect(injected.endsWith('\n')).toBe(true);
   });
 
   it('fallback timer does not double-inject if onData already fired', async () => {
@@ -444,5 +457,51 @@ describe('spawnLocalPty: shell-first mode', () => {
     const e = caught as NodeJS.ErrnoException;
     expect(e).toBeInstanceOf(Error);
     expect(e.code).toBe('ENOENT');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.6.0 Phase 2 — buildShellCommandLine sentinel injection
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildShellCommandLine (Phase 2)', () => {
+  it('without sentinel: returns plain "command args\\n" (Phase 1 format)', () => {
+    const line = buildShellCommandLine('claude', ['--flag', 'value']);
+    expect(line).toBe("claude '--flag' 'value'\n");
+  });
+
+  it('with sentinel: command line ends with newline', () => {
+    const line = buildShellCommandLine('claude', ['--flag'], true);
+    expect(line.endsWith('\n')).toBe(true);
+  });
+
+  it('with sentinel: contains the sentinel prefix and suffix', () => {
+    const line = buildShellCommandLine('claude', ['--resume', 'abc'], true);
+    expect(line).toContain(SENTINEL_PREFIX);
+    expect(line).toContain(SENTINEL_SUFFIX);
+  });
+
+  it('with sentinel: sentinel snippet follows the command args', () => {
+    const line = buildShellCommandLine('claude', ['--flag'], true);
+    // Command args come before the sentinel
+    const argEnd = line.indexOf("'--flag'") + "'--flag'".length;
+    const sentinelStart = line.indexOf(SENTINEL_PREFIX);
+    expect(sentinelStart).toBeGreaterThan(argEnd);
+  });
+
+  it('with sentinel: uses $? so shell substitutes exit code', () => {
+    const line = buildShellCommandLine('mybin', [], true);
+    expect(line).toContain('"$?"');
+  });
+
+  it('direct mode: buildShellCommandLine without sentinel has NO sentinel prefix', () => {
+    const line = buildShellCommandLine('claude', ['--flag']);
+    expect(line).not.toContain(SENTINEL_PREFIX);
+    expect(line).not.toContain(SENTINEL_SUFFIX);
+  });
+
+  it('no-args case: direct mode produces "command\\n"', () => {
+    const line = buildShellCommandLine('myshell', []);
+    expect(line).toBe('myshell\n');
   });
 });
