@@ -146,10 +146,18 @@ export class PtyRegistry {
        * it to the router for immediate DB persistence.
        */
       externalSessionId?: string;
+      /**
+       * v1.5.5 — explicit resume flag. When provided, takes precedence over
+       * the implicit `sessionId !== undefined` derivation. Use `true` for
+       * resume callers (resume-launcher) and `false` for fresh spawns
+       * (workspaces/launcher, swarms/factory-spawn). When omitted, falls
+       * back to the existing implicit derivation for backwards compatibility.
+       */
+      isResume?: boolean;
     } & SpawnInput,
   ): SessionRecord {
     const id = input.sessionId ?? input.preassignedSessionId ?? randomUUID();
-    const isResume = input.sessionId !== undefined;
+    const isResume = input.isResume ?? (input.sessionId !== undefined);
     const pty = spawnLocalPty(input);
     const buffer = new RingBuffer();
     const linkSink = this.onLinkDetected;

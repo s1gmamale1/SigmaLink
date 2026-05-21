@@ -395,6 +395,99 @@ describe('PtyRegistry.create() — preassignedSessionId (v1.5.5-A)', () => {
   });
 });
 
+describe('PtyRegistry.create() — explicit isResume field (v1.5.5)', () => {
+  it('isResume:true suppresses onPostSpawnCapture even when sessionId is undefined', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const captures: unknown[] = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onPostSpawnCapture: (c) => captures.push(c) },
+    );
+    // No sessionId supplied — implicit derivation would give isResume=false.
+    // The explicit isResume:true must win and suppress the capture hook.
+    registry.create({
+      providerId: 'codex',
+      command: 'codex',
+      args: [],
+      cwd: '/tmp/proj',
+      cols: 80,
+      rows: 24,
+      isResume: true,
+    });
+    expect(captures).toHaveLength(0);
+  });
+
+  it('isResume:false fires onPostSpawnCapture even if sessionId were set (hypothetical override)', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const captures: Array<{ sessionId: string }> = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onPostSpawnCapture: (c) => captures.push(c) },
+    );
+    // Explicit isResume:false must override the implicit sessionId derivation
+    // and allow the capture hook to fire.
+    const sess = registry.create({
+      providerId: 'codex',
+      command: 'codex',
+      args: [],
+      cwd: '/tmp/proj',
+      cols: 80,
+      rows: 24,
+      sessionId: 'some-id',
+      isResume: false,
+    });
+    expect(captures).toHaveLength(1);
+    expect(captures[0]?.sessionId).toBe(sess.id);
+  });
+
+  it('omitting isResume falls back to implicit sessionId-based derivation (equivalence)', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const capturesA: unknown[] = [];
+    const capturesB: unknown[] = [];
+
+    const registryA = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onPostSpawnCapture: (c) => capturesA.push(c) },
+    );
+    const registryB = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onPostSpawnCapture: (c) => capturesB.push(c) },
+    );
+
+    // With sessionId, implicit derivation → isResume=true → no capture.
+    registryA.create({
+      providerId: 'codex',
+      command: 'codex',
+      args: [],
+      cwd: '/tmp/proj',
+      cols: 80,
+      rows: 24,
+      sessionId: 'existing-id',
+      // isResume intentionally omitted
+    });
+    expect(capturesA).toHaveLength(0);
+
+    // Without sessionId, implicit derivation → isResume=false → capture fires.
+    registryB.create({
+      providerId: 'codex',
+      command: 'codex',
+      args: [],
+      cwd: '/tmp/proj',
+      cols: 80,
+      rows: 24,
+      // sessionId intentionally omitted, isResume intentionally omitted
+    });
+    expect(capturesB).toHaveLength(1);
+  });
+});
+
 describe('v1.5.6 — gracefulExitDelayMs race fix', () => {
   it('v1.5.6 — ring buffer survives gracefulExitDelayMs window after PTY exit so renderer snapshot wins the race', () => {
     // Arrange: wire up onExit so we can trigger it manually.

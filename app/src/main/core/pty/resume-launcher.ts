@@ -343,6 +343,10 @@ export async function respawnFailedWorkspacePanes(
           showLegacy: deps.showLegacy ?? readShowLegacy(db),
           // No resumeArgs — this is a fresh spawn in the same worktree.
           extraArgs: [],
+          // v1.5.5 — explicit resume flag: sessionId reuses the existing DB
+          // row, so this IS a resume even though no --resume/--continue arg
+          // is passed. Suppresses the redundant onPostSpawnCapture disk-scan.
+          isResume: true,
         },
       );
       const rec = result.ptySession;
@@ -469,6 +473,10 @@ export async function resumeWorkspacePanes(
           rows: deps.rows ?? 32,
           showLegacy: deps.showLegacy ?? readShowLegacy(db),
           extraArgs: resume.args,
+          // v1.5.5 — explicit resume flag. Suppresses the redundant
+          // onPostSpawnCapture disk-scan; the DB row already carries the
+          // external_session_id from the original spawn.
+          isResume: true,
         },
       );
       const rec = spawned.ptySession;

@@ -209,6 +209,8 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
       // isResume=false → onPostSpawnCapture fires for disk-scan providers
       // and shouldPreAssign still injects --session-id for claude/gemini.
       preassignedSessionId: spawnSessionId,
+      // v1.5.5 — explicit: swarm agent spawns are always fresh (no sessionId).
+      isResume: false,
     },
   );
   const rec = spawnResult.ptySession;

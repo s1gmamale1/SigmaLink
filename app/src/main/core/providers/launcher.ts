@@ -75,6 +75,14 @@ export interface ResolveAndSpawnOpts {
    * undefined for fresh spawns.
    */
   preassignedSessionId?: string;
+  /**
+   * v1.5.5 — explicit resume flag forwarded to `PtyRegistry.create`. When
+   * provided, overrides the implicit `sessionId !== undefined` derivation in
+   * the registry. Resume callers set `true`; fresh-spawn callers set `false`.
+   * Omitting this field preserves the existing implicit behaviour for any
+   * caller that has not yet been updated.
+   */
+  isResume?: boolean;
 }
 
 export interface ResolveAndSpawnResult {
@@ -306,6 +314,9 @@ export function resolveAndSpawn(
         // `executeLaunchPlan` / `spawnAgentSession` can persist it on the
         // same INSERT they already do, without an extra UPDATE round-trip.
         externalSessionId: preassignedUuid ?? undefined,
+        // v1.5.5 — forward the explicit resume flag when the caller provided
+        // one; omitting it lets the registry fall back to its own derivation.
+        isResume: opts.isResume,
       });
       return {
         ptySession,

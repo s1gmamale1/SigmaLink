@@ -272,6 +272,8 @@ export async function executeLaunchPlan(
           // providers and shouldPreAssign still injects --session-id for
           // claude/gemini (fixes the reviewer-blocking sentinel collision).
           preassignedSessionId: finalPreallocSessionId,
+          // v1.5.5 — explicit: this is always a fresh spawn (no sessionId).
+          isResume: false,
         },
       );
       const rec = spawnResult.ptySession;

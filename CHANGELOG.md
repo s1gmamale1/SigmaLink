@@ -4,6 +4,38 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-05-21
+
+v1.9.1 — `isResume` explicit registry field (v1.5.5 reviewer item, deferred and now closed). A behavior-equivalent clarity + efficiency refactor in the PTY-resume core.
+
+### Change
+
+`PtyRegistry.create` previously derived resume-ness implicitly: `const isResume = input.sessionId !== undefined;`. A pane carrying a `sessionId` for any reason would be treated as a resume. This release adds an explicit optional `isResume?: boolean` to `PtyRegistry.create` + `ResolveAndSpawnOpts`:
+
+```ts
+const isResume = input.isResume ?? (input.sessionId !== undefined);
+```
+
+The fallback preserves the exact prior behavior for any caller that doesn't pass the field — **zero behavior change**. Callers now declare intent explicitly:
+- `resume-launcher.ts` (`resumeWorkspacePanes`, `respawnFailedWorkspacePanes`) → `isResume: true`
+- `workspaces/launcher.ts` (`executeLaunchPlan`) + `swarms/factory-spawn.ts` (fresh spawns) → `isResume: false`
+
+The `onPostSpawnCapture` disk-scan gate (`if (!isResume && ...)`) is unchanged. The efficiency win: resume callers now suppress the redundant disk-scan by *declared intent* rather than incidentally because they happen to carry a `sessionId`. `shouldPreAssign` + the `sessionId` resume sentinel + `preassignedSessionId` semantics are untouched.
+
+### Gate
+
+- tsc clean
+- vitest 105 files / 993 pass / 1 skip (+3 isResume equivalence/override tests)
+- eslint 0 errors / 0 warnings
+- build + electron compile clean
+- Playwright smoke e2e 38 s pass (critical for this PTY-resume-core change)
+
+### Still deferred (unchanged from v1.9.0)
+
+W-4 shell-first (~14d), V3 Wave 12-15 (multi-month), W-5 behavioral activation (design-first), W-6 full Jorvis identifier rename, BridgeVoice signed installers (funded certs), V3-W15-006 dogfood, terminal scrollback persistence (design question).
+
+No schema migrations in v1.9.1.
+
 ## [1.9.0] - 2026-05-21
 
 v1.9.0 — Skills tab Phase 2: drag-drop skill bindings + persistence (informational mode). One Sonnet coder cluster (worktree-isolated), lead-merged.
