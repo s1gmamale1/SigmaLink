@@ -205,6 +205,17 @@
       "tags": ["bdd", "gherkin", "specifications", "testing"],
       "install": { "ownerRepo": "behaviour-driven/skill-spec-by-example" },
       "repoUrl": "https://github.com/behaviour-driven/skill-spec-by-example"
+    },
+    {
+      "id": "hermes-github-code-review",
+      "name": "Hermes — GitHub Code Review",
+      "description": "Review live GitHub PRs: fetch diffs via gh/REST, run checks, post inline comments + approve/request-changes. Shell-based and provider-agnostic — fans out to Claude, Codex, and Gemini. From the Hermes Agent skill library.",
+      "version": "1.1.0",
+      "author": "Hermes Agent",
+      "tags": ["github", "pr-review", "code-review", "hermes"],
+      "install": { "ownerRepo": "NousResearch/hermes-agent", "subPath": "skills/github/github-code-review" },
+      "repoUrl": "https://github.com/NousResearch/hermes-agent",
+      "homepageUrl": "https://github.com/NousResearch/hermes-agent"
     }
   ]
 }
