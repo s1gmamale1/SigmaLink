@@ -3,7 +3,7 @@
 // Wiring contract (per brief §4): re-uses the existing `PtyRegistry.onPaneEvent`
 // sink rather than adding a new `pty:exit` listener. The router's existing
 // `onPaneEvent` handler now also calls `pushPtyExitNotification` so a single
-// pane event lands in BOTH `sigma_pane_events` (existing) AND
+// pane event lands in BOTH `jorvis_pane_events` (existing) AND
 // `notifications` (this packet).
 //
 // Severity mapping (D1):

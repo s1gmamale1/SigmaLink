@@ -1,0 +1,61 @@
+SigmaLink v1.12.1 — 2026-05-21
+==============================
+
+v1.12.1 — W-6 Cluster B: DB-table + cross-sync Sigma→Jorvis rename.
+Completes the W-6 identifier sweep. One Sonnet coder + an Opus reviewer
+(GO verdict) + lead-applied review nits.
+
+
+DB + cross-sync rename
+----------------------
+
+Renames the DB surface that Cluster A (v1.11.0) deliberately preserved:
+
+- Table  sigma_pane_events → jorvis_pane_events
+- Column agent_sessions.sigma_monitor_conversation_id
+         → jorvis_monitor_conversation_id
+- Index  recreated as jorvis_pane_events_conv_ts
+
+Migration 0022 (0022_jorvis_pane_events_rename):
+- Idempotent + existence-guarded (safe to re-run; no-op once migrated).
+- RENAME TO / RENAME COLUMN are metadata-only → existing rows survive.
+- Remaps any sync_state dirty rows from the old table name to the new
+  one, so no dirty row orphans after the rename.
+
+Cross-sync:
+- dirty-tracker SYNCED_TABLES + sync/engine CRDT COLUMN_ALLOWLIST renamed
+  and kept internally consistent.
+- sigma-sync@localhost (git commit-author / identity infra string) is
+  PRESERVED — it is unrelated to the assistant identity.
+
+In-flight tool-call prefix:
+- New writes use 'jorvis-in-flight:'.
+- The read path accepts BOTH 'jorvis-in-flight:' and 'sigma-in-flight:'
+  (dual-prefix backward-compat) so in-flight tool calls persisted by an
+  older version still resolve to interrupted-turn detection.
+
+
+Cross-machine caveat
+--------------------
+
+Renaming a synced table changes the CRDT wire format: a peer still on
+'sigma_pane_events' will not sync those rows with a renamed peer. This is
+an intentional coordinated rename (documented in sync/engine.ts and the
+migration header) — peers should upgrade together. Acceptable for the
+internal-use ecosystem; no dual-table-name compat shim is provided.
+
+
+Combined main gate
+------------------
+
+- tsc clean
+- eslint 0 errors / 0 warnings
+- vitest 114 files / 1197 pass / 1 skip
+  (migration 0022: 6 tests — table rename, index rename, column rename,
+   row survival, idempotency, name constant)
+- build + electron compile clean
+- Playwright smoke e2e 38 s pass in main
+
+This completes W-6 (full Sigma→Jorvis identifier rename): Cluster A
+(assistant identifiers, v1.11.0) + Cluster B (DB + cross-sync, this
+release).

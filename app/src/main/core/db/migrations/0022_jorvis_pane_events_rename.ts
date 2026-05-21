@@ -83,6 +83,16 @@ export function up(db: Database.Database): void {
       );
     }
 
+    // 4. Remap any existing sync_state dirty rows from the old table name so
+    //    they don't orphan — the CRDT engine would otherwise read from the
+    //    now-renamed table and silently skip them. Guarded by sync_state
+    //    existence (absent on installs that never enabled cross-machine sync).
+    if (tableExists(db, 'sync_state')) {
+      db.prepare(
+        `UPDATE sync_state SET table_name = 'jorvis_pane_events' WHERE table_name = 'sigma_pane_events'`,
+      ).run();
+    }
+
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');

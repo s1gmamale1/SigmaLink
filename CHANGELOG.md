@@ -4,6 +4,29 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-05-21
+
+v1.12.1 — **W-6 Cluster B: DB-table + cross-sync Sigma→Jorvis rename** (completes W-6). One Sonnet coder + an Opus reviewer (GO verdict) + lead-applied nits.
+
+### DB + cross-sync rename
+
+Completes the W-6 identifier rename by renaming the DB surface that Cluster A (v1.11.0) deliberately preserved:
+
+- **Table** `sigma_pane_events → jorvis_pane_events`, **column** `agent_sessions.sigma_monitor_conversation_id → jorvis_monitor_conversation_id`, **index** recreated as `jorvis_pane_events_conv_ts`. Migration **0022** is idempotent + existence-guarded; the renames are metadata-only so rows survive, and it remaps any `sync_state` dirty rows to the new table name (avoids orphaned dirty rows).
+- **Cross-sync**: `dirty-tracker` SYNCED_TABLES + `sync/engine` CRDT COLUMN_ALLOWLIST renamed and kept consistent. `sigma-sync@localhost` (git-identity infra string) preserved.
+- **In-flight prefix**: writes `jorvis-in-flight:` now, reads BOTH `jorvis-in-flight:` and `sigma-in-flight:` (dual-prefix backward-compat — older persisted in-flight tool calls still resolve to interrupted-turn detection).
+
+**Cross-machine caveat**: renaming a synced table changes the CRDT wire format — peers must upgrade together (intentional coordinated rename, documented in `sync/engine.ts` + the migration header; acceptable for the internal-use ecosystem).
+
+### Gate
+
+- tsc clean | eslint 0 errors / 0 warnings
+- vitest 114 files / 1197 pass / 1 skip (migration 0022: 6 tests — rename, index, column, row survival, idempotency, name)
+- build + electron:compile clean
+- Playwright smoke e2e 38 s pass in main
+
+Migration: **0022_jorvis_pane_events_rename**.
+
 ## [1.12.0] - 2026-05-21
 
 v1.12.0 — **W-4 shell-first Phases 5-7 + W-5 Phase 3 skill activation + W-8 IDE per-pane worktree browsing + Hermes PR-review skill**. Four parallel Sonnet coder clusters (isolated worktrees) + lead diff-review + combined main gate.
