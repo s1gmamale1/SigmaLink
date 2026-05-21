@@ -21,6 +21,21 @@ export interface SpawnInput {
   env?: NodeJS.ProcessEnv;
   cols: number;
   rows: number;
+  /**
+   * v1.6.0 — Phase 1 shell-first pane mode flag.
+   *
+   * 'direct'      (DEFAULT): existing behaviour — node-pty spawns `command`
+   *               directly (or the user's default shell when command is empty).
+   *               BYTE-FOR-BYTE identical to pre-Phase-1 behaviour.
+   *
+   * 'shell-first': node-pty spawns the user's default shell instead.  After
+   *               the shell emits its first data chunk (prompt) — or after a
+   *               250 ms fallback timer if no data arrives — the composed
+   *               command line is written once into the PTY master.
+   *               On win32, falls back silently to 'direct' in Phase 1 because
+   *               PowerShell/cmd quoting is non-trivial.
+   */
+  spawnMode?: 'direct' | 'shell-first';
 }
 
 export interface PtyHandle {
@@ -164,6 +179,53 @@ function windowsExtensionFor(cmd: string): 'cmd' | 'ps1' | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// v1.6.0 — Shell-first mode helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * KV key for the Phase 1 shell-first pane mode feature flag.
+ * Value: 'direct' (default) | 'shell-first'.
+ * Exported so registry.ts (and tests) can read the canonical key name.
+ */
+export const KV_PTY_SPAWN_MODE = 'pty.spawnMode';
+
+/**
+ * Parse the raw KV value for `pty.spawnMode`.
+ * Returns 'direct' for any unrecognised or missing value — preserving the
+ * CRITICAL INVARIANT that the default is always 'direct'.
+ */
+export function parseSpawnMode(raw: string | null | undefined): 'direct' | 'shell-first' {
+  if (raw === 'shell-first') return 'shell-first';
+  return 'direct';
+}
+
+/**
+ * Minimal POSIX single-quote shell quoting.  Each argument is wrapped in
+ * single quotes with internal single quotes escaped via the classic
+ * `'\''` technique.
+ *
+ * Examples:
+ *   posixQuoteArg('hello')       → "'hello'"
+ *   posixQuoteArg('say hello')   → "'say hello'"
+ *   posixQuoteArg("it's fine")  → "'it'\\''s fine'"
+ *
+ * This is intentionally minimal — it covers every POSIX argument value
+ * including spaces, double quotes, backslashes, and embedded single quotes.
+ */
+export function posixQuoteArg(arg: string): string {
+  return "'" + arg.replace(/'/g, "'\\''") + "'";
+}
+
+/**
+ * Build the shell command line to inject into the PTY master in shell-first
+ * mode.  Returns `"<command> <quotedArgs>\n"`.
+ */
+function buildShellCommandLine(command: string, args: string[]): string {
+  const parts = [command, ...args.map(posixQuoteArg)];
+  return parts.join(' ') + '\n';
+}
+
 /**
  * Build the spawn argv for the current platform.
  *  - non-Windows: pass through unchanged.
@@ -197,6 +259,31 @@ function platformAwareSpawnArgs(input: SpawnInput): { command: string; args: str
 }
 
 export function spawnLocalPty(input: SpawnInput): PtyHandle {
+  // ---------------------------------------------------------------------------
+  // v1.6.0 Phase 1 — shell-first mode branch.
+  //
+  // CRITICAL INVARIANT: when spawnMode is 'direct' (the DEFAULT), or when
+  // input.command is empty, or on win32, we take EXACTLY the existing code
+  // path below — behaviour is byte-for-byte identical to pre-Phase-1.
+  //
+  // On win32 shell-first is deferred to a later phase because PowerShell/cmd
+  // quoting semantics are non-trivial. We silently fall through to direct mode.
+  // ---------------------------------------------------------------------------
+  const effectiveMode: 'direct' | 'shell-first' =
+    input.spawnMode === 'shell-first' &&
+    input.command !== '' &&
+    process.platform !== 'win32'
+      ? 'shell-first'
+      : 'direct';
+
+  if (effectiveMode === 'shell-first') {
+    return spawnShellFirstPty(input);
+  }
+
+  // ---------------------------------------------------------------------------
+  // DIRECT MODE — original implementation, untouched.
+  // ---------------------------------------------------------------------------
+
   // Validate cwd up-front; ConPTY also fails with code 2 when the directory
   // does not exist, and the failure mode is indistinguishable from a missing
   // executable.
@@ -317,6 +404,120 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
     },
     kill: () => {
       try {
+        proc.kill();
+      } catch {
+        /* ignore */
+      }
+    },
+    onData: (cb) => {
+      dataSubs.add(cb);
+      return () => dataSubs.delete(cb);
+    },
+    onExit: (cb) => {
+      exitSubs.add(cb);
+      return () => exitSubs.delete(cb);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// v1.6.0 Phase 1 — shell-first spawn implementation (POSIX only).
+//
+// Spawns the user's default shell as the PTY child. After the shell emits its
+// first data chunk (its prompt), writes the composed command line ONCE into
+// the PTY master. A 250 ms fallback timer fires if no data arrives, ensuring
+// the CLI still starts even in minimal shell environments that suppress the
+// prompt.
+//
+// Resume-arg machinery: command + args already include any resume args (they
+// are composed by the launcher before reaching spawnLocalPty). shell-first
+// simply writes that composed line to the shell — no extra handling needed.
+// ---------------------------------------------------------------------------
+const SHELL_FIRST_PROMPT_TIMEOUT_MS = 250;
+
+function spawnShellFirstPty(input: SpawnInput): PtyHandle {
+  const resolvedCwd =
+    input.cwd && fs.existsSync(input.cwd) ? input.cwd : os.homedir();
+
+  const shell = defaultShell();
+
+  const env: NodeJS.ProcessEnv = {
+    ...(input.env ?? process.env),
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    FORCE_COLOR: '1',
+  };
+
+  const dataSubs = new Set<(d: string) => void>();
+  const exitSubs = new Set<(i: { exitCode: number; signal?: number }) => void>();
+
+  let proc: nodePty.IPty;
+  try {
+    proc = nodePty.spawn(shell.command, shell.args, {
+      name: 'xterm-256color',
+      cwd: resolvedCwd,
+      cols: Math.max(20, input.cols | 0),
+      rows: Math.max(5, input.rows | 0),
+      env: env as { [key: string]: string },
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : String(err ?? 'spawn failed');
+    const fakeHandle: PtyHandle = {
+      pid: -1,
+      write: () => { /* noop on a dead pty */ },
+      resize: () => { /* noop */ },
+      kill: () => { /* noop */ },
+      onData: (cb) => { dataSubs.add(cb); return () => dataSubs.delete(cb); },
+      onExit: (cb) => { exitSubs.add(cb); return () => exitSubs.delete(cb); },
+    };
+    setImmediate(() => {
+      for (const cb of dataSubs) cb(`\x1b[31m${message}\x1b[0m\r\n`);
+      for (const cb of exitSubs) cb({ exitCode: -1, signal: undefined });
+    });
+    return fakeHandle;
+  }
+
+  // Compose the command line to inject.
+  const commandLine = buildShellCommandLine(input.command, input.args);
+
+  // Injection latch — write the command line exactly ONCE.
+  let injected = false;
+  const injectCommand = () => {
+    if (injected) return;
+    injected = true;
+    proc.write(commandLine);
+  };
+
+  // Fallback timer: if no onData arrives within 250 ms, inject anyway.
+  const fallbackTimer = setTimeout(injectCommand, SHELL_FIRST_PROMPT_TIMEOUT_MS);
+  // Unref so it doesn't prevent process exit in tests.
+  if (fallbackTimer.unref) fallbackTimer.unref();
+
+  proc.onData((d) => {
+    // First data chunk is the shell's prompt-ready signal.
+    injectCommand();
+    clearTimeout(fallbackTimer);
+    for (const cb of dataSubs) cb(d);
+  });
+  proc.onExit(({ exitCode, signal }) => {
+    clearTimeout(fallbackTimer);
+    for (const cb of exitSubs) cb({ exitCode, signal });
+  });
+
+  return {
+    pid: proc.pid,
+    write: (d) => proc.write(d),
+    resize: (cols, rows) => {
+      try {
+        proc.resize(Math.max(20, cols | 0), Math.max(5, rows | 0));
+      } catch (err) {
+        console.warn('[pty] resize on dead handle ignored:', err);
+      }
+    },
+    kill: () => {
+      try {
+        clearTimeout(fallbackTimer);
         proc.kill();
       } catch {
         /* ignore */

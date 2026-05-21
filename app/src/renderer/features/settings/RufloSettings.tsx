@@ -22,6 +22,8 @@ import { cn } from '@/lib/utils';
 const KV_TELEMETRY_OPT_IN = 'ruflo.telemetry.optIn';
 const KV_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
 const KV_STRICT_MCP_VERIFICATION = 'ruflo.strictMcpVerification';
+// v1.6.0 Phase 1 — shell-first pane mode feature flag.
+const KV_PTY_SPAWN_MODE = 'pty.spawnMode';
 
 const DAEMON_POLL_INTERVAL_MS = 5_000;
 
@@ -91,6 +93,8 @@ export function RufloSettings() {
   const [telemetry, setTelemetry] = useState<boolean>(false);
   const [autowriteMcp, setAutowriteMcp] = useState<boolean>(true);
   const [strictMcpVerification, setStrictMcpVerification] = useState<boolean>(false);
+  // v1.6.0 Phase 1 — shell-first pane mode flag (default OFF = 'direct').
+  const [shellFirstPanes, setShellFirstPanes] = useState<boolean>(false);
   const [daemons, setDaemons] = useState<DaemonStatusRow[]>([]);
   const [restartingDaemon, setRestartingDaemon] = useState<string | null>(null);
   const daemonPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -122,6 +126,12 @@ export function RufloSettings() {
         if (alive) setStrictMcpVerification(s === '1');
       } catch {
         /* default OFF */
+      }
+      try {
+        const m = await rpc.kv.get(KV_PTY_SPAWN_MODE);
+        if (alive) setShellFirstPanes(m === 'shell-first');
+      } catch {
+        /* default OFF (direct mode) */
       }
     })();
     const offHealth = onEvent<RufloHealth>('ruflo:health', (h) => {
@@ -203,6 +213,14 @@ export function RufloSettings() {
   const onToggleStrictMcpVerification = useCallback((next: boolean) => {
     setStrictMcpVerification(next);
     void rpc.kv.set(KV_STRICT_MCP_VERIFICATION, next ? '1' : '0').catch(() => undefined);
+  }, []);
+
+  // v1.6.0 Phase 1 — shell-first pane mode toggle. Writes 'shell-first' or
+  // 'direct' to kv['pty.spawnMode']. Takes effect on next pane spawn; existing
+  // panes are unaffected (flag is read at spawn time, not retroactively).
+  const onToggleShellFirstPanes = useCallback((next: boolean) => {
+    setShellFirstPanes(next);
+    void rpc.kv.set(KV_PTY_SPAWN_MODE, next ? 'shell-first' : 'direct').catch(() => undefined);
   }, []);
 
   const state = health?.state ?? 'absent';
@@ -417,6 +435,27 @@ export function RufloSettings() {
             </div>
           </div>
           <Switch checked={telemetry} onCheckedChange={onToggleTelemetry} />
+        </div>
+      </section>
+
+      {/* v1.6.0 Phase 1 — Experimental PTY features. */}
+      <section>
+        <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Experimental
+        </div>
+        <div className="flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
+          <div className="min-w-0 pr-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              Shell-first panes (experimental)
+            </div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              Spawn an interactive shell as the PTY parent and launch the agent
+              CLI inside it. Panes survive CLI exits and show shell-level errors.
+              Takes effect on the next pane spawn. Default is off.
+            </div>
+          </div>
+          <Switch checked={shellFirstPanes} onCheckedChange={onToggleShellFirstPanes} />
         </div>
       </section>
     </div>

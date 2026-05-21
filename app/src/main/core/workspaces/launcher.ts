@@ -27,6 +27,7 @@ import {
   prepareGeminiResume,
 } from '../pty/gemini-resume-bridge';
 import { workspaceCwdInWorktree } from './worktree-cwd';
+import { KV_PTY_SPAWN_MODE, parseSpawnMode } from '../pty/local-pty';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -41,6 +42,22 @@ function readShowLegacy(): boolean {
     return row?.value === '1' || row?.value === 'true';
   } catch {
     return false;
+  }
+}
+
+/**
+ * v1.6.0 Phase 1 — Read `kv['pty.spawnMode']`. Returns 'direct' (default)
+ * when the key is absent or holds an unrecognised value, ensuring the
+ * CRITICAL INVARIANT that the default behaviour is byte-for-byte unchanged.
+ */
+function readSpawnMode(): 'direct' | 'shell-first' {
+  try {
+    const row = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(KV_PTY_SPAWN_MODE) as { value?: string } | undefined;
+    return parseSpawnMode(row?.value ?? null);
+  } catch {
+    return 'direct';
   }
 }
 
@@ -274,6 +291,9 @@ export async function executeLaunchPlan(
           preassignedSessionId: finalPreallocSessionId,
           // v1.5.5 — explicit: this is always a fresh spawn (no sessionId).
           isResume: false,
+          // v1.6.0 Phase 1 — read the feature flag from KV at spawn time.
+          // Default is 'direct' (CRITICAL INVARIANT: unchanged behaviour).
+          spawnMode: readSpawnMode(),
         },
       );
       const rec = spawnResult.ptySession;

@@ -4,6 +4,37 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-05-21
+
+v1.10.0 — **W-4 shell-first pane architecture, Phase 1 of 7** (flagged, default-off). The first increment of the multi-session pivot away from the brittle PTY-direct-CLI model toward a durable shell-first model (BridgeSpace-style). One Sonnet coder cluster (worktree-isolated), lead-merged.
+
+### Shell-first spawn mode (experimental, opt-in)
+
+Today SigmaLink spawns the CLI binary (`claude`/`codex`/…) as the PTY's direct child — when the CLI exits or fails to start, the pane dies (the empty-pane class of regressions; v1.5.6 mitigated the symptom). Shell-first mode instead spawns the user's shell as the PTY process and injects the CLI command into it, so the pane survives CLI exit.
+
+This release ships **Phase 1**: the launch-mechanism branch, behind a feature flag.
+
+- **Flag**: KV `pty.spawnMode` ∈ `'direct'` (DEFAULT) | `'shell-first'`. `parseSpawnMode()` returns `'direct'` for any absent/invalid value.
+- **`spawnLocalPty` branch** (`app/src/main/core/pty/local-pty.ts`): `'direct'` (or empty command, or win32) → existing path, **byte-for-byte unchanged**. `'shell-first'` (non-win32, CLI command set) → spawns `defaultShell()`, then on the shell's first `onData` chunk (prompt-ready) — with a 250 ms fallback timer + a double-inject latch — writes the safely POSIX-quoted composed command line `<command> <args>\n` into the PTY. The resume-arg machinery is **untouched** (the composed args already include resume flags; shell-first just writes that line to the shell instead of spawning it directly).
+- **Settings**: "Shell-first panes (experimental)" toggle in Settings → Ruflo, bound to the KV via existing `kv.get`/`kv.set` (no new channels).
+- **win32**: stays on direct mode in Phase 1 (Windows shell-quoting deferred to a later phase).
+
+**Zero regression at default**: the `'shell-first'` path activates only when ALL of `spawnMode==='shell-first'` + non-empty command + non-win32 hold; every other input reaches the identical existing code path. The smoke e2e boots at the default flag and verifies this.
+
+### Why this is Phase 1 of 7
+
+The full shell-first pivot (~14-day arc) is sequenced behind the same flag so every intermediate release is shippable: **(1, this release)** flagged spawn → (2) resume simplification → (3) drop `external_session_id` schema → (4) "agent done" exit-detection rework → (5) Sigma/Jorvis dispatch rewrite → (6) Cmd+T sub-tabs → (7) reviewer + dogfood + flip default to `'shell-first'`. Plan: `docs/03-plan/v1.6.0-shell-first-pane-architecture.md`. Resolves the v1.5.6 empty-pane root cause once complete.
+
+### Combined main gate
+
+- tsc clean
+- vitest 105 files / 1015 pass / 1 skip (+21 from v1.9.1: parseSpawnMode, posixQuoteArg, direct-mode regression guard, shell-first inject/double-guard/fallback-timer)
+- eslint 0 errors / 0 warnings
+- build + electron compile clean
+- Playwright smoke e2e 38 s pass (default-direct boots — zero-regression proof)
+
+No schema migrations in v1.10.0.
+
 ### Fixed
 
 - **SessionStep coverage-mode test flake (root-caused + fixed)** — `SessionStep.test.tsx > "Resume newest for all"` failed intermittently under `vitest --coverage` (the `lint-and-build` lane) while passing in plain `vitest run`. Root cause: the test's `waitFor` condition `last?.[0] !== undefined` was satisfied by the initial `null` selection (`null !== undefined` is `true`) BEFORE `listSessions` resolved, so the bulk action clicked against an empty session list and set `null`. Timing in the full suite happened to let sessions load first; isolation/coverage timing did not — a race that recurred since v1.4.5/v1.4.7. Fixed by waiting for the actual loaded session id (`session-aaa`/`session-bbb`) via the smart-default signal, mirroring the working smart-default test. Test-only change; no binary impact. Verified: 12/12 isolated under `--coverage` + 993/994 full suite.

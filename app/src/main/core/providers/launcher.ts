@@ -83,6 +83,12 @@ export interface ResolveAndSpawnOpts {
    * caller that has not yet been updated.
    */
   isResume?: boolean;
+  /**
+   * v1.6.0 Phase 1 — shell-first pane mode. Forwarded into `SpawnInput` and
+   * ultimately `spawnLocalPty`. Omitting this field (or passing `'direct'`)
+   * is byte-for-byte identical to the pre-Phase-1 behaviour.
+   */
+  spawnMode?: 'direct' | 'shell-first';
 }
 
 export interface ResolveAndSpawnResult {
@@ -317,6 +323,9 @@ export function resolveAndSpawn(
         // v1.5.5 — forward the explicit resume flag when the caller provided
         // one; omitting it lets the registry fall back to its own derivation.
         isResume: opts.isResume,
+        // v1.6.0 Phase 1 — forward the spawn mode flag (optional, default is
+        // 'direct' which preserves byte-for-byte identical behaviour).
+        spawnMode: opts.spawnMode,
       });
       return {
         ptySession,

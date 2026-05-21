@@ -91,6 +91,7 @@ import { checkForUpdates as checkForUpdatesImpl } from '../../electron/auto-upda
 // of 'ultra'. The capability matrix lives next to this import; the renderer
 // reads through `app.tier()` rather than touching kv directly.
 import { KV_PLAN_TIER, parseTier } from './core/plan/capabilities';
+import { KV_PTY_SPAWN_MODE, parseSpawnMode } from './core/pty/local-pty';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -652,6 +653,11 @@ function buildRouter() {
       const definition = AGENT_PROVIDERS.find((p) => p.id === providerId);
       const command = definition?.command ?? '';
       const args = input.args ?? definition?.args ?? [];
+      // v1.6.0 Phase 1 — read the feature flag; default 'direct' preserves
+      // byte-for-byte identical behaviour when the flag is absent/invalid.
+      const spawnModeRow = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get(KV_PTY_SPAWN_MODE) as { value?: string } | undefined;
       const rec = pty.create({
         providerId,
         command,
@@ -660,6 +666,7 @@ function buildRouter() {
         env: input.env as NodeJS.ProcessEnv | undefined,
         cols: input.cols,
         rows: input.rows,
+        spawnMode: parseSpawnMode(spawnModeRow?.value ?? null),
       });
       // Note: typing the initial prompt is the launcher's responsibility (see
       // `core/workspaces/launcher.ts`) so callers using executeLaunchPlan do
