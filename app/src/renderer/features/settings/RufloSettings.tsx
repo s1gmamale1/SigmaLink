@@ -24,6 +24,8 @@ const KV_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
 const KV_STRICT_MCP_VERIFICATION = 'ruflo.strictMcpVerification';
 // v1.6.0 Phase 1 — shell-first pane mode feature flag.
 const KV_PTY_SPAWN_MODE = 'pty.spawnMode';
+// v1.9-scrollback — opt-in scrollback persistence flag. DEFAULT OFF.
+const KV_PTY_SCROLLBACK_PERSISTENCE = 'pty.scrollbackPersistence';
 
 const DAEMON_POLL_INTERVAL_MS = 5_000;
 
@@ -95,6 +97,8 @@ export function RufloSettings() {
   const [strictMcpVerification, setStrictMcpVerification] = useState<boolean>(false);
   // v1.6.0 Phase 1 — shell-first pane mode flag (default OFF = 'direct').
   const [shellFirstPanes, setShellFirstPanes] = useState<boolean>(false);
+  // v1.9-scrollback — persist terminal scrollback across restart (DEFAULT OFF).
+  const [scrollbackPersistence, setScrollbackPersistence] = useState<boolean>(false);
   const [daemons, setDaemons] = useState<DaemonStatusRow[]>([]);
   const [restartingDaemon, setRestartingDaemon] = useState<string | null>(null);
   const daemonPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -132,6 +136,12 @@ export function RufloSettings() {
         if (alive) setShellFirstPanes(m === 'shell-first');
       } catch {
         /* default OFF (direct mode) */
+      }
+      try {
+        const sb = await rpc.kv.get(KV_PTY_SCROLLBACK_PERSISTENCE);
+        if (alive) setScrollbackPersistence(sb === 'on');
+      } catch {
+        /* default OFF */
       }
     })();
     const offHealth = onEvent<RufloHealth>('ruflo:health', (h) => {
@@ -221,6 +231,15 @@ export function RufloSettings() {
   const onToggleShellFirstPanes = useCallback((next: boolean) => {
     setShellFirstPanes(next);
     void rpc.kv.set(KV_PTY_SPAWN_MODE, next ? 'shell-first' : 'direct').catch(() => undefined);
+  }, []);
+
+  // v1.9-scrollback — scrollback persistence toggle. Writes 'on' or 'off' to
+  // kv['pty.scrollbackPersistence']. DEFAULT OFF. Takes effect immediately for
+  // future PTY exits and the next resume. Does NOT retroactively restore
+  // scrollback for panes that are already running.
+  const onToggleScrollbackPersistence = useCallback((next: boolean) => {
+    setScrollbackPersistence(next);
+    void rpc.kv.set(KV_PTY_SCROLLBACK_PERSISTENCE, next ? 'on' : 'off').catch(() => undefined);
   }, []);
 
   const state = health?.state ?? 'absent';
@@ -438,24 +457,41 @@ export function RufloSettings() {
         </div>
       </section>
 
-      {/* v1.6.0 Phase 1 — Experimental PTY features. */}
+      {/* v1.6.0 Phase 1 + v1.9-scrollback — Experimental PTY features. */}
       <section>
         <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Experimental
         </div>
-        <div className="flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
-          <div className="min-w-0 pr-3">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Sparkles className="h-3.5 w-3.5 text-primary" />
-              Shell-first panes (experimental)
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
+            <div className="min-w-0 pr-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Sparkles className="h-3.5 w-3.5 text-primary" />
+                Shell-first panes (experimental)
+              </div>
+              <div className="mt-0.5 text-[11px] text-muted-foreground">
+                Spawn an interactive shell as the PTY parent and launch the agent
+                CLI inside it. Panes survive CLI exits and show shell-level errors.
+                Takes effect on the next pane spawn. Default is off.
+              </div>
             </div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground">
-              Spawn an interactive shell as the PTY parent and launch the agent
-              CLI inside it. Panes survive CLI exits and show shell-level errors.
-              Takes effect on the next pane spawn. Default is off.
-            </div>
+            <Switch checked={shellFirstPanes} onCheckedChange={onToggleShellFirstPanes} />
           </div>
-          <Switch checked={shellFirstPanes} onCheckedChange={onToggleShellFirstPanes} />
+          {/* v1.9-scrollback — DEFAULT OFF. */}
+          <div className="flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
+            <div className="min-w-0 pr-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Sparkles className="h-3.5 w-3.5 text-primary" />
+                Persist terminal scrollback across restart (experimental)
+              </div>
+              <div className="mt-0.5 text-[11px] text-muted-foreground">
+                Saves each pane&apos;s visible scrollback to disk on exit and restores
+                it when the session is resumed. Off by default. Stored in
+                userData/scrollback/. Does not affect running panes.
+              </div>
+            </div>
+            <Switch checked={scrollbackPersistence} onCheckedChange={onToggleScrollbackPersistence} />
+          </div>
         </div>
       </section>
     </div>

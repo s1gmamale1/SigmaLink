@@ -103,6 +103,13 @@ export interface ResumeLauncherDeps {
   getProvider?: (
     id: string,
   ) => AgentProviderDefinition | undefined | Promise<AgentProviderDefinition | undefined>;
+  /**
+   * v1.9-scrollback (DEFAULT-OFF feature) — when the caller has loaded
+   * persisted scrollback for a session, provide a function that maps a
+   * session id to its scrollback text. Only wired when the KV flag is 'on'.
+   * Absent → no-op for every session.
+   */
+  loadScrollbackForSession?: (sessionId: string) => string;
 }
 
 async function getDefaultRawDb(): Promise<Database.Database> {
@@ -477,6 +484,8 @@ export async function resumeWorkspacePanes(
           // onPostSpawnCapture disk-scan; the DB row already carries the
           // external_session_id from the original spawn.
           isResume: true,
+          // v1.9-scrollback — load persisted scrollback when the flag is on.
+          resumeScrollback: deps.loadScrollbackForSession?.(row.id),
         },
       );
       const rec = spawned.ptySession;

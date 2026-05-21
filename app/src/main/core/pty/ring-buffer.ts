@@ -36,4 +36,21 @@ export class RingBuffer {
     this.chunks = [];
     this.size = 0;
   }
+
+  /**
+   * v1.9-scrollback — Seed the buffer with prior persisted content, respecting
+   * the existing cap. If `text` exceeds the limit, only the tail is kept so the
+   * oldest content is dropped first — identical semantics to `append()`.
+   *
+   * Must be called BEFORE live data arrives (i.e. before the PTY onData
+   * listener is registered) so `snapshot()` returns restored + live naturally.
+   *
+   * No-op when `text` is empty.
+   */
+  restore(text: string): void {
+    if (!text) return;
+    const capped = text.length > this.limit ? text.slice(text.length - this.limit) : text;
+    this.chunks = [capped];
+    this.size = capped.length;
+  }
 }

@@ -138,6 +138,14 @@ export interface PtyRegistryOptions {
    * forwarded to the renderer before this callback fires.
    */
   onCliExited?: CliExitedSink;
+  /**
+   * v1.9-scrollback (DEFAULT-OFF feature) — called synchronously when a PTY
+   * exits, with the final buffer snapshot, BEFORE the graceful-exit timer that
+   * eventually calls forget()/buffer.clear().  The caller (rpc-router) is
+   * responsible for reading the KV flag and only wiring this when the flag is
+   * ON.  When omitted (flag off) the exit path is byte-for-byte unchanged.
+   */
+  onSessionExit?: (sessionId: string, snapshot: string) => void;
 }
 
 export class PtyRegistry {
@@ -149,6 +157,7 @@ export class PtyRegistry {
   private readonly onPostSpawnCapture: PostSpawnSink | null;
   private readonly onPaneEvent: PaneEventSink | null;
   private readonly onCliExited: CliExitedSink | null;
+  private readonly onSessionExit: ((sessionId: string, snapshot: string) => void) | null;
   constructor(onData: DataSink, onExit: ExitSink, opts: PtyRegistryOptions = {}) {
     this.onData = onData;
     this.onExit = onExit;
@@ -157,6 +166,7 @@ export class PtyRegistry {
     this.onPostSpawnCapture = opts.onPostSpawnCapture ?? null;
     this.onPaneEvent = opts.onPaneEvent ?? null;
     this.onCliExited = opts.onCliExited ?? null;
+    this.onSessionExit = opts.onSessionExit ?? null;
   }
 
   create(
@@ -187,6 +197,14 @@ export class PtyRegistry {
        * back to the existing implicit derivation for backwards compatibility.
        */
       isResume?: boolean;
+      /**
+       * v1.9-scrollback (DEFAULT-OFF feature) — persisted scrollback content
+       * to seed the ring buffer BEFORE live data arrives.  Only provided when
+       * the `pty.scrollbackPersistence` KV flag is 'on' AND this is a resume
+       * spawn.  When absent (flag off or fresh spawn) the buffer starts empty
+       * and behaviour is byte-for-byte identical to pre-v1.9.
+       */
+      resumeScrollback?: string;
     } & SpawnInput,
   ): SessionRecord {
     const id = input.sessionId ?? input.preassignedSessionId ?? randomUUID();
@@ -202,6 +220,12 @@ export class PtyRegistry {
         : 'direct';
     const pty = spawnLocalPty(input);
     const buffer = new RingBuffer();
+    // v1.9-scrollback — restore prior content BEFORE the live onData listener
+    // is registered so snapshot() returns restored + live data naturally.
+    // No-op when resumeScrollback is absent (flag off or fresh spawn).
+    if (input.resumeScrollback) {
+      buffer.restore(input.resumeScrollback);
+    }
     const linkSink = this.onLinkDetected;
     const cliExitedSink = this.onCliExited;
     const unsubData = pty.onData((rawData) => {
@@ -235,6 +259,7 @@ export class PtyRegistry {
         }
       }
     });
+    const sessionExitSink = this.onSessionExit;
     const unsubExit = pty.onExit(({ exitCode, signal }) => {
       const rec = this.sessions.get(id);
       if (rec) {
@@ -247,6 +272,16 @@ export class PtyRegistry {
         try {
           this.onPaneEvent({ sessionId: id, kind: rec?.exitCode === 0 ? 'exited' : 'error', exitCode: rec?.exitCode });
         } catch { /* ignore */ }
+      }
+      // v1.9-scrollback — persist the buffer snapshot before the graceful-exit
+      // timer calls forget()/buffer.clear().  Only runs when the caller wired
+      // onSessionExit (flag ON).  Never blocks the exit path.
+      if (sessionExitSink) {
+        try {
+          sessionExitSink(id, buffer.snapshot());
+        } catch {
+          /* never let the persist path block the exit flow */
+        }
       }
       // Forget after a short grace period so the renderer's last data drain is
       // not lost and a late subscribe() can still pull the snapshot.

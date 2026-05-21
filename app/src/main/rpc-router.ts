@@ -91,7 +91,8 @@ import { checkForUpdates as checkForUpdatesImpl } from '../../electron/auto-upda
 // of 'ultra'. The capability matrix lives next to this import; the renderer
 // reads through `app.tier()` rather than touching kv directly.
 import { KV_PLAN_TIER, parseTier } from './core/plan/capabilities';
-import { KV_PTY_SPAWN_MODE, parseSpawnMode } from './core/pty/local-pty';
+import { KV_PTY_SPAWN_MODE, parseSpawnMode, KV_PTY_SCROLLBACK_PERSISTENCE, parseScrollbackPersistence } from './core/pty/local-pty';
+import { persistScrollback, loadScrollback, gcScrollback } from './core/pty/scrollback-store';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -194,6 +195,21 @@ function buildRouter() {
   void runBootJanitor().catch(() => {
     /* non-fatal */
   });
+
+  // v1.9-scrollback — boot GC. Best-effort: remove stale .log files for
+  // sessions that no longer exist in the DB.  Flag-off: gcScrollback still
+  // runs harmlessly (the scrollback dir doesn't exist yet → readdir skipped).
+  try {
+    const liveIds = new Set<string>(
+      (getRawDb()
+        .prepare('SELECT id FROM agent_sessions')
+        .all() as { id: string }[])
+        .map((r) => r.id),
+    );
+    gcScrollback(userData, liveIds);
+  } catch {
+    /* never block startup */
+  }
 
   const worktreePool = new WorktreePool({ baseDir: path.join(userData, 'worktrees') });
   /**
@@ -388,6 +404,28 @@ function buildRouter() {
           /* notifications fan-out is best-effort */
         }
       },
+      // v1.9-scrollback — DEFAULT-OFF.  Only wired when the KV flag is 'on'.
+      // Re-reads the flag lazily on each exit so the user can toggle it at
+      // runtime without a restart (toggle-on starts persisting immediately;
+      // toggle-off stops after the next exit).
+      onSessionExit: (() => {
+        const scrollbackFlagRow = getRawDb()
+          .prepare('SELECT value FROM kv WHERE key = ?')
+          .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
+        if (!parseScrollbackPersistence(scrollbackFlagRow?.value ?? null)) return undefined;
+        return (sessionId: string, snapshot: string) => {
+          // Re-read the flag on each call so mid-session toggle-off takes effect.
+          try {
+            const row = getRawDb()
+              .prepare('SELECT value FROM kv WHERE key = ?')
+              .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
+            if (!parseScrollbackPersistence(row?.value ?? null)) return;
+          } catch {
+            return;
+          }
+          persistScrollback(userData, sessionId, snapshot);
+        };
+      })(),
     },
   );
   const mailbox = new SwarmMailbox(userData);
@@ -730,7 +768,23 @@ function buildRouter() {
   });
 
   const panesCtl = defineController({
-    resume: async (workspaceId: string) => resumeWorkspacePanes(workspaceId, { pty }),
+    resume: async (workspaceId: string) => {
+      // v1.9-scrollback — pass loadScrollbackForSession when the flag is on so
+      // the resume launcher can seed each pane's buffer from the persisted file.
+      let loadScrollbackForSession: ((sessionId: string) => string) | undefined;
+      try {
+        const scrollbackRow = getRawDb()
+          .prepare('SELECT value FROM kv WHERE key = ?')
+          .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
+        if (parseScrollbackPersistence(scrollbackRow?.value ?? null)) {
+          loadScrollbackForSession = (sessionId: string) =>
+            loadScrollback(userData, sessionId);
+        }
+      } catch {
+        /* flag read failed — default off */
+      }
+      return resumeWorkspacePanes(workspaceId, { pty, loadScrollbackForSession });
+    },
     // v1.2.8 — "Respawn fresh" toast action. Re-spawns every pane the resume
     // flow marked as `status='exited' AND exit_code=-1` using the same
     // worktree + provider but with no resume args; returns counts so the
@@ -1486,6 +1540,31 @@ export function registerRouter(): void {
  * orphan worktrees / zombie session rows after a normal shutdown.
  */
 export function shutdownRouter(): void {
+  // v1.9-scrollback — DEFAULT-OFF. Persist every live session's buffer
+  // snapshot BEFORE killAll() tears down the PTYs, so we capture the last
+  // visible scrollback. Best-effort: errors are swallowed so shutdown is
+  // never blocked. Flag-off: the block runs but the flag read returns false
+  // and no files are written — zero behaviour change.
+  try {
+    if (sharedDeps?.pty) {
+      const rawDb = getRawDb();
+      const scrollbackRow = rawDb
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
+      if (parseScrollbackPersistence(scrollbackRow?.value ?? null)) {
+        const userDataDir = app.getPath('userData');
+        for (const rec of sharedDeps.pty.list()) {
+          try {
+            persistScrollback(userDataDir, rec.id, rec.buffer.snapshot());
+          } catch {
+            /* ignore per-session errors */
+          }
+        }
+      }
+    }
+  } catch {
+    /* never block shutdown */
+  }
   try {
     sharedDeps?.pty.killAll();
   } catch {

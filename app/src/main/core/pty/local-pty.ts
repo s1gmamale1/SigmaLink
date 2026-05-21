@@ -202,6 +202,23 @@ export function parseSpawnMode(raw: string | null | undefined): 'direct' | 'shel
 }
 
 /**
+ * v1.9-scrollback — KV key for the opt-in scrollback persistence flag.
+ * Value: 'on' to enable; anything else (including absent) keeps DEFAULT OFF.
+ * Exported so rpc-router.ts and tests can read the canonical key name without
+ * importing the full scrollback-store.
+ */
+export const KV_PTY_SCROLLBACK_PERSISTENCE = 'pty.scrollbackPersistence';
+
+/**
+ * Parse the raw KV value for `pty.scrollbackPersistence`.
+ * Returns false for any unrecognised or missing value — the DEFAULT is OFF.
+ * CRITICAL INVARIANT: false must be the fallback for every code path.
+ */
+export function parseScrollbackPersistence(raw: string | null | undefined): boolean {
+  return raw === 'on';
+}
+
+/**
  * Minimal POSIX single-quote shell quoting.  Each argument is wrapped in
  * single quotes with internal single quotes escaped via the classic
  * `'\''` technique.

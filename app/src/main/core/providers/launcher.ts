@@ -89,6 +89,13 @@ export interface ResolveAndSpawnOpts {
    * is byte-for-byte identical to the pre-Phase-1 behaviour.
    */
   spawnMode?: 'direct' | 'shell-first';
+  /**
+   * v1.9-scrollback (DEFAULT-OFF feature) — persisted scrollback content to
+   * seed the ring buffer before live PTY data arrives. Only populated when
+   * `pty.scrollbackPersistence` is 'on' and this is a resume spawn.
+   * When absent, behaviour is byte-for-byte identical to pre-v1.9.
+   */
+  resumeScrollback?: string;
 }
 
 export interface ResolveAndSpawnResult {
@@ -326,6 +333,9 @@ export function resolveAndSpawn(
         // v1.6.0 Phase 1 — forward the spawn mode flag (optional, default is
         // 'direct' which preserves byte-for-byte identical behaviour).
         spawnMode: opts.spawnMode,
+        // v1.9-scrollback — forward persisted scrollback content when the
+        // caller loaded it (flag ON + resume path). Absent → no-op.
+        resumeScrollback: opts.resumeScrollback,
       });
       return {
         ptySession,

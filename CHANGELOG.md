@@ -4,6 +4,33 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.10.3] - 2026-05-21
+
+v1.10.3 — **terminal scrollback persistence across app restart** (v1.9-backlog item), behind a default-off flag. One Sonnet coder cluster, lead-merged.
+
+### Scrollback persistence (experimental, opt-in)
+
+A pane's visual scrollback (the main-process `RingBuffer`) was lost on app quit — the CLI conversation survives via `--resume`, but the terminal history didn't. This adds opt-in persistence:
+
+- **Flag**: KV `pty.scrollbackPersistence` (DEFAULT off). Settings → "Persist terminal scrollback across restart (experimental)".
+- **`scrollback-store.ts`** (new): `persistScrollback` (atomic tmp→rename to `<userData>/scrollback/<sessionId>.log`, capped 256 KiB, tolerates all I/O errors), `loadScrollback`, `gcScrollback` (removes stale files for non-live sessions, best-effort).
+- **`RingBuffer.restore(text)`** (new): seeds the buffer with prior content (tail-truncates if over cap), called before live `onData` so `snapshot()` returns restored + live naturally.
+- **Wiring (all flag-gated)**: persist on PTY exit + on `shutdownRouter()` (app quit) before teardown; on resume spawn (`registry.create` when `isResume`), restore the buffer with a dim `—— restored scrollback ——` separator before live data; `gcScrollback` on boot.
+
+**Zero regression at default-off**: the `onSessionExit` persist callback is only wired when the flag is `'on'` at construction; `resumeScrollback` is only populated when the flag is on; the boot GC is a harmless ENOENT no-op. With the flag off, behavior is byte-for-byte identical. Smoke e2e boots at default-off.
+
+Touches the same session-restore/snapshot zone as the v1.5.6 grace-window work — hence the strict default-off gating + smoke verification in main.
+
+### Combined main gate
+
+- tsc clean
+- vitest 109 files / 1089 pass / 1 skip (+27 from v1.10.2: RingBuffer.restore, scrollback-store persist/load/gc, registry flag-gated seeding + regression guards)
+- eslint 0 errors / 0 warnings
+- build + electron compile clean
+- Playwright smoke e2e 38 s pass (default-off boots — zero-regression proof; run in main, worktree lacked native module builds)
+
+No schema migrations in v1.10.3.
+
 ## [1.10.2] - 2026-05-21
 
 v1.10.2 — **W-4 shell-first Phase 3 of 7: dispatch correctness** (flagged, default-off). One Sonnet coder cluster, lead-merged.
