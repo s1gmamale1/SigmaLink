@@ -4,6 +4,10 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+- **SessionStep coverage-mode test flake (root-caused + fixed)** — `SessionStep.test.tsx > "Resume newest for all"` failed intermittently under `vitest --coverage` (the `lint-and-build` lane) while passing in plain `vitest run`. Root cause: the test's `waitFor` condition `last?.[0] !== undefined` was satisfied by the initial `null` selection (`null !== undefined` is `true`) BEFORE `listSessions` resolved, so the bulk action clicked against an empty session list and set `null`. Timing in the full suite happened to let sessions load first; isolation/coverage timing did not — a race that recurred since v1.4.5/v1.4.7. Fixed by waiting for the actual loaded session id (`session-aaa`/`session-bbb`) via the smart-default signal, mirroring the working smart-default test. Test-only change; no binary impact. Verified: 12/12 isolated under `--coverage` + 993/994 full suite.
+
 ## [1.9.1] - 2026-05-21
 
 v1.9.1 — `isResume` explicit registry field (v1.5.5 reviewer item, deferred and now closed). A behavior-equivalent clarity + efficiency refactor in the PTY-resume core.

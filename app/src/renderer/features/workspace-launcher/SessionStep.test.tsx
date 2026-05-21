@@ -191,13 +191,23 @@ describe('SessionStep — bulk-bar actions', () => {
 
   it('"Resume newest for all" selects top session for each pane', async () => {
     const onChange = vi.fn();
-    renderStep({ selections: { 0: null, 1: null }, onChange });
+    // Use default ({}) selections so the smart-default effect fires once
+    // sessions load — that gives us a deterministic "sessions are loaded"
+    // signal (lastCall[0] === 'session-aaa'). The previous wait condition
+    // (`last?.[0] !== undefined`) was satisfied by the initial `null`
+    // selection BEFORE listSessions resolved (null !== undefined is true),
+    // so the bulk action clicked against an empty session list and set null —
+    // a race that only surfaced in isolation / under coverage instrumentation
+    // (recurring SessionStep coverage flake; see v1.4.5/v1.4.7 history).
+    renderStep({ onChange });
 
-    // Wait until sessions are loaded (onChange has been called by effect).
+    // Wait until sessions are actually loaded: the smart default populates
+    // the top session id (not merely a non-undefined value).
     await waitFor(() => {
       const calls = onChange.mock.calls;
       const last = calls[calls.length - 1]?.[0] as Record<number, string | null>;
-      return last?.[0] !== undefined;
+      expect(last?.[0]).toBe('session-aaa');
+      expect(last?.[1]).toBe('session-bbb');
     });
     onChange.mockClear();
 
