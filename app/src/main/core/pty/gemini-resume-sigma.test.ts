@@ -18,7 +18,7 @@ import {
   lookupGeminiSlug,
   ensureGeminiProjectDir,
   prepareGeminiResume,
-} from './gemini-resume-bridge.ts';
+} from './gemini-resume-sigma.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test utilities

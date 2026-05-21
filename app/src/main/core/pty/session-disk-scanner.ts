@@ -24,7 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { geminiSlugForCwd } from './gemini-resume-bridge';
+import { geminiSlugForCwd } from './gemini-resume-sigma';
 import { listOpencodeSessionsFromDb } from '../opencode/sqlite-reader';
 
 const execFileAsync = promisify(execFile);

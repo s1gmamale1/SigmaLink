@@ -25,7 +25,7 @@ import {
 import {
   ensureGeminiProjectDir,
   prepareGeminiResume,
-} from '../pty/gemini-resume-bridge';
+} from '../pty/gemini-resume-sigma';
 import { workspaceCwdInWorktree } from './worktree-cwd';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, effectivePaneSpawnMode } from '../pty/local-pty';
 

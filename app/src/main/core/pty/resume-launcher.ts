@@ -11,7 +11,7 @@ import {
 import {
   ensureGeminiProjectDir,
   prepareGeminiResume,
-} from './gemini-resume-bridge';
+} from './gemini-resume-sigma';
 import { workspaceCwdInWorktree } from '../workspaces/worktree-cwd';
 
 export interface PaneResumeSuccess {

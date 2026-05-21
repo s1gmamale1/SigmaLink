@@ -41,7 +41,7 @@ import * as lockfile from 'proper-lockfile';
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type GeminiResumeBridgeOutcome =
+export type GeminiResumeSigmaOutcome =
   | 'aliased'   // projects.json now maps worktreeCwd → workspaceSlug
   | 'exists'    // mapping already in place; no-op
   | 'missing'   // workspaceSlug has no sessions; caller must drop resume args
@@ -294,7 +294,7 @@ export async function prepareGeminiResume(
   workspaceCwd: string,
   worktreeCwd: string,
   deps: GeminiBridgeDeps = {},
-): Promise<GeminiResumeBridgeOutcome> {
+): Promise<GeminiResumeSigmaOutcome> {
   if (!isSafeAbsolutePath(workspaceCwd)) return 'skipped';
   if (!isSafeAbsolutePath(worktreeCwd)) return 'skipped';
 
@@ -329,7 +329,7 @@ export async function prepareGeminiResume(
   // Steps 4 & 5 — check existing mapping; register alias if absent.
   // Done inside a single lock acquisition so concurrent pane spawns are
   // serialized and no entry is silently overwritten.
-  let outcome: GeminiResumeBridgeOutcome = 'aliased';
+  let outcome: GeminiResumeSigmaOutcome = 'aliased';
   try {
     await writeProjectsJsonAtomic(projectsJsonPath(homeDir), (map) => {
       if (map[worktreeCwd] === workspaceSlug) {
