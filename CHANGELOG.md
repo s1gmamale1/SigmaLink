@@ -4,6 +4,33 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-05-21
+
+v1.11.0 — **W-6 full Sigma→Jorvis assistant identifier rename (Cluster A)**. One Sonnet coder cluster (isolated worktree) + lead diff-review + lead-fixed e2e label sync.
+
+### Assistant identifier rename: Sigma → Jorvis
+
+Renames the assistant's internal code identifiers from `Sigma` to `Jorvis`, completing the code-level half of the v1.8.0 label-only rename. This is **Cluster A** of the W-6 sweep; the DB-table + cross-sync rename (**Cluster B**) ships separately.
+
+- **Folders / files** (history-preserving `git mv`): `sigma-assistant/ → jorvis-assistant/` (17 files), `SigmaRoom.tsx → JorvisRoom.tsx`, `SigmaTabPlaceholder.tsx → JorvisTabPlaceholder.tsx`.
+- **Identifiers**: `useSigma*` hooks → `useJorvis*`, `buildSigmaSystemPrompt → buildJorvisSystemPrompt`, `SIGMA_HOST_* → JORVIS_HOST_*` env, MCP server name `sigma-host → jorvis-host`, build artifact `mcp-sigma-host-server.cjs → mcp-jorvis-host-server.cjs`.
+- **Backward-compat (no loss on upgrade)**: `RoomId 'sigma' → 'jorvis'` via `normalizeRoomId()`, `RightRailTabId` via `normalizeTabId()` — persisted sessions / localStorage / KV holding the old `'sigma'` value still restore.
+- **Window event**: `sigma:sigma-jump-to-message → jorvis:jump-to-message` (in-process, renamed atomically).
+- **e2e specs** synced to the new `Jorvis` room label/id (lead fix-forward — the agent's worktree couldn't run Playwright; the main gate caught 8 stale `'Sigma Assistant'` / `'sigma'` refs across smoke/dogfood/assistant-cli).
+
+### Preserved (intentionally untouched — Cluster B / app-infra)
+
+`sigma_pane_events` + `sigma_monitor_conversation_id` (DB — Cluster B), `sigma-in-flight:` toolCallId prefix (cross-machine wire — Cluster B), `window.sigma`, `SIGMA_TEST`, `sigma:test:*`, `sigma:pty-focus`, `sigma:scroll-*`, `sigma-sync@localhost`, and product names `SigmaLink` / `SigmaVoice`.
+
+### Gate
+
+- tsc clean | eslint 0 errors / 0 warnings
+- vitest 111 files / 1102 pass / 1 skip
+- build + electron:compile clean (emits `mcp-jorvis-host-server.cjs`)
+- Playwright smoke e2e 38 s pass in main (Jorvis room nav + conversations panel verified)
+
+No schema migrations in v1.11.0 (DB rename deferred to Cluster B).
+
 ## [1.10.4] - 2026-05-21
 
 v1.10.4 — **W-4 shell-first Phase 4 of 7: Cmd+T scratch-shell sub-tabs**. One Sonnet coder cluster + a lead-caught regression fix.

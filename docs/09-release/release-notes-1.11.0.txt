@@ -1,0 +1,69 @@
+SigmaLink v1.11.0 — 2026-05-21
+==============================
+
+v1.11.0 — W-6 full Sigma→Jorvis assistant identifier rename (Cluster A).
+One Sonnet coder cluster in an isolated worktree + lead diff-review +
+lead-fixed e2e label sync.
+
+
+Assistant identifier rename: Sigma → Jorvis
+-------------------------------------------
+
+Renames the assistant's internal code identifiers from "Sigma" to
+"Jorvis", completing the code-level half of the v1.8.0 label-only
+rename. This is Cluster A of the W-6 sweep; the DB-table + cross-sync
+rename (Cluster B) ships separately as its own carefully-gated packet.
+
+- Folders/files (history-preserving git mv): sigma-assistant/ →
+  jorvis-assistant/ (17 files); SigmaRoom.tsx → JorvisRoom.tsx;
+  SigmaTabPlaceholder.tsx → JorvisTabPlaceholder.tsx.
+- Identifiers: useSigma* → useJorvis*; buildSigmaSystemPrompt →
+  buildJorvisSystemPrompt; SIGMA_HOST_* → JORVIS_HOST_* env; MCP server
+  name sigma-host → jorvis-host; build artifact mcp-sigma-host-server.cjs
+  → mcp-jorvis-host-server.cjs.
+- Window event sigma:sigma-jump-to-message → jorvis:jump-to-message
+  (in-process, renamed atomically).
+
+
+Backward-compat — no loss on upgrade
+-------------------------------------
+
+Persisted state from before the rename still restores:
+- RoomId 'sigma' → 'jorvis' via normalizeRoomId()
+- RightRailTabId 'sigma' → 'jorvis' via normalizeTabId()
+
+A session / localStorage / KV value still holding the old 'sigma'
+identifier is transparently mapped to 'jorvis' on load.
+
+
+Preserved (intentionally untouched)
+-----------------------------------
+
+Cluster B territory (ships next) + app-infra that must NOT change:
+sigma_pane_events, sigma_monitor_conversation_id (DB), sigma-in-flight:
+toolCallId prefix (cross-machine wire format), window.sigma, SIGMA_TEST,
+sigma:test:*, sigma:pty-focus, sigma:scroll-*, sigma-sync@localhost, and
+the product names SigmaLink / SigmaVoice.
+
+
+Lead-caught in the main gate
+----------------------------
+
+The agent's worktree lacked an Electron binary, so it could not run
+Playwright. The main gate caught 8 stale 'Sigma Assistant' / 'sigma'
+references across the smoke, dogfood, and assistant-cli e2e specs — the
+room is now labelled "Jorvis" (id 'jorvis'). Synced fix-forward; smoke
+re-run green.
+
+
+Combined main gate
+------------------
+
+- tsc clean
+- vitest 111 files / 1102 pass / 1 skip
+- eslint 0 errors / 0 warnings
+- build + electron compile clean (emits mcp-jorvis-host-server.cjs)
+- Playwright smoke e2e 38 s pass in main (Jorvis room nav +
+  conversations panel verified)
+
+No schema migrations in v1.11.0 (DB-table rename deferred to Cluster B).

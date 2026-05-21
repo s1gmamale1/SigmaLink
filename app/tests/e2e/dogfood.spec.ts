@@ -153,7 +153,7 @@ async function navTo(win: Page, label: string): Promise<boolean> {
     Tasks: 'tasks',
     Memory: 'memory',
     Browser: 'browser',
-    'Sigma Assistant': 'sigma',
+    Jorvis: 'jorvis',
     Skills: 'skills',
     Settings: 'settings',
     Workspaces: 'workspaces',
@@ -259,17 +259,17 @@ test('Differentiator surfaces render without console errors', async () => {
   expect(scrubberEmpty + scrubberPicker).toBeGreaterThan(0);
   expect(consoleErrors.length).toBe(operatorErrorsBefore);
 
-  // (b) Sigma Assistant → Conversations panel.
-  // v1.4.1: Bridge → Sigma rename. Room id is now 'sigma', label 'Sigma Assistant'.
+  // (b) Jorvis assistant → Conversations panel.
+  // W-6: Sigma → Jorvis rename. Room id is now 'jorvis', label 'Jorvis'.
   // The conversations panel kept its 'bridge-conversations-panel' testid for
   // backwards compat — that testid below is intentional, not stale.
   const bridgeErrorsBefore = consoleErrors.length;
-  expect(await navTo(win, 'Sigma Assistant')).toBe(true);
+  expect(await navTo(win, 'Jorvis')).toBe(true);
   await win.waitForTimeout(800);
   const bridgeRoom = await win
     .evaluate(() => document.body.getAttribute('data-room') ?? 'unknown')
     .catch(() => 'unknown');
-  expect(bridgeRoom).toBe('sigma');
+  expect(bridgeRoom).toBe('jorvis');
 
   const panelCount = await win.locator('[data-testid="bridge-conversations-panel"]').count();
   expect(panelCount).toBeGreaterThan(0);

@@ -86,7 +86,7 @@ async function navTo(win: Page, label: string) {
     Tasks: 'tasks',
     Memory: 'memory',
     Browser: 'browser',
-    'Sigma Assistant': 'sigma',
+    Jorvis: 'jorvis',
     Skills: 'skills',
     Settings: 'settings',
     Workspaces: 'workspaces',
@@ -515,8 +515,8 @@ test('SigmaLink full visual sweep', async () => {
   // navigation. The panel is rendered for the standalone variant only (the
   // right-rail variant is too narrow to host the sidebar).
   const bridgeErrorsBefore = consoleErrors.length;
-  // v1.4.4 P7 — room label is "Sigma Assistant" in rooms-menu-items.ts (id: 'sigma').
-  const bridgeNavOk = await navTo(win, 'Sigma Assistant');
+  // W-6 — room label is "Jorvis" in rooms-menu-items.ts (id: 'jorvis').
+  const bridgeNavOk = await navTo(win, 'Jorvis');
   await win.waitForTimeout(500);
   const bridgeRoom = await win
     .evaluate(() => document.body.getAttribute('data-room') ?? 'unknown')

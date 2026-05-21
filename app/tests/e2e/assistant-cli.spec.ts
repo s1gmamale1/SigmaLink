@@ -87,15 +87,15 @@ test('Sigma Assistant streams a real Claude CLI reply', async () => {
     }, repoRoot);
     await win.waitForTimeout(1_200);
 
-    // Open Sigma Assistant via the rooms dropdown (v1.1.4+ layout) or fall
-    // back to the legacy tab pattern. Post-v1.4.1 rename, label is "Sigma
-    // Assistant" / room id is "sigma".
+    // Open the Jorvis assistant via the rooms dropdown (v1.1.4+ layout) or
+    // fall back to the legacy tab pattern. Post-W-6 rename, label is "Jorvis"
+    // / room id is "jorvis".
     try {
       const roomsTrigger = win.getByRole('button', { name: 'Open rooms menu' });
       if (await roomsTrigger.isVisible({ timeout: 3_000 }).catch(() => false)) {
         await roomsTrigger.click({ timeout: 3_000 });
         await win.waitForTimeout(300);
-        const sigmaItem = win.getByRole('menuitem', { name: 'Sigma Assistant' });
+        const sigmaItem = win.getByRole('menuitem', { name: 'Jorvis' });
         if (await sigmaItem.isVisible({ timeout: 3_000 }).catch(() => false)) {
           await sigmaItem.click({ timeout: 3_000 });
         } else {
@@ -107,14 +107,14 @@ test('Sigma Assistant streams a real Claude CLI reply', async () => {
     }
     // Legacy fallback: right-rail tab (pre-v1.1.4 layout).
     const sigmaTab = win
-      .locator('button[role="tab"]', { hasText: /Sigma Assistant|Bridge Assistant/ })
+      .locator('button[role="tab"]', { hasText: /Jorvis|Sigma Assistant|Bridge Assistant/ })
       .first();
     if (await sigmaTab.count()) {
       await sigmaTab.click({ timeout: 5_000 }).catch(() => undefined);
     }
     // Final fallback: sigma:test:set-room event (state.tsx hook).
     await win.evaluate(() => {
-      window.dispatchEvent(new CustomEvent('sigma:test:set-room', { detail: { room: 'sigma' } }));
+      window.dispatchEvent(new CustomEvent('sigma:test:set-room', { detail: { room: 'jorvis' } }));
     });
     await win.waitForTimeout(500);
 
