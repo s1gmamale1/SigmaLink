@@ -4,6 +4,22 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-05-22
+
+v1.13.2 — **Hotfix: pane creation unblocked.** Fixes the v1.13.1 regression where adding a pane (or opening certain existing workspaces) failed with **"Cannot create swarm: empty roster."** Root-caused by a 10-lane investigation (`docs/08-bugs/2026-05-22-pane-swarm-investigation/`).
+
+### Fix
+
+v1.13.1's pane-"+" path calls `rpc.swarms.create({ preset:'custom', roster:[] })` to provision a swarm before attaching the first pane via `addAgent` — but `swarms/factory.ts` rejected **any** empty roster, so every zero-swarm workspace failed (and the "existing workspace crashes on add" report is the **same** root cause). The factory now treats a `preset:'custom'` swarm as a valid **empty container** (only non-custom presets require a non-empty roster); the renderer's create→addAgent flow works. **+1 regression test** — the v1.13.1 test mocked `swarms.create`, so it could not catch the server-side reject; the new test exercises the real `createSwarm`.
+
+### Coming next (v1.14.0)
+
+From the same investigation: crashed Codex/Gemini panes staying **visible** (instead of being silently GC-removed), the Gemini spawn/resume fix (`--session-id` mis-applied + resume stem vs `latest`), and the **shell-first default flip** (crashed CLI → live terminal in the pane).
+
+### Gate
+
+- tsc clean | eslint 0/0 | vitest (full suite) | build + electron:compile | Playwright smoke e2e in main.
+
 ## [1.13.1] - 2026-05-22
 
 v1.13.1 — **Two audited UX bug fixes** (read-only feature audit → brainstorm → 1 Sonnet coder + lead gate).

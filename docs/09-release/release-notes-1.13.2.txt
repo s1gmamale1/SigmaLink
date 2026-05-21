@@ -1,0 +1,59 @@
+SigmaLink v1.13.2 — 2026-05-22
+==============================
+
+v1.13.2 — Hotfix: pane creation unblocked.
+
+Fixes the v1.13.1 regression where clicking "+" to add a pane (or opening
+certain existing workspaces) failed with "Cannot create swarm: empty
+roster." / "Could not add pane." Root-caused by a 10-lane investigation
+(docs/08-bugs/2026-05-22-pane-swarm-investigation/).
+
+
+Root cause
+----------
+
+v1.13.1 added a zero-swarm path: the pane "+" calls
+rpc.swarms.create({ preset:'custom', roster:[] }) to provision a swarm,
+then attaches the first pane via addAgent. But swarms/factory.ts rejected
+ANY empty roster ("Cannot create swarm: empty roster"), so every
+zero-swarm workspace failed the moment you tried to add a pane. The
+"existing workspace crashes on add after update" report is the SAME bug —
+a restored workspace whose swarms are all completed surfaces no active
+swarm, hitting the same broken create path.
+
+
+Fix
+---
+
+swarms/factory.ts now treats a preset:'custom' swarm as a valid EMPTY
+CONTAINER — only non-custom presets require a non-empty roster. The
+renderer's create-then-addAgent flow provisions a bare swarm row and
+attaches the first pane. +1 regression test exercises the real
+createSwarm (the v1.13.1 test mocked swarms.create, so it could not catch
+the server-side reject).
+
+
+Coming next (v1.14.0)
+---------------------
+
+From the same investigation:
+- Crashed Codex/Gemini panes stay VISIBLE as an error (instead of being
+  silently auto-removed after 5s) — the main process classifies the crash
+  but never IPC'd that verdict to the renderer.
+- Gemini spawn/resume fix: 'gemini' was wrongly in PRE_ASSIGN_PROVIDERS
+  (gets an unsupported --session-id) and resume passed a filename stem
+  instead of 'latest'.
+- Shell-first default flip: a crashed CLI drops to a live terminal in the
+  same pane (the "fall back to a normal terminal" behavior).
+
+
+Gate
+----
+
+- tsc clean
+- eslint 0 errors / 0 warnings
+- vitest full suite
+- build + electron compile clean
+- Playwright smoke e2e in main
+
+No schema migrations in v1.13.2.

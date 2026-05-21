@@ -104,7 +104,10 @@ export async function createSwarm(
   // otherwise we use the default roster for the preset.
   const roster =
     input.roster && input.roster.length > 0 ? input.roster : defaultRoster(input.preset);
-  if (roster.length === 0) {
+  // v1.13.2 — a `custom`-preset swarm is a valid empty container: the renderer
+  // create-then-addAgent flow provisions a bare swarm row, then attaches the
+  // first pane via addAgent. Only non-custom presets require a non-empty roster.
+  if (roster.length === 0 && input.preset !== 'custom') {
     throw new Error('Cannot create swarm: empty roster.');
   }
   if (roster.length > MAX_SWARM_AGENTS) {

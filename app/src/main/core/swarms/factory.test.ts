@@ -33,7 +33,7 @@ import type {
   AddAgentToSwarmInput,
   SwarmFactoryDeps,
 } from './factory';
-import { addAgentToSwarm } from './factory';
+import { addAgentToSwarm, createSwarm } from './factory';
 
 // ── Fakes wired in beforeEach ──────────────────────────────────────────────
 
@@ -318,5 +318,26 @@ describe('BUG-V1.1.3-ORCH-02 — addAgentToSwarm role_index atomicity', () => {
 
     expect(builders).toEqual(['builder-1', 'builder-2', 'builder-3']);
     expect(scouts).toEqual(['scout-1', 'scout-2']);
+  });
+});
+
+// ── v1.13.2 P0 — empty-roster `custom` swarm is a valid container ───────────
+// Regression: v1.13.1's pane-"+" path calls swarms.create({preset:'custom',
+// roster:[]}) before addAgent, but the factory used to throw "empty roster"
+// → "Could not add pane" on every zero-swarm workspace. A custom swarm must
+// now provision a bare row (the renderer attaches the first pane via addAgent).
+describe('createSwarm — empty custom roster (v1.13.2 P0)', () => {
+  it('provisions a bare swarm for preset:custom + empty roster (no throw)', async () => {
+    seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: '/tmp/ws-1', repoMode: 'plain' });
+
+    const swarm = await createSwarm(
+      { workspaceId: 'ws-1', mission: 'Default swarm', preset: 'custom', roster: [] },
+      makeDeps(),
+    );
+
+    expect(swarm.status).toBe('running');
+    expect(swarm.agents).toEqual([]);
+    // No agents materialised → no PTY spawn from the bare-container create.
+    expect(resolveAndSpawn).not.toHaveBeenCalled();
   });
 });
