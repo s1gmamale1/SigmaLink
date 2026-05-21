@@ -155,6 +155,9 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'skills.getReadme',
   'skills.verifyForWorkspace',
   'skills.listInstalled',    // v1.6.1 B3 — Skills tab Phase 1 discovery
+  'skills.attach',           // v1.7.1 W-5 Skills Phase 2 — INFORMATIONAL binding
+  'skills.detach',           // v1.7.1 W-5 Skills Phase 2 — INFORMATIONAL binding
+  'skills.listBindings',     // v1.7.1 W-5 Skills Phase 2 — INFORMATIONAL binding
   // memory (memoryCtl — from buildMemoryController)
   'memory.list_memories',
   'memory.read_memory',

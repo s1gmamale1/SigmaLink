@@ -4,6 +4,39 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-05-21
+
+v1.9.0 — Skills tab Phase 2: drag-drop skill bindings + persistence (informational mode). One Sonnet coder cluster (worktree-isolated), lead-merged.
+
+### Skills tab Phase 2 — drag-drop binding + persistence (W-5)
+
+Phase 1 (v1.7.0) shipped the read-only Skills discovery tab. Phase 2 adds the ability to **bind** a skill to a pane or workspace by drag-drop, persisted across restart:
+
+- **Migration 0021** — new `skill_bindings` table (`id`, `workspace_id`, `pane_session_id` NULL = workspace-wide / non-null = pane-scoped, `skill_name`, `skill_source`, `attached_at`) + index.
+- **RPC** — `skills.attach` (dedup-aware), `skills.detach`, `skills.listBindings({ workspaceId })`. All three allowlisted in CHANNELS + typed in router-shape + covered by the CHANNELS-vs-AppRouter cross-reference test.
+- **Drag-drop UI** — SkillsTab rows are draggable (MIME payload `{ kind: 'skill', name, source }`); `PaneShell` and `CommandRoom` (workspace header) are drop targets reusing the v1.4.8 file→pane drag-drop pattern. Dropping on a pane → pane-scoped binding; on the workspace → workspace-wide. Bindings render as dismissible `SkillBindingChip`s; the `useSkillBindings` hook loads existing bindings on workspace open (persistence).
+
+**Scope: INFORMATIONAL binding only.** A binding is a persisted visual association shown as a chip — it does NOT yet alter agent dispatch behavior or inject anything into agent context. **Behavioral activation** (a bound skill actually affecting how Sigma/Jorvis or a pane's agent behaves) is a deliberately-deferred future enhancement that requires resolving activation-semantics design questions (per the W-5 brainstorm). This release ships the additive, reversible binding layer that behavioral activation would later build on.
+
+### Combined main gate
+
+- tsc clean
+- vitest 105 files / 990 pass / 1 skip (+28 from v1.8.0: migration 0021 + binding controller + SkillsTab RTL)
+- eslint 0 errors / 0 warnings
+- SigmaLink build + electron compile clean
+- Playwright smoke e2e 38 s pass
+
+### Still deferred (genuinely multi-day-to-multi-month — NOT force-shipped)
+
+- **W-4 shell-first pane architecture** (~14 days, incl. schema migration; v1.5.6 empty-pane root cause).
+- **V3 Wave 12-15 parity** (45 tickets, multi-month).
+- **W-5 behavioral skill activation** (the binding layer shipped here is informational; activation semantics need a design decision).
+- **W-6 full Jorvis identifier rename** (IPC channels + DB tables + file names; label rename shipped v1.8.0 — full sweep deferred per "not for now").
+- **BridgeVoice signed/notarized installers** (funded certs; unsigned canonical for internal use — unsigned installers shipped bridgevoice-v0.1.4).
+- **V3-W15-006 dogfood** (human-only QA).
+
+No schema migrations beyond 0021 in v1.9.0.
+
 ## [1.8.0] - 2026-05-21
 
 v1.8.0 — completes two more open items on top of v1.7.1: the standalone BridgeVoice app now produces real (unsigned) installers, and the assistant is renamed "Jorvis" in the UI. Two parallel Sonnet coder clusters (worktree-isolated), lead-merged.

@@ -1,8 +1,9 @@
 // v1.5.1-A — PaneShell extracted from CommandRoom.tsx.
+// v1.7.1 W-5 Phase 2 — Skill drop target + binding chip strip.
 //
 // Renders a single pane cell: PaneHeader strip on top, then a drag-aware body
 // (with ring-2 visual + 200 ms flash on drop) that hosts PaneSplash,
-// SessionTerminal, and PaneFooter, plus the right-click ContextMenu.
+// SessionTerminal, PaneFooter, and (Phase 2) a skill-chip strip.
 //
 // Previously this was the inline `PaneCell` function in CommandRoom.tsx.
 // Extracted to keep CommandRoom.tsx under 500 LOC (v1.5.1-A caveat 1).
@@ -24,6 +25,8 @@ import { PaneFooter } from './PaneFooter';
 import { insertMention } from './insertMention';
 import { pathRelative } from '@/renderer/lib/path-relative';
 import type { AgentSession } from '@/shared/types';
+import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
+import { SkillBindingChip, type SkillBinding } from '@/renderer/features/skills/SkillBindingChip';
 
 // v1.4.8 — Max number of files allowed in a single Finder multi-drop.
 const MAX_DROP_FILES = 10;
@@ -47,6 +50,10 @@ export function PaneShell({
    * pane case.
    */
   inSplitGroup = false,
+  // v1.7.1 W-5 Phase 2 — INFORMATIONAL skill binding chips for this pane.
+  skillBindings = [],
+  onSkillDrop,
+  onSkillDetach,
 }: {
   session: AgentSession;
   paneIndex: number;
@@ -61,6 +68,15 @@ export function PaneShell({
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   inSplitGroup?: boolean;
+  /**
+   * v1.7.1 W-5 Phase 2 — INFORMATIONAL bindings for this pane session.
+   * These are purely visual chips; no behavioral activation.
+   */
+  skillBindings?: SkillBinding[];
+  /** Called when a skill is dropped on this pane. */
+  onSkillDrop?: (skillName: string, skillSource: string) => void;
+  /** Called when a chip's X button is clicked. */
+  onSkillDetach?: (bindingId: string) => void;
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [flashDrop, setFlashDrop] = useState(false);
@@ -70,10 +86,12 @@ export function PaneShell({
   const hasWorktree = !!session.worktreePath;
 
   // v1.4.8 — Accept drags from the IDE file-tree (custom MIME) or Finder (Files).
+  // v1.7.1 W-5 Phase 2 — Also accept skill drags (INFORMATIONAL binding).
   function handleDragOver(e: DragEvent<HTMLDivElement>): void {
     const hasSigmaFile = e.dataTransfer.types.includes('application/sigmalink-file');
     const hasFiles = e.dataTransfer.types.includes('Files');
-    if (hasSigmaFile || hasFiles) {
+    const hasSkill = e.dataTransfer.types.includes(SKILL_DRAG_MIME);
+    if (hasSigmaFile || hasFiles || hasSkill) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
       if (!isDragOver) setIsDragOver(true);
@@ -92,6 +110,20 @@ export function PaneShell({
     setIsDragOver(false);
     setFlashDrop(true);
     setTimeout(() => setFlashDrop(false), 200);
+
+    // v1.7.1 W-5 Phase 2 — skill drop (INFORMATIONAL binding only).
+    const skillRaw = e.dataTransfer.getData(SKILL_DRAG_MIME);
+    if (skillRaw) {
+      try {
+        const payload = JSON.parse(skillRaw) as SkillDragPayload;
+        if (payload.kind === 'skill' && payload.name && onSkillDrop) {
+          onSkillDrop(payload.name, payload.source);
+        }
+      } catch {
+        /* malformed payload — ignore */
+      }
+      return;
+    }
 
     const sigmaRaw = e.dataTransfer.getData('application/sigmalink-file');
     if (sigmaRaw) {
@@ -169,6 +201,23 @@ export function PaneShell({
         isFullscreen={isFullscreen}
         onToggleFullscreen={onToggleFullscreen}
       />
+      {/* v1.7.1 W-5 Phase 2 — INFORMATIONAL skill binding chips. Only render
+          the strip when there are pane-scoped bindings for this session. */}
+      {skillBindings.length > 0 && onSkillDetach ? (
+        <div
+          className="flex flex-wrap gap-1 border-b border-border/60 bg-card/60 px-2 py-1"
+          data-testid="pane-skill-chips"
+          aria-label="Attached skills (informational)"
+        >
+          {skillBindings.map((binding) => (
+            <SkillBindingChip
+              key={binding.id}
+              binding={binding}
+              onDetach={onSkillDetach}
+            />
+          ))}
+        </div>
+      ) : null}
       <ContextMenu>
         <ContextMenuTrigger asChild>
           {/* v1.5.1-A caveat 5: data-testid="pane-body" for stable test selection. */}

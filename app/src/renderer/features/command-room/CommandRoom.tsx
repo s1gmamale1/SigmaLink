@@ -20,6 +20,9 @@ import { PaneShell } from './PaneShell';
 import { SplitGroupCell } from './SplitGroupCell';
 import { AddPaneButton } from './AddPaneButton';
 import type { AgentSession, Swarm } from '@/shared/types';
+import { useSkillBindings } from '@/renderer/features/skills/useSkillBindings';
+import { SkillBindingChip } from '@/renderer/features/skills/SkillBindingChip';
+import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
 
 const EMPTY_SESSIONS: AgentSession[] = [];
 const EMPTY_SWARMS: Swarm[] = [];
@@ -54,6 +57,13 @@ export function CommandRoom() {
   const dispatch = useAppDispatch();
   const activeWorkspace = useAppStateSelector((state) => state.activeWorkspace);
   const activeWorkspaceId = activeWorkspace?.id ?? null;
+
+  // v1.7.1 W-5 Phase 2 — INFORMATIONAL skill bindings for this workspace.
+  const { bindings: skillBindings, attach: attachSkill, detach: detachSkill } =
+    useSkillBindings({ workspaceId: activeWorkspaceId });
+
+  // Workspace-header drop state for skill drags.
+  const [wsHeaderDragOver, setWsHeaderDragOver] = useState(false);
   const activeSessionId = useAppStateSelector((state) => state.activeSessionId);
   const activeSwarmId = useAppStateSelector((state) => state.activeSwarmId);
   // v1.4.2 packet-12 — non-null when a pane is rendered fullscreen.
@@ -301,9 +311,51 @@ export function CommandRoom() {
     });
   }
 
+  // v1.7.1 W-5 Phase 2 — workspace-header skill drop handlers (INFORMATIONAL).
+  function handleWsHeaderDragOver(e: React.DragEvent<HTMLDivElement>): void {
+    if (e.dataTransfer.types.includes(SKILL_DRAG_MIME)) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      setWsHeaderDragOver(true);
+    }
+  }
+
+  function handleWsHeaderDragLeave(e: React.DragEvent<HTMLDivElement>): void {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setWsHeaderDragOver(false);
+    }
+  }
+
+  function handleWsHeaderDrop(e: React.DragEvent<HTMLDivElement>): void {
+    e.preventDefault();
+    setWsHeaderDragOver(false);
+    const raw = e.dataTransfer.getData(SKILL_DRAG_MIME);
+    if (!raw || !activeWorkspaceId) return;
+    try {
+      const payload = JSON.parse(raw) as SkillDragPayload;
+      if (payload.kind === 'skill' && payload.name) {
+        // paneSessionId = null → workspace-wide binding.
+        void attachSkill({ paneSessionId: null, skillName: payload.name, skillSource: payload.source });
+      }
+    } catch {
+      /* malformed payload — ignore */
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 items-center gap-2 border-b border-border px-3 text-xs">
+      <div
+        className={[
+          'flex h-10 items-center gap-2 border-b border-border px-3 text-xs',
+          wsHeaderDragOver && 'ring-2 ring-inset ring-[hsl(var(--ring))]',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        data-testid="workspace-header"
+        onDragOver={handleWsHeaderDragOver}
+        onDragLeave={handleWsHeaderDragLeave}
+        onDrop={handleWsHeaderDrop}
+      >
         <div className="font-medium">{activeWorkspace.name}</div>
         <span className="text-muted-foreground">·</span>
         <div className="text-muted-foreground">
@@ -316,6 +368,14 @@ export function CommandRoom() {
           activeSwarm={activeSwarm}
           providers={providers}
         />
+        {/* v1.7.1 W-5 Phase 2 — Workspace-wide skill binding chips (INFORMATIONAL). */}
+        {skillBindings.filter((b) => b.paneSessionId === null).map((binding) => (
+          <SkillBindingChip
+            key={binding.id}
+            binding={binding}
+            onDetach={(id) => void detachSkill(id)}
+          />
+        ))}
         <div className="ml-auto text-[10px] text-muted-foreground/70">
           ⌘⌥&lt;N&gt; to focus pane
         </div>
@@ -349,6 +409,10 @@ export function CommandRoom() {
             // GridLayout's outer divider math is unaffected.
             if (cell.length === 1) {
               const session = cell[0]!;
+              // v1.7.1 W-5 Phase 2 — filter to pane-scoped bindings for this session.
+              const paneBindings = skillBindings.filter(
+                (b) => b.paneSessionId === session.id,
+              );
               return (
                 <PaneShell
                   session={session}
@@ -370,6 +434,15 @@ export function CommandRoom() {
                         : { type: 'FOCUS_PANE', paneId: session.id },
                     )
                   }
+                  skillBindings={paneBindings}
+                  onSkillDrop={(name, source) =>
+                    void attachSkill({
+                      paneSessionId: session.id,
+                      skillName: name,
+                      skillSource: source,
+                    })
+                  }
+                  onSkillDetach={(bindingId) => void detachSkill(bindingId)}
                 />
               );
             }

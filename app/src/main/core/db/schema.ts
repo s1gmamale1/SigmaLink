@@ -708,6 +708,34 @@ export type SyncPendingUpgradeInsert = typeof syncPendingUpgrade.$inferInsert;
 export type SyncTombstoneRow = typeof syncTombstones.$inferSelect;
 export type SyncTombstoneInsert = typeof syncTombstones.$inferInsert;
 
+// v1.7.1 W-5 Skills Phase 2 — INFORMATIONAL skill binding persistence.
+// Migration 0021_skill_bindings owns the DDL; this Drizzle table mirrors it so
+// the skills controller stays end-to-end typed. A NULL pane_session_id means
+// the binding is workspace-wide; a non-null value means pane-scoped.
+//
+// SCOPE: INFORMATIONAL ONLY. This table records a visual association between
+// a skill and a pane/workspace. It does NOT affect agent dispatch, does NOT
+// inject into agent context, and does NOT alter Sigma/Jorvis tool-calling.
+// Behavioral activation is a deferred future enhancement.
+export const skillBindings = sqliteTable(
+  'skill_bindings',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    /** NULL = workspace-wide binding; non-null = pane-scoped binding. */
+    paneSessionId: text('pane_session_id'),
+    skillName: text('skill_name').notNull(),
+    skillSource: text('skill_source').notNull(),
+    attachedAt: integer('attached_at').notNull(),
+  },
+  (t) => ({
+    skillBindingsWsIdx: index('skill_bindings_ws_idx').on(t.workspaceId),
+  }),
+);
+
+export type SkillBindingRow = typeof skillBindings.$inferSelect;
+export type SkillBindingInsert = typeof skillBindings.$inferInsert;
+
 export type WorkspaceRow = typeof workspaces.$inferSelect;
 export type WorkspaceInsert = typeof workspaces.$inferInsert;
 export type AgentSessionRow = typeof agentSessions.$inferSelect;

@@ -126,6 +126,11 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // v1.6.1 B3 — Skills tab Phase 1: read-only discovery of superpowers +
   // Ruflo skills from the on-disk plugin cache. Returns InstalledSkillEntry[].
   'skills.listInstalled',
+  // v1.7.1 W-5 Skills Phase 2 — INFORMATIONAL binding CRUD (visual chip
+  // association only; no behavioral activation; see 0021_skill_bindings).
+  'skills.attach',
+  'skills.detach',
+  'skills.listBindings',
   // memory
   'memory.list_memories',
   'memory.read_memory',

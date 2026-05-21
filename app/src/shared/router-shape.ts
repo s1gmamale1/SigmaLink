@@ -389,6 +389,46 @@ export interface AppRouter {
       description: string;
       source: 'superpowers' | 'ruflo' | 'custom';
     }>>;
+    /**
+     * v1.7.1 W-5 Skills Phase 2 — Attach a skill to a workspace or pane
+     * (INFORMATIONAL binding only). Idempotent: if an identical binding exists
+     * it is returned unchanged. paneSessionId null = workspace-wide.
+     *
+     * NOTE: This is INFORMATIONAL only. It does NOT affect agent dispatch,
+     * does NOT inject into agent context, and does NOT alter tool-calling.
+     * Behavioral activation is a deferred future enhancement.
+     */
+    attach: (input: {
+      workspaceId: string;
+      paneSessionId?: string | null;
+      skillName: string;
+      skillSource: string;
+    }) => Promise<{
+      id: string;
+      workspaceId: string;
+      paneSessionId: string | null;
+      skillName: string;
+      skillSource: string;
+      attachedAt: number;
+    }>;
+    /**
+     * v1.7.1 W-5 Skills Phase 2 — Remove a skill binding by id. No-op if
+     * the binding does not exist.
+     */
+    detach: (input: { bindingId: string }) => Promise<void>;
+    /**
+     * v1.7.1 W-5 Skills Phase 2 — List all bindings for a workspace (both
+     * workspace-wide and all pane-scoped bindings within that workspace).
+     * Used on workspace load to restore persisted chips.
+     */
+    listBindings: (input: { workspaceId: string }) => Promise<Array<{
+      id: string;
+      workspaceId: string;
+      paneSessionId: string | null;
+      skillName: string;
+      skillSource: string;
+      attachedAt: number;
+    }>>;
   };
   memory: {
     // CRUD (6)
