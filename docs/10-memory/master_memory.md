@@ -2641,3 +2641,31 @@ Renames the user-facing display name "Sigma Assistant" → "Jorvis" across 20 di
 ### Wishlist post-v1.8.0
 
 - v1.9 backlog: W-4 shell-first (own release decision), W-5 Skills Phase 2, W-6 full Jorvis identifier sweep (IPC+DB+file), BridgeVoice signed installers (needs funded certs), upstream write-mutex PR to claude-flow (carried from v1.6.0), isResume explicit registry field, concurrent-spawn uniqueness gap, scrollback persistence, V3-W15-006 dogfood.
+
+## Phase 47 — v1.9.0 Skills tab Phase 2 (2026-05-21)
+
+Tag v1.9.0, commit bd8fefd. Built on v1.8.0. One Sonnet coder cluster (worktree-isolated), lead-merged at the combined gate. Headline: Skills tab Phase 2 — drag-drop skill bindings + persistence, INFORMATIONAL mode.
+
+### What shipped
+
+- **Migration 0021 `skill_bindings`** — `workspace_id` + nullable `pane_session_id` (NULL = workspace-wide; non-null = pane-scoped) + `skill_name` + `skill_source` + `attached_at` + index.
+- **RPC** — `skills.attach` (dedup-aware), `skills.detach`, `skills.listBindings({workspaceId})`. Allowlisted in CHANNELS + typed in router-shape + covered by the CHANNELS-vs-AppRouter cross-reference test.
+- **Drag-drop UI** — draggable SkillsTab rows (MIME `{kind:'skill',name,source}`); PaneShell + CommandRoom (workspace header) drop targets reusing the v1.4.8 file→pane @-mention pattern. Pane drop → pane-scoped; workspace drop → workspace-wide. Dismissible `SkillBindingChip`; `useSkillBindings` hook loads bindings on workspace open (persistence across restart).
+- **Scope: INFORMATIONAL only** — binding is a persisted visual association; does NOT alter agent dispatch, inject context, or change MCP tool surface. Behavioral activation (W-5 Phase 3) deferred pending an activation-semantics design decision.
+
+### Gate
+
+tsc clean / vitest 105 files / 990 pass / 1 skip (+28 from v1.8.0) / eslint 0 errors 0 warnings / build + electron compile clean / smoke e2e 38s.
+
+### Multi-release autonomous session summary
+
+v1.9.0 caps the session spanning **v1.7.1** (voice-core extraction build hotfix), **v1.8.0** (BridgeVoice unsigned-installer packaging + Jorvis label rename), **BridgeVoice v0.1.0→v0.1.4** (standalone-app installers — 5 CI iterations, 10 assets, the "make SigmaVoice a separate app" deliverable COMPLETE), and **v1.9.0** (Skills Phase 2). Closed all SAFELY-ACHIEVABLE open wishlist/bug items. Remaining items are genuinely multi-day-to-month or need operator design input — surfaced as deferred-with-reason rather than faked.
+
+### Deferred (genuinely beyond a single autonomous session)
+
+- **W-4 shell-first pane architecture** (~14d, schema migration; v1.5.6 empty-pane root cause) — own release.
+- **V3 Wave 12-15 parity** (45 tickets, multi-month).
+- **W-5 Phase 3 behavioral activation** — needs activation-semantics design decision.
+- **W-6 full Jorvis identifier rename** (IPC `assistant:*`/`sigma:*`, DB `sigma_pane_events`, file/folder sweep) — label shipped v1.8.0; full sweep deferred per operator "not for now".
+- **BridgeVoice signed/notarized installers** — funded Apple/EV certs, out of scope for internal-use.
+- **V3-W15-006 dogfood** — human QA only.
