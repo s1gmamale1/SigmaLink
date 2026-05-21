@@ -4,6 +4,27 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-05-21
+
+v1.7.1 — build hotfix for v1.7.0. The v1.7.0 tag's CI installer build failed (no release was published), so this is the first shippable v1.7.x.
+
+### Bug
+
+v1.7.0 promoted the native voice packages (`@sigmalink/voice-mac` / `voice-win` / `voice-whisper`) to pnpm workspace members AND declared them as `dependencies` of `@sigmalink/voice-core`. Because `voice-core` is a production dependency of the app, this pulled the three native packages into electron-builder's **production dependency tree** — so electron-builder's automatic `npmRebuild: true` step tried to `npm rebuild @sigmalink/voice-whisper` with plain node-gyp. That build failed on CI with `unknown target CPU 'apple-m1'` (a whisper.cpp build-flag issue that the dedicated `@electron/rebuild -w whisper_bridge` CI step handles correctly, but plain `npm rebuild` does not).
+
+Pre-v1.7.0, the voice natives were loaded via `createRequire` path-walking and were never in the production dependency tree, so electron-builder only rebuilt `node-pty` + `better-sqlite3`. The v1.7.0 workspace-promotion inadvertently changed that scope.
+
+### Fix
+
+Moved the three native packages from `dependencies` to **`devDependencies`** in `app/packages/voice-core/package.json`. This:
+- Keeps TypeScript type resolution working (`whisper-engine.ts` imports `@sigmalink/voice-whisper` types) and dev symlinks intact.
+- Removes them from electron-builder's production rebuild scope (devDependencies are not followed for the packaged app), restoring the known-good pre-v1.7.0 behavior where only the explicit `@electron/rebuild` CI step builds the voice natives.
+- Runtime loading is unaffected — `voice-core`'s native loaders try `@sigmalink/voice-*` first, then fall back to `app/native/voice-*/index.js` path-walking (the same mechanism SigmaLink used before v1.7.0). The voice `.node` binaries are packaged via electron-builder's existing `native/` asarUnpack config, independent of the dependency tree.
+
+No other changes — all v1.7.0 features (voice-core extraction, BridgeVoice scaffold, Ruflo daemon Settings UI, Skills tab Phase 1, migration 0020, A5 eslint fix) ship intact.
+
+Local gate after fix: pnpm install clean, tsc clean, electron:compile clean (voice-core resolves), full vitest + smoke verified at v1.7.0.
+
 ## [1.7.0] - 2026-05-21
 
 v1.7.0 — "finish open items" bundle: closes the remaining small/medium wishlist items + extracts the voice-capture stack into a shared package with a standalone BridgeVoice app scaffold. Three parallel Sonnet coder clusters (worktree-isolated), lead-merged.

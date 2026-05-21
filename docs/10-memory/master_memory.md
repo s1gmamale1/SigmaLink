@@ -2540,3 +2540,54 @@ The v1.5.6 architectural backlog specified a bespoke `daemon:restart` event + to
 ### Wishlist post-v1.6.0
 
 - v1.7 backlog: upstream write-mutex PR to claude-flow, daemon Settings UI (v1.6.1+), global daemon mode (v1.6.1+ pending upstream patch), root cause of binary deaths, shell-first pane architecture decision, isResume explicit registry field, concurrent-spawn uniqueness gap, hardware sample-rate detection, scrollback persistence, V3-W15-006 dogfood.
+
+
+## Phase 45 — v1.7.0 "finish open items" bundle (2026-05-21)
+
+Tag v1.7.0, commit 5e22a3a. Three parallel Sonnet coder clusters dispatched in autonomous mode; lead-merged at the combined gate. Headline: cleared 5 open-items simultaneously — voice-core extraction groundwork, Ruflo daemon Settings UI, Skills tab Phase 1, migration-0020 correctness fix, and the last repo eslint warning.
+
+### Cluster structure
+
+**Cluster A1/A2/A5 — Voice extraction + correctness fixes**
+
+- **A1 — @sigmalink/voice-core package** (`app/packages/voice-core/`): new workspace package extracting global-capture, output-router, whisper-engine, and model-registry from the monolithic voice-mac binding into a DI-wired library. Native packages (`@sigmalink/voice-mac`, `@sigmalink/voice-win`, `@sigmalink/voice-whisper`) promoted to pnpm workspace members. SigmaLink's `electron/main.ts` now consumes voice-core via the workspace dep. A1 also wires A1 hardware sample-rate detection: macOS native `onPcm` callback reports the real captured sample rate back to the engine (was always assumed 16 kHz). `pnpm-workspace.yaml` is now a tracked file — it was previously in `.gitignore` as a ruflo-init footprint; CI now needs it to resolve the workspace.
+- **NEW @sigmalink/bridge-voice** standalone Electron app scaffold (`app/packages/bridge-voice/`): Tray + global hotkey + settings window. Runnable dev scaffold only (no production installer in this release). BridgeVoice production installers explicitly deferred.
+- **A2 — migration 0020 dedupe**: adds a partial UNIQUE index on `agent_sessions(workspace_id, pane_index) WHERE pane_index IS NOT NULL`. Spawn-path updated with UNIQUE-violation guards so concurrent spawns with the same `(workspace_id, pane_index)` do not silently create duplicate rows.
+- **A5 — eslint exhaustive-deps fix**: `use-session-restore.ts` had a pre-existing `react-hooks/exhaustive-deps` warning (the lone warning that prevented `eslint --max-warnings 0` from passing since v1.5.2). Fixed by wrapping the `wsId` + computed URL list in `useMemo` so the dependency array is stable. Repo now passes `eslint --max-warnings 0` clean.
+
+**Cluster B2 — Ruflo daemon Settings UI**
+
+- New `supervisor.list()` RPC returns PID, port, uptime, and restart-count for every running per-workspace daemon.
+- New `ruflo.daemonStatus(workspaceId)` + `ruflo.restartDaemon(workspaceId)` RPCs added to rpc-router.
+- New `RufloSettings` table component in the Settings panel showing daemon status rows with a per-row "Restart" button.
+
+**Cluster B3 — Skills tab Phase 1 (read-only)**
+
+- New `skills.listInstalled()` RPC enumerates installed skill packages from the ruflo plugin dir.
+- New "Skills" tab added to the right-rail icon strip (next to Browser / IDE / Sigma Assistant).
+- Skills panel renders a searchable list of installed skills; each row has a "Copy /name" button. Full drag-drop activation (W-5 Phase 2) deferred.
+
+### Integration gotcha — esbuild workspace resolution
+
+esbuild (`electron:compile`) could not resolve `@sigmalink/voice-core` until it was added as a `workspace:*` dependency in `app/package.json`. Cluster B's tsc + vitest gate passed because TypeScript resolves via `tsconfig` paths and vitest resolves via its own alias config — neither exercises the esbuild codepath. The lead caught the build failure at the combined-gate build step and wired the dep inline before tagging. Lesson: workspace packages need both a tsconfig path alias AND a package.json `workspace:*` dep entry to be fully resolved by all three toolchain legs (tsc / vitest / esbuild).
+
+### Gate results (combined main)
+
+- tsc: clean.
+- vitest: **102 files / 962 pass / 1 skip** (+38 net new tests from v1.6.0 baseline of 100 files / 924 pass).
+- eslint: **0 errors / 0 warnings** (first clean `--max-warnings 0` run since v1.5.2).
+- build + electron-compile: clean (after wiring voice-core workspace dep so esbuild resolves).
+- smoke e2e: 37s pass.
+
+### Deferred items
+
+- **W-4 shell-first pane architecture** (~14d effort, own release).
+- **V3 Wave 12-15** (multi-month; not scheduled).
+- **W-5 Skills Phase 2** — drag-drop activation, workspace-wide skill binding.
+- **W-6 Jorvis rename** — high blast-radius, own release; scope decision (label-only vs full-sweep) needed first.
+- **BridgeVoice production installers** — bridge-voice scaffold ships; signed DMG/NSIS for BridgeVoice is deferred.
+- **V3-W15-006 dogfood** — human QA, not code-generatable.
+
+### Wishlist post-v1.7.0
+
+- v1.8 backlog: W-4 shell-first (own release decision), W-5 Skills Phase 2, W-6 Jorvis rename (own release, scope-first), BridgeVoice production installers, upstream write-mutex PR to claude-flow (carried from v1.6.0), isResume explicit registry field, concurrent-spawn uniqueness gap, scrollback persistence, V3-W15-006 dogfood.

@@ -15,15 +15,13 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@sigmalink/voice-mac": "workspace:*",
-    "@sigmalink/voice-whisper": "workspace:*",
-    "@sigmalink/voice-win": "workspace:*"
-  },
   "peerDependencies": {
     "electron": "*"
   },
   "devDependencies": {
+    "@sigmalink/voice-mac": "workspace:*",
+    "@sigmalink/voice-whisper": "workspace:*",
+    "@sigmalink/voice-win": "workspace:*",
     "typescript": "~5.9.3"
   },
   "engines": {

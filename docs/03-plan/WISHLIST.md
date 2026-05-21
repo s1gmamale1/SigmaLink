@@ -6,6 +6,7 @@
 
 | Release | What | Plan file |
 |---|---|---|
+| v1.7.0 | 2026-05-21 | "finish open items" bundle (3 parallel Sonnet coder clusters, lead-merged) — A1: @sigmalink/voice-core package (global-capture+output-router+whisper-engine+model-registry with DI); native packages promoted to pnpm workspace members; SigmaLink consumes voice-core via electron/main.ts; NEW @sigmalink/bridge-voice standalone Electron app scaffold (Tray+hotkey+settings window); A1 hardware sample-rate detection (macOS native onPcm reports real rate); pnpm-workspace.yaml now tracked (was gitignored). A2: migration 0020 dedupe + partial UNIQUE index on agent_sessions(workspace_id, pane_index) WHERE pane_index IS NOT NULL + spawn-path UNIQUE-violation guards. A5: use-session-restore.ts exhaustive-deps fixed via useMemo+wsId dep; repo now passes eslint --max-warnings 0. B2: supervisor.list() + ruflo.daemonStatus/restartDaemon RPCs + RufloSettings table. B3 (Skills Phase 1): skills.listInstalled() + right-rail Skills tab + searchable list + Copy /name. Commit 5e22a3a. Deferred: W-4 shell-first, W-5 Phase 2, W-6 Jorvis rename, BridgeVoice production installers, V3-W15-006 dogfood. | inline in CHANGELOG |
 | v1.6.0 | Ruflo MCP HTTP daemon mode (W-7 from v1.5.6 architectural backlog) — per-workspace `RufloHttpDaemonSupervisor` (~280 LOC) spawned at workspace open; all 5 CLI clients point at one shared `http://127.0.0.1:<port>/mcp` endpoint; live in-memory shared state (HNSW, pattern cache, swarm consensus) across all panes. Restart UX routes through existing v1.4.9 NotificationsManager (bell drawer). Commit `f36b7be`. Deferred to v1.7: upstream write-mutex PR to claude-flow. Deferred to v1.6.1+: daemon Settings UI + global multi-workspace daemon mode. | inline in CHANGELOG |
 | v1.5.6 | PTY exit grace window hotfix (200ms → 3000ms) — unmasks fast-exit binary errors (ENOENT/PATH/flag) | inline in CHANGELOG |
 | v1.2.0 | Windows platform port — NSIS installer + PowerShell one-liner | `docs/03-plan/` (none — implementation only) |
@@ -50,7 +51,7 @@
 | ID | What | Trigger | Plan |
 |---|---|---|---|
 | W-4 | **Shell-first pane architecture** — pivot from PTY-direct-CLI to PTY-shell-with-auto-inject. PTY parent becomes user's shell (`/bin/zsh`); we programmatically write `claude\n` (or equivalent) into the PTY to start the CLI as a child of the shell. On CLI exit (Ctrl+D / `/quit` / crash), shell stays alive — pane usable as terminal. Removes the entire `external_session_id` tracking surface (~150 references). Multi-CLI per pane for free. | v1.5.6 user diagnostic data confirms PTY-direct-CLI model is structurally brittle, OR after one more recurrence of the empty-pane class | [`v1.6.0-shell-first-pane-architecture.md`](v1.6.0-shell-first-pane-architecture.md) (stub) |
-| W-5 | **Skills tab in right panel** — new tab next to Browser / IDE / Sigma Assistant in the right-rail icon strip. Opens a panel listing installed skills (superpowers, Ruflo MCP skills, custom) with drag-drop UX. Drag a skill onto a pane = attach it to that pane's agent context. Drag onto the workspace = workspace-wide skill availability. Discovery + activation surface for skills that currently require typing `/skill-name`. | UX request; no hard dependency. Could be sequenced before or after W-4. | [`v1.6.0-skills-tab.md`](v1.6.0-skills-tab.md) (stub) |
+| W-5 | **Skills tab in right panel** — PARTIAL: Phase 1 shipped v1.7.0 (skills.listInstalled() RPC + right-rail Skills tab + searchable list + Copy /name button; read-only). Phase 2 deferred: drag-drop activation (drag skill onto pane = attach to agent context; drag onto workspace = workspace-wide availability). | Phase 1 shipped v1.7.0; Phase 2 deferred (no hard dependency on W-4). | [`v1.6.0-skills-tab.md`](v1.6.0-skills-tab.md) (stub) |
 | W-6 | **Rename Sigma Assistant → Jorvis** — full sweep across UI strings, IPC channels (`assistant:*` → `jorvis:*`?), DB tables (`sigma_pane_events`?), file/folder names (`sigma-assistant/`, `SigmaRoom.tsx`, `use-sigma-dispatch-echo.ts`, etc.), code identifiers, and docs. Decide naming policy first: rename ONLY the user-facing label (cheap, ~1 day, leaves internal `sigma`/`assistant` identifiers intact), OR full identifier sweep including IPC + schema (medium, ~3-5 days, touches CHANNELS allowlist + cross-sync wire format). The cheap path is reversible; the full sweep is a hard cutover. | Operator request 2026-05-21. No functional dependency on W-4 or W-5. | TBD — needs scope decision (label-only vs full-sweep) before plan stub gets written |
 
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
@@ -85,7 +86,7 @@ The 9-packet v1.4.8 bundle shipped across 3 releases on 2026-05-20: **v1.4.8** (
 
 All ~28 deferred caveats cleared. See `v1.5.1-cleanup-packet.md` brief + the v1.5.1 row in "Recently shipped" above.
 
-## v1.5.3 backlog (latent caveats from v1.5.2 reviewer pass)
+## ✅ v1.5.3 backlog — RESOLVED (all items shipped in v1.5.3/v1.5.4; V3-W15-006 dogfood remains deferred as human-QA-only)
 
 Non-blocking observations from the v1.5.2 Opus 4.7 reviewer round + carry-over from v1.5.1. None ship-critical.
 
