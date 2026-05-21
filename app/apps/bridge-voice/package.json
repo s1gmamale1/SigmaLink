@@ -1,6 +1,6 @@
 {
   "name": "@sigmalink/bridge-voice",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "BridgeVoice — standalone system-wide dictation app powered by @sigmalink/voice-core. Hotkey → capture → whisper transcribe → clipboard/AX-paste into any focused app.",
   "author": "SigmaLink Team",

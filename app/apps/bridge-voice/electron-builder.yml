@@ -2,6 +2,13 @@ appId: ai.sigma.bridgevoice
 productName: BridgeVoice
 copyright: Copyright © 2026 SigmaLink
 
+# Pin the Electron version explicitly. CI installs with --ignore-scripts so
+# electron's binary postinstall is skipped, and electron-builder cannot
+# auto-compute the version from a `^30.0.0` range in node_modules. A fixed
+# version here bypasses auto-detection. Keep in sync with app/package.json's
+# electron dep (currently resolves to 30.5.1).
+electronVersion: 30.5.1
+
 # Output goes to bridge-voice/release/ rather than app/release/ so the two
 # apps' build artefacts do not clobber each other in CI.
 directories:
