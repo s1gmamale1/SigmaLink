@@ -140,6 +140,16 @@ export interface AppRouter {
     subscribe: (sessionId: string) => Promise<{ history: string }>; // legacy alias for ring buffer
     list: () => Promise<Array<{ sessionId: string; providerId: string; cwd: string; alive: boolean; pid: number }>>;
     forget: (sessionId: string) => Promise<void>;
+    /**
+     * W-4 Phase 4 — Spawn an ephemeral scratch-shell PTY in the given cwd.
+     * NO agent_session DB row, NO persistence, NO sidebar entry, NO resume.
+     * killAll() in shutdownRouter covers cleanup automatically.
+     */
+    spawnScratch: (input: { cwd: string }) => Promise<{ scratchId: string }>;
+    /**
+     * W-4 Phase 4 — Kill and forget a scratch-shell PTY by id.
+     */
+    killScratch: (input: { scratchId: string }) => Promise<void>;
   };
   panes: {
     resume: (workspaceId: string) => Promise<PaneResumeResult>;

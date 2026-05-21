@@ -1,14 +1,18 @@
 // v1.5.1-A — PaneShell extracted from CommandRoom.tsx.
 // v1.7.1 W-5 Phase 2 — Skill drop target + binding chip strip.
+// W-4 Phase 4 — Cmd+T / Ctrl+Shift+T ephemeral scratch-shell sub-tabs.
 //
 // Renders a single pane cell: PaneHeader strip on top, then a drag-aware body
 // (with ring-2 visual + 200 ms flash on drop) that hosts PaneSplash,
 // SessionTerminal, PaneFooter, and (Phase 2) a skill-chip strip.
 //
+// INVARIANT (W-4 Phase 4): with zero scratch sub-tabs the pane body renders
+// EXACTLY as before — the tab strip is hidden and no extra DOM nodes appear.
+//
 // Previously this was the inline `PaneCell` function in CommandRoom.tsx.
 // Extracted to keep CommandRoom.tsx under 500 LOC (v1.5.1-A caveat 1).
 
-import { useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import { FolderOpen, Square, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -27,6 +31,7 @@ import { pathRelative } from '@/renderer/lib/path-relative';
 import type { AgentSession } from '@/shared/types';
 import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
 import { SkillBindingChip, type SkillBinding } from '@/renderer/features/skills/SkillBindingChip';
+import { PaneTabStrip, type ScratchTab } from './PaneTabStrip';
 
 // v1.4.8 — Max number of files allowed in a single Finder multi-drop.
 const MAX_DROP_FILES = 10;
@@ -80,6 +85,85 @@ export function PaneShell({
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [flashDrop, setFlashDrop] = useState(false);
+
+  // W-4 Phase 4 — Ephemeral scratch-shell sub-tabs.
+  // scratchTabs: ordered list of open scratch PTY ids.
+  // activeTabId: either session.id (main) or a scratchId.
+  // INVARIANT: with zero scratch tabs, no tab-strip renders and the pane body
+  // is byte-for-byte identical to the pre-Phase-4 render.
+  const [scratchTabs, setScratchTabs] = useState<ScratchTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string>(session.id);
+  // Ref used by the keydown handler to check if THIS pane container is focused.
+  const paneContainerRef = useRef<HTMLDivElement>(null);
+
+  // Keep activeTabId in sync if the session id changes (shouldn't in normal
+  // use, but guard against stale closure).
+  const activeTabIdRef = useRef(activeTabId);
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId;
+  }, [activeTabId]);
+
+  // Spawn a scratch shell PTY and add its tab.
+  const spawnScratch = useCallback(async () => {
+    const cwd = session.worktreePath ?? '.';
+    try {
+      const result = await rpc.pty.spawnScratch({ cwd });
+      setScratchTabs((prev) => [...prev, { scratchId: result.scratchId }]);
+      setActiveTabId(result.scratchId);
+    } catch {
+      // Silent — toast from the rpc layer if applicable.
+    }
+  }, [session.worktreePath]);
+
+  // Close a scratch tab: kill the PTY and remove from state.
+  const closeScratch = useCallback(async (scratchId: string) => {
+    setScratchTabs((prev) => {
+      const remaining = prev.filter((t) => t.scratchId !== scratchId);
+      // Switch active tab if we're closing the active one.
+      if (activeTabIdRef.current === scratchId) {
+        const idx = prev.findIndex((t) => t.scratchId === scratchId);
+        const next = remaining[idx] ?? remaining[idx - 1] ?? null;
+        setActiveTabId(next ? next.scratchId : session.id);
+      }
+      return remaining;
+    });
+    try {
+      await rpc.pty.killScratch({ scratchId });
+    } catch {
+      /* PTY may already be gone */
+    }
+  }, [session.id]);
+
+  // Cmd+T (macOS) / Ctrl+Shift+T (other) — open a scratch tab when this pane
+  // container (or any element inside it) holds keyboard focus.
+  // Scope guard: only fires when the event target is INSIDE our container, so
+  // pressing Cmd+T in a different pane does not spawn a tab here.
+  useEffect(() => {
+    const container = paneContainerRef.current;
+    if (!container) return;
+
+    function handleKeyDown(e: KeyboardEvent): void {
+      // Check that the event originates inside THIS pane container.
+      if (!container!.contains(e.target as Node)) return;
+
+      // Cmd+T on macOS (Meta+t, no Ctrl, no Shift).
+      // Ctrl+Shift+T elsewhere (key is 'T' uppercase or lowercase).
+      const isCmdT = e.metaKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 't';
+      const isCtrlShiftT = !e.metaKey && e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 't';
+      if (!isCmdT && !isCtrlShiftT) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      void spawnScratch();
+    }
+
+    // Capture phase so we see the event before xterm's own keydown handlers
+    // consume it (xterm calls e.preventDefault() on most keystrokes).
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [spawnScratch]);
 
   const errored = session.status === 'error';
   const exited = session.status === 'exited';
@@ -187,7 +271,10 @@ export function PaneShell({
   // emitting bytes — clicking the header restores the body view.
   const minimised = !!session.minimised;
   return (
-    <div className="sl-pane-enter flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+    <div
+      ref={paneContainerRef}
+      className="sl-pane-enter flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+    >
       <PaneHeader
         session={session}
         paneIndex={paneIndex}
@@ -218,6 +305,17 @@ export function PaneShell({
           ))}
         </div>
       ) : null}
+      {/* W-4 Phase 4 — Scratch sub-tab strip. Hidden when there are no scratch
+          tabs (invariant: zero-subtab pane renders exactly as before). */}
+      {scratchTabs.length > 0 ? (
+        <PaneTabStrip
+          mainSessionId={session.id}
+          activeTabId={activeTabId}
+          scratchTabs={scratchTabs}
+          onSwitchTab={setActiveTabId}
+          onCloseTab={closeScratch}
+        />
+      ) : null}
       <ContextMenu>
         <ContextMenuTrigger asChild>
           {/* v1.5.1-A caveat 5: data-testid="pane-body" for stable test selection. */}
@@ -245,10 +343,34 @@ export function PaneShell({
                     {session.error ?? 'unknown error'}
                   </div>
                 </div>
-              ) : (
+              ) : scratchTabs.length === 0 ? (
+                // W-4 Phase 4 — Zero-subtab FAST PATH: byte-for-byte the
+                // pre-Phase-4 render. PaneSplash + SessionTerminal are direct
+                // children of `relative min-h-0 flex-1`, so the terminal's
+                // 100%×100% fill resolves correctly. No wrapper div — an
+                // auto-height wrapper would collapse the terminal (empty pane).
                 <>
                   <PaneSplash session={session} />
                   <SessionTerminal sessionId={session.id} />
+                </>
+              ) : (
+                // Multi-tab path (user opened a scratch sub-tab). The active
+                // main wrapper uses `display:contents` so it generates no box —
+                // SessionTerminal still fills the grandparent `flex-1`. Inactive
+                // tabs are `hidden` (display:none) but stay mounted so PTY data
+                // + scrollback survive switches (mirrors the minimise pattern).
+                <>
+                  <div className={activeTabId === session.id ? 'contents' : 'hidden'}>
+                    <PaneSplash session={session} />
+                    <SessionTerminal sessionId={session.id} />
+                  </div>
+                  {scratchTabs.map((tab) => (
+                    <SessionTerminal
+                      key={tab.scratchId}
+                      sessionId={tab.scratchId}
+                      className={activeTabId === tab.scratchId ? undefined : 'hidden'}
+                    />
+                  ))}
                 </>
               )}
             </div>

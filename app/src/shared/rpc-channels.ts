@@ -32,6 +32,9 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'pty.subscribe',
   'pty.list',
   'pty.forget',
+  // W-4 Phase 4 — Ephemeral scratch-shell sub-tabs. No DB row; kills on close.
+  'pty.spawnScratch',
+  'pty.killScratch',
   // panes
   'panes.resume',
   // v1.2.8 — Recovery action behind the aggregated resume-failure toast.

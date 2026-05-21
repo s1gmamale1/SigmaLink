@@ -1,0 +1,55 @@
+SigmaLink v1.10.4 — 2026-05-21
+==============================
+
+v1.10.4 — W-4 shell-first Phase 4 of 7: Cmd+T scratch-shell sub-tabs.
+One Sonnet coder cluster + a lead-caught regression fix.
+
+
+Ephemeral scratch terminals in a pane (Cmd+T)
+---------------------------------------------
+
+Press Cmd+T (macOS) / Ctrl+Shift+T in a focused pane to open an
+ephemeral scratch shell as a sub-tab — for quick ls / git diff /
+testing — without touching the pane's main CLI session. Switchable,
+closable; nothing persisted.
+
+- Backend: pty.spawnScratch({ cwd }) spawns a providerId:'shell' PTY
+  in the pane's cwd (NO agent_session row); pty.killScratch tears it
+  down. Scratch PTYs are regular PtyRegistry entries (killAll() on
+  quit cleans them). Allowlisted + typed + cross-ref tested.
+- Renderer: PaneTabStrip + per-pane scratch-tab state + keybind
+  (capture-phase, scoped to the focused pane container) + per-tab
+  terminal switching (inactive tabs stay mounted so PTY data +
+  scrollback survive switches).
+
+
+Lead-caught regression (correct, not rushed)
+---------------------------------------------
+
+The cluster's first implementation wrapped the main terminal in an
+UNCONDITIONAL <div> even at zero sub-tabs. Since SessionTerminal is
+width/height:100%, that auto-height wrapper would have COLLAPSED the
+terminal → empty pane in the default case (the exact empty-pane
+regression class). Caught in diff review. Fixed: a zero-subtab FAST
+PATH that renders PaneSplash + SessionTerminal as direct children of
+`relative min-h-0 flex-1` (byte-for-byte pre-Phase-4 markup, no
+wrapper); the switchable structure activates only when ≥1 sub-tab
+exists, with the active main wrapper using `display:contents`
+(generates no box → terminal still fills). Verified by the
+zero-subtab RTL test + smoke e2e in main.
+
+Zero regression at default: with no scratch sub-tabs, the pane renders
+exactly as before — no tab strip, no wrapper.
+
+
+Combined main gate
+------------------
+
+- tsc clean
+- vitest 111 files / 1102 pass / 1 skip (+13 from v1.10.3)
+- eslint 0 errors / 0 warnings
+- build + electron compile clean
+- Playwright smoke e2e 38 s pass in main (zero-subtab pane render
+  verified)
+
+No schema migrations in v1.10.4.

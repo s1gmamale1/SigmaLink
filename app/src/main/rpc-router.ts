@@ -765,6 +765,33 @@ function buildRouter() {
     forget: async (sessionId: string) => {
       pty.forget(sessionId);
     },
+    // W-4 Phase 4 — Ephemeral scratch-shell sub-tabs. Spawns a plain shell PTY
+    // in the given cwd. NO agent_session DB row, NO persistence, NO sidebar
+    // entry. killAll() in shutdownRouter covers cleanup automatically.
+    spawnScratch: async (input: { cwd: string }): Promise<{ scratchId: string }> => {
+      if (typeof input?.cwd !== 'string' || !input.cwd) {
+        throw new Error('pty.spawnScratch: cwd must be a non-empty string');
+      }
+      const shell =
+        process.env.SHELL ??
+        (process.platform === 'win32' ? 'cmd.exe' : '/bin/sh');
+      const rec = pty.create({
+        providerId: 'shell',
+        command: shell,
+        args: [],
+        cwd: input.cwd,
+        cols: 80,
+        rows: 24,
+      });
+      return { scratchId: rec.id };
+    },
+    killScratch: async (input: { scratchId: string }): Promise<void> => {
+      if (typeof input?.scratchId !== 'string' || !input.scratchId) {
+        throw new Error('pty.killScratch: scratchId must be a non-empty string');
+      }
+      pty.kill(input.scratchId);
+      pty.forget(input.scratchId);
+    },
   });
 
   const panesCtl = defineController({
