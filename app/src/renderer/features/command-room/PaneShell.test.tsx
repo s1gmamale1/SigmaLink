@@ -19,17 +19,28 @@ const spawnScratchMock = vi.fn();
 const killScratchMock = vi.fn();
 const revealInFolderMock = vi.fn();
 const openShellMock = vi.fn();
+const ptyWriteMock = vi.fn().mockResolvedValue(undefined);
+const toastWarningMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     pty: {
       spawnScratch: (...args: unknown[]) => spawnScratchMock(...args),
       killScratch: (...args: unknown[]) => killScratchMock(...args),
+      write: (...args: unknown[]) => ptyWriteMock(...args),
     },
     app: {
       revealInFolder: (...args: unknown[]) => revealInFolderMock(...args),
       openShell: (...args: unknown[]) => openShellMock(...args),
     },
+  },
+}));
+
+vi.mock('sonner', () => ({
+  toast: {
+    warning: (...args: unknown[]) => toastWarningMock(...args),
+    error: vi.fn(),
+    success: vi.fn(),
   },
 }));
 
@@ -69,6 +80,8 @@ vi.mock('@/renderer/features/skills/SkillBindingChip', () => ({
 beforeEach(() => {
   spawnScratchMock.mockReset();
   killScratchMock.mockReset();
+  ptyWriteMock.mockReset();
+  toastWarningMock.mockReset();
   // Default: spawnScratch resolves with a fresh id each time.
   let counter = 0;
   spawnScratchMock.mockImplementation(() =>
@@ -291,5 +304,209 @@ describe('PaneShell — tab switching', () => {
 
     // Scratch terminal should now be hidden.
     expect(scratchTerminal.classList.contains('hidden')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. W-5 Phase 3 — skill-drop slash-command injection
+// ---------------------------------------------------------------------------
+
+import { SKILL_DRAG_MIME } from '@/renderer/features/skills/SkillsTab';
+
+/** Creates a synthetic drop event with skill MIME data. */
+function makeSkillDropEvent(skillName: string, source = 'superpowers'): Partial<DragEvent> & { dataTransfer: DataTransfer } {
+  const payload = JSON.stringify({ kind: 'skill', name: skillName, source });
+  const map = new Map<string, string>([[SKILL_DRAG_MIME, payload]]);
+  return {
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+    dataTransfer: {
+      getData: (key: string) => map.get(key) ?? '',
+      setData: vi.fn(),
+      types: [SKILL_DRAG_MIME],
+      files: [] as unknown as FileList,
+      items: [] as unknown as DataTransferItemList,
+      dropEffect: 'copy' as DataTransfer['dropEffect'],
+      effectAllowed: 'all' as DataTransfer['effectAllowed'],
+      clearData: vi.fn(),
+    } as unknown as DataTransfer,
+  };
+}
+
+describe('PaneShell — W-5 Phase 3 skill-drop injection', () => {
+  it('writes "/<skillName> " to PTY when provider is claude and pane is running', async () => {
+    const onSkillDrop = vi.fn();
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'claude', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'claude', name: 'Claude' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+        onSkillDrop={onSkillDrop}
+      />,
+    );
+
+    const paneBody = screen.getByTestId('pane-body');
+    await act(async () => {
+      fireEvent.drop(paneBody, makeSkillDropEvent('code-review'));
+      await Promise.resolve();
+    });
+
+    expect(ptyWriteMock).toHaveBeenCalledWith('main-session', '/code-review ');
+    expect(onSkillDrop).toHaveBeenCalledWith('code-review', 'superpowers');
+  });
+
+  it('writes "/<skillName> " to PTY when provider is codex', async () => {
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'codex', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'codex', name: 'Codex' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+      />,
+    );
+
+    const paneBody = screen.getByTestId('pane-body');
+    await act(async () => {
+      fireEvent.drop(paneBody, makeSkillDropEvent('debug-mode'));
+      await Promise.resolve();
+    });
+
+    expect(ptyWriteMock).toHaveBeenCalledWith('main-session', '/debug-mode ');
+  });
+
+  it('writes "/<skillName> " to PTY when provider is gemini', async () => {
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'gemini', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'gemini', name: 'Gemini' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+      />,
+    );
+
+    const paneBody = screen.getByTestId('pane-body');
+    await act(async () => {
+      fireEvent.drop(paneBody, makeSkillDropEvent('optimize'));
+      await Promise.resolve();
+    });
+
+    expect(ptyWriteMock).toHaveBeenCalledWith('main-session', '/optimize ');
+  });
+
+  it('does NOT inject for kimi provider and shows a toast', async () => {
+    const onSkillDrop = vi.fn();
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'kimi', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'kimi', name: 'Kimi' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+        onSkillDrop={onSkillDrop}
+      />,
+    );
+
+    const paneBody = screen.getByTestId('pane-body');
+    await act(async () => {
+      fireEvent.drop(paneBody, makeSkillDropEvent('review'));
+      await Promise.resolve();
+    });
+
+    // No PTY write for unsupported provider.
+    expect(ptyWriteMock).not.toHaveBeenCalled();
+    // Toast shown explaining the limitation.
+    expect(toastWarningMock).toHaveBeenCalledOnce();
+    expect(toastWarningMock.mock.calls[0][0]).toContain('kimi');
+    // Chip binding still called.
+    expect(onSkillDrop).toHaveBeenCalledWith('review', 'superpowers');
+  });
+
+  it('does NOT inject for opencode provider and shows a toast', async () => {
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'opencode', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'opencode', name: 'OpenCode' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+      />,
+    );
+
+    const paneBody = screen.getByTestId('pane-body');
+    await act(async () => {
+      fireEvent.drop(paneBody, makeSkillDropEvent('brainstorm'));
+      await Promise.resolve();
+    });
+
+    expect(ptyWriteMock).not.toHaveBeenCalled();
+    expect(toastWarningMock).toHaveBeenCalledOnce();
+    expect(toastWarningMock.mock.calls[0][0]).toContain('opencode');
+  });
+
+  it('shows "pane not running" toast (not PTY write) when claude pane is exited', async () => {
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'claude', status: 'exited' })}
+        paneIndex={0}
+        providers={[{ id: 'claude', name: 'Claude' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+      />,
+    );
+
+    const paneBody = screen.getByTestId('pane-body');
+    await act(async () => {
+      fireEvent.drop(paneBody, makeSkillDropEvent('review'));
+      await Promise.resolve();
+    });
+
+    expect(ptyWriteMock).not.toHaveBeenCalled();
+    expect(toastWarningMock).toHaveBeenCalledOnce();
   });
 });

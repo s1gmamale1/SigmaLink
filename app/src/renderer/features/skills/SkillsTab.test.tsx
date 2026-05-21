@@ -32,11 +32,13 @@ if (typeof globalThis.DragEvent === 'undefined') {
 // ---- mocks -----------------------------------------------------------------
 
 const listInstalledMock = vi.fn<() => Promise<Array<{ name: string; description: string; source: 'superpowers' | 'ruflo' | 'custom' }>>>();
+const skillsListMock = vi.fn<() => Promise<{ skills: Array<{ id: string; name: string; description: string; contentHash: string; managedPath: string; installedAt: number }>; states: Array<{ skillId: string; providerId: string; enabled: boolean }> }>>();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     skills: {
       listInstalled: () => listInstalledMock(),
+      list: () => skillsListMock(),
     },
   },
 }));
@@ -50,6 +52,7 @@ Object.defineProperty(navigator, 'clipboard', {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  skillsListMock.mockReset();
 });
 
 // ---- helpers ---------------------------------------------------------------
@@ -59,8 +62,11 @@ const SAMPLE_SKILLS = [
   { name: 'debug-mode', description: 'Assists debugging', source: 'ruflo' as const },
 ];
 
-function renderSkillsTab() {
+function renderSkillsTab(
+  skillsListResult: { skills: Array<{ id: string; name: string; description: string; contentHash: string; managedPath: string; installedAt: number }>; states: Array<{ skillId: string; providerId: string; enabled: boolean }> } = { skills: [], states: [] },
+) {
   listInstalledMock.mockResolvedValue(SAMPLE_SKILLS);
+  skillsListMock.mockResolvedValue(skillsListResult);
   return render(<SkillsTab />);
 }
 
@@ -236,6 +242,115 @@ describe('SkillBindingChip', () => {
     const chip = screen.getByTestId('skill-binding-chip');
     expect(chip.getAttribute('data-binding-id')).toBe('bind-99');
     expect(chip.getAttribute('data-skill-name')).toBe('brainstorm');
+  });
+});
+
+// ---- Phase 3 — provider compat badges ----------------------------------------
+
+describe('SkillsTab Phase 3 — provider compat badges', () => {
+  const MANAGED_SKILLS = [
+    { id: 'skill-1', name: 'review-helper', description: 'Helps with code review', contentHash: 'abc', managedPath: '/path/review-helper', installedAt: 0 },
+    { id: 'skill-2', name: 'debug-mode', description: 'Assists debugging', contentHash: 'def', managedPath: '/path/debug-mode', installedAt: 0 },
+  ];
+
+  const STATES_ALL_ENABLED = [
+    { skillId: 'skill-1', providerId: 'claude', enabled: true },
+    { skillId: 'skill-1', providerId: 'codex', enabled: true },
+    { skillId: 'skill-1', providerId: 'gemini', enabled: true },
+    { skillId: 'skill-2', providerId: 'claude', enabled: true },
+    { skillId: 'skill-2', providerId: 'codex', enabled: false },
+    { skillId: 'skill-2', providerId: 'gemini', enabled: false },
+  ];
+
+  it('shows compat badges for enabled providers when skill row is expanded', async () => {
+    renderSkillsTab({ skills: MANAGED_SKILLS, states: STATES_ALL_ENABLED });
+
+    // Wait for skills to load.
+    await waitFor(() => {
+      expect(screen.getByText('review-helper')).toBeDefined();
+    });
+
+    // Click to expand the review-helper row.
+    const expandButton = screen.getByRole('button', { name: /review-helper/i });
+    fireEvent.click(expandButton);
+
+    // After expansion, compat badges should be visible.
+    await waitFor(() => {
+      expect(screen.getByTestId('skill-compat-badges-review-helper')).toBeDefined();
+    });
+
+    // All three providers are enabled for review-helper.
+    expect(screen.getByTestId('skill-compat-badge-claude')).toBeDefined();
+    expect(screen.getByTestId('skill-compat-badge-codex')).toBeDefined();
+    expect(screen.getByTestId('skill-compat-badge-gemini')).toBeDefined();
+  });
+
+  it('shows only claude badge for debug-mode (only claude enabled)', async () => {
+    renderSkillsTab({ skills: MANAGED_SKILLS, states: STATES_ALL_ENABLED });
+
+    await waitFor(() => {
+      expect(screen.getByText('debug-mode')).toBeDefined();
+    });
+
+    // Expand debug-mode.
+    const buttons = screen.getAllByRole('button');
+    const debugButton = buttons.find((b) => b.textContent?.includes('debug-mode'));
+    expect(debugButton).toBeDefined();
+    fireEvent.click(debugButton!);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('skill-compat-badges-debug-mode')).toBeDefined();
+    });
+
+    expect(screen.getByTestId('skill-compat-badge-claude')).toBeDefined();
+    // codex and gemini are disabled for debug-mode.
+    expect(screen.queryByTestId('skill-compat-badge-codex')).toBeNull();
+    expect(screen.queryByTestId('skill-compat-badge-gemini')).toBeNull();
+  });
+
+  it('shows no compat badges for skills not in the managed store', async () => {
+    // Only provide managed data for review-helper; debug-mode is absent from managed store.
+    renderSkillsTab({
+      skills: [MANAGED_SKILLS[0]],
+      states: [{ skillId: 'skill-1', providerId: 'claude', enabled: true }],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('debug-mode')).toBeDefined();
+    });
+
+    // Expand debug-mode.
+    const buttons = screen.getAllByRole('button');
+    const debugButton = buttons.find((b) => b.textContent?.includes('debug-mode'));
+    expect(debugButton).toBeDefined();
+    fireEvent.click(debugButton!);
+
+    // No compat badges should appear for debug-mode.
+    await waitFor(() => {
+      // The expanded panel should be visible (description renders).
+      expect(screen.getAllByText('Assists debugging').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByTestId('skill-compat-badges-debug-mode')).toBeNull();
+  });
+
+  it('renders without compat badges when skills.list() fails', async () => {
+    listInstalledMock.mockResolvedValue(SAMPLE_SKILLS);
+    skillsListMock.mockRejectedValue(new Error('network error'));
+    render(<SkillsTab />);
+
+    // Skills list should still load from listInstalled.
+    await waitFor(() => {
+      expect(screen.getByText('review-helper')).toBeDefined();
+    });
+
+    // Expand review-helper; no compat badges since list() failed.
+    const expandButton = screen.getByRole('button', { name: /review-helper/i });
+    fireEvent.click(expandButton);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Helps with code review').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByTestId('skill-compat-badges-review-helper')).toBeNull();
   });
 });
 

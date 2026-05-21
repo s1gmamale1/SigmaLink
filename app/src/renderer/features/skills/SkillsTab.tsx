@@ -1,5 +1,6 @@
 // v1.6.1 B3 — Skills tab Phase 1: read-only discovery panel.
 // v1.7.1 W-5  Skills tab Phase 2: drag-drop binding (INFORMATIONAL only).
+// W-5 Phase 3  Per-skill provider-compat badges from SkillProviderState fan-out.
 //
 // Renders a searchable list of installed superpowers + Ruflo skills discovered
 // from the on-disk plugin cache (~/.claude/plugins/cache/…).
@@ -15,23 +16,43 @@
 //     Chip X → `skills.detach`.
 //   - On workspace load, fetch `skills.listBindings` + render existing chips.
 //
+// Phase 3 adds:
+//   - Per-skill provider-compat badges ("Claude · Codex · Gemini compatible") are
+//     shown by correlating plugin-cache skills with managed `SkillProviderState`
+//     fan-out from `rpc.skills.list()`. Skills not yet in the managed store show
+//     no badges (compat unknown).
+//
 // SCOPE NOTE — INFORMATIONAL ONLY: Attaching a skill = a persisted visual
 // association (chip). It does NOT change agent dispatch, does NOT inject into
 // agent context, and does NOT alter Sigma/Jorvis tool-calling. Behavioral
-// activation is a SEPARATE future enhancement requiring design decisions and
-// is explicitly deferred (OUT OF SCOPE for this phase).
+// activation (slash-command injection) is implemented in W-5 Phase 3 via
+// insertSkillCommand.ts + PaneShell.tsx.
 
 import { useCallback, useEffect, useState, type DragEvent } from 'react';
 import { Search, Copy, ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
 import { toast } from 'sonner';
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
+import type { SkillProviderId, SkillProviderState } from '@/shared/types';
 
 interface InstalledSkillEntry {
   name: string;
   description: string;
   source: 'superpowers' | 'ruflo' | 'custom';
 }
+
+/** W-5 Phase 3 — display labels for each slash-capable provider. */
+const PROVIDER_BADGE_LABELS: Record<SkillProviderId, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  gemini: 'Gemini',
+};
+
+const PROVIDER_BADGE_STYLE: Record<SkillProviderId, string> = {
+  claude: 'bg-orange-500/15 text-orange-300 border border-orange-500/30',
+  codex: 'bg-green-500/15 text-green-300 border border-green-500/30',
+  gemini: 'bg-sky-500/15 text-sky-300 border border-sky-500/30',
+};
 
 // Payload shape written to dataTransfer for cross-component drag-drop.
 // Consumed by SkillDropTarget (PaneShell + workspace header area).
@@ -50,8 +71,31 @@ const SOURCE_BADGE: Record<InstalledSkillEntry['source'], string> = {
   custom: 'bg-muted text-muted-foreground border border-border',
 };
 
+/**
+ * W-5 Phase 3 — Build a map from skill name → enabled provider IDs.
+ * Correlates `SkillProviderState[]` (from the managed store) with skill names
+ * (from `Skill[]`). Only providers where `enabled: true` are included.
+ */
+function buildProviderCompatMap(
+  states: SkillProviderState[],
+  skillIdToName: Map<string, string>,
+): Map<string, SkillProviderId[]> {
+  const result = new Map<string, SkillProviderId[]>();
+  for (const state of states) {
+    if (!state.enabled) continue;
+    const name = skillIdToName.get(state.skillId);
+    if (!name) continue;
+    const existing = result.get(name) ?? [];
+    existing.push(state.providerId);
+    result.set(name, existing);
+  }
+  return result;
+}
+
 export function SkillsTab() {
   const [skills, setSkills] = useState<InstalledSkillEntry[]>([]);
+  // W-5 Phase 3 — name → enabled providers from managed skill store fan-out.
+  const [providerCompat, setProviderCompat] = useState<Map<string, SkillProviderId[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -60,10 +104,29 @@ export function SkillsTab() {
     let alive = true;
     void (async () => {
       try {
-        const result = await rpc.skills.listInstalled();
-        if (alive) setSkills(Array.isArray(result) ? (result as InstalledSkillEntry[]) : []);
-      } catch {
-        if (alive) setSkills([]);
+        // Fetch both plugin-cache skill list and managed store provider states
+        // concurrently. If either fails independently we degrade gracefully.
+        const [installedResult, managedResult] = await Promise.allSettled([
+          rpc.skills.listInstalled(),
+          rpc.skills.list(),
+        ]);
+
+        if (alive) {
+          setSkills(
+            installedResult.status === 'fulfilled' && Array.isArray(installedResult.value)
+              ? (installedResult.value as InstalledSkillEntry[])
+              : [],
+          );
+        }
+
+        if (alive && managedResult.status === 'fulfilled') {
+          const { skills: managedSkills, states } = managedResult.value;
+          // Build id→name lookup so we can join states by skill id.
+          const idToName = new Map<string, string>(
+            managedSkills.map((s) => [s.id, s.name]),
+          );
+          setProviderCompat(buildProviderCompatMap(states, idToName));
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -162,7 +225,7 @@ export function SkillsTab() {
                       }
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span className="truncate text-xs font-medium text-foreground">
                           {skill.name}
                         </span>
@@ -187,6 +250,34 @@ export function SkillsTab() {
                       <p className="text-[11px] leading-relaxed text-muted-foreground">
                         {skill.description}
                       </p>
+                      {/* W-5 Phase 3 — Provider compat badges sourced from
+                          SkillProviderState fan-out. Only shown for skills in
+                          the managed store that have at least one enabled
+                          provider. */}
+                      {(() => {
+                        const compatProviders = providerCompat.get(skill.name);
+                        if (!compatProviders || compatProviders.length === 0) return null;
+                        return (
+                          <div
+                            className="mt-2 flex flex-wrap items-center gap-1"
+                            data-testid={`skill-compat-badges-${skill.name}`}
+                            aria-label={`Compatible providers: ${compatProviders.map((p) => PROVIDER_BADGE_LABELS[p]).join(', ')}`}
+                          >
+                            {compatProviders.map((providerId) => (
+                              <span
+                                key={providerId}
+                                className={cn(
+                                  'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                                  PROVIDER_BADGE_STYLE[providerId],
+                                )}
+                                data-testid={`skill-compat-badge-${providerId}`}
+                              >
+                                {PROVIDER_BADGE_LABELS[providerId]}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
                       <button
                         type="button"
                         onClick={() => void onCopySlashCommand(skill.name)}

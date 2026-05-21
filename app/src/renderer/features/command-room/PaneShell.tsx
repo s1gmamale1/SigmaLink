@@ -27,6 +27,7 @@ import { PaneHeader } from './PaneHeader';
 import { PaneSplash } from './PaneSplash';
 import { PaneFooter } from './PaneFooter';
 import { insertMention } from './insertMention';
+import { insertSkillCommand, isSlashCapableProvider } from './insertSkillCommand';
 import { pathRelative } from '@/renderer/lib/path-relative';
 import type { AgentSession } from '@/shared/types';
 import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
@@ -195,13 +196,24 @@ export function PaneShell({
     setFlashDrop(true);
     setTimeout(() => setFlashDrop(false), 200);
 
-    // v1.7.1 W-5 Phase 2 — skill drop (INFORMATIONAL binding only).
+    // W-5 Phase 3 — skill drop: visual chip binding + slash-command injection.
     const skillRaw = e.dataTransfer.getData(SKILL_DRAG_MIME);
     if (skillRaw) {
       try {
         const payload = JSON.parse(skillRaw) as SkillDragPayload;
-        if (payload.kind === 'skill' && payload.name && onSkillDrop) {
-          onSkillDrop(payload.name, payload.source);
+        if (payload.kind === 'skill' && payload.name) {
+          if (isSlashCapableProvider(session.providerId)) {
+            // Inject "/<skillName> " into the pane's input line. The user presses
+            // Enter to invoke. Also create the chip binding as before.
+            void insertSkillCommand(session.id, payload.name, session.status);
+            if (onSkillDrop) onSkillDrop(payload.name, payload.source);
+          } else {
+            // Provider does not support slash-command injection — chip-only + toast.
+            toast.warning(`Slash-command activation isn't supported for ${session.providerId}`, {
+              description: 'The skill chip has been attached but will not be injected automatically.',
+            });
+            if (onSkillDrop) onSkillDrop(payload.name, payload.source);
+          }
         }
       } catch {
         /* malformed payload — ignore */
