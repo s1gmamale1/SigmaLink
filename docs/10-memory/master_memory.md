@@ -2591,3 +2591,53 @@ esbuild (`electron:compile`) could not resolve `@sigmalink/voice-core` until it 
 ### Wishlist post-v1.7.0
 
 - v1.8 backlog: W-4 shell-first (own release decision), W-5 Skills Phase 2, W-6 Jorvis rename (own release, scope-first), BridgeVoice production installers, upstream write-mutex PR to claude-flow (carried from v1.6.0), isResume explicit registry field, concurrent-spawn uniqueness gap, scrollback persistence, V3-W15-006 dogfood.
+
+
+## Phase 46 — v1.8.0 BridgeVoice unsigned installers + Jorvis UI label rename (2026-05-21)
+
+Tag v1.8.0 (also tagged bridgevoice-v0.1.0 for the standalone app's first installer), commit 2045691. Built on v1.7.1 (v1.7.1 was a build hotfix: v1.7.0 CI failed because @sigmalink/voice-core's native devDeps were not promoted correctly; v1.7.1 fixed that by adding voice-core native devDeps to the CI install path). Two parallel Sonnet coder clusters dispatched in autonomous mode; lead-merged at the combined gate. Headline: BridgeVoice standalone real unsigned installers + Jorvis user-facing label rename (label-only scope).
+
+### Cluster structure
+
+**Cluster 1 — BridgeVoice standalone app unsigned installers**
+
+Completes the “make SigmaVoice a separate app like BridgeVoice” deliverable. The v1.7.0 release shipped the bridge-voice Electron scaffold (runnable dev mode only); this release adds real production-grade unsigned installer machinery:
+
+- **`scripts/build.cjs`** — esbuild-based bundle script for the BridgeVoice renderer + main process. Produces a production-ready dist artifact consumed by electron-builder.
+- **`electron-builder.yml`** — full electron-builder config for BridgeVoice: appId `ai.sigma.bridgevoice`; identity `null` (ad-hoc codesign, no funded cert); mac target: DMG for arm64 + x64; win target: NSIS; voice `.node` native binding added to `asarUnpack` list; afterSign hook runs ad-hoc `codesign` on mac to satisfy Gatekeeper launch.
+- **`build/entitlements.mac.plist`** — entitlements for the unsigned mac build: microphone access, speech recognition, audio input, apple-events.
+- **`build/installer.nsh`** — NSIS script for Windows installer (SmartScreen bypass instructions, first-launch warning copy).
+- **`build/dmg-README.md`** (DMG README) — Gatekeeper bypass instructions for mac users (right-click → Open on first launch).
+- **`.github/workflows/release-bridge-voice.yml`** (NEW) — CI lane that triggers exclusively on `bridgevoice-v*` annotated tags. Builds and uploads mac DMG (arm64 + x64 via matrix) and win NSIS artifact. Completely separate from the SigmaLink `release-macos.yml` / `release-windows.yml` workflows; neither set of workflows triggers on the other's tags.
+
+Internal-use unsigned distribution model (no funded codesigning, no Apple Developer Program, no EV cert). Local `--mac` dir build + ad-hoc sign validated; full DMG/NSIS on the new CI lane confirmed at gate.
+
+**Cluster 2 — Jorvis UI label rename (LABEL-ONLY)**
+
+Renames the user-facing display name "Sigma Assistant" → "Jorvis" across 20 display strings in 11 renderer files. Scope deliberately bounded to the label layer:
+
+- Tab heading, chat speaker label "JORVIS", "Ask Jorvis" placeholders, notification copy, dispatch toasts, voice pill label updated.
+- "Sigma Canvas" and Ruflo capability strings correctly left unchanged.
+- IPC channels (`assistant:*`), DB tables (`sigma_pane_events`), file names (`SigmaRoom.tsx`, `sigma-assistant/`, `use-sigma-dispatch-echo.ts`), code identifiers, and test IDs are ALL UNCHANGED — full W-6 identifier sweep explicitly deferred.
+
+### Gate results (combined main)
+
+- tsc: clean.
+- vitest: **102 files / 962 pass / 1 skip** (same file + pass count as v1.7.0 baseline — label-only rename adds no new test surface).
+- eslint: 0 errors / 0 warnings.
+- bridge-voice bundle + electron-builder config: validated (esbuild bundle clean; electron-builder dry-run confirms appId + targets + asarUnpack + afterSign wiring).
+- SigmaLink build + electron compile: clean (BridgeVoice build system isolated in packages/bridge-voice; no impact on main app build).
+- smoke e2e: 38s pass.
+
+### Deferred items
+
+- **W-4 shell-first pane architecture** (~14d effort, own release).
+- **V3 Wave 12-15** (multi-month; not scheduled).
+- **W-5 Skills Phase 2** — drag-drop activation, workspace-wide skill binding.
+- **W-6 full Jorvis identifier rename** — label shipped in v1.8.0; IPC channel rename (`assistant:*`), DB table rename (`sigma_pane_events`), file/folder sweeps deferred (medium, ~3-5d, touches CHANNELS allowlist + cross-sync wire format).
+- **BridgeVoice signed installers** — funded certs out of scope for internal-use distribution; unsigned ad-hoc path is canonical.
+- **V3-W15-006 dogfood** — human QA, not code-generatable.
+
+### Wishlist post-v1.8.0
+
+- v1.9 backlog: W-4 shell-first (own release decision), W-5 Skills Phase 2, W-6 full Jorvis identifier sweep (IPC+DB+file), BridgeVoice signed installers (needs funded certs), upstream write-mutex PR to claude-flow (carried from v1.6.0), isResume explicit registry field, concurrent-spawn uniqueness gap, scrollback persistence, V3-W15-006 dogfood.
