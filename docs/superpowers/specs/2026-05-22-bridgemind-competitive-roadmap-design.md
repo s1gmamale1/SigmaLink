@@ -32,7 +32,8 @@ Clears deferred debt before the competitive build.
 - **Fire the claude-flow upstream PR** — `docs/10-memory/upstream/claude-flow-default-namespace-issue.md` is drafted; operator submits on the third-party repo. *(operator action, no SigmaLink code)*
 - **win32 shell-first dogfood** — v1.14.0 flipped `pty.spawnMode` default to `shell-first` on all platforms un-dogfooded on Windows. Operator runs a Windows build; confirm keep-on or revert to `'direct'` (one KV flip). *(operator-led; code change only if revert)*
 - **AgentDB post-task store automation** — make v1.15.0's measurement real: a `post-task`/`session-end` hook auto-stores the task verdict to namespace `patterns` (key `verdict:<id>`), so the store actually accrues retrievable entries. *(small; `.claude` hook, re-gen-safe per the v1.15.0 pattern)*
-- **Success:** upstream issue filed; Windows shell-first decision recorded; a fresh `memory_search_unified` after a task returns that task's verdict.
+- **Absorbs (prior backlog):** V3-W15-006 — the human-QA ≥30-min 4-pane-swarm (Claude+Codex+Gemini+OpenCode) dogfood folds in here alongside the win32 dogfood (both operator-led QA).
+- **Success:** upstream issue filed; Windows shell-first decision recorded; the 4-pane-swarm dogfood run; a fresh `memory_search_unified` after a task returns that task's verdict.
 
 ## M1 — Glanceable swarm (~v1.16.0)
 Quick wins + the first moat foundation (chat log). All renderer-side; low risk.
@@ -50,13 +51,13 @@ Moat foundations + a voice quick-win.
 - **Success:** context dispatched to an agent carries its branch + diff; a handoff's out-of-scope files are write-blocked outside the worktree.
 
 ## M3 — Sigma Agent (~v1.18.0, capstone — bigger wave)
-- **C-7 Sigma Agent meta-pane** *(L)* — a human-facing orchestrator pane that **composes M1+M2 pieces**: reads the agent index (C-2) + swarm chat (C-4), accepts a goal, spawns **worktree-isolated** panes, auto-prompts each with plan-handoff capsules (C-5) + worktree-aware context (C-6), and **proposes cross-pane merge order** by file-conflict probability. This is the "swarm with no merge conflicts" differentiator. Module: new orchestrator pane + Ruflo + SigmaSwarm.
+- **C-7 Sigma Agent meta-pane** *(L)* — a human-facing orchestrator pane that **composes M1+M2 pieces**: reads the agent index (C-2) + swarm chat (C-4), accepts a goal, spawns **worktree-isolated** panes, auto-prompts each with plan-handoff capsules (C-5) + worktree-aware context (C-6), and **proposes cross-pane merge order** by file-conflict probability. This is the "swarm with no merge conflicts" differentiator. Module: new orchestrator pane + Ruflo + SigmaSwarm. **Absorbs (prior backlog):** V3-W13-013 `dispatchBulk/refResolve` (bulk pane spawn from one prompt) is subsumed by the meta-pane's spawn-N capability.
 - **C-10b SigmaVoice inline push-to-talk → focused pane** *(M)* — global hotkey + in-process Whisper injects into the focused PTY pane (no alt-tab). Module: pane prompt bar + SigmaVoice.
 - **W-4 P8-9 (threaded here)** *(M/L)* — resume simplification + drop `external_session_id` (~150 refs). Threaded into M3 because the meta-pane touches spawn/resume anyway; refactor the PTY core **once**, on the clean post-shell-first base. **Risk-gated:** its own sub-plan + Opus review (PTY core). Module: pty/resume-launcher, registry, schema migration.
 - **Success:** one goal → N worktree-isolated agents → coordinated merge; no shared-dir conflicts.
 
 ## M4 — New surfaces (~v1.19.0)
-- **C-8 Embedded browser pane** *(M)* — Electron `WebContentsView`/webview pane; terminal links open inline. Module: new pane type.
+- **C-8 Embedded browser pane** *(M)* — Electron `WebContentsView`/webview pane; terminal links open inline. Module: new pane type. **Absorbs (prior backlog):** V3-W13-002 (click-link-in-pane → built-in browser, OSC8 hyperlink) + its recents panel.
 - **C-9 Skills/guardrail matrix** *(M)* — Skills-tab toggles (Test-Driven / Security-Audit / CI-Green / DRY …) that inject the corresponding guardrails as **per-worktree CLAUDE.md / hook** entries at dispatch. Module: Skills tab (W-5) + hooks.
 - **C-11 Wake-word dispatch** *(M)* — hands-free agent dispatch; first-mover (BridgeMind failed it over 6 debug rounds — our out-of-process Whisper avoids the WASM init race). Module: SigmaVoice.
 - **Success:** browse + click-through in-app; one toggle adds a guardrail to a pane's worktree; "Hey Sigma" dispatches.
@@ -72,6 +73,9 @@ Moat foundations + a voice quick-win.
 - **Cadence:** one milestone ≈ one release; balanced waves (quick wins + moat each wave). Each milestone = its own writing-plans plan, parallel-coder dispatch (isolated worktrees, `isolation:"worktree"`), lead-merge + full gate (tsc -b / eslint 0 / vitest / build / electron:compile / smoke) in main — per the established v1.x flow.
 - **Quality bar:** unchanged. Agents never push/tag/release; lead ships.
 - **Dependencies:** C-7 (M3) requires C-2+C-4 (M1) + C-5+C-6 (M2). C-13 (M5) requires C-8 (M4). Everything else is independent.
+
+## Prior-backlog reconciliation (2026-05-23)
+**Absorbed into this roadmap** (struck from their source lists): V3-W13-013 dispatchBulk → C-7/M3 · V3-W15-006 4-pane dogfood → M0 · V3-W13-002 OSC8 link-in-pane → C-8/M4. **Left as standalone low-priority backlog** (deliberately NOT in this roadmap): sample-rate PCM tap, HMR voice-win race, whisper.cpp v1.7.x port, prebuildify silent no-output (CI/native-build convenience), and DOGFOOD-V1.4.2-01 hyp.2 split-button (UX call). **No open bugs.**
 
 ## Risks
 - **W-4 P8-9** is a risky PTY-core refactor — isolate as its own sub-plan within M3 + Opus review; ship behind the existing shell-first base.

@@ -143,8 +143,8 @@ Non-blocking observations from the v1.5.2 Opus 4.7 reviewer round + carry-over f
 - **HMR-only race** in voice-win `IsAvailable()` probe.
 - **whisper.cpp v1.7.x ggml-cpu/ binding.gyp port** — root cause of Windows whisper prebuild soft-fail.
 - **voice-{mac,win} prebuildify silent no-output** under CI — root cause investigation queued.
-- **V3-W13-013 `assistant.*` dispatchBulk/refResolve** — bulk pane spawn from a single Sigma prompt; feature enhancement (NOT parity gap; core dispatchPane + send/cancel/tools shipped).
-- **V3-W15-006 dogfood exercise** — human QA, ≥30 min 4-pane swarm (Claude+Codex+Gemini+OpenCode) against a real repo. Not code-generatable; queued for operator-led session.
+- ~~**V3-W13-013 `assistant.*` dispatchBulk/refResolve**~~ — **absorbed into roadmap C-7 (Sigma Agent meta-pane, M3)**, which spawns N panes from one prompt (2026-05-23).
+- ~~**V3-W15-006 dogfood exercise**~~ — **absorbed into roadmap M0** (operator-led 4-pane-swarm + win32 dogfood) (2026-05-23).
 
 ## Distribution posture (internal use)
 

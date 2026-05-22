@@ -256,7 +256,8 @@ Goal: every parity-blocking V3 surface lands. Bridge Assistant ships full.
 - Effort: M.
 - Depends on: V3-W12-013.
 
-#### [V3-W13-002] Browser tab — recents panel + click-link-in-pane → built-in browser
+#### [V3-W13-002] Browser tab — recents panel + click-link-in-pane → built-in browser — ABSORBED → roadmap C-8 (Embedded browser pane, M4), 2026-05-23
+- **Absorbed into the BridgeMind-competitive roadmap C-8 (M4)** — embedded browser pane + terminal-link-opens-inline (OSC8) is the same surface. Tracked there.
 - Frames: 0340. Citation: recents `localhost / openrouter.ai / www.sigmamind.ai`; *L209* link-routing.
 - Files: `app/src/renderer/features/browser/BrowserRoom.tsx`, `app/src/main/core/browser/manager.ts`.
 - Acceptance:
