@@ -1,6 +1,6 @@
 # SigmaLink — Plans wishlist (consolidated)
 
-> Single source of truth for what's queued. Updated 2026-05-16 after the v1.2.4 → v1.2.8 release wave. Each row points at the original spec / backlog / plan file it was extracted from.
+> Single source of truth for what's queued. Updated 2026-05-22 (added C-class competitive items from the BridgeMind review). Each row points at the original spec / backlog / plan file it was extracted from.
 
 ## Recently shipped ✅
 
@@ -69,6 +69,30 @@
 | W-5 | **Skills tab in right panel** — PARTIAL: Phase 1 (v1.7.0, read-only discovery) + Phase 2 INFORMATIONAL binding (v1.9.0, drag-drop SkillsTab→PaneShell/CommandRoom + SkillBindingChip + useSkillBindings persistence + migration 0021 skill_bindings + skills.attach/detach/listBindings RPCs) shipped. **Phase 3 / behavioral activation ✅ SHIPPED v1.12.0** (design 2026-05-21): native **slash-command injection** — dropping a skill on a pane writes `/${skillName} ` into its PTY input (new `insertSkillCommand.ts`, sibling to `insertMention`), gated on provider compatibility (claude/codex/gemini inject; kimi/opencode chip-only). SkillsTab gains per-skill provider-compat badges from existing `SkillProviderState`/fan-out. Worktree-agnostic (slash commands are CLI-config-resolved, not path-resolved). | Phase 1 v1.7.0; Phase 2 INFORMATIONAL v1.9.0; Phase 3 scoped for swarm. | [`v1.6.0-skills-tab.md`](v1.6.0-skills-tab.md) (stub) · [finish spec](../superpowers/specs/2026-05-21-w4-w5-w8-finish-design.md) |
 | W-6 | **Rename Sigma Assistant → Jorvis** — PARTIAL: label-only rename shipped v1.8.0 (20 display strings across 11 renderer files). Full identifier sweep IN PROGRESS 2026-05-21 (operator authorized): Cluster A (assistant identifiers + folders + RoomId + mcp-host) SHIPPED v1.11.0 (RoomId/TabId backward-compat via normalize*()); Cluster B (DB tables `sigma_pane_events`→`jorvis_pane_events` + `sigma_monitor_conversation_id` column + migration + cross-sync wire format + `sigma-in-flight:` prefix dual-compat) prepped, ships separately. Touches CHANNELS allowlist + cross-sync wire format — hard cutover. PRESERVE app-infra: `window.sigma`, `SIGMA_TEST`, `sigma:test:*`, `sigma:pty-focus`, `sigma:scroll-*`, `SigmaLink`, `SigmaVoice`/`SigmaVoice`. | Operator request 2026-05-21. Label-only shipped v1.8.0; full sweep in flight → v1.11.0. | TBD — Cluster A + Cluster B, likely v1.11.0 |
 | W-8 | **IDE per-pane worktree file browsing** (NEW — surfaced during W-5 brainstorming 2026-05-21). Each pane has its own git worktree, but the Editor FileTree roots at a single workspace `repoRoot` (`EditorTab.tsx:147`) → files unique to one pane's worktree (untracked/agent-created) aren't browsable/draggable. Add a root-selector dropdown above FileTree (*Workspace root* + each pane's `worktreePath` + a **"Follow focused pane"** mode), persist in `editor.<workspaceId>.rootSelection`, and harden `fs.writeFile` repoRoot containment to accept worktree paths. Tracked-file cross-worktree drops already work (relative path resolves in the pane's own cwd). | Surfaced 2026-05-21; scoped for next swarm with W-4/W-5. | [finish spec](../superpowers/specs/2026-05-21-w4-w5-w8-finish-design.md) |
+
+## 🆚 C-class — Competitive (BridgeMind-derived, surfaced 2026-05-22)
+
+From a visual + transcript review of BridgeMind's **BridgeVoice**, **BridgeSpace 3**, and the **Day-181 livestream** (3h11m). Full breakdown + **101 reference screenshots**: [`../02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md`](../02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md) (per-aspect `*-REVIEW.md` + `*/screenshots/` + condensed `stream/transcript-timeline.md`). Ranked value/effort; none scheduled yet.
+
+| ID | What | Value / Effort | SigmaLink target |
+|---|---|---|---|
+| C-1 | **Per-pane info bar** — `[claude/opus] feat/auth · 3 files · 42K tok` (model · branch · uncommitted · tokens) | HIGH / **S** | pane header chrome |
+| C-2 | **Coding-agent index** — live "what each agent is doing" panel | HIGH / **S** | SigmaSwarm roster |
+| C-3 | **Pane drag-resize + density mitigation** — their #1 UX gap (unreadable at 8+ panes, no resize) | HIGH / S–M | Command Room grid |
+| C-4 | **Visible SigmaSwarm inter-agent chat log** — surface + inject the Ruflo SendMessage bus | HIGH / M | SigmaSwarm UI |
+| C-5 | **Plan-handoff capsule** (goal/files/criteria/out-of-scope) — leapfrog: **filesystem-enforced** out-of-scope via worktree | HIGH / M | W-5 injection + hooks |
+| C-6 | **Drag-drop pane → swarm chat as live context** — leapfrog: worktree-aware (attach `git diff --stat` + branch) | HIGH / M | Command Room DnD |
+| C-7 | **Sigma Agent meta-pane** — human-facing orchestrator (spawns panes, auto-prompts w/ workspace context) | CRITICAL / **L** | new pane + Ruflo |
+| C-8 | **Embedded browser pane** — terminal links open inline | MED-HIGH / M | new pane |
+| C-9 | **Skills/guardrail matrix** (Test-Driven / Security-Audit / CI-Green toggles) → per-worktree CLAUDE.md hook injection | MED-HIGH / M | Skills tab (W-5) + hooks |
+| C-10 | **SigmaVoice cluster** — dictionary (phrase→@mention), verbal macros, usage dashboard, inline PTT→pane, local/cloud toggle | HIGH / S–M | SigmaVoice |
+| C-11 | **Wake-word agent dispatch** — BridgeMind couldn't ship it (6 debug rounds); first-mover win | MED / M | SigmaVoice |
+| C-12 | **SigmaBench** (BridgeBench equiv) + a multi-agent-conflict category they structurally can't run | MED / L | new tool |
+| C-13 | **Click-element → agent** design tool | MED / L | new tool |
+
+**Moat (reconfirmed by review):** BridgeSpace runs all agents in ONE shared dir → our **per-pane git worktrees** enable "swarm with no merge conflicts" (the C-5/C-6 leapfrogs) they can't match without a rebuild. Other edges: out-of-process Whisper (they burned 6 debug rounds fighting Onyx WASM voice), Ruflo vector memory + typed SendMessage bus, W-8/W-5/hooks/shell-first/multi-CLI heterogeneity.
+
+**Intel:** their orchestrator runs on Grok-4.1-fast (NOT Claude); they actively distrust Opus 4.7 ("stopped referencing the codebase"); product thesis = "zero-prompt orchestration"; eval criterion = tool-calling reliability, not leaderboard; exploitable broken bits = wake-word + Claude-Code rewind. $185K ARR, zero marketing. Full detail in the review.
 
 ## 🆕 W-class — User wishlist additions (this session, 2026-05-16)
 
@@ -142,6 +166,7 @@ This wishlist consolidates rows from:
 - [`docs/03-plan/v1.2.5-postinstall-regressions.md`](v1.2.5-postinstall-regressions.md) — sweep notes
 - [`docs/03-plan/v1.2.7-multi-workspace-state-preservation.md`](v1.2.7-multi-workspace-state-preservation.md) — open risks
 - [`docs/03-plan/v1.2.8-session-capture-rewrite.md`](v1.2.8-session-capture-rewrite.md) — open risks + out-of-scope
+- [`docs/02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md`](../02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md) — BridgeMind competitive review (source of the C-class items + 101 screenshots)
 - [`CHANGELOG.md`](../../CHANGELOG.md) — historical context
 
 When you ship a wishlist item, move it to "Recently shipped" with a pointer back to the implementation commit + CHANGELOG entry.
