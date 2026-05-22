@@ -1,0 +1,90 @@
+# BridgeMind-Competitive Roadmap — Design
+
+**Date:** 2026-05-22
+**Status:** Approved (operator, balanced-waves sequencing; W-4 P8-9 threaded into M3)
+**Source:** `docs/02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md` (BridgeVoice + BridgeSpace 3 + Day-181 stream) → C-class wishlist (`docs/03-plan/WISHLIST.md`).
+**Scope:** Forward roadmap — 13 C-class competitive items + deferred debt, sequenced into 6 milestones (M0–M5), each ≈ one release on the existing v1.x cadence.
+
+## Context & current state
+Everything through **v1.15.0** is shipped; `BACKLOG.md`/`OPEN.md` show **no open bugs**. This is a forward roadmap, not firefighting. "Fixes" = the small deferred debt (M0).
+
+## The thesis (what the roadmap optimizes for)
+SigmaLink's **moat is per-pane git worktrees**; BridgeSpace's biggest structural weakness is that **all its agents share one directory** (confirmed in every pane header). The roadmap threads a **worktree-swarm differentiator** across M1→M3 — "swarm with no merge conflicts" — that BridgeSpace cannot match without a rebuild. Quick parity wins ride alongside each wave so every release shows visible progress.
+
+Secondary edges leaned on: out-of-process Whisper (they burned 6 debug rounds on Onyx WASM voice), Ruflo MCP vector memory + typed SendMessage bus, W-8/W-5/hooks/shell-first/multi-CLI.
+
+## Milestone overview
+| Milestone | Theme | Items | Target |
+|---|---|---|---|
+| **M0** | Stabilize & derisk | upstream PR · win32 dogfood · AgentDB store automation | ~v1.15.1 |
+| **M1** | Glanceable swarm | C-1 · C-2 · C-3 · C-4 | ~v1.16.0 |
+| **M2** | Worktree-aware context | C-6 · C-5 · C-10a | ~v1.17.0 |
+| **M3** | Sigma Agent (capstone) | C-7 · C-10b · **W-4 P8-9** | ~v1.18.0 |
+| **M4** | New surfaces | C-8 · C-9 · C-11 | ~v1.19.0 |
+| **M5** | Breadth & polish | C-13 · C-12 · C-10c | ~v1.20.0 |
+
+Each milestone gets its **own** `writing-plans` plan when reached (YAGNI — not all six up front). **M0 + M1 are planned next.**
+
+---
+
+## M0 — Stabilize & derisk (~v1.15.1, mostly operator-led, parallel)
+Clears deferred debt before the competitive build.
+- **Fire the claude-flow upstream PR** — `docs/10-memory/upstream/claude-flow-default-namespace-issue.md` is drafted; operator submits on the third-party repo. *(operator action, no SigmaLink code)*
+- **win32 shell-first dogfood** — v1.14.0 flipped `pty.spawnMode` default to `shell-first` on all platforms un-dogfooded on Windows. Operator runs a Windows build; confirm keep-on or revert to `'direct'` (one KV flip). *(operator-led; code change only if revert)*
+- **AgentDB post-task store automation** — make v1.15.0's measurement real: a `post-task`/`session-end` hook auto-stores the task verdict to namespace `patterns` (key `verdict:<id>`), so the store actually accrues retrievable entries. *(small; `.claude` hook, re-gen-safe per the v1.15.0 pattern)*
+- **Success:** upstream issue filed; Windows shell-first decision recorded; a fresh `memory_search_unified` after a task returns that task's verdict.
+
+## M1 — Glanceable swarm (~v1.16.0)
+Quick wins + the first moat foundation (chat log). All renderer-side; low risk.
+- **C-1 Per-pane info bar** *(S)* — pane header chrome shows `model · branch · uncommitted-count · token-count`. Branch + uncommitted come from the pane's worktree (`git`), surfacing our edge. Token count from PTY/provider where available (estimate otherwise). Module: `PaneShell`/pane header.
+- **C-2 Coding-agent index** *(S)* — a panel listing every pane: provider, role, current task/status, live. Foundation for C-7. Module: SigmaSwarm roster view.
+- **C-3 Pane drag-resize + density** *(S/M)* — their #1 UX gap (unreadable at 8+, no resize). `react-resizable-panels` is already a dependency. Add drag-resize + a density/zoom affordance. Module: Command Room grid.
+- **C-4 Visible SigmaSwarm chat log** *(M)* — surface the existing swarm mailbox / Ruflo SendMessage bus in a readable, operator-injectable panel. Foundation for C-7. Module: SigmaSwarm UI + mailbox.
+- **Success:** at a glance, every agent + its branch + their cross-talk is visible; panes are resizable.
+
+## M2 — Worktree-aware context (~v1.17.0)
+Moat foundations + a voice quick-win.
+- **C-6 Worktree-aware drag-drop context** *(M)* — extend the v1.4.8 file→pane drag pattern: dragging a pane (or its header) into the swarm/agent input attaches its compacted scrollback **+ `git diff --stat` + branch name**. Leapfrog over BridgeSpace's text-only chip. Module: Command Room DnD + context pipeline.
+- **C-5 Plan-handoff capsule** *(M)* — a structured prompt format (goal / target files / success criteria / out-of-scope) injected via W-5; **out-of-scope becomes a filesystem boundary** (the pane's worktree scope), enforced via hooks — not prose. Module: W-5 injection + hooks.
+- **C-10a SigmaVoice dictionary + macros + dashboard** *(S)* — phrase→@mention/CLI-fix dictionary, verbal command macros ("new line"→`\n`), usage stats (words/WPM/history from existing whisper segment metadata). Module: SigmaVoice.
+- **Success:** context dispatched to an agent carries its branch + diff; a handoff's out-of-scope files are write-blocked outside the worktree.
+
+## M3 — Sigma Agent (~v1.18.0, capstone — bigger wave)
+- **C-7 Sigma Agent meta-pane** *(L)* — a human-facing orchestrator pane that **composes M1+M2 pieces**: reads the agent index (C-2) + swarm chat (C-4), accepts a goal, spawns **worktree-isolated** panes, auto-prompts each with plan-handoff capsules (C-5) + worktree-aware context (C-6), and **proposes cross-pane merge order** by file-conflict probability. This is the "swarm with no merge conflicts" differentiator. Module: new orchestrator pane + Ruflo + SigmaSwarm.
+- **C-10b SigmaVoice inline push-to-talk → focused pane** *(M)* — global hotkey + in-process Whisper injects into the focused PTY pane (no alt-tab). Module: pane prompt bar + SigmaVoice.
+- **W-4 P8-9 (threaded here)** *(M/L)* — resume simplification + drop `external_session_id` (~150 refs). Threaded into M3 because the meta-pane touches spawn/resume anyway; refactor the PTY core **once**, on the clean post-shell-first base. **Risk-gated:** its own sub-plan + Opus review (PTY core). Module: pty/resume-launcher, registry, schema migration.
+- **Success:** one goal → N worktree-isolated agents → coordinated merge; no shared-dir conflicts.
+
+## M4 — New surfaces (~v1.19.0)
+- **C-8 Embedded browser pane** *(M)* — Electron `WebContentsView`/webview pane; terminal links open inline. Module: new pane type.
+- **C-9 Skills/guardrail matrix** *(M)* — Skills-tab toggles (Test-Driven / Security-Audit / CI-Green / DRY …) that inject the corresponding guardrails as **per-worktree CLAUDE.md / hook** entries at dispatch. Module: Skills tab (W-5) + hooks.
+- **C-11 Wake-word dispatch** *(M)* — hands-free agent dispatch; first-mover (BridgeMind failed it over 6 debug rounds — our out-of-process Whisper avoids the WASM init race). Module: SigmaVoice.
+- **Success:** browse + click-through in-app; one toggle adds a guardrail to a pane's worktree; "Hey Sigma" dispatches.
+
+## M5 — Breadth & polish (~v1.20.0)
+- **C-13 Click-element→agent design tool** *(L, needs C-8)* — select a DOM element in the browser pane, capture its HTML, dispatch to an agent; leapfrog = route to the pane whose worktree owns that file + show its last git diff. Module: browser pane + dispatch.
+- **C-12 SigmaBench** *(L)* — BridgeBench-equivalent multi-category model bench, run as a sub-swarm, **+ a multi-agent-conflict category they structurally can't run** (needs worktrees). Module: new tool.
+- **C-10c SigmaVoice local/cloud toggle + model selector** *(M)* — Local Whisper vs cloud, with model size tiers. Module: SigmaVoice settings.
+
+---
+
+## Cross-cutting
+- **Cadence:** one milestone ≈ one release; balanced waves (quick wins + moat each wave). Each milestone = its own writing-plans plan, parallel-coder dispatch (isolated worktrees, `isolation:"worktree"`), lead-merge + full gate (tsc -b / eslint 0 / vitest / build / electron:compile / smoke) in main — per the established v1.x flow.
+- **Quality bar:** unchanged. Agents never push/tag/release; lead ships.
+- **Dependencies:** C-7 (M3) requires C-2+C-4 (M1) + C-5+C-6 (M2). C-13 (M5) requires C-8 (M4). Everything else is independent.
+
+## Risks
+- **W-4 P8-9** is a risky PTY-core refactor — isolate as its own sub-plan within M3 + Opus review; ship behind the existing shell-first base.
+- **C-7 meta-pane** is the largest single item — keep M3 light on extras; consider splitting C-7 into "orchestrator UI" + "cross-pane merge" if it overruns.
+- **win32** remains the standing risk until M0 dogfood resolves it.
+- **Token cost** of competitive parallel-coder waves — bounded by the per-milestone plan + isolated worktrees.
+
+## References
+- Review + 101 screenshots: `docs/02-research/bridgemind-review-2026-05-22/`
+- Wishlist C-class: `docs/03-plan/WISHLIST.md` (🆚 C-class section)
+- Memory: `project-bridgemind-competitive-review`
+
+## Out of scope
+- Signed distribution / store listings (internal-use posture unchanged).
+- Anything requiring forking claude-flow (our-level + upstream PR only).
+- Speccing M2–M5 in implementation detail now (each gets its own plan when reached).
