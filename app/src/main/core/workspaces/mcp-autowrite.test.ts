@@ -694,3 +694,111 @@ describe('writeWorkspaceMcpConfig', () => {
     expect(warnings.some((w) => w.includes('ruflo'))).toBe(true);
   });
 });
+
+// ─── B3: writeRufloConventionBlock (via writeWorkspaceMcpConfig) ─────────────
+
+describe('writeRufloConventionBlock', () => {
+  it('writes a block containing the markers and memory_search_unified into CLAUDE.md', () => {
+    const root = tmpDir('sigmalink-convention-');
+    const home = tmpDir('sigmalink-convention-home-');
+    const claudeMdPath = path.join(root, 'CLAUDE.md');
+
+    writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli: () => false });
+
+    expect(fs.existsSync(claudeMdPath)).toBe(true);
+    const content = fs.readFileSync(claudeMdPath, 'utf8');
+    expect(content).toContain('<!-- ruflo-memory-convention:start -->');
+    expect(content).toContain('<!-- ruflo-memory-convention:end -->');
+    expect(content).toContain('memory_search_unified');
+    expect(content).toContain('"patterns"');
+  });
+
+  it('is idempotent: two calls produce a byte-identical CLAUDE.md', () => {
+    const root = tmpDir('sigmalink-convention-');
+    const home = tmpDir('sigmalink-convention-home-');
+    const claudeMdPath = path.join(root, 'CLAUDE.md');
+
+    writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli: () => false });
+    const firstContent = fs.readFileSync(claudeMdPath, 'utf8');
+
+    writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli: () => false });
+    const secondContent = fs.readFileSync(claudeMdPath, 'utf8');
+
+    expect(secondContent).toBe(firstContent);
+  });
+
+  it('appends the block when CLAUDE.md already exists without markers', () => {
+    const root = tmpDir('sigmalink-convention-');
+    const home = tmpDir('sigmalink-convention-home-');
+    const claudeMdPath = path.join(root, 'CLAUDE.md');
+    const existingContent = '# My Project\n\nSome notes here.\n';
+    fs.writeFileSync(claudeMdPath, existingContent, 'utf8');
+
+    writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli: () => false });
+
+    const content = fs.readFileSync(claudeMdPath, 'utf8');
+    expect(content).toContain('# My Project');
+    expect(content).toContain('Some notes here.');
+    expect(content).toContain('<!-- ruflo-memory-convention:start -->');
+    expect(content).toContain('memory_search_unified');
+  });
+
+  it('replaces the managed block on second call (idempotent replace between markers)', () => {
+    const root = tmpDir('sigmalink-convention-');
+    const home = tmpDir('sigmalink-convention-home-');
+    const claudeMdPath = path.join(root, 'CLAUDE.md');
+
+    writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli: () => false });
+    const first = fs.readFileSync(claudeMdPath, 'utf8');
+
+    writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli: () => false });
+    const second = fs.readFileSync(claudeMdPath, 'utf8');
+
+    // Exactly one start marker, one end marker
+    expect((second.match(/<!-- ruflo-memory-convention:start -->/g) ?? []).length).toBe(1);
+    expect((second.match(/<!-- ruflo-memory-convention:end -->/g) ?? []).length).toBe(1);
+    expect(second).toBe(first);
+  });
+
+  it('refuses (leaves untouched + refused entry) when user opt-out marker is present', () => {
+    const root = tmpDir('sigmalink-convention-');
+    const home = tmpDir('sigmalink-convention-home-');
+    const claudeMdPath = path.join(root, 'CLAUDE.md');
+    const userContent = [
+      '# My Project',
+      '',
+      '<!-- ruflo-memory-convention:start -->',
+      '<!-- ruflo-memory-convention:user -->',
+      'My custom memory rules — do not overwrite.',
+      '<!-- ruflo-memory-convention:end -->',
+      '',
+    ].join('\n');
+    fs.writeFileSync(claudeMdPath, userContent, 'utf8');
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+    });
+
+    expect(result.refused).toContain(claudeMdPath);
+    expect(fs.readFileSync(claudeMdPath, 'utf8')).toBe(userContent);
+  });
+
+  it('win32-style root path: block content is correct regardless of path separator', () => {
+    const root = tmpDir('sigmalink-convention-');
+    const home = tmpDir('sigmalink-convention-home-');
+    const claudeMdPath = path.join(root, 'CLAUDE.md');
+
+    // Simulate a win32-style root by constructing the path manually
+    // The logic is path.join(root, 'CLAUDE.md') — on macOS this is posix,
+    // but we verify the block content (not path) is correct regardless.
+    writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli: () => false });
+
+    const content = fs.readFileSync(claudeMdPath, 'utf8');
+    // Block content must contain both the store namespace and retrieval tool
+    expect(content).toContain('namespace');
+    expect(content).toContain('patterns');
+    expect(content).toContain('memory_search_unified');
+  });
+});

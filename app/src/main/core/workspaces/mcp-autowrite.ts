@@ -3,6 +3,46 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const KV_RUFLO_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
+
+// ─── Ruflo memory-convention block constants ─────────────────────────────────
+
+const CONVENTION_BLOCK_START = '<!-- ruflo-memory-convention:start -->';
+const CONVENTION_BLOCK_END = '<!-- ruflo-memory-convention:end -->';
+const CONVENTION_BLOCK_USER_MARKER = '<!-- ruflo-memory-convention:user -->';
+
+/**
+ * Managed block injected into workspace-root CLAUDE.md to teach spawned CLIs
+ * the canonical Ruflo memory namespace and retrieval tool.
+ *
+ * Key rules:
+ * - Store  → `memory_store(namespace: "patterns")`
+ * - Search → `memory_search_unified(query)` (sweeps ALL namespaces)
+ *   Do NOT use plain `memory_search` — it defaults to the near-empty "default"
+ *   namespace and returns ~nothing.
+ * - After completing a task, store a short verdict to namespace "patterns"
+ *   (key `verdict:<taskId>` or `verdict:<sessionId>`).
+ */
+const RUFLO_CONVENTION_BLOCK_CONTENT = `\
+${CONVENTION_BLOCK_START}
+## Ruflo Memory Convention
+
+**Store memories** with namespace \`"patterns"\` (the canonical namespace):
+\`\`\`
+memory_store(key, value, namespace: "patterns", upsert: true)
+\`\`\`
+
+**Retrieve memories** with \`memory_search_unified\` — it sweeps ALL namespaces
+(\`default\`, \`pattern\`, \`patterns\`, \`feedback\`, …) and returns relevant results:
+\`\`\`
+memory_search_unified(query)
+\`\`\`
+
+> Do NOT use plain \`memory_search\` without a namespace — it defaults to the
+> near-empty \`"default"\` namespace and returns ~nothing useful.
+
+After completing a task, store a short verdict (what worked / what to apply next)
+to namespace \`"patterns"\` with key \`verdict:<taskId>\` or \`verdict:<sessionId>\`.
+${CONVENTION_BLOCK_END}`;
 // Detector functions exported for unit tests and for factory.ts utilities.
 // They are declared later in this file (function hoisting applies).
 export { isManagedRufloEntry, isManagedOpencodeRufloEntry };
@@ -119,6 +159,14 @@ export function writeWorkspaceMcpConfig(
   const gemini = writeJsonMcpFile({ target: geminiTarget, ctx });
   const kimi = kimiActive ? writeJsonMcpFile({ target: kimiTarget, ctx }) : null;
   const opencode = opencodeActive ? writeOpencodeMcpFile({ target: opencodeTarget, ctx }) : null;
+
+  // B3 — autowrite the memory-convention block into workspace-root CLAUDE.md.
+  // Best-effort: never throws out of writeWorkspaceMcpConfig.
+  try {
+    writeRufloConventionBlock(root, ctx);
+  } catch (err) {
+    logger.warn(`[ruflo] writeRufloConventionBlock failed (non-fatal): ${String(err)}`);
+  }
 
   return { claude, codex, gemini, kimi, opencode, refused };
 }
@@ -440,11 +488,19 @@ function findTomlTableRanges(source: string, tablePrefix: string): TomlTableRang
   return ranges;
 }
 
+// Hardcoded per-key regexes avoid the dynamic RegExp() ReDoS risk.
+// Only the three TOML keys this module queries are represented here.
+const TOML_STRING_RE: Readonly<Record<string, RegExp>> = {
+  command: /^\s*command\s*=\s*(?:"([^"]*)"|'([^']*)')\s*(?:#.*)?$/m,
+  transport: /^\s*transport\s*=\s*(?:"([^"]*)"|'([^']*)')\s*(?:#.*)?$/m,
+  url: /^\s*url\s*=\s*(?:"([^"]*)"|'([^']*)')\s*(?:#.*)?$/m,
+};
+
 function parseTomlStringValue(source: string, key: string): string | null {
-  const keyPattern = escapeRegExp(key);
-  const re = new RegExp(`^\\s*${keyPattern}\\s*=\\s*(?:"([^"]*)"|'([^']*)')\\s*(?:#.*)?$`, 'm');
-  const match = re.exec(source);
-  return match ? (match[1] ?? match[2] ?? '') : null;
+  const re = TOML_STRING_RE[key];
+  if (re === undefined) return null;
+  const m = re.exec(source);
+  return m ? (m[1] ?? m[2] ?? '') : null;
 }
 
 function replaceTomlTables(source: string, ranges: TomlTableRange[], replacement: string): string {
@@ -472,10 +528,6 @@ function writeFileAtomic(target: string, content: string): void {
   fs.renameSync(tmp, target);
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 // v1.3.5 — PATH-or-`.cmd` probe for Kimi / OpenCode CLI binaries. Used to
 // decide whether to write `~/.kimi/mcp.json` and `~/.config/opencode/opencode.json`
 // for users who don't have those CLIs installed.
@@ -496,4 +548,58 @@ function defaultDetectCli(name: 'kimi' | 'opencode'): boolean {
     }
   }
   return false;
+}
+
+// ─── B3: writeRufloConventionBlock ───────────────────────────────────────────
+
+/**
+ * Reads (or creates) `<workspaceRoot>/CLAUDE.md` and inserts/replaces the
+ * managed `ruflo-memory-convention` block between its HTML-comment markers.
+ *
+ * Idempotent: a second call with identical managed content produces a
+ * byte-identical file.
+ *
+ * Refusal: if the existing block between the markers contains the
+ * `ruflo-memory-convention:user` opt-out marker the file is left untouched
+ * and the path is pushed onto `ctx.refused`.
+ */
+function writeRufloConventionBlock(workspaceRoot: string, ctx: WriteContext): void {
+  const { refused, logger } = ctx;
+  const target = path.join(workspaceRoot, 'CLAUDE.md');
+  const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+
+  const startIdx = existing.indexOf(CONVENTION_BLOCK_START);
+  const endIdx = existing.indexOf(CONVENTION_BLOCK_END);
+
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    // Block already present — check for user opt-out.
+    const blockInterior = existing.slice(
+      startIdx + CONVENTION_BLOCK_START.length,
+      endIdx,
+    );
+    if (blockInterior.includes(CONVENTION_BLOCK_USER_MARKER)) {
+      warnRefusal(refused, logger, target, 'user-owned ruflo-memory-convention block (opt-out marker present)');
+      return;
+    }
+
+    // Replace the managed block (start marker through end marker inclusive).
+    const before = existing.slice(0, startIdx);
+    const after = existing.slice(endIdx + CONVENTION_BLOCK_END.length);
+    const next = before + RUFLO_CONVENTION_BLOCK_CONTENT + after;
+    if (next === existing) return; // already identical — skip atomic write
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    writeFileAtomic(target, next);
+    return;
+  }
+
+  // No markers present — append the block (with a blank separator line).
+  const separator = existing.length > 0 && !existing.endsWith('\n\n') ? '\n\n' : '';
+  const trailingNewline = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+  const next =
+    existing.length === 0
+      ? RUFLO_CONVENTION_BLOCK_CONTENT + '\n'
+      : existing + trailingNewline + separator + RUFLO_CONVENTION_BLOCK_CONTENT + '\n';
+  if (next === existing) return;
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  writeFileAtomic(target, next);
 }

@@ -15,6 +15,7 @@ import { EventEmitter } from 'node:events';
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import net from 'node:net';
 import http from 'node:http';
+import path from 'node:path';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,8 @@ export interface DaemonHandle {
   status: DaemonStatus;
   restartCount: number;
   startedAt: number;
+  /** Result of the last store→search round-trip health probe. undefined = not yet run. */
+  roundTrip?: boolean;
 }
 
 export interface RufloHttpDaemonSupervisorOpts {
@@ -60,6 +63,8 @@ interface DaemonEntry {
   restartCount: number;
   startedAt: number;
   shuttingDown: boolean;
+  /** Result of the last store→search round-trip health probe. undefined = not yet run. */
+  roundTrip?: boolean;
   /** Resolve/reject the current spawn() Promise (if still waiting for health). */
   spawnResolve: ((h: DaemonHandle) => void) | null;
   spawnReject: ((e: Error) => void) | null;
@@ -174,6 +179,16 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
     return this.entries.get(workspaceId)?.status ?? null;
   }
 
+  /**
+   * Full handle snapshot for a workspace including the round-trip probe result.
+   * Returns null if the workspace is not tracked.
+   */
+  statusDetail(workspaceId: string): DaemonHandle | null {
+    const entry = this.entries.get(workspaceId);
+    if (!entry) return null;
+    return this.handleFor(entry);
+  }
+
   /** Allocated port for a workspace, or null if not running. */
   port(workspaceId: string): number | null {
     const entry = this.entries.get(workspaceId);
@@ -231,7 +246,11 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
           this.binary,
           ['mcp', 'start', '-t', 'http', '-p', String(entry.port), '--host', '127.0.0.1'],
           {
-            env: { ...process.env, CLAUDE_FLOW_CWD: entry.workspaceRoot },
+            env: {
+              ...process.env,
+              CLAUDE_FLOW_CWD: entry.workspaceRoot,
+              CLAUDE_FLOW_DIR: path.join(entry.workspaceRoot, '.claude-flow'),
+            },
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
           },
@@ -321,6 +340,8 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
             );
             const h = this.handleFor(entry);
             this.resolveSpawnWait(entry, h);
+            // Non-fatal round-trip probe; run after promise resolves.
+            void this.roundTripProbe(entry);
           } else if (entry.status === 'starting') {
             // Not yet ok — keep probing.
             this.probeHealth(entry, attempt + 1);
@@ -442,7 +463,11 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
         this.binary,
         ['mcp', 'start', '-t', 'http', '-p', String(entry.port), '--host', '127.0.0.1'],
         {
-          env: { ...process.env, CLAUDE_FLOW_CWD: entry.workspaceRoot },
+          env: {
+            ...process.env,
+            CLAUDE_FLOW_CWD: entry.workspaceRoot,
+            CLAUDE_FLOW_DIR: path.join(entry.workspaceRoot, '.claude-flow'),
+          },
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
         },
@@ -452,6 +477,56 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
         `[ruflo-http] launchChild() threw (ws=${entry.workspaceId}): ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;
+    }
+  }
+
+  /**
+   * Non-fatal store→search round-trip probe against the daemon's MCP endpoint.
+   * POSTs `memory_store` then `memory_search_unified` for a canary key.
+   * Sets `entry.roundTrip = true` on success, `false` + a single console.warn on failure.
+   * Never throws; never changes `entry.status`.
+   */
+  private async roundTripProbe(entry: DaemonEntry): Promise<void> {
+    const mcpUrl = `http://127.0.0.1:${entry.port}/mcp`;
+    const canaryKey = '__sigmalink_healthcheck__';
+
+    try {
+      // Step 1: store the canary.
+      await httpPost(mcpUrl, {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: {
+          name: 'memory_store',
+          arguments: {
+            key: canaryKey,
+            value: 'sigmalink-daemon-healthcheck',
+            namespace: 'patterns',
+            ttl: 300,
+          },
+        },
+      });
+
+      // Step 2: retrieve it with unified search.
+      const searchBody = await httpPost(mcpUrl, {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: 'memory_search_unified',
+          arguments: { query: canaryKey, limit: 1 },
+        },
+      });
+
+      // Accept any non-error response as success.
+      const parsed = JSON.parse(searchBody) as { error?: unknown };
+      if (parsed.error) throw new Error(`MCP error: ${JSON.stringify(parsed.error)}`);
+
+      entry.roundTrip = true;
+    } catch (err) {
+      entry.roundTrip = false;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[ruflo-http] round-trip probe failed (ws=${entry.workspaceId}): ${msg}`);
     }
   }
 
@@ -485,6 +560,7 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
       status: entry.status,
       restartCount: entry.restartCount,
       startedAt: entry.startedAt,
+      roundTrip: entry.roundTrip,
     };
   }
 }
@@ -527,6 +603,42 @@ function httpGet(url: string): Promise<string> {
     req.setTimeout(3_000, () => {
       req.destroy(new Error('request timeout'));
     });
+  });
+}
+
+/** HTTP POST helper — sends JSON body, resolves with response body string on 2xx, rejects otherwise. */
+function httpPost(url: string, body: unknown): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const json = JSON.stringify(body);
+    const req = http.request(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(json),
+        },
+      },
+      (res) => {
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+          res.resume();
+          reject(new Error(`HTTP ${res.statusCode ?? 'unknown'}`));
+          return;
+        }
+        let responseBody = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          responseBody += chunk;
+        });
+        res.on('end', () => resolve(responseBody));
+      },
+    );
+    req.on('error', reject);
+    req.setTimeout(3_000, () => {
+      req.destroy(new Error('request timeout'));
+    });
+    req.write(json);
+    req.end();
   });
 }
 

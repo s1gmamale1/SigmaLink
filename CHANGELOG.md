@@ -4,6 +4,30 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-05-22
+
+v1.15.0 — **Ruflo MCP works end-to-end** (shared store + seeding + namespace convention + health round-trip). Closes the "memory never helps" problem traced live on 2026-05-22: the store was never empty — `memory_search` defaults to the near-empty `default` namespace, `pattern`/`patterns` are split, and only `memory_search_unified` sweeps namespaces. Brainstorm→spec→plan→3 parallel coders (Approach C — convention + config, no enforcement proxy). Spec: `docs/superpowers/specs/2026-05-22-ruflo-mcp-fix-design.md`.
+
+### Spawned-CLI store is now shared + seeded
+
+- **Shared store:** the per-workspace HTTP daemon now sets `CLAUDE_FLOW_DIR=<root>/.claude-flow` (alongside `CLAUDE_FLOW_CWD`) so daemon-mode and stdio-mode CLIs resolve the **same** `.swarm/memory.db` (`http-daemon-supervisor.ts`).
+- **Seeding:** on workspace open, a single `project-context` memory (namespace `patterns`) is seeded from the workspace `CLAUDE.md`/README — **workspace-local only**, best-effort, never blocks open (`seed-workspace-memory.ts`, wired in `factory.ts`).
+- **Convention block:** an idempotent marker-delimited Ruflo-memory-convention block is autowritten into the workspace `CLAUDE.md` teaching the canonical usage: store with `namespace:"patterns"`, retrieve with `memory_search_unified` (`mcp-autowrite.ts`).
+- **Health round-trip:** the daemon health probe does a `memory_store`→`memory_search_unified` canary and surfaces `roundTrip:boolean` (the measurement gate for any future enforcement).
+
+### Env-level (lead, on this machine)
+
+- `[INTELLIGENCE]` hook floor raised 0.05→0.15 (`RUFLO_INTEL_MIN_THRESHOLD`), cutting the pure-pageRank suggestion noise; restored after `ruflo init` re-gen by `app/scripts/reapply-ruflo-hook-tuning.cjs`.
+- Canonical-config doc (`docs/10-memory/ruflo-mcp-canonical-config.md`) + upstream PR draft (`docs/10-memory/upstream/`) for the claude-flow default-namespace + `pattern`/`patterns` + unified-omits-`pattern` issues.
+
+### Internal
+- `mcp-autowrite.ts` `parseTomlStringValue` refactored from a dynamic `new RegExp` to precompiled per-key patterns (clears a ReDoS lint; behavior identical, unknown keys guarded).
+
+### Gate
+- tsc -b (strict) | eslint 0/0 | vitest 115 files / **1263 pass** / 1 skip (+20) | vite build + electron:compile | Playwright smoke (35 s) — all in main.
+
+No schema migrations in v1.15.0.
+
 ## [1.14.0] - 2026-05-22
 
 v1.14.0 — **Crash visibility + Gemini spawn/resume + shell-first default.** Closes the remaining three findings from the 10-lane pane/swarm investigation (`docs/08-bugs/2026-05-22-pane-swarm-investigation/`) that v1.13.2 deferred. Three parallel coders in isolated worktrees (A: main process, B: renderer, C: shell-first), lead-merged + full hard gate in main.

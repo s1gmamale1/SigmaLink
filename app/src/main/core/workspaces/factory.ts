@@ -8,6 +8,7 @@ import { getDb, getRawDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { getRepoRoot } from '../git/git-ops';
 import { KV_RUFLO_AUTOWRITE_MCP, writeWorkspaceMcpConfig } from './mcp-autowrite';
+import { seedWorkspaceMemory } from '../ruflo/seed-workspace-memory';
 import type { RufloMcpSupervisor } from '../ruflo/supervisor';
 import type { RufloHttpDaemonSupervisor } from '../ruflo/http-daemon-supervisor';
 import {
@@ -114,6 +115,7 @@ export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = 
         }
       }
       writeWorkspaceMcpConfig(abs, port !== undefined ? { port } : undefined);
+      void seedWorkspaceMemory({ workspaceRoot: abs }).catch(() => {});
     }
   } catch (err) {
     console.warn(

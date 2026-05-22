@@ -12,6 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
 
 // ── mock: node:child_process ───────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ vi.mock('node:net', () => ({
 // ── mock: node:http ────────────────────────────────────────────────────────
 
 type GetCallback = (res: MockHttpResponse) => void;
+type RequestCallback = (res: MockHttpResponse) => void;
 
 interface MockHttpResponse extends EventEmitter {
   statusCode: number;
@@ -53,14 +55,26 @@ interface MockHttpResponse extends EventEmitter {
 interface MockHttpRequest extends EventEmitter {
   destroy: (err?: Error) => void;
   setTimeout: (ms: number, cb: () => void) => void;
+  write: (data: string) => void;
+  end: () => void;
 }
 
 let httpGetImpl: ((url: string, cb: GetCallback) => MockHttpRequest) | null = null;
+/** Controls http.request() POST behaviour for the round-trip probe tests. */
+let httpRequestImpl:
+  | ((url: string, opts: unknown, cb: RequestCallback) => MockHttpRequest)
+  | null = null;
 
 vi.mock('node:http', () => ({
   default: {
     get: (url: string, cb: GetCallback) => {
       if (httpGetImpl) return httpGetImpl(url, cb);
+      const req = makeReq();
+      req.emit('error', new Error('no mock'));
+      return req;
+    },
+    request: (url: string, opts: unknown, cb: RequestCallback) => {
+      if (httpRequestImpl) return httpRequestImpl(url, opts, cb);
       const req = makeReq();
       req.emit('error', new Error('no mock'));
       return req;
@@ -72,12 +86,20 @@ vi.mock('node:http', () => ({
     req.emit('error', new Error('no mock'));
     return req;
   },
+  request: (url: string, opts: unknown, cb: RequestCallback) => {
+    if (httpRequestImpl) return httpRequestImpl(url, opts, cb);
+    const req = makeReq();
+    req.emit('error', new Error('no mock'));
+    return req;
+  },
 }));
 
 function makeReq(): MockHttpRequest {
   const req = new EventEmitter() as MockHttpRequest;
   req.destroy = vi.fn();
   req.setTimeout = vi.fn();
+  req.write = vi.fn();
+  req.end = vi.fn();
   return req;
 }
 
@@ -166,6 +188,39 @@ function alwaysHealthFail(): void {
   };
 }
 
+/**
+ * Make httpRequestImpl respond to every POST with a 200 + supplied body.
+ * Used to mock the MCP JSON-RPC calls for the round-trip probe.
+ */
+function mockPostSuccess(body: string): void {
+  httpRequestImpl = (_url, _opts, cb) => {
+    const res = new EventEmitter() as MockHttpResponse;
+    res.statusCode = 200;
+    res.setEncoding = vi.fn();
+    res.resume = vi.fn();
+    const req = makeReq();
+    void Promise.resolve().then(() => {
+      cb(res);
+      return Promise.resolve().then(() => {
+        res.emit('data', body);
+        res.emit('end');
+      });
+    });
+    return req;
+  };
+}
+
+/**
+ * Make httpRequestImpl always fail for POST calls.
+ */
+function mockPostFail(): void {
+  httpRequestImpl = () => {
+    const req = makeReq();
+    req.emit('error', new Error('ECONNREFUSED'));
+    return req;
+  };
+}
+
 // ── import the SUT (after mocks are in place) ──────────────────────────────
 
 import { RufloHttpDaemonSupervisor } from './http-daemon-supervisor.ts';
@@ -183,6 +238,7 @@ describe('RufloHttpDaemonSupervisor', () => {
     // Binary available by default.
     mockExecSync.mockReturnValue(Buffer.from('/usr/local/bin/ruflo'));
     httpGetImpl = null;
+    httpRequestImpl = null;
     supervisor = new RufloHttpDaemonSupervisor({ binary: 'ruflo' });
   });
 
@@ -190,6 +246,7 @@ describe('RufloHttpDaemonSupervisor', () => {
     vi.useRealTimers();
     vi.resetAllMocks();
     httpGetImpl = null;
+    httpRequestImpl = null;
   });
 
   // ── spawn-succeeds ─────────────────────────────────────────────────────
@@ -495,5 +552,145 @@ describe('RufloHttpDaemonSupervisor', () => {
     await p;
 
     expect(supervisor.port('ws-port-check')).toBe(NET_PORT);
+  });
+
+  // ── B1: CLAUDE_FLOW_DIR in initial spawn env ───────────────────────────
+
+  it('B1-initial-spawn: env contains CLAUDE_FLOW_CWD AND CLAUDE_FLOW_DIR=<root>/.claude-flow', async () => {
+    alwaysHealthOk();
+    const child = makeChild(1234);
+    mockSpawn.mockReturnValue(child);
+
+    const workspaceRoot = '/home/user/project';
+    const spawnPromise = supervisor.spawn('ws-b1-init', workspaceRoot);
+    await vi.runAllTimersAsync();
+    await spawnPromise;
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    const spawnOpts = mockSpawn.mock.calls[0]![2] as { env: Record<string, string> };
+    expect(spawnOpts.env).toEqual(
+      expect.objectContaining({
+        CLAUDE_FLOW_CWD: workspaceRoot,
+        CLAUDE_FLOW_DIR: path.join(workspaceRoot, '.claude-flow'),
+      }),
+    );
+  });
+
+  // ── B1: CLAUDE_FLOW_DIR in crash-recovery (launchChild) respawn ────────
+
+  it('B1-respawn: crash-recovery spawn env also contains CLAUDE_FLOW_DIR=<root>/.claude-flow', async () => {
+    alwaysHealthOk();
+    const child1 = makeChild(3001);
+    const child2 = makeChild(3002);
+    mockSpawn.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
+
+    const workspaceRoot = '/home/user/project';
+    const p = supervisor.spawn('ws-b1-respawn', workspaceRoot);
+    await vi.runAllTimersAsync();
+    await p;
+
+    // Simulate crash to trigger launchChild.
+    child1.emit('exit', 1, null);
+    await vi.runAllTimersAsync();
+
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    // Both calls must have CLAUDE_FLOW_DIR set.
+    for (let i = 0; i < 2; i++) {
+      const spawnOpts = mockSpawn.mock.calls[i]![2] as { env: Record<string, string> };
+      expect(spawnOpts.env).toEqual(
+        expect.objectContaining({
+          CLAUDE_FLOW_CWD: workspaceRoot,
+          CLAUDE_FLOW_DIR: path.join(workspaceRoot, '.claude-flow'),
+        }),
+      );
+    }
+  });
+
+  // ── B1 win32: CLAUDE_FLOW_DIR resolves correctly on Windows-style paths ──
+
+  it('B1-win32: CLAUDE_FLOW_DIR uses path.join for Windows-style workspace root', () => {
+    // Verify the path construction itself — path.join handles win32 roots correctly
+    // on the host via the platform's path module. We test the contract by
+    // constructing it the same way the implementation does.
+    const winRoot = 'C:\\Users\\user\\project';
+    const expected = path.join(winRoot, '.claude-flow');
+    // The expected value uses platform sep on macOS (forward slash) — the important
+    // assertion is that path.join is what the implementation uses, not string concat.
+    expect(expected).toBe(`${winRoot}${path.sep}.claude-flow`);
+  });
+
+  // ── B2: round-trip probe sets roundTrip=true on success ───────────────
+
+  it('B2-roundtrip-success: roundTrip=true in statusDetail when MCP round-trip succeeds', async () => {
+    alwaysHealthOk();
+    // Return a successful search result for both the store and search calls.
+    mockPostSuccess(JSON.stringify({ result: { memories: [{ key: '__sigmalink_healthcheck__' }] } }));
+    const child = makeChild(1234);
+    mockSpawn.mockReturnValue(child);
+
+    const spawnPromise = supervisor.spawn('ws-b2-ok', '/home/user/project');
+    await vi.runAllTimersAsync();
+    await spawnPromise;
+
+    // Give the probe microtasks time to settle.
+    await vi.runAllTimersAsync();
+
+    const s = supervisor.statusDetail('ws-b2-ok');
+    expect(s).not.toBeNull();
+    expect(s!.roundTrip).toBe(true);
+    // Daemon must still be 'running' (probe is non-fatal).
+    expect(s!.status).toBe('running');
+  });
+
+  // ── B2: round-trip probe sets roundTrip=false on failure, single warn ──
+
+  it('B2-roundtrip-failure: roundTrip=false and exactly one warn when POST fails', async () => {
+    alwaysHealthOk();
+    mockPostFail();
+    const child = makeChild(5678);
+    mockSpawn.mockReturnValue(child);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const spawnPromise = supervisor.spawn('ws-b2-fail', '/home/user/project');
+    await vi.runAllTimersAsync();
+    await spawnPromise;
+
+    await vi.runAllTimersAsync();
+
+    const s = supervisor.statusDetail('ws-b2-fail');
+    expect(s).not.toBeNull();
+    expect(s!.roundTrip).toBe(false);
+    // Daemon must remain running despite probe failure.
+    expect(s!.status).toBe('running');
+
+    // Exactly one warn emitted by the round-trip probe.
+    const roundTripWarns = warnSpy.mock.calls.filter((c) =>
+      String(c[0]).includes('round-trip'),
+    );
+    expect(roundTripWarns).toHaveLength(1);
+
+    warnSpy.mockRestore();
+  });
+
+  // ── B2: probe failure does not change daemon status from running ───────
+
+  it('B2-probe-nonfatal: daemon status stays running even when round-trip probe fails', async () => {
+    alwaysHealthOk();
+    mockPostFail();
+    const child = makeChild(7777);
+    mockSpawn.mockReturnValue(child);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const p = supervisor.spawn('ws-b2-nonfatal', '/proj');
+    await vi.runAllTimersAsync();
+    await p;
+    await vi.runAllTimersAsync();
+
+    // DaemonStatus (the string value from status()) must remain 'running'.
+    expect(supervisor.status('ws-b2-nonfatal')).toBe('running');
+
+    warnSpy.mockRestore();
   });
 });

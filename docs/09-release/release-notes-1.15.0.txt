@@ -1,0 +1,65 @@
+SigmaLink v1.15.0 — 2026-05-22
+==============================
+
+v1.15.0 — Ruflo MCP works end-to-end (shared store + seeding + namespace
+convention + health round-trip).
+
+Closes the "memory never helps the agents" problem, traced live on
+2026-05-22. The store was NEVER empty — the defects were retrieval-path:
+  - memory_search defaults to the near-empty "default" namespace, so naive
+    searches return nothing (this caused the original misdiagnosis).
+  - pattern (auto) and patterns (lead-authored) are split namespaces.
+  - only memory_search_unified sweeps namespaces (and even it omits the
+    singular "pattern" — see the upstream PR draft).
+The same failure was observed on the operator's Windows agent, so the fix
+also corrects how SigmaLink configures Ruflo for the CLIs it spawns.
+
+Approach C (convention + config; no enforcement proxy). Brainstorm -> spec ->
+plan -> 3 parallel coders, lead-merged with one combined hard gate in main.
+
+
+Spawned-CLI store: shared + seeded
+----------------------------------
+
+- Shared store: the per-workspace HTTP daemon now sets
+  CLAUDE_FLOW_DIR=<root>/.claude-flow (alongside CLAUDE_FLOW_CWD) so
+  daemon-mode and stdio-mode CLIs resolve the SAME .swarm/memory.db.
+- Seeding: on workspace open, one "project-context" memory (namespace
+  "patterns") is seeded from the workspace CLAUDE.md/README — workspace-local
+  ONLY, best-effort, never blocks open.
+- Convention block: an idempotent marker-delimited block is autowritten into
+  the workspace CLAUDE.md teaching the canonical usage — store with
+  namespace:"patterns", retrieve with memory_search_unified.
+- Health round-trip: the daemon health probe does a
+  memory_store -> memory_search_unified canary and surfaces roundTrip:boolean
+  (the measurement gate for any future enforcement).
+
+
+Env-level (lead machine)
+------------------------
+
+- [INTELLIGENCE] hook relevance floor raised 0.05 -> 0.15
+  (env RUFLO_INTEL_MIN_THRESHOLD), cutting pure-pageRank suggestion noise.
+  Restored after `ruflo init` re-gen by app/scripts/reapply-ruflo-hook-tuning.cjs.
+- Canonical-config doc: docs/10-memory/ruflo-mcp-canonical-config.md
+- Upstream PR draft (operator-fired): docs/10-memory/upstream/
+
+
+Canonical conventions (for all callers)
+---------------------------------------
+
+  Store     -> memory_store(namespace:"patterns", ...)
+  Retrieve  -> memory_search_unified(query)
+  Verify    -> store + memory_search_unified + delete (round-trip)
+
+
+Gate
+----
+
+- tsc -b (strict, includes test files)
+- eslint 0 errors / 0 warnings
+- vitest 115 files / 1263 pass / 1 skip (+20 new tests)
+- vite build + electron:compile clean
+- Playwright smoke e2e in main (35 s)
+
+No schema migrations in v1.15.0.
