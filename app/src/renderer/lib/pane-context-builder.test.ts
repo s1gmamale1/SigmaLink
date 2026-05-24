@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { it, expect, vi } from 'vitest';
 vi.mock('@/renderer/lib/rpc', () => ({ rpc: {
   pty: { snapshot: vi.fn().mockResolvedValue({ buffer: '\x1b[32m$ npm test\x1b[0m\npassed' }) },
   git: { diff: vi.fn().mockResolvedValue({ stat: ' 2 files changed', patches: '', untrackedFiles: [] }) },

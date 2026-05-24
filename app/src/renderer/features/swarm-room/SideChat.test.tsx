@@ -41,11 +41,12 @@ function makeSwarm(overrides: Partial<Swarm> = {}): Swarm {
     workspaceId: 'ws-1',
     name: 'Test Swarm',
     mission: 'test',
+    preset: 'squad' as const,
     status: 'running',
     agents: [],
     createdAt: Date.now(),
     ...overrides,
-  };
+  } as Swarm;
 }
 
 describe('SideChat drop zone', () => {

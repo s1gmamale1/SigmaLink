@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { it, expect } from 'vitest';
 import { buildCapsuleText, type PlanCapsule } from './plan-capsule';
 it('renders a fenced capsule with the 4 sections', () => {
   const c: PlanCapsule = { goal:'Add login', targetFiles:['src/auth.ts'], successCriteria:['tests pass'], outOfScope:['src/billing/**'] };
