@@ -22,6 +22,7 @@
 import { globalShortcut } from 'electron';
 import { getWhisperEngine } from './whisper-engine.js';
 import { routeTranscript } from './output-router.js';
+import { computeSessionStats, appendSessionStat } from './voice-stats.js';
 import {
   getDefaultModel,
   getModelById,
@@ -482,6 +483,9 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
           if (result.text.trim()) {
             finalText = result.text.trim();
           }
+          // C-10a — capture usage stats (words/WPM) from the whisper segments
+          // so the VoiceTab dashboard's `voice.stats` store actually accrues.
+          appendSessionStat(deps.kv, computeSessionStats(result.segments ?? []));
         } catch (err) {
           console.warn('[global-capture] whisper transcription failed, using SF result:', err);
         }
