@@ -1,0 +1,84 @@
+SigmaLink v1.20.0 — 2026-05-25
+==============================
+
+v1.20.0 — "Breadth & polish" (Milestone M5, the FINAL roadmap wave). With this
+release C-1 through C-13 are all shipped. Three items: SigmaBench (the
+multi-agent-conflict benchmark a shared-directory competitor structurally can't
+run), element->existing-pane dispatch with an inline diff, and CLI-based voice
+(a Gemini-CLI transcription engine + a Claude/Codex/Gemini dispatch selector).
+
+Brainstorm -> code-verified plan -> 3 parallel worktree-isolated coders
+(C-12 on Opus for the new subsystem) -> lead-merged + one combined hard gate
+in main.
+
+Spec: docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md
+
+
+C-12 — SigmaBench (multi-agent-conflict)
+----------------------------------------
+
+- A new room that runs the SAME task across N CLI providers (Claude / Codex /
+  Gemini), each in its OWN isolated git worktree, then scores each provider by
+  how much its changed-file set overlaps the others (lower = better isolation).
+  This is the leaderboard a single-shared-directory competitor cannot produce.
+- Reuses the C-7 merge-order overlap logic (`scoreConflicts`), `createSwarm`
+  (N worktrees in one call), the 5-provider registry, and `gitStatus`.
+- New: `benchmark_runs`/`benchmark_results` tables (migration 0023),
+  `core/sigmabench/{harness,store}.ts`, `sigmabench.*` RPC, `SigmaBenchRoom`.
+- MVP scope is the conflict category only; latency / code-quality categories
+  are deferred. Running a bench spawns real CLI agents in throwaway worktrees.
+
+
+C-13 — Element -> existing pane + diff
+--------------------------------------
+
+- The W14 design tool gained a "Send to existing pane" mode: a captured DOM
+  element + your prompt is injected into an operator-picked LIVE pane's PTY
+  (`pty.write`), and that pane's worktree `git.diff` renders inline in the dock.
+- Auto-routing to the worktree that OWNS the element's source file was dropped
+  as infeasible (no reverse element->file map / sourcemaps) — operator-pick is
+  the realistic 80% of the leapfrog.
+- `shared/element-dispatch.ts`, `design/controller.ts`, `DesignDock.tsx`.
+
+
+C-10c — CLI-based voice (local/cloud, "Both")
+---------------------------------------------
+
+- A Gemini-CLI transcription engine behind the WhisperEngine interface
+  (audio -> WAV -> `gemini`), selectable via a VoiceTab "Transcription engine"
+  toggle (Local Whisper / Gemini CLI).
+- A "Send commands to" selector (Claude Code / Codex / Gemini) threaded into
+  `routeTranscript` for where a voice command is dispatched.
+- Claude Code & Codex are NOT transcription options (no audio modality); only
+  Gemini can transcribe. Both remain valid dispatch targets.
+- DEFAULTS UNCHANGED: transcription = local Whisper `base.en-q5_1`; dispatch =
+  claude. The CLI paths are strictly opt-in (KV-gated), so nothing shells out
+  until you toggle it.
+- `wav-encode.ts`, `cli-transcribe-engine.ts`, `whisper-engine.ts`,
+  `global-capture.ts`, `output-router.ts`, `VoiceTab.tsx`.
+
+
+Swarm roster — per-agent initialPrompt
+---------------------------------------
+
+- `RoleAssignment` gained an optional `initialPrompt`, threaded through
+  `materializeRosterAgent` -> `spawnAgentSession`. Without it, SigmaBench's
+  benched agents would have spawned IDLE (a hollow bench). Existing roster
+  callers are unaffected (field unset -> prior behavior).
+
+
+Gate
+----
+
+- tsc -b (main) + voice-core tsc --noEmit — both clean
+- eslint 0 errors / 0 warnings
+- vitest 149 files / 1475 pass / 1 skip
+- vite build + electron:compile clean
+- Playwright smoke e2e in main (35.8 s)
+
+DB tests run native-free: vitest is on the Node ABI but better-sqlite3 is built
+for Electron (electron-builder install-app-deps), so the 0023 migration test
+asserts the emitted DDL and the store test uses an in-memory fake — matching the
+repo's MockDb convention.
+
+Schema: migration 0023 (benchmark_runs / benchmark_results).

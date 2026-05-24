@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-05-25
+
+v1.20.0 — **"Breadth & polish"** (Milestone M5, final roadmap wave). C-1…C-13 now shipped. Brainstorm→code-verified plan→3 parallel worktree-isolated coders (C-12 on Opus for the new subsystem)→lead-merged with one combined hard gate in main. Spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
+
+### Added
+
+- **C-12 — SigmaBench (multi-agent-conflict bench):** a new room that runs the **same task across N CLI providers (Claude/Codex/Gemini), each in its own isolated git worktree**, then scores each by how much its changed-file set overlaps the others (`scoreConflicts`, reusing the C-7 merge-order overlap). Lower = better isolation — the leaderboard a shared-directory competitor structurally cannot produce. New `benchmark_runs`/`benchmark_results` tables (migration 0023), `core/sigmabench/{harness,store}.ts`, `sigmabench.*` RPC, and the `SigmaBenchRoom`. MVP is the conflict category only; latency/code-quality deferred.
+- **C-13 — Element → existing pane + diff:** the W14 design tool gained a "Send to existing pane" mode — a captured DOM element + prompt is injected into an operator-picked **live** pane's PTY (`pty.write`) and that pane's worktree `git.diff` renders inline in the dock (`shared/element-dispatch.ts`, `design/controller.ts`, `DesignDock.tsx`). (Auto-routing to the worktree that owns the element's source file was dropped — infeasible without a reverse element→file map.)
+- **C-10c — CLI-based voice (local/cloud, "Both"):** a Gemini-CLI transcription engine behind the `WhisperEngine` interface (audio→WAV→`gemini`), selectable via a VoiceTab "Transcription engine" toggle; plus a "Send commands to" Claude/Codex/Gemini dispatch-target selector threaded into `routeTranscript`. Claude Code & Codex are intentionally not transcription options (no audio modality). **Defaults unchanged: local Whisper `base.en-q5_1` + claude dispatch** — the CLI paths are opt-in (`wav-encode.ts`, `cli-transcribe-engine.ts`, `whisper-engine.ts`, `global-capture.ts`, `output-router.ts`, `VoiceTab.tsx`).
+
+### Changed
+
+- **Swarm roster — per-agent `initialPrompt`:** `RoleAssignment` gained an optional `initialPrompt`, threaded through `materializeRosterAgent` → `spawnAgentSession`. Without it, SigmaBench's benched agents would have spawned idle (a hollow bench); existing roster callers are unaffected (field unset → prior behavior).
+
+### Notes
+
+- DB tests run native-free (vitest is on the Node ABI; better-sqlite3 is built for Electron via `electron-builder install-app-deps`) — the 0023 migration test asserts the emitted DDL and the store test uses an in-memory fake, matching the repo's MockDb convention.
+- Running a SigmaBench spawns real CLI agents in throwaway worktrees (real invocations + edits in disposable trees).
+
 ## [1.19.0] - 2026-05-25
 
 v1.19.0 — **"New surfaces"** (Milestone M4) + a voice remediation that makes the v1.17/v1.18 voice features actually run. Brainstorm→code-verified plan→3 parallel worktree-isolated coders (C-11 on Opus for native/C++)→lead-merged + combined gate, then a focused voice-core remediation lane. Spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
