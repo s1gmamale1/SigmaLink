@@ -212,15 +212,21 @@ export function GridLayout<T>({
   // gives the focused cell the entire viewport — `grid-column: 1 / -1` on
   // every cell would do the same but the simpler single-cell template keeps
   // browser layout cheaper.
+  // C-3 — density tiers: comfortable (≤4 panes), compact (5–9), dense (10+).
+  const density = items.length <= 4 ? 'comfortable' : items.length <= 9 ? 'compact' : 'dense';
+  const fontScale = density === 'dense' ? 0.8 : density === 'compact' ? 0.9 : 1;
+
   const gridStyle: CSSProperties = isFullscreen
     ? {
         gridTemplateColumns: '1fr',
         gridTemplateRows: '1fr',
-      }
+        '--pane-font-scale': String(fontScale),
+      } as CSSProperties
     : {
         gridTemplateColumns: colFracs.map((f) => `${f}fr`).join(' '),
         gridTemplateRows: rowFracs.map((f) => `${f}fr`).join(' '),
-      };
+        '--pane-font-scale': String(fontScale),
+      } as CSSProperties;
   const colTotal = colFracs.reduce((a, b) => a + b, 0);
   const rowTotal = rowFracs.reduce((a, b) => a + b, 0);
 
@@ -229,6 +235,7 @@ export function GridLayout<T>({
       ref={containerRef}
       className="relative grid h-full w-full gap-1.5 p-2"
       style={gridStyle}
+      data-density={density}
       data-fullscreen={isFullscreen ? 'true' : undefined}
     >
       {Array.from({ length: totalCells }, (_, cellIdx) => {

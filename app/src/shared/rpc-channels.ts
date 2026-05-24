@@ -51,6 +51,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // state was effectively NOT restoring on workspace reopen. Discovered while
   // adding the v1.4.7 test reload-sessions hook. (v1.4.7 packet 02 byproduct)
   'panes.listForWorkspace',
+  // C-1 data — git status for the worktree path
+  'panes.gitStatus',
   // providers
   'providers.list',
   'providers.probeAll',

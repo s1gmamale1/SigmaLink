@@ -60,6 +60,24 @@ function renderCell(item: Item, ctx: { index: number; isActive: boolean }) {
   );
 }
 
+/** Helper: render a grid with `n` items and return the grid root element. */
+function renderGrid(n: number): HTMLElement {
+  const items: Item[] = Array.from({ length: n }, (_, i) => ({ id: String(i) }));
+  const { container } = render(
+    <GridLayout<Item>
+      items={items}
+      getKey={(item) => item.id}
+      renderCell={renderCell}
+      activeIndex={0}
+      onActiveChange={() => undefined}
+      focusedKey={null}
+    />,
+  );
+  // Return the container so the caller can query it; cleanup is handled by
+  // the afterEach hook.
+  return container;
+}
+
 describe('GridLayout — v1.4.2 packet-12 fullscreen mode', () => {
   it('renders the regular grid (all cells visible) when focusedKey is null', () => {
     const { container, getByTestId } = render(
@@ -262,5 +280,21 @@ describe('GridLayout — v1.4.2 packet-07 rAF coalescing on divider drag', () =>
     } finally {
       vi.restoreAllMocks();
     }
+  });
+});
+
+// B3 — grid density tiers (C-3)
+describe('GridLayout — B3 density tiers', () => {
+  it('sets data-density by pane count', () => {
+    const c3 = renderGrid(3);
+    expect(c3.querySelector('[data-density]')?.getAttribute('data-density')).toBe('comfortable');
+    cleanup();
+
+    const c6 = renderGrid(6);
+    expect(c6.querySelector('[data-density]')?.getAttribute('data-density')).toBe('compact');
+    cleanup();
+
+    const c12 = renderGrid(12);
+    expect(c12.querySelector('[data-density]')?.getAttribute('data-density')).toBe('dense');
   });
 });

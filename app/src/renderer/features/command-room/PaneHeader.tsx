@@ -15,6 +15,7 @@
 
 import {
   Columns2,
+  GitBranch,
   Maximize2,
   Minimize2,
   Rows2,
@@ -94,6 +95,8 @@ interface Props {
   /** v1.4.3 #06 — Reflects the current pane.minimised flag; flips the icon
    *  and tooltip between "Minimise" and "Restore". */
   isMinimised?: boolean;
+  /** C-1 UI — count of staged + unstaged + untracked files. Badge hidden when 0 or null. */
+  uncommitted?: number | null;
 }
 
 export function PaneHeader({
@@ -108,6 +111,7 @@ export function PaneHeader({
   canSplit = true,
   onToggleMinimise,
   isMinimised = false,
+  uncommitted = null,
 }: Props) {
   const exited = session.status === 'exited';
   const errored = session.status === 'error';
@@ -131,7 +135,7 @@ export function PaneHeader({
         style={{ background: providerColor }}
         aria-hidden="true"
       />
-      <div className="flex h-7 items-center gap-2 border-b border-border px-2 pt-[2px] text-[11px]">
+      <div className="flex h-7 items-center gap-2 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]">
         <span
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ background: dotColor }}
@@ -163,6 +167,15 @@ export function PaneHeader({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
+        {/* C-1 UI — inline branch · model · uncommitted badge */}
+        <span className="flex items-center gap-1 truncate text-muted-foreground">
+          <GitBranch className="h-3 w-3 shrink-0" aria-hidden />
+          <span className="max-w-[90px] truncate">{branch}</span>
+          <span className="max-w-[80px] truncate text-[10px] opacity-70">{modelLabel}</span>
+          {typeof uncommitted === 'number' && uncommitted > 0 ? (
+            <span className="rounded bg-amber-500/15 px-1 text-[10px] text-amber-600" title={`${uncommitted} uncommitted`}>±{uncommitted}</span>
+          ) : null}
+        </span>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           {/* v1.4.2 packet-12 — Pane Focus button is now a real fullscreen
               toggle. When the pane is fullscreen the icon swaps to Minimize2
