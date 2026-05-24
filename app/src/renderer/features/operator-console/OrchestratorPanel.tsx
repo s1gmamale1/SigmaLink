@@ -148,7 +148,7 @@ export function OrchestratorPanel() {
       const orderedIds = proposeMergeOrder(paneChanges);
       const changeMap = new Map(paneChanges.map((p) => [p.sessionId, p]));
 
-      const entries: MergeOrderEntry[] = orderedIds.map((sessionId, rank) => {
+      const entries: MergeOrderEntry[] = orderedIds.map((sessionId) => {
         const change = changeMap.get(sessionId);
         const agent = activeSwarm.agents.find(
           (a) => a.sessionId === sessionId || a.agentKey === sessionId,
