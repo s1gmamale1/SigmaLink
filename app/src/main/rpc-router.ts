@@ -934,6 +934,14 @@ function buildRouter() {
         return [];
       }
     },
+    // C-5 — inject a structured plan capsule into the pane's PTY + write a
+    // per-worktree CLAUDE.md scope guidance block.
+    brief: async ({ sessionId, worktreePath, capsule }: { sessionId: string; worktreePath: string | null; capsule: import('@/shared/plan-capsule').PlanCapsule }) => {
+      const { writeScopeBlock } = await import('./core/workspaces/scope-block');
+      const { buildCapsuleText } = await import('@/shared/plan-capsule');
+      if (worktreePath) await writeScopeBlock(worktreePath, capsule);
+      pty.write(sessionId, buildCapsuleText(capsule) + '\n');
+    },
   });
 
   const providersCtl = defineController({

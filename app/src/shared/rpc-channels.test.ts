@@ -93,6 +93,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'panes.listSessions',
   'panes.lastResumePlan',
   'panes.listForWorkspace',
+  'panes.brief',            // C-5 — inject plan capsule + write scope block
   // providers (providersCtl)
   'providers.list',
   'providers.probeAll',
