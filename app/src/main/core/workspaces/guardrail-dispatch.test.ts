@@ -40,11 +40,14 @@ describe('launcher + factory-spawn guardrail dispatch', () => {
   it('writeGuardrailBlock is called with [] when KV row is absent', async () => {
     const { writeGuardrailBlock } = await import('./guardrail-block');
 
-    // Simulate missing KV row → empty ids
-    const kvRow: { value?: string } | undefined = undefined;
-    const guardrailIds: string[] = kvRow?.value
-      ? (JSON.parse(kvRow.value) as string[])
-      : [];
+    // Simulate missing KV row → empty ids (mirrors the production code pattern)
+    function parseGuardrailIds(row: { value?: string } | undefined): string[] {
+      const raw = row?.value;
+      if (!raw) return [];
+      return JSON.parse(raw) as string[];
+    }
+
+    const guardrailIds = parseGuardrailIds(undefined);
 
     await writeGuardrailBlock('/tmp/fake-worktree', guardrailIds);
 

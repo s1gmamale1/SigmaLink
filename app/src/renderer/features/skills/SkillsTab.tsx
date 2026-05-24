@@ -29,11 +29,12 @@
 // insertSkillCommand.ts + PaneShell.tsx.
 
 import { useCallback, useEffect, useState, type DragEvent } from 'react';
-import { Search, Copy, ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
+import { Search, Copy, ChevronDown, ChevronRight, GripVertical, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
 import type { SkillProviderId, SkillProviderState } from '@/shared/types';
+import { GUARDRAILS } from '@/shared/guardrails';
 
 interface InstalledSkillEntry {
   name: string;
@@ -90,6 +91,98 @@ function buildProviderCompatMap(
     result.set(name, existing);
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// C-9 — Guardrail matrix section
+// ---------------------------------------------------------------------------
+
+const KV_GUARDRAILS_ENABLED = 'guardrails.enabled';
+
+function GuardrailsSection() {
+  const [enabledIds, setEnabledIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const raw = await rpc.kv.get(KV_GUARDRAILS_ENABLED);
+        if (alive && raw) {
+          const parsed = JSON.parse(raw) as string[];
+          if (Array.isArray(parsed)) setEnabledIds(new Set(parsed));
+        }
+      } catch {
+        /* best-effort */
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const onToggle = useCallback(
+    async (id: string) => {
+      const next = new Set(enabledIds);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      setEnabledIds(next);
+      try {
+        await rpc.kv.set(KV_GUARDRAILS_ENABLED, JSON.stringify(Array.from(next)));
+      } catch {
+        /* best-effort */
+      }
+    },
+    [enabledIds],
+  );
+
+  return (
+    <section data-testid="guardrails-section" className="shrink-0 border-b border-border px-3 py-3">
+      <div className="mb-2 flex items-center gap-2">
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Guardrails
+        </span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {Object.values(GUARDRAILS).map((g) => {
+          const checked = enabledIds.has(g.id);
+          return (
+            <div
+              key={g.id}
+              className="flex items-center justify-between rounded-md border border-border bg-card/30 px-2.5 py-1.5"
+            >
+              <div className="min-w-0 flex-1 pr-3">
+                <div className="text-xs font-medium text-foreground">{g.title}</div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={checked}
+                onClick={() => void onToggle(g.id)}
+                data-testid={`guardrail-toggle-${g.id}`}
+                className={cn(
+                  'relative inline-flex h-4 w-8 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  checked ? 'bg-primary' : 'bg-muted',
+                )}
+                aria-label={`Toggle ${g.title} guardrail`}
+              >
+                <span
+                  className={cn(
+                    'pointer-events-none inline-block h-3 w-3 rounded-full bg-white shadow transition-transform',
+                    checked ? 'translate-x-4' : 'translate-x-0',
+                  )}
+                />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Enabled guardrails are written into each new agent&apos;s worktree CLAUDE.md at launch.
+      </p>
+    </section>
+  );
 }
 
 export function SkillsTab() {
@@ -167,6 +260,9 @@ export function SkillsTab() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* C-9 — Guardrail matrix */}
+      <GuardrailsSection />
+
       {/* Search bar */}
       <div className="shrink-0 border-b border-border px-3 py-2">
         <div className="flex items-center gap-2 rounded-md border border-border bg-background/60 px-2">
