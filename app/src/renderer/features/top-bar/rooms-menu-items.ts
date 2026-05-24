@@ -5,6 +5,7 @@
 import {
   Bot,
   Folder,
+  Gauge,
   GitBranch,
   Globe,
   LayoutGrid,
@@ -34,6 +35,7 @@ export const ROOMS_MENU_ITEMS: readonly RoomMenuItem[] = [
   { id: 'memory', label: 'Memory', icon: Sparkles },
   { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'skills', label: 'Skills', icon: Wand2 },
+  { id: 'sigmabench', label: 'SigmaBench', icon: Gauge },
   { id: 'jorvis', label: 'Jorvis', icon: Bot },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];

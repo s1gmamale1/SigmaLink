@@ -34,9 +34,10 @@ import {
 } from '@/renderer/app/state';
 
 describe('ROOMS_MENU_ITEMS', () => {
-  it('exposes the 11-room sidebar inventory verbatim', () => {
+  it('exposes the 12-room sidebar inventory verbatim', () => {
     const ids: RoomId[] = ROOMS_MENU_ITEMS.map((item) => item.id);
-    // Order matches Sidebar.tsx ITEMS so the two surfaces never drift.
+    // ROOMS_MENU_ITEMS is the single source of truth for the room menu.
+    // C-12 added the SigmaBench room after Skills.
     expect(ids).toEqual([
       'workspaces',
       'command',
@@ -47,6 +48,7 @@ describe('ROOMS_MENU_ITEMS', () => {
       'memory',
       'browser',
       'skills',
+      'sigmabench',
       'jorvis',
       'settings',
     ]);

@@ -29,6 +29,7 @@ import * as mig0019 from './migrations/0019_sync_metadata';
 import * as mig0020 from './migrations/0020_agent_session_pane_unique';
 import * as mig0021 from './migrations/0021_skill_bindings';
 import * as mig0022 from './migrations/0022_jorvis_pane_events_rename';
+import * as mig0023 from './migrations/0023_benchmark_runs';
 
 export interface Migration {
   name: string;
@@ -66,6 +67,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   mig0020,
   mig0021,
   mig0022,
+  mig0023,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `
