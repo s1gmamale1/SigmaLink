@@ -28,6 +28,7 @@ import {
 } from '../pty/gemini-resume-sigma';
 import { workspaceCwdInWorktree } from './worktree-cwd';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, effectivePaneSpawnMode } from '../pty/local-pty';
+import { writeGuardrailBlock } from './guardrail-block';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -175,6 +176,22 @@ export async function executeLaunchPlan(
         // Use whichever sessionId the pool actually used (may differ from
         // preallocSessionId if a collision triggered a retry).
         finalPreallocSessionId = r.sessionId;
+      }
+
+      // C-9 — Write enabled guardrails into the worktree CLAUDE.md at dispatch.
+      // Best-effort: never block the PTY spawn on a CLAUDE.md write failure.
+      if (worktreePath) {
+        try {
+          const kvRow = getRawDb()
+            .prepare('SELECT value FROM kv WHERE key = ?')
+            .get('guardrails.enabled') as { value?: string } | undefined;
+          const guardrailIds: string[] = kvRow?.value
+            ? (JSON.parse(kvRow.value) as string[])
+            : [];
+          await writeGuardrailBlock(worktreePath, guardrailIds);
+        } catch {
+          /* guardrail write is non-fatal */
+        }
       }
 
       const cwd = workspaceCwdInWorktree({

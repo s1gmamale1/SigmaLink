@@ -33,6 +33,7 @@ import {
   ensureClaudeProjectDir,
   prepareClaudeWorkspaceContext,
 } from '../pty/claude-resume-sigma';
+import { writeGuardrailBlock } from '../workspaces/guardrail-block';
 
 /**
  * Pick the coordinator that a newly-added agent should be assigned to.
@@ -168,6 +169,22 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
     branch = r.branch;
     // Use the sessionId actually used (may differ on retry).
     spawnSessionId = r.sessionId;
+  }
+
+  // C-9 — Write enabled guardrails into the worktree CLAUDE.md at dispatch.
+  // Best-effort: never block the PTY spawn on a CLAUDE.md write failure.
+  if (worktreePath) {
+    try {
+      const kvRow = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get('guardrails.enabled') as { value?: string } | undefined;
+      const guardrailIds: string[] = kvRow?.value
+        ? (JSON.parse(kvRow.value) as string[])
+        : [];
+      await writeGuardrailBlock(worktreePath, guardrailIds);
+    } catch {
+      /* guardrail write is non-fatal */
+    }
   }
 
   const cwd =
