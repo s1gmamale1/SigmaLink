@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeImage, clipboard } from 'electron';
-import { buildGlobalCaptureController, type GlobalCaptureController } from '@sigmalink/voice-core';
+import { buildGlobalCaptureController, getWhisperEngine, type GlobalCaptureController } from '@sigmalink/voice-core';
 import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
 import { getRawDb } from '../src/main/core/db/client';
 // C-11 "Hey Sigma" listening-mode primitives (pure, shared).
@@ -803,6 +803,15 @@ app.on('before-quit', () => {
   try {
     globalCaptureCtrl?.dispose();
     globalShortcut.unregisterAll();
+  } catch {
+    /* non-fatal */
+  }
+  // C-11 / K5 — free the process-lifetime whisper_context cache. dispose() above
+  // tore down the wake loop, so no transcribe is in flight here. duck-typed so
+  // older binaries / the stub (no disposeModels) are tolerated.
+  try {
+    const engine = getWhisperEngine() as { disposeModels?: () => void } | null;
+    engine?.disposeModels?.();
   } catch {
     /* non-fatal */
   }
