@@ -97,7 +97,7 @@ describe('buildDesignController — dispatch', () => {
       worktreePool: mockWorktreePool as never,
       userDataDir: '/tmp/test-userData',
       emit: vi.fn(),
-      ptyWrite: ptyWriteSpy,
+      ptyWrite: ptyWriteSpy as (sessionId: string, data: string) => Promise<void>,
     });
   });
 

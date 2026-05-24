@@ -225,8 +225,11 @@ export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) 
     try {
       if (dispatchMode === 'pane' && selectedPaneId) {
         // C-13 — route-to-pane path.
+        // The router-shape type for design.dispatch pre-dates C-13; cast to
+        // `unknown` first so TS does not reject the new optional fields while
+        // the lead updates the shared type in router-shape.ts.
         const pane = livePanes.find((p) => p.id === selectedPaneId);
-        await rpc.design.dispatch({
+        await (rpc.design.dispatch as (i: unknown) => Promise<unknown>)({
           pickerToken: capture?.pickerToken ?? '',
           prompt,
           targetSessionId: selectedPaneId,
