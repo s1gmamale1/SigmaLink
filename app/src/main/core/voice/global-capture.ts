@@ -26,6 +26,7 @@ import { getWhisperEngine } from './whisper-engine';
 import { routeTranscript } from './output-router';
 import { getDefaultModel, getModelById, getDownloadedModelPath, MODEL_CATALOG } from './model-registry';
 import { loadNative } from './native-mac';
+import { applyDictionary, type DictionaryEntry } from '../../../shared/voice-dictionary';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -58,6 +59,31 @@ const KV_ENABLED      = 'voice.globalCapture.enabled';
 const KV_HOTKEY       = 'voice.globalCapture.hotkey';
 const KV_MODE         = 'voice.globalCapture.mode';
 const KV_MODEL_ID     = 'voice.globalCapture.modelId';
+const KV_DICTIONARY   = 'voice.dictionary';
+
+// ---------------------------------------------------------------------------
+// Exported helpers (thin wrappers to enable unit-testing without Electron)
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the dictionary entries from KV and apply them to `text`.
+ * Exported so unit tests can exercise the substitution logic directly.
+ */
+export function normalizeTranscript(
+  text: string,
+  kvGet: (key: string) => string | null,
+): string {
+  try {
+    const raw = kvGet(KV_DICTIONARY);
+    if (!raw) return text;
+    const entries = JSON.parse(raw) as DictionaryEntry[];
+    if (!Array.isArray(entries)) return text;
+    return applyDictionary(text, entries);
+  } catch {
+    // Malformed KV data — return original text unchanged.
+    return text;
+  }
+}
 
 const DEFAULT_HOTKEY  = 'CommandOrControl+Alt+Space';
 const DEFAULT_MODE: CaptureMode = 'toggle';
@@ -397,6 +423,9 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       setState('idle');
       return;
     }
+
+    // Apply phrase/macro dictionary substitutions before routing.
+    finalText = normalizeTranscript(finalText, kvGet);
 
     // Route the transcript
     setState('routing');
