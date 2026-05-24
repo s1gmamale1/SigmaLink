@@ -1,0 +1,64 @@
+SigmaLink v1.17.0 — 2026-05-24
+==============================
+
+v1.17.0 — "Worktree-aware context" (Milestone M2 of the BridgeMind-competitive
+roadmap). Agent context now carries its worktree: drag a pane into an agent
+input to attach its scrollback + git diff + branch; hand a pane a structured
+plan capsule with a per-worktree scope boundary; and SigmaVoice gains a
+dictionary, verbal macros, and a usage dashboard.
+
+Reuse-heavy by design — code-verified planning found the swarm chat and agent
+roster already existed and were surfaced in M1, so M2 reuses the shipped
+primitives (rpc.pty.snapshot, git.status/diff, rpc.pty.write, the marker-block
+writer) rather than rebuilding. Brainstorm -> code-verified plan -> 2 parallel
+worktree-isolated coders, lead-merged with one combined hard gate in main.
+
+Spec: docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md
+
+
+C-6 — Worktree-aware drag-drop context
+--------------------------------------
+
+- A pane is now a drag SOURCE (its header). Drag it onto the Jorvis composer
+  or the swarm side-chat and it attaches that pane's context: branch +
+  `git diff --stat` + compacted (ANSI-stripped, tail-capped) scrollback.
+- Reuses the existing rpc.pty.snapshot ring buffer + rpc.git.diff; no new RPC.
+
+
+C-5 — Plan-handoff capsule
+--------------------------
+
+- "Brief this pane" popover (goal / target files / success criteria /
+  out-of-scope) injected into the pane's CLI via the W-5 pty.write path
+  through a new panes.brief RPC.
+- The out-of-scope list is written as a per-worktree CLAUDE.md scope-guidance
+  block (idempotent marker-delimited, same zero-risk pattern as the v1.15.0
+  Ruflo convention block). Guidance-level boundary; no settings.json mutation.
+  (Hard filesystem-blocking enforcement was deliberately deferred — it would
+  require self-modifying agent config.)
+
+
+C-10a — SigmaVoice dictionary + macros + dashboard
+--------------------------------------------------
+
+- Phrase dictionary (e.g. "at coordinator" -> @coordinator) + verbal command
+  macros, applied to every transcript in both capture paths. Implemented with
+  indexOf split/join (no dynamic RegExp on user input — ReDoS-safe).
+- Whisper segment metadata (t0/t1/text), previously discarded, is now captured
+  into per-session usage stats (words / WPM / timestamped history, KV-backed,
+  capped at 200).
+- VoiceTab gains a dictionary editor, a macro list, and a usage dashboard.
+
+
+Gate
+----
+
+- tsc -b (strict, includes test files)
+- eslint 0 errors / 0 warnings
+- vitest 124 files / 1298 pass / 1 skip
+- vite build + electron:compile clean
+- Playwright smoke e2e in main (35.8 s)
+- Review catch: a redundant panes.gitStatus RPC was reverted (git.status
+  already existed); applyDictionary reimplemented without dynamic RegExp.
+
+No schema migrations in v1.17.0.

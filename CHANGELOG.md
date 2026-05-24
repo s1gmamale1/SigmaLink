@@ -4,6 +4,20 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-05-24
+
+v1.17.0 — **"Worktree-aware context"** (Milestone M2). Agent context now carries its worktree. Reuse-heavy: rides the shipped `rpc.pty.snapshot` / `git.status`/`git.diff` / `rpc.pty.write` primitives + the marker-block writer. Brainstorm→code-verified plan→2 parallel worktree-isolated coders, lead-merged with one combined hard gate in main. Spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
+
+### Added
+
+- **C-6 — Worktree-aware drag-drop context:** a pane (its header) is now a drag source; dropping it on the Jorvis composer or swarm side-chat attaches that pane's `branch + git diff --stat + compacted scrollback` (ANSI-stripped, tail-capped). No new RPC (`PaneHeader.tsx`, `pane-context-builder.ts`, `strip-ansi.ts`, `JorvisRoom.tsx`, `SideChat.tsx`).
+- **C-5 — Plan-handoff capsule:** a "Brief this pane" popover (goal / target files / success criteria / out-of-scope) injected via a new `panes.brief` RPC (W-5 `pty.write` path); the out-of-scope list is written as a per-worktree `CLAUDE.md` scope-guidance block (idempotent marker-delimited; guidance-level, no settings mutation) (`plan-capsule.ts`, `scope-block.ts`, `PaneHeader.tsx`).
+- **C-10a — SigmaVoice dictionary + macros + dashboard:** phrase dictionary + verbal macros applied to every transcript (ReDoS-safe `indexOf` impl); whisper segments → words/WPM/timestamped usage history (KV, capped 200); VoiceTab dictionary editor + macro list + usage dashboard (`voice-dictionary.ts`, `voice-stats.ts`, `global-capture.ts`, `lib/voice.ts`, `VoiceTab.tsx`).
+
+### Changed
+
+- Reverted a redundant `panes.gitStatus` RPC introduced mid-build — `git.status(cwd)` already existed; `PaneShell` uses it directly.
+
 ## [1.16.0] - 2026-05-24
 
 v1.16.0 — **"Glanceable swarm"** (Milestone M1 of the BridgeMind-competitive roadmap). Every pane shows its branch · model · uncommitted count; panes stay legible at 8+; the agent roster + cross-agent chat are one click away in the Command Room right-rail. Reuse-heavy by design — code-verified planning found the chat (`SideChat`) and roster (`RoleRoster`) already existed in the separate Swarm Room with messages already pushed live into global state, so M1 surfaces + wires rather than rebuilds. Brainstorm→spec→code-verified plan→2 parallel worktree-isolated coders, lead-merged with one combined hard gate in main. Spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
