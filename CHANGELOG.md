@@ -4,6 +4,23 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-05-24
+
+v1.18.0 — **"Sigma Agent"** (Milestone M3, capstone). One goal → N worktree-isolated agent panes, each briefed with a plan capsule, with a conflict-aware merge order — the "swarm with no merge conflicts" a shared-dir competitor can't match. Compose-first (M1/M2 primitives + existing infra). Brainstorm→code-verified plan→3 parallel worktree-isolated coders, lead-merged with one combined hard gate in main. Spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
+
+### Added
+
+- **C-7 — Sigma Agent orchestrator:** a new OrchestratorPanel in the OperatorConsole `chat` tab — author N tasks → `swarms.create({preset:'custom'})` spawns N worktree-isolated panes in one call → `panes.brief` capsule per pane → "Propose merge order" ranks panes by ascending pairwise changed-file overlap (`git.status` union) → "Merge in order" runs `review.batchCommitAndMerge` on the sorted sessionIds. RPC-free (`shared/merge-order.ts`, `shared/orchestrator-tasks.ts`, `operator-console/OrchestratorPanel.tsx`). Manual task authoring for v1; LLM auto-decompose deferred.
+- **C-10b — Inline voice into the focused pane:** a `voice:focused-session` renderer→main push lets the voice pipeline `pty.write` the normalized transcript into the active pane instead of the assistant; opt-in via a VoiceTab toggle (`use-voice-focus-sync.ts`, `core/voice/output-router.ts`, `global-capture.ts`, `electron/main.ts`). True hold-to-record deferred (Electron globalShortcut is keydown-only).
+
+### Changed
+
+- **W-4 P8 — Resume simplification:** removed the dead `resumeMode` label from the pane-resume result + toast. `external_session_id` **kept** (`resume-launcher.ts`).
+
+### Notes
+
+- **W-4 P9 (drop `external_session_id`) cancelled** — exploration proved it regresses multi-pane conversation resume (pane→conversation binding, not redundant with shell-first). No schema migration in this release.
+
 ## [1.17.0] - 2026-05-24
 
 v1.17.0 — **"Worktree-aware context"** (Milestone M2). Agent context now carries its worktree. Reuse-heavy: rides the shipped `rpc.pty.snapshot` / `git.status`/`git.diff` / `rpc.pty.write` primitives + the marker-block writer. Brainstorm→code-verified plan→2 parallel worktree-isolated coders, lead-merged with one combined hard gate in main. Spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
