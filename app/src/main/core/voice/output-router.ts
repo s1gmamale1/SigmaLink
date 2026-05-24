@@ -30,12 +30,28 @@ import { fileURLToPath } from 'node:url';
 // Public types
 // ---------------------------------------------------------------------------
 
-export type OutputTarget = 'sigmalink-pane' | 'ax-paste' | 'clipboard';
+export type OutputTarget = 'sigmalink-pane' | 'ax-paste' | 'clipboard' | 'focused-pty';
 
 export interface RouteResult {
   target: OutputTarget;
   /** Human-readable toast string for the renderer. Empty string on success. */
   toast: string;
+}
+
+/**
+ * C-10b — Optional routing overrides for the focused-pane inject path.
+ *
+ * When `injectToPane` is true AND `focusedSessionId` is non-null AND
+ * `ptyWrite` is provided, the transcript is written directly into the focused
+ * PTY pane (bypassing the assistant dispatch path entirely).
+ */
+export interface RouteOpts {
+  /** Session id of the currently focused PTY pane (from main's focusedSessionId). */
+  focusedSessionId?: string | null;
+  /** Whether the "Dictate into the focused pane" toggle is on. */
+  injectToPane?: boolean;
+  /** Direct pty.write handle injected from the main entry. */
+  ptyWrite?: (sessionId: string, data: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -313,14 +329,25 @@ function dispatchToSigmaLinkPane(
  *
  * @param transcript  Finalised transcript string.
  * @param emit        Main-process event emitter (from adapter deps).
+ * @param opts        C-10b optional focused-pane inject overrides.
  * @returns           Routing result describing what was done.
  */
 export function routeTranscript(
   transcript: string,
   emit: (event: string, payload: unknown) => void,
+  opts?: RouteOpts,
 ): RouteResult {
   if (!transcript.trim()) {
     return { target: 'clipboard', toast: '' };
+  }
+
+  // C-10b — focused-pane inject: when the toggle is on, the session is known,
+  // and a ptyWrite handle is available, write directly into the pane and skip
+  // the assistant dispatch path entirely. The text is already normalised by
+  // the time routeTranscript is called (normalizeTranscript ran first).
+  if (opts?.injectToPane && opts.focusedSessionId && opts.ptyWrite) {
+    opts.ptyWrite(opts.focusedSessionId, transcript + '\n');
+    return { target: 'focused-pty', toast: '' };
   }
 
   // -------------------------------------------------------------------------

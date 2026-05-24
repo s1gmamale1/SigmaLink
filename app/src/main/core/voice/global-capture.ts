@@ -50,6 +50,14 @@ export interface GlobalCaptureDeps {
     get: (key: string) => string | null;
     set: (key: string, value: string) => void;
   };
+  // C-10b — focused-pane routing. All three are optional so existing
+  // callers (tests, older main builds) need no changes to compile.
+  /** Returns the id of the currently focused PTY pane, or null. */
+  getFocusedSessionId?: () => string | null;
+  /** Direct pty.write handle. Called only when injectToPane() returns true. */
+  ptyWrite?: (sessionId: string, data: string) => void;
+  /** Returns true when the "Dictate into the focused pane" KV toggle is on. */
+  injectToPane?: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -433,10 +441,14 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     // Apply phrase/macro dictionary substitutions before routing.
     finalText = normalizeTranscript(finalText, kvGet);
 
-    // Route the transcript
+    // Route the transcript — C-10b: pass focused-pane opts when available
     setState('routing');
     try {
-      const result = routeTranscript(finalText, deps.emit);
+      const result = routeTranscript(finalText, deps.emit, {
+        focusedSessionId: deps.getFocusedSessionId?.() ?? null,
+        injectToPane: deps.injectToPane?.() ?? false,
+        ptyWrite: deps.ptyWrite,
+      });
       if (result.toast) {
         toast(result.toast, 'info');
       }

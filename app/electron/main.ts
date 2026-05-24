@@ -262,6 +262,10 @@ function initGlobalCapture(): void {
     clipboard: {
       writeText: (text: string) => clipboard.writeText(text),
     },
+    // C-10b — focused-pane routing deps
+    getFocusedSessionId: () => focusedSessionId,
+    ptyWrite: (id: string, data: string) => { getSharedDeps()?.pty.write(id, data); },
+    injectToPane: () => kv.get('voice.routeToFocusedPane') === '1',
   });
 
   // Sync tray menu whenever state changes

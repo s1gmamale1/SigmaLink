@@ -87,12 +87,16 @@ async function invokeGlobalCapture<T = unknown>(
 // v1.4.9 — Global capture section component
 // ---------------------------------------------------------------------------
 
+// KV key for the C-10b focused-pane routing toggle
+const KV_ROUTE_TO_FOCUSED_PANE = 'voice.routeToFocusedPane';
+
 function GlobalCaptureSection() {
   const [status, setStatus] = useState<GlobalCaptureStatus | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [pressedKeys, setPressedKeys] = useState('');
+  const [routeToFocusedPane, setRouteToFocusedPane] = useState(false);
   const hotkeyInputRef = useRef<HTMLButtonElement>(null);
 
   // Load status on mount
@@ -104,6 +108,11 @@ function GlobalCaptureSection() {
       } catch {
         /* leave null — surface shows "macOS feature" note */
       }
+      // C-10b — load the focused-pane routing toggle from KV
+      try {
+        const raw = await rpc.kv.get(KV_ROUTE_TO_FOCUSED_PANE);
+        setRouteToFocusedPane(raw === '1');
+      } catch { /* best-effort */ }
     })();
   }, []);
 
@@ -161,6 +170,14 @@ function GlobalCaptureSection() {
       setDownloadPercent(0);
     }
   }, []);
+
+  const onToggleRouteToFocusedPane = useCallback(async () => {
+    const next = !routeToFocusedPane;
+    setRouteToFocusedPane(next);
+    try {
+      await rpc.kv.set(KV_ROUTE_TO_FOCUSED_PANE, next ? '1' : '0');
+    } catch { /* best-effort */ }
+  }, [routeToFocusedPane]);
 
   const onStartHotkeyCapture = useCallback(() => {
     setCapturingHotkey(true);
@@ -427,6 +444,34 @@ function GlobalCaptureSection() {
               automatically on macOS.
             </div>
           )}
+        </div>
+
+        {/* C-10b — Dictate into the focused pane toggle */}
+        <div className="flex items-center justify-between rounded-md border border-border bg-card/40 px-3 py-2">
+          <div>
+            <div className="text-sm font-medium">Dictate into the focused pane</div>
+            <div className="text-[11px] text-muted-foreground">
+              When on, the transcript is written directly into the active PTY pane instead of routing to the Sigma assistant.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={routeToFocusedPane}
+            onClick={() => void onToggleRouteToFocusedPane()}
+            data-testid="voice-route-to-focused-pane-toggle"
+            className={cn(
+              'relative ml-4 inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors',
+              routeToFocusedPane ? 'bg-primary' : 'bg-muted',
+            )}
+          >
+            <span
+              className={cn(
+                'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+                routeToFocusedPane ? 'translate-x-4' : 'translate-x-0',
+              )}
+            />
+          </button>
         </div>
       </div>
     </section>
