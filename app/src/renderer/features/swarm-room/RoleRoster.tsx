@@ -281,7 +281,8 @@ export function RoleRoster({
                     : '#71717a';
           const modelId = row.modelId ?? DEFAULT_MODEL_BY_PROVIDER[row.providerId];
           const autoApprove = row.autoApprove ?? false;
-          const canFocus = !readOnly && !!onFocusPane && !!live?.sessionId;
+          // onFocusPane jump-to-pane is navigation, not editing — allow even in readOnly mode.
+          const canFocus = !!onFocusPane && !!live?.sessionId;
           return (
             <div
               key={`${row.role}-${row.roleIndex}`}
