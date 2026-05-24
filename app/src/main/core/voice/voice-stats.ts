@@ -73,7 +73,9 @@ export function appendSessionStat(kv: KvAccessor, stat: SessionStat): void {
         list = [];
       }
     }
-    list.push(stat);
+    // Stamp a timestamp when the caller didn't supply one, so the usage
+    // dashboard's "recent sessions" list can show when each session occurred.
+    list.push(stat.timestamp ? stat : { ...stat, timestamp: Date.now() });
     // Keep only the most recent MAX_STATS records.
     if (list.length > MAX_STATS) {
       list = list.slice(list.length - MAX_STATS);
