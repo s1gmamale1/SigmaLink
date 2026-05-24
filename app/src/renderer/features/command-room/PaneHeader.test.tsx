@@ -348,4 +348,12 @@ describe('PaneHeader', () => {
     rerender(<PaneHeader {...base} uncommitted={null} />);
     expect(screen.queryByText(/^±/)).toBeNull();
   });
+
+  it('header is a drag source carrying pane payload', () => {
+    render(<PaneHeader {...base} session={{ ...base.session, id: 's1', branch: 'feat/x' }} />);
+    const header = screen.getByTestId('pane-header');
+    const setData = vi.fn();
+    fireEvent.dragStart(header, { dataTransfer: { setData } });
+    expect(setData).toHaveBeenCalledWith('application/sigmalink-pane', expect.stringContaining('"sessionId":"s1"'));
+  });
 });

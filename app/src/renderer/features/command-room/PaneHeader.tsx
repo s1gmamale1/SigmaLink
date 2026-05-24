@@ -22,6 +22,7 @@ import {
   Target,
   X,
 } from 'lucide-react';
+import { PANE_DRAG_MIME } from '@/renderer/lib/pane-context-builder';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -128,7 +129,23 @@ export function PaneHeader({
   return (
     // `z-20` lifts the chrome above the PaneSplash overlay (z-10) so the
     // focus/close buttons stay clickable while the boot splash is rendered.
-    <div className="relative z-20">
+    <div
+      className="relative z-20"
+      data-testid="pane-header"
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(
+          PANE_DRAG_MIME,
+          JSON.stringify({
+            kind: 'pane',
+            sessionId: session.id,
+            branch: session.branch ?? null,
+            worktreePath: session.worktreePath ?? null,
+            providerId: session.providerId,
+          }),
+        );
+      }}
+    >
       {/* Provider color stripe — 2px accent at top */}
       <div
         className="absolute inset-x-0 top-0 h-[2px]"
@@ -176,7 +193,7 @@ export function PaneHeader({
             <span className="rounded bg-amber-500/15 px-1 text-[10px] text-amber-600" title={`${uncommitted} uncommitted`}>±{uncommitted}</span>
           ) : null}
         </span>
-        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5" onDragStart={(e) => e.stopPropagation()}>
           {/* v1.4.2 packet-12 — Pane Focus button is now a real fullscreen
               toggle. When the pane is fullscreen the icon swaps to Minimize2
               and the tooltip / aria-label flip to "Exit fullscreen". The

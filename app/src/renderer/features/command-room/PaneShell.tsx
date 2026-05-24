@@ -31,6 +31,7 @@ import { insertSkillCommand, isSlashCapableProvider } from './insertSkillCommand
 import { pathRelative } from '@/renderer/lib/path-relative';
 import type { AgentSession } from '@/shared/types';
 import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
+import { PANE_DRAG_MIME } from '@/renderer/lib/pane-context-builder';
 import { SkillBindingChip, type SkillBinding } from '@/renderer/features/skills/SkillBindingChip';
 import { PaneTabStrip, type ScratchTab } from './PaneTabStrip';
 
@@ -210,6 +211,7 @@ export function PaneShell({
   // v1.4.8 — Accept drags from the IDE file-tree (custom MIME) or Finder (Files).
   // v1.7.1 W-5 Phase 2 — Also accept skill drags (INFORMATIONAL binding).
   function handleDragOver(e: DragEvent<HTMLDivElement>): void {
+    if (e.dataTransfer.types.includes(PANE_DRAG_MIME)) return;
     const hasSigmaFile = e.dataTransfer.types.includes('application/sigmalink-file');
     const hasFiles = e.dataTransfer.types.includes('Files');
     const hasSkill = e.dataTransfer.types.includes(SKILL_DRAG_MIME);
@@ -228,6 +230,7 @@ export function PaneShell({
   }
 
   function handleDrop(e: DragEvent<HTMLDivElement>): void {
+    if (e.dataTransfer.types.includes(PANE_DRAG_MIME)) return;
     e.preventDefault();
     setIsDragOver(false);
     setFlashDrop(true);
