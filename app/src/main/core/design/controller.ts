@@ -18,6 +18,7 @@ import { executeLaunchPlan } from '../workspaces/launcher';
 import { DesignPickerRuntime, type PickerSession } from './picker';
 import { DesignStaging } from './staging';
 import { HmrPoke } from './hmr-poke';
+import { buildElementDispatchPrompt } from '../../../shared/element-dispatch';
 
 export interface DesignControllerDeps {
   browserRegistry: BrowserManagerRegistry;
@@ -25,6 +26,8 @@ export interface DesignControllerDeps {
   worktreePool: WorktreePool;
   userDataDir: string;
   emit: (event: string, payload: unknown) => void;
+  /** C-13: routes a PTY write to an existing session. */
+  ptyWrite?: (sessionId: string, data: string) => Promise<void> | void;
 }
 
 interface CanvasShape {
@@ -257,16 +260,38 @@ export function buildDesignController(deps: DesignControllerDeps) {
     dispatch: async (input: {
       pickerToken: string;
       prompt: string;
-      providers: string[];
+      providers?: string[];
       modifiers?: { shift?: boolean; alt?: boolean };
       attachments?: string[];
       canvasId?: string;
       workspaceId?: string;
-    }): Promise<{ dispatched: number; sessionIds: string[] }> => {
+      /** C-13: when set, route the prompt into this existing pane via PTY. */
+      targetSessionId?: string;
+      /** C-13: captured element context for element-aware prompts. */
+      capture?: {
+        selector?: string;
+        html?: string;
+        pageUrl?: string;
+      };
+    }): Promise<{ dispatched: number; sessionIds: string[] } | { routedTo: string }> => {
       if (!input?.prompt || typeof input.prompt !== 'string') {
         throw new Error('design.dispatch: prompt required');
       }
-      const providers = normalizeProviders(input.providers);
+
+      // C-13 — existing-pane route: build element-aware prompt and write to PTY.
+      if (input.targetSessionId) {
+        const text = buildElementDispatchPrompt({
+          prompt: input.prompt,
+          selector: input.capture?.selector,
+          html: input.capture?.html,
+          pageUrl: input.capture?.pageUrl,
+        });
+        const writeFn = deps.ptyWrite ?? ((sid, data) => deps.pty.write(sid, data));
+        await writeFn(input.targetSessionId, text + '\r');
+        return { routedTo: input.targetSessionId };
+      }
+
+      const providers = normalizeProviders(input.providers ?? []);
       if (providers.length === 0) {
         throw new Error('design.dispatch: at least one provider required');
       }

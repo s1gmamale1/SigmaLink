@@ -1322,6 +1322,9 @@ function buildRouter() {
     worktreePool,
     userDataDir: userData,
     emit: (event, payload) => broadcast(event, payload),
+    // C-13: delegate to the existing pty.write call so design.dispatch can
+    // route element captures into live pane PTYs without re-opening IPC.
+    ptyWrite: (sessionId, data) => pty.write(sessionId, data),
   });
   designShutdown = (designCtl as unknown as { shutdown: () => void }).shutdown;
   // V3-W15-001 / V1.1 — SigmaVoice. Renderer drives Web Speech capture on
