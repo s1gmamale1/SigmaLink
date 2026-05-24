@@ -72,7 +72,9 @@
 
 ## 🆚 C-class — Competitive (BridgeMind-derived, surfaced 2026-05-22)
 
-From a visual + transcript review of BridgeMind's **BridgeVoice**, **BridgeSpace 3**, and the **Day-181 livestream** (3h11m). Full breakdown + **101 reference screenshots**: [`../02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md`](../02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md) (per-aspect `*-REVIEW.md` + `*/screenshots/` + condensed `stream/transcript-timeline.md`). Ranked value/effort; none scheduled yet.
+**STATUS (2026-05-25): C-1 … C-11 SHIPPED** across the M0–M4 roadmap — M1 v1.16.0 (C-1·C-2·C-3·C-4), M2 v1.17.0 (C-5·C-6·C-10a), M3 v1.18.0 (C-7·C-10b), M4 v1.19.0 (C-8·C-9·C-11). **Remaining → M5:** C-12 (SigmaBench), C-13 (click-element→agent), C-10c (voice local/cloud toggle). The "swarm with no merge conflicts" moat shipped as the Sigma Agent orchestrator (C-7). Roadmap spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
+
+From a visual + transcript review of BridgeMind's **BridgeVoice**, **BridgeSpace 3**, and the **Day-181 livestream** (3h11m). Full breakdown + **101 reference screenshots**: [`../02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md`](../02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md) (per-aspect `*-REVIEW.md` + `*/screenshots/` + condensed `stream/transcript-timeline.md`). Ranked value/effort.
 
 | ID | What | Value / Effort | SigmaLink target |
 |---|---|---|---|

@@ -1,7 +1,7 @@
 # BridgeMind-Competitive Roadmap — Design
 
 **Date:** 2026-05-22
-**Status:** Approved (operator, balanced-waves sequencing; W-4 P8-9 threaded into M3)
+**Status:** M0–M4 SHIPPED (M1 v1.16.0 · M2 v1.17.0 · M3 v1.18.0 · M4 v1.19.0; C-1…C-11 live). **M5 remains** (C-12 SigmaBench · C-13 click-element→agent · C-10c voice local/cloud). W-4 P8 shipped in M3; **P9 cancelled** (proven multi-pane conversation-resume regression). Per-milestone status updated 2026-05-25.
 **Source:** `docs/02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md` (BridgeVoice + BridgeSpace 3 + Day-181 stream) → C-class wishlist (`docs/03-plan/WISHLIST.md`).
 **Scope:** Forward roadmap — 13 C-class competitive items + deferred debt, sequenced into 6 milestones (M0–M5), each ≈ one release on the existing v1.x cadence.
 
@@ -23,7 +23,7 @@ Secondary edges leaned on: out-of-process Whisper (they burned 6 debug rounds on
 | **M4** | New surfaces | C-8 · C-9 · C-11 | ~v1.19.0 |
 | **M5** | Breadth & polish | C-13 · C-12 · C-10c | ~v1.20.0 |
 
-Each milestone gets its **own** `writing-plans` plan when reached (YAGNI — not all six up front). **M0 + M1 are planned next.**
+Each milestone gets its **own** `writing-plans` plan when reached (YAGNI — not all six up front). **M0–M4 shipped (v1.16.0–v1.19.0); M5 is next.**
 
 ---
 
