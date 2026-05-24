@@ -7,12 +7,12 @@
 // because the top-bar `RightRailSwitcher` now owns the segmented control. We
 // still mount every tab body so per-pane state survives a switch.
 
-import { Bot, FileCode2, Globe, Zap } from 'lucide-react';
+import { Bot, FileCode2, Globe, Users, Zap } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 
-export type RightRailTabId = 'browser' | 'editor' | 'jorvis' | 'skills';
+export type RightRailTabId = 'browser' | 'editor' | 'jorvis' | 'skills' | 'swarm';
 
 interface TabDef {
   id: RightRailTabId;
@@ -25,6 +25,7 @@ const TABS: readonly TabDef[] = [
   { id: 'editor', label: 'Editor', Icon: FileCode2 },
   { id: 'jorvis', label: 'Jorvis', Icon: Bot },
   { id: 'skills', label: 'Skills', Icon: Zap },
+  { id: 'swarm', label: 'Swarm', Icon: Users },
 ] as const;
 
 interface Props {

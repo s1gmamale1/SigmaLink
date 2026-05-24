@@ -5,7 +5,7 @@
 
 import { createContext, useContext } from 'react';
 
-export type RightRailTabId = 'browser' | 'editor' | 'jorvis' | 'skills';
+export type RightRailTabId = 'browser' | 'editor' | 'jorvis' | 'skills' | 'swarm';
 
 export const KV_TAB = 'rightRail.tab';
 export const DEFAULT_TAB: RightRailTabId = 'browser';
@@ -14,6 +14,7 @@ export const VALID_TABS: ReadonlySet<RightRailTabId> = new Set([
   'editor',
   'jorvis',
   'skills',
+  'swarm',
 ]);
 
 /**

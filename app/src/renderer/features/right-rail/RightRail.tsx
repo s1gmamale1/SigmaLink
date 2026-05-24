@@ -33,6 +33,14 @@ const SkillsTab = lazy(() =>
   })),
 );
 
+// C-2/C-4 — Swarm tab: roster + side-chat in the rail. Lazy-loaded to keep
+// the initial bundle lean; mounted once activated and kept alive.
+const SwarmRailTab = lazy(() =>
+  import('./SwarmRailTab').then((m) => ({
+    default: m.SwarmRailTab,
+  })),
+);
+
 // Bundle-lazy: BrowserRoom (TabStrip, BrowserViewMount, BrowserRecents,
 // DesignOverlay, plus the `browser:state` listener subscription) is loaded
 // on-demand. The wrapping Suspense fallback paints a neutral placeholder
@@ -81,6 +89,11 @@ export function RightRail({ children }: Props) {
   const [skillsActivated, setSkillsActivated] = useState(activeTab === 'skills');
   if (activeTab === 'skills' && !skillsActivated) {
     setSkillsActivated(true);
+  }
+  // C-2/C-4 — Same lazy-mount pattern for Swarm tab.
+  const [swarmActivated, setSwarmActivated] = useState(activeTab === 'swarm');
+  if (activeTab === 'swarm' && !swarmActivated) {
+    setSwarmActivated(true);
   }
 
   // Hydrate persisted width once on mount. The active tab is hydrated by
@@ -161,6 +174,19 @@ export function RightRail({ children }: Props) {
                 }
               >
                 <SkillsTab />
+              </Suspense>
+            ) : null,
+            swarm: swarmActivated ? (
+              <Suspense
+                fallback={
+                  <div
+                    role="status"
+                    aria-label="Loading swarm"
+                    className="h-full min-h-0 flex-1 animate-pulse bg-muted/30"
+                  />
+                }
+              >
+                <SwarmRailTab />
               </Suspense>
             ) : null,
           }}
