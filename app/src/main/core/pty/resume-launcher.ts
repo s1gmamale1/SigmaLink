@@ -20,11 +20,6 @@ export interface PaneResumeSuccess {
   providerEffective: string;
   /** Empty string when the resume took the universal `--continue` fallback. */
   externalSessionId: string;
-  /** v1.2.8 — `'id'` when resumed by captured external id; `'continue'` when
-   *  the universal fallback (--continue / --resume latest / resume --last) was
-   *  used because no external id was on file. The renderer surfaces this as a
-   *  hint in the resume toast. */
-  resumeMode: 'id' | 'continue';
   pid: number;
 }
 
@@ -501,7 +496,6 @@ export async function resumeWorkspacePanes(
         providerId: row.providerId,
         providerEffective: spawned.providerEffective,
         externalSessionId: externalSessionId ?? '',
-        resumeMode: resume.mode,
         pid: rec.pid,
       });
     } catch (err) {

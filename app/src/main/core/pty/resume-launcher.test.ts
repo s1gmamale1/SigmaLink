@@ -281,7 +281,6 @@ describe('resumeWorkspacePanes', () => {
     expect(calls[0]?.sessionId).toBe('sess-1');
     expect(calls[0]?.providerId).toBe('claude');
     expect(calls[0]?.args).toEqual(['--resume', VALID_CLAUDE_SESSION_ID]);
-    expect(result.resumed[0]?.resumeMode).toBe('id');
     expect(rows[0]?.status).toBe('running');
     expect(rows[0]?.exit_code).toBe(null);
     expect(rows[0]?.exited_at).toBe(null);
@@ -353,7 +352,6 @@ describe('resumeWorkspacePanes', () => {
     expect(result.resumed).toHaveLength(1);
     expect(calls[0]?.args).toEqual(['--continue']);
     expect(result.resumed[0]?.externalSessionId).toBe('');
-    expect(result.resumed[0]?.resumeMode).toBe('continue');
     expect(rows[0]?.status).toBe('running');
   });
 
