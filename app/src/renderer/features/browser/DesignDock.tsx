@@ -3,6 +3,8 @@
 // recent capture (selector pill, outerHTML preview, screenshot), provider
 // chips with shift/alt multi-select, and the prompt textarea with file-drop
 // staging.
+// C-13 — Route-to-pane mode: send the prompt into an existing pane's PTY and
+// show the resulting worktree diff without spawning new agents.
 
 import {
   useEffect,
@@ -15,6 +17,8 @@ import {
 import { Send, ChevronDown, ChevronRight, Copy, Image as ImageIcon } from 'lucide-react';
 import { rpc, onEvent } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
+import { useAppStateSelector } from '@/renderer/app/state';
+import type { AgentSession } from '@/shared/types';
 
 interface CapturePayload {
   pickerToken: string;
@@ -52,6 +56,9 @@ interface DesignDockProps {
   compact?: boolean;
 }
 
+// C-13 — Dispatch mode segmented control values.
+type DispatchMode = 'agents' | 'pane';
+
 export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) {
   const [capture, setCapture] = useState<CapturePayload | null>(null);
   const [providers, setProviders] = useState<string[]>(['claude']);
@@ -62,6 +69,16 @@ export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) 
   const [lastPatch, setLastPatch] = useState<PatchPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // C-13 — target mode state.
+  const [dispatchMode, setDispatchMode] = useState<DispatchMode>('agents');
+  const [selectedPaneId, setSelectedPaneId] = useState<string>('');
+  const [diff, setDiff] = useState<string | null>(null);
+
+  // C-13 — live panes for this workspace, read from app state.
+  const livePanes = useAppStateSelector(
+    (s) => (s.sessionsByWorkspace[workspaceId] ?? []) as AgentSession[],
+  );
 
   const kvKey = useMemo(
     () => (canvasId ? `${KV_PROVIDERS_PREFIX}${canvasId}${KV_PROVIDERS_SUFFIX}` : null),
@@ -202,22 +219,53 @@ export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) 
       setError('Prompt is empty.');
       return;
     }
-    if (providers.length === 0) {
-      setError('Pick at least one provider.');
-      return;
-    }
     setBusy(true);
     setError(null);
+    setDiff(null);
     try {
-      await rpc.design.dispatch({
-        pickerToken: capture?.pickerToken ?? '',
-        prompt,
-        providers,
-        modifiers: { shift: e.shiftKey, alt: e.altKey },
-        canvasId,
-        workspaceId,
-      });
-      setPrompt('');
+      if (dispatchMode === 'pane' && selectedPaneId) {
+        // C-13 — route-to-pane path.
+        // The router-shape type for design.dispatch pre-dates C-13; cast to
+        // `unknown` first so TS does not reject the new optional fields while
+        // the lead updates the shared type in router-shape.ts.
+        const pane = livePanes.find((p) => p.id === selectedPaneId);
+        await (rpc.design.dispatch as (i: unknown) => Promise<unknown>)({
+          pickerToken: capture?.pickerToken ?? '',
+          prompt,
+          targetSessionId: selectedPaneId,
+          capture: capture
+            ? { selector: capture.selector, html: capture.outerHTML, pageUrl: capture.pageUrl }
+            : undefined,
+          canvasId,
+          workspaceId,
+        });
+        // Fetch worktree diff after routing.
+        if (pane?.worktreePath) {
+          try {
+            const diffResult = await rpc.git.diff(pane.worktreePath);
+            setDiff(diffResult?.patches ?? '');
+          } catch {
+            /* diff is best-effort */
+          }
+        }
+        setPrompt('');
+      } else {
+        // Original agent-spawn path.
+        if (providers.length === 0) {
+          setError('Pick at least one provider.');
+          setBusy(false);
+          return;
+        }
+        await rpc.design.dispatch({
+          pickerToken: capture?.pickerToken ?? '',
+          prompt,
+          providers,
+          modifiers: { shift: e.shiftKey, alt: e.altKey },
+          canvasId,
+          workspaceId,
+        });
+        setPrompt('');
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -303,7 +351,57 @@ export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) 
         ) : null}
       </section>
 
-      {/* Provider chips */}
+      {/* C-13 — Dispatch mode segmented control */}
+      <section className="rounded-md border border-border bg-card/60 p-2">
+        <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+          Dispatch mode
+        </div>
+        <div className="flex gap-1">
+          {(['agents', 'pane'] as DispatchMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => { setDispatchMode(mode); setDiff(null); }}
+              aria-pressed={dispatchMode === mode}
+              className={cn(
+                'flex-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition',
+                dispatchMode === mode
+                  ? 'border-foreground/40 bg-foreground/10 text-foreground'
+                  : 'border-border bg-background/40 text-muted-foreground hover:bg-card',
+              )}
+            >
+              {mode === 'agents' ? 'Spawn agents' : 'Existing pane'}
+            </button>
+          ))}
+        </div>
+        {dispatchMode === 'pane' ? (
+          <div className="mt-2">
+            <label
+              htmlFor="design-pane-select"
+              className="mb-0.5 block text-[10px] uppercase tracking-wider text-muted-foreground"
+            >
+              Target pane
+            </label>
+            <select
+              id="design-pane-select"
+              value={selectedPaneId}
+              onChange={(e) => setSelectedPaneId(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="">— select a pane —</option>
+              {livePanes.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.providerId}
+                  {p.branch ? ` · ${p.branch}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+      </section>
+
+      {/* Provider chips — hidden in pane mode */}
+      {dispatchMode === 'agents' ? (
       <section className="rounded-md border border-border bg-card/60 p-2">
         <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
           Providers
@@ -339,6 +437,7 @@ export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) 
           })}
         </div>
       </section>
+      ) : null}
 
       {/* Prompt buffer */}
       <section
@@ -373,13 +472,37 @@ export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) 
         <button
           type="button"
           onClick={dispatch}
-          disabled={busy || !prompt.trim() || providers.length === 0}
+          disabled={
+            busy ||
+            !prompt.trim() ||
+            (dispatchMode === 'agents' && providers.length === 0) ||
+            (dispatchMode === 'pane' && !selectedPaneId)
+          }
           className="flex items-center justify-center gap-1.5 rounded-md bg-accent px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-accent-foreground transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Send className="h-3.5 w-3.5" />
-          {busy ? 'Dispatching…' : `Dispatch · ${providers.length}`}
+          {busy
+            ? 'Dispatching…'
+            : dispatchMode === 'pane'
+              ? 'Send to pane'
+              : `Dispatch · ${providers.length}`}
         </button>
       </section>
+
+      {/* C-13 — Worktree diff panel (shown after a route-to-pane dispatch). */}
+      {diff !== null ? (
+        <section className="rounded-md border border-border bg-card/60">
+          <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+            Worktree diff
+          </div>
+          <pre
+            data-testid="design-dock-diff"
+            className="max-h-64 overflow-auto whitespace-pre border-t border-border bg-background/60 px-2 py-1 font-mono text-[10px] leading-snug text-foreground/80"
+          >
+            {diff || '(no changes)'}
+          </pre>
+        </section>
+      ) : null}
     </aside>
   );
 }
