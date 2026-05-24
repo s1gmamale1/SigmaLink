@@ -11,6 +11,11 @@ import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeI
 import { buildGlobalCaptureController, type GlobalCaptureController } from '@sigmalink/voice-core';
 import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
 import { getRawDb } from '../src/main/core/db/client';
+// C-11 "Hey Sigma" listening-mode primitives (pure, shared).
+import { PcmRing } from '../src/shared/pcm-ring';
+import { isSpeech as energyIsSpeech } from '../src/shared/audio-energy';
+import { matchesWakeWord as wakeMatch } from '../src/shared/wake-word';
+import { getModelById as getVoiceModelById, getDownloadedModelPath as getDownloadedVoiceModelPath } from '../src/main/core/voice/model-registry';
 import { maybeCheckOnBoot } from './auto-update';
 import { isAllowedEvent } from '../src/shared/rpc-channels';
 import {
@@ -191,6 +196,27 @@ function registerGlobalCaptureIpc(): void {
     return handleChannel('setModelId', () => { globalCaptureCtrl?.setModelId(id); });
   });
 
+  // C-11 — "Hey Sigma" listening mode. Persists `voice.listeningMode` and
+  // arms/disarms the wake loop. The KV write goes through the same getRawDb
+  // handle as the other voice toggles.
+  ipcMain.handle(`${prefix}setListeningMode`, (_e, payload: unknown) => {
+    const value = !!(payload as { value?: boolean })?.value;
+    return handleChannel('setListeningMode', async () => {
+      try {
+        getRawDb()
+          .prepare('INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)')
+          .run('voice.listeningMode', value ? '1' : '0');
+      } catch { /* non-fatal */ }
+      if (value) {
+        await globalCaptureCtrl?.startListening?.();
+      } else {
+        await globalCaptureCtrl?.stopListening?.();
+      }
+      updateTrayMenu();
+      return { listeningMode: value };
+    });
+  });
+
   ipcMain.handle(`${prefix}downloadModel`, (_e, payload: unknown) => {
     const modelId = (payload as { modelId?: string })?.modelId;
     if (typeof modelId !== 'string') return { ok: false, error: 'modelId required' };
@@ -266,13 +292,42 @@ function initGlobalCapture(): void {
     getFocusedSessionId: () => focusedSessionId,
     ptyWrite: (id: string, data: string) => { getSharedDeps()?.pty.write(id, data); },
     injectToPane: () => kv.get('voice.routeToFocusedPane') === '1',
+    // C-11 — "Hey Sigma" always-on listening deps (macOS only; the native mic
+    // tap is darwin-only, so on win/linux startListening() is a no-op because
+    // loadNative()/onPcm are absent).
+    getListeningMode: () => kv.get('voice.listeningMode') === '1',
+    getTinyModelPath: () => resolveTinyModelPath(),
+    isSpeech: (samples: Float32Array) => energyIsSpeech(samples),
+    matchesWakeWord: (text: string) => wakeMatch(text),
+    createPcmRing: (capacity: number) => new PcmRing(capacity),
   });
+
+  // C-11 — arm the wake loop if listening mode was left on. Best-effort; the
+  // controller swallows all errors and is a no-op when the mic is unavailable.
+  if (kv.get('voice.listeningMode') === '1') {
+    void globalCaptureCtrl.startListening?.();
+  }
 
   // Sync tray menu whenever state changes
   // The controller calls emit('voice:global-capture-state') on every change;
   // we listen via IPC-style callback embedded in the kv wrapper above but
   // here we poll minimally by overriding the emit dep directly.
   updateTrayMenu();
+}
+
+/**
+ * C-11 — resolve the absolute path to the downloaded tiny.en model used for
+ * wake detection (independent of the user's main capture model). Returns null
+ * when it has not been downloaded yet (listening then no-ops until download).
+ */
+function resolveTinyModelPath(): string | null {
+  try {
+    const entry = getVoiceModelById('tiny.en-q5_1');
+    if (!entry) return null;
+    return getDownloadedVoiceModelPath(entry);
+  } catch {
+    return null;
+  }
 }
 
 // v1.0.2 — macOS shell-PATH bootstrap. When SigmaLink launches from Finder
