@@ -80,3 +80,38 @@ export function _resetWhisperEngineCache(): void {
   cachedEngine = undefined;
   warned = false;
 }
+
+// ---------------------------------------------------------------------------
+// C-10c — Engine resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Transcription mode.
+ *
+ * - `'local'`      → use the on-device Whisper N-API engine (default).
+ * - `'gemini-cli'` → use the injected CLI engine (never falls back to Whisper
+ *                    internally; the CALLER wraps in try/catch → local).
+ */
+export type TranscriptionMode = 'local' | 'gemini-cli';
+
+/**
+ * Resolve the appropriate `WhisperEngine` implementation for the given mode.
+ *
+ * @param mode         From `kv.get('voice.transcriptionMode')`.  Defaults to
+ *                     `'local'` for any unrecognised or null value.
+ * @param cliEngine    A pre-built CLI engine to use when mode is
+ *                     `'gemini-cli'`.  Optional so callers that don't supply
+ *                     it gracefully fall through to local.
+ * @param getNativePath  Optional path resolver forwarded to `getWhisperEngine`.
+ */
+export function resolveTranscriptionEngine(
+  mode: string | null | undefined,
+  cliEngine?: WhisperEngine | null,
+  getNativePath?: () => string,
+): WhisperEngine | null {
+  if (mode === 'gemini-cli' && cliEngine) {
+    return cliEngine;
+  }
+  // Default / 'local' / anything else → native whisper
+  return getWhisperEngine(getNativePath);
+}
