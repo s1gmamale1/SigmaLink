@@ -20,7 +20,9 @@
 // State machine: idle → recording → transcribing → routing → idle
 
 import { globalShortcut } from 'electron';
-import { getWhisperEngine } from './whisper-engine.js';
+import { getWhisperEngine, resolveTranscriptionEngine } from './whisper-engine.js';
+import { buildCliTranscribeEngine } from './cli-transcribe-engine.js';
+import type { CliTranscribeEngineDeps } from './cli-transcribe-engine.js';
 import { routeTranscript } from './output-router.js';
 import { computeSessionStats, appendSessionStat } from './voice-stats.js';
 import {
@@ -146,6 +148,14 @@ export interface GlobalCaptureDeps {
   getFocusedSessionId?: () => string | null;
   ptyWrite?: (sessionId: string, data: string) => void;
   injectToPane?: () => boolean;
+
+  // ── C-10c — CLI transcription engine (optional; absent = local Whisper) ──
+  /**
+   * Override deps for the Gemini-CLI transcription engine.  When absent the
+   * engine is built with production defaults (spawns `gemini` from PATH).
+   * Only used when `kv.get('voice.transcriptionMode') === 'gemini-cli'`.
+   */
+  cliEngineDeps?: CliTranscribeEngineDeps;
 
   // ── C-11 "Hey Sigma" listening mode (all optional; absent = feature off) ──
   /** True when `voice.listeningMode` is enabled. */
@@ -468,7 +478,13 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
     let finalText = capturedTranscript.trim();
 
-    const engine = getWhisperEngine();
+    // C-10c — resolve the engine from KV; fall back to local on CLI failure.
+    const transcriptionMode = kvGet('voice.transcriptionMode');
+    const cliEngine = transcriptionMode === 'gemini-cli'
+      ? buildCliTranscribeEngine(deps.cliEngineDeps ?? {})
+      : null;
+    const engine = resolveTranscriptionEngine(transcriptionMode, cliEngine);
+
     if (engine && pcm.samples > 0) {
       // A1 — use the hardware rate reported by the accumulator (from onPcm payload)
       const { audio, sampleRate: hwRate } = pcm.flush();
@@ -487,7 +503,25 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
           // so the VoiceTab dashboard's `voice.stats` store actually accrues.
           appendSessionStat(deps.kv, computeSessionStats(result.segments ?? []));
         } catch (err) {
-          console.warn('[global-capture] whisper transcription failed, using SF result:', err);
+          // C-10c — CLI engine failure: log and fall back to local Whisper.
+          if (transcriptionMode === 'gemini-cli') {
+            console.warn('[global-capture] Gemini-CLI transcription failed, falling back to local:', err);
+            const localEngine = getWhisperEngine();
+            if (localEngine && modelPath) {
+              try {
+                const audio16k = resampleTo16k(audio, hwRate);
+                const result = await localEngine.transcribe(audio16k, modelPath, { language: 'en', threads: 4 });
+                if (result.text.trim()) {
+                  finalText = result.text.trim();
+                }
+                appendSessionStat(deps.kv, computeSessionStats(result.segments ?? []));
+              } catch (fallbackErr) {
+                console.warn('[global-capture] local fallback also failed:', fallbackErr);
+              }
+            }
+          } else {
+            console.warn('[global-capture] whisper transcription failed, using SF result:', err);
+          }
         }
       } else {
         toast('Whisper model not downloaded — using Apple Speech. Download in Settings → Voice.', 'info');
@@ -505,12 +539,14 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     finalText = normalizeTranscript(finalText, kvGet);
 
     // Route the transcript — C-10b: pass focused-pane opts when available.
+    // C-10c: pass the dispatch provider from KV (defaults to 'claude').
     setState('routing');
     try {
       const result = routeTranscript(finalText, deps.emit, deps.clipboard, {
         focusedSessionId: deps.getFocusedSessionId?.() ?? null,
         injectToPane: deps.injectToPane?.() ?? false,
         ptyWrite: deps.ptyWrite,
+        dispatchProvider: kvGet('voice.dispatchProvider') ?? 'claude',
       });
       if (result.toast) {
         toast(result.toast, 'info');

@@ -91,6 +91,12 @@ async function invokeGlobalCapture<T = unknown>(
 const KV_ROUTE_TO_FOCUSED_PANE = 'voice.routeToFocusedPane';
 // C-11 — KV key for the "Hey Sigma" always-on listening mode toggle.
 const KV_LISTENING_MODE = 'voice.listeningMode';
+// C-10c — transcription engine and dispatch provider KV keys.
+const KV_TRANSCRIPTION_MODE = 'voice.transcriptionMode';
+const KV_DISPATCH_PROVIDER = 'voice.dispatchProvider';
+
+type TranscriptionMode = 'local' | 'gemini-cli';
+type DispatchProvider = 'claude' | 'codex' | 'gemini';
 
 function GlobalCaptureSection() {
   const [status, setStatus] = useState<GlobalCaptureStatus | null>(null);
@@ -100,6 +106,9 @@ function GlobalCaptureSection() {
   const [pressedKeys, setPressedKeys] = useState('');
   const [routeToFocusedPane, setRouteToFocusedPane] = useState(false);
   const [listeningMode, setListeningMode] = useState(false);
+  // C-10c — transcription engine + dispatch-provider selectors.
+  const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode>('local');
+  const [dispatchProvider, setDispatchProvider] = useState<DispatchProvider>('claude');
   const hotkeyInputRef = useRef<HTMLButtonElement>(null);
 
   // Load status on mount
@@ -120,6 +129,17 @@ function GlobalCaptureSection() {
       try {
         const raw = await rpc.kv.get(KV_LISTENING_MODE);
         setListeningMode(raw === '1');
+      } catch { /* best-effort */ }
+      // C-10c — load transcription engine + dispatch provider from KV
+      try {
+        const rawMode = await rpc.kv.get(KV_TRANSCRIPTION_MODE);
+        if (rawMode === 'gemini-cli') setTranscriptionMode('gemini-cli');
+      } catch { /* best-effort */ }
+      try {
+        const rawProvider = await rpc.kv.get(KV_DISPATCH_PROVIDER);
+        if (rawProvider === 'codex' || rawProvider === 'gemini') {
+          setDispatchProvider(rawProvider);
+        }
       } catch { /* best-effort */ }
     })();
   }, []);
@@ -199,6 +219,22 @@ function GlobalCaptureSection() {
       setListeningMode(!next);
     }
   }, [listeningMode]);
+
+  // C-10c — transcription engine toggle (Local Whisper / Gemini CLI)
+  const onSetTranscriptionMode = useCallback(async (next: TranscriptionMode) => {
+    setTranscriptionMode(next);
+    try {
+      await rpc.kv.set(KV_TRANSCRIPTION_MODE, next);
+    } catch { /* best-effort */ }
+  }, []);
+
+  // C-10c — dispatch-provider selector (Claude Code / Codex / Gemini)
+  const onSetDispatchProvider = useCallback(async (next: DispatchProvider) => {
+    setDispatchProvider(next);
+    try {
+      await rpc.kv.set(KV_DISPATCH_PROVIDER, next);
+    } catch { /* best-effort */ }
+  }, []);
 
   const onStartHotkeyCapture = useCallback(() => {
     setCapturingHotkey(true);
@@ -465,6 +501,60 @@ function GlobalCaptureSection() {
               automatically on macOS.
             </div>
           )}
+        </div>
+
+        {/* C-10c — Transcription engine segmented control */}
+        <div className="rounded-md border border-border bg-card/40 px-3 py-2">
+          <div className="mb-1.5 flex items-center gap-2">
+            <Settings2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            <span className="text-xs font-medium">Transcription engine</span>
+          </div>
+          <div className="flex gap-1" role="group" aria-label="Transcription engine">
+            {(['local', 'gemini-cli'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={transcriptionMode === m}
+                onClick={() => void onSetTranscriptionMode(m)}
+                data-testid={`voice-transcription-mode-${m}`}
+                className={cn(
+                  'flex-1 rounded border px-2 py-1 text-xs transition',
+                  transcriptionMode === m
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background hover:bg-card',
+                )}
+              >
+                {m === 'local' ? 'Local Whisper' : 'Gemini CLI'}
+              </button>
+            ))}
+          </div>
+          {transcriptionMode === 'gemini-cli' && (
+            <div className="mt-1.5 text-[10px] text-muted-foreground">
+              Gemini CLI transcribes via your installed{' '}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono">gemini</code>
+              {' '}(Claude Code &amp; Codex can&apos;t process audio).
+            </div>
+          )}
+        </div>
+
+        {/* C-10c — Send commands to (dispatch provider) selector */}
+        <div className="rounded-md border border-border bg-card/40 px-3 py-2">
+          <div className="mb-1.5 flex items-center gap-2">
+            <Settings2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            <span className="text-xs font-medium">Send commands to</span>
+          </div>
+          <select
+            value={dispatchProvider}
+            onChange={(e) => void onSetDispatchProvider(e.target.value as DispatchProvider)}
+            data-testid="voice-dispatch-provider-select"
+            className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            aria-label="Dispatch provider"
+          >
+            <option value="claude">Claude Code</option>
+            <option value="codex">Codex</option>
+            <option value="gemini">Gemini</option>
+          </select>
         </div>
 
         {/* C-10b — Dictate into the focused pane toggle */}
