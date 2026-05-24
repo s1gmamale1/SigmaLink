@@ -33,7 +33,7 @@ function makeClipboard() {
 describe('routeTranscript — C-10b focused-pane branch', () => {
   let emit: ReturnType<typeof makeEmit>;
   let clipboard: ReturnType<typeof makeClipboard>;
-  let ptyWrite: ReturnType<typeof vi.fn>;
+  let ptyWrite: ReturnType<typeof vi.fn<(sessionId: string, data: string) => void>>;
 
   beforeEach(() => {
     emit = makeEmit();
