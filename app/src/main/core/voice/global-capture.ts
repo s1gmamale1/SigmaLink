@@ -27,6 +27,7 @@ import { routeTranscript } from './output-router';
 import { getDefaultModel, getModelById, getDownloadedModelPath, MODEL_CATALOG } from './model-registry';
 import { loadNative } from './native-mac';
 import { applyDictionary, type DictionaryEntry } from '../../../shared/voice-dictionary';
+import { computeSessionStats, appendSessionStat, type TranscriptSegment } from './voice-stats';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -388,6 +389,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     }
 
     let finalText = capturedTranscript.trim();
+    let whisperSegments: TranscriptSegment[] = [];
 
     // If whisper.cpp is available and we have PCM audio, prefer it
     const engine = getWhisperEngine();
@@ -406,6 +408,10 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
           });
           if (result.text.trim()) {
             finalText = result.text.trim();
+          }
+          // Capture segments for usage stats (previously discarded).
+          if (Array.isArray(result.segments)) {
+            whisperSegments = result.segments as TranscriptSegment[];
           }
         } catch (err) {
           // Whisper failed — fall through to SFSpeechRecognizer result
@@ -439,6 +445,16 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       toast(`Voice output failed: ${message}`, 'error');
     } finally {
       setState('idle');
+    }
+
+    // Persist session stats best-effort (never blocks or throws).
+    if (whisperSegments.length > 0) {
+      try {
+        const stat = computeSessionStats(whisperSegments);
+        appendSessionStat(deps.kv, stat);
+      } catch {
+        // Non-fatal — stats are informational only.
+      }
     }
   }
 
