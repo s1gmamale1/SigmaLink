@@ -1,14 +1,102 @@
-// C-12 SigmaBench — store tests (in-memory better-sqlite3 + the 0023 migration).
+// C-12 SigmaBench — store tests.
+//
+// vitest runs on the Node ABI, but the repo builds better-sqlite3 for Electron's
+// ABI (`electron-builder install-app-deps`), so the native binary can't be
+// loaded here — every DB test in this repo uses an in-memory fake instead. This
+// `FakeDb` implements the exact better-sqlite3 surface `store.ts` touches
+// (`prepare(sql).run/get/all` + `transaction`) over two JS arrays, dispatching
+// on the statement text. Column/constraint correctness lives in the 0023
+// migration test (asserts the emitted DDL) and is exercised for real by the
+// production path + the Electron smoke test.
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { up as migrate0023 } from '../db/migrations/0023_benchmark_runs';
 import { createRun, finishRun, getRun, listRuns } from './store';
 
+interface RunRow {
+  id: string;
+  created_at: number;
+  category: string;
+  task_prompt: string;
+  status: string;
+}
+interface ResultRow {
+  run_id: string;
+  session_id: string;
+  provider: string;
+  changed_files: string;
+  conflict_score: number | null;
+  exit_code: number | null;
+}
+
+class FakeDb {
+  runs: RunRow[] = [];
+  results: ResultRow[] = [];
+
+  prepare(sql: string) {
+    const s = sql.replace(/\s+/g, ' ').trim();
+    return {
+      run: (...args: unknown[]) => {
+        if (s.startsWith('INSERT INTO benchmark_runs')) {
+          const [id, created_at, category, task_prompt] = args as [string, number, string, string];
+          this.runs.push({ id, created_at, category, task_prompt, status: 'running' });
+        } else if (s.startsWith('INSERT INTO benchmark_results')) {
+          if (s.includes("'[]'")) {
+            // createRun placeholder: (run_id, session_id, provider)
+            const [run_id, session_id, provider] = args as [string, string, string];
+            this.results.push({
+              run_id,
+              session_id,
+              provider,
+              changed_files: '[]',
+              conflict_score: null,
+              exit_code: null,
+            });
+          } else {
+            // finishRun: (run_id, session_id, provider, changed_files, conflict_score, exit_code)
+            const [run_id, session_id, provider, changed_files, conflict_score, exit_code] =
+              args as [string, string, string, string, number | null, number | null];
+            this.results.push({ run_id, session_id, provider, changed_files, conflict_score, exit_code });
+          }
+        } else if (s.startsWith('DELETE FROM benchmark_results')) {
+          const [run_id] = args as [string];
+          this.results = this.results.filter((r) => r.run_id !== run_id);
+        } else if (s.startsWith('UPDATE benchmark_runs SET status')) {
+          const [status, id] = args as [string, string];
+          const row = this.runs.find((r) => r.id === id);
+          if (row) row.status = status;
+        }
+        return { changes: 0, lastInsertRowid: 0 };
+      },
+      get: (...args: unknown[]) => {
+        if (s.includes('FROM benchmark_runs') && s.includes('WHERE id')) {
+          const [id] = args as [string];
+          return this.runs.find((r) => r.id === id);
+        }
+        return undefined;
+      },
+      all: (...args: unknown[]) => {
+        if (s.includes('FROM benchmark_results') && s.includes('WHERE run_id')) {
+          const [run_id] = args as [string];
+          return this.results.filter((r) => r.run_id === run_id);
+        }
+        if (s.includes('FROM benchmark_runs') && s.includes('ORDER BY created_at DESC')) {
+          return [...this.runs].sort((a, b) => b.created_at - a.created_at);
+        }
+        return [];
+      },
+    };
+  }
+
+  transaction<T extends (...a: never[]) => unknown>(fn: T): T {
+    return ((...a: never[]) => fn(...a)) as T;
+  }
+
+  close() {}
+}
+
 function freshDb(): Database.Database {
-  const db = new Database(':memory:');
-  migrate0023(db);
-  return db;
+  return new FakeDb() as unknown as Database.Database;
 }
 
 describe('sigmabench store', () => {

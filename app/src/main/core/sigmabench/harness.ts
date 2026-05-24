@@ -148,10 +148,10 @@ export async function runConflictBench(
     mission: input.taskPrompt,
     preset: 'custom',
     name: `SigmaBench: ${category}`,
-    // RoleAssignment doesn't declare `initialPrompt`; we attach it so the
-    // harness contract holds. createSwarm ignores unknown fields, and the
-    // production wrapper threads it through to each agent's spawn.
-    roster: roster as unknown as CreateSwarmInput['roster'],
+    // Each entry carries an `initialPrompt` (now declared on RoleAssignment) so
+    // the factory spawns every benched agent already working the task — without
+    // it the agents idle and the bench is hollow.
+    roster,
   };
 
   let swarm: Swarm;

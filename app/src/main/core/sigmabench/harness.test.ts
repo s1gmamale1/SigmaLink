@@ -68,7 +68,7 @@ function baseDeps(overrides: Partial<HarnessDeps> = {}): {
 
   // All agents exited immediately, each with a worktree.
   const readSwarmStatuses = vi.fn(
-    async (_swarmId: string): Promise<SwarmStatusSnapshot[]> => [
+    async (): Promise<SwarmStatusSnapshot[]> => [
       { sessionId: 'sess-0', status: 'exited', worktreePath: '/wt/claude', exitCode: 0 },
       { sessionId: 'sess-1', status: 'exited', worktreePath: '/wt/codex', exitCode: 0 },
       { sessionId: 'sess-2', status: 'exited', worktreePath: '/wt/gemini', exitCode: 0 },

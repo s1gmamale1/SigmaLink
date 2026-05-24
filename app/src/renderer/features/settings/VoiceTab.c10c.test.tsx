@@ -23,8 +23,8 @@ import React from 'react';
 // vi.mock is hoisted so we use vi.hoisted() to create shared mock fns that
 // are available inside the factory AND in the test body.
 const { mockKvGet, mockKvSet } = vi.hoisted(() => ({
-  mockKvGet: vi.fn(async (_key: string) => null as string | null),
-  mockKvSet: vi.fn(async (_key: string, _value: string) => undefined),
+  mockKvGet: vi.fn<(key: string) => Promise<string | null>>(async () => null),
+  mockKvSet: vi.fn<(key: string, value: string) => Promise<void>>(async () => undefined),
 }));
 
 vi.mock('@/renderer/lib/rpc', () => ({
@@ -69,7 +69,7 @@ vi.mock('@/lib/utils', () => ({
 // Provide a minimal window.sigma bridge so GlobalCaptureSection doesn't throw.
 Object.assign(window, {
   sigma: {
-    invoke: vi.fn(async (_ch: string, _payload?: unknown) => ({ ok: true, data: null })),
+    invoke: vi.fn(async () => ({ ok: true, data: null })),
     eventOn: vi.fn(() => () => undefined),
   },
 });

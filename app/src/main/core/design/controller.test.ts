@@ -10,7 +10,7 @@ vi.mock('./picker', () => {
     stop = vi.fn();
     stopAll = vi.fn();
     getSessionByToken = vi.fn().mockReturnValue(null);
-    constructor(_opts: unknown) {}
+    constructor() {}
   }
   return { DesignPickerRuntime };
 });
@@ -19,7 +19,7 @@ vi.mock('./staging', () => {
   class DesignStaging {
     attach = vi.fn();
     ensureCanvasDir = vi.fn();
-    constructor(_opts: unknown) {}
+    constructor() {}
   }
   return { DesignStaging };
 });
@@ -29,7 +29,7 @@ vi.mock('./hmr-poke', () => {
     setRoots = vi.fn();
     reloadTab = vi.fn();
     shutdown = vi.fn();
-    constructor(_opts: unknown) {}
+    constructor() {}
   }
   return { HmrPoke };
 });

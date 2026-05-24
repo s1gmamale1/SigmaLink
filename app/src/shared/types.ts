@@ -128,6 +128,13 @@ export interface RoleAssignment {
   modelId?: string;
   /** V3-W12-018: per-row auto-approve toggle. Defaults to false. */
   autoApprove?: boolean;
+  /**
+   * C-12 SigmaBench: per-agent initial prompt sent to the CLI at spawn (via
+   * buildExtraArgs / stdin). Optional — legacy roster callers leave it unset
+   * and agents spawn idle as before; SigmaBench sets it so each benched agent
+   * autonomously works the task.
+   */
+  initialPrompt?: string;
 }
 
 export interface SwarmAgent {

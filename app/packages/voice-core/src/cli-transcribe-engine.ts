@@ -3,8 +3,9 @@
 // Implements the WhisperEngine interface by shelling out to an external CLI
 // (default: `gemini`) with the audio encoded as a temporary WAV file.
 //
-// The `modelPath` argument from the WhisperEngine contract is IGNORED — the
-// CLI decides its own model internally. It is accepted to satisfy the interface.
+// The `modelPath`/`opts` arguments from the WhisperEngine contract are omitted —
+// the CLI decides its own model internally, and a shorter arity still satisfies
+// the interface (function-parameter contravariance).
 //
 // Design goals:
 //   - Zero Electron / native dependencies: only node:child_process + node:os.
@@ -17,10 +18,7 @@ import { spawn as defaultSpawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { encodeWav } from './wav-encode.js';
 import type { WhisperEngine } from './whisper-engine.js';
-import type {
-  TranscribeOpts,
-  TranscribeResult,
-} from '@sigmalink/voice-whisper';
+import type { TranscribeResult } from '@sigmalink/voice-whisper';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -89,11 +87,10 @@ export function buildCliTranscribeEngine(
     'Transcribe the attached audio verbatim. Output only the transcript text.';
 
   return {
-    async transcribe(
-      audio: Float32Array,
-      _modelPath: string,
-      _opts?: TranscribeOpts,
-    ): Promise<TranscribeResult> {
+    // modelPath/opts from the WhisperEngine contract are intentionally omitted:
+    // the CLI picks its own model, and a shorter arity still satisfies the
+    // interface (function-parameter contravariance).
+    async transcribe(audio: Float32Array): Promise<TranscribeResult> {
       // 1. Encode audio to WAV
       const wavBuffer = encodeWav(audio, 16000);
 

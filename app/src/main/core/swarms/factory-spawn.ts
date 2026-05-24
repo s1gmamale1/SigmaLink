@@ -336,7 +336,7 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
 export interface MaterializeRosterAgentArgs {
   swarmId: string;
   wsRow: typeof workspacesTable.$inferSelect;
-  assignment: { role: Role; roleIndex: number; providerId: string };
+  assignment: { role: Role; roleIndex: number; providerId: string; initialPrompt?: string };
   coordinatorId: string | null;
   baseRef?: string;
   now: number;
@@ -390,6 +390,7 @@ export async function materializeRosterAgent(
       providerId: assignment.providerId,
       baseRef,
       agentKey: aKey,
+      initialPrompt: assignment.initialPrompt,
       deps,
     });
     sessionStatus = 'idle';
