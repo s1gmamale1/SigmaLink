@@ -1,0 +1,74 @@
+SigmaLink v1.16.0 — 2026-05-24
+==============================
+
+v1.16.0 — "Glanceable swarm" (Milestone M1 of the BridgeMind-competitive
+roadmap). At a glance: every pane shows its branch + model + uncommitted
+count, panes stay legible at 8+, and the agent roster + cross-agent chat are
+now one click away in the Command Room right-rail.
+
+This wave is REUSE-heavy by design. Code-verified planning found the swarm
+chat (SideChat) and agent roster (RoleRoster) already existed in the separate
+full-screen Swarm Room and that swarm messages are already pushed live into
+global state — so M1 surfaces and wires those, rather than rebuilding them.
+Brainstorm -> spec -> code-verified plan -> 2 parallel worktree-isolated
+coders, lead-merged with one combined hard gate in main.
+
+Spec: docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md
+Plan: M0.3 + M1 (per-pane info bar, density, agent index, swarm chat).
+
+
+C-1 — Per-pane info bar
+-----------------------
+
+- The pane header strip now shows, inline: branch (git-branch icon), the
+  model short label, and a "±N" badge of uncommitted files for the pane's
+  worktree. Reuses the existing git.status(cwd) RPC (no new channel) and the
+  existing DEFAULT_MODELS[providerId] lookup (there is no session.model field).
+- PaneShell best-effort-polls git status every 15s; never throws.
+
+
+C-3 — Grid density
+------------------
+
+- The pane grid derives a density tier from pane count — comfortable (<=4),
+  compact (5-9), dense (>=10) — exposed as data-density on the grid root and a
+  --pane-font-scale CSS var (1 / .9 / .8) consumed by the pane header so 8+
+  panes stay readable. The existing drag-resize (colFracs) is unchanged.
+
+
+C-2 / C-4 — Swarm tab in the right-rail
+---------------------------------------
+
+- New "Swarm" tab (right-rail + top-bar switcher) hosting:
+  - Agent roster (RoleRoster, read-only) with role - provider - status - a
+    live "last activity" line derived from the push-live swarm mailbox.
+    Clicking an agent focuses its pane (SET_ACTIVE_SESSION via its sessionId).
+  - The operator-injectable swarm chat (SideChat) — broadcast or target a
+    single agent — surfaced alongside the panes instead of only in the
+    separate Swarm Room. Tail-hydrated on open; live thereafter.
+- Per-agent status is stale-until-reload (no swarm:agent-updated IPC event
+  yet) — the live signal is the derived "last activity". A real-time
+  per-agent status event is deferred.
+
+
+Deferred / not in this release
+------------------------------
+
+- M0.3 (post-task verdict auto-store hook) — SHELVED. A standalone .claude
+  hook can only WRITE via the claude-flow CLI, but the running MCP daemon's
+  loaded HNSW index does not observe an external process's file write
+  same-session, so hook-written verdicts are not live-retrievable. The proper
+  fix is the deferred per-workspace HTTP-daemon write path; M0.3 is downstream
+  of it. (M0.1 upstream PR + M0.2 win32 dogfood remain operator-only.)
+
+
+Gate
+----
+
+- tsc -b (strict, includes test files)
+- eslint 0 errors / 0 warnings
+- vitest 116 files / 1269 pass / 1 skip
+- vite build + electron:compile clean
+- Playwright smoke e2e in main (36 s)
+
+No schema migrations in v1.16.0.

@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-05-24
+
+v1.16.0 — **"Glanceable swarm"** (Milestone M1 of the BridgeMind-competitive roadmap). Every pane shows its branch · model · uncommitted count; panes stay legible at 8+; the agent roster + cross-agent chat are one click away in the Command Room right-rail. Reuse-heavy by design — code-verified planning found the chat (`SideChat`) and roster (`RoleRoster`) already existed in the separate Swarm Room with messages already pushed live into global state, so M1 surfaces + wires rather than rebuilds. Brainstorm→spec→code-verified plan→2 parallel worktree-isolated coders, lead-merged with one combined hard gate in main. Spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
+
+### Added
+
+- **C-1 — Per-pane info bar:** the pane header shows inline `branch · model · ±N uncommitted` for the pane's worktree. Reuses the existing `git.status(cwd)` RPC and the `DEFAULT_MODELS[providerId]` lookup; `PaneShell` best-effort-polls every 15 s (`PaneHeader.tsx`, `PaneShell.tsx`).
+- **C-3 — Grid density:** the pane grid derives a density tier from pane count — `comfortable` (≤4) / `compact` (5–9) / `dense` (≥10) — exposed as `data-density` + a `--pane-font-scale` var consumed by the pane header so 8+ panes stay readable. Existing drag-resize unchanged (`GridLayout.tsx`).
+- **C-2 / C-4 — Swarm tab:** a new right-rail "Swarm" tab (+ top-bar switcher) hosts the read-only agent roster (role · provider · status · live "last activity" derived from the mailbox; click an agent → focuses its pane) above the operator-injectable swarm chat (`SideChat`, surfaced from the Swarm Room) (`SwarmRailTab.tsx`, `RoleRoster.tsx`, `RightRail*.tsx`, `RightRailSwitcher.tsx`).
+
+### Changed
+
+- `RoleRoster` gained additive `onFocusPane` + `lastActivity` props (no behavior change for `SwarmCreate`).
+- Reverted a redundant `panes.gitStatus` RPC introduced mid-build — `git.status(cwd)` already existed (allowlisted + typed); `PaneShell` uses it directly.
+
+### Deferred
+
+- **M0.3 (post-task verdict auto-store) — shelved.** A standalone `.claude` hook can only write via the claude-flow CLI, but the running MCP daemon's loaded HNSW index does not observe an external process's file write same-session, so hook-written verdicts aren't live-retrievable. Proper fix is the deferred per-workspace HTTP-daemon write path; M0.3 is downstream of it. M0.1 (upstream PR) + M0.2 (win32 dogfood) remain operator-only.
+
 ## [1.15.0] - 2026-05-22
 
 v1.15.0 — **Ruflo MCP works end-to-end** (shared store + seeding + namespace convention + health round-trip). Closes the "memory never helps" problem traced live on 2026-05-22: the store was never empty — `memory_search` defaults to the near-empty `default` namespace, `pattern`/`patterns` are split, and only `memory_search_unified` sweeps namespaces. Brainstorm→spec→plan→3 parallel coders (Approach C — convention + config, no enforcement proxy). Spec: `docs/superpowers/specs/2026-05-22-ruflo-mcp-fix-design.md`.
