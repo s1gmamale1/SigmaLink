@@ -21,6 +21,7 @@ import { Constellation } from './Constellation';
 import { ActivityFeed } from './ActivityFeed';
 import { ReplayScrubber, type ReplayFrame } from './ReplayScrubber';
 import { OriginLink } from './OriginLink';
+import { OrchestratorPanel } from './OrchestratorPanel';
 
 interface LedgerPayload {
   swarmId: string;
@@ -248,14 +249,7 @@ export function OperatorConsole() {
         ) : null}
 
         {tab === 'chat' && activeSwarm ? (
-          <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
-            <div className="flex flex-col items-center gap-1 text-center">
-              <span className="text-sm font-medium text-foreground">
-                Chat — {messages.length} messages · filter: {filter}
-              </span>
-              <span>Wire the live chat tail in V3-W13.</span>
-            </div>
-          </div>
+          <OrchestratorPanel />
         ) : null}
 
         {tab === 'activity' && activeSwarm ? (
