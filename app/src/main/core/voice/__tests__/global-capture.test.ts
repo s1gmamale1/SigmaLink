@@ -406,7 +406,7 @@ describe('normalizeTranscript', () => {
   });
 
   it('returns original text when KV has no dictionary key', () => {
-    const kvGet = (_key: string) => null;
+    const kvGet = () => null;
     expect(normalizeTranscript('hello world', kvGet)).toBe('hello world');
   });
 
