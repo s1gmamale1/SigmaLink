@@ -21,6 +21,7 @@
 
 import { toast } from 'sonner';
 import { rpc } from '@/renderer/lib/rpc';
+import { applyDictionary, type DictionaryEntry } from '@/shared/voice-dictionary';
 
 export type VoiceSource = 'mission' | 'assistant' | 'palette';
 
@@ -202,7 +203,22 @@ export async function startCapture(opts: VoiceCaptureOptions): Promise<VoiceCapt
     }
     if (interim) opts.onPartial?.(interim);
     if (finalText) {
-      opts.onFinal?.(finalText.trim());
+      // Apply phrase/macro dictionary before delivering the final transcript.
+      void (async () => {
+        let normalized = finalText.trim();
+        try {
+          const raw = await rpc.kv.get('voice.dictionary');
+          if (raw) {
+            const entries = JSON.parse(raw) as DictionaryEntry[];
+            if (Array.isArray(entries)) {
+              normalized = applyDictionary(normalized, entries);
+            }
+          }
+        } catch {
+          // KV unavailable or malformed — deliver original transcript.
+        }
+        opts.onFinal?.(normalized);
+      })();
     }
   };
   recognizer.onerror = (e: SpeechRecognitionErrorEvent) => {

@@ -15,10 +15,12 @@
 // quietly when the controller isn't booted (e.g. very early Settings open).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, Keyboard, Mic, Radio, RefreshCw, Settings2 } from 'lucide-react';
+import { BookOpen, Download, Keyboard, Mic, Radio, RefreshCw, Settings2, Terminal, BarChart2 } from 'lucide-react';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import { IS_WIN32, getPlatform } from '@/renderer/lib/platform';
 import { cn } from '@/lib/utils';
+import type { DictionaryEntry } from '@/shared/voice-dictionary';
+import type { SessionStat } from '@/main/core/voice/voice-stats';
 
 // ---------------------------------------------------------------------------
 // v1.4.9 — Global capture types
@@ -555,6 +557,325 @@ async function invokeVoiceDiagnostics(): Promise<DiagnosticsResult> {
   throw new Error(env.error);
 }
 
+// ---------------------------------------------------------------------------
+// C-10a — Dictionary editor section
+// ---------------------------------------------------------------------------
+
+function DictionarySection() {
+  const [entries, setEntries] = useState<DictionaryEntry[]>([]);
+  const [newPattern, setNewPattern] = useState('');
+  const [newReplacement, setNewReplacement] = useState('');
+  const [newType, setNewType] = useState<'phrase' | 'macro'>('phrase');
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const raw = await rpc.kv.get('voice.dictionary');
+        if (raw) {
+          const parsed = JSON.parse(raw) as DictionaryEntry[];
+          if (Array.isArray(parsed)) setEntries(parsed);
+        }
+      } catch { /* best-effort */ }
+    })();
+  }, []);
+
+  const persist = useCallback(async (next: DictionaryEntry[]) => {
+    setEntries(next);
+    try {
+      await rpc.kv.set('voice.dictionary', JSON.stringify(next));
+    } catch { /* best-effort */ }
+  }, []);
+
+  const onAdd = useCallback(async () => {
+    const pattern = newPattern.trim();
+    const replacement = newReplacement;
+    if (!pattern) return;
+    const entry: DictionaryEntry = { pattern, replacement, type: newType };
+    await persist([...entries.filter((e) => e.type === 'phrase' || e.type === 'macro'), entry]);
+    setNewPattern('');
+    setNewReplacement('');
+  }, [entries, newPattern, newReplacement, newType, persist]);
+
+  const onRemove = useCallback(async (idx: number) => {
+    const next = entries.filter((_, i) => i !== idx);
+    await persist(next);
+  }, [entries, persist]);
+
+  const phrases = entries.filter((e) => e.type === 'phrase');
+
+  return (
+    <section data-testid="voice-dictionary-section">
+      <div className="mb-2 flex items-center gap-2">
+        <BookOpen className="h-4 w-4 text-muted-foreground" aria-hidden />
+        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Voice dictionary
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        {phrases.length === 0 ? (
+          <div className="rounded-md border border-border bg-card/30 px-3 py-2 text-[11px] text-muted-foreground">
+            No phrase substitutions yet. Add one below.
+          </div>
+        ) : (
+          phrases.map((entry, i) => {
+            const globalIdx = entries.indexOf(entry);
+            return (
+              <div
+                key={i}
+                className="flex items-center gap-2 rounded-md border border-border bg-card/40 px-3 py-1.5 text-xs"
+              >
+                <span className="flex-1 font-mono">{entry.pattern}</span>
+                <span className="text-muted-foreground">→</span>
+                <span className="flex-1 font-mono">{entry.replacement}</span>
+                <button
+                  type="button"
+                  onClick={() => void onRemove(globalIdx)}
+                  className="ml-2 rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/10"
+                >
+                  Remove
+                </button>
+              </div>
+            );
+          })
+        )}
+        {/* Add entry row */}
+        <div className="flex items-center gap-2 pt-1">
+          <input
+            type="text"
+            placeholder="Spoken phrase"
+            value={newPattern}
+            onChange={(e) => setNewPattern(e.target.value)}
+            data-testid="voice-dict-pattern-input"
+            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <input
+            type="text"
+            placeholder="Replacement"
+            value={newReplacement}
+            onChange={(e) => setNewReplacement(e.target.value)}
+            data-testid="voice-dict-replacement-input"
+            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <select
+            value={newType}
+            onChange={(e) => setNewType(e.target.value as 'phrase' | 'macro')}
+            data-testid="voice-dict-type-select"
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="phrase">Phrase</option>
+            <option value="macro">Macro</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => void onAdd()}
+            data-testid="voice-dict-add-btn"
+            disabled={!newPattern.trim()}
+            className={cn(
+              'rounded-md border border-border bg-background px-3 py-1 text-xs transition hover:bg-card',
+              'disabled:cursor-not-allowed disabled:opacity-60',
+            )}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// C-10a — Macro list section
+// ---------------------------------------------------------------------------
+
+function MacrosSection() {
+  const [entries, setEntries] = useState<DictionaryEntry[]>([]);
+  const [newPattern, setNewPattern] = useState('');
+  const [newReplacement, setNewReplacement] = useState('');
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const raw = await rpc.kv.get('voice.dictionary');
+        if (raw) {
+          const parsed = JSON.parse(raw) as DictionaryEntry[];
+          if (Array.isArray(parsed)) setEntries(parsed);
+        }
+      } catch { /* best-effort */ }
+    })();
+  }, []);
+
+  const persist = useCallback(async (allEntries: DictionaryEntry[]) => {
+    setEntries(allEntries);
+    try {
+      await rpc.kv.set('voice.dictionary', JSON.stringify(allEntries));
+    } catch { /* best-effort */ }
+  }, []);
+
+  const onAdd = useCallback(async () => {
+    const pattern = newPattern.trim();
+    if (!pattern) return;
+    const entry: DictionaryEntry = { pattern, replacement: newReplacement, type: 'macro' };
+    await persist([...entries, entry]);
+    setNewPattern('');
+    setNewReplacement('');
+  }, [entries, newPattern, newReplacement, persist]);
+
+  const onRemove = useCallback(async (idx: number) => {
+    await persist(entries.filter((_, i) => i !== idx));
+  }, [entries, persist]);
+
+  const macros = entries.filter((e) => e.type === 'macro');
+
+  return (
+    <section data-testid="voice-macros-section">
+      <div className="mb-2 flex items-center gap-2">
+        <Terminal className="h-4 w-4 text-muted-foreground" aria-hidden />
+        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Voice macros
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        {macros.length === 0 ? (
+          <div className="rounded-md border border-border bg-card/30 px-3 py-2 text-[11px] text-muted-foreground">
+            No macros yet. Add a verbal command below.
+          </div>
+        ) : (
+          macros.map((entry, i) => {
+            const globalIdx = entries.indexOf(entry);
+            return (
+              <div
+                key={i}
+                className="flex items-center gap-2 rounded-md border border-border bg-card/40 px-3 py-1.5 text-xs"
+              >
+                <span className="flex-1 font-mono">{entry.pattern}</span>
+                <span className="text-muted-foreground">→</span>
+                <span className="flex-1 font-mono text-[10px] text-muted-foreground">
+                  {JSON.stringify(entry.replacement)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void onRemove(globalIdx)}
+                  className="ml-2 rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/10"
+                >
+                  Remove
+                </button>
+              </div>
+            );
+          })
+        )}
+        <div className="flex items-center gap-2 pt-1">
+          <input
+            type="text"
+            placeholder="Spoken command"
+            value={newPattern}
+            onChange={(e) => setNewPattern(e.target.value)}
+            data-testid="voice-macro-pattern-input"
+            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <input
+            type="text"
+            placeholder='Expansion (e.g. "\n")'
+            value={newReplacement}
+            onChange={(e) => setNewReplacement(e.target.value)}
+            data-testid="voice-macro-replacement-input"
+            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <button
+            type="button"
+            onClick={() => void onAdd()}
+            data-testid="voice-macro-add-btn"
+            disabled={!newPattern.trim()}
+            className={cn(
+              'rounded-md border border-border bg-background px-3 py-1 text-xs transition hover:bg-card',
+              'disabled:cursor-not-allowed disabled:opacity-60',
+            )}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// C-10a — Usage dashboard section
+// ---------------------------------------------------------------------------
+
+function UsageSection() {
+  const [stats, setStats] = useState<SessionStat[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const raw = await rpc.kv.get('voice.stats');
+        if (raw) {
+          const parsed = JSON.parse(raw) as SessionStat[];
+          if (Array.isArray(parsed)) setStats(parsed);
+        }
+      } catch { /* best-effort */ }
+    })();
+  }, []);
+
+  const totalWords = stats.reduce((sum, s) => sum + (s.words ?? 0), 0);
+  const avgWpm =
+    stats.length > 0
+      ? Math.round(stats.reduce((sum, s) => sum + (s.wpm ?? 0), 0) / stats.length)
+      : 0;
+  const recent = stats.slice(-5).reverse();
+
+  return (
+    <section data-testid="voice-usage-section">
+      <div className="mb-2 flex items-center gap-2">
+        <BarChart2 className="h-4 w-4 text-muted-foreground" aria-hidden />
+        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Usage
+        </div>
+      </div>
+      {stats.length === 0 ? (
+        <div className="rounded-md border border-border bg-card/30 px-3 py-2 text-[11px] text-muted-foreground">
+          No sessions recorded yet. Use global capture to start tracking usage.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-4 rounded-md border border-border bg-card/40 px-3 py-2 text-xs">
+            <div>
+              <span className="font-medium">{totalWords.toLocaleString()}</span>
+              <span className="ml-1 text-muted-foreground">total words</span>
+            </div>
+            <div>
+              <span className="font-medium">{avgWpm}</span>
+              <span className="ml-1 text-muted-foreground">avg WPM</span>
+            </div>
+            <div>
+              <span className="font-medium">{stats.length}</span>
+              <span className="ml-1 text-muted-foreground">sessions</span>
+            </div>
+          </div>
+          {recent.length > 0 && (
+            <div className="rounded-md border border-border bg-card/30 px-3 py-2">
+              <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                Recent sessions
+              </div>
+              <div className="flex flex-col gap-1">
+                {recent.map((s, i) => (
+                  <div key={i} className="flex gap-3 text-[11px]">
+                    <span className="w-16 text-right font-mono">{s.words}w</span>
+                    <span className="text-muted-foreground">{Math.round(s.wpm)} WPM</span>
+                    <span className="text-muted-foreground">
+                      {(s.durationMs / 1000).toFixed(1)}s
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function VoiceTab() {
   const [mode, setMode] = useState<'off' | 'auto' | 'on'>('auto');
   const [permission, setPermission] = useState<PermissionStatus>('undetermined');
@@ -617,6 +938,11 @@ export function VoiceTab() {
     <div className="flex flex-col gap-6" data-testid="voice-settings-tab">
       {/* v1.4.9 — Global capture section */}
       <GlobalCaptureSection />
+
+      {/* C-10a — Dictionary, macros, usage */}
+      <DictionarySection />
+      <MacrosSection />
+      <UsageSection />
 
       <section>
         <div className="mb-2 flex items-center gap-2">

@@ -67,7 +67,7 @@ vi.mock('../model-registry', () => {
   };
 });
 
-import { buildGlobalCaptureController, resampleTo16k, NATIVE_PCM_SAMPLE_RATE, WHISPER_SAMPLE_RATE } from '../global-capture';
+import { buildGlobalCaptureController, resampleTo16k, NATIVE_PCM_SAMPLE_RATE, WHISPER_SAMPLE_RATE, normalizeTranscript } from '../global-capture';
 import { globalShortcut } from 'electron';
 import { routeTranscript } from '../output-router';
 
@@ -391,5 +391,32 @@ describe('GlobalCaptureController — hotkey registration', () => {
     const ctrl = buildGlobalCaptureController(deps);
     // Should not throw even if registration fails
     expect(ctrl.getStatus().enabled).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeTranscript — V2 dictionary wiring
+// ---------------------------------------------------------------------------
+
+describe('normalizeTranscript', () => {
+  it('applies dictionary entries from KV to the transcript', () => {
+    const entries = [{ pattern: 'at coordinator', replacement: '@coordinator', type: 'phrase' }];
+    const kvGet = (key: string) => key === 'voice.dictionary' ? JSON.stringify(entries) : null;
+    expect(normalizeTranscript('tell at coordinator hi', kvGet)).toBe('tell @coordinator hi');
+  });
+
+  it('returns original text when KV has no dictionary key', () => {
+    const kvGet = () => null;
+    expect(normalizeTranscript('hello world', kvGet)).toBe('hello world');
+  });
+
+  it('returns original text when KV value is malformed JSON', () => {
+    const kvGet = (key: string) => key === 'voice.dictionary' ? 'not-json' : null;
+    expect(normalizeTranscript('hello world', kvGet)).toBe('hello world');
+  });
+
+  it('returns original text when dictionary is empty array', () => {
+    const kvGet = (key: string) => key === 'voice.dictionary' ? '[]' : null;
+    expect(normalizeTranscript('hello world', kvGet)).toBe('hello world');
   });
 });
