@@ -89,6 +89,8 @@ async function invokeGlobalCapture<T = unknown>(
 
 // KV key for the C-10b focused-pane routing toggle
 const KV_ROUTE_TO_FOCUSED_PANE = 'voice.routeToFocusedPane';
+// C-11 — KV key for the "Hey Sigma" always-on listening mode toggle.
+const KV_LISTENING_MODE = 'voice.listeningMode';
 
 function GlobalCaptureSection() {
   const [status, setStatus] = useState<GlobalCaptureStatus | null>(null);
@@ -97,6 +99,7 @@ function GlobalCaptureSection() {
   const [capturingHotkey, setCapturingHotkey] = useState(false);
   const [pressedKeys, setPressedKeys] = useState('');
   const [routeToFocusedPane, setRouteToFocusedPane] = useState(false);
+  const [listeningMode, setListeningMode] = useState(false);
   const hotkeyInputRef = useRef<HTMLButtonElement>(null);
 
   // Load status on mount
@@ -112,6 +115,11 @@ function GlobalCaptureSection() {
       try {
         const raw = await rpc.kv.get(KV_ROUTE_TO_FOCUSED_PANE);
         setRouteToFocusedPane(raw === '1');
+      } catch { /* best-effort */ }
+      // C-11 — load the "Hey Sigma" listening-mode toggle from KV
+      try {
+        const raw = await rpc.kv.get(KV_LISTENING_MODE);
+        setListeningMode(raw === '1');
       } catch { /* best-effort */ }
     })();
   }, []);
@@ -178,6 +186,19 @@ function GlobalCaptureSection() {
       await rpc.kv.set(KV_ROUTE_TO_FOCUSED_PANE, next ? '1' : '0');
     } catch { /* best-effort */ }
   }, [routeToFocusedPane]);
+
+  // C-11 — toggle "Hey Sigma" listening mode. Persist + arm/disarm via the
+  // side-band IPC so the main process opens/closes the mic + wake loop.
+  const onToggleListeningMode = useCallback(async () => {
+    const next = !listeningMode;
+    setListeningMode(next);
+    try {
+      await invokeGlobalCapture('setListeningMode', { value: next });
+    } catch {
+      // Revert optimistic state if the controller rejected the change.
+      setListeningMode(!next);
+    }
+  }, [listeningMode]);
 
   const onStartHotkeyCapture = useCallback(() => {
     setCapturingHotkey(true);
@@ -469,6 +490,37 @@ function GlobalCaptureSection() {
               className={cn(
                 'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
                 routeToFocusedPane ? 'translate-x-4' : 'translate-x-0',
+              )}
+            />
+          </button>
+        </div>
+
+        {/* C-11 — "Hey Sigma" always-on wake-word listening toggle */}
+        <div className="flex items-center justify-between rounded-md border border-border bg-card/40 px-3 py-2">
+          <div>
+            <div className="text-sm font-medium">Hey Sigma wake word</div>
+            <div className="text-[11px] text-muted-foreground">
+              Listens continuously and dispatches when you say{' '}
+              <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Hey Sigma</kbd>.
+              Uses the Tiny model for low-power detection (download it above). An energy gate keeps
+              idle CPU low. macOS only.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={listeningMode}
+            onClick={() => void onToggleListeningMode()}
+            data-testid="voice-listening-mode-toggle"
+            className={cn(
+              'relative ml-4 inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors',
+              listeningMode ? 'bg-primary' : 'bg-muted',
+            )}
+          >
+            <span
+              className={cn(
+                'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+                listeningMode ? 'translate-x-4' : 'translate-x-0',
               )}
             />
           </button>
