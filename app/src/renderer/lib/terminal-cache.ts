@@ -59,7 +59,11 @@ export interface TerminalCacheContext {
   /** Click-router function from `Terminal.tsx`. Identity is stable per
    *  module so we accept the latest reference on every getOrCreate call;
    *  the first call wires the addon. */
-  routeLinkClick: (url: string, workspaceId: string | undefined) => void;
+  routeLinkClick: (url: string, workspaceId: string | undefined, surfaceBrowser?: () => void) => void;
+  /** C-8: called (when capture is ON) after the browser RPC resolves to
+   *  surface the browser tab in the right rail. Supplied by the
+   *  `SessionTerminal` component via `useRightRail().setActiveTab`. */
+  surfaceBrowser?: () => void;
 }
 
 export interface CacheEntry {
@@ -149,7 +153,7 @@ function buildTerminalOptions(ctx: TerminalCacheContext): ITerminalOptions {
     // like claude / gh / ripgrep --hyperlink.
     linkHandler: {
       activate: (_event, text) => {
-        ctx.routeLinkClick(text, ctx.wsIdRef.current);
+        ctx.routeLinkClick(text, ctx.wsIdRef.current, ctx.surfaceBrowser);
       },
     },
   };
@@ -206,7 +210,7 @@ export function getOrCreateTerminal(
   term.loadAddon(fit);
   term.loadAddon(
     new WebLinksAddon((_event, uri) => {
-      ctx.routeLinkClick(uri, ctx.wsIdRef.current);
+      ctx.routeLinkClick(uri, ctx.wsIdRef.current, ctx.surfaceBrowser);
     }),
   );
 

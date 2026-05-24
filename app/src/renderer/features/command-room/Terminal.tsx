@@ -44,6 +44,7 @@ import {
   type TerminalCacheContext,
 } from '@/renderer/lib/terminal-cache';
 import { useAppStateSelector } from '@/renderer/app/state';
+import { useRightRail } from '@/renderer/features/right-rail/RightRailContext.data';
 
 interface Props {
   sessionId: string;
@@ -61,7 +62,11 @@ interface Props {
  * `workspaceId` argument is read from a mutable holder the host updates
  * on every workspace change.
  */
-function routeLinkClick(url: string, workspaceId: string | undefined): void {
+function routeLinkClick(
+  url: string,
+  workspaceId: string | undefined,
+  surfaceBrowser?: () => void,
+): void {
   void (async () => {
     let captureEnabled = true;
     try {
@@ -81,6 +86,8 @@ function routeLinkClick(url: string, workspaceId: string | undefined): void {
       } else {
         await rpc.browser.openTab({ workspaceId, url });
       }
+      // C-8: surface the browser tab in the right rail after navigation.
+      surfaceBrowser?.();
     } catch {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
@@ -100,6 +107,9 @@ export function SessionTerminal({ sessionId, className }: Props) {
     wsIdRef.current = activeWorkspaceId;
   }, [activeWorkspaceId]);
 
+  // C-8: surface the browser tab when a terminal link is clicked.
+  const { setActiveTab } = useRightRail();
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -107,6 +117,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
     const ctx: TerminalCacheContext = {
       wsIdRef,
       routeLinkClick,
+      surfaceBrowser: () => setActiveTab('browser'),
     };
     const entry = getOrCreateTerminal(sessionId, ctx);
     attachToHost(entry, container);
@@ -198,7 +209,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
       // the user explicitly removes the pane (REMOVE_SESSION dispatch).
       detachFromHost(entry);
     };
-  }, [sessionId]);
+  }, [sessionId, setActiveTab]);
 
   return <div ref={containerRef} className={className} style={{ width: '100%', height: '100%' }} />;
 }
