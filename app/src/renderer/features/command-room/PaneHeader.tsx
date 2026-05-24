@@ -14,6 +14,7 @@
 // when those callbacks are undefined (legacy callers).
 
 import {
+  ClipboardList,
   Columns2,
   GitBranch,
   Maximize2,
@@ -22,6 +23,13 @@ import {
   Target,
   X,
 } from 'lucide-react';
+import { useState } from 'react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { rpc } from '@/renderer/lib/rpc';
 import { PANE_DRAG_MIME } from '@/renderer/lib/pane-context-builder';
 import { Button } from '@/components/ui/button';
 import {
@@ -302,6 +310,7 @@ export function PaneHeader({
               </Tooltip>
             </TooltipProvider>
           )}
+          <PaneHeaderBriefButton session={session} />
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -321,6 +330,108 @@ export function PaneHeader({
         </div>
       </div>
     </div>
+  );
+}
+
+// C-5 — "Brief this pane" popover. Opens a small form that collects the plan
+// capsule fields (goal, target files, success criteria, out-of-scope) and
+// submits via `rpc.panes.brief`. Disabled when the pane is not running.
+function PaneHeaderBriefButton({ session }: { session: AgentSession }) {
+  const [open, setOpen] = useState(false);
+  const [goal, setGoal] = useState('');
+  const [targetFiles, setTargetFiles] = useState('');
+  const [successCriteria, setSuccessCriteria] = useState('');
+  const [outOfScope, setOutOfScope] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const disabled = session.status !== 'running';
+
+  function splitLines(s: string): string[] {
+    return s.split('\n').map((l) => l.trim()).filter(Boolean);
+  }
+
+  async function handleSubmit(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
+    if (!goal.trim() || busy) return;
+    setBusy(true);
+    try {
+      await rpc.panes.brief({
+        sessionId: session.id,
+        worktreePath: session.worktreePath ?? null,
+        capsule: {
+          goal: goal.trim(),
+          targetFiles: splitLines(targetFiles),
+          successCriteria: splitLines(successCriteria),
+          outOfScope: splitLines(outOfScope),
+        },
+      });
+      setOpen(false);
+      setGoal('');
+      setTargetFiles('');
+      setSuccessCriteria('');
+      setOutOfScope('');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                disabled={disabled}
+                aria-label="Brief this pane"
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Brief this pane (C-5)</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <PopoverContent side="bottom" align="end" className="w-80 p-3">
+        <form onSubmit={(e) => { void handleSubmit(e); }} className="flex flex-col gap-2">
+          <p className="text-xs font-medium">Brief this pane</p>
+          <textarea
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            placeholder="Goal"
+            rows={2}
+            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <textarea
+            value={targetFiles}
+            onChange={(e) => setTargetFiles(e.target.value)}
+            placeholder="Target files (one per line)"
+            rows={2}
+            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <textarea
+            value={successCriteria}
+            onChange={(e) => setSuccessCriteria(e.target.value)}
+            placeholder="Success criteria (one per line)"
+            rows={2}
+            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <textarea
+            value={outOfScope}
+            onChange={(e) => setOutOfScope(e.target.value)}
+            placeholder="Out of scope (one per line)"
+            rows={2}
+            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <Button type="submit" disabled={busy || !goal.trim()} className="mt-1 h-7 text-xs" aria-label="Inject capsule">
+            Inject capsule
+          </Button>
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }
 

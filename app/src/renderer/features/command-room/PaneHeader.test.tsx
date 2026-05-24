@@ -6,7 +6,13 @@
 // the close handler, Split + Minimise are `disabled`, tooltip surfaces cwd.
 
 import { describe, expect, it, vi, afterEach, beforeAll } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+vi.mock('@/renderer/lib/rpc', () => ({
+  rpc: {
+    panes: { brief: vi.fn().mockResolvedValue(undefined) },
+  },
+}));
 import { PaneHeader } from './PaneHeader';
 import type { AgentSession } from '@/shared/types';
 
@@ -355,5 +361,38 @@ describe('PaneHeader', () => {
     const setData = vi.fn();
     fireEvent.dragStart(header, { dataTransfer: { setData } });
     expect(setData).toHaveBeenCalledWith('application/sigmalink-pane', expect.stringContaining('"sessionId":"s1"'));
+  });
+
+  describe('Brief popover (C-5)', () => {
+    it('Brief button is disabled when session is not running', () => {
+      render(<PaneHeader {...base} session={{ ...base.session, status: 'exited' }} />);
+      const briefBtn = screen.getByRole('button', { name: /brief/i });
+      expect((briefBtn as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('Brief button is enabled when session is running', () => {
+      render(<PaneHeader {...base} session={{ ...base.session, status: 'running' }} />);
+      const briefBtn = screen.getByRole('button', { name: /brief/i });
+      expect((briefBtn as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('submitting the Brief form calls rpc.panes.brief with correct capsule', async () => {
+      const { rpc } = await import('@/renderer/lib/rpc');
+      render(<PaneHeader {...base} session={{ ...base.session, id: 'pane-1', worktreePath: '/wt/x', status: 'running' }} />);
+      const briefBtn = screen.getByRole('button', { name: /brief/i });
+      fireEvent.click(briefBtn);
+      // Fill in the goal field
+      const goalField = screen.getByPlaceholderText(/goal/i);
+      fireEvent.change(goalField, { target: { value: 'Add authentication' } });
+      const submitBtn = screen.getByRole('button', { name: /inject/i });
+      fireEvent.click(submitBtn);
+      await waitFor(() => {
+        expect(rpc.panes.brief).toHaveBeenCalledWith(expect.objectContaining({
+          sessionId: 'pane-1',
+          worktreePath: '/wt/x',
+          capsule: expect.objectContaining({ goal: 'Add authentication' }),
+        }));
+      });
+    });
   });
 });
