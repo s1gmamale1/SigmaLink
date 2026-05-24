@@ -14,6 +14,7 @@ export {
   buildGlobalCaptureController,
   resampleTo16k,
   unpackPcmChunk,
+  normalizeTranscript,
   NATIVE_PCM_SAMPLE_RATE,
   WHISPER_SAMPLE_RATE,
 } from './global-capture.js';
@@ -28,7 +29,7 @@ export type {
 
 // ── Output router ──────────────────────────────────────────────────────────
 export { routeTranscript } from './output-router.js';
-export type { OutputTarget, RouteResult, ClipboardApi } from './output-router.js';
+export type { OutputTarget, RouteResult, ClipboardApi, RouteOpts } from './output-router.js';
 
 // ── Whisper engine facade ──────────────────────────────────────────────────
 export {
