@@ -1,6 +1,6 @@
 # SigmaLink — Bounded Contexts (DDD domain map)
 
-Maintained per `sigmalink-milestone-consolidation`. Each context = one clear responsibility, its key modules, and its RPC namespace. The **moat** is per-pane git worktrees: every agent works in an isolated worktree, and the Orchestrator merges by conflict probability.
+Maintained per the `wrap-up` skill. Each context = one clear responsibility, its key modules, and its RPC namespace. The **moat** is per-pane git worktrees: every agent works in an isolated worktree, and the Orchestrator merges by conflict probability.
 
 | Context | Responsibility | Key modules | RPC namespace |
 |---|---|---|---|
