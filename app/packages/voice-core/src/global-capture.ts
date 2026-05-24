@@ -539,12 +539,14 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     finalText = normalizeTranscript(finalText, kvGet);
 
     // Route the transcript — C-10b: pass focused-pane opts when available.
+    // C-10c: pass the dispatch provider from KV (defaults to 'claude').
     setState('routing');
     try {
       const result = routeTranscript(finalText, deps.emit, deps.clipboard, {
         focusedSessionId: deps.getFocusedSessionId?.() ?? null,
         injectToPane: deps.injectToPane?.() ?? false,
         ptyWrite: deps.ptyWrite,
+        dispatchProvider: kvGet('voice.dispatchProvider') ?? 'claude',
       });
       if (result.toast) {
         toast(result.toast, 'info');

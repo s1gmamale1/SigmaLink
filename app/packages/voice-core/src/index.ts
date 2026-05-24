@@ -36,7 +36,10 @@ export {
   getWhisperEngine,
   isWhisperAvailable,
   _resetWhisperEngineCache,
+  resolveTranscriptionEngine,
 } from './whisper-engine.js';
+
+export type { TranscriptionMode } from './whisper-engine.js';
 
 export type {
   WhisperEngine,

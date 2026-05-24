@@ -39,6 +39,11 @@ export interface ClipboardApi {
  * When `injectToPane` is true AND `focusedSessionId` is non-null AND
  * `ptyWrite` is provided, the transcript is written directly into the focused
  * PTY pane (bypassing the assistant dispatch path entirely).
+ *
+ * C-10c — `dispatchProvider`: when the transcript is routed to the SigmaLink
+ * assistant dispatch path (not the focused-pane path), this value is included
+ * in the emitted event payload so the main process can forward the command to
+ * the correct agent provider.  Defaults to `'claude'`.
  */
 export interface RouteOpts {
   /** Session id of the currently focused PTY pane (from main's focusedSessionId). */
@@ -47,6 +52,14 @@ export interface RouteOpts {
   injectToPane?: boolean;
   /** Direct pty.write handle injected from the main entry. */
   ptyWrite?: (sessionId: string, data: string) => void;
+  /**
+   * C-10c — Target provider for voice-dispatched agent commands.
+   * Included in the `voice:dispatch-echo` event payload so the orchestrator
+   * knows which provider to route the command to.
+   * Accepted values: `'claude'` | `'codex'` | `'gemini'` (any string is forwarded).
+   * Defaults to `'claude'` when absent.
+   */
+  dispatchProvider?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -223,12 +236,15 @@ function sendPasteKeystroke(): void {
 function dispatchToSigmaLinkPane(
   transcript: string,
   emit: (event: string, payload: unknown) => void,
+  provider?: string,
 ): void {
   emit('voice:dispatch-echo', {
     intent: 'assistant.freeform',
     controller: 'assistant.send',
     args: { text: transcript },
     raw: transcript,
+    // C-10c — provider for the receiving agent. Defaults to 'claude' when absent.
+    provider: provider ?? 'claude',
   });
 }
 
@@ -270,7 +286,7 @@ export function routeTranscript(
   if (process.platform === 'darwin') {
     const frontmost = getFrontmostBundleId();
     if (frontmost === SIGMALINK_BUNDLE_ID) {
-      dispatchToSigmaLinkPane(transcript, emit);
+      dispatchToSigmaLinkPane(transcript, emit, opts?.dispatchProvider);
       return { target: 'sigmalink-pane', toast: '' };
     }
 
@@ -298,7 +314,7 @@ export function routeTranscript(
   if (process.platform === 'win32') {
     const fgExe = getWindowsForegroundExePath();
     if (fgExe && SIGMALINK_EXE_PATTERN.test(fgExe)) {
-      dispatchToSigmaLinkPane(transcript, emit);
+      dispatchToSigmaLinkPane(transcript, emit, opts?.dispatchProvider);
       return { target: 'sigmalink-pane', toast: '' };
     }
 
@@ -315,7 +331,7 @@ export function routeTranscript(
     if (activePid > 0) {
       const exePath = getLinuxExeForPid(activePid);
       if (exePath && SIGMALINK_EXE_PATTERN.test(exePath)) {
-        dispatchToSigmaLinkPane(transcript, emit);
+        dispatchToSigmaLinkPane(transcript, emit, opts?.dispatchProvider);
         return { target: 'sigmalink-pane', toast: '' };
       }
     }

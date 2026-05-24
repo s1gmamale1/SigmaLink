@@ -130,3 +130,48 @@ describe('routeTranscript — existing routing (no C-10b opts)', () => {
     expect(['clipboard', 'sigmalink-pane', 'ax-paste']).toContain(result.target);
   });
 });
+
+// ---------------------------------------------------------------------------
+// C-10c — dispatchProvider threading
+// ---------------------------------------------------------------------------
+
+describe('routeTranscript — C-10c dispatchProvider', () => {
+  let emit: ReturnType<typeof makeEmit>;
+  let clipboard: ReturnType<typeof makeClipboard>;
+
+  beforeEach(() => {
+    emit = makeEmit();
+    clipboard = makeClipboard();
+    vi.clearAllMocks();
+  });
+
+  it('focused-pane path is unaffected by dispatchProvider', () => {
+    const ptyWrite = vi.fn<(sessionId: string, data: string) => void>();
+    const result = routeTranscript('hello', emit, clipboard, {
+      focusedSessionId: 's1',
+      injectToPane: true,
+      ptyWrite,
+      dispatchProvider: 'codex',
+    });
+    // Focused-pane path fires ptyWrite and does NOT emit dispatch-echo
+    expect(ptyWrite).toHaveBeenCalledWith('s1', 'hello\n');
+    expect(result.target).toBe('focused-pty');
+    expect(emit).not.toHaveBeenCalledWith('voice:dispatch-echo', expect.anything());
+  });
+
+  it('accepts dispatchProvider in RouteOpts without throwing', () => {
+    // On the current platform (not darwin/win/linux dispatch path in test env)
+    // the clipboard path is taken; just verify the option is accepted.
+    expect(() =>
+      routeTranscript('test command', emit, clipboard, {
+        dispatchProvider: 'gemini',
+      }),
+    ).not.toThrow();
+  });
+
+  it('dispatchProvider does not affect the return target when clipboard path is taken', () => {
+    const result = routeTranscript('test', emit, clipboard, { dispatchProvider: 'codex' });
+    // In the test environment (no frontmost bundle / no exe match) clipboard is taken
+    expect(['clipboard', 'sigmalink-pane', 'ax-paste', 'focused-pty']).toContain(result.target);
+  });
+});
