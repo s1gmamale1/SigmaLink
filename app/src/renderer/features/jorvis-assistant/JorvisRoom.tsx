@@ -7,10 +7,11 @@
 // in `kv['sigma.activeConversationId']` so a fresh app launch restores
 // the same thread the user was in.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { rpc } from '@/renderer/lib/rpc';
+import { PANE_DRAG_MIME, buildPaneContext, type PaneDragPayload } from '@/renderer/lib/pane-context-builder';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { cn } from '@/lib/utils';
@@ -167,6 +168,26 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
 
   const paneEvents = useJorvisPaneEvents(conversationId);
 
+  function handleComposerDragOver(e: DragEvent<HTMLDivElement>): void {
+    if (e.dataTransfer.types.includes(PANE_DRAG_MIME)) {
+      e.preventDefault();
+    }
+  }
+
+  function handleComposerDrop(e: DragEvent<HTMLDivElement>): void {
+    if (!e.dataTransfer.types.includes(PANE_DRAG_MIME)) return;
+    e.preventDefault();
+    const raw = e.dataTransfer.getData(PANE_DRAG_MIME);
+    try {
+      const payload = JSON.parse(raw) as PaneDragPayload;
+      void buildPaneContext(payload).then((ctx) => {
+        setComposerExternalValue(ctx);
+      }).catch(() => undefined);
+    } catch {
+      /* malformed payload — ignore */
+    }
+  }
+
   const handlePaneReply = useCallback((evt: PaneEvent) => {
     const context = `Pane event: ${evt.kind} for session ${evt.sessionId.slice(0, 8)}${evt.body?.exitCode !== undefined ? ` (exit ${evt.body.exitCode})` : ''}`;
     void sendPromptRef.current(context);
@@ -269,14 +290,16 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
             onDismiss={() => setRibbonHidden(true)}
           />
         ) : null}
-        <Composer
-          ref={composerRef}
-          busy={busy}
-          onSend={sendPrompt}
-          onMicPress={onOrbClick}
-          onChange={setComposerText}
-          externalValue={composerExternalValue}
-        />
+        <div onDragOver={handleComposerDragOver} onDrop={handleComposerDrop}>
+          <Composer
+            ref={composerRef}
+            busy={busy}
+            onSend={sendPrompt}
+            onMicPress={onOrbClick}
+            onChange={setComposerText}
+            externalValue={composerExternalValue}
+          />
+        </div>
       </div>
     </div>
   );
