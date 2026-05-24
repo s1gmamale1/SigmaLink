@@ -407,6 +407,10 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // status transition; adding to the allowlist here for forward-compat even
   // though no renderer subscriber exists yet (SyncTab uses polling).
   'sync:status',
+  // C-10b — renderer → main fire-and-forget: the renderer's useVoiceFocusSync
+  // hook pushes the currently active PTY session id whenever it changes so the
+  // global-capture pipeline can pty.write() into the focused pane.
+  'voice:focused-session',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {

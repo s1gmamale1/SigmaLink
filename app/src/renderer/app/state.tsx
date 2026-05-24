@@ -28,6 +28,7 @@ import { useWorkspaceMirror } from './state-hooks/use-workspace-mirror';
 import { useLiveEvents } from './state-hooks/use-live-events';
 import { useExitedSessionGc } from './state-hooks/use-exited-session-gc';
 import { useTerminalCacheGc } from './state-hooks/use-terminal-cache-gc';
+import { useVoiceFocusSync } from './state-hooks/use-voice-focus-sync';
 
 // Re-exports so external callers continue to use `@/renderer/app/state`
 // without knowing about the split. DO NOT inline these consumers.
@@ -125,6 +126,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   useSessionRestore(state, dispatch);
   useWorkspaceMirror(state, dispatch);
   useLiveEvents(state, dispatch);
+  // C-10b — push focused PTY session id renderer → main for pane dictation
+  useVoiceFocusSync();
   useExitedSessionGc(state, dispatch);
   // V1.4.2 packet-03 — destroy cached xterm instances when sessions vanish
   // from state (explicit close OR 5s exited-grace timer fired). Without this

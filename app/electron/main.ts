@@ -648,6 +648,17 @@ ipcMain.on('app:session-snapshot', (_event, payload: unknown) => {
   rememberSessionSnapshot(payload);
 });
 
+// C-10b — Renderer pushes the currently active PTY session id whenever it
+// changes (via useVoiceFocusSync, debounced ~50ms). Main stores the latest
+// value so the global-capture pipeline can pty.write() into the focused pane
+// when the "Dictate into the focused pane" toggle is on.
+let focusedSessionId: string | null = null;
+ipcMain.on('voice:focused-session', (_event, payload: unknown) => {
+  if (!isAllowedEvent('voice:focused-session')) return;
+  const p = payload as { sessionId?: unknown } | null | undefined;
+  focusedSessionId = typeof p?.sessionId === 'string' ? p.sessionId : null;
+});
+
 void app.whenReady().then(() => {
   // BUG-V1.1-03-PROV — pull the user's interactive-shell PATH into the main
   // process before any provider PTY spawns, so DMG-launched apps can find
