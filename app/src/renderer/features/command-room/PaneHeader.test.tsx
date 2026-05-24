@@ -57,6 +57,15 @@ afterEach(() => {
   cleanup();
 });
 
+// Shared base props used by B2 info-bar tests (and any future test that
+// needs a minimal valid PaneHeader without re-declaring each prop).
+const base = {
+  session: makeSession(),
+  paneIndex: 1,
+  onFocus: () => undefined,
+  onClose: () => undefined,
+};
+
 describe('PaneHeader', () => {
   it('renders the truncated provider label with 1-based pane index', () => {
     render(
@@ -323,5 +332,20 @@ describe('PaneHeader', () => {
     expect(screen.getAllByText(/branch: feat\/x/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/model: claude-opus-4\.7/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/effort: high/).length).toBeGreaterThan(0);
+  });
+
+  // B2 — per-pane info bar (C-1 UI)
+  it('renders inline branch + model + uncommitted badge', () => {
+    render(<PaneHeader {...base} session={{ ...base.session, branch: 'feat/auth', providerId: 'claude' }} uncommitted={3} />);
+    expect(screen.getByText('feat/auth')).toBeTruthy();
+    expect(screen.getByText(/opus/)).toBeTruthy();
+    expect(screen.getByText('±3')).toBeTruthy();
+  });
+
+  it('hides badge when uncommitted is 0 or null', () => {
+    const { rerender } = render(<PaneHeader {...base} uncommitted={0} />);
+    expect(screen.queryByText(/^±/)).toBeNull();
+    rerender(<PaneHeader {...base} uncommitted={null} />);
+    expect(screen.queryByText(/^±/)).toBeNull();
   });
 });

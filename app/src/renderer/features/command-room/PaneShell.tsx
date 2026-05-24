@@ -29,7 +29,7 @@ import { PaneFooter } from './PaneFooter';
 import { insertMention } from './insertMention';
 import { insertSkillCommand, isSlashCapableProvider } from './insertSkillCommand';
 import { pathRelative } from '@/renderer/lib/path-relative';
-import type { AgentSession } from '@/shared/types';
+import type { AgentSession, GitStatus } from '@/shared/types';
 import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
 import { SkillBindingChip, type SkillBinding } from '@/renderer/features/skills/SkillBindingChip';
 import { PaneTabStrip, type ScratchTab } from './PaneTabStrip';
@@ -95,6 +95,25 @@ export function PaneShell({
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [flashDrop, setFlashDrop] = useState(false);
+  // C-1 data — best-effort git status polling for the pane's worktree.
+  const [uncommitted, setUncommitted] = useState<number | null>(null);
+  useEffect(() => {
+    if (!session.worktreePath) return;
+    let alive = true; let t: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        // panes.gitStatus is registered in rpc-router + rpc-channels but not yet
+        // typed in router-shape.ts (out of B2 scope). Cast through unknown to avoid
+        // a compile error while keeping the same runtime channel path.
+        const panesExt = rpc.panes as unknown as { gitStatus: (arg: { worktreePath: string }) => Promise<GitStatus | null> };
+        const gs = await panesExt.gitStatus({ worktreePath: session.worktreePath! });
+        if (alive) setUncommitted(gs ? gs.staged.length + gs.unstaged.length + gs.untracked.length : null);
+      } catch { /* ignore */ }
+      if (alive) t = setTimeout(tick, 15_000);
+    };
+    void tick();
+    return () => { alive = false; clearTimeout(t); };
+  }, [session.worktreePath]);
 
   // W-4 Phase 4 — Ephemeral scratch-shell sub-tabs.
   // scratchTabs: ordered list of open scratch PTY ids.
@@ -320,6 +339,7 @@ export function PaneShell({
         isMinimised={minimised}
         isFullscreen={isFullscreen}
         onToggleFullscreen={onToggleFullscreen}
+        uncommitted={uncommitted}
       />
       {/* v1.7.1 W-5 Phase 2 — INFORMATIONAL skill binding chips. Only render
           the strip when there are pane-scoped bindings for this session. */}
