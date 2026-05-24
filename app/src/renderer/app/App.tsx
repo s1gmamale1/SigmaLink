@@ -74,6 +74,12 @@ const JorvisRoom = lazy(() =>
     default: m.JorvisRoom,
   })),
 );
+// C-12 SigmaBench — multi-agent conflict benchmark room.
+const SigmaBenchRoom = lazy(() =>
+  import('@/renderer/features/sigmabench-room/SigmaBenchRoom').then((m) => ({
+    default: m.SigmaBenchRoom,
+  })),
+);
 
 // Lightweight placeholder rendered while a lazy room module is downloading.
 // Kept inline (no separate file) so it adds zero bytes to the main chunk
@@ -128,6 +134,9 @@ function RoomSwitch() {
       break;
     case 'skills':
       body = <SkillsRoom />;
+      break;
+    case 'sigmabench':
+      body = <SigmaBenchRoom />;
       break;
     case 'jorvis':
       body = <JorvisRoom variant="standalone" />;

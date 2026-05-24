@@ -83,6 +83,12 @@ export interface HarnessDeps {
   timeoutMs: number;
   /** Poll interval. Default 1.5s. */
   tickMs: number;
+  /**
+   * Fired synchronously right after the run row is created (before the first
+   * await). Lets a fire-and-forget caller capture the runId immediately while
+   * the rest of the bench runs in the background.
+   */
+  onRunCreated?: (runId: string) => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -133,6 +139,7 @@ export async function runConflictBench(
     taskPrompt: input.taskPrompt,
     providers: input.providers,
   });
+  deps.onRunCreated?.(run.id);
 
   // 2. Spawn the swarm — one distinct-role roster entry per provider.
   const roster = buildRoster(input.providers, input.taskPrompt);

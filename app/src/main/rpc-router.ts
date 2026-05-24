@@ -36,7 +36,12 @@ import { SwarmMailbox } from './core/swarms/mailbox';
 import { BoardManager } from './core/swarms/boards';
 import { buildSwarmController } from './core/swarms/controller';
 import { buildConsoleController } from './core/swarms/console-controller';
+import { createSwarm } from './core/swarms/factory';
 import { ReplayManager } from './core/swarms/replay';
+// C-12 SigmaBench — multi-agent conflict benchmark harness + store.
+import { runConflictBench, type SwarmStatusSnapshot } from './core/sigmabench/harness';
+import * as sigmabenchStore from './core/sigmabench/store';
+import { scoreConflicts } from '../shared/bench-scoring';
 // v1.4.9 #07 — Notifications. Manager owns the DB + dedup; three sources
 // (pty/swarm/tool-error) push into it; OS-notify wrapper handles native
 // Notification Center forwarding; controller exposes RPC methods.
@@ -137,6 +142,10 @@ let replayHandlers: Record<string, (...args: unknown[]) => unknown> | null = nul
  *  side-bands above. */
 let conversationsHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
 let swarmOriginHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
+/** C-12 SigmaBench — side-band handlers under `sigmabench.<method>`. `run`
+ *  kicks the conflict-bench harness fire-and-forget; `listRuns`/`getRun` read
+ *  the benchmark store. */
+let sigmabenchHandlers: Record<string, (...args: unknown[]) => unknown> | null = null;
 /** V3-W14-001..006 — Sigma Canvas controller cleanup hook. Called from
  *  `shutdownRouter` so picker overlays + dev-server watchers tear down. */
 let designShutdown: (() => void) | null = null;
@@ -1147,6 +1156,123 @@ function buildRouter() {
     userDataDir: userData,
   });
 
+  // C-12 SigmaBench — conflict benchmark side-band. Reuses the SAME swarm
+  // factory deps the swarm controller already builds (pty / worktreePool /
+  // mailbox / userDataDir) plus the raw better-sqlite3 handle for the store.
+  // `readSwarmStatuses` reads each agent's live status + worktree path from the
+  // swarm_agents → agent_sessions join so the harness can poll for exit and
+  // then read each worktree's changed files.
+  const sigmabenchSwarmFactoryDeps = {
+    pty,
+    worktreePool,
+    mailbox,
+    userDataDir: userData,
+  };
+  const readSwarmStatuses = async (swarmId: string): Promise<SwarmStatusSnapshot[]> => {
+    const db = getDb();
+    const agentRows = db
+      .select()
+      .from(swarmAgents)
+      .where(eq(swarmAgents.swarmId, swarmId))
+      .all();
+    return agentRows.map((agent) => {
+      let worktreePath: string | null = null;
+      let exitCode: number | null = null;
+      let status = agent.status as string;
+      if (agent.sessionId) {
+        const sess = db
+          .select()
+          .from(agentSessions)
+          .where(eq(agentSessions.id, agent.sessionId))
+          .get();
+        if (sess) {
+          worktreePath = sess.worktreePath ?? null;
+          exitCode = sess.exitCode ?? null;
+          // Prefer the session row's terminal status when the PTY has exited.
+          if (sess.status === 'exited' || sess.status === 'error') {
+            status = sess.status;
+          }
+        }
+      }
+      return {
+        sessionId: agent.sessionId ?? '',
+        status,
+        worktreePath,
+        exitCode,
+      };
+    });
+  };
+  sigmabenchHandlers = {
+    run: async (input: unknown) => {
+      const arg = (input as {
+        category?: string;
+        taskPrompt?: string;
+        providers?: string[];
+        workspaceId?: string;
+      }) ?? {};
+      if (typeof arg.taskPrompt !== 'string' || arg.taskPrompt.trim().length === 0) {
+        throw new Error('sigmabench.run: taskPrompt required');
+      }
+      if (!Array.isArray(arg.providers) || arg.providers.length === 0) {
+        throw new Error('sigmabench.run: providers must be a non-empty array');
+      }
+      if (typeof arg.workspaceId !== 'string' || !arg.workspaceId) {
+        throw new Error('sigmabench.run: workspaceId required');
+      }
+      // The harness creates the run row synchronously (its first step), then
+      // does the slow spawn/poll work. We capture the runId via the
+      // `onRunCreated` hook so we can reply immediately, then let the harness
+      // finish fire-and-forget. The renderer polls getRun for the final state.
+      let capturedRunId: string | null = null;
+      const harnessPromise = runConflictBench(
+        {
+          taskPrompt: arg.taskPrompt,
+          providers: arg.providers,
+          category: arg.category ?? 'multi-agent-conflict',
+          workspaceId: arg.workspaceId,
+        },
+        {
+          db: getRawDb(),
+          workspaceId: arg.workspaceId,
+          createSwarm,
+          swarmFactoryDeps: sigmabenchSwarmFactoryDeps,
+          readSwarmStatuses,
+          gitStatus,
+          store: sigmabenchStore,
+          scoreConflicts,
+          now: () => Date.now(),
+          sleep: (ms: number) => new Promise((r) => setTimeout(r, ms)),
+          timeoutMs: 10 * 60 * 1000,
+          tickMs: 1_500,
+          onRunCreated: (runId) => {
+            capturedRunId = runId;
+          },
+        },
+      );
+      // Fire-and-forget: surface harness crashes in the log but don't block
+      // the RPC reply.
+      void harnessPromise.catch((err) => {
+        console.error('[sigmabench] conflict bench failed:', err);
+      });
+      // `onRunCreated` fires synchronously inside runConflictBench before its
+      // first await, so capturedRunId is populated by the time the microtask
+      // queue yields back here. Guard defensively all the same.
+      if (!capturedRunId) {
+        const { runId } = await harnessPromise;
+        return { runId };
+      }
+      return { runId: capturedRunId };
+    },
+    listRuns: () => sigmabenchStore.listRuns(getRawDb()),
+    getRun: (input: unknown) => {
+      const arg = (input as { id?: string }) ?? {};
+      if (typeof arg.id !== 'string' || !arg.id) {
+        throw new Error('sigmabench.getRun: id required');
+      }
+      return sigmabenchStore.getRun(getRawDb(), arg.id);
+    },
+  };
+
   // V3-W12-014 — Operator Console controller. Lives outside `defineRouter`
   // so foundations can extend the AppRouter shape without merge conflicts.
   // Channels register under the `swarm.<method>` namespace; events
@@ -1556,6 +1682,8 @@ export function registerRouter(): void {
     { prefix: 'assistant.conversations.', map: conversationsHandlers },
     { prefix: 'swarm.origin.', map: swarmOriginHandlers },
     { prefix: 'voice.diagnostics.', map: voiceDiagnosticsHandlers },
+    // C-12 SigmaBench — `sigmabench.run` / `.listRuns` / `.getRun`.
+    { prefix: 'sigmabench.', map: sigmabenchHandlers },
   ];
   for (const band of sideBands) {
     if (!band.map) continue;
@@ -1665,6 +1793,7 @@ export function shutdownRouter(): void {
   sharedDeps = null;
   consoleHandlers = null;
   replayHandlers = null;
+  sigmabenchHandlers = null;
   designShutdown = null;
 }
 

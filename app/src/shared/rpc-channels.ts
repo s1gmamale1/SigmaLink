@@ -282,6 +282,14 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'notifications.markUnread',
   'notifications.dismiss',
   'notifications.clearRead',
+  // C-12 SigmaBench — multi-agent conflict benchmark. `run` kicks the harness
+  // fire-and-forget and returns the new run id; `listRuns` / `getRun` read the
+  // benchmark store so the SigmaBench room can render the provider
+  // leaderboard. Registered side-band under `sigmabench.<method>` in
+  // rpc-router.ts (not in the typed AppRouter shape).
+  'sigmabench.run',
+  'sigmabench.listRuns',
+  'sigmabench.getRun',
   // v1.5.0 packet 09 — Cross-machine sync.
   'sync.enable',
   'sync.disable',

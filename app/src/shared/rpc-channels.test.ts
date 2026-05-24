@@ -291,6 +291,10 @@ const SIDE_BAND_CHANNELS: ReadonlyArray<string> = [
   'swarm.origin.get',
   // voiceDiagnosticsHandlers
   'voice.diagnostics.run',
+  // sigmabenchHandlers (C-12 — conflict-bench harness + store)
+  'sigmabench.run',
+  'sigmabench.listRuns',
+  'sigmabench.getRun',
 ];
 
 // ------------------------------------------------------------------

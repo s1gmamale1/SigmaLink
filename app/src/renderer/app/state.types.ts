@@ -33,6 +33,10 @@ export type RoomId =
   | 'memory'
   | 'browser'
   | 'skills'
+  // C-12 SigmaBench — multi-agent conflict benchmark room. Dispatches one
+  // task to N providers in isolated worktrees and ranks them by how little
+  // their changed-file sets overlap (most-isolated = best).
+  | 'sigmabench'
   // V3-W13-012 — Jorvis Assistant standalone room. Available as a fallback
   // when the right-rail is gated off; otherwise the Jorvis tab inside the
   // rail hosts the same surface.

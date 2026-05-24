@@ -609,6 +609,11 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       ),
     }),
   },
+  // ── sigmabench (C-12) ──────────────────────────────────────────────────
+  // Side-band registered in rpc-router.ts under `sigmabench.<method>`.
+  'sigmabench.run': stub,
+  'sigmabench.listRuns': stub,
+  'sigmabench.getRun': stub,
 };
 
 /** Look up the schema entry for a `<namespace>.<method>` channel id. */
