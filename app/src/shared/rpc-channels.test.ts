@@ -315,6 +315,7 @@ const DIRECT_IPC_HANDLE_CHANNELS: ReadonlyArray<string> = [
   'voice.globalCapture.setModelId',
   'voice.globalCapture.downloadModel',
   'voice.globalCapture.abortDownload',
+  'voice.globalCapture.setListeningMode', // C-11 — wake-word listening toggle
 ];
 
 // ------------------------------------------------------------------
