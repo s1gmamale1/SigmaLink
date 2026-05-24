@@ -1,7 +1,7 @@
 # BridgeMind-Competitive Roadmap — Design
 
 **Date:** 2026-05-22
-**Status:** M0–M4 SHIPPED (M1 v1.16.0 · M2 v1.17.0 · M3 v1.18.0 · M4 v1.19.0; C-1…C-11 live). **M5 remains** (C-12 SigmaBench · C-13 click-element→agent · C-10c voice local/cloud). W-4 P8 shipped in M3; **P9 cancelled** (proven multi-pane conversation-resume regression). Per-milestone status updated 2026-05-25.
+**Status:** ✅ **ROADMAP COMPLETE — M0–M5 SHIPPED, C-1…C-13 live.** M1 v1.16.0 · M2 v1.17.0 · M3 v1.18.0 · M4 v1.19.0 · **M5 v1.20.0** (C-12 SigmaBench · C-13 element→pane · C-10c CLI voice). W-4 P8 shipped in M3; **P9 cancelled** (proven multi-pane conversation-resume regression). Final status 2026-05-25.
 **Source:** `docs/02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md` (BridgeVoice + BridgeSpace 3 + Day-181 stream) → C-class wishlist (`docs/03-plan/WISHLIST.md`).
 **Scope:** Forward roadmap — 13 C-class competitive items + deferred debt, sequenced into 6 milestones (M0–M5), each ≈ one release on the existing v1.x cadence.
 
@@ -23,7 +23,7 @@ Secondary edges leaned on: out-of-process Whisper (they burned 6 debug rounds on
 | **M4** | New surfaces | C-8 · C-9 · C-11 | ~v1.19.0 |
 | **M5** | Breadth & polish | C-13 · C-12 · C-10c | ~v1.20.0 |
 
-Each milestone gets its **own** `writing-plans` plan when reached (YAGNI — not all six up front). **M0–M4 shipped (v1.16.0–v1.19.0); M5 is next.**
+Each milestone gets its **own** `writing-plans` plan when reached (YAGNI — not all six up front). **M0–M5 all shipped (v1.16.0–v1.20.0); roadmap complete.**
 
 ---
 
@@ -62,10 +62,10 @@ Moat foundations + a voice quick-win.
 - **C-11 Wake-word dispatch** *(M)* — hands-free agent dispatch; first-mover (BridgeMind failed it over 6 debug rounds — our out-of-process Whisper avoids the WASM init race). Module: SigmaVoice.
 - **Success:** browse + click-through in-app; one toggle adds a guardrail to a pane's worktree; "Hey Sigma" dispatches.
 
-## M5 — Breadth & polish (~v1.20.0)
-- **C-13 Click-element→agent design tool** *(L, needs C-8)* — select a DOM element in the browser pane, capture its HTML, dispatch to an agent; leapfrog = route to the pane whose worktree owns that file + show its last git diff. Module: browser pane + dispatch.
-- **C-12 SigmaBench** *(L)* — BridgeBench-equivalent multi-category model bench, run as a sub-swarm, **+ a multi-agent-conflict category they structurally can't run** (needs worktrees). Module: new tool.
-- **C-10c SigmaVoice local/cloud toggle + model selector** *(M)* — Local Whisper vs cloud, with model size tiers. Module: SigmaVoice settings.
+## M5 — Breadth & polish (✅ SHIPPED v1.20.0)
+- **C-13 Click-element→agent design tool** *(L, needs C-8)* — ✅ **shipped as operator-pick:** the W14 design tool's "Send to existing pane" mode injects the captured element + prompt into a chosen live pane's PTY (`pty.write`) and renders that pane's worktree `git.diff` inline. The leapfrog "route to the worktree that *owns* the file" was **dropped — infeasible** (no reverse element→file map / sourcemaps). Module: `design/controller.ts` + `DesignDock.tsx` + `shared/element-dispatch.ts`.
+- **C-12 SigmaBench** *(L)* — ✅ **shipped as the conflict-category MVP:** runs the same task across N providers, each in its own worktree, scoring file-overlap via `scoreConflicts` (reuses C-7 merge-order). The multi-agent-conflict leaderboard a shared-dir competitor structurally can't produce. Latency/code-quality categories deferred. Module: `SigmaBenchRoom` + `core/sigmabench/{harness,store}.ts` + migration 0023 + `sigmabench.*` RPC. Required threading per-agent `initialPrompt` through the swarm factory (agents would otherwise spawn idle).
+- **C-10c SigmaVoice local/cloud toggle + model selector** *(M)* — ✅ **shipped as CLI-based:** a Gemini-CLI transcription engine behind the `WhisperEngine` interface (audio→WAV→`gemini`) + a Claude/Codex/Gemini voice-dispatch-target selector, both KV-gated. Defaults unchanged (local Whisper `base.en-q5_1` / claude). Cloud-HTTP STT (Groq/OpenAI) was NOT taken — CLI-based per operator decision. Module: `voice-core/{wav-encode,cli-transcribe-engine,whisper-engine,global-capture,output-router}.ts` + `VoiceTab.tsx`.
 
 ---
 

@@ -72,7 +72,7 @@
 
 ## 🆚 C-class — Competitive (BridgeMind-derived, surfaced 2026-05-22)
 
-**STATUS (2026-05-25): C-1 … C-11 SHIPPED** across the M0–M4 roadmap — M1 v1.16.0 (C-1·C-2·C-3·C-4), M2 v1.17.0 (C-5·C-6·C-10a), M3 v1.18.0 (C-7·C-10b), M4 v1.19.0 (C-8·C-9·C-11). **Remaining → M5:** C-12 (SigmaBench), C-13 (click-element→agent), C-10c (voice local/cloud toggle). The "swarm with no merge conflicts" moat shipped as the Sigma Agent orchestrator (C-7). Roadmap spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
+**STATUS (2026-05-25): C-1 … C-13 ALL SHIPPED — roadmap COMPLETE.** M1 v1.16.0 (C-1·C-2·C-3·C-4), M2 v1.17.0 (C-5·C-6·C-10a), M3 v1.18.0 (C-7·C-10b), M4 v1.19.0 (C-8·C-9·C-11), **M5 v1.20.0 (C-12 SigmaBench · C-13 element→pane · C-10c CLI voice)**. M5 scope deltas vs the original spec: C-13 = operator-pick existing pane + inline diff (auto-route-to-owning-worktree was infeasible — no reverse element→file map); C-12 = conflict-category MVP (latency/code-quality deferred); C-10c = CLI-based (Gemini-CLI transcription engine + Claude/Codex/Gemini dispatch selector), not cloud-HTTP. The "swarm with no merge conflicts" moat shipped as the Sigma Agent orchestrator (C-7) and is now also a benchmark category (C-12). Roadmap spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
 
 From a visual + transcript review of BridgeMind's **BridgeVoice**, **BridgeSpace 3**, and the **Day-181 livestream** (3h11m). Full breakdown + **101 reference screenshots**: [`../02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md`](../02-research/bridgemind-review-2026-05-22/MASTER-BREAKDOWN.md) (per-aspect `*-REVIEW.md` + `*/screenshots/` + condensed `stream/transcript-timeline.md`). Ranked value/effort.
 
@@ -89,8 +89,8 @@ From a visual + transcript review of BridgeMind's **BridgeVoice**, **BridgeSpace
 | C-9 | **Skills/guardrail matrix** (Test-Driven / Security-Audit / CI-Green toggles) → per-worktree CLAUDE.md hook injection | MED-HIGH / M | Skills tab (W-5) + hooks |
 | C-10 | **SigmaVoice cluster** — dictionary (phrase→@mention), verbal macros, usage dashboard, inline PTT→pane, local/cloud toggle | HIGH / S–M | SigmaVoice |
 | C-11 | **Wake-word agent dispatch** — BridgeMind couldn't ship it (6 debug rounds); first-mover win | MED / M | SigmaVoice |
-| C-12 | **SigmaBench** (BridgeBench equiv) + a multi-agent-conflict category they structurally can't run | MED / L | new tool |
-| C-13 | **Click-element → agent** design tool | MED / L | new tool |
+| C-12 | ✅ **SigmaBench** (v1.20.0) — conflict-category MVP: N providers × N worktrees → file-overlap leaderboard | MED / L | SigmaBenchRoom + `core/sigmabench/*` |
+| C-13 | ✅ **Click-element → agent** (v1.20.0) — element → operator-picked existing pane + inline worktree diff | MED / L | design tool + `pty.write` |
 
 **Moat (reconfirmed by review):** BridgeSpace runs all agents in ONE shared dir → our **per-pane git worktrees** enable "swarm with no merge conflicts" (the C-5/C-6 leapfrogs) they can't match without a rebuild. Other edges: out-of-process Whisper (they burned 6 debug rounds fighting Onyx WASM voice), Ruflo vector memory + typed SendMessage bus, W-8/W-5/hooks/shell-first/multi-CLI heterogeneity.
 
