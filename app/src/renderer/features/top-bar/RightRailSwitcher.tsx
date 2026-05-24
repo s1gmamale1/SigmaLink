@@ -6,7 +6,7 @@
 // Tab ids mirror `RightRailContext` (browser | editor | jorvis). The "jorvis"
 // id is internal — the visible label is "Jorvis" per the v1.8.x rebrand.
 
-import { Bot, FileCode2, Globe, Settings, Zap } from 'lucide-react';
+import { Bot, FileCode2, Globe, Settings, Users, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { noDragStyle } from '@/renderer/lib/drag-region';
 import { useAppState } from '@/renderer/app/state';
@@ -28,6 +28,8 @@ const SEGMENTS: readonly SegmentDef[] = [
   { id: 'jorvis', label: 'Jorvis', Icon: Bot },
   // v1.6.1 B3 — Skills discovery tab.
   { id: 'skills', label: 'Skills', Icon: Zap },
+  // C-2/C-4 — Swarm tab: agent roster + side-chat in the rail.
+  { id: 'swarm', label: 'Swarm', Icon: Users },
 ] as const;
 
 export function RightRailSwitcher() {

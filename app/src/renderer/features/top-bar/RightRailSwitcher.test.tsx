@@ -57,12 +57,15 @@ describe('RightRailSwitcher', () => {
     cleanup();
   });
 
-  it('renders three segment buttons + a settings gear', () => {
+  it('renders segment buttons (Browser / Editor / Jorvis / Skills / Swarm) + a settings gear', () => {
     renderSwitcher();
 
     expect(screen.getByRole('tab', { name: 'Browser' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Editor' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Jorvis' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Skills' })).toBeTruthy();
+    // C-2/C-4 — Swarm tab registered in top-bar switcher.
+    expect(screen.getByRole('tab', { name: 'Swarm' })).toBeTruthy();
     expect(screen.getByLabelText('Settings')).toBeTruthy();
   });
 
@@ -73,9 +76,11 @@ describe('RightRailSwitcher', () => {
     const browserTab = screen.getByRole('tab', { name: 'Browser' });
     const editorTab = screen.getByRole('tab', { name: 'Editor' });
     const sigmaTab = screen.getByRole('tab', { name: 'Jorvis' });
+    const swarmTab = screen.getByRole('tab', { name: 'Swarm' });
     expect(browserTab.getAttribute('aria-selected')).toBe('true');
     expect(editorTab.getAttribute('aria-selected')).toBe('false');
     expect(sigmaTab.getAttribute('aria-selected')).toBe('false');
+    expect(swarmTab.getAttribute('aria-selected')).toBe('false');
 
     act(() => {
       fireEvent.click(editorTab);
