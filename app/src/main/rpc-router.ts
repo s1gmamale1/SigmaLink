@@ -885,11 +885,6 @@ function buildRouter() {
     // Uses the same MAX(started_at) correlated-subquery shape as lastResumePlan
     // to guarantee exactly one row per pane slot even when the DB has multiple
     // historical rows for the same paneIndex.
-    // C-1 data — git status for the pane's worktree path. Reuses the existing
-    // `gitStatus(cwd)` from git-ops (same function used by `git.status` RPC).
-    // Returns GitStatus | null; null when no worktreePath is supplied.
-    gitStatus: async ({ worktreePath }: { worktreePath: string }) =>
-      worktreePath ? gitStatus(worktreePath) : null,
     listForWorkspace: async (workspaceId: string) => {
       try {
         interface RawSessionRow {

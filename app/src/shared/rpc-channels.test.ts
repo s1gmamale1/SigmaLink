@@ -93,7 +93,6 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'panes.listSessions',
   'panes.lastResumePlan',
   'panes.listForWorkspace',
-  'panes.gitStatus',           // C-1 data — git status for the worktree path
   // providers (providersCtl)
   'providers.list',
   'providers.probeAll',

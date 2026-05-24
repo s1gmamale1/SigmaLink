@@ -29,7 +29,7 @@ import { PaneFooter } from './PaneFooter';
 import { insertMention } from './insertMention';
 import { insertSkillCommand, isSlashCapableProvider } from './insertSkillCommand';
 import { pathRelative } from '@/renderer/lib/path-relative';
-import type { AgentSession, GitStatus } from '@/shared/types';
+import type { AgentSession } from '@/shared/types';
 import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
 import { SkillBindingChip, type SkillBinding } from '@/renderer/features/skills/SkillBindingChip';
 import { PaneTabStrip, type ScratchTab } from './PaneTabStrip';
@@ -102,11 +102,8 @@ export function PaneShell({
     let alive = true; let t: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        // panes.gitStatus is registered in rpc-router + rpc-channels but not yet
-        // typed in router-shape.ts (out of B2 scope). Cast through unknown to avoid
-        // a compile error while keeping the same runtime channel path.
-        const panesExt = rpc.panes as unknown as { gitStatus: (arg: { worktreePath: string }) => Promise<GitStatus | null> };
-        const gs = await panesExt.gitStatus({ worktreePath: session.worktreePath! });
+        // Reuse the existing `git.status` RPC (returns GitStatus | null for a cwd).
+        const gs = await rpc.git.status(session.worktreePath!);
         if (alive) setUncommitted(gs ? gs.staged.length + gs.unstaged.length + gs.untracked.length : null);
       } catch { /* ignore */ }
       if (alive) t = setTimeout(tick, 15_000);
