@@ -89,6 +89,10 @@ interface Props {
   messageCounts?: Record<string, number>;
   /** When true, render Custom +/- controls under each role group. */
   customCountControls?: boolean;
+  /** C-2: called with sessionId when an agent card is clicked (requires !readOnly + live?.sessionId). */
+  onFocusPane?: (sessionId: string) => void;
+  /** C-4: latest non-SYSTEM message body per agentKey, rendered as a truncated activity line. */
+  lastActivity?: Record<string, string>;
 }
 
 export function RoleRoster({
@@ -99,6 +103,8 @@ export function RoleRoster({
   liveAgents,
   messageCounts,
   customCountControls,
+  onFocusPane,
+  lastActivity,
 }: Props) {
   // V3-W15-005 — Tier-aware roster cap. Ultra (default) = 20, matching the
   // existing CUSTOM_ROSTER_CAP and the swarms.preset CHECK constraint. The
@@ -275,12 +281,16 @@ export function RoleRoster({
                     : '#71717a';
           const modelId = row.modelId ?? DEFAULT_MODEL_BY_PROVIDER[row.providerId];
           const autoApprove = row.autoApprove ?? false;
+          const canFocus = !readOnly && !!onFocusPane && !!live?.sessionId;
           return (
             <div
               key={`${row.role}-${row.roleIndex}`}
+              role={canFocus ? 'button' : undefined}
+              onClick={canFocus ? () => onFocusPane!(live!.sessionId!) : undefined}
               className={cn(
                 'relative flex flex-col gap-2 overflow-hidden rounded-lg border bg-card/60 p-3',
                 ROLE_BORDER[row.role],
+                canFocus && 'cursor-pointer',
               )}
             >
               {/* Left colour stripe — V3 frame 0205. */}
@@ -360,6 +370,11 @@ export function RoleRoster({
                   <span>{messageCounts[agentKey] ?? 0} msgs</span>
                 ) : null}
               </div>
+              {lastActivity?.[agentKey] ? (
+                <div className="ml-2 truncate text-[10px] text-muted-foreground">
+                  {lastActivity[agentKey]}
+                </div>
+              ) : null}
             </div>
           );
         })}
