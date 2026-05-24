@@ -51,6 +51,9 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // state was effectively NOT restoring on workspace reopen. Discovered while
   // adding the v1.4.7 test reload-sessions hook. (v1.4.7 packet 02 byproduct)
   'panes.listForWorkspace',
+  // C-5 — inject a structured plan capsule into a pane's PTY + write a
+  // per-worktree CLAUDE.md scope guidance block (idempotent marker-delimited).
+  'panes.brief',
   // providers
   'providers.list',
   'providers.probeAll',

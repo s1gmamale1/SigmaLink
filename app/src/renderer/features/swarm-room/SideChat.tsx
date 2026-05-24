@@ -7,11 +7,12 @@
 // Per-message status pill renders a colour + 3-letter code (V3 frame 0250):
 //   MSG / DONE / ACK / ESCALATE  (colour follows --role-* tokens).
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { rpc } from '@/renderer/lib/rpc';
+import { PANE_DRAG_MIME, buildPaneContext, type PaneDragPayload } from '@/renderer/lib/pane-context-builder';
 import type { Swarm, SwarmMessage } from '@/shared/types';
 import { MailboxBubble } from './MailboxBubble';
 
@@ -69,6 +70,26 @@ export function SideChat({ swarm, messages }: Props) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  function handleComposerDragOver(e: DragEvent<HTMLDivElement>): void {
+    if (e.dataTransfer.types.includes(PANE_DRAG_MIME)) {
+      e.preventDefault();
+    }
+  }
+
+  function handleComposerDrop(e: DragEvent<HTMLDivElement>): void {
+    if (!e.dataTransfer.types.includes(PANE_DRAG_MIME)) return;
+    e.preventDefault();
+    const raw = e.dataTransfer.getData(PANE_DRAG_MIME);
+    try {
+      const payload = JSON.parse(raw) as PaneDragPayload;
+      void buildPaneContext(payload).then((ctx) => {
+        setDraft((d) => (d ? d + '\n\n' : '') + ctx);
+      }).catch(() => undefined);
+    } catch {
+      /* malformed payload — ignore */
+    }
+  }
 
   const recipientOptions = useMemo(() => {
     const options: { value: string; label: string }[] = [...GROUP_RECIPIENTS];
@@ -167,7 +188,12 @@ export function SideChat({ swarm, messages }: Props) {
             ))}
           </select>
         </div>
-        <div className="flex items-end gap-2">
+        <div
+          data-testid="sidechat-composer"
+          onDragOver={handleComposerDragOver}
+          onDrop={handleComposerDrop}
+          className="flex items-end gap-2"
+        >
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

@@ -38,6 +38,7 @@ import type {
   SyncStatus,
   SyncConflict,
 } from './types';
+import type { PlanCapsule } from './plan-capsule';
 
 export interface DiagnosticsReport {
   nativeModules: Array<{ module: string; ok: boolean; error?: string }>;
@@ -207,6 +208,12 @@ export interface AppRouter {
      * Returns empty array for fresh workspaces with no history.
      */
     listForWorkspace: (workspaceId: string) => Promise<AgentSession[]>;
+    /**
+     * C-5 — Inject a structured plan capsule into the pane's PTY (via pty.write)
+     * and, when a worktreePath is provided, write an idempotent scope-guidance
+     * block into <worktreePath>/CLAUDE.md.
+     */
+    brief: (a: { sessionId: string; worktreePath: string | null; capsule: PlanCapsule }) => Promise<void>;
   };
   providers: {
     list: () => Promise<
