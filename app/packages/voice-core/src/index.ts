@@ -63,6 +63,13 @@ export type {
   ProgressCallback,
 } from './model-registry.js';
 
+// ── WAV encoder (C-10c) ────────────────────────────────────────────────────
+export { encodeWav } from './wav-encode.js';
+
+// ── CLI transcription engine (C-10c) ───────────────────────────────────────
+export { buildCliTranscribeEngine } from './cli-transcribe-engine.js';
+export type { CliTranscribeEngineDeps } from './cli-transcribe-engine.js';
+
 // ── Native mac loader ──────────────────────────────────────────────────────
 export {
   loadNative,
