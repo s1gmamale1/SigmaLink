@@ -32,6 +32,78 @@ import { loadNative, type PcmChunk } from './native-mac-loader.js';
 import type { ClipboardApi } from './output-router.js';
 
 // ---------------------------------------------------------------------------
+// C-10a — Inline dictionary/macro substitution (pure; no external dep)
+// ---------------------------------------------------------------------------
+//
+// voice-core is self-contained and cannot import from app/src/shared/.
+// The applyDictionary logic from @/shared/voice-dictionary is replicated here
+// as a private helper. It is intentionally small and pure: no regex engine,
+// no external dependencies.
+
+interface DictionaryEntry {
+  pattern: string;
+  replacement: string;
+  type: 'phrase' | 'macro';
+}
+
+const MAX_PATTERN_LENGTH = 200;
+const KV_DICTIONARY = 'voice.dictionary';
+
+/**
+ * Replace all case-insensitive literal occurrences of `pattern` in `text`
+ * with `replacement`. Uses split/join — no regex, no ReDoS risk.
+ */
+function replaceLiteral(text: string, pattern: string, replacement: string): string {
+  const lowerText = text.toLowerCase();
+  const lowerPattern = pattern.toLowerCase();
+  const parts: string[] = [];
+  let cursor = 0;
+  let idx = lowerText.indexOf(lowerPattern, cursor);
+  while (idx !== -1) {
+    parts.push(text.slice(cursor, idx));
+    parts.push(replacement);
+    cursor = idx + pattern.length;
+    idx = lowerText.indexOf(lowerPattern, cursor);
+  }
+  parts.push(text.slice(cursor));
+  return parts.join('');
+}
+
+/**
+ * Load the dictionary entries from KV and apply them to `text`.
+ * Exported for unit-testing the substitution logic in isolation.
+ *
+ * @param text   Raw transcript text.
+ * @param kvGet  KV accessor (reads voice.dictionary JSON).
+ * @returns      Text with all dictionary substitutions applied, or the
+ *               original text unchanged if no dictionary is stored or the
+ *               stored JSON is malformed.
+ */
+export function normalizeTranscript(
+  text: string,
+  kvGet: (key: string) => string | null,
+): string {
+  try {
+    const raw = kvGet(KV_DICTIONARY);
+    if (!raw) return text;
+    const entries = JSON.parse(raw) as DictionaryEntry[];
+    if (!Array.isArray(entries) || entries.length === 0) return text;
+    // Apply longest-pattern-first to prevent short patterns from clobbering
+    // longer matches that share a prefix.
+    const sorted = [...entries].sort((a, b) => b.pattern.length - a.pattern.length);
+    let result = text;
+    for (const entry of sorted) {
+      if (!entry.pattern || entry.pattern.length > MAX_PATTERN_LENGTH) continue;
+      result = replaceLiteral(result, entry.pattern, entry.replacement);
+    }
+    return result;
+  } catch {
+    // Malformed KV data — return original text unchanged.
+    return text;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
@@ -56,6 +128,14 @@ export interface GlobalCaptureDeps {
   getModelsDir: () => string;
   /** Electron clipboard API — injected for portability. */
   clipboard: ClipboardApi;
+  // C-10b — focused-pane routing. All three are optional so existing
+  // callers (tests, older main builds) need no changes to compile.
+  /** Returns the id of the currently focused PTY pane, or null. */
+  getFocusedSessionId?: () => string | null;
+  /** Direct pty.write handle. Called only when injectToPane() returns true. */
+  ptyWrite?: (sessionId: string, data: string) => void;
+  /** Returns true when the "Dictate into the focused pane" KV toggle is on. */
+  injectToPane?: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,9 +442,17 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       return;
     }
 
+    // C-10a — Apply phrase/macro dictionary substitutions before routing.
+    finalText = normalizeTranscript(finalText, kvGet);
+
+    // Route the transcript — C-10b: pass focused-pane opts when available.
     setState('routing');
     try {
-      const result = routeTranscript(finalText, deps.emit, deps.clipboard);
+      const result = routeTranscript(finalText, deps.emit, deps.clipboard, {
+        focusedSessionId: deps.getFocusedSessionId?.() ?? null,
+        injectToPane: deps.injectToPane?.() ?? false,
+        ptyWrite: deps.ptyWrite,
+      });
       if (result.toast) {
         toast(result.toast, 'info');
       }
