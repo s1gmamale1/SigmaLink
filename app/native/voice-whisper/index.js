@@ -22,6 +22,9 @@ function buildStub() {
       err.code = 'whisper-unavailable';
       return Promise.reject(err);
     },
+    // C-11 / K5 — the stub has no context cache; disposing is a no-op so the
+    // host shutdown path can call disposeModels() unconditionally.
+    disposeModels() {},
   };
 }
 

@@ -379,3 +379,208 @@ describe('GlobalCaptureController — hotkey registration', () => {
     expect(ctrl.getStatus().enabled).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// C-11 — listening mode (energy-gated rolling wake-word detection)
+// ---------------------------------------------------------------------------
+
+import { getWhisperEngine } from './whisper-engine.js';
+import { loadNative } from './native-mac-loader.js';
+import { getDownloadedModelPath } from './model-registry.js';
+
+/**
+ * Build a fake native voice module + an injectable PCM ring + scheduler so the
+ * listening loop can be driven deterministically (no real timers, no audio).
+ */
+function makeListeningHarness(opts?: {
+  listeningMode?: boolean;
+  tinyModelPath?: string | null;
+  isSpeech?: (s: Float32Array) => boolean;
+  matchesWakeWord?: (t: string) => boolean;
+  transcribeText?: string;
+}) {
+  const base = makeDeps();
+
+  // Fake native module: capture the onPcm callback so the test can feed audio.
+  let pcmCb: ((chunk: Float32Array | { samples: Float32Array; sampleRate: number }) => void) | null = null;
+  const nativeStart = vi.fn(() => Promise.resolve());
+  const nativeStop = vi.fn(() => Promise.resolve());
+  const fakeNative = {
+    isAvailable: () => true,
+    requestPermission: vi.fn(() => Promise.resolve('granted' as const)),
+    getAuthStatus: () => 'granted' as const,
+    start: nativeStart,
+    stop: nativeStop,
+    onPartial: vi.fn(() => () => undefined),
+    onFinal: vi.fn(() => () => undefined),
+    onError: vi.fn(() => () => undefined),
+    onState: vi.fn(() => () => undefined),
+    onPcm: vi.fn((cb: (chunk: Float32Array | { samples: Float32Array; sampleRate: number }) => void) => {
+      pcmCb = cb;
+      return () => { pcmCb = null; };
+    }),
+  };
+  (loadNative as Mock).mockReturnValue(fakeNative);
+
+  // Fake whisper engine — resolves with controllable text.
+  const transcribe = vi.fn(
+    (...args: unknown[]) => {
+      void args;
+      return Promise.resolve({ text: opts?.transcribeText ?? 'hey sigma', segments: [] });
+    },
+  );
+  (getWhisperEngine as Mock).mockReturnValue({ transcribe });
+
+  // Injectable scheduler — store the tick callback; tests call runTick().
+  let tickCb: (() => void) | null = null;
+  const setIntervalFn = vi.fn((cb: () => void) => { tickCb = cb; return 1 as unknown as ReturnType<typeof setInterval>; });
+  const clearIntervalFn = vi.fn(() => { tickCb = null; });
+
+  // Minimal PcmRing-like — stores last push, returns it for lastSeconds().
+  let lastPushed: Float32Array = new Float32Array(0);
+  const ring = {
+    push: (chunk: Float32Array) => { lastPushed = new Float32Array(chunk); },
+    lastSeconds: (): Float32Array => lastPushed,
+    lastN: (): Float32Array => lastPushed,
+    reset: () => { lastPushed = new Float32Array(0); },
+  };
+
+  const deps = {
+    ...base.deps,
+    getListeningMode: () => opts?.listeningMode ?? true,
+    getTinyModelPath: () => (opts?.tinyModelPath === undefined ? '/tmp/ggml-tiny.en-q5_1.bin' : opts.tinyModelPath),
+    isSpeech: opts?.isSpeech ?? ((s: Float32Array) => s.length > 0),
+    matchesWakeWord: opts?.matchesWakeWord ?? ((t: string) => /\bhey\s+sigma\b/i.test(t)),
+    createPcmRing: () => ring,
+    setIntervalFn,
+    clearIntervalFn,
+  };
+
+  return {
+    deps,
+    kv: base.kv,
+    emitted: base.emitted,
+    transcribe,
+    nativeStart,
+    nativeStop,
+    fakeNative,
+    feedPcm: (samples: Float32Array) => { pcmCb?.(samples); },
+    runTick: async () => { tickCb?.(); await Promise.resolve(); await Promise.resolve(); },
+    hasInterval: () => tickCb !== null,
+  };
+}
+
+describe('GlobalCaptureController — listening mode (C-11)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (routeTranscript as Mock).mockReturnValue({ target: 'clipboard', toast: '' });
+  });
+
+  it('startListening opens the native mic once and installs an onPcm tap', async () => {
+    const h = makeListeningHarness();
+    const ctrl = buildGlobalCaptureController(h.deps);
+    await ctrl.startListening();
+    expect(h.fakeNative.start).toHaveBeenCalledTimes(1);
+    expect(h.fakeNative.onPcm).toHaveBeenCalledTimes(1);
+    expect(h.hasInterval()).toBe(true);
+    ctrl.stopListening();
+  });
+
+  it('does NOT start listening when listening mode is off', async () => {
+    const h = makeListeningHarness({ listeningMode: false });
+    const ctrl = buildGlobalCaptureController(h.deps);
+    await ctrl.startListening();
+    expect(h.fakeNative.start).not.toHaveBeenCalled();
+    expect(h.hasInterval()).toBe(false);
+  });
+
+  it('on a speech tick, transcribes the rolling buffer and escalates to routeTranscript on a wake-word hit', async () => {
+    const h = makeListeningHarness({ transcribeText: 'hey sigma open the browser', listeningMode: true });
+    // The escalation's main-model pass needs a downloaded model path; the
+    // seeded wake window is transcribed and routed as one command.
+    (getDownloadedModelPath as Mock).mockReturnValue('/tmp/ggml-base.en-q5_1.bin');
+    const ctrl = buildGlobalCaptureController(h.deps);
+    await ctrl.startListening();
+    expect(h.fakeNative.start).toHaveBeenCalledTimes(1); // listening mic open
+
+    h.feedPcm(new Float32Array(8000).fill(0.3)); // loud → isSpeech true
+    await h.runTick();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    // tiny model transcribe ran on the rolling window with the tiny model path
+    expect(h.transcribe).toHaveBeenCalled();
+    const [, firstModelPath] = h.transcribe.mock.calls[0];
+    expect(firstModelPath).toBe('/tmp/ggml-tiny.en-q5_1.bin');
+
+    // wake hit → escalated through the capture path → routeTranscript reached
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0];
+    expect(routedText).toContain('hey sigma');
+
+    void ctrl.stopListening();
+  });
+
+  it('does NOT transcribe when the energy gate reports silence', async () => {
+    const h = makeListeningHarness({ isSpeech: () => false });
+    const ctrl = buildGlobalCaptureController(h.deps);
+    await ctrl.startListening();
+    h.feedPcm(new Float32Array(8000).fill(0.0)); // silent
+    await h.runTick();
+    expect(h.transcribe).not.toHaveBeenCalled();
+    expect(h.hasInterval()).toBe(true); // still listening
+    ctrl.stopListening();
+  });
+
+  it('does NOT escalate when the transcript does not contain the wake word', async () => {
+    const h = makeListeningHarness({ transcribeText: 'just some other words' });
+    const ctrl = buildGlobalCaptureController(h.deps);
+    await ctrl.startListening();
+    h.feedPcm(new Float32Array(8000).fill(0.3));
+    await h.runTick();
+    expect(h.transcribe).toHaveBeenCalled();
+    // No wake word → keep listening, no capture escalation.
+    expect(h.hasInterval()).toBe(true);
+    ctrl.stopListening();
+  });
+
+  it('skips transcribe (but keeps listening) when the tiny model is not downloaded', async () => {
+    const h = makeListeningHarness({ tinyModelPath: null });
+    const ctrl = buildGlobalCaptureController(h.deps);
+    await ctrl.startListening();
+    h.feedPcm(new Float32Array(8000).fill(0.3));
+    await h.runTick();
+    expect(h.transcribe).not.toHaveBeenCalled();
+    expect(h.hasInterval()).toBe(true);
+    ctrl.stopListening();
+  });
+
+  it('stopListening tears down the interval and the pcm tap', async () => {
+    const h = makeListeningHarness();
+    const ctrl = buildGlobalCaptureController(h.deps);
+    await ctrl.startListening();
+    expect(h.hasInterval()).toBe(true);
+    ctrl.stopListening();
+    expect(h.hasInterval()).toBe(false);
+  });
+
+  it('never throws when transcribe rejects during a tick', async () => {
+    const h = makeListeningHarness();
+    h.transcribe.mockRejectedValueOnce(new Error('boom'));
+    const ctrl = buildGlobalCaptureController(h.deps);
+    await ctrl.startListening();
+    h.feedPcm(new Float32Array(8000).fill(0.3));
+    await expect(h.runTick()).resolves.not.toThrow();
+    // Loop survives the error and keeps listening.
+    expect(h.hasInterval()).toBe(true);
+    ctrl.stopListening();
+  });
+
+  it('dispose() also tears down the listening loop', async () => {
+    const h = makeListeningHarness();
+    const ctrl = buildGlobalCaptureController(h.deps);
+    await ctrl.startListening();
+    expect(h.hasInterval()).toBe(true);
+    ctrl.dispose();
+    expect(h.hasInterval()).toBe(false);
+  });
+});

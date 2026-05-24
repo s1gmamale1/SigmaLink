@@ -46,6 +46,17 @@ export interface GlobalCaptureStatus {
   hotkey: string;
 }
 
+/**
+ * Minimal rolling-PCM-ring contract the listening loop depends on. The concrete
+ * implementation (`@/shared/pcm-ring` PcmRing) lives in the SigmaLink app and is
+ * injected via `createPcmRing` so voice-core stays free of an app-`src` import.
+ */
+export interface PcmRingLike {
+  push(chunk: Float32Array): void;
+  lastSeconds(sec: number, sampleRate: number): Float32Array;
+  reset(): void;
+}
+
 export interface GlobalCaptureDeps {
   emit: (event: string, payload: unknown) => void;
   kv: {
@@ -56,6 +67,32 @@ export interface GlobalCaptureDeps {
   getModelsDir: () => string;
   /** Electron clipboard API — injected for portability. */
   clipboard: ClipboardApi;
+
+  // ── C-10b focused-pane routing (accepted for host-DI parity; the package's
+  //    output-router uses the injected clipboard, so these are presently
+  //    pass-through/no-op here but kept so the SigmaLink main-process literal
+  //    type-checks cleanly). ──
+  getFocusedSessionId?: () => string | null;
+  ptyWrite?: (sessionId: string, data: string) => void;
+  injectToPane?: () => boolean;
+
+  // ── C-11 "Hey Sigma" listening mode (all optional; absent = feature off) ──
+  /** True when `voice.listeningMode` is enabled. */
+  getListeningMode?: () => boolean;
+  /**
+   * Absolute path to the downloaded tiny.en model used for wake detection
+   * (independent of the user's main capture model), or null when not present.
+   */
+  getTinyModelPath?: () => string | null;
+  /** Energy gate — injected from `@/shared/audio-energy` isSpeech(). */
+  isSpeech?: (samples: Float32Array) => boolean;
+  /** Wake-word matcher — injected from `@/shared/wake-word` matchesWakeWord(). */
+  matchesWakeWord?: (text: string) => boolean;
+  /** Factory for a rolling PCM ring — injected from `@/shared/pcm-ring`. */
+  createPcmRing?: (capacity: number) => PcmRingLike;
+  /** Timer injection (testability). Defaults to global setInterval/clearInterval. */
+  setIntervalFn?: (cb: () => void, ms: number) => ReturnType<typeof setInterval>;
+  clearIntervalFn?: (handle: ReturnType<typeof setInterval>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +107,16 @@ const KV_MODEL_ID = 'voice.globalCapture.modelId';
 const DEFAULT_HOTKEY = 'CommandOrControl+Alt+Space';
 const DEFAULT_MODE: CaptureMode = 'toggle';
 const DEFAULT_MODEL  = getDefaultModel().id;
+
+// ── C-11 listening-loop tuning ──────────────────────────────────────────────
+/** How often the wake loop evaluates the rolling buffer. */
+const LISTEN_TICK_MS = 750;
+/** Rolling window (seconds) handed to the tiny model on each speech tick. */
+const WAKE_WINDOW_SEC = 3;
+/** Short window (seconds) used by the energy gate to decide whether to spend a pass. */
+const ENERGY_WINDOW_SEC = 0.5;
+/** Ring capacity in seconds — must cover the wake window with headroom. */
+const RING_CAPACITY_SEC = 3;
 
 // ---------------------------------------------------------------------------
 // PCM sample-rate constants and resampler (A1 — hardware sample-rate detection)
@@ -186,6 +233,17 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
   let unsubscribeOnPcm: (() => void) | null = null;
   let capturedTranscript = '';
 
+  // ── C-11 listening-mode state ─────────────────────────────────────────────
+  let listening = false;
+  /** Synchronous guard set the instant arming begins, before any await. */
+  let listenArming = false;
+  let listenTimer: ReturnType<typeof setInterval> | null = null;
+  let listenRing: PcmRingLike | null = null;
+  let unsubscribeListenPcm: (() => void) | null = null;
+  /** Guards re-entrant ticks while an async transcribe pass is in flight. */
+  let wakeTickBusy = false;
+  let listenSampleRate = NATIVE_PCM_SAMPLE_RATE;
+
   function kvGet(key: string): string | null {
     try { return deps.kv.get(key); } catch { return null; }
   }
@@ -264,10 +322,17 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     }
   }
 
-  async function startRecording(): Promise<void> {
+  async function startRecording(seedAudio?: { samples: Float32Array; sampleRate: number }): Promise<void> {
     if (state !== 'idle') return;
     setState('recording');
     pcm.reset();
+
+    // C-11 — when escalating from the wake loop, seed the accumulator with the
+    // rolling window that contained "hey sigma …" so the single spoken utterance
+    // is transcribed (by the MAIN model) and routed as one command.
+    if (seedAudio && seedAudio.samples.length > 0) {
+      pcm.push({ samples: seedAudio.samples, sampleRate: seedAudio.sampleRate });
+    }
 
     const native = loadNative();
     if (!native) {
@@ -376,11 +441,178 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     }
   }
 
+  // ── C-11 — "Hey Sigma" always-on listening loop ───────────────────────────
+  //
+  // When listening mode is on we open the native mic ONCE, tap its continuous
+  // onPcm stream into a rolling ring, and run a low-frequency interval that:
+  //   1. reads a short window and applies the energy gate (skip silence — the
+  //      key idle-CPU win: no transcribe on a quiet room);
+  //   2. on speech, transcribes the ~3 s rolling window with the TINY model
+  //      (independent of the user's main capture model);
+  //   3. matches "hey sigma"; on a hit it tears the wake loop down and runs the
+  //      existing capture path (startRecording → stopAndTranscribe → route).
+  // Every branch is wrapped so the loop never throws and never blocks.
+
+  function isListeningModeOn(): boolean {
+    try { return deps.getListeningMode?.() ?? false; } catch { return false; }
+  }
+
+  function teardownListenLoop(): void {
+    if (listenTimer !== null) {
+      try { (deps.clearIntervalFn ?? clearInterval)(listenTimer); } catch { /* ignore */ }
+      listenTimer = null;
+    }
+    if (unsubscribeListenPcm) {
+      try { unsubscribeListenPcm(); } catch { /* ignore */ }
+      unsubscribeListenPcm = null;
+    }
+    listenRing?.reset();
+    listenRing = null;
+    wakeTickBusy = false;
+    listening = false;
+    listenArming = false;
+  }
+
+  /**
+   * One wake-loop iteration. Energy-gated, model-gated, error-isolated.
+   * Returns a promise so callers/tests can await the transcribe pass.
+   */
+  async function wakeTick(): Promise<void> {
+    if (!listening || wakeTickBusy || !listenRing) return;
+    // Energy gate — cheap RMS over a short window; skip silence entirely.
+    let speech = true;
+    try {
+      const energyWindow = listenRing.lastSeconds(ENERGY_WINDOW_SEC, listenSampleRate);
+      speech = deps.isSpeech ? deps.isSpeech(energyWindow) : energyWindow.length > 0;
+    } catch { speech = false; }
+    if (!speech) return;
+
+    const tinyModelPath = (() => {
+      try { return deps.getTinyModelPath?.() ?? null; } catch { return null; }
+    })();
+    if (!tinyModelPath) return; // tiny model not downloaded — cannot wake-detect
+
+    const engine = getWhisperEngine();
+    if (!engine) return;
+
+    wakeTickBusy = true;
+    try {
+      const window = listenRing.lastSeconds(WAKE_WINDOW_SEC, listenSampleRate);
+      if (window.length === 0) { wakeTickBusy = false; return; }
+      const audio16k = resampleTo16k(window, listenSampleRate);
+      const result = await engine.transcribe(audio16k, tinyModelPath, { language: 'en', threads: 4 });
+      const text = (result?.text ?? '').trim();
+      const matched = text
+        ? (deps.matchesWakeWord ? deps.matchesWakeWord(text) : /\bhey\s+sigma\b/i.test(text))
+        : false;
+      if (matched) {
+        await escalateToCapture();
+        return; // escalation tore the loop down
+      }
+    } catch (err) {
+      console.warn('[global-capture] wake-tick failed (non-fatal):', err);
+    } finally {
+      wakeTickBusy = false;
+    }
+  }
+
+  /**
+   * On a wake-word hit: stop the wake loop and run the normal command capture.
+   * The capture path stops + restarts the native mic itself, so we must fully
+   * release the listening tap first. We seed the capture with the rolling
+   * window that triggered the wake so the single utterance ("hey sigma open the
+   * browser") flows straight into routeTranscript/dispatch via the main model.
+   * After the command dispatches, re-arm the loop iff listening mode is still on.
+   */
+  async function escalateToCapture(): Promise<void> {
+    // Snapshot the wake window BEFORE releasing the ring.
+    let seed: { samples: Float32Array; sampleRate: number } | undefined;
+    try {
+      const window = listenRing?.lastSeconds(WAKE_WINDOW_SEC, listenSampleRate);
+      if (window && window.length > 0) {
+        seed = { samples: window, sampleRate: listenSampleRate };
+      }
+    } catch { /* ignore — proceed without seed */ }
+
+    teardownListenLoop();
+    toast('Hey Sigma — listening for your command…', 'info');
+    try {
+      await startRecording(seed);
+      // Run start→stop back-to-back: the seeded wake window already holds the
+      // command audio, so this transcribes + routes the single utterance.
+      await stopAndTranscribe();
+    } catch (err) {
+      console.warn('[global-capture] wake escalation capture failed (non-fatal):', err);
+    } finally {
+      // Re-arm only if still in idle and listening mode remains enabled.
+      if (state === 'idle' && isListeningModeOn()) {
+        void startListening();
+      }
+    }
+  }
+
+  async function startListening(): Promise<void> {
+    if (listening || listenArming) return;
+    if (!isListeningModeOn()) return;
+    // Need the injected primitives; absent them the feature is a no-op.
+    if (!deps.createPcmRing) return;
+
+    const native = loadNative();
+    if (!native || typeof native.onPcm !== 'function') return;
+
+    // Set the synchronous arming guard BEFORE the first await so a concurrent
+    // call (e.g. init auto-arm racing an explicit startListening) is a no-op.
+    listenArming = true;
+    try {
+      const status = await native.requestPermission();
+      if (status !== 'granted') {
+        toast('Microphone permission denied — grant access in System Settings → Privacy → Microphone', 'warn');
+        listenArming = false;
+        return;
+      }
+
+      listenSampleRate = NATIVE_PCM_SAMPLE_RATE;
+      listenRing = deps.createPcmRing(Math.floor(RING_CAPACITY_SEC * NATIVE_PCM_SAMPLE_RATE));
+
+      // Tap the continuous PCM stream into the ring.
+      const unsub = native.onPcm((chunk: PcmChunk) => {
+        const { samples, sampleRate } = unpackPcmChunk(chunk);
+        listenSampleRate = sampleRate;
+        listenRing?.push(samples);
+      });
+      unsubscribeListenPcm = typeof unsub === 'function' ? unsub : null;
+
+      await native.start({ locale: 'en-US', onDevice: true, addPunctuation: false });
+
+      listening = true;
+      const schedule = deps.setIntervalFn ?? setInterval;
+      listenTimer = schedule(() => { void wakeTick(); }, LISTEN_TICK_MS);
+    } catch (err) {
+      console.warn('[global-capture] startListening failed (non-fatal):', err);
+      teardownListenLoop();
+    } finally {
+      listenArming = false;
+    }
+  }
+
+  async function stopListening(): Promise<void> {
+    if (!listening && listenTimer === null && !unsubscribeListenPcm) return;
+    teardownListenLoop();
+    const native = loadNative();
+    if (native) {
+      try { await native.stop(); } catch { /* ignore */ }
+    }
+  }
+
   function init(): void {
     loadFromKv();
     if (enabled) {
       registerHotkey();
     }
+    // Note: the wake loop is NOT auto-armed here. The host (electron/main.ts)
+    // calls startListening() explicitly after construction when
+    // `voice.listeningMode` is on, and on the settings toggle. This keeps the
+    // async mic-open out of the synchronous constructor and avoids a self-race.
   }
 
   init();
@@ -432,7 +664,27 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       return stopAndTranscribe();
     },
 
+    /**
+     * C-11 — begin always-on "Hey Sigma" listening. No-op when listening mode
+     * is off, the native mic is unavailable, or the PCM-ring factory was not
+     * injected. Idempotent. Never throws.
+     */
+    startListening(): Promise<void> {
+      return startListening();
+    },
+
+    /** C-11 — stop the wake loop and release the native mic. Idempotent. */
+    stopListening(): Promise<void> {
+      return stopListening();
+    },
+
+    /** C-11 — true while the wake loop is armed (introspection / tests). */
+    isListening(): boolean {
+      return listening;
+    },
+
     dispose(): void {
+      teardownListenLoop();
       unregisterHotkey();
       if (unsubscribeOnFinal) {
         try { unsubscribeOnFinal(); } catch { /* ignore */ }

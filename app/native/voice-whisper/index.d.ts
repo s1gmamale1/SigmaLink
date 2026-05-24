@@ -12,6 +12,12 @@ export interface TranscribeSegment {
   t1: number;
   /** Transcribed text for this segment (may include a leading space). */
   text: string;
+  /**
+   * Mean per-token probability for this segment in [0, 1] (C-11 / K5). Higher
+   * is more confident. Used by the wake-word path as a false-trigger guard.
+   * Absent when the native build cannot compute it (older binary / stub).
+   */
+  prob?: number;
 }
 
 export interface TranscribeResult {
@@ -66,6 +72,13 @@ export interface WhisperBridge {
     modelPath: string,
     opts?: TranscribeOpts,
   ): Promise<TranscribeResult>;
+
+  /**
+   * Free every cached `whisper_context` and clear the process-lifetime model
+   * cache (C-11 / K5). Call from the host's shutdown path when no transcribe is
+   * in flight. Idempotent. On the non-native stub this is a no-op.
+   */
+  disposeModels(): void;
 }
 
 declare const whisperBridge: WhisperBridge;

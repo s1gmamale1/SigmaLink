@@ -23,6 +23,9 @@
 #include <vector>
 #include <cstdint>
 #include <cstring>
+#include <map>
+#include <memory>
+#include <mutex>
 
 // whisper.cpp public C header
 #ifdef __has_include
@@ -43,6 +46,7 @@ struct Segment {
   int64_t t0;   // start time in ms
   int64_t t1;   // end time in ms
   std::string text;
+  float prob = -1.0f; // mean per-token probability for this segment; <0 = unknown
 };
 
 struct TranscribeResult {
@@ -80,6 +84,92 @@ static TranscribeOpts ParseOpts(const Napi::Object& obj) {
 }
 
 // ---------------------------------------------------------------------------
+// Process-lifetime whisper_context cache (C-11 / K5)
+// ---------------------------------------------------------------------------
+//
+// Without a cache every transcribe() call reloads the model from disk
+// (whisper_init_from_file_with_params is ~hundreds of ms for the 31 MB tiny
+// model) — fatal for the "Hey Sigma" wake loop which polls ~every 750 ms. The
+// cache keeps one whisper_context per model path alive for the life of the
+// process. `disposeModels()` frees them at shutdown.
+//
+// Concurrency model:
+//   - `g_cacheMutex` guards the map itself (lookup + insert + the disposeModels
+//     teardown). Held only briefly.
+//   - Each cache entry owns its own `runMutex`. A transcribe worker locks that
+//     per-context mutex for the duration of its `whisper_full` call so two
+//     concurrent transcribes on the SAME model are serialized (whisper_context
+//     is NOT safe for concurrent whisper_full). Transcribes on DIFFERENT models
+//     proceed in parallel. The per-context mutex is locked WITHOUT holding the
+//     cache mutex, so an in-flight inference never blocks other models' lookups.
+
+struct CachedContext {
+  whisper_context* ctx = nullptr;
+  // Serializes whisper_full() calls on this context. unique_ptr so the entry
+  // is movable/stable inside the map without copying a std::mutex.
+  std::unique_ptr<std::mutex> runMutex;
+};
+
+static std::map<std::string, CachedContext>& ContextCache() {
+  // Function-local static: constructed on first use, never destructed (we free
+  // contexts explicitly via disposeModels rather than at static teardown to
+  // avoid ordering issues with ggml/Metal global state).
+  static std::map<std::string, CachedContext>* cache = new std::map<std::string, CachedContext>();
+  return *cache;
+}
+
+static std::mutex g_cacheMutex;
+
+/**
+ * Return the cached whisper_context for `modelPath`, initializing it on a cache
+ * miss. On success, `outRunMutex` points at the per-context run mutex (owned by
+ * the cache; valid for the life of the process or until disposeModels). Returns
+ * nullptr on init failure (the entry is NOT inserted in that case).
+ */
+static whisper_context* GetOrInitContext(
+  const std::string& modelPath,
+  whisper_context_params cparams,
+  std::mutex** outRunMutex,
+  std::string* outError
+) {
+  std::lock_guard<std::mutex> lock(g_cacheMutex);
+  auto it = ContextCache().find(modelPath);
+  if (it != ContextCache().end() && it->second.ctx != nullptr) {
+    *outRunMutex = it->second.runMutex.get();
+    return it->second.ctx;
+  }
+
+  whisper_context* ctx = whisper_init_from_file_with_params(modelPath.c_str(), cparams);
+  if (!ctx) {
+    if (outError) *outError = "whisper_bridge: failed to load model from " + modelPath;
+    return nullptr;
+  }
+
+  CachedContext entry;
+  entry.ctx = ctx;
+  entry.runMutex = std::unique_ptr<std::mutex>(new std::mutex());
+  *outRunMutex = entry.runMutex.get();
+  ContextCache().emplace(modelPath, std::move(entry));
+  return ctx;
+}
+
+/**
+ * Free every cached context and clear the cache. Safe to call multiple times.
+ * MUST be called from the JS thread (e.g. app before-quit / dispose) when no
+ * transcribe worker is in flight — callers gate this on shutdown.
+ */
+static void DisposeAllContexts() {
+  std::lock_guard<std::mutex> lock(g_cacheMutex);
+  for (auto& kv : ContextCache()) {
+    if (kv.second.ctx) {
+      whisper_free(kv.second.ctx);
+      kv.second.ctx = nullptr;
+    }
+  }
+  ContextCache().clear();
+}
+
+// ---------------------------------------------------------------------------
 // AsyncWorker — inference runs off the event loop
 // ---------------------------------------------------------------------------
 
@@ -108,9 +198,13 @@ public:
     cparams.use_gpu = false;
 #endif
 
-    whisper_context* ctx = whisper_init_from_file_with_params(modelPath_.c_str(), cparams);
+    // K5 — fetch a process-lifetime cached context (init only on cache miss).
+    // The context is OWNED by the cache and is NOT freed here on completion.
+    std::mutex* runMutex = nullptr;
+    std::string err;
+    whisper_context* ctx = GetOrInitContext(modelPath_, cparams, &runMutex, &err);
     if (!ctx) {
-      SetError("whisper_bridge: failed to load model from " + modelPath_);
+      SetError(err.empty() ? ("whisper_bridge: failed to load model from " + modelPath_) : err);
       return;
     }
 
@@ -130,23 +224,49 @@ public:
       params.beam_search.beam_size = opts_.beam_size;
     }
 
-    int rc = whisper_full(ctx, params,
-                          audio_.data(),
-                          static_cast<int>(audio_.size()));
+    // K5 — serialize whisper_full() per context. whisper_context holds mutable
+    // inference state, so two concurrent runs on the SAME context corrupt each
+    // other. Different models (different contexts) still run in parallel.
+    int rc = 0;
+    {
+      std::lock_guard<std::mutex> runLock(*runMutex);
+      rc = whisper_full(ctx, params,
+                        audio_.data(),
+                        static_cast<int>(audio_.size()));
+
+      if (rc == 0) {
+        // Collect results while still holding the run lock so the per-segment
+        // getters read the state produced by THIS whisper_full call.
+        const int n_segments = whisper_full_n_segments(ctx);
+        for (int i = 0; i < n_segments; ++i) {
+          Segment seg;
+          seg.t0   = whisper_full_get_segment_t0(ctx, i) * 10; // centiseconds → ms
+          seg.t1   = whisper_full_get_segment_t1(ctx, i) * 10;
+          const char* txt = whisper_full_get_segment_text(ctx, i);
+          seg.text = txt ? std::string(txt) : "";
+
+          // K5 — per-segment confidence. whisper.cpp exposes token-level
+          // probabilities (whisper_full_get_token_p); the segment probability
+          // is the mean over its tokens. Surfaced for the wake-word false-
+          // trigger guard (K3/K4 can threshold on it later).
+          const int n_tokens = whisper_full_n_tokens(ctx, i);
+          if (n_tokens > 0) {
+            float sum = 0.0f;
+            for (int t = 0; t < n_tokens; ++t) {
+              sum += whisper_full_get_token_p(ctx, i, t);
+            }
+            seg.prob = sum / static_cast<float>(n_tokens);
+          }
+
+          result_.segments.push_back(std::move(seg));
+        }
+      }
+    }
+    // NOTE: ctx is intentionally NOT freed — it lives in the cache.
+
     if (rc != 0) {
-      whisper_free(ctx);
       SetError("whisper_bridge: inference failed (rc=" + std::to_string(rc) + ")");
       return;
-    }
-
-    const int n_segments = whisper_full_n_segments(ctx);
-    for (int i = 0; i < n_segments; ++i) {
-      Segment seg;
-      seg.t0   = whisper_full_get_segment_t0(ctx, i) * 10; // centiseconds → ms
-      seg.t1   = whisper_full_get_segment_t1(ctx, i) * 10;
-      const char* txt = whisper_full_get_segment_text(ctx, i);
-      seg.text = txt ? std::string(txt) : "";
-      result_.segments.push_back(std::move(seg));
     }
 
     // Concatenate all segments for the top-level text field
@@ -159,8 +279,6 @@ public:
     // Trim leading space
     if (!result_.text.empty() && result_.text[0] == ' ')
       result_.text = result_.text.substr(1);
-
-    whisper_free(ctx);
   }
 
   // Runs on the JS thread after Execute completes
@@ -175,6 +293,11 @@ public:
       s.Set("t0",   Napi::Number::New(env, static_cast<double>(result_.segments[i].t0)));
       s.Set("t1",   Napi::Number::New(env, static_cast<double>(result_.segments[i].t1)));
       s.Set("text", Napi::String::New(env, result_.segments[i].text));
+      // K5 — only surface prob when it was computed (>= 0); omit otherwise so
+      // the JS `prob?: number` contract stays accurate.
+      if (result_.segments[i].prob >= 0.0f) {
+        s.Set("prob", Napi::Number::New(env, static_cast<double>(result_.segments[i].prob)));
+      }
       segs[i] = s;
     }
     out.Set("segments", segs);
@@ -237,11 +360,25 @@ static Napi::Value Transcribe(const Napi::CallbackInfo& info) {
 }
 
 // ---------------------------------------------------------------------------
+// JS-visible `disposeModels(): void` — free all cached contexts (K5)
+// ---------------------------------------------------------------------------
+//
+// Call from the host's shutdown path (Electron before-quit / dispose) when no
+// transcribe is in flight. Idempotent.
+
+static Napi::Value DisposeModels(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  DisposeAllContexts();
+  return env.Undefined();
+}
+
+// ---------------------------------------------------------------------------
 // Module init
 // ---------------------------------------------------------------------------
 
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("transcribe", Napi::Function::New(env, Transcribe));
+  exports.Set("disposeModels", Napi::Function::New(env, DisposeModels));
   return exports;
 }
 
