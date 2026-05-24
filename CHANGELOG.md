@@ -4,6 +4,20 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-05-25
+
+v1.19.0 — **"New surfaces"** (Milestone M4) + a voice remediation that makes the v1.17/v1.18 voice features actually run. Brainstorm→code-verified plan→3 parallel worktree-isolated coders (C-11 on Opus for native/C++)→lead-merged + combined gate, then a focused voice-core remediation lane. Spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.
+
+### Added
+
+- **C-8 — Browser-on-link:** clicking a URL/OSC8 hyperlink in a pane's terminal opens it in the in-app browser **and surfaces the browser tab** (`setActiveTab('browser')` threaded through the terminal link handler; browser + recents already existed).
+- **C-9 — Skills guardrail matrix:** Skills-tab toggles (Test-Driven / Security-Audit / CI-Green / DRY) written as a per-worktree `CLAUDE.md` guardrail block at dispatch (`guardrails.ts`, `guardrail-block.ts`, `launcher.ts`/`factory-spawn.ts`, `SkillsTab.tsx`). Guidance-level, reuses the C-5 scope-block pattern.
+- **C-11 — "Hey Sigma" wake-word dispatch:** optional always-on listening mode (VoiceTab toggle, OFF by default) — energy-gated rolling tiny-Whisper matches "hey sigma" → escalates to the capture→dispatch path. whisper.cpp N-API bridge gained a persistent, mutex-guarded `whisper_context` cache + per-segment probability (`pcm-ring.ts`, `audio-energy.ts`, `wake-word.ts`, `voice-core/global-capture.ts`, `whisper_bridge.cc`). Native build verified; macOS-first.
+
+### Fixed
+
+- **Voice-core extraction regression:** a past extraction left a dead duplicate voice tree at `src/main/core/voice/`; the live module is `@sigmalink/voice-core`. C-10a (dictionary/macros/usage-stats, v1.17) and C-10b (focused-pane routing, v1.18) had been edited into the **dead** copy → inert in production. Ported `normalizeTranscript`, the focused-pane `routeTranscript` branch, and the usage-stats capture into the live voice-core package; deleted the two confirmed-dead duplicates. The VoiceTab dictionary, focused-pane dictation, and usage dashboard now actually work.
+
 ## [1.18.0] - 2026-05-24
 
 v1.18.0 — **"Sigma Agent"** (Milestone M3, capstone). One goal → N worktree-isolated agent panes, each briefed with a plan capsule, with a conflict-aware merge order — the "swarm with no merge conflicts" a shared-dir competitor can't match. Compose-first (M1/M2 primitives + existing infra). Brainstorm→code-verified plan→3 parallel worktree-isolated coders, lead-merged with one combined hard gate in main. Spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.

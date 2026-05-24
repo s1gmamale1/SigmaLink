@@ -1,0 +1,73 @@
+SigmaLink v1.19.0 — 2026-05-25
+==============================
+
+v1.19.0 — "New surfaces" (Milestone M4) — embedded-browser link-through,
+a Skills guardrail matrix, and "Hey Sigma" wake-word dispatch — plus a
+remediation that makes the v1.17/v1.18 voice features (dictionary + macros +
+focused-pane routing) ACTUALLY run in production.
+
+Brainstorm -> code-verified plan -> 3 parallel worktree-isolated coders
+(C-11 on Opus for the native/C++ work) -> lead-merged + one combined hard
+gate in main, then a focused voice-core remediation lane.
+
+Spec: docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md
+
+
+C-8 — Browser-on-link
+---------------------
+
+- Clicking a URL or OSC8 hyperlink in any pane's terminal now opens it in the
+  in-app browser AND surfaces the browser tab. The browser, recents panel, and
+  link detection already existed; this wires the missing "reveal the browser"
+  step (`setActiveTab('browser')` threaded through the terminal link handler).
+
+
+C-9 — Skills guardrail matrix
+-----------------------------
+
+- A "Guardrails" section in the Skills tab with toggles (Test-Driven /
+  Security-Audit / CI-Green / DRY). Enabled guardrails are written as a
+  per-worktree CLAUDE.md block (`<!-- sigmalink-guardrails -->`) into every new
+  agent's worktree at dispatch — guidance-level, reusing the v1.17 scope-block
+  pattern; no settings/hook mutation.
+
+
+C-11 — "Hey Sigma" wake-word dispatch
+-------------------------------------
+
+- Optional always-on listening mode (VoiceTab toggle; OFF by default): an
+  energy-gated rolling Whisper (tiny model) on a 3s buffer matches "hey sigma"
+  and escalates to the existing capture -> dispatch path. No hotkey press.
+- whisper.cpp N-API bridge gained a persistent whisper_context cache (mutex-
+  guarded, freed on quit) + per-segment probability, so wake-polling does not
+  reload the model each tick. Native build verified locally; live-mic behavior
+  is operator-confirmed post-install (the toggle defaults off until then).
+- macOS-first (the PCM tap is mac-only today).
+
+
+Voice remediation (makes v1.17/v1.18 features real)
+---------------------------------------------------
+
+- ROOT CAUSE: a past "voice-core extraction" left a DEAD duplicate of the voice
+  capture/output modules at `src/main/core/voice/`; the live module is the
+  `@sigmalink/voice-core` package. C-10a (dictionary/macros/usage-stats, v1.17)
+  and C-10b (focused-pane routing, v1.18) had been edited into the DEAD copy
+  and were inert in production (their tests passed against the dead copy).
+- FIX: ported `normalizeTranscript` (dictionary/macros), the focused-pane
+  `routeTranscript` branch, and the usage-stats capture (whisper segments ->
+  words/WPM -> `voice.stats`) into the live voice-core package; deleted the two
+  confirmed-dead duplicates (`global-capture.ts` + `output-router.ts` + tests).
+  The VoiceTab dictionary, focused-pane dictation, and usage dashboard now work.
+
+
+Gate
+----
+
+- tsc -b (main) + voice-core tsc --noEmit — both clean
+- eslint 0 errors / 0 warnings
+- vitest 138 files / 1379 pass / 1 skip
+- vite build + electron:compile clean
+- Playwright smoke e2e in main (35.4 s)
+- voice-whisper native rebuild (node-gyp) clean — C++ context-cache verified
+
+No schema migrations in v1.19.0.
