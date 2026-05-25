@@ -4,6 +4,27 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-05-26
+
+v1.23.0 — **Apple-grade component kit (frontend Stage 3)** + **H-1 hardening (electron typecheck)**. H-1 lead-direct; Stage 3 = 3 parallel worktree-isolated coders (button on Opus) → lead-merged, one hard gate in main (incl. the full `tests/e2e/` dir + a glass visual pass).
+
+### Added
+
+- **H-1 — `electron/**` is now type-checked.** A new `tsconfig.electron.json` (extends `tsconfig.node.json` + `@/` paths) added as a 3rd composite **reference**, so the existing `tsc -b` — run by `build` in every CI workflow — now covers `electron/main.ts`, `preload.ts`, `auto-update.ts` (previously esbuild-only; the coverage gap behind the v1.20.0→.1 model-registry break). No workflow edit needed. Surfaced + fixed one real issue (an unused `name` param, now folded into the channel error message).
+- **Button `tinted` variant** — `bg-primary/15` + primary text — the Apple "tinted" secondary tier (the `.sl-nav-active` selection vocabulary as a button). Additive; opt-in.
+
+### Changed (Stage 3 — component-kit pass over the high-traffic shadcn/Radix kit)
+
+- **Ghost buttons read as translucent chrome on glass** — ghost hover `bg-accent` → `bg-foreground/[0.07]` (theme-adaptive; no glass-on-glass). ~29 uses in toolbar/sidebar/pane-header.
+- **Tactile press** — interactive buttons gain `active:scale-[0.98]` (`motion-reduce` respected) + the spring transition (`transition-[color,box-shadow,transform]`).
+- **Unified focus-ring** — `dialog` + `sheet` close buttons moved off the legacy `focus:ring-2 focus:ring-offset-2` to the standard `focus-visible:ring-[3px]`; the `tabs`/`scroll-area` outline divergence removed; `switch`/`checkbox` transitions unified.
+- **Segmented-control `tabs`** polish (inactive always muted, active overrides), `card` transition; `tooltip` kept as the deliberate opaque pill (no glass).
+
+### Notes
+
+- Refinement of the high-traffic primitive kit only; behavior unchanged. Glass stays chrome-only; content surfaces opaque.
+- No schema migrations in v1.23.0.
+
 ## [1.22.1] - 2026-05-26
 
 Patch — CI hotfix. No product changes; binaries are identical to v1.22.0.

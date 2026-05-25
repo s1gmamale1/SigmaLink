@@ -1,6 +1,6 @@
 # SigmaLink — Plans wishlist (consolidated)
 
-> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap** — **Stage 1 (Liquid Glass foundation) ✅ v1.21.0** (FE-1) + **Stage 2 (chrome & window polish) ✅ v1.22.0** (FE-2); Stages 3–4 (component kit · per-room+a11y) queued. Other live backlog: **R-1 Jorvis Remote (Telegram)** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified items). Each row points at the original spec / backlog / plan file it was extracted from.
+> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap** — **Stage 1 (Liquid Glass foundation) ✅ v1.21.0** (FE-1) + **Stage 2 ✅ v1.22.0** (FE-2) + **Stage 3 (component kit) ✅ v1.23.0** (FE-3); Stage 4 (per-room + a11y) queued. Other live backlog: **R-1 Jorvis Remote (Telegram)** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified; **H-1 ✅ shipped v1.23.0**). Each row points at the original spec / backlog / plan file it was extracted from.
 
 ## Recently shipped ✅
 
@@ -100,7 +100,15 @@ Apple/macOS-Tahoe polish of the app *frame + panes* on top of the Stage-1 glass 
 - **Nav active states (Lane N):** active workspace rows carry `.sl-nav-active` (the deferred Stage-1 item — primary tint under glass, `bg-sidebar-accent` fallback elsewhere); rooms-menu active item → `bg-primary/15 text-primary` + `aria-current`, trigger gains an active cue for non-default rooms. Converges on the `RightRailSwitcher` selection vocabulary.
 - **On-machine eyeball** (not Playwright-capturable): native traffic-light alignment + live pane hover-reveal/glow/density (need spawned panes).
 
-**Stages 3–4 queued:** S3 component-kit pass (59 shadcn primitives) · S4 per-room polish + a11y audit (VoiceOver, contrast, reduce-motion).
+### FE-3 — Component-kit pass — ✅ Stage 3, RELEASED v1.23.0 (2026-05-26)
+
+Apple-grade polish of the high-traffic shadcn/Radix primitive kit (`src/components/ui/`). 3 worktree-isolated lanes (button on Opus), gate-green.
+- **Controls (C1):** ghost buttons read as translucent chrome on glass (hover `bg-foreground/[0.07]`, no glass-on-glass); new **`tinted`** secondary button tier (`bg-primary/15`); tactile press (`active:scale-[0.98]`, reduced-motion respected) + spring transition; switch/checkbox transitions unified.
+- **Overlays (C2):** dialog + sheet close buttons moved off the legacy `focus:ring-2 ring-offset-2` to the standard `focus-visible:ring-[3px]`; tooltip kept as the deliberate opaque pill; no backdrop-filter added.
+- **Surfaces (C3):** segmented-control tabs (inactive muted / active foreground, drop divergent outline), card transition, scroll-area focus-ring.
+- Refinement only (behavior unchanged); high-traffic kit (not all 59). **On-machine eyeball:** ghost-on-glass hover, press, the tinted tier when used.
+
+**Stage 4 queued:** per-room polish + a11y audit (VoiceOver, contrast, reduce-motion sweep, empty/error/loading states).
 
 ---
 
@@ -111,7 +119,7 @@ Apple/macOS-Tahoe polish of the app *frame + panes* on top of the Stage-1 glass 
 ### P0 — boundaries + CI drift (do first)
 | ID | Item | file:line | Fix |
 |---|---|---|---|
-| H-1 | **Electron/main not typechecked** — `tsc -b` covers only `src/` + `vite.config`; `electron/**`, `src/main/**`, the 2 mcp-servers are esbuild-only (transpile, no typecheck); CI never runs `product:check`. **This is the gap that hid the v1.20.0→.1 `model-registry` break.** | `tsconfig.node.json:25` · `tsconfig.app.json:33` · `scripts/build-electron.cjs` · `.github/workflows/lint-and-build.yml:59` | Add `tsconfig.electron.json` (`include: electron, src/main`, `noEmit`) → reference it + run `tsc -p` (or `product:check`) in CI |
+| H-1 ✅ | **DONE v1.23.0 — Electron/main now typechecked.** (Was: `electron/**` esbuild-only; `src/main/**` + the 2 mcp-servers were already in `tsc -b`, so only `electron/**` was the gap — the one that hid the v1.20.0→.1 `model-registry` break.) Fix shipped: `tsconfig.electron.json` (extends `tsconfig.node.json` + `@/` paths) added as a 3rd composite **reference** → the existing `tsc -b` (run by `build` in every CI workflow) now covers it; no workflow edit. Surfaced + fixed 1 real issue (unused param). | `app/tsconfig.electron.json` · `tsconfig.json` refs · `electron/main.ts:169` | ✅ shipped |
 | H-2 | **`fs.writeFile` trusts renderer `repoRoot`** — renderer supplies BOTH path + root; `repoRoot:"/"` collapses the traversal guard → write anywhere the process can | `core/fs/controller.ts:98,100-103` | Pass `workspaceId`/`sessionId`; resolve the trusted root from DB in main (→ H-5) |
 | H-3 | **`fs.readDir`/`fs.readFile` accept arbitrary absolute paths** (the file comment admits it) → compromised renderer = local file browser (`~/.ssh/id_rsa`) | `core/fs/controller.ts:2,38-89` | Central `assertAllowedPath` (→ H-5) |
 | H-4 | **`git.runCommand` + `pty.spawnScratch` take renderer-supplied cwd/command** — no shell-metachar injection (`spawn` `shell:false`) but arbitrary command + cwd; `spawnScratch` cwd unvalidated → shell in any dir | `rpc-router.ts:780-795,1094` · `core/git/git-ops.ts:250` | Gate cwd through the allowlist; split operator-terminal vs app-internal git |

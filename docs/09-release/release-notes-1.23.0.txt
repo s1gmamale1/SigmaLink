@@ -1,0 +1,67 @@
+SigmaLink v1.23.0 — 2026-05-26
+==============================
+
+Apple-grade component kit (frontend Stage 3) + H-1 hardening (electron
+typecheck). H-1 lead-direct; Stage 3 = 3 parallel worktree-isolated coders
+(button on Opus), lead-merged with one hard gate in main (now incl. the FULL
+tests/e2e/ dir + a glass visual pass).
+
+
+Added — H-1: electron/** is now type-checked
+--------------------------------------------
+
+- electron/main.ts, preload.ts, auto-update.ts were esbuild-only (transpiled,
+  never type-checked) — the coverage gap behind the v1.20.0->.1 model-registry
+  break. New tsconfig.electron.json (extends tsconfig.node.json + the @/ path
+  alias) is added as a 3rd composite reference in tsconfig.json, so the existing
+  `tsc -b` — already run by `build` in lint-and-build / e2e-matrix / release
+  workflows — now covers electron/**. No CI workflow edit needed.
+- src/main/** + the two MCP servers were already type-checked (under
+  tsconfig.app.json) — only electron/** was the gap.
+- Turning it on surfaced exactly one real issue: an unused `name` parameter in
+  registerGlobalCaptureIpc, now folded into the channel error message for
+  better diagnostics. Otherwise clean (zero @ts-* / any debt in electron/**).
+
+
+Added — Button "tinted" variant
+-------------------------------
+
+- A new `tinted` button variant (bg-primary/15 + primary text) — the Apple
+  "tinted" secondary tier, matching the app's .sl-nav-active selection
+  vocabulary. Additive / opt-in; no existing buttons change tier.
+
+
+Changed — Stage 3 component-kit pass (high-traffic shadcn/Radix kit)
+-------------------------------------------------------------------
+
+- Ghost buttons now read as translucent chrome on glass: ghost hover
+  bg-accent -> bg-foreground/[0.07] (theme-adaptive subtle tint; no
+  glass-on-glass). ~29 uses across toolbar / sidebar / pane-header.
+- Tactile press: interactive buttons gain active:scale-[0.98]
+  (motion-reduce:active:scale-100) + the spring transition.
+- Unified focus-ring: dialog + sheet close buttons moved off the legacy
+  focus:ring-2 focus:ring-offset-2 to the standard
+  focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px];
+  tabs / scroll-area outline divergence removed; switch / checkbox transitions
+  unified to transition-[color,box-shadow].
+- Segmented-control tabs polish (inactive always muted, active overrides to
+  foreground); card transition; tooltip kept as the deliberate opaque pill.
+- Refinement only — behavior unchanged. Glass stays chrome-only; content
+  surfaces opaque. The other themes get the (theme-adaptive) control polish.
+
+
+Gate
+----
+
+- tsc -b (main, NOW INCLUDING electron/**) -- clean
+- eslint 0 errors / 0 warnings
+- vitest 156 files / 1548 pass / 1 skip
+- vite build + electron:compile (product:check) -- clean
+- FULL Playwright e2e (tests/e2e/) in main -- 9 passed / 3 skipped (manual-only)
+- Glass visual pass: Settings/Appearance rendered in glass -- segmented tabs,
+  cards, buttons, select all crisp; no static regression.
+
+On-machine eyeball (not statically capturable): ghost-on-glass hover, button
+press, and the tinted variant once used in a view.
+
+No schema migrations in v1.23.0.
