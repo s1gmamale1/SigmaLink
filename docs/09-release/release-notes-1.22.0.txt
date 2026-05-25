@@ -1,0 +1,65 @@
+SigmaLink v1.22.0 — 2026-05-26
+==============================
+
+Apple-grade chrome & window polish — Stage 2 of the Apple-grade frontend
+roadmap, layered on v1.21.0's Liquid Glass foundation. Polishes the app frame
+and panes to Apple / macOS-Tahoe quality. Built by 3 parallel worktree-isolated
+coders (pane chrome on Opus), lead-merged with one hard gate in main.
+
+
+Changed — pane chrome (Apple restraint)
+---------------------------------------
+
+- The situational pane-header controls (Split-Vertical, Split-Horizontal,
+  Minimise, Brief) now reveal only on pane hover or keyboard focus-within,
+  instead of every pane permanently showing six buttons. Fullscreen, Close, and
+  the info row (status dot / provider / branch / model / uncommitted badge)
+  stay always-visible. Reveal is opacity-only -- the controls remain in the DOM
+  and tab order, so keyboard users can still reach them.
+- Active-pane highlight: the focused grid cell gains .sl-pane-active, which adds
+  a soft ring-colour glow under the Glass theme (flat themes keep the existing
+  1px hairline ring). Fullscreen still drops the ring.
+- Real density scaling: the pane grid now tightens the inter-pane gap AND the
+  outer padding as panes multiply (comfortable gap-2 / compact gap-1.5 /
+  dense gap-1), and the header shrinks to h-6 at the dense tier -- previously
+  only the font scaled. Comfortable (<=4 panes) stays roomy (Mac
+  density-is-a-feature).
+
+
+Changed — macOS title row
+-------------------------
+
+- The sidebar traffic-light drag spacer is now h-8 (32px), matching the
+  Breadcrumb top bar, for a consistent title row across sidebar + main.
+- A darwin-only trafficLightPosition { x: 19, y: 9 } centers the macOS window
+  controls vertically in the 32px title row. (electron/main change -- verified
+  via product:check, since main is esbuild-only and not in tsc -b.)
+
+
+Changed — unified navigation selection
+--------------------------------------
+
+- Active workspace rows now carry .sl-nav-active (primary-tint selection under
+  glass, bg-sidebar-accent fallback on other themes) -- the deferred Stage-1
+  item.
+- The rooms menu's active item uses bg-primary/15 + text-primary + aria-current;
+  the rooms trigger gains a subtle active cue when a non-default room is open.
+- All three converge on the same selection vocabulary as the right-rail
+  switcher.
+
+
+Gate
+----
+
+- tsc -b (main) -- clean
+- eslint 0 errors / 0 warnings
+- vitest 153 files / 1506 pass / 1 skip
+- vite build + electron:compile (product:check) -- clean (covers the
+  trafficLightPosition change)
+- Playwright smoke e2e in main (42.9 s)
+
+On-machine eyeball (not Playwright-capturable): native macOS traffic-light
+alignment, and live pane hover-reveal / active glow / density (need spawned
+panes). Glass render confirmed unbroken post-merge.
+
+No schema migrations in v1.22.0.

@@ -4,6 +4,23 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-05-26
+
+v1.22.0 — **Apple-grade chrome & window polish** (Stage 2 of the Apple-grade frontend roadmap, on top of v1.21.0's glass foundation). 3 parallel worktree-isolated coders (pane chrome on Opus) → lead-merged, one hard gate in main (incl. `product:check` for the electron/main change).
+
+### Changed
+
+- **Pane chrome — Apple restraint:** the situational pane-header controls (split-vertical, split-horizontal, minimise, brief) now **reveal on pane hover / keyboard focus-within** instead of always cluttering every header; Fullscreen, Close, and the info row (status·provider·branch·model·badge) stay always-visible. Opacity-only — controls remain in the DOM + tab order for keyboard users.
+- **Active-pane highlight:** the focused grid cell gains `.sl-pane-active` → a soft ring-colour glow under the Glass theme (flat themes keep the existing hairline ring); fullscreen still drops the ring.
+- **Real density scaling:** the pane grid now tightens the inter-pane gap + outer padding (and shrinks the header to `h-6` at the dense tier) as panes multiply — previously only the font scaled. Comfortable (≤4 panes) stays roomy.
+- **macOS title row:** the sidebar traffic-light drag spacer is now `h-8` (matching the 32px top bar) and a darwin-only `trafficLightPosition` centers the window controls in the title row.
+- **Unified navigation selection:** active workspace rows and the rooms menu now use the same primary-tint selection vocabulary as the right-rail switcher (`.sl-nav-active` / `bg-primary/15 text-primary`), with `aria-current` on the active room item and a subtle active cue on the rooms trigger for non-default rooms.
+
+### Notes
+
+- Glass effects remain chrome-only + glass-theme-scoped; the other four themes only inherit the (theme-agnostic) density + nav-vocabulary changes, not the glass glow.
+- No schema migrations in v1.22.0.
+
 ## [1.21.0] - 2026-05-25
 
 v1.21.0 — **Apple-grade Liquid Glass foundation** (Stage 1 of the Apple-grade frontend roadmap). Reworks the first-pass Glass theme into genuine Liquid Glass using the self-authored apple-design skill family, and lands app-wide Apple foundations. 3 parallel worktree-isolated coders (the glass material on Opus) → lead-merged, one hard gate in main, **visually verified via Playwright** (closing the FE-1 "unverified" gap).

@@ -1,6 +1,6 @@
 # SigmaLink — Plans wishlist (consolidated)
 
-> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap** — **Stage 1 (Liquid Glass foundation) ✅ shipped to main** (FE-1 v2); Stages 2–4 (chrome/window polish · component kit · per-room+a11y) queued. Other live backlog: **R-1 Jorvis Remote (Telegram)** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified items). Each row points at the original spec / backlog / plan file it was extracted from.
+> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap** — **Stage 1 (Liquid Glass foundation) ✅ v1.21.0** (FE-1) + **Stage 2 (chrome & window polish) ✅ v1.22.0** (FE-2); Stages 3–4 (component kit · per-room+a11y) queued. Other live backlog: **R-1 Jorvis Remote (Telegram)** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified items). Each row points at the original spec / backlog / plan file it was extracted from.
 
 ## Recently shipped ✅
 
@@ -83,7 +83,7 @@ First-class support for **Cursor's CLI agent** (`cursor-agent` headless mode) as
 - **Why native > shell-wiring:** a `shell` pane can run `cursor-agent`, but it loses provider identity, resume, MCP auto-bind, dispatch-target selection, skill `/command` injection, and the per-pane info bar — i.e. it's a terminal, not a *managed* agent.
 - **Caveat:** if Cursor's CLI lacks a clean non-interactive/resume contract on a platform, mark it dispatch-only there (the existing degradation path for kimi/opencode).
 
-### FE-1 — Glass theme (Apple-grade Liquid Glass) — ✅ v2 LANDED on main 2026-05-25 (Stage 1 of the Apple-grade frontend roadmap; rides next release, untagged)
+### FE-1 — Glass theme (Apple-grade Liquid Glass) — ✅ Stage 1, RELEASED v1.21.0 (2026-05-25)
 
 **v2 (Apple-grade, 2026-05-25, commits `08caf71` + `3b65444`)** — reworked the first-pass FE-1 into genuine Liquid Glass using the apple-design-materials skill, **visually verified** via Playwright screenshots (closing the v1 "unverified" gap). Glass is now the **default theme** for fresh profiles. The material moved out of `index.css` into a dedicated reusable layer `app/src/styles/glass-material.css` (the foundation Stages 2–4 build on).
 - **What changed vs v1:** corrected the over-application (v1 blurred all ~120 `bg-card` content surfaces = "visual mud" + GPU cost) → **glass is chrome-only** (sidebar/toolbar/popovers/right-rail/pane-header via `.sl-glass`/`.sl-glass-heavy`/`.sl-glass-toolbar`); content cards go **near-opaque + crisp** (`hsl(var(--card)/0.92)`, no blur). Stronger recipe (`blur(20–30px) saturate(150–165%)` vs the too-mild v1 `blur(13px)/1.3`). Added a **4-gradient mesh backdrop** (so glass has something colourful to sample), a **specular `::before`** top-edge highlight, **`prefers-reduced-transparency`/`prefers-reduced-motion`** solid fallbacks, and **window-focus dimming** (`data-window-focused` → glass recedes on blur, Tahoe behaviour).
@@ -91,6 +91,16 @@ First-class support for **Cursor's CLI agent** (`cursor-agent` headless mode) as
 - **Terminals stay legible by design:** xterm opaque canvas (`terminal-cache.ts` `#0a0c12`, `allowTransparency:false`) — only chrome turns glassy.
 - **Default-flip nuance:** `DEFAULT_THEME='glass'` applies to **fresh profiles only**; existing installs keep their explicitly-chosen theme until they pick Glass once (we don't override an explicit user choice). A forced one-time migration is a separate (unbuilt) option if wanted.
 - **Tunable knobs** (all in `glass-material.css`, scoped under `:root[data-theme='glass']`): mesh gradient hues/alphas, blur/saturate per weight, specular alpha, focus-dim values, `.sl-nav-active` accent tint. Spec: `docs/superpowers/specs/` (Apple-grade frontend Stage 1, in the approved plan).
+
+### FE-2 — Chrome & window polish — ✅ Stage 2, RELEASED v1.22.0 (2026-05-26)
+
+Apple/macOS-Tahoe polish of the app *frame + panes* on top of the Stage-1 glass foundation. 3 worktree-isolated lanes (pane chrome on Opus), gate-green in main.
+- **Pane chrome (Lane P):** situational controls (split-v/h, minimise, brief) **reveal on pane hover/focus-within** (opacity-only, kept in tab order; fullscreen + close + info always visible — Apple restraint); active grid cell gains `.sl-pane-active` → a soft ring-colour **glow under glass** (flat themes keep the hairline); **real density** now scales inter-pane gap + outer padding + dense header height, not just font.
+- **Window title row (Lane W):** sidebar macOS drag spacer `h-7`→`h-8` (match the 32px Breadcrumb) + darwin-guarded `trafficLightPosition {x:19,y:9}` (centers the lights in the 32px title row). `electron/main.ts` change → `product:check`-verified.
+- **Nav active states (Lane N):** active workspace rows carry `.sl-nav-active` (the deferred Stage-1 item — primary tint under glass, `bg-sidebar-accent` fallback elsewhere); rooms-menu active item → `bg-primary/15 text-primary` + `aria-current`, trigger gains an active cue for non-default rooms. Converges on the `RightRailSwitcher` selection vocabulary.
+- **On-machine eyeball** (not Playwright-capturable): native traffic-light alignment + live pane hover-reveal/glow/density (need spawned panes).
+
+**Stages 3–4 queued:** S3 component-kit pass (59 shadcn primitives) · S4 per-room polish + a11y audit (VoiceOver, contrast, reduce-motion).
 
 ---
 
