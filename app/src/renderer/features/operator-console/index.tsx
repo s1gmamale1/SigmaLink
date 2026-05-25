@@ -15,6 +15,7 @@ import { Network } from 'lucide-react';
 import { onEvent } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { Swarm } from '@/shared/types';
 import { TopBar, type AgentFilter, type ConsoleTab, type CountersPayload } from './TopBar';
 import { Constellation } from './Constellation';
@@ -65,6 +66,7 @@ export function OperatorConsole() {
   const [filter, setFilter] = useState<AgentFilter>('all');
   const [counters, setCounters] = useState<CountersPayload | null>(null);
   const [ledger, setLedger] = useState<LedgerPayload | null>(null);
+  const [rpcError, setRpcError] = useState<string | null>(null);
   // P3-S6 — replay frame is null in live mode; populated when the user is
   // dragging the scrubber on the Replays tab.
   const [replayFrame, setReplayFrame] = useState<ReplayFrame | null>(null);
@@ -101,8 +103,8 @@ export function OperatorConsole() {
         void invokeSwarmRpc('swarm.console-tab', {
           swarmId: activeSwarm.id,
           tab: next,
-        }).catch(() => {
-          /* channel allowlist not yet shipped — surface noop is fine */
+        }).catch((err: unknown) => {
+          setRpcError((err as Error)?.message ?? 'Tab change failed');
         });
       }
     },
@@ -116,7 +118,9 @@ export function OperatorConsole() {
         void invokeSwarmRpc('swarm.agent-filter', {
           swarmId: activeSwarm.id,
           filter: next,
-        }).catch(() => undefined);
+        }).catch((err: unknown) => {
+          setRpcError((err as Error)?.message ?? 'Filter change failed');
+        });
       }
     },
     [activeSwarm],
@@ -134,8 +138,8 @@ export function OperatorConsole() {
           type: 'UPSERT_SWARM',
           swarm: { ...activeSwarm, mission: next },
         });
-      } catch {
-        /* allowlist not yet shipped */
+      } catch (err) {
+        setRpcError((err as Error)?.message ?? 'Mission rename failed');
       }
     },
     [activeSwarm, dispatch],
@@ -150,8 +154,8 @@ export function OperatorConsole() {
           reason,
         });
         dispatch({ type: 'MARK_SWARM_ENDED', id: activeSwarm.id });
-      } catch {
-        /* allowlist not yet shipped */
+      } catch (err) {
+        setRpcError((err as Error)?.message ?? 'Stop all failed');
       }
     },
     [activeSwarm, dispatch],
@@ -209,6 +213,12 @@ export function OperatorConsole() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
+      {rpcError ? (
+        <ErrorBanner
+          message={rpcError}
+          onDismiss={() => setRpcError(null)}
+        />
+      ) : null}
       <TopBar
         swarmId={activeSwarm?.id ?? ''}
         swarmName={activeSwarm?.name ?? '—'}

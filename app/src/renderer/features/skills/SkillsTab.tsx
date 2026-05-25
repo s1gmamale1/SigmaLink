@@ -30,6 +30,7 @@
 
 import { useCallback, useEffect, useState, type DragEvent } from 'react';
 import { Search, Copy, ChevronDown, ChevronRight, GripVertical, ShieldCheck } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
@@ -281,8 +282,8 @@ export function SkillsTab() {
       {/* Skill list */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex items-center justify-center p-6 text-xs text-muted-foreground">
-            Loading skills…
+          <div className="flex items-center justify-center p-6">
+            <Spinner />
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-1 p-6 text-center text-xs text-muted-foreground">

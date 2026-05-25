@@ -2,9 +2,11 @@
 // workspace's base branch.
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
+import { RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { Button } from '@/components/ui/button';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
+import { Spinner } from '@/components/ui/spinner';
 import type { ReviewConflict, ReviewSession } from '@/shared/types';
 
 interface Props {
@@ -49,13 +51,17 @@ export function ConflictsTab({ session }: Props) {
         </Button>
       </div>
       {err ? (
-        <div className="border-b border-red-500/40 bg-red-500/5 px-3 py-1 text-xs text-red-500">
-          {err}
-        </div>
+        <ErrorBanner
+          message={err}
+          onRetry={() => void refresh()}
+          onDismiss={() => setErr(null)}
+        />
       ) : null}
       <div className="flex-1 overflow-auto p-3 text-sm">
         {loading && conflicts === null ? (
-          <div className="text-xs text-muted-foreground">Computing…</div>
+          <div className="flex items-center justify-center p-4">
+            <Spinner />
+          </div>
         ) : conflicts && conflicts.length === 0 ? (
           <div className="flex items-center gap-2 text-emerald-500">
             <ShieldCheck className="h-4 w-4" />

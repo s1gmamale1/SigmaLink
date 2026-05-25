@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from 'react';
 import { ChevronRight, FileDiff, FilePlus, FileMinus, FileText, Files, AlertTriangle } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import type { DiffFileSummary, ReviewDiff } from '@/shared/types';
 
@@ -77,8 +78,8 @@ export function DiffView(props: Props) {
 
   if (props.loading) {
     return (
-      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-        Loading diff…
+      <div className="flex h-full items-center justify-center">
+        <Spinner />
       </div>
     );
   }

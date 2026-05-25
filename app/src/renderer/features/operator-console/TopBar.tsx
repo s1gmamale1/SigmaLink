@@ -143,7 +143,8 @@ export function TopBar({
                   setDraftMission(mission);
                   setEditingMission(true);
                 }}
-                title="Rename mission"
+                title={`Rename mission: ${mission}`}
+                aria-label={`Rename mission: ${mission}`}
               >
                 <span className="line-clamp-1 max-w-[28rem]">{mission}</span>
                 <Pencil className="h-3 w-3 opacity-50" />

@@ -17,6 +17,8 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/renderer/components/EmptyState';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
+import { Spinner } from '@/components/ui/spinner';
 import { rpcSilent, onEvent } from '@/renderer/lib/rpc';
 
 interface MarketplaceSkill {
@@ -229,16 +231,31 @@ export function MarketplaceTab() {
 
   if (error) {
     return (
-      <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-        Could not load marketplace manifest: {error}
-      </div>
+      <ErrorBanner
+        message={`Could not load marketplace manifest: ${error}`}
+        onRetry={() => {
+          setError(null);
+          setSkills(null);
+          // Re-trigger the effect by resetting state (effect re-runs on skills===null).
+          void (async () => {
+            try {
+              const res = await fetch('marketplace/skills.json');
+              if (!res.ok) throw new Error(`Manifest fetch failed: ${res.status}`);
+              const data = (await res.json()) as { schemaVersion: number; generatedAt?: string; skills: MarketplaceSkill[] };
+              setSkills(Array.isArray(data.skills) ? data.skills : []);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            }
+          })();
+        }}
+      />
     );
   }
 
   if (skills === null) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading marketplace…
+      <div className="flex items-center justify-center p-6">
+        <Spinner />
       </div>
     );
   }

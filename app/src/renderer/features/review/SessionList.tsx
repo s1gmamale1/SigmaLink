@@ -1,8 +1,10 @@
 // Left rail of the Review Room: every session in the active workspace, with
 // branch + git status badges, plus checkboxes that drive the BatchToolbar.
 
-import { GitBranch, CheckCircle2, XCircle, Hourglass } from 'lucide-react';
+import { GitBranch, CheckCircle2, XCircle, Hourglass, GitFork } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/renderer/components/EmptyState';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { ReviewSession } from '@/shared/types';
 
 interface Props {
@@ -12,6 +14,9 @@ interface Props {
   onSelect: (id: string) => void;
   onToggleCheck: (id: string) => void;
   onToggleAll: () => void;
+  error?: string | null;
+  onRetry?: () => void;
+  onDismissError?: () => void;
 }
 
 export function SessionList(props: Props) {
@@ -19,6 +24,13 @@ export function SessionList(props: Props) {
     props.sessions.length > 0 && props.sessions.every((s) => props.selected.has(s.sessionId));
   return (
     <div className="flex h-full flex-col">
+      {props.error ? (
+        <ErrorBanner
+          message={props.error}
+          onRetry={props.onRetry}
+          onDismiss={props.onDismissError}
+        />
+      ) : null}
       <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs">
         <input
           type="checkbox"
@@ -33,9 +45,11 @@ export function SessionList(props: Props) {
       </div>
       <div className="flex-1 overflow-y-auto">
         {props.sessions.length === 0 ? (
-          <div className="p-6 text-center text-xs text-muted-foreground">
-            No sessions in this workspace yet. Launch agents from the Command room.
-          </div>
+          <EmptyState
+            icon={GitFork}
+            title="No sessions yet"
+            description="Launch agents from the Command room to create review sessions."
+          />
         ) : (
           props.sessions.map((s) => {
             const isActive = props.activeId === s.sessionId;

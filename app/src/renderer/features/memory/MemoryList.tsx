@@ -197,6 +197,7 @@ export function MemoryList({ memories, workspaceId, activeName, onSelect, onCrea
           type="button"
           onClick={onCreateClick}
           title="Create note"
+          aria-label="Create note"
           className="rounded border border-input bg-background px-2 py-1.5 text-xs hover:bg-accent"
         >
           <Plus className="h-3.5 w-3.5" />

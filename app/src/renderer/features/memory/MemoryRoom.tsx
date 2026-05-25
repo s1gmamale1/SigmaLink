@@ -9,6 +9,8 @@ import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
+import { Spinner } from '@/components/ui/spinner';
 import type { Memory } from '@/shared/types';
 import { MemoryList } from './MemoryList';
 import { MemoryEditor } from './MemoryEditor';
@@ -27,6 +29,7 @@ export function MemoryRoom() {
 
   const [tab, setTab] = useState<Tab>('list');
   const [graphLoading, setGraphLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const knownNames = useMemo(
     () => new Set(memories.map((m) => m.name.toLowerCase())),
@@ -83,7 +86,7 @@ export function MemoryRoom() {
         dispatch({ type: 'UPSERT_MEMORY', workspaceId: wsId, memory: created });
         dispatch({ type: 'SET_ACTIVE_MEMORY', workspaceId: wsId, name: created.name });
       } catch (err) {
-        window.alert((err as Error).message);
+        setCreateError((err as Error).message);
       }
     },
     [dispatch, wsId],
@@ -126,6 +129,12 @@ export function MemoryRoom() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {createError ? (
+        <ErrorBanner
+          message={createError}
+          onDismiss={() => setCreateError(null)}
+        />
+      ) : null}
       <header className="flex items-center gap-3 border-b border-border px-4 py-2">
         <Sparkles className="h-4 w-4 text-primary" />
         <h1 className="text-sm font-semibold">Memory</h1>
@@ -182,12 +191,18 @@ export function MemoryRoom() {
         </div>
       ) : (
         <div className="relative min-h-0 flex-1">
-          {graph ? (
+          {graphLoading ? (
+            <div className="flex h-full items-center justify-center">
+              <Spinner />
+            </div>
+          ) : graph ? (
             <MemoryGraphView graph={graph} onSelect={onGraphSelect} />
           ) : (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              {graphLoading ? 'Loading graph…' : 'No notes yet.'}
-            </div>
+            <EmptyState
+              icon={NetworkIcon}
+              title="No notes yet"
+              description="Create notes in the List tab to build your memory graph."
+            />
           )}
         </div>
       )}

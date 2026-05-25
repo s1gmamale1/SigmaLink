@@ -3,7 +3,7 @@
 // O5 — Verify the chat tab renders OrchestratorPanel (not the old placeholder).
 
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 // Mock heavy dependencies before importing components.
 vi.mock('@/renderer/lib/rpc', () => ({
@@ -125,5 +125,36 @@ describe('OperatorConsole — O5: chat tab mounts OrchestratorPanel', () => {
     expect(
       screen.getByText(/Sigma Agent/i),
     ).toBeDefined();
+  });
+});
+
+describe('OperatorConsole — Stage-4 UX: ErrorBanner on RPC rejection', () => {
+  it('renders ErrorBanner after a mocked RPC rejection during mission rename', async () => {
+    // Override sigma bridge to reject.
+    const originalSigma = (window as unknown as Record<string, unknown>).sigma;
+    (window as unknown as Record<string, unknown>).sigma = {
+      invoke: vi.fn().mockResolvedValue({ ok: false, error: 'Channel not registered' }),
+    };
+
+    render(<OperatorConsole />);
+
+    // Trigger mission rename by clicking the rename button.
+    const renameBtns = screen.getAllByRole('button');
+    const missionBtn = renameBtns.find((b) => b.getAttribute('aria-label')?.startsWith('Rename mission'));
+    expect(missionBtn).toBeDefined();
+    fireEvent.click(missionBtn!);
+
+    // Commit rename via the input field.
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'New Mission' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // Wait for the ErrorBanner to appear.
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeDefined();
+    });
+
+    // Restore.
+    (window as unknown as Record<string, unknown>).sigma = originalSigma;
   });
 });
