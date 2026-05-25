@@ -186,7 +186,7 @@ export function Sidebar() {
     >
       {PLATFORM_IS_MAC ? (
         <div
-          className="h-7 shrink-0 border-b border-border bg-sidebar"
+          className="h-8 shrink-0 border-b border-border bg-sidebar"
           style={dragStyle()}
           aria-hidden
         />

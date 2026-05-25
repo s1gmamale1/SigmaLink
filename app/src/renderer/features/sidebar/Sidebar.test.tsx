@@ -227,6 +227,75 @@ describe('Sidebar — v1.4.8 resize handle (expanded state)', () => {
   });
 });
 
+describe('Sidebar — W1 macOS traffic-light spacer (h-8)', () => {
+  beforeEach(() => {
+    kvGetMock.mockResolvedValue(null);
+    kvSetMock.mockResolvedValue(undefined);
+    dispatchMock.mockReset();
+    mockState = {
+      activeWorkspace: null,
+      sidebarCollapsed: false,
+      openWorkspaces: [],
+      workspaces: [],
+      sessions: [],
+    };
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(
+      (cb: FrameRequestCallback) => {
+        cb(performance.now());
+        return 1 as unknown as number;
+      },
+    );
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('renders the macOS spacer with h-8 class when PLATFORM_IS_MAC is true', async () => {
+    // Reset the module registry so we can re-mock shortcuts with PLATFORM_IS_MAC=true.
+    vi.resetModules();
+
+    vi.doMock('@/renderer/lib/shortcuts', () => ({ PLATFORM_IS_MAC: true }));
+    vi.doMock('@/renderer/lib/rpc', () => ({
+      rpc: {
+        kv: {
+          get: (...args: [string]) => kvGetMock(...args),
+          set: (...args: [string, string]) => kvSetMock(...args),
+        },
+        workspaces: { open: vi.fn().mockResolvedValue({}), list: vi.fn().mockResolvedValue([]) },
+        panes: { listForWorkspace: vi.fn().mockResolvedValue([]) },
+      },
+    }));
+    vi.doMock('@/renderer/components/Monogram', () => ({
+      Monogram: ({ size }: { size: number }) => <svg data-testid="monogram" data-size={size} />,
+    }));
+    vi.doMock('./WorkspacesPanel', () => ({
+      WorkspacesPanel: () => <div data-testid="workspaces-panel" />,
+    }));
+    vi.doMock('@/renderer/lib/drag-region', () => ({
+      dragStyle: () => ({}),
+      noDragStyle: () => ({}),
+    }));
+    vi.doMock('@/renderer/app/state', () => ({
+      useAppDispatch: () => dispatchMock,
+      useAppStateSelector: (sel: (s: unknown) => unknown) => sel(mockState),
+    }));
+
+    const { Sidebar: SidebarMac } = await import('./Sidebar');
+    const { container } = render(<SidebarMac />);
+    await act(async () => {});
+
+    // The spacer is the first div inside the aside (before the logo row).
+    // It carries aria-hidden and the h-8 class.
+    const spacer = container.querySelector('[aria-hidden="true"]') as HTMLElement | null;
+    expect(spacer).not.toBeNull();
+    expect(spacer!.className).toContain('h-8');
+    expect(spacer!.className).not.toContain('h-7');
+  });
+});
+
 describe('Sidebar — v1.4.8 resize handle (collapsed state)', () => {
   beforeEach(() => {
     kvGetMock.mockResolvedValue(null);

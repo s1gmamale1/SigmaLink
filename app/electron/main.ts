@@ -599,6 +599,7 @@ function createWindow(): void {
     minHeight: 660,
     title: 'SigmaLink',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 19, y: 9 } } : {}),
     backgroundColor: '#0a0c12',
     show: false,
     webPreferences: {
