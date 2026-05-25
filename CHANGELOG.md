@@ -4,6 +4,26 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-05-25
+
+v1.21.0 — **Apple-grade Liquid Glass foundation** (Stage 1 of the Apple-grade frontend roadmap). Reworks the first-pass Glass theme into genuine Liquid Glass using the self-authored apple-design skill family, and lands app-wide Apple foundations. 3 parallel worktree-isolated coders (the glass material on Opus) → lead-merged, one hard gate in main, **visually verified via Playwright** (closing the FE-1 "unverified" gap).
+
+### Added
+
+- **Liquid Glass material layer** (`app/src/styles/glass-material.css`) — a reusable, glass-theme-scoped material: a 4-gradient mesh backdrop (so the glass has colour to sample), three chrome glass weights (`.sl-glass` / `.sl-glass-heavy` / `.sl-glass-toolbar`) with `backdrop-filter: blur(20–30px) saturate(150–165%)`, a specular `::before` highlight + neon-bloom shadow, and a `.sl-nav-active` accent tint. Applied to the sidebar, top-bar, right-rail, popovers, and pane-header chrome.
+- **App-wide Apple foundations (all 5 themes):** `-apple-system`/SF Pro UI font (`--font-sans` + Tailwind `fontFamily.sans`) and Apple spring motion curves (`--motion-*`, ≤300 ms utility budget).
+- **Accessibility + focus behaviour:** `prefers-reduced-transparency` and `prefers-reduced-motion` both collapse the glass to a near-opaque solid (and stop the mesh drift); the chrome recedes (glass dims) when the window loses focus, via a renderer-only `data-window-focused` attribute (macOS Tahoe behaviour).
+
+### Changed
+
+- **Glass is now the default theme** (`DEFAULT_THEME='glass'`; `findTheme` falls back to it). Applies to fresh profiles; existing installs keep their explicitly-chosen theme until they select Glass (we don't override an explicit choice).
+- **Glass corrected to chrome-only** — the first-pass FE-1 blurred all ~120 `bg-card` content surfaces ("visual mud" + GPU cost). Content cards are now near-opaque + crisp (`hsl(var(--card)/0.92)`, no blur); glass is confined to the navigation/chrome layer. The mild `blur(13px)` first pass was removed from `index.css` and superseded by the new material layer.
+
+### Notes
+
+- Terminals stay opaque by design (xterm `#0a0c12`, `allowTransparency:false`) — only chrome turns glassy.
+- No schema migrations in v1.21.0.
+
 ## [1.20.1] - 2026-05-25
 
 Patch — a wake-word rename + a regression fix.

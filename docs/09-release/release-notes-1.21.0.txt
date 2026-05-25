@@ -1,0 +1,81 @@
+SigmaLink v1.21.0 — 2026-05-25
+==============================
+
+Apple-grade Liquid Glass foundation — Stage 1 of the Apple-grade frontend
+roadmap. The first-pass Glass theme is reworked into genuine Liquid Glass using
+the self-authored apple-design skill family, plus app-wide Apple foundations.
+Built by 3 parallel worktree-isolated coders (the glass material on Opus),
+lead-merged with one hard gate in main, and VISUALLY VERIFIED via Playwright.
+
+
+Added — Liquid Glass material layer
+-----------------------------------
+
+- New reusable material at app/src/styles/glass-material.css, scoped entirely
+  to the glass theme (the other four themes are byte-for-byte unaffected).
+- A 4-gradient radial mesh backdrop so the glass has colour to sample (a plain
+  dark field collapses backdrop-blur to flat gray -- the #1 reason cheap
+  glassmorphism looks dead).
+- Three chrome glass weights: .sl-glass (popovers / right-rail),
+  .sl-glass-heavy (sidebar), .sl-glass-toolbar (top bar + pane-header strip) --
+  backdrop-filter blur(20-30px) saturate(150-165%), a 1px neon-cyan ring, a
+  layered neon-bloom shadow, and a ::before specular highlight (the wet-glass
+  sheen).
+- A .sl-nav-active accent-tint for selected nav rows.
+
+
+Added — app-wide Apple foundations (all 5 themes)
+-------------------------------------------------
+
+- System / SF Pro UI font: --font-sans (-apple-system, BlinkMacSystemFont,
+  "SF Pro Display"/"SF Pro Text", system-ui, ...) wired into Tailwind
+  fontFamily.sans and the body. The terminal mono font is untouched.
+- Apple spring motion curves (--motion-enter/exit/fast + --ease-spring), kept
+  <=300ms -- this is a utility tool, so motion stays near-invisible.
+
+
+Added — accessibility + window focus
+------------------------------------
+
+- prefers-reduced-transparency AND prefers-reduced-motion both collapse the
+  glass to a near-opaque solid and stop the mesh drift.
+- The chrome recedes (glass dims to blur(8px), opacity 0.9) when the OS window
+  loses focus, via a renderer-only data-window-focused attribute toggled on DOM
+  window focus/blur (macOS Tahoe behaviour; no main-process change).
+
+
+Changed — Glass is the default theme
+------------------------------------
+
+- DEFAULT_THEME is now 'glass' (findTheme falls back to it). This applies to
+  FRESH profiles; existing installs keep their explicitly-chosen theme until
+  they pick Glass in Settings -> Appearance (we don't override an explicit
+  user choice).
+
+
+Changed — glass corrected to chrome-only
+----------------------------------------
+
+- The first-pass FE-1 blurred all ~120 bg-card content surfaces ("visual mud"
+  + needless GPU compositing). Content cards are now near-opaque and crisp
+  (hsl(var(--card)/0.92), no blur); glass is confined to the navigation /
+  chrome layer. The mild first-pass blur(13px) block was removed from
+  index.css and superseded by the new material layer.
+- Terminals stay opaque by design (xterm #0a0c12, allowTransparency:false) --
+  only the surrounding pane chrome turns glassy; terminal text keeps full
+  contrast.
+
+
+Gate
+----
+
+- tsc -b (main) -- clean
+- eslint 0 errors / 0 warnings
+- vitest 152 files / 1490 pass / 1 skip
+- vite build + electron:compile (product:check) -- clean
+- Playwright smoke e2e in main (38.1 s)
+- Visual verification: forced the glass theme in a headed Electron/Playwright
+  session and confirmed the mesh, translucent chrome, crisp content cards, and
+  focus-dim render correctly.
+
+No schema migrations in v1.21.0.
