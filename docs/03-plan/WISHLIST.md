@@ -77,6 +77,46 @@
 
 ---
 
+## 🛠️ H-class — Hardening (external review 2026-05-25, verified against code)
+
+> Source: an external LLM repo review (2026-05-25). **Every claim below was verified against the actual code by 3 read-only agents** — all are CONFIRMED with real file:line; stale/false/non-actionable claims were dropped (see bottom). Security-item threat model = a **compromised renderer** (XSS in rendered markdown, a malicious skill, a bundled-dep supply-chain compromise); `contextIsolation:true` + `nodeIntegration:false` are correctly set, so these are **defense-in-depth**, not open holes today. Reviewer's read: "strong architecture bones, but too many temporary-bridge pieces became permanent furniture — lock the boundaries, enforce schemas, make CI catch drift." None are scheduled yet.
+
+### P0 — boundaries + CI drift (do first)
+| ID | Item | file:line | Fix |
+|---|---|---|---|
+| H-1 | **Electron/main not typechecked** — `tsc -b` covers only `src/` + `vite.config`; `electron/**`, `src/main/**`, the 2 mcp-servers are esbuild-only (transpile, no typecheck); CI never runs `product:check`. **This is the gap that hid the v1.20.0→.1 `model-registry` break.** | `tsconfig.node.json:25` · `tsconfig.app.json:33` · `scripts/build-electron.cjs` · `.github/workflows/lint-and-build.yml:59` | Add `tsconfig.electron.json` (`include: electron, src/main`, `noEmit`) → reference it + run `tsc -p` (or `product:check`) in CI |
+| H-2 | **`fs.writeFile` trusts renderer `repoRoot`** — renderer supplies BOTH path + root; `repoRoot:"/"` collapses the traversal guard → write anywhere the process can | `core/fs/controller.ts:98,100-103` | Pass `workspaceId`/`sessionId`; resolve the trusted root from DB in main (→ H-5) |
+| H-3 | **`fs.readDir`/`fs.readFile` accept arbitrary absolute paths** (the file comment admits it) → compromised renderer = local file browser (`~/.ssh/id_rsa`) | `core/fs/controller.ts:2,38-89` | Central `assertAllowedPath` (→ H-5) |
+| H-4 | **`git.runCommand` + `pty.spawnScratch` take renderer-supplied cwd/command** — no shell-metachar injection (`spawn` `shell:false`) but arbitrary command + cwd; `spawnScratch` cwd unvalidated → shell in any dir | `rpc-router.ts:780-795,1094` · `core/git/git-ops.ts:250` | Gate cwd through the allowlist; split operator-terminal vs app-internal git |
+| H-5 | **No central `assertAllowedPath`** — the guard exists in `revealInFolder`/`openShell` but fs/git/pty don't reuse it | `rpc-router.ts:653-697` | Extract `assertAllowedPath(realpath ∈ {userData, workspace roots, managed worktrees})`; apply to H-2/H-3/H-4 |
+
+### P1 — correctness + drift
+| ID | Item | file:line | Fix |
+|---|---|---|---|
+| H-6 | **win32 shell-first sentinel bug** — `parseSpawnMode` defaults shell-first incl. win32, but `PtyRegistry.create` marks shell-first only when `process.platform !== 'win32'` → win32 panes never detect the CLI-exit sentinel | `core/pty/registry.ts:215-220` | Remove the stale `!== 'win32'` guard OR disable win32 shell-first consistently (ties to the open W-4 / M0 win32 dogfood) |
+| H-7 | **Migrations not transactional** — `m.up()` then `schema_migrations` insert with no wrapping txn → a half-applied migration that throws re-runs against a dirty schema | `core/db/migrate.ts:94-98` | Wrap each `up()` + record-insert in `db.transaction()`; also add SQLite `busy_timeout` |
+| H-8 | **IPC schemas are warn-only stubs** — `VALIDATION_MODE='warn'`, the router never `parse()`s, many channels are `z.any()` → malformed renderer payloads reach controllers | `core/rpc/schemas.ts:39` · `rpc-router.ts:1593-1628` | Enforce namespace-by-namespace; start `fs`/`git`/`pty`/`workspaces`/`providers` |
+| H-9 | **Alt-command fallback dead in shell-first** — the ENOENT preflight runs only in direct mode; shell-first injects into a shell so a missing binary = shell output + sentinel, not a synchronous ENOENT, so `altCommands` is never walked | `core/pty/local-pty.ts:494-515` · `providers/launcher.ts:356` | Preflight `input.command` resolution in shell-first too, before spawning the shell |
+| H-10 | **Duplicate-pane spawn leaks a PTY** — PTY is spawned before the `agent_sessions` insert; on a UNIQUE-constraint violation it warns + `continue`s without `kill`/`forget` | `core/workspaces/launcher.ts:350-421` | On violation, `pty.kill`+`pty.forget` the spawned session, then push an error session |
+| H-11 | **`fs.readFile` reads the whole file before truncating** — `readFile(target)` then `subarray(0,cap)` → memory spike on a huge file despite the cap | `core/fs/controller.ts:88-90` | `filehandle.read()` / stream only up to the cap |
+
+### P2 — polish + drift
+| ID | Item | file:line | Fix |
+|---|---|---|---|
+| H-12 | **Provider list leaks internal `shell`** — `providersCtl.list` maps raw `AGENT_PROVIDERS` (incl. the `shell` sentinel) instead of `listVisibleProviders()` | `rpc-router.ts:957-965` · `shared/providers.ts:199` | Return `listVisibleProviders(readShowLegacy())` |
+| H-13 | **`shutdownRouter` fire-and-forgets daemon stop** — `void rufloHttpDaemonSupervisor.stopAll()` → Electron can quit before cleanup finishes (only this supervisor; others are sync) | `rpc-router.ts:1771` | `await` with a timeout, or block quit until it resolves |
+| H-14 | **Comment rot** — `launcher.ts`/`local-pty.ts` JSDoc says spawn default is `'direct'` ("CRITICAL INVARIANT"), but it's been `'shell-first'` since the Phase-7 flip | `core/workspaces/launcher.ts:50-51,369` · `core/pty/local-pty.ts:208-209` | Update comments + lock the new default with a test |
+| H-15 | **`git.diff` silent truncation** — `gitDiff()` drops `execResult.maxBufferExceeded`, returns only stdout | `core/git/git-ops.ts:116-123` | Return `{ …, truncated }` and surface it in the UI |
+| H-16 | **`dirSize()` follows symlinks** — storage scan recurses symlinked dirs (`Dirent.isDirectory()` follows the link) → can scan outside the tree | `rpc-router.ts:182-193` | `lstat` + skip symlinks + track visited realpaths/inodes |
+| H-17 | **README stale vs shipped** — in-app browser / Skills / SigmaMemory still marked "(planned)" though all shipped (`browser.*`/`skills.*`/`memory.*` live) | `README.md:66-68,230-232,271-272` | Update README planned→shipped |
+| H-18 | **Local pack scripts skip `electron:compile`** (LOW — CI release path is safe: `release-{macos,windows}.yml` run `build-electron.cjs`; only local `electron:pack:*` is stale-prone) | `app/package.json:21-23` | Add `&& npm run electron:compile` to the three pack scripts |
+
+**Checked & NOT actionable:** `sandbox:false` on the main window (`main.ts:608`) is Electron's *supported* pattern for `contextIsolation:true` + a Node preload + `nodeIntegration:false` — not a finding. The single inbound/outbound `EVENTS` set is a minor design smell with no current exploit (main re-checks each payload).
+
+**Suggested fix order** (reviewer-aligned): H-1 (CI typecheck — catches the rest) → H-5 central `assertAllowedPath` (closes H-2/H-3/H-4) → H-8 (enforce schemas, dangerous namespaces first) → H-6 (win32) → H-7 (txn migrations + busy_timeout) → H-12/H-14/H-17 (cheap drift) → remainder. Could be one "hardening" packet or folded into the next feature wave.
+
+---
+
 ## 📦 W-class (all SHIPPED — historical, retained for traceability)
 
 | ID | What | Trigger | Plan |
