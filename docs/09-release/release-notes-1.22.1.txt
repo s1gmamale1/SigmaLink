@@ -1,0 +1,32 @@
+SigmaLink v1.22.1 — 2026-05-26
+==============================
+
+Patch — CI hotfix. No product changes; the binaries are identical to v1.22.0.
+
+
+Fixed — e2e default-theme assertion expects glass
+-------------------------------------------------
+
+- tests/e2e/dogfood.spec.ts "BUG-W7-003" now asserts the fresh-profile default
+  theme is `glass` (was `obsidian`).
+- v1.21.0 flipped DEFAULT_THEME to glass (the Apple-grade Liquid Glass
+  foundation) but this e2e assertion still encoded the old `obsidian` invariant.
+  It passed on the dev machine (the profile has a persisted app.theme) but
+  failed on CI's fresh profile, so the e2e-matrix job went red for v1.21.0 and
+  v1.22.0 -- while the release-macos / release-windows / lint-and-build jobs all
+  passed (the shipped installers were fine).
+- Root cause of the miss: the local release gate ran only smoke.spec.ts, but
+  CI's e2e-matrix runs the full tests/e2e/ dir. The release ritual's gate now
+  runs the full e2e directory locally to prevent recurrence.
+
+
+Gate
+----
+
+- tsc -b (main) -- clean
+- eslint 0 errors / 0 warnings
+- vitest 153 files / 1506 pass / 1 skip
+- vite build + electron:compile (product:check) -- clean
+- Full Playwright e2e (tests/e2e/) in main -- 9 passed / 3 skipped (manual-only)
+
+No schema migrations in v1.22.1.

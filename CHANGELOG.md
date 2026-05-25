@@ -4,6 +4,14 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.22.1] - 2026-05-26
+
+Patch — CI hotfix. No product changes; binaries are identical to v1.22.0.
+
+### Fixed
+
+- **e2e `BUG-W7-003` now asserts the fresh-profile default theme is `glass`** (not `obsidian`). v1.21.0 flipped `DEFAULT_THEME` to glass but left this `dogfood.spec.ts` assertion encoding the old invariant — it passed locally (the dev profile has a persisted `app.theme`) but failed on CI's fresh profile, so v1.21.0/v1.22.0's `e2e-matrix` job went red (release binaries + lint-and-build were green). The local release gate ran only `smoke.spec.ts`; CI's `e2e-matrix` runs the full `tests/e2e/` dir, which is where it surfaced. Test-only change.
+
 ## [1.22.0] - 2026-05-26
 
 v1.22.0 — **Apple-grade chrome & window polish** (Stage 2 of the Apple-grade frontend roadmap, on top of v1.21.0's glass foundation). 3 parallel worktree-isolated coders (pane chrome on Opus) → lead-merged, one hard gate in main (incl. `product:check` for the electron/main change).
