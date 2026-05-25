@@ -78,7 +78,7 @@ export function Breadcrumb() {
     // the workspaces room.
     return (
       <div
-        className="flex h-8 items-center gap-2 border-b border-border bg-background/60 px-4 text-xs text-muted-foreground"
+        className="sl-glass-toolbar flex h-8 items-center gap-2 border-b border-border bg-background/60 px-4 text-xs text-muted-foreground"
         style={{
           ...dragStyle(),
           paddingRight: IS_WIN32 ? WIN32_WCO_RESERVE_PX : undefined,
@@ -95,7 +95,7 @@ export function Breadcrumb() {
 
   return (
     <div
-      className="flex h-8 items-center gap-1 border-b border-border bg-background/60 px-4 text-xs"
+      className="sl-glass-toolbar flex h-8 items-center gap-1 border-b border-border bg-background/60 px-4 text-xs"
       style={{
         ...dragStyle(),
         paddingRight: IS_WIN32 ? WIN32_WCO_RESERVE_PX : undefined,

@@ -53,6 +53,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // C2 — Window focus/blur → data-window-focused (glass recede-on-blur).
+  // Runs once on mount; cleans up both listeners on unmount.
+  useEffect(() => {
+    document.documentElement.dataset.windowFocused = document.hasFocus() ? 'true' : 'false';
+    const onFocus = () => {
+      document.documentElement.dataset.windowFocused = 'true';
+    };
+    const onBlur = () => {
+      document.documentElement.dataset.windowFocused = 'false';
+    };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
+
   const setTheme = (next: ThemeId) => {
     setThemeState(next);
     applyTheme(next);

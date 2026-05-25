@@ -160,7 +160,7 @@ export function PaneHeader({
         style={{ background: providerColor }}
         aria-hidden="true"
       />
-      <div className="flex h-7 items-center gap-2 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]">
+      <div className="sl-glass-toolbar flex h-7 items-center gap-2 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]">
         <span
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ background: dotColor }}

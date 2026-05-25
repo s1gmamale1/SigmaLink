@@ -174,7 +174,7 @@ export function Sidebar() {
     <>
     <aside
       className={cn(
-        'flex shrink-0 flex-col bg-sidebar text-sidebar-foreground',
+        'relative flex shrink-0 flex-col bg-sidebar text-sidebar-foreground sl-glass-heavy',
         // Collapsed state retains the border-r since no drag divider is rendered.
         // Expanded state: border-r lives on the drag divider div (see below).
         collapsed && 'border-r border-border w-14',
@@ -253,7 +253,7 @@ export function Sidebar() {
             <ChevronRight className="h-4 w-4" />
           </button>
         ) : activeWorkspace ? (
-          <div>
+          <div className="sl-nav-active">
             <div className="font-medium text-sidebar-foreground">{activeWorkspace.name}</div>
             <div className="truncate text-muted-foreground" title={activeWorkspace.rootPath}>
               {activeWorkspace.rootPath}
