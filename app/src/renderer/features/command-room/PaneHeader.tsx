@@ -160,7 +160,11 @@ export function PaneHeader({
         style={{ background: providerColor }}
         aria-hidden="true"
       />
-      <div className="sl-glass-toolbar flex h-7 items-center gap-2 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]">
+      {/* Density-aware height — comfortable/compact stay h-7; the dense tier
+          (10+ panes) shrinks the strip to h-6 to claw back vertical chrome.
+          The arbitrary variant reads `data-density='dense'` off the GridLayout
+          cell ancestor so no new prop has to thread through PaneShell. */}
+      <div className="sl-glass-toolbar flex h-7 items-center gap-2 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))] [[data-density=dense]_&]:h-6">
         <span
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ background: dotColor }}
@@ -247,70 +251,79 @@ export function PaneHeader({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          {/* v1.4.3 #06 — Split icons. When the caller wires `onSplit` AND
-              the pane is not already in a split group, the icons open a
-              provider dropdown and call splitPane RPC. Otherwise they fall
-              back to the legacy disabled placeholder so older callers /
-              tests stay green and panes inside a split group can't recurse
-              (max 2-level deep in v1.4.x). */}
-          <PaneHeaderSplitButton
-            direction="vertical"
-            icon={Columns2}
-            label="Split pane vertically"
-            providers={providers}
-            onSplit={onSplit}
-            canSplit={canSplit}
-          />
-          <PaneHeaderSplitButton
-            direction="horizontal"
-            icon={Rows2}
-            label="Split pane horizontally"
-            providers={providers}
-            onSplit={onSplit}
-            canSplit={canSplit}
-          />
-          {/* v1.4.3 #06 — Minimise / Restore toggle. Falls back to disabled
-              when the caller didn't wire `onToggleMinimise`. */}
-          {onToggleMinimise ? (
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={onToggleMinimise}
-                    aria-label={isMinimised ? 'Restore pane' : 'Minimise pane'}
-                  >
-                    <Minimize2 className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {isMinimised ? 'Restore pane' : 'Minimise pane'}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          ) : (
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span tabIndex={0} aria-label="Minimise pane (coming in v1.2)">
+          {/* Apple restraint — the SITUATIONAL controls (Split-V, Split-H,
+              Minimise, Brief) stay invisible until the pane is hovered or a
+              control inside the pane takes keyboard focus. They remain in the
+              DOM + tab order at all times (opacity only, never display:none)
+              so keyboard users can still reach them via Tab. The `group`
+              ancestor is the GridLayout cell wrapper; Fullscreen + Close stay
+              full-opacity as the two always-available actions. */}
+          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            {/* v1.4.3 #06 — Split icons. When the caller wires `onSplit` AND
+                the pane is not already in a split group, the icons open a
+                provider dropdown and call splitPane RPC. Otherwise they fall
+                back to the legacy disabled placeholder so older callers /
+                tests stay green and panes inside a split group can't recurse
+                (max 2-level deep in v1.4.x). */}
+            <PaneHeaderSplitButton
+              direction="vertical"
+              icon={Columns2}
+              label="Split pane vertically"
+              providers={providers}
+              onSplit={onSplit}
+              canSplit={canSplit}
+            />
+            <PaneHeaderSplitButton
+              direction="horizontal"
+              icon={Rows2}
+              label="Split pane horizontally"
+              providers={providers}
+              onSplit={onSplit}
+              canSplit={canSplit}
+            />
+            {/* v1.4.3 #06 — Minimise / Restore toggle. Falls back to disabled
+                when the caller didn't wire `onToggleMinimise`. */}
+            {onToggleMinimise ? (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6 cursor-not-allowed opacity-40"
-                      disabled
-                      aria-label="Minimise pane"
+                      className="h-6 w-6"
+                      onClick={onToggleMinimise}
+                      aria-label={isMinimised ? 'Restore pane' : 'Minimise pane'}
                     >
                       <Minimize2 className="h-3.5 w-3.5" />
                     </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Coming in v1.2</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-          <PaneHeaderBriefButton session={session} />
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {isMinimised ? 'Restore pane' : 'Minimise pane'}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span tabIndex={0} aria-label="Minimise pane (coming in v1.2)">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 cursor-not-allowed opacity-40"
+                        disabled
+                        aria-label="Minimise pane"
+                      >
+                        <Minimize2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Coming in v1.2</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            <PaneHeaderBriefButton session={session} />
+          </div>
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>

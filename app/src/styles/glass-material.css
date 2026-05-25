@@ -271,3 +271,12 @@
   background: hsl(var(--primary) / 0.15);
   color: hsl(var(--primary));
 }
+
+/* ACTIVE PANE — Lane P applies `.sl-pane-active` alongside the flat-theme
+   hairline ring on the focused grid cell. On glass we layer a soft 12px bloom
+   in the ring colour so the active pane reads as the focused surface without an
+   opaque border. Flat themes ignore this rule and keep just the hairline. */
+:root[data-theme='glass'] .sl-pane-active {
+  box-shadow: 0 0 0 1px hsl(var(--ring)), 0 0 12px 2px hsl(var(--ring) / 0.22);
+  border-color: hsl(var(--ring));
+}

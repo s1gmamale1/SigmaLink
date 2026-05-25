@@ -215,6 +215,12 @@ export function GridLayout<T>({
   // C-3 — density tiers: comfortable (≤4 panes), compact (5–9), dense (10+).
   const density = items.length <= 4 ? 'comfortable' : items.length <= 9 ? 'compact' : 'dense';
   const fontScale = density === 'dense' ? 0.8 : density === 'compact' ? 0.9 : 1;
+  // C-3 / Lane P — real density: tighten the inter-pane gap AND the outer
+  // padding as panes multiply, not just the font. Comfortable stays roomy
+  // (Mac density-is-a-feature — never loosen it further); compact and dense
+  // claw back chrome so more panes fit without crowding the terminals.
+  const densitySpacing =
+    density === 'dense' ? 'gap-1 p-1' : density === 'compact' ? 'gap-1.5 p-1.5' : 'gap-2 p-2';
 
   const gridStyle: CSSProperties = isFullscreen
     ? {
@@ -233,7 +239,7 @@ export function GridLayout<T>({
   return (
     <div
       ref={containerRef}
-      className="relative grid h-full w-full gap-1.5 p-2"
+      className={cn('relative grid h-full w-full', densitySpacing)}
       style={gridStyle}
       data-density={density}
       data-fullscreen={isFullscreen ? 'true' : undefined}
@@ -266,12 +272,17 @@ export function GridLayout<T>({
           <div
             key={getKey(item, cellIdx)}
             className={cn(
-              'relative min-h-0 min-w-0 overflow-hidden rounded-lg border bg-card transition-shadow',
+              // `group` lets the pane chrome reveal situational controls only
+              // on hover / keyboard focus-within (Apple restraint) — see
+              // PaneHeader's `group-hover:` / `group-focus-within:` cluster.
+              'group relative min-h-0 min-w-0 overflow-hidden rounded-lg border bg-card transition-shadow',
               // The focus ring is meaningful in grid mode; in fullscreen it's
               // a visual no-op (the pane fills the viewport) so we drop it
-              // to keep the chrome quiet.
+              // to keep the chrome quiet. `sl-pane-active` rides alongside the
+              // Tailwind hairline so glass themes can layer a soft glow (P2)
+              // without losing the ring on flat themes.
               isActive && !isFullscreen
-                ? 'border-[hsl(var(--ring))] shadow-[0_0_0_1px_hsl(var(--ring))]'
+                ? 'sl-pane-active border-[hsl(var(--ring))] shadow-[0_0_0_1px_hsl(var(--ring))]'
                 : 'border-border',
               isFocused && 'sl-pane-fullscreen',
             )}

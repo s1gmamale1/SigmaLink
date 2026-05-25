@@ -297,4 +297,81 @@ describe('GridLayout — B3 density tiers', () => {
     const c12 = renderGrid(12);
     expect(c12.querySelector('[data-density]')?.getAttribute('data-density')).toBe('dense');
   });
+
+  // Stage 2 / Lane P — P3 drives the grid gap + outer padding off the density
+  // tier (not just the font scale). comfortable gap-2 p-2 / compact gap-1.5
+  // p-1.5 / dense gap-1 p-1.
+  it('drives gap + padding classes off the density tier', () => {
+    const c3 = (renderGrid(3).firstChild as HTMLElement);
+    expect(c3.dataset.density).toBe('comfortable');
+    expect(c3.className).toMatch(/\bgap-2\b/);
+    expect(c3.className).toMatch(/\bp-2\b/);
+    cleanup();
+
+    const c6 = (renderGrid(6).firstChild as HTMLElement);
+    expect(c6.dataset.density).toBe('compact');
+    expect(c6.className).toMatch(/\bgap-1\.5\b/);
+    expect(c6.className).toMatch(/\bp-1\.5\b/);
+    cleanup();
+
+    const c12 = (renderGrid(12).firstChild as HTMLElement);
+    expect(c12.dataset.density).toBe('dense');
+    expect(c12.className).toMatch(/\bgap-1\b/);
+    expect(c12.className).toMatch(/\bp-1\b/);
+  });
+});
+
+// Stage 2 / Lane P — P1 hover-reveal scaffolding + P2 Apple-grade active ring.
+describe('GridLayout — Stage 2 active-pane chrome (P1/P2)', () => {
+  it('marks the active cell with `group` so chrome can reveal on hover/focus', () => {
+    const { getByTestId } = render(
+      <GridLayout<Item>
+        items={ITEMS}
+        getKey={(i) => i.id}
+        renderCell={renderCell}
+        activeIndex={1}
+        onActiveChange={() => undefined}
+        focusedKey={null}
+      />,
+    );
+    // Every filled cell carries `group` (the reveal contract is per-pane).
+    const active = getByTestId('cell-b').parentElement as HTMLElement;
+    expect(active.className).toMatch(/\bgroup\b/);
+  });
+
+  it('applies `sl-pane-active` to the active cell only (and keeps the hairline ring)', () => {
+    const { getByTestId } = render(
+      <GridLayout<Item>
+        items={ITEMS}
+        getKey={(i) => i.id}
+        renderCell={renderCell}
+        activeIndex={1}
+        onActiveChange={() => undefined}
+        focusedKey={null}
+      />,
+    );
+    const active = getByTestId('cell-b').parentElement as HTMLElement;
+    const inactive = getByTestId('cell-a').parentElement as HTMLElement;
+    expect(active.className).toMatch(/\bsl-pane-active\b/);
+    // The flat-theme hairline rides alongside the glass glow class.
+    expect(active.className).toMatch(/border-\[hsl\(var\(--ring\)\)\]/);
+    expect(inactive.className).not.toMatch(/\bsl-pane-active\b/);
+  });
+
+  it('does NOT apply `sl-pane-active` to a fullscreen-active pane', () => {
+    // activeIndex points at the fullscreen pane; the ring (and glow) are
+    // suppressed in fullscreen because the pane already fills the viewport.
+    const { getByTestId } = render(
+      <GridLayout<Item>
+        items={ITEMS}
+        getKey={(i) => i.id}
+        renderCell={renderCell}
+        activeIndex={2}
+        onActiveChange={() => undefined}
+        focusedKey="c"
+      />,
+    );
+    const focusedActive = getByTestId('cell-c').parentElement as HTMLElement;
+    expect(focusedActive.className).not.toMatch(/\bsl-pane-active\b/);
+  });
 });

@@ -363,6 +363,99 @@ describe('PaneHeader', () => {
     expect(setData).toHaveBeenCalledWith('application/sigmalink-pane', expect.stringContaining('"sessionId":"s1"'));
   });
 
+  // Stage 2 / Lane P — P1 hover/focus reveal of situational controls.
+  describe('Stage 2 — hover/focus reveal of situational controls (P1)', () => {
+    const REVEAL = /opacity-0/;
+    const REVEAL_HOVER = /group-hover:opacity-100/;
+    const REVEAL_FOCUS = /group-focus-within:opacity-100/;
+
+    /** Walk up from `el` to the nearest ancestor carrying `opacity-0`. */
+    function revealWrapper(el: HTMLElement): HTMLElement | null {
+      let node: HTMLElement | null = el;
+      while (node) {
+        if (REVEAL.test(node.className ?? '')) return node;
+        node = node.parentElement;
+      }
+      return null;
+    }
+
+    function renderWired() {
+      return render(
+        <PaneHeader
+          {...base}
+          providers={[{ id: 'claude', name: 'Claude' }]}
+          onSplit={() => undefined}
+          onToggleMinimise={() => undefined}
+          onToggleFullscreen={() => undefined}
+        />,
+      );
+    }
+
+    it('wraps Split / Minimise / Brief in a hover+focus-within reveal container', () => {
+      renderWired();
+      const split = screen.getAllByRole('button', { name: 'Split pane' })[0] as HTMLElement;
+      const minimise = screen.getByRole('button', { name: 'Minimise pane' });
+      const brief = screen.getByRole('button', { name: /brief/i });
+
+      for (const btn of [split, minimise, brief]) {
+        const wrapper = revealWrapper(btn);
+        expect(wrapper).not.toBeNull();
+        expect(wrapper!.className).toMatch(REVEAL_HOVER);
+        expect(wrapper!.className).toMatch(REVEAL_FOCUS);
+      }
+    });
+
+    it('keeps Fullscreen + Close ALWAYS visible (no reveal wrapper)', () => {
+      renderWired();
+      const fullscreen = screen.getByRole('button', { name: 'Fullscreen pane' });
+      const close = screen.getByRole('button', { name: 'Close pane' });
+      expect(revealWrapper(fullscreen)).toBeNull();
+      expect(revealWrapper(close)).toBeNull();
+    });
+
+    it('keeps the info row (status dot / provider / branch / model) ALWAYS rendered', () => {
+      render(
+        <PaneHeader
+          {...base}
+          session={{ ...base.session, branch: 'feat/auth', providerId: 'claude' }}
+          uncommitted={3}
+          providers={[{ id: 'claude', name: 'Claude' }]}
+          onSplit={() => undefined}
+          onToggleMinimise={() => undefined}
+          onToggleFullscreen={() => undefined}
+        />,
+      );
+      // Provider label, branch, model, and uncommitted badge are present and
+      // not behind the opacity-0 reveal.
+      const label = screen.getByLabelText('Claude·1');
+      expect(revealWrapper(label)).toBeNull();
+      const branch = screen.getByText('feat/auth');
+      expect(revealWrapper(branch)).toBeNull();
+      expect(screen.getByText('±3')).toBeTruthy();
+    });
+
+    it('keeps the situational controls in the DOM + tab order (opacity only, not display:none)', () => {
+      renderWired();
+      const split = screen.getAllByRole('button', { name: 'Split pane' })[0] as HTMLElement;
+      const wrapper = revealWrapper(split)!;
+      // opacity-only reveal — never display:none, so Tab still reaches them.
+      expect(wrapper.className).not.toMatch(/\bhidden\b/);
+      expect(wrapper.style.display).not.toBe('none');
+    });
+  });
+
+  // Stage 2 / Lane P — P3 density-aware header height.
+  it('carries the dense-tier h-6 height override on the toolbar strip', () => {
+    const { getByTestId } = render(<PaneHeader {...base} />);
+    const header = getByTestId('pane-header');
+    const strip = header.querySelector('.sl-glass-toolbar') as HTMLElement;
+    expect(strip).toBeTruthy();
+    // Comfortable/compact baseline stays h-7; the dense ancestor variant
+    // shrinks it to h-6 without a new prop.
+    expect(strip.className).toMatch(/\bh-7\b/);
+    expect(strip.className).toMatch(/\[\[data-density=dense\]_&\]:h-6/);
+  });
+
   describe('Brief popover (C-5)', () => {
     it('Brief button is disabled when session is not running', () => {
       render(<PaneHeader {...base} session={{ ...base.session, status: 'exited' }} />);
