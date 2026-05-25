@@ -1,6 +1,6 @@
 # SigmaLink — Plans wishlist (consolidated)
 
-> Single source of truth for what's queued. Updated 2026-05-22 (added C-class competitive items from the BridgeMind review). Each row points at the original spec / backlog / plan file it was extracted from.
+> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done; the one live backlog item is **R-1 Jorvis Remote (Telegram)**. Each row points at the original spec / backlog / plan file it was extracted from.
 
 ## Recently shipped ✅
 
@@ -61,7 +61,23 @@
 |---|---|---|---|
 | *(empty — v1.4.7 shipped 2026-05-19)* | | | |
 
-## 🔮 Planned (v1.6+ — documented, not yet scheduled)
+## 🔮 Planned (next)
+
+> **The BridgeMind C-class roadmap (M0–M5, C-1…C-13) and the W-class (W-1…W-8) are all shipped** — see "Recently shipped" + CHANGELOG. The live backlog below is new, post-roadmap scope.
+
+### R-1 — Jorvis Remote (Telegram bridge) — DESIGNED 2026-05-25, not yet built
+
+**Full remote control of the Jorvis assistant from Telegram** — like OpenClaw / Hermes / the official Anthropic Telegram plugin, but native to SigmaLink and driving the **worktree-isolated swarm**. Operator texts a bot → Jorvis acts → streamed replies come back. Leapfrog vs a shared-dir bot: remote-drive N worktree-isolated agents ("spawn 3 agents on these tasks" from your phone → get the conflict-aware merge proposal back).
+
+- **Decisions (operator-approved 2026-05-25):** full Jorvis capability remotely, **confirm-on-dangerous** — read-only + dispatch (`launch_pane`/`create_swarm`/`add_agent`/`broadcast`) + `read_files` (workspace-contained) + `open_url` (https-only) run freely; **`prompt_agent` (raw PTY/shell) + destructive ops block on a one-tap Telegram `YES` (60s).**
+- **Architecture:** `grammy` `getUpdates` long-poll client in the Electron **main process** (outbound-only, no public URL) → new `core/remote/{telegram-bridge,controller}.ts` → calls the existing main-process seam `assistantCtl.send({workspaceId, prompt, origin:'telegram'})` (RPC-free; export it from `rpc-router.ts` like the voice dispatcher at ~:1527) → relays streamed `assistant:state` deltas back (debounce-buffer, chunk @4096, HTML). New Settings → "Remote (Telegram)" panel: token + chat-id allowlist via `CredentialStore`, lock/unlock, audit log.
+- **Mandatory safety floor (non-negotiable):** token in `CredentialStore` (refuse w/o OS encryption) · single-operator chat-id allowlist (empty default = off; non-allowlisted → silent drop) · inbound `aidefence_is_safe`+`scan`, outbound `aidefence_has_pii` + credential-strip · rate-limit 5/min · `/lock` kill-switch + idle auto-lock · `origin:'telegram'` conversation tag enforced at `invokeAssistantTool` (`controller.ts:119`) · audit log of every remote tool call.
+- **Two slices:** (1) **do-first hardening** of pre-existing latent holes in `core/assistant/tools.ts` — `read_files` workspace/worktree containment (the `cwdLooksInsideWorkspace` helper exists but isn't called) + `open_url` `https:`-only; (2) **the bridge** (client + controller + settings + RPC wiring + confirm state-machine). Operator real-bot/real-phone smoke gate (like C-11 mic); no live Telegram in CI.
+- **Research:** this session's 3 agents — Jorvis surface (15 tools, main-process, `assistantCtl.send` seam, no safety layer today), Telegram prior-art (official plugin + Hermes + OpenClaw; long-poll + grammY), security threat-model (token in CredentialStore, the latent `read_files`/`open_url` holes, capability tiers). **Next step → full spec + writing-plans when scheduled.**
+
+---
+
+## 📦 W-class (all SHIPPED — historical, retained for traceability)
 
 | ID | What | Trigger | Plan |
 |---|---|---|---|

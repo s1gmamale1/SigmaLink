@@ -92,3 +92,11 @@ Moat foundations + a voice quick-win.
 - Signed distribution / store listings (internal-use posture unchanged).
 - Anything requiring forking claude-flow (our-level + upstream PR only).
 - Speccing M2–M5 in implementation detail now (each gets its own plan when reached).
+
+---
+
+## Post-roadmap — what's next (this roadmap is COMPLETE)
+
+The BridgeMind C-class roadmap (M0–M5, C-1…C-13) is fully shipped. New work is **not** part of this roadmap and is tracked in `docs/03-plan/WISHLIST.md`:
+
+- **R-1 — Jorvis Remote (Telegram bridge)** *(designed 2026-05-25, not yet built)* — full remote control of the Jorvis assistant from Telegram, **confirm-on-dangerous**, driving the worktree-isolated swarm remotely (the leapfrog vs shared-dir bots like OpenClaw/Hermes). grammY long-poll in the Electron main process → existing `assistantCtl.send` seam; mandatory safety floor (CredentialStore token + single-operator allowlist + aidefence in/out + `read_files`/`open_url` hardening + `/lock`). Full design + decisions in the WISHLIST R-1 entry → own spec + writing-plans when scheduled.
