@@ -157,7 +157,7 @@ export interface GlobalCaptureDeps {
    */
   cliEngineDeps?: CliTranscribeEngineDeps;
 
-  // ── C-11 "Hey Sigma" listening mode (all optional; absent = feature off) ──
+  // ── C-11 "Hey Jorvis" listening mode (all optional; absent = feature off) ──
   /** True when `voice.listeningMode` is enabled. */
   getListeningMode?: () => boolean;
   /**
@@ -409,7 +409,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     pcm.reset();
 
     // C-11 — when escalating from the wake loop, seed the accumulator with the
-    // rolling window that contained "hey sigma …" so the single spoken utterance
+    // rolling window that contained "hey jorvis …" so the single spoken utterance
     // is transcribed (by the MAIN model) and routed as one command.
     if (seedAudio && seedAudio.samples.length > 0) {
       pcm.push({ samples: seedAudio.samples, sampleRate: seedAudio.sampleRate });
@@ -559,7 +559,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     }
   }
 
-  // ── C-11 — "Hey Sigma" always-on listening loop ───────────────────────────
+  // ── C-11 — "Hey Jorvis" always-on listening loop ──────────────────────────
   //
   // When listening mode is on we open the native mic ONCE, tap its continuous
   // onPcm stream into a rolling ring, and run a low-frequency interval that:
@@ -567,7 +567,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
   //      key idle-CPU win: no transcribe on a quiet room);
   //   2. on speech, transcribes the ~3 s rolling window with the TINY model
   //      (independent of the user's main capture model);
-  //   3. matches "hey sigma"; on a hit it tears the wake loop down and runs the
+  //   3. matches "hey jorvis"; on a hit it tears the wake loop down and runs the
   //      existing capture path (startRecording → stopAndTranscribe → route).
   // Every branch is wrapped so the loop never throws and never blocks.
 
@@ -621,7 +621,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       const result = await engine.transcribe(audio16k, tinyModelPath, { language: 'en', threads: 4 });
       const text = (result?.text ?? '').trim();
       const matched = text
-        ? (deps.matchesWakeWord ? deps.matchesWakeWord(text) : /\bhey\s+sigma\b/i.test(text))
+        ? (deps.matchesWakeWord ? deps.matchesWakeWord(text) : /\bhey\s+jorvis\b/i.test(text))
         : false;
       if (matched) {
         await escalateToCapture();
@@ -638,7 +638,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
    * On a wake-word hit: stop the wake loop and run the normal command capture.
    * The capture path stops + restarts the native mic itself, so we must fully
    * release the listening tap first. We seed the capture with the rolling
-   * window that triggered the wake so the single utterance ("hey sigma open the
+   * window that triggered the wake so the single utterance ("hey jorvis open the
    * browser") flows straight into routeTranscript/dispatch via the main model.
    * After the command dispatches, re-arm the loop iff listening mode is still on.
    */
@@ -653,7 +653,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     } catch { /* ignore — proceed without seed */ }
 
     teardownListenLoop();
-    toast('Hey Sigma — listening for your command…', 'info');
+    toast('Hey Jorvis — listening for your command…', 'info');
     try {
       await startRecording(seed);
       // Run start→stop back-to-back: the seeded wake window already holds the
@@ -783,7 +783,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     },
 
     /**
-     * C-11 — begin always-on "Hey Sigma" listening. No-op when listening mode
+     * C-11 — begin always-on "Hey Jorvis" listening. No-op when listening mode
      * is off, the native mic is unavailable, or the PCM-ring factory was not
      * injected. Idempotent. Never throws.
      */

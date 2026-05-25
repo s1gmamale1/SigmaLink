@@ -1,6 +1,6 @@
 // pcm-ring.ts — Fixed-size circular Float32 PCM buffer (C-11 / K1).
 //
-// Used by the "Hey Sigma" always-on listening loop to hold a rolling window
+// Used by the "Hey Jorvis" always-on listening loop to hold a rolling window
 // of the most-recent audio (≈3 s) so a wake-word transcribe pass can run on
 // the tail without re-allocating per push. The native `onPcm` tap streams
 // continuous Float32 chunks; each is `push`ed into the ring and the loop reads

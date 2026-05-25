@@ -60,7 +60,7 @@ Moat foundations + a voice quick-win.
 - **C-8 Embedded browser pane** *(M)* — Electron `WebContentsView`/webview pane; terminal links open inline. Module: new pane type. **Absorbs (prior backlog):** V3-W13-002 (click-link-in-pane → built-in browser, OSC8 hyperlink) + its recents panel.
 - **C-9 Skills/guardrail matrix** *(M)* — Skills-tab toggles (Test-Driven / Security-Audit / CI-Green / DRY …) that inject the corresponding guardrails as **per-worktree CLAUDE.md / hook** entries at dispatch. Module: Skills tab (W-5) + hooks.
 - **C-11 Wake-word dispatch** *(M)* — hands-free agent dispatch; first-mover (BridgeMind failed it over 6 debug rounds — our out-of-process Whisper avoids the WASM init race). Module: SigmaVoice.
-- **Success:** browse + click-through in-app; one toggle adds a guardrail to a pane's worktree; "Hey Sigma" dispatches.
+- **Success:** browse + click-through in-app; one toggle adds a guardrail to a pane's worktree; "Hey Jorvis" dispatches.
 
 ## M5 — Breadth & polish (✅ SHIPPED v1.20.0)
 - **C-13 Click-element→agent design tool** *(L, needs C-8)* — ✅ **shipped as operator-pick:** the W14 design tool's "Send to existing pane" mode injects the captured element + prompt into a chosen live pane's PTY (`pty.write`) and renders that pane's worktree `git.diff` inline. The leapfrog "route to the worktree that *owns* the file" was **dropped — infeasible** (no reverse element→file map / sourcemaps). Module: `design/controller.ts` + `DesignDock.tsx` + `shared/element-dispatch.ts`.

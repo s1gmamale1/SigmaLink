@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// C-11 / K6 — VoiceTab "Hey Sigma wake word" listening-mode toggle.
+// C-11 / K6 — VoiceTab "Hey Jorvis wake word" listening-mode toggle.
 //
 // The toggle lives in the macOS-only GlobalCaptureSection. It hydrates from
 // KV (`voice.listeningMode`) on mount and persists via the side-band IPC
@@ -63,7 +63,7 @@ async function loadVoiceTab() {
   return mod.VoiceTab;
 }
 
-describe('VoiceTab — "Hey Sigma" wake-word toggle (C-11)', () => {
+describe('VoiceTab — "Hey Jorvis" wake-word toggle (C-11)', () => {
   beforeEach(() => {
     delete (window as unknown as { sigma?: unknown }).sigma;
     for (const k of Object.keys(kvStore)) delete kvStore[k];
@@ -85,7 +85,7 @@ describe('VoiceTab — "Hey Sigma" wake-word toggle (C-11)', () => {
 
     const section = screen.getByTestId('voice-global-capture-section');
     const text = section.textContent ?? '';
-    expect(text).toContain('Hey Sigma');
+    expect(text).toContain('Hey Jorvis');
     expect(text.toLowerCase()).toContain('tiny');
     expect(text.toLowerCase()).toContain('continuously');
   });

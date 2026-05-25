@@ -89,7 +89,7 @@ async function invokeGlobalCapture<T = unknown>(
 
 // KV key for the C-10b focused-pane routing toggle
 const KV_ROUTE_TO_FOCUSED_PANE = 'voice.routeToFocusedPane';
-// C-11 — KV key for the "Hey Sigma" always-on listening mode toggle.
+// C-11 — KV key for the "Hey Jorvis" always-on listening mode toggle.
 const KV_LISTENING_MODE = 'voice.listeningMode';
 // C-10c — transcription engine and dispatch provider KV keys.
 const KV_TRANSCRIPTION_MODE = 'voice.transcriptionMode';
@@ -125,7 +125,7 @@ function GlobalCaptureSection() {
         const raw = await rpc.kv.get(KV_ROUTE_TO_FOCUSED_PANE);
         setRouteToFocusedPane(raw === '1');
       } catch { /* best-effort */ }
-      // C-11 — load the "Hey Sigma" listening-mode toggle from KV
+      // C-11 — load the "Hey Jorvis" listening-mode toggle from KV
       try {
         const raw = await rpc.kv.get(KV_LISTENING_MODE);
         setListeningMode(raw === '1');
@@ -207,7 +207,7 @@ function GlobalCaptureSection() {
     } catch { /* best-effort */ }
   }, [routeToFocusedPane]);
 
-  // C-11 — toggle "Hey Sigma" listening mode. Persist + arm/disarm via the
+  // C-11 — toggle "Hey Jorvis" listening mode. Persist + arm/disarm via the
   // side-band IPC so the main process opens/closes the mic + wake loop.
   const onToggleListeningMode = useCallback(async () => {
     const next = !listeningMode;
@@ -585,13 +585,13 @@ function GlobalCaptureSection() {
           </button>
         </div>
 
-        {/* C-11 — "Hey Sigma" always-on wake-word listening toggle */}
+        {/* C-11 — "Hey Jorvis" always-on wake-word listening toggle */}
         <div className="flex items-center justify-between rounded-md border border-border bg-card/40 px-3 py-2">
           <div>
-            <div className="text-sm font-medium">Hey Sigma wake word</div>
+            <div className="text-sm font-medium">Hey Jorvis wake word</div>
             <div className="text-[11px] text-muted-foreground">
               Listens continuously and dispatches when you say{' '}
-              <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Hey Sigma</kbd>.
+              <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Hey Jorvis</kbd>.
               Uses the Tiny model for low-power detection (download it above). An energy gate keeps
               idle CPU low. macOS only.
             </div>

@@ -443,7 +443,7 @@ function makeListeningHarness(opts?: {
   const transcribe = vi.fn(
     (...args: unknown[]) => {
       void args;
-      return Promise.resolve({ text: opts?.transcribeText ?? 'hey sigma', segments: [] });
+      return Promise.resolve({ text: opts?.transcribeText ?? 'hey jorvis', segments: [] });
     },
   );
   (getWhisperEngine as Mock).mockReturnValue({ transcribe });
@@ -467,7 +467,7 @@ function makeListeningHarness(opts?: {
     getListeningMode: () => opts?.listeningMode ?? true,
     getTinyModelPath: () => (opts?.tinyModelPath === undefined ? '/tmp/ggml-tiny.en-q5_1.bin' : opts.tinyModelPath),
     isSpeech: opts?.isSpeech ?? ((s: Float32Array) => s.length > 0),
-    matchesWakeWord: opts?.matchesWakeWord ?? ((t: string) => /\bhey\s+sigma\b/i.test(t)),
+    matchesWakeWord: opts?.matchesWakeWord ?? ((t: string) => /\bhey\s+jorvis\b/i.test(t)),
     createPcmRing: () => ring,
     setIntervalFn,
     clearIntervalFn,
@@ -512,7 +512,7 @@ describe('GlobalCaptureController — listening mode (C-11)', () => {
   });
 
   it('on a speech tick, transcribes the rolling buffer and escalates to routeTranscript on a wake-word hit', async () => {
-    const h = makeListeningHarness({ transcribeText: 'hey sigma open the browser', listeningMode: true });
+    const h = makeListeningHarness({ transcribeText: 'hey jorvis open the browser', listeningMode: true });
     // The escalation's main-model pass needs a downloaded model path; the
     // seeded wake window is transcribed and routed as one command.
     (getDownloadedModelPath as Mock).mockReturnValue('/tmp/ggml-base.en-q5_1.bin');
@@ -532,7 +532,7 @@ describe('GlobalCaptureController — listening mode (C-11)', () => {
     // wake hit → escalated through the capture path → routeTranscript reached
     expect(routeTranscript as Mock).toHaveBeenCalled();
     const routedText = (routeTranscript as Mock).mock.calls[0][0];
-    expect(routedText).toContain('hey sigma');
+    expect(routedText).toContain('hey jorvis');
 
     void ctrl.stopListening();
   });

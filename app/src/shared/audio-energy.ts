@@ -1,6 +1,6 @@
 // audio-energy.ts — RMS energy gate for the always-on listening loop (C-11 / K2).
 //
-// The "Hey Sigma" loop runs continuously while listening mode is on. Spending a
+// The "Hey Jorvis" loop runs continuously while listening mode is on. Spending a
 // Whisper pass on silence wastes CPU, so each tick we first compute the RMS of a
 // short window (~0.5 s) and only transcribe when it clears a threshold. This is a
 // cheap volume gate, NOT a real VAD — it is intentionally conservative so quiet

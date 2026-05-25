@@ -250,7 +250,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'voice.globalCapture.setModelId',
   'voice.globalCapture.downloadModel',
   'voice.globalCapture.abortDownload',
-  // C-11 — "Hey Sigma" always-on listening mode toggle. Persists
+  // C-11 — "Hey Jorvis" always-on listening mode toggle. Persists
   // `voice.listeningMode` and arms/disarms the energy-gated wake loop.
   'voice.globalCapture.setListeningMode',
   // Phase 4 Track C — Ruflo MCP embed (lazy-downloaded `@claude-flow/cli`).
