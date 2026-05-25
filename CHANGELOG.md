@@ -4,6 +4,18 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-05-25
+
+Patch — a wake-word rename + a regression fix.
+
+### Changed
+
+- **Wake-word "Hey Sigma" → "Hey Jorvis"** — the wake phrase now matches the persona that actually answers (the wake-word's default route hands the command to the Jorvis assistant). `WAKE_PATTERN` (`shared/wake-word.ts`) + `global-capture` fallback/toast + `VoiceTab` copy + tests + comment-only files; historical records (CHANGELOG/release-notes/research/archive) left as-is.
+
+### Fixed
+
+- **Restore `src/main/core/voice/model-registry.ts`** — it was wrongly removed as a "dead duplicate" in the v1.20.0 post-ship consolidation (`f7f7472`), but `electron/main.ts` imports it (`getModelById`/`getDownloadedModelPath`/`downloadModel`/`abortDownload` — the Electron-specific downloader using `app.getPath`, distinct from the portable `packages/voice-core` copy). `tsc -b` doesn't compile `electron/main.ts` (only esbuild/`product:check` does), so the deletion's tsc+vitest gate falsely passed while `electron:compile` broke. Restored; full gate green.
+
 ## [1.20.0] - 2026-05-25
 
 v1.20.0 — **"Breadth & polish"** (Milestone M5, final roadmap wave). C-1…C-13 now shipped. Brainstorm→code-verified plan→3 parallel worktree-isolated coders (C-12 on Opus for the new subsystem)→lead-merged with one combined hard gate in main. Spec: `docs/superpowers/specs/2026-05-22-bridgemind-competitive-roadmap-design.md`.

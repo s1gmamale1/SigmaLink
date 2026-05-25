@@ -1,0 +1,42 @@
+SigmaLink v1.20.1 — 2026-05-25
+==============================
+
+Patch release — a wake-word rename + a regression fix. No new features.
+
+
+Changed — wake-word "Hey Sigma" -> "Hey Jorvis"
+-----------------------------------------------
+
+- The always-on wake phrase is now "Hey Jorvis", matching the persona that
+  actually answers (the wake-word's default route hands the command to the
+  Jorvis assistant; "Hey Sigma" while Jorvis replies was incoherent).
+- Touches WAKE_PATTERN (shared/wake-word.ts), the global-capture fallback +
+  toast, VoiceTab copy, and the wake-word/VoiceTab tests + comment-only files.
+- Historical records (CHANGELOG, release-notes, research/archive docs) are left
+  as-is -- they correctly preserve what shipped under the old name.
+
+
+Fixed — restore the live electron model-registry
+-------------------------------------------------
+
+- v1.20.0's post-ship consolidation (commit f7f7472) deleted
+  src/main/core/voice/model-registry.ts as a "dead duplicate". It is NOT dead:
+  electron/main.ts imports getModelById / getDownloadedModelPath / downloadModel /
+  abortDownload from it (the Electron-specific model downloader using app.getPath,
+  distinct from the portable packages/voice-core copy).
+- The deletion's gate (tsc -b + vitest) falsely passed because tsc -b does NOT
+  compile electron/main.ts -- only esbuild (product:check / electron:compile)
+  does, and that step broke. Restored from the pre-deletion tree.
+
+
+Gate
+----
+
+- tsc -b (main) + voice-core tsc --noEmit -- both clean
+- eslint 0 errors / 0 warnings
+- vitest 149 files / 1475 pass / 1 skip
+- vite build + electron:compile (product:check) -- clean (electron:compile now
+  green again after the restore)
+- Playwright smoke e2e in main (37.9 s)
+
+No schema migrations in v1.20.1.
