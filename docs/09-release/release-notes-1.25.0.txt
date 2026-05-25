@@ -1,0 +1,122 @@
+SigmaLink v1.25.0 — 2026-05-26
+==============================
+
+R-1 Jorvis Remote (Telegram bridge) — the first post-roadmap feature.
+Remote-drive the Jorvis assistant (including worktree-isolated swarms) from a
+Telegram bot: text the bot -> Jorvis acts -> streamed replies come back.
+
+SECURITY-CRITICAL: this is the first network listener in the privileged
+Electron main process, so security is the product. DEFAULT-OFF — the feature
+is inert until the operator sets a bot token + a chat-id allowlist + enables it
+in Settings -> Remote (Telegram).
+
+Built by 3 parallel worktree-isolated lanes (assistant security on Opus,
+transport+safety on Sonnet, bridge+RPC+Settings on Opus) -> lead-merged ->
+a MANDATORY Opus security-review pass -> fixes folded -> full gate in main.
+No new npm dependencies (hand-rolled fetch long-poll).
+
+
+Added — Settings -> Remote (Telegram) panel
+-------------------------------------------
+
+- Write-only bot-token field (shows "set / not set"; warns if OS encryption
+  is unavailable). Enable toggle. Chat-id allowlist editor. Lock/Unlock +
+  status pill. Idle-lock minutes. A scrollable audit tail. All via a new
+  telegram.* RPC namespace (9 channels; none returns the token).
+
+
+Added — core/remote/ module
+---------------------------
+
+- telegram-client.ts — hand-rolled, OUTBOUND-ONLY getUpdates long-poll to
+  api.telegram.org (no inbound server/port): timeout=50, offset tracking,
+  AbortController, exponential backoff. sendMessage + sendConfirm (inline
+  [Confirm][Cancel] keyboard).
+- safety.ts — the inbound gate, in order: chat-id allowlist (empty => deny
+  all) -> /lock + idle auto-lock -> 5/min/chat token-bucket rate-limit ->
+  local injection/jailbreak heuristic -> opportunistic Ruflo aidefence_is_safe.
+  Outbound scrub: bot-token literal + sk-/ghp_/AKIA/Bearer + email/phone +
+  opportunistic aidefence_has_pii. Ruflo is best-effort and can NEVER
+  fail-open: any failure leaves the local result standing.
+- audit.ts — append-only JSONL (capped at 10k), tail() for the Settings view.
+- bridge.ts — the supervisor: inert unless enabled + token + at-rest
+  encryption + non-empty allowlist; relays assistant:state deltas back
+  (debounced 700ms, chunked @4096, HTML-escaped, outbound-scrubbed); the
+  dangerous-tool confirm state-machine.
+
+
+Added — confirm-on-dangerous (origin-aware authorization)
+---------------------------------------------------------
+
+- Read-only + dispatch (launch_pane / create_swarm / add_agent / broadcast /
+  roll_call / create_task / *_memory / monitor / list_*) + contained
+  read_files + https open_url run freely from Telegram.
+- prompt_agent (raw PTY) blocks on a one-tap Telegram inline-keyboard
+  Confirm (60s -> denied). New origin-aware gate in the assistant controller:
+  origin is 'local' | 'telegram'; the gate is FAIL-CLOSED — a missing, false,
+  or throwing confirmDangerous all deny. Local-origin behavior is unchanged.
+
+
+Changed / Hardened (all origins)
+--------------------------------
+
+- read_files rejects any path outside the workspace/worktree roots, resolved
+  realpath/symlink-safe (an in-tree symlink to ~/.ssh is judged by its real
+  target, not its location).
+- open_url requires https: (rejects http: / file: / javascript: / data: /
+  malformed).
+
+
+Security
+--------
+
+- Bot token: never crosses IPC, never echoed by any RPC (getStatus returns
+  only a tokenSet boolean), never relayed to chat, refused without OS
+  encryption (no plaintext-at-rest), captured once in memory for the running
+  bridge's lifetime.
+- Non-allowlisted chat-ids: dropped silently (no membership oracle) + audited
+  (throttled per chat-id so an unknown flooder can't amplify).
+- Security-review (Opus, 11-point checklist) verdict: no token leak, no gate
+  bypass, no fail-open. One High + two Low folded before ship:
+    * (High) bounded the outbound relay buffer (8192) + de-quadratic'd the
+      email scrub regex — closes an event-loop/ReDoS DoS reachable by an
+      adversarial (compromised-phone) operator's reply.
+    * (Low) chat-scoped the confirm-callback — a callback must come from the
+      same allowlisted chat the confirm was sent to; no cross-chat approval.
+    * (Low) throttled the non-allowlisted drop-audit — flood guard.
+- Partially advances H-19 (aidefence wiring): the Telegram path is the first
+  runtime consumer of aidefence_*, called opportunistically (local floor is
+  primary). The broader H-19 mandate (every ingestion point; local assistant
+  input; browser scrape) remains.
+
+
+Gate
+----
+
+- tsc -b (main, incl. electron/**) -- clean
+- eslint 0 errors / 0 warnings
+- vitest 167 files / 1660 pass / 1 skip (incl. 3 new R-1 security regression
+  tests: relay-buffer cap, confirm chat-scoping, drop-audit throttle)
+- vite build + electron:compile (product:check) -- clean
+- FULL Playwright e2e (tests/e2e/) in main -- 9 passed / 3 skipped (manual-only)
+- DEFAULT-OFF verified: bridge.start() self-gates to 'inert' on a fresh
+  profile (disabled / no-token / empty-allowlist / no-encryption — all four),
+  so the client is never constructed => zero Telegram network.
+
+
+Operator smoke (real bot + real phone — the e2e gate; no live Telegram in CI)
+-----------------------------------------------------------------------------
+
+Create a BotFather token; in Settings -> Remote (Telegram) set the token +
+your chat-id + enable. Then verify: a reply; a create_swarm dispatch; a
+prompt_agent Confirm/Cancel (and the 60s timeout); /lock and /unlock; and
+that a message from a non-allowlisted id is ignored.
+
+
+Known cosmetic follow-ups (Info, from the security review)
+----------------------------------------------------------
+
+- The Settings audit tail renders oldest-first (tail() returns most-recent
+  last); reverse for display.
+- CredentialStore.set could gain a hard requireEncryption flag rather than
+  relying on every caller pre-checking isEncryptionAvailable().

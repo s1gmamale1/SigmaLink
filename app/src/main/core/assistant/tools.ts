@@ -37,6 +37,23 @@ export interface ToolContext {
   browserRegistry: BrowserManagerRegistry;
   defaultWorkspaceId: string | null;
   userDataDir: string;
+  /**
+   * R-1 (Jorvis Telegram remote) — provenance of the turn that triggered this
+   * tool call. `'local'` is the in-app operator (full trust, unchanged
+   * behaviour); `'telegram'` is the remote Jorvis bridge, which must clear the
+   * authorization gate in `invokeAssistantTool` before any DANGEROUS_REMOTE
+   * tool runs. Defaults to `'local'` everywhere so every existing caller keeps
+   * working without change.
+   */
+  origin?: 'local' | 'telegram';
+  /**
+   * R-1 — confirm-on-dangerous hook. Supplied by the remote bridge so the
+   * authorization gate can ask the human operator to approve a dangerous tool
+   * call out-of-band (e.g. a Telegram inline "Approve / Deny" button). Resolve
+   * `true` to authorize, anything else to reject. Optional: when absent, the
+   * gate treats a dangerous remote call as unapproved.
+   */
+  confirmDangerous?: (toolName: string, summary: string) => Promise<boolean>;
 }
 
 export interface ToolDefinition {
@@ -128,10 +145,80 @@ function cwdLooksInsideWorkspace(
 ): boolean {
   if (!ws) return false;
   const roots = [ws.rootPath, ws.repoRoot].filter((r): r is string => Boolean(r));
-  return roots.some((root) => {
-    const rel = path.relative(root, cwd);
-    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-  });
+  return roots.some((root) => isInsideRoot(root, cwd));
+}
+
+/**
+ * True when `target` is `root` itself or lives underneath it. Uses
+ * `path.relative` so `/a/b` is NOT considered inside `/a/bc` (a naive
+ * `startsWith` prefix check would wrongly accept that).
+ */
+function isInsideRoot(root: string, target: string): boolean {
+  const rel = path.relative(root, target);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/**
+ * R-1 hardening — gather every directory a tool is allowed to read from: each
+ * known workspace's `rootPath` + `repoRoot`, plus the git worktree pool dir for
+ * each repo (worktrees live outside the repo root but are legitimately part of
+ * the workspace). DB/registry failures degrade to an empty set (deny-all) so a
+ * boot-time error can never silently widen the sandbox.
+ */
+function allowedReadRoots(ctx: ToolContext): string[] {
+  const roots = new Set<string>();
+  try {
+    const rows = getDb().select().from(workspacesTable).all();
+    for (const ws of rows) {
+      if (ws.rootPath) roots.add(path.resolve(ws.rootPath));
+      if (ws.repoRoot) {
+        roots.add(path.resolve(ws.repoRoot));
+        try {
+          roots.add(path.resolve(ctx.worktreePool.poolPathForRepo(ws.repoRoot)));
+        } catch {
+          /* worktree pool unavailable — skip this repo's worktree dir */
+        }
+      }
+    }
+  } catch {
+    /* DB unavailable — deny-all (empty set) rather than open the sandbox */
+  }
+  return [...roots];
+}
+
+/**
+ * R-1 hardening — resolve `p` (following symlinks where possible) and verify it
+ * sits inside one of the allowed roots. Returns the resolved absolute path on
+ * success, or `null` to reject. Symlink resolution defends against a symlink
+ * planted inside the workspace that points at e.g. `~/.ssh/id_rsa`.
+ */
+function resolveInsideAllowedRoots(p: string, roots: string[]): string | null {
+  if (roots.length === 0) return null;
+  let resolved = path.resolve(p);
+  try {
+    // realpath collapses symlinks for existing files so a symlink planted
+    // inside the workspace pointing at e.g. `~/.ssh/id_rsa` is judged by its
+    // REAL target, not its in-tree lexical location. Non-existent paths fall
+    // through to the lexically-resolved path (containment still enforced).
+    resolved = fs.realpathSync(resolved);
+  } catch {
+    /* file may not exist yet — keep the lexically-resolved path */
+  }
+  for (const root of roots) {
+    // Resolve the root too so a symlinked workspace root (e.g. macOS
+    // /var/folders → /private/var/folders) still matches the realpath'd target.
+    let realRoot = root;
+    try {
+      realRoot = fs.realpathSync(root);
+    } catch {
+      /* root may not exist on disk — compare lexically */
+    }
+    // Security note: containment is judged ONLY against the symlink-resolved
+    // path. We deliberately do NOT also accept the lexical path — that would
+    // let an in-tree symlink escape the sandbox.
+    if (isInsideRoot(realRoot, resolved)) return resolved;
+  }
+  return null;
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────
@@ -197,16 +284,27 @@ export const TOOLS: ToolDefinition[] = [
       },
     },
     sReadFiles,
-    async (a) => {
+    async (a, ctx) => {
       const cap = a.maxBytes ?? 65_536;
+      // R-1 hardening — every requested path must resolve inside a known
+      // workspace/worktree root (applies to ALL origins). Rejects traversal
+      // (`../../../etc/passwd`), absolute escapes (`~/.ssh/id_rsa`), and
+      // symlinks that point out of tree. Out-of-tree paths return a per-file
+      // error rather than throwing so a single bad path can't fail the batch.
+      const roots = allowedReadRoots(ctx);
       const files: Array<{ path: string; ok: boolean; content?: string; error?: string }> = [];
       for (const p of a.paths) {
         try {
-          if (!fs.existsSync(p)) {
+          const safePath = resolveInsideAllowedRoots(p, roots);
+          if (!safePath) {
+            files.push({ path: p, ok: false, error: 'path outside workspace' });
+            continue;
+          }
+          if (!fs.existsSync(safePath)) {
             files.push({ path: p, ok: false, error: 'not found' });
             continue;
           }
-          const buf = fs.readFileSync(p);
+          const buf = fs.readFileSync(safePath);
           const slice = buf.length > cap ? buf.subarray(0, cap) : buf;
           files.push({
             path: p,
@@ -236,6 +334,19 @@ export const TOOLS: ToolDefinition[] = [
     },
     sOpenUrl,
     async (a, ctx) => {
+      // R-1 hardening — only https:// URLs may be opened (applies to ALL
+      // origins). Rejects file:// (local-disk exfiltration), javascript: /
+      // data: (script/markup injection into the embedded browser), and plain
+      // http:// (downgrade). A malformed URL is rejected by `new URL`.
+      let scheme: string;
+      try {
+        scheme = new URL(a.url).protocol;
+      } catch {
+        return { ok: false, error: 'invalid url' };
+      }
+      if (scheme !== 'https:') {
+        return { ok: false, error: `unsupported url scheme: ${scheme} (https only)` };
+      }
       const wsId = requireWs(ctx, a.workspaceId, 'open_url');
       const mgr = ctx.browserRegistry.get(wsId);
       const tabs = mgr.listTabs();
@@ -580,6 +691,48 @@ const TOOL_ALIASES: Record<string, string> = {
   'memory.create': 'create_memory',
   dispatch_pane: 'prompt_agent',
 };
+
+/**
+ * R-1 (Jorvis Telegram remote) — tools that are too dangerous to run
+ * unattended from a remote origin and therefore require explicit human
+ * confirmation when `origin === 'telegram'`. `prompt_agent` writes raw bytes
+ * straight into a live PTY (it can type ANY shell command into an agent),
+ * which is the single highest-blast-radius tool in the registry.
+ *
+ * Keyed by canonical tool *id* (post-alias). The authorization gate in
+ * `invokeAssistantTool` resolves aliases before consulting this set.
+ *
+ * NOTE (cross-lane contract): the exact name `DANGEROUS_REMOTE` and the
+ * membership `{ 'prompt_agent' }` are relied on by the Telegram-bridge lane.
+ * Do not rename or change semantics without coordinating.
+ */
+export const DANGEROUS_REMOTE = new Set<string>(['prompt_agent']);
+
+/**
+ * R-1 — produce a short, human-readable one-liner describing a tool call, for
+ * the confirm-on-dangerous prompt the operator sees in Telegram. Never throws
+ * and never leaks large payloads (each value is truncated).
+ */
+export function summarizeArgs(toolName: string, args: Record<string, unknown>): string {
+  const parts: string[] = [];
+  try {
+    for (const [key, value] of Object.entries(args ?? {})) {
+      let rendered: string;
+      if (typeof value === 'string') {
+        rendered = value.length > 120 ? `${value.slice(0, 117)}…` : value;
+      } else if (value === null || typeof value !== 'object') {
+        rendered = String(value);
+      } else {
+        const json = JSON.stringify(value);
+        rendered = json.length > 120 ? `${json.slice(0, 117)}…` : json;
+      }
+      parts.push(`${key}=${rendered}`);
+    }
+  } catch {
+    /* fall through to the bare tool name */
+  }
+  return parts.length > 0 ? `${toolName}(${parts.join(', ')})` : `${toolName}()`;
+}
 
 export const findTool = (name: string): ToolDefinition | null => {
   const id = TOOL_ALIASES[name] ?? name;

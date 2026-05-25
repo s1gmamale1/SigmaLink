@@ -18,6 +18,7 @@ import { VoiceTab } from './VoiceTab';
 import { StorageTab } from './StorageTab';
 import { NotificationsSettings } from './NotificationsSettings';
 import { SyncTab } from './SyncTab';
+import { TelegramTab } from './TelegramTab';
 
 export function SettingsRoom() {
   return (
@@ -41,6 +42,7 @@ export function SettingsRoom() {
               <TabsTrigger value="ruflo">Ruflo</TabsTrigger>
               <TabsTrigger value="updates">Updates</TabsTrigger>
               <TabsTrigger value="sync">Sync</TabsTrigger>
+              <TabsTrigger value="telegram">Telegram</TabsTrigger>
               <TabsTrigger value="storage">Storage</TabsTrigger>
               <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
             </TabsList>
@@ -68,6 +70,9 @@ export function SettingsRoom() {
               </TabsContent>
               <TabsContent value="sync" className="mt-0">
                 <SyncTab />
+              </TabsContent>
+              <TabsContent value="telegram" className="mt-0">
+                <TelegramTab />
               </TabsContent>
               <TabsContent value="storage" className="mt-0">
                 <StorageTab />

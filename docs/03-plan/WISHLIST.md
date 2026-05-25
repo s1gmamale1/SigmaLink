@@ -1,6 +1,6 @@
 # SigmaLink — Plans wishlist (consolidated)
 
-> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap — ✅ COMPLETE (Stages 1–4)**: S1 Liquid Glass `v1.21.0` (FE-1) · S2 chrome/window `v1.22.0` (FE-2) · S3 component kit `v1.23.0` (FE-3) · S4 per-room + a11y `v1.24.0` (FE-4). Live backlog: **R-1 Jorvis Remote (Telegram)** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified; **H-1 ✅ shipped v1.23.0**, 18 remain). Each row points at the original spec / backlog / plan file it was extracted from.
+> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap — ✅ COMPLETE (Stages 1–4)**: S1 Liquid Glass `v1.21.0` (FE-1) · S2 chrome/window `v1.22.0` (FE-2) · S3 component kit `v1.23.0` (FE-3) · S4 per-room + a11y `v1.24.0` (FE-4). Live backlog: **R-1 Jorvis Remote (Telegram) ✅ shipped v1.25.0** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified; **H-1 ✅ shipped v1.23.0**, 18 remain — R-1 partially advances **H-19**). Each row points at the original spec / backlog / plan file it was extracted from.
 
 ## Recently shipped ✅
 
@@ -65,7 +65,9 @@
 
 > **The BridgeMind C-class roadmap (M0–M5, C-1…C-13) and the W-class (W-1…W-8) are all shipped** — see "Recently shipped" + CHANGELOG. The live backlog below is new, post-roadmap scope.
 
-### R-1 — Jorvis Remote (Telegram bridge) — DESIGNED 2026-05-25, not yet built
+### R-1 — Jorvis Remote (Telegram bridge) — ✅ SHIPPED v1.25.0 (2026-05-26)
+
+**Shipped 2026-05-26** via 3 worktree-isolated lanes + a mandatory Opus security-review pass → full gate in main. Deviations from the design below: **hand-rolled `fetch` long-poll** (zero new deps, not `grammy`); **aidefence is local-first/opportunistic** (a local safety floor always runs; Ruflo `aidefence_*` is best-effort and can never fail-open) — so this only *partially* discharges [[H-19]], whose broader mandate remains. Security-review folded one High (relay-buffer cap + de-quadratic email regex — ReDoS/event-loop DoS) and two Low (confirm-callback chat-scoping; non-allowlisted drop-audit throttle). DEFAULT-OFF; operator real-bot/real-phone smoke is the e2e gate. The original design follows for reference.
 
 **Full remote control of the Jorvis assistant from Telegram** — like OpenClaw / Hermes / the official Anthropic Telegram plugin, but native to SigmaLink and driving the **worktree-isolated swarm**. Operator texts a bot → Jorvis acts → streamed replies come back. Leapfrog vs a shared-dir bot: remote-drive N worktree-isolated agents ("spawn 3 agents on these tasks" from your phone → get the conflict-aware merge proposal back).
 
@@ -116,7 +118,7 @@ Final stage. 3 worktree-isolated lanes (all Sonnet), gate-green incl. full e2e +
 - **Keyboard + names + guard (R2):** RoleRoster keyboard P0 fixed; SigmaBench workspace-guard `EmptyState`; task-drawer `aria-labelledby`+Escape+return-focus; `aria-label` on Browser/Tasks icon buttons.
 - **Follow-ups (deferred):** full Tab-containment focus-trap on the hand-rolled Task drawers (`TODO(a11y)`); device VoiceOver/Switch-Control testing (operator QA); `prefers-reduced-transparency` for non-glass alpha surfaces; the parchment breadcrumb ~4.3:1 contrast nudge.
 
-**The Apple-grade frontend roadmap (Stages 1–4) is COMPLETE.** Remaining live backlog: R-1 (Telegram), R-2 (Cursor CLI), H-class (18 of 19 remain; next-highest H-5 `assertAllowedPath`).
+**The Apple-grade frontend roadmap (Stages 1–4) is COMPLETE.** Remaining live backlog: R-2 (Cursor CLI), H-class (18 of 19 remain; R-1 partially advanced H-19; next-highest H-5 `assertAllowedPath`). **R-1 (Telegram) ✅ shipped v1.25.0.**
 
 ---
 

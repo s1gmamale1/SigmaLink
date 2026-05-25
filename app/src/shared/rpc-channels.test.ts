@@ -259,6 +259,16 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'sync.exportMnemonic',
   'sync.isConfigured',
   'sync.recoverFromMnemonic',
+  // telegram (telegramCtl — from buildTelegramController) — R-1
+  'telegram.getStatus',
+  'telegram.setToken',
+  'telegram.clearToken',
+  'telegram.setEnabled',
+  'telegram.setAllowlist',
+  'telegram.setIdleLockMinutes',
+  'telegram.lock',
+  'telegram.unlock',
+  'telegram.auditTail',
 ];
 
 // ------------------------------------------------------------------

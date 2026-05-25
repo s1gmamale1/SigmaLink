@@ -77,6 +77,12 @@ import { buildDesignController } from './core/design/controller';
 import { buildVoiceController } from './core/voice/adapter';
 // v1.5.0 packet 09 — Cross-machine sync controller.
 import { buildSyncController } from './core/sync/controller';
+// R-1 — Jorvis Telegram remote. Supervisor + `telegram.*` controller. The
+// bridge is INERT by default; it only starts when enabled + token + encryption
+// + non-empty allowlist all hold (see core/remote/bridge.ts).
+import { TelegramBridge } from './core/remote/bridge';
+import { buildTelegramController } from './core/remote/controller';
+import { CredentialStore } from './core/credentials/storage';
 import { runVoiceDiagnostics } from './core/voice/diagnostics';
 import { fsReadDir, fsReadFile, fsWriteFile } from './core/fs/controller';
 import { getChannelSchema } from './core/rpc/schemas';
@@ -124,6 +130,8 @@ interface SharedDeps {
    *  `.mcp.json` declaring the stdio server, which dials back here and
    *  proxies `tools/call` envelopes into the assistant controller. */
   mcpHostSigma?: McpHostSigma;
+  /** R-1 — Jorvis Telegram remote supervisor. Stopped in the shutdown path. */
+  telegramBridge?: TelegramBridge;
 }
 
 let router: ReturnType<typeof buildRouter> | null = null;
@@ -1373,6 +1381,10 @@ function buildRouter() {
     mailbox,
   });
   const kvCtl = buildKvController();
+  // R-1 — Telegram bridge taps `assistant:state` here so a remote operator
+  // sees the same streamed reply. The assistant `emit` wrapper below fans out
+  // to this set; the bridge subscribes/unsubscribes on start()/stop().
+  const assistantStateSubscribers = new Set<(payload: unknown) => void>();
   // V3-W13-013 — Sigma Assistant controller. Owns the `assistant.*`
   // namespace and pipes tool traces + dispatch echoes back through the
   // shared broadcaster so every BrowserWindow (right-rail, standalone room)
@@ -1402,6 +1414,18 @@ function buildRouter() {
           );
         } catch {
           /* notifications fan-out is best-effort */
+        }
+      }
+      // R-1 — fan `assistant:state` deltas out to the Telegram bridge so a
+      // remote operator sees the same streamed reply. Best-effort + isolated
+      // from the renderer broadcast above.
+      if (event === 'assistant:state') {
+        for (const sub of assistantStateSubscribers) {
+          try {
+            sub(payload);
+          } catch {
+            /* per-subscriber isolation */
+          }
         }
       }
     },
@@ -1525,9 +1549,17 @@ function buildRouter() {
             .rollCall(swarmId);
         },
         assistantSend: async ({ workspaceId, prompt }) => {
+          // R-1 — the cast now accepts+forwards an optional `origin`
+          // (default 'local'); the voice path omits it, so this stays
+          // back-compatible while the Telegram bridge can pass 'telegram'.
           await (assistantCtl as {
-            send: (i: { workspaceId: string; prompt: string }) => Promise<unknown>;
-          }).send({ workspaceId, prompt });
+            send: (i: {
+              workspaceId: string;
+              prompt: string;
+              origin?: 'local' | 'telegram';
+              confirmDangerous?: (toolName: string, summary: string) => Promise<boolean>;
+            }) => Promise<unknown>;
+          }).send({ workspaceId, prompt, origin: 'local' });
         },
         appNavigate: ({ pane }) => {
           // Forward to renderer subscribers; the title-bar router handles
@@ -1561,6 +1593,88 @@ function buildRouter() {
   // SECURITY: the sync master key never appears in IPC responses.
   const syncCtl = buildSyncController(getRawDb(), broadcast);
 
+  // R-1 — Jorvis Telegram remote. SECURITY-CRITICAL. The bridge is INERT by
+  // default and only starts when enabled + token + at-rest encryption +
+  // non-empty allowlist all hold. The token never crosses IPC; the controller
+  // exposes a write-only setter. The bridge subscribes to `assistant:state`
+  // via the fan-out set above so a remote operator sees the streamed reply.
+  const telegramKv = {
+    get: (key: string): string | null => {
+      try {
+        const row = getRawDb()
+          .prepare('SELECT value FROM kv WHERE key = ?')
+          .get(key) as { value?: string } | undefined;
+        return row?.value ?? null;
+      } catch {
+        return null;
+      }
+    },
+    set: (key: string, value: string): void => {
+      try {
+        getRawDb()
+          .prepare(
+            `INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          )
+          .run(key, value);
+      } catch {
+        /* swallow */
+      }
+    },
+  };
+  const telegramBridge = new TelegramBridge({
+    kv: telegramKv,
+    credentials: CredentialStore,
+    // Assistant seam via the same CAST pattern as the voice path's
+    // assistantSend above — Lane H widens the real controller to honour
+    // `origin` + `confirmDangerous`; until then this cast is the contract.
+    assistant: {
+      send: (input) =>
+        (
+          assistantCtl as {
+            send: (i: {
+              workspaceId: string;
+              prompt: string;
+              origin?: 'local' | 'telegram';
+              confirmDangerous?: (t: string, s: string) => Promise<boolean>;
+            }) => Promise<unknown>;
+          }
+        ).send(input),
+    },
+    subscribeAssistantState: (cb) => {
+      assistantStateSubscribers.add(cb);
+      return () => assistantStateSubscribers.delete(cb);
+    },
+    resolveDefaultWorkspaceId: () => {
+      try {
+        const row = getRawDb()
+          .prepare('SELECT id FROM workspaces ORDER BY created_at ASC LIMIT 1')
+          .get() as { id?: string } | undefined;
+        return row?.id ?? null;
+      } catch {
+        return null;
+      }
+    },
+    notifier: notificationsManager,
+    rufloCall: (tool, args) => rufloProxy.call(tool, args),
+    auditDir: path.join(app.getPath('userData'), 'remote-audit'),
+  });
+  const telegramCtl = buildTelegramController({
+    bridge: telegramBridge,
+    kv: telegramKv,
+    credentials: CredentialStore,
+  });
+  // Expose the bridge to the shutdown path. `sharedDeps` was assigned earlier
+  // in buildRouter(); we attach the late-constructed bridge here.
+  if (sharedDeps) sharedDeps.telegramBridge = telegramBridge;
+  // Attempt to start. start() self-gates and stays inert when preconditions
+  // are unmet, so this is safe on every boot (including a fresh DMG).
+  void telegramBridge.start().catch((err) => {
+    console.warn(
+      `[telegram] bridge start failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  });
+
   return defineRouter({
     app: appCtl,
     pty: ptyCtl,
@@ -1582,6 +1696,7 @@ function buildRouter() {
     ruflo: rufloCtl,
     notifications: notificationsCtl,
     sync: syncCtl,
+    telegram: telegramCtl,
   });
 }
 
@@ -1769,6 +1884,13 @@ export function shutdownRouter(): void {
   // SIGTERM → 5s drain → SIGKILL idiom mirrors MemoryMcpSupervisor.stopAll().
   try {
     void sharedDeps?.rufloHttpDaemonSupervisor.stopAll();
+  } catch {
+    /* ignore */
+  }
+  // R-1 — stop the Telegram bridge (cancels long-poll, clears pending
+  // confirmations, unsubscribes the assistant-state relay).
+  try {
+    void sharedDeps?.telegramBridge?.stop();
   } catch {
     /* ignore */
   }

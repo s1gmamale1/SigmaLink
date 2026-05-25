@@ -1064,4 +1064,52 @@ export interface AppRouter {
     /** Recovery: import an existing mnemonic on a new device. */
     recoverFromMnemonic: (mnemonic: string) => Promise<void>;
   };
+  /**
+   * R-1 — Jorvis Telegram remote (`telegram.*`). SECURITY-CRITICAL.
+   *
+   * Lets the operator drive Jorvis from Telegram. The bot token is WRITE-ONLY:
+   * `setToken` persists it into the encrypted CredentialStore and it NEVER
+   * crosses IPC again — `getStatus` reports only a `tokenSet` boolean. The
+   * bridge stays INERT until enabled + token + at-rest encryption + a
+   * non-empty numeric chat-id allowlist all hold. Dangerous tool calls require
+   * an inline confirm tap; `/lock` drops all inbound until `/unlock`.
+   */
+  telegram: {
+    /** Operator-safe status snapshot. NEVER includes the token value. */
+    getStatus: () => Promise<TelegramRemoteStatus>;
+    /** Persist the bot token (encrypted). Refuses without OS encryption. Never echoes it back. */
+    setToken: (token: string) => Promise<void>;
+    /** Remove the stored token and stop the bridge. */
+    clearToken: () => Promise<void>;
+    /** Enable / disable the remote. */
+    setEnabled: (enabled: boolean) => Promise<void>;
+    /** Replace the numeric chat-id allowlist. */
+    setAllowlist: (ids: number[]) => Promise<void>;
+    /** Set the idle auto-lock window in minutes (<=0 disables). */
+    setIdleLockMinutes: (minutes: number) => Promise<void>;
+    /** Manually lock — drops all inbound until unlocked. */
+    lock: () => Promise<void>;
+    /** Manually unlock. */
+    unlock: () => Promise<void>;
+    /** Tail the audit log, newest first. */
+    auditTail: (n: number) => Promise<TelegramAuditEntry[]>;
+  };
+}
+
+/** R-1 — operator-safe Telegram remote status (no token value). */
+export interface TelegramRemoteStatus {
+  enabled: boolean;
+  running: boolean;
+  locked: boolean;
+  allowlist: number[];
+  encryptionAvailable: boolean;
+  tokenSet: boolean;
+}
+
+/** R-1 — a single remote audit row surfaced to Settings → Telegram. */
+export interface TelegramAuditEntry {
+  ts: number;
+  kind: string;
+  chatId: number | null;
+  detail: string;
 }

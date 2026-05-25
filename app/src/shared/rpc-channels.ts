@@ -299,6 +299,18 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'sync.exportMnemonic',
   'sync.isConfigured',
   'sync.recoverFromMnemonic',
+  // R-1 — Jorvis Telegram remote. SECURITY-CRITICAL: `setToken` is write-only;
+  // the token value never crosses IPC in a response (getStatus reports only a
+  // `tokenSet` boolean).
+  'telegram.getStatus',
+  'telegram.setToken',
+  'telegram.clearToken',
+  'telegram.setEnabled',
+  'telegram.setAllowlist',
+  'telegram.setIdleLockMinutes',
+  'telegram.lock',
+  'telegram.unlock',
+  'telegram.auditTail',
 ]);
 
 /**

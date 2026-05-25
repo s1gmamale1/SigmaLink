@@ -4,6 +4,30 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-05-26
+
+v1.25.0 — **R-1 Jorvis Remote (Telegram bridge)** — the first post-roadmap feature: remote-drive the Jorvis assistant (including worktree-isolated swarms) from a Telegram bot. **SECURITY-CRITICAL** (first network listener in the privileged Electron main process) and **DEFAULT-OFF** — inert until the operator sets a token + chat-id allowlist + enables it. Built by 3 parallel worktree-isolated lanes (assistant security on Opus, transport+safety on Sonnet, bridge+RPC+Settings on Opus) → lead-merged → a **mandatory security-review pass** (Opus) → fixes folded → full gate in main (incl. the whole `tests/e2e/` dir). **No new npm dependencies** (hand-rolled `fetch` long-poll). Operator real-bot/real-phone smoke is the e2e gate; no live Telegram in CI.
+
+### Added
+
+- **Remote (Telegram) panel** in Settings — write-only bot-token field (shows "set ✓ / not set", warns when OS encryption is unavailable), enable toggle, chat-id allowlist editor, Lock/Unlock + status pill, idle-lock minutes, and a scrollable audit tail. All via a new `telegram.*` RPC namespace.
+- **`core/remote/`** module: a hand-rolled outbound-only `getUpdates` long-poll client (`api.telegram.org`, `AbortController`, offset tracking, exponential backoff), a safety layer (chat-id allowlist → `/lock` + idle auto-lock → 5/min token-bucket rate-limit → local injection/jailbreak heuristic → **opportunistic** Ruflo `aidefence_is_safe`/`has_pii`), an append-only JSONL audit log, and the bridge supervisor (relay of `assistant:state` deltas — debounced 700ms, chunked @4096, HTML-escaped, outbound-scrubbed).
+- **Confirm-on-dangerous** — read-only + dispatch (`launch_pane`/`create_swarm`/`add_agent`/`broadcast`/…) + contained `read_files` + https `open_url` run freely; `prompt_agent` (raw PTY) blocks on a one-tap Telegram inline-keyboard **✅ Confirm** (60s → denied). Built on a new origin-aware authorization gate in the assistant controller (`origin: 'local' | 'telegram'`; fail-closed — missing/false/throwing `confirmDangerous` all deny). Local-origin behavior is unchanged.
+
+### Changed / Hardened
+
+- **`read_files`** now rejects any path outside the workspace/worktree roots (realpath/symlink-safe — an in-tree symlink to e.g. `~/.ssh` is judged by its real target), and **`open_url`** requires `https:` (rejects `http:`/`file:`/`javascript:`/`data:`/malformed). These apply to **all** origins, not just Telegram.
+
+### Security
+
+- The bot token never crosses IPC, is never echoed by any RPC (`getStatus` returns only a `tokenSet` boolean), is never relayed to chat, and is refused when OS encryption (`safeStorage`) is unavailable (no plaintext-at-rest). Non-allowlisted chat-ids are dropped **silently** (no membership oracle) and audited (throttled). Security-review fixes folded before ship: bounded the outbound relay buffer + de-quadratic'd the email scrub regex (event-loop/ReDoS guard), chat-scoped the confirm-callback (no cross-chat approval), and throttled the non-allowlisted drop-audit (flood guard).
+- Partially advances **H-19** (aidefence wiring): the Telegram path is the first runtime consumer of `aidefence_*`, called **opportunistically** (local floor is primary — a Ruflo failure can never fail-open). The broader H-19 mandate (every ingestion point; local assistant input; browser scrape) remains.
+
+### Notes
+
+- DEFAULT-OFF: a fresh profile makes zero Telegram network calls (the bridge self-gates to `inert` unless enabled + token + at-rest encryption + non-empty allowlist all hold). No schema migrations.
+- Known cosmetic follow-ups (Info, from the security review): the Settings audit tail renders oldest-first; `CredentialStore.set` could gain a hard `requireEncryption` flag rather than relying on per-caller pre-checks.
+
 ## [1.24.0] - 2026-05-26
 
 v1.24.0 — **Per-room polish + accessibility (frontend Stage 4)** — the FINAL stage of the Apple-grade frontend roadmap (Stages 1–4 now complete). 3 parallel worktree-isolated coders → lead-merged, full gate in main (incl. the whole `tests/e2e/` dir + a `prefers-reduced-motion` runtime check).

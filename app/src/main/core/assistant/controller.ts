@@ -28,7 +28,7 @@ import {
   listConversations,
   type ConversationWithMessages,
 } from './conversations';
-import { findTool, publicTools } from './tools';
+import { DANGEROUS_REMOTE, findTool, publicTools, summarizeArgs } from './tools';
 import { ToolTracer, safeSerialize, type ToolTrace } from './tool-tracer';
 import { recordSwarmOrigin } from './swarm-origins';
 import { runClaudeCliTurn, cancelClaudeCliTurn } from './runClaudeCliTurn';
@@ -65,6 +65,19 @@ interface ActiveTurn {
   cancelled: boolean;
 }
 
+/**
+ * R-1 (Jorvis Telegram remote) — provenance of a turn / tool call.
+ * `'local'` (default) = in-app operator, full trust. `'telegram'` = remote
+ * bridge, gated through `confirmDangerous` for DANGEROUS_REMOTE tools.
+ */
+export type ToolOrigin = 'local' | 'telegram';
+
+/**
+ * R-1 — confirm-on-dangerous callback (cross-lane contract). Resolve `true` to
+ * authorize a dangerous remote tool call; anything else rejects it.
+ */
+export type ConfirmDangerous = (toolName: string, summary: string) => Promise<boolean>;
+
 export function pickPreset(n: number): LaunchPlan['preset'] {
   if (n <= 1) return 1;
   if (n <= 2) return 2;
@@ -86,6 +99,10 @@ export interface AssistantController {
     conversationId?: string;
     name: string;
     args: Record<string, unknown>;
+    /** R-1 — defaults to `'local'` (no gating) when omitted. */
+    origin?: ToolOrigin;
+    /** R-1 — supplied by the remote bridge to approve DANGEROUS_REMOTE calls. */
+    confirmDangerous?: ConfirmDangerous;
   }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
 }
 
@@ -120,9 +137,12 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
     conversationId?: string;
     name: string;
     args: Record<string, unknown>;
+    origin?: ToolOrigin;
+    confirmDangerous?: ConfirmDangerous;
   }): Promise<{ ok: boolean; result: unknown; error?: string }> => {
     const tool = findTool(input?.name ?? '');
     const conv = input?.conversationId ? getConversation(input.conversationId) : null;
+    const origin: ToolOrigin = input?.origin ?? 'local';
     const traceBase = {
       conversationId: conv?.id ?? null,
       name: tool?.id ?? input?.name ?? '<unknown>',
@@ -131,6 +151,28 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       const err = `Unknown tool: ${input?.name}`;
       recordTrace({ ...traceBase, args: input?.args ?? {}, ok: false, result: null, error: err });
       return { ok: false, result: null, error: err };
+    }
+    // R-1 (Jorvis Telegram remote) — authorization gate. Remote-origin calls to
+    // DANGEROUS_REMOTE tools (currently `prompt_agent`, which writes raw bytes
+    // into a live PTY) require explicit human confirmation. Local-origin calls
+    // are NOT gated — in-app operator behaviour is unchanged. Free + contained
+    // tools always pass through here (containment is enforced inside the tool
+    // handlers themselves, for every origin).
+    if (origin === 'telegram' && DANGEROUS_REMOTE.has(tool.id)) {
+      const args = input?.args ?? {};
+      let approved = false;
+      try {
+        approved =
+          typeof input?.confirmDangerous === 'function' &&
+          (await input.confirmDangerous(tool.id, summarizeArgs(tool.id, args))) === true;
+      } catch {
+        approved = false;
+      }
+      if (!approved) {
+        const error = 'This action needs confirmation and was not approved.';
+        recordTrace({ ...traceBase, args, ok: false, result: null, error });
+        return { ok: false, result: null, error };
+      }
     }
     const startedAt = Date.now();
     let parsed: Record<string, unknown>;
@@ -152,6 +194,11 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         browserRegistry: deps.browserRegistry,
         defaultWorkspaceId: conv?.workspaceId ?? null,
         userDataDir: deps.userDataDir,
+        // R-1 — provenance + confirm hook also flow into the tool ctx so a
+        // handler can apply origin-specific behaviour if it needs to. The gate
+        // above is the primary enforcement point.
+        origin,
+        confirmDangerous: input?.confirmDangerous,
       });
       // P3-S7 — single persistence path: the tracer writes the `messages`
       // row with role='tool' and `toolCallId` set to the trace id; the
@@ -194,6 +241,18 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       conversationId?: string;
       prompt: string;
       attachments?: string[];
+      /**
+       * R-1 (Jorvis Telegram remote) — who started this turn. `'local'`
+       * (default) is the in-app operator; `'telegram'` is the remote bridge,
+       * whose DANGEROUS_REMOTE tool calls are gated through `confirmDangerous`.
+       * Every existing caller omits this and keeps full-trust local behaviour.
+       */
+      origin?: ToolOrigin;
+      /**
+       * R-1 — confirm-on-dangerous hook, supplied by the remote bridge. Carried
+       * onto the turn so it reaches the tool-invocation gate. Optional.
+       */
+      confirmDangerous?: ConfirmDangerous;
     }): Promise<{ conversationId: string; turnId: string }> => {
       if (typeof input?.workspaceId !== 'string' || !input.workspaceId) {
         throw new Error('assistant.send: workspaceId required');
@@ -201,6 +260,8 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       if (typeof input?.prompt !== 'string') {
         throw new Error('assistant.send: prompt required');
       }
+      const origin: ToolOrigin = input.origin === 'telegram' ? 'telegram' : 'local';
+      const confirmDangerous = input.confirmDangerous;
       let conversationId = input.conversationId ?? null;
       if (conversationId && !getConversation(conversationId)) conversationId = null;
       if (!conversationId) {
@@ -237,7 +298,16 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
             tracer,
             ruflo: deps.ruflo,
             dispatchTool: async (name, args) => {
-              const result = await invokeAssistantTool({ conversationId, name, args });
+              // R-1 — carry the turn's origin + confirm hook onto every tool
+              // call the CLI emits, so the authorization gate fires for
+              // telegram-origin DANGEROUS_REMOTE tools.
+              const result = await invokeAssistantTool({
+                conversationId,
+                name,
+                args,
+                origin,
+                confirmDangerous,
+              });
               if (!result.ok) throw new Error(result.error ?? `Tool failed: ${name}`);
               return result.result;
             },
@@ -355,6 +425,8 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       conversationId?: string;
       name: string;
       args: Record<string, unknown>;
+      origin?: ToolOrigin;
+      confirmDangerous?: ConfirmDangerous;
     }): Promise<{ ok: boolean; result: unknown; error?: string }> => {
       return invokeAssistantTool(input);
     },
