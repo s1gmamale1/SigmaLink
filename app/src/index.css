@@ -1,3 +1,5 @@
+@import './styles/glass-material.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -55,10 +57,14 @@
     --role-scout: 150 75% 50%;       /* green */
     --role-reviewer: 40 90% 60%;     /* amber/gold */
 
-    /* Motion tokens. */
-    --motion-enter: 220ms cubic-bezier(.2, .8, .2, 1);
-    --motion-exit: 160ms ease-out;
-    --motion-fast: 120ms ease-out;
+    /* System / SF Pro UI font stack (Apple HIG). */
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+
+    /* Motion tokens — Apple spring curves (<=300ms utility budget). */
+    --motion-enter: 280ms cubic-bezier(0.32, 0.72, 0, 1);
+    --motion-exit: 200ms cubic-bezier(0.4, 0, 1, 1);
+    --motion-fast: 140ms cubic-bezier(0.32, 0.72, 0, 1);
+    --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   /* Obsidian — explicit override for clarity (matches :root above). */
@@ -305,6 +311,14 @@
   to { opacity: 1; transform: scale(1); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .sl-fade-in,
+  .sl-slide-up,
+  .sl-pane-enter {
+    animation: none;
+  }
+}
+
 /* v1.4.9 #07 — critical-severity bell pulse. Subtle 2s opacity cycle that
    loops; D1 calls for ~30s of pulse on first arrival, but a CSS-only animation
    has no notion of arrival time. The renderer applies the class while
@@ -326,6 +340,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
     margin: 0;
     padding: 0;
     overflow: hidden;
@@ -365,47 +380,3 @@
   background: rgba(168, 85, 247, 0.3);
 }
 
-/* ───────────────────────────────────────────────────────────────────────────
-   Glass theme — neon glassmorphism surface treatment (wishlist FE-1).
-   ENTIRELY scoped to [data-theme='glass'] → the other four themes are
-   byte-for-byte unaffected. Unlayered so it overrides Tailwind's layered
-   `bg-card`/`bg-sidebar`/… utilities WITHOUT touching any component markup.
-   Terminals keep their opaque xterm canvas (terminal-cache.ts THEME, #0a0c12)
-   so text stays fully legible — only the surrounding pane chrome turns glassy.
-   ─────────────────────────────────────────────────────────────────────────── */
-
-/* App backdrop: dark base + fixed cyan/violet/magenta neon glow. */
-:root[data-theme='glass'] body {
-  background-color: hsl(230 45% 4%);
-  background-image:
-    radial-gradient(60rem 60rem at 15% -12%, hsl(190 95% 55% / 0.16), transparent 60%),
-    radial-gradient(55rem 55rem at 102% -5%, hsl(275 90% 62% / 0.18), transparent 55%),
-    radial-gradient(48rem 48rem at 50% 118%, hsl(320 90% 58% / 0.10), transparent 60%);
-  background-attachment: fixed;
-}
-
-/* Large shells stay readable but let the glow bleed through subtly. */
-:root[data-theme='glass'] .bg-background {
-  background-color: hsl(var(--background) / 0.78);
-}
-
-/* Glass panels: translucent + blur + saturation. */
-:root[data-theme='glass'] .bg-card,
-:root[data-theme='glass'] .bg-popover,
-:root[data-theme='glass'] .bg-sidebar {
-  background-color: hsl(var(--card) / 0.55);
-  backdrop-filter: blur(13px) saturate(1.3);
-  -webkit-backdrop-filter: blur(13px) saturate(1.3);
-}
-
-/* Neon hairline borders + a faint outer glow on raised panels. */
-:root[data-theme='glass'] .border-border {
-  border-color: hsl(195 85% 65% / 0.16);
-}
-:root[data-theme='glass'] .shadow-lg,
-:root[data-theme='glass'] .shadow-md {
-  box-shadow:
-    0 0 0 1px hsl(190 95% 60% / 0.07),
-    0 10px 34px hsl(232 60% 2% / 0.55),
-    0 0 26px hsl(275 90% 62% / 0.07);
-}

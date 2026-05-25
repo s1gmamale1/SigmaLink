@@ -1,0 +1,273 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   glass-material.css — Apple-grade Liquid Glass material layer (FE-1 v2)
+   ─────────────────────────────────────────────────────────────────────────────
+   The reusable Liquid Glass material layer for SigmaLink's `glass` theme.
+
+   WHAT THIS IS
+   ------------
+   A single, self-contained material layer that turns the *navigation / chrome*
+   of the app into genuine Apple Liquid Glass — translucent panels that sample,
+   blur and saturate a colourful mesh backdrop, lifted by a 1px specular edge and
+   a soft neon bloom. It supersedes the first-pass (too-mild, over-applied) glass
+   rules: this file is loaded AFTER index.css, is unlayered, and is equal-or-more
+   specific, so its rules win without editing any component markup.
+
+   GLASS IS CHROME-ONLY — BY DESIGN
+   --------------------------------
+   SigmaLink is a *utility developer tool*, not a marketing surface. Liquid Glass
+   lives ONLY on the navigation / chrome layer — the sidebar, the top toolbar &
+   pane-header strip, and floating popovers / the right-rail. It NEVER touches
+   content cards or list rows: those stay near-opaque and crisp so dense developer
+   data reads cleanly and the GPU isn't asked to composite 100+ blurred layers.
+   Terminals are opaque by hard constraint (xterm `#0a0c12`, allowTransparency:
+   false) — we never attempt to make a terminal background translucent.
+
+   SCOPE & ISOLATION
+   -----------------
+   EVERY rule below is scoped under `:root[data-theme='glass']`, so the other four
+   themes (light / dark / midnight / paper, etc.) are byte-for-byte unaffected.
+   Palette tokens (`--card`, `--background`, `--primary`, `--accent`, …) are
+   defined in index.css under `:root[data-theme='glass']`; we reference them via
+   `hsl(var(--token) / α)` so the material tracks any future palette change.
+
+   CROSS-LANE CONTRACT (do not rename — components apply these)
+   ------------------------------------------------------------
+     .sl-glass          standard chrome panel (popovers, right-rail)
+     .sl-glass-heavy    sidebar
+     .sl-glass-toolbar  top bar + pane-header strip
+     .sl-nav-active     active sidebar row (accent tint)
+     [data-window-focused='false'] on <html>  →  focus-dim rules below
+
+   A11Y
+   ----
+   Respects `prefers-reduced-transparency` and `prefers-reduced-motion`: both
+   collapse the glass to a near-opaque solid and disable the mesh drift, so the
+   material never costs legibility or vestibular comfort.
+
+   Motion is near-invisible (a multi-minute few-pixel drift) — this is a tool,
+   not a hero banner.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   G1 — MESH BACKDROP
+   A 4-gradient radial mesh painted over the dark base gives the glass colourful,
+   spatially-varied content to sample. Without it, blur(20px) over a flat dark
+   field collapses to a dead flat gray — the #1 reason "glassmorphism" looks
+   cheap. Hues are drawn from the palette: cyan ~190, violet ~275, magenta ~320,
+   with an indigo ~232 anchor wash. `background-attachment: fixed` keeps the mesh
+   pinned to the viewport so scrolling chrome reveals different regions of it.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root[data-theme='glass'] body {
+  background-color: hsl(230 45% 5%);
+  background-image:
+    /* cyan — top-left light source */
+    radial-gradient(58rem 58rem at 12% -10%, hsl(190 95% 56% / 0.16), transparent 60%),
+    /* violet — top-right */
+    radial-gradient(54rem 54rem at 104% -4%, hsl(275 90% 64% / 0.18), transparent 56%),
+    /* magenta — bottom warmth */
+    radial-gradient(46rem 46rem at 48% 116%, hsl(320 90% 60% / 0.12), transparent 60%),
+    /* indigo anchor — broad low-alpha wash that ties the mesh into the base */
+    radial-gradient(72rem 72rem at 70% 45%, hsl(232 60% 30% / 0.10), transparent 70%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/* VERY subtle slow drift — translate only (GPU compositor path, no repaint).
+   ~3px excursion over 60s; imperceptible at a glance, but stops the mesh from
+   feeling like a static print. Gated OFF for reduced-motion in G4. */
+@keyframes sl-glass-mesh-drift {
+  0%   { transform: translate3d(0, 0, 0); }
+  50%  { transform: translate3d(-3px, 2px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+:root[data-theme='glass'] body::after {
+  content: '';
+  position: fixed;
+  inset: -4rem;            /* over-scan so the drift never reveals an edge */
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(40rem 40rem at 25% 20%, hsl(190 95% 56% / 0.06), transparent 60%),
+    radial-gradient(40rem 40rem at 80% 70%, hsl(275 90% 64% / 0.06), transparent 60%);
+  will-change: transform;
+  animation: sl-glass-mesh-drift 60s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   G2 — GLASS UTILITY CLASSES + SPECULAR HIGHLIGHT
+   The reusable material recipes. Three weights: standard chrome (.sl-glass),
+   heavy sidebar (.sl-glass-heavy), and the toolbar/header strip
+   (.sl-glass-toolbar). Each carries:
+     • a translucent palette fill,
+     • backdrop blur + saturation boost (the Liquid Glass "sampling"),
+     • a 1px neon-cyan ring border,
+     • a layered box-shadow: tight cyan ring + dark drop + soft violet bloom,
+     • a ::before specular highlight raking the top edge (the wet-glass sheen).
+   Lane C makes the host elements `position: relative` so ::before anchors to them.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Standard chrome panel — popovers, right-rail. */
+:root[data-theme='glass'] .sl-glass {
+  background: hsl(var(--card) / 0.55);
+  backdrop-filter: blur(20px) saturate(165%);
+  -webkit-backdrop-filter: blur(20px) saturate(165%);
+  border: 1px solid hsl(195 85% 65% / 0.16);
+  box-shadow:
+    inset 0 0 0 1px hsl(190 95% 60% / 0.10),   /* inner cyan ring */
+    0 12px 36px hsl(232 60% 2% / 0.55),         /* dark depth drop  */
+    0 0 28px hsl(275 90% 62% / 0.10);           /* soft violet bloom */
+}
+
+/* Heavy weight — sidebar. Wider blur, lower fill so the mesh reads through. */
+:root[data-theme='glass'] .sl-glass-heavy {
+  background: hsl(var(--card) / 0.50);
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  border: 1px solid hsl(195 85% 65% / 0.16);
+  box-shadow:
+    inset 0 0 0 1px hsl(190 95% 60% / 0.10),
+    0 16px 44px hsl(232 60% 2% / 0.60),
+    0 0 32px hsl(275 90% 62% / 0.10);
+}
+
+/* Toolbar / pane-header strip — anchored to the window edge, so it leans on the
+   darker --background fill and only carries a hairline bottom border. The slight
+   brightness(0.95) keeps the bar reading as "behind" the content it caps. */
+:root[data-theme='glass'] .sl-glass-toolbar {
+  background: hsl(var(--background) / 0.62);
+  backdrop-filter: blur(20px) saturate(160%) brightness(0.95);
+  -webkit-backdrop-filter: blur(20px) saturate(160%) brightness(0.95);
+  border-bottom: 1px solid hsl(195 85% 65% / 0.14);
+}
+
+/* Specular highlight — a soft ellipse of white raking the top edge, the single
+   touch that reads as light catching wet glass. inset:0, non-interactive,
+   inherits the host's radius. Lane C sets the host `position: relative`. */
+:root[data-theme='glass'] .sl-glass::before,
+:root[data-theme='glass'] .sl-glass-heavy::before,
+:root[data-theme='glass'] .sl-glass-toolbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(
+    ellipse 80% 40% at 30% 0%,
+    rgba(255, 255, 255, 0.08) 0%,
+    transparent 70%
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   G3 — APPLE-CORRECT SURFACE MAPPING
+   Maps SigmaLink's existing Tailwind utility surfaces onto the material —
+   WITHOUT editing component markup — and CORRECTS the first pass's mistake of
+   blurring every surface (including ~120 content cards). The rule of thumb:
+     chrome → glass;  content → crisp & near-opaque.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Sidebar shell → heavy glass. */
+:root[data-theme='glass'] .bg-sidebar {
+  background: hsl(var(--card) / 0.50);
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  box-shadow:
+    inset 0 0 0 1px hsl(190 95% 60% / 0.10),
+    0 16px 44px hsl(232 60% 2% / 0.60),
+    0 0 32px hsl(275 90% 62% / 0.10);
+}
+
+/* Popovers / floating menus → standard glass. */
+:root[data-theme='glass'] .bg-popover {
+  background: hsl(var(--card) / 0.55);
+  backdrop-filter: blur(20px) saturate(165%);
+  -webkit-backdrop-filter: blur(20px) saturate(165%);
+  box-shadow:
+    inset 0 0 0 1px hsl(190 95% 60% / 0.10),
+    0 12px 36px hsl(232 60% 2% / 0.55),
+    0 0 28px hsl(275 90% 62% / 0.10);
+}
+
+/* CONTENT CARDS → NEAR-OPAQUE, NO BLUR.
+   This is the core correction: content surfaces stay crisp so dense developer
+   data reads cleanly, and the GPU never composites 100+ blurred layers. We
+   explicitly null `backdrop-filter` to override the first-pass grouped rule in
+   index.css that lumped `.bg-card` in with the blurred chrome surfaces. */
+:root[data-theme='glass'] .bg-card {
+  background-color: hsl(var(--card) / 0.92);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Large app shells — let just a whisper of the mesh bleed through. */
+:root[data-theme='glass'] .bg-background {
+  background-color: hsl(var(--background) / 0.85);
+}
+
+/* Neon hairline borders + a glow on raised surfaces. */
+:root[data-theme='glass'] .border-border {
+  border-color: hsl(195 85% 65% / 0.14);
+}
+:root[data-theme='glass'] .shadow-lg,
+:root[data-theme='glass'] .shadow-md {
+  box-shadow:
+    0 0 0 1px hsl(190 95% 60% / 0.08),
+    0 12px 36px hsl(232 60% 2% / 0.55),
+    0 0 28px hsl(275 90% 62% / 0.09);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   G4 — A11Y · FOCUS-DIM · ACTIVE-TINT
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* A11Y fallback — users who ask for reduced transparency OR reduced motion get a
+   near-opaque solid: blur is removed entirely (cheaper + legible) and the mesh
+   drift is stopped. Covers both the utility classes and the mapped surfaces. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme='glass'] .sl-glass,
+  :root[data-theme='glass'] .sl-glass-heavy,
+  :root[data-theme='glass'] .sl-glass-toolbar,
+  :root[data-theme='glass'] .bg-sidebar,
+  :root[data-theme='glass'] .bg-popover {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: hsl(var(--card) / 0.97);
+  }
+  :root[data-theme='glass'] body::after {
+    animation: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme='glass'] .sl-glass,
+  :root[data-theme='glass'] .sl-glass-heavy,
+  :root[data-theme='glass'] .sl-glass-toolbar,
+  :root[data-theme='glass'] .bg-sidebar,
+  :root[data-theme='glass'] .bg-popover {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: hsl(var(--card) / 0.97);
+  }
+  :root[data-theme='glass'] body::after {
+    animation: none;
+  }
+}
+
+/* FOCUS-DIM — when the OS window loses focus (Lane C sets
+   `data-window-focused='false'` on <html>), Apple recedes the glass: shrink the
+   blur and drop opacity so background chrome quiets down behind the foreground
+   app the user switched to. */
+:root[data-theme='glass'][data-window-focused='false'] .sl-glass,
+:root[data-theme='glass'][data-window-focused='false'] .sl-glass-heavy,
+:root[data-theme='glass'][data-window-focused='false'] .sl-glass-toolbar {
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  opacity: 0.9;
+}
+
+/* ACTIVE NAV ROW — Lane C applies `.sl-nav-active` to the selected sidebar row;
+   a 15% primary (cyan) tint fill + primary-coloured text marks selection within
+   the glass without an opaque block. */
+:root[data-theme='glass'] .sl-nav-active {
+  background: hsl(var(--primary) / 0.15);
+  color: hsl(var(--primary));
+}

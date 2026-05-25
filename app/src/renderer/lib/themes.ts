@@ -56,7 +56,7 @@ export const THEMES: ThemeDefinition[] = [
   },
 ];
 
-export const DEFAULT_THEME: ThemeId = 'obsidian';
+export const DEFAULT_THEME: ThemeId = 'glass';
 
 export const KV_KEYS = {
   theme: 'app.theme',
@@ -71,8 +71,9 @@ export function isThemeId(v: unknown): v is ThemeId {
 }
 
 export function findTheme(id: string | null | undefined): ThemeDefinition {
-  if (!id) return THEMES[0];
-  return THEMES.find((t) => t.id === id) ?? THEMES[0];
+  const defaultTheme = THEMES.find((t) => t.id === DEFAULT_THEME) ?? THEMES[0];
+  if (!id) return defaultTheme;
+  return THEMES.find((t) => t.id === id) ?? defaultTheme;
 }
 
 /**
