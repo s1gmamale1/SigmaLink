@@ -287,7 +287,14 @@ export function RoleRoster({
             <div
               key={`${row.role}-${row.roleIndex}`}
               role={canFocus ? 'button' : undefined}
+              tabIndex={canFocus ? 0 : undefined}
               onClick={canFocus ? () => onFocusPane!(live!.sessionId!) : undefined}
+              onKeyDown={canFocus ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onFocusPane!(live!.sessionId!);
+                }
+              } : undefined}
               className={cn(
                 'relative flex flex-col gap-2 overflow-hidden rounded-lg border bg-card/60 p-3',
                 ROLE_BORDER[row.role],

@@ -67,8 +67,8 @@ function TabStripInner({ tabs, activeTabId, onSelect, onClose, onNewTab }: Props
           </div>
         );
       })}
-      <Button size="icon-sm" variant="ghost" onClick={onNewTab} title="New tab">
-        <Plus className="h-4 w-4" />
+      <Button size="icon-sm" variant="ghost" onClick={onNewTab} title="New tab" aria-label="New tab">
+        <Plus className="h-4 w-4" aria-hidden />
       </Button>
     </div>
   );

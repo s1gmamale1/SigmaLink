@@ -36,6 +36,7 @@ export function Column(props: Props) {
             onClick={props.onAdd}
             className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             title="Add task"
+            aria-label="Add task"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>

@@ -54,8 +54,9 @@ export function AddressBar({
         disabled={disabled}
         onClick={onBack}
         title="Back"
+        aria-label="Back"
       >
-        <ArrowLeft className="h-4 w-4" />
+        <ArrowLeft className="h-4 w-4" aria-hidden />
       </Button>
       <Button
         size="icon-sm"
@@ -63,8 +64,9 @@ export function AddressBar({
         disabled={disabled}
         onClick={onForward}
         title="Forward"
+        aria-label="Forward"
       >
-        <ArrowRight className="h-4 w-4" />
+        <ArrowRight className="h-4 w-4" aria-hidden />
       </Button>
       <Button
         size="icon-sm"
@@ -72,8 +74,9 @@ export function AddressBar({
         disabled={disabled}
         onClick={onReload}
         title="Reload"
+        aria-label="Reload"
       >
-        <RotateCw className="h-4 w-4" />
+        <RotateCw className="h-4 w-4" aria-hidden />
       </Button>
       <Button
         size="icon-sm"
@@ -81,8 +84,9 @@ export function AddressBar({
         disabled={disabled}
         onClick={onStop}
         title="Stop"
+        aria-label="Stop"
       >
-        <Square className="h-4 w-4" />
+        <Square className="h-4 w-4" aria-hidden />
       </Button>
       <Button
         size="icon-sm"
@@ -90,8 +94,9 @@ export function AddressBar({
         disabled={disabled}
         onClick={onHome}
         title="Home"
+        aria-label="Home"
       >
-        <Home className="h-4 w-4" />
+        <Home className="h-4 w-4" aria-hidden />
       </Button>
       <input
         type="text"

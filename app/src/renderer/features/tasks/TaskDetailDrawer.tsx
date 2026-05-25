@@ -1,6 +1,6 @@
 // Side panel for editing a task and reading/posting comments.
 
-import { useEffect, useReducer, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { Button } from '@/components/ui/button';
@@ -61,6 +61,8 @@ export function TaskDetailDrawer(props: Props) {
   const [busy, setBusy] = useState(false);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [newComment, setNewComment] = useState('');
+  // Store the element that triggered open so we can return focus on close.
+  const returnFocusRef = useRef<Element | null>(null);
 
   // Depend only on the id (not the whole `props.task`) — the parent passes a
   // fresh object every render; we only want to refetch when the user opens a
@@ -79,6 +81,34 @@ export function TaskDetailDrawer(props: Props) {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
+
+  const { open: drawerOpen, onClose } = props;
+
+  // Return-focus + Escape support (must be unconditional hooks — placed before
+  // the early return to satisfy Rules of Hooks).
+  useEffect(() => {
+    if (drawerOpen) {
+      returnFocusRef.current = document.activeElement;
+    } else {
+      if (returnFocusRef.current && 'focus' in returnFocusRef.current) {
+        (returnFocusRef.current as HTMLElement).focus();
+      }
+      returnFocusRef.current = null;
+    }
+  }, [drawerOpen]);
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [drawerOpen, onClose]);
+
+  // TODO(a11y): full focus-trap — currently implements Escape + return-focus only.
 
   // BUG-W7-008: drawer visibility is gated on props.open. The owning
   // <TasksRoom> watches `state.room` and forces props.open=false when the
@@ -130,7 +160,7 @@ export function TaskDetailDrawer(props: Props) {
   };
 
   return (
-    <div role="dialog" aria-modal="true" className="absolute inset-0 z-30 flex">
+    <div role="dialog" aria-modal="true" aria-labelledby="task-detail-drawer-title" className="absolute inset-0 z-30 flex">
       <button
         type="button"
         aria-label="Close"
@@ -139,7 +169,7 @@ export function TaskDetailDrawer(props: Props) {
       />
       <div className="flex w-[28rem] flex-col bg-background shadow-xl">
         <header className="flex items-center justify-between border-b border-border px-3 py-2">
-          <span className="truncate text-sm font-semibold">{props.task.title}</span>
+          <span id="task-detail-drawer-title" className="truncate text-sm font-semibold">{props.task.title}</span>
           <button
             type="button"
             onClick={props.onClose}

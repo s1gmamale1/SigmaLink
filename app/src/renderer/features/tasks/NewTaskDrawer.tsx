@@ -1,6 +1,6 @@
 // Lightweight drawer for creating a new task. Slides in from the right.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,37 @@ export function NewTaskDrawer(props: Props) {
   const [labels, setLabels] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Store the element that triggered open so we can return focus on close.
+  const returnFocusRef = useRef<Element | null>(null);
+  const { open, onClose } = props;
+
+  useEffect(() => {
+    if (open) {
+      returnFocusRef.current = document.activeElement;
+    } else {
+      // Return focus to the trigger when the drawer closes.
+      if (returnFocusRef.current && 'focus' in returnFocusRef.current) {
+        (returnFocusRef.current as HTMLElement).focus();
+      }
+      returnFocusRef.current = null;
+    }
+  }, [open]);
+
+  // Close on Escape.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
+  // TODO(a11y): full focus-trap — currently implements focus-on-open (autoFocus
+  // on the title input) + Escape + return-focus only.
 
   // BUG-W7-008: drawer open/close is keyed off `props.open`. The owning
   // <TasksRoom> watches `state.room` and forces the drawer closed on room
@@ -60,6 +91,7 @@ export function NewTaskDrawer(props: Props) {
     <div
       role="dialog"
       aria-modal="true"
+      aria-labelledby="new-task-drawer-title"
       className="absolute inset-0 z-30 flex"
     >
       <button
@@ -70,7 +102,7 @@ export function NewTaskDrawer(props: Props) {
       />
       <div className="flex w-96 flex-col bg-background shadow-xl">
         <header className="flex items-center justify-between border-b border-border px-3 py-2">
-          <span className="text-sm font-semibold">New task</span>
+          <span id="new-task-drawer-title" className="text-sm font-semibold">New task</span>
           <button
             type="button"
             onClick={props.onClose}

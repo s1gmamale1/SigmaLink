@@ -17,6 +17,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Gauge, Loader2, Play } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
+import { EmptyState } from '@/renderer/components/EmptyState';
+import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 
 const POLL_MS = 2_000;
 const CATEGORY = 'multi-agent-conflict';
@@ -137,6 +139,16 @@ export function SigmaBenchRoom() {
     PROVIDERS.some((p) => selected[p]) &&
     workspaceId.length > 0;
 
+  if (!workspaceId) {
+    return (
+      <EmptyState
+        icon={Gauge}
+        title="Open a workspace to use SigmaBench"
+        description="SigmaBench runs agents in isolated git worktrees — open a project folder first."
+      />
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
       <header className="flex items-center gap-2">
@@ -199,9 +211,7 @@ export function SigmaBenchRoom() {
         </div>
 
         {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
         )}
       </section>
 

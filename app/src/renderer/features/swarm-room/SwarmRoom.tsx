@@ -270,7 +270,6 @@ export function SwarmRoom() {
               {activeSwarm.agents.length} agents · status{' '}
               <span className="text-foreground">{activeSwarm.status}</span>
             </span>
-            {error ? <span className="ml-auto text-destructive">{error}</span> : null}
           </div>
           <RoleRoster
             roster={roster}
