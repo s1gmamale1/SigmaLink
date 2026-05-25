@@ -198,7 +198,7 @@ export function WorkspacesPanel({
                 className={cn(
                   'group flex min-h-9 items-center rounded-md text-sm transition',
                   isActive
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    ? 'sl-nav-active bg-sidebar-accent text-sidebar-accent-foreground'
                     : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
                 )}
               >

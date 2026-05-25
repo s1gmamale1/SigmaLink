@@ -31,7 +31,12 @@ export function RoomsMenuButton() {
           type="button"
           aria-label="Open rooms menu"
           title="Rooms"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className={cn(
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+            state.room !== 'command'
+              ? 'bg-accent/30 text-foreground hover:bg-accent/50 hover:text-foreground'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+          )}
           style={noDragStyle()}
         >
           <LayoutGrid className="h-3.5 w-3.5" />
@@ -54,10 +59,11 @@ export function RoomsMenuButton() {
                 dispatch({ type: 'SET_ROOM', room: item.id });
               }}
               aria-label={item.label}
+              aria-current={isActive ? 'true' : undefined}
               data-room-id={item.id}
               className={cn(
                 'flex items-center gap-2',
-                isActive && 'bg-accent/40 text-accent-foreground',
+                isActive && 'bg-primary/15 text-primary',
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />

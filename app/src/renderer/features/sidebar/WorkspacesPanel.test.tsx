@@ -119,6 +119,28 @@ describe('<WorkspacesPanel />', () => {
     expect(activeRow?.className).toContain('bg-sidebar-accent');
   });
 
+  it('active row carries sl-nav-active alongside bg-sidebar-accent for glass theme', () => {
+    const { getAllByTestId } = renderPanel('a');
+    const rows = getAllByTestId('workspace-row');
+    const activeRow = rows.find((n) => n.getAttribute('data-active') === 'true');
+    expect(activeRow?.className).toContain('sl-nav-active');
+    expect(activeRow?.className).toContain('bg-sidebar-accent');
+  });
+
+  it('inactive rows carry neither sl-nav-active nor the bare bg-sidebar-accent class', () => {
+    const { getAllByTestId } = renderPanel('a');
+    const rows = getAllByTestId('workspace-row');
+    const inactiveRows = rows.filter((n) => n.getAttribute('data-active') !== 'true');
+    expect(inactiveRows.length).toBeGreaterThan(0);
+    for (const row of inactiveRows) {
+      // Split on spaces to get discrete class tokens — avoids false-positives
+      // from hover:bg-sidebar-accent/50 containing the 'bg-sidebar-accent' substring.
+      const classes = row.className.split(/\s+/);
+      expect(classes).not.toContain('sl-nav-active');
+      expect(classes).not.toContain('bg-sidebar-accent');
+    }
+  });
+
   it('opens persisted-but-closed workspaces from the chevron dropdown', async () => {
     const wsD = workspace('d', { name: 'Dormant Workspace', rootPath: '/tmp/dormant' });
     const onOpenPersisted = vi.fn();
