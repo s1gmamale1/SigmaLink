@@ -1,6 +1,6 @@
 # SigmaLink — Plans wishlist (consolidated)
 
-> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done; the one live backlog item is **R-1 Jorvis Remote (Telegram)**. Each row points at the original spec / backlog / plan file it was extracted from.
+> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. Live backlog: **R-1 Jorvis Remote (Telegram)** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified items). Each row points at the original spec / backlog / plan file it was extracted from.
 
 ## Recently shipped ✅
 
@@ -75,6 +75,14 @@
 - **Two slices:** (1) **do-first hardening** of pre-existing latent holes in `core/assistant/tools.ts` — `read_files` workspace/worktree containment (the `cwdLooksInsideWorkspace` helper exists but isn't called) + `open_url` `https:`-only; (2) **the bridge** (client + controller + settings + RPC wiring + confirm state-machine). Operator real-bot/real-phone smoke gate (like C-11 mic); no live Telegram in CI.
 - **Research:** this session's 3 agents — Jorvis surface (15 tools, main-process, `assistantCtl.send` seam, no safety layer today), Telegram prior-art (official plugin + Hermes + OpenClaw; long-poll + grammY), security threat-model (token in CredentialStore, the latent `read_files`/`open_url` holes, capability tiers). **Next step → full spec + writing-plans when scheduled.**
 
+### R-2 — Native Cursor CLI provider — REQUESTED 2026-05-25, not yet built
+
+First-class support for **Cursor's CLI agent** (`cursor-agent` headless mode) as a native SigmaLink provider — not merely launched through a generic `shell` pane. "Native" = it shows up in the provider pickers and gets a worktree-isolated pane, session capture/resume, Ruflo MCP auto-bind, skill provider-compat badges, dispatch-target selection, and the model·branch·token info bar — the same first-class treatment as Claude / Codex / Gemini / Kimi / OpenCode.
+
+- **Where:** add a `cursor` entry to `ProviderId` + `AGENT_PROVIDERS` in `shared/providers.ts` (install hint, spawn args, `oneshotArgs`/`initialPromptFlag` prompt-delivery, resume args, MCP-autobind config); thread it through `listVisibleProviders`, `core/workspaces/launcher.ts`, `buildExtraArgs` (`core/swarms/factory-spawn.ts`), and the skill provider-compat fan-out. **Verify the exact Cursor CLI contract at build time** (binary name, non-interactive/`-p`-style flag, resume/session-id support, MCP config form) — the flags were not pinned at design time.
+- **Why native > shell-wiring:** a `shell` pane can run `cursor-agent`, but it loses provider identity, resume, MCP auto-bind, dispatch-target selection, skill `/command` injection, and the per-pane info bar — i.e. it's a terminal, not a *managed* agent.
+- **Caveat:** if Cursor's CLI lacks a clean non-interactive/resume contract on a platform, mark it dispatch-only there (the existing degradation path for kimi/opencode).
+
 ---
 
 ## 🛠️ H-class — Hardening (external review 2026-05-25, verified against code)
@@ -99,6 +107,7 @@
 | H-9 | **Alt-command fallback dead in shell-first** — the ENOENT preflight runs only in direct mode; shell-first injects into a shell so a missing binary = shell output + sentinel, not a synchronous ENOENT, so `altCommands` is never walked | `core/pty/local-pty.ts:494-515` · `providers/launcher.ts:356` | Preflight `input.command` resolution in shell-first too, before spawning the shell |
 | H-10 | **Duplicate-pane spawn leaks a PTY** — PTY is spawned before the `agent_sessions` insert; on a UNIQUE-constraint violation it warns + `continue`s without `kill`/`forget` | `core/workspaces/launcher.ts:350-421` | On violation, `pty.kill`+`pty.forget` the spawned session, then push an error session |
 | H-11 | **`fs.readFile` reads the whole file before truncating** — `readFile(target)` then `subarray(0,cap)` → memory spike on a huge file despite the cap | `core/fs/controller.ts:88-90` | `filehandle.read()` / stream only up to the cap |
+| H-19 | **aidefence/AIMDS wired nowhere in the runtime** — the Ruflo engine works (verified live 2026-05-25: benign→safe; an injection payload→3 *critical* threats, instruction_override/jailbreak/role_switching, in 1.96ms) but is **never called**, so Ruflo shows `Security: PENDING` and zero untrusted input is ever scanned. Only the MCP tools exist; the 2 code references are stale comments. This is the runtime-input defense layer (orthogonal to the code-level H-1…H-18). | `core/assistant/{controller,tools}.ts` (no aidefence call); `aidefence_*` only as Ruflo MCP tools | Wire `aidefence_is_safe`/`scan` into the assistant input path (`assistant.send`) + every untrusted-ingestion point (browser scrape, `read_files`, `open_url`); outbound `aidefence_has_pii` on replies. The **R-1 Telegram path is the first mandated consumer** — this is R-1's inbound/outbound floor, promoted here as a standalone item. |
 
 ### P2 — polish + drift
 | ID | Item | file:line | Fix |
