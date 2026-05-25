@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-05-26
+
+v1.24.0 — **Per-room polish + accessibility (frontend Stage 4)** — the FINAL stage of the Apple-grade frontend roadmap (Stages 1–4 now complete). 3 parallel worktree-isolated coders → lead-merged, full gate in main (incl. the whole `tests/e2e/` dir + a `prefers-reduced-motion` runtime check).
+
+### Added
+
+- **Global reduce-motion safety-net** — a single `@media (prefers-reduced-motion: reduce)` reset in `index.css` collapses animation/transition durations app-wide, covering everything previously unguarded in one block: the notification bell pulse, the Jorvis Orb's inline keyframes, all Radix `animate-in/out` (dialog/dropdown/popover/tooltip/sheet), and every `animate-pulse/ping/spin/bounce`. (Verified at runtime: `0.01ms` under reduce vs `1s` normally.)
+- **Skip-to-main-content link** + `#main` landmark; `aria-label` on the sidebar landmark.
+
+### Changed
+
+- **Standardized empty / loading / error states** onto the shared `EmptyState` / `ErrorBanner` / `Spinner` components: `window.alert` removed (Memory); OperatorConsole's silently-swallowed RPC errors now surface in a dismissible banner; bare "Loading…" text → `Spinner` (Memory graph, DiffView, ConflictsTab, Skills); bare empty text → `EmptyState` (Review, Memory graph); SigmaBench gained the workspace-guard `EmptyState` every other room already had.
+- **Keyboard + accessible names:** the SwarmSwarm RoleRoster agent card is now keyboard-operable (`tabIndex` + Enter/Space — was keyboard-dead); `aria-label` added to icon-only buttons in the Browser address bar / tab strip, Tasks columns, and Memory/Operator; hand-rolled Task drawers gained `aria-labelledby` + Escape-to-close + return-focus.
+
+### Notes
+
+- Refinement + a11y only; no behavior/architecture change. Full Tab-containment focus-trap on the hand-rolled Task drawers is noted as a follow-up (`TODO(a11y)`); device VoiceOver/Switch-Control testing is operator QA.
+- No schema migrations in v1.24.0.
+
 ## [1.23.0] - 2026-05-26
 
 v1.23.0 — **Apple-grade component kit (frontend Stage 3)** + **H-1 hardening (electron typecheck)**. H-1 lead-direct; Stage 3 = 3 parallel worktree-isolated coders (button on Opus) → lead-merged, one hard gate in main (incl. the full `tests/e2e/` dir + a glass visual pass).

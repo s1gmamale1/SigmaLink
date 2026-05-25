@@ -1,6 +1,6 @@
 # SigmaLink — Plans wishlist (consolidated)
 
-> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap** — **Stage 1 (Liquid Glass foundation) ✅ v1.21.0** (FE-1) + **Stage 2 ✅ v1.22.0** (FE-2) + **Stage 3 (component kit) ✅ v1.23.0** (FE-3); Stage 4 (per-room + a11y) queued. Other live backlog: **R-1 Jorvis Remote (Telegram)** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified; **H-1 ✅ shipped v1.23.0**). Each row points at the original spec / backlog / plan file it was extracted from.
+> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap — ✅ COMPLETE (Stages 1–4)**: S1 Liquid Glass `v1.21.0` (FE-1) · S2 chrome/window `v1.22.0` (FE-2) · S3 component kit `v1.23.0` (FE-3) · S4 per-room + a11y `v1.24.0` (FE-4). Live backlog: **R-1 Jorvis Remote (Telegram)** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified; **H-1 ✅ shipped v1.23.0**, 18 remain). Each row points at the original spec / backlog / plan file it was extracted from.
 
 ## Recently shipped ✅
 
@@ -108,7 +108,15 @@ Apple-grade polish of the high-traffic shadcn/Radix primitive kit (`src/componen
 - **Surfaces (C3):** segmented-control tabs (inactive muted / active foreground, drop divergent outline), card transition, scroll-area focus-ring.
 - Refinement only (behavior unchanged); high-traffic kit (not all 59). **On-machine eyeball:** ghost-on-glass hover, press, the tinted tier when used.
 
-**Stage 4 queued:** per-room polish + a11y audit (VoiceOver, contrast, reduce-motion sweep, empty/error/loading states).
+### FE-4 — Per-room polish + a11y audit — ✅ Stage 4, RELEASED v1.24.0 (2026-05-26) — **roadmap COMPLETE**
+
+Final stage. 3 worktree-isolated lanes (all Sonnet), gate-green incl. full e2e + a reduce-motion runtime check.
+- **Global reduce-motion safety-net (G):** one `@media (prefers-reduced-motion: reduce)` reset in `index.css` collapses all animation/transition app-wide (bell pulse, Orb keyframes, Radix `animate-in/out`, pulse/ping/spin/bounce) — `0.01ms` so events still fire. + skip-link + `#main` landmark + sidebar `aria-label` + `RoomSkeleton`→`Skeleton`.
+- **State standardization (R1):** `window.alert`→`ErrorBanner` (Memory); OperatorConsole silent errors surfaced; bare loading→`Spinner`; bare empties→`EmptyState` (Memory/Review/Skills).
+- **Keyboard + names + guard (R2):** RoleRoster keyboard P0 fixed; SigmaBench workspace-guard `EmptyState`; task-drawer `aria-labelledby`+Escape+return-focus; `aria-label` on Browser/Tasks icon buttons.
+- **Follow-ups (deferred):** full Tab-containment focus-trap on the hand-rolled Task drawers (`TODO(a11y)`); device VoiceOver/Switch-Control testing (operator QA); `prefers-reduced-transparency` for non-glass alpha surfaces; the parchment breadcrumb ~4.3:1 contrast nudge.
+
+**The Apple-grade frontend roadmap (Stages 1–4) is COMPLETE.** Remaining live backlog: R-1 (Telegram), R-2 (Cursor CLI), H-class (18 of 19 remain; next-highest H-5 `assertAllowedPath`).
 
 ---
 
