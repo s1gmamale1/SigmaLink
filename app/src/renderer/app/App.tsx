@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, type ReactElement } from 'react';
 import { Toaster } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Sidebar } from '@/renderer/features/sidebar/Sidebar';
 import { Breadcrumb } from '@/renderer/features/top-bar/Breadcrumb';
 import { VoicePill } from '@/renderer/features/voice/VoicePill';
@@ -86,10 +87,10 @@ const SigmaBenchRoom = lazy(() =>
 // beyond the markup itself.
 function RoomSkeleton() {
   return (
-    <div
+    <Skeleton
       role="status"
       aria-label="Loading room"
-      className="flex min-h-0 flex-1 animate-pulse bg-muted/30"
+      className="flex min-h-0 flex-1"
     />
   );
 }
@@ -187,9 +188,17 @@ export default function App() {
             (inside Breadcrumb) and the rail itself (`RightRail`) share
             one source of truth. The provider wraps both. */}
         <RightRailProvider>
+          {/* Skip-link: visually hidden until focused; allows keyboard users to
+              jump past the sidebar directly into the main content area. */}
+          <a
+            href="#main"
+            className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[9999] focus:rounded focus:bg-background focus:px-3 focus:py-1.5 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            Skip to main content
+          </a>
           <div className="flex h-full w-full">
             <Sidebar />
-            <main className="flex min-h-0 flex-1 flex-col">
+            <main id="main" tabIndex={-1} className="flex min-h-0 flex-1 flex-col">
               {/* V3-W15-001 — title-bar SigmaVoice pill overlays the breadcrumb
                   while a voice session is active. The pill auto-hides 200ms
                   after capture stops so we don't reserve layout space. */}

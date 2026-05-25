@@ -380,3 +380,18 @@
   background: rgba(168, 85, 247, 0.3);
 }
 
+/* Global reduce-motion safety-net — unlayered so it wins over @layer utilities,
+   inline <style> keyframes (Jorvis Orb), Radix animate-in/out, and every
+   Tailwind animate-pulse/ping/spin/bounce.
+   0.01ms (not "none") ensures animationend/transitionend still fire so JS
+   listeners that depend on those events (e.g. Radix exit animations) are not
+   broken. */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

@@ -173,6 +173,7 @@ export function Sidebar() {
   return (
     <>
     <aside
+      aria-label="Sidebar"
       className={cn(
         'relative flex shrink-0 flex-col bg-sidebar text-sidebar-foreground sl-glass-heavy',
         // Collapsed state retains the border-r since no drag divider is rendered.

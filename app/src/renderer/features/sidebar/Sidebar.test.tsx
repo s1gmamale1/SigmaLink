@@ -296,6 +296,41 @@ describe('Sidebar — W1 macOS traffic-light spacer (h-8)', () => {
   });
 });
 
+describe('Sidebar — Stage 4 a11y: aside aria-label', () => {
+  beforeEach(() => {
+    kvGetMock.mockResolvedValue(null);
+    kvSetMock.mockResolvedValue(undefined);
+    dispatchMock.mockReset();
+    mockState = {
+      activeWorkspace: null,
+      sidebarCollapsed: false,
+      openWorkspaces: [],
+      workspaces: [],
+      sessions: [],
+    };
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(
+      (cb: FrameRequestCallback) => {
+        cb(performance.now());
+        return 1 as unknown as number;
+      },
+    );
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('aside has aria-label="Sidebar"', async () => {
+    const { container } = renderSidebar();
+    await act(async () => {});
+    const aside = container.querySelector('aside');
+    expect(aside).not.toBeNull();
+    expect(aside!.getAttribute('aria-label')).toBe('Sidebar');
+  });
+});
+
 describe('Sidebar — v1.4.8 resize handle (collapsed state)', () => {
   beforeEach(() => {
     kvGetMock.mockResolvedValue(null);

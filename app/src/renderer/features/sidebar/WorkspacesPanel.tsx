@@ -122,8 +122,8 @@ export function WorkspacesPanel({
             <button
               type="button"
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              aria-label="Open workspace"
-              title="Open workspace"
+              aria-label="Add or open workspace"
+              title="Add or open workspace"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
