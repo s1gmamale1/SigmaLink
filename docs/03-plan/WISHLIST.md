@@ -1,6 +1,6 @@
 # SigmaLink — Plans wishlist (consolidated)
 
-> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. Live backlog: **R-1 Jorvis Remote (Telegram)** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified items). Each row points at the original spec / backlog / plan file it was extracted from.
+> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap** — **Stage 1 (Liquid Glass foundation) ✅ shipped to main** (FE-1 v2); Stages 2–4 (chrome/window polish · component kit · per-room+a11y) queued. Other live backlog: **R-1 Jorvis Remote (Telegram)** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified items). Each row points at the original spec / backlog / plan file it was extracted from.
 
 ## Recently shipped ✅
 
@@ -83,13 +83,14 @@ First-class support for **Cursor's CLI agent** (`cursor-agent` headless mode) as
 - **Why native > shell-wiring:** a `shell` pane can run `cursor-agent`, but it loses provider identity, resume, MCP auto-bind, dispatch-target selection, skill `/command` injection, and the per-pane info bar — i.e. it's a terminal, not a *managed* agent.
 - **Caveat:** if Cursor's CLI lacks a clean non-interactive/resume contract on a platform, mark it dispatch-only there (the existing degradation path for kimi/opencode).
 
-### FE-1 — Glass theme (neon glassmorphism) — ✅ LANDED on main 2026-05-25 (rides next release)
+### FE-1 — Glass theme (Apple-grade Liquid Glass) — ✅ v2 LANDED on main 2026-05-25 (Stage 1 of the Apple-grade frontend roadmap; rides next release, untagged)
 
-A new selectable **"Glass"** theme: translucent `backdrop-blur` panels (sidebar, cards, popovers, panes, right-rail) over a dark base with a fixed cyan/violet/magenta neon glow; neon-cyan primary + violet accent. Inspired by the BridgeSpace dark+neon look (`docs/02-research/.../bridgespace`). **Opt-in** via Settings → Appearance → **Glass** (or the command palette); the other four themes are byte-for-byte unchanged.
-
-- **Build (small + reversible):** `renderer/lib/themes.ts` registers it (auto-wires the picker + `isThemeId` validation); `src/index.css` adds a `:root[data-theme='glass']` palette + an **unlayered** block that overrides the `bg-card`/`bg-popover`/`bg-sidebar`/`bg-background` utility classes → **zero component markup changed**. Revert = delete the block or pick another theme.
-- **Terminals stay legible by design:** xterm renders to an opaque canvas (`terminal-cache.ts` THEME `#0a0c12`), not CSS — so only the pane *chrome* turns glassy; terminal text keeps full contrast. (Translucent xterm bg deliberately NOT done — hurts legibility; possible future toggle.)
-- **Tunable knobs** (all in the `index.css` glass block): card translucency (`hsl(var(--card)/0.55)`), `backdrop-filter: blur(13px)`, the three glow radial-gradients (position/color/alpha), border alpha, panel glow box-shadow. **Not visually verified by the author** (no render access at build) → eyeball + tune; candidate to become the default if liked.
+**v2 (Apple-grade, 2026-05-25, commits `08caf71` + `3b65444`)** — reworked the first-pass FE-1 into genuine Liquid Glass using the apple-design-materials skill, **visually verified** via Playwright screenshots (closing the v1 "unverified" gap). Glass is now the **default theme** for fresh profiles. The material moved out of `index.css` into a dedicated reusable layer `app/src/styles/glass-material.css` (the foundation Stages 2–4 build on).
+- **What changed vs v1:** corrected the over-application (v1 blurred all ~120 `bg-card` content surfaces = "visual mud" + GPU cost) → **glass is chrome-only** (sidebar/toolbar/popovers/right-rail/pane-header via `.sl-glass`/`.sl-glass-heavy`/`.sl-glass-toolbar`); content cards go **near-opaque + crisp** (`hsl(var(--card)/0.92)`, no blur). Stronger recipe (`blur(20–30px) saturate(150–165%)` vs the too-mild v1 `blur(13px)/1.3`). Added a **4-gradient mesh backdrop** (so glass has something colourful to sample), a **specular `::before`** top-edge highlight, **`prefers-reduced-transparency`/`prefers-reduced-motion`** solid fallbacks, and **window-focus dimming** (`data-window-focused` → glass recedes on blur, Tahoe behaviour).
+- **App-wide foundations (all 5 themes):** `-apple-system`/SF Pro UI font (`--font-sans` + Tailwind `fontFamily.sans`); Apple spring motion curves (`--motion-*` ≤300ms, utility budget).
+- **Terminals stay legible by design:** xterm opaque canvas (`terminal-cache.ts` `#0a0c12`, `allowTransparency:false`) — only chrome turns glassy.
+- **Default-flip nuance:** `DEFAULT_THEME='glass'` applies to **fresh profiles only**; existing installs keep their explicitly-chosen theme until they pick Glass once (we don't override an explicit user choice). A forced one-time migration is a separate (unbuilt) option if wanted.
+- **Tunable knobs** (all in `glass-material.css`, scoped under `:root[data-theme='glass']`): mesh gradient hues/alphas, blur/saturate per weight, specular alpha, focus-dim values, `.sl-nav-active` accent tint. Spec: `docs/superpowers/specs/` (Apple-grade frontend Stage 1, in the approved plan).
 
 ---
 
