@@ -3,7 +3,7 @@
 // theme in `src/index.css` — this module is the metadata layer (id, label,
 // description, swatches) used by the Appearance tab + command palette.
 
-export type ThemeId = 'obsidian' | 'parchment' | 'nord' | 'synthwave';
+export type ThemeId = 'obsidian' | 'parchment' | 'nord' | 'synthwave' | 'glass';
 
 export interface ThemeDefinition {
   id: ThemeId;
@@ -45,6 +45,13 @@ export const THEMES: ThemeDefinition[] = [
     label: 'Synthwave',
     description: 'High-contrast neon dark theme.',
     swatch: { bg: '#10081f', fg: '#f5f3ff', primary: '#ff5bbf', accent: '#5be7ff' },
+    appearance: 'dark',
+  },
+  {
+    id: 'glass',
+    label: 'Glass',
+    description: 'Neon glassmorphism — translucent blurred panels over a cyan/violet glow.',
+    swatch: { bg: '#070a14', fg: '#eaf6ff', primary: '#22d3ee', accent: '#a855f7' },
     appearance: 'dark',
   },
 ];

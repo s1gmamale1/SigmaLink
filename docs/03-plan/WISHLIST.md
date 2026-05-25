@@ -83,6 +83,14 @@ First-class support for **Cursor's CLI agent** (`cursor-agent` headless mode) as
 - **Why native > shell-wiring:** a `shell` pane can run `cursor-agent`, but it loses provider identity, resume, MCP auto-bind, dispatch-target selection, skill `/command` injection, and the per-pane info bar — i.e. it's a terminal, not a *managed* agent.
 - **Caveat:** if Cursor's CLI lacks a clean non-interactive/resume contract on a platform, mark it dispatch-only there (the existing degradation path for kimi/opencode).
 
+### FE-1 — Glass theme (neon glassmorphism) — ✅ LANDED on main 2026-05-25 (rides next release)
+
+A new selectable **"Glass"** theme: translucent `backdrop-blur` panels (sidebar, cards, popovers, panes, right-rail) over a dark base with a fixed cyan/violet/magenta neon glow; neon-cyan primary + violet accent. Inspired by the BridgeSpace dark+neon look (`docs/02-research/.../bridgespace`). **Opt-in** via Settings → Appearance → **Glass** (or the command palette); the other four themes are byte-for-byte unchanged.
+
+- **Build (small + reversible):** `renderer/lib/themes.ts` registers it (auto-wires the picker + `isThemeId` validation); `src/index.css` adds a `:root[data-theme='glass']` palette + an **unlayered** block that overrides the `bg-card`/`bg-popover`/`bg-sidebar`/`bg-background` utility classes → **zero component markup changed**. Revert = delete the block or pick another theme.
+- **Terminals stay legible by design:** xterm renders to an opaque canvas (`terminal-cache.ts` THEME `#0a0c12`), not CSS — so only the pane *chrome* turns glassy; terminal text keeps full contrast. (Translucent xterm bg deliberately NOT done — hurts legibility; possible future toggle.)
+- **Tunable knobs** (all in the `index.css` glass block): card translucency (`hsl(var(--card)/0.55)`), `backdrop-filter: blur(13px)`, the three glow radial-gradients (position/color/alpha), border alpha, panel glow box-shadow. **Not visually verified by the author** (no render access at build) → eyeball + tune; candidate to become the default if liked.
+
 ---
 
 ## 🛠️ H-class — Hardening (external review 2026-05-25, verified against code)
