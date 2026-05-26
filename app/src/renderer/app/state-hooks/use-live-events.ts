@@ -191,13 +191,12 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       const unreadCount = typeof p.unreadCount === 'number' ? p.unreadCount : 0;
       dispatch({ type: 'NOTIFICATIONS_DELTA', added, removed, unreadCount });
       // v1.13.1 — play a distinct tone once per delta when the delta contains
-      // new unread notifications of severity warn/error/critical. `info` stays
-      // silent. playNotificationTone() respects the `notifications.sound` kv
-      // toggle (default ON). Fire-and-forget — tone is non-critical.
-      const hasAlertable = added.some(
-        (n) => n.readAt == null && (n.severity === 'warn' || n.severity === 'error' || n.severity === 'critical'),
-      );
-      if (hasAlertable) {
+      // any new unread notification. v1.29.0 (SF-5): widened from warn/error/
+      // critical to ALL severities incl. `info` per operator request — every new
+      // notification is now audible. playNotificationTone() respects the
+      // `notifications.sound` kv toggle (default ON). Fire-and-forget — non-critical.
+      const hasUnread = added.some((n) => n.readAt == null);
+      if (hasUnread) {
         void playNotificationTone();
       }
     });

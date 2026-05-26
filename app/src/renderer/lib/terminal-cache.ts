@@ -51,6 +51,40 @@ import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
 /** Maximum number of cached xterm instances before LRU eviction. */
 export const TERMINAL_CACHE_LIMIT = 32;
 
+/**
+ * SF-3 (v1.29.0) — Device-Attributes RESPONSE matcher for the onData→pty.write
+ * keystroke pipe.
+ *
+ * Symptom: on OS window focus-switch, `1;2c` appeared typed into every pane's
+ * shell prompt. `1;2c` is the printable tail of xterm's Primary Device
+ * Attributes reply `\x1b[?1;2c`. The sequence reaches xterm as a DA *response*
+ * to a DA *query* (`\x1b[c`) that a program in the PTY emits on focus regain;
+ * xterm answers via `onData`, and our pipe forwarded that answer to `pty.write`
+ * — so the shell saw it as stdin and echoed `1;2c`.
+ *
+ * A DA response is xterm-synthesised and can NEVER be a human keystroke, so it
+ * is always safe to strip from the keystroke pipe. We match ONLY the two DA
+ * reply shapes (verified against @xterm/xterm 6.0.0):
+ *   Primary DA   →  CSI ? … c   e.g. `\x1b[?1;2c`
+ *   Secondary DA →  CSI > … c   e.g. `\x1b[>0;276;0c`
+ *
+ * We deliberately do NOT touch Cursor-Position-Report (`\x1b[…R`) or
+ * Device-Status-Report (`\x1b[…n`) replies — programs legitimately rely on
+ * those, and their grammars do not collide with this matcher (different final
+ * byte, and CPR/DSR have no `?`/`>` introducer).
+ */
+// eslint-disable-next-line no-control-regex -- ESC (\x1b) is intrinsic to the CSI grammar we match
+const DEVICE_ATTRIBUTES_RESPONSE_RE = /\x1b\[[?>][0-9;]*c/g;
+
+/**
+ * Strip Device-Attributes responses from a chunk headed for the PTY stdin.
+ * Returns the cleaned string (possibly empty). Exported for unit testing.
+ */
+export function stripDeviceAttributesResponses(data: string): string {
+  if (data.indexOf('\x1b[') === -1) return data; // fast path: no CSI at all
+  return data.replace(DEVICE_ATTRIBUTES_RESPONSE_RE, '');
+}
+
 export interface TerminalCacheContext {
   /** Mutable holder the React mount updates so the link-handler closure
    *  inside xterm always sees the latest active workspace id without
@@ -222,8 +256,17 @@ export function getOrCreateTerminal(
 
   // Wire keystrokes back to the PTY. This listener lives for the entry's
   // entire cache lifetime — only `destroy()` disposes it.
+  //
+  // SF-3 — strip Device-Attributes responses before forwarding. xterm answers
+  // a program's DA query (`\x1b[c`) via this same onData channel; on OS window
+  // focus-switch that reply (`\x1b[?1;2c`) was reaching the shell prompt and
+  // being echoed as the literal `1;2c`. DA responses are synthesised by xterm
+  // and are never real keystrokes, so dropping them here is safe; an all-DA
+  // chunk collapses to '' and is not written at all.
   const onDataDispose = term.onData((data) => {
-    void rpc.pty.write(sessionId, data).catch(() => undefined);
+    const clean = stripDeviceAttributesResponses(data);
+    if (clean === '') return;
+    void rpc.pty.write(sessionId, clean).catch(() => undefined);
   });
 
   // V1.4.2 packet-03 (Layer 1) — race-safe snapshot + live ordering. The

@@ -52,6 +52,50 @@ describe('claudeSlugForCwd', () => {
       '-Users-dev-projects-SigmaLink-app',
     );
   });
+
+  // SF-2 (v1.29.0) regression — the Claude CLI replaces EVERY non-alphanumeric
+  // character with `-`, not only `/`. These cases are pinned against the real
+  // claude 2.1.150 on-disk layout (verified empirically; see jsonl-bridge
+  // header comment). A previous implementation only replaced `/`, so any cwd
+  // with a space/dot/paren produced a slug that did NOT match the directory
+  // Claude reads — the bridge symlinked the resume JSONL into the wrong dir and
+  // `claude --resume <id>` reported "No conversation found with session ID".
+  it('replaces spaces with - (macOS userData "Application Support" path)', () => {
+    expect(
+      claudeSlugForCwd('/Users/me/Library/Application Support/SigmaLink/app'),
+    ).toBe('-Users-me-Library-Application-Support-SigmaLink-app');
+  });
+
+  it('replaces dots with -', () => {
+    expect(claudeSlugForCwd('/tmp/a.b')).toBe('-tmp-a-b');
+  });
+
+  it('replaces parentheses with -', () => {
+    expect(claudeSlugForCwd('/tmp/a(b)c')).toBe('-tmp-a-b-c');
+  });
+
+  it('does NOT collapse consecutive separators (1:1 replacement)', () => {
+    // claude: /tmp/a..b -> -private-tmp-a--b (two dots → two dashes)
+    expect(claudeSlugForCwd('/tmp/a..b')).toBe('-tmp-a--b');
+  });
+
+  it('preserves case and digits', () => {
+    expect(claudeSlugForCwd('/tmp/CaseKept123')).toBe('-tmp-CaseKept123');
+  });
+
+  it('produces matching slugs for the SF-2 workspace + worktree-with-space pair', () => {
+    // The operator repro: a worktree cwd containing a space (and/or a dot).
+    // Under the old `/`-only rule the bridge target slug diverged from the slug
+    // Claude derives from the same cwd. With the correct rule they are equal
+    // — which is exactly what makes the bridged symlink discoverable.
+    const worktreeCwd =
+      '/Users/aisigma/Library/Application Support/SigmaLink/worktrees/abc.123/pane-0/app';
+    expect(claudeSlugForCwd(worktreeCwd)).toBe(
+      '-Users-aisigma-Library-Application-Support-SigmaLink-worktrees-abc-123-pane-0-app',
+    );
+    // No raw space, dot, or slash may survive in the slug.
+    expect(claudeSlugForCwd(worktreeCwd)).not.toMatch(/[^a-zA-Z0-9-]/);
+  });
 });
 
 describe('ensureClaudeProjectDir', () => {

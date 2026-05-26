@@ -226,7 +226,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
           onDelete={(id) => void onDeleteConversation(id)}
         />
       ) : null}
-      <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className={cn('flex h-full min-h-0 flex-1 flex-col', variant === 'rail' && 'px-3')}>
         {variant === 'standalone' ? (
           <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/10 px-3 text-sm">
             <Bot className="h-4 w-4 text-primary" aria-hidden />

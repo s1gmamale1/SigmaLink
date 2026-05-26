@@ -4,6 +4,24 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-05-26
+
+v1.29.0 — **operator smoke fixes (SF-1..SF-6)** from the real-device pass after v1.25–v1.28. Three worktree-isolated lanes (1 Opus + 2 Sonnet), each **verified its root cause before fixing**, plus a lead-owned notification-sound widening and an SF-2 single-source-of-truth fix → full gate in main. The standout: SF-2's "malformed `--resume`" was **not** arg-mangling (disproven against the real `claude` 2.1.150 binary — the full id reached claude); the real cause was a cwd→project-slug bug.
+
+### Fixed
+
+- **SF-1 — Telegram replies sent twice.** `core/remote/bridge.ts` relayed both the debounced `delta`-accumulated buffer **and** the `final` payload (identical text) → duplicate message. Reworked `onAssistantState` to a **final-only relay**: `delta` accumulates silently, `final` cancels any stale timer and flushes exactly once; `error`-only turns keep the debounced path so they still reach the operator. (Single `assistant:state` subscription confirmed — not a double-subscribe.)
+- **SF-2 — "No conversation found" on Claude session resume in a fresh workspace.** Root cause (verified against `claude` 2.1.150): claude resolves `--resume <id>` strictly by a **cwd-derived project-dir slug**, and its slug rule replaces **every** non-alphanumeric char with `-`. `claudeSlugForCwd` only replaced `/`, so any cwd containing a space/dot/paren — e.g. the macOS `Library/Application Support/…` path the worktrees live under — symlinked the session JSONL into the **wrong** project dir. Fixed the slug to `replace(/[^a-zA-Z0-9]/g, '-')`, and pointed the **session-picker disk scanner** (`session-disk-scanner.ts`, which had an identical latent `/`-only copy) at the shared helper for a single source of truth.
+- **SF-3 — `1;2c` typed into panes on window focus-switch.** A program in the PTY emits a Device-Attributes query (`ESC[c`) on OS focus-regain; xterm answers via `onData` with `ESC[?1;2c`, and the keystroke pipe forwarded that answer back into the PTY (the shell echoed the printable `1;2c`). Added `stripDeviceAttributesResponses()` to the `onData` path, filtering **only** DA Primary (`CSI ?…c`) and Secondary (`CSI >…c`) replies — Cursor-Position and Device-Status reports (which programs legitimately consume) are preserved.
+- **SF-4 — Notifications dropdown unstyled on the Glass theme.** The dropdown container had `bg-popover` but was missing `sl-glass relative`, so the `.sl-glass::before` specular surface never rendered. Added `sl-glass relative` (matching `RightRail`).
+- **SF-5 — No sound on new notifications.** Not a regression — the tone was deliberately gated to `warn`/`error`/`critical`, so routine `info`-level events stayed silent. Per operator decision, **widened to all severities**: a tone now fires on any new unread notification, still respecting the `notifications.sound` toggle (default ON).
+- **SF-6 — Right-rail Jorvis panel squashed against the window edge.** Added `px-3` to the `JorvisRoom` rail-variant content column (standalone variant unchanged).
+
+### Notes
+
+- **SF-7 / SF-8** (new operator feature requests — Ruflo MCP daemon auto-init/auto-trust on workspace open; a launch-time Yolo/Bypass mode for CLI panes) are documented in `docs/03-plan/WISHLIST.md` and queued for a later wave (proposed v1.30.0). They are **not** in this release.
+- Gate (in main): `tsc -b` · `eslint --max-warnings 0` · vitest **1761 pass / 1 skip** (+21 new regression tests) · `product:check` · full `tests/e2e/` (9 passed / 3 skipped — the skips are live-CLI manual smokes).
+
 ## [1.28.0] - 2026-05-26
 
 v1.28.0 — **R-2: native Cursor CLI provider** — the last item on the post-roadmap backlog. `cursor-agent` is now a first-class SigmaLink provider (not a generic shell pane): it appears in the provider pickers, gets a worktree-isolated pane, session resume, Ruflo MCP auto-bind, a model catalog, and the pane info bar — the same treatment as Claude / Codex / Gemini / Kimi / OpenCode. Built by one worktree-isolated Opus lane against the **empirically-verified** `cursor-agent` v2026.05.24 contract (the CLI is installed) → full gate in main. No `rpc-router` change (the provider plumbing is data-driven). DEFAULT-OFF in the sense that it only activates when the operator installs + authenticates `cursor-agent`.

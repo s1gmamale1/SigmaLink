@@ -4,8 +4,9 @@
 // ────────────────────
 // Claude stores chat history on disk at
 //   `~/.claude/projects/<slug>/<session-id>.jsonl`
-// where `<slug> = cwd.replace(/\//g, '-')`. The slug is therefore tied to the
-// EXACT cwd the `claude` process was spawned in.
+// where `<slug>` is `cwd` with every non-alphanumeric character replaced by `-`
+// (see `claudeSlugForCwd` — SF-2). The slug is therefore tied to the EXACT cwd
+// the `claude` process was spawned in.
 //
 // SigmaLink scans for sessions at the **workspace root** (`SessionStep` uses
 // `selectedWorkspace.rootPath` as its `cwd` argument to `listSessionsInCwd`),
@@ -85,9 +86,25 @@ export interface ClaudeBridgeDeps {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Compute Claude's on-disk project slug for a given cwd. */
+/**
+ * Compute Claude's on-disk project slug for a given cwd.
+ *
+ * SF-2 (v1.29.0) — Claude derives the slug by replacing EVERY non-alphanumeric
+ * character with `-`, not only `/`. Verified against claude 2.1.150:
+ *   /tmp/a.b        → -private-tmp-a-b   (dot replaced)
+ *   /tmp/a b        → -private-tmp-a-b   (space replaced)
+ *   /tmp/a(b)c      → -private-tmp-a-b-c (parens replaced)
+ *   /tmp/a..b       → -private-tmp-a--b  (1:1, NOT collapsed)
+ * Case and digits are preserved. The previous implementation only replaced `/`,
+ * so any cwd containing a space, dot, paren, etc. (e.g. the macOS userData path
+ * `~/Library/Application Support/…`, or a worktree path with a dotted segment)
+ * produced a slug that did NOT match the directory Claude actually reads. The
+ * resume bridge then symlinked the session JSONL into the WRONG project dir, and
+ * `claude --resume <id>` reported "No conversation found with session ID: <id>"
+ * — the exact SF-2 operator symptom. Matching Claude's real rule fixes it.
+ */
 export function claudeSlugForCwd(cwd: string): string {
-  return cwd.replace(/\//g, '-');
+  return cwd.replace(/[^a-zA-Z0-9]/g, '-');
 }
 
 /** Reject obviously bad paths before we touch the filesystem. */

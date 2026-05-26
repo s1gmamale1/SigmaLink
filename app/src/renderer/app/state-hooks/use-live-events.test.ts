@@ -7,8 +7,8 @@
 // churn (multi-pane spawn/teardown) this spammed `rpc.review.list`.
 //
 // v1.13.1 — adds tests for the notification-sound subscriber:
-//   - tone plays on warn/error/critical added delta when enabled
-//   - silent on info-only delta
+//   - tone plays on any unread added delta (incl. info — SF-5 widened v1.29.0)
+//   - tone plays on info-only delta (SF-5)
 //   - silent when toggle off
 //   - silent on removed-only / empty deltas
 
@@ -375,7 +375,7 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
     expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
   });
 
-  it('does NOT play tone for info-only delta', async () => {
+  it('plays tone for info-only delta (SF-5: all severities audible)', async () => {
     await renderLiveEvents(stateWith([]));
     await act(async () => { await Promise.resolve(); });
 
@@ -388,7 +388,7 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
       await Promise.resolve();
     });
 
-    expect(playNotificationToneMock).not.toHaveBeenCalled();
+    expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT play tone for removed-only delta', async () => {

@@ -24,6 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { claudeSlugForCwd } from './claude-resume-sigma';
 import { geminiSlugForCwd } from './gemini-resume-sigma';
 import { listOpencodeSessionsFromDb } from '../opencode/sqlite-reader';
 
@@ -337,7 +338,8 @@ function trunc(s: string, maxLen = 80): string {
 
 /**
  * Claude stores sessions at `~/.claude/projects/<slug>/<uuid>.jsonl` where
- * slug = `cwd.replace(/\//g, '-')`.  The first JSONL line is the session-init
+ * slug = `claudeSlugForCwd(cwd)` (every non-alphanumeric char → `-`; SF-2 —
+ * single source of truth, was a latent `/`-only copy). The first JSONL line is the session-init
  * metadata blob: `{ "type": "system", ... }` followed by user turns.
  * v1.3.0 plan: extract `created_at` + first user message text.
  *
@@ -349,7 +351,7 @@ function listClaudeSessions(
   maxCount: number,
   sinceMs: number | undefined,
 ): SessionListItem[] {
-  const slug = cwd.replace(/\//g, '-');
+  const slug = claudeSlugForCwd(cwd);
   const projectDir = path.join(homeDir, '.claude', 'projects', slug);
   if (!safeStat(projectDir)) return [];
   const entries = safeReadDir(projectDir).filter(

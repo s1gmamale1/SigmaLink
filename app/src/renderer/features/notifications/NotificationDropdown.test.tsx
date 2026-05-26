@@ -119,6 +119,12 @@ describe('NotificationDropdown', () => {
     expect((mockRpc as unknown as { notifications: Record<string, ReturnType<typeof vi.fn>> }).notifications.clearRead).toHaveBeenCalledTimes(1);
   });
 
+  it('dropdown container carries sl-glass class for glass theme surface (SF-4)', () => {
+    render(<NotificationDropdown onClose={() => undefined} />);
+    const container = screen.getByTestId('notification-dropdown');
+    expect(container.className).toContain('sl-glass');
+  });
+
   it('switching filter chip re-renders the list', () => {
     mockState = {
       ...initialAppState,

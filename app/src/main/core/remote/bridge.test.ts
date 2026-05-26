@@ -349,7 +349,7 @@ describe('TelegramBridge — relay', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('debounces assistant deltas and HTML-escapes the relayed text', async () => {
+  it('relays only on final and HTML-escapes the text (deltas alone never flush)', async () => {
     const { bridge, client, emitState } = makeBridge();
     await bridge.start();
     // Establish the active chat.
@@ -357,22 +357,63 @@ describe('TelegramBridge — relay', () => {
 
     emitState({ kind: 'delta', delta: 'a<b' });
     emitState({ kind: 'delta', delta: '>c' });
-    // Nothing sent until the debounce fires.
-    expect(client._sent.filter((m) => m.text.includes('&lt;'))).toHaveLength(0);
+    // Deltas alone must NOT trigger a send — even after the old debounce window.
     vi.advanceTimersByTime(700);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client._sent.filter((m) => m.chatId === 42)).toHaveLength(0);
+
+    // The `final` event flushes immediately with the authoritative full text.
+    emitState({ kind: 'final', text: 'a<b>c' });
     await Promise.resolve();
     await Promise.resolve();
     const relayed = client._sent.find((m) => m.text.includes('a&lt;b&gt;c'));
     expect(relayed).toBeTruthy();
   });
 
+  it('sends the reply ONCE when deltas are followed by a final with the same cumulative text (SF-1 regression)', async () => {
+    const { bridge, client, emitState } = makeBridge();
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 42, text: 'hello jorvis' });
+
+    // Simulate a streaming reply: individual token deltas ...
+    emitState({ kind: 'delta', delta: 'Hello' });
+    emitState({ kind: 'delta', delta: ', world' });
+    emitState({ kind: 'delta', delta: '!' });
+    // ... then the final carrying the identical full text.
+    emitState({ kind: 'final', text: 'Hello, world!' });
+
+    // Drain all microtasks / timer callbacks.
+    vi.runAllTimers();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The assistant reply must be delivered EXACTLY ONCE, not twice.
+    const replyMsgs = client._sent.filter((m) => m.chatId === 42 && m.text.includes('Hello'));
+    expect(replyMsgs).toHaveLength(1);
+    expect(replyMsgs[0].text).toBe('Hello, world!');
+  });
+
+  it('still relays an error-only turn (no final emitted)', async () => {
+    const { bridge, client, emitState } = makeBridge();
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 42, text: 'ping' });
+
+    emitState({ kind: 'error', message: 'something went wrong' });
+    // Error path uses debounce — advance past it.
+    vi.advanceTimersByTime(700);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client._sent.some((m) => m.text.includes('something went wrong'))).toBe(true);
+  });
+
   it('caps the relay buffer so a huge reply cannot blow up the scrub', async () => {
     const { bridge, client, emitState } = makeBridge();
     await bridge.start();
     await client._handlers!.onMessage({ chatId: 42, text: 'ping' });
-    // An adversarial reply far larger than the cap.
-    emitState({ kind: 'delta', delta: 'x'.repeat(100_000) });
-    vi.advanceTimersByTime(700);
+    // An adversarial reply far larger than the cap, delivered via final.
+    const huge = 'x'.repeat(100_000);
+    emitState({ kind: 'final', text: huge });
     await Promise.resolve();
     await Promise.resolve();
     const total = client._sent.reduce((n, m) => n + m.text.length, 0);

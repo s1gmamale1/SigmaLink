@@ -167,7 +167,7 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
       role="menu"
       aria-label="Notifications"
       data-testid="notification-dropdown"
-      className="absolute right-0 top-full z-50 mt-1 w-96 rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+      className="sl-glass relative absolute right-0 top-full z-50 mt-1 w-96 rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
     >
       <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <h3 className="text-sm font-semibold tracking-tight">Notifications</h3>

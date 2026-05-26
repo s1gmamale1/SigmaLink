@@ -9,6 +9,9 @@ import {
   resumeWorkspacePanes,
   type ResumeLauncherDeps,
 } from './resume-launcher.ts';
+// SF-2 — use the production slug helper rather than an inline `/`-only replace,
+// so the test layout matches the directory Claude (and the bridge) actually use.
+import { claudeSlugForCwd } from './claude-resume-sigma.ts';
 import type { PtyRegistry, SessionRecord } from './registry.ts';
 
 const claudeProvider = {
@@ -369,7 +372,7 @@ describe('resumeWorkspacePanes', () => {
     fs.mkdirSync(worktreeApp, { recursive: true });
     fs.writeFileSync(path.join(workspaceRoot, 'CLAUDE.md'), '# workspace claude\n');
     const externalId = VALID_CLAUDE_SESSION_ID;
-    const workspaceSlug = workspaceRoot.replace(/\//g, '-');
+    const workspaceSlug = claudeSlugForCwd(workspaceRoot);
     const sourceDir = path.join(claudeHomeDir, '.claude', 'projects', workspaceSlug);
     fs.mkdirSync(sourceDir, { recursive: true });
     fs.writeFileSync(path.join(sourceDir, `${externalId}.jsonl`), '{"ok":true}\n');
@@ -409,7 +412,7 @@ describe('resumeWorkspacePanes', () => {
     expect(fs.readFileSync(path.join(worktreeApp, 'CLAUDE.md'), 'utf8')).toContain(
       'workspace claude',
     );
-    const worktreeSlug = worktreeApp.replace(/\//g, '-');
+    const worktreeSlug = claudeSlugForCwd(worktreeApp);
     expect(
       fs.existsSync(
         path.join(claudeHomeDir, '.claude', 'projects', worktreeSlug, `${externalId}.jsonl`),

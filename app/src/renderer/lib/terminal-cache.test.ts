@@ -349,4 +349,105 @@ describe('terminal-cache — Layer 1 race + Layer 2 instance preservation', () =
     expect(exitWrites.length).toBe(1);
     expect(entry.ptyExited).toBe(true);
   });
+
+  // ── SF-3 — Device-Attributes responses must NOT reach pty.write ─────────────
+  //
+  // On OS window focus-switch, a program in the PTY emits a DA query (`\x1b[c`);
+  // xterm answers via this same onData channel with `\x1b[?1;2c`. Before the
+  // fix that reply was forwarded to pty.write and the shell echoed `1;2c` into
+  // every pane's prompt. We drive the captured onData callback directly (this
+  // is the exact callback xterm invokes when it answers a DA query) and assert
+  // the DA reply is dropped while a normal keystroke still reaches pty.write.
+  it('does NOT forward a Primary DA response to pty.write, but DOES forward keystrokes', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    const { rpc } = await import('./rpc');
+    const writeMock = rpc.pty.write as unknown as ReturnType<typeof vi.fn>;
+    writeMock.mockClear();
+
+    const entry = getOrCreateTerminal('sess-da-1', ctx);
+    const term = entry.terminal as unknown as MockTerm;
+    // The cache registered exactly one onData handler — recover it.
+    const onDataCb = term.onData.mock.calls[0]?.[0] as (d: string) => void;
+    expect(typeof onDataCb).toBe('function');
+
+    // 1) xterm answering a DA query (the focus-switch corruption path).
+    onDataCb('\x1b[?1;2c');
+    // 2) xterm answering a Secondary DA query.
+    onDataCb('\x1b[>0;276;0c');
+    // Neither must be written to the pty.
+    expect(writeMock).not.toHaveBeenCalled();
+
+    // 3) A normal keystroke MUST still reach the pty unchanged.
+    onDataCb('ls -la\n');
+    expect(writeMock).toHaveBeenCalledTimes(1);
+    expect(writeMock).toHaveBeenCalledWith('sess-da-1', 'ls -la\n');
+  });
+
+  it('strips an embedded DA response but forwards the surrounding keystrokes', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    const { rpc } = await import('./rpc');
+    const writeMock = rpc.pty.write as unknown as ReturnType<typeof vi.fn>;
+    writeMock.mockClear();
+
+    const entry = getOrCreateTerminal('sess-da-2', ctx);
+    const term = entry.terminal as unknown as MockTerm;
+    const onDataCb = term.onData.mock.calls[0]?.[0] as (d: string) => void;
+
+    onDataCb('a\x1b[?1;2cb');
+    expect(writeMock).toHaveBeenCalledTimes(1);
+    expect(writeMock).toHaveBeenCalledWith('sess-da-2', 'ab');
+  });
+
+  it('preserves Cursor-Position (R) and Device-Status (n) replies — programs rely on them', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    const { rpc } = await import('./rpc');
+    const writeMock = rpc.pty.write as unknown as ReturnType<typeof vi.fn>;
+    writeMock.mockClear();
+
+    const entry = getOrCreateTerminal('sess-da-3', ctx);
+    const term = entry.terminal as unknown as MockTerm;
+    const onDataCb = term.onData.mock.calls[0]?.[0] as (d: string) => void;
+
+    onDataCb('\x1b[12;5R'); // CPR
+    onDataCb('\x1b[0n');    // DSR
+    expect(writeMock).toHaveBeenCalledTimes(2);
+    expect(writeMock).toHaveBeenNthCalledWith(1, 'sess-da-3', '\x1b[12;5R');
+    expect(writeMock).toHaveBeenNthCalledWith(2, 'sess-da-3', '\x1b[0n');
+  });
+});
+
+// ── SF-3 — pure-function grammar coverage for the DA-response stripper ────────
+describe('stripDeviceAttributesResponses (SF-3)', () => {
+  it('strips Primary DA reply (\\x1b[?1;2c)', async () => {
+    const { stripDeviceAttributesResponses } = await import('./terminal-cache');
+    expect(stripDeviceAttributesResponses('\x1b[?1;2c')).toBe('');
+  });
+  it('strips Secondary DA reply (\\x1b[>…c)', async () => {
+    const { stripDeviceAttributesResponses } = await import('./terminal-cache');
+    expect(stripDeviceAttributesResponses('\x1b[>0;276;0c')).toBe('');
+  });
+  it('leaves normal text untouched (fast path: no CSI)', async () => {
+    const { stripDeviceAttributesResponses } = await import('./terminal-cache');
+    expect(stripDeviceAttributesResponses('ls -la\n')).toBe('ls -la\n');
+  });
+  it('does NOT strip Cursor-Position-Report (ends in R)', async () => {
+    const { stripDeviceAttributesResponses } = await import('./terminal-cache');
+    expect(stripDeviceAttributesResponses('\x1b[1;1R')).toBe('\x1b[1;1R');
+  });
+  it('does NOT strip Device-Status-Report (ends in n)', async () => {
+    const { stripDeviceAttributesResponses } = await import('./terminal-cache');
+    expect(stripDeviceAttributesResponses('\x1b[0n')).toBe('\x1b[0n');
+  });
+  it('does NOT strip an arrow-key CSI (\\x1b[A)', async () => {
+    const { stripDeviceAttributesResponses } = await import('./terminal-cache');
+    expect(stripDeviceAttributesResponses('\x1b[A')).toBe('\x1b[A');
+  });
+  it('does NOT strip bracketed-paste markers', async () => {
+    const { stripDeviceAttributesResponses } = await import('./terminal-cache');
+    expect(stripDeviceAttributesResponses('\x1b[200~hi\x1b[201~')).toBe('\x1b[200~hi\x1b[201~');
+  });
+  it('strips multiple DA replies in one chunk', async () => {
+    const { stripDeviceAttributesResponses } = await import('./terminal-cache');
+    expect(stripDeviceAttributesResponses('\x1b[?1;2c\x1b[>0;1;0c')).toBe('');
+  });
 });

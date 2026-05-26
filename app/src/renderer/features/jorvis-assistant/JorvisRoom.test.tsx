@@ -164,6 +164,17 @@ describe('<JorvisRoom /> resume UI', () => {
     vi.clearAllMocks();
   });
 
+  it('rail variant inner column carries horizontal padding (SF-6)', async () => {
+    const { container } = render(<JorvisRoom variant="rail" />);
+    // The inner content column is the second child of the root flex row.
+    // It must carry px-3 so the composer and transcript have breathing room
+    // from the right-rail glass edge.
+    const rootRow = container.querySelector('[data-jorvis-room="rail"]');
+    expect(rootRow).toBeTruthy();
+    const innerColumn = rootRow?.querySelector('.px-3');
+    expect(innerColumn).toBeTruthy();
+  });
+
   it('renders a compact rail dropdown with resumable conversation rows', async () => {
     render(<JorvisRoom variant="rail" />);
 

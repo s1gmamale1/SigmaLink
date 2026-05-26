@@ -495,17 +495,34 @@ export class TelegramBridge extends EventEmitter {
     if (!payload || typeof payload !== 'object') return;
     const p = payload as { kind?: string; delta?: string; text?: string; message?: string };
     if (p.kind === 'delta' && typeof p.delta === 'string') {
+      // Accumulate deltas but do NOT flush yet — Telegram doesn't need token
+      // streaming and flushing on every delta causes a double-send: the
+      // debounced delta-flush already sends the full accumulated text, then
+      // the subsequent `final` event re-sets the buffer to the same full text
+      // and triggers a second flush (identical message sent twice). We wait
+      // for `final` which carries the authoritative complete text.
       this.relayBuffer += p.delta;
+      this.capRelayBuffer();
     } else if (p.kind === 'final' && typeof p.text === 'string') {
-      // Final carries the full text — replace any partial buffer to avoid dupes.
+      // `final` is the single authoritative relay trigger. Cancel any pending
+      // debounce (shouldn't exist, but guard against stale timers) and flush
+      // immediately with the complete text.
+      if (this.relayTimer) {
+        clearTimeout(this.relayTimer);
+        this.relayTimer = null;
+      }
       this.relayBuffer = p.text;
+      this.capRelayBuffer();
+      void this.flushRelay();
     } else if (p.kind === 'error' && typeof p.message === 'string') {
+      // Error-only turns may never emit `final` — relay via debounce so the
+      // error message still reaches the operator.
       this.relayBuffer += `\n[error] ${p.message}`;
+      this.capRelayBuffer();
+      this.scheduleRelayFlush();
     } else {
       return;
     }
-    this.capRelayBuffer();
-    this.scheduleRelayFlush();
   }
 
   /** Bound the relay buffer (event-loop DoS guard — see MAX_RELAY_CHARS). */
