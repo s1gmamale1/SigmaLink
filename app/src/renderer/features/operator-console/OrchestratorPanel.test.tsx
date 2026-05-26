@@ -147,13 +147,16 @@ describe('OrchestratorPanel — O4: merge order + batch merge', () => {
 
     await waitFor(() => expect(rpc.swarms.create).toHaveBeenCalled());
 
-    // Propose merge order.
-    fireEvent.click(screen.getByRole('button', { name: /propose merge order/i }));
+    // Propose merge order. The button appears only after the swarm-active
+    // re-render lands, so poll for it (findByRole) rather than a synchronous
+    // getByRole — under CI's slower/parallel coverage run the re-render can lag
+    // the swarms.create resolution (this was an intermittent CI-only flake).
+    fireEvent.click(await screen.findByRole('button', { name: /propose merge order/i }));
 
     await waitFor(() => expect(rpc.git.status).toHaveBeenCalled());
 
-    // Merge in order.
-    fireEvent.click(screen.getByRole('button', { name: /merge in order/i }));
+    // Merge in order (also gated on a post-propose re-render — poll for it too).
+    fireEvent.click(await screen.findByRole('button', { name: /merge in order/i }));
 
     expect(rpc.review.batchCommitAndMerge).toHaveBeenCalledWith(
       expect.objectContaining({ sessionIds: expect.any(Array) }),
