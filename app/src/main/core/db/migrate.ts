@@ -81,6 +81,12 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 /**
  * Apply every pending migration in `ALL_MIGRATIONS`. Safe to call repeatedly.
  * Returns the names of migrations that were applied during this call.
+ *
+ * Each migration's `up()` and its `schema_migrations` insert are wrapped in a
+ * single better-sqlite3 transaction so that a throwing `up()` rolls back both
+ * the schema change and the tracking row atomically. Without this, a partial
+ * `up()` would leave the schema dirty with no migration row, causing the next
+ * boot to re-run the same migration against a corrupted schema.
  */
 export function migrate(db: Database.Database): string[] {
   db.exec(SCHEMA_MIGRATIONS_DDL);
@@ -93,6 +99,12 @@ export function migrate(db: Database.Database): string[] {
   const insertApplied = db.prepare('INSERT INTO schema_migrations (name) VALUES (?)');
   for (const m of ALL_MIGRATIONS) {
     if (applied.has(m.name)) continue;
+    // H-7 (deferred): no outer db.transaction() wrap — several migrations manage
+    // their OWN BEGIN/COMMIT, and a nested BEGIN throws ("cannot start a
+    // transaction within a transaction"), crashing fresh-DB startup. up() runs
+    // first; a throw propagates BEFORE the insert, so a failed migration is
+    // retried cleanly next boot rather than recorded half-applied. Centralizing
+    // transactions (stripping per-migration BEGIN/COMMIT) is a separate refactor.
     m.up(db);
     insertApplied.run(m.name);
     ran.push(m.name);

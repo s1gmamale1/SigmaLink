@@ -1005,7 +1005,11 @@ function buildRouter() {
 
   const providersCtl = defineController({
     list: async () =>
-      AGENT_PROVIDERS.map((p) => ({
+      // H-12 — never expose the internal `shell` sentinel over RPC (the
+      // Settings → Providers tab renders whatever this returns and only
+      // filters `legacy`). Filtering at the source keeps `shell` out of every
+      // consumer; `legacy` rows still flow through for the tab to handle.
+      AGENT_PROVIDERS.filter((p) => p.id !== 'shell').map((p) => ({
         id: p.id,
         name: p.name,
         description: p.description,
@@ -1885,7 +1889,7 @@ export function registerRouter(): void {
  * PTYs, closing the DB, and flushing WAL keeps quits graceful and prevents
  * orphan worktrees / zombie session rows after a normal shutdown.
  */
-export function shutdownRouter(): void {
+export async function shutdownRouter(): Promise<void> {
   // v1.9-scrollback — DEFAULT-OFF. Persist every live session's buffer
   // snapshot BEFORE killAll() tears down the PTYs, so we capture the last
   // visible scrollback. Best-effort: errors are swallowed so shutdown is
@@ -1941,15 +1945,19 @@ export function shutdownRouter(): void {
   }
   // v1.6.0-A — stop ALL per-workspace HTTP daemons (one per open workspace).
   // SIGTERM → 5s drain → SIGKILL idiom mirrors MemoryMcpSupervisor.stopAll().
+  // H-13 — AWAIT the drain (was fire-and-forget): the supervisor self-bounds at
+  // ~5s (SIGTERM→drain→SIGKILL), so awaiting can't hang quit but DOES ensure the
+  // daemons are reaped before the process exits (no orphaned HTTP servers).
   try {
-    void sharedDeps?.rufloHttpDaemonSupervisor.stopAll();
+    await sharedDeps?.rufloHttpDaemonSupervisor.stopAll();
   } catch {
     /* ignore */
   }
   // R-1 — stop the Telegram bridge (cancels long-poll, clears pending
-  // confirmations, unsubscribes the assistant-state relay).
+  // confirmations, unsubscribes the assistant-state relay). Awaited for the
+  // same reason (fast — just aborts the long-poll + clears timers).
   try {
-    void sharedDeps?.telegramBridge?.stop();
+    await sharedDeps?.telegramBridge?.stop();
   } catch {
     /* ignore */
   }

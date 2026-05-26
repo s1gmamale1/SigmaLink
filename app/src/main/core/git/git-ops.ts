@@ -111,15 +111,23 @@ export async function gitDiff(cwd: string): Promise<GitDiff | null> {
   if (!fs.existsSync(cwd)) return null;
   const root = await getRepoRoot(cwd);
   if (!root) return null;
+  const DIFF_MAX_BUFFER = 16 * 1024 * 1024;
   const [statRes, patchesRes, untrackedRes] = await Promise.all([
     execCmd('git', ['diff', '--stat', 'HEAD'], { cwd, timeoutMs: 8_000 }),
-    execCmd('git', ['diff', 'HEAD'], { cwd, timeoutMs: 15_000, maxBuffer: 16 * 1024 * 1024 }),
+    execCmd('git', ['diff', 'HEAD'], { cwd, timeoutMs: 15_000, maxBuffer: DIFF_MAX_BUFFER }),
     execCmd('git', ['ls-files', '--others', '--exclude-standard'], { cwd, timeoutMs: 5_000 }),
   ]);
+  // `execCmd` signals truncation via `maxBufferExceeded` rather than throwing.
+  // We also check whether the output byte-length is suspiciously close to the
+  // cap (within 1 byte) as a belt-and-suspenders guard.
+  const truncated =
+    patchesRes.maxBufferExceeded ||
+    Buffer.byteLength(patchesRes.stdout, 'utf8') >= DIFF_MAX_BUFFER - 1;
   return {
     stat: statRes.stdout,
     patches: patchesRes.stdout,
     untrackedFiles: untrackedRes.stdout.split(/\r?\n/).filter(Boolean),
+    truncated,
   };
 }
 

@@ -46,20 +46,20 @@ The scripts below are defined in [`package.json`](package.json) and are the entr
 | `npm run electron:dev` | Full dev loop: builds the renderer, bundles `electron/main.ts` + `electron/preload.ts` via esbuild into `electron-dist/`, then launches Electron. This is the script you run day-to-day. |
 | `npm run electron:build` | Production package: build, esbuild bundle, then `electron-builder` produces installers. |
 | `npm run electron:compile` | esbuild bundle of `electron/main.ts` + `electron/preload.ts` only. |
-| `npm run electron:pack:win` | `electron-builder --win`, after a renderer rebuild. |
-| `npm run electron:pack:mac` | `electron-builder --mac`, after a renderer rebuild. |
-| `npm run electron:pack:all` | `electron-builder --win --mac`, after a renderer rebuild. |
-| `npm run postinstall` | Runs automatically after `npm install`; calls `electron-builder install-app-deps` to rebuild `node-pty` and `better-sqlite3` against the local Electron version. |
+| `npm run electron:pack:win` | `electron-builder --win`, after a renderer build + esbuild compile. |
+| `npm run electron:pack:mac` | `electron-builder --mac`, after a renderer build + esbuild compile. |
+| `npm run electron:pack:all` | `electron-builder --win --mac`, after a renderer build + esbuild compile. |
+| `npm run postinstall` | Runs automatically after `pnpm install`; calls `electron-builder install-app-deps` to rebuild `node-pty` and `better-sqlite3` against the local Electron version. |
 | `npm run product:check` | `build` + `electron:compile`. The pre-PR check. |
 
 ## Dev workflow
 
 ```bash
-npm install
-npm run electron:dev
+pnpm install
+pnpm electron:dev
 ```
 
-`npm install` triggers `electron-builder install-app-deps`, which rebuilds the native modules (`node-pty` and `better-sqlite3`) against Electron 30. If a native module fails to load when Electron starts, run `npm install` again from a clean tree.
+`pnpm install` triggers `electron-builder install-app-deps`, which rebuilds the native modules (`node-pty` and `better-sqlite3`) against Electron 30. If a native module fails to load when Electron starts, run `pnpm install` again from a clean tree.
 
 ## Build pipeline
 
@@ -84,11 +84,14 @@ The renderer and main process are organised by feature area, not by layer.
 - `core/git/` — worktree pool, commit and merge ops, status and diff helpers.
 - `core/providers/` — provider registry, PATH probe, and version detection.
 - `core/workspaces/` — workspace factory and launcher presets.
+- `core/security/` — path containment guard, aidefence gate.
+- `core/remote/` — Jorvis Remote (Telegram long-poll bridge, default-OFF).
+- `core/session/` — session snapshot persistence and restore.
 
 ### `src/renderer/`
 
 - `app/` — root `App.tsx`, router, and theme setup.
-- `features/` — one folder per room: `workspace-launcher/`, `command-room/`, `swarm-room/`, `review-room/`, `memory/`, `browser/`, `skills/`, `tasks/`, `command-palette/`, `settings/`.
+- `features/` — one folder per room or major UI surface: `workspace-launcher/`, `command-room/`, `swarm-room/`, `review/`, `memory/`, `browser/`, `skills/`, `tasks/`, `command-palette/`, `settings/`, `jorvis-assistant/`, `sigmabench-room/`, `voice/`, `operator-console/`, `right-rail/`, `sidebar/`, `top-bar/`.
 - `lib/` — renderer-side utilities and the typed RPC client.
 - `components/ui/` — the shadcn UI starter set (50+ components) seeded under here.
 - `hooks/` — shared React hooks.

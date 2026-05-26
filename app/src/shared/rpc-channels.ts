@@ -392,7 +392,7 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // NativeRebuildModal when this fires.
   'app:native-rebuild-needed',
   // Phase 4 Track C — Ruflo lifecycle events. `ruflo:health` fires on every
-  // supervisor state transition (Settings + Memory chip + Bridge ribbon
+  // supervisor state transition (Settings + Memory chip + Jorvis assistant
   // subscribe to render state-aware affordances). `ruflo:install-progress`
   // streams the lazy-installer's phase / bytes so Settings can render a
   // progress bar without polling.

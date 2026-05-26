@@ -4,8 +4,8 @@
 //   RECEIVING  — scrolling stripe overlay (assistant streaming text).
 //   THINKING   — slow rotating conic gradient (model reasoning).
 // Click handler from STANDBY transitions into LISTENING via the parent.
-// Real mic capture lands in W15 (SigmaVoice); for W13 the click flips
-// the visual state so the rest of the UI is exercised end-to-end.
+// The click handler flips the visual state for UI feedback; actual mic
+// capture routes through the SigmaVoice global-capture pipeline (C-11).
 
 import { cn } from '@/lib/utils';
 

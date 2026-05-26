@@ -11,7 +11,7 @@ import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeI
 import { buildGlobalCaptureController, getWhisperEngine, type GlobalCaptureController } from '@sigmalink/voice-core';
 import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
 import { getRawDb } from '../src/main/core/db/client';
-// C-11 "Hey Sigma" listening-mode primitives (pure, shared).
+// C-11 "Hey Jorvis" listening-mode primitives (pure, shared).
 import { PcmRing } from '../src/shared/pcm-ring';
 import { isSpeech as energyIsSpeech } from '../src/shared/audio-energy';
 import { matchesWakeWord as wakeMatch } from '../src/shared/wake-word';
@@ -197,7 +197,7 @@ function registerGlobalCaptureIpc(): void {
     return handleChannel('setModelId', () => { globalCaptureCtrl?.setModelId(id); });
   });
 
-  // C-11 — "Hey Sigma" listening mode. Persists `voice.listeningMode` and
+  // C-11 — "Hey Jorvis" listening mode. Persists `voice.listeningMode` and
   // arms/disarms the wake loop. The KV write goes through the same getRawDb
   // handle as the other voice toggles.
   ipcMain.handle(`${prefix}setListeningMode`, (_e, payload: unknown) => {
@@ -293,7 +293,7 @@ function initGlobalCapture(): void {
     getFocusedSessionId: () => focusedSessionId,
     ptyWrite: (id: string, data: string) => { getSharedDeps()?.pty.write(id, data); },
     injectToPane: () => kv.get('voice.routeToFocusedPane') === '1',
-    // C-11 — "Hey Sigma" always-on listening deps (macOS only; the native mic
+    // C-11 — "Hey Jorvis" always-on listening deps (macOS only; the native mic
     // tap is darwin-only, so on win/linux startListening() is a no-op because
     // loadNative()/onPcm are absent).
     getListeningMode: () => kv.get('voice.listeningMode') === '1',
@@ -799,7 +799,14 @@ app.on('window-all-closed', () => {
 // after the close would be a no-op. The renderer may already be torn down
 // at this point, so we cannot ask it for the snapshot — we rely on the
 // cached value seeded by `app:session-snapshot` IPC events during the run.
-app.on('before-quit', () => {
+// H-13 — `shutdownRouter` is async (it awaits the per-workspace HTTP-daemon +
+// Telegram-bridge drain so they're reaped before exit, not fire-and-forgotten).
+// Electron's before-quit is sync, so hold the quit (preventDefault), run the
+// async teardown, then re-quit. The guard lets the second (real) quit through.
+let shutdownComplete = false;
+app.on('before-quit', (event) => {
+  if (shutdownComplete) return; // teardown already ran — let the quit proceed
+  event.preventDefault();
   // v1.4.9 — unregister global shortcuts + tear down capture before shutting
   // down the router so the audio engine is cleanly stopped.
   try {
@@ -824,5 +831,10 @@ app.on('before-quit', () => {
   } catch {
     /* never let session persistence block shutdown */
   }
-  shutdownRouter();
+  // The router shutdown self-bounds (daemon supervisors SIGKILL after ~5s), so
+  // this can't hang quit indefinitely; re-quit once it settles.
+  void shutdownRouter().finally(() => {
+    shutdownComplete = true;
+    app.quit();
+  });
 });

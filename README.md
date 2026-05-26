@@ -56,16 +56,21 @@ SigmaLink ships unsigned on Windows (no EV/OV Authenticode cert — deferred ind
 
 SigmaLink is an Electron desktop application that lets a single human operator run several coding-agent CLIs (Claude Code, Codex CLI, Gemini CLI, Kimi Code CLI, OpenCode CLI, plus a custom-command escape hatch) in parallel against the same Git repository. Each agent runs in a real PTY-backed terminal pane and is checked out into its own Git worktree, so concurrent edits cannot collide on disk. A SQLite database holds workspaces, sessions, swarm rosters, tasks, conversations, and notes; nothing is sent to a remote service.
 
-The project is in active rebuild. Phases 1–8 (foundation, swarms, in-app browser, Skills, SigmaMemory, Review/Tasks, UI polish, visual-test loop) are shipped. Phase 9 (V3 parity, waves 12–16) is in progress: bundled credential storage via Electron `safeStorage`, a Sigma Assistant room (W13), the Sigma Canvas visual-design surface (W14), and final hardening land before v0.2.0. Track the swarm in [`docs/10-memory/ORCHESTRATION_LOG.md`](docs/10-memory/ORCHESTRATION_LOG.md).
+As of v1.26.0 all build phases are complete. The product ships: parallel CLI agent grids with Git worktree isolation, coordinated swarms, an in-app browser driven by Playwright MCP, a Skills system, SigmaMemory notes, a Review/Tasks room, the Jorvis AI assistant (live Claude Code CLI streaming), SigmaVoice with "Hey Jorvis" wake-word, a Sigma Canvas design surface, Jorvis Remote (Telegram, default-OFF), an Apple-grade Liquid Glass UI (default theme), and a security hardening layer (IPC path containment, aidefence, central path sandbox).
 
 ## Why SigmaLink
 
 - Parallel CLI agent grids of up to sixteen panes per workspace, with per-pane provider selection, persistent ring-buffered terminal history, and layout presets (mosaic, columns, focus).
 - Per-pane Git worktree isolation under a `sigmalink/<role>/<task>-<8char>` branch namespace, so two agents editing the same repo cannot stomp on each other.
 - Role-bearing swarms (Coordinator, Builder, Scout, Reviewer) coordinated through a deterministic JSONL file-mailbox bus and persisted in SQLite, with broadcast and roll-call patterns built in.
-- An in-app Chromium pane (planned, Phase 3) that any agent can drive through Playwright MCP over CDP, so agents can navigate, take screenshots, and click without a separate browser context.
-- Drag-and-drop Anthropic-format Skills (planned, Phase 4) that fan out to each provider's native skills/extensions location after Zod validation.
-- Local SigmaMemory (planned, Phase 5): a wikilink-driven notes system backed by an in-process MCP server with twelve tools and a force-directed graph view, modelled on the SigmaMemory pattern.
+- An in-app Chromium pane that any agent can drive through Playwright MCP over CDP, so agents can navigate, take screenshots, and click without a separate browser context.
+- Drag-and-drop Anthropic-format Skills that fan out to each provider's native skills/extensions location after Zod validation.
+- SigmaMemory: a wikilink-driven notes system backed by an in-process MCP server with twelve tools and a force-directed graph view.
+- Jorvis AI assistant: live Claude Code CLI streaming, cross-session memory, worktree-aware drag-drop context, and a plan-handoff capsule for briefing agent panes.
+- SigmaVoice: local Whisper transcription, phrase dictionary, verbal macros, "Hey Jorvis" always-on wake-word (macOS, opt-in), and a VoiceTab dashboard.
+- Jorvis Remote: remote-drive Jorvis from a Telegram bot — default-OFF, requires operator setup (token + chat-id allowlist).
+- Apple-grade Liquid Glass UI: the Glass theme (default on fresh profiles) applies genuine `backdrop-filter` chrome to the sidebar, top-bar, and right-rail; SF Pro font + Apple spring motion app-wide; full accessibility pass (reduce-motion, skip-link, keyboard-operable roster).
+- Security hardening: central path containment (sandbox all renderer-supplied paths), aidefence input scanning, IPC payload validation with Zod schemas, bounded file reads, symlink-safe traversal.
 
 ## Workspace types
 
@@ -73,13 +78,13 @@ A workspace is a saved binding of a folder, optional repo root, base branch, and
 
 | Type | Purpose | Status |
 |---|---|---|
-| Sigma Space | Single-workspace agent grid: parallel but independent CLI agents over the same repo (1..16 panes). | Phase 1 (shipped) |
-| Sigma Swarm | Role-bearing coordinated swarm with a file-mailbox bus, side chat, broadcast, and roll-call. | Phase 2 (shipped) |
-| Sigma Canvas | Visual design surface: pick an element in the embedded browser, dispatch a scoped prompt, drag assets onto a selection. | In V3 build (Wave 14) |
+| Sigma Space | Single-workspace agent grid: parallel but independent CLI agents over the same repo (1..16 panes). | Shipped |
+| Sigma Swarm | Role-bearing coordinated swarm with a file-mailbox bus, side chat, broadcast, and roll-call. | Shipped |
+| Sigma Canvas | Visual design surface: pick an element in the embedded browser, dispatch a scoped prompt, drag assets onto a selection. | Shipped |
 
 ## Supported agents
 
-Five providers ship in the v1.2.4 default registry: Claude Code, Codex CLI, Gemini CLI, Kimi Code CLI, and OpenCode CLI. A "Custom Command" row in the workspace-launcher wizard opens a plain interactive shell for ad-hoc binaries. Source: [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md) section 4 and `app/src/shared/providers.ts`.
+Five providers ship in the default registry: Claude Code, Codex CLI, Gemini CLI, Kimi Code CLI, and OpenCode CLI. A "Custom Command" row in the workspace-launcher wizard opens a plain interactive shell for ad-hoc binaries. Source: [`docs/03-plan/PRODUCT_SPEC.md`](docs/03-plan/PRODUCT_SPEC.md) section 4 and `app/src/shared/providers.ts`.
 
 | Provider | Command | Install hint |
 |---|---|---|
@@ -162,13 +167,13 @@ Path to the permanent fix: enroll in Apple Developer Program → flip `electron-
 
 ## Quickstart (build from source)
 
-Prerequisites: Node.js 20 or newer, Git, npm, and at least one CLI agent installed on `PATH`.
+Prerequisites: Node.js 20 or newer, pnpm 9+, Git, and at least one CLI agent installed on `PATH`.
 
 ```bash
 git clone https://github.com/s1gmamale1/SigmaLink.git
 cd SigmaLink/app
-npm install
-npm run electron:dev
+pnpm install
+pnpm electron:dev
 ```
 
 Once the app is running:
@@ -186,7 +191,7 @@ The Command Room opens with one PTY per pane, each in its own worktree branch.
 - Git (with `user.name` and `user.email` configured for commit / merge actions).
 - At least one CLI agent on `PATH`. The launcher greys out providers it cannot resolve.
 
-Windows users: `node-pty` and `better-sqlite3` are rebuilt against the local Electron version on `npm install`. The historic `.cmd` shim issue ("Cannot create process, error code: 2") was resolved by the PATH+PATHEXT resolver in `src/main/core/pty/local-pty.ts:47-85` — see [`docs/01-investigation/01-known-bug-windows-pty.md`](docs/01-investigation/01-known-bug-windows-pty.md) for the full history and [`docs/04-design/windows-port.md`](docs/04-design/windows-port.md) for the v1.2.0 Windows port design.
+Windows users: `node-pty` and `better-sqlite3` are rebuilt against the local Electron version on `pnpm install`. The historic `.cmd` shim issue ("Cannot create process, error code: 2") was resolved by the PATH+PATHEXT resolver in `src/main/core/pty/local-pty.ts:47-85` — see [`docs/01-investigation/01-known-bug-windows-pty.md`](docs/01-investigation/01-known-bug-windows-pty.md) for the full history and [`docs/04-design/windows-port.md`](docs/04-design/windows-port.md) for the v1.2.0 Windows port design.
 
 ## Project structure
 
@@ -232,33 +237,34 @@ Each phase tracks a section of the build blueprint at [`docs/03-plan/BUILD_BLUEP
 | [Phase 5](docs/03-plan/BUILD_BLUEPRINT.md#phase-5--sigmamemory-mcp-server--notes-ui--graph-view) | SigmaMemory MCP server, notes UI, graph view | Shipped |
 | [Phase 6](docs/03-plan/BUILD_BLUEPRINT.md#phase-6--review-room-rebuild--taskskanban) | Review Room rebuild, Tasks / Kanban | Shipped |
 | [Phase 7](docs/03-plan/BUILD_BLUEPRINT.md#phase-7--ui-polish-theme-catalog-command-palette-layout-refinements-animations) | UI polish: theme catalog, command palette, animations | Shipped |
-| [Phase 8](docs/03-plan/BUILD_BLUEPRINT.md#phase-8--visual-test--bug-fix-loops) | Visual test, bug-fix loops, acceptance | Shipped (Wave 7 + Wave 8 + Wave 9 acceptance) |
-| [Phase 9](docs/03-plan/BUILD_BLUEPRINT.md) | V3 parity — credential safeStorage, bundled `@playwright/mcp`, Sigma Assistant room, Sigma Canvas, hardening | In progress (Waves 12–16) |
+| [Phase 8](docs/03-plan/BUILD_BLUEPRINT.md#phase-8--visual-test--bug-fix-loops) | Visual test, bug-fix loops, acceptance | Shipped |
+| [Phase 9](docs/03-plan/BUILD_BLUEPRINT.md) | V3 parity — credential safeStorage, bundled `@playwright/mcp`, Jorvis Assistant room, Sigma Canvas, Apple-grade frontend, Jorvis Remote, security hardening | Shipped (v1.19.0–v1.26.0) |
 
-Now shipping 9 of 11 V3 rooms (Workspaces, Command Room, Swarm Room, Browser, Skills, SigmaMemory, Review, Tasks, Settings). Sigma Assistant lands in Wave 13 and Sigma Canvas in Wave 14.
+All 11 rooms shipped: Workspaces, Command Room, Swarm Room, Browser, Skills, SigmaMemory, Review, Tasks, Settings, Jorvis Assistant, Sigma Canvas. Security hardening wave 1 complete (H-class backlog, v1.26.0).
 
-Last verified: 2026-05-17.
+Last verified: 2026-05-26.
 
 ## What works today
 
 A short menu of flows you can confidently demo on a fresh checkout:
 
 - Open a Git workspace from the Workspace launcher and have it persist + activate in one click.
-- Launch shell agents in a 4-pane mosaic Command Room with real PTY-backed terminals, each in its own Git worktree branch.
+- Launch CLI agents in a 4-pane mosaic Command Room with real PTY-backed terminals, each in its own Git worktree branch. Each pane header shows `branch · model · ±N uncommitted` live.
 - Create a coordinated swarm (Squad/Team/Platoon/Legion preset), broadcast a mission, run a roll-call, and watch the SIGMA:: protocol appear in the side chat.
 - Drop a folder containing a `SKILL.md` onto the Skills Room, then toggle per-provider fan-out for Claude / Codex / Gemini.
 - Write a `[[wikilink]]` memory note, see the backlinks panel update, and explore the force-directed graph view.
-- Switch among four themes (Obsidian, Parchment, Nord, Synthwave) and use the Cmd/Ctrl+K command palette to navigate, kill PTYs, ingest skills, or open recent workspaces.
+- Switch among five themes (Glass, Obsidian, Parchment, Nord, Synthwave) — Glass is the default on fresh profiles. Use the Cmd/Ctrl+K command palette to navigate, kill PTYs, ingest skills, or open recent workspaces.
+- Use the Jorvis AI assistant room to chat with Claude Code CLI and drag pane context (branch + diff + scrollback) into the composer.
+- Use the SigmaBench room to run the same task across multiple providers in isolated worktrees and compare their changed-file overlap (conflict leaderboard).
 
 ## Architecture at a glance
 
 ```
 +---------------------------------------------------------------+
 | Renderer (React 19, Tailwind 3, shadcn UI, xterm.js)          |
-|   rooms (9 shipped): workspaces / command / swarm / review /  |
-|          memory / browser / skills / tasks / settings         |
-|   rooms (V3 build): sigma-assistant (W13) / sigma-canvas      |
-|          (W14)                                                |
+|   rooms (11): workspaces / command / swarm / review /         |
+|               memory / browser / skills / tasks / settings /  |
+|               jorvis-assistant / sigma-canvas                 |
 +---------------------------------------------------------------+
                      |   typed RPC + event bridge (Proxy)
 +---------------------------------------------------------------+
@@ -268,8 +274,8 @@ A short menu of flows you can confidently demo on a fresh checkout:
 +---------------------------------------------------------------+
 | Main process (Electron 30)                                    |
 |   core/pty   core/git   core/providers   core/swarm  core/db  |
-|   core/skills (planned)  core/browser (planned)               |
-|   core/memory (planned)  core/mcp (planned)                   |
+|   core/skills  core/browser  core/memory  core/mcp           |
+|   core/security  core/remote  packages/voice-core            |
 +---------------------------------------------------------------+
                      |   on-disk
 +---------------------------------------------------------------+
@@ -297,19 +303,24 @@ Start at [`docs/README.md`](docs/README.md) for the full directory map. The inte
 
 Full Keep-a-Changelog ledger lives in [`CHANGELOG.md`](CHANGELOG.md). Highlights:
 
-- **v1.4.7** (current) — Lockfile race fix + SessionStep full flake closure. See full CHANGELOG for details.
-- **v1.4.1** — Bridge → Sigma branding sweep across renderer UI strings, component names (`SigmaRoom` → `SigmaRoom`, `bridge-agent/` → `sigma-assistant/`), and RoomId union; transparent `bridge.*` → `sigma.*` kv migration on first boot. Pane → Sigma mailbox back-channel completes the W-2 vision: new `sigma_pane_events` table, `monitor_pane` tool, and `assistant:pane-event` IPC let Sigma Assistant observe pane lifecycle events without polling. `SigmaRoom.tsx` refactored from 922 → 283 LOC via 9 custom hooks + 5 sub-components. Generic "bridge" terminology preserved in `claude-resume-bridge.ts` (symlink helper) and `mcp-host-bridge.ts` (IPC bridge).
-- **v1.4.0** — Sigma Assistant orchestrator resume. Captures Claude `system.init` session ids per conversation (migration 0013), prepends `--resume <id>` on future turns, retry-once fallback when a session goes stale. Right-rail conversation dropdown, resumable pill, resume banner, interrupted-turn banner with retry/dismiss.
-- **v1.3.5** — W-3: Ruflo MCP auto-bind for all 5 CLIs (Claude / Codex / Gemini / Kimi / OpenCode). Canonical args fix (`-y @claude-flow/cli@latest mcp start`); pre-existing user configs self-heal on next workspace open. 5-CLI readiness pill with vacuous-pass for undetected binaries.
-- **v1.3.4** — Claude resume spawn fix. Panes launch from workspace subdir inside worktrees; ignored `CLAUDE.md`/`.claude/` context bridged via symlinks; boot restore uses the Claude bridge; resume args no longer collide with fresh `--session-id`.
-- **v1.3.2 / v1.3.3** — Claude pane hotfixes: `claude-resume-bridge` symlinks workspace-slug JSONL into worktree-slug dir; workspace switching routes to Command Room; Claude blank panes surface as visible error UI within 1.5s.
-- **v1.3.0 / v1.3.1** — Session picker in Workspace Launcher (W-1) — per-pane chip with smart default, bulk bar, Scenario B pre-population. `pane_index` migration 0012 deduplicates resume rows.
-- **v1.2.x** — Windows platform port (NSIS + node-pty), auto-update without code-signing certs, stdio MCP switch (~400 LOC deleted), multi-workspace state preservation (ring-buffer replay), session capture rewrite (pre-assigned UUIDs + disk-scan + `--continue` fallback).
-- **v1.1.1** — UX hotfix on top of v1.1.0-rc3. Window finally draggable on macOS (chrome regions wired with `WebkitAppRegion`). "Bridge Assistant" rebranded to **Sigma Assistant** across every user-visible string. **Sigma Assistant now streams real Claude Code CLI responses** (Opus 4.7 under the hood, no raw API calls) — the long-standing W13 stub is replaced with a `child_process` driver that pipes `claude -p ... --output-format stream-json --verbose` JSONL into the existing `assistant:state` channel. **SigmaVoice diagnostics surface** added to Settings (mode radio, permission status with re-prompt, Run Diagnostics button with 4-stage probe dots). First-launch auto-enable on macOS. 8 + 7 new unit tests.
-- **v1.1.0-rc3** — Hotfix on rc2: inlined `lazy-val` in the esbuild bundle to dodge the pnpm content-store hoist that crashed the rc2 DMG with `Cannot find module 'lazy-val'`.
-- **v1.1.0-rc2** — Bundles Phase 4 Tracks A+B+C plus the Skills marketplace live install. Native macOS speech recognition, Ruflo MCP semantic memory + pattern surfacing + autopilot palette suggestion, IPC reliability hardening, provider launcher façade with SigmaCode silent fallback, macOS DMG PATH bootstrap. ⚠ Known DMG runtime defect (`Cannot find module 'lazy-val'`) — superseded by rc3.
-- **v1.0.1** — DMG bindings hotfix + UI bug fixes (sidebar traffic-light overlap, CLI pane text alignment, Browser data-room flicker, missing zod schemas).
-- **v1.0.0** — V3 parity release with Persistent Swarm Replay + Sigma Assistant cross-session memory differentiators. ⚠ Known DMG runtime defect (`Cannot find module 'bindings'`) — superseded by v1.0.1.
+- **v1.26.0** (current) — Security hardening wave 1: central path containment (`core/security/path-guard.ts`), aidefence input scanning, IPC payload validation with Zod schemas, bounded file reads, symlink-safe traversal. See full CHANGELOG for details.
+- **v1.25.0** — Jorvis Remote (Telegram bridge): remote-drive the Jorvis assistant from a Telegram bot. Default-OFF; requires operator setup (token + chat-id allowlist + enable toggle). No new npm dependencies (hand-rolled `fetch` long-poll). Confirm-on-dangerous gate for PTY-level commands.
+- **v1.24.0** — Apple-grade frontend Stage 4: global reduce-motion safety-net, skip-to-main-content link, standardised empty/loading/error states, keyboard-operable RoleRoster, accessible Task drawers.
+- **v1.23.0** — Apple-grade component kit (Stage 3) + H-1 hardening: `tsconfig.electron.json` composite reference makes `tsc -b` cover `electron/main.ts`. Ghost buttons read as translucent chrome on glass; tactile press (`active:scale-[0.98]`); unified focus-ring.
+- **v1.22.0 / v1.22.1** — Apple-grade chrome and window polish (Stage 2): pane controls reveal on hover, active-pane glass glow, real density scaling, macOS title-row `trafficLightPosition`, unified nav selection vocabulary. v1.22.1 hotfix: CI e2e-matrix asserts Glass as the fresh-profile default.
+- **v1.21.0** — Apple-grade Liquid Glass foundation (Stage 1): genuine `backdrop-filter` material layer, SF Pro font, Apple spring motion, Glass as the default theme. Content surfaces stay opaque; chrome only.
+- **v1.20.0 / v1.20.1** — Breadth and polish (final roadmap wave): SigmaBench (multi-agent conflict bench), element→existing-pane dispatch, CLI-based voice transcription (Gemini-CLI option). v1.20.1: wake-word renamed "Hey Jorvis"; restored live `core/voice/model-registry.ts`.
+- **v1.19.0** — New surfaces: browser-on-link, Skills guardrail matrix, "Hey Jorvis" always-on wake-word (energy-gated tiny-Whisper), voice-core dead-tree remediation.
+- **v1.18.0** — Sigma Agent orchestrator (goal → N worktree-isolated panes → conflict-aware merge order), inline voice → focused pane.
+- **v1.17.0** — Worktree-aware drag-drop context for Jorvis composer + swarm chat; plan-handoff capsule; SigmaVoice dictionary, macros, usage dashboard.
+- **v1.16.0** — Glanceable swarm: per-pane info bar, grid density scaling, Swarm right-rail tab.
+- **v1.15.0** — Ruflo MCP working end-to-end (shared store, namespace convention, health round-trip).
+- **v1.14.0** — Crashed panes stay visible (new `pty:error` IPC + `CrashBanner`), Gemini spawn/resume fix, shell-first panes ON by default.
+- **v1.13.0** — Bridge → Sigma rename sweep. SigmaVoice standalone app (sigmavoice-v0.2.0).
+- **v1.4.1** — Jorvis Assistant pane event back-channel (`sigma_pane_events`, `monitor_pane`, `assistant:pane-event`).
+- **v1.2.x** — Windows platform port (NSIS + node-pty), auto-update, stdio MCP, multi-workspace state preservation.
+- **v1.1.1** — Jorvis Assistant streams live Claude Code CLI responses; SigmaVoice diagnostics panel; window draggable on macOS.
+- **v1.0.0 / v1.0.1** — V3 parity release: Persistent Swarm Replay + Jorvis Assistant cross-session memory.
 
 ## Browser MCP first use (v1.2.6+)
 
@@ -326,9 +337,9 @@ Full triage in [`docs/08-bugs/OPEN.md`](docs/08-bugs/OPEN.md) and [`docs/03-plan
 
 - **macOS notarisation + Windows code-signing** — installers are unsigned. macOS users see Gatekeeper warnings (workarounds documented above and inside the DMG); Windows users see SmartScreen. Notarisation requires an Apple Developer ID (procurement deferred).
 - **CI red on `main`** — `@playwright/test` module mismatch on Linux workers + macOS `shellcheck-via-apt-get` infra issues. Local gates (tsc / vitest / eslint / build / electron compile) all green; CI infra fix is queued.
-- **Wake-word "Hey Sigma"** — Porcupine free-tier licensing forbids shipping a bundled AccessKey to public users. A BYO-AccessKey UX is on the v1.5 roadmap.
+- **Wake-word "Hey Jorvis"** — implemented via energy-gated tiny-Whisper phrase matching (no ML wake-word model). Porcupine-based detection was considered but its free-tier licensing forbids shipping a bundled AccessKey to public users.
 - **macOS-only voice** — Windows SAPI + Linux Whisper.cpp not yet shipped; Win/Linux remain on Web Speech API fallback.
-- **V3 visual parity sprint** — 9 documented cosmetic gaps in `docs/03-plan/V3_PARITY_BACKLOG.md` (right-rail dock chrome, per-pane top-bar variants, multi-pane grid layout persistence, role-color tokens, Swarm Skills 12-tile grid, Sigma orb animation polish, CLI agent provider strip, coordinator task-brief envelope, general token retheme audit). Held for a later sweep.
+- **Remaining cosmetic gaps** — a small set of UI refinements tracked in `docs/03-plan/V3_PARITY_BACKLOG.md` (role-color tokens, multi-pane grid layout persistence, general token retheme audit). Apple-grade frontend Stages 1–4 addressed the major gaps.
 
 ## Contributing
 

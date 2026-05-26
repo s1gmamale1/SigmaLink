@@ -28,11 +28,9 @@
 //   - The `pty:exit` listener (so the exit message is written exactly
 //     once into the scrollback).
 //
-// TODO(V3-W13-003): per-pane chrome (top-bar status dot + branch + close,
-// plus the `<model> <effort> <speed> · <cwd>` mid-strip from V3-W12-002)
-// ships with the right-rail dock work. This file deliberately stays a bare
-// xterm host until then; pane chrome is owned by the new PaneHeader /
-// PaneFooter components (see V3_PARITY_BACKLOG.md §V3-W13-003).
+// Per-pane chrome (status · branch · model · uncommitted count) is owned by
+// PaneHeader / PaneFooter, which wrap this component in CommandRoom. This
+// file is intentionally a bare xterm host; chrome lives outside it.
 
 import { useEffect, useRef } from 'react';
 import '@xterm/xterm/css/xterm.css';

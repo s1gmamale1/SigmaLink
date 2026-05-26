@@ -4,6 +4,30 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.27.0] - 2026-05-26
+
+v1.27.0 — **Security hardening wave 2 — runtime/lifecycle + hygiene** (H-class backlog, wave 2 of 3). 3 parallel worktree-isolated lanes (PTY/spawn on Opus; db+git and hygiene on Sonnet) → lead-integrated the two `rpc-router`-resident items → full gate in main (incl. the whole `tests/e2e/` dir). 9 items shipped; **H-7 deferred** (see Notes).
+
+### Fixed
+
+- **H-6 — win32 shell-first sentinel mismatch.** `spawnLocalPty` (wrap side) and `registry.create` (sentinel-watch side) disagreed on win32: the command was shell-wrapped + emitted the CLI-exit sentinel, but the registry watched it as `direct` (no watcher) → raw sentinel markers leaked into the terminal and `onCliExited` never fired. Extracted a single `resolveEffectiveSpawnMode(spawnMode, command)` used by both sides; win32 is now consistently `direct` end-to-end (un-dogfooded win32 shell-first stays off). No change on POSIX.
+- **H-9 — alt-command fallback dead in shell-first.** The `[command, ...altCommands]` walk only advanced on a synchronous ENOENT, which fired only in direct mode; shell-first injected the bare command into a shell so a missing binary produced "command not found" output, never a throw. Added the same synchronous binary pre-flight to the shell-first path so the alt-walk resolves an installed binary in **both** modes.
+- **H-10 — duplicate-pane spawn leaked a PTY.** On a `UNIQUE constraint failed` (workspace_id, pane_index), the spawned PTY was logged + suppressed without being killed → orphaned child process with no DB row and no kill path. Now `kill` + `forget` the orphaned PTY before suppressing.
+- **H-12 — provider list leaked the internal `shell` sentinel.** `providers.list` mapped the raw provider registry (the Settings → Providers tab only filtered `legacy`), so the internal `shell` row was exposed over RPC. Filtered at the source.
+- **H-13 — `shutdownRouter` fire-and-forgot the daemon stop.** The per-workspace HTTP-daemon `stopAll()` (SIGTERM→5s-drain→SIGKILL) and the Telegram-bridge stop were `void`-discarded, so the process could exit before they drained → orphaned daemon processes. `shutdownRouter` is now `async` and **awaits** them (self-bounded, can't hang quit); the `before-quit` handler holds the quit until the async teardown settles.
+- **H-15 — `git.diff` silent truncation.** A diff exceeding the 16 MiB buffer was silently cut. `GitDiff` gained a `truncated` flag (additive; renderer ignores it until updated) set on the maxBuffer-exceeded path.
+
+### Changed / Docs
+
+- **H-18** — local `electron:pack:{win,mac,all}` scripts now run `electron:compile` (they previously skipped it and would package a stale/absent `electron-dist/main.js`).
+- **H-17** — README (root + `app/`) refreshed to the shipped v1.26.0 reality (Glass default, Jorvis assistant + Remote, the 11 rooms, security hardening; `pnpm`).
+- **H-14** — comment rot fixed: "Hey Sigma" → "Hey Jorvis" (`electron/main.ts`), a stale "Bridge ribbon" subscriber note (`rpc-channels.ts`), and two shipped-but-marked-TODO comments (`Terminal.tsx`, `Orb.tsx`).
+
+### Notes
+
+- **H-7 (transactional migrations) deferred.** Wrapping each migration's `up()` in an outer `db.transaction()` crashes fresh-DB startup: several migrations (0003/0006/0015/0018/…) manage their own `BEGIN`/`COMMIT`, and better-sqlite3 throws "cannot start a transaction within a transaction" on the nested `BEGIN` (caught by the full `tests/e2e/` fresh-profile launches — the MockDb couldn't model the no-nested-transaction rule). Those migrations are already self-atomic, and the runner records a migration only after its `up()` succeeds. Fully centralizing transactions (stripping every migration's own `BEGIN`/`COMMIT`) is a separate, real-DB-tested refactor.
+- Remaining H-class: full H-19 (per-tool ingestion scanning), then R-2 (Cursor provider).
+
 ## [1.26.0] - 2026-05-26
 
 v1.26.0 — **Security hardening wave 1 — IPC containment** (H-class backlog, wave 1 of 3). Closes the renderer-trusts-path / no-validation attack surface in the privileged main process. Built by 3 parallel worktree-isolated Opus lanes → lead-integrated the `rpc-router` wiring → a **mandatory Opus security-review pass** (verdict PASS, no Critical/High) → fixes folded → full gate in main (incl. the whole `tests/e2e/` dir). No new dependencies; no schema migrations; no behavior change for legitimate flows.

@@ -68,6 +68,12 @@ export interface GitDiff {
   stat: string;
   patches: string;
   untrackedFiles: string[];
+  /**
+   * True when the `git diff HEAD` output was cut because it exceeded the
+   * maxBuffer cap. Callers should surface a warning rather than treating the
+   * patches as complete.
+   */
+  truncated: boolean;
 }
 
 export type GridPreset = 1 | 2 | 4 | 6 | 8 | 10 | 12 | 14 | 16 | 18 | 20;

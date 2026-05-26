@@ -9,6 +9,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mock node-pty (same as registry.test.ts)
 vi.mock('./local-pty', () => ({
   spawnLocalPty: vi.fn(),
+  // H-6: registry.create now reads this shared helper to decide whether to arm
+  // the sentinel watcher. Provide the real (pure) impl so the mock is complete.
+  resolveEffectiveSpawnMode: (
+    spawnMode: 'direct' | 'shell-first' | undefined,
+    command: string,
+  ): 'direct' | 'shell-first' =>
+    spawnMode === 'shell-first' && command !== '' && process.platform !== 'win32'
+      ? 'shell-first'
+      : 'direct',
 }));
 
 import { spawnLocalPty } from './local-pty';

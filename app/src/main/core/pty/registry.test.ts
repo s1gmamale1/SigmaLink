@@ -9,9 +9,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock node-pty entirely so we never touch a real PTY. The registry only
 // cares about the `PtyHandle` interface returned by spawnLocalPty.
+//
+// H-6: the registry now imports `resolveEffectiveSpawnMode` from local-pty to
+// decide whether to arm the sentinel watcher. Provide the REAL implementation
+// in the mock (it is pure, platform-aware logic) so the win32 consistency test
+// below exercises the genuine coercion rather than a stub.
 vi.mock('./local-pty', () => {
   return {
     spawnLocalPty: vi.fn(),
+    resolveEffectiveSpawnMode: (
+      spawnMode: 'direct' | 'shell-first' | undefined,
+      command: string,
+    ): 'direct' | 'shell-first' =>
+      spawnMode === 'shell-first' && command !== '' && process.platform !== 'win32'
+        ? 'shell-first'
+        : 'direct',
   };
 });
 
@@ -956,5 +968,82 @@ describe('PtyRegistry — Phase 2 direct-mode regression guard', () => {
 
     // onCliExited must NOT have fired
     expect(cliExitsCalled).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H-6 (Wave-2 hardening) — win32 shell-first sentinel consistency in the registry
+//
+// The registry decides whether to arm the sentinel watcher via the shared
+// `resolveEffectiveSpawnMode` helper (mocked above with the real impl). On win32
+// a shell-first request must be coerced to direct so the watcher is NOT armed —
+// matching spawnLocalPty, which also coerces win32 to direct (no shell wrap, no
+// sentinel emitted). Previously the inline duplicate in the registry kept the
+// win32 check while spawnLocalPty's inline duplicate had dropped it, so a win32
+// pane was wrapped-and-sentinelled but watched as direct (or vice-versa).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PtyRegistry — H-6 win32 shell-first consistency', () => {
+  const originalPlatform = process.platform;
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  });
+
+  it('simulated win32: a shell-first request records spawnMode=direct and arms NO sentinel watcher', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const cliExits: unknown[] = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onCliExited: (info) => cliExits.push(info) },
+    );
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first', // requested, but win32 coerces to direct
+    });
+
+    // The record reflects the coerced mode.
+    expect(sess.spawnMode).toBe('direct');
+
+    // Even if a sentinel-shaped chunk arrives, the watcher must NOT be armed in
+    // direct mode → onCliExited never fires. This is the invariant that broke
+    // when the wrap-side and watch-side disagreed on win32.
+    fireData(`\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`);
+    expect(cliExits).toHaveLength(0);
+  });
+
+  it('non-win32 (darwin): a shell-first request records spawnMode=shell-first and arms the watcher', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const cliExits: Array<{ exitCode: number }> = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onCliExited: (info) => cliExits.push(info) },
+    );
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
+
+    expect(sess.spawnMode).toBe('shell-first');
+    fireData(`\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`);
+    expect(cliExits).toHaveLength(1);
+    expect(cliExits[0]?.exitCode).toBe(0);
   });
 });

@@ -260,6 +260,23 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
       console.warn(
         `[factory-spawn] UNIQUE violation on agent_sessions (ws=${args.wsRow.id}, agent=${args.agentKey}) — duplicate spawn suppressed`,
       );
+      // H-10 (Wave-2 hardening): the PTY was spawned BEFORE this INSERT, so a
+      // UNIQUE violation leaves an orphaned child process with no DB row and no
+      // future kill path (killAll only walks the registry, and forget() during
+      // the graceful window never runs for a row we never persisted). Tear it
+      // down here — kill the child, then forget() to drop the registry record,
+      // unsubscribe its data/exit listeners, and arm the SIGKILL fallback. Both
+      // are best-effort and must never mask the original suppression.
+      try {
+        args.deps.pty.kill(rec.id);
+      } catch {
+        /* kill is best-effort — forget() below still escalates to SIGKILL */
+      }
+      try {
+        args.deps.pty.forget(rec.id);
+      } catch {
+        /* never let cleanup throw out of the suppression branch */
+      }
       // Return the existing session id so callers stay operational.
       return rec.id;
     }

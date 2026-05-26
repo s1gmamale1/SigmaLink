@@ -383,6 +383,36 @@ export function buildWin32CmdCommandLine(command: string, args: string[], withSe
 }
 
 /**
+ * H-6 (Wave-2 hardening) — SINGLE source of truth for "is this spawn actually
+ * wrapped in a shell (shell-first) or run directly?".
+ *
+ * Both `spawnLocalPty` (which decides whether to wrap the command in a shell
+ * and emit the exit-code sentinel) and `PtyRegistry.create` (which decides
+ * whether to arm the sentinel watcher on the data stream) MUST agree on this.
+ * Previously each duplicated the 3-condition guard inline and they drifted:
+ * the spawn side dropped the win32 check in Phase 5 while the registry kept it,
+ * so on win32 a pane was wrapped-and-sentinelled but watched as direct.
+ *
+ * The three conditions, ALL required for shell-first:
+ *   1. spawnMode === 'shell-first'   (operator opt-in / Phase-7 default)
+ *   2. command !== ''                (launching a CLI, not just opening a shell)
+ *   3. process.platform !== 'win32'  (win32 shell-first is un-dogfooded — see
+ *                                     H-6 note in spawnLocalPty; keep it direct)
+ *
+ * Centralising the decision here guarantees the wrapping and the watching can
+ * never disagree again. To enable win32 shell-first in future, lift the win32
+ * condition HERE — both call sites update automatically.
+ */
+export function resolveEffectiveSpawnMode(
+  spawnMode: 'direct' | 'shell-first' | undefined,
+  command: string,
+): 'direct' | 'shell-first' {
+  return spawnMode === 'shell-first' && command !== '' && process.platform !== 'win32'
+    ? 'shell-first'
+    : 'direct';
+}
+
+/**
  * v1.6.0 Phase 3 — Compute the effective per-pane spawn mode.
  *
  * When the global mode is 'shell-first' and this pane's provider delivers its
@@ -468,11 +498,23 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
   // Phase 7 (DONE — 2026-05-22): default is now 'shell-first'.
   // parseSpawnMode() returns 'shell-first' for any unset/absent KV value.
   // Explicit 'direct' KV values are still honoured.
+  //
+  // H-6 (Wave-2 hardening, 2026-05-26): the win32 platform guard is RESTORED.
+  // win32 shell-first is un-dogfooded and was never wired safely: `spawnLocalPty`
+  // dropped the win32 check in Phase 5 (so it wrapped the command in a shell and
+  // emitted the exit-code sentinel), but `PtyRegistry.create` STILL coerces win32
+  // to 'direct' when deciding whether to arm the sentinel watcher. The result on
+  // win32 was a pane spawned shell-first-wrapped (printing raw sentinel markers
+  // into the user's terminal) while the registry watched it as direct (never
+  // firing onCliExited). Re-adding the guard here makes the spawn-wrapping and
+  // the sentinel-watching agree at the SINGLE source of truth: win32 is now
+  // consistently 'direct' end-to-end (no shell wrap, no sentinel watcher). The
+  // matching coercion in registry.ts and the documented intent in the win32
+  // local-pty test now hold. To enable win32 shell-first in future, lift the
+  // win32 condition in the shared `resolveEffectiveSpawnMode` helper — both this
+  // function and registry.ts call it, so they can never disagree again.
   // ---------------------------------------------------------------------------
-  const effectiveMode: 'direct' | 'shell-first' =
-    input.spawnMode === 'shell-first' && input.command !== ''
-      ? 'shell-first'
-      : 'direct';
+  const effectiveMode = resolveEffectiveSpawnMode(input.spawnMode, input.command);
 
   if (effectiveMode === 'shell-first') {
     return spawnShellFirstPty(input);
@@ -667,6 +709,39 @@ function buildCommandLineForShell(
 }
 
 function spawnShellFirstPty(input: SpawnInput): PtyHandle {
+  // H-9 (Wave-2 hardening): synchronous ENOENT pre-flight for shell-first mode.
+  //
+  // In direct mode, `spawnLocalPty` pre-resolves the command against PATH and
+  // throws a synchronous ENOENT when it is missing, which lets the launcher's
+  // `[command, ...altCommands]` walk fall through to the next candidate. In
+  // shell-first mode the binary is INJECTED as text into a shell that always
+  // exists, so a missing binary used to surface only as shell "command not
+  // found" output + the exit-code sentinel — never a synchronous throw — and
+  // the altCommands fallback was therefore dead.
+  //
+  // Resolve the binary here, BEFORE building the shell command line, mirroring
+  // the direct-mode pre-flight. On a miss we throw the same ENOENT shape so the
+  // launcher walks to the next alt-command in BOTH modes. On a hit we inject the
+  // RESOLVED absolute path into the command line so the chosen binary is
+  // unambiguous regardless of spawn mode.
+  //
+  // (win32 always degrades to direct after H-6, so this path is POSIX-only in
+  // practice; the resolver stays platform-aware for symmetry.)
+  const resolvedCommand =
+    process.platform === 'win32'
+      ? resolveWindowsCommand(input.command)
+      : resolvePosixCommand(input.command);
+  if (!resolvedCommand) {
+    const err = new Error(
+      `spawn ${input.command} ENOENT`,
+    ) as Error & { code: string; errno: number; syscall: string; path: string };
+    err.code = 'ENOENT';
+    err.errno = -2;
+    err.syscall = 'spawn';
+    err.path = input.command;
+    throw err;
+  }
+
   const resolvedCwd =
     input.cwd && fs.existsSync(input.cwd) ? input.cwd : os.homedir();
 
@@ -720,6 +795,16 @@ function spawnShellFirstPty(input: SpawnInput): PtyHandle {
   // the forwarded data and emits the 'cli-exited' signal.
   // Phase 5: dispatches to the per-shell builder (POSIX printf / PowerShell
   // Write-Host / cmd.exe echo) based on platform and resolved shell kind.
+  //
+  // H-9: we inject `input.command` (the bare candidate name), NOT the resolved
+  // absolute path. By the time we reach here for a given candidate, the launcher
+  // has already substituted the correct alt-command into `input.command` and our
+  // pre-flight above confirmed it exists on PATH — the shell resolves the same
+  // name to the same binary. Keeping the bare name preserves the injected-line
+  // contract (and avoids leaking absolute paths into the visible terminal). The
+  // pre-flight's ENOENT throw is what actually drives the fallback walk: a
+  // missing candidate now fails synchronously in shell-first mode just like in
+  // direct mode, so the launcher tries the next alt in both.
   const commandLine = buildCommandLineForShell(shell.command, input.command, input.args, true);
 
   // Injection latch — write the command line exactly ONCE.

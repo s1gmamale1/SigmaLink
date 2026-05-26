@@ -16,7 +16,7 @@
 // disk-scan retries via `pty/session-disk-scanner`.
 
 import { randomUUID } from 'node:crypto';
-import { spawnLocalPty, type PtyHandle, type SpawnInput } from './local-pty';
+import { spawnLocalPty, resolveEffectiveSpawnMode, type PtyHandle, type SpawnInput } from './local-pty';
 import { RingBuffer } from './ring-buffer';
 import { detectLinks, type LinkHit } from './link-detector';
 import { extractSentinel } from './sentinel';
@@ -210,14 +210,14 @@ export class PtyRegistry {
     const id = input.sessionId ?? input.preassignedSessionId ?? randomUUID();
     const isResume = input.isResume ?? (input.sessionId !== undefined);
     // v1.6.0 Phase 2: resolve the effective spawn mode so the data handler knows
-    // whether to watch for the CLI-exit sentinel.  Mirrors the logic in
-    // spawnLocalPty so the registry stays consistent with what was actually spawned.
-    const effectiveSpawnMode: 'direct' | 'shell-first' =
-      input.spawnMode === 'shell-first' &&
-      (input.command ?? '') !== '' &&
-      process.platform !== 'win32'
-        ? 'shell-first'
-        : 'direct';
+    // whether to watch for the CLI-exit sentinel.
+    //
+    // H-6 (Wave-2 hardening): this used to duplicate spawnLocalPty's 3-condition
+    // guard inline, and the two drifted on win32 (the spawn side dropped the
+    // win32 check in Phase 5 while this kept it). Both call sites now share the
+    // single `resolveEffectiveSpawnMode` helper so the watcher armed here always
+    // matches whether spawnLocalPty actually wrapped the command in a shell.
+    const effectiveSpawnMode = resolveEffectiveSpawnMode(input.spawnMode, input.command ?? '');
     const pty = spawnLocalPty(input);
     const buffer = new RingBuffer();
     // v1.9-scrollback — restore prior content BEFORE the live onData listener

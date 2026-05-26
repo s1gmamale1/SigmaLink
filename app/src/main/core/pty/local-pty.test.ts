@@ -20,6 +20,7 @@ import {
   spawnLocalPty,
   posixQuoteArg,
   parseSpawnMode,
+  resolveEffectiveSpawnMode,
   KV_PTY_SPAWN_MODE,
   buildShellCommandLine,
   win32QuotePwshArg,
@@ -324,8 +325,13 @@ describe('spawnLocalPty: shell-first mode', () => {
 
     const { freshSpawn, written, nodePty } = await setup();
 
+    // H-9: shell-first now pre-flights the command against PATH (mirroring
+    // direct mode) so a missing binary throws ENOENT and the launcher walks to
+    // the next alt. Use `sh` here — guaranteed present on POSIX — so this
+    // injection test is deterministic regardless of which agent CLIs are
+    // installed on the host/CI runner.
     const handle = freshSpawn({
-      command: 'claude',
+      command: 'sh',
       args: ['--print', 'hello'],
       cwd: process.cwd(),
       cols: 80,
@@ -338,11 +344,10 @@ describe('spawnLocalPty: shell-first mode', () => {
     // No injection yet — waiting for first data
     expect(written.length).toBe(0);
 
-    // The spawned command should be the shell, NOT 'claude'.
+    // The spawned command should be the default shell, NOT the input command.
     const spawnCalls = vi.mocked(nodePty.spawn).mock.calls;
     expect(spawnCalls.length).toBe(1);
     const spawnedCmd = spawnCalls[0]![0] as string;
-    expect(spawnedCmd).not.toBe('claude');
     const shellBasename = spawnedCmd.split('/').pop() ?? spawnedCmd;
     const knownShells = ['zsh', 'bash', 'sh', 'fish', 'dash'];
     const isShell = knownShells.some((s) => shellBasename.startsWith(s));
@@ -356,7 +361,7 @@ describe('spawnLocalPty: shell-first mode', () => {
     const { freshSpawn, written, fireData } = await setup();
 
     freshSpawn({
-      command: 'claude',
+      command: 'sh',
       args: ['--resume', 'abc-123'],
       cwd: process.cwd(),
       cols: 80,
@@ -371,7 +376,7 @@ describe('spawnLocalPty: shell-first mode', () => {
     // Phase 2: injected line now includes the sentinel snippet so the shell
     // prints the exit marker when the CLI exits.
     const injected = written[0]!;
-    expect(injected).toMatch(/^claude '--resume' 'abc-123'/);
+    expect(injected).toMatch(/^sh '--resume' 'abc-123'/);
     expect(injected).toContain(SENTINEL_PREFIX);
     expect(injected).toContain(SENTINEL_SUFFIX);
     expect(injected).toContain('"$?"');
@@ -385,7 +390,7 @@ describe('spawnLocalPty: shell-first mode', () => {
     const { freshSpawn, written, fireData } = await setup();
 
     freshSpawn({
-      command: 'claude',
+      command: 'sh',
       args: [],
       cwd: process.cwd(),
       cols: 80,
@@ -407,7 +412,7 @@ describe('spawnLocalPty: shell-first mode', () => {
     const { freshSpawn, written } = await setup();
 
     freshSpawn({
-      command: 'claude',
+      command: 'sh',
       args: ['--flag'],
       cwd: process.cwd(),
       cols: 80,
@@ -420,7 +425,7 @@ describe('spawnLocalPty: shell-first mode', () => {
 
     expect(written.length).toBe(1);
     const injected = written[0]!;
-    expect(injected).toMatch(/^claude '--flag'/);
+    expect(injected).toMatch(/^sh '--flag'/);
     expect(injected).toContain(SENTINEL_PREFIX);
     expect(injected).toContain(SENTINEL_SUFFIX);
     expect(injected.endsWith('\n')).toBe(true);
@@ -433,7 +438,7 @@ describe('spawnLocalPty: shell-first mode', () => {
     const { freshSpawn, written, fireData } = await setup();
 
     freshSpawn({
-      command: 'claude',
+      command: 'sh',
       args: [],
       cwd: process.cwd(),
       cols: 80,
@@ -466,6 +471,105 @@ describe('spawnLocalPty: shell-first mode', () => {
       caught = err;
     }
     // On win32, shell-first silently degrades to direct, which then hits ENOENT
+    const e = caught as NodeJS.ErrnoException;
+    expect(e).toBeInstanceOf(Error);
+    expect(e.code).toBe('ENOENT');
+  });
+
+  it('H-9: shell-first throws synchronous ENOENT for a missing binary (drives the launcher alt-command walk)', () => {
+    if (process.platform === 'win32') return; // POSIX path (win32 degrades to direct)
+    // Empty PATH so no binary resolves. Previously shell-first injected the
+    // command into a live shell, so a missing binary produced only "command
+    // not found" output + sentinel — never a synchronous throw — and the
+    // launcher's [command, ...altCommands] walk was dead in this mode.
+    process.env.PATH = '/does/not/exist';
+    let caught: unknown = null;
+    try {
+      spawnLocalPty({
+        command: 'definitely-not-a-real-binary-xyz',
+        args: [],
+        cwd: process.cwd(),
+        cols: 80,
+        rows: 24,
+        spawnMode: 'shell-first',
+      });
+    } catch (err) {
+      caught = err;
+    }
+    const e = caught as NodeJS.ErrnoException;
+    expect(e).toBeInstanceOf(Error);
+    expect(e.code).toBe('ENOENT');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H-6 (Wave-2 hardening) — win32 shell-first sentinel consistency.
+//
+// resolveEffectiveSpawnMode is the SINGLE source of truth shared by spawnLocalPty
+// (shell-wrap decision) and PtyRegistry.create (sentinel-watch decision). These
+// tests pin the win32 coercion so the two can never disagree again.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resolveEffectiveSpawnMode (H-6)', () => {
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  });
+
+  it('non-win32: shell-first + non-empty command → shell-first', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    expect(resolveEffectiveSpawnMode('shell-first', 'claude')).toBe('shell-first');
+  });
+
+  it('non-win32: empty command → direct (opening a plain shell)', () => {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    expect(resolveEffectiveSpawnMode('shell-first', '')).toBe('direct');
+  });
+
+  it('non-win32: direct request → direct', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    expect(resolveEffectiveSpawnMode('direct', 'claude')).toBe('direct');
+    expect(resolveEffectiveSpawnMode(undefined, 'claude')).toBe('direct');
+  });
+
+  it('win32: shell-first request is coerced to direct (un-dogfooded — kept consistent end-to-end)', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    // Even an explicit shell-first request must yield direct on win32 so the
+    // pane is NOT shell-wrapped (no sentinel emitted) AND the registry does not
+    // arm a sentinel watcher. The wrap-side (spawnLocalPty) and the watch-side
+    // (PtyRegistry.create) both read this helper, so they agree by construction.
+    expect(resolveEffectiveSpawnMode('shell-first', 'claude')).toBe('direct');
+  });
+});
+
+describe('spawnLocalPty: win32 shell-first consistency (H-6)', () => {
+  afterEach(() => {
+    process.env.PATH = originalPath;
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  });
+
+  it('simulated win32 + shell-first request does NOT spawn shell-first (no sentinel watcher armed for a non-wrapped pane)', () => {
+    // Simulate win32 and an empty PATH so the would-be command cannot resolve.
+    // If win32 took the shell-first path, spawnShellFirstPty would resolve the
+    // SHELL (which the win32 resolver may still find) and inject a sentinel —
+    // no synchronous throw. Because win32 is coerced to DIRECT, the direct-mode
+    // pre-flight runs instead and throws ENOENT for the missing command,
+    // proving we took the direct path (consistent with the registry, which also
+    // coerces win32 to direct and therefore arms NO sentinel watcher).
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    process.env.PATH = '';
+    let caught: unknown = null;
+    try {
+      spawnLocalPty({
+        command: 'not-a-real-binary-xyz',
+        args: [],
+        cwd: process.cwd(),
+        cols: 80,
+        rows: 24,
+        spawnMode: 'shell-first',
+      });
+    } catch (err) {
+      caught = err;
+    }
     const e = caught as NodeJS.ErrnoException;
     expect(e).toBeInstanceOf(Error);
     expect(e.code).toBe('ENOENT');

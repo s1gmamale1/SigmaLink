@@ -203,6 +203,49 @@ describe('resolveAndSpawn ENOENT fallback walk', () => {
     expect(calls).toHaveLength(2);
   });
 
+  it('H-9: walks to altCommands in shell-first mode (fallback is mode-agnostic)', () => {
+    // H-9: the alt-command fallback used to be dead in shell-first mode because
+    // spawnLocalPty injected the binary into a live shell instead of pre-flighting
+    // it, so a missing primary never threw ENOENT and the walk never advanced.
+    // spawnLocalPty now pre-flights in shell-first mode too, so the registry
+    // throws ENOENT and resolveAndSpawn's walk advances — identically to direct
+    // mode. This test pins the launcher contract: spawnMode is forwarded and the
+    // walk is mode-agnostic.
+    let attempt = 0;
+    const capturedSpawnModes: Array<'direct' | 'shell-first' | undefined> = [];
+    const calls: MockSpawn[] = [];
+    const registry = {
+      create(input: {
+        command: string;
+        args: string[];
+        spawnMode?: 'direct' | 'shell-first';
+      }) {
+        calls.push({ command: input.command, args: input.args });
+        capturedSpawnModes.push(input.spawnMode);
+        attempt += 1;
+        if (attempt === 1) {
+          // Primary 'claude' missing → ENOENT, exactly as spawnLocalPty's
+          // shell-first pre-flight now surfaces it.
+          throw Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' });
+        }
+        return makeFakeSession('s-alt-shellfirst');
+      },
+    } as unknown as LauncherDeps['ptyRegistry'];
+
+    const result = resolveAndSpawn(
+      {
+        ptyRegistry: registry,
+        getProvider: (id) => (id === 'claude' ? claudeProvider : undefined),
+      },
+      { providerId: 'claude', cwd: '/tmp', spawnMode: 'shell-first' },
+    );
+
+    expect(result.commandUsed).toBe('claude.cmd');
+    expect(calls.map((c) => c.command)).toEqual(['claude', 'claude.cmd']);
+    // Every attempt carried the shell-first mode through to the registry.
+    expect(capturedSpawnModes).toEqual(['shell-first', 'shell-first']);
+  });
+
   it('does NOT walk on a non-ENOENT failure (e.g. permission denied)', () => {
     const { registry, calls } = mockRegistry(() => {
       const err = Object.assign(new Error('spawn EACCES'), { code: 'EACCES' });
