@@ -53,7 +53,7 @@ import { pushToolErrorNotification } from './core/notifications/sources/tool-err
 import { runBootNotificationsGc } from './core/notifications/gc';
 import { OsNotifier } from './core/notifications/os-notify';
 import { and, eq } from 'drizzle-orm';
-import { agentSessions, jorvisPaneEvents, swarmAgents } from './core/db/schema';
+import { agentSessions, jorvisPaneEvents, swarmAgents, workspaces } from './core/db/schema';
 import { getDb } from './core/db/client';
 import { BrowserManagerRegistry } from './core/browser/manager';
 import { buildBrowserController } from './core/browser/controller';
@@ -85,6 +85,8 @@ import { buildTelegramController } from './core/remote/controller';
 import { CredentialStore } from './core/credentials/storage';
 import { runVoiceDiagnostics } from './core/voice/diagnostics';
 import { fsReadDir, fsReadFile, fsWriteFile } from './core/fs/controller';
+import { assertAllowedPath, type AllowedRootsSource } from './core/security/path-guard';
+import { validateChannelInput } from './core/rpc/validate';
 import { getChannelSchema } from './core/rpc/schemas';
 // Phase 4 Track C — Ruflo MCP embed. Process-singleton supervisor + lazy
 // installer + JSON-RPC proxy fronting the renderer-facing controller.
@@ -186,15 +188,20 @@ async function dirSize(dir: string): Promise<number> {
     const batch = entries.slice(i, i + BATCH);
     const sizes = await Promise.all(
       batch.map(async (entry) => {
+        // H-16 — never follow symlinks: a symlinked dir could escape the tree
+        // (or cycle into an infinite recursion) and a symlinked file's stat()
+        // would follow to an out-of-tree target. `withFileTypes` reports the
+        // link itself, so skip it outright and lstat regular files.
+        if (entry.isSymbolicLink()) return 0;
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           return dirSize(full);
         }
         try {
-          const st = await fs.promises.stat(full);
-          return st.size;
+          const st = await fs.promises.lstat(full);
+          return st.isFile() ? st.size : 0;
         } catch {
-          /* symlink or permission issue — skip */
+          /* permission issue — skip */
           return 0;
         }
       }),
@@ -229,6 +236,32 @@ function buildRouter() {
   }
 
   const worktreePool = new WorktreePool({ baseDir: path.join(userData, 'worktrees') });
+
+  // Wave-1 H-5 — authoritative allowed-roots for the renderer-facing fs/git/pty
+  // path sandbox. Re-derived per call so freshly-opened workspaces are picked up;
+  // a DB failure yields [] (deny-all) for that call rather than widening the
+  // sandbox. Same root-derivation as `allowedReadRoots(ctx)` in tools.ts and the
+  // `revealInFolder` allow-set below — reads/writes/shell/read_files share ONE
+  // sandbox definition.
+  const fsAllowedRoots: AllowedRootsSource = () => {
+    const set = new Set<string>();
+    try {
+      for (const ws of getDb().select().from(workspaces).all()) {
+        if (ws.rootPath) set.add(path.resolve(ws.rootPath));
+        if (ws.repoRoot) {
+          set.add(path.resolve(ws.repoRoot));
+          try {
+            set.add(path.resolve(worktreePool.poolPathForRepo(ws.repoRoot)));
+          } catch {
+            /* worktree pool unavailable for this repo — skip */
+          }
+        }
+      }
+    } catch {
+      /* DB unavailable — deny-all */
+    }
+    return [...set];
+  };
   /**
    * v1.2.8 — persist the captured provider-native session id into the DB. The
    * write is idempotent (`WHERE external_session_id IS NULL OR ''`) so a stale
@@ -722,6 +755,12 @@ function buildRouter() {
       env?: Record<string, string>;
       initialPrompt?: string;
     }) => {
+      // H-4 — contain the renderer-supplied spawn cwd to a workspace/worktree
+      // root (same class as spawnScratch; the command is already constrained to
+      // the provider registry). Legit pane launches use workspace/worktree dirs
+      // that are in the allow-set; a compromised renderer cannot spawn an agent
+      // CLI in an arbitrary directory with arbitrary args/env.
+      assertAllowedPath(input.cwd, fsAllowedRoots());
       const providerId = input.providerId;
       const definition = AGENT_PROVIDERS.find((p) => p.id === providerId);
       const command = definition?.command ?? '';
@@ -789,6 +828,9 @@ function buildRouter() {
       if (typeof input?.cwd !== 'string' || !input.cwd) {
         throw new Error('pty.spawnScratch: cwd must be a non-empty string');
       }
+      // H-4 — contain the renderer-supplied cwd to a workspace/worktree root
+      // before spawning a shell there (throws 'path outside workspace' otherwise).
+      assertAllowedPath(input.cwd, fsAllowedRoots());
       const shell =
         process.env.SHELL ??
         (process.platform === 'win32' ? 'cmd.exe' : '/bin/sh');
@@ -1099,8 +1141,13 @@ function buildRouter() {
   const gitCtl = defineController({
     status: async (cwd: string) => gitStatus(cwd),
     diff: async (cwd: string) => gitDiff(cwd),
-    runCommand: async (cwd: string, line: string, timeoutMs?: number) =>
-      runShellLine(cwd, line, timeoutMs),
+    runCommand: async (cwd: string, line: string, timeoutMs?: number) => {
+      // H-4 — the renderer supplies cwd; contain it to a workspace/worktree
+      // root before running a shell line there (throws 'path outside workspace'
+      // otherwise). The line itself is a git command run with shell:false.
+      assertAllowedPath(cwd, fsAllowedRoots());
+      return runShellLine(cwd, line, timeoutMs);
+    },
     commitAndMerge: async (input: {
       worktreePath: string;
       branch: string;
@@ -1128,10 +1175,12 @@ function buildRouter() {
     exists: async (p: string) => fs.existsSync(p),
     // V3-W14-007 — Editor tab. The controller bodies live in core/fs/controller.ts
     // so they can be unit-tested without spinning up the whole router.
-    readDir: async (input: { path: string }) => fsReadDir(input),
-    readFile: async (input: { path: string; maxBytes?: number }) => fsReadFile(input),
+    readDir: async (input: { path: string }) =>
+      fsReadDir({ ...input, allowedRoots: fsAllowedRoots }),
+    readFile: async (input: { path: string; maxBytes?: number }) =>
+      fsReadFile({ ...input, allowedRoots: fsAllowedRoots }),
     writeFile: async (input: { path: string; content: string; repoRoot: string }) =>
-      fsWriteFile(input),
+      fsWriteFile({ ...input, allowedRoots: fsAllowedRoots }),
     // v1.4.2-06 — Storage panel: enumerate worktree dirs with sizes.
     getWorktreeSizes: async () => {
       const worktreesDir = path.join(app.getPath('userData'), 'worktrees');
@@ -1143,11 +1192,13 @@ function buildRouter() {
       const repoHashes = fs.readdirSync(worktreesDir);
       for (const repoHash of repoHashes) {
         const repoDir = path.join(worktreesDir, repoHash);
-        if (!fs.statSync(repoDir).isDirectory()) continue;
+        // H-16 — lstat (no-follow): a symlink here is skipped rather than
+        // traversed off-tree, consistent with the hardened dirSize.
+        if (!fs.lstatSync(repoDir).isDirectory()) continue;
         const branchSegs = fs.readdirSync(repoDir);
         for (const branchSeg of branchSegs) {
           const wtPath = path.join(repoDir, branchSeg);
-          if (!fs.statSync(wtPath).isDirectory()) continue;
+          if (!fs.lstatSync(wtPath).isDirectory()) continue;
           const sizeBytes = await dirSize(wtPath);
           result.worktrees.push({ path: wtPath, sizeBytes, repoHash, branchSeg });
           result.totalBytes += sizeBytes;
@@ -1430,6 +1481,10 @@ function buildRouter() {
       }
     },
     ruflo: rufloProxy,
+    // H-19 — opportunistic aidefence proxy. Advisory inbound scan on every send
+    // prompt; never blocks the local operator, never throws (the gate swallows
+    // a Ruflo failure). Makes `Security: PENDING` → active at runtime.
+    rufloCall: (tool, args) => rufloProxy.call(tool, args),
     mcpHost: {
       serverEntry: jorvisHostServerEntry,
       socketPath: mcpHostSigma.getSocketPath(),
@@ -1730,6 +1785,10 @@ export function registerRouter(): void {
       const channel = `${ns}.${key}`;
       ipcMain.handle(channel, async (_e, ...args) => {
         try {
+          // H-8 — enforce the per-channel input schema at the boundary (no-op
+          // for z.any() / unhardened channels; throws ZodError on a tightened
+          // channel's malformed payload, converted to the error envelope below).
+          args[0] = validateChannelInput(channel, args[0]);
           const out = await (fn as (...a: unknown[]) => unknown)(...args);
           return { ok: true, data: out };
         } catch (err) {

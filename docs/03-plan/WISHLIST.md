@@ -1,6 +1,6 @@
 # SigmaLink — Plans wishlist (consolidated)
 
-> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap — ✅ COMPLETE (Stages 1–4)**: S1 Liquid Glass `v1.21.0` (FE-1) · S2 chrome/window `v1.22.0` (FE-2) · S3 component kit `v1.23.0` (FE-3) · S4 per-room + a11y `v1.24.0` (FE-4). Live backlog: **R-1 Jorvis Remote (Telegram) ✅ shipped v1.25.0** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified; **H-1 ✅ shipped v1.23.0**, 18 remain — R-1 partially advances **H-19**). Each row points at the original spec / backlog / plan file it was extracted from.
+> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap — ✅ COMPLETE (Stages 1–4)**: S1 Liquid Glass `v1.21.0` (FE-1) · S2 chrome/window `v1.22.0` (FE-2) · S3 component kit `v1.23.0` (FE-3) · S4 per-room + a11y `v1.24.0` (FE-4). Live backlog: **R-1 Jorvis Remote (Telegram) ✅ shipped v1.25.0** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified; **H-1 ✅ v1.23.0**; **H-2/3/4/5/8/11/16 ✅ v1.26.0** security wave 1, **H-19 partial** v1.26.0; **11 remain** → wave 2 = H-6/7/9/10/12/13/15 + H-14/17/18, then full H-19). Each row points at the original spec / backlog / plan file it was extracted from.
 
 ## Recently shipped ✅
 
@@ -118,7 +118,7 @@ Final stage. 3 worktree-isolated lanes (all Sonnet), gate-green incl. full e2e +
 - **Keyboard + names + guard (R2):** RoleRoster keyboard P0 fixed; SigmaBench workspace-guard `EmptyState`; task-drawer `aria-labelledby`+Escape+return-focus; `aria-label` on Browser/Tasks icon buttons.
 - **Follow-ups (deferred):** full Tab-containment focus-trap on the hand-rolled Task drawers (`TODO(a11y)`); device VoiceOver/Switch-Control testing (operator QA); `prefers-reduced-transparency` for non-glass alpha surfaces; the parchment breadcrumb ~4.3:1 contrast nudge.
 
-**The Apple-grade frontend roadmap (Stages 1–4) is COMPLETE.** Remaining live backlog: R-2 (Cursor CLI), H-class (18 of 19 remain; R-1 partially advanced H-19; next-highest H-5 `assertAllowedPath`). **R-1 (Telegram) ✅ shipped v1.25.0.**
+**The Apple-grade frontend roadmap (Stages 1–4) is COMPLETE.** Remaining live backlog: R-2 (Cursor CLI), H-class **11 remain** (wave 2: H-6/7/9/10/12/13/15 runtime+lifecycle + H-14/17/18 hygiene; then full H-19 ingestion). **R-1 (Telegram) ✅ v1.25.0. Security wave 1 (H-2/3/4/5/8/11/16 + H-19 partial) ✅ v1.26.0.**
 
 ---
 

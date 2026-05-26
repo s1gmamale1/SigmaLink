@@ -33,6 +33,7 @@ import { ToolTracer, safeSerialize, type ToolTrace } from './tool-tracer';
 import { recordSwarmOrigin } from './swarm-origins';
 import { runClaudeCliTurn, cancelClaudeCliTurn } from './runClaudeCliTurn';
 import type { RufloProxy } from '../ruflo/proxy';
+import { createAidefenceGate, type RufloCall } from '../security/aidefence-gate';
 
 export interface AssistantControllerDeps {
   pty: PtyRegistry;
@@ -44,6 +45,15 @@ export interface AssistantControllerDeps {
   userDataDir: string;
   emit: (event: string, payload: unknown) => void;
   ruflo?: Pick<RufloProxy, 'trajectoryStart' | 'trajectoryStep' | 'trajectoryEnd'>;
+  /**
+   * H-19 (partial) — opportunistic Ruflo aidefence proxy. When supplied, the
+   * controller builds an `AidefenceGate` internally and runs an ADVISORY
+   * inbound scan on every `send` prompt (flagging is AUDITED, never blocked —
+   * local operator input is trusted). Absent ⇒ no-op (all existing callers +
+   * tests are unchanged). The lead injects this from rpc-router as
+   * `(tool, args) => rufloProxy.call(tool, args)`.
+   */
+  rufloCall?: RufloCall;
   /**
    * BUG-V1.1.2-01 — Sigma host MCP wiring. When supplied, the controller
    * forwards both fields to `runClaudeCliTurn` so the Claude CLI registers
@@ -110,6 +120,23 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
   const tracer = new ToolTracer();
   tracer.setEmitter(deps.emit);
   const activeTurns = new Map<string, ActiveTurn>();
+
+  // H-19 (partial) — opportunistic aidefence gate. Built only when a ruflo
+  // proxy is injected; otherwise the send path is a no-op (back-compat). Audit
+  // events ride the existing emit broadcaster as `assistant:security` so the
+  // renderer can flip `Security: PENDING` → active and record threats.
+  const aidefence = deps.rufloCall
+    ? createAidefenceGate({
+        rufloCall: deps.rufloCall,
+        audit: (e) => {
+          try {
+            deps.emit('assistant:security', { kind: e.kind, detail: e.detail });
+          } catch {
+            /* audit fan-out is best-effort */
+          }
+        },
+      })
+    : undefined;
 
   /** P3-S7 — Returns the persisted trace so the caller can link follow-up
    *  rows (e.g. `swarm_origins`) to the same `messages.id` written by the
@@ -271,6 +298,16 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         }).id;
       }
       appendMessage({ conversationId, role: 'user', content: input.prompt });
+      // H-19 (partial) — ADVISORY inbound scan. Best-effort + never blocks the
+      // local operator's own prompt; a flagged result is AUDITED (the gate emits
+      // `assistant:security`) so threats are recorded and `Security: PENDING`
+      // becomes active. No-op when `aidefence` is absent. Wrapped so a scan
+      // never delays or breaks the turn it precedes.
+      try {
+        await aidefence?.scanInbound(input.prompt);
+      } catch {
+        /* scan is advisory + never-fail-open — ignore */
+      }
       const turnId = randomUUID();
       const turn: ActiveTurn = { conversationId, turnId, cancelled: false };
       activeTurns.set(turnId, turn);

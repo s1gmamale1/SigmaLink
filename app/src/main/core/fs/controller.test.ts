@@ -1,6 +1,9 @@
-// W-8 — Unit tests for fsWriteFile path-containment guard.
-// Verifies that files inside a worktree root are accepted and files outside
-// are rejected, ensuring the save path-containment fix for per-pane worktrees.
+// W-8 + Wave-1 H-2 — Unit tests for the fsWriteFile path-containment guard.
+//
+// Containment is now decided by the injected `allowedRoots` provider (the
+// keystone in core/security/path-guard), NOT the renderer-supplied `repoRoot`.
+// Each test supplies an `allowedRoots` provider; omitting it is fail-closed and
+// covered explicitly below.
 
 import { describe, expect, it } from 'vitest';
 import { promises as fsp } from 'node:fs';
@@ -8,21 +11,25 @@ import path from 'node:path';
 import os from 'node:os';
 import { fsWriteFile } from './controller';
 
-// Create a temp dir, write a file, clean up afterwards.
+// Create a temp dir, run the body, clean up afterwards.
 async function withTmpDir(fn: (dir: string) => Promise<void>): Promise<void> {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sigmalink-fs-test-'));
   try {
-    await fn(dir);
+    // realpath so containment comparisons survive the macOS
+    // /var/folders → /private/var/folders symlink.
+    await fn(await fsp.realpath(dir));
   } finally {
     await fsp.rm(dir, { recursive: true, force: true });
   }
 }
 
-describe('fsWriteFile — path-containment guard', () => {
-  it('writes a file inside repoRoot (workspace root)', async () => {
+const roots = (...dirs: string[]) => () => dirs;
+
+describe('fsWriteFile — path-containment guard (allowed-roots)', () => {
+  it('writes a file inside an allowed root', async () => {
     await withTmpDir(async (dir) => {
       const target = path.join(dir, 'hello.txt');
-      const result = await fsWriteFile({ path: target, content: 'hi', repoRoot: dir });
+      const result = await fsWriteFile({ path: target, content: 'hi', allowedRoots: roots(dir) });
       expect(result.ok).toBe(true);
       const read = await fsp.readFile(target, 'utf8');
       expect(read).toBe('hi');
@@ -30,55 +37,59 @@ describe('fsWriteFile — path-containment guard', () => {
   });
 
   it('writes a file inside a worktree root (different from workspace root)', async () => {
-    // Simulate two separate dirs: workspace root and a worktree root.
     await withTmpDir(async (wsRoot) => {
       await withTmpDir(async (worktreeRoot) => {
         const target = path.join(worktreeRoot, 'agent-file.ts');
-        // Pass worktreeRoot as repoRoot — the containment guard should accept it.
+        // Both roots are allowed — the target inside worktreeRoot is accepted.
         const result = await fsWriteFile({
           path: target,
           content: 'export {};',
-          repoRoot: worktreeRoot,
+          allowedRoots: roots(wsRoot, worktreeRoot),
         });
         expect(result.ok).toBe(true);
         const read = await fsp.readFile(target, 'utf8');
         expect(read).toBe('export {};');
 
-        // Passing wsRoot as repoRoot for the SAME file MUST be blocked
-        // (target is in worktreeRoot, not wsRoot).
+        // With ONLY wsRoot allowed, the same target (in worktreeRoot) is blocked.
         await expect(
-          fsWriteFile({ path: target, content: 'blocked', repoRoot: wsRoot }),
-        ).rejects.toThrow('path traversal blocked');
+          fsWriteFile({ path: target, content: 'blocked', allowedRoots: roots(wsRoot) }),
+        ).rejects.toThrow('path outside workspace');
       });
     });
   });
 
-  it('blocks path traversal outside repoRoot', async () => {
+  it('blocks path traversal outside the allowed roots', async () => {
     await withTmpDir(async (dir) => {
-      // target is one level above the repoRoot — must be blocked.
       const target = path.join(dir, '..', 'escape.txt');
       await expect(
-        fsWriteFile({ path: target, content: 'bad', repoRoot: dir }),
-      ).rejects.toThrow('path traversal blocked');
+        fsWriteFile({ path: target, content: 'bad', allowedRoots: roots(dir) }),
+      ).rejects.toThrow('path outside workspace');
     });
   });
 
-  it('blocks absolute path outside repoRoot', async () => {
+  it('blocks an absolute path outside the allowed roots', async () => {
     await withTmpDir(async (dir) => {
-      const target = path.join(os.tmpdir(), 'outside.txt');
+      const target = path.join(os.tmpdir(), 'sigmalink-outside-marker.txt');
       await expect(
-        fsWriteFile({ path: target, content: 'bad', repoRoot: dir }),
-      ).rejects.toThrow('path traversal blocked');
+        fsWriteFile({ path: target, content: 'bad', allowedRoots: roots(dir) }),
+      ).rejects.toThrow('path outside workspace');
     });
   });
 
-  it('rejects missing path or repoRoot', async () => {
-    await expect(
-      fsWriteFile({ path: '', content: 'x', repoRoot: '/tmp' }),
-    ).rejects.toThrow('path and repoRoot required');
+  it('is fail-closed when no allowedRoots provider is supplied', async () => {
+    await withTmpDir(async (dir) => {
+      const target = path.join(dir, 'hello.txt');
+      // No allowedRoots ⇒ deny-all, even for a path that physically lives in a
+      // perfectly ordinary temp dir.
+      await expect(
+        fsWriteFile({ path: target, content: 'x' }),
+      ).rejects.toThrow('path outside workspace');
+    });
+  });
 
+  it('rejects a missing path', async () => {
     await expect(
-      fsWriteFile({ path: '/tmp/foo', content: 'x', repoRoot: '' }),
-    ).rejects.toThrow('path and repoRoot required');
+      fsWriteFile({ path: '', content: 'x', allowedRoots: roots('/tmp') }),
+    ).rejects.toThrow('path required');
   });
 });

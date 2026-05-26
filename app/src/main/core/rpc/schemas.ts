@@ -29,14 +29,27 @@ export type ChannelSchema = {
 
 const stub: ChannelSchema = { input: any, output: any };
 
+// H-8 — bounded primitives reused by the security-relevant, command-carrying
+// channels tightened below. `path`/`cwd` strings are capped at the common
+// filesystem PATH_MAX ceiling so a malformed renderer payload can't smuggle an
+// unbounded string into a controller. The validator only ever sees the FIRST
+// positional IPC arg (see `core/rpc/validate.ts` + the schema convention at the
+// top of this file), so channels whose first arg is a plain string are matched
+// with a string schema, and object-first-arg channels with an object schema.
+const PATH_STR = z.string().min(1).max(4096);
+
 /**
- * Validation mode for the rpc-router. Stays at `'warn'` through W12 — only
- * dev builds emit console.warn on missing schemas; production does nothing.
- * W13 is expected to flip enforcement on for namespaces that have hardened
- * schemas. Do NOT flip to `'enforce'` until every channel below has a
- * non-`z.any()` shape.
+ * Validation mode for the rpc-router.
+ *
+ * H-8 — flipped to `'enforce'`. In enforce mode the router `.parse()`s the
+ * first positional IPC arg against the channel's `input` schema and surfaces a
+ * `ZodError` as an RPC error when it fails. Channels still carrying `z.any()`
+ * inputs (the soft-launch `stub`) pass anything through unchanged, so only the
+ * concretely-hardened, security-relevant channels gain rejection; the unhardened
+ * surface is unaffected. Unknown channels (no schema entry) also pass through —
+ * coverage is a separate concern (see `hasSchemaCoverage`).
  */
-export const VALIDATION_MODE: 'warn' | 'enforce' = 'warn';
+export const VALIDATION_MODE: 'warn' | 'enforce' = 'enforce';
 
 // V3-W15-005 — Plan tier enum. Mirrors `Tier` in core/plan/capabilities.ts.
 // Hardened (not `stub`) because the controller has a single, well-known shape
@@ -74,10 +87,29 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   // V3-W15-005 — read the current plan tier (default 'ultra' on SigmaLink).
   'app.tier': APP_TIER_SCHEMA,
   // ── pty ──────────────────────────────────────────────────────────────
-  'pty.create': stub,
-  'pty.write': stub,
-  'pty.resize': stub,
-  'pty.kill': stub,
+  // H-8 — handler is `create(input: { providerId, cwd, cols, rows, args?, env?,
+  // initialPrompt? })`; first arg is the object. `env` is an opaque string map
+  // passed straight to the spawn, left permissive.
+  'pty.create': {
+    input: z.object({
+      providerId: z.string().min(1).max(120),
+      cwd: PATH_STR,
+      cols: z.number().int().positive().max(10_000),
+      rows: z.number().int().positive().max(10_000),
+      args: z.array(z.string().max(8_192)).max(256).optional(),
+      env: z.record(z.string(), z.string()).optional(),
+      initialPrompt: z.string().max(64 * 1024).optional(),
+    }),
+    output: any,
+  },
+  // H-8 — handler is `write(sessionId, data)`. Validator sees only the first
+  // positional arg, so we bound `sessionId`; `data` is 2nd positional and out
+  // of reach (it's an opaque keystroke stream by design).
+  'pty.write': { input: z.string().min(1).max(512), output: any },
+  // H-8 — handler is `resize(sessionId, cols, rows)`; first arg is sessionId.
+  'pty.resize': { input: z.string().min(1).max(512), output: any },
+  // H-8 — handler is `kill(sessionId: string)`; first arg is sessionId.
+  'pty.kill': { input: z.string().min(1).max(512), output: any },
   'pty.snapshot': {
     input: z.string().min(1),
     output: z.object({ buffer: z.string() }),
@@ -171,23 +203,64 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'providers.probe': stub,
   // ── workspaces ───────────────────────────────────────────────────────
   'workspaces.pickFolder': stub,
-  'workspaces.open': stub,
+  // H-8 — handler is `open(root: string)`; first arg is the absolute repo path.
+  'workspaces.open': { input: PATH_STR, output: any },
   'workspaces.list': stub,
-  'workspaces.remove': stub,
+  // H-8 — handler is `remove(id: string)`; first arg is the workspace id
+  // (matches the 200-char bound used by OpenWorkspacesChangedEventSchema).
+  'workspaces.remove': { input: z.string().min(1).max(200), output: any },
+  // H-8 — handler is `launch(plan: LaunchPlan)`. LaunchPlan is a deeply nested
+  // shape (`panes: PaneAssignment[]`, optional resume plan); modelling it here
+  // risks rejecting valid payloads, so it intentionally stays `stub`. See the
+  // Lane-SB report for the rationale.
   'workspaces.launch': stub,
   // ── git ──────────────────────────────────────────────────────────────
-  'git.status': stub,
-  'git.diff': stub,
-  'git.runCommand': stub,
-  'git.commitAndMerge': stub,
-  'git.worktreeRemove': stub,
+  // H-8 — `status(cwd)` / `diff(cwd)`: first (and only) arg is a bounded cwd.
+  'git.status': { input: PATH_STR, output: any },
+  'git.diff': { input: PATH_STR, output: any },
+  // H-8 — handler is `runCommand(cwd, line, timeoutMs?)`. The validator only
+  // sees the FIRST positional arg, so we bound `cwd` here; `line` + `timeoutMs`
+  // are 2nd/3rd positional and out of reach of a single-arg validator (the
+  // shell command itself is sandboxed by git-ops `runShellLine`).
+  'git.runCommand': { input: PATH_STR, output: any },
+  // H-8 — handler is `commitAndMerge(input: { worktreePath, branch, repoRoot,
+  // message })`; first arg is the object. Bound every string field.
+  'git.commitAndMerge': {
+    input: z.object({
+      worktreePath: PATH_STR,
+      branch: z.string().min(1).max(512),
+      repoRoot: PATH_STR,
+      message: z.string().max(16_384),
+    }),
+    output: any,
+  },
+  // H-8 — handler is `worktreeRemove(worktreePath: string)`; first arg is the path.
+  'git.worktreeRemove': { input: PATH_STR, output: any },
   // ── fs ───────────────────────────────────────────────────────────────
-  'fs.exists': stub,
-  // V3-W14-007 — Editor tab. Tightening to z.object lives with W13's
-  // enforcement flip; for now `stub` keeps the soft-launch contract.
-  'fs.readDir': stub,
-  'fs.readFile': stub,
-  'fs.writeFile': stub,
+  // H-8 — handler is `exists(p: string)`; first arg is the bare path string
+  // (NOT an object — verified against the fsCtl.exists signature).
+  'fs.exists': { input: PATH_STR, output: any },
+  // V3-W14-007 — Editor tab. H-8 tightens these to the real `{ path, ... }`
+  // object shapes (fsReadDir / fsReadFile / fsWriteFile in core/fs/controller.ts).
+  'fs.readDir': { input: z.object({ path: PATH_STR }), output: any },
+  'fs.readFile': {
+    input: z.object({
+      path: PATH_STR,
+      maxBytes: z.number().int().positive().max(64 * 1024 * 1024).optional(),
+    }),
+    output: any,
+  },
+  'fs.writeFile': {
+    input: z.object({
+      path: PATH_STR,
+      content: z.string().max(16 * 1024 * 1024),
+      // H-2/H-5 — repoRoot is deprecated for the security decision (the
+      // authoritative allowed-roots provider replaced it); kept optional for
+      // back-compat with the current renderer, which still sends it.
+      repoRoot: PATH_STR.optional(),
+    }),
+    output: any,
+  },
   // ── swarms ───────────────────────────────────────────────────────────
   'swarms.create': stub,
   // V3-W12-017 — controller wraps `addAgentToSwarm` (factory.ts).
@@ -358,8 +431,12 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'review.pruneOrphans': stub,
   'review.batchCommitAndMerge': stub,
   // ── kv ───────────────────────────────────────────────────────────────
-  'kv.get': stub,
-  'kv.set': stub,
+  // H-8 — handler is `get(key: string)`; first arg is the kv key.
+  'kv.get': { input: z.string().min(1).max(512), output: any },
+  // H-8 — handler is `set(key, value)`. Validator sees only the first
+  // positional arg, so we bound `key`; `value` is 2nd positional and out of
+  // reach (the controller already coerces it to a string).
+  'kv.set': { input: z.string().min(1).max(512), output: any },
   // ── tasks ────────────────────────────────────────────────────────────
   'tasks.list': stub,
   'tasks.get': stub,

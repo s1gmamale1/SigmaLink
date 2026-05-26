@@ -27,6 +27,10 @@ import { pickPreset } from './controller';
 import { addAgentToSwarm, createSwarm, listSwarmsForWorkspace } from '../swarms/factory';
 import { formatBroadcast, formatRollCall } from '../swarms/protocol';
 import { defaultRoster } from '../swarms/types';
+// Wave-1 H-5 — the realpath-safe containment primitive R-1 first built here was
+// promoted to the shared keystone in core/security/path-guard so the fs
+// controller and this tool registry enforce containment identically (DRY).
+import { assertAllowedPath, isInsideRoot } from '../security/path-guard';
 
 export interface ToolContext {
   pty: PtyRegistry;
@@ -145,17 +149,9 @@ function cwdLooksInsideWorkspace(
 ): boolean {
   if (!ws) return false;
   const roots = [ws.rootPath, ws.repoRoot].filter((r): r is string => Boolean(r));
-  return roots.some((root) => isInsideRoot(root, cwd));
-}
-
-/**
- * True when `target` is `root` itself or lives underneath it. Uses
- * `path.relative` so `/a/b` is NOT considered inside `/a/bc` (a naive
- * `startsWith` prefix check would wrongly accept that).
- */
-function isInsideRoot(root: string, target: string): boolean {
-  const rel = path.relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  // shared `isInsideRoot(resolvedTarget, resolvedRoot)` — note the arg order:
+  // target first, root second.
+  return roots.some((root) => isInsideRoot(cwd, root));
 }
 
 /**
@@ -187,38 +183,19 @@ function allowedReadRoots(ctx: ToolContext): string[] {
 }
 
 /**
- * R-1 hardening — resolve `p` (following symlinks where possible) and verify it
- * sits inside one of the allowed roots. Returns the resolved absolute path on
- * success, or `null` to reject. Symlink resolution defends against a symlink
- * planted inside the workspace that points at e.g. `~/.ssh/id_rsa`.
+ * R-1 hardening — resolve `p` (following symlinks) and verify it sits inside
+ * one of the allowed roots. Returns the resolved absolute path on success, or
+ * `null` to reject. Delegates the realpath/symlink-safe containment to the
+ * shared keystone (`assertAllowedPath`), which throws on rejection; `read_files`
+ * wants a per-file `null` instead of throwing the whole batch, so we adapt the
+ * throw into `null` here. Behaviour is identical to the previous private copy.
  */
 function resolveInsideAllowedRoots(p: string, roots: string[]): string | null {
-  if (roots.length === 0) return null;
-  let resolved = path.resolve(p);
   try {
-    // realpath collapses symlinks for existing files so a symlink planted
-    // inside the workspace pointing at e.g. `~/.ssh/id_rsa` is judged by its
-    // REAL target, not its in-tree lexical location. Non-existent paths fall
-    // through to the lexically-resolved path (containment still enforced).
-    resolved = fs.realpathSync(resolved);
+    return assertAllowedPath(p, roots);
   } catch {
-    /* file may not exist yet — keep the lexically-resolved path */
+    return null;
   }
-  for (const root of roots) {
-    // Resolve the root too so a symlinked workspace root (e.g. macOS
-    // /var/folders → /private/var/folders) still matches the realpath'd target.
-    let realRoot = root;
-    try {
-      realRoot = fs.realpathSync(root);
-    } catch {
-      /* root may not exist on disk — compare lexically */
-    }
-    // Security note: containment is judged ONLY against the symlink-resolved
-    // path. We deliberately do NOT also accept the lexical path — that would
-    // let an in-tree symlink escape the sandbox.
-    if (isInsideRoot(realRoot, resolved)) return resolved;
-  }
-  return null;
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────

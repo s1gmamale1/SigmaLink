@@ -4,6 +4,27 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-05-26
+
+v1.26.0 — **Security hardening wave 1 — IPC containment** (H-class backlog, wave 1 of 3). Closes the renderer-trusts-path / no-validation attack surface in the privileged main process. Built by 3 parallel worktree-isolated Opus lanes → lead-integrated the `rpc-router` wiring → a **mandatory Opus security-review pass** (verdict PASS, no Critical/High) → fixes folded → full gate in main (incl. the whole `tests/e2e/` dir). No new dependencies; no schema migrations; no behavior change for legitimate flows.
+
+### Security
+
+- **Central path containment (H-5/H-2/H-3)** — a new `core/security/path-guard.ts` (`assertAllowedPath`, realpath/symlink-safe, fail-closed on empty roots) is the single sandbox definition shared by the fs RPC controller, `git.runCommand`, `pty.spawnScratch`, `pty.create`, and the assistant `read_files` tool. The fs reads/writes are now contained to the authoritative allowed-roots (open workspaces' root/repo + the worktree pool, re-derived per call, deny-all on DB failure). `fs.writeFile` no longer trusts the renderer-supplied `repoRoot` (a `repoRoot:"/"` could previously collapse the traversal guard). An in-tree symlink pointing outside the sandbox is rejected by realpath.
+- **Spawn-cwd containment (H-4)** — `git.runCommand`, `pty.spawnScratch`, and `pty.create` now reject a renderer-supplied `cwd` outside the workspace/worktree sandbox before running/spawning (commands already run with `shell:false`).
+- **IPC payload validation enforced (H-8)** — `core/rpc/validate.ts` parses every channel's input at the dispatch boundary; `VALIDATION_MODE` flipped to `enforce`. 17 path/command-carrying channels (`fs.*`, `git.*`, `pty.*`, `kv.*`, `workspaces.*`) gained concrete zod schemas (bounded strings, typed shapes) replacing `z.any()` — a malformed renderer payload is now rejected with an error envelope instead of reaching the controller.
+- **aidefence wired into the runtime (H-19, partial)** — the previously-unused Ruflo aidefence engine now runs an opportunistic, never-fail-open advisory scan on every assistant send prompt (`core/security/aidefence-gate.ts`), emitting `assistant:security` events (flips `Security: PENDING` → active). Local operator input is scanned + audited, never blocked. Per-tool ingestion (read_files / open_url / browser scrape) and outbound PII scrub remain the tracked H-19 follow-up.
+
+### Fixed
+
+- **H-11** — `fs.readFile` does a bounded partial read (open + read up to the cap) instead of reading the whole file into memory before truncating.
+- **H-16** — `dirSize` and `getWorktreeSizes` no longer follow symlinks (skip symlinked entries, `lstat`) — no out-of-tree size traversal, no symlink-cycle recursion.
+
+### Notes
+
+- Security-review residuals tracked for later (none blocking): `fs.exists` remains an existence oracle (it is legitimately used to probe system binary paths for provider-CLI detection); `git.runCommand`'s command token is renderer-supplied but runs `shell:false` in a contained cwd (no shell-metachar injection); the side-band IPC handlers (`swarm.*`, `swarm.replay.*`, etc.) don't yet route through `validateChannelInput` (those namespaces are still `z.any()`).
+- Remaining H-class: wave 2 (H-6/7/9/10/12/13/15 + hygiene H-14/17/18), then R-2 (Cursor provider).
+
 ## [1.25.0] - 2026-05-26
 
 v1.25.0 — **R-1 Jorvis Remote (Telegram bridge)** — the first post-roadmap feature: remote-drive the Jorvis assistant (including worktree-isolated swarms) from a Telegram bot. **SECURITY-CRITICAL** (first network listener in the privileged Electron main process) and **DEFAULT-OFF** — inert until the operator sets a token + chat-id allowlist + enables it. Built by 3 parallel worktree-isolated lanes (assistant security on Opus, transport+safety on Sonnet, bridge+RPC+Settings on Opus) → lead-merged → a **mandatory security-review pass** (Opus) → fixes folded → full gate in main (incl. the whole `tests/e2e/` dir). **No new npm dependencies** (hand-rolled `fetch` long-poll). Operator real-bot/real-phone smoke is the e2e gate; no live Telegram in CI.
