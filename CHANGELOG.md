@@ -4,6 +4,22 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-05-26
+
+v1.28.0 — **R-2: native Cursor CLI provider** — the last item on the post-roadmap backlog. `cursor-agent` is now a first-class SigmaLink provider (not a generic shell pane): it appears in the provider pickers, gets a worktree-isolated pane, session resume, Ruflo MCP auto-bind, a model catalog, and the pane info bar — the same treatment as Claude / Codex / Gemini / Kimi / OpenCode. Built by one worktree-isolated Opus lane against the **empirically-verified** `cursor-agent` v2026.05.24 contract (the CLI is installed) → full gate in main. No `rpc-router` change (the provider plumbing is data-driven). DEFAULT-OFF in the sense that it only activates when the operator installs + authenticates `cursor-agent`.
+
+### Added
+
+- **`cursor` provider** (`shared/providers.ts`): `command: 'cursor-agent'`, non-interactive `-p` panes with `--trust` (headless floor) + conditional `--force` auto-approve (mirrors the claude/codex escalation), `--resume <id>` / `--continue` resume, `sonnet-4`/`gpt-5` model catalog, install via `curl https://cursor.com/install | bash`. Picked up automatically by `listVisibleProviders` / `listDetectable`.
+- **Ruflo MCP auto-bind for Cursor** — the autobind writer now also writes `<workspace>/.cursor/mcp.json` (same `mcpServers` shape as Claude's `.mcp.json`; stdio + HTTP-daemon modes, idempotent merge, refuses operator-managed entries).
+- Cursor pane-splash model label + resume-arg wiring; provider-registry / resume / spawn-arg / MCP-autowrite test coverage.
+
+### Notes
+
+- **Skill provider-compat fan-out is NOT yet extended to Cursor** (the skills `ProviderTarget` is a fixed `claude|codex|gemini` enum with an exhaustive check; Cursor's skill/command on-disk layout is unverified) — tracked follow-up.
+- Operator smoke: install `cursor-agent` + `export CURSOR_API_KEY=…` (or `cursor-agent login`); Cursor then appears in the launcher → a pane spawns `cursor-agent --trust -p "<prompt>"` in its worktree; resume re-opens via `--continue`.
+- **The post-roadmap backlog is now clear.** Remaining: H-7 (deferred — migration-transaction refactor) and full H-19 (per-tool ingestion scanning) — both documented in WISHLIST. No schema migrations in v1.28.0.
+
 ## [1.27.0] - 2026-05-26
 
 v1.27.0 — **Security hardening wave 2 — runtime/lifecycle + hygiene** (H-class backlog, wave 2 of 3). 3 parallel worktree-isolated lanes (PTY/spawn on Opus; db+git and hygiene on Sonnet) → lead-integrated the two `rpc-router`-resident items → full gate in main (incl. the whole `tests/e2e/` dir). 9 items shipped; **H-7 deferred** (see Notes).

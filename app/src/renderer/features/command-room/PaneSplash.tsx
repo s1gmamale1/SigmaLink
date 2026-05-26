@@ -25,6 +25,7 @@ const DEFAULT_MODEL_LABEL: Record<string, string> = {
   gemini: 'Gemini 2.5 Pro',
   kimi: 'Kimi K2.6',
   opencode: 'OpenCode default',
+  cursor: 'Sonnet 4',
 };
 
 interface Props {

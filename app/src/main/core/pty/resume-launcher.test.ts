@@ -27,6 +27,7 @@ const codexProvider = { ...claudeProvider, id: 'codex', name: 'Codex' };
 const geminiProvider = { ...claudeProvider, id: 'gemini', name: 'Gemini' };
 const kimiProvider = { ...claudeProvider, id: 'kimi', name: 'Kimi' };
 const opencodeProvider = { ...claudeProvider, id: 'opencode', name: 'OpenCode' };
+const cursorProvider = { ...claudeProvider, id: 'cursor', name: 'Cursor', command: 'cursor-agent' };
 const VALID_CLAUDE_SESSION_ID = '01234567-89ab-4cde-9f01-23456789abcd';
 
 const tmpHomes: string[] = [];
@@ -211,6 +212,9 @@ describe('buildResumeArgs', () => {
     ['kimi', null, ['--continue'], 'continue'],
     ['opencode', 'ext-id', ['--session', 'ext-id'], 'id'],
     ['opencode', null, ['--continue'], 'continue'],
+    // R-2 — cursor mirrors claude's flag shape: --resume <id> / --continue
+    ['cursor', 'ext-id', ['--resume', 'ext-id'], 'id'],
+    ['cursor', null, ['--continue'], 'continue'],
   ] as const)('%s + %s → %j (%s)', (provider, externalId, expected, mode) => {
     const result = buildResumeArgs(provider, externalId);
     expect(result).not.toBeNull();
@@ -456,6 +460,8 @@ describe('resumeWorkspacePanes', () => {
       { def: geminiProvider, expected: ['--resume', 'latest'] },
       { def: kimiProvider, expected: ['--continue'] },
       { def: opencodeProvider, expected: ['--continue'] },
+      // R-2 — cursor falls back to --continue when no external id was captured
+      { def: cursorProvider, expected: ['--continue'] },
     ];
     for (const { def, expected } of providers) {
       const { db, rows } = setupDb();

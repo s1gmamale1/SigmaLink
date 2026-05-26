@@ -13,6 +13,7 @@ export type ProviderId =
   | 'gemini'
   | 'kimi'
   | 'opencode'
+  | 'cursor'
   | 'shell'
   | 'custom';
 
@@ -166,6 +167,47 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
       win32: ['npm', 'i', '-g', 'opencode'],
     },
     installDocsUrl: 'https://opencode.ai',
+  },
+  {
+    // R-2 (v1.20.x backlog) — Cursor's CLI agent as a first-class provider.
+    // Contract verified against `cursor-agent` 2026.05.24:
+    //   • Non-interactive / headless: `-p`/`--print` (positional `[prompt...]`
+    //     also accepted). Oneshot mirrors claude exactly: `['-p', '{prompt}']`.
+    //   • `--trust` (in `args`) trusts the workspace without prompting in
+    //     `--print`/headless mode — the minimal floor that makes a `-p` pane
+    //     non-interactive (no command-approval prompt). It is a no-op in plain
+    //     interactive panes, so it is safe to apply on every spawn.
+    //   • `--force` (autoApproveFlag, alias `--yolo`) is the full "run
+    //     everything" escalation, applied only when the launcher requests
+    //     autoApprove — mirrors claude `--dangerously-skip-permissions` /
+    //     codex `--dangerously-bypass-approvals-and-sandbox`.
+    //   • Resume: `--resume [chatId]` (+ `--continue`). The registry's
+    //     `resumeArgs` is documentary; the runtime resume argv is built by
+    //     `pty/resume-launcher.ts::buildResumeArgs`, which has a `cursor` case.
+    //   • cwd defaults to the spawn cwd (SigmaLink manages worktrees externally,
+    //     exactly like every other provider — we do NOT use cursor's own
+    //     `-w/--worktree`).
+    // Auth: `CURSOR_API_KEY` env or `cursor-agent login`. MCP autobind writes
+    // the Ruflo server into `<workspace>/.cursor/mcp.json` (see mcp-autowrite.ts).
+    id: 'cursor',
+    name: 'Cursor',
+    description: "Cursor's CLI coding agent (cursor-agent)",
+    command: 'cursor-agent',
+    altCommands: ['cursor-agent.cmd'],
+    args: ['--trust'],
+    resumeArgs: ['--resume'],
+    oneshotArgs: ['-p', '{prompt}'],
+    autoApproveFlag: '--force',
+    color: '#6B7CFF',
+    icon: 'mouse-pointer-2',
+    installHint: 'curl https://cursor.com/install -fsS | bash',
+    detectable: true,
+    installCommand: {
+      darwin: ['bash', '-c', 'curl https://cursor.com/install -fsS | bash'],
+      linux: ['bash', '-c', 'curl https://cursor.com/install -fsS | bash'],
+      win32: ['bash', '-c', 'curl https://cursor.com/install -fsS | bash'],
+    },
+    installDocsUrl: 'https://docs.cursor.com/en/cli/overview',
   },
   // INTERNAL: not surfaced in any picker. The workspace launcher routes
   // skip-agents / custom-command rows through this providerId so the spawn

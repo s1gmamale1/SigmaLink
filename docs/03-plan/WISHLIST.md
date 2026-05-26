@@ -1,6 +1,6 @@
 # SigmaLink — Plans wishlist (consolidated)
 
-> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap — ✅ COMPLETE (Stages 1–4)**: S1 Liquid Glass `v1.21.0` (FE-1) · S2 chrome/window `v1.22.0` (FE-2) · S3 component kit `v1.23.0` (FE-3) · S4 per-room + a11y `v1.24.0` (FE-4). Live backlog: **R-1 Jorvis Remote (Telegram) ✅ shipped v1.25.0** · **R-2 Native Cursor CLI provider** · **H-class hardening** (19 verified; **H-1 ✅ v1.23.0**; **H-2/3/4/5/8/11/16 + H-19-partial ✅ v1.26.0** wave 1; **H-6/9/10/12/13/14/15/17/18 ✅ v1.27.0** wave 2; **H-7 DEFERRED** [incompatible with self-transacting migrations]; **remaining: full H-19 ingestion scanning + R-2**). Each row points at the original spec / backlog / plan file it was extracted from.
+> Single source of truth for what's queued. Updated 2026-05-25 — the BridgeMind C-class roadmap (M0–M5, **C-1…C-13 all shipped**) and the W-class (**W-1…W-8 all shipped**) are done. New initiative: the **Apple-grade frontend roadmap — ✅ COMPLETE (Stages 1–4)**: S1 Liquid Glass `v1.21.0` (FE-1) · S2 chrome/window `v1.22.0` (FE-2) · S3 component kit `v1.23.0` (FE-3) · S4 per-room + a11y `v1.24.0` (FE-4). **Post-roadmap backlog CLEAR (2026-05-26):** **R-1 Jorvis Remote (Telegram) ✅ v1.25.0** · **R-2 Native Cursor CLI provider ✅ v1.28.0** · **H-class** (19; **H-1 ✅ v1.23.0**; **H-2/3/4/5/8/11/16 + H-19-partial ✅ v1.26.0** wave 1; **H-6/9/10/12/13/14/15/17/18 ✅ v1.27.0** wave 2). **Only remaining: H-7 DEFERRED** (migration-txn refactor) **+ full H-19** (per-tool ingestion scanning) — both documented follow-ups. Each row points at the original spec / backlog / plan file it was extracted from.
 
 ## Recently shipped ✅
 
@@ -77,7 +77,11 @@
 - **Two slices:** (1) **do-first hardening** of pre-existing latent holes in `core/assistant/tools.ts` — `read_files` workspace/worktree containment (the `cwdLooksInsideWorkspace` helper exists but isn't called) + `open_url` `https:`-only; (2) **the bridge** (client + controller + settings + RPC wiring + confirm state-machine). Operator real-bot/real-phone smoke gate (like C-11 mic); no live Telegram in CI.
 - **Research:** this session's 3 agents — Jorvis surface (15 tools, main-process, `assistantCtl.send` seam, no safety layer today), Telegram prior-art (official plugin + Hermes + OpenClaw; long-poll + grammY), security threat-model (token in CredentialStore, the latent `read_files`/`open_url` holes, capability tiers). **Next step → full spec + writing-plans when scheduled.**
 
-### R-2 — Native Cursor CLI provider — REQUESTED 2026-05-25, not yet built
+### R-2 — Native Cursor CLI provider — ✅ SHIPPED v1.28.0 (2026-05-26)
+
+**Shipped 2026-05-26** (commit `dc3a5b2`-merged). `cursor-agent` is a first-class provider: `command:'cursor-agent'`, `-p --trust` non-interactive + conditional `--force` auto-approve, `--resume`/`--continue` resume, `sonnet-4`/`gpt-5` models, Ruflo MCP autobind via `<root>/.cursor/mcp.json`, pane-splash label. Built against the empirically-verified cursor-agent v2026.05.24 contract; no rpc-router change (data-driven). **Follow-up:** skill provider-compat fan-out NOT extended to cursor (fixed `claude|codex|gemini` `ProviderTarget` enum — cursor's skill dir unverified). Operator smoke: install + `CURSOR_API_KEY`/`cursor-agent login`. Original request below.
+
+
 
 First-class support for **Cursor's CLI agent** (`cursor-agent` headless mode) as a native SigmaLink provider — not merely launched through a generic `shell` pane. "Native" = it shows up in the provider pickers and gets a worktree-isolated pane, session capture/resume, Ruflo MCP auto-bind, skill provider-compat badges, dispatch-target selection, and the model·branch·token info bar — the same first-class treatment as Claude / Codex / Gemini / Kimi / OpenCode.
 
@@ -118,7 +122,7 @@ Final stage. 3 worktree-isolated lanes (all Sonnet), gate-green incl. full e2e +
 - **Keyboard + names + guard (R2):** RoleRoster keyboard P0 fixed; SigmaBench workspace-guard `EmptyState`; task-drawer `aria-labelledby`+Escape+return-focus; `aria-label` on Browser/Tasks icon buttons.
 - **Follow-ups (deferred):** full Tab-containment focus-trap on the hand-rolled Task drawers (`TODO(a11y)`); device VoiceOver/Switch-Control testing (operator QA); `prefers-reduced-transparency` for non-glass alpha surfaces; the parchment breadcrumb ~4.3:1 contrast nudge.
 
-**The Apple-grade frontend roadmap (Stages 1–4) is COMPLETE.** Remaining live backlog: **R-2** (Cursor CLI) + **full H-19** (per-tool ingestion scanning) + **H-7** (deferred — needs a migration-transaction refactor). **R-1 (Telegram) ✅ v1.25.0. Security wave 1 (H-2/3/4/5/8/11/16 + H-19 partial) ✅ v1.26.0. Security wave 2 (H-6/9/10/12/13/14/15/17/18) ✅ v1.27.0.**
+**The Apple-grade frontend roadmap (Stages 1–4) is COMPLETE, and the post-roadmap backlog is CLEAR.** Shipped this cycle: **R-1 Telegram ✅ v1.25.0 · Security wave 1 ✅ v1.26.0 · Security wave 2 ✅ v1.27.0 · R-2 Cursor provider ✅ v1.28.0.** Only remaining: **H-7** (deferred — migration-transaction refactor) + **full H-19** (per-tool ingestion scanning). Next operator step: real-bot/real-phone smoke (R-1) + `cursor-agent` smoke (R-2).
 
 ---
 

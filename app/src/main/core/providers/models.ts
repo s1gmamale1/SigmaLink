@@ -36,6 +36,11 @@ export const MODEL_OPTIONS: ModelOption[] = [
   { providerId: 'kimi', modelId: 'kimi-k2.6', label: 'Kimi K2.6', via: 'native', defaultEffort: 'medium' },
   // OpenCode — its own default
   { providerId: 'opencode', modelId: 'opencode-default', label: 'OpenCode default', via: 'native', defaultEffort: 'medium' },
+  // R-2 — Cursor agent (`cursor-agent --model <model>`). `cursor-agent models`
+  // lists the live set; these are the two headline defaults from the verified
+  // contract. The first entry is the `defaultModelFor` pick (Sonnet 4).
+  { providerId: 'cursor', modelId: 'sonnet-4', label: 'Sonnet 4', via: 'native', defaultEffort: 'high' },
+  { providerId: 'cursor', modelId: 'gpt-5', label: 'GPT-5', via: 'native', defaultEffort: 'high' },
 ];
 
 export function listModelsFor(providerId: ProviderId): ModelOption[] {

@@ -85,6 +85,15 @@ export function buildResumeArgs(
       return id
         ? { args: ['--session', id], mode: 'id' }
         : { args: ['--continue'], mode: 'continue' };
+    case 'cursor':
+      // R-2 — cursor-agent supports `--resume [chatId]` (select a session by id)
+      // and `--continue` (resume latest in cwd). Cursor sessions are not scanned
+      // off disk (cursor is NOT in DISK_SCAN_PROVIDERS), so `externalSessionId`
+      // is only populated if a future capture path records one; until then the
+      // `--continue` fallback is the live path. Mirrors claude's flag shape.
+      return id
+        ? { args: ['--resume', id], mode: 'id' }
+        : { args: ['--continue'], mode: 'continue' };
     default:
       return null;
   }

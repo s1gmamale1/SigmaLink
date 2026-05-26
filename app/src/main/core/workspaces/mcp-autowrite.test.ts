@@ -57,9 +57,17 @@ function snapshot(root: string, home: string): Record<string, string> {
     claude: path.join(root, '.mcp.json'),
     codex: path.join(home, '.codex', 'config.toml'),
     gemini: path.join(home, '.gemini', 'settings.json'),
+    // R-2 — cursor's workspace-scoped config
+    cursor: path.join(root, '.cursor', 'mcp.json'),
   };
   return Object.fromEntries(
-    Object.entries(targets).map(([key, target]) => [key, fs.readFileSync(target, 'utf8')]),
+    // Tolerate absent targets (e.g. cursor is never written when an all-or-
+    // nothing refusal fires) — '' for a missing file keeps the before/after
+    // equality invariant intact without requiring every target to exist.
+    Object.entries(targets).map(([key, target]) => [
+      key,
+      fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '',
+    ]),
   );
 }
 
@@ -90,10 +98,20 @@ describe('writeWorkspaceMcpConfig', () => {
     // kimi/opencode skipped — detectCli returns false, no existing file
     expect(first.kimi).toBeNull();
     expect(first.opencode).toBeNull();
+    // R-2 — cursor is always written (workspace-scoped, no detection gate)
+    expect(first.cursor).toBe(path.join(root, '.cursor', 'mcp.json'));
     expect(after).toEqual(before);
 
     const claude = readJson(first.claude!);
     expect(claude.mcpServers.ruflo).toEqual({
+      command: 'npx',
+      args: ['-y', '@claude-flow/cli@latest', 'mcp', 'start'],
+      env: { CLAUDE_FLOW_DIR: path.join(root, '.claude-flow') },
+    });
+
+    // R-2 — cursor's .cursor/mcp.json carries the same stdio entry as claude
+    const cursor = readJson(first.cursor!);
+    expect(cursor.mcpServers.ruflo).toEqual({
       command: 'npx',
       args: ['-y', '@claude-flow/cli@latest', 'mcp', 'start'],
       env: { CLAUDE_FLOW_DIR: path.join(root, '.claude-flow') },
@@ -219,6 +237,7 @@ describe('writeWorkspaceMcpConfig', () => {
       gemini: null,
       kimi: null,
       opencode: null,
+      cursor: null,
       refused: result.refused,
     });
     expect(result.refused.sort()).toEqual([claudePath, codexPath, geminiPath].sort());
@@ -463,6 +482,89 @@ describe('writeWorkspaceMcpConfig', () => {
     expect(fs.readFileSync(kimiPath, 'utf8')).toBe(originalContent);
   });
 
+  // ─── R-2: cursor (.cursor/mcp.json) ─────────────────────────────────────────
+
+  it('writes cursor .cursor/mcp.json with the Ruflo stdio entry', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const cursorPath = path.join(root, '.cursor', 'mcp.json');
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+    });
+
+    expect(result.cursor).toBe(cursorPath);
+    expect(fs.existsSync(cursorPath)).toBe(true);
+    const parsed = readJson(cursorPath);
+    expect(parsed.mcpServers.ruflo).toEqual({
+      command: 'npx',
+      args: ['-y', '@claude-flow/cli@latest', 'mcp', 'start'],
+      env: { CLAUDE_FLOW_DIR: path.join(root, '.claude-flow') },
+    });
+  });
+
+  it('refuses cursor when existing ruflo entry is user-managed (and refuses the whole write)', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const cursorPath = path.join(root, '.cursor', 'mcp.json');
+    fs.mkdirSync(path.dirname(cursorPath), { recursive: true });
+    const originalContent =
+      JSON.stringify({ mcpServers: { ruflo: { command: 'uvx', args: ['custom'] } } }, null, 2) +
+      '\n';
+    fs.writeFileSync(cursorPath, originalContent);
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+    });
+
+    // A user-managed cursor entry triggers the all-or-nothing refusal, same as
+    // a custom claude/codex/gemini entry would.
+    expect(result.cursor).toBeNull();
+    expect(result.claude).toBeNull();
+    expect(result.refused).toContain(cursorPath);
+    expect(fs.readFileSync(cursorPath, 'utf8')).toBe(originalContent);
+  });
+
+  it('merges cursor entry without clobbering unrelated keys', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const cursorPath = path.join(root, '.cursor', 'mcp.json');
+    fs.mkdirSync(path.dirname(cursorPath), { recursive: true });
+    fs.writeFileSync(
+      cursorPath,
+      JSON.stringify(
+        {
+          project: 'keep-me',
+          mcpServers: {
+            browser: { url: 'http://127.0.0.1:1/mcp' },
+            ruflo: { command: 'npx', args: ['old'], env: { KEEP: '1' } },
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+    });
+
+    expect(result.refused).toEqual([]);
+    const cursor = readJson(cursorPath);
+    expect(cursor.project).toBe('keep-me');
+    expect(cursor.mcpServers.browser).toEqual({ url: 'http://127.0.0.1:1/mcp' });
+    expect(cursor.mcpServers.ruflo.env).toEqual({
+      KEEP: '1',
+      CLAUDE_FLOW_DIR: path.join(root, '.claude-flow'),
+    });
+  });
+
   it("canonical args use 'mcp start' not 'mcp-stdio' (regression pin v1.3.4 bug fix)", () => {
     const root = tmpDir('sigmalink-ruflo-root-');
     const home = tmpDir('sigmalink-ruflo-home-');
@@ -510,6 +612,7 @@ describe('writeWorkspaceMcpConfig', () => {
     expect(result.gemini).toBe(path.join(home, '.gemini', 'settings.json'));
     expect(result.kimi).toBe(path.join(home, '.kimi', 'mcp.json'));
     expect(result.opencode).toBe(path.join(home, '.config', 'opencode', 'opencode.json'));
+    expect(result.cursor).toBe(path.join(root, '.cursor', 'mcp.json'));
 
     // Claude — url only, no command/args/env
     const claude = readJson(result.claude!);
@@ -518,6 +621,10 @@ describe('writeWorkspaceMcpConfig', () => {
     // Gemini — same shape as Claude
     const gemini = readJson(result.gemini!);
     expect(gemini.mcpServers.ruflo).toEqual({ url: 'http://127.0.0.1:12345/mcp' });
+
+    // Cursor — same HTTP shape as Claude (workspace-scoped JSON)
+    const cursor = readJson(result.cursor!);
+    expect(cursor.mcpServers.ruflo).toEqual({ url: 'http://127.0.0.1:12345/mcp' });
 
     // Kimi — same shape as Claude/Gemini
     const kimi = readJson(result.kimi!);

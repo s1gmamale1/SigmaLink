@@ -79,6 +79,12 @@ export interface WorkspaceMcpWriteResult {
   kimi: string | null;
   /** v1.3.5 — null when OpenCode CLI isn't detected and no existing config file. */
   opencode: string | null;
+  /**
+   * R-2 — Cursor's `<workspaceRoot>/.cursor/mcp.json`. Workspace-scoped JSON
+   * with the same `mcpServers` shape as Claude's `.mcp.json`, so it is written
+   * unconditionally (like claude/codex/gemini) — no PATH-detection gate.
+   */
+  cursor: string | null;
   refused: string[];
 }
 
@@ -121,6 +127,11 @@ export function writeWorkspaceMcpConfig(
   const geminiTarget = path.join(home, '.gemini', 'settings.json');
   const kimiTarget = path.join(home, '.kimi', 'mcp.json');
   const opencodeTarget = path.join(home, '.config', 'opencode', 'opencode.json');
+  // R-2 — Cursor reads workspace-scoped `<root>/.cursor/mcp.json` (it also
+  // honours `~/.cursor/mcp.json`, but we write the workspace-scoped file to
+  // match the per-workspace isolation of Claude's `.mcp.json`). Same JSON
+  // `mcpServers` shape as Claude, so writeJsonMcpFile handles it verbatim.
+  const cursorTarget = path.join(root, '.cursor', 'mcp.json');
 
   // v1.3.5 — Kimi + OpenCode targets are gated by soft detection. If the user
   // doesn't have those CLIs installed AND no existing config file, skip
@@ -136,6 +147,8 @@ export function writeWorkspaceMcpConfig(
   if (opencodeActive && hasCustomOpencodeRufloEntry(opencodeTarget)) {
     customEntries.push(opencodeTarget);
   }
+  // R-2 — refuse to clobber a user-managed cursor ruflo entry, same as claude.
+  if (hasCustomJsonRufloEntry(cursorTarget)) customEntries.push(cursorTarget);
 
   if (customEntries.length > 0) {
     refused.push(...customEntries);
@@ -150,6 +163,7 @@ export function writeWorkspaceMcpConfig(
       gemini: null,
       kimi: null,
       opencode: null,
+      cursor: null,
       refused,
     };
   }
@@ -159,6 +173,9 @@ export function writeWorkspaceMcpConfig(
   const gemini = writeJsonMcpFile({ target: geminiTarget, ctx });
   const kimi = kimiActive ? writeJsonMcpFile({ target: kimiTarget, ctx }) : null;
   const opencode = opencodeActive ? writeOpencodeMcpFile({ target: opencodeTarget, ctx }) : null;
+  // R-2 — cursor's `.cursor/mcp.json` uses the same JSON `mcpServers` shape as
+  // Claude, so the same writer handles stdio + HTTP-daemon modes verbatim.
+  const cursor = writeJsonMcpFile({ target: cursorTarget, ctx });
 
   // B3 — autowrite the memory-convention block into workspace-root CLAUDE.md.
   // Best-effort: never throws out of writeWorkspaceMcpConfig.
@@ -168,7 +185,7 @@ export function writeWorkspaceMcpConfig(
     logger.warn(`[ruflo] writeRufloConventionBlock failed (non-fatal): ${String(err)}`);
   }
 
-  return { claude, codex, gemini, kimi, opencode, refused };
+  return { claude, codex, gemini, kimi, opencode, cursor, refused };
 }
 
 function buildRufloServer(workspaceRoot: string): RufloServer {

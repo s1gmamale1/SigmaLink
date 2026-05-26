@@ -25,7 +25,7 @@ vi.mock('../providers/launcher', () => ({
 
 import { getDb, getRawDb } from '../db/client';
 import { resolveAndSpawn } from '../providers/launcher';
-import { spawnAgentSession, type SpawnAgentSessionArgs } from './factory-spawn';
+import { buildExtraArgs, spawnAgentSession, type SpawnAgentSessionArgs } from './factory-spawn';
 import type { SwarmFactoryDeps } from './factory';
 
 const SPAWNED_PTY_ID = 'sess-spawned-leaky';
@@ -143,6 +143,23 @@ afterEach(() => {
   vi.mocked(getRawDb).mockReset();
   vi.mocked(resolveAndSpawn).mockReset();
   vi.restoreAllMocks();
+});
+
+describe('buildExtraArgs — provider oneshot substitution', () => {
+  it('substitutes {prompt} into cursor oneshotArgs (-p <prompt>)', () => {
+    // R-2 — cursor mirrors claude's oneshot shape: ['-p', '{prompt}'].
+    expect(buildExtraArgs('cursor', 'fix the bug')).toEqual(['-p', 'fix the bug']);
+  });
+
+  it('returns [] for cursor when no initial prompt is supplied', () => {
+    expect(buildExtraArgs('cursor', undefined)).toEqual([]);
+    expect(buildExtraArgs('cursor', '')).toEqual([]);
+  });
+
+  it('substitutes {prompt} for claude/codex the same way (parity check)', () => {
+    expect(buildExtraArgs('claude', 'hi')).toEqual(['-p', 'hi']);
+    expect(buildExtraArgs('codex', 'hi')).toEqual(['-q', 'hi']);
+  });
 });
 
 describe('spawnAgentSession — H-10 PTY leak on UNIQUE violation', () => {
