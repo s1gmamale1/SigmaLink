@@ -44,6 +44,11 @@ export interface AgentSession {
   splitIndex?: number | null;
   /** v1.4.3 #06 — collapsed-to-header-strip toggle. */
   minimised?: boolean;
+  /**
+   * SF-8 — Yolo/Bypass mode this pane was launched with (persisted on
+   * agent_sessions.auto_approve so resume re-applies the provider bypass flag).
+   */
+  autoApprove?: boolean;
 }
 
 export interface ProviderProbe {
@@ -82,6 +87,14 @@ export interface PaneAssignment {
   paneIndex: number;
   providerId: string;
   initialPrompt?: string;
+  /**
+   * SF-8 — Yolo/Bypass launch mode. When true, the launcher appends the
+   * provider's `autoApproveFlag` (claude `--dangerously-skip-permissions`,
+   * codex `--dangerously-bypass-approvals-and-sandbox`, gemini `--yolo`,
+   * cursor `--force`). No-op for providers without an autoApproveFlag
+   * (kimi/opencode/shell). Defaults to false (Yolo OFF).
+   */
+  autoApprove?: boolean;
 }
 
 export interface LaunchPlan {
