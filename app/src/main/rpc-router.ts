@@ -1109,6 +1109,8 @@ function buildRouter() {
         rufloHttpDaemonSupervisor,
         skillsManager,
         emit: (event, payload) => broadcast(event, payload),
+        // SF-7 — sink for the one-time stdio-fallback notice.
+        notifications: notificationsManager,
       });
       markWorkspaceOpened(workspace.id);
       // v1.4.3 (#04) — Best-effort orphan worktree cleanup. Removes worktree

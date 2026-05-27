@@ -1,0 +1,94 @@
+SigmaLink v1.31.0 — 2026-05-27
+==============================
+
+SF-7 — Ruflo MCP auto-trust + health surfacing on workspace open.
+
+A freshly-cloned repo opened as a SigmaLink workspace now connects Ruflo MCP
+end-to-end: the bundled `ruflo` server is pre-approved per provider (no manual
+/mcp trust accept), daemon health is visible in each pane's header, and the
+previously-silent stdio fallback now surfaces.
+
+SECURITY-SENSITIVE (it pre-approves an MCP server). Built by 2 worktree-
+isolated lanes (Opus trust + Sonnet health dot) + a lead factory.ts
+integration + a MANDATORY Opus security-review (verdict: PASS, no Critical/
+High). Default-ON, opt-out, fail-open.
+
+
+Added
+-----
+
+- Per-provider auto-trust of the bundled `ruflo` server ONLY
+  (core/workspaces/mcp-trust.ts):
+    * claude  -> additive, idempotent merge into
+                 <root>/.claude/settings.local.json ->
+                 enabledMcpjsonServers: ["ruflo"]. .local.json is gitignored,
+                 so it doesn't dirty the clone. Pre-approves ONLY ruflo —
+                 third-party servers in a cloned .mcp.json still prompt.
+    * cursor  -> best-effort `cursor-agent mcp enable ruflo` (binary-gated,
+                 args-array, fail-open; contract verified live).
+    * codex / gemini / kimi / opencode -> verified no-ops (their MCP config
+                 loads without a per-project trust prompt; the existing
+                 mcp-autowrite config-write already means trusted).
+  Gated on a new `ruflo.autoTrustMcp` KV (default ON) with a Settings -> Ruflo
+  opt-out toggle ("pre-approves only SigmaLink's own ruflo server by name").
+
+- Pane-header Ruflo health dot (useRufloDaemonHealth + PaneHeader.tsx),
+  reusing the existing ruflo.daemonStatus RPC:
+    green = running · amber = stdio-fallback · red = down · slate = unknown,
+  with a tooltip. Polls via rpcSilent (never fires error toasts).
+
+- stdio-fallback notification (ruflo-fallback-notice.ts): when the per-
+  workspace HTTP daemon can't spawn (binary missing / port collision) and
+  falls back to stdio, a one-time `info` notice surfaces it — previously a
+  silent console.warn. Wired through a new OpenWorkspaceDeps.notifications
+  sink (passed the NotificationsManager at the rpc-router open call site).
+
+
+Security (review checklist — all PASS)
+--------------------------------------
+
+- Only the literal "ruflo" is ever trusted. Never enableAllProjectMcpServers,
+  never a wildcard, never --dangerously-skip-permissions.
+- claude merge is additive + non-destructive (other servers/keys preserved;
+  unparseable or non-object settings file left byte-for-byte untouched).
+- Atomic write with a UNIQUE temp-file name (pid+timestamp), with orphan-temp
+  cleanup on rename failure — closes a theoretical concurrent-open TOCTOU.
+- Fully fail-open: a workspace always opens even if trust/notify throws.
+- cursor exec is binary-gated, uses an args array (no shell string), fail-open.
+- No secrets logged.
+
+
+Gate
+----
+
+- tsc -b (main, incl. electron/**) -- clean
+- eslint 0 errors / 0 warnings
+- vitest 180 files / 1822 pass / 1 skip (mcp-trust 10, ruflo-fallback-notice 6,
+  Settings toggle 4, useRufloDaemonHealth 9, PaneHeader dot 8)
+- vite build + electron:compile (product:check) -- clean
+- FULL Playwright e2e (tests/e2e/) in main -- 9 passed / 3 skipped
+- MANDATORY Opus security-review -- PASS WITH NITS (no Critical/High; the one
+  recommended hardening folded)
+
+
+Operator smoke
+--------------
+
+1. Clone a fresh repo, open it as a workspace, launch a Claude pane -> Ruflo
+   MCP is available WITHOUT the /mcp trust prompt (verify in-pane: /mcp shows
+   ruflo connected, or `claude mcp list`). Confirm <root>/.claude/
+   settings.local.json contains enabledMcpjsonServers including "ruflo".
+2. Each pane's header shows a Ruflo health dot (green when the daemon is up).
+3. If @claude-flow/cli is not installed, opening a workspace now shows a one-
+   time "Ruflo MCP — stdio fallback" notification (and the dot is amber).
+4. Settings -> Ruflo: the "Auto-trust" toggle is ON by default; turning it OFF
+   means a newly-opened workspace is NOT auto-trusted.
+
+
+Backlog status
+--------------
+
+The post-roadmap backlog (SF-1..SF-8) is now CLEAR. Remaining deferred:
+- H-7: transactional migrations (strip each migration's own BEGIN/COMMIT).
+- Full H-19: per-tool ingestion aidefence scanning + the built-but-unwired
+  outbound PII scrub.

@@ -12,9 +12,21 @@ vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     panes: { brief: vi.fn().mockResolvedValue(undefined) },
   },
+  rpcSilent: {
+    ruflo: { daemonStatus: vi.fn().mockResolvedValue([]) },
+  },
 }));
+
+// Mock useRufloDaemonHealth so PaneHeader tests are isolated from the hook's
+// polling logic. Default to 'running' state; individual B2 tests override.
+vi.mock('./useRufloDaemonHealth', () => ({
+  useRufloDaemonHealth: vi.fn(() => ({ state: 'running', detail: 'running · port 53112' })),
+}));
+
 import { PaneHeader } from './PaneHeader';
 import type { AgentSession } from '@/shared/types';
+import type { RufloDaemonHealth } from './useRufloDaemonHealth';
+import { useRufloDaemonHealth } from './useRufloDaemonHealth';
 
 // Radix tooltip uses ResizeObserver under the hood, which jsdom doesn't
 // ship. A no-op polyfill is enough for our assertions — we only care that
@@ -486,6 +498,67 @@ describe('PaneHeader', () => {
           capsule: expect.objectContaining({ goal: 'Add authentication' }),
         }));
       });
+    });
+  });
+
+  // SF-7 Task B2 — Ruflo health dot.
+  describe('SF-7 B2 — Ruflo health dot', () => {
+    const mockHealth = useRufloDaemonHealth as ReturnType<
+      typeof vi.fn<(workspaceId: string) => RufloDaemonHealth>
+    >;
+
+    it('renders the ruflo-health-dot element', () => {
+      mockHealth.mockReturnValue({ state: 'running', detail: 'running · port 53112' });
+      render(<PaneHeader {...base} />);
+      expect(screen.getByTestId('ruflo-health-dot')).toBeTruthy();
+    });
+
+    it('dot has emerald colour class when state=running', () => {
+      mockHealth.mockReturnValue({ state: 'running', detail: 'running · port 53112' });
+      render(<PaneHeader {...base} />);
+      const dot = screen.getByTestId('ruflo-health-dot');
+      expect(dot.className).toMatch(/emerald/);
+    });
+
+    it('dot has amber colour class when state=fallback', () => {
+      mockHealth.mockReturnValue({ state: 'fallback', detail: 'stdio fallback — HTTP daemon unavailable' });
+      render(<PaneHeader {...base} />);
+      const dot = screen.getByTestId('ruflo-health-dot');
+      expect(dot.className).toMatch(/amber/);
+    });
+
+    it('dot has red colour class when state=down', () => {
+      mockHealth.mockReturnValue({ state: 'down', detail: 'crashed — restart the workspace to recover' });
+      render(<PaneHeader {...base} />);
+      const dot = screen.getByTestId('ruflo-health-dot');
+      expect(dot.className).toMatch(/red/);
+    });
+
+    it('dot has amber colour class when state=starting', () => {
+      mockHealth.mockReturnValue({ state: 'starting', detail: 'starting…' });
+      render(<PaneHeader {...base} />);
+      const dot = screen.getByTestId('ruflo-health-dot');
+      expect(dot.className).toMatch(/amber/);
+    });
+
+    it('dot has slate colour class when state=unknown', () => {
+      mockHealth.mockReturnValue({ state: 'unknown', detail: 'Ruflo MCP status unavailable' });
+      render(<PaneHeader {...base} />);
+      const dot = screen.getByTestId('ruflo-health-dot');
+      expect(dot.className).toMatch(/slate/);
+    });
+
+    it('dot has an aria-label reflecting the detail', () => {
+      mockHealth.mockReturnValue({ state: 'running', detail: 'running · port 53112' });
+      render(<PaneHeader {...base} />);
+      const dot = screen.getByTestId('ruflo-health-dot');
+      expect(dot.getAttribute('aria-label')).toMatch(/Ruflo MCP/i);
+    });
+
+    it('calls useRufloDaemonHealth with the session workspaceId', () => {
+      mockHealth.mockReturnValue({ state: 'running', detail: 'running · port 53112' });
+      render(<PaneHeader {...base} session={{ ...base.session, workspaceId: 'ws-test-42' }} />);
+      expect(mockHealth).toHaveBeenCalledWith('ws-test-42');
     });
   });
 });

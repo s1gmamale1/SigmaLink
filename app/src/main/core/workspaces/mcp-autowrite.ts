@@ -4,6 +4,12 @@ import path from 'node:path';
 
 export const KV_RUFLO_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
 
+/** SF-7 — gates per-provider auto-trust of the bundled `ruflo` MCP server in
+ *  new workspaces. '1' (default) = auto-trust ON; '0' = opt-out. Independent of
+ *  KV_RUFLO_AUTOWRITE_MCP (trust without autowrite is meaningless, but the
+ *  operator may want autowrite without auto-approval). */
+export const KV_RUFLO_AUTOTRUST_MCP = 'ruflo.autoTrustMcp';
+
 // ─── Ruflo memory-convention block constants ─────────────────────────────────
 
 const CONVENTION_BLOCK_START = '<!-- ruflo-memory-convention:start -->';

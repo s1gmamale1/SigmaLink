@@ -7,7 +7,9 @@ import { eq } from 'drizzle-orm';
 import { getDb, getRawDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { getRepoRoot } from '../git/git-ops';
-import { KV_RUFLO_AUTOWRITE_MCP, writeWorkspaceMcpConfig } from './mcp-autowrite';
+import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP, writeWorkspaceMcpConfig } from './mcp-autowrite';
+import { ensureRufloTrusted } from './mcp-trust';
+import { maybeNotifyStdioFallback, type StdioFallbackNotificationInput } from './ruflo-fallback-notice';
 import { seedWorkspaceMemory } from '../ruflo/seed-workspace-memory';
 import type { RufloMcpSupervisor } from '../ruflo/supervisor';
 import type { RufloHttpDaemonSupervisor } from '../ruflo/http-daemon-supervisor';
@@ -28,6 +30,9 @@ export interface OpenWorkspaceDeps {
    *  unchanged. */
   rufloHttpDaemonSupervisor?: Pick<RufloHttpDaemonSupervisor, 'spawn'>;
   emit?: (event: string, payload: unknown) => void;
+  /** SF-7 — sink for the one-time stdio-fallback notice. When omitted, the
+   *  notice is skipped (auto-trust still runs). */
+  notifications?: { add: (input: StdioFallbackNotificationInput) => unknown };
 }
 
 export interface RemoveWorkspaceDeps {
@@ -115,6 +120,25 @@ export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = 
         }
       }
       writeWorkspaceMcpConfig(abs, port !== undefined ? { port } : undefined);
+      // SF-7 — auto-trust the bundled ruflo server (default-ON, opt-out, fail-open).
+      const autotrust = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get(KV_RUFLO_AUTOTRUST_MCP) as { value?: string } | undefined;
+      if (autotrust?.value !== '0') {
+        try {
+          ensureRufloTrusted(abs);
+        } catch (err) {
+          console.warn(
+            `[ruflo-trust] ensureRufloTrusted threw for ${abs}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+      // SF-7 — surface the silent stdio fallback (daemon didn't spawn → no port).
+      if (deps.notifications) {
+        maybeNotifyStdioFallback({ notifications: deps.notifications }, resultId, port !== undefined);
+      }
       void seedWorkspaceMemory({ workspaceRoot: abs }).catch(() => {});
     }
   } catch (err) {

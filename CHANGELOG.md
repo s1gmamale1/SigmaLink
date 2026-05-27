@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-05-27
+
+v1.31.0 — **SF-7: Ruflo MCP auto-trust + health surfacing on workspace open.** A freshly-cloned repo opened as a workspace now connects Ruflo MCP end-to-end without the manual `/mcp` trust accept, surfaces daemon health where you work, and reveals the previously-silent stdio fallback. SECURITY-SENSITIVE (it pre-approves an MCP server) — built by 2 worktree-isolated lanes (Opus trust + Sonnet health dot) + a lead `factory.ts` integration + a **mandatory Opus security-review (PASS, no Critical/High)**. Default-ON, opt-out, fail-open.
+
+### Added
+
+- **Per-provider auto-trust of the bundled `ruflo` server only** (`core/workspaces/mcp-trust.ts`). claude: an additive, idempotent merge into `<root>/.claude/settings.local.json` → `enabledMcpjsonServers: ["ruflo"]` (gitignored; pre-approves ONLY ruflo — third-party servers in a cloned `.mcp.json` still prompt). cursor: best-effort `cursor-agent mcp enable ruflo` (binary-gated, args-array, fail-open; contract verified live). codex/gemini/kimi/opencode: verified no-ops (their MCP config loads without a per-project trust prompt). Gated on a new `ruflo.autoTrustMcp` KV (default ON) with a **Settings → Ruflo opt-out toggle**.
+- **Pane-header Ruflo health dot** (`useRufloDaemonHealth` + `PaneHeader.tsx`) reusing the existing `ruflo.daemonStatus` RPC: 🟢 running · 🟡 stdio-fallback · 🔴 down · ⚪ unknown, with a tooltip. Polls via `rpcSilent` (no error toasts).
+- **stdio-fallback notification** (`ruflo-fallback-notice.ts`): when the per-workspace HTTP daemon can't spawn (binary missing / port collision) and falls back to stdio, a one-time `info` notice surfaces it (previously a silent `console.warn`). Wired through a new `OpenWorkspaceDeps.notifications` sink.
+
+### Security
+
+- Narrowest-possible trust by design: only the literal `"ruflo"` is ever added; never `enableAllProjectMcpServers`, a wildcard, or `--dangerously-skip-permissions`. Additive merge preserves other servers/keys; unparseable/foreign-shaped settings files are left untouched. Atomic write with a unique temp-file name (closes a theoretical concurrent-open TOCTOU). Fully fail-open — a workspace always opens even if trust/notify fails.
+
+### Notes
+
+- The post-roadmap backlog (SF-1..SF-8) is now fully clear. Remaining deferred: H-7 (transactional migrations) + full H-19 (per-tool ingestion scanning).
+- Gate (in main): `tsc -b` · `eslint --max-warnings 0` · vitest **1822 pass / 1 skip** · `product:check` · full `tests/e2e/` (9 passed / 3 skipped).
+
 ## [1.30.0] - 2026-05-27
 
 v1.30.0 — **SF-8: Yolo/Bypass launch mode for plain panes.** Operators can now launch workspace panes with the provider's own bypass flag (claude `--dangerously-skip-permissions`, codex `--dangerously-bypass-approvals-and-sandbox`, gemini `--yolo`, cursor `--force`) via a per-launch toggle. Built on the existing `autoApprove` mechanism (no new flag logic). 2 worktree-isolated lanes + a lead integration that closed a gap the lanes surfaced. OFF by default, behind a clear danger warning.

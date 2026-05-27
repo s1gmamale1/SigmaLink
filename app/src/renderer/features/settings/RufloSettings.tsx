@@ -21,6 +21,10 @@ import { cn } from '@/lib/utils';
 
 const KV_TELEMETRY_OPT_IN = 'ruflo.telemetry.optIn';
 const KV_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
+// SF-7 — gates per-provider auto-trust of the bundled `ruflo` MCP server in new
+// workspaces. '1' (default) = ON; '0' = opt-out. Mirrors KV_RUFLO_AUTOTRUST_MCP
+// in main/core/workspaces/mcp-autowrite.ts.
+const KV_AUTOTRUST_MCP = 'ruflo.autoTrustMcp';
 const KV_STRICT_MCP_VERIFICATION = 'ruflo.strictMcpVerification';
 // v1.6.0 Phase 1 — shell-first pane mode feature flag.
 const KV_PTY_SPAWN_MODE = 'pty.spawnMode';
@@ -94,6 +98,8 @@ export function RufloSettings() {
   const [installing, setInstalling] = useState<boolean>(false);
   const [telemetry, setTelemetry] = useState<boolean>(false);
   const [autowriteMcp, setAutowriteMcp] = useState<boolean>(true);
+  // SF-7 — auto-trust the bundled `ruflo` server in new workspaces (default ON).
+  const [autoTrustMcp, setAutoTrustMcp] = useState<boolean>(true);
   const [strictMcpVerification, setStrictMcpVerification] = useState<boolean>(false);
   // v1.6.0 Phase 7 — shell-first pane mode flag (default ON = 'shell-first').
   const [shellFirstPanes, setShellFirstPanes] = useState<boolean>(true);
@@ -122,6 +128,12 @@ export function RufloSettings() {
       try {
         const a = await rpc.kv.get(KV_AUTOWRITE_MCP);
         if (alive) setAutowriteMcp(a !== '0');
+      } catch {
+        /* default ON */
+      }
+      try {
+        const t = await rpc.kv.get(KV_AUTOTRUST_MCP);
+        if (alive) setAutoTrustMcp(t !== '0');
       } catch {
         /* default ON */
       }
@@ -219,6 +231,11 @@ export function RufloSettings() {
   const onToggleAutowriteMcp = useCallback((next: boolean) => {
     setAutowriteMcp(next);
     void rpc.kv.set(KV_AUTOWRITE_MCP, next ? '1' : '0').catch(() => undefined);
+  }, []);
+
+  const onToggleAutoTrustMcp = useCallback((next: boolean) => {
+    setAutoTrustMcp(next);
+    void rpc.kv.set(KV_AUTOTRUST_MCP, next ? '1' : '0').catch(() => undefined);
   }, []);
 
   const onToggleStrictMcpVerification = useCallback((next: boolean) => {
@@ -427,6 +444,24 @@ export function RufloSettings() {
             </div>
           </div>
           <Switch checked={autowriteMcp} onCheckedChange={onToggleAutowriteMcp} />
+        </div>
+        {/* SF-7 — auto-trust the bundled ruflo server in new workspaces. */}
+        <div className="mb-3 flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
+          <div className="min-w-0 pr-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              Auto-trust the bundled Ruflo MCP server in new workspaces
+            </div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              Pre-approves only SigmaLink&apos;s own <code className="text-[10px]">ruflo</code> server by
+              name — third-party MCP servers in a cloned repo still prompt.
+            </div>
+          </div>
+          <Switch
+            checked={autoTrustMcp}
+            onCheckedChange={onToggleAutoTrustMcp}
+            data-testid="ruflo-autotrust-toggle"
+          />
         </div>
         <div className="mb-3 flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
           <div className="min-w-0 pr-3">

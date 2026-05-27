@@ -48,6 +48,19 @@ import {
 } from '@/components/ui/tooltip';
 import { findProvider } from '@/shared/providers';
 import type { AgentSession } from '@/shared/types';
+import { useRufloDaemonHealth } from './useRufloDaemonHealth';
+import type { RufloDaemonState } from './useRufloDaemonHealth';
+
+// SF-7 — colour mapping for the Ruflo daemon health dot (FE-4 a11y standard).
+function rufloHealthDotClass(state: RufloDaemonState): string {
+  switch (state) {
+    case 'running':  return 'bg-emerald-500';
+    case 'fallback': return 'bg-amber-500';
+    case 'down':     return 'bg-red-500';
+    case 'starting': return 'bg-amber-400 animate-pulse';
+    case 'unknown':  return 'bg-slate-400';
+  }
+}
 
 // Mirror of `MODEL_OPTIONS` in `main/core/providers/models.ts` — the renderer
 // can't import main-process modules so we duplicate the surface here. Keep
@@ -125,6 +138,9 @@ export function PaneHeader({
   const exited = session.status === 'exited';
   const errored = session.status === 'error';
   const dotColor = errored ? '#ef4444' : exited ? '#9ca3af' : '#22c55e';
+  // SF-7 — Ruflo daemon health dot: poll once + every 5 s. workspaceId comes
+  // directly from session (no extra prop needed — AgentSession already carries it).
+  const rufloHealth = useRufloDaemonHealth(session.workspaceId);
   const provider = findProvider(session.providerId);
   const providerColor = provider?.color ?? '#6b7280';
   const providerName = provider?.name ?? session.providerId.toUpperCase();
@@ -170,6 +186,21 @@ export function PaneHeader({
           style={{ background: dotColor }}
           aria-label={`status: ${session.status}`}
         />
+        {/* SF-7 — Ruflo MCP daemon health dot */}
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className={`h-2 w-2 shrink-0 rounded-full ${rufloHealthDotClass(rufloHealth.state)}`}
+                data-testid="ruflo-health-dot"
+                aria-label={`Ruflo MCP — ${rufloHealth.detail}`}
+              />
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="start" className="font-mono text-[10px]">
+              Ruflo MCP — {rufloHealth.detail}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
