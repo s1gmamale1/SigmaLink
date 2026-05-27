@@ -58,6 +58,19 @@ export interface ToolContext {
    * gate treats a dangerous remote call as unapproved.
    */
   confirmDangerous?: (toolName: string, summary: string) => Promise<boolean>;
+  /**
+   * H-19 (full) — opportunistic ingestion scanner. Populated by the controller
+   * from the aidefence gate as `(t,l) => gate.scanIngested(t,l)`. Tools that
+   * pull untrusted text into the model's context (`read_files`,
+   * `search_memories`) pass each item through this before returning it;
+   * flagged content is coarse-redacted + annotated. ABSENT ⇒ tools skip
+   * scanning and return content unchanged (full back-compat — every existing
+   * caller keeps working). Never throws (the gate is opportunistic).
+   */
+  scanIngested?: (
+    text: string,
+    label: string,
+  ) => Promise<{ text: string; flagged: boolean; reason?: string }>;
 }
 
 export interface ToolDefinition {
@@ -269,7 +282,13 @@ export const TOOLS: ToolDefinition[] = [
       // symlinks that point out of tree. Out-of-tree paths return a per-file
       // error rather than throwing so a single bad path can't fail the batch.
       const roots = allowedReadRoots(ctx);
-      const files: Array<{ path: string; ok: boolean; content?: string; error?: string }> = [];
+      const files: Array<{
+        path: string;
+        ok: boolean;
+        content?: string;
+        error?: string;
+        flagged?: boolean;
+      }> = [];
       for (const p of a.paths) {
         try {
           const safePath = resolveInsideAllowedRoots(p, roots);
@@ -283,10 +302,20 @@ export const TOOLS: ToolDefinition[] = [
           }
           const buf = fs.readFileSync(safePath);
           const slice = buf.length > cap ? buf.subarray(0, cap) : buf;
+          const content = slice.toString('utf8');
+          // H-19 — opportunistic ingestion scan. Each file's content is checked
+          // for prompt-injection BEFORE it reaches the model; flagged content is
+          // coarse-redacted + annotated by the gate. Bounded by the existing
+          // 32-file cap. No-op (unchanged content) when `scanIngested` is absent;
+          // the gate never throws, so a scan failure can't fail this batch.
+          const scan = ctx.scanIngested
+            ? await ctx.scanIngested(content, p)
+            : { text: content, flagged: false };
           files.push({
             path: p,
             ok: true,
-            content: slice.toString('utf8'),
+            content: scan.text,
+            ...(scan.flagged ? { flagged: true } : {}),
             ...(buf.length > cap ? { error: `truncated to ${cap} bytes` } : {}),
           });
         } catch (err) {
@@ -477,7 +506,22 @@ export const TOOLS: ToolDefinition[] = [
         query: a.query,
         limit: a.limit,
       });
-      return { hits };
+      // H-19 — opportunistic ingestion scan. Each hit's `snippet` is untrusted
+      // text pulled into the model's context, so we scan it for prompt-injection
+      // BEFORE returning; flagged snippets are coarse-redacted + annotated by the
+      // gate and carry a `flagged` marker. No-op when `scanIngested` is absent
+      // (back-compat); the gate never throws. Bounded by the query `limit`.
+      if (!ctx.scanIngested) return { hits };
+      const scan = ctx.scanIngested;
+      const scanned = await Promise.all(
+        hits.map(async (h) => {
+          const result = await scan(h.snippet, `memory:${h.id}`);
+          return result.flagged
+            ? { ...h, snippet: result.text, flagged: true }
+            : { ...h, snippet: result.text };
+        }),
+      );
+      return { hits: scanned };
     },
   ),
   T(

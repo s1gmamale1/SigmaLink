@@ -85,8 +85,18 @@ export function handleParsedEnvelope(
         if (remainder) streamDelta(deps, turn, assistantMessageId, remainder);
         state.finalText = text;
       }
-      persistFinal(turn, assistantMessageId, state.finalText);
-      emitFinal(deps, turn, assistantMessageId, state.finalText, env.usage);
+      // H-19 — scrub PII from the FINAL reply BEFORE persist + emit. The scrub
+      // is async but the readline loop is sync, so we track the finalisation
+      // promise in `pendingToolRoutes`, which the `close` handler awaits before
+      // resolving the turn — guaranteeing the (scrubbed) final lands. The
+      // trajectory feedback (internal Ruflo learning) keeps the raw text.
+      const finalP = finalizeSuccess(deps, turn, assistantMessageId, state.finalText, env.usage)
+        .catch((err) => {
+          const m = err instanceof Error ? err.message : String(err);
+          console.warn(`[runClaudeCliTurn] final scrub/emit failed: ${m}`);
+        });
+      pendingToolRoutes.add(finalP);
+      finalP.finally(() => pendingToolRoutes.delete(finalP));
       void endTrajectory(deps, trajectoryId, true, state.finalText.slice(0, 300));
       return;
     }
@@ -96,6 +106,38 @@ export function handleParsedEnvelope(
     void endTrajectory(deps, trajectoryId, false, errMsg.slice(0, 300));
   }
   // system / user / unknown envelopes are log-only.
+}
+
+/**
+ * H-19 — finalise a successful turn: scrub the reply (opportunistic, fail-open),
+ * then persist + emit the scrubbed text. Async so it can `await deps.scrubFinal`;
+ * the caller tracks the returned promise so the turn waits for the emit.
+ *
+ * Fail-open contract: a THROWING / rejecting `scrubFinal` must NOT drop or block
+ * the reply — on any scrub error we fall back to the ORIGINAL text. The persist
+ * and the emit both receive the SAME (scrubbed-or-original) text so the stored
+ * transcript matches what the renderer shows (no PII persisted while displaying
+ * a scrubbed reply, or vice-versa).
+ */
+export async function finalizeSuccess(
+  deps: CliTurnDeps,
+  turn: CliTurnHandle,
+  assistantMessageId: string | null,
+  finalText: string,
+  usage: unknown,
+): Promise<void> {
+  let outText = finalText;
+  if (deps.scrubFinal) {
+    try {
+      const scrubbed = await deps.scrubFinal(finalText);
+      if (typeof scrubbed === 'string') outText = scrubbed;
+    } catch {
+      // Fail-open: keep the original reply. Never drop or block on a scrub error.
+      outText = finalText;
+    }
+  }
+  persistFinal(turn, assistantMessageId, outText);
+  emitFinal(deps, turn, assistantMessageId, outText, usage);
 }
 
 /** Drain the final transitions when the CLI child closes (cancelled or no-result). */

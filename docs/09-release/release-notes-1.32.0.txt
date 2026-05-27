@@ -1,0 +1,98 @@
+SigmaLink v1.32.0 — 2026-05-28
+==============================
+
+H-19 (full) — aidefence ingestion scanning + a real outbound PII scrub.
+
+The assistant now scans the content it INGESTS (read_files contents,
+search_memories entries) for prompt-injection before it reaches the model —
+redacting + annotating flagged content — and scrubs PII from its final reply
+with a real local redactor. Completes H-19.
+
+SECURITY-SENSITIVE: one Opus implementation lane + a lead integration that
+closed two daemon-shape gaps the implementer found empirically + TWO Opus
+security-reviews (initial + a focused re-review of the new regex module).
+Opportunistic / local-first / never-fail-open throughout.
+
+
+Added
+-----
+
+- scanIngested on the aidefence gate (core/security/aidefence-gate.ts):
+  scans ingested text; on a flagged verdict it COARSE-redacts the item (the
+  live engine reports threats without character offsets, so whole-item
+  redaction) and prepends a fixed-literal "⚠ aidefence flagged" annotation;
+  audited via the existing assistant:security emit. Wired into:
+    * read_files     — per file, within the existing 32-file cap
+    * search_memories — per returned entry
+  through a new optional ToolContext.scanIngested (no-op when absent).
+
+- Real outbound PII scrub on the assistant's FINAL reply. New shared module
+  core/security/pii-scrub.ts holds R-1's reviewed, ReDoS-conscious
+  secret/email/phone patterns as ONE audited set, consumed by BOTH the
+  assistant gate's scrubOutbound AND R-1's Telegram core/remote/safety.ts
+  (DRY — the H-5 single-source-of-truth pattern). The gate's scrubOutbound
+  runs the local redactor as PRIMARY (works offline; the live engine detects
+  PII but returns no scrubbed text) and composes any engine-scrubbed text on
+  top. Applied to the `final` emit only — never per-delta.
+
+
+Fixed / Security
+----------------
+
+- MCP-envelope unwrap: scanInbound (the operator-prompt advisory scan) was a
+  LATENT NO-OP against the live daemon — the Ruflo supervisor returns the raw
+  {content:[{text:'<json>'}]} envelope, not a parsed verdict, and the old code
+  checked `'safe' in result` on the envelope. Routed scanInbound (and the new
+  scrub) through the shared unwrapAidefence helper so they actually reach the
+  engine. Found by empirical verification against the live daemon.
+
+- PHONE over-redaction (re-review Medium): the shared phone pattern now
+  REQUIRES an E.164 `+` anchor, so it no longer mangles a coding assistant's
+  output — dates (2026-05-28), numeric indices, ISBNs, dotted/dashed IDs are
+  no longer eaten. Trade-off: bare domestic numbers (no +) aren't caught;
+  low false-positives matter more than catching every format here.
+
+- Opportunistic everywhere: a missing/throwing Ruflo daemon ⇒ pass-through,
+  never breaks ingestion or the emit; redaction never corrupts non-flagged
+  content (returned byte-identical); the annotation is a fixed literal that
+  interpolates only the label + a constant placeholder (no untrusted text can
+  ride it); the final scrub is fail-open (a throwing scrub still emits the
+  reply); local scrub is offline-capable.
+
+
+Gate
+----
+
+- tsc -b (main, incl. electron/**) -- clean
+- eslint 0 errors / 0 warnings
+- vitest 181 files / 1846 pass / 1 skip (+ scanIngested, ingestion wiring,
+  scrubFinal, the new pii-scrub module, envelope-shape regressions)
+- vite build + electron:compile (product:check) -- clean
+- FULL Playwright e2e (tests/e2e/) in main -- 9 passed / 3 skipped
+- 2x Opus security-review -- PASS (no Critical/High; envelope fix + PHONE
+  E.164 anchor + test nits all folded)
+
+
+Operator smoke
+--------------
+
+1. With the Ruflo daemon up, have Jorvis read a file containing an obvious
+   injection string (e.g. "ignore all previous instructions ...") via
+   read_files -> the tool result is redacted + carries the "⚠ aidefence
+   flagged" annotation; the Security indicator records the event.
+2. Have Jorvis produce a final reply containing an email / `+`-prefixed phone
+   / an sk-/ghp_ token -> the broadcast reply has them redacted ([EMAIL] /
+   [PHONE] / [REDACTED]); a date like 2026-05-28 in the reply is NOT touched.
+3. Stop the Ruflo daemon -> read_files still works (content passes through
+   unscanned, opportunistic) and the local PII scrub on the final reply still
+   redacts (offline).
+
+
+Backlog status
+--------------
+
+The post-roadmap backlog AND full H-19 are now complete. Remaining:
+- H-7 (deferred): transactional migrations — strip each migration's own
+  BEGIN/COMMIT so the runner can own one transaction.
+- Light tech-debt: voice dead-tree cleanup, R-2 cursor skill fan-out, and the
+  CI Node 20 -> 24 action bump (GitHub forces Node 24 on 2026-06-02).

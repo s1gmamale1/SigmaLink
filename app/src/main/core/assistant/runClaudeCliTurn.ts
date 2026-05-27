@@ -58,6 +58,17 @@ export interface CliTurnDeps {
   /** Optional Ruflo bridge for SONA trajectory learning. Fail-soft. */
   ruflo?: Pick<RufloProxy, 'trajectoryStart' | 'trajectoryStep' | 'trajectoryEnd'>;
   /**
+   * H-19 (full) — opportunistic outbound PII scrub applied to the assistant's
+   * FINAL reply text immediately before the `kind:'final'` emit (and the
+   * matching persist). Supplied by the controller as
+   * `(t) => aidefence.scrubOutbound(t)`. FINAL ONLY — streamed deltas are never
+   * scrubbed (the live-typing UX shows raw text; the committed reply is the
+   * scrubbed one). Opportunistic + fail-open: ABSENT ⇒ text unchanged; a
+   * THROWING scrub ⇒ the ORIGINAL text is still emitted (a scrub failure must
+   * never block or drop a reply).
+   */
+  scrubFinal?: (text: string) => Promise<string>;
+  /**
    * BUG-V1.1.2-01 — Jorvis host MCP wiring. When supplied AND `serverEntry`
    * exists, the driver writes a temp `.mcp.json` declaring the
    * `jorvis-host` stdio server and passes `--mcp-config <path>` to the CLI;

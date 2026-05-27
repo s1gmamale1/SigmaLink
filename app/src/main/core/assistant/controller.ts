@@ -226,6 +226,12 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         // above is the primary enforcement point.
         origin,
         confirmDangerous: input?.confirmDangerous,
+        // H-19 (full) — opportunistic ingestion scanner. Wired from the same
+        // aidefence gate built at :124-139; no-op (undefined) when no ruflo
+        // proxy is injected, so back-compat is preserved.
+        scanIngested: aidefence
+          ? (t: string, l: string) => aidefence.scanIngested(t, l)
+          : undefined,
       });
       // P3-S7 — single persistence path: the tracer writes the `messages`
       // row with role='tool' and `toolCallId` set to the trace id; the
@@ -334,6 +340,10 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
             emit: deps.emit,
             tracer,
             ruflo: deps.ruflo,
+            // H-19 (full) — opportunistic outbound PII scrub on the FINAL reply.
+            // Reuses the same gate built at :124-139; no-op (undefined) when no
+            // ruflo proxy is injected, so back-compat is preserved.
+            scrubFinal: aidefence ? (t: string) => aidefence.scrubOutbound(t) : undefined,
             dispatchTool: async (name, args) => {
               // R-1 — carry the turn's origin + confirm hook onto every tool
               // call the CLI emits, so the authorization gate fires for

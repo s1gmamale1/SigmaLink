@@ -1030,4 +1030,113 @@ describe('runClaudeCliTurn', () => {
     });
   });
 
+  describe('H-19 outbound PII scrub on the final reply', () => {
+    // Typed with the real signature (function-type form, not tuple) so it
+    // compiles under the lead's stricter main `tsc -b`.
+    function scrubber() {
+      return vi.fn<(text: string) => Promise<string>>(async (text: string) =>
+        text.replace(/\d{3}-\d{2}-\d{4}/g, '[SSN]'),
+      );
+    }
+
+    it('scrubs the emitted final text (final only — deltas are untouched)', async () => {
+      const deps = makeDeps();
+      const child = new FakeChild();
+      const scrubFinal = scrubber();
+
+      const turnPromise = runClaudeCliTurn(
+        makeTurn(),
+        'hi',
+        { ...deps, scrubFinal },
+        { probeOverride: fakeProbe, spawnOverride: () => child, buildSystemPrompt: fixedSysPrompt },
+      );
+
+      await new Promise((r) => setImmediate(r));
+      child.pushLine({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'your ssn is 123-45-6789' }] },
+      });
+      child.pushLine({
+        type: 'result',
+        subtype: 'success',
+        result: 'your ssn is 123-45-6789',
+        is_error: false,
+      });
+      child.finish(0);
+      await turnPromise;
+
+      const states = deps.events
+        .filter((e) => e.channel === 'assistant:state')
+        .map((e) => e.payload);
+
+      const final = states.find((s) => s.kind === 'final');
+      expect(final?.text).toBe('your ssn is [SSN]');
+      // Deltas stream live as the raw text — only the FINAL is scrubbed.
+      const deltas = states.filter((s) => s.kind === 'delta').map((s) => s.delta);
+      expect(deltas.join('')).toContain('123-45-6789');
+      expect(scrubFinal).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the final text unchanged when scrubFinal is ABSENT (back-compat)', async () => {
+      const deps = makeDeps();
+      const child = new FakeChild();
+
+      const turnPromise = runClaudeCliTurn(
+        makeTurn(),
+        'hi',
+        deps,
+        { probeOverride: fakeProbe, spawnOverride: () => child, buildSystemPrompt: fixedSysPrompt },
+      );
+
+      await new Promise((r) => setImmediate(r));
+      child.pushLine({
+        type: 'result',
+        subtype: 'success',
+        result: 'ssn 123-45-6789 unscrubbed',
+        is_error: false,
+      });
+      child.finish(0);
+      await turnPromise;
+
+      const final = deps.events
+        .filter((e) => e.channel === 'assistant:state')
+        .map((e) => e.payload)
+        .find((s) => s.kind === 'final');
+      expect(final?.text).toBe('ssn 123-45-6789 unscrubbed');
+    });
+
+    it('emits the ORIGINAL final text when scrubFinal THROWS (fail-open, never drops the reply)', async () => {
+      const deps = makeDeps();
+      const child = new FakeChild();
+      const scrubFinal = vi.fn<(text: string) => Promise<string>>(async () => {
+        throw new Error('scrub engine down');
+      });
+
+      const turnPromise = runClaudeCliTurn(
+        makeTurn(),
+        'hi',
+        { ...deps, scrubFinal },
+        { probeOverride: fakeProbe, spawnOverride: () => child, buildSystemPrompt: fixedSysPrompt },
+      );
+
+      await new Promise((r) => setImmediate(r));
+      child.pushLine({
+        type: 'result',
+        subtype: 'success',
+        result: 'original reply survives',
+        is_error: false,
+      });
+      child.finish(0);
+      await turnPromise;
+
+      const final = deps.events
+        .filter((e) => e.channel === 'assistant:state')
+        .map((e) => e.payload)
+        .find((s) => s.kind === 'final');
+      // A throwing scrub must NOT drop or block the reply.
+      expect(final?.text).toBe('original reply survives');
+      expect(scrubFinal).toHaveBeenCalledTimes(1);
+    });
+  });
+
 });

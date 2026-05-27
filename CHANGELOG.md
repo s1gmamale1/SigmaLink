@@ -4,6 +4,26 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.32.0] - 2026-05-28
+
+v1.32.0 — **H-19 (full): aidefence ingestion scanning + a real outbound PII scrub.** The assistant now scans content it ingests (`read_files` contents, `search_memories` entries) for prompt-injection before it reaches the model — **redacting + annotating** flagged content — and scrubs PII from its final reply with a real local redactor. SECURITY-SENSITIVE: one Opus implementation lane + a lead integration + **two Opus security-reviews**. Opportunistic / local-first / never-fail-open throughout.
+
+### Added
+
+- **`scanIngested` on the aidefence gate** (`core/security/aidefence-gate.ts`): scans ingested text; on a flagged verdict it **coarse-redacts** the item (the live engine reports threats without offsets, so whole-item redaction) and prepends a fixed-literal `⚠ aidefence flagged` annotation; audited via the existing `assistant:security` emit. Wired into `read_files` (per file, within the 32-file cap) + `search_memories` (per entry) through a new optional `ToolContext.scanIngested`.
+- **Real outbound PII scrub on the assistant's final reply.** New shared `core/security/pii-scrub.ts` — R-1's reviewed, ReDoS-conscious secret/email/phone patterns extracted into ONE audited module consumed by both the assistant gate's `scrubOutbound` **and** R-1's Telegram `core/remote/safety.ts` (DRY). The gate's `scrubOutbound` now runs the local redactor as primary (works offline; the live engine detects PII but returns no scrubbed text) + composes any engine-scrubbed text. Applied to the `final` emit only (never per-delta).
+
+### Fixed / Security
+
+- **MCP-envelope unwrap** — `scanInbound` (operator-prompt advisory scan) was a **latent no-op against the live daemon**: the Ruflo supervisor returns the raw `{content:[{text:'<json>'}]}` envelope, not a parsed verdict. Routed through the shared `unwrapAidefence` so the inbound scan + the new PII scrub actually reach the engine. (Discovered by empirical verification against the live daemon.)
+- **PHONE over-redaction (re-review Medium)** — the shared phone pattern now **requires an E.164 `+` anchor**, so it no longer mangles a coding assistant's output (dates like 2026-05-28, numeric indices, ISBNs, dotted/dashed IDs).
+- Opportunistic everywhere: a missing/throwing Ruflo daemon ⇒ pass-through, never breaks ingestion or the emit; redaction never corrupts non-flagged content; the local scrub is offline-capable.
+
+### Notes
+
+- The post-roadmap backlog + **full H-19 are now complete.** Remaining deferred: **H-7** (transactional migrations). Light tech-debt: voice dead-tree cleanup, R-2 cursor skill fan-out, the CI Node 20→24 action bump.
+- Gate (in main): `tsc -b` · `eslint --max-warnings 0` · vitest **1846 pass / 1 skip** · `product:check` · full `tests/e2e/` (9 passed / 3 skipped) · 2× Opus security-review (PASS).
+
 ## [1.31.0] - 2026-05-27
 
 v1.31.0 — **SF-7: Ruflo MCP auto-trust + health surfacing on workspace open.** A freshly-cloned repo opened as a workspace now connects Ruflo MCP end-to-end without the manual `/mcp` trust accept, surfaces daemon health where you work, and reveals the previously-silent stdio fallback. SECURITY-SENSITIVE (it pre-approves an MCP server) — built by 2 worktree-isolated lanes (Opus trust + Sonnet health dot) + a lead `factory.ts` integration + a **mandatory Opus security-review (PASS, no Critical/High)**. Default-ON, opt-out, fail-open.

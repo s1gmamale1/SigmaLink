@@ -19,6 +19,7 @@
 //   4. Opportunistic rufloCall('aidefence_has_pii', …)  — best-effort
 
 import type { AuditEntry, AuditKind } from './audit.ts';
+import { scrubPii } from '../security/pii-scrub';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -92,24 +93,11 @@ const INJECTION_PATTERNS: ReadonlyArray<RegExp> = [
   /\bsudo\s+(mode|override)\b/i,
 ];
 
-// ─── Outbound scrub patterns ──────────────────────────────────────────────────
-
-// Matches common API key prefixes followed by at least 8 non-whitespace chars.
-const SECRET_PATTERNS: ReadonlyArray<RegExp> = [
-  /sk-[A-Za-z0-9_-]{8,}/g,            // OpenAI / generic sk- keys
-  /ghp_[A-Za-z0-9_]{8,}/g,             // GitHub personal access tokens
-  /AKIA[A-Z0-9]{12,}/g,                // AWS access key IDs
-  /Bearer\s+[A-Za-z0-9._~+/=-]+=*/gi, // Authorization: Bearer …
-];
-
-// Linear, bounded email matcher. The base domain class excludes '.' and the
-// dotted labels are a separate anchored group `(?:\.label)+`, so there is no
-// quantifier ambiguity (no catastrophic backtracking on inputs like
-// `a@a.a.a.a…`). All quantifiers are length-capped.
-const EMAIL_PATTERN = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,255}(?:\.[A-Za-z]{2,24})+/g;
-
-// Basic E.164-ish phone: +country code followed by 6-14 digits (with spaces/dashes).
-const PHONE_PATTERN = /(\+?[0-9][\s.-]?){7,15}/g;
+// ─── Outbound scrub ───────────────────────────────────────────────────────────
+// The secret / email / phone patterns now live in the shared
+// `core/security/pii-scrub.ts` (H-19 — ONE audited regex set, consumed here AND
+// by the assistant gate's scrubOutbound). The Telegram-specific bot-token
+// redaction stays below (it is not general PII).
 
 // ─── Token-bucket state ───────────────────────────────────────────────────────
 
@@ -250,16 +238,8 @@ export function createSafetyLayer(deps: SafetyLayerDeps): SafetyLayer {
       out = out.replace(new RegExp(escaped, 'g'), '[REDACTED]');
     }
 
-    // 2. Redact common secret patterns.
-    for (const re of SECRET_PATTERNS) {
-      // Reset lastIndex since we're reusing global regexes across calls.
-      re.lastIndex = 0;
-      out = out.replace(re, '[REDACTED]');
-    }
-
-    // 3. Redact email and phone.
-    out = out.replace(EMAIL_PATTERN, '[EMAIL]');
-    out = out.replace(PHONE_PATTERN, '[PHONE]');
+    // 2-3. Shared secret/email/phone scrub (core/security/pii-scrub.ts, H-19).
+    out = scrubPii(out);
 
     // 4. Opportunistic ruflo PII check — best-effort, never throws.
     if (rufloCall) {
