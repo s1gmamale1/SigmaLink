@@ -1,0 +1,81 @@
+SigmaLink v1.30.0 — 2026-05-27
+==============================
+
+SF-8 — Yolo/Bypass launch mode for plain panes.
+
+Operators can launch workspace panes with the provider's own bypass flag, so
+the agent skips its approval prompts. Built on the autoApprove mechanism that
+already existed for swarm agents — extended to plain panes, with no new flag
+logic. Two worktree-isolated lanes (Sonnet) + a lead integration that closed a
+real gap the lanes surfaced. OFF by default, behind a clear danger warning.
+
+
+Added
+-----
+
+- Yolo / Bypass toggle in the workspace launcher (Launcher.tsx) and the
+  "+ Pane" add flow (AddPaneButton.tsx). Per-launch: one toggle covers every
+  pane in a submit. A per-workspace DEFAULT is persisted to kv
+  `pane.autoApprove.default.<workspaceId>` (default OFF). The toggle is
+  danger-styled with the warning: "disables the agent's own approval prompts —
+  use only in trusted workspaces."
+
+- Per-provider bypass flag, reusing providers.ts autoApproveFlag:
+    * claude  --dangerously-skip-permissions
+    * codex   --dangerously-bypass-approvals-and-sandbox
+    * gemini  --yolo
+    * cursor  --force
+  Providers without an autoApproveFlag (kimi / opencode / shell) are a
+  graceful no-op (nothing appended).
+
+- autoApprove threaded through BOTH pane-creation paths:
+    * workspaces.launch : PaneAssignment -> executeLaunchPlan -> resolveAndSpawn
+    * "+ Pane" (swarm)  : AddAgentToSwarmInput -> addAgentToSwarm ->
+                          spawnAgentSession -> resolveAndSpawn
+
+- Persisted so Yolo SURVIVES RESUME: agent_sessions.auto_approve (migration
+  0024) + swarm_agents.auto_approve. A pane launched in Yolo re-applies the
+  flag when reopened. auto_approve added to the cross-machine sync allowlist.
+
+
+Fixed
+-----
+
+- Latent gap (incidental): the swarm "Auto" chip (swarm_agents.auto_approve,
+  RoleRoster) was persisted but NEVER applied at spawn — spawnAgentSession did
+  not pass autoApprove to resolveAndSpawn. Now wired, so both the existing chip
+  and the new "+ Pane" Yolo take effect.
+
+- Hardened both Yolo kv-hydration effects to fail-safe (kv unavailable ->
+  default OFF) instead of throwing.
+
+
+Not in this release (tracked follow-up)
+---------------------------------------
+
+- SF-7 — Ruflo MCP daemon auto-init / auto-trust on workspace open. Planned
+  (docs/03-plan/sf7-ruflo-mcp-auto-trust-plan.md), awaiting execute-go.
+
+
+Gate
+----
+
+- tsc -b (main, incl. electron/**) -- clean
+- eslint 0 errors / 0 warnings
+- vitest 176 files / 1785 pass / 1 skip (migration 0024 MockDb test, launcher
+  autoApprove threading, resume persistence, launcher + +Pane toggle tests)
+- vite build + electron:compile (product:check) -- clean
+- FULL Playwright e2e (tests/e2e/) in main -- 9 passed / 3 skipped
+
+
+Operator smoke
+--------------
+
+1. Open the workspace launcher -> the "Yolo / Bypass mode" toggle appears,
+   OFF by default. Flip it ON, launch a claude pane -> the pane's argv includes
+   --dangerously-skip-permissions (no approval prompts).
+2. Toggle it ON once -> reopen the launcher for the same workspace -> it stays
+   ON (per-workspace default persisted).
+3. Close + resume that pane -> it relaunches in Yolo (persisted on the session).
+4. "+ Pane" -> the same toggle applies to the single pane it adds.
+5. A kimi/opencode/shell pane with Yolo ON -> launches normally (no-op).

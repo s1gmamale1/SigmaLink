@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Play, Plus, Settings as SettingsIcon, SplitSquareHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
@@ -20,6 +21,11 @@ import { SessionStep, fetchLastResumePlan } from './SessionStep';
 import type { PaneRow } from './SessionStep';
 import { gridLabel } from './grid';
 import { AGENT_PROVIDERS } from '@/shared/providers';
+
+/** KV key for the per-workspace Yolo/Bypass default. */
+function yoloKvKey(workspaceId: string): string {
+  return `pane.autoApprove.default.${workspaceId}`;
+}
 
 /**
  * v1.3.1 — Build the top-level `paneResumePlan` array that the backend
@@ -107,6 +113,12 @@ export function WorkspaceLauncher() {
    * chooseExisting(), or by user interaction in SessionStep.
    */
   const [paneResumePlan, setPaneResumePlan] = useState<Record<number, string | null>>({});
+  /**
+   * SF-8 B2 — Yolo/Bypass per-launch toggle. Initialised from the per-workspace
+   * kv default; toggling writes the kv so the next launch inherits the choice.
+   * Default = false (OFF) when the kv key is absent.
+   */
+  const [yolo, setYolo] = useState(false);
 
   // Probe providers on mount so the matrix can render PATH-status badges.
   useEffect(() => {
@@ -119,6 +131,39 @@ export function WorkspaceLauncher() {
       alive = false;
     };
   }, []);
+
+  // SF-8 B2 — Hydrate the yolo toggle from the per-workspace kv default when
+  // the active workspace changes. The setYolo calls are microtask-deferred
+  // (via async/await) to satisfy the react-hooks/set-state-in-effect lint rule.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      if (!selectedWorkspace) {
+        if (alive) setYolo(false);
+        return;
+      }
+      // Fail-safe: kv unavailable → default Yolo OFF (guards rpc.kv undefined).
+      let raw: string | null = null;
+      try {
+        raw = await rpc.kv.get(yoloKvKey(selectedWorkspace.id));
+      } catch {
+        raw = null;
+      }
+      if (alive) setYolo(raw === '1');
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [selectedWorkspace?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** SF-8 B2 — Toggle yolo and persist the per-workspace default. */
+  function toggleYolo(): void {
+    const next = !yolo;
+    setYolo(next);
+    if (selectedWorkspace) {
+      void rpc.kv?.set?.(yoloKvKey(selectedWorkspace.id), next ? '1' : '0')?.catch(() => undefined);
+    }
+  }
 
   // Step navigation + preset clamping run inside the event handlers below
   // (changeStepOnPick / changePreset). Avoiding setState-in-effect keeps the
@@ -322,6 +367,9 @@ export function WorkspaceLauncher() {
         panes: paneProviders.map((providerId, paneIndex) => ({
           paneIndex,
           providerId,
+          // SF-8 B2: thread yolo into every pane so the main process appends
+          // the provider's autoApproveFlag when opts.autoApprove is true.
+          autoApprove: yolo,
         })),
         ...(resumeArray.length > 0 ? { paneResumePlan: resumeArray } : {}),
       };
@@ -406,6 +454,30 @@ export function WorkspaceLauncher() {
               onReconfigure={() => setStep('layout')}
             />
           ) : null}
+        </div>
+
+        {/* SF-8 B2 — Yolo/Bypass mode row, rendered above the bottom action row. */}
+        <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
+          <Switch
+            id="yolo-toggle"
+            data-testid="yolo-toggle"
+            checked={yolo}
+            onCheckedChange={toggleYolo}
+            aria-label="Yolo / Bypass mode — starts agents with their bypass flag"
+            aria-checked={yolo}
+          />
+          <div className="flex flex-col gap-0.5">
+            <label
+              htmlFor="yolo-toggle"
+              className="cursor-pointer text-xs font-semibold text-amber-600 dark:text-amber-400"
+            >
+              ⚠️ Yolo / Bypass mode
+            </label>
+            <p className="text-[10px] text-muted-foreground">
+              Starts agents with their bypass flag — disables the agent's own approval prompts.
+              Use only in trusted workspaces.
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-3">

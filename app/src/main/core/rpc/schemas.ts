@@ -272,6 +272,9 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       providerId: z.string().min(1),
       role: z.enum(['coordinator', 'builder', 'scout', 'reviewer']).optional(),
       initialPrompt: z.string().max(8_000).optional(),
+      // SF-8 — Yolo/Bypass: when true, the spawn appends the provider's
+      // autoApproveFlag (no-op for providers without one).
+      autoApprove: z.boolean().optional(),
     }),
     output: z.object({
       sessionId: z.string(),

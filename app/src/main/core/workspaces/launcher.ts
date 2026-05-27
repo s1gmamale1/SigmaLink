@@ -368,6 +368,9 @@ export async function executeLaunchPlan(
           // overridden to 'direct' for Path B providers in shell-first mode;
           // see comment above). Default is 'direct' (CRITICAL INVARIANT).
           spawnMode: effectiveSpawnMode,
+          // SF-8 Yolo/Bypass — thread pane.autoApprove into resolveAndSpawn
+          // so buildArgs appends provider.autoApproveFlag when true.
+          autoApprove: pane.autoApprove ?? false,
         },
       );
       const rec = spawnResult.ptySession;
@@ -402,6 +405,9 @@ export async function executeLaunchPlan(
             // recent) instead of one row per historical launch. Without this,
             // re-opening a workspace surfaced N×launches panes in the picker.
             paneIndex: pane.paneIndex,
+            // SF-8 Yolo/Bypass — persist the bypass flag so resume can
+            // re-apply it without the renderer re-submitting the preference.
+            autoApprove: pane.autoApprove ? 1 : 0,
           })
           .run();
       } catch (insertErr) {
@@ -456,6 +462,9 @@ export async function executeLaunchPlan(
         status: 'running',
         startedAt: rec.startedAt,
         initialPrompt: pane.initialPrompt,
+        // SF-8 Yolo/Bypass — surface the persisted flag so the renderer
+        // knows whether this pane was launched in bypass mode.
+        autoApprove: pane.autoApprove ?? false,
       });
 
       // When the PTY exits, mark the session row. If the exit happens within

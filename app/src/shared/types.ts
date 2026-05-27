@@ -209,6 +209,13 @@ export interface AddAgentToSwarmInput {
   providerId: string;
   role?: Role;
   initialPrompt?: string;
+  /**
+   * SF-8 — Yolo/Bypass launch mode for the `+Pane` flow. When true, the swarm
+   * spawn appends the provider's `autoApproveFlag` (claude
+   * `--dangerously-skip-permissions`, etc.). No-op for providers without one.
+   * Persisted on `swarm_agents.auto_approve` + `agent_sessions.auto_approve`.
+   */
+  autoApprove?: boolean;
 }
 
 export interface AddAgentToSwarmResult {

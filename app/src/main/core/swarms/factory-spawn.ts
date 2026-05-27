@@ -116,6 +116,8 @@ export interface SpawnAgentSessionArgs {
   baseRef?: string;
   agentKey: string;
   initialPrompt?: string;
+  /** SF-8 — Yolo/Bypass: append the provider's autoApproveFlag at spawn. */
+  autoApprove?: boolean;
   deps: SwarmFactoryDeps;
   /**
    * v1.4.3 #06 — when provided, skip the WorktreePool.create() call and use
@@ -221,6 +223,8 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
       rows: args.deps.defaultRows ?? 32,
       showLegacy,
       extraArgs,
+      // SF-8 — Yolo/Bypass: buildArgs appends provider.autoApproveFlag when true.
+      autoApprove: args.autoApprove ?? false,
       // v1.5.5-A — pass pre-allocated UUID via preassignedSessionId (NOT
       // sessionId) so registry.create uses it as the row id while keeping
       // isResume=false → onPostSpawnCapture fires for disk-scan providers
@@ -252,6 +256,8 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
         initialPrompt: args.initialPrompt,
         startedAt: rec.startedAt,
         externalSessionId: rec.externalSessionId,
+        // SF-8 — persist Yolo on the session so resume re-applies the flag.
+        autoApprove: args.autoApprove ? 1 : 0,
       })
       .run();
   } catch (insertErr) {

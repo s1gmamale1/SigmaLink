@@ -6,6 +6,7 @@
 //   - Always-visible inline reason pill (data-testid="add-pane-disabled-reason")
 //   - Persistent error chip (data-testid="add-pane-error-chip", 10s timer, dismiss ×, unmount cleanup)
 //   - addPane() → rpc.swarms.addAgent (creates a default swarm first if none exists)
+//   - SF-8 B3: Yolo/Bypass toggle with per-workspace kv default
 //
 // Layout note: this component renders a `relative` wrapper so the error chip
 // can be positioned absolutely below the toolbar bar without disturbing the
@@ -15,6 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +32,11 @@ import {
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch } from '@/renderer/app/state';
 import type { Swarm, Workspace } from '@/shared/types';
+
+/** SF-8 B3 — Per-workspace Yolo default kv key (mirrors Launcher.tsx). */
+function yoloKvKey(workspaceId: string): string {
+  return `pane.autoApprove.default.${workspaceId}`;
+}
 
 // v1.13.1 — derive the human-readable reason why "+ Pane" is disabled.
 //
@@ -86,6 +93,14 @@ export function AddPaneButton({
   const [lastAddError, setLastAddError] = useState<string | null>(null);
   const lastAddErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /**
+   * SF-8 B3 — Yolo/Bypass per-pane toggle. Mirrors the Launcher's toggle but
+   * scoped to the single pane the +Pane dropdown adds. Initialised from the
+   * per-workspace kv default; toggling writes it so the next +Pane inherits
+   * the choice. Default = false (OFF) when the kv key is absent.
+   */
+  const [yolo, setYolo] = useState(false);
+
   // DOGFOOD-V1.4.2-01 — clear the error-chip timer on unmount.
   useEffect(() => {
     return () => {
@@ -94,6 +109,40 @@ export function AddPaneButton({
       }
     };
   }, []);
+
+  // SF-8 B3 — Hydrate yolo from the per-workspace kv default on mount /
+  // whenever the active workspace changes. The setYolo calls are microtask-
+  // deferred (via async/await) to satisfy react-hooks/set-state-in-effect.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      if (!activeWorkspace) {
+        if (alive) setYolo(false);
+        return;
+      }
+      // Fail-safe: if the kv RPC is unavailable, default Yolo OFF (the try/catch
+      // also guards `rpc.kv` being undefined, not just a rejected get()).
+      let raw: string | null = null;
+      try {
+        raw = await rpc.kv.get(yoloKvKey(activeWorkspace.id));
+      } catch {
+        raw = null;
+      }
+      if (alive) setYolo(raw === '1');
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [activeWorkspace?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** SF-8 B3 — Toggle yolo and persist the per-workspace default. */
+  function toggleYolo(): void {
+    const next = !yolo;
+    setYolo(next);
+    if (activeWorkspace) {
+      void rpc.kv?.set?.(yoloKvKey(activeWorkspace.id), next ? '1' : '0')?.catch(() => undefined);
+    }
+  }
 
   const disabledReason = getAddPaneDisabledReason(activeWorkspace, activeSwarm, swarmsLoading, adding);
 
@@ -124,7 +173,9 @@ export function AddPaneButton({
         });
         targetSwarmId = newSwarm.id;
       }
-      const result = await rpc.swarms.addAgent({ swarmId: targetSwarmId, providerId });
+      // SF-8 B3: pass autoApprove so the swarm spawn appends the provider's
+      // bypass flag when true (AddAgentToSwarmInput now carries autoApprove).
+      const result = await rpc.swarms.addAgent({ swarmId: targetSwarmId, providerId, autoApprove: yolo });
       dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
       dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
       dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
@@ -152,7 +203,7 @@ export function AddPaneButton({
   return (
     // relative wrapper so the error chip can absolute-position below the toolbar
     // without disturbing the parent flex row height.
-    <div className="relative flex items-center gap-2">
+    <div className="relative flex flex-col gap-1">
       <DropdownMenu>
         {disabledReason ? (
           // v1.2.5 Step 3 — when disabled, surface the reason via tooltip.
@@ -201,6 +252,27 @@ export function AddPaneButton({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+      {/* SF-8 B3 — Yolo/Bypass toggle for the single +Pane add flow. */}
+      <div className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[10px]">
+        <Switch
+          id="yolo-toggle"
+          data-testid="yolo-toggle"
+          checked={yolo}
+          onCheckedChange={toggleYolo}
+          aria-label="Yolo / Bypass mode — starts agents with their bypass flag"
+          aria-checked={yolo}
+          className="mt-0.5 h-3.5 w-6 shrink-0"
+        />
+        <div>
+          <label htmlFor="yolo-toggle" className="cursor-pointer font-semibold text-amber-600 dark:text-amber-400">
+            ⚠️ Yolo / Bypass mode
+          </label>
+          <p className="text-muted-foreground">
+            Starts agents with their bypass flag — disables the agent's own approval prompts.
+            Use only in trusted workspaces.
+          </p>
+        </div>
+      </div>
       {/* DOGFOOD-V1.4.2-01 hypothesis 1 — always-visible inline reason pill.
           aria-live="polite" + role="status": SR announces the reason when
           it changes (no-workspace → paused → cap) without interrupting

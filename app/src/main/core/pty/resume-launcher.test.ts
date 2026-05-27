@@ -501,3 +501,199 @@ describe('resumeWorkspacePanes', () => {
     }
   });
 });
+
+// ── A3: resume re-applies persisted auto_approve ──────────────────────────
+// SF-8 Yolo/Bypass — resumeWorkspacePanes must read `auto_approve` from the
+// agent_sessions row and pass `autoApprove: row.autoApprove === 1` to
+// resolveAndSpawn so the bypass flag is restored on every resume.
+
+interface FakeRowWithAutoApprove extends Omit<FakeRow, 'external_session_id'> {
+  external_session_id: string | null;
+  auto_approve: number;
+}
+
+function setupDbWithAutoApprove(): {
+  db: Database.Database;
+  rows: FakeRowWithAutoApprove[];
+} {
+  const rows: FakeRowWithAutoApprove[] = [];
+  const db = {
+    prepare(sql: string) {
+      return {
+        all(workspaceId: string) {
+          return rows
+            .filter((r) => r.workspace_id === workspaceId)
+            .filter(
+              (r) =>
+                r.status === 'running' ||
+                (r.status === 'exited' && r.exit_code === -1),
+            )
+            .sort((a, b) => a.started_at - b.started_at)
+            .map((r) => ({
+              id: r.id,
+              workspaceId: r.workspace_id,
+              providerId: r.provider_id,
+              providerEffective: r.provider_effective,
+              cwd: r.cwd,
+              worktreePath: r.worktree_path,
+              workspaceRoot: r.workspace_root,
+              repoRoot: r.repo_root,
+              externalSessionId: r.external_session_id,
+              autoApprove: r.auto_approve,
+            }));
+        },
+        get(keyOrId: string) {
+          if (/FROM kv/.test(sql)) return undefined;
+          const row = rows.find((r) => r.id === keyOrId);
+          if (!row) return undefined;
+          return {
+            status: row.status,
+            exitCode: row.exit_code,
+            exitedAt: row.exited_at,
+            startedAt: row.started_at,
+          };
+        },
+        run(...args: unknown[]) {
+          if (/provider_effective/.test(sql)) {
+            const [providerEffective, sessionId] = args as [string, string];
+            const row = rows.find((r) => r.id === sessionId);
+            if (row) row.provider_effective = providerEffective;
+            return { changes: row ? 1 : 0 };
+          }
+          if (/status = 'running'/.test(sql)) {
+            const [startedAt, sessionId] = args as [number, string];
+            const row = rows.find((r) => r.id === sessionId);
+            if (row) {
+              row.status = 'running';
+              row.exit_code = null;
+              row.exited_at = null;
+              row.started_at = startedAt;
+            }
+            return { changes: row ? 1 : 0 };
+          }
+          if (/status = 'exited'/.test(sql)) {
+            const [exitedAt, sessionId] = args as [number, string];
+            const row = rows.find((r) => r.id === sessionId);
+            if (row) {
+              row.status = 'exited';
+              row.exit_code = -1;
+              row.exited_at = exitedAt;
+            }
+            return { changes: row ? 1 : 0 };
+          }
+          if (/SET status = \?/.test(sql)) {
+            const [status, exitCode, exitedAt, sessionId] = args as [
+              string,
+              number,
+              number,
+              string,
+            ];
+            const row = rows.find((r) => r.id === sessionId);
+            if (row) {
+              row.status = status;
+              row.exit_code = exitCode;
+              row.exited_at = exitedAt;
+            }
+            return { changes: row ? 1 : 0 };
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        },
+      };
+    },
+  } as unknown as Database.Database;
+  return { db, rows };
+}
+
+describe('resumeWorkspacePanes — SF-8 auto_approve persistence (A3)', () => {
+  it('A3: auto_approve=1 in DB → resolveAndSpawn receives autoApprove=true', async () => {
+    const { db, rows } = setupDbWithAutoApprove();
+    rows.push({
+      id: 'sess-yolo',
+      workspace_id: 'ws-aa',
+      provider_id: 'claude',
+      provider_effective: 'claude',
+      cwd: '/tmp/project',
+      worktree_path: null,
+      workspace_root: '/tmp/project',
+      repo_root: null,
+      status: 'running',
+      exit_code: null,
+      started_at: 100,
+      exited_at: null,
+      external_session_id: VALID_CLAUDE_SESSION_ID,
+      auto_approve: 1,
+    });
+
+    const spawnOpts: Array<{ autoApprove?: boolean; extraArgs?: string[] }> = [];
+    const registry = { get: () => undefined } as unknown as PtyRegistry;
+    const resolve: NonNullable<ResumeLauncherDeps['resolve']> = (_deps, opts) => {
+      spawnOpts.push({ autoApprove: opts.autoApprove, extraArgs: opts.extraArgs });
+      return {
+        ptySession: makeSession(opts.sessionId ?? 'new-id', opts.providerId),
+        providerRequested: opts.providerId,
+        providerEffective: 'claude',
+        commandUsed: 'claude',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+      };
+    };
+
+    const result = await resumeWorkspacePanes('ws-aa', {
+      pty: registry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => claudeProvider,
+      resolve,
+    });
+
+    expect(result.resumed).toHaveLength(1);
+    expect(result.failed).toHaveLength(0);
+    expect(spawnOpts[0]?.autoApprove).toBe(true);
+  });
+
+  it('A3: auto_approve=0 in DB → resolveAndSpawn receives autoApprove=false (default OFF)', async () => {
+    const { db, rows } = setupDbWithAutoApprove();
+    rows.push({
+      id: 'sess-normal',
+      workspace_id: 'ws-aa2',
+      provider_id: 'claude',
+      provider_effective: 'claude',
+      cwd: '/tmp/project',
+      worktree_path: null,
+      workspace_root: '/tmp/project',
+      repo_root: null,
+      status: 'running',
+      exit_code: null,
+      started_at: 100,
+      exited_at: null,
+      external_session_id: VALID_CLAUDE_SESSION_ID,
+      auto_approve: 0,
+    });
+
+    const spawnOpts: Array<{ autoApprove?: boolean }> = [];
+    const registry = { get: () => undefined } as unknown as PtyRegistry;
+    const resolve: NonNullable<ResumeLauncherDeps['resolve']> = (_deps, opts) => {
+      spawnOpts.push({ autoApprove: opts.autoApprove });
+      return {
+        ptySession: makeSession(opts.sessionId ?? 'new-id', opts.providerId),
+        providerRequested: opts.providerId,
+        providerEffective: 'claude',
+        commandUsed: 'claude',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+      };
+    };
+
+    const result = await resumeWorkspacePanes('ws-aa2', {
+      pty: registry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => claudeProvider,
+      resolve,
+    });
+
+    expect(result.resumed).toHaveLength(1);
+    expect(result.failed).toHaveLength(0);
+    expect(spawnOpts[0]?.autoApprove).toBe(false);
+  });
+});

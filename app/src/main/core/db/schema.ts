@@ -60,6 +60,10 @@ export const agentSessions = sqliteTable(
     paneIndex: integer('pane_index'),
     // v1.4.1 — which Jorvis conversation is monitoring this session for pane events.
     jorvisMonitorConversationId: text('jorvis_monitor_conversation_id'),
+    // SF-8 Yolo/Bypass launch mode — 0/1 boolean persisted here so that a
+    // workspace resume re-applies the provider's bypass flag without requiring
+    // the renderer to re-submit it. Migration 0024 adds the column.
+    autoApprove: integer('auto_approve').notNull().default(0),
     // v1.4.3 #06 — Pane Split + Minimise. NULL columns mean the pane is a
     // standalone tile in the grid (the legacy shape). When set, the four
     // columns describe membership in a 2-pane split group:

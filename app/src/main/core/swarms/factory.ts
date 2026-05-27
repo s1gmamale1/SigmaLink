@@ -54,6 +54,8 @@ export interface AddAgentToSwarmInput {
   providerId: string;
   role?: Role;
   initialPrompt?: string;
+  /** SF-8 — Yolo/Bypass: append the provider's autoApproveFlag at spawn. */
+  autoApprove?: boolean;
   /**
    * v1.4.3 #06 — Pane Split. When set, the new pane shares the parent's
    * worktree (no new git worktree is allocated) and inherits the parent's

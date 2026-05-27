@@ -3,6 +3,13 @@
 // v1.5.4-A — RTL tests for the extracted AddPaneButton component.
 // v1.13.1 — covers new getAddPaneDisabledReason(activeWorkspace, activeSwarm, swarmsLoading)
 //           and zero-swarms swarm-creation path.
+// SF-8 B3  — covers Yolo/Bypass toggle in the +Pane add flow:
+//   B3-1: yolo-toggle renders with danger warning text
+//   B3-2: yolo-toggle defaults ON when per-ws kv returns '1'
+//   B3-3: yolo-toggle defaults OFF when per-ws kv returns null
+//   B3-4: addAgent called with autoApprove:true when yolo is ON
+//   B3-5: toggling ON persists kv.set '1'
+//   B3-6: toggling OFF persists kv.set '0'
 //
 // Tests cover:
 //   1. Pill visible when disabled (each of the 4 disabledReason variants)
@@ -28,12 +35,18 @@ import type { Swarm, Workspace } from '@/shared/types';
 
 const addAgentMock = vi.fn();
 const createSwarmMock = vi.fn();
+const kvGetMock = vi.fn<(key: string) => Promise<string | null>>(async () => null);
+const kvSetMock = vi.fn<(key: string, value: string) => Promise<void>>(async () => undefined);
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     swarms: {
       addAgent: (...args: unknown[]) => addAgentMock(...args),
       create: (...args: unknown[]) => createSwarmMock(...args),
+    },
+    kv: {
+      get: (...args: unknown[]) => kvGetMock(...args as [string]),
+      set: (...args: unknown[]) => kvSetMock(...args as [string, string]),
     },
   },
 }));
@@ -112,6 +125,8 @@ beforeEach(() => {
   createSwarmMock.mockReset();
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
+  kvGetMock.mockReset().mockResolvedValue(null);
+  kvSetMock.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -281,10 +296,10 @@ describe('AddPaneButton — dropdown and rpc', () => {
     clickProvider('Claude');
 
     await waitFor(() => {
-      expect(addAgentMock).toHaveBeenCalledWith({
-        swarmId: 'swarm-1',
-        providerId: 'claude',
-      });
+      // SF-8 B3: addAgent now also receives autoApprove (false by default).
+      expect(addAgentMock).toHaveBeenCalledWith(
+        expect.objectContaining({ swarmId: 'swarm-1', providerId: 'claude' }),
+      );
     });
   });
 });
@@ -485,10 +500,118 @@ describe('AddPaneButton — zero-swarms path (v1.13.1)', () => {
       expect.objectContaining({ workspaceId: 'ws-1', preset: 'custom' }),
     );
     await waitFor(() => {
-      expect(addAgentMock).toHaveBeenCalledWith({
-        swarmId: 'swarm-new',
-        providerId: 'claude',
-      });
+      // SF-8 B3: addAgent now also receives autoApprove (false by default).
+      expect(addAgentMock).toHaveBeenCalledWith(
+        expect.objectContaining({ swarmId: 'swarm-new', providerId: 'claude' }),
+      );
     });
+  });
+});
+
+// ---- SF-8 B3 — Yolo/Bypass toggle in +Pane flow ----------------------------
+
+describe('AddPaneButton — Yolo/Bypass toggle (SF-8 B3)', () => {
+  it('B3-1: yolo-toggle renders with danger warning text', async () => {
+    await renderAddPaneButton();
+    expect(screen.getByTestId('yolo-toggle')).toBeTruthy();
+    expect(screen.getByText(/yolo.*bypass mode/i) || screen.getByText(/bypass mode/i)).toBeTruthy();
+    expect(screen.getByText(/trusted workspaces/i)).toBeTruthy();
+  });
+
+  it('B3-2: yolo-toggle defaults ON when per-ws kv returns "1"', async () => {
+    kvGetMock.mockImplementation(async (key: string) => {
+      if (key === 'pane.autoApprove.default.ws-1') return '1';
+      return null;
+    });
+    await renderAddPaneButton();
+    await waitFor(() => {
+      const toggle = screen.getByTestId('yolo-toggle');
+      const isOn =
+        toggle.getAttribute('data-state') === 'checked' ||
+        toggle.getAttribute('aria-checked') === 'true';
+      expect(isOn).toBe(true);
+    });
+  });
+
+  it('B3-3: yolo-toggle defaults OFF when per-ws kv returns null', async () => {
+    kvGetMock.mockResolvedValue(null);
+    await renderAddPaneButton();
+    // After mount + any async kv read, the toggle must be off.
+    await waitFor(() => {
+      const toggle = screen.getByTestId('yolo-toggle');
+      const isOff =
+        toggle.getAttribute('data-state') !== 'checked' &&
+        toggle.getAttribute('aria-checked') !== 'true';
+      expect(isOff).toBe(true);
+    });
+  });
+
+  it('B3-4: addAgent is called with autoApprove:true when yolo is ON', async () => {
+    kvGetMock.mockImplementation(async (key: string) => {
+      if (key === 'pane.autoApprove.default.ws-1') return '1';
+      return null;
+    });
+    addAgentMock.mockResolvedValue({
+      sessionId: 's-yolo',
+      paneIndex: 0,
+      agentKey: 'builder-1',
+      session: { id: 's-yolo', workspaceId: 'ws-1' },
+      swarm: makeSwarm(),
+    });
+
+    await renderAddPaneButton();
+    // Wait for kv hydration.
+    await waitFor(() => {
+      const toggle = screen.getByTestId('yolo-toggle');
+      expect(
+        toggle.getAttribute('data-state') === 'checked' ||
+        toggle.getAttribute('aria-checked') === 'true',
+      ).toBe(true);
+    });
+
+    clickProvider('Claude');
+
+    await waitFor(() => {
+      expect(addAgentMock).toHaveBeenCalledWith(
+        expect.objectContaining({ swarmId: 'swarm-1', providerId: 'claude', autoApprove: true }),
+      );
+    });
+  });
+
+  it('B3-5: toggling ON persists kv.set with "1"', async () => {
+    kvGetMock.mockResolvedValue(null); // starts OFF
+    await renderAddPaneButton();
+    await act(async () => { await Promise.resolve(); });
+
+    const toggle = screen.getByTestId('yolo-toggle');
+    await act(async () => {
+      fireEvent.click(toggle);
+      await Promise.resolve();
+    });
+
+    expect(kvSetMock).toHaveBeenCalledWith('pane.autoApprove.default.ws-1', '1');
+  });
+
+  it('B3-6: toggling OFF persists kv.set with "0"', async () => {
+    kvGetMock.mockImplementation(async (key: string) => {
+      if (key === 'pane.autoApprove.default.ws-1') return '1';
+      return null;
+    });
+    await renderAddPaneButton();
+    await waitFor(() => {
+      const toggle = screen.getByTestId('yolo-toggle');
+      expect(
+        toggle.getAttribute('data-state') === 'checked' ||
+        toggle.getAttribute('aria-checked') === 'true',
+      ).toBe(true);
+    });
+
+    const toggle = screen.getByTestId('yolo-toggle');
+    await act(async () => {
+      fireEvent.click(toggle);
+      await Promise.resolve();
+    });
+
+    expect(kvSetMock).toHaveBeenCalledWith('pane.autoApprove.default.ws-1', '0');
   });
 });

@@ -147,6 +147,8 @@ interface ResumeRow {
   workspaceRoot: string;
   repoRoot: string | null;
   externalSessionId: string | null;
+  /** SF-8 Yolo/Bypass — persisted 0/1 flag; re-applied on every resume. */
+  autoApprove: number | null;
 }
 
 function readShowLegacy(db: Database.Database): boolean {
@@ -236,7 +238,8 @@ function listEligibleRows(db: Database.Database, workspaceId: string): ResumeRow
          s.worktree_path AS worktreePath,
          w.root_path AS workspaceRoot,
          w.repo_root AS repoRoot,
-         s.external_session_id AS externalSessionId
+         s.external_session_id AS externalSessionId,
+         s.auto_approve AS autoApprove
        FROM agent_sessions s
        JOIN workspaces w ON w.id = s.workspace_id
        WHERE s.workspace_id = ?
@@ -494,6 +497,9 @@ export async function resumeWorkspacePanes(
           isResume: true,
           // v1.9-scrollback — load persisted scrollback when the flag is on.
           resumeScrollback: deps.loadScrollbackForSession?.(row.id),
+          // SF-8 Yolo/Bypass — re-apply the persisted bypass flag so the
+          // provider's autoApproveFlag is appended to argv on every resume.
+          autoApprove: row.autoApprove === 1,
         },
       );
       const rec = spawned.ptySession;

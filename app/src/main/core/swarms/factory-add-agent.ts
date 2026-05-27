@@ -104,6 +104,8 @@ export async function addAgentToSwarm(
         agentKey: aKey,
         coordinatorId,
         createdAt: now,
+        // SF-8 — persist Yolo/Bypass on the swarm agent row.
+        autoApprove: input.autoApprove ? 1 : 0,
       })
       .run();
   });
@@ -120,6 +122,7 @@ export async function addAgentToSwarm(
       providerId: input.providerId,
       agentKey: aKey,
       initialPrompt: input.initialPrompt,
+      autoApprove: input.autoApprove,
       deps,
       // v1.4.3 #06 — propagate the worktree-share override when the caller
       // (splitPane RPC) provides one. All other callers leave these undefined

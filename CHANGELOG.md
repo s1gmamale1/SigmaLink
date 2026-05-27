@@ -4,6 +4,26 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-05-27
+
+v1.30.0 — **SF-8: Yolo/Bypass launch mode for plain panes.** Operators can now launch workspace panes with the provider's own bypass flag (claude `--dangerously-skip-permissions`, codex `--dangerously-bypass-approvals-and-sandbox`, gemini `--yolo`, cursor `--force`) via a per-launch toggle. Built on the existing `autoApprove` mechanism (no new flag logic). 2 worktree-isolated lanes + a lead integration that closed a gap the lanes surfaced. OFF by default, behind a clear danger warning.
+
+### Added
+
+- **Yolo / Bypass toggle** in the workspace launcher (`Launcher.tsx`) and the `+Pane` add flow (`AddPaneButton.tsx`). Per-launch (one toggle covers all panes in a submit), with a **per-workspace default** persisted to kv `pane.autoApprove.default.<workspaceId>` (default OFF). Danger-styled with the warning "disables the agent's own approval prompts — use only in trusted workspaces".
+- `autoApprove` threaded through both pane-creation paths: `workspaces.launch` (`PaneAssignment` → `executeLaunchPlan` → `resolveAndSpawn`) **and** the `+Pane` swarm path (`AddAgentToSwarmInput` → `addAgentToSwarm` → `spawnAgentSession` → `resolveAndSpawn`). Providers without an `autoApproveFlag` (kimi/opencode/shell) are a graceful no-op.
+- Persisted on the session (`agent_sessions.auto_approve`, migration `0024`) and on `swarm_agents.auto_approve`, so **Yolo survives resume** — a pane launched in Yolo re-applies the flag when reopened. `auto_approve` added to the cross-machine sync allowlist.
+
+### Fixed
+
+- **Latent gap (incidental):** the swarm "Auto" chip (`swarm_agents.auto_approve`, RoleRoster) was persisted but **never applied at spawn** — `spawnAgentSession` didn't pass `autoApprove` to `resolveAndSpawn`. Now wired, so the existing chip and the new `+Pane` Yolo both take effect.
+- Hardened both Yolo kv-hydration effects to fail-safe (kv unavailable → default OFF) rather than throwing.
+
+### Notes
+
+- **SF-7** (Ruflo MCP daemon auto-init/auto-trust on workspace open) is planned (`docs/03-plan/sf7-ruflo-mcp-auto-trust-plan.md`) but **not** in this release — it moves to a later version.
+- Gate (in main): `tsc -b` · `eslint --max-warnings 0` · vitest **1785 pass / 1 skip** · `product:check` · full `tests/e2e/` (9 passed / 3 skipped).
+
 ## [1.29.0] - 2026-05-26
 
 v1.29.0 — **operator smoke fixes (SF-1..SF-6)** from the real-device pass after v1.25–v1.28. Three worktree-isolated lanes (1 Opus + 2 Sonnet), each **verified its root cause before fixing**, plus a lead-owned notification-sound widening and an SF-2 single-source-of-truth fix → full gate in main. The standout: SF-2's "malformed `--resume`" was **not** arg-mangling (disproven against the real `claude` 2.1.150 binary — the full id reached claude); the real cause was a cwd→project-slug bug.
