@@ -4,6 +4,11 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### CI / Docs (housekeeping — no app change, untagged)
+
+- **CI: opt into Node 24 early.** All 8 workflows set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` so JS actions run on Node 24 ahead of GitHub's 2026-06-02 forced switch — any incompatibility surfaces in CI now (via lint-and-build + e2e-matrix on this push) rather than on the deadline. Action versions were already on current majors; this only changes their Node runtime + silences the deprecation warnings.
+- **Docs: archived shipped plan docs.** `git mv` the eight v1.2–v1.6 version docs into `docs/03-plan/archive/` and updated their WISHLIST link targets. History-preserving; no content changed.
+
 ## [1.32.0] - 2026-05-28
 
 v1.32.0 — **H-19 (full): aidefence ingestion scanning + a real outbound PII scrub.** The assistant now scans content it ingests (`read_files` contents, `search_memories` entries) for prompt-injection before it reaches the model — **redacting + annotating** flagged content — and scrubs PII from its final reply with a real local redactor. SECURITY-SENSITIVE: one Opus implementation lane + a lead integration + **two Opus security-reviews**. Opportunistic / local-first / never-fail-open throughout.

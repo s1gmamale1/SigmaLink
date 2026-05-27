@@ -13,6 +13,13 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Opt into Node 24 for JS actions ahead of GitHub's 2026-06-02 forced
+  # switch, so any Node-24 incompatibility surfaces in CI before the
+  # deadline. Actions are already on current majors; this only changes the
+  # Node runtime they execute on.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   lint-build:
     name: lint + build (macos)
