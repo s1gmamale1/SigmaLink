@@ -141,10 +141,30 @@ export function PaneHeader({
   // SF-7 — Ruflo daemon health dot: poll once + every 5 s. workspaceId comes
   // directly from session (no extra prop needed — AgentSession already carries it).
   const rufloHealth = useRufloDaemonHealth(session.workspaceId);
-  const provider = findProvider(session.providerId);
+  // SF-10 — display-only CLI label. `displayOverride` (local, optimistic)
+  // takes precedence over the persisted `session.displayProviderId`, which in
+  // turn overrides the real `session.providerId`. Cosmetic only — model/effort
+  // + drag payload below keep using the REAL providerId.
+  const [displayOverride, setDisplayOverride] = useState<string | null | undefined>(undefined);
+  const effectiveProviderId =
+    displayOverride !== undefined
+      ? (displayOverride ?? session.providerId)
+      : (session.displayProviderId ?? session.providerId);
+  const isRelabelled = effectiveProviderId !== session.providerId;
+  const realProvider = findProvider(session.providerId);
+  const realProviderName = realProvider?.name ?? session.providerId.toUpperCase();
+  const provider = findProvider(effectiveProviderId);
   const providerColor = provider?.color ?? '#6b7280';
-  const providerName = provider?.name ?? session.providerId.toUpperCase();
+  const providerName = provider?.name ?? effectiveProviderId.toUpperCase();
   const providerShort = providerName.split(' ')[0] ?? providerName;
+
+  /** SF-10 — set/clear the display label (cosmetic; persisted via RPC). */
+  function relabel(displayProviderId: string | null): void {
+    setDisplayOverride(displayProviderId); // optimistic
+    void rpc.panes
+      .setDisplayProvider({ sessionId: session.id, displayProviderId })
+      .catch(() => undefined);
+  }
   const branch = session.branch ?? 'dev';
   const meta = DEFAULT_MODELS[session.providerId];
   const modelLabel = meta?.label ?? '—';
@@ -201,32 +221,60 @@ export function PaneHeader({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-        <TooltipProvider delayDuration={200}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                className="max-w-[80px] truncate font-medium uppercase tracking-wider"
-                style={{ color: providerColor }}
-                aria-label={`${providerShort}·${paneIndex}`}
-              >
-                {providerShort}·{paneIndex}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" align="start" className="font-mono text-[10px]">
-              <div className="space-y-0.5">
-                <div>branch: {branch}</div>
-                <div>model: {modelLabel}</div>
-                <div>effort: {effortLabel}</div>
-                <div>cwd: {session.cwd}</div>
-                {session.worktreePath ? (
-                  <div className="truncate text-[9px] text-muted-foreground" title={session.worktreePath}>
-                    worktree: {session.worktreePath}
-                  </div>
-                ) : null}
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        {/* SF-10 — the provider label is a relabel dropdown (click to tag this
+            pane with the CLI running in it). Keeps its hover tooltip via Radix
+            asChild composition (Tooltip + DropdownMenu triggers on one span). */}
+        <DropdownMenu>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <span
+                    data-testid="pane-provider-label"
+                    role="button"
+                    tabIndex={0}
+                    title="Click to set this pane's CLI label"
+                    className="max-w-[80px] cursor-pointer truncate font-medium uppercase tracking-wider"
+                    style={{ color: providerColor }}
+                    aria-label={`${providerShort}·${paneIndex}`}
+                  >
+                    {providerShort}·{paneIndex}
+                  </span>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="start" className="font-mono text-[10px]">
+                <div className="space-y-0.5">
+                  <div>branch: {branch}</div>
+                  <div>model: {modelLabel}</div>
+                  <div>effort: {effortLabel}</div>
+                  <div>cwd: {session.cwd}</div>
+                  {isRelabelled ? <div className="text-amber-500">label: {providerName} (real: {realProviderName})</div> : null}
+                  {session.worktreePath ? (
+                    <div className="truncate text-[9px] text-muted-foreground" title={session.worktreePath}>
+                      worktree: {session.worktreePath}
+                    </div>
+                  ) : null}
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel className="text-[10px]">Label this pane as…</DropdownMenuLabel>
+            {(providers ?? []).map((p) => (
+              <DropdownMenuItem key={p.id} onClick={() => relabel(p.id)}>
+                {p.name}
+              </DropdownMenuItem>
+            ))}
+            {isRelabelled ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => relabel(null)}>
+                  Reset to {realProviderName}
+                </DropdownMenuItem>
+              </>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
         {/* C-1 UI — inline branch · model · uncommitted badge */}
         <span className="flex items-center gap-1 truncate text-muted-foreground">
           <GitBranch className="h-3 w-3 shrink-0" aria-hidden />

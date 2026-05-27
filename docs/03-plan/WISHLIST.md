@@ -65,6 +65,17 @@
 
 > **The BridgeMind C-class roadmap (M0–M5, C-1…C-13) and the W-class (W-1…W-8) are all shipped** — see "Recently shipped" + CHANGELOG. The live backlog below is new, post-roadmap scope.
 
+### 🔎 Operator smoke findings — 2026-05-28 (post v1.30–v1.32, command-room)
+
+Operator smoke on the command room. New batch:
+
+| ID | Sev | Area | Finding | Root cause / fix |
+|----|-----|------|---------|-------------------|
+| **SF-9** ✅ | SHIPPED v1.33.0 | Command room `+Pane` / Yolo | The **`+Pane` button is broken** (stretched full-width across the top bar) and the **Yolo/Bypass toggle "sticks out"** as a permanent amber card overlapping the panes. | **SF-8 B3 regression** (`AddPaneButton.tsx:206,255-269`): the compact `+Pane` toolbar button was wrapped in `relative flex flex-col gap-1` with a PERMANENT amber Yolo card rendered *below* it — in the horizontal command-room toolbar that stretches the button + the card overhangs the grid. Fix: move the Yolo toggle **inside the `+Pane` DropdownMenuContent** (appears when the menu opens), drop the `flex-col` wrapper → restore the compact button. (Launcher.tsx toggle is fine — form context — leave it.) |
+| **SF-10** ✅ | SHIPPED v1.33.0 | Pane header / shell panes | **Assign a CLI label to a normal terminal.** Operator launched a plain `shell` pane and ran `cursor-agent` in it manually (cursor wasn't in their installed release's launcher options yet); wants to tag that pane with the CLI it's running so the header shows e.g. "Cursor" not "SHELL". | Reuse the existing surface: a provider/label picker in `PaneHeader` (the header already has a provider-dropdown idiom via `onSplit` providers) → set the session's display provider/label, persisted. Plumbing exists: `swarm.update-agent { providerId }` (`console-controller.ts:161`) updates the agent row; thread it to update the pane's displayed `providerId` (or a new `displayLabel`) + header color. No relaunch — pure label. |
+
+> **SF-9 + SF-10 ✅ SHIPPED v1.33.0** — SF-9 (regression) moved the Yolo toggle into the +Pane dropdown + restored the compact button; SF-10 added a display-only CLI-label dropdown on the pane header (migration 0025 `display_provider_id`, `panes.setDisplayProvider` RPC). Done directly in main + full gate.
+
 ### 🔎 Operator smoke findings — 2026-05-26 (post v1.25–v1.28)
 
 Operator ran the real-device smokes. **Confirmed WORKING ✅:** R-1 Jorvis Telegram remote (texts a bot → Jorvis acts → replies stream back); **session resumability**; Skill + IDE drag-and-drop. New bugs/polish found → **SF-1..SF-6 ✅ ALL FIXED, shipped v1.29.0 (2026-05-26)**. SF-7/SF-8 are net-new feature requests → propose v1.30.0 (see note below the table).

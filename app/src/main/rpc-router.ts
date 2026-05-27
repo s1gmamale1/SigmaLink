@@ -958,6 +958,7 @@ function buildRouter() {
           initial_prompt: string | null;
           started_at: number;
           exited_at: number | null;
+          display_provider_id: string | null;
         }
         const rows = getRawDb()
           .prepare(
@@ -988,9 +989,39 @@ function buildRouter() {
           startedAt: r.started_at,
           exitedAt: r.exited_at ?? undefined,
           initialPrompt: r.initial_prompt ?? undefined,
+          displayProviderId: r.display_provider_id ?? null,
         }));
       } catch {
         return [];
+      }
+    },
+    // SF-10 — set a display-only CLI label on a pane (e.g. tag a shell pane the
+    // operator ran `cursor-agent` in as "Cursor"). Cosmetic ONLY: the session's
+    // real provider_id (spawn/resume/MCP behaviour) is untouched. Pass null to
+    // clear the override and show the real provider again. Broadcasts so the
+    // pane header re-renders.
+    setDisplayProvider: async ({
+      sessionId,
+      displayProviderId,
+    }: {
+      sessionId: string;
+      displayProviderId: string | null;
+    }): Promise<{ ok: boolean }> => {
+      if (typeof sessionId !== 'string' || !sessionId.trim()) {
+        return { ok: false };
+      }
+      const value =
+        typeof displayProviderId === 'string' && displayProviderId.trim()
+          ? displayProviderId
+          : null;
+      try {
+        getRawDb()
+          .prepare(`UPDATE agent_sessions SET display_provider_id = ? WHERE id = ?`)
+          .run(value, sessionId);
+        broadcast('panes:display-provider-changed', { sessionId, displayProviderId: value });
+        return { ok: true };
+      } catch {
+        return { ok: false };
       }
     },
     // C-5 — inject a structured plan capsule into the pane's PTY + write a

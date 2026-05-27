@@ -4,10 +4,26 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-### CI / Docs (housekeeping — no app change, untagged)
+## [1.33.0] - 2026-05-28
 
-- **CI: opt into Node 24 early.** All 8 workflows set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` so JS actions run on Node 24 ahead of GitHub's 2026-06-02 forced switch — any incompatibility surfaces in CI now (via lint-and-build + e2e-matrix on this push) rather than on the deadline. Action versions were already on current majors; this only changes their Node runtime + silences the deprecation warnings.
+v1.33.0 — **command-room fixes (SF-9, SF-10).** A shipped regression fix + a small feature from operator smoke, done directly in main → full gate. Also folds in the prior untagged CI/docs housekeeping.
+
+### Fixed
+
+- **SF-9 — `+Pane` button broken + Yolo toggle overhanging the grid (regression).** SF-8 B3 had wrapped the compact `+Pane` toolbar button in a `flex flex-col` stack with a **permanent** amber Yolo card rendered below it — in the horizontal command-room toolbar that stretched the button full-width and the card overhung the panes. Reverted the wrapper to the known-good `relative flex items-center gap-2` row and **moved the Yolo/Bypass toggle into the `+Pane` dropdown menu** (shown when the menu opens). The Launcher's launch-form toggle is unchanged.
+
+### Added
+
+- **SF-10 — assign a CLI label to a normal terminal.** Click a pane's provider name in the header to tag it with the CLI actually running in it (e.g. a plain `shell` pane you ran `cursor-agent` in shows as "Cursor", with that provider's colour). **Display-only** — the session's real `providerId` is untouched, so spawn/resume/MCP/model-catalog behaviour and the drag payload are unchanged. Persisted on `agent_sessions.display_provider_id` (migration `0025`, nullable, added to the sync allowlist) so the label survives restart/resume; clearable via "Reset to <real>". New `panes.setDisplayProvider` RPC.
+
+### CI / Docs (housekeeping, previously untagged on main)
+
+- **CI: opt into Node 24 early.** All 8 workflows set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` ahead of GitHub's 2026-06-02 forced switch — verified green on main (lint-and-build + e2e-matrix ran under Node 24). Action versions were already on current majors; this only changes their Node runtime + silences the deprecation warnings.
 - **Docs: archived shipped plan docs.** `git mv` the eight v1.2–v1.6 version docs into `docs/03-plan/archive/` and updated their WISHLIST link targets. History-preserving; no content changed.
+
+### Gate
+
+- `tsc -b` · `eslint --max-warnings 0` · vitest **1852 pass / 1 skip** (+ migration 0025, SF-9 toggle-in-dropdown, SF-10 display-override) · `product:check` · full `tests/e2e/` (9 passed / 3 skipped).
 
 ## [1.32.0] - 2026-05-28
 

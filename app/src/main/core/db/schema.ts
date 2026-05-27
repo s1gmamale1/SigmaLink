@@ -64,6 +64,10 @@ export const agentSessions = sqliteTable(
     // workspace resume re-applies the provider's bypass flag without requiring
     // the renderer to re-submit it. Migration 0024 adds the column.
     autoApprove: integer('auto_approve').notNull().default(0),
+    // SF-10 — display-only CLI label override (migration 0025). NULL = show the
+    // real provider_id; a providers.ts id = show that name/colour instead.
+    // Cosmetic; does NOT affect spawn/resume/MCP.
+    displayProviderId: text('display_provider_id'),
     // v1.4.3 #06 — Pane Split + Minimise. NULL columns mean the pane is a
     // standalone tile in the grid (the legacy shape). When set, the four
     // columns describe membership in a 2-pane split group:

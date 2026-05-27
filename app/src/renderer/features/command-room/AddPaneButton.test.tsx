@@ -101,6 +101,7 @@ vi.doMock('@/components/ui/dropdown-menu', () => ({
     onClick?: () => void;
     disabled?: boolean;
   }) => <div role="menuitem" onClick={onClick} aria-disabled={disabled}>{children}</div>,
+  DropdownMenuSeparator: () => <hr />,
 }));
 
 // ---- setup -------------------------------------------------------------------
@@ -514,7 +515,7 @@ describe('AddPaneButton — Yolo/Bypass toggle (SF-8 B3)', () => {
   it('B3-1: yolo-toggle renders with danger warning text', async () => {
     await renderAddPaneButton();
     expect(screen.getByTestId('yolo-toggle')).toBeTruthy();
-    expect(screen.getByText(/yolo.*bypass mode/i) || screen.getByText(/bypass mode/i)).toBeTruthy();
+    expect(screen.getByText(/yolo \/ bypass/i)).toBeTruthy();
     expect(screen.getByText(/trusted workspaces/i)).toBeTruthy();
   });
 

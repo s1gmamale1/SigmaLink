@@ -49,6 +49,12 @@ export interface AgentSession {
    * agent_sessions.auto_approve so resume re-applies the provider bypass flag).
    */
   autoApprove?: boolean;
+  /**
+   * SF-10 — display-only CLI label override. When set (a providers.ts id), the
+   * pane header shows that provider's name + colour instead of `providerId`.
+   * Cosmetic only — spawn/resume/MCP still use the real `providerId`.
+   */
+  displayProviderId?: string | null;
 }
 
 export interface ProviderProbe {

@@ -1,0 +1,80 @@
+SigmaLink v1.33.0 — 2026-05-28
+==============================
+
+Command-room fixes — SF-9 (regression) + SF-10 (feature), from operator smoke.
+Done directly in main (small, well-understood) -> full gate. Also folds in the
+prior untagged CI/docs housekeeping so v1.33.0's binaries carry it.
+
+
+Fixed
+-----
+
+- SF-9  `+Pane` button broken + Yolo/Bypass toggle overhanging the grid.
+    SF-8 B3 had wrapped the compact `+Pane` toolbar button in a flex-col stack
+    with a PERMANENT amber Yolo card below it. In the horizontal command-room
+    toolbar that stretched the button full-width and the card overhung the
+    panes (operator screenshot). Reverted the wrapper to the known-good
+    `relative flex items-center gap-2` row and MOVED the Yolo/Bypass toggle
+    INTO the `+Pane` dropdown menu (appears when the menu opens). The Launcher's
+    own launch-form toggle is unchanged.
+
+
+Added
+-----
+
+- SF-10  Assign a CLI label to a normal terminal.
+    Click a pane's provider name in the header to tag it with the CLI actually
+    running in it — e.g. a plain `shell` pane you launched `cursor-agent` in now
+    shows as "Cursor" with that provider's colour. A "Reset to <real>" item
+    clears it.
+
+    DISPLAY-ONLY: the session's real provider_id is untouched, so spawn /
+    resume / MCP autobind / the model catalogue / the drag payload all keep
+    using the real provider. Only the header name + colour change.
+
+    Persisted on agent_sessions.display_provider_id (migration 0025, nullable;
+    added to the cross-machine sync allowlist) so the label survives restart /
+    resume. New panes.setDisplayProvider RPC (broadcasts so the header
+    re-renders).
+
+
+CI / Docs (housekeeping — previously committed untagged on main)
+----------------------------------------------------------------
+
+- CI: all 8 workflows set FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true ahead of
+  GitHub's 2026-06-02 forced switch. Verified green on main (lint-and-build +
+  e2e-matrix ran under Node 24). Only changes the Node runtime the actions
+  execute on; action versions were already on current majors.
+- Docs: the eight v1.2–v1.6 plan docs git-mv'd into docs/03-plan/archive/
+  (history-preserving), WISHLIST link targets updated.
+
+
+Gate
+----
+
+- tsc -b -- clean
+- eslint 0 errors / 0 warnings
+- vitest 182 files / 1852 pass / 1 skip (migration 0025 DDL test, SF-9
+  toggle-in-dropdown, SF-10 display-override resolution + relabel control)
+- vite build + electron:compile (product:check) -- clean
+- FULL Playwright e2e (tests/e2e/) in main -- 9 passed / 3 skipped
+
+
+Operator smoke
+--------------
+
+1. Command room: the `+Pane` button is compact again (not stretched); the
+   Yolo/Bypass toggle now lives inside the +Pane dropdown (click +Pane to see
+   it) instead of overhanging the grid.
+2. Launch a plain Shell pane, run any CLI in it, then click the pane's provider
+   name in the header -> pick the CLI (e.g. Cursor) -> the header shows that
+   name + colour. "Reset to Shell" clears it. The shell keeps running unchanged.
+3. Close + resume the workspace -> the label persists.
+
+
+Backlog status
+--------------
+
+Remaining: H-7 (deferred — transactional migrations) + light tech-debt
+(cursor skill fan-out — needs verifying cursor consumes the skill format;
+node-linker .npmrc warning — load-bearing pnpm config).

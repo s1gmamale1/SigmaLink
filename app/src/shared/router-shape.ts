@@ -214,6 +214,11 @@ export interface AppRouter {
      * block into <worktreePath>/CLAUDE.md.
      */
     brief: (a: { sessionId: string; worktreePath: string | null; capsule: PlanCapsule }) => Promise<void>;
+    /**
+     * SF-10 — set a display-only CLI label on a pane (cosmetic; does not change
+     * spawn/resume/MCP). Pass `displayProviderId: null` to clear the override.
+     */
+    setDisplayProvider: (a: { sessionId: string; displayProviderId: string | null }) => Promise<{ ok: boolean }>;
   };
   providers: {
     list: () => Promise<

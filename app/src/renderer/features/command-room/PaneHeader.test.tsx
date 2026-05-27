@@ -10,7 +10,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
-    panes: { brief: vi.fn().mockResolvedValue(undefined) },
+    panes: {
+      brief: vi.fn().mockResolvedValue(undefined),
+      setDisplayProvider: vi.fn().mockResolvedValue({ ok: true }),
+    },
   },
   rpcSilent: {
     ruflo: { daemonStatus: vi.fn().mockResolvedValue([]) },
@@ -110,6 +113,36 @@ describe('PaneHeader', () => {
       />,
     );
     expect(screen.getByLabelText('Codex·2').textContent).toBe('Codex·2');
+  });
+
+  // SF-10 — display-only CLI label.
+  it('SF-10: shows the displayProviderId override label instead of the real provider', () => {
+    render(
+      <PaneHeader
+        session={makeSession({ providerId: 'shell', displayProviderId: 'claude' })}
+        paneIndex={4}
+        onFocus={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    // A shell pane tagged as Claude shows "Claude·4", not "SHELL·4".
+    expect(screen.getByLabelText('Claude·4').textContent).toBe('Claude·4');
+    expect(screen.queryByLabelText('Shell·4')).toBeNull();
+  });
+
+  it('SF-10: the relabel control carries the pane-provider-label test id + click hint', () => {
+    render(
+      <PaneHeader
+        session={makeSession()}
+        paneIndex={1}
+        onFocus={() => undefined}
+        onClose={() => undefined}
+        providers={[{ id: 'cursor', name: 'Cursor' }]}
+      />,
+    );
+    const label = screen.getByTestId('pane-provider-label');
+    expect(label.getAttribute('role')).toBe('button');
+    expect(label.getAttribute('title')).toMatch(/CLI label/i);
   });
 
   it('invokes onFocus when the Focus button is clicked', () => {

@@ -21,6 +21,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -202,8 +203,11 @@ export function AddPaneButton({
 
   return (
     // relative wrapper so the error chip can absolute-position below the toolbar
-    // without disturbing the parent flex row height.
-    <div className="relative flex flex-col gap-1">
+    // without disturbing the parent flex row height. SF-9: this is a HORIZONTAL
+    // row (items-center) — the Yolo toggle lives INSIDE the +Pane dropdown, not
+    // as a permanent card here (a flex-col card stretched the toolbar button +
+    // overhung the grid, the SF-8 B3 regression).
+    <div className="relative flex items-center gap-2">
       <DropdownMenu>
         {disabledReason ? (
           // v1.2.5 Step 3 — when disabled, surface the reason via tooltip.
@@ -250,29 +254,33 @@ export function AddPaneButton({
               {provider.name}
             </DropdownMenuItem>
           ))}
+          {/* SF-8 B3 / SF-9 — Yolo/Bypass toggle lives in the dropdown footer
+              (not a permanent toolbar card). onSelect preventDefault so toggling
+              it doesn't close the menu. */}
+          <DropdownMenuSeparator />
+          <div
+            className="flex items-start gap-2 px-2 py-1.5 text-[11px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Switch
+              id="yolo-toggle"
+              data-testid="yolo-toggle"
+              checked={yolo}
+              onCheckedChange={toggleYolo}
+              aria-label="Yolo / Bypass mode — starts agents with their bypass flag"
+              aria-checked={yolo}
+              className="mt-0.5 h-3.5 w-6 shrink-0"
+            />
+            <label htmlFor="yolo-toggle" className="max-w-[200px] cursor-pointer">
+              <span className="font-semibold text-amber-600 dark:text-amber-400">⚠️ Yolo / Bypass</span>
+              <span className="block text-muted-foreground">
+                Starts agents with their bypass flag — skips the agent's own approval
+                prompts. Trusted workspaces only.
+              </span>
+            </label>
+          </div>
         </DropdownMenuContent>
       </DropdownMenu>
-      {/* SF-8 B3 — Yolo/Bypass toggle for the single +Pane add flow. */}
-      <div className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[10px]">
-        <Switch
-          id="yolo-toggle"
-          data-testid="yolo-toggle"
-          checked={yolo}
-          onCheckedChange={toggleYolo}
-          aria-label="Yolo / Bypass mode — starts agents with their bypass flag"
-          aria-checked={yolo}
-          className="mt-0.5 h-3.5 w-6 shrink-0"
-        />
-        <div>
-          <label htmlFor="yolo-toggle" className="cursor-pointer font-semibold text-amber-600 dark:text-amber-400">
-            ⚠️ Yolo / Bypass mode
-          </label>
-          <p className="text-muted-foreground">
-            Starts agents with their bypass flag — disables the agent's own approval prompts.
-            Use only in trusted workspaces.
-          </p>
-        </div>
-      </div>
       {/* DOGFOOD-V1.4.2-01 hypothesis 1 — always-visible inline reason pill.
           aria-live="polite" + role="status": SR announces the reason when
           it changes (no-workspace → paused → cap) without interrupting

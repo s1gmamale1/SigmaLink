@@ -31,6 +31,7 @@ import * as mig0021 from './migrations/0021_skill_bindings';
 import * as mig0022 from './migrations/0022_jorvis_pane_events_rename';
 import * as mig0023 from './migrations/0023_benchmark_runs';
 import * as mig0024 from './migrations/0024_agent_sessions_auto_approve';
+import * as mig0025 from './migrations/0025_agent_sessions_display_provider';
 
 export interface Migration {
   name: string;
@@ -70,6 +71,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   mig0022,
   mig0023,
   mig0024,
+  mig0025,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `

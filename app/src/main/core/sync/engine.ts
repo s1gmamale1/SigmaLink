@@ -61,7 +61,7 @@ const SCHEMA_VERSION = 19; // matches migration 0019
 
 export const COLUMN_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ['workspaces', new Set(['id', 'name', 'root_path', 'repo_root', 'repo_mode', 'created_at', 'last_opened_at'])],
-  ['agent_sessions', new Set(['id', 'workspace_id', 'provider_id', 'cwd', 'branch', 'worktree_path', 'status', 'exit_code', 'initial_prompt', 'started_at', 'exited_at', 'provider_effective', 'external_session_id', 'pane_index', 'jorvis_monitor_conversation_id', 'split_group_id', 'split_direction', 'split_index', 'minimised', 'auto_approve'])],
+  ['agent_sessions', new Set(['id', 'workspace_id', 'provider_id', 'cwd', 'branch', 'worktree_path', 'status', 'exit_code', 'initial_prompt', 'started_at', 'exited_at', 'provider_effective', 'external_session_id', 'pane_index', 'jorvis_monitor_conversation_id', 'split_group_id', 'split_direction', 'split_index', 'minimised', 'auto_approve', 'display_provider_id'])],
   ['swarms', new Set(['id', 'workspace_id', 'name', 'mission', 'preset', 'status', 'created_at', 'ended_at'])],
   ['swarm_agents', new Set(['id', 'swarm_id', 'role', 'role_index', 'provider_id', 'session_id', 'status', 'inbox_path', 'agent_key', 'auto_approve', 'coordinator_id', 'created_at'])],
   ['swarm_messages', new Set(['id', 'swarm_id', 'from_agent', 'to_agent', 'kind', 'body', 'payload_json', 'ts', 'delivered_at', 'read_at', 'resolved_at'])],
