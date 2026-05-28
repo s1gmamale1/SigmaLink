@@ -1,6 +1,7 @@
 import { test, _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,6 +18,22 @@ const allConsole: string[] = [];
 
 function appendLog(line: string) {
   fs.appendFileSync(consoleLogPath, line + '\n');
+}
+
+// Visual no-op detector: groups the captured frames by content hash. When two
+// frames that are supposed to show DIFFERENT states are byte-identical, the flow
+// between them silently did nothing (e.g. a nav that never landed) — exactly the
+// class of bug a green "screenshots didn't throw" assertion hides. Reported into
+// visual-summary.json so an agent reviewing the run sees which states to inspect.
+function detectDuplicateFrames(dir: string): { hash: string; files: string[] }[] {
+  const byHash = new Map<string, string[]>();
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.png')).sort()) {
+    const hash = crypto.createHash('md5').update(fs.readFileSync(path.join(dir, file))).digest('hex');
+    byHash.set(hash, [...(byHash.get(hash) ?? []), file]);
+  }
+  return [...byHash.entries()]
+    .filter(([, files]) => files.length > 1)
+    .map(([hash, files]) => ({ hash, files }));
 }
 
 async function snap(win: Page, file: string, note?: string) {
@@ -684,9 +701,15 @@ test('SigmaLink full visual sweep', async () => {
 
   await app.close().catch(() => undefined);
 
+  const duplicateFrameGroups = detectDuplicateFrames(screenshotsDir);
+  for (const group of duplicateFrameGroups) {
+    appendLog(`[DUPLICATE FRAMES] identical pixels across: ${group.files.join(', ')} — a flow between these states rendered nothing`);
+  }
+
   const summary = {
     stepLog,
     consoleErrors,
+    duplicateFrameGroups,
     allConsoleSample: allConsole.slice(-200),
   };
   fs.writeFileSync(
