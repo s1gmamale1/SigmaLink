@@ -12,22 +12,20 @@
 
 ## 🆕 New ideas (untriaged)
 
-_(empty)_
-
-> **✅ Combined video + perf-trace review harness — SHIPPED to main `dbce7e6`** (untagged). `tests/perf/jank-review.spec.ts` (CDP Tracing + recordVideo + 4× CPU-throttle, PERF=1-gated out of the e2e/CI gate) + `trace-analyzer.ts` (flags long-task/CLS/dropped-frame windows → video-vision `video_watch` segments). First live run caught its own ts-normalization bug AND confirmed the v1.36 purple-flash fix in motion (no purple under throttle). **Use `npm run test:perf` then feed the emitted segments to video_watch for the next UI review.**
+_(empty — add raw ideas here; promote to ROADMAP when scoped)_
 
 ---
 
 ## 🔎 Open findings (raw — sequenced in ROADMAP.md)
 
-Lightweight notes only; the actionable plan + priority + code pointers live in `ROADMAP.md`.
+All remaining findings are BLOCKED or operator-owned — nothing an agent can pick up unblocked. Add new findings above.
 
-- **W-4 P8–P9 + win32 shell-first dogfood** — resume simplification + drop `external_session_id`; win32 un-dogfooded. → ROADMAP **P1** (blocked on win32 dogfood).
-- **FE-4 a11y + voice (blocked)** — focus-trap, VoiceOver QA, reduced-transparency, breadcrumb contrast; PCM sample-rate, whisper.cpp v1.7.x port. → ROADMAP **P2**.
-- **SF-12 migration `0026` (operator-owned)** — Tier1+Tier2 shipped v1.35.0; the data-repair migration stays dormant pending the operator running the diagnostic SQL on a real `agent_sessions` dump. On sign-off → register `0026` (drop `.pending`, import + append to `ALL_MIGRATIONS`) + follow-up release. Diagnostic SQL in `docs/09-release/release-notes-1.35.0.txt`.
-- **SF-14 optional polish** — auto-trigger the lazy Ruflo install on first workspace open (today renderer-triggered via Settings → Ruflo); room-chunk prefetch on idle to drop even the load spinner. Low.
+- **W-4 P8–P9 + win32 shell-first dogfood** — resume simplification + drop `external_session_id`; win32 un-dogfooded. → ROADMAP **B1** (BLOCKED on operator win32 dogfood).
+- **FE-4 voice (blocked) + device a11y QA** — PCM sample-rate, whisper.cpp v1.7.x port, voice prebuildify (all behind unshipped native builds); device VoiceOver/Switch-Control QA needs hardware. → ROADMAP **B2** / operator. *(FE-4 a11y code — focus-trap, reduced-transparency, room prefetch — ✅ shipped `dbce7e6`; breadcrumb contrast = verified no-op.)*
+- **SF-12 migration `0026` (operator-owned)** — data-repair migration dormant pending the operator running the diagnostic SQL on a real `agent_sessions` dump. On sign-off → register `0026` + follow-up release. SQL in `docs/09-release/release-notes-1.35.0.txt`.
+- **SF-14 optional polish (low)** — auto-trigger the lazy Ruflo install on first workspace open (renderer-triggered today). *(Room-chunk prefetch half ✅ shipped `dbce7e6`.)*
 
-> Everything else (C-class M0–M5, FE-1…4, R-1/R-2, W-class, **H-class fully complete incl. H-7**, **SF-14 daemon offline-CLI tier ✅ v1.36.0**, SF-1…15, CI Node-24 + e2e flake) is **shipped** — see `CHANGELOG.md` + the master-memory project entries. **Cursor skill fan-out DROPPED** (operator: claude+codex priority; `cursor-agent` doesn't consume the SKILL.md format → no-op). Don't re-note shipped items here.
+> Everything else (C-class M0–M5, FE-1…4 incl. **a11y subset**, R-1/R-2, W-class, **H-class fully complete incl. H-7**, **SF-14 daemon offline-CLI tier**, SF-1…15, CI Node-24 + e2e flake, **video+perf review harness**) is **shipped** — see `CHANGELOG.md` + master-memory. **Cursor skill fan-out DROPPED** (no-op). Don't re-note shipped items here.
 
 ---
 
