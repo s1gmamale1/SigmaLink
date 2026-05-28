@@ -16,10 +16,10 @@
 
 | # | Item | Type | Status |
 |---|------|------|--------|
-| **P0** | Combined video + perf-trace review harness | test tooling | agreed for next review (net-new) |
+| ~~P0~~ | ~~Combined video + perf-trace review harness~~ | test tooling | ✅ SHIPPED to main `dbce7e6` (untagged) |
+| ~~FE-4 a11y subset~~ | ~~focus-trap, reduced-transparency, room prefetch~~ | polish | ✅ SHIPPED `dbce7e6` (breadcrumb contrast = verified no-op) |
 | **P1** | W-4 P8–P9 + win32 shell-first dogfood | cleanup | blocked (needs win32 dogfood) |
-| **P2** | FE-4 a11y follow-ups + blocked voice items | polish | low |
-| (opt)  | SF-14 polish — auto-install-trigger / room prefetch | polish | optional, low |
+| **P2** | FE-4 voice items | polish | blocked (unshipped native builds) |
 | (op)   | SF-12 migration `0026` register + ship | operator-owned | dormant pending diagnostic-SQL sign-off |
 
 ---

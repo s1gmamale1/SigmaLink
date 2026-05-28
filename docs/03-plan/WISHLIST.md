@@ -12,7 +12,9 @@
 
 ## 🆕 New ideas (untriaged)
 
-- **Combined video + perf-trace review harness** (test tooling) — **agreed method for the NEXT review.** One instrumented Playwright/Electron interaction run emits BOTH a `video:'on'` recording AND a CDP `Tracing.start` DevTools-timeline perf trace over the same timeline (+ CPU-throttle to stretch transient frames). Perf trace = the DETECTOR (dropped frames / long tasks / CLS — thresholdable, can fail CI); video frames at the flagged timestamps = the EXPLAINER (agent views via the video-vision plugin). Correlate by timestamp: measurement says WHERE to look, video says WHAT it was. Layered above the v1.35 trace + duplicate-frame detector. First run doubles as the still-owed motion-confirmation of the v1.36 purple-flash fix. Static anti-pattern review (animating transform/opacity not width/top, compositor checks) is the cheap pre-test layer a code reviewer already does.
+_(empty)_
+
+> **✅ Combined video + perf-trace review harness — SHIPPED to main `dbce7e6`** (untagged). `tests/perf/jank-review.spec.ts` (CDP Tracing + recordVideo + 4× CPU-throttle, PERF=1-gated out of the e2e/CI gate) + `trace-analyzer.ts` (flags long-task/CLS/dropped-frame windows → video-vision `video_watch` segments). First live run caught its own ts-normalization bug AND confirmed the v1.36 purple-flash fix in motion (no purple under throttle). **Use `npm run test:perf` then feed the emitted segments to video_watch for the next UI review.**
 
 ---
 
