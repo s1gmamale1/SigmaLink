@@ -37,6 +37,7 @@ import { writeGuardrailBlock } from '../workspaces/guardrail-block';
 import { writeRufloMcpIntoCwd } from '../workspaces/ruflo-worktree-mcp';
 import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from '../workspaces/mcp-autowrite';
 import { getSharedDeps } from '../../rpc-router';
+import { allocateLowestFreeLivePaneIndex } from '../workspaces/pane-slots';
 
 /**
  * SF-15 — write the bundled `ruflo` MCP entry (+ claude trust) into a swarm
@@ -175,11 +176,13 @@ export interface SpawnAgentSessionArgs {
  * Spawn one swarm agent's PTY, persist its `agent_sessions` row, and wire its
  * stdout into the SIGMA:: protocol parser → mailbox pipeline.
  *
- * Returns the new session id on success. Throws if the provider can't be
- * resolved or the worktree allocator fails. Caller is responsible for
- * marking the corresponding `swarm_agents` row.
+ * Returns the new session id and workspace pane slot on success. Throws if the
+ * provider can't be resolved or the worktree allocator fails. Caller is
+ * responsible for marking the corresponding `swarm_agents` row.
  */
-export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<string> {
+export async function spawnAgentSession(
+  args: SpawnAgentSessionArgs,
+): Promise<{ sessionId: string; paneIndex: number }> {
   const provider = findProvider(args.providerId);
   if (!provider) {
     throw new Error(`Unknown provider: ${args.providerId}`);
@@ -286,27 +289,33 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
 
   // Tag the agent_sessions row with the swarm so future rooms (Review, Tasks)
   // can correlate sessions to swarm agents.
-  // v1.5.5 Cluster A — guard against UNIQUE violation on (workspace_id, pane_index).
-  // Swarm agents do not set paneIndex (NULL), so this guard only fires for callers
-  // that somehow supply a duplicate slot. Log and re-throw so the swarm factory
-  // can surface an error agent rather than crashing the whole swarm spawn.
+  // SF-12 — swarm panes share the same workspace-level pane slot space as
+  // launcher panes because both persist to agent_sessions(workspace_id,
+  // pane_index). Allocate the lowest free slot among currently-live rows inside
+  // the write transaction and persist it so +Pane/swarm panes can rehydrate.
+  let paneIndex = -1;
   try {
-    db.insert(agentSessions)
-      .values({
-        id: rec.id,
-        workspaceId: args.wsRow.id,
-        providerId: provider.id,
-        cwd,
-        branch,
-        worktreePath,
-        status: 'running',
-        initialPrompt: args.initialPrompt,
-        startedAt: rec.startedAt,
-        externalSessionId: rec.externalSessionId,
-        // SF-8 — persist Yolo on the session so resume re-applies the flag.
-        autoApprove: args.autoApprove ? 1 : 0,
-      })
-      .run();
+    const insertSession = getRawDb().transaction(() => {
+      paneIndex = allocateLowestFreeLivePaneIndex(getRawDb(), args.wsRow.id);
+      db.insert(agentSessions)
+        .values({
+          id: rec.id,
+          workspaceId: args.wsRow.id,
+          providerId: provider.id,
+          cwd,
+          branch,
+          worktreePath,
+          status: 'running',
+          initialPrompt: args.initialPrompt,
+          startedAt: rec.startedAt,
+          externalSessionId: rec.externalSessionId,
+          paneIndex,
+          // SF-8 — persist Yolo on the session so resume re-applies the flag.
+          autoApprove: args.autoApprove ? 1 : 0,
+        })
+        .run();
+    });
+    insertSession();
   } catch (insertErr) {
     const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
     if (/UNIQUE constraint failed/i.test(msg)) {
@@ -330,8 +339,10 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
       } catch {
         /* never let cleanup throw out of the suppression branch */
       }
-      // Return the existing session id so callers stay operational.
-      return rec.id;
+      // The attempted slot did not persist. Keep the existing suppression
+      // contract for session id, but do not report the rejected pane slot to
+      // renderer toasts.
+      return { sessionId: rec.id, paneIndex: -1 };
     }
     throw insertErr;
   }
@@ -400,7 +411,7 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
     }
   });
 
-  return rec.id;
+  return { sessionId: rec.id, paneIndex };
 }
 
 export interface MaterializeRosterAgentArgs {
@@ -451,7 +462,7 @@ export async function materializeRosterAgent(
   let sessionId: string | null = null;
   let sessionStatus: SwarmAgent['status'] = 'idle';
   try {
-    sessionId = await spawnAgentSession({
+    const spawn = await spawnAgentSession({
       wsRow,
       swarmId,
       agentId,
@@ -463,6 +474,7 @@ export async function materializeRosterAgent(
       initialPrompt: assignment.initialPrompt,
       deps,
     });
+    sessionId = spawn.sessionId;
     sessionStatus = 'idle';
   } catch (err) {
     sessionStatus = 'error';

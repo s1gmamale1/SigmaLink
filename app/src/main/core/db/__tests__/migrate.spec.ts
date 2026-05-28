@@ -21,10 +21,15 @@ const dbDir = path.resolve(__dirname, '..');
 const migrationsDir = path.join(dbDir, 'migrations');
 const migrateSrcPath = path.join(dbDir, 'migrate.ts');
 
+function isMigrationFile(file: string): boolean {
+  return /^0\d{3}_.+\.ts$/.test(file) && !file.endsWith('.test.ts');
+}
+
 test('every 0NNN_*.ts migration file is registered in ALL_MIGRATIONS', () => {
   const files = fs
     .readdirSync(migrationsDir)
-    .filter((f) => /^0\d{3}_.+\.ts$/.test(f))
+    .filter(isMigrationFile)
+    .filter((f) => !f.endsWith('.pending.ts'))
     .sort();
 
   assert.ok(files.length > 0, 'expected at least one migration file');
@@ -143,7 +148,7 @@ test('0013_conversations_claude_session_id is registered and idempotent', () => 
 test('every migration file exports `name` (not `id`)', () => {
   const files = fs
     .readdirSync(migrationsDir)
-    .filter((f) => /^0\d{3}_.+\.ts$/.test(f));
+    .filter(isMigrationFile);
 
   for (const f of files) {
     const src = fs.readFileSync(path.join(migrationsDir, f), 'utf8');
@@ -156,6 +161,28 @@ test('every migration file exports `name` (not `id`)', () => {
       src,
       /export\s+const\s+id\s*=/,
       `${f}: must not export \`id\` — rename to \`name\``,
+    );
+  }
+});
+
+test('pending operator-signoff migrations are not registered in ALL_MIGRATIONS', () => {
+  const pendingFiles = fs
+    .readdirSync(migrationsDir)
+    .filter((f) => /^0\d{3}_.+\.pending\.ts$/.test(f))
+    .sort();
+
+  assert.ok(
+    pendingFiles.includes('0026_sf12_pane_slot_repair.pending.ts'),
+    'SF-12 repair migration must stay visible as a pending operator-signoff file',
+  );
+
+  const migrateSrc = fs.readFileSync(migrateSrcPath, 'utf8');
+  for (const file of pendingFiles) {
+    const base = file.replace(/\.ts$/, '');
+    assert.doesNotMatch(
+      migrateSrc,
+      new RegExp(`from\\s+['"]\\.\\/migrations\\/${base}['"]`),
+      `${file} is pending sign-off and must not be imported by migrate.ts`,
     );
   }
 });

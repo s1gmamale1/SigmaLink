@@ -21,6 +21,7 @@ import type { ToolContext } from './tools';
 import {
   createDbFake,
   seedAgent,
+  seedAgentSession,
   seedSwarm,
   seedWorkspace,
   type DbFake,
@@ -229,6 +230,13 @@ describe('assistant add_agent tool', () => {
         status: 'idle',
         inboxPath: `/tmp/inbox-builder-${i}`,
         agentKey: `builder-${i}`,
+      });
+      seedAgentSession(fake, {
+        id: `sess-${i}`,
+        workspaceId: 'ws-1',
+        providerId: 'shell',
+        status: 'running',
+        paneIndex: i - 1,
       });
     }
   }

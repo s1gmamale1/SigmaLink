@@ -86,11 +86,10 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
  * Apply every pending migration in `ALL_MIGRATIONS`. Safe to call repeatedly.
  * Returns the names of migrations that were applied during this call.
  *
- * Each migration's `up()` and its `schema_migrations` insert are wrapped in a
- * single better-sqlite3 transaction so that a throwing `up()` rolls back both
- * the schema change and the tracking row atomically. Without this, a partial
- * `up()` would leave the schema dirty with no migration row, causing the next
- * boot to re-run the same migration against a corrupted schema.
+ * Each migration's `up()` runs before its `schema_migrations` insert. A
+ * throwing `up()` is not recorded, so the migration is retried on the next
+ * boot. The runner deliberately avoids an outer transaction because several
+ * legacy migrations issue their own BEGIN/COMMIT.
  */
 export function migrate(db: Database.Database): string[] {
   db.exec(SCHEMA_MIGRATIONS_DDL);

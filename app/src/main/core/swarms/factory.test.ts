@@ -25,6 +25,7 @@ import { resolveAndSpawn } from '../providers/launcher';
 import {
   createDbFake,
   seedAgent,
+  seedAgentSession,
   seedSwarm,
   seedWorkspace,
   type DbFake,
@@ -176,14 +177,28 @@ describe('paneIndex derivation', () => {
     expect(result.agentKey).toBe('builder-1');
   });
 
-  it('Nth agent gets paneIndex = agentRows.length', async () => {
-    // After 5 existing agents the next add lands on pane 5.
+  it('uses the lowest free live workspace pane slot', async () => {
     seedSwarmOf(5);
+    seedAgentSession(fake, { id: 'sess-live-0', workspaceId: 'ws-1', paneIndex: 0, status: 'running' });
+    seedAgentSession(fake, { id: 'sess-exited-1', workspaceId: 'ws-1', paneIndex: 1, status: 'exited' });
+    seedAgentSession(fake, { id: 'sess-live-2', workspaceId: 'ws-1', paneIndex: 2, status: 'starting' });
 
     const result = await addAgentToSwarm(input, makeDeps());
 
-    expect(result.paneIndex).toBe(5);
+    expect(result.paneIndex).toBe(1);
     expect(result.agentKey).toBe('builder-6');
+  });
+
+  it('appends after the highest live slot when there are no holes', async () => {
+    seedSwarmOf(3);
+    seedAgentSession(fake, { id: 'sess-live-0', workspaceId: 'ws-1', paneIndex: 0, status: 'running' });
+    seedAgentSession(fake, { id: 'sess-live-1', workspaceId: 'ws-1', paneIndex: 1, status: 'running' });
+    seedAgentSession(fake, { id: 'sess-live-2', workspaceId: 'ws-1', paneIndex: 2, status: 'starting' });
+
+    const result = await addAgentToSwarm(input, makeDeps());
+
+    expect(result.paneIndex).toBe(3);
+    expect(result.agentKey).toBe('builder-4');
   });
 
   it('rejects 21st agent (20-cap)', async () => {
@@ -209,7 +224,7 @@ describe('addAgentToSwarm', () => {
     const result = await addAgentToSwarm(input, makeDeps());
 
     expect(result.sessionId).toMatch(/^sess-spawned-/);
-    expect(result.paneIndex).toBe(3);
+    expect(result.paneIndex).toBe(0);
     expect(result.agentKey).toBe('builder-4');
     // session + swarm metadata are reloaded — assert the agent row is wired
     // back to the spawn result.

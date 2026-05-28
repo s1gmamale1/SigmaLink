@@ -31,6 +31,7 @@ import { KV_PTY_SPAWN_MODE, parseSpawnMode, effectivePaneSpawnMode } from '../pt
 import { writeGuardrailBlock } from './guardrail-block';
 import { writeRufloMcpIntoCwd } from './ruflo-worktree-mcp';
 import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from './mcp-autowrite';
+import { allocateLowestFreeLivePaneIndex } from './pane-slots';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -293,6 +294,12 @@ export async function executeLaunchPlan(
       // so `--session-id <new-uuid>` does not fail on a missing parent dir
       // (the v1.3.2 Pane 2 bug — claude versions that exit silently when
       // attempting to write the JSONL into a non-existent parent dir).
+      // SF-12 Tier-2 invariant: workspace launch/resume plans are full-grid
+      // launches and are expected to run after existing live panes for this
+      // workspace have been closed/exited. The DB insert below still
+      // reconciles the durable storage slot against currently-live rows, but
+      // resume args must be selected before spawn and therefore remain keyed
+      // to the requested launch-plan paneIndex.
       const resumeEntry = plan.paneResumePlan?.find(
         (r) => r.paneIndex === pane.paneIndex,
       );
@@ -429,33 +436,38 @@ export async function executeLaunchPlan(
       // panes that were resumed by id. Fall back to the pre-assigned id from
       // the registry (claude/gemini pre-assign path) when no resume entry.
       const insertExternalSessionId = resumeSessionId ?? rec.externalSessionId ?? null;
+      let allocatedPaneIndex = pane.paneIndex;
       try {
-        db.insert(agentSessions)
-          .values({
-            id: finalSessionId,
-            workspaceId: wsRow.id,
-            // BUG-V1.1-01: store the requested id in `providerId` so the UI
-            // continues to show what the operator picked, and the resolved id
-            // in `provider_effective` so the runtime knows which CLI actually
-            // launched (relevant when a comingSoon → fallback swap occurs).
-            providerId: provider.id,
-            cwd,
-            branch,
-            worktreePath,
-            status: 'running',
-            initialPrompt: pane.initialPrompt,
-            startedAt: rec.startedAt,
-            externalSessionId: insertExternalSessionId,
-            // v1.3.1: persist the launcher-issued pane slot so
-            // `panes.lastResumePlan` can return one row per pane (the most
-            // recent) instead of one row per historical launch. Without this,
-            // re-opening a workspace surfaced N×launches panes in the picker.
-            paneIndex: pane.paneIndex,
-            // SF-8 Yolo/Bypass — persist the bypass flag so resume can
-            // re-apply it without the renderer re-submitting the preference.
-            autoApprove: pane.autoApprove ? 1 : 0,
-          })
-          .run();
+        const insertSession = getRawDb().transaction(() => {
+          allocatedPaneIndex = allocateLowestFreeLivePaneIndex(getRawDb(), wsRow.id);
+          db.insert(agentSessions)
+            .values({
+              id: finalSessionId,
+              workspaceId: wsRow.id,
+              // BUG-V1.1-01: store the requested id in `providerId` so the UI
+              // continues to show what the operator picked, and the resolved id
+              // in `provider_effective` so the runtime knows which CLI actually
+              // launched (relevant when a comingSoon → fallback swap occurs).
+              providerId: provider.id,
+              cwd,
+              branch,
+              worktreePath,
+              status: 'running',
+              initialPrompt: pane.initialPrompt,
+              startedAt: rec.startedAt,
+              externalSessionId: insertExternalSessionId,
+              // v1.3.1: persist the launcher-issued pane slot so
+              // `panes.lastResumePlan` can return one row per pane (the most
+              // recent) instead of one row per historical launch. Without this,
+              // re-opening a workspace surfaced N×launches panes in the picker.
+              paneIndex: allocatedPaneIndex,
+              // SF-8 Yolo/Bypass — persist the bypass flag so resume can
+              // re-apply it without the renderer re-submitting the preference.
+              autoApprove: pane.autoApprove ? 1 : 0,
+            })
+            .run();
+        });
+        insertSession();
       } catch (insertErr) {
         // v1.5.5 Cluster A — guard against UNIQUE violation on
         // (workspace_id, pane_index). This can occur in a concurrent
@@ -491,7 +503,7 @@ export async function executeLaunchPlan(
             status: 'error',
             startedAt: Date.now(),
             initialPrompt: pane.initialPrompt,
-            error: `Pane slot ${pane.paneIndex} is already occupied.`,
+            error: `Pane slot ${allocatedPaneIndex} is already occupied.`,
           });
           continue;
         } else {

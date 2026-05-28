@@ -138,8 +138,10 @@ function makeRawStub() {
         if (/FROM kv/i.test(sql) && key === 'ruflo.autowriteMcp') return { value: '0' };
         return undefined;
       }),
+      all: vi.fn(() => []),
       run: vi.fn(() => undefined),
     })),
+    transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
   };
 }
 
@@ -188,10 +190,11 @@ describe('spawnAgentSession — H-10 PTY leak on UNIQUE violation', () => {
     };
     vi.mocked(getDb).mockReturnValue(dbStub as unknown as ReturnType<typeof getDb>);
 
-    const returnedId = await spawnAgentSession(makeArgs(deps));
+    const returned = await spawnAgentSession(makeArgs(deps));
 
     // Suppression contract preserved: the existing session id is returned, no throw.
-    expect(returnedId).toBe(SPAWNED_PTY_ID);
+    expect(returned.sessionId).toBe(SPAWNED_PTY_ID);
+    expect(returned.paneIndex).toBe(-1);
     // The INSERT was attempted (and threw).
     expect(insertRun).toHaveBeenCalledTimes(1);
 
@@ -214,13 +217,52 @@ describe('spawnAgentSession — H-10 PTY leak on UNIQUE violation', () => {
     };
     vi.mocked(getDb).mockReturnValue(dbStub as unknown as ReturnType<typeof getDb>);
 
-    const returnedId = await spawnAgentSession(makeArgs(deps));
+    const returned = await spawnAgentSession(makeArgs(deps));
 
-    expect(returnedId).toBe(SPAWNED_PTY_ID);
+    expect(returned.sessionId).toBe(SPAWNED_PTY_ID);
+    expect(returned.paneIndex).toBe(0);
     expect(insertRun).toHaveBeenCalledTimes(1);
     // No teardown on success — the PTY belongs to a live, persisted session.
     expect(registry.kill).not.toHaveBeenCalled();
     expect(registry.forget).not.toHaveBeenCalled();
+  });
+
+  it('persists the allocated workspace pane_index on INSERT', async () => {
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+    const raw = makeRawStub();
+    vi.mocked(raw.prepare).mockImplementation((sql: string) => ({
+      get: vi.fn(() => undefined),
+      all: vi.fn(() => {
+        if (/FROM agent_sessions/i.test(sql)) {
+          return [
+            { pane_index: 0, status: 'running' },
+            { pane_index: 1, status: 'exited' },
+            { pane_index: 2, status: 'starting' },
+          ];
+        }
+        return [];
+      }),
+      run: vi.fn(() => undefined),
+    }));
+    vi.mocked(getRawDb).mockReturnValue(raw as unknown as ReturnType<typeof getRawDb>);
+
+    const inserted: Record<string, unknown> = {};
+    const dbStub = {
+      insert: vi.fn(() => ({
+        values: vi.fn((vals: Record<string, unknown>) => {
+          Object.assign(inserted, vals);
+          return { run: vi.fn(() => undefined) };
+        }),
+      })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    };
+    vi.mocked(getDb).mockReturnValue(dbStub as unknown as ReturnType<typeof getDb>);
+
+    const returned = await spawnAgentSession(makeArgs(deps));
+
+    expect(returned.paneIndex).toBe(1);
+    expect(inserted.paneIndex).toBe(1);
   });
 
   it('re-throws a non-UNIQUE INSERT error WITHOUT killing the PTY (unchanged behavior)', async () => {
@@ -270,7 +312,12 @@ describe('spawnAgentSession — SF-15 ruflo MCP written into worktree cwd', () =
     // autowrite ON for THIS test: stub returns undefined for every KV (default ON).
     vi.mocked(getRawDb).mockReturnValue(
       {
-        prepare: vi.fn(() => ({ get: vi.fn(() => undefined), run: vi.fn(() => undefined) })),
+        prepare: vi.fn(() => ({
+          get: vi.fn(() => undefined),
+          all: vi.fn(() => []),
+          run: vi.fn(() => undefined),
+        })),
+        transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
       } as unknown as ReturnType<typeof getRawDb>,
     );
 

@@ -67,12 +67,12 @@ export async function addAgentToSwarm(
   // `coordinatorId` derivation outside the transaction body because they read
   // only the seeded roster snapshot from inside the txn — both are pure
   // functions of `agentRows`.
-  const raw = getRawDb();
   let roleIndex = -1;
   let paneIndex = -1;
   let aKey = '';
   let inboxPath = '';
 
+  const raw = getRawDb();
   const txn = raw.transaction(() => {
     const agentRows = db
       .select()
@@ -88,7 +88,6 @@ export async function addAgentToSwarm(
       .reduce((max, a) => Math.max(max, a.roleIndex), 0);
     roleIndex = maxRoleIndex + 1;
     aKey = makeAgentKey(role, roleIndex);
-    paneIndex = agentRows.length === 0 ? 0 : agentRows.length;
     inboxPath = deps.mailbox.ensureInbox(input.swarmId, aKey);
     const coordinatorId = pickCoordinatorId(agentRows, role);
 
@@ -113,7 +112,7 @@ export async function addAgentToSwarm(
 
   let sessionId: string;
   try {
-    sessionId = await spawnAgentSession({
+    const spawn = await spawnAgentSession({
       wsRow,
       swarmId: input.swarmId,
       agentId,
@@ -131,6 +130,8 @@ export async function addAgentToSwarm(
       cwdOverride: input.cwd,
       branchOverride: input.branch,
     });
+    sessionId = spawn.sessionId;
+    paneIndex = spawn.paneIndex;
   } catch (err) {
     db.update(swarmAgents)
       .set({ status: 'error' })

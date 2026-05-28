@@ -32,7 +32,7 @@ interface InsertShape {
 interface SelectShape {
   table: string;
   selectCols: '*' | string[];
-  whereCols: string[];
+  wherePredicates: SelectPredicate[];
 }
 
 interface UpdateShape {
@@ -40,6 +40,11 @@ interface UpdateShape {
   setCols: string[];
   whereCols: string[];
 }
+
+type SelectPredicate =
+  | { kind: 'eq'; sqlCol: string }
+  | { kind: 'isNotNull'; sqlCol: string }
+  | { kind: 'in'; sqlCol: string; values: string[] };
 
 const INSERT_RE =
   /^\s*INSERT\s+(?:OR\s+(?:REPLACE|IGNORE)\s+)?INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES/i;
@@ -63,6 +68,43 @@ function extractWhereCols(whereRaw: string): string[] {
   return out;
 }
 
+function parseSqlStringList(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((part) => {
+      const trimmed = part.trim();
+      const quoted = /^'([^']*)'$/.exec(trimmed);
+      return quoted ? quoted[1] : trimmed;
+    })
+    .filter(Boolean);
+}
+
+function extractSelectPredicates(whereRaw: string): SelectPredicate[] {
+  if (!whereRaw) return [];
+  const out: SelectPredicate[] = [];
+  for (const part of whereRaw.split(/\s+AND\s+/i)) {
+    const eq = /^\s*(\w+)\s*=\s*\?/.exec(part);
+    if (eq) {
+      out.push({ kind: 'eq', sqlCol: eq[1] });
+      continue;
+    }
+    const notNull = /^\s*(\w+)\s+IS\s+NOT\s+NULL\s*$/i.exec(part);
+    if (notNull) {
+      out.push({ kind: 'isNotNull', sqlCol: notNull[1] });
+      continue;
+    }
+    const inList = /^\s*(\w+)\s+IN\s*\(([^)]+)\)\s*$/i.exec(part);
+    if (inList) {
+      out.push({
+        kind: 'in',
+        sqlCol: inList[1],
+        values: parseSqlStringList(inList[2]),
+      });
+    }
+  }
+  return out;
+}
+
 function parseInsert(sql: string): InsertShape | null {
   const m = INSERT_RE.exec(sql);
   return m ? { table: m[1], cols: parseColumnList(m[2]) } : null;
@@ -72,10 +114,11 @@ function parseSelect(sql: string): SelectShape | null {
   const m = SELECT_RE.exec(sql);
   if (!m) return null;
   const colsRaw = m[1].trim();
+  const whereRaw = (m[3]?.trim() ?? '').replace(/\s+ORDER\s+BY\s+[\s\S]*$/i, '');
   return {
     table: m[2],
     selectCols: colsRaw === '*' ? '*' : parseColumnList(colsRaw),
-    whereCols: extractWhereCols(m[3]?.trim() ?? ''),
+    wherePredicates: extractSelectPredicates(whereRaw),
   };
 }
 
@@ -100,12 +143,22 @@ function filterSelect(
   params: unknown[],
 ): Record<string, unknown>[] {
   const rows = store.tables.get(select.table) ?? [];
-  const filtered = rows.filter((row) =>
-    select.whereCols.every((sqlCol, idx) => {
-      const jsKey = sqlNameToJsKey(store, select.table, sqlCol);
-      return row[jsKey] === params[idx];
-    }),
-  );
+  const filtered = rows.filter((row) => {
+    let paramIdx = 0;
+    for (const pred of select.wherePredicates) {
+      const jsKey = sqlNameToJsKey(store, select.table, pred.sqlCol);
+      const value = row[jsKey];
+      if (pred.kind === 'eq') {
+        if (value !== params[paramIdx]) return false;
+        paramIdx += 1;
+      } else if (pred.kind === 'isNotNull') {
+        if (value === null || value === undefined) return false;
+      } else if (!pred.values.includes(String(value))) {
+        return false;
+      }
+    }
+    return true;
+  });
   if (select.selectCols === '*') return filtered.map((r) => ({ ...r }));
   return filtered.map((row) => {
     const out: Record<string, unknown> = {};
