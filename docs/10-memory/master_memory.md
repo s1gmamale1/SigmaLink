@@ -2669,3 +2669,82 @@ v1.9.0 caps the session spanning **v1.7.1** (voice-core extraction build hotfix)
 - **W-6 full Jorvis identifier rename** (IPC `assistant:*`/`sigma:*`, DB `sigma_pane_events`, file/folder sweep) — label shipped v1.8.0; full sweep deferred per operator "not for now".
 - **SigmaVoice signed/notarized installers** — funded Apple/EV certs, out of scope for internal-use.
 - **V3-W15-006 dogfood** — human QA only.
+
+## Phase 48 — SF-12 pane/worktree/registry integrity repair (2026-05-28)
+
+Branch `sf-12-pane-integrity` contains the SF-12 critical data-integrity fix for pane/worktree/session registry drift. Baseline was shipped app `v1.34.0`; work stayed on a feature branch with no push, tag, version bump, changelog, or release-file edits. Commits are intentionally split:
+
+- **Tier 1, ship-ready** — `d554924 fix pane slot read ownership and launcher orphan cleanup`.
+- **Tier 2, pending operator sign-off** — `5027bb6 prepare pane slot allocation repair pending signoff`.
+
+### Root cause
+
+SF-12 had two coupled old latent defects:
+
+- **Defect A — wrong/stale session could resolve into a pane slot.** Launch producers assigned `pane_index` positionally from launch-plan arrays. The read path in `panes.lastResumePlan` and `panes.listForWorkspace` used a status-blind `MAX(started_at)` join per `(workspace_id, pane_index)`. Resume mutates `started_at`, so exited/stale rows could outrank live rows; ties could return two rows for one slot. The launcher also spawned PTY before DB insert and suppressed UNIQUE violations without killing the child, leaving live orphan PTYs with no `agent_sessions` row.
+- **Defect B — +Pane/swarm panes vanished on reopen.** `spawnAgentSession` inserted swarm panes with `pane_index = NULL`; `factory-add-agent` computed a pane index only for return/mailbox payloads. Rehydration filters `pane_index IS NOT NULL`, so those panes disappeared after restart.
+
+### Tier 1 shipped changes
+
+- `rpc-router.ts` read paths now use `ROW_NUMBER() OVER (PARTITION BY workspace_id, pane_index ORDER BY live-first, started_at DESC, id DESC)` for both `lastResumePlan` and `listForWorkspace`. This guarantees exactly one deterministic owner per slot and prefers `running` / `starting` rows over terminal history.
+- `workspaces/launcher.ts` UNIQUE suppression branch now mirrors factory-spawn hardening: `pty.kill(finalSessionId)` + `pty.forget(finalSessionId)`, then returns an error session instead of leaving an orphan registry entry.
+- Tests added/updated: `last-resume-plan.test.ts`, `list-for-workspace.test.ts`, and launcher UNIQUE cleanup coverage in `launcher.autoApprove.test.ts`.
+
+### Tier 2 implemented but not auto-running
+
+- New shared allocator `workspaces/pane-slots.ts`: lowest-free `pane_index` among currently-live rows (`status IN ('running','starting')`) in the workspace. It ignores terminal rows and fills holes before appending.
+- Launcher and swarm spawn paths allocate and insert inside a synchronous better-sqlite3 write transaction. `+Pane`/swarm panes now persist `agent_sessions.pane_index`, fixing Defect B.
+- Semantics decision: swarm panes and workspace panes share the same workspace-level slot namespace because the canonical storage and uniqueness contract is `agent_sessions(workspace_id, pane_index)`.
+- `factory-spawn` UNIQUE suppression now returns `paneIndex: -1` so renderer/toast consumers do not display the rejected slot. Claude reviewer noted one downstream cosmetic wart remains until renderer patch lands: negative guard is still needed at `SwarmRoom.tsx` / `AddPaneButton.tsx` toast sites, otherwise rare UNIQUE suppression displays "Pane 0".
+- `launcher.ts` documents the narrow resume invariant: full-grid launch/resume is expected after existing live panes have closed/exited; resume args are keyed to requested launch-plan pane indexes because they must be chosen before spawn, while durable storage slot is reconciled at insert.
+
+### Pending data repair migration
+
+- `0026_sf12_pane_slot_repair.pending.ts` is present but deliberately **not imported into `ALL_MIGRATIONS`**. `migrate.spec.ts` now explicitly verifies pending sign-off migrations are not registered.
+- The migration captures a reversible preimage in `kv['sf12.preimage.<ts>']` before mutation: `(id -> pane_index, status)`.
+- Up path nulls terminal rows' `pane_index`, temporarily moves live rows to negative slots to avoid partial-unique collisions, then re-slots live rows densely per workspace in `started_at ASC, id ASC` order.
+- Post-condition checks fail the migration if any live row has NULL `pane_index`, any duplicate live `(workspace_id,pane_index)` exists, or live slots are not contiguous `0..k-1`.
+- Down path restores `pane_index` and `status` from the captured preimage; re-running down with the same preimage is safe.
+- H-7 honored: no explicit outer `db.transaction()`, no `BEGIN` / `COMMIT` in migration code; only single `db.prepare(sql).run()` statements.
+
+### Reviewer patch loop
+
+Opus review found Tier 1 ready and Tier 2 correct pending sign-off, with four important fixes before Tier 2 merge. All were applied in amended commit `5027bb6`:
+
+- UNIQUE suppression returns `paneIndex: -1` from `factory-spawn`.
+- Direct allocator unit tests added in `pane-slots.test.ts`.
+- `db-fake-raw.ts` now parses SELECT `= ?`, `IS NOT NULL`, and `IN (...)` predicates; `db-fake-raw.test.ts` pins the allocator predicate behavior.
+- Launcher resume/storage divergence documented as a full-grid launch invariant.
+
+### Gate
+
+Final gate after reviewer patches:
+
+- `npx tsc -b` — passed.
+- `npx eslint . --max-warnings 0` — passed.
+- `npx vitest run` — passed on rerun: 189 files, 1917 passed, 1 skipped. First run had one timeout in existing concurrent swarm role-index test; targeted rerun and full rerun both passed, so treated as a timing flake.
+- `npm run product:check` — passed.
+- `npx playwright test tests/e2e/` — 9 passed, 3 skipped.
+- Extra `node --experimental-strip-types --test src/main/core/db/__tests__/migrate.spec.ts` — passed.
+
+### Operator diagnostic SQL
+
+Keep these for Tier-2 sign-off evidence:
+
+```sql
+SELECT workspace_id, pane_index, COUNT(*) rows,
+       SUM(status IN ('running','starting')) live_rows
+FROM agent_sessions WHERE pane_index IS NOT NULL
+GROUP BY workspace_id, pane_index HAVING COUNT(*) > 1;
+
+SELECT id, workspace_id, provider_id, status, started_at
+FROM agent_sessions WHERE pane_index IS NULL AND status IN ('running','starting');
+```
+
+### Next action
+
+Do not auto-run `0026` until operator explicitly signs off on the data repair. Claude is handling the remaining cosmetic renderer toast guard for `paneIndex < 0` ("Pane 0" nit). No cleanup has been run yet.
+
+### Outcome — shipped v1.35.0 (2026-05-28)
+
+The cosmetic toast guard was applied in `257d99d fix(sf-12): guard paneIndex -1 sentinel in add-agent toasts` (`SwarmRoom.tsx:140` + `AddPaneButton.tsx:184` now render "Pane added" instead of "Pane 0"). A second Opus review round verified all four Important fixes landed (it even confirmed the db-fake SQL-fidelity gap is closed by deleting the `status IN (...)` clause and watching the test fail, then restoring). The branch `sf-12-pane-integrity` was fast-forward merged into `main` and **released as v1.35.0** (tag `v1.35.0`, pushed): version bump + CHANGELOG + `docs/09-release/release-notes-1.35.0.txt`, after a full re-gate in main (tsc -b · eslint 0/0 · vitest 189 files / 1917 pass / 1 skip · product:check · full `tests/e2e/` 9 pass / 3 skip). **Migration `0026` was NOT registered** — operator chose "ship the code now, 0026 dormant" because the Tier 1 read-path fix + Tier 2 allocator already stop the bleeding (no new bad rows; the migration only repairs *existing* corruption). Remaining to fully close SF-12: operator runs the diagnostic SQL on a real `agent_sessions` dump, signs off, then `0026` is registered (`.pending` dropped, imported into `migrate.ts` + `ALL_MIGRATIONS`) and shipped in a follow-up.
