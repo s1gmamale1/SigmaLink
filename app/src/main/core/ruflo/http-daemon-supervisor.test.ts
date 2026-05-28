@@ -13,6 +13,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 
 // ── mock: node:child_process ───────────────────────────────────────────────
 
@@ -344,6 +346,111 @@ describe('RufloHttpDaemonSupervisor', () => {
       ['mcp', 'start', '-t', 'http', '-p', String(NET_PORT), '--host', '127.0.0.1'],
       expect.anything(),
     );
+  });
+
+  // ── SF-14 userData lazy-installed CLI tier ─────────────────────────────
+
+  it('runs the lazy-installed userData @claude-flow/cli (offline) when ruflo is absent', async () => {
+    // Create a fake install: <root>/node_modules/@claude-flow/cli/bin/cli.js
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sf14-ruflo-'));
+    const binDir = path.join(root, 'node_modules', '@claude-flow', 'cli', 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    const cliEntry = path.join(binDir, 'cli.js');
+    fs.writeFileSync(cliEntry, '// fake cli');
+    const nodeModules = path.join(root, 'node_modules');
+
+    try {
+      const sup = new RufloHttpDaemonSupervisor({ rufloRoot: root });
+      // ruflo PATH probe misses → userData tier intercepts BEFORE npx is probed.
+      mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+        if (args[args.length - 1] === 'ruflo') throw new Error('not found');
+        throw new Error('npx should not be probed when userData CLI exists');
+      });
+      alwaysHealthOk();
+      mockSpawn.mockReturnValue(makeChild(4242));
+
+      const p = sup.spawn('ws-userdata', '/proj');
+      await vi.runAllTimersAsync();
+      const handle = await p;
+
+      expect(handle).not.toBeNull();
+      expect(handle!.status).toBe('running');
+      // Runs via Electron's embedded node: process.execPath <cli.js> mcp start …
+      expect(mockSpawn).toHaveBeenCalledWith(
+        process.execPath,
+        [cliEntry, 'mcp', 'start', '-t', 'http', '-p', String(NET_PORT), '--host', '127.0.0.1'],
+        expect.objectContaining({
+          env: expect.objectContaining({
+            ELECTRON_RUN_AS_NODE: '1',
+            NODE_PATH: nodeModules,
+          }),
+        }),
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('falls through to npx when the userData CLI is not installed', async () => {
+    // rufloRoot points at an empty dir → no cli.js → userData tier returns null.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sf14-empty-'));
+    try {
+      const sup = new RufloHttpDaemonSupervisor({ rufloRoot: root });
+      mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+        if (args[args.length - 1] === 'ruflo') throw new Error('not found');
+        return Buffer.from('/usr/local/bin/npx'); // npx present
+      });
+      alwaysHealthOk();
+      mockSpawn.mockReturnValue(makeChild(4243));
+
+      const p = sup.spawn('ws-empty', '/proj');
+      await vi.runAllTimersAsync();
+      await p;
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'npx',
+        ['-y', '@claude-flow/cli@latest', 'mcp', 'start', '-t', 'http', '-p', String(NET_PORT), '--host', '127.0.0.1'],
+        expect.anything(),
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('crash-recovery respawn of the userData CLI tier still carries ELECTRON_RUN_AS_NODE', async () => {
+    // Regression: launchChild() (the respawn path) must merge launch.env too,
+    // else the recovery spawn runs process.execPath WITHOUT ELECTRON_RUN_AS_NODE
+    // → boots Electron, not node → recovery fails and the daemon goes down.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sf14-recov-'));
+    const binDir = path.join(root, 'node_modules', '@claude-flow', 'cli', 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(path.join(binDir, 'cli.js'), '// fake cli');
+
+    try {
+      const sup = new RufloHttpDaemonSupervisor({ rufloRoot: root });
+      mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+        if (args[args.length - 1] === 'ruflo') throw new Error('not found');
+        throw new Error('npx should not be probed when userData CLI exists');
+      });
+      alwaysHealthOk();
+      const child1 = makeChild(4444);
+      const child2 = makeChild(4445);
+      mockSpawn.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
+
+      const p = sup.spawn('ws-recov', '/proj');
+      await vi.runAllTimersAsync();
+      await p;
+
+      child1.emit('exit', 1, null); // crash → respawn via launchChild
+      await vi.runAllTimersAsync();
+
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+      const recovery = mockSpawn.mock.calls[1] as [string, string[], { env: Record<string, string> }];
+      expect(recovery[0]).toBe(process.execPath);
+      expect(recovery[2].env).toMatchObject({ ELECTRON_RUN_AS_NODE: '1' });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   // ── port-allocation ────────────────────────────────────────────────────

@@ -279,7 +279,7 @@ export class RufloInstaller extends EventEmitter {
   }
 }
 
-function defaultRufloRoot(): string {
+export function defaultRufloRoot(): string {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { app } = require('electron') as { app: { getPath(name: string): string } };
   return path.join(app.getPath('userData'), 'ruflo');

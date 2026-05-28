@@ -16,6 +16,8 @@ import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import net from 'node:net';
 import http from 'node:http';
 import path from 'node:path';
+import fs from 'node:fs';
+import { defaultRufloRoot } from './installer';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -51,9 +53,15 @@ export interface RufloHttpDaemonSupervisorOpts {
    * Force a specific launcher binary (for tests). When set, it is used verbatim
    * with NO `npx` package prefix and NO resolution — the supervisor trusts it.
    * When omitted, the supervisor resolves a launcher at spawn time (PATH `ruflo`
-   * → PATH `npx -y @claude-flow/cli@latest`); see {@link resolveLaunch}.
+   * → lazy-installed `<userData>/ruflo` CLI → PATH `npx`); see {@link resolveLaunch}.
    */
   binary?: string;
+  /**
+   * Override the lazy-install root (`<userData>/ruflo`) the supervisor probes
+   * for a bundled-offline `@claude-flow/cli` (SF-14). Tests point this at a
+   * temp dir; production lets it default to {@link defaultRufloRoot}.
+   */
+  rufloRoot?: string;
 }
 
 /** The package spec npx uses to run the Ruflo CLI when `ruflo` is not on PATH. */
@@ -72,6 +80,9 @@ interface LaunchSpec {
   prefixArgs: string[];
   /** Human label for diagnostics ('ruflo (PATH)', 'npx @claude-flow/cli', …). */
   label: string;
+  /** Extra env merged into the daemon spawn — used by the userData-CLI tier to
+   *  run via Electron's embedded node (ELECTRON_RUN_AS_NODE + NODE_PATH). */
+  env?: Record<string, string>;
 }
 
 // ── internal entry ───────────────────────────────────────────────────────────
@@ -103,10 +114,39 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
   /** When set (tests), the supervisor uses this binary verbatim and skips
    *  PATH/npx resolution. */
   private readonly forcedBinary: string | undefined;
+  /** Override for the lazy-install root; undefined → resolve {@link defaultRufloRoot}
+   *  lazily (so constructing the supervisor never requires electron). */
+  private readonly rufloRootOverride: string | undefined;
 
   constructor(opts: RufloHttpDaemonSupervisorOpts = {}) {
     super();
     this.forcedBinary = opts.binary;
+    this.rufloRootOverride = opts.rufloRoot;
+  }
+
+  /**
+   * Path to the lazy-installed `@claude-flow/cli` entry under `<userData>/ruflo`
+   * (SF-14), or null when not installed. Mirrors RufloMcpSupervisor's install
+   * layout; the daemon runs it via Electron's embedded node. Resolving the
+   * default root is lazy + fail-safe so a missing/unavailable electron (tests)
+   * never throws here — it just means "no userData CLI".
+   */
+  private userDataCliEntry(): { entry: string; nodeModules: string } | null {
+    let root = this.rufloRootOverride;
+    if (!root) {
+      try {
+        root = defaultRufloRoot();
+      } catch {
+        return null;
+      }
+    }
+    const nodeModules = path.join(root, 'node_modules');
+    const entry = path.join(nodeModules, '@claude-flow', 'cli', 'bin', 'cli.js');
+    try {
+      return fs.existsSync(entry) ? { entry, nodeModules } : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -144,18 +184,20 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
       await this.stop(workspaceId);
     }
 
-    // Launcher resolution (SF-14). Prefer PATH `ruflo`; fall back to
-    // `npx -y @claude-flow/cli@latest`. Only when BOTH are missing is the
-    // daemon truly unavailable — and we say so LOUDLY (distinct message) so the
-    // operator understands why live cross-pane HTTP state is degraded. Panes
-    // still get a working stdio MCP via the per-worktree autowrite (SF-15).
+    // Launcher resolution (SF-14). Prefer PATH `ruflo`; then the lazy-installed
+    // userData `@claude-flow/cli` (offline, no network); then `npx`. Only when
+    // ALL are missing is the daemon truly unavailable — and we say so LOUDLY
+    // (distinct message) so the operator understands why live cross-pane HTTP
+    // state is degraded. Panes still get a working stdio MCP via the
+    // per-worktree autowrite (SF-15).
     const launch = this.resolveLaunch();
     if (!launch) {
       console.warn(
-        '[ruflo-http] DAEMON UNAVAILABLE: neither `ruflo` nor `npx` found on PATH — ' +
-          'the per-workspace HTTP daemon cannot start. Panes fall back to per-process ' +
-          'stdio MCP (no live daemon health, no shared HTTP state). Install ' +
-          '@claude-flow/cli or ensure Node/npx is on PATH to enable the daemon.',
+        '[ruflo-http] DAEMON UNAVAILABLE: no `ruflo` on PATH, no lazy-installed ' +
+          '@claude-flow/cli under userData, and no `npx` — the per-workspace HTTP ' +
+          'daemon cannot start. Panes fall back to per-process stdio MCP (no live ' +
+          'daemon health, no shared HTTP state). Install Ruflo (Settings → Ruflo) ' +
+          'or ensure Node/npx is on PATH to enable the daemon.',
       );
       return null;
     }
@@ -248,8 +290,13 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
    * Resolve a launcher for the daemon (SF-14).
    *   1. A forced binary (tests) → used verbatim, no prefix, no PATH probe.
    *   2. PATH `ruflo`            → `ruflo mcp start -t http …`.
-   *   3. PATH `npx`              → `npx -y @claude-flow/cli@latest mcp start …`.
-   * Returns null only when none are available (daemon truly unavailable).
+   *   3. userData `@claude-flow/cli` (lazy-installed) → Electron-node runs
+   *      `<userData>/ruflo/.../bin/cli.js mcp start -t http …` offline.
+   *   4. PATH `npx`              → `npx -y @claude-flow/cli@latest mcp start …`.
+   * Tier 3 closes the SF-14 first-run-network gap: once the CLI is installed
+   * under userData, production (which has no PATH `ruflo`) runs the pinned
+   * local copy instead of depending on npx/network — so claude/codex panes get
+   * a working Ruflo MCP daemon offline. Returns null only when none resolve.
    */
   private resolveLaunch(): LaunchSpec | null {
     if (this.forcedBinary) {
@@ -257,6 +304,21 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
     }
     if (commandOnPath('ruflo')) {
       return { command: 'ruflo', prefixArgs: [], label: 'ruflo (PATH)' };
+    }
+    const cli = this.userDataCliEntry();
+    if (cli) {
+      return {
+        command: process.execPath,
+        prefixArgs: [cli.entry],
+        label: 'userData @claude-flow/cli',
+        // Run via Electron's embedded node; pin NODE_PATH so the CLI's native
+        // optionalDeps (HNSW/neural) resolve from the install dir. Mirrors
+        // RufloMcpSupervisor.spawnChild().
+        env: {
+          ELECTRON_RUN_AS_NODE: '1',
+          NODE_PATH: cli.nodeModules,
+        },
+      };
     }
     if (commandOnPath('npx')) {
       return {
@@ -316,6 +378,9 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
             ...process.env,
             CLAUDE_FLOW_CWD: entry.workspaceRoot,
             CLAUDE_FLOW_DIR: path.join(entry.workspaceRoot, '.claude-flow'),
+            // userData-CLI tier carries ELECTRON_RUN_AS_NODE + NODE_PATH; PATH
+            // `ruflo`/npx tiers carry none. Merged last so the launcher wins.
+            ...(entry.launch.env ?? {}),
           },
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
@@ -529,6 +594,10 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
           ...process.env,
           CLAUDE_FLOW_CWD: entry.workspaceRoot,
           CLAUDE_FLOW_DIR: path.join(entry.workspaceRoot, '.claude-flow'),
+          // Must mirror doSpawn(): the userData-CLI tier needs
+          // ELECTRON_RUN_AS_NODE + NODE_PATH or the respawn boots Electron
+          // instead of node and crash-recovery fails. (Empty for ruflo/npx.)
+          ...(entry.launch.env ?? {}),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
