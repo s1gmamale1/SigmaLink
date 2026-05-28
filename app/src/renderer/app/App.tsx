@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, type ReactElement } from 'react';
 import { Toaster } from 'sonner';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
 import { Sidebar } from '@/renderer/features/sidebar/Sidebar';
 import { Breadcrumb } from '@/renderer/features/top-bar/Breadcrumb';
 import { VoicePill } from '@/renderer/features/voice/VoicePill';
@@ -83,15 +83,19 @@ const SigmaBenchRoom = lazy(() =>
 );
 
 // Lightweight placeholder rendered while a lazy room module is downloading.
-// Kept inline (no separate file) so it adds zero bytes to the main chunk
-// beyond the markup itself.
+// A calm centered spinner on the theme surface — NOT a full-bleed `bg-accent`
+// Skeleton, which painted the whole outlet a saturated brand-purple for the
+// duration of the chunk fetch (the "purple flash on page change"). Kept inline
+// so it adds zero bytes to the main chunk beyond the markup itself.
 function RoomSkeleton() {
   return (
-    <Skeleton
+    <div
       role="status"
       aria-label="Loading room"
-      className="flex min-h-0 flex-1"
-    />
+      className="flex min-h-0 flex-1 items-center justify-center bg-background"
+    >
+      <Spinner aria-hidden className="size-6 text-muted-foreground" />
+    </div>
   );
 }
 
