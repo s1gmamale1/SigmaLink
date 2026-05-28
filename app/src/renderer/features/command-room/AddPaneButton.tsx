@@ -181,7 +181,7 @@ export function AddPaneButton({
       dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
       dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
       toast.success(`Added ${result.agentKey}`, {
-        description: `Pane ${result.paneIndex + 1}`,
+        description: result.paneIndex >= 0 ? `Pane ${result.paneIndex + 1}` : 'Pane added',
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
