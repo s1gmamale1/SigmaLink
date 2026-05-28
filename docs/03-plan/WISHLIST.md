@@ -12,7 +12,7 @@
 
 ## 🆕 New ideas (untriaged)
 
-_(empty — add raw ideas here; promote to ROADMAP when scoped)_
+- **Combined video + perf-trace review harness** (test tooling) — **agreed method for the NEXT review.** One instrumented Playwright/Electron interaction run emits BOTH a `video:'on'` recording AND a CDP `Tracing.start` DevTools-timeline perf trace over the same timeline (+ CPU-throttle to stretch transient frames). Perf trace = the DETECTOR (dropped frames / long tasks / CLS — thresholdable, can fail CI); video frames at the flagged timestamps = the EXPLAINER (agent views via the video-vision plugin). Correlate by timestamp: measurement says WHERE to look, video says WHAT it was. Layered above the v1.35 trace + duplicate-frame detector. First run doubles as the still-owed motion-confirmation of the v1.36 purple-flash fix. Static anti-pattern review (animating transform/opacity not width/top, compositor checks) is the cheap pre-test layer a code reviewer already does.
 
 ---
 
@@ -20,13 +20,12 @@ _(empty — add raw ideas here; promote to ROADMAP when scoped)_
 
 Lightweight notes only; the actionable plan + priority + code pointers live in `ROADMAP.md`.
 
-- **Bundle the `ruflo` daemon binary** — SF-14 uses an npx fallback; binary isn't shipped. Product decision. → ROADMAP **P0**.
-- **Cursor skill fan-out** — `ProviderTarget` enum doesn't include cursor; skill dir unverified. → ROADMAP **P1**.
-- **W-4 P8–P9 + win32 shell-first dogfood** — resume simplification + drop `external_session_id`; win32 un-dogfooded. → ROADMAP **P2**.
-- **FE-4 a11y + voice (blocked)** — focus-trap, VoiceOver QA, reduced-transparency, breadcrumb contrast; PCM sample-rate, whisper.cpp v1.7.x port. → ROADMAP **P3**.
+- **W-4 P8–P9 + win32 shell-first dogfood** — resume simplification + drop `external_session_id`; win32 un-dogfooded. → ROADMAP **P1** (blocked on win32 dogfood).
+- **FE-4 a11y + voice (blocked)** — focus-trap, VoiceOver QA, reduced-transparency, breadcrumb contrast; PCM sample-rate, whisper.cpp v1.7.x port. → ROADMAP **P2**.
 - **SF-12 migration `0026` (operator-owned)** — Tier1+Tier2 shipped v1.35.0; the data-repair migration stays dormant pending the operator running the diagnostic SQL on a real `agent_sessions` dump. On sign-off → register `0026` (drop `.pending`, import + append to `ALL_MIGRATIONS`) + follow-up release. Diagnostic SQL in `docs/09-release/release-notes-1.35.0.txt`.
+- **SF-14 optional polish** — auto-trigger the lazy Ruflo install on first workspace open (today renderer-triggered via Settings → Ruflo); room-chunk prefetch on idle to drop even the load spinner. Low.
 
-> Everything else (C-class M0–M5, FE-1…4, R-1/R-2, W-class, **H-class fully complete incl. H-7 transactional migrations**, SF-1…11/13/14/15, CI Node-24 + e2e flake) is **shipped** — see `CHANGELOG.md` + the master-memory project entries. Don't re-note shipped items here.
+> Everything else (C-class M0–M5, FE-1…4, R-1/R-2, W-class, **H-class fully complete incl. H-7**, **SF-14 daemon offline-CLI tier ✅ v1.36.0**, SF-1…15, CI Node-24 + e2e flake) is **shipped** — see `CHANGELOG.md` + the master-memory project entries. **Cursor skill fan-out DROPPED** (operator: claude+codex priority; `cursor-agent` doesn't consume the SKILL.md format → no-op). Don't re-note shipped items here.
 
 ---
 
