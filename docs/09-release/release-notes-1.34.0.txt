@@ -1,0 +1,107 @@
+SigmaLink v1.34.0 — 2026-05-28
+==============================
+
+Operator breakage batch (SF-11, SF-13, SF-14, SF-15) + a chronic CI-flake fix.
+
+The operator reported serious breakage on a running build. A cursor-agent
+started debugging but hit its usage limit; the lead took over and ran 5 parallel
+investigation agents (one per finding), each root-causing with file:line
+evidence. The lead then integrated the disjoint lanes, fixed two integration-
+seam bugs the isolated agents couldn't see, ran a full gate, and an Opus
+security-review (PASS) of the Ruflo MCP changes.
+
+SF-12 (the Critical pane/worktree/registry confusion) is intentionally NOT in
+this release — see "Not in this release" below.
+
+
+Fixed
+-----
+
+- SF-11  Sidebars misaligned / shell overflows the viewport.
+    The right-rail flex row's center column lacked `min-w-0`, so it refused to
+    shrink below its content and the fixed-width rail (default 480px) pushed the
+    3-column shell wider than the viewport. Added `min-w-0` (hydrated + pre-
+    hydration). Pure CSS; +5 layout tests.
+
+- SF-14  Ruflo HTTP daemon never started / health unverified.
+    spawn() only probed a `ruflo` binary on PATH — operators don't have one
+    (Ruflo is @claude-flow/cli via npx) → silent stdio fallback, daemon never
+    ran. Now resolves `ruflo` on PATH, else `npx -y @claude-flow/cli@latest`;
+    surfaces a loud "DAEMON UNAVAILABLE" only when neither exists. Shell-free
+    execFileSync PATH probe (POSIX uses positional `$1`, no interpolation).
+
+- SF-15  Ruflo MCP not attached to panes / absent before the CLI starts.
+    The MCP config + trust were written at the WORKSPACE ROOT, but each pane
+    runs in its own WORKTREE cwd where the CLI reads .mcp.json — so `ruflo` was
+    invisible to panes. New core/workspaces/ruflo-worktree-mcp.ts writes the
+    `ruflo` entry (HTTP when a daemon port exists, else stdio) into each pane's
+    worktree cwd BEFORE the CLI spawns (workspace-launcher AND swarm-spawn
+    paths), honoring the ruflo.autowriteMcp / ruflo.autoTrustMcp gates and
+    reusing the SF-7 ensureRufloTrusted (ruflo-only). Additive merge; refuses
+    operator-managed entries; fully fail-open (a pane always launches).
+
+- CI  Chronic macOS e2e ENOTEMPTY teardown flake.
+    The `npx @claude-flow/cli` grandchild kept writing .npm/_cacache ~100-500ms
+    after app.close(), racing the synchronous temp-dir rmSync. Fixed with a
+    300ms drain + fs.promises.rm(…, {recursive,force,maxRetries:5,retryDelay:
+    200}) + non-fatal fallback. main's e2e-matrix is reliably green again.
+
+
+Added
+-----
+
+- SF-13  Operator cleanup — Settings → Maintenance.
+    Per workspace: (1) remove workspace + sessions + GC orphan worktrees,
+    (2) clear all pane sessions, (3) prune orphan worktree dirs. SAFE by
+    construction: dry-run preview + confirm() before any destruction; a
+    LIVE-SESSION FENCE never deletes a worktree referenced by a running/
+    starting session; fail-open per item; path-traversal guard. New `cleanup.*`
+    side-band RPC.
+
+
+Not in this release (tracked)
+-----------------------------
+
+- SF-12 (CRITICAL) — pane/worktree/registry confusion. Touches the core pane-
+  resolution query, so it gets its own isolated change rather than riding this
+  5-lane release. Root cause fully documented (two defects):
+    A. listForWorkspace resolves a pane slot by status-blind MAX(started_at),
+       and started_at is mutated on resume → an exited/older session can
+       outrank the live one (and ties return two rows for one slot); plus
+       pane_index is reused (never reconciled against live rows), and the
+       launcher's UNIQUE-violation branch leaves an orphan PTY.
+    B. +Pane/swarm panes are inserted with pane_index = NULL → invisible to
+       listForWorkspace on reopen → panes vanish/reshuffle.
+  A read-path fix + a REVERSIBLE, no-blind-delete data-repair migration are
+  designed; the migration needs operator sign-off before it runs.
+
+- Product decision: the `ruflo` daemon binary isn't bundled (SF-14 uses an npx
+  fallback). Bundling it / pointing the daemon at the lazy-installed CLI is a
+  follow-up.
+
+
+Gate
+----
+
+- tsc -b -- clean
+- eslint 0 errors / 0 warnings
+- vitest 186 files / 1896 pass / 1 skip (+ RightRail layout, cleanup core + UI,
+  ruflo-worktree-mcp, daemon launch-resolution, factory-spawn SF-15 ordering,
+  rpc-channels parity for cleanup.*)
+- vite build + electron:compile (product:check) -- clean
+- FULL Playwright e2e (tests/e2e/) in main -- 9 passed / 3 skipped
+- Opus security-review of the Ruflo MCP changes -- PASS (no Critical/High/Med)
+
+
+Operator smoke
+--------------
+
+1. Command room: left + right sidebars fit; the 3-column shell no longer
+   overflows; the rail splitter works.
+2. Settings → Maintenance: dry-run preview + confirm before any cleanup; a
+   workspace with a live pane keeps that pane's worktree.
+3. Open a workspace, launch a pane → its CLI sees the Ruflo MCP server (check
+   in-pane: /mcp or `claude mcp list`), because .mcp.json is now in the pane's
+   worktree cwd. If neither `ruflo` nor npx is available, a clear "DAEMON
+   UNAVAILABLE" message appears instead of silent failure.
+4. Known still-open: SF-12 (panes/registry confusion) — fix pending sign-off.

@@ -34,6 +34,47 @@ import {
   prepareClaudeWorkspaceContext,
 } from '../pty/claude-resume-sigma';
 import { writeGuardrailBlock } from '../workspaces/guardrail-block';
+import { writeRufloMcpIntoCwd } from '../workspaces/ruflo-worktree-mcp';
+import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from '../workspaces/mcp-autowrite';
+import { getSharedDeps } from '../../rpc-router';
+
+/**
+ * SF-15 — write the bundled `ruflo` MCP entry (+ claude trust) into a swarm
+ * agent's worktree cwd before its CLI spawns. Reads the autowrite/autotrust KV
+ * gates (default ON) and the live HTTP-daemon port (HTTP when present, stdio
+ * otherwise). Fully fail-open: a missing/locked DB, an absent shared-deps
+ * accessor, or a write failure can only degrade to stdio or no-op — it never
+ * throws into the spawn path.
+ */
+function ensureRufloInWorktreeCwd(cwd: string, workspaceId: string): void {
+  try {
+    let autowrite = true;
+    let autotrust = true;
+    try {
+      const raw = getRawDb();
+      const aw = raw.prepare('SELECT value FROM kv WHERE key = ?').get(KV_RUFLO_AUTOWRITE_MCP) as
+        | { value?: string }
+        | undefined;
+      autowrite = aw?.value !== '0';
+      const at = raw.prepare('SELECT value FROM kv WHERE key = ?').get(KV_RUFLO_AUTOTRUST_MCP) as
+        | { value?: string }
+        | undefined;
+      autotrust = at?.value !== '0';
+    } catch {
+      /* default both ON */
+    }
+    if (!autowrite) return;
+    let port: number | undefined;
+    try {
+      port = getSharedDeps()?.rufloHttpDaemonSupervisor.port(workspaceId) ?? undefined;
+    } catch {
+      /* no live daemon port — stdio fallback */
+    }
+    writeRufloMcpIntoCwd(cwd, { port, trust: autotrust });
+  } catch {
+    /* MCP wiring is non-fatal — never block the spawn */
+  }
+}
 
 /**
  * Pick the coordinator that a newly-added agent should be assigned to.
@@ -196,6 +237,12 @@ export async function spawnAgentSession(args: SpawnAgentSessionArgs): Promise<st
       repoRoot: args.wsRow.repoRoot,
       worktreePath,
     });
+  // SF-15 — swarm-agent panes spawn in their own worktree cwd, which never
+  // inherits the workspace-root ruflo MCP config/trust written at workspace
+  // open. Write a managed `ruflo` entry (+ claude trust) into this pane's cwd
+  // BEFORE the CLI spawns. HTTP mode when the per-workspace daemon has a live
+  // port; stdio otherwise. Fail-open + opt-out aware — never blocks the spawn.
+  ensureRufloInWorktreeCwd(cwd, args.wsRow.id);
   // V1.1: route swarm-agent spawns through the provider launcher façade so
   // SigmaCode→Claude fallback, altCommands ENOENT walk, and the legacy gate
   // all apply uniformly. Read `kv['providers.showLegacy']` defensively — if

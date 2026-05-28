@@ -12,7 +12,7 @@
 //   • emits 'restarted' (workspaceId, success) after each recovery cycle
 
 import { EventEmitter } from 'node:events';
-import { spawn, execSync, type ChildProcess } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import net from 'node:net';
 import http from 'node:http';
 import path from 'node:path';
@@ -47,8 +47,31 @@ export interface DaemonHandle {
 }
 
 export interface RufloHttpDaemonSupervisorOpts {
-  /** Override binary name / path (for tests). Defaults to 'ruflo'. */
+  /**
+   * Force a specific launcher binary (for tests). When set, it is used verbatim
+   * with NO `npx` package prefix and NO resolution — the supervisor trusts it.
+   * When omitted, the supervisor resolves a launcher at spawn time (PATH `ruflo`
+   * → PATH `npx -y @claude-flow/cli@latest`); see {@link resolveLaunch}.
+   */
   binary?: string;
+}
+
+/** The package spec npx uses to run the Ruflo CLI when `ruflo` is not on PATH. */
+const RUFLO_NPM_SPEC = '@claude-flow/cli@latest';
+/** The daemon subcommand + flags appended after the launcher prefix. Port/host
+ *  are filled in per-spawn. */
+const DAEMON_SUBCOMMAND = ['mcp', 'start', '-t', 'http'] as const;
+
+/**
+ * A resolved way to launch the Ruflo daemon: a command plus any prefix args
+ * that must precede the daemon subcommand. For PATH `ruflo` the prefix is empty;
+ * for the `npx` fallback the prefix carries the package spec.
+ */
+interface LaunchSpec {
+  command: string;
+  prefixArgs: string[];
+  /** Human label for diagnostics ('ruflo (PATH)', 'npx @claude-flow/cli', …). */
+  label: string;
 }
 
 // ── internal entry ───────────────────────────────────────────────────────────
@@ -69,17 +92,21 @@ interface DaemonEntry {
   spawnResolve: ((h: DaemonHandle) => void) | null;
   spawnReject: ((e: Error) => void) | null;
   spawnTimer: NodeJS.Timeout | null;
+  /** The launcher resolved at spawn time — reused verbatim across restarts. */
+  launch: LaunchSpec;
 }
 
 // ── supervisor ───────────────────────────────────────────────────────────────
 
 export class RufloHttpDaemonSupervisor extends EventEmitter {
   private readonly entries = new Map<string, DaemonEntry>();
-  private readonly binary: string;
+  /** When set (tests), the supervisor uses this binary verbatim and skips
+   *  PATH/npx resolution. */
+  private readonly forcedBinary: string | undefined;
 
   constructor(opts: RufloHttpDaemonSupervisorOpts = {}) {
     super();
-    this.binary = opts.binary ?? 'ruflo';
+    this.forcedBinary = opts.binary;
   }
 
   /**
@@ -117,9 +144,19 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
       await this.stop(workspaceId);
     }
 
-    // Binary detection.
-    if (!this.binaryAvailable()) {
-      console.warn('[ruflo-http] ruflo binary not found in PATH — HTTP daemon not started');
+    // Launcher resolution (SF-14). Prefer PATH `ruflo`; fall back to
+    // `npx -y @claude-flow/cli@latest`. Only when BOTH are missing is the
+    // daemon truly unavailable — and we say so LOUDLY (distinct message) so the
+    // operator understands why live cross-pane HTTP state is degraded. Panes
+    // still get a working stdio MCP via the per-worktree autowrite (SF-15).
+    const launch = this.resolveLaunch();
+    if (!launch) {
+      console.warn(
+        '[ruflo-http] DAEMON UNAVAILABLE: neither `ruflo` nor `npx` found on PATH — ' +
+          'the per-workspace HTTP daemon cannot start. Panes fall back to per-process ' +
+          'stdio MCP (no live daemon health, no shared HTTP state). Install ' +
+          '@claude-flow/cli or ensure Node/npx is on PATH to enable the daemon.',
+      );
       return null;
     }
 
@@ -139,6 +176,7 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
       spawnResolve: null,
       spawnReject: null,
       spawnTimer: null,
+      launch,
     };
     this.entries.set(workspaceId, entry);
 
@@ -206,13 +244,44 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
 
   // ── internals ──────────────────────────────────────────────────────────────
 
-  private binaryAvailable(): boolean {
-    try {
-      execSync(`command -v ${this.binary}`, { stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
+  /**
+   * Resolve a launcher for the daemon (SF-14).
+   *   1. A forced binary (tests) → used verbatim, no prefix, no PATH probe.
+   *   2. PATH `ruflo`            → `ruflo mcp start -t http …`.
+   *   3. PATH `npx`              → `npx -y @claude-flow/cli@latest mcp start …`.
+   * Returns null only when none are available (daemon truly unavailable).
+   */
+  private resolveLaunch(): LaunchSpec | null {
+    if (this.forcedBinary) {
+      return { command: this.forcedBinary, prefixArgs: [], label: this.forcedBinary };
     }
+    if (commandOnPath('ruflo')) {
+      return { command: 'ruflo', prefixArgs: [], label: 'ruflo (PATH)' };
+    }
+    if (commandOnPath('npx')) {
+      return {
+        command: 'npx',
+        prefixArgs: ['-y', RUFLO_NPM_SPEC],
+        label: `npx ${RUFLO_NPM_SPEC}`,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Build the full argv for a daemon spawn: launcher prefix + daemon subcommand
+   * + the per-spawn port/host. Centralised so doSpawn() and launchChild() can't
+   * drift apart.
+   */
+  private daemonArgs(entry: DaemonEntry): string[] {
+    return [
+      ...entry.launch.prefixArgs,
+      ...DAEMON_SUBCOMMAND,
+      '-p',
+      String(entry.port),
+      '--host',
+      '127.0.0.1',
+    ];
   }
 
   /**
@@ -242,19 +311,15 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
 
       let child: ChildProcess;
       try {
-        child = spawn(
-          this.binary,
-          ['mcp', 'start', '-t', 'http', '-p', String(entry.port), '--host', '127.0.0.1'],
-          {
-            env: {
-              ...process.env,
-              CLAUDE_FLOW_CWD: entry.workspaceRoot,
-              CLAUDE_FLOW_DIR: path.join(entry.workspaceRoot, '.claude-flow'),
-            },
-            stdio: ['ignore', 'pipe', 'pipe'],
-            windowsHide: true,
+        child = spawn(entry.launch.command, this.daemonArgs(entry), {
+          env: {
+            ...process.env,
+            CLAUDE_FLOW_CWD: entry.workspaceRoot,
+            CLAUDE_FLOW_DIR: path.join(entry.workspaceRoot, '.claude-flow'),
           },
-        );
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[ruflo-http] spawn() threw: ${msg}`);
@@ -459,19 +524,15 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
    */
   private launchChild(entry: DaemonEntry): ChildProcess | null {
     try {
-      return spawn(
-        this.binary,
-        ['mcp', 'start', '-t', 'http', '-p', String(entry.port), '--host', '127.0.0.1'],
-        {
-          env: {
-            ...process.env,
-            CLAUDE_FLOW_CWD: entry.workspaceRoot,
-            CLAUDE_FLOW_DIR: path.join(entry.workspaceRoot, '.claude-flow'),
-          },
-          stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true,
+      return spawn(entry.launch.command, this.daemonArgs(entry), {
+        env: {
+          ...process.env,
+          CLAUDE_FLOW_CWD: entry.workspaceRoot,
+          CLAUDE_FLOW_DIR: path.join(entry.workspaceRoot, '.claude-flow'),
         },
-      );
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
     } catch (err) {
       console.warn(
         `[ruflo-http] launchChild() threw (ws=${entry.workspaceId}): ${err instanceof Error ? err.message : String(err)}`,
@@ -566,6 +627,26 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * True when `name` resolves on PATH. Uses `where` (Windows) or the `command -v`
+ * shell builtin (POSIX) via execFileSync. NO interpolation into a shell string:
+ * on POSIX `name` is passed as a positional arg (`$1`) to a fixed script, so
+ * there is no shell-injection surface (the names probed here are hardcoded
+ * constants regardless). A non-zero exit (not found) throws → false.
+ */
+function commandOnPath(name: string): boolean {
+  try {
+    if (process.platform === 'win32') {
+      execFileSync('where', [name], { stdio: 'pipe' });
+    } else {
+      execFileSync('sh', ['-c', 'command -v "$1"', 'sh', name], { stdio: 'pipe' });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Allocate a free loopback port by binding to :0. */
 function allocatePort(): Promise<number> {

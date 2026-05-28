@@ -19,6 +19,7 @@ import { StorageTab } from './StorageTab';
 import { NotificationsSettings } from './NotificationsSettings';
 import { SyncTab } from './SyncTab';
 import { TelegramTab } from './TelegramTab';
+import { MaintenanceTab } from './MaintenanceTab';
 
 export function SettingsRoom() {
   return (
@@ -44,6 +45,7 @@ export function SettingsRoom() {
               <TabsTrigger value="sync">Sync</TabsTrigger>
               <TabsTrigger value="telegram">Telegram</TabsTrigger>
               <TabsTrigger value="storage">Storage</TabsTrigger>
+              <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
               <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
             </TabsList>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-3">
@@ -76,6 +78,9 @@ export function SettingsRoom() {
               </TabsContent>
               <TabsContent value="storage" className="mt-0">
                 <StorageTab />
+              </TabsContent>
+              <TabsContent value="maintenance" className="mt-0">
+                <MaintenanceTab />
               </TabsContent>
               <TabsContent value="diagnostics" className="mt-0">
                 <DiagnosticsTab />

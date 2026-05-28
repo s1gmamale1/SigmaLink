@@ -299,6 +299,13 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'sync.exportMnemonic',
   'sync.isConfigured',
   'sync.recoverFromMnemonic',
+  // SF-13 — Operator cleanup actions. Destructive; always dry-run first.
+  // Registered side-band under `cleanup.*` in rpc-router.ts (not in the
+  // typed AppRouter shape) so the lead's rpc-router.ts registration is the
+  // single point of control.
+  'cleanup.removeWorkspace',
+  'cleanup.clearPanes',
+  'cleanup.pruneWorktrees',
   // R-1 — Jorvis Telegram remote. SECURITY-CRITICAL: `setToken` is write-only;
   // the token value never crosses IPC in a response (getStatus reports only a
   // `tokenSet` boolean).

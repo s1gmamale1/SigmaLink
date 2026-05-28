@@ -22,9 +22,40 @@ function tmpDir(prefix: string): string {
   return dir;
 }
 
+/**
+ * Robustly remove a temp directory, tolerating a transient npm/_cacache
+ * writer (e.g. a spawned npx daemon) that may still be flushing after the
+ * Electron app is closed.  Strategy:
+ *   1. fs.promises.rm with recursive+force+maxRetries so the OS retry loop
+ *      handles the ENOTEMPTY race without surfacing it to the test runner.
+ *   2. If all retries exhaust (extremely unlikely), log a warning and
+ *      continue — stale temp dirs in /var/folders are cleaned by macOS on
+ *      reboot and must never fail a CI run.
+ */
+async function removeTmpDir(dir: string): Promise<void> {
+  try {
+    await fs.promises.rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 200,
+    });
+  } catch (err) {
+    // Non-fatal: log and move on.  A leftover temp dir should not fail CI.
+    console.warn(`[ruflo-autowrite] teardown: could not remove ${dir}: ${(err as NodeJS.ErrnoException).message}`);
+  }
+}
+
 test.afterEach(async () => {
+  // Drain: give any grandchild npm/npx subprocesses spawned by the Electron
+  // app (e.g. the ruflo MCP daemon started via mcp-autowrite) a moment to
+  // finish their last write before we try to remove the temp HOME directory.
+  // 300 ms is enough for npm's cache flush on macOS; the retry loop in
+  // removeTmpDir handles anything that slips through.
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
+
   while (tmpDirs.length > 0) {
-    fs.rmSync(tmpDirs.pop()!, { recursive: true, force: true });
+    await removeTmpDir(tmpDirs.pop()!);
   }
 });
 

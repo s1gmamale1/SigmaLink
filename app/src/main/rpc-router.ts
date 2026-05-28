@@ -24,6 +24,11 @@ import { commitAndMerge, gitDiff, gitStatus, runShellLine, worktreeRemove } from
 import { WorktreePool } from './core/git/worktree';
 import { listWorkspaces, openWorkspace, removeWorkspace } from './core/workspaces/factory';
 import { cleanupOrphanWorktrees } from './core/workspaces/worktree-cleanup';
+import {
+  pruneOrphanWorktreesForWorkspace,
+  clearPanesForWorkspace,
+  removeWorkspaceAndGc,
+} from './core/workspaces/cleanup';
 import { repoHash as computeRepoHash } from './core/git/git-ops';
 import {
   installWorkspaceLifecycleIpc,
@@ -1892,12 +1897,73 @@ export function registerRouter(): void {
   const voiceDiagnosticsHandlers: Record<string, (...args: unknown[]) => unknown> = {
     run: () => runVoiceDiagnostics(),
   };
+  // SF-13 — operator cleanup actions (`cleanup.*`). Destructive; every handler
+  // defaults to dry-run UNLESS the caller passes `dryRun:false`, and the
+  // cleanup core never deletes a worktree referenced by a live session.
+  const cleanupWorktreeBase = (): string => path.join(app.getPath('userData'), 'worktrees');
+  const cleanupRepoHash = (workspaceId: string): string | undefined => {
+    const row = getRawDb()
+      .prepare('SELECT repo_root FROM workspaces WHERE id = ?')
+      .get(workspaceId) as { repo_root?: string | null } | undefined;
+    return row?.repo_root ? computeRepoHash(row.repo_root) : undefined;
+  };
+  const cleanupHandlers: Record<string, (...args: unknown[]) => unknown> = {
+    removeWorkspace: async (input: unknown) => {
+      const a = (input as { workspaceId?: string; dryRun?: boolean }) ?? {};
+      if (typeof a.workspaceId !== 'string' || !a.workspaceId) {
+        throw new Error('cleanup.removeWorkspace: workspaceId required');
+      }
+      const dryRun = a.dryRun !== false; // safe default: dry-run unless explicit false
+      if (!dryRun) {
+        try {
+          await getSharedDeps()?.rufloHttpDaemonSupervisor.stop(a.workspaceId);
+        } catch {
+          /* daemon stop is best-effort */
+        }
+      }
+      return removeWorkspaceAndGc({
+        workspaceId: a.workspaceId,
+        worktreeBase: cleanupWorktreeBase(),
+        repoHash: cleanupRepoHash(a.workspaceId),
+        db: getRawDb(),
+        dryRun,
+      });
+    },
+    clearPanes: async (input: unknown) => {
+      const a = (input as { workspaceId?: string; dryRun?: boolean }) ?? {};
+      if (typeof a.workspaceId !== 'string' || !a.workspaceId) {
+        throw new Error('cleanup.clearPanes: workspaceId required');
+      }
+      return clearPanesForWorkspace({
+        workspaceId: a.workspaceId,
+        db: getRawDb(),
+        dryRun: a.dryRun !== false,
+      });
+    },
+    pruneWorktrees: async (input: unknown) => {
+      const a = (input as { workspaceId?: string; dryRun?: boolean }) ?? {};
+      if (typeof a.workspaceId !== 'string' || !a.workspaceId) {
+        throw new Error('cleanup.pruneWorktrees: workspaceId required');
+      }
+      const hash = cleanupRepoHash(a.workspaceId);
+      if (!hash) return { wouldRemove: [], liveBlocked: [], removed: 0, errors: 0 };
+      return pruneOrphanWorktreesForWorkspace({
+        worktreeBase: cleanupWorktreeBase(),
+        repoHash: hash,
+        workspaceId: a.workspaceId,
+        db: getRawDb(),
+        dryRun: a.dryRun !== false,
+      });
+    },
+  };
   const sideBands: Array<{ prefix: string; map: Record<string, (...args: unknown[]) => unknown> | null }> = [
     { prefix: 'assistant.conversations.', map: conversationsHandlers },
     { prefix: 'swarm.origin.', map: swarmOriginHandlers },
     { prefix: 'voice.diagnostics.', map: voiceDiagnosticsHandlers },
     // C-12 SigmaBench — `sigmabench.run` / `.listRuns` / `.getRun`.
     { prefix: 'sigmabench.', map: sigmabenchHandlers },
+    // SF-13 — `cleanup.removeWorkspace` / `.clearPanes` / `.pruneWorktrees`.
+    { prefix: 'cleanup.', map: cleanupHandlers },
   ];
   for (const band of sideBands) {
     if (!band.map) continue;

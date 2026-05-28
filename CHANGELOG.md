@@ -4,6 +4,27 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-05-28
+
+v1.34.0 — **operator breakage batch (SF-11, SF-13, SF-14, SF-15) + a chronic CI-flake fix.** Investigated by 5 parallel agents (cursor having run out mid-debug); each root-caused with file:line evidence, the lead integrated the disjoint lanes + fixed two integration-seam bugs the isolated agents couldn't see, ran a full gate, and an Opus security-review (PASS) on the Ruflo MCP changes. **SF-12 (Critical pane/worktree/registry confusion) is NOT in this release** — see Notes.
+
+### Fixed
+
+- **SF-11 — left/right sidebars misaligned / shell overflows the viewport.** The center column of the right-rail flex row was missing `min-w-0`, so it refused to shrink below its content and the fixed-width rail (default 480px) pushed the 3-column shell wider than the viewport. Added `min-w-0` (hydrated + pre-hydration paths). Pure CSS; +5 layout tests.
+- **SF-14 — Ruflo HTTP daemon never started / health unverified.** `spawn()` only probed a `ruflo` binary on PATH, which operators don't have (Ruflo is `@claude-flow/cli`, run via npx) → silent stdio fallback, daemon never ran. Now resolves `ruflo` on PATH → else `npx -y @claude-flow/cli@latest`; surfaces a **loud "DAEMON UNAVAILABLE"** only when neither exists. Shell-free `execFileSync` PATH probe.
+- **SF-15 — Ruflo MCP not attached to panes / not present before the CLI starts.** The MCP config + trust were written at the **workspace root**, but each pane runs in its own **worktree cwd**, where the CLI looks for `.mcp.json` — so `ruflo` was invisible to panes. New `core/workspaces/ruflo-worktree-mcp.ts` writes the `ruflo` entry (HTTP when a daemon port exists, else stdio) **into each pane's worktree cwd before the CLI spawns** (both the workspace-launcher and swarm-spawn paths), honoring the `ruflo.autowriteMcp`/`ruflo.autoTrustMcp` gates and reusing the SF-7 `ensureRufloTrusted` (ruflo-only). Additive merge; refuses operator-managed entries; fully fail-open.
+- **CI — chronic macOS e2e `ENOTEMPTY` teardown flake.** The `npx @claude-flow/cli` grandchild kept writing `.npm/_cacache` ~100–500ms after `app.close()`, so the synchronous temp-dir `rmSync` raced it. Fixed the teardown with a 300ms drain + `fs.promises.rm(…, {recursive,force,maxRetries:5,retryDelay:200})` + non-fatal fallback. Makes main's e2e-matrix reliably green.
+
+### Added
+
+- **SF-13 — operator cleanup (Settings → Maintenance).** Three actions per workspace: remove workspace + sessions + GC orphan worktrees · clear all pane sessions · prune orphan worktree dirs. **Safe by construction:** dry-run preview + `confirm()` before any destruction, a **live-session fence** (never deletes a worktree referenced by a `running`/`starting` session), fail-open per-item, path-traversal guard. New `cleanup.*` side-band RPC.
+
+### Notes
+
+- **SF-12 (Critical — pane/worktree/registry confusion) is NOT fixed here.** It touches the core pane-resolution query, so it gets its own isolated change rather than riding this 5-lane release. Root cause is fully documented (two defects: status-blind `MAX(started_at)` slot resolution + `pane_index` reuse; and `+Pane`/swarm panes persisted with `pane_index = NULL`). A read-path fix + a reversible data-repair migration are designed and pending — the migration needs operator sign-off before it runs.
+- ⚠️ **Product decision pending:** the `ruflo` daemon binary isn't bundled (SF-14 uses an npx fallback). Bundling it, or pointing the daemon at the lazy-installed CLI, is a follow-up.
+- Gate (in main): `tsc -b` · `eslint --max-warnings 0` · vitest **1896 pass / 1 skip** · `product:check` · full `tests/e2e/` (9 passed / 3 skipped) · Opus security-review of the Ruflo MCP changes (PASS, no Critical/High/Medium).
+
 ## [1.33.0] - 2026-05-28
 
 v1.33.0 — **command-room fixes (SF-9, SF-10).** A shipped regression fix + a small feature from operator smoke, done directly in main → full gate. Also folds in the prior untagged CI/docs housekeeping.

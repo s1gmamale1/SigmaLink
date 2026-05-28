@@ -11,6 +11,9 @@
 // Electron-built native binding cannot load under vitest's node ABI).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 vi.mock('../db/client', () => ({
   getDb: vi.fn(),
@@ -121,13 +124,20 @@ function stubSpawn(): void {
 }
 
 /**
- * getRawDb stub: only the `providers.showLegacy` KV lookup and the best-effort
- * provider_effective UPDATE touch it. Return a benign no-op shim.
+ * getRawDb stub: the `providers.showLegacy` lookup, the best-effort
+ * provider_effective UPDATE, and (SF-15) the ruflo autowrite/autotrust KV reads
+ * touch it. Return '0' for the ruflo autowrite key so these PTY-leak tests stay
+ * hermetic (no `.mcp.json` written into the stub cwd); everything else is a
+ * benign no-op shim.
  */
 function makeRawStub() {
   return {
-    prepare: vi.fn(() => ({
-      get: vi.fn(() => undefined),
+    prepare: vi.fn((sql: string) => ({
+      get: vi.fn((key?: string) => {
+        // SF-15 — opt the per-worktree ruflo write OUT in this suite.
+        if (/FROM kv/i.test(sql) && key === 'ruflo.autowriteMcp') return { value: '0' };
+        return undefined;
+      }),
       run: vi.fn(() => undefined),
     })),
   };
@@ -231,5 +241,91 @@ describe('spawnAgentSession — H-10 PTY leak on UNIQUE violation', () => {
     // (materializeRosterAgent) handles those by marking the agent row errored.
     expect(registry.kill).not.toHaveBeenCalled();
     expect(registry.forget).not.toHaveBeenCalled();
+  });
+});
+
+// ─── SF-15: per-worktree Ruflo MCP must land in the pane's cwd BEFORE spawn ───
+
+describe('spawnAgentSession — SF-15 ruflo MCP written into worktree cwd', () => {
+  const tmpDirs: string[] = [];
+
+  function tmpCwd(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-sf15-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    while (tmpDirs.length) {
+      const d = tmpDirs.pop();
+      if (d) fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  it('writes a managed ruflo entry into the worktree cwd before the CLI spawns', async () => {
+    const cwd = tmpCwd();
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    // autowrite ON for THIS test: stub returns undefined for every KV (default ON).
+    vi.mocked(getRawDb).mockReturnValue(
+      {
+        prepare: vi.fn(() => ({ get: vi.fn(() => undefined), run: vi.fn(() => undefined) })),
+      } as unknown as ReturnType<typeof getRawDb>,
+    );
+
+    // Assert ordering: at the moment resolveAndSpawn fires, the ruflo entry must
+    // already be on disk in the cwd. We re-stub resolveAndSpawn to snapshot the
+    // .mcp.json contents at spawn time.
+    let mcpAtSpawn: string | null = null;
+    vi.mocked(resolveAndSpawn).mockImplementation((_d, input: { cwd: string }) => {
+      const f = path.join(input.cwd, '.mcp.json');
+      mcpAtSpawn = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null;
+      return {
+        ptySession: {
+          id: SPAWNED_PTY_ID,
+          providerId: 'shell',
+          cwd: input.cwd,
+          pid: 4242,
+          alive: true,
+          startedAt: Date.now(),
+          externalSessionId: null,
+          pty: {
+            pid: 4242,
+            write: vi.fn(),
+            resize: vi.fn(),
+            kill: vi.fn(),
+            onData: vi.fn(() => () => undefined),
+            onExit: vi.fn(() => () => undefined),
+          },
+        },
+        providerRequested: 'shell',
+        providerEffective: 'shell',
+        commandUsed: '',
+        argsUsed: [],
+        fallbackOccurred: false,
+      } as unknown as ReturnType<typeof resolveAndSpawn>;
+    });
+
+    const dbStub = {
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    };
+    vi.mocked(getDb).mockReturnValue(dbStub as unknown as ReturnType<typeof getDb>);
+
+    const args = makeArgs(deps);
+    args.cwdOverride = cwd;
+    await spawnAgentSession(args);
+
+    // The ruflo entry was present in the cwd AT the moment of spawn (ordering).
+    expect(mcpAtSpawn).not.toBeNull();
+    const doc = JSON.parse(mcpAtSpawn as unknown as string) as {
+      mcpServers?: { ruflo?: { command?: string; url?: string } };
+    };
+    expect(doc.mcpServers?.ruflo).toBeDefined();
+    // No daemon port in this unit (getSharedDeps returns undefined) → stdio entry.
+    expect(doc.mcpServers?.ruflo?.command).toBe('npx');
+    // Trust file also landed in the cwd.
+    expect(fs.existsSync(path.join(cwd, '.claude', 'settings.local.json'))).toBe(true);
   });
 });

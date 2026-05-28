@@ -17,11 +17,11 @@ import path from 'node:path';
 // ── mock: node:child_process ───────────────────────────────────────────────
 
 const mockSpawn = vi.fn();
-const mockExecSync = vi.fn();
+const mockExecFileSync = vi.fn();
 
 vi.mock('node:child_process', () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
-  execSync: (...args: unknown[]) => mockExecSync(...args),
+  execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }));
 
 // ── mock: node:net ─────────────────────────────────────────────────────────
@@ -235,8 +235,8 @@ describe('RufloHttpDaemonSupervisor', () => {
     // Reset mocks fully (clears return values, call counts, and implementations).
     vi.resetAllMocks();
     setupNetMock();
-    // Binary available by default.
-    mockExecSync.mockReturnValue(Buffer.from('/usr/local/bin/ruflo'));
+    // Binary available by default (PATH probe succeeds).
+    mockExecFileSync.mockReturnValue(Buffer.from('/usr/local/bin/ruflo'));
     httpGetImpl = null;
     httpRequestImpl = null;
     supervisor = new RufloHttpDaemonSupervisor({ binary: 'ruflo' });
@@ -279,22 +279,71 @@ describe('RufloHttpDaemonSupervisor', () => {
     );
   });
 
-  // ── spawn-binary-missing ───────────────────────────────────────────────
+  // ── SF-14 launcher resolution ──────────────────────────────────────────
 
-  it('spawn-binary-missing: returns null, no throw, warning logged', async () => {
-    mockExecSync.mockImplementation(() => {
+  it('spawn-binary-missing: returns null + LOUD warning when neither ruflo nor npx on PATH', async () => {
+    // No forced binary → the supervisor probes PATH; make every probe miss.
+    const sup = new RufloHttpDaemonSupervisor();
+    mockExecFileSync.mockImplementation(() => {
       throw new Error('not found');
     });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const result = await supervisor.spawn('ws-missing', '/root');
+    const result = await sup.spawn('ws-missing', '/root');
 
     expect(result).toBeNull();
     expect(mockSpawn).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('ruflo binary not found'),
-    );
+    // SF-14: the gap must be LOUD + distinct, not a vague "not found".
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('DAEMON UNAVAILABLE'));
     warnSpy.mockRestore();
+  });
+
+  it('falls back to `npx -y @claude-flow/cli@latest` when ruflo is absent but npx is present', async () => {
+    const sup = new RufloHttpDaemonSupervisor();
+    // First probe (ruflo) misses; second probe (npx) hits.
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      const probed = args[args.length - 1];
+      if (probed === 'ruflo') throw new Error('not found');
+      return Buffer.from('/usr/local/bin/npx');
+    });
+    alwaysHealthOk();
+    const child = makeChild(7777);
+    mockSpawn.mockReturnValue(child);
+
+    const p = sup.spawn('ws-npx', '/proj');
+    await vi.runAllTimersAsync();
+    const handle = await p;
+
+    expect(handle).not.toBeNull();
+    expect(handle!.status).toBe('running');
+    // The npx fallback must carry the package spec before the daemon subcommand.
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'npx',
+      ['-y', '@claude-flow/cli@latest', 'mcp', 'start', '-t', 'http', '-p', String(NET_PORT), '--host', '127.0.0.1'],
+      expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] }),
+    );
+  });
+
+  it('prefers PATH `ruflo` (no npx prefix) when ruflo is present', async () => {
+    const sup = new RufloHttpDaemonSupervisor();
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      const probed = args[args.length - 1];
+      if (probed === 'ruflo') return Buffer.from('/usr/local/bin/ruflo');
+      throw new Error('not found'); // npx never reached
+    });
+    alwaysHealthOk();
+    const child = makeChild(8888);
+    mockSpawn.mockReturnValue(child);
+
+    const p = sup.spawn('ws-ruflo', '/proj');
+    await vi.runAllTimersAsync();
+    await p;
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'ruflo',
+      ['mcp', 'start', '-t', 'http', '-p', String(NET_PORT), '--host', '127.0.0.1'],
+      expect.anything(),
+    );
   });
 
   // ── port-allocation ────────────────────────────────────────────────────

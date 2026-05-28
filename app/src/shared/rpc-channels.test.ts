@@ -305,6 +305,10 @@ const SIDE_BAND_CHANNELS: ReadonlyArray<string> = [
   'sigmabench.run',
   'sigmabench.listRuns',
   'sigmabench.getRun',
+  // cleanupHandlers (SF-13 — operator workspace/pane/worktree cleanup)
+  'cleanup.removeWorkspace',
+  'cleanup.clearPanes',
+  'cleanup.pruneWorktrees',
 ];
 
 // ------------------------------------------------------------------

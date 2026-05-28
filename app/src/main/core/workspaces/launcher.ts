@@ -29,6 +29,8 @@ import {
 import { workspaceCwdInWorktree } from './worktree-cwd';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, effectivePaneSpawnMode } from '../pty/local-pty';
 import { writeGuardrailBlock } from './guardrail-block';
+import { writeRufloMcpIntoCwd } from './ruflo-worktree-mcp';
+import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from './mcp-autowrite';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -59,6 +61,37 @@ function readSpawnMode(): 'direct' | 'shell-first' {
     return parseSpawnMode(row?.value ?? null);
   } catch {
     return 'direct';
+  }
+}
+
+/**
+ * SF-15 — `kv['ruflo.autowriteMcp']` (default ON). '0' = opt-out. Mirrors the
+ * gate in `openWorkspace`; read defensively so a missing/locked DB never blocks
+ * a pane launch.
+ */
+function readRufloAutowrite(): boolean {
+  try {
+    const row = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(KV_RUFLO_AUTOWRITE_MCP) as { value?: string } | undefined;
+    return row?.value !== '0';
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * SF-15 — `kv['ruflo.autoTrustMcp']` (default ON). '0' = opt-out. Mirrors the
+ * SF-7 gate in `openWorkspace`.
+ */
+function readRufloAutotrust(): boolean {
+  try {
+    const row = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(KV_RUFLO_AUTOTRUST_MCP) as { value?: string } | undefined;
+    return row?.value !== '0';
+  } catch {
+    return true;
   }
 }
 
@@ -218,6 +251,19 @@ export async function executeLaunchPlan(
             worktree: cwd,
             memory: memCmd ?? undefined,
           });
+          // SF-15 — the pane CLI reads `.mcp.json` + `.claude/settings.local.json`
+          // relative to ITS cwd (the worktree), NOT the workspace root where
+          // openWorkspace's autowrite/trust ran. Write a managed `ruflo` entry
+          // (+ claude trust) into this pane's cwd BEFORE the CLI spawns so Ruflo
+          // MCP actually attaches to the pane. HTTP mode when the per-workspace
+          // daemon has a live port; stdio otherwise. Fail-open + opt-out aware.
+          if (readRufloAutowrite()) {
+            const port = shared.rufloHttpDaemonSupervisor.port(wsRow.id) ?? undefined;
+            writeRufloMcpIntoCwd(cwd, {
+              port: port ?? undefined,
+              trust: readRufloAutotrust(),
+            });
+          }
         }
       } catch {
         /* MCP wiring is non-fatal */

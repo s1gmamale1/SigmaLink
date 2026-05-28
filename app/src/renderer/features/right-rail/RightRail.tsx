@@ -131,12 +131,17 @@ export function RightRail({ children }: Props) {
   // rail would flicker open at default width before snapping to the persisted
   // width — visually noisy on app boot.
   if (!hydrated) {
-    return <div className="flex min-h-0 flex-1">{children}</div>;
+    return <div className="flex min-h-0 min-w-0 flex-1">{children}</div>;
   }
 
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+      {/* min-w-0 is required: without it the flex child's min-width defaults to
+          `auto` (the content's intrinsic width), which prevents the center column
+          from shrinking to accommodate the fixed-pixel aside. That causes the row
+          to overflow the viewport, misaligning both the sidebar and the right rail
+          (SF-11). */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
       <Splitter width={width} onResize={handleResize} onCommit={handleCommit} />
       <aside
         className="sl-glass relative flex min-h-0 shrink-0 flex-col border-l border-border bg-background"
