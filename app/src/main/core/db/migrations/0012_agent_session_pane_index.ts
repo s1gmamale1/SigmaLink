@@ -26,19 +26,12 @@ function hasColumn(db: Database.Database, table: string, column: string): boolea
 export const name = '0012_agent_session_pane_index';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    if (!hasColumn(db, 'agent_sessions', 'pane_index')) {
-      db.exec('ALTER TABLE agent_sessions ADD COLUMN pane_index INTEGER');
-    }
-    // Composite index for the lastResumePlan controller: scoped lookup +
-    // ORDER BY started_at within each (workspace_id, pane_index) bucket.
-    db.exec(
-      'CREATE INDEX IF NOT EXISTS agent_sessions_ws_pane_idx ON agent_sessions(workspace_id, pane_index, started_at)',
-    );
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+  if (!hasColumn(db, 'agent_sessions', 'pane_index')) {
+    db.exec('ALTER TABLE agent_sessions ADD COLUMN pane_index INTEGER');
   }
+  // Composite index for the lastResumePlan controller: scoped lookup +
+  // ORDER BY started_at within each (workspace_id, pane_index) bucket.
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS agent_sessions_ws_pane_idx ON agent_sessions(workspace_id, pane_index, started_at)',
+  );
 }

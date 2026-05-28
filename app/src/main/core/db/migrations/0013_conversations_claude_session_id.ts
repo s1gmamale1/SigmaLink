@@ -18,14 +18,7 @@ function hasColumn(db: Database.Database, table: string, column: string): boolea
 export const name = '0013_conversations_claude_session_id';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    if (!hasColumn(db, 'conversations', 'claude_session_id')) {
-      db.exec('ALTER TABLE conversations ADD COLUMN claude_session_id TEXT');
-    }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+  if (!hasColumn(db, 'conversations', 'claude_session_id')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN claude_session_id TEXT');
   }
 }

@@ -51,47 +51,40 @@ function hasIndex(db: Database.Database, indexName: string): boolean {
 export const name = '0018_notifications';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    if (!hasTable(db, 'notifications')) {
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS notifications (
-          id TEXT PRIMARY KEY,
-          workspace_id TEXT,
-          kind TEXT NOT NULL,
-          severity TEXT NOT NULL DEFAULT 'info',
-          title TEXT NOT NULL,
-          body TEXT,
-          payload TEXT,
-          source_event TEXT,
-          dedup_key TEXT NOT NULL,
-          dup_count INTEGER NOT NULL DEFAULT 1,
-          created_at INTEGER NOT NULL,
-          read_at INTEGER
-        )
-      `);
-    }
-    if (!hasIndex(db, 'idx_notifications_workspace')) {
-      db.exec(
-        `CREATE INDEX IF NOT EXISTS idx_notifications_workspace
-          ON notifications(workspace_id, created_at DESC)`,
-      );
-    }
-    if (!hasIndex(db, 'idx_notifications_unread')) {
-      db.exec(
-        `CREATE INDEX IF NOT EXISTS idx_notifications_unread
-          ON notifications(read_at) WHERE read_at IS NULL`,
-      );
-    }
-    if (!hasIndex(db, 'idx_notifications_dedup')) {
-      db.exec(
-        `CREATE INDEX IF NOT EXISTS idx_notifications_dedup
-          ON notifications(workspace_id, dedup_key, created_at DESC) WHERE read_at IS NULL`,
-      );
-    }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+  if (!hasTable(db, 'notifications')) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT,
+        kind TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'info',
+        title TEXT NOT NULL,
+        body TEXT,
+        payload TEXT,
+        source_event TEXT,
+        dedup_key TEXT NOT NULL,
+        dup_count INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        read_at INTEGER
+      )
+    `);
+  }
+  if (!hasIndex(db, 'idx_notifications_workspace')) {
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_notifications_workspace
+        ON notifications(workspace_id, created_at DESC)`,
+    );
+  }
+  if (!hasIndex(db, 'idx_notifications_unread')) {
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_notifications_unread
+        ON notifications(read_at) WHERE read_at IS NULL`,
+    );
+  }
+  if (!hasIndex(db, 'idx_notifications_dedup')) {
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_notifications_dedup
+        ON notifications(workspace_id, dedup_key, created_at DESC) WHERE read_at IS NULL`,
+    );
   }
 }

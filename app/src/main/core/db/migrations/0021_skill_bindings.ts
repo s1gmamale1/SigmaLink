@@ -34,27 +34,19 @@ import type Database from 'better-sqlite3';
 export const name = '0021_skill_bindings';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS skill_bindings (
-        id              TEXT NOT NULL PRIMARY KEY,
-        workspace_id    TEXT NOT NULL,
-        pane_session_id TEXT,
-        skill_name      TEXT NOT NULL,
-        skill_source    TEXT NOT NULL,
-        attached_at     INTEGER NOT NULL
-      )
-    `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS skill_bindings (
+      id              TEXT NOT NULL PRIMARY KEY,
+      workspace_id    TEXT NOT NULL,
+      pane_session_id TEXT,
+      skill_name      TEXT NOT NULL,
+      skill_source    TEXT NOT NULL,
+      attached_at     INTEGER NOT NULL
+    )
+  `);
 
-    db.exec(`
-      CREATE INDEX IF NOT EXISTS skill_bindings_ws_idx
-        ON skill_bindings(workspace_id)
-    `);
-
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS skill_bindings_ws_idx
+      ON skill_bindings(workspace_id)
+  `);
 }

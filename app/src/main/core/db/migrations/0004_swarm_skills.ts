@@ -13,24 +13,17 @@ import type Database from 'better-sqlite3';
 export const name = '0004_swarm_skills';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS swarm_skills (
-        swarm_id TEXT NOT NULL,
-        skill_key TEXT NOT NULL,
-        on_flag INTEGER NOT NULL DEFAULT 0,
-        group_key TEXT NOT NULL,
-        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-        PRIMARY KEY (swarm_id, skill_key)
-      );
-    `);
-    db.exec(
-      `CREATE INDEX IF NOT EXISTS swarm_skills_swarm_idx ON swarm_skills (swarm_id);`,
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS swarm_skills (
+      swarm_id TEXT NOT NULL,
+      skill_key TEXT NOT NULL,
+      on_flag INTEGER NOT NULL DEFAULT 0,
+      group_key TEXT NOT NULL,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      PRIMARY KEY (swarm_id, skill_key)
     );
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS swarm_skills_swarm_idx ON swarm_skills (swarm_id);`,
+  );
 }

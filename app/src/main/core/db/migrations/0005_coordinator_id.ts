@@ -26,17 +26,10 @@ function hasColumn(db: Database.Database, table: string, column: string): boolea
 export const name = '0005_coordinator_id';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    if (!hasColumn(db, 'swarm_agents', 'coordinator_id')) {
-      db.exec('ALTER TABLE swarm_agents ADD COLUMN coordinator_id TEXT');
-    }
-    db.exec(
-      `CREATE INDEX IF NOT EXISTS swarm_agents_coord_idx ON swarm_agents (coordinator_id);`,
-    );
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+  if (!hasColumn(db, 'swarm_agents', 'coordinator_id')) {
+    db.exec('ALTER TABLE swarm_agents ADD COLUMN coordinator_id TEXT');
   }
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS swarm_agents_coord_idx ON swarm_agents (coordinator_id);`,
+  );
 }

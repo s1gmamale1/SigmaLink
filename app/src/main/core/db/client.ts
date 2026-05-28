@@ -208,6 +208,10 @@ export function initializeDatabase(userDataDir: string): {
   const sqlite = new Database(filePath);
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
+  // H-7: wait up to 5s for a lock instead of throwing SQLITE_BUSY immediately.
+  // With WAL + multiple connections (HTTP daemon, sync engine) a migration's
+  // write transaction can briefly contend; the timeout makes it wait, not fail.
+  sqlite.pragma('busy_timeout = 5000');
   sqlite.exec(BOOTSTRAP_SQL);
   // V3-W12-016: run forward-only migrations after bootstrap so existing
   // installs pick up new columns; fresh installs already have the columns

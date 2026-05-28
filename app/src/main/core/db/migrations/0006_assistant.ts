@@ -17,31 +17,24 @@ import type Database from 'better-sqlite3';
 export const name = '0006_assistant';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS conversations (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        kind TEXT NOT NULL CHECK (kind IN ('assistant','swarm_dm')),
-        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-      );
-      CREATE INDEX IF NOT EXISTS conversations_ws_idx ON conversations(workspace_id);
-      CREATE INDEX IF NOT EXISTS conversations_kind_idx ON conversations(kind);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('assistant','swarm_dm')),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS conversations_ws_idx ON conversations(workspace_id);
+    CREATE INDEX IF NOT EXISTS conversations_kind_idx ON conversations(kind);
 
-      CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-        role TEXT NOT NULL CHECK (role IN ('user','assistant','tool','system')),
-        content TEXT NOT NULL,
-        tool_call_id TEXT,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-      );
-      CREATE INDEX IF NOT EXISTS messages_conversation_idx ON messages(conversation_id, created_at);
-    `);
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('user','assistant','tool','system')),
+      content TEXT NOT NULL,
+      tool_call_id TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS messages_conversation_idx ON messages(conversation_id, created_at);
+  `);
 }

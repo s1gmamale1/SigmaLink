@@ -165,6 +165,41 @@ test('every migration file exports `name` (not `id`)', () => {
   }
 });
 
+test('registered migrations contain no self-managed transactions', () => {
+  // H-7 guard: permanently prevents re-introducing self-managed transactions.
+  // The runner wraps each migration in db.transaction(); a migration that calls
+  // exec('BEGIN') inside that wrapper triggers better-sqlite3's "cannot start a
+  // transaction within a transaction" crash on fresh-DB startup.
+  const files = fs
+    .readdirSync(migrationsDir)
+    .filter(isMigrationFile)
+    .filter((f) => !f.endsWith('.pending.ts'))
+    .sort();
+
+  // Regex matches: exec('BEGIN'), exec("BEGIN"), run('BEGIN'), and likewise
+  // COMMIT/ROLLBACK. Does NOT match `.test.ts` files (already excluded by
+  // isMigrationFile) — their mock `exec` legitimately compares sql === 'BEGIN'.
+  const selfTxnRe = /\b(exec|run)\(\s*['"`](BEGIN|COMMIT|ROLLBACK)\b/;
+
+  const offenders: string[] = [];
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(migrationsDir, f), 'utf8');
+    if (selfTxnRe.test(src)) {
+      offenders.push(f);
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `The following migration(s) contain self-managed transaction statements ` +
+      `(exec/run with BEGIN, COMMIT, or ROLLBACK). ` +
+      `Strip these before landing H-7 — the runner now wraps each migration ` +
+      `in db.transaction() and a nested BEGIN will crash fresh-DB startup:\n` +
+      offenders.map((f) => `  - ${f}`).join('\n'),
+  );
+});
+
 test('pending operator-signoff migrations are not registered in ALL_MIGRATIONS', () => {
   const pendingFiles = fs
     .readdirSync(migrationsDir)

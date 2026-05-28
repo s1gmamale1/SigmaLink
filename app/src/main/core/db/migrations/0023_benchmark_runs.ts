@@ -34,33 +34,25 @@ export const name = '0023_benchmark_runs';
 // `db.exec` below is the better-sqlite3 SQL runner — NOT child_process.exec.
 export function up(db: Database.Database): void {
   const run = (sql: string) => db.exec(sql);
-  run('BEGIN');
-  try {
-    run(`
-      CREATE TABLE IF NOT EXISTS benchmark_runs (
-        id          TEXT NOT NULL PRIMARY KEY,
-        created_at  INTEGER NOT NULL,
-        category    TEXT NOT NULL,
-        task_prompt TEXT NOT NULL,
-        status      TEXT NOT NULL
-      )
-    `);
+  run(`
+    CREATE TABLE IF NOT EXISTS benchmark_runs (
+      id          TEXT NOT NULL PRIMARY KEY,
+      created_at  INTEGER NOT NULL,
+      category    TEXT NOT NULL,
+      task_prompt TEXT NOT NULL,
+      status      TEXT NOT NULL
+    )
+  `);
 
-    run(`
-      CREATE TABLE IF NOT EXISTS benchmark_results (
-        run_id         TEXT NOT NULL,
-        session_id     TEXT NOT NULL,
-        provider       TEXT NOT NULL,
-        changed_files  TEXT NOT NULL,
-        conflict_score INTEGER,
-        exit_code      INTEGER,
-        PRIMARY KEY(run_id, session_id)
-      )
-    `);
-
-    run('COMMIT');
-  } catch (err) {
-    run('ROLLBACK');
-    throw err;
-  }
+  run(`
+    CREATE TABLE IF NOT EXISTS benchmark_results (
+      run_id         TEXT NOT NULL,
+      session_id     TEXT NOT NULL,
+      provider       TEXT NOT NULL,
+      changed_files  TEXT NOT NULL,
+      conflict_score INTEGER,
+      exit_code      INTEGER,
+      PRIMARY KEY(run_id, session_id)
+    )
+  `);
 }

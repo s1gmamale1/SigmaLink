@@ -26,24 +26,17 @@ function hasColumn(db: Database.Database, table: string, column: string): boolea
 export const name = '0001_v3_mailbox';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    if (!hasColumn(db, 'swarm_messages', 'resolved_at')) {
-      db.exec('ALTER TABLE swarm_messages ADD COLUMN resolved_at INTEGER');
-    }
-    if (!hasColumn(db, 'swarm_agents', 'auto_approve')) {
-      db.exec(
-        "ALTER TABLE swarm_agents ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0",
-      );
-    }
-    // Backfill: existing rows already get NULL / 0 from the ALTER defaults
-    // above. We still issue an explicit UPDATE so the migration is observable
-    // in EXPLAIN QUERY PLAN output during diagnostic runs.
-    db.exec('UPDATE swarm_messages SET resolved_at = NULL WHERE resolved_at IS NULL');
-    db.exec('UPDATE swarm_agents SET auto_approve = 0 WHERE auto_approve IS NULL');
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+  if (!hasColumn(db, 'swarm_messages', 'resolved_at')) {
+    db.exec('ALTER TABLE swarm_messages ADD COLUMN resolved_at INTEGER');
   }
+  if (!hasColumn(db, 'swarm_agents', 'auto_approve')) {
+    db.exec(
+      "ALTER TABLE swarm_agents ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+  // Backfill: existing rows already get NULL / 0 from the ALTER defaults
+  // above. We still issue an explicit UPDATE so the migration is observable
+  // in EXPLAIN QUERY PLAN output during diagnostic runs.
+  db.exec('UPDATE swarm_messages SET resolved_at = NULL WHERE resolved_at IS NULL');
+  db.exec('UPDATE swarm_agents SET auto_approve = 0 WHERE auto_approve IS NULL');
 }

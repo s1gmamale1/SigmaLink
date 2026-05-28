@@ -18,14 +18,7 @@ function hasColumn(db: Database.Database, table: string, column: string): boolea
 export const name = '0011_agent_session_external_id';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    if (!hasColumn(db, 'agent_sessions', 'external_session_id')) {
-      db.exec('ALTER TABLE agent_sessions ADD COLUMN external_session_id TEXT');
-    }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+  if (!hasColumn(db, 'agent_sessions', 'external_session_id')) {
+    db.exec('ALTER TABLE agent_sessions ADD COLUMN external_session_id TEXT');
   }
 }

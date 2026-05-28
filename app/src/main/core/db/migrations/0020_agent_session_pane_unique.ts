@@ -36,42 +36,34 @@ function hasIndex(db: Database.Database, indexName: string): boolean {
 export const name = '0020_agent_session_pane_unique';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    // Step 1 — Deduplicate existing rows.
-    // For each (workspace_id, pane_index) group where pane_index IS NOT NULL,
-    // delete every row that is NOT the latest (highest started_at).  When two
-    // rows share the same started_at, we keep the one with the lexicographically
-    // higher `id` as a tie-breaker (both are equally good; we just need one winner).
-    db.exec(`
-      DELETE FROM agent_sessions
-      WHERE pane_index IS NOT NULL
-        AND id NOT IN (
-          SELECT id FROM (
-            SELECT id,
-                   ROW_NUMBER() OVER (
-                     PARTITION BY workspace_id, pane_index
-                     ORDER BY started_at DESC, id DESC
-                   ) AS rn
-            FROM agent_sessions
-            WHERE pane_index IS NOT NULL
-          ) ranked
-          WHERE rn = 1
-        )
-    `);
-
-    // Step 2 — Create the partial unique index.
-    if (!hasIndex(db, 'agent_sessions_ws_pane_uq')) {
-      db.exec(`
-        CREATE UNIQUE INDEX IF NOT EXISTS agent_sessions_ws_pane_uq
-          ON agent_sessions(workspace_id, pane_index)
+  // Step 1 — Deduplicate existing rows.
+  // For each (workspace_id, pane_index) group where pane_index IS NOT NULL,
+  // delete every row that is NOT the latest (highest started_at).  When two
+  // rows share the same started_at, we keep the one with the lexicographically
+  // higher `id` as a tie-breaker (both are equally good; we just need one winner).
+  db.exec(`
+    DELETE FROM agent_sessions
+    WHERE pane_index IS NOT NULL
+      AND id NOT IN (
+        SELECT id FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY workspace_id, pane_index
+                   ORDER BY started_at DESC, id DESC
+                 ) AS rn
+          FROM agent_sessions
           WHERE pane_index IS NOT NULL
-      `);
-    }
+        ) ranked
+        WHERE rn = 1
+      )
+  `);
 
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+  // Step 2 — Create the partial unique index.
+  if (!hasIndex(db, 'agent_sessions_ws_pane_uq')) {
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS agent_sessions_ws_pane_uq
+        ON agent_sessions(workspace_id, pane_index)
+        WHERE pane_index IS NOT NULL
+    `);
   }
 }

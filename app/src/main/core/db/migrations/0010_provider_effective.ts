@@ -26,14 +26,7 @@ function hasColumn(db: Database.Database, table: string, column: string): boolea
 export const name = '0010_provider_effective';
 
 export function up(db: Database.Database): void {
-  db.exec('BEGIN');
-  try {
-    if (!hasColumn(db, 'agent_sessions', 'provider_effective')) {
-      db.exec('ALTER TABLE agent_sessions ADD COLUMN provider_effective TEXT');
-    }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+  if (!hasColumn(db, 'agent_sessions', 'provider_effective')) {
+    db.exec('ALTER TABLE agent_sessions ADD COLUMN provider_effective TEXT');
   }
 }

@@ -86,10 +86,14 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
  * Apply every pending migration in `ALL_MIGRATIONS`. Safe to call repeatedly.
  * Returns the names of migrations that were applied during this call.
  *
- * Each migration's `up()` runs before its `schema_migrations` insert. A
- * throwing `up()` is not recorded, so the migration is retried on the next
- * boot. The runner deliberately avoids an outer transaction because several
- * legacy migrations issue their own BEGIN/COMMIT.
+ * H-7: each pending migration's `up()` AND its `schema_migrations` insert run
+ * inside ONE transaction owned by the runner, so a migration is atomic — a
+ * throwing `up()` rolls back any partial schema change and is NOT recorded, so
+ * it retries cleanly on the next boot (never half-applied). The wrap is
+ * per-migration, not one big transaction, so migrations that already succeeded
+ * stay committed if a later one fails. Migrations MUST NOT issue their own
+ * BEGIN/COMMIT — a nested BEGIN throws "cannot start a transaction within a
+ * transaction"; the static guard in `__tests__/migrate.spec.ts` enforces this.
  */
 export function migrate(db: Database.Database): string[] {
   db.exec(SCHEMA_MIGRATIONS_DDL);
@@ -100,16 +104,13 @@ export function migrate(db: Database.Database): string[] {
   );
   const ran: string[] = [];
   const insertApplied = db.prepare('INSERT INTO schema_migrations (name) VALUES (?)');
-  for (const m of ALL_MIGRATIONS) {
-    if (applied.has(m.name)) continue;
-    // H-7 (deferred): no outer db.transaction() wrap — several migrations manage
-    // their OWN BEGIN/COMMIT, and a nested BEGIN throws ("cannot start a
-    // transaction within a transaction"), crashing fresh-DB startup. up() runs
-    // first; a throw propagates BEFORE the insert, so a failed migration is
-    // retried cleanly next boot rather than recorded half-applied. Centralizing
-    // transactions (stripping per-migration BEGIN/COMMIT) is a separate refactor.
+  const applyOne = db.transaction((m: Migration) => {
     m.up(db);
     insertApplied.run(m.name);
+  });
+  for (const m of ALL_MIGRATIONS) {
+    if (applied.has(m.name)) continue;
+    applyOne(m);
     ran.push(m.name);
   }
   return ran;
