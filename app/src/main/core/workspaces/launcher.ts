@@ -467,6 +467,33 @@ export async function executeLaunchPlan(
           console.warn(
             `[launcher] UNIQUE violation on agent_sessions (ws=${wsRow.id}, pane=${pane.paneIndex}) — duplicate spawn suppressed`,
           );
+          // SF-12: the PTY was spawned before the INSERT. If the unique
+          // `(workspace_id, pane_index)` guard rejects the row, tear down the
+          // just-created child so the registry cannot retain a live terminal
+          // with no DB row.
+          try {
+            deps.pty.kill(finalSessionId);
+          } catch {
+            /* kill is best-effort — forget() still drops registry ownership */
+          }
+          try {
+            deps.pty.forget(finalSessionId);
+          } catch {
+            /* never mask the original duplicate-slot failure */
+          }
+          sessions.push({
+            id: `error-${pane.paneIndex}-${Date.now()}`,
+            workspaceId: wsRow.id,
+            providerId: provider.id,
+            cwd,
+            branch,
+            worktreePath: null,
+            status: 'error',
+            startedAt: Date.now(),
+            initialPrompt: pane.initialPrompt,
+            error: `Pane slot ${pane.paneIndex} is already occupied.`,
+          });
+          continue;
         } else {
           throw insertErr;
         }

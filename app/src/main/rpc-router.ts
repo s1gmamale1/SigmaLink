@@ -892,41 +892,38 @@ function buildRouter() {
       return listSessionsInCwd(input.providerId, input.cwd, input.opts);
     },
     // v1.3.0 — Session picker: most-recent resume plan for a workspace.
-    // Returns ONE row per pane slot — the most recent `agent_sessions` row
-    // for each `(workspace_id, pane_index)` group — with the provider and
-    // last-captured externalSessionId. Uses a parameterised query; never
-    // throws (returns []).
+    // Returns ONE row per pane slot with the provider and last-captured
+    // externalSessionId. Uses a parameterised query; never throws (returns []).
     //
-    // v1.3.1 fix: the previous query returned one row per historical session
-    // (ordered by started_at DESC, with a paneIndex synthesised from
-    // ROW_NUMBER). After 3 launches of a 4-pane workspace that yielded 12
-    // rows → the frontend set `preset = 12` and spawned 12+ panes. The
-    // correlated subquery below joins each row against the per-pane MAX
-    // `started_at` so we get back exactly one row per pane, ordered by the
-    // launcher-issued pane_index ASC. Rows with NULL pane_index (legacy,
-    // pre-v1.3.1) are excluded so the count cannot inflate.
+    // SF-12 — choose a deterministic slot owner. A slot may have historical
+    // duplicate rows, and `started_at` is mutated during resume, so
+    // MAX(started_at) can select an exited row or return ties. Rank live
+    // sessions first, then newest `started_at`, then highest id.
     lastResumePlan: async (workspaceId: string) => {
       try {
         const rows = getRawDb()
           .prepare(
-            `SELECT
-               s.pane_index AS paneIndex,
-               s.provider_id AS providerId,
-               s.external_session_id AS externalSessionId
-             FROM agent_sessions s
-             INNER JOIN (
-               SELECT workspace_id, pane_index, MAX(started_at) AS max_started_at
-               FROM agent_sessions
-               WHERE workspace_id = ? AND pane_index IS NOT NULL
-               GROUP BY workspace_id, pane_index
-             ) latest
-               ON latest.workspace_id = s.workspace_id
-               AND latest.pane_index = s.pane_index
-               AND latest.max_started_at = s.started_at
-             WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
-             ORDER BY s.pane_index ASC`,
+            `WITH ranked AS (
+               SELECT
+                 s.pane_index AS paneIndex,
+                 s.provider_id AS providerId,
+                 s.external_session_id AS externalSessionId,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY s.workspace_id, s.pane_index
+                   ORDER BY
+                     CASE WHEN s.status IN ('running', 'starting') THEN 0 ELSE 1 END ASC,
+                     s.started_at DESC,
+                     s.id DESC
+                 ) AS rn
+               FROM agent_sessions s
+               WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
+             )
+             SELECT paneIndex, providerId, externalSessionId
+             FROM ranked
+             WHERE rn = 1
+             ORDER BY paneIndex ASC`,
           )
-          .all(workspaceId, workspaceId) as Array<{
+          .all(workspaceId) as Array<{
             paneIndex: number;
             providerId: string;
             externalSessionId: string | null;
@@ -941,14 +938,14 @@ function buildRouter() {
       }
     },
     // v1.4.3 (#02) — Pane rehydration. Returns ONE full AgentSession row per
-    // pane slot for the given workspace (MAX started_at wins per pane_index),
-    // ordered by pane_index ASC. The renderer dispatches ADD_SESSIONS from
-    // three call-sites so state.sessionsByWorkspace is populated on workspace
-    // reopen without requiring a fresh launch.
+    // pane slot for the given workspace, ordered by pane_index ASC. The
+    // renderer dispatches ADD_SESSIONS from three call-sites so
+    // state.sessionsByWorkspace is populated on workspace reopen without
+    // requiring a fresh launch.
     //
-    // Uses the same MAX(started_at) correlated-subquery shape as lastResumePlan
-    // to guarantee exactly one row per pane slot even when the DB has multiple
-    // historical rows for the same paneIndex.
+    // SF-12 — same slot-owner ranking as lastResumePlan: live rows first, then
+    // started_at DESC, then id DESC. This is deterministic and cannot return
+    // two rows for one pane slot.
     listForWorkspace: async (workspaceId: string) => {
       try {
         interface RawSessionRow {
@@ -967,21 +964,25 @@ function buildRouter() {
         }
         const rows = getRawDb()
           .prepare(
-            `SELECT s.*
-             FROM agent_sessions s
-             INNER JOIN (
-               SELECT workspace_id, pane_index, MAX(started_at) AS max_started_at
-               FROM agent_sessions
-               WHERE workspace_id = ? AND pane_index IS NOT NULL
-               GROUP BY workspace_id, pane_index
-             ) latest
-               ON latest.workspace_id = s.workspace_id
-               AND latest.pane_index = s.pane_index
-               AND latest.max_started_at = s.started_at
-             WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
-             ORDER BY s.pane_index ASC`,
+            `WITH ranked AS (
+               SELECT
+                 s.*,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY s.workspace_id, s.pane_index
+                   ORDER BY
+                     CASE WHEN s.status IN ('running', 'starting') THEN 0 ELSE 1 END ASC,
+                     s.started_at DESC,
+                     s.id DESC
+                 ) AS rn
+               FROM agent_sessions s
+               WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
+             )
+             SELECT *
+             FROM ranked
+             WHERE rn = 1
+             ORDER BY pane_index ASC`,
           )
-          .all(workspaceId, workspaceId) as RawSessionRow[];
+          .all(workspaceId) as RawSessionRow[];
         return rows.map((r) => ({
           id: r.id,
           workspaceId: r.workspace_id,

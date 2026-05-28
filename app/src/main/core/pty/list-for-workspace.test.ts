@@ -1,8 +1,8 @@
 // v1.4.3 (#02) — listForWorkspace RPC controller integration test.
 //
 // Tests the SQL-level logic for `panes.listForWorkspace(workspaceId)` which
-// returns ONE full AgentSession row per pane slot (MAX started_at wins) for
-// the renderer's ADD_SESSIONS dispatch path.
+// returns ONE full AgentSession row per pane slot (live first, then newest,
+// then id DESC) for the renderer's ADD_SESSIONS dispatch path.
 //
 // We do NOT load `rpc-router.ts` (it has Electron/ipc imports). We replicate
 // the query logic with a fake `getRawDb` — same approach as
@@ -39,11 +39,11 @@ function buildFakeDb(rows: RawSessionRow[]) {
           const scoped = rows.filter(
             (r) => r.workspace_id === wsId && r.pane_index !== null,
           );
-          // Group by pane_index → latest row per group (MAX started_at).
+          // Group by pane_index → deterministic owner per group.
           const latestPerPane = new Map<number, RawSessionRow>();
           for (const r of scoped) {
             const existing = latestPerPane.get(r.pane_index as number);
-            if (!existing || r.started_at > existing.started_at) {
+            if (!existing || compareSlotOwner(r, existing) < 0) {
               latestPerPane.set(r.pane_index as number, r);
             }
           }
@@ -55,6 +55,18 @@ function buildFakeDb(rows: RawSessionRow[]) {
       };
     },
   };
+}
+
+function liveRank(r: RawSessionRow): number {
+  return r.status === 'running' || r.status === 'starting' ? 0 : 1;
+}
+
+function compareSlotOwner(a: RawSessionRow, b: RawSessionRow): number {
+  const liveDelta = liveRank(a) - liveRank(b);
+  if (liveDelta !== 0) return liveDelta;
+  const startedDelta = b.started_at - a.started_at;
+  if (startedDelta !== 0) return startedDelta;
+  return b.id.localeCompare(a.id);
 }
 
 /** Mirrors the listForWorkspace controller implementation in rpc-router.ts. */
@@ -94,7 +106,7 @@ function row(
 ): RawSessionRow {
   counter++;
   return {
-    id: `sess-${counter}`,
+    id: `sess-${counter.toString().padStart(4, '0')}`,
     workspace_id: workspaceId,
     provider_id: providerId,
     cwd: `/tmp/${workspaceId}`,
@@ -118,7 +130,7 @@ describe('panes.listForWorkspace — full AgentSession rehydration', () => {
     expect(result).toEqual([]);
   });
 
-  it('returns one full AgentSession per unique pane_index, even with DB duplicates (MAX started_at wins)', () => {
+  it('returns one full AgentSession per unique pane_index, even with DB duplicates (started_at wins after live rank)', () => {
     const db = buildFakeDb([
       row('ws-A', 0, 'claude', 1000),  // older
       row('ws-A', 0, 'claude', 2000),  // newer — this one should win
@@ -126,6 +138,28 @@ describe('panes.listForWorkspace — full AgentSession rehydration', () => {
     const result = listForWorkspace(db, 'ws-A');
     expect(result).toHaveLength(1);
     expect(result[0]?.startedAt).toBe(2000);
+  });
+
+  it('prefers a live row over a newer exited row for the same pane slot', () => {
+    const db = buildFakeDb([
+      row('ws-live', 0, 'claude', 1000, 'running'),
+      row('ws-live', 0, 'gemini', 2000, 'exited'),
+    ]);
+    const result = listForWorkspace(db, 'ws-live');
+    expect(result).toHaveLength(1);
+    expect(result[0]?.providerId).toBe('claude');
+    expect(result[0]?.status).toBe('running');
+  });
+
+  it('uses id DESC to break started_at ties so one slot returns one row', () => {
+    const db = buildFakeDb([
+      { ...row('ws-tie', 0, 'claude', 1000, 'running'), id: 'sess-a' },
+      { ...row('ws-tie', 0, 'codex', 1000, 'running'), id: 'sess-z' },
+    ]);
+    const result = listForWorkspace(db, 'ws-tie');
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe('sess-z');
+    expect(result[0]?.providerId).toBe('codex');
   });
 
   it('filters by workspaceId correctly — other workspace rows excluded', () => {

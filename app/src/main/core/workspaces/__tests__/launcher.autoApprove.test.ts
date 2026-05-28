@@ -33,6 +33,7 @@ interface InsertCall {
 
 let spawnCalls: SpawnCall[] = [];
 let insertCalls: InsertCall[] = [];
+let insertRunImpl: ((vals: Record<string, unknown>) => void) | null = null;
 let mockDb: ReturnType<typeof buildMockDb>;
 
 // ── Build a mock drizzle-like DB ──────────────────────────────────────────
@@ -57,6 +58,7 @@ function buildMockDb() {
     insert: (_table: unknown) => ({
       values: (vals: Record<string, unknown>) => ({
         run: () => {
+          insertRunImpl?.(vals);
           insertCalls.push({
             id: vals['id'] as string,
             autoApprove: vals['autoApprove'] as number | undefined,
@@ -110,8 +112,10 @@ vi.mock('../../db/client', () => ({
   getRawDb: () => ({
     prepare: () => ({
       get: () => undefined,
+      all: () => [],
       run: () => undefined,
     }),
+    transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
   }),
 }));
 
@@ -207,9 +211,11 @@ import type { LaunchPlan } from '../../../../shared/types';
 
 // Fake PTY registry + worktree pool
 const fakePty = {
-  write: () => undefined,
+  write: vi.fn(),
   get: () => undefined,
   create: () => makeFakeSession(),
+  kill: vi.fn(),
+  forget: vi.fn(),
 };
 const fakeWorktreePool = {
   create: async () => ({ worktreePath: null, branch: null, sessionId: 'prealloc-1' }),
@@ -226,6 +232,10 @@ describe('executeLaunchPlan — autoApprove threading (A2)', () => {
   beforeEach(() => {
     spawnCalls = [];
     insertCalls = [];
+    insertRunImpl = null;
+    fakePty.write.mockClear();
+    fakePty.kill.mockClear();
+    fakePty.forget.mockClear();
     mockDb = buildMockDb();
   });
 
@@ -293,5 +303,24 @@ describe('executeLaunchPlan — autoApprove threading (A2)', () => {
     const insert = insertCalls.find((c) => c.id !== undefined);
     expect(insert).toBeDefined();
     expect(insert?.autoApprove).toBe(0);
+  });
+
+  it('SF-12: UNIQUE violation kills + forgets the just-spawned orphan PTY and returns an error session', async () => {
+    insertRunImpl = () => {
+      throw new Error('UNIQUE constraint failed: agent_sessions.workspace_id, agent_sessions.pane_index');
+    };
+    const plan: LaunchPlan = {
+      workspaceRoot: '/ws',
+      preset: 1,
+      panes: [{ paneIndex: 0, providerId: 'claude', autoApprove: false }],
+    };
+
+    const result = await executeLaunchPlan(plan, fakeDeps);
+
+    expect(fakePty.kill).toHaveBeenCalledTimes(1);
+    expect(fakePty.forget).toHaveBeenCalledTimes(1);
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0]?.status).toBe('error');
+    expect(result.sessions[0]?.error).toMatch(/Pane slot 0 is already occupied/);
   });
 });

@@ -1,7 +1,7 @@
 // v1.3.0 / v1.3.1 — lastResumePlan RPC controller integration test.
 //
 // Tests the SQL-level logic for `panes.lastResumePlan(workspaceId)` which
-// reads the most-recent `agent_sessions` row per `(workspace_id, pane_index)`
+// reads the live-first deterministic `agent_sessions` row per `(workspace_id, pane_index)`
 // for a workspace and derives the per-pane resume plan used by SessionStep's
 // Scenario B pre-population.
 //
@@ -47,19 +47,19 @@ function buildFakeDb(rows: AgentSessionRow[]) {
           // passes the same workspaceId twice.
           workspaceIdInner?: string,
         ): Array<{ paneIndex: number; providerId: string; externalSessionId: string | null }> {
-          // Replicate the v1.3.1 SQL:
+          // Replicate the SF-12 SQL:
           // - filter to this workspace AND non-null pane_index
-          // - group by pane_index, pick MAX(started_at) per group
+          // - group by pane_index, ranking live first, then started_at DESC, id DESC
           // - return one row per pane, ordered by pane_index ASC
           const wsId = workspaceIdInner ?? workspaceId;
           const scoped = rows.filter(
             (r) => r.workspace_id === wsId && r.pane_index !== null,
           );
-          // Group by pane_index → latest row per group.
+          // Group by pane_index → deterministic owner per group.
           const latestPerPane = new Map<number, AgentSessionRow>();
           for (const r of scoped) {
             const existing = latestPerPane.get(r.pane_index as number);
-            if (!existing || r.started_at > existing.started_at) {
+            if (!existing || compareSlotOwner(r, existing) < 0) {
               latestPerPane.set(r.pane_index as number, r);
             }
           }
@@ -77,7 +77,19 @@ function buildFakeDb(rows: AgentSessionRow[]) {
   };
 }
 
-/** Mirrors the controller implementation in rpc-router.ts (v1.3.1). */
+function liveRank(r: AgentSessionRow): number {
+  return r.status === 'running' || r.status === 'starting' ? 0 : 1;
+}
+
+function compareSlotOwner(a: AgentSessionRow, b: AgentSessionRow): number {
+  const liveDelta = liveRank(a) - liveRank(b);
+  if (liveDelta !== 0) return liveDelta;
+  const startedDelta = b.started_at - a.started_at;
+  if (startedDelta !== 0) return startedDelta;
+  return b.id.localeCompare(a.id);
+}
+
+/** Mirrors the controller implementation in rpc-router.ts (SF-12). */
 function lastResumePlan(
   db: ReturnType<typeof buildFakeDb>,
   workspaceId: string,
@@ -85,22 +97,27 @@ function lastResumePlan(
   try {
     const rows = db
       .prepare(
-        `SELECT s.pane_index AS paneIndex, s.provider_id AS providerId,
-                s.external_session_id AS externalSessionId
-         FROM agent_sessions s
-         INNER JOIN (
-           SELECT workspace_id, pane_index, MAX(started_at) AS max_started_at
-           FROM agent_sessions
-           WHERE workspace_id = ? AND pane_index IS NOT NULL
-           GROUP BY workspace_id, pane_index
-         ) latest
-           ON latest.workspace_id = s.workspace_id
-           AND latest.pane_index = s.pane_index
-           AND latest.max_started_at = s.started_at
-         WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
-         ORDER BY s.pane_index ASC`,
+        `WITH ranked AS (
+           SELECT
+             s.pane_index AS paneIndex,
+             s.provider_id AS providerId,
+             s.external_session_id AS externalSessionId,
+             ROW_NUMBER() OVER (
+               PARTITION BY s.workspace_id, s.pane_index
+               ORDER BY
+                 CASE WHEN s.status IN ('running', 'starting') THEN 0 ELSE 1 END ASC,
+                 s.started_at DESC,
+                 s.id DESC
+             ) AS rn
+           FROM agent_sessions s
+           WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
+         )
+         SELECT paneIndex, providerId, externalSessionId
+         FROM ranked
+         WHERE rn = 1
+         ORDER BY paneIndex ASC`,
       )
-      .all(workspaceId, workspaceId);
+      .all(workspaceId);
     return rows.map((r) => ({
       paneIndex: r.paneIndex,
       providerId: r.providerId,
@@ -123,7 +140,7 @@ function row(
 ): AgentSessionRow {
   sessionCounter += 1;
   return {
-    id: `sess-${sessionCounter}`,
+    id: `sess-${sessionCounter.toString().padStart(4, '0')}`,
     workspace_id: workspaceId,
     provider_id: providerId,
     provider_effective: providerId,
@@ -268,6 +285,34 @@ describe('lastResumePlan — pane plan derivation', () => {
       paneIndex: 0,
       providerId: 'gemini',
       sessionId: 'ext-g-2',
+    });
+  });
+
+  it('live row wins over a newer exited row for the same pane slot', () => {
+    const db = buildFakeDb([
+      { ...row('ws-live', 0, 'claude', 'ext-live', 1_700_000_500_000), status: 'running' },
+      row('ws-live', 0, 'gemini', 'ext-exited-newer', 1_700_000_600_000),
+    ]);
+    const result = lastResumePlan(db, 'ws-live');
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      paneIndex: 0,
+      providerId: 'claude',
+      sessionId: 'ext-live',
+    });
+  });
+
+  it('started_at ties are resolved by id DESC so one slot returns one row', () => {
+    const db = buildFakeDb([
+      { ...row('ws-tie', 0, 'claude', 'ext-low', 1_700_000_700_000), id: 'sess-a' },
+      { ...row('ws-tie', 0, 'codex', 'ext-high', 1_700_000_700_000), id: 'sess-z' },
+    ]);
+    const result = lastResumePlan(db, 'ws-tie');
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      paneIndex: 0,
+      providerId: 'codex',
+      sessionId: 'ext-high',
     });
   });
 });
