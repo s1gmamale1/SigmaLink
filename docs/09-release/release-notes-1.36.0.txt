@@ -1,0 +1,90 @@
+SigmaLink v1.36.0 — 2026-05-29
+==============================
+
+Reliability batch — transactional migrations (H-7), offline Ruflo daemon for
+claude/codex (SF-14), and the page-change purple-flash fix.
+
+Three internal/polish hardening changes, no big new surface. Each was gated in
+main and Opus-reviewed; the SF-14 review caught a crash-recovery env bug that
+was fixed (with a regression test) before tagging.
+
+
+Fixed
+-----
+
+- H-7  DB migrations are now transactional.
+    The runner ran each migration's up() then a separate schema_migrations
+    insert with NO wrapping transaction → a throwing up() could leave a half-
+    applied schema that re-ran on a dirty DB next boot. The runner now wraps
+    up() + the insert in ONE db.transaction() per pending migration (per-
+    migration, not one big txn: earlier-applied migrations stay committed if a
+    later one fails; a throw rolls back and retries clean next boot). The 21
+    migrations that self-managed BEGIN/COMMIT/ROLLBACK were stripped (SQL byte-
+    identical) so the runner owns the only transaction — a nested BEGIN crashes
+    fresh-DB startup, the exact failure that reverted the prior attempt. Added
+    busy_timeout=5000 for WAL multi-connection contention. Test hardening: the
+    runner-test MockDb now models better-sqlite3's no-nested-transaction +
+    rollback contract (the gap that let the prior attempt pass units yet crash
+    e2e), and a static guard permanently forbids a raw BEGIN/COMMIT/ROLLBACK in
+    any registered migration.
+
+- SF-14  The Ruflo HTTP daemon runs offline for claude/codex panes.
+    The daemon supervisor only resolved a PATH `ruflo` binary → npx fallback,
+    so production (no PATH ruflo) always depended on npx/network and never used
+    the @claude-flow/cli the installer already lazy-downloads into
+    <userData>/ruflo. Added a launch tier between PATH-ruflo and npx: when the
+    lazy install exists, run it via Electron's embedded node (process.execPath +
+    ELECTRON_RUN_AS_NODE=1 + NODE_PATH), mirroring the stdio supervisor — so the
+    Ruflo MCP daemon is reliably available OFFLINE once installed. The env merge
+    was applied to BOTH the initial spawn and the crash-recovery respawn (a
+    review-caught bug: the respawn would otherwise boot Electron instead of node
+    and fail recovery; now covered by a regression test). DAEMON-UNAVAILABLE now
+    names the install path.
+    Note: no standalone `ruflo` binary is bundled — it's a Node CLI, not an
+    executable; vendoring the npm tree was rejected (heavy + unprecedented).
+    Cursor skill fan-out (R-2 follow-up) dropped — cursor-agent does not consume
+    the SKILL.md fan-out format (no-op).
+
+- UI  Purple flash on page change.
+    Navigating to a not-yet-loaded room briefly painted the whole content area
+    a saturated violet. Lazy rooms render a Suspense fallback during their chunk
+    fetch; that fallback was a full-bleed shadcn Skeleton whose base is bg-accent
+    = the glass theme's brand violet. RoomSkeleton now renders a calm centered
+    spinner on the theme surface — the alarming purple block is gone.
+
+
+Not in this release (tracked)
+-----------------------------
+
+- Migration 0026_sf12_pane_slot_repair — still DORMANT, pending operator
+  diagnostic-SQL sign-off (SF-12 data repair). Unchanged by H-7; it inherits the
+  new runner transaction for free when later registered.
+- SF-14 polish (optional): auto-trigger the lazy install on first workspace open
+  (today it's renderer-triggered via Settings → Ruflo); prefetch the most-used
+  room chunks on idle to drop even the loading spinner.
+
+
+Gate
+----
+
+- tsc -b -- clean
+- eslint 0 errors / 0 warnings
+- vitest 189 files / 1923 pass / 1 skip (+ migrate runner txn + static guard,
+  http-daemon userData tier + crash-recovery env regression, room-load fallback)
+- vite build + electron:compile (product:check) -- clean
+- FULL Playwright e2e (tests/e2e/) in main -- 9 passed / 3 skipped
+- Opus review of SF-14 + flash -- ship (SF-14 launchChild crash-recovery env
+  bug found + fixed + regression test added)
+
+
+Operator smoke
+--------------
+
+1. DB: migrations apply cleanly on a fresh profile and on upgrade; a forced mid-
+   migration failure leaves no half-applied schema (retries clean next boot).
+2. Ruflo: install Ruflo (Settings → Ruflo), then open a workspace — the HTTP
+   daemon health dot goes green WITHOUT network (runs the local userData CLI),
+   and claude/codex panes see the Ruflo MCP. Kill the daemon process → it
+   recovers (no Electron-instead-of-node failure).
+3. UI: navigate between rooms (esp. first visit to Browser/Skills/Memory) — a
+   calm spinner appears during load, NOT a purple flash.

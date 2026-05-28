@@ -4,6 +4,10 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.36.0] - 2026-05-29
+
+v1.36.0 — **reliability batch: transactional migrations (H-7), offline Ruflo daemon for claude/codex (SF-14), and the page-change purple-flash fix.** All three are internal/polish hardening (no big new surface). Each was gated in main + Opus-reviewed; the SF-14 review caught a crash-recovery env bug that was fixed with a regression test before tagging.
+
 ### Fixed
 
 - **H-7 — DB migrations are now transactional.** The runner (`core/db/migrate.ts`)
@@ -18,10 +22,35 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
   for WAL multi-connection contention. Test hardening: the runner-test MockDb now models
   better-sqlite3's no-nested-transaction + rollback contract (the gap that let the prior
   attempt pass unit tests yet crash e2e), and a static guard permanently forbids a migration
-  from containing a raw `BEGIN`/`COMMIT`/`ROLLBACK`. Internal hardening, no user-facing
-  surface — shipped to main untagged (`2da0622`), rides the next tagged release. Full gate
-  green (incl. fresh-profile e2e applying all 25 migrations under the new runner txn) + Opus
-  review (ship-as-is).
+  from containing a raw `BEGIN`/`COMMIT`/`ROLLBACK`.
+- **SF-14 follow-up — the Ruflo HTTP daemon runs offline for claude/codex panes.** The
+  daemon supervisor (`core/ruflo/http-daemon-supervisor.ts`) only resolved a PATH `ruflo`
+  binary → `npx` fallback, so production (no PATH `ruflo`) always depended on npx/network
+  and never used the `@claude-flow/cli` the installer already lazy-downloads into
+  `<userData>/ruflo`. Added a launch tier between PATH-`ruflo` and `npx`: when the lazy
+  install exists, the daemon runs it via Electron's embedded node (`process.execPath` +
+  `ELECTRON_RUN_AS_NODE=1` + `NODE_PATH`), mirroring the stdio supervisor — so the Ruflo
+  MCP daemon is reliably available offline once installed. The env merge was applied to
+  both the initial spawn and the crash-recovery respawn (a review-caught bug: the respawn
+  path would otherwise boot Electron instead of node and fail recovery). The
+  DAEMON-UNAVAILABLE message now names the install path. (No standalone `ruflo` binary is
+  bundled — it's a Node CLI, not an executable; bundling the npm tree was rejected as
+  heavy + unprecedented.) Cursor skill fan-out (R-2 follow-up) dropped — `cursor-agent`
+  does not consume the SKILL.md fan-out format (no-op).
+- **UI — purple flash on page change.** Navigating to a not-yet-loaded room briefly painted
+  the whole content area a saturated violet. Lazy rooms render a `Suspense` fallback during
+  their chunk fetch, and that fallback was a full-bleed shadcn `Skeleton` whose base is
+  `bg-accent` — the glass theme's brand violet. `RoomSkeleton` (`renderer/app/App.tsx`) now
+  renders a calm centered spinner on the theme surface; the alarming purple block is gone.
+
+### Notes
+
+- Migration `0026_sf12_pane_slot_repair` remains **dormant pending operator sign-off** (SF-12
+  data repair) — unchanged by H-7; it inherits the new runner transaction for free when later
+  registered.
+- Gate (in main): `tsc -b` · `eslint --max-warnings 0` · vitest **1923 pass / 1 skip** ·
+  `product:check` · full `tests/e2e/` (9 passed / 3 skipped) · Opus review of SF-14 + flash
+  (ship; SF-14 crash-recovery env bug fixed + regression test).
 
 ## [1.35.0] - 2026-05-28
 
