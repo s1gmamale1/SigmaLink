@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+- **H-7 — DB migrations are now transactional.** The runner (`core/db/migrate.ts`)
+  applied each migration's `up()` and its `schema_migrations` insert with no wrapping
+  transaction, so a throwing `up()` could leave a half-applied schema that re-ran on a
+  dirty DB next boot. The runner now wraps `up()` + the insert in one `db.transaction()`
+  per pending migration (per-migration, not one big txn — earlier-applied migrations stay
+  committed if a later one fails; a throw rolls back and retries clean next boot). The 21
+  migrations that self-managed `BEGIN`/`COMMIT`/`ROLLBACK` were stripped (SQL byte-identical)
+  so the runner owns the only transaction — a nested `BEGIN` would crash fresh-DB startup
+  (the failure mode that reverted the prior attempt). Added `busy_timeout=5000` (`client.ts`)
+  for WAL multi-connection contention. Test hardening: the runner-test MockDb now models
+  better-sqlite3's no-nested-transaction + rollback contract (the gap that let the prior
+  attempt pass unit tests yet crash e2e), and a static guard permanently forbids a migration
+  from containing a raw `BEGIN`/`COMMIT`/`ROLLBACK`. Internal hardening, no user-facing
+  surface — shipped to main untagged (`2da0622`), rides the next tagged release. Full gate
+  green (incl. fresh-profile e2e applying all 25 migrations under the new runner txn) + Opus
+  review (ship-as-is).
+
 ## [1.35.0] - 2026-05-28
 
 v1.35.0 — **SF-12 (Critical — pane/worktree/registry confusion): the code fix.** Shipped on its own (it touches the core pane-resolution query). The read-path fix + slot-allocation fix **stop the bleeding** — no new wrong/stale slots, and `+Pane`/swarm panes persist across reopen. The reversible data-repair migration for *existing* bad rows (`0026`) stays **dormant pending operator sign-off**. Went through two independent Opus code-review rounds (no Critical; all Important addressed + re-verified).

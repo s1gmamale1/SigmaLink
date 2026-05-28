@@ -20,14 +20,13 @@ _(empty — add raw ideas here; promote to ROADMAP when scoped)_
 
 Lightweight notes only; the actionable plan + priority + code pointers live in `ROADMAP.md`.
 
-- **H-7** — migrations not transactional (`core/db/migrate.ts`); naive txn-wrap crashes fresh-DB (self-BEGIN migrations). → ROADMAP **P0**.
-- **Bundle the `ruflo` daemon binary** — SF-14 uses an npx fallback; binary isn't shipped. Product decision. → ROADMAP **P1**.
-- **Cursor skill fan-out** — `ProviderTarget` enum doesn't include cursor; skill dir unverified. → ROADMAP **P2**.
-- **W-4 P8–P9 + win32 shell-first dogfood** — resume simplification + drop `external_session_id`; win32 un-dogfooded. → ROADMAP **P3**.
-- **FE-4 a11y + voice (blocked)** — focus-trap, VoiceOver QA, reduced-transparency, breadcrumb contrast; PCM sample-rate, whisper.cpp v1.7.x port. → ROADMAP **P4**.
+- **Bundle the `ruflo` daemon binary** — SF-14 uses an npx fallback; binary isn't shipped. Product decision. → ROADMAP **P0**.
+- **Cursor skill fan-out** — `ProviderTarget` enum doesn't include cursor; skill dir unverified. → ROADMAP **P1**.
+- **W-4 P8–P9 + win32 shell-first dogfood** — resume simplification + drop `external_session_id`; win32 un-dogfooded. → ROADMAP **P2**.
+- **FE-4 a11y + voice (blocked)** — focus-trap, VoiceOver QA, reduced-transparency, breadcrumb contrast; PCM sample-rate, whisper.cpp v1.7.x port. → ROADMAP **P3**.
 - **SF-12 migration `0026` (operator-owned)** — Tier1+Tier2 shipped v1.35.0; the data-repair migration stays dormant pending the operator running the diagnostic SQL on a real `agent_sessions` dump. On sign-off → register `0026` (drop `.pending`, import + append to `ALL_MIGRATIONS`) + follow-up release. Diagnostic SQL in `docs/09-release/release-notes-1.35.0.txt`.
 
-> Everything else (C-class M0–M5, FE-1…4, R-1/R-2, W-class, H-class 18/19, SF-1…11/13/14/15, CI Node-24 + e2e flake) is **shipped** — see `CHANGELOG.md` + the master-memory project entries. Don't re-note shipped items here.
+> Everything else (C-class M0–M5, FE-1…4, R-1/R-2, W-class, **H-class fully complete incl. H-7 transactional migrations**, SF-1…11/13/14/15, CI Node-24 + e2e flake) is **shipped** — see `CHANGELOG.md` + the master-memory project entries. Don't re-note shipped items here.
 
 ---
 
