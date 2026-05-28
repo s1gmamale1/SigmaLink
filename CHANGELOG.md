@@ -4,6 +4,21 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.35.0] - 2026-05-28
+
+v1.35.0 — **SF-12 (Critical — pane/worktree/registry confusion): the code fix.** Shipped on its own (it touches the core pane-resolution query). The read-path fix + slot-allocation fix **stop the bleeding** — no new wrong/stale slots, and `+Pane`/swarm panes persist across reopen. The reversible data-repair migration for *existing* bad rows (`0026`) stays **dormant pending operator sign-off**. Went through two independent Opus code-review rounds (no Critical; all Important addressed + re-verified).
+
+### Fixed
+
+- **SF-12 / Defect A — wrong or stale session shown in a pane slot.** `listForWorkspace` and `lastResumePlan` resolved a `(workspace_id, pane_index)` slot by a status-blind `MAX(started_at)`; since `started_at` is mutated on resume, an exited/older session could outrank the live one (and ties returned two rows for one slot). Both read paths now rank with `ROW_NUMBER() OVER (PARTITION BY workspace_id, pane_index ORDER BY <running|starting first>, started_at DESC, id DESC)` and take `rn = 1` — exactly one row per slot, live always wins. The launcher's UNIQUE-violation branch no longer leaks an orphan PTY: it kills + forgets the just-spawned PTY and returns an error session.
+- **SF-12 / Defect B — panes vanish / reshuffle on reopen.** `+Pane`/swarm panes were inserted with `pane_index = NULL` and filtered out by `listForWorkspace`. They now persist a real `pane_index`, allocated as the lowest free **live** slot inside the same write transaction as the insert (allocate + insert is atomic, so simultaneous `+Pane` clicks can't collide on the unique index). New `core/workspaces/pane-slots.ts`. Swarm panes share the workspace-level pane-slot namespace (the renderer grids by session id → no UI collision).
+- **SF-12 — "Pane 0" toast on the rare suppression race.** The UNIQUE-suppression path returns a sentinel `pane_index = -1`; the two add-agent success toasts now guard it ("Pane added" rather than "Pane 0").
+
+### Notes
+
+- **Migration `0026_sf12_pane_slot_repair` is DORMANT — pending operator sign-off.** It is a reversible, no-blind-delete repair for *existing* bad rows: preimage backup into `kv['sf12.preimage.<ts>']`, two-pass (negative-temp → dense) re-slot to contiguous `0..k-1` per workspace, terminal rows nulled, post-condition asserted, `down()` idempotent, H-7-safe (no own `BEGIN`/`COMMIT`). It is **not** imported into `ALL_MIGRATIONS` (enforced by a `migrate.spec` test). To close it: operator runs the diagnostic SQL on a real `agent_sessions` dump, signs off, then it ships registered in a follow-up. A fresh workspace needs no repair — the allocation fix prevents new corruption.
+- Gate (in main): `tsc -b` · `eslint --max-warnings 0` · vitest **1917 pass / 1 skip** · `product:check` · full `tests/e2e/` (9 passed / 3 skipped) · two Opus code-review rounds (no Critical; all Important addressed + re-verified).
+
 ## [1.34.0] - 2026-05-28
 
 v1.34.0 — **operator breakage batch (SF-11, SF-13, SF-14, SF-15) + a chronic CI-flake fix.** Investigated by 5 parallel agents (cursor having run out mid-debug); each root-caused with file:line evidence, the lead integrated the disjoint lanes + fixed two integration-seam bugs the isolated agents couldn't see, ran a full gate, and an Opus security-review (PASS) on the Ruflo MCP changes. **SF-12 (Critical pane/worktree/registry confusion) is NOT in this release** — see Notes.

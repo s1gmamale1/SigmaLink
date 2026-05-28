@@ -1,0 +1,97 @@
+SigmaLink v1.35.0 — 2026-05-28
+==============================
+
+SF-12 (CRITICAL) — pane/worktree/registry confusion. The code fix.
+
+This release ships the SF-12 code fix on its own (it touches the core pane-
+resolution query, so it gets an isolated change rather than riding a multi-lane
+batch). The read-path fix + the slot-allocation fix together STOP THE BLEEDING:
+no new wrong/stale slots, and +Pane/swarm panes persist correctly across reopen.
+
+The reversible data-repair migration that cleans up EXISTING bad rows
+(0026_sf12_pane_slot_repair) is intentionally NOT registered — it stays dormant
+pending operator sign-off (it has never run on real data). See "Not in this
+release". The fix went through two independent Opus code-review rounds.
+
+
+Fixed
+-----
+
+- SF-12 / Defect A  Wrong or stale session shown in a pane slot.
+    listForWorkspace and lastResumePlan resolved a (workspace_id, pane_index)
+    slot by a status-blind MAX(started_at). Because started_at is mutated on
+    resume, an exited/older session could outrank the live one, and ties
+    returned two rows for one slot. Both read paths now rank with
+    ROW_NUMBER() OVER (PARTITION BY workspace_id, pane_index
+    ORDER BY <running|starting first>, started_at DESC, id DESC) and take rn=1
+    — exactly one row per slot, live always wins. The launcher's UNIQUE-
+    violation branch no longer leaks an orphan PTY: it kills + forgets the
+    just-spawned PTY and returns an error session.
+
+- SF-12 / Defect B  Panes vanish / reshuffle on reopen.
+    +Pane and swarm panes were inserted with pane_index = NULL, so
+    listForWorkspace filtered them out on reopen. They now persist a real
+    pane_index, allocated as the lowest free LIVE slot for the workspace inside
+    the same write transaction as the insert (allocate + insert is atomic, so
+    two simultaneous +Pane clicks can't collide on the unique index). New
+    core/workspaces/pane-slots.ts owns the allocator. Swarm panes share the
+    workspace-level pane-slot namespace (both are agent_sessions(workspace_id,
+    pane_index); the renderer grids by session id, so no UI collision).
+
+- SF-12  "Pane 0" toast on the rare suppression race.
+    The UNIQUE-suppression path returns a sentinel pane_index = -1; the two
+    add-agent success toasts now guard it ("Pane added" instead of "Pane 0").
+
+
+Not in this release (tracked)
+-----------------------------
+
+- Migration 0026_sf12_pane_slot_repair — DORMANT, pending operator sign-off.
+    Reversible, no-blind-delete data repair for EXISTING bad rows: captures a
+    preimage into kv['sf12.preimage.<ts>'] before any mutation, re-slots live
+    rows densely 0..k-1 per workspace (two-pass negative-temp then dense, so the
+    partial unique index never collides mid-update), nulls terminal rows, and
+    asserts the post-condition (no live NULL slot, no duplicate live slot,
+    contiguous 0..k-1) — rolling back via down() on failure. It is NOT imported
+    into ALL_MIGRATIONS (a migrate.spec test enforces that), is H-7-safe (no
+    BEGIN/COMMIT of its own), and down() is idempotent. To close it: the
+    operator runs the diagnostic SQL against a real agent_sessions dump, signs
+    off, then it is registered + shipped in a follow-up.
+
+    Diagnostic SQL (operator-run, read-only):
+      SELECT workspace_id, pane_index, COUNT(*) rows,
+             SUM(status IN ('running','starting')) live_rows
+      FROM agent_sessions WHERE pane_index IS NOT NULL
+      GROUP BY workspace_id, pane_index HAVING COUNT(*) > 1;
+
+      SELECT id, workspace_id, provider_id, status, started_at
+      FROM agent_sessions WHERE pane_index IS NULL
+        AND status IN ('running','starting');
+
+
+Gate
+----
+
+- tsc -b -- clean
+- eslint 0 errors / 0 warnings
+- vitest 189 files / 1917 pass / 1 skip (+ pane-slots unit, db-fake-raw
+  predicate fidelity, last-resume-plan + list-for-workspace ranking,
+  launcher orphan cleanup, factory-spawn pane_index persistence, the
+  0026 pending-migration guard test)
+- vite build + electron:compile (product:check) -- clean
+- FULL Playwright e2e (tests/e2e/) in main -- 9 passed / 3 skipped
+- Two independent Opus code-review rounds -- no Critical; all Important
+  addressed (suppression-toast surfacing, pane-slots unit coverage, db-fake
+  SQL-fidelity gap, resume invariant) and re-verified
+
+
+Operator smoke
+--------------
+
+1. Open a workspace, add several panes (+Pane / swarm), close and reopen the
+   workspace — every pane comes back in a stable slot; none vanish or swap.
+2. Resume a workspace where a pane had exited — the live session shows in its
+   slot, not the stale/exited one.
+3. To repair an ALREADY-corrupted DB: run the diagnostic SQL above; if it
+   returns rows, sign off and we register migration 0026 in a follow-up. A fresh
+   workspace needs no repair — the allocation fix prevents new corruption.
