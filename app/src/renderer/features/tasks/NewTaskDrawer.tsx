@@ -1,11 +1,12 @@
 // Lightweight drawer for creating a new task. Slides in from the right.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { TaskStatus } from '@/shared/types';
+import { useFocusTrap } from './useFocusTrap';
 
 interface Props {
   open: boolean;
@@ -23,11 +24,22 @@ export function NewTaskDrawer(props: Props) {
   const [err, setErr] = useState<string | null>(null);
   // Store the element that triggered open so we can return focus on close.
   const returnFocusRef = useRef<Element | null>(null);
+  // Ref to the dialog panel — used by the focus-trap to scope Tab containment.
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  // Ref to the title input — we focus it on open ourselves (instead of the
+  // `autoFocus` prop) so the capture of the opener happens BEFORE focus moves.
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const { open, onClose } = props;
 
-  useEffect(() => {
+  // Capture the opener + move initial focus in ONE layout effect, ordered so
+  // capture wins. `autoFocus` (the old approach) fired during commit — i.e.
+  // BEFORE this effect — so the capture used to record the title input itself,
+  // and return-focus then landed on a detached node (→ <body>). Capturing here
+  // first, then focusing the input, makes return-focus land on the real opener.
+  useLayoutEffect(() => {
     if (open) {
       returnFocusRef.current = document.activeElement;
+      titleInputRef.current?.focus();
     } else {
       // Return focus to the trigger when the drawer closes.
       if (returnFocusRef.current && 'focus' in returnFocusRef.current) {
@@ -50,8 +62,10 @@ export function NewTaskDrawer(props: Props) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
 
-  // TODO(a11y): full focus-trap — currently implements focus-on-open (autoFocus
-  // on the title input) + Escape + return-focus only.
+  // Contain Tab / Shift+Tab within the panel (WCAG 2.4.3 / 2.1.2). Initial
+  // focus (title input) + opener capture are handled by the layout effect
+  // above; Escape by the effect below — useFocusTrap only adds wrapping.
+  useFocusTrap(panelRef, open);
 
   // BUG-W7-008: drawer open/close is keyed off `props.open`. The owning
   // <TasksRoom> watches `state.room` and forces the drawer closed on room
@@ -94,13 +108,19 @@ export function NewTaskDrawer(props: Props) {
       aria-labelledby="new-task-drawer-title"
       className="absolute inset-0 z-30 flex"
     >
+      {/* Click-to-close backdrop scrim. tabIndex={-1} keeps it OUT of the Tab
+          order — a full-bleed invisible backdrop should not be a keyboard stop
+          (Escape + the explicit Close buttons already dismiss the drawer). This
+          also makes the dialog's focusable set == the panel's, which is exactly
+          what useFocusTrap contains. Still fully clickable. */}
       <button
         type="button"
         aria-label="Close"
+        tabIndex={-1}
         onClick={props.onClose}
         className="flex-1 bg-black/40"
       />
-      <div className="flex w-96 flex-col bg-background shadow-xl">
+      <div ref={panelRef} className="flex w-96 flex-col bg-background shadow-xl">
         <header className="flex items-center justify-between border-b border-border px-3 py-2">
           <span id="new-task-drawer-title" className="text-sm font-semibold">New task</span>
           <button
@@ -116,9 +136,9 @@ export function NewTaskDrawer(props: Props) {
           <label className="block">
             <span className="mb-1 block text-xs text-muted-foreground">Title</span>
             <Input
+              ref={titleInputRef}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              autoFocus
               placeholder="Wire up the auth callback"
             />
           </label>

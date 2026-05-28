@@ -6,6 +6,7 @@ import { rpc } from '@/renderer/lib/rpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { Task, TaskComment, TaskStatus } from '@/shared/types';
+import { useFocusTrap } from './useFocusTrap';
 
 interface Props {
   open: boolean;
@@ -63,6 +64,8 @@ export function TaskDetailDrawer(props: Props) {
   const [newComment, setNewComment] = useState('');
   // Store the element that triggered open so we can return focus on close.
   const returnFocusRef = useRef<Element | null>(null);
+  // Ref to the dialog panel — drives both initial focus and the focus-trap.
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   // Depend only on the id (not the whole `props.task`) — the parent passes a
   // fresh object every render; we only want to refetch when the user opens a
@@ -108,7 +111,24 @@ export function TaskDetailDrawer(props: Props) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [drawerOpen, onClose]);
 
-  // TODO(a11y): full focus-trap — currently implements Escape + return-focus only.
+  // Initial focus — unlike NewTaskDrawer there is no single obvious first
+  // field to autoFocus (the panel hydrates from the task), so move focus to
+  // the panel container on open. The panel carries tabIndex={-1} so it is
+  // programmatically focusable without becoming a Tab stop. This satisfies
+  // WCAG 2.4.3 (focus order starts inside the dialog) and gives the focus-trap
+  // an in-panel anchor to wrap from.
+  useEffect(() => {
+    if (drawerOpen && props.task) {
+      // Defer to after paint so the panel ref is attached.
+      const id = requestAnimationFrame(() => panelRef.current?.focus());
+      return () => cancelAnimationFrame(id);
+    }
+    return undefined;
+  }, [drawerOpen, props.task]);
+
+  // Contain Tab / Shift+Tab within the panel (WCAG 2.4.3 / 2.1.2). Return-focus
+  // + Escape remain owned by the effects above — useFocusTrap only adds wrapping.
+  useFocusTrap(panelRef, drawerOpen);
 
   // BUG-W7-008: drawer visibility is gated on props.open. The owning
   // <TasksRoom> watches `state.room` and forces props.open=false when the
@@ -161,13 +181,19 @@ export function TaskDetailDrawer(props: Props) {
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="task-detail-drawer-title" className="absolute inset-0 z-30 flex">
+      {/* Click-to-close backdrop scrim. tabIndex={-1} keeps it OUT of the Tab
+          order — a full-bleed invisible backdrop should not be a keyboard stop
+          (Escape + the explicit Close buttons already dismiss the drawer). This
+          also makes the dialog's focusable set == the panel's, which is exactly
+          what useFocusTrap contains. Still fully clickable. */}
       <button
         type="button"
         aria-label="Close"
+        tabIndex={-1}
         onClick={props.onClose}
         className="flex-1 bg-black/40"
       />
-      <div className="flex w-[28rem] flex-col bg-background shadow-xl">
+      <div ref={panelRef} tabIndex={-1} className="flex w-[28rem] flex-col bg-background shadow-xl outline-none">
         <header className="flex items-center justify-between border-b border-border px-3 py-2">
           <span id="task-detail-drawer-title" className="truncate text-sm font-semibold">{props.task.title}</span>
           <button

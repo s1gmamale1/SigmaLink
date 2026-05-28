@@ -13,6 +13,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:perf": "PERF=1 playwright test --project=perf",
     "coverage": "vitest run --coverage",
     "preview": "vite preview",
     "electron:dev": "npm run build && npm run electron:compile && electron electron-dist/main.js",

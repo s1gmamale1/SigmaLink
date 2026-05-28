@@ -17,70 +17,29 @@ import { RightRailProvider } from '@/renderer/features/right-rail/RightRailConte
 import { useRightRailEnabled } from '@/renderer/features/right-rail/use-right-rail-enabled';
 import { ThemeProvider } from '@/renderer/app/ThemeProvider';
 import { AppStateProvider, useAppState } from '@/renderer/app/state';
+import { ROOM_LOADERS, prefetchRooms } from '@/renderer/app/room-loaders';
 
 // --- Lazy rooms ----------------------------------------------------------
 // Each room is wrapped in `React.lazy` so its module (and the heavy feature
 // subtrees it pulls in — operator-console, jorvis-assistant, memory, skills,
 // browser, etc.) stays out of the main chunk until the user actually
-// navigates there. Named exports are adapted to default exports via the
-// `then(m => ({ default: m.X }))` shim — see `EditorTab.tsx` for the
-// existing reference pattern (Monaco loader).
-const WorkspaceLauncher = lazy(() =>
-  import('@/renderer/features/workspace-launcher/Launcher').then((m) => ({
-    default: m.WorkspaceLauncher,
-  })),
-);
-const SwarmRoom = lazy(() =>
-  import('@/renderer/features/swarm-room/SwarmRoom').then((m) => ({
-    default: m.SwarmRoom,
-  })),
-);
-const OperatorConsole = lazy(() =>
-  import('@/renderer/features/operator-console').then((m) => ({
-    default: m.OperatorConsole,
-  })),
-);
-const BrowserRoom = lazy(() =>
-  import('@/renderer/features/browser/BrowserRoom').then((m) => ({
-    default: m.BrowserRoom,
-  })),
-);
-const SkillsRoom = lazy(() =>
-  import('@/renderer/features/skills/SkillsRoom').then((m) => ({
-    default: m.SkillsRoom,
-  })),
-);
-const MemoryRoom = lazy(() =>
-  import('@/renderer/features/memory/MemoryRoom').then((m) => ({
-    default: m.MemoryRoom,
-  })),
-);
-const ReviewRoom = lazy(() =>
-  import('@/renderer/features/review/ReviewRoom').then((m) => ({
-    default: m.ReviewRoom,
-  })),
-);
-const TasksRoom = lazy(() =>
-  import('@/renderer/features/tasks/TasksRoom').then((m) => ({
-    default: m.TasksRoom,
-  })),
-);
-const SettingsRoom = lazy(() =>
-  import('@/renderer/features/settings/SettingsRoom').then((m) => ({
-    default: m.SettingsRoom,
-  })),
-);
-const JorvisRoom = lazy(() =>
-  import('@/renderer/features/jorvis-assistant/JorvisRoom').then((m) => ({
-    default: m.JorvisRoom,
-  })),
-);
+// navigates there. The import factories live in `room-loaders.ts` as the
+// single source of truth — App.tsx consumes them here for `lazy()` and the
+// idle-prefetch loop reuses the same map to warm chunks after first paint.
+// The `!` asserts presence (every key below exists in ROOM_LOADERS; `command`
+// is the only omitted room and it stays eager).
+const WorkspaceLauncher = lazy(ROOM_LOADERS.workspaces!);
+const SwarmRoom = lazy(ROOM_LOADERS.swarm!);
+const OperatorConsole = lazy(ROOM_LOADERS.operator!);
+const BrowserRoom = lazy(ROOM_LOADERS.browser!);
+const SkillsRoom = lazy(ROOM_LOADERS.skills!);
+const MemoryRoom = lazy(ROOM_LOADERS.memory!);
+const ReviewRoom = lazy(ROOM_LOADERS.review!);
+const TasksRoom = lazy(ROOM_LOADERS.tasks!);
+const SettingsRoom = lazy(ROOM_LOADERS.settings!);
+const JorvisRoom = lazy(ROOM_LOADERS.jorvis!);
 // C-12 SigmaBench — multi-agent conflict benchmark room.
-const SigmaBenchRoom = lazy(() =>
-  import('@/renderer/features/sigmabench-room/SigmaBenchRoom').then((m) => ({
-    default: m.SigmaBenchRoom,
-  })),
-);
+const SigmaBenchRoom = lazy(ROOM_LOADERS.sigmabench!);
 
 // Lightweight placeholder rendered while a lazy room module is downloading.
 // A calm centered spinner on the theme surface — NOT a full-bleed `bg-accent`
@@ -184,6 +143,11 @@ function MainBody() {
 }
 
 export default function App() {
+  // FE-4 — prefetch every lazy room chunk during idle time after mount, so the
+  // first navigation to a not-yet-visited room skips even the Suspense spinner.
+  // Runs once; cleanup cancels any pending idle callback if we unmount first.
+  useEffect(() => prefetchRooms(), []);
+
   return (
     <AppStateProvider>
       <ThemeProvider>

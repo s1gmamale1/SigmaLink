@@ -77,6 +77,15 @@ playwright-report/
 test-results/
 docs/06-test/
 
+# Ruflo MCP autowrite artifacts at the repo root — the app writes these into
+# whatever workspace it opens; opening THIS repo as a workspace (e.g. the e2e /
+# perf harness launching the real app) drops them at root. Machine-specific
+# (npx config), not source. NB: app/CLAUDE.md is tracked — only the ROOT one is
+# an artifact, hence the leading-slash anchors.
+/.mcp.json
+/.cursor/
+/CLAUDE.md
+
 # Third-party media kept locally for research only — not redistributed
 docs/02-research/thumbnails/
 docs/02-research/web-images/

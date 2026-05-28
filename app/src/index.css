@@ -395,3 +395,49 @@
   }
 }
 
+/* FE-4 — Global reduced-transparency safety-net (theme-agnostic).
+   The glass theme already handles its own translucent surfaces in
+   glass-material.css, but translucent chrome also exists OFF glass: the
+   .sl-glass* utility classes, the Tailwind alpha utilities on the breadcrumb
+   toolbar (bg-background/60) and the drawer scrims (bg-black/40), plus the
+   semantic .bg-sidebar / .bg-popover surfaces. When a user asks the OS for
+   reduced transparency we make those chrome surfaces opaque and drop any
+   backdrop blur regardless of the active theme. Unlayered + !important so it
+   wins over @layer utilities and the Tailwind alpha utilities.
+   WCAG: 1.4.3 (contrast) — translucent fills can fail contrast measurement;
+   collapsing to a solid token-backed surface guarantees legibility. */
+@media (prefers-reduced-transparency: reduce) {
+  .sl-glass,
+  .sl-glass-heavy,
+  .sl-glass-toolbar,
+  .bg-sidebar,
+  .bg-popover {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .sl-glass,
+  .sl-glass-heavy {
+    background-color: hsl(var(--card)) !important;
+  }
+  /* Toolbar leans on --background (window-edge chrome); keep it reading as the
+     surface behind the content it caps. */
+  .sl-glass-toolbar,
+  .bg-background\/60 {
+    background-color: hsl(var(--background)) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .bg-sidebar {
+    background-color: hsl(var(--sidebar-background)) !important;
+  }
+  .bg-popover {
+    background-color: hsl(var(--popover)) !important;
+  }
+  /* Modal scrims: a translucent black dim is the affordance that the dialog is
+     modal — with transparency reduced, make it a solid, fully-opaque dim so the
+     inert content behind the dialog is hidden rather than ghosting through. */
+  .bg-black\/40 {
+    background-color: hsl(var(--background)) !important;
+  }
+}
+
