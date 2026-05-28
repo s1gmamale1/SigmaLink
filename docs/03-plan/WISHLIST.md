@@ -12,7 +12,7 @@
 
 ## 🆕 New ideas (untriaged)
 
-_(empty — add raw ideas here; promote to ROADMAP when scoped)_
+- **SigmaVoice as a real standalone system-wide voice→text app** (operator, 2026-05-29) — like BridgeVoice was: a always-available dictation utility, NOT just for prompting inside SigmaLink. Global hotkey → transcribe → paste/type into **any** app/field (the "voice-to-text copy for anything" use is the killer feature). **Scaffold already exists** — `apps/sigma-voice` (`sigmavoice-v0.2.0`, own electron-builder + `release-sigma-voice.yml` + `sigmavoice-v*` tags, from the v1.13 rebrand); voice engine = `packages/voice-core` (whisper). So this is *finish/realize the standalone app*, not greenfield. **Verify current state when scoped** (what works in v0.2.0 vs the system-wide-paste vision): global hotkey capture, focus-preserving paste into the foreground app (macOS Accessibility / CGEvent; win32 SendInput), menubar/tray presence, model selection, push-to-talk vs toggle, privacy (local whisper). Distribution posture caveat: internal-use, unsigned (see standing refs). → promote to ROADMAP when scoped.
 
 ---
 
