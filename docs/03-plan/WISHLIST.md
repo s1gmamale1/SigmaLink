@@ -23,13 +23,21 @@ continues here in `sigma-voice/`, that repo is the release home). v0.3 on branch
 `sigmavoice-v0.3` (relocated `app/apps/sigma-voice` → top-level `sigma-voice/`; real
 push-to-talk via `node-global-key-listener`; focus-preserving recording HUD;
 dictionary/macros + stats UI; persistent KV; Apple-grade settings; single-instance).
-Gate green (tsc + esbuild + native ABI); Opus-reviewed ship-worthy. ✅ **Merged to
-SigmaLink `main` `d1c74af`** (FF; submodule-pinned SHA `a7ba0fc` now durable; branch deleted).
-**Remaining (operator/follow-up):** ① live mic/permission smoke (Mic + Accessibility +
-Input-Monitoring grants — needs hardware) · ② validate the new repo's `release.yml` DMG/NSIS
-build on real GH runners (multi-arch native build is the open item; SigmaLink's
-`release-sigma-voice.yml` is the proven path meanwhile) · ③ deferred features: Windows
-keystroke-inject, AI-cleanup/cloud, floating pill, wake-word.
+Gate green (tsc + esbuild + native ABI); Opus-reviewed ship-worthy. ✅ Merged to SigmaLink
+`main`; ✅ **macOS DMG RELEASED — `SigmaVoice v0.3.0` (arm64)** at
+`github.com/s1gmamale1/SigmaVoice/releases/tag/v0.3.0` (CI `release.yml` mac job green;
+DMG natives load real, locally validated).
+**Remaining (operator/follow-up):**
+- **W-SV1 — Windows NSIS build BLOCKED (real native bug).** The v0.3.0 release.yml win job
+  failed: `voice-win` compiles, but `voice-whisper` x64 **fails to link** — `LNK1120: 40
+  unresolved externals` (`ggml_cpu_init`, `ggml_threadpool_new`, `ggml_barrier`,
+  `ggml_backend_cuda_reg`, `ggml_set_f32`, …). The shared `app/native/voice-whisper/binding.gyp`
+  source/define set links on macOS (clang) but **not MSVC** (whisper.cpp builds on Windows via
+  CMake; the gyp Windows port is incomplete — e.g. `ggml_backend_cuda_reg` referenced w/ no CUDA,
+  arch-conditional CPU sources). **Needs binding.gyp surgery + CI iteration on a Windows runner**
+  (no local Windows). Focused sub-task. Operator chose: ship mac now, fix Windows next.
+- ① live mic/permission smoke (Mic + Accessibility + Input-Monitoring grants — needs hardware)
+- ② deferred features: Windows keystroke-inject, AI-cleanup/cloud, floating pill, wake-word.
 
 ---
 
