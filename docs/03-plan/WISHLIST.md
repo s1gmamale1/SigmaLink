@@ -18,8 +18,11 @@
 
 Was the big "new idea" above; now built + released. **Standalone system-wide dictation app
 in its own repo** `s1gmamale1/SigmaVoice` (operator-created), voice engine consumed from
-SigmaLink via a **git submodule** (single source of truth; dev continues here in `sigma-voice/`,
-that repo is the release home). Relocated `app/apps/sigma-voice` → top-level `sigma-voice/`; real
+SigmaLink via a **git submodule** (single source of truth). **As of 2026-05-29 a different agent
+owns SigmaVoice app-shell dev IN THAT REPO** (full doc ecosystem + CLAUDE.md/HANDOFF shipped there);
+`sigma-voice/` here is now the historical dev copy. **Engine/native code is still authored in
+SigmaLink** (the submodule) — incl. the W-SV1/W-SV2 fixes — and pulled into the app via a
+submodule-pointer bump. Relocated `app/apps/sigma-voice` → top-level `sigma-voice/`; real
 push-to-talk (`node-global-key-listener`, lazy-loaded); focus-preserving recording HUD;
 dictionary/macros + stats UI; **model-download UX** (list + size + download w/ live % + activate);
 persistent KV; Apple-grade settings + distinct icon; single-instance. Merged to SigmaLink `main`.
