@@ -16,7 +16,7 @@ directories:
   buildResources: build
 
 # Bundle root: electron-builder resolves all paths relative to the directory
-# containing this config file (app/apps/sigma-voice/).
+# containing this config file (SigmaLink/sigma-voice/).
 files:
   - sigma-dist/**/*
   - renderer/**/*
@@ -31,15 +31,16 @@ asar: false
 npmRebuild: true
 
 # asarUnpack: kept here as documentation for when asar is re-enabled.
-# The voice native binaries live two directory levels above this config at
-# ../../native/voice-*/build/Release/*.node.  electron-builder resolves
+# Since sigmavoice-v0.3 the native binaries are resolved via file: deps and land
+# under this app's node_modules/@sigmalink/voice-*/build/Release/*.node (the
+# file: source lives at ../app/native/voice-*). electron-builder resolves
 # asarUnpack patterns relative to the bundle root (same as `files:`), so the
 # patterns below will match once asar is turned back on.
 #
 # asarUnpack:
-#   - "../../native/voice-mac/build/Release/*.node"
-#   - "../../native/voice-win/build/Release/*.node"
-#   - "../../native/voice-whisper/build/Release/*.node"
+#   - "node_modules/@sigmalink/voice-mac/build/Release/*.node"
+#   - "node_modules/@sigmalink/voice-win/build/Release/*.node"
+#   - "node_modules/@sigmalink/voice-whisper/build/Release/*.node"
 
 extraResources:
   - from: sigma-dist

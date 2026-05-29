@@ -5,18 +5,20 @@
 // so the Electron runtime resolves them from disk; electron-builder's
 // asarUnpack globs handle the rest.
 //
-// Relative path notes:
-//   __dirname  = app/apps/sigma-voice/scripts/
-//   root       = app/apps/sigma-voice/
-//   outDir     = app/apps/sigma-voice/sigma-dist/
-//   app root   = app/  (two levels up — for the native/ directory)
+// Relative path notes (sigmavoice-v0.3 — promoted to the top-level sibling):
+//   __dirname  = SigmaLink/sigma-voice/scripts/
+//   root       = SigmaLink/sigma-voice/
+//   outDir     = SigmaLink/sigma-voice/sigma-dist/
+//   repo root  = SigmaLink/  (two levels up — only for the cosmetic log below)
+// The native modules (voice-mac/win/whisper) live under ../app/native/ and are
+// resolved at runtime via file: deps in package.json; here they stay external.
 
 const path = require('node:path');
 const fs = require('node:fs');
 const esbuild = require('esbuild');
 
-const appRoot = path.resolve(__dirname, '..');            // app/apps/sigma-voice/
-const workspaceRoot = path.resolve(appRoot, '../..');    // app/
+const appRoot = path.resolve(__dirname, '..');           // SigmaLink/sigma-voice/
+const repoRoot = path.resolve(appRoot, '..');            // SigmaLink/
 const outDir = path.join(appRoot, 'sigma-dist');
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -66,4 +68,4 @@ esbuild.buildSync({
   outfile: path.join(outDir, 'preload.cjs'),
 });
 
-console.log('[build-sigma-voice] wrote', path.relative(workspaceRoot, outDir));
+console.log('[build-sigma-voice] wrote', path.relative(repoRoot, outDir));

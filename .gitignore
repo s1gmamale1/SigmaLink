@@ -127,6 +127,8 @@ app/pnpm-lock.yaml
 # stay local.
 SigmaLink/
 
-# SigmaVoice app build output
-app/apps/sigma-voice/sigma-dist/
-app/apps/sigma-voice/release/
+# SigmaVoice app (sigmavoice-v0.3 — promoted to top-level SigmaLink/sigma-voice/)
+sigma-voice/sigma-dist/
+sigma-voice/release/
+sigma-voice/node_modules/
+sigma-voice/pnpm-lock.yaml

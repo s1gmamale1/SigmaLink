@@ -3,14 +3,16 @@
 # Native packages are promoted to workspace members so that:
 #   1. `pnpm install` resolves them as symlinked workspace deps rather than
 #      path-resolved CJS requires.
-#   2. `@sigmalink/voice-core` and `@sigmalink/sigma-voice` can declare
-#      workspace:* dependencies on them without falling back to path-walking.
+#   2. `@sigmalink/voice-core` can declare workspace:* dependencies on them
+#      without falling back to path-walking.
 #
 # v1.4.8 Cluster B — added native/*, packages/voice-core, apps/sigma-voice.
+# sigmavoice-v0.3 — sigma-voice promoted OUT to the top-level SigmaLink/sigma-voice/
+#   sibling (Option C); it now consumes voice-core + the natives via file: deps,
+#   so it is no longer a member of this (app/) workspace.
 
 packages:
   - native/voice-mac
   - native/voice-win
   - native/voice-whisper
   - packages/voice-core
-  - apps/sigma-voice

@@ -96,12 +96,19 @@ jobs:
             echo "WARNING: voice-whisper binary not found — build may have fallen back to stub"
           fi
 
-      - name: Bundle sigma-voice main + preload
-        run: node apps/sigma-voice/scripts/build.cjs
+      # sigmavoice-v0.3 — sigma-voice now lives at the repo-root sibling
+      # SigmaLink/sigma-voice/ and consumes voice-core + the natives (rebuilt
+      # above under app/native/) via file: deps. Install in its own dir so the
+      # file: links resolve, then bundle.
+      - name: Install + bundle sigma-voice (main + preload)
+        working-directory: sigma-voice
+        run: |
+          pnpm install --no-frozen-lockfile --ignore-scripts
+          node scripts/build.cjs
 
       - name: Build macOS DMG (ad-hoc signed, unnotarized)
         run: pnpm exec electron-builder --mac --config electron-builder.yml --publish never
-        working-directory: app/apps/sigma-voice
+        working-directory: sigma-voice
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
@@ -112,20 +119,20 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           path: |
-            app/apps/sigma-voice/release/*.dmg
-            app/apps/sigma-voice/release/*.dmg.blockmap
-            app/apps/sigma-voice/release/*.zip
-            app/apps/sigma-voice/release/latest-mac.yml
+            sigma-voice/release/*.dmg
+            sigma-voice/release/*.dmg.blockmap
+            sigma-voice/release/*.zip
+            sigma-voice/release/latest-mac.yml
 
       - name: Attach macOS installer to GitHub Release
         if: startsWith(github.ref, 'refs/tags/sigmavoice-v') || github.event.inputs.attach_to_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            app/apps/sigma-voice/release/*.dmg
-            app/apps/sigma-voice/release/*.dmg.blockmap
-            app/apps/sigma-voice/release/*.zip
-            app/apps/sigma-voice/release/latest-mac.yml
+            sigma-voice/release/*.dmg
+            sigma-voice/release/*.dmg.blockmap
+            sigma-voice/release/*.zip
+            sigma-voice/release/latest-mac.yml
           fail_on_unmatched_files: true
 
   # ---------------------------------------------------------------------------
@@ -182,12 +189,17 @@ jobs:
         run: npx @electron/rebuild -f -w @sigmalink/voice-whisper
         continue-on-error: true
 
-      - name: Bundle sigma-voice main + preload
-        run: node apps/sigma-voice/scripts/build.cjs
+      # sigmavoice-v0.3 — install + bundle from the repo-root sibling dir
+      # (file: deps resolve voice-core + the natives rebuilt above under app/).
+      - name: Install + bundle sigma-voice (main + preload)
+        working-directory: sigma-voice
+        run: |
+          pnpm install --no-frozen-lockfile --ignore-scripts
+          node scripts/build.cjs
 
       - name: Build Windows NSIS installer (unsigned)
         run: pnpm exec electron-builder --win nsis --config electron-builder.yml --publish never
-        working-directory: app/apps/sigma-voice
+        working-directory: sigma-voice
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
@@ -198,16 +210,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           path: |
-            app/apps/sigma-voice/release/*.exe
-            app/apps/sigma-voice/release/*.exe.blockmap
-            app/apps/sigma-voice/release/latest.yml
+            sigma-voice/release/*.exe
+            sigma-voice/release/*.exe.blockmap
+            sigma-voice/release/latest.yml
 
       - name: Attach Windows installer to GitHub Release
         if: startsWith(github.ref, 'refs/tags/sigmavoice-v') || github.event.inputs.attach_to_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            app/apps/sigma-voice/release/*.exe
-            app/apps/sigma-voice/release/*.exe.blockmap
-            app/apps/sigma-voice/release/latest.yml
+            sigma-voice/release/*.exe
+            sigma-voice/release/*.exe.blockmap
+            sigma-voice/release/latest.yml
           fail_on_unmatched_files: true
