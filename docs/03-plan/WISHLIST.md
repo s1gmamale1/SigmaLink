@@ -12,7 +12,24 @@
 
 ## 🆕 New ideas (untriaged)
 
-- **SigmaVoice as a real standalone system-wide voice→text app** (operator, 2026-05-29) — like BridgeVoice was: a always-available dictation utility, NOT just for prompting inside SigmaLink. Global hotkey → transcribe → paste/type into **any** app/field (the "voice-to-text copy for anything" use is the killer feature). **Scaffold already exists** — `apps/sigma-voice` (`sigmavoice-v0.2.0`, own electron-builder + `release-sigma-voice.yml` + `sigmavoice-v*` tags, from the v1.13 rebrand); voice engine = `packages/voice-core` (whisper). So this is *finish/realize the standalone app*, not greenfield. **Verify current state when scoped** (what works in v0.2.0 vs the system-wide-paste vision): global hotkey capture, focus-preserving paste into the foreground app (macOS Accessibility / CGEvent; win32 SendInput), menubar/tray presence, model selection, push-to-talk vs toggle, privacy (local whisper). Distribution posture caveat: internal-use, unsigned (see standing refs). → promote to ROADMAP when scoped.
+- _(empty — capture new ideas here)_
+
+## ✅ SigmaVoice standalone — realized v0.3 (2026-05-29)
+
+Was the big "new idea" above; now built. **Standalone system-wide dictation app
+shipped to its own repo** `s1gmamale1/SigmaVoice` (operator-created), with the voice
+engine consumed from SigmaLink via a **git submodule** (single source of truth; dev
+continues here in `sigma-voice/`, that repo is the release home). v0.3 on branch
+`sigmavoice-v0.3` (relocated `app/apps/sigma-voice` → top-level `sigma-voice/`; real
+push-to-talk via `node-global-key-listener`; focus-preserving recording HUD;
+dictionary/macros + stats UI; persistent KV; Apple-grade settings; single-instance).
+Gate green (tsc + esbuild + native ABI); Opus-reviewed ship-worthy.
+**Remaining (operator/follow-up):** ① merge `sigmavoice-v0.3` → SigmaLink `main` (keeps
+the submodule-pinned SHA durable) · ② live mic/permission smoke (Mic + Accessibility +
+Input-Monitoring grants — needs hardware) · ③ validate the new repo's `release.yml` DMG/NSIS
+build on real GH runners (multi-arch native build is the open item; SigmaLink's
+`release-sigma-voice.yml` is the proven path meanwhile) · ④ deferred features: Windows
+keystroke-inject, AI-cleanup/cloud, floating pill, wake-word.
 
 ---
 
