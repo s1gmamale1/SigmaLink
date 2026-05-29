@@ -26,20 +26,21 @@ import {
   buildGlobalCaptureController,
   type GlobalCaptureController,
 } from '@sigmalink/voice-core';
+import { createFileKv, type KvStore } from './kv-store';
+import { getDictionary, setDictionary, getStatsSummary } from './settings-data';
+import { createHudWindow } from './hud-window';
+import { createHotkeyManager, type HotkeyManager } from './hotkey-manager';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------------------
-// KV — in-memory store backed by a plain object.
-// For production: swap to better-sqlite3 or Electron Store.
+// KV — file-backed store under <userData>/sigmavoice-kv.json.
+// Persists the dictionary + usage stats across restarts (v0.2 used an
+// in-memory Map that lost them on quit). Created in whenReady() once the
+// userData path is available.
 // ---------------------------------------------------------------------------
 
-const kvStore = new Map<string, string>();
-
-const kv = {
-  get: (key: string): string | null => kvStore.get(key) ?? null,
-  set: (key: string, value: string): void => { kvStore.set(key, value); },
-};
+let kv: KvStore | null = null;
 
 // ---------------------------------------------------------------------------
 // Models directory — store under <userData>/voice-models/
@@ -56,6 +57,27 @@ function getModelsDir(): string {
 let tray: Tray | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let captureCtrl: GlobalCaptureController | null = null;
+
+// Focus-preserving recording HUD overlay. Assigned in whenReady() to the
+// controller returned by createHudWindow() (src/hud-window.ts); structurally
+// typed here so this file is independent of that module's import.
+interface HudLike {
+  showRecording(): void;
+  showTranscribing(): void;
+  hide(): void;
+  destroy(): void;
+}
+let hud: HudLike | null = null;
+let hotkeyMgr: HotkeyManager | null = null;
+
+/** Drive the HUD overlay from capture-state changes. */
+function syncHud(payload: unknown): void {
+  if (!hud) return;
+  const state = (payload as { state?: string } | null)?.state;
+  if (state === 'recording') hud.showRecording();
+  else if (state === 'transcribing') hud.showTranscribing();
+  else hud.hide(); // idle / routing → dismiss
+}
 
 // ---------------------------------------------------------------------------
 // Tray menu
@@ -136,7 +158,9 @@ function openSettingsWindow(): void {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
+      // The build emits preload.cjs (CJS) into sigma-dist/ — NOT preload.js.
+      // v0.2 referenced 'preload.js' here, so window.bridgeVoice never loaded.
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
 
@@ -165,6 +189,13 @@ function registerIpc(): void {
     }
   });
 
+  // Change capture mode (toggle vs push-to-talk)
+  ipcMain.handle('bv:setMode', (_e, mode: string) => {
+    if (mode === 'toggle' || mode === 'push-to-talk') {
+      captureCtrl?.setMode(mode);
+    }
+  });
+
   // Change active model
   ipcMain.handle('bv:setModelId', (_e, id: string) => {
     captureCtrl?.setModelId(id);
@@ -173,17 +204,45 @@ function registerIpc(): void {
   // Manual trigger (for settings UI test button)
   ipcMain.handle('bv:startRecording', () => captureCtrl?.startRecording());
   ipcMain.handle('bv:stopAndTranscribe', () => captureCtrl?.stopAndTranscribe());
+
+  // Dictionary + verbal macros (persisted in KV 'voice.dictionary'; consumed by
+  // voice-core normalizeTranscript on every transcription).
+  ipcMain.handle('bv:getDictionary', () => (kv ? getDictionary(kv) : []));
+  ipcMain.handle('bv:setDictionary', (_e, entries: unknown) =>
+    kv ? setDictionary(kv, entries) : [],
+  );
+
+  // Usage stats summary (aggregated from KV 'voice.stats').
+  ipcMain.handle('bv:getStats', () =>
+    kv ? getStatsSummary(kv) : { totalWords: 0, recordings: 0, avgWpm: 0, recent: [] },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
 
+// Single-instance lock — a second launch focuses the existing instance's
+// settings window instead of starting a duplicate tray + global key listener
+// (which would double-register the hotkey and fight over the mic).
+const isPrimaryInstance = app.requestSingleInstanceLock();
+if (!isPrimaryInstance) {
+  app.quit();
+} else {
+  app.on('second-instance', () => openSettingsWindow());
+}
+
 app.whenReady().then(() => {
+  if (!isPrimaryInstance) return; // secondary instance is quitting
+
   // macOS: hide from Dock (system-tray-only app)
   if (process.platform === 'darwin') {
     app.dock?.hide();
   }
+
+  // Persistent KV — created now that userData is resolvable.
+  const store = createFileKv(path.join(app.getPath('userData'), 'sigmavoice-kv.json'));
+  kv = store;
 
   captureCtrl = buildGlobalCaptureController({
     emit: (event, payload) => {
@@ -191,17 +250,35 @@ app.whenReady().then(() => {
       if (settingsWindow && !settingsWindow.isDestroyed()) {
         settingsWindow.webContents.send(event, payload);
       }
-      // Rebuild tray menu on state changes
+      // Rebuild tray menu + drive the recording HUD on state changes
       if (event === 'voice:global-capture-state') {
         updateTray();
+        syncHud(payload);
       }
     },
-    kv,
+    kv: store,
     getModelsDir,
     clipboard: {
       writeText: (text: string) => clipboard.writeText(text),
     },
   });
+
+  // Focus-preserving recording HUD overlay (lazily shown on first record).
+  hud = createHudWindow({
+    preloadPath: path.join(__dirname, 'hud-preload.cjs'),
+    htmlPath: path.join(__dirname, '..', 'renderer', 'hud.html'),
+  });
+
+  // True push-to-talk: supply the key-UP edge Electron's globalShortcut lacks.
+  // Key-DOWN/start stays on the controller's globalShortcut; on release in
+  // push-to-talk mode we stop+transcribe. (Toggle mode is fully owned by the
+  // controller, so this is a no-op there.)
+  hotkeyMgr = createHotkeyManager({
+    getMode: () => captureCtrl?.getStatus().mode ?? 'toggle',
+    getHotkey: () => captureCtrl?.getStatus().hotkey ?? '',
+    onPushToTalkRelease: () => { void captureCtrl?.stopAndTranscribe(); },
+  });
+  hotkeyMgr.start();
 
   initTray();
   registerIpc();
@@ -214,6 +291,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  hotkeyMgr?.stop();
+  hud?.destroy();
   captureCtrl?.dispose();
 });
 

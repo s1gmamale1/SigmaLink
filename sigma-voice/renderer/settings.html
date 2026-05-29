@@ -5,178 +5,1296 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SigmaVoice Settings</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    /* ── Reset ────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
+    /* ── Design tokens ───────────────────────────────────────── */
+    :root {
+      /* Color — dark-mode system palette */
+      --bg:              #111114;
+      --surface:         rgba(28, 28, 30, 0.82);
+      --surface-opaque:  #1c1c1e;
+      --surface-raised:  rgba(44, 44, 46, 0.72);
+      --surface-raised-opaque: #2c2c2e;
+      --divider:         rgba(255, 255, 255, 0.08);
+      --accent:          #0a84ff;
+      --accent-dim:      rgba(10, 132, 255, 0.18);
+      --accent-pressed:  #0070d8;
+      --red:             #ff453a;
+      --orange:          #ff9f0a;
+      --green:           #30d158;
+      --label-primary:   rgba(255, 255, 255, 0.92);
+      --label-secondary: rgba(255, 255, 255, 0.55);
+      --label-tertiary:  rgba(255, 255, 255, 0.30);
+      --label-disabled:  rgba(255, 255, 255, 0.20);
+      --fill-primary:    rgba(255, 255, 255, 0.10);
+      --fill-secondary:  rgba(255, 255, 255, 0.06);
+      --fill-tertiary:   rgba(255, 255, 255, 0.04);
+
+      /* Typography — SF Pro stack */
+      --font: -apple-system, "SF Pro Text", "SF Pro Display",
+              "Helvetica Neue", Arial, sans-serif;
+      --font-mono: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
+
+      /* Radius */
+      --r-xs: 4px;
+      --r-sm: 6px;
+      --r-md: 10px;
+      --r-lg: 14px;
+      --r-xl: 18px;
+
+      /* Motion */
+      --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      --dur-fast: 140ms;
+      --dur-mid:  220ms;
+    }
+
+    /* Reduced-transparency: swap glass for opaque surfaces */
+    @media (prefers-reduced-transparency: reduce) {
+      :root {
+        --surface:        var(--surface-opaque);
+        --surface-raised: var(--surface-raised-opaque);
+        --bg:             #0d0d0f;
+      }
+    }
+
+    /* Reduced-motion: kill all transitions/animations */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        transition-duration: 0.001ms !important;
+        animation-duration:  0.001ms !important;
+      }
+    }
+
+    /* ── Root layout ─────────────────────────────────────────── */
+    html, body {
+      height: 100%;
+      width:  100%;
+      overflow: hidden;
+    }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 13px;
-      background: #1a1a1a;
-      color: #e0e0e0;
-      padding: 20px;
+      font-family:      var(--font);
+      font-size:        13px;
+      line-height:      1.45;
+      color:            var(--label-primary);
+      background:       var(--bg);
+      display:          flex;
+      flex-direction:   column;
+      -webkit-font-smoothing:  antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
-    h1 { font-size: 18px; margin-bottom: 16px; font-weight: 600; }
-    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;
-         color: #888; margin: 20px 0 8px; }
+
+    /* ── Chrome / title-bar drag region ─────────────────────── */
+    .titlebar {
+      height:           38px;
+      min-height:       38px;
+      display:          flex;
+      align-items:      center;
+      justify-content:  center;
+      -webkit-app-region: drag;
+      position:         relative;
+      flex-shrink:      0;
+    }
+
+    .titlebar-title {
+      font-size:    13px;
+      font-weight:  600;
+      letter-spacing: -0.01em;
+      color:        var(--label-secondary);
+      user-select:  none;
+    }
+
+    /* ── Tab nav ─────────────────────────────────────────────── */
+    .nav {
+      display:        flex;
+      align-items:    center;
+      gap:            2px;
+      padding:        0 12px 8px;
+      flex-shrink:    0;
+      -webkit-app-region: no-drag;
+    }
+
+    .nav-tab {
+      flex:           1;
+      padding:        5px 4px;
+      border:         none;
+      border-radius:  var(--r-sm);
+      background:     transparent;
+      color:          var(--label-secondary);
+      font-family:    var(--font);
+      font-size:      11px;
+      font-weight:    500;
+      letter-spacing: 0.01em;
+      cursor:         pointer;
+      text-align:     center;
+      transition:     background var(--dur-fast) var(--ease-out),
+                      color     var(--dur-fast) var(--ease-out);
+      -webkit-app-region: no-drag;
+    }
+
+    .nav-tab:hover {
+      background: var(--fill-primary);
+      color:      var(--label-primary);
+    }
+
+    .nav-tab[aria-selected="true"] {
+      background: var(--fill-secondary);
+      color:      var(--accent);
+      font-weight: 600;
+    }
+
+    /* ── Main scroll area ────────────────────────────────────── */
+    .main {
+      flex:       1;
+      overflow-y: auto;
+      padding:    0 12px 12px;
+      -webkit-app-region: no-drag;
+    }
+
+    .main::-webkit-scrollbar { width: 0; }
+
+    /* ── Panels (tab content) ────────────────────────────────── */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ── Card ────────────────────────────────────────────────── */
+    .card {
+      background:     var(--surface);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-radius:  var(--r-lg);
+      border:         1px solid var(--divider);
+      overflow:       hidden;
+      margin-bottom:  10px;
+    }
+
+    /* ── Row ─────────────────────────────────────────────────── */
     .row {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 8px 0; border-bottom: 1px solid #2a2a2a;
+      display:          flex;
+      align-items:      center;
+      justify-content:  space-between;
+      gap:              12px;
+      min-height:       42px;
+      padding:          8px 14px;
     }
-    .row:last-child { border-bottom: none; }
-    label { flex: 1; }
-    input[type="text"] {
-      background: #2a2a2a; border: 1px solid #444; border-radius: 4px;
-      color: #e0e0e0; padding: 4px 8px; font-size: 12px; width: 180px;
+
+    .row + .row {
+      border-top: 1px solid var(--divider);
     }
-    select {
-      background: #2a2a2a; border: 1px solid #444; border-radius: 4px;
-      color: #e0e0e0; padding: 4px 8px; font-size: 12px; width: 180px;
+
+    .row-label {
+      font-size:   13px;
+      font-weight: 400;
+      color:       var(--label-primary);
+      flex:        1;
+      min-width:   0;
     }
-    button {
-      background: #3a3a3a; border: 1px solid #555; border-radius: 4px;
-      color: #e0e0e0; padding: 5px 12px; font-size: 12px; cursor: pointer;
+
+    .row-sublabel {
+      font-size:   11px;
+      color:       var(--label-secondary);
+      margin-top:  1px;
     }
-    button:hover { background: #4a4a4a; }
-    button.primary { background: #0071e3; border-color: #0071e3; }
-    button.primary:hover { background: #0077ed; }
-    .status-badge {
-      display: inline-block; padding: 2px 8px; border-radius: 10px;
-      font-size: 11px; font-weight: 600;
+
+    /* ── Section header ──────────────────────────────────────── */
+    .section-header {
+      font-size:      11px;
+      font-weight:    600;
+      letter-spacing: 0.04em;
+      color:          var(--label-tertiary);
+      text-transform: uppercase;
+      padding:        14px 4px 4px;
+      margin-bottom:  2px;
     }
-    .status-badge.idle     { background: #2a2a2a; color: #888; }
-    .status-badge.recording { background: #c0392b; color: #fff; }
-    .status-badge.transcribing { background: #e67e22; color: #fff; }
+
+    /* ── Status badge ────────────────────────────────────────── */
+    .state-badge {
+      display:       inline-flex;
+      align-items:   center;
+      gap:           5px;
+      padding:       3px 10px 3px 8px;
+      border-radius: 100px;
+      font-size:     11px;
+      font-weight:   600;
+      letter-spacing: 0.01em;
+      transition:    background var(--dur-mid) var(--ease-out),
+                     color     var(--dur-mid) var(--ease-out);
+    }
+
+    .state-dot {
+      width:         6px;
+      height:        6px;
+      border-radius: 50%;
+      flex-shrink:   0;
+    }
+
+    .state-badge.idle        { background: var(--fill-secondary); color: var(--label-secondary); }
+    .state-badge.idle        .state-dot { background: var(--label-tertiary); }
+    .state-badge.recording   { background: rgba(255, 69, 58, 0.18);  color: var(--red); }
+    .state-badge.recording   .state-dot { background: var(--red); animation: pulse-dot 1.2s ease-in-out infinite; }
+    .state-badge.transcribing{ background: rgba(255, 159, 10, 0.18); color: var(--orange); }
+    .state-badge.transcribing .state-dot { background: var(--orange); }
+    .state-badge.routing     { background: rgba(48, 209, 88, 0.18);  color: var(--green); }
+    .state-badge.routing     .state-dot { background: var(--green); }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.5; transform: scale(0.75); }
+    }
+
+    /* ── Toggle switch ───────────────────────────────────────── */
+    .toggle-wrap {
+      display:    flex;
+      align-items: center;
+      gap:        8px;
+    }
+
+    .toggle {
+      position:   relative;
+      width:      40px;
+      height:     24px;
+      flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity:   0;
+      width:     0;
+      height:    0;
+      position:  absolute;
+    }
+
+    .toggle-track {
+      position:         absolute;
+      inset:            0;
+      border-radius:    100px;
+      background:       rgba(255, 255, 255, 0.12);
+      transition:       background var(--dur-fast) var(--ease-out);
+      cursor:           pointer;
+    }
+
+    .toggle input:checked + .toggle-track {
+      background: var(--green);
+    }
+
+    .toggle-track::after {
+      content:          '';
+      position:         absolute;
+      top:              2px;
+      left:             2px;
+      width:            20px;
+      height:           20px;
+      border-radius:    50%;
+      background:       #fff;
+      box-shadow:       0 1px 3px rgba(0,0,0,0.4);
+      transition:       transform var(--dur-fast) var(--ease-out);
+    }
+
+    .toggle input:checked + .toggle-track::after {
+      transform: translateX(16px);
+    }
+
+    .toggle input:focus-visible + .toggle-track {
+      outline:        2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* ── Segmented control ───────────────────────────────────── */
+    .seg-control {
+      display:        flex;
+      background:     var(--fill-secondary);
+      border-radius:  var(--r-sm);
+      padding:        2px;
+      gap:            0;
+      border:         1px solid var(--divider);
+    }
+
+    .seg-btn {
+      flex:           1;
+      padding:        4px 10px;
+      border:         none;
+      border-radius:  calc(var(--r-sm) - 2px);
+      background:     transparent;
+      color:          var(--label-secondary);
+      font-family:    var(--font);
+      font-size:      12px;
+      font-weight:    500;
+      cursor:         pointer;
+      transition:     background var(--dur-fast) var(--ease-out),
+                      color     var(--dur-fast) var(--ease-out);
+      white-space:    nowrap;
+    }
+
+    .seg-btn:hover:not([aria-pressed="true"]) {
+      color: var(--label-primary);
+    }
+
+    .seg-btn[aria-pressed="true"] {
+      background: var(--fill-primary);
+      color:      var(--label-primary);
+      font-weight: 600;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    }
+
+    /* ── Input ────────────────────────────────────────────────── */
+    .input-field {
+      background:     var(--fill-secondary);
+      border:         1px solid var(--divider);
+      border-radius:  var(--r-sm);
+      color:          var(--label-primary);
+      font-family:    var(--font-mono);
+      font-size:      12px;
+      padding:        5px 8px;
+      width:          190px;
+      transition:     border-color var(--dur-fast) var(--ease-out),
+                      background   var(--dur-fast) var(--ease-out);
+      outline:        none;
+    }
+
+    .input-field:focus {
+      border-color: var(--accent);
+      background:   rgba(10, 132, 255, 0.06);
+    }
+
+    .input-field::placeholder { color: var(--label-disabled); }
+
+    /* ── Select ────────────────────────────────────────────────── */
+    .select-field {
+      background:     var(--fill-secondary);
+      border:         1px solid var(--divider);
+      border-radius:  var(--r-sm);
+      color:          var(--label-primary);
+      font-family:    var(--font);
+      font-size:      12px;
+      padding:        5px 24px 5px 8px;
+      width:          190px;
+      appearance:     none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat:   no-repeat;
+      background-position: right 8px center;
+      cursor:         pointer;
+      outline:        none;
+    }
+
+    .select-field:focus {
+      border-color: var(--accent);
+    }
+
+    option {
+      background: var(--surface-opaque);
+      color:      var(--label-primary);
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────── */
+    .btn {
+      padding:        6px 14px;
+      border-radius:  var(--r-sm);
+      border:         none;
+      font-family:    var(--font);
+      font-size:      12px;
+      font-weight:    500;
+      cursor:         pointer;
+      transition:     background var(--dur-fast) var(--ease-out),
+                      transform  0.08s var(--ease-out),
+                      opacity    var(--dur-fast) var(--ease-out);
+      white-space:    nowrap;
+    }
+
+    .btn:active { transform: scale(0.97); }
+
+    .btn-secondary {
+      background: var(--fill-primary);
+      color:      var(--label-primary);
+      border:     1px solid var(--divider);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+
+    .btn-primary {
+      background: var(--accent);
+      color:      #fff;
+    }
+    .btn-primary:hover { background: var(--accent-pressed); }
+
+    .btn-danger {
+      background: rgba(255, 69, 58, 0.18);
+      color:      var(--red);
+      border:     1px solid rgba(255, 69, 58, 0.25);
+    }
+    .btn-danger:hover { background: rgba(255, 69, 58, 0.28); }
+
+    .btn-ghost {
+      background: transparent;
+      color:      var(--accent);
+      padding:    4px 0;
+    }
+    .btn-ghost:hover { opacity: 0.75; }
+
+    .btn:disabled {
+      opacity: 0.38;
+      cursor:  not-allowed;
+    }
+    .btn:disabled:active { transform: none; }
+
+    /* ── Record button (big) ─────────────────────────────────── */
+    .record-btn-wrap {
+      display:         flex;
+      justify-content: center;
+      padding:         6px 14px 10px;
+    }
+
+    .record-btn {
+      display:         flex;
+      align-items:     center;
+      gap:             7px;
+      padding:         9px 20px;
+      border-radius:   100px;
+      border:          none;
+      font-family:     var(--font);
+      font-size:       13px;
+      font-weight:     600;
+      cursor:          pointer;
+      transition:      background var(--dur-fast) var(--ease-out),
+                       transform  0.08s var(--ease-out);
+    }
+
+    .record-btn:active { transform: scale(0.97); }
+
+    .record-btn.idle {
+      background: var(--red);
+      color:      #fff;
+      box-shadow: 0 2px 12px rgba(255, 69, 58, 0.35);
+    }
+    .record-btn.idle:hover {
+      background: #e83a31;
+    }
+
+    .record-btn.recording {
+      background: rgba(255, 69, 58, 0.18);
+      color:      var(--red);
+      border:     1.5px solid rgba(255, 69, 58, 0.4);
+      box-shadow: none;
+    }
+
+    .record-icon {
+      width:  10px;
+      height: 10px;
+      border-radius: 50%;
+      background:    currentColor;
+      flex-shrink:   0;
+    }
+
+    .record-btn.recording .record-icon {
+      border-radius: 2px;
+    }
+
+    /* ── Dictionary table ────────────────────────────────────── */
+    .dict-table {
+      width:           100%;
+      border-collapse: collapse;
+      font-size:       12px;
+    }
+
+    .dict-table thead th {
+      padding:         6px 10px;
+      text-align:      left;
+      font-size:       10px;
+      font-weight:     600;
+      letter-spacing:  0.05em;
+      text-transform:  uppercase;
+      color:           var(--label-tertiary);
+      border-bottom:   1px solid var(--divider);
+    }
+
+    .dict-table tbody tr {
+      border-bottom: 1px solid var(--divider);
+    }
+    .dict-table tbody tr:last-child { border-bottom: none; }
+
+    .dict-table tbody tr:hover td {
+      background: var(--fill-tertiary);
+    }
+
+    .dict-table td {
+      padding: 6px 8px;
+      vertical-align: middle;
+    }
+
+    .dict-input {
+      background:   transparent;
+      border:       1px solid transparent;
+      border-radius: var(--r-xs);
+      color:        var(--label-primary);
+      font-family:  var(--font);
+      font-size:    12px;
+      padding:      3px 6px;
+      width:        100%;
+      outline:      none;
+      transition:   border-color var(--dur-fast) var(--ease-out),
+                    background   var(--dur-fast) var(--ease-out);
+    }
+
+    .dict-input:focus {
+      border-color: var(--accent);
+      background:   rgba(10, 132, 255, 0.06);
+    }
+
+    .dict-input-replacement {
+      font-family: var(--font-mono);
+      font-size:   11.5px;
+    }
+
+    .type-chip {
+      display:       inline-flex;
+      align-items:   center;
+      padding:       2px 7px;
+      border-radius: 100px;
+      font-size:     10px;
+      font-weight:   600;
+      letter-spacing: 0.03em;
+      cursor:        pointer;
+      user-select:   none;
+      border:        none;
+      transition:    background var(--dur-fast) var(--ease-out),
+                     color     var(--dur-fast) var(--ease-out);
+    }
+
+    .type-chip.phrase {
+      background: rgba(10, 132, 255, 0.18);
+      color:      var(--accent);
+    }
+    .type-chip.macro {
+      background: rgba(255, 159, 10, 0.18);
+      color:      var(--orange);
+    }
+
+    .dict-remove-btn {
+      background:  transparent;
+      border:      none;
+      color:       var(--label-tertiary);
+      cursor:      pointer;
+      padding:     2px 4px;
+      border-radius: var(--r-xs);
+      font-size:   14px;
+      line-height: 1;
+      transition:  color var(--dur-fast) var(--ease-out);
+    }
+    .dict-remove-btn:hover { color: var(--red); }
+
+    .dict-footer {
+      display:    flex;
+      align-items: center;
+      justify-content: space-between;
+      padding:    8px 14px;
+      border-top: 1px solid var(--divider);
+    }
+
+    /* ── Stats panel ─────────────────────────────────────────── */
+    .stats-grid {
+      display:               grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap:                   1px;
+      background:            var(--divider);
+      border-radius:         var(--r-lg);
+      overflow:              hidden;
+    }
+
+    .stat-cell {
+      background:  var(--surface);
+      padding:     14px 12px 12px;
+      text-align:  center;
+    }
+
+    .stat-value {
+      font-size:    26px;
+      font-weight:  700;
+      letter-spacing: -0.03em;
+      color:        var(--label-primary);
+      line-height:  1;
+    }
+
+    .stat-label {
+      font-size:    10px;
+      font-weight:  500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color:        var(--label-tertiary);
+      margin-top:   4px;
+    }
+
+    .recent-row {
+      display:          flex;
+      align-items:      center;
+      justify-content:  space-between;
+      gap:              8px;
+    }
+
+    .recent-row + .recent-row {
+      border-top: 1px solid var(--divider);
+    }
+
+    .recent-time {
+      font-size:  11px;
+      color:      var(--label-tertiary);
+      font-variant-numeric: tabular-nums;
+      min-width:  80px;
+    }
+
+    .recent-words {
+      font-size:   12px;
+      color:       var(--label-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .recent-wpm {
+      font-size:   12px;
+      color:       var(--accent);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      min-width:   48px;
+      text-align:  right;
+    }
+
+    .stats-empty {
+      padding:    20px 14px;
+      text-align: center;
+      color:      var(--label-tertiary);
+      font-size:  12px;
+    }
+
+    /* ── Toast ────────────────────────────────────────────────── */
     .toast {
-      position: fixed; bottom: 16px; left: 16px; right: 16px;
-      background: #333; border-radius: 6px; padding: 8px 12px;
-      font-size: 12px; display: none;
+      position:      fixed;
+      bottom:        12px;
+      left:          12px;
+      right:         12px;
+      background:    rgba(44, 44, 46, 0.95);
+      backdrop-filter: blur(20px) saturate(160%);
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      border-radius: var(--r-md);
+      border:        1px solid var(--divider);
+      padding:       9px 12px;
+      font-size:     12px;
+      display:       flex;
+      align-items:   center;
+      gap:           8px;
+      opacity:       0;
+      transform:     translateY(6px);
+      pointer-events: none;
+      transition:    opacity  var(--dur-mid) var(--ease-out),
+                     transform var(--dur-mid) var(--ease-out);
+      z-index:       100;
     }
-    .toast.info  { border-left: 3px solid #0071e3; }
-    .toast.warn  { border-left: 3px solid #e67e22; }
-    .toast.error { border-left: 3px solid #c0392b; }
-    #toggle-btn { min-width: 90px; text-align: center; }
+
+    .toast.visible {
+      opacity:   1;
+      transform: translateY(0);
+    }
+
+    .toast-dot {
+      width:         6px;
+      height:        6px;
+      border-radius: 50%;
+      flex-shrink:   0;
+    }
+
+    .toast.info  .toast-dot { background: var(--accent); }
+    .toast.warn  .toast-dot { background: var(--orange); }
+    .toast.error .toast-dot { background: var(--red); }
+
+    .toast-text {
+      flex:       1;
+      color:      var(--label-primary);
+      min-width:  0;
+    }
+
+    /* ── Unavailable notice ──────────────────────────────────── */
+    .unavailable-notice {
+      display:        flex;
+      flex-direction: column;
+      align-items:    center;
+      justify-content: center;
+      height:         100%;
+      gap:            8px;
+      color:          var(--label-tertiary);
+      font-size:      12px;
+      text-align:     center;
+      padding:        24px;
+    }
+
+    .unavailable-notice strong {
+      color:      var(--label-secondary);
+      font-size:  13px;
+    }
+
+    /* ── Utility ─────────────────────────────────────────────── */
+    .flex-end { justify-content: flex-end; }
+    .row-gap  { gap: 8px; }
   </style>
 </head>
 <body>
-  <h1>SigmaVoice</h1>
 
-  <h2>Status</h2>
-  <div class="row">
-    <label>Capture state</label>
-    <span id="state-badge" class="status-badge idle">idle</span>
-  </div>
-  <div class="row">
-    <label>Enabled</label>
-    <button id="toggle-btn">Enable</button>
+  <!-- Title bar -->
+  <div class="titlebar" role="banner">
+    <span class="titlebar-title">SigmaVoice</span>
   </div>
 
-  <h2>Hotkey</h2>
-  <div class="row">
-    <label>Global shortcut</label>
-    <input id="hotkey-input" type="text" placeholder="CommandOrControl+Alt+Space" />
-  </div>
-  <div class="row" style="justify-content:flex-end; padding-top:8px;">
-    <button id="hotkey-save-btn">Apply hotkey</button>
+  <!-- Tab navigation -->
+  <nav class="nav" role="tablist" aria-label="Settings sections">
+    <button class="nav-tab" role="tab" aria-selected="true"  aria-controls="panel-status"     id="tab-status"     data-panel="status">Status</button>
+    <button class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-capture"    id="tab-capture"    data-panel="capture">Capture</button>
+    <button class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-dictionary" id="tab-dictionary" data-panel="dictionary">Dictionary</button>
+    <button class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-usage"      id="tab-usage"      data-panel="usage">Usage</button>
+    <button class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-test"       id="tab-test"       data-panel="test">Test</button>
+  </nav>
+
+  <!-- Scroll container -->
+  <main class="main" role="main">
+
+    <!-- ── Panel: Status ──────────────────────────────────── -->
+    <div class="panel active" id="panel-status" role="tabpanel" aria-labelledby="tab-status">
+
+      <p class="section-header">Voice capture</p>
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="row-label">State</div>
+          </div>
+          <span id="state-badge" class="state-badge idle" aria-live="polite" aria-atomic="true">
+            <span class="state-dot" aria-hidden="true"></span>
+            <span id="state-text">idle</span>
+          </span>
+        </div>
+        <div class="row">
+          <div>
+            <div class="row-label">Enable SigmaVoice</div>
+            <div class="row-sublabel">Activates global hotkey capture</div>
+          </div>
+          <label class="toggle" aria-label="Enable SigmaVoice">
+            <input type="checkbox" id="enabled-toggle" role="switch" aria-checked="false" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Panel: Capture ─────────────────────────────────── -->
+    <div class="panel" id="panel-capture" role="tabpanel" aria-labelledby="tab-capture">
+
+      <p class="section-header">Hotkey</p>
+      <div class="card">
+        <div class="row">
+          <div class="row-label">Global shortcut</div>
+          <input id="hotkey-input" class="input-field" type="text"
+                 placeholder="CommandOrControl+Alt+Space"
+                 aria-label="Global hotkey shortcut" />
+        </div>
+        <div class="row flex-end">
+          <button id="hotkey-save-btn" class="btn btn-primary">Apply</button>
+        </div>
+      </div>
+
+      <p class="section-header">Mode</p>
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="row-label">Capture mode</div>
+            <div class="row-sublabel" id="mode-sublabel">Tap hotkey to start/stop</div>
+          </div>
+          <div class="seg-control" role="group" aria-label="Capture mode">
+            <button class="seg-btn" id="mode-toggle-btn" aria-pressed="true"  data-mode="toggle">Toggle</button>
+            <button class="seg-btn" id="mode-ptt-btn"    aria-pressed="false" data-mode="push-to-talk">Push-to-talk</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="section-header">Model</p>
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="row-label">Whisper model</div>
+            <div class="row-sublabel">Runs fully local — no internet</div>
+          </div>
+          <select id="model-select" class="select-field" aria-label="Whisper model">
+            <option value="tiny.en-q5_1">Tiny (31 MB) — fastest</option>
+            <option value="base.en-q5_1" selected>Base (57 MB) — recommended</option>
+            <option value="small.en-q5_1">Small (182 MB) — better accuracy</option>
+            <option value="medium.en-q5_0">Medium (515 MB) — near-large quality</option>
+          </select>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Panel: Dictionary ──────────────────────────────── -->
+    <div class="panel" id="panel-dictionary" role="tabpanel" aria-labelledby="tab-dictionary">
+
+      <p class="section-header">Phrases &amp; macros</p>
+      <div class="card">
+        <table class="dict-table" aria-label="Dictionary entries">
+          <thead>
+            <tr>
+              <th scope="col">Spoken phrase</th>
+              <th scope="col">Replacement</th>
+              <th scope="col">Type</th>
+              <th scope="col" style="width:28px"><span class="sr-only">Remove</span></th>
+            </tr>
+          </thead>
+          <tbody id="dict-body">
+            <!-- rows injected by JS -->
+          </tbody>
+        </table>
+        <div class="dict-footer">
+          <button id="dict-add-btn" class="btn btn-ghost">+ Add entry</button>
+          <button id="dict-save-btn" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+
+      <p class="section-header" style="color: var(--label-disabled); font-size:10px; padding-top:4px;">
+        Tip — macros can contain special characters: type "new line" → <code style="font-family:var(--font-mono); color:var(--label-tertiary);">\n</code>
+      </p>
+
+    </div>
+
+    <!-- ── Panel: Usage ───────────────────────────────────── -->
+    <div class="panel" id="panel-usage" role="tabpanel" aria-labelledby="tab-usage">
+
+      <p class="section-header">All time</p>
+      <div class="stats-grid" id="stats-grid" aria-label="Usage statistics">
+        <div class="stat-cell">
+          <div class="stat-value" id="stat-words">—</div>
+          <div class="stat-label">Words</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-value" id="stat-recordings">—</div>
+          <div class="stat-label">Sessions</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-value" id="stat-wpm">—</div>
+          <div class="stat-label">Avg WPM</div>
+        </div>
+      </div>
+
+      <p class="section-header">Recent activity</p>
+      <div class="card" id="recent-card">
+        <div class="stats-empty" id="recent-empty">No recordings yet</div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; padding: 4px 0 8px;">
+        <button id="stats-refresh-btn" class="btn btn-secondary" aria-label="Refresh usage stats">Refresh</button>
+      </div>
+
+    </div>
+
+    <!-- ── Panel: Test ────────────────────────────────────── -->
+    <div class="panel" id="panel-test" role="tabpanel" aria-labelledby="tab-test">
+
+      <p class="section-header">Manual trigger</p>
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="row-label">Test transcription</div>
+            <div class="row-sublabel">Record a clip and transcribe immediately</div>
+          </div>
+        </div>
+        <div class="record-btn-wrap">
+          <button id="record-btn" class="record-btn idle" aria-label="Start recording">
+            <span class="record-icon" aria-hidden="true"></span>
+            <span id="record-btn-label">Start recording</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true">
+    <span class="toast-dot" aria-hidden="true"></span>
+    <span class="toast-text" id="toast-text"></span>
   </div>
 
-  <h2>Model</h2>
-  <div class="row">
-    <label>Whisper model</label>
-    <select id="model-select">
-      <option value="tiny.en-q5_1">Tiny (31 MB) — fastest</option>
-      <option value="base.en-q5_1" selected>Base (57 MB) — recommended</option>
-      <option value="small.en-q5_1">Small (182 MB) — better accuracy</option>
-      <option value="medium.en-q5_0">Medium (515 MB) — near-large quality</option>
-    </select>
-  </div>
-
-  <h2>Test</h2>
-  <div class="row">
-    <label>Manual trigger</label>
-    <button id="record-btn">Start recording</button>
-  </div>
-
-  <div id="toast" class="toast"></div>
+  <!-- SR-only utility class -->
+  <style>.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}</style>
 
   <script type="module">
-    const bv = window.bridgeVoice;
-    if (!bv) {
-      document.body.innerHTML = '<p style="color:red;padding:20px">SigmaVoice preload not available.</p>';
+    // ── Safe API wrapper ──────────────────────────────────────────
+    // Every call is guarded: missing window.bridgeVoice or missing method
+    // degrades gracefully to a no-op / placeholder value.
+
+    const bv = window.bridgeVoice ?? null;
+
+    function hasMethod(name) {
+      return bv !== null && typeof bv[name] === 'function';
     }
 
-    // Initial state
-    async function refresh() {
-      const status = await bv.getStatus();
+    async function safeCall(name, ...args) {
+      if (!hasMethod(name)) return undefined;
+      try { return await bv[name](...args); } catch { return undefined; }
+    }
+
+    // ── Toast ─────────────────────────────────────────────────────
+    let toastTimer = null;
+    function showToast(message, level = 'info') {
+      const el = document.getElementById('toast');
+      const txt = document.getElementById('toast-text');
+      clearTimeout(toastTimer);
+      txt.textContent = message;
+      el.className = 'toast ' + level;
+      // Force reflow so transition fires even on rapid successive calls
+      void el.offsetWidth;
+      el.classList.add('visible');
+      toastTimer = setTimeout(() => el.classList.remove('visible'), 4000);
+    }
+
+    if (hasMethod('onToast')) {
+      bv.onToast(({ message, level }) => showToast(message, level));
+    }
+
+    // ── Tab navigation ────────────────────────────────────────────
+    const tabs   = document.querySelectorAll('[role="tab"]');
+    const panels = document.querySelectorAll('.panel');
+
+    function activateTab(tabEl) {
+      tabs.forEach(t => {
+        const isTarget = t === tabEl;
+        t.setAttribute('aria-selected', isTarget ? 'true' : 'false');
+      });
+      const targetPanelId = tabEl.getAttribute('aria-controls');
+      panels.forEach(p => {
+        p.classList.toggle('active', p.id === targetPanelId);
+      });
+      // Lazy-load panel data when first activated
+      const panel = tabEl.dataset.panel;
+      if (panel === 'dictionary') loadDictionary();
+      if (panel === 'usage')      loadStats();
+    }
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => activateTab(tab));
+      tab.addEventListener('keydown', e => {
+        const idx   = [...tabs].indexOf(e.currentTarget);
+        let next = -1;
+        if (e.key === 'ArrowRight') next = (idx + 1) % tabs.length;
+        if (e.key === 'ArrowLeft')  next = (idx - 1 + tabs.length) % tabs.length;
+        if (next !== -1) {
+          e.preventDefault();
+          tabs[next].focus();
+          activateTab(tabs[next]);
+        }
+      });
+    });
+
+    // ── State / Status helpers ────────────────────────────────────
+    function applyStatus(status) {
       if (!status) return;
 
+      // State badge
       const badge = document.getElementById('state-badge');
-      badge.textContent = status.state;
-      badge.className = 'status-badge ' + status.state;
+      const text  = document.getElementById('state-text');
+      const state = status.state ?? 'idle';
+      badge.className = 'state-badge ' + state;
+      text.textContent = state;
 
-      const toggleBtn = document.getElementById('toggle-btn');
-      toggleBtn.textContent = status.enabled ? 'Disable' : 'Enable';
+      // Enabled toggle
+      const toggle = document.getElementById('enabled-toggle');
+      toggle.checked = !!status.enabled;
+      toggle.setAttribute('aria-checked', String(!!status.enabled));
 
-      document.getElementById('hotkey-input').value = status.hotkey;
-      document.getElementById('model-select').value = status.modelId;
+      // Hotkey
+      if (status.hotkey !== undefined) {
+        document.getElementById('hotkey-input').value = status.hotkey;
+      }
 
-      const recordBtn = document.getElementById('record-btn');
-      recordBtn.textContent = status.state === 'recording' ? 'Stop & transcribe' : 'Start recording';
+      // Model
+      if (status.modelId !== undefined) {
+        document.getElementById('model-select').value = status.modelId;
+      }
+
+      // Mode
+      const mode = status.mode ?? 'toggle';
+      applyMode(mode);
+
+      // Record button
+      updateRecordBtn(state);
+    }
+
+    function applyMode(mode) {
+      const toggleBtn = document.getElementById('mode-toggle-btn');
+      const pttBtn    = document.getElementById('mode-ptt-btn');
+      const sublabel  = document.getElementById('mode-sublabel');
+      const isToggle  = mode === 'toggle';
+      toggleBtn.setAttribute('aria-pressed', String(isToggle));
+      pttBtn.setAttribute('aria-pressed',    String(!isToggle));
+      sublabel.textContent = isToggle
+        ? 'Tap hotkey to start/stop'
+        : 'Hold hotkey while speaking';
+    }
+
+    function updateRecordBtn(state) {
+      const btn   = document.getElementById('record-btn');
+      const label = document.getElementById('record-btn-label');
+      const isRec = state === 'recording';
+      btn.className = 'record-btn ' + (isRec ? 'recording' : 'idle');
+      label.textContent = isRec ? 'Stop & transcribe' : 'Start recording';
+      btn.setAttribute('aria-label', label.textContent);
+      // icon shape toggles via CSS (circle vs square) based on class
+    }
+
+    // ── Initial load ──────────────────────────────────────────────
+    async function refresh() {
+      const status = await safeCall('getStatus');
+      applyStatus(status);
     }
 
     refresh();
 
     // Live state updates
-    bv.onStateChange((status) => {
-      const badge = document.getElementById('state-badge');
-      badge.textContent = status.state;
-      badge.className = 'status-badge ' + status.state;
-
-      const toggleBtn = document.getElementById('toggle-btn');
-      toggleBtn.textContent = status.enabled ? 'Disable' : 'Enable';
-
-      const recordBtn = document.getElementById('record-btn');
-      recordBtn.textContent = status.state === 'recording' ? 'Stop & transcribe' : 'Start recording';
-    });
-
-    // Toast
-    function showToast(message, level = 'info') {
-      const el = document.getElementById('toast');
-      el.textContent = message;
-      el.className = 'toast ' + level;
-      el.style.display = 'block';
-      setTimeout(() => { el.style.display = 'none'; }, 4000);
+    if (hasMethod('onStateChange')) {
+      bv.onStateChange(status => applyStatus(status));
     }
 
-    bv.onToast(({ message, level }) => showToast(message, level));
-
-    // Toggle enable
-    document.getElementById('toggle-btn').addEventListener('click', async () => {
-      const status = await bv.getStatus();
-      await bv.setEnabled(!status?.enabled);
-      refresh();
+    // ── Enable toggle ─────────────────────────────────────────────
+    document.getElementById('enabled-toggle').addEventListener('change', async e => {
+      const enabled = e.target.checked;
+      e.target.setAttribute('aria-checked', String(enabled));
+      await safeCall('setEnabled', enabled);
     });
 
-    // Hotkey save
+    // ── Hotkey ────────────────────────────────────────────────────
     document.getElementById('hotkey-save-btn').addEventListener('click', async () => {
       const hotkey = document.getElementById('hotkey-input').value.trim();
-      if (hotkey) {
-        await bv.setHotkey(hotkey);
-        showToast('Hotkey updated to: ' + hotkey);
-      }
+      if (!hotkey) return;
+      await safeCall('setHotkey', hotkey);
+      showToast('Hotkey updated: ' + hotkey);
     });
 
-    // Model change
-    document.getElementById('model-select').addEventListener('change', async (e) => {
-      await bv.setModelId(e.target.value);
+    // ── Mode segmented control ────────────────────────────────────
+    document.getElementById('mode-toggle-btn').addEventListener('click', async () => {
+      applyMode('toggle');
+      await safeCall('setMode', 'toggle');
+    });
+    document.getElementById('mode-ptt-btn').addEventListener('click', async () => {
+      applyMode('push-to-talk');
+      await safeCall('setMode', 'push-to-talk');
     });
 
-    // Manual record
+    // ── Model select ──────────────────────────────────────────────
+    document.getElementById('model-select').addEventListener('change', async e => {
+      await safeCall('setModelId', e.target.value);
+    });
+
+    // ── Record button (Test panel) ────────────────────────────────
     document.getElementById('record-btn').addEventListener('click', async () => {
-      const status = await bv.getStatus();
+      const status = await safeCall('getStatus');
       if (status?.state === 'recording') {
-        await bv.stopAndTranscribe();
+        await safeCall('stopAndTranscribe');
       } else {
-        await bv.startRecording();
+        await safeCall('startRecording');
       }
     });
+
+    // ── Dictionary ────────────────────────────────────────────────
+    let dictLoaded = false;
+
+    async function loadDictionary() {
+      if (dictLoaded) return;
+      dictLoaded = true;
+      let entries = await safeCall('getDictionary');
+      if (!Array.isArray(entries) || entries.length === 0) {
+        // Populate with helpful placeholder examples when empty
+        entries = [
+          { pattern: 'new line',    replacement: '\n',  type: 'macro'  },
+          { pattern: 'open brace',  replacement: '{',   type: 'macro'  },
+          { pattern: 'close brace', replacement: '}',   type: 'macro'  },
+          { pattern: 'sigma link',  replacement: 'SigmaLink', type: 'phrase' },
+        ];
+      }
+      renderDictionary(entries);
+    }
+
+    function renderDictionary(entries) {
+      const body = document.getElementById('dict-body');
+      body.replaceChildren();
+      entries.forEach(entry => appendDictRow(entry));
+    }
+
+    function appendDictRow(entry = { pattern: '', replacement: '', type: 'phrase' }) {
+      const safeType = (entry.type === 'macro') ? 'macro' : 'phrase';
+
+      // -- Pattern input
+      const patternInput = document.createElement('input');
+      patternInput.className   = 'dict-input';
+      patternInput.type        = 'text';
+      patternInput.value       = String(entry.pattern ?? '');
+      patternInput.placeholder = 'spoken phrase';
+      patternInput.setAttribute('aria-label', 'Spoken phrase');
+
+      // -- Replacement input
+      const replacementInput = document.createElement('input');
+      replacementInput.className   = 'dict-input dict-input-replacement';
+      replacementInput.type        = 'text';
+      replacementInput.value       = String(entry.replacement ?? '');
+      replacementInput.placeholder = 'replacement text';
+      replacementInput.setAttribute('aria-label', 'Replacement text');
+
+      // -- Type chip button
+      const chip = document.createElement('button');
+      chip.className   = 'type-chip ' + safeType;
+      chip.dataset.type = safeType;
+      chip.textContent = safeType;
+      chip.setAttribute('aria-label', 'Toggle type between phrase and macro');
+      chip.title = 'Click to toggle type';
+      chip.addEventListener('click', () => {
+        const next = chip.dataset.type === 'phrase' ? 'macro' : 'phrase';
+        chip.dataset.type = next;
+        chip.className  = 'type-chip ' + next;
+        chip.textContent = next;
+      });
+
+      // -- Remove button
+      const removeBtn = document.createElement('button');
+      removeBtn.className   = 'dict-remove-btn';
+      removeBtn.textContent = '×';
+      removeBtn.setAttribute('aria-label', 'Remove entry');
+
+      // -- Assemble cells
+      const tdPattern     = document.createElement('td');
+      const tdReplacement = document.createElement('td');
+      const tdType        = document.createElement('td');
+      const tdRemove      = document.createElement('td');
+      tdPattern.appendChild(patternInput);
+      tdReplacement.appendChild(replacementInput);
+      tdType.appendChild(chip);
+      tdRemove.appendChild(removeBtn);
+
+      const tr = document.createElement('tr');
+      tr.appendChild(tdPattern);
+      tr.appendChild(tdReplacement);
+      tr.appendChild(tdType);
+      tr.appendChild(tdRemove);
+
+      removeBtn.addEventListener('click', () => tr.remove());
+
+      document.getElementById('dict-body').appendChild(tr);
+    }
+
+    document.getElementById('dict-add-btn').addEventListener('click', () => {
+      appendDictRow({ pattern: '', replacement: '', type: 'phrase' });
+      // Focus the new pattern input
+      const rows = document.querySelectorAll('#dict-body tr');
+      const last = rows[rows.length - 1];
+      last?.querySelector('input')?.focus();
+    });
+
+    document.getElementById('dict-save-btn').addEventListener('click', async () => {
+      const rows = document.querySelectorAll('#dict-body tr');
+      const entries = [];
+      rows.forEach(row => {
+        const inputs = row.querySelectorAll('input');
+        const chip   = row.querySelector('.type-chip');
+        const pattern     = inputs[0]?.value?.trim() ?? '';
+        const replacement = inputs[1]?.value ?? '';
+        const type        = chip?.dataset.type ?? 'phrase';
+        if (pattern) entries.push({ pattern, replacement, type });
+      });
+      await safeCall('setDictionary', entries);
+      showToast(`Saved ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`);
+    });
+
+    // ── Usage / Stats ─────────────────────────────────────────────
+    let statsLoaded = false;
+
+    async function loadStats() {
+      if (statsLoaded) return;
+      statsLoaded = true;
+      await fetchAndRenderStats();
+    }
+
+    async function fetchAndRenderStats() {
+      const stats = await safeCall('getStats');
+      renderStats(stats);
+    }
+
+    function renderStats(stats) {
+      const words      = stats?.totalWords    ?? null;
+      const recordings = stats?.recordings    ?? null;
+      const avgWpm     = stats?.avgWpm        ?? null;
+      const recent     = stats?.recent        ?? [];
+
+      document.getElementById('stat-words').textContent      = words      != null ? fmtNum(words)      : '—';
+      document.getElementById('stat-recordings').textContent = recordings != null ? fmtNum(recordings) : '—';
+      document.getElementById('stat-wpm').textContent        = avgWpm     != null ? Math.round(avgWpm) : '—';
+
+      const card  = document.getElementById('recent-card');
+      const empty = document.getElementById('recent-empty');
+
+      // Remove any previously rendered rows (keep empty placeholder)
+      card.querySelectorAll('.recent-row').forEach(r => r.remove());
+
+      if (!recent.length) {
+        empty.style.display = 'block';
+        return;
+      }
+
+      empty.style.display = 'none';
+
+      recent.slice(0, 8).forEach(rec => {
+        const row = document.createElement('div');
+        row.className = 'row recent-row';
+
+        const timeEl = document.createElement('span');
+        timeEl.className   = 'recent-time';
+        timeEl.textContent = fmtTime(rec.timestamp);
+
+        const wordsEl = document.createElement('span');
+        wordsEl.className   = 'recent-words';
+        wordsEl.textContent = fmtNum(rec.words ?? 0) + ' words';
+
+        const wpmEl = document.createElement('span');
+        wpmEl.className   = 'recent-wpm';
+        wpmEl.textContent = Math.round(rec.wpm ?? 0) + ' wpm';
+
+        row.appendChild(timeEl);
+        row.appendChild(wordsEl);
+        row.appendChild(wpmEl);
+        card.appendChild(row);
+      });
+    }
+
+    document.getElementById('stats-refresh-btn').addEventListener('click', async () => {
+      statsLoaded = false;
+      await fetchAndRenderStats();
+      statsLoaded = true;
+      showToast('Stats refreshed');
+    });
+
+    // ── Utility ───────────────────────────────────────────────────
+    function fmtNum(n) {
+      return Number(n).toLocaleString();
+    }
+    function fmtTime(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts);
+      const now = Date.now();
+      const diff = now - ts;
+      if (diff < 60_000)   return 'Just now';
+      if (diff < 3_600_000) return Math.floor(diff / 60_000) + 'm ago';
+      if (diff < 86_400_000) return Math.floor(diff / 3_600_000) + 'h ago';
+      return d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    }
+
+    // ── Degrade gracefully if bridgeVoice absent ──────────────────
+    if (!bv) {
+      showToast('SigmaVoice bridge unavailable — some features disabled', 'warn');
+    }
   </script>
 </body>
 </html>

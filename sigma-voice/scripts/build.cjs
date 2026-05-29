@@ -60,12 +60,15 @@ esbuild.buildSync({
   },
 });
 
-// Preload — must be CJS; Electron's contextBridge/ipcRenderer are CJS-land.
-esbuild.buildSync({
-  ...common,
-  entryPoints: [path.join(appRoot, 'src/preload.ts')],
-  format: 'cjs',
-  outfile: path.join(outDir, 'preload.cjs'),
-});
+// Preloads — must be CJS; Electron's contextBridge/ipcRenderer are CJS-land.
+// settings preload (window.bridgeVoice) + HUD-overlay preload (window.sigmaHud).
+for (const name of ['preload', 'hud-preload']) {
+  esbuild.buildSync({
+    ...common,
+    entryPoints: [path.join(appRoot, `src/${name}.ts`)],
+    format: 'cjs',
+    outfile: path.join(outDir, `${name}.cjs`),
+  });
+}
 
 console.log('[build-sigma-voice] wrote', path.relative(repoRoot, outDir));

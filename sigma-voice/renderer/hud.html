@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SigmaVoice HUD</title>
+  <style>
+    /*
+     * Self-contained recording HUD overlay. No frameworks, no external assets.
+     * Rendered into a transparent, click-through-feel BrowserWindow. The body
+     * itself is transparent; only the pill is painted.
+     */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;        /* let the transparent window show through */
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      /* Don't let the overlay capture text selection / drag. */
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: default;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      /* Small inset so the pill's shadow isn't clipped by the window edge. */
+      padding: 6px;
+    }
+
+    /* --- the glassy pill --- */
+    .pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      height: 100%;
+      padding: 0 14px;
+      border-radius: 16px;
+      /* Dark glass: translucent backing + blur + hairline highlight. */
+      background: rgba(28, 28, 30, 0.72);
+      -webkit-backdrop-filter: blur(22px) saturate(160%);
+      backdrop-filter: blur(22px) saturate(160%);
+      border: 0.5px solid rgba(255, 255, 255, 0.14);
+      box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.45),
+        inset 0 0.5px 0 rgba(255, 255, 255, 0.18);
+      color: #f2f2f7;
+      /* Entrance animation. */
+      animation: hud-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    @keyframes hud-in {
+      from { opacity: 0; transform: translateY(8px) scale(0.96); }
+      to   { opacity: 1; transform: translateY(0)   scale(1); }
+    }
+
+    /* --- recording indicator: pulsing red dot --- */
+    .indicator {
+      flex: 0 0 auto;
+      width: 12px;
+      height: 12px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ff453a;            /* systemRed (dark) */
+      box-shadow: 0 0 6px rgba(255, 69, 58, 0.8);
+      animation: dot-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes dot-pulse {
+      0%, 100% { opacity: 1;    transform: scale(1); }
+      50%      { opacity: 0.45; transform: scale(0.78); }
+    }
+
+    /* Transcribing: swap the dot for a thin rotating spinner ring. */
+    .pill[data-state="transcribing"] .dot { display: none; }
+    .spinner {
+      display: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.22);
+      border-top-color: #0a84ff;     /* systemBlue (dark) */
+      animation: spin 0.8s linear infinite;
+    }
+    .pill[data-state="transcribing"] .spinner { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* --- decorative animated equalizer (NOT real audio) --- */
+    .eq {
+      flex: 1 1 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      height: 22px;
+    }
+    .eq .bar {
+      width: 3px;
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(180deg, #5ac8fa, #0a84ff);
+      transform-origin: center;
+      transform: scaleY(0.25);
+      animation: eq-bounce 1s ease-in-out infinite;
+    }
+    /* Stagger the bars so they ripple like a waveform. */
+    .eq .bar:nth-child(1) { animation-delay: 0.00s; }
+    .eq .bar:nth-child(2) { animation-delay: 0.12s; }
+    .eq .bar:nth-child(3) { animation-delay: 0.24s; }
+    .eq .bar:nth-child(4) { animation-delay: 0.36s; }
+    .eq .bar:nth-child(5) { animation-delay: 0.48s; }
+    .eq .bar:nth-child(6) { animation-delay: 0.30s; }
+    .eq .bar:nth-child(7) { animation-delay: 0.18s; }
+    @keyframes eq-bounce {
+      0%, 100% { transform: scaleY(0.22); }
+      50%      { transform: scaleY(1); }
+    }
+
+    /* Transcribing: calm the equalizer into a gentle shimmer (no bouncing). */
+    .pill[data-state="transcribing"] .eq .bar {
+      background: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0.25));
+      animation: eq-shimmer 1.2s ease-in-out infinite;
+    }
+    @keyframes eq-shimmer {
+      0%, 100% { transform: scaleY(0.32); opacity: 0.5; }
+      50%      { transform: scaleY(0.5);  opacity: 0.9; }
+    }
+
+    /* --- timer --- */
+    .timer {
+      flex: 0 0 auto;
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum";
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      color: #f2f2f7;
+      min-width: 42px;
+      text-align: right;
+    }
+    /* In transcribing, the timer is frozen; dim it + show a label cue. */
+    .pill[data-state="transcribing"] .timer { color: #aeaeb2; }
+
+    /* --- reduced motion: kill all animation, keep states legible --- */
+    @media (prefers-reduced-motion: reduce) {
+      .pill { animation: none; }
+      .dot { animation: none; }
+      .spinner { animation: none; }
+      .eq .bar { animation: none !important; transform: scaleY(0.5); }
+    }
+  </style>
+</head>
+<body>
+  <!-- Default markup renders the 'recording' state so the HUD is visible even
+       if no preload / no state event ever arrives (fail-visible). -->
+  <div class="pill" id="pill" data-state="recording" role="status" aria-live="polite">
+    <div class="indicator">
+      <div class="dot" aria-hidden="true"></div>
+      <div class="spinner" aria-hidden="true"></div>
+    </div>
+    <div class="eq" aria-hidden="true">
+      <span class="bar"></span>
+      <span class="bar"></span>
+      <span class="bar"></span>
+      <span class="bar"></span>
+      <span class="bar"></span>
+      <span class="bar"></span>
+      <span class="bar"></span>
+    </div>
+    <div class="timer" id="timer" aria-label="Elapsed time">00:00</div>
+  </div>
+
+  <script type="module">
+    // -----------------------------------------------------------------------
+    // Contract assumed from the HUD preload (the lead exposes EXACTLY this):
+    //   window.sigmaHud.onState((payload) => { ... })
+    //   payload = { state: 'recording' | 'transcribing' }
+    // If window.sigmaHud is missing we leave the static 'recording' markup in
+    // place so the overlay still shows something useful.
+    // -----------------------------------------------------------------------
+
+    const pill = document.getElementById('pill');
+    const timerEl = document.getElementById('timer');
+
+    // --- elapsed timer (owned entirely by the renderer) ---
+    let startMs = 0;
+    let rafId = 0;
+
+    function fmt(totalSeconds) {
+      const s = Math.max(0, Math.floor(totalSeconds));
+      const mm = String(Math.floor(s / 60)).padStart(2, '0');
+      const ss = String(s % 60).padStart(2, '0');
+      return mm + ':' + ss;
+    }
+
+    function tick() {
+      const elapsed = (performance.now() - startMs) / 1000;
+      timerEl.textContent = fmt(elapsed);
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function startTimer() {
+      stopTimer();
+      startMs = performance.now();
+      timerEl.textContent = '00:00';
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function stopTimer() {
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      // Leave the last value displayed (frozen) — do NOT reset to 00:00.
+    }
+
+    function applyState(state) {
+      if (state === 'recording') {
+        pill.setAttribute('data-state', 'recording');
+        startTimer();
+      } else if (state === 'transcribing') {
+        pill.setAttribute('data-state', 'transcribing');
+        stopTimer(); // freeze the elapsed time
+      }
+    }
+
+    // Wire up the preload bridge if present; otherwise stay on static markup.
+    const hud = window.sigmaHud;
+    if (hud && typeof hud.onState === 'function') {
+      hud.onState((payload) => {
+        if (payload && (payload.state === 'recording' || payload.state === 'transcribing')) {
+          applyState(payload.state);
+        }
+      });
+    } else {
+      // Fail-visible: render the static 'recording' state and run the timer so
+      // the overlay is obviously alive even without the bridge.
+      applyState('recording');
+    }
+  </script>
+</body>
+</html>
