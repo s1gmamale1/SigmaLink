@@ -60,12 +60,29 @@ const HUD_WIDTH = 220;
 const HUD_HEIGHT = 64;
 const HUD_MARGIN_BOTTOM = 48; // gap above the Dock / screen edge
 
+// Safety net: the HUD relies on the capture controller emitting a terminal
+// 'idle' state to hide. If that event is ever missed (a throw in the emit path,
+// a future controller code path that returns without emitting), the always-on-
+// top overlay would pin over the user's work forever. We bound that: once in
+// 'transcribing' (the brief tail of a capture), auto-hide after this timeout if
+// no further state arrives. NOT applied to 'recording' (dictation can legitimately
+// run for minutes); only the post-capture tail is time-bounded.
+const TRANSCRIBE_SAFETY_MS = 90_000;
+
 export function createHudWindow(deps: HudWindowDeps): HudController {
   let win: BrowserWindow | null = null;
   // Tracks whether the renderer has finished its initial load. State sends
   // issued before this are buffered and flushed on 'did-finish-load'.
   let ready = false;
   let pendingState: HudState | null = null;
+  let safetyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearSafetyTimer(): void {
+    if (safetyTimer) {
+      clearTimeout(safetyTimer);
+      safetyTimer = null;
+    }
+  }
 
   function computeBounds(): { x: number; y: number; width: number; height: number } {
     // Bottom-center of the primary display's WORK AREA (excludes menu bar / Dock).
@@ -166,8 +183,16 @@ export function createHudWindow(deps: HudWindowDeps): HudController {
     }
   }
 
+  function doHide(): void {
+    clearSafetyTimer();
+    if (win && !win.isDestroyed() && win.isVisible()) {
+      win.hide();
+    }
+  }
+
   return {
     showRecording(): void {
+      clearSafetyTimer(); // recording is not time-bounded
       showInactive();
       sendState('recording');
     },
@@ -177,13 +202,16 @@ export function createHudWindow(deps: HudWindowDeps): HudController {
       if (!win || win.isDestroyed()) return;
       showInactive();
       sendState('transcribing');
+      // Arm the safety auto-hide: if no terminal 'idle' arrives, dismiss so a
+      // missed event can't pin the overlay permanently.
+      clearSafetyTimer();
+      safetyTimer = setTimeout(doHide, TRANSCRIBE_SAFETY_MS);
     },
     hide(): void {
-      if (win && !win.isDestroyed() && win.isVisible()) {
-        win.hide();
-      }
+      doHide();
     },
     destroy(): void {
+      clearSafetyTimer();
       if (win && !win.isDestroyed()) {
         win.destroy();
       }

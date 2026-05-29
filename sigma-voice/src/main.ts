@@ -20,6 +20,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  Notification,
   Tray,
 } from 'electron';
 import {
@@ -69,6 +70,32 @@ interface HudLike {
 }
 let hud: HudLike | null = null;
 let hotkeyMgr: HotkeyManager | null = null;
+// True when the global key-UP listener could not attach (e.g. Input Monitoring
+// not granted). In push-to-talk mode this means hold-to-talk is unavailable and
+// the hotkey degrades to tap-to-toggle — we tell the user when it matters.
+let pttListenerUnavailable = false;
+
+/** Notify the user that push-to-talk degraded to tap-to-toggle. */
+function warnPushToTalkDegraded(): void {
+  const body =
+    'Hold-to-talk needs Input Monitoring (System Settings → Privacy & ' +
+    'Security → Input Monitoring). Until granted, the hotkey works as ' +
+    'tap-to-toggle: press once to start, press again to stop.';
+  try {
+    if (Notification.isSupported()) {
+      new Notification({ title: 'SigmaVoice — push-to-talk limited', body }).show();
+    }
+  } catch {
+    /* notifications are best-effort */
+  }
+  // Also surface in the settings window if it's open.
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send('voice:global-capture-toast', {
+      message: body,
+      level: 'warn',
+    });
+  }
+}
 
 /** Drive the HUD overlay from capture-state changes. */
 function syncHud(payload: unknown): void {
@@ -193,6 +220,9 @@ function registerIpc(): void {
   ipcMain.handle('bv:setMode', (_e, mode: string) => {
     if (mode === 'toggle' || mode === 'push-to-talk') {
       captureCtrl?.setMode(mode);
+      // Switching INTO push-to-talk while the key-UP listener never attached →
+      // warn that hold-to-talk won't work until Input Monitoring is granted.
+      if (mode === 'push-to-talk' && pttListenerUnavailable) warnPushToTalkDegraded();
     }
   });
 
@@ -277,6 +307,11 @@ app.whenReady().then(() => {
     getMode: () => captureCtrl?.getStatus().mode ?? 'toggle',
     getHotkey: () => captureCtrl?.getStatus().hotkey ?? '',
     onPushToTalkRelease: () => { void captureCtrl?.stopAndTranscribe(); },
+    onListenerUnavailable: () => {
+      pttListenerUnavailable = true;
+      // Only worth telling the user if they're actually in push-to-talk mode.
+      if (captureCtrl?.getStatus().mode === 'push-to-talk') warnPushToTalkDegraded();
+    },
   });
   hotkeyMgr.start();
 

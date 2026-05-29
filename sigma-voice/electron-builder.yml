@@ -21,6 +21,13 @@ files:
   - sigma-dist/**/*
   - renderer/**/*
   - package.json
+  # The voice-whisper package ships a ~21 MB whisper.cpp vendor source tree that
+  # electron-builder copies wholesale (it ignores a dependency's own `files`
+  # allowlist). Only build/Release/whisper_bridge.node is needed at runtime —
+  # prune the vendor sources + gyp scaffolding from the installer.
+  - "!node_modules/@sigmalink/voice-whisper/vendor${/*}"
+  - "!node_modules/@sigmalink/voice-*/src${/*}"
+  - "!node_modules/@sigmalink/voice-*/binding.gyp"
 
 # asar: false — mirrors app/electron-builder.yml rationale: native .node files
 # (voice-mac, voice-win, voice-whisper) cannot be dlopen'd from inside an asar
@@ -28,12 +35,20 @@ files:
 # content-addressed layout, we ship with asar disabled.
 asar: false
 
-npmRebuild: true
+# npmRebuild: false — the natives are link:-deps pointing at ../app/native/*, and
+# they are ALREADY rebuilt for Electron's ABI by the `@electron/rebuild` step in
+# release-sigma-voice.yml (which runs in app/ before packaging). Letting
+# electron-builder npm-rebuild them here recompiles whisper.cpp FROM SOURCE over
+# the symlink into the shared app/native tree — redundant in CI and outright
+# destructive locally (a failed/partial make wipes the shared .node the main app
+# also uses). electron-builder only needs to COPY the prebuilt .node, which a
+# verified `--mac dir` pack confirms it does correctly with rebuild off.
+npmRebuild: false
 
 # asarUnpack: kept here as documentation for when asar is re-enabled.
-# Since sigmavoice-v0.3 the native binaries are resolved via file: deps and land
+# Since sigmavoice-v0.3 the native binaries are resolved via link: deps and land
 # under this app's node_modules/@sigmalink/voice-*/build/Release/*.node (the
-# file: source lives at ../app/native/voice-*). electron-builder resolves
+# link: source lives at ../app/native/voice-*). electron-builder resolves
 # asarUnpack patterns relative to the bundle root (same as `files:`), so the
 # patterns below will match once asar is turned back on.
 #
@@ -41,10 +56,6 @@ npmRebuild: true
 #   - "node_modules/@sigmalink/voice-mac/build/Release/*.node"
 #   - "node_modules/@sigmalink/voice-win/build/Release/*.node"
 #   - "node_modules/@sigmalink/voice-whisper/build/Release/*.node"
-
-extraResources:
-  - from: sigma-dist
-    to: sigma-dist
 
 mac:
   category: public.app-category.productivity

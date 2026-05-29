@@ -11,7 +11,7 @@
 //   outDir     = SigmaLink/sigma-voice/sigma-dist/
 //   repo root  = SigmaLink/  (two levels up — only for the cosmetic log below)
 // The native modules (voice-mac/win/whisper) live under ../app/native/ and are
-// resolved at runtime via file: deps in package.json; here they stay external.
+// resolved at runtime via link: deps in package.json; here they stay external.
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -38,6 +38,13 @@ const common = {
     '@sigmalink/voice-mac',
     '@sigmalink/voice-win',
     '@sigmalink/voice-whisper',
+
+    // node-global-key-listener spawns a prebuilt key-server binary via paths
+    // relative to its OWN package dir (__dirname). Bundling it rewrites those
+    // paths to sigma-dist/ and the binary can't be found → push-to-talk would
+    // silently never fire. Keep it external so it loads from node_modules and
+    // resolves its server binary correctly. (asar:false ships node_modules.)
+    'node-global-key-listener',
 
     // Optional Drizzle drivers — externalize the same set as the main app so
     // esbuild does not complain about missing optional peer deps.

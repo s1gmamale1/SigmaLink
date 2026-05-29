@@ -98,8 +98,9 @@ jobs:
 
       # sigmavoice-v0.3 — sigma-voice now lives at the repo-root sibling
       # SigmaLink/sigma-voice/ and consumes voice-core + the natives (rebuilt
-      # above under app/native/) via file: deps. Install in its own dir so the
-      # file: links resolve, then bundle.
+      # above under app/native/) via link: deps. Install in its own dir so the
+      # link: symlinks resolve, then bundle. electron-builder runs with
+      # npmRebuild:false so it copies (not recompiles) the already-rebuilt natives.
       - name: Install + bundle sigma-voice (main + preload)
         working-directory: sigma-voice
         run: |
@@ -190,7 +191,8 @@ jobs:
         continue-on-error: true
 
       # sigmavoice-v0.3 — install + bundle from the repo-root sibling dir
-      # (file: deps resolve voice-core + the natives rebuilt above under app/).
+      # (link: deps resolve voice-core + the natives rebuilt above under app/;
+      # electron-builder npmRebuild:false copies the prebuilt natives).
       - name: Install + bundle sigma-voice (main + preload)
         working-directory: sigma-voice
         run: |

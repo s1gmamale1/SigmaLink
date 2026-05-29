@@ -46,6 +46,13 @@ export interface HotkeyManagerDeps {
   getHotkey: () => string;
   /** Wired by the lead to `controller.stopAndTranscribe()`. */
   onPushToTalkRelease: () => void;
+  /**
+   * Called once when the global key-UP listener cannot attach (e.g. macOS
+   * Input Monitoring not granted, or unsupported platform). The lead uses this
+   * to tell the user that hold-to-talk is unavailable and the hotkey has
+   * degraded to tap-to-toggle (press to start, press again to stop). Optional.
+   */
+  onListenerUnavailable?: (reason: string) => void;
 }
 
 export interface HotkeyManager {
@@ -197,6 +204,7 @@ export function createHotkeyManager(deps: HotkeyManagerDeps): HotkeyManager {
           try { gkl.kill(); } catch { /* ignore */ }
           listener = null;
           onKey = null;
+          notifyUnavailable(err);
         });
       listener = gkl;
     } catch (err) {
@@ -208,6 +216,21 @@ export function createHotkeyManager(deps: HotkeyManagerDeps): HotkeyManager {
       );
       listener = null;
       onKey = null;
+      notifyUnavailable(err);
+    }
+  }
+
+  // Fire onListenerUnavailable at most once, defensively.
+  let notifiedUnavailable = false;
+  function notifyUnavailable(err: unknown): void {
+    if (notifiedUnavailable) return;
+    notifiedUnavailable = true;
+    try {
+      deps.onListenerUnavailable?.(
+        err instanceof Error ? err.message : String(err),
+      );
+    } catch {
+      /* never let a notifier throw break start() */
     }
   }
 
