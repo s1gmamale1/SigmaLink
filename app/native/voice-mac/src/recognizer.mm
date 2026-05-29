@@ -186,7 +186,6 @@ void Recognizer::Start(const std::string& locale, bool onDevice, bool addPunctua
 
     AVAudioEngine* engine = [[AVAudioEngine alloc] init];
     AVAudioInputNode* input = [engine inputNode];
-    AVAudioFormat* fmt = [input outputFormatForBus:0];
 
     SVRecognizerImpl* impl = g_impl();
     impl.recognizer = recognizer;
@@ -194,9 +193,17 @@ void Recognizer::Start(const std::string& locale, bool onDevice, bool addPunctua
     impl.engine = engine;
     impl.active = YES;
 
+    // CRITICAL: pass format:nil, NOT outputFormatForBus:0. Reading the input
+    // node's format before [engine prepare]/start can return a stale/default
+    // format; installing the tap with an explicit format that doesn't match the
+    // bus's actual hardware format (e.g. a 2ch/44100 Hz mic) makes AVFAudio throw
+    // an uncatchable NSException ("Failed to create tap due to format mismatch")
+    // that aborts the whole process. nil tells AVAudioEngine to use the bus's
+    // real format — it cannot mismatch. We read the true sample rate per-buffer
+    // from buffer.format inside the block (A1).
     [input installTapOnBus:0
                 bufferSize:1024
-                    format:fmt
+                    format:nil
                      block:^(AVAudioPCMBuffer * _Nonnull buffer, AVAudioTime * _Nonnull when) {
       // Audio thread; minimal work — feed both the SF recognition request
       // and the whisper.cpp PCM accumulator in a single tap block.
@@ -218,13 +225,13 @@ void Recognizer::Start(const std::string& locale, bool onDevice, bool addPunctua
           // floatChannelData[0] is the left/mono channel; whisper expects mono.
           const float* samples = buffer.floatChannelData ? buffer.floatChannelData[0] : nullptr;
           if (samples != nullptr) {
-            // A1: pass the actual hardware sample rate from AVAudioFormat so
-            // the JS resampler does not have to assume 48 kHz. fmt is the
-            // format passed to installTapOnBus:bufferSize:format: — it reflects
-            // the AVAudioInputNode's outputFormatForBus:0 which equals the
-            // hardware's native rate (e.g. 48000 on M-series, 44100 on some
-            // older / external audio devices).
-            double hwRate = fmt.sampleRate > 0 ? fmt.sampleRate : 48000.0;
+            // A1: read the ACTUAL hardware sample rate from the delivered
+            // buffer's format (the bus's real format, since the tap was
+            // installed with format:nil), so the JS resampler doesn't assume
+            // 48 kHz. Handles 48000 (M-series), 44100 (many external/USB mics), etc.
+            double hwRate = (buffer.format != nil && buffer.format.sampleRate > 0)
+                                ? buffer.format.sampleRate
+                                : 48000.0;
             rec.EmitPcm(samples, static_cast<size_t>(frameCount), hwRate);
           }
         }

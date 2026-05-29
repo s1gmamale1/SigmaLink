@@ -26,6 +26,12 @@ import {
 import {
   buildGlobalCaptureController,
   type GlobalCaptureController,
+  MODEL_CATALOG,
+  isModelDownloaded,
+  downloadModel,
+  abortDownload,
+  isDownloading,
+  type DownloadProgress,
 } from '@sigmalink/voice-core';
 import { createFileKv, type KvStore } from './kv-store';
 import { getDictionary, setDictionary, getStatsSummary } from './settings-data';
@@ -246,6 +252,47 @@ function registerIpc(): void {
   ipcMain.handle('bv:getStats', () =>
     kv ? getStatsSummary(kv) : { totalWords: 0, recordings: 0, avgWpm: 0, recent: [] },
   );
+
+  // --- Whisper model management -------------------------------------------
+  // List the catalog with per-model status (downloaded / downloading / active).
+  ipcMain.handle('bv:listModels', () => {
+    const modelsDir = getModelsDir();
+    const activeId = captureCtrl?.getStatus().modelId;
+    return MODEL_CATALOG.map((m) => ({
+      id: m.id,
+      name: m.name,
+      sizeMb: m.sizeMb,
+      isDefault: m.isDefault,
+      downloaded: isModelDownloaded(m, modelsDir),
+      downloading: isDownloading(m.id),
+      active: m.id === activeId,
+    }));
+  });
+
+  // Download a model; streams progress to the settings window over
+  // 'voice:model-download', resolves when complete (or rejects → caught here).
+  ipcMain.handle('bv:downloadModel', async (_e, id: string) => {
+    const entry = MODEL_CATALOG.find((m) => m.id === id);
+    if (!entry) return { ok: false, error: `Unknown model: ${id}` };
+    const emit = (p: DownloadProgress): void => {
+      if (settingsWindow && !settingsWindow.isDestroyed()) {
+        settingsWindow.webContents.send('voice:model-download', p);
+      }
+    };
+    try {
+      await downloadModel(entry, getModelsDir(), emit);
+      return { ok: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      emit({ modelId: id, bytesDone: 0, bytesTotal: 0, fraction: 0, done: true, error: message });
+      return { ok: false, error: message };
+    }
+  });
+
+  // Abort an in-flight download.
+  ipcMain.handle('bv:abortDownload', (_e, id: string) => {
+    try { abortDownload(id); } catch { /* ignore */ }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -325,10 +372,17 @@ app.on('window-all-closed', () => {
   // User must choose Quit from the tray menu.
 });
 
+let quitting = false;
 app.on('before-quit', () => {
-  hotkeyMgr?.stop();
-  hud?.destroy();
-  captureCtrl?.dispose();
+  if (quitting) return; // idempotent
+  quitting = true;
+  // Guarded teardown. NOTE (W-SV2): the voice natives release an N-API
+  // ThreadSafeFunction during dispose that can SIGABRT at quit
+  // (napi_release_threadsafe_function → uv_mutex_lock) — a quit-time teardown
+  // race, app already exiting. Proper fix is in tsfn_bridge release semantics.
+  try { hotkeyMgr?.stop(); } catch { /* ignore */ }
+  try { hud?.destroy(); } catch { /* ignore */ }
+  try { captureCtrl?.dispose(); } catch { /* ignore */ }
 });
 
 // macOS: re-activate on Dock click (rare since Dock is hidden, but safe)

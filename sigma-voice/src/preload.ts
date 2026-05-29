@@ -22,6 +22,12 @@ contextBridge.exposeInMainWorld('bridgeVoice', {
   getDictionary: () => ipcRenderer.invoke('bv:getDictionary'),
   setDictionary: (entries: DictionaryEntry[]) => ipcRenderer.invoke('bv:setDictionary', entries),
   getStats: () => ipcRenderer.invoke('bv:getStats'),
+  listModels: () => ipcRenderer.invoke('bv:listModels'),
+  downloadModel: (id: string) => ipcRenderer.invoke('bv:downloadModel', id),
+  abortDownload: (id: string) => ipcRenderer.invoke('bv:abortDownload', id),
+  onModelDownload: (cb: (p: unknown) => void) => {
+    ipcRenderer.on('voice:model-download', (_e, p) => cb(p));
+  },
   onStateChange: (cb: (status: unknown) => void) => {
     ipcRenderer.on('voice:global-capture-state', (_e, status) => cb(status));
   },

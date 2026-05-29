@@ -816,18 +816,14 @@
 
       <p class="section-header">Model</p>
       <div class="card">
-        <div class="row">
+        <div class="row" style="border-bottom:none; padding-bottom:4px;">
           <div>
             <div class="row-label">Whisper model</div>
-            <div class="row-sublabel">Runs fully local — no internet</div>
+            <div class="row-sublabel">Runs fully local — download one to transcribe. Until then, macOS Speech is used.</div>
           </div>
-          <select id="model-select" class="select-field" aria-label="Whisper model">
-            <option value="tiny.en-q5_1">Tiny (31 MB) — fastest</option>
-            <option value="base.en-q5_1" selected>Base (57 MB) — recommended</option>
-            <option value="small.en-q5_1">Small (182 MB) — better accuracy</option>
-            <option value="medium.en-q5_0">Medium (515 MB) — near-large quality</option>
-          </select>
+          <button id="model-refresh-btn" class="btn btn-ghost" aria-label="Refresh model list">Refresh</button>
         </div>
+        <div id="model-list" aria-live="polite"><!-- injected by JS --></div>
       </div>
 
     </div>
@@ -1013,11 +1009,6 @@
         document.getElementById('hotkey-input').value = status.hotkey;
       }
 
-      // Model
-      if (status.modelId !== undefined) {
-        document.getElementById('model-select').value = status.modelId;
-      }
-
       // Mode
       const mode = status.mode ?? 'toggle';
       applyMode(mode);
@@ -1086,10 +1077,109 @@
       await safeCall('setMode', 'push-to-talk');
     });
 
-    // ── Model select ──────────────────────────────────────────────
-    document.getElementById('model-select').addEventListener('change', async e => {
-      await safeCall('setModelId', e.target.value);
-    });
+    // ── Whisper models: list + download + set-active ──────────────
+    const modelListEl = document.getElementById('model-list');
+
+    function fmtModelName(m) {
+      const tag = m.isDefault ? ' · recommended' : '';
+      return m.name + ' (' + m.sizeMb + ' MB' + tag + ')';
+    }
+
+    function makeBtn(label, cls) {
+      const b = document.createElement('button');
+      b.className = 'btn ' + (cls || 'btn-ghost');
+      b.textContent = label;
+      return b;
+    }
+
+    async function renderModels() {
+      if (!hasMethod('listModels')) { modelListEl.textContent = ''; return; }
+      let models;
+      try { models = await bv.listModels(); } catch { models = null; }
+      modelListEl.replaceChildren();
+      if (!Array.isArray(models) || models.length === 0) {
+        const p = document.createElement('div');
+        p.className = 'row-sublabel';
+        p.style.padding = '8px 0';
+        p.textContent = 'No models available.';
+        modelListEl.appendChild(p);
+        return;
+      }
+      for (const m of models) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.style.alignItems = 'center';
+
+        const left = document.createElement('div');
+        const name = document.createElement('div');
+        name.className = 'row-label';
+        name.textContent = fmtModelName(m);
+        const sub = document.createElement('div');
+        sub.className = 'row-sublabel';
+        sub.id = 'model-sub-' + m.id;
+        sub.textContent = m.active ? 'Active' : (m.downloaded ? 'Downloaded' : 'Not downloaded');
+        left.appendChild(name); left.appendChild(sub);
+
+        const right = document.createElement('div');
+        right.style.minWidth = '110px';
+        right.style.textAlign = 'right';
+        right.id = 'model-action-' + m.id;
+
+        if (m.active) {
+          const tag = document.createElement('span');
+          tag.className = 'status-badge';
+          tag.textContent = '✓ Active';
+          right.appendChild(tag);
+        } else if (m.downloaded) {
+          const use = makeBtn('Use', 'btn-primary');
+          use.addEventListener('click', async () => {
+            await safeCall('setModelId', m.id);
+            showToast('Active model: ' + m.name);
+            renderModels();
+          });
+          right.appendChild(use);
+        } else if (m.downloading) {
+          sub.textContent = 'Downloading…';
+        } else {
+          const dl = makeBtn('Download', 'btn-primary');
+          dl.addEventListener('click', () => startDownload(m));
+          right.appendChild(dl);
+        }
+
+        row.appendChild(left); row.appendChild(right);
+        modelListEl.appendChild(row);
+      }
+    }
+
+    async function startDownload(m) {
+      if (!hasMethod('downloadModel')) return;
+      const sub = document.getElementById('model-sub-' + m.id);
+      const action = document.getElementById('model-action-' + m.id);
+      if (sub) sub.textContent = 'Starting…';
+      if (action) action.replaceChildren();
+      try {
+        const res = await bv.downloadModel(m.id);
+        if (res && res.ok === false) showToast('Download failed: ' + (res.error || 'unknown'), 'error');
+      } catch (err) {
+        showToast('Download failed', 'error');
+      }
+      renderModels();
+    }
+
+    if (hasMethod('onModelDownload')) {
+      bv.onModelDownload(p => {
+        if (!p || !p.modelId) return;
+        const sub = document.getElementById('model-sub-' + p.modelId);
+        if (!sub) return;
+        if (p.error) { sub.textContent = 'Failed: ' + p.error; return; }
+        if (p.done) { sub.textContent = 'Downloaded'; renderModels(); return; }
+        const pct = Math.round((p.fraction || 0) * 100);
+        sub.textContent = 'Downloading… ' + pct + '%';
+      });
+    }
+
+    document.getElementById('model-refresh-btn').addEventListener('click', renderModels);
+    renderModels();
 
     // ── Record button (Test panel) ────────────────────────────────
     document.getElementById('record-btn').addEventListener('click', async () => {
