@@ -3,7 +3,11 @@
 **Author:** voice-architect (system-architect agent)
 **Date:** 2026-05-10
 **Phase:** 4, Step 3 (Step 4 wake-word DEFERRED to v1.2)
-**Status:** Design — ready for coder agent to implement
+**Status:** ✅ REALIZED (2026-05-29) — shipped as the standalone **SigmaVoice** app
+(repo `s1gmamale1/SigmaVoice`, macOS arm64 v0.3.2). The native-mac speech module + the
+capture/transcription engine live in `app/native/voice-mac` + `app/packages/voice-core`
+(the standalone app consumes them via a SigmaLink git submodule). This document is the
+original design, retained as history. Wake-word ("Hey Jorvis") remains off by default.
 **Source research:** `agentdb_pattern-search` namespace `phase4-voice-research`, key `macos-speech-framework-napi-2026-05-10`
 **Plan reference:** `~/.claude/plans/download-a-skill-plugin-that-lexical-pinwheel.md` Step 3
 

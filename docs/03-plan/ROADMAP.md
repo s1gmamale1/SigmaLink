@@ -6,9 +6,9 @@
 > permanent record lives in `CHANGELOG.md`, the master memory
 > (`~/.claude/projects/.../memory/`), and the Ruflo AgentDB.
 >
-> **Shipped baseline: v1.36.0 (2026-05-29) + on-main-untagged: video+perf harness & FE-4 a11y subset (`dbce7e6`).**
+> **Shipped baseline: SigmaLink v1.36.0 (+ on-main-untagged video+perf harness & FE-4 a11y `dbce7e6`); SigmaVoice standalone v0.3.2 (own repo `s1gmamale1/SigmaVoice`, macOS arm64 DMG).**
 >
-> **🟢 The backlog is DRAINED of actionable, unblocked work.** Nothing here can be picked up by an agent right now without an operator first unblocking it — every remaining item is **blocked** (needs win32 dogfood / unshipped voice builds), **operator-owned** (SF-12 sign-off, manual QA smokes), or **low optional polish**. New work starts in `WISHLIST.md` (currently empty).
+> **🟢 The SigmaLink backlog is DRAINED of actionable, unblocked work** (blocked / operator-owned / low polish). The newest actionable thread is **SigmaVoice follow-ups** (W-SV1 Windows build, W-SV2 quit-abort) — see below + `WISHLIST.md`.
 
 ---
 
@@ -16,9 +16,12 @@
 
 | # | Item | Type | Status |
 |---|------|------|--------|
+| **SV1** | SigmaVoice W-SV1 — Windows NSIS build (`voice-whisper` MSVC link `LNK1120`) | native build | 🚧 needs binding.gyp surgery + Windows-runner CI iteration |
+| **SV2** | SigmaVoice W-SV2 — quit-time TSFN SIGABRT (`napi_release_threadsafe_function`) | native bug | quit-only; needs `tsfn_bridge` release-semantics fix |
 | **B1** | W-4 P8–P9 + win32 shell-first dogfood | cleanup | 🚧 BLOCKED — needs an operator Windows dogfood |
 | **B2** | FE-4 voice items | polish | 🚧 BLOCKED — unshipped native voice builds |
 | **op** | SF-12 migration `0026` register + ship | operator-owned | dormant — needs diagnostic-SQL sign-off |
+| **op** | SigmaVoice live mic/permission smoke (Mic+Accessibility+Input-Monitoring) | operator-owned | needs the device |
 | **op** | FE-4 device a11y QA (VoiceOver/Switch-Control) | polish | operator-owned — needs a device |
 | **opt** | SF-14 auto-trigger lazy Ruflo install on first open | small | optional, low (renderer-triggered today) |
 

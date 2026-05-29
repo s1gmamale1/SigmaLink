@@ -14,28 +14,31 @@
 
 - _(empty — capture new ideas here)_
 
-## ✅ SigmaVoice standalone — realized v0.3 (2026-05-29)
+## ✅ SigmaVoice standalone — realized + shipping (2026-05-29)
 
-Was the big "new idea" above; now built. **Standalone system-wide dictation app
-shipped to its own repo** `s1gmamale1/SigmaVoice` (operator-created), with the voice
-engine consumed from SigmaLink via a **git submodule** (single source of truth; dev
-continues here in `sigma-voice/`, that repo is the release home). v0.3 on branch
-`sigmavoice-v0.3` (relocated `app/apps/sigma-voice` → top-level `sigma-voice/`; real
-push-to-talk via `node-global-key-listener`; focus-preserving recording HUD;
-dictionary/macros + stats UI; persistent KV; Apple-grade settings; single-instance).
-Gate green (tsc + esbuild + native ABI); Opus-reviewed ship-worthy. ✅ Merged to SigmaLink
-`main`; ✅ **macOS DMG RELEASED — `SigmaVoice v0.3.0` (arm64)** at
-`github.com/s1gmamale1/SigmaVoice/releases/tag/v0.3.0` (CI `release.yml` mac job green;
-DMG natives load real, locally validated).
-**Remaining (operator/follow-up):**
-- **W-SV1 — Windows NSIS build BLOCKED (real native bug).** The v0.3.0 release.yml win job
-  failed: `voice-win` compiles, but `voice-whisper` x64 **fails to link** — `LNK1120: 40
-  unresolved externals` (`ggml_cpu_init`, `ggml_threadpool_new`, `ggml_barrier`,
-  `ggml_backend_cuda_reg`, `ggml_set_f32`, …). The shared `app/native/voice-whisper/binding.gyp`
-  source/define set links on macOS (clang) but **not MSVC** (whisper.cpp builds on Windows via
-  CMake; the gyp Windows port is incomplete — e.g. `ggml_backend_cuda_reg` referenced w/ no CUDA,
-  arch-conditional CPU sources). **Needs binding.gyp surgery + CI iteration on a Windows runner**
-  (no local Windows). Focused sub-task. Operator chose: ship mac now, fix Windows next.
+Was the big "new idea" above; now built + released. **Standalone system-wide dictation app
+in its own repo** `s1gmamale1/SigmaVoice` (operator-created), voice engine consumed from
+SigmaLink via a **git submodule** (single source of truth; dev continues here in `sigma-voice/`,
+that repo is the release home). Relocated `app/apps/sigma-voice` → top-level `sigma-voice/`; real
+push-to-talk (`node-global-key-listener`, lazy-loaded); focus-preserving recording HUD;
+dictionary/macros + stats UI; **model-download UX** (list + size + download w/ live % + activate);
+persistent KV; Apple-grade settings + distinct icon; single-instance. Merged to SigmaLink `main`.
+✅ **macOS DMG RELEASED — `SigmaVoice v0.3.2` (arm64)** (`releases/tag/v0.3.2`); `curl | bash`
+installer (`scripts/install-macos.sh`). v0.3.0/v0.3.1 deleted (each crashed; superseded).
+
+**Open follow-ups:**
+- **W-SV1 — Windows NSIS build BLOCKED (native bug).** release.yml win job: `voice-win` compiles,
+  `voice-whisper` x64 **fails to LINK** (`LNK1120: 40 unresolved ggml_* externals` —
+  `ggml_cpu_init`, `ggml_threadpool_new`, `ggml_barrier`, `ggml_backend_cuda_reg`, …). The shared
+  `app/native/voice-whisper/binding.gyp` links on macOS/clang but **not MSVC** (whisper.cpp is
+  CMake-on-Windows; gyp Windows port incomplete — `ggml_backend_cuda_reg` w/ no CUDA, arch-cond
+  CPU sources). Needs binding.gyp surgery + CI iteration on a Windows runner. Operator: mac now, Windows next.
+- **W-SV2 — quit-time SIGABRT (native TSFN teardown).** Quitting AFTER a recording session can throw
+  a crash report: `napi_release_threadsafe_function` → `uv_mutex_lock` abort during the voice
+  natives' ThreadSafeFunction release. App has already quit (no data loss; capture/transcribe
+  unaffected). `app.exit`/`process.exit` don't dodge it (abort is inside `dispose()`'s native
+  release). Proper fix is in `tsfn_bridge` release semantics (release/abort the TSFN before loop
+  teardown). Affects SigmaLink in-app voice too. Quit-only → lower priority.
 - ① live mic/permission smoke (Mic + Accessibility + Input-Monitoring grants — needs hardware)
 - ② deferred features: Windows keystroke-inject, AI-cleanup/cloud, floating pill, wake-word.
 
