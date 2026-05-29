@@ -25,9 +25,9 @@ files:
   # electron-builder copies wholesale (it ignores a dependency's own `files`
   # allowlist). Only build/Release/whisper_bridge.node is needed at runtime —
   # prune the vendor sources + gyp scaffolding from the installer.
-  - "!node_modules/@sigmalink/voice-whisper/vendor${/*}"
-  - "!node_modules/@sigmalink/voice-*/src${/*}"
-  - "!node_modules/@sigmalink/voice-*/binding.gyp"
+  - "!**/@sigmalink/voice-whisper/vendor/**"
+  - "!**/@sigmalink/voice-*/src/**"
+  - "!**/@sigmalink/voice-*/binding.gyp"
 
 # asar: false — mirrors app/electron-builder.yml rationale: native .node files
 # (voice-mac, voice-win, voice-whisper) cannot be dlopen'd from inside an asar
@@ -72,11 +72,15 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: "SigmaVoice needs microphone access for system-wide dictation."
     NSSpeechRecognitionUsageDescription: "SigmaVoice uses speech recognition to transcribe your voice into any app."
+  # arm64 only — per the SigmaLink ADR (macOS arm64 + Windows x64 only). Single
+  # arch also means the natives build natively on the arm64 runner (no x64
+  # cross-compile of whisper.cpp), which is what makes the unsigned release
+  # reproducible.
   target:
     - target: dmg
-      arch: [x64, arm64]
+      arch: [arm64]
     - target: zip
-      arch: [x64, arm64]
+      arch: [arm64]
 
 win:
   target:

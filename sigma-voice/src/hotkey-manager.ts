@@ -29,10 +29,14 @@
 // (logs a warning, no throw) so toggle mode keeps working via the controller's
 // own globalShortcut.
 
-import {
+// Type-only import — the VALUE (GlobalKeyboardListener) is loaded lazily inside
+// start() via dynamic import, so a load failure (a missing transitive dep like
+// sudo-prompt, or an unsupported platform) is CAUGHT and degrades to toggle mode
+// instead of crashing the whole main process with an uncaught exception.
+import type {
   GlobalKeyboardListener,
-  type IGlobalKey,
-  type IGlobalKeyEvent,
+  IGlobalKey,
+  IGlobalKeyEvent,
 } from 'node-global-key-listener';
 
 // ---------------------------------------------------------------------------
@@ -161,6 +165,8 @@ export function createHotkeyManager(deps: HotkeyManagerDeps): HotkeyManager {
   let listener: GlobalKeyboardListener | null = null;
   // The bound listener callback — kept so we can removeListener on stop().
   let onKey: ((e: IGlobalKeyEvent) => void) | null = null;
+  // Guards against re-entrant start() while the async load is in flight.
+  let starting = false;
 
   function handleKey(event: IGlobalKeyEvent): void {
     // We only care about the release edge.
@@ -180,44 +186,39 @@ export function createHotkeyManager(deps: HotkeyManagerDeps): HotkeyManager {
   }
 
   function start(): void {
-    if (listener) return; // already started — idempotent
-    try {
-      const gkl = new GlobalKeyboardListener();
-      // Listener returns void (we never capture/halt events — listen-only).
-      onKey = handleKey;
-      // addListener resolves once the key server has spawned; a rejected
-      // promise means the server failed to launch (e.g. Input Monitoring
-      // permission denied on macOS, or no X server on Linux).
-      void gkl
-        .addListener((event) => {
+    if (listener || starting) return; // idempotent (incl. mid-async-load)
+    starting = true;
+    // Load the lib LAZILY via dynamic import so a load failure — a missing
+    // transitive dep (e.g. sudo-prompt), an unsupported platform, or the key
+    // server failing to spawn (Input Monitoring denied on macOS) — is caught
+    // HERE and degrades to toggle mode, rather than throwing at module-eval and
+    // crashing the whole main process with an uncaught exception.
+    void (async () => {
+      let gkl: GlobalKeyboardListener | null = null;
+      try {
+        const mod = await import('node-global-key-listener');
+        gkl = new mod.GlobalKeyboardListener();
+        onKey = handleKey;
+        // Resolves once the key server has spawned. listen-only (returns void).
+        await gkl.addListener((event) => {
           onKey?.(event);
-        })
-        .catch((err: unknown) => {
-          console.warn(
-            '[hotkey-manager] global key listener unavailable — push-to-talk ' +
-              'release detection disabled (toggle mode still works). ' +
-              'On macOS grant Input Monitoring in System Settings → Privacy & ' +
-              'Security. Error:',
-            err,
-          );
-          // Tear down the half-initialised server so we don't leak it.
-          try { gkl.kill(); } catch { /* ignore */ }
-          listener = null;
-          onKey = null;
-          notifyUnavailable(err);
         });
-      listener = gkl;
-    } catch (err) {
-      // Constructor / module-load failure (e.g. unsupported platform). Degrade.
-      console.warn(
-        '[hotkey-manager] failed to initialise global key listener — ' +
-          'push-to-talk release detection disabled (toggle mode still works):',
-        err,
-      );
-      listener = null;
-      onKey = null;
-      notifyUnavailable(err);
-    }
+        listener = gkl;
+      } catch (err) {
+        console.warn(
+          '[hotkey-manager] global key listener unavailable — push-to-talk ' +
+            'release detection disabled (toggle mode still works). On macOS grant ' +
+            'Input Monitoring in System Settings → Privacy & Security. Error:',
+          err,
+        );
+        if (gkl) { try { gkl.kill(); } catch { /* ignore */ } }
+        listener = null;
+        onKey = null;
+        notifyUnavailable(err);
+      } finally {
+        starting = false;
+      }
+    })();
   }
 
   // Fire onListenerUnavailable at most once, defensively.
