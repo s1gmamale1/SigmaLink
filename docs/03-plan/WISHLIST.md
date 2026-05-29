@@ -23,12 +23,12 @@ continues here in `sigma-voice/`, that repo is the release home). v0.3 on branch
 `sigmavoice-v0.3` (relocated `app/apps/sigma-voice` → top-level `sigma-voice/`; real
 push-to-talk via `node-global-key-listener`; focus-preserving recording HUD;
 dictionary/macros + stats UI; persistent KV; Apple-grade settings; single-instance).
-Gate green (tsc + esbuild + native ABI); Opus-reviewed ship-worthy.
-**Remaining (operator/follow-up):** ① merge `sigmavoice-v0.3` → SigmaLink `main` (keeps
-the submodule-pinned SHA durable) · ② live mic/permission smoke (Mic + Accessibility +
-Input-Monitoring grants — needs hardware) · ③ validate the new repo's `release.yml` DMG/NSIS
+Gate green (tsc + esbuild + native ABI); Opus-reviewed ship-worthy. ✅ **Merged to
+SigmaLink `main` `d1c74af`** (FF; submodule-pinned SHA `a7ba0fc` now durable; branch deleted).
+**Remaining (operator/follow-up):** ① live mic/permission smoke (Mic + Accessibility +
+Input-Monitoring grants — needs hardware) · ② validate the new repo's `release.yml` DMG/NSIS
 build on real GH runners (multi-arch native build is the open item; SigmaLink's
-`release-sigma-voice.yml` is the proven path meanwhile) · ④ deferred features: Windows
+`release-sigma-voice.yml` is the proven path meanwhile) · ③ deferred features: Windows
 keystroke-inject, AI-cleanup/cloud, floating pill, wake-word.
 
 ---
