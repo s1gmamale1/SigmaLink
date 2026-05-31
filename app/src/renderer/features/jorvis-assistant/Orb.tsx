@@ -105,4 +105,33 @@ const ORB_KEYFRAMES = `
   0%   { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+/* Reduced-motion: kill the perpetual pulse/breathe/scroll/rotate loops.
+   The orb still indicates state — via static opacity / accent tint per
+   data-state — it just stops moving. (HIG "Reduce Motion" + WCAG 2.3.3.) */
+@media (prefers-reduced-motion: reduce) {
+  .sl-orb,
+  .sl-orb[data-state='standby'] .sl-orb-glow,
+  .sl-orb[data-state='listening'],
+  .sl-orb[data-state='receiving'] .sl-orb-glow,
+  .sl-orb[data-state='thinking'] .sl-orb-glow {
+    animation: none !important;
+    transform: none !important;
+  }
+  /* Static, non-animated state indication. Each state still reads
+     differently at a glance (glow strength + listening cyan tint). */
+  .sl-orb[data-state='standby'] .sl-orb-glow { opacity: 0.40; }
+  .sl-orb[data-state='listening'] { --orb-accent: oklch(0.85 0.18 200); }
+  .sl-orb[data-state='listening'] .sl-orb-glow { opacity: 0.60; }
+  .sl-orb[data-state='receiving'] .sl-orb-glow {
+    background: radial-gradient(circle, var(--orb-accent) 0%, transparent 65%);
+    background-size: auto;
+    background-position: center;
+    opacity: 0.70;
+  }
+  .sl-orb[data-state='thinking'] .sl-orb-glow {
+    background: radial-gradient(circle, var(--orb-accent) 0%, transparent 65%);
+    opacity: 0.55;
+  }
+}
 `;

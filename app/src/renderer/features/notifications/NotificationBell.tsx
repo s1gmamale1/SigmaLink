@@ -4,6 +4,14 @@
 // when any unread row is `critical` (D1). Clicking toggles the dropdown.
 // The dropdown is owned by `<NotificationDropdown />`; this component is
 // the trigger + visible state machine.
+//
+// UX-9 — reduced-motion critical cue: when prefers-reduced-motion: reduce is
+// active the CSS `sl-bell-pulse` animation is already suppressed globally.
+// To ensure urgency still lands for those users, we also apply
+// `sl-bell-critical-static` which renders a static ring using the --ring
+// token — a shape+colour cue that survives without any motion. Both classes
+// are always present on a critical bell; `sl-bell-critical-static` only
+// activates inside `@media (prefers-reduced-motion: reduce)` (see global CSS).
 
 import { Bell } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -47,9 +55,12 @@ export function NotificationBell() {
         aria-haspopup="menu"
         data-testid="notification-bell"
         // D1 — critical pulses the bell button.
+        // UX-9 — `sl-bell-critical-static` adds a static ring for
+        // prefers-reduced-motion users so urgency is visible without motion.
+        // It is a no-op for users who allow motion (the pulse wins).
         className={cn(
           'relative inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground',
-          hasCritical && 'sl-bell-pulse',
+          hasCritical && 'sl-bell-pulse sl-bell-critical-static',
         )}
       >
         <Bell className="h-4 w-4" aria-hidden />

@@ -124,7 +124,8 @@ describe('NotificationItem', () => {
         onMarkUnread={() => undefined}
       />,
     );
-    fireEvent.click(screen.getByLabelText(/Open title-a/));
+    // UX-9 — aria-label now prefixes the severity word: "Info: title-a".
+    fireEvent.click(screen.getByLabelText(/title-a/));
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

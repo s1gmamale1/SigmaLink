@@ -9,11 +9,15 @@
 import { useMemo, useState } from 'react';
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   useSensor,
   useSensors,
   useDroppable,
+  defaultDropAnimationSideEffects,
   type DragEndEvent,
+  type DragStartEvent,
+  type DropAnimation,
 } from '@dnd-kit/core';
 import { ListChecks, Plus, Users } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
@@ -23,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { Task, TaskStatus } from '@/shared/types';
+import { Card } from './Card';
 import { Column } from './Column';
 import { NewTaskDrawer } from './NewTaskDrawer';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
@@ -37,6 +42,23 @@ const COLUMN_DEFS: Array<{ id: TaskStatus; label: string; hint: string }> = [
 
 const EMPTY_TASKS: never[] = [];
 
+/**
+ * Apple-grade spring settle: cubic-bezier approximation of a spring curve
+ * (~250 ms). Disabled (instant snap) when `prefers-reduced-motion` is set.
+ */
+const reducedMotion =
+  typeof window !== 'undefined' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const DROP_ANIMATION: DropAnimation = reducedMotion
+  ? { duration: 0, easing: 'linear', sideEffects: defaultDropAnimationSideEffects({}) }
+  : {
+      duration: 250,
+      // Spring-like curve: fast deceleration then micro-settle.
+      easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+      sideEffects: defaultDropAnimationSideEffects({}),
+    };
+
 export function TasksRoom() {
   const { state } = useAppState();
   const wsId = state.activeWorkspace?.id ?? '';
@@ -45,6 +67,9 @@ export function TasksRoom() {
   const [newColumn, setNewColumn] = useState<TaskStatus>('backlog');
   const [detail, setDetail] = useState<Task | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Track which task card is currently being dragged so the DragOverlay can
+  // render the flying clone.
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
 
   // BUG-W7-008: derive drawer visibility from current room. When state.room
   // is not 'tasks', the drawer must not render even if the local `newOpen` /
@@ -72,7 +97,18 @@ export function TasksRoom() {
 
   const activeSwarm = state.swarms.find((s) => s.id === state.activeSwarmId) ?? null;
 
+  const handleDragStart = (event: DragStartEvent) => {
+    const activeId = String(event.active.id ?? '');
+    if (!activeId.startsWith('task:')) return;
+    const taskId = activeId.slice('task:'.length);
+    const found = tasks.find((t) => t.id === taskId) ?? null;
+    setActiveTask(found);
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
+    // Clear the overlay regardless of whether the drop lands on a target.
+    setActiveTask(null);
+
     const overId = String(event.over?.id ?? '');
     const activeId = String(event.active.id ?? '');
     if (!overId.length || !activeId.startsWith('task:')) return;
@@ -135,7 +171,7 @@ export function TasksRoom() {
         </Button>
       </header>
       {err ? <ErrorBanner message={err} onDismiss={() => setErr(null)} /> : null}
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="relative flex min-h-0 flex-1">
           <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto p-2">
             {COLUMN_DEFS.map((c) => (
@@ -167,6 +203,12 @@ export function TasksRoom() {
           task={drawerDetail}
           onClose={() => setDetail(null)}
         />
+        {/* Flying clone — rendered on a portal above all layers so it clears
+            column overflow:hidden boundaries and plays the settle animation
+            when dropped. */}
+        <DragOverlay dropAnimation={DROP_ANIMATION}>
+          {activeTask ? <Card task={activeTask} dragOverlay /> : null}
+        </DragOverlay>
       </DndContext>
     </div>
   );

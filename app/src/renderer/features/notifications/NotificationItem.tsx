@@ -1,8 +1,9 @@
 // v1.4.9 #07 — Single notification row in the dropdown.
 //
 // Renders:
-//   - Severity dot (D1 colour palette: gray info / amber warn / red error /
-//     pulsing red critical).
+//   - Severity icon (UX-9: Info / TriangleAlert / OctagonAlert per severity)
+//     alongside the colour dot so urgency is visible to colour-blind users and
+//     is announced by VoiceOver via a visually-hidden severity label.
 //   - Title + body + relative timestamp.
 //   - Duplicate-count badge `(×N)` when N > 1.
 //   - Hover controls (right side): `×` dismiss + `Mark unread` (only when
@@ -11,9 +12,10 @@
 // Read styling: the row dims when `readAt !== null` so the operator can
 // see what's been triaged at a glance.
 
-import { CircleDot, RotateCcw, X } from 'lucide-react';
+import { Info, TriangleAlert, OctagonAlert, RotateCcw, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Notification } from '@/shared/types';
+import type { Notification, NotificationSeverity } from '@/shared/types';
 import { relativeTime, severityClass } from './helpers';
 
 interface ItemProps {
@@ -21,6 +23,35 @@ interface ItemProps {
   onClick: () => void;
   onDismiss: () => void;
   onMarkUnread: () => void;
+}
+
+// UX-9 — per-severity icon: non-colour shape cue for colour-blind users.
+function severityIcon(severity: NotificationSeverity): LucideIcon {
+  switch (severity) {
+    case 'info':
+      return Info;
+    case 'warn':
+      return TriangleAlert;
+    case 'error':
+      return OctagonAlert;
+    case 'critical':
+      return OctagonAlert;
+  }
+}
+
+// UX-9 — human-readable severity label surfaced in the button's accessible
+// name and as visually-hidden text.
+function severityLabel(severity: NotificationSeverity): string {
+  switch (severity) {
+    case 'info':
+      return 'Info';
+    case 'warn':
+      return 'Warning';
+    case 'error':
+      return 'Error';
+    case 'critical':
+      return 'Critical';
+  }
 }
 
 export function NotificationItem({
@@ -31,6 +62,8 @@ export function NotificationItem({
 }: ItemProps) {
   const isRead = notification.readAt !== null;
   const isCritical = notification.severity === 'critical';
+  const SeverityIcon = severityIcon(notification.severity);
+  const sevLabel = severityLabel(notification.severity);
   return (
     <div
       className={cn(
@@ -45,8 +78,14 @@ export function NotificationItem({
         type="button"
         onClick={onClick}
         className="flex flex-1 items-start gap-2 text-left hover:opacity-80"
-        aria-label={`Open ${notification.title}`}
+        // UX-9 — severity word prepended to the accessible name so VoiceOver
+        // announces e.g. "Critical: Process exited, Open".
+        aria-label={`${sevLabel}: ${notification.title}`}
       >
+        {/* UX-9 — severity glyph: visible shape cue independent of colour.
+            aria-hidden because the severity word is already in the button's
+            aria-label above. The visually-hidden <span> below provides the
+            same text for consumers that read children rather than aria-label. */}
         <span
           aria-hidden
           className={cn(
@@ -54,10 +93,13 @@ export function NotificationItem({
             severityClass(notification.severity),
           )}
         >
-          <CircleDot className="h-3 w-3" />
+          <SeverityIcon className="h-3 w-3" />
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex items-baseline gap-2">
+            {/* UX-9 — visually-hidden severity prefix so the label survives
+                CSS resets that strip aria-label from text extraction. */}
+            <span className="sr-only">{sevLabel}:</span>
             <span
               className={cn(
                 'truncate font-medium text-foreground',
