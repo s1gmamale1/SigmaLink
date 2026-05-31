@@ -1,9 +1,11 @@
 // Draggable Kanban card. Uses @dnd-kit/core's `useDraggable` so the same card
 // can be dropped onto a column or onto a swarm-roster slot — the parent
 // (TasksRoom) interprets the drop target by id-prefix.
+//
+// When a drag is active the *original* card in the column is rendered as a
+// faded placeholder (no transform — the DragOverlay owns the flying clone).
 
 import { useDraggable } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
 import { Tag, User2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Task } from '@/shared/types';
@@ -12,26 +14,26 @@ interface Props {
   task: Task;
   onClick?: (task: Task) => void;
   /**
-   * When the card is being dragged we need to ignore click events fired on
-   * pointer-up; this prop lets the parent disable selection while dragging.
+   * When true the card is rendered inside the DragOverlay (the "flying" clone).
+   * It gets a slight tilt + elevated shadow and must NOT register drag handles
+   * (the overlay is not itself draggable).
    */
   dragOverlay?: boolean;
 }
 
 export function Card({ task, onClick, dragOverlay }: Props) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `task:${task.id}`,
     data: { taskId: task.id },
   });
 
   return (
     <div
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Translate.toString(transform),
-      }}
-      {...attributes}
-      {...listeners}
+      // dragOverlay copies don't need a ref or drag handles — the overlay
+      // manages its own position.
+      ref={dragOverlay ? undefined : setNodeRef}
+      {...(dragOverlay ? {} : attributes)}
+      {...(dragOverlay ? {} : listeners)}
       role="button"
       tabIndex={0}
       onClick={(e) => {
@@ -49,7 +51,9 @@ export function Card({ task, onClick, dragOverlay }: Props) {
       className={cn(
         'cursor-grab select-none rounded-md border border-border bg-card p-2 text-xs shadow-sm transition',
         'hover:border-primary/50',
-        isDragging && 'opacity-50',
+        // Ghost: original card stays in place while the overlay flies.
+        isDragging && !dragOverlay && 'opacity-20',
+        // Overlay clone: slight tilt + lift to signal "in-flight".
         dragOverlay && 'rotate-1 border-primary shadow-lg',
       )}
     >

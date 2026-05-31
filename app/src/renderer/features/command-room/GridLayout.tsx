@@ -301,28 +301,91 @@ export function GridLayout<T>({
       {!isFullscreen &&
         Array.from({ length: cols - 1 }, (_, i) => {
           const leftPct = (colFracs.slice(0, i + 1).reduce((a, b) => a + b, 0) / colTotal) * 100;
+          // UX-8 — keyboard resize: ArrowLeft/Right nudge by 2% of the total
+          // fractional space, clamped to MIN_FRAC on each side, matching the
+          // pointer drag clamping logic.
+          const handleColKey = (e: React.KeyboardEvent) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            e.preventDefault();
+            const step = 0.02 * colFracs.reduce((a, b) => a + b, 0);
+            const delta = e.key === 'ArrowRight' ? step : -step;
+            const before = colFracs[i];
+            const after = colFracs[i + 1] ?? 1;
+            const pairSum = before + after;
+            const newBefore = Math.max(MIN_FRAC, before + delta);
+            const newAfter = Math.max(MIN_FRAC, after - delta);
+            const next = [...colFracs];
+            if (newBefore + newAfter > pairSum + 0.001) {
+              next[i] = pairSum - MIN_FRAC;
+              next[i + 1] = MIN_FRAC;
+            } else {
+              next[i] = newBefore;
+              next[i + 1] = newAfter;
+            }
+            setColFracs(next);
+          };
+          // Express current position as an integer percentage (0–100) so
+          // aria-valuenow is a meaningful whole number.
+          const valuenow = Math.round(leftPct);
           return (
             <div
               key={`col-handle-${i}`}
               onPointerDown={startDrag(i, colFracs, setColFracs, 'x')}
-              className="absolute top-0 z-20 h-full w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-[hsl(var(--ring)/0.4)]"
+              onKeyDown={handleColKey}
+              // UX-8 — focusable so keyboard + VoiceOver users can resize.
+              // focus-visible ring uses the theme --ring token (same as the
+              // active-pane ring) so it is themeable.
+              tabIndex={0}
+              className="absolute top-0 z-20 h-full w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-[hsl(var(--ring)/0.4)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-0"
               style={{ left: `${leftPct}%` }}
               aria-label={`Resize column ${i + 1}`}
               role="separator"
+              aria-orientation="vertical"
+              aria-valuenow={valuenow}
+              aria-valuemin={0}
+              aria-valuemax={100}
             />
           );
         })}
       {!isFullscreen &&
         Array.from({ length: rows - 1 }, (_, i) => {
           const topPct = (rowFracs.slice(0, i + 1).reduce((a, b) => a + b, 0) / rowTotal) * 100;
+          // UX-8 — keyboard resize: ArrowUp/Down nudge by 2%, clamped.
+          const handleRowKey = (e: React.KeyboardEvent) => {
+            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+            e.preventDefault();
+            const step = 0.02 * rowFracs.reduce((a, b) => a + b, 0);
+            const delta = e.key === 'ArrowDown' ? step : -step;
+            const before = rowFracs[i];
+            const after = rowFracs[i + 1] ?? 1;
+            const pairSum = before + after;
+            const newBefore = Math.max(MIN_FRAC, before + delta);
+            const newAfter = Math.max(MIN_FRAC, after - delta);
+            const next = [...rowFracs];
+            if (newBefore + newAfter > pairSum + 0.001) {
+              next[i] = pairSum - MIN_FRAC;
+              next[i + 1] = MIN_FRAC;
+            } else {
+              next[i] = newBefore;
+              next[i + 1] = newAfter;
+            }
+            setRowFracs(next);
+          };
+          const valuenow = Math.round(topPct);
           return (
             <div
               key={`row-handle-${i}`}
               onPointerDown={startDrag(i, rowFracs, setRowFracs, 'y')}
-              className="absolute left-0 z-20 h-1.5 w-full -translate-y-1/2 cursor-row-resize hover:bg-[hsl(var(--ring)/0.4)]"
+              onKeyDown={handleRowKey}
+              tabIndex={0}
+              className="absolute left-0 z-20 h-1.5 w-full -translate-y-1/2 cursor-row-resize hover:bg-[hsl(var(--ring)/0.4)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-0"
               style={{ top: `${topPct}%` }}
               aria-label={`Resize row ${i + 1}`}
               role="separator"
+              aria-orientation="horizontal"
+              aria-valuenow={valuenow}
+              aria-valuemin={0}
+              aria-valuemax={100}
             />
           );
         })}

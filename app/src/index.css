@@ -60,11 +60,72 @@
     /* System / SF Pro UI font stack (Apple HIG). */
     --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
 
-    /* Motion tokens — Apple spring curves (<=300ms utility budget). */
-    --motion-enter: 280ms cubic-bezier(0.32, 0.72, 0, 1);
-    --motion-exit: 200ms cubic-bezier(0.4, 0, 1, 1);
-    --motion-fast: 140ms cubic-bezier(0.32, 0.72, 0, 1);
-    --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+    /* ------------------------------------------------------------------
+       MOT-1 — Apple-grade motion foundation.
+
+       ONE motion vocabulary for every overlay/animation surface (this
+       phase + P3). Three named springs approximated as CSS `linear(...)`
+       so they carry true spring feel (settle + slight overshoot on the
+       bouncy variant), with cubic-bezier comments documenting the
+       response/damping each linear() encodes. Durations are the *budget*
+       a given easing rides on.
+
+       Consumers: src/renderer/lib/motion.ts (className constants) +
+       tailwind.config.js (sl-* enter/exit animations) bind to these.
+
+       Reduce Motion: the global `prefers-reduced-motion: reduce` reset
+       near the end of this file forces animation/transition-duration to
+       0.01ms !important, which neutralizes every animation built on
+       these tokens (animationend/transitionend still fire). We do NOT
+       redefine the easing under reduce — the duration collapse is what
+       makes the move instant, and keeping the curve avoids re-flowing
+       these vars in a second media block.
+       ------------------------------------------------------------------ */
+
+    /* Durations (the motion budget). */
+    --motion-fast: 150ms;   /* tooltips, micro-state, hover surfaces  */
+    --motion: 250ms;        /* UI default — menus, popovers, selects  */
+    --motion-slow: 350ms;   /* large surfaces — dialogs, sheets       */
+
+    /* --ease-smooth — gentle, critically damped (response ~0.5 / damping ~1.0).
+       cubic-bezier fallback ≈ cubic-bezier(0.32, 0.72, 0, 1). No overshoot. */
+    --ease-smooth: linear(
+      0, 0.0037, 0.0142, 0.031, 0.0534, 0.0804, 0.1108,
+      0.1438, 0.1784, 0.2135, 0.2484, 0.3145, 0.3746,
+      0.4283, 0.4755, 0.5562, 0.6215, 0.6726, 0.7112,
+      0.7735, 0.8196, 0.854, 0.8793, 0.9185, 0.9458,
+      0.9647, 0.9779, 0.9921, 1
+    );
+
+    /* --ease-snappy — UI default (response ~0.35 / damping ~0.86).
+       cubic-bezier fallback ≈ cubic-bezier(0.34, 1.2, 0.64, 1).
+       Tiny ~2% overshoot then settles — feels responsive, not jumpy. */
+    --ease-snappy: linear(
+      0, 0.012, 0.049, 0.107, 0.185, 0.278, 0.383,
+      0.493, 0.601, 0.702, 0.791, 0.865, 0.924,
+      0.967, 0.995, 1.013, 1.019, 1.016,
+      1.009, 1.003, 1
+    );
+
+    /* --ease-bouncy — playful (response ~0.5 / damping ~0.7).
+       cubic-bezier fallback ≈ cubic-bezier(0.34, 1.56, 0.64, 1).
+       ~4.6% overshoot before settling — for celebratory/affordance pops. */
+    --ease-bouncy: linear(
+      0, 0.0018, 0.0069, 0.026, 0.0637,
+      0.1135, 0.2229, 0.5977, 0.7014, 0.7904, 0.8641, 0.9228,
+      0.9676, 1.0032, 1.0225,
+      1.0352, 1.0431, 1.046,
+      1.0448, 1.0407, 1.0118, 1.0025,
+      0.9981, 0.9992, 1
+    );
+
+    /* Back-compat aliases — pre-MOT-1 names still referenced by the
+       legacy .sl-fade-in / .sl-slide-up / .sl-pane-enter utilities and
+       any code reading --ease-spring. Mapped onto the new vocabulary so
+       there is exactly ONE source of truth per curve. */
+    --ease-spring: var(--ease-smooth);
+    --motion-enter: var(--motion);
+    --motion-exit: var(--motion-fast);
   }
 
   /* Obsidian — explicit override for clarity (matches :root above). */
@@ -288,15 +349,16 @@
 }
 
 /* Reusable motion utility classes — paired with the tokens above. Kept
-   outside the @layer so consumers can override via inline style if needed. */
+   outside the @layer so consumers can override via inline style if needed.
+   Bound to the MOT-1 smooth spring so they share the overlay vocabulary. */
 .sl-fade-in {
-  animation: sl-fade-in var(--motion-enter) both;
+  animation: sl-fade-in var(--motion) var(--ease-smooth) both;
 }
 .sl-slide-up {
-  animation: sl-slide-up var(--motion-enter) both;
+  animation: sl-slide-up var(--motion) var(--ease-smooth) both;
 }
 .sl-pane-enter {
-  animation: sl-pane-enter var(--motion-enter) both;
+  animation: sl-pane-enter var(--motion) var(--ease-smooth) both;
 }
 @keyframes sl-fade-in {
   from { opacity: 0; }
@@ -438,6 +500,19 @@
      inert content behind the dialog is hidden rather than ghosting through. */
   .bg-black\/40 {
     background-color: hsl(var(--background)) !important;
+  }
+}
+
+/* UX-9 (a11y) — the critical notification-bell pulse (sl-bell-pulse) is correctly
+   neutralized under reduced motion, which would leave reduced-motion users with no
+   urgency signal. sl-bell-critical-static is a companion class applied alongside
+   sl-bell-pulse: a no-op for users who allow motion, but for reduced-motion users it
+   renders a static accent ring so the "critical unread" state stays visible without
+   animation. Uses --ring so it tracks the theme. */
+@media (prefers-reduced-motion: reduce) {
+  .sl-bell-critical-static {
+    box-shadow: 0 0 0 2px hsl(var(--ring));
+    border-radius: 0.375rem; /* matches the bell button's rounded-md */
   }
 }
 

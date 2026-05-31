@@ -86,11 +86,98 @@ module.exports = {
           "0%,70%,100%": { opacity: "1" },
           "20%,50%": { opacity: "0" },
         },
+
+        // MOT-1 — Apple-grade overlay motion. ONE vocabulary for every
+        // Radix `data-[state=open/closed]` surface, consumed via the
+        // className constants in src/renderer/lib/motion.ts. Fade + scale
+        // for centred surfaces (dialog/popover/menu/tooltip); directional
+        // slide variants for edge surfaces (sheet/drawer). Only
+        // transform + opacity animate (GPU-composited). The spring feel
+        // lives in the animation-timing-function bound below.
+        "sl-overlay-in": {
+          from: { opacity: "0", transform: "scale(0.96)" },
+          to: { opacity: "1", transform: "scale(1)" },
+        },
+        "sl-overlay-out": {
+          from: { opacity: "1", transform: "scale(1)" },
+          to: { opacity: "0", transform: "scale(0.96)" },
+        },
+        "sl-fade-in": {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        "sl-fade-out": {
+          from: { opacity: "1" },
+          to: { opacity: "0" },
+        },
+        // Popover/menu nudge from the trigger side (8px), fading in.
+        "sl-pop-in": {
+          from: { opacity: "0", transform: "scale(0.96) translateY(-4px)" },
+          to: { opacity: "1", transform: "scale(1) translateY(0)" },
+        },
+        "sl-pop-out": {
+          from: { opacity: "1", transform: "scale(1) translateY(0)" },
+          to: { opacity: "0", transform: "scale(0.96) translateY(-4px)" },
+        },
+        // Edge sheets / drawers — slide the full surface in/out per side.
+        "sl-slide-in-right": {
+          from: { transform: "translateX(100%)" },
+          to: { transform: "translateX(0)" },
+        },
+        "sl-slide-out-right": {
+          from: { transform: "translateX(0)" },
+          to: { transform: "translateX(100%)" },
+        },
+        "sl-slide-in-left": {
+          from: { transform: "translateX(-100%)" },
+          to: { transform: "translateX(0)" },
+        },
+        "sl-slide-out-left": {
+          from: { transform: "translateX(0)" },
+          to: { transform: "translateX(-100%)" },
+        },
+        "sl-slide-in-top": {
+          from: { transform: "translateY(-100%)" },
+          to: { transform: "translateY(0)" },
+        },
+        "sl-slide-out-top": {
+          from: { transform: "translateY(0)" },
+          to: { transform: "translateY(-100%)" },
+        },
+        "sl-slide-in-bottom": {
+          from: { transform: "translateY(100%)" },
+          to: { transform: "translateY(0)" },
+        },
+        "sl-slide-out-bottom": {
+          from: { transform: "translateY(0)" },
+          to: { transform: "translateY(100%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "caret-blink": "caret-blink 1.25s ease-out infinite",
+
+        // MOT-1 overlay animations — `<keyframe> <duration> <spring-easing>`.
+        // Enter rides the snappy spring; exit rides the gentle smooth curve
+        // at the fast budget so dismissal reads quick + calm (Apple HIG:
+        // exits are faster + less playful than entrances). The global
+        // prefers-reduced-motion reset in index.css collapses the duration
+        // to 0.01ms, neutralizing all of these (animationend still fires).
+        "sl-overlay-in": "sl-overlay-in var(--motion) var(--ease-snappy)",
+        "sl-overlay-out": "sl-overlay-out var(--motion-fast) var(--ease-smooth)",
+        "sl-fade-in": "sl-fade-in var(--motion) var(--ease-smooth)",
+        "sl-fade-out": "sl-fade-out var(--motion-fast) var(--ease-smooth)",
+        "sl-pop-in": "sl-pop-in var(--motion-fast) var(--ease-snappy)",
+        "sl-pop-out": "sl-pop-out var(--motion-fast) var(--ease-smooth)",
+        "sl-slide-in-right": "sl-slide-in-right var(--motion-slow) var(--ease-snappy)",
+        "sl-slide-out-right": "sl-slide-out-right var(--motion) var(--ease-smooth)",
+        "sl-slide-in-left": "sl-slide-in-left var(--motion-slow) var(--ease-snappy)",
+        "sl-slide-out-left": "sl-slide-out-left var(--motion) var(--ease-smooth)",
+        "sl-slide-in-top": "sl-slide-in-top var(--motion-slow) var(--ease-snappy)",
+        "sl-slide-out-top": "sl-slide-out-top var(--motion) var(--ease-smooth)",
+        "sl-slide-in-bottom": "sl-slide-in-bottom var(--motion-slow) var(--ease-snappy)",
+        "sl-slide-out-bottom": "sl-slide-out-bottom var(--motion) var(--ease-smooth)",
       },
     },
   },
