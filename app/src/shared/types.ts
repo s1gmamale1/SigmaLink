@@ -222,6 +222,25 @@ export interface AddAgentToSwarmInput {
    * Persisted on `swarm_agents.auto_approve` + `agent_sessions.auto_approve`.
    */
   autoApprove?: boolean;
+  /**
+   * v1.4.3 #06 — Pane Split. When set, the new pane shares the parent's
+   * worktree (no new git worktree is allocated) and inherits the parent's
+   * `cwd`. All standalone `addAgent` callers leave this undefined so the
+   * legacy "create fresh worktree" path is unchanged.
+   */
+  worktreePath?: string;
+  /**
+   * v1.4.3 #06 — same intent as `worktreePath`; only consulted when the
+   * worktreePath override is provided so the sub-pane lands in the same cwd
+   * as the parent.
+   */
+  cwd?: string;
+  /**
+   * v1.4.3 #06 — same intent as `worktreePath`; only consulted when the
+   * worktreePath override is provided so the sub-pane lands on the same git
+   * branch as the parent.
+   */
+  branch?: string | null;
 }
 
 export interface AddAgentToSwarmResult {

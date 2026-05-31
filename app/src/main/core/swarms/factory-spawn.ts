@@ -38,6 +38,7 @@ import { writeRufloMcpIntoCwd } from '../workspaces/ruflo-worktree-mcp';
 import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from '../workspaces/mcp-autowrite';
 import { getSharedDeps } from '../../rpc-router';
 import { allocateLowestFreeLivePaneIndex } from '../workspaces/pane-slots';
+import { isPtyCrash } from '../pty/crash';
 
 /**
  * SF-15 — write the bundled `ruflo` MCP entry (+ claude trust) into a swarm
@@ -389,21 +390,30 @@ export async function spawnAgentSession(
   });
 
   // When the PTY exits, mark agent + session rows accordingly. Mirrors the
-  // logic in launcher.ts so the same "early death = error" heuristic applies.
+  // crash classification in launcher.ts so the same "crash = error" heuristic
+  // applies to swarm agents.
+  //
+  // BUG-1 — this path previously destructured only `{ exitCode }`, dropped the
+  // signal, and used `exitCode < 0 && earlyDeath` as its sole crash test. A
+  // swarm CLI exiting with code 1 (or killed by a signal) after the 1.5s grace
+  // window was therefore recorded as a CLEAN exit ('exited'/'done'). Use the
+  // shared `isPtyCrash` classifier with a TIME-ONLY `earlyDeath` (matching
+  // launcher.ts) so non-zero exit codes and signals are surfaced as 'error'.
   const startedMs = rec.startedAt;
-  rec.pty.onExit(({ exitCode }) => {
-    const earlyDeath = exitCode < 0 && Date.now() - startedMs < 1500;
+  rec.pty.onExit(({ exitCode, signal }) => {
+    const earlyDeath = Date.now() - startedMs < 1500;
+    const isCrash = isPtyCrash(earlyDeath, exitCode, signal);
     try {
       db.update(agentSessions)
         .set({
-          status: earlyDeath ? 'error' : 'exited',
+          status: isCrash ? 'error' : 'exited',
           exitCode,
           exitedAt: Date.now(),
         })
         .where(eq(agentSessions.id, rec.id))
         .run();
       db.update(swarmAgents)
-        .set({ status: earlyDeath ? 'error' : 'done' })
+        .set({ status: isCrash ? 'error' : 'done' })
         .where(eq(swarmAgents.id, args.agentId))
         .run();
     } catch {

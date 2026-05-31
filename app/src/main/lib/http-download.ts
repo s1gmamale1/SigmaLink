@@ -81,6 +81,13 @@ export async function download(
         out.on('finish', () => {
           if (settled) return;
           out.close();
+          // BUG-7 — guard against clean-FIN truncation: only promote the .part
+          // file when all expected bytes arrived. `total === 0` means no
+          // Content-Length header was sent → accept unconditionally.
+          if (total !== 0 && bytes !== total) {
+            fail(new Error(`truncated download: ${bytes}/${total}`));
+            return;
+          }
           try {
             fs.renameSync(partPath, destPath);
             settled = true;

@@ -529,6 +529,53 @@ describe('RufloHttpDaemonSupervisor', () => {
     expect(supervisor.status('ws-crash')).toBe('running');
   });
 
+  // ── BUG-2: stdout drain on BOTH the primary AND recovery child ──────────
+
+  it('BUG-2: drains stdout on the primary child (or the daemon deadlocks on a full pipe)', async () => {
+    alwaysHealthOk();
+    const child = makeChild(3101);
+    mockSpawn.mockReturnValue(child);
+
+    const p = supervisor.spawn('ws-drain', '/proj');
+    await vi.runAllTimersAsync();
+    await p;
+
+    // A stdout 'data' listener MUST be attached so the OS pipe never fills.
+    const stdoutDataAttached = child.stdout.on.mock.calls.some(
+      (args: unknown[]) => args[0] === 'data',
+    );
+    expect(stdoutDataAttached).toBe(true);
+  });
+
+  it('BUG-2: the crash-recovery child ALSO drains stdout (regression — recovery path previously wired only stderr)', async () => {
+    alwaysHealthOk();
+    const child1 = makeChild(3201);
+    const child2 = makeChild(3202);
+    mockSpawn.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
+
+    const p = supervisor.spawn('ws-drain-recov', '/proj');
+    await vi.runAllTimersAsync();
+    await p;
+
+    // Crash the primary → the supervisor respawns child2 via the recovery path.
+    child1.emit('exit', 1, null);
+    await vi.runAllTimersAsync();
+
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    // The RECOVERY child must have a stdout 'data' drain too — without it a
+    // recovered daemon that logs enough fills the ~64KB pipe and silently stops
+    // serving /health and /mcp.
+    const recoveryStdoutDrained = child2.stdout.on.mock.calls.some(
+      (args: unknown[]) => args[0] === 'data',
+    );
+    expect(recoveryStdoutDrained).toBe(true);
+    // And stderr is still buffered (parity with the primary path).
+    const recoveryStderrWired = child2.stderr.on.mock.calls.some(
+      (args: unknown[]) => args[0] === 'data',
+    );
+    expect(recoveryStderrWired).toBe(true);
+  });
+
   // ── crash-respawn-gives-up-after-3 ────────────────────────────────────
 
   it('crash-respawn-gives-up-after-3: after 3 exits, status=down, emits restarted(false)', async () => {

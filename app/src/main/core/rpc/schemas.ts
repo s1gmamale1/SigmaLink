@@ -71,6 +71,23 @@ const DESIGN_SHUTDOWN_SCHEMA: ChannelSchema = {
   output: z.void(),
 };
 
+// BUG-4 — shared input schema for the destructive `cleanup.*` operator
+// side-band channels. Shape-checked-but-permissive: `workspaceId` MUST be a
+// non-empty bounded string (a wrong-typed value is rejected at the IPC
+// boundary), `dryRun` is an optional boolean (the handler's `dryRun !== false`
+// safe-default is preserved), and `.passthrough()` tolerates any future extra
+// fields the renderer may add without a coordination round. This is NOT the
+// `z.any()` stub — it concretely rejects malformed payloads.
+const CLEANUP_INPUT_SCHEMA: ChannelSchema = {
+  input: z
+    .object({
+      workspaceId: z.string().min(1).max(200),
+      dryRun: z.boolean().optional(),
+    })
+    .passthrough(),
+  output: any,
+};
+
 export const OpenWorkspacesChangedEventSchema = z.object({
   workspaceIds: z.array(z.string().min(1).max(200)),
 });
@@ -694,6 +711,19 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'sigmabench.run': stub,
   'sigmabench.listRuns': stub,
   'sigmabench.getRun': stub,
+  // ── cleanup (SF-13) ────────────────────────────────────────────────────
+  // BUG-4 — DESTRUCTIVE operator-cleanup side-band (`cleanup.*`) registered in
+  // rpc-router.ts. These three were the only side-band channels with NO schema
+  // entry, so a malformed renderer payload reached the handler unchecked.
+  // Each handler reads `{ workspaceId: string; dryRun?: boolean }` from the
+  // first IPC arg. We shape-check those two fields but `.passthrough()` any
+  // extra keys (permissive — NOT the `z.any()` stub) so a wrong-typed
+  // `workspaceId` is rejected at the boundary, before the cleanup core runs.
+  // The handler's `dryRun !== false` safe-default behaviour is unchanged; we
+  // only ADD input validation and never alter the response/envelope shape.
+  'cleanup.removeWorkspace': CLEANUP_INPUT_SCHEMA,
+  'cleanup.clearPanes': CLEANUP_INPUT_SCHEMA,
+  'cleanup.pruneWorktrees': CLEANUP_INPUT_SCHEMA,
 };
 
 /** Look up the schema entry for a `<namespace>.<method>` channel id. */

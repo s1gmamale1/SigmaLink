@@ -27,6 +27,7 @@ vi.mock('../providers/launcher', () => ({
 }));
 
 import { getDb, getRawDb } from '../db/client';
+import { agentSessions, swarmAgents } from '../db/schema';
 import { resolveAndSpawn } from '../providers/launcher';
 import { buildExtraArgs, spawnAgentSession, type SpawnAgentSessionArgs } from './factory-spawn';
 import type { SwarmFactoryDeps } from './factory';
@@ -374,5 +375,130 @@ describe('spawnAgentSession — SF-15 ruflo MCP written into worktree cwd', () =
     expect(doc.mcpServers?.ruflo?.command).toBe('npx');
     // Trust file also landed in the cwd.
     expect(fs.existsSync(path.join(cwd, '.claude', 'settings.local.json'))).toBe(true);
+  });
+});
+
+// ─── BUG-1: swarm-agent PTY exit must be classified with isPtyCrash ───────────
+//
+// The swarm onExit handler used to destructure only `{ exitCode }`, drop the
+// signal, and gate on `exitCode < 0 && earlyDeath`. A swarm CLI exiting code 1
+// (or signal-killed) AFTER the 1.5s grace window was therefore recorded CLEAN
+// ('exited'/'done') instead of as a crash. These tests pin the SWARM path to
+// the same shared `isPtyCrash` classifier the launcher uses: time-only
+// earlyDeath + non-zero exitCode/signal → 'error'/'error'; clean exit 0 after
+// >1.5s → 'exited'/'done'. Mirrors the launcher.test.ts cases for this path.
+
+describe('spawnAgentSession — BUG-1 PTY-exit crash classification (swarm path)', () => {
+  interface CapturedUpdate {
+    table: 'agentSessions' | 'swarmAgents' | 'other';
+    set: Record<string, unknown>;
+  }
+
+  /**
+   * Spawn one agent and return the registered `pty.onExit` callback plus a
+   * sink that records every `db.update(...).set(...)` payload (keyed by table
+   * identity). `startedAt` is forced 5s into the past so the exit lands OUTSIDE
+   * the 1.5s grace window — the case the old `exitCode < 0` gate got wrong.
+   */
+  async function spawnAndCapture(): Promise<{
+    fireExit: (info: { exitCode: number; signal?: number }) => void;
+    updates: CapturedUpdate[];
+  }> {
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    let exitCb: ((info: { exitCode: number; signal?: number }) => void) | null = null;
+    vi.mocked(resolveAndSpawn).mockImplementation(
+      () =>
+        ({
+          ptySession: {
+            id: SPAWNED_PTY_ID,
+            providerId: 'shell',
+            cwd: '/tmp/ws-1',
+            pid: 4242,
+            alive: true,
+            // 5s ago → exit is NOT earlyDeath (grace window is 1.5s).
+            startedAt: Date.now() - 5000,
+            externalSessionId: null,
+            pty: {
+              pid: 4242,
+              write: vi.fn(),
+              resize: vi.fn(),
+              kill: vi.fn(),
+              onData: vi.fn(() => () => undefined),
+              onExit: vi.fn((cb: (info: { exitCode: number; signal?: number }) => void) => {
+                exitCb = cb;
+                return () => undefined;
+              }),
+            },
+          },
+          providerRequested: 'shell',
+          providerEffective: 'shell',
+          commandUsed: '',
+          argsUsed: [],
+          fallbackOccurred: false,
+        }) as unknown as ReturnType<typeof resolveAndSpawn>,
+    );
+
+    const updates: CapturedUpdate[] = [];
+    const dbStub = {
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn(() => undefined) })) })),
+      update: vi.fn((table: unknown) => ({
+        set: vi.fn((vals: Record<string, unknown>) => {
+          const which =
+            table === agentSessions
+              ? 'agentSessions'
+              : table === swarmAgents
+                ? 'swarmAgents'
+                : 'other';
+          updates.push({ table: which, set: vals });
+          return { where: vi.fn(() => ({ run: vi.fn(() => undefined) })) };
+        }),
+      })),
+    };
+    vi.mocked(getDb).mockReturnValue(dbStub as unknown as ReturnType<typeof getDb>);
+
+    await spawnAgentSession(makeArgs(deps));
+    expect(exitCb).not.toBeNull();
+    return {
+      fireExit: (info) => (exitCb as NonNullable<typeof exitCb>)(info),
+      updates,
+    };
+  }
+
+  it('exit code 1 after the grace window → agentSessions error AND swarmAgents error', async () => {
+    const { fireExit, updates } = await spawnAndCapture();
+    updates.length = 0; // ignore inserts/best-effort updates during spawn
+
+    fireExit({ exitCode: 1, signal: undefined });
+
+    const sessionUpdate = updates.find((u) => u.table === 'agentSessions');
+    const agentUpdate = updates.find((u) => u.table === 'swarmAgents');
+    expect(sessionUpdate?.set.status).toBe('error');
+    expect(sessionUpdate?.set.exitCode).toBe(1);
+    expect(agentUpdate?.set.status).toBe('error');
+  });
+
+  it('signal-killed (code 0, signal 15) after the grace window → error / error', async () => {
+    const { fireExit, updates } = await spawnAndCapture();
+    updates.length = 0;
+
+    fireExit({ exitCode: 0, signal: 15 });
+
+    expect(updates.find((u) => u.table === 'agentSessions')?.set.status).toBe('error');
+    expect(updates.find((u) => u.table === 'swarmAgents')?.set.status).toBe('error');
+  });
+
+  it('clean exit 0 after the grace window → agentSessions exited AND swarmAgents done', async () => {
+    const { fireExit, updates } = await spawnAndCapture();
+    updates.length = 0;
+
+    fireExit({ exitCode: 0, signal: undefined });
+
+    const sessionUpdate = updates.find((u) => u.table === 'agentSessions');
+    const agentUpdate = updates.find((u) => u.table === 'swarmAgents');
+    expect(sessionUpdate?.set.status).toBe('exited');
+    expect(sessionUpdate?.set.exitCode).toBe(0);
+    expect(agentUpdate?.set.status).toBe('done');
   });
 });

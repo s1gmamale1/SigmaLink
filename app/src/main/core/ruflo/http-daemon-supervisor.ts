@@ -397,17 +397,10 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
       entry.pid = child.pid ?? 0;
       entry.startedAt = Date.now();
 
-      // Pipe stderr for diagnostics.
-      let stderrBuf = '';
-      child.stderr?.on('data', (chunk: Buffer) => {
-        stderrBuf += chunk.toString('utf8');
-        if (stderrBuf.length > 8_000) stderrBuf = stderrBuf.slice(-4_000);
-      });
-
-      // Drain stdout (daemon writes HTTP server logs there; we don't parse them).
-      child.stdout?.on('data', () => {
-        /* drain */
-      });
+      // BUG-2 — wire stderr buffering + stdout drain via the shared helper so
+      // this path and the crash-recovery path can't drift (stdout MUST be
+      // drained or the daemon deadlocks on a full pipe).
+      const { getStderrTail } = this.wireChildIo(child);
 
       child.on('error', (err: Error) => {
         console.warn(`[ruflo-http] child error (ws=${entry.workspaceId}): ${err.message}`);
@@ -417,7 +410,7 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
         entry.child = null;
         if (entry.shuttingDown) return;
 
-        const reason = `exit code=${code ?? 'null'} signal=${signal ?? 'null'} stderr=${stderrBuf.slice(-400)}`;
+        const reason = `exit code=${code ?? 'null'} signal=${signal ?? 'null'} stderr=${getStderrTail().slice(-400)}`;
         console.warn(`[ruflo-http] daemon exited (ws=${entry.workspaceId}): ${reason}`);
 
         // If still starting (health not yet confirmed), cancel the spawn wait.
@@ -560,17 +553,16 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
         }, delay2);
       };
 
-      // Wire exit for this recovery child.
-      let stderrBuf2 = '';
-      child.stderr?.on('data', (chunk: Buffer) => {
-        stderrBuf2 += chunk.toString('utf8');
-        if (stderrBuf2.length > 8_000) stderrBuf2 = stderrBuf2.slice(-4_000);
-      });
+      // BUG-2 — wire stderr buffering AND the stdout drain via the same shared
+      // helper as doSpawn(). The recovery child previously wired only stderr +
+      // exit, leaving stdout undrained → a recovered daemon that logged enough
+      // filled the pipe and silently wedged. The helper guarantees parity.
+      const { getStderrTail } = this.wireChildIo(child);
       child.on('exit', (code, signal) => {
         entry.child = null;
         if (entry.shuttingDown) return;
         if (recoveryDone) return; // already emitted success
-        const reason = `exit code=${code ?? 'null'} signal=${signal ?? 'null'} stderr=${stderrBuf2.slice(-400)}`;
+        const reason = `exit code=${code ?? 'null'} signal=${signal ?? 'null'} stderr=${getStderrTail().slice(-400)}`;
         console.warn(
           `[ruflo-http] recovery child exited (ws=${entry.workspaceId}): ${reason}`,
         );
@@ -608,6 +600,34 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
       );
       return null;
     }
+  }
+
+  /**
+   * BUG-2 — wire a freshly-spawned child's stdio so it cannot deadlock.
+   *
+   * Both spawn paths use `stdio: ['ignore','pipe','pipe']`, so stdout AND stderr
+   * are piped. If NOBODY reads stdout, the daemon's HTTP-server logs fill the
+   * ~64KB OS pipe buffer, the daemon blocks on `write()`, and it silently stops
+   * serving `/health` and `/mcp`. The original `doSpawn` drained stdout but the
+   * crash-recovery child only wired stderr + exit — so a recovered daemon could
+   * wedge. Factoring the stderr-buffering + stdout-drain into this single helper
+   * (called from BOTH paths) keeps them from drifting again (grep-sibling class).
+   *
+   * Returns a getter for the buffered stderr tail so each path's `exit` handler
+   * can keep its existing diagnostic reason string.
+   */
+  private wireChildIo(child: ChildProcess): { getStderrTail: () => string } {
+    let stderrBuf = '';
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderrBuf += chunk.toString('utf8');
+      if (stderrBuf.length > 8_000) stderrBuf = stderrBuf.slice(-4_000);
+    });
+    // Drain stdout (daemon writes HTTP server logs there; we don't parse them).
+    // Without this the pipe fills and the daemon blocks on write.
+    child.stdout?.on('data', () => {
+      /* drain */
+    });
+    return { getStderrTail: () => stderrBuf };
   }
 
   /**

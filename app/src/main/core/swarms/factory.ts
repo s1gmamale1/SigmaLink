@@ -22,7 +22,6 @@ import {
 import type {
   AgentSession,
   CreateSwarmInput,
-  Role,
   Swarm,
   SwarmAgent,
 } from '../../../shared/types';
@@ -49,29 +48,12 @@ export interface SwarmFactoryDeps {
   userDataDir: string;
 }
 
-export interface AddAgentToSwarmInput {
-  swarmId: string;
-  providerId: string;
-  role?: Role;
-  initialPrompt?: string;
-  /** SF-8 — Yolo/Bypass: append the provider's autoApproveFlag at spawn. */
-  autoApprove?: boolean;
-  /**
-   * v1.4.3 #06 — Pane Split. When set, the new pane shares the parent's
-   * worktree (no new git worktree is allocated) and inherits the parent's
-   * `cwd`. All standalone `addAgent` callers leave this undefined so the
-   * legacy "create fresh worktree" path is unchanged.
-   */
-  worktreePath?: string;
-  /** v1.4.3 #06 — same intent as `worktreePath`; only consulted when the
-   *  worktreePath override is provided so the sub-pane lands in the same cwd
-   *  as the parent. */
-  cwd?: string;
-  /** v1.4.3 #06 — same intent as `worktreePath`; only consulted when the
-   *  worktreePath override is provided so the sub-pane lands on the same git
-   *  branch as the parent. */
-  branch?: string | null;
-}
+// BUG-13 — `AddAgentToSwarmInput` was defined twice (here + `shared/types.ts`).
+// The shared definition is now the single source of truth (it gained the
+// v1.4.3 #06 split-pane fields `worktreePath`/`cwd`/`branch` during the merge).
+// Re-export it here so existing `./factory` consumers (factory-add-agent.ts,
+// controller.ts, factory.test.ts) keep importing from the same path.
+export type { AddAgentToSwarmInput } from '../../../shared/types';
 
 export interface AddAgentToSwarmResult {
   sessionId: string;
