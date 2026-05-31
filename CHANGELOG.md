@@ -4,6 +4,26 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed — ROADMAP P1 reliability spine (PR #70 `37f94a0`, untagged — rides the next tagged release)
+
+First execution batch of the next-phase ROADMAP. Six file-disjoint worktree lanes + lead integration + Opus review. Gate: `tsc -b` clean · 2000 vitest pass · e2e 9 passed / 3 manual-skipped · Opus review (no critical/high). The 9-agent deep-dive that planned this batch also landed an enriched `docs/03-plan/WISHLIST.md`, a fresh 6-phase `docs/03-plan/ROADMAP.md`, and a BridgeSpace v3.0.74 competitor review.
+
+- **BUG-1 — swarm-agent crashes were silently recorded as clean `exited`.** The swarm spawn path (`swarms/factory-spawn.ts`) classified PTY exits differently from the pane launcher: a swarm CLI exiting non-zero (or signal-killed) after the 1.5s grace window was logged `exited`/`done`. Both paths now share `isPtyCrash` (hoisted to a dependency-free `core/pty/crash.ts` leaf to avoid an import cycle) and persist the `isCrash` status; the launcher's `agent_sessions` write was aligned too (so a resumed crashed pane reads `error`, not GC-reaped).
+- **BUG-2 — recovered Ruflo HTTP daemon could deadlock.** The crash-recovery child never drained stdout (only the primary spawn did) → a full ~64KB pipe blocked the daemon. A shared `wireChildIo()` now drains stdout + buffers the stderr tail on both spawn paths.
+- **BUG-3 — cross-device sync could silently drop a peer's concurrent edits.** A rejected push retried after a bare `pull()` (working-tree only), skipping decrypt→resolve→apply. The retry now runs the full reconcile (`_pullCycle`) and re-encodes the post-reconcile dirty set before retrying.
+- **BUG-4 — IPC side-band channels bypassed input validation.** `swarm.*`, `swarm.replay.*`, `assistant.conversations.*`, `voice.diagnostics.*`, `sigmabench.*`, and the destructive `cleanup.*` registered raw handlers. All now validate their inner payload through a shared `registerIpcHandler` seam (response envelope unchanged).
+- **BUG-5** — `did-finish-load` re-fired `session-restore` on every renderer reload (double `WORKSPACE_OPEN` / `panes.resume`); now one-shot per app run.
+- **BUG-6** — the exited-session GC could reap a session that revived within its 5s window; cancellation is now status-driven.
+- **BUG-7** — `http-download` promoted a content-length-truncated file; it now rejects on a byte mismatch.
+- **BUG-8** — a `before-quit` snapshot-persist failure was silently swallowed; it is now logged.
+- **BUG-13** — deduplicated the `AddAgentToSwarmInput` interface to one shared definition.
+- **BUG-14** — added behavior tests for `commitAndMerge` (the destructive worktree→base merge path) **and fixed a HIGH the tests uncovered**: a conflicted `git merge --no-ff` left the base branch half-merged (`MERGE_HEAD` set); it now runs `git merge --abort` (best-effort) while still surfacing the failure code.
+- **DB-1** — a corrupt `sigmalink.db` bricked startup. Boot now runs `PRAGMA quick_check` and, on `SQLITE_CORRUPT`/`SQLITE_NOTADB`, quarantines the file (+ WAL/SHM) to `.corrupt-<ts>` and recreates a fresh DB so the app still launches.
+- **ERR-1** — a render throw in any room blanked the whole window (only `EditorTab` had a boundary). Added a styled root + per-room React error boundaries (reload + copy-diagnostics) and a renderer-only global `error`/`unhandledrejection` sink (→ sonner toast).
+
+### Housekeeping
+- Swept 29 stale locked agent worktrees under `.claude/worktrees` (**5.8 GB → 0**; ARCH-10).
+
 ## [1.36.0] - 2026-05-29
 
 v1.36.0 — **reliability batch: transactional migrations (H-7), offline Ruflo daemon for claude/codex (SF-14), and the page-change purple-flash fix.** All three are internal/polish hardening (no big new surface). Each was gated in main + Opus-reviewed; the SF-14 review caught a crash-recovery env bug that was fixed with a regression test before tagging.

@@ -7,6 +7,9 @@
 > **Shipped baseline:** SigmaLink v1.36.0 (+ on-main-untagged video+perf harness & FE-4 a11y `dbce7e6`);
 > SigmaVoice standalone v0.3.2 (own repo, macOS arm64 DMG).
 >
+> **✅ P1 SHIPPED 2026-05-31 (PR #70 · `37f94a0`, untagged → rides next release).** Reliability spine done.
+> **ACTIVE PHASE → P2 (Apple-grade motion & overlays; `MOT-1` first).** ARCH-1 (main-process tsconfig) still owed.
+>
 > **Phase goal (operator's 6-pillar vision):** **(a)** Apple-grade visuals · **(b)** responsive layouts ·
 > **(c)** smooth animations/popups · **(d)** polished notifications · **(e)** tasteful sound ·
 > **(f)** persistent DB + agent memory that **mirrors Obsidian** (graph/backlinks/daily-notes/Ruflo).
@@ -23,8 +26,8 @@
 
 | Phase | Theme (pillar) | Ships as¹ | Headline items (priority order) | Why here |
 |------|----------------|-----------|----------------|----------|
-| **P1** | Reliability & correctness spine | `v1.37.0` | BUG-1, ERR-1, DB-1, BUG-3, BUG-2, BUG-4, BUG-14, ARCH-1, ARCH-10 (+cheap bugs) | Stop silent data loss / window-blanking before any polish. Plan-of-record (DOC-1 ✅ this doc). |
-| **P2** | Apple-grade motion & overlays (a/c) | `v1.38.0` | **MOT-1 (prereq)**, UX-1, UX-2, UX-3, UX-4, UX-7, ANIM-2, UX-5/6/8/9/10, PERF-13/MEM-10 | One motion language; kill native modals + the dark-pinned toaster; the most-used popover becomes Apple-grade. |
+| ✅ **P1** | Reliability & correctness spine | ✅ **merged PR #70** (`37f94a0`) | **DONE** — BUG-1/2/3/4/5/6/7/8/13/14 · DB-1 · ERR-1 · ARCH-10 + commitAndMerge `--abort` fix. *(ARCH-1 split to its own follow-up — still owed.)* | Shipped 2026-05-31. |
+| ◀ **P2** | Apple-grade motion & overlays (a/c) — **ACTIVE** | `v1.38.0` | **MOT-1 (prereq)**, UX-1, UX-2, UX-3, UX-4, UX-7, ANIM-2, UX-5/6/8/9/10, PERF-13/MEM-10 | One motion language; kill native modals + the dark-pinned toaster; the most-used popover becomes Apple-grade. |
 | **P3** | Notifications + sound (d/e) | `v1.39.0` | NTF-1, NTF-2, NTF-3(UX-9), SND-1, ANIM-3 | Built on P2's springs. DND/quiet-hours/per-source + a real restrained sound system. |
 | **P4** | Obsidian memory + agent-memory unification (f) — **HEADLINE** | `v1.40.0` | **MEM-1**, MEM-2, MEM-4, MEM-3, MEM-6, MEM-5, MEM-7, DB-2, BUG-10/11/12, MEM-9/8, PERF-14 | The operator's headline vision + the biggest competitive gap (BridgeSpace leaves it bare). |
 | **P5** | Responsiveness & performance (b) | `v1.41.0` | RSP-1, PERF-1, PERF-3, PERF-2/4/5/6/8, PERF-7/9/10/11/12 | Adopt the dead Resizable primitive; tame the hottest IPC + re-render paths under live load. |
@@ -36,21 +39,10 @@
 
 ---
 
-### ▶ P1 — Reliability & correctness spine · ships as `v1.37.0`
-**Goal:** zero silent data loss, zero whole-window crashes, the destructive merge path covered by tests, and `tsc -b` actually checking main-process code. Reliability before sparkle (critic: ERR-1 + BUG-1 outrank pure-polish).
-**Deliverables:** a reliability release with the fixes below + new tests (`git-ops-merge.test.ts`, an `isPtyCrash` parity test across both exit paths) + `tsconfig.main.json` wired into the build; the 29 stale agent worktrees swept.
-**Work (priority order):**
-- **BUG-1** swarm-crash-misclassification — **fix BOTH `factory-spawn.ts` AND `launcher.ts` exit paths** (mirror-drift; a one-sided fix half-fixes). ✅ critic-verified.
-- **ERR-1** app-resilience layer — root + per-room ErrorBoundaries + `window.onerror`/`unhandledrejection` → tool-error notification.
-- **DB-1** SQLite `quick_check` + corrupt-quarantine-and-recreate at boot (data-loss-grade today).
-- **BUG-3** sync push-retry must run full `_pullCycle()` before retry (cross-device data-loss window).
-- **BUG-2** daemon recovery child stdout drain (shared `wireChildIo()`).
-- **BUG-4** thread the 5 side-band IPC prefixes through `validateChannelInput` (`cleanup.*` is destructive).
-- **BUG-14** `commitAndMerge` unit test (the destructive moat path — highest-ROI test gap; mock the `execCmd` seam).
-- **ARCH-1** `tsconfig.main.json` so `src/main` is type-checked as Node (close the systemic gate hole).
-- **ARCH-10** sweep the 29 stale locked agent worktrees (5.8 GB) — operator-confirmed `--force` only.
-- **Cheap bug batch:** BUG-5 (double resume), BUG-6 (GC revival), BUG-7 (truncated download), BUG-8 (quit snapshot), BUG-13 (dup `AddAgentToSwarmInput`).
-**Exit criteria:** swarm crash → `error` status in BOTH paths; a forced render throw shows the recovery banner, not a blank window; a corrupt DB boots into a fresh DB + a notification; `tsc -b` type-checks `src/main` as Node; full `tests/e2e/` green.
+### ▶ P1 — Reliability & correctness spine · ✅ SHIPPED 2026-05-31 (PR #70 · `37f94a0`, untagged)
+**Delivered (13 fixes):** BUG-1 (shared `isPtyCrash` in new dep-free `pty/crash.ts`, both exit paths persist `isCrash`) · BUG-2 (daemon `wireChildIo` drains stdout on both spawn paths) · BUG-3 (sync push-retry full `_pullCycle` reconcile + re-encode — closes a cross-device data-loss window) · BUG-4 (all side-band IPC validated via shared `registerIpcHandler`, incl. destructive `cleanup.*`) · BUG-5/6/7/8 (lifecycle / GC revival / truncated download / quit-persist log) · BUG-13 (dedup `AddAgentToSwarmInput`) · BUG-14 (commitAndMerge behavior tests **+ found & fixed a real HIGH: `git merge --abort` on conflict so the base branch is restored**) · DB-1 (SQLite `quick_check` + quarantine-and-recreate) · ERR-1 (root + per-room error boundaries + renderer error sink) · ARCH-10 (29 stale worktrees swept, 5.8 GB→0).
+**Gate:** `tsc -b` clean · 2000 vitest pass · e2e 9/3-skip · Opus review (no critical/high; the one MEDIUM — launcher DB-status parity — folded). Detail → `CHANGELOG.md` [Unreleased] + master memory.
+**Still owed from P1 scope:** **ARCH-1** — `tsconfig.main.json` so `src/main` is type-checked as Node (split to its own follow-up; expected to surface a latent main-process type-error backlog).
 
 ### ▶ P2 — Apple-grade motion & overlays (pillars a, c) · ships as `v1.38.0`
 **Goal:** one cohesive Apple motion language across every overlay, zero native OS modals, theme-correct transient surfaces.
