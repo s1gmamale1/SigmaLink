@@ -32,6 +32,7 @@ import { writeGuardrailBlock } from './guardrail-block';
 import { writeRufloMcpIntoCwd } from './ruflo-worktree-mcp';
 import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from './mcp-autowrite';
 import { allocateLowestFreeLivePaneIndex } from './pane-slots';
+import { isPtyCrash } from '../pty/crash';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -135,16 +136,12 @@ function buildExtraArgs(providerId: string, oneshotPrompt?: string): string[] {
  * not have run yet on legacy DBs, so we fall back to a no-op on column-missing
  * errors instead of crashing the spawn.
  */
-/**
- * Classify a PTY exit as a crash for the `pty:error` IPC event.
- * Exported for unit testing only; internal logic gate for the onExit handler.
- *
- * Crash = earlyDeath (<1.5s from spawn) OR non-zero exitCode OR non-zero signal.
- * Clean exit (code 0, signal 0/null/undefined, not earlyDeath) → NOT a crash.
- */
-export function isPtyCrash(earlyDeath: boolean, exitCode: number, signal?: number | null): boolean {
-  return earlyDeath || exitCode !== 0 || (signal != null && signal !== 0);
-}
+// BUG-1 — `isPtyCrash` moved to the dependency-free `../pty/crash` leaf module
+// so the swarm spawn path (`swarms/factory-spawn.ts`) can share the exact same
+// classifier without closing an import cycle (launcher → rpc-router → factory →
+// factory-spawn → launcher). Re-exported here so the existing `./launcher`
+// public surface (consumed by launcher.test.ts) is unchanged.
+export { isPtyCrash };
 
 function writeProviderEffective(sessionId: string, providerEffective: string): void {
   try {
@@ -568,7 +565,11 @@ export async function executeLaunchPlan(
         try {
           db.update(agentSessions)
             .set({
-              status: earlyDeath ? 'error' : 'exited',
+              // BUG-1 parity: persist the SAME crash classification used for the
+              // `pty:error` broadcast (and by the swarm path in factory-spawn) so
+              // a crashed pane resumed from disk reads 'error' (stays visible),
+              // not 'exited' (which the exited-session GC would reap on restore).
+              status: isCrash ? 'error' : 'exited',
               exitCode,
               exitedAt: Date.now(),
             })

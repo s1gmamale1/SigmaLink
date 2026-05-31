@@ -141,4 +141,47 @@ describe('http-download', () => {
     expect(fs.existsSync(destPath)).toBe(false);
     expect(fs.existsSync(`${destPath}.part`)).toBe(false);
   });
+
+  // BUG-7 regression: a clean-FIN truncation (bytes < content-length) must
+  // reject and NOT promote the .part file to destPath.
+  it('rejects and removes .part file when bytes received are less than Content-Length', async () => {
+    const destPath = tempFile('truncated.dmg');
+    const fullBody = Buffer.from('full-payload-12-bytes');
+    // Only deliver a prefix — simulate clean-FIN truncation.
+    const partialBody = fullBody.subarray(0, 5);
+    mockHttpsGet([
+      {
+        statusCode: 200,
+        headers: { 'content-length': String(fullBody.length) },
+        body: partialBody,
+      },
+    ]);
+
+    await expect(
+      download('https://example.test/truncated.dmg', destPath, () => undefined),
+    ).rejects.toThrow('truncated download');
+
+    expect(fs.existsSync(destPath)).toBe(false);
+    expect(fs.existsSync(`${destPath}.part`)).toBe(false);
+  });
+
+  // BUG-7: no Content-Length header → total stays 0 → accept any byte count.
+  it('accepts a download with no Content-Length header', async () => {
+    const destPath = tempFile('no-length.dmg');
+    const body = Buffer.from('no-length-body');
+    mockHttpsGet([
+      {
+        statusCode: 200,
+        // no content-length header
+        body,
+      },
+    ]);
+
+    await expect(
+      download('https://example.test/no-length.dmg', destPath, () => undefined),
+    ).resolves.toEqual({ bytes: body.length });
+
+    expect(fs.readFileSync(destPath, 'utf8')).toBe('no-length-body');
+    expect(fs.existsSync(`${destPath}.part`)).toBe(false);
+  });
 });

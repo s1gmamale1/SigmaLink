@@ -571,3 +571,134 @@ describe('integration paths (v1.5.1 reviewer follow-up)', () => {
     expect(db.allRows('sync_quarantine').length).toBe(0);
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// BUG-3 — push-retry must NOT drop concurrent remote edits.
+//
+// Two-device scenario: this device has a local dirty row to push. The peer
+// pushed a *different* row concurrently, so our first push is REJECTED. The
+// retry path must run the FULL pull reconcile (decrypt → resolveRow →
+// _applyRemoteRow) so the peer's row is APPLIED to the local DB, then re-stage
+// and retry the push — NOT a bare pull() that fetches into the work tree and
+// then gets clobbered by the retry push (which silently drops the peer's edit).
+// ──────────────────────────────────────────────────────────────────────────
+describe('BUG-3 — push-retry preserves concurrent remote edits', () => {
+  let db: InMemoryDb;
+  let engine: SyncEngine;
+
+  afterEach(() => {
+    engine.disable();
+    vi.restoreAllMocks();
+  });
+
+  beforeEach(async () => {
+    db = new InMemoryDb();
+    engine = new SyncEngine(db as never);
+    vi.clearAllMocks();
+
+    const gitClient = vi.mocked(await import('./git-client'));
+    gitClient.pull.mockResolvedValue({ ok: true, updatedPaths: [] });
+    gitClient.push.mockResolvedValue({ ok: true });
+    gitClient.listBlobs.mockReturnValue([]);
+    gitClient.readBlob.mockReturnValue(null);
+    gitClient.stageAndCommit.mockResolvedValue('commit-oid');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lockfile = (await import('proper-lockfile')) as any;
+    lockfile.default.lock.mockResolvedValue(async () => undefined);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { KeyManager } = (await import('./key-manager')) as any;
+    KeyManager.withKey.mockImplementation(async (fn: (key: Uint8Array) => Promise<unknown>) => fn(TEST_KEY));
+    KeyManager.getMachineId.mockResolvedValue(new Uint8Array(16));
+    KeyManager.isConfigured.mockResolvedValue(true);
+
+    const { resolveRow } = vi.mocked(await import('./conflict-resolver'));
+    resolveRow.mockReturnValue({ action: 'apply_remote', reason: 'new row' });
+
+    await engine.enable(CONFIG);
+  });
+
+  it('applies the peer row on push-reject retry instead of dropping it', async () => {
+    const localTable = 'tasks';
+    const localRowId = 'task-local-01';
+    const peerTable = 'conversations';
+    const peerRowId = 'conv-peer-99';
+
+    // 1. Local dirty row exists in the application table + dirty-tracker.
+    db.prepare(
+      `INSERT OR REPLACE INTO ${localTable} (id, workspace_id, title) VALUES (?, ?, ?)`,
+    ).run(localRowId, 'ws-1', 'Local task');
+    const dirtyTracker = vi.mocked(await import('./dirty-tracker'));
+    dirtyTracker.listDirtyRows.mockReturnValue([
+      { table_name: localTable, row_id: localRowId, dirty: 1 },
+    ]);
+
+    // 2. The peer's concurrent edit, available to be fetched during reconcile.
+    const peerData = {
+      id: peerRowId,
+      workspace_id: 'ws-1',
+      kind: 'assistant',
+      created_at: 1_700_000_000_000,
+    };
+    const peerPayload = await buildV2Blob(peerTable, peerRowId, peerData, SCHEMA_VERSION);
+
+    // 3. git mocks: first push REJECTED, second push OK. The reconcile pull
+    //    surfaces the peer blob, which the FULL pull path must apply.
+    const gitClient = vi.mocked(await import('./git-client'));
+    gitClient.push
+      .mockResolvedValueOnce({ ok: false, error: 'non-fast-forward' })
+      .mockResolvedValueOnce({ ok: true });
+    const peerRelPath = path.join('sync', 'blobs', peerTable, `${peerRowId}.bin`);
+    // listBlobs/readBlob return the peer blob ONLY during the reconcile pull
+    // (the initial _pullCycle in the same runCycle sees an empty work tree).
+    let pullCount = 0;
+    gitClient.pull.mockImplementation(async () => {
+      pullCount += 1;
+      if (pullCount === 1) {
+        // Initial pull at the top of the cycle — nothing remote yet.
+        gitClient.listBlobs.mockReturnValue([]);
+        gitClient.readBlob.mockReturnValue(null);
+      } else {
+        // Reconcile pull triggered by the push reject — peer blob now present.
+        gitClient.listBlobs.mockReturnValue([peerRelPath]);
+        gitClient.readBlob.mockReturnValue(peerPayload);
+      }
+      return { ok: true, updatedPaths: [] };
+    });
+
+    await engine.runCycle();
+
+    // The peer's concurrent edit MUST have been applied (not dropped).
+    const appliedPeer = db.getRow(peerTable, peerRowId);
+    expect(appliedPeer).toBeDefined();
+    expect(appliedPeer!['id']).toBe(peerRowId);
+    expect(appliedPeer!['kind']).toBe('assistant');
+
+    // Retry push happened (push called twice: reject then success).
+    expect(gitClient.push).toHaveBeenCalledTimes(2);
+    // The reconcile pull ran (more than the single initial pull).
+    expect(pullCount).toBeGreaterThanOrEqual(2);
+    // Peer row was reconciled through the real apply path, not quarantined.
+    expect(db.allRows('sync_quarantine').length).toBe(0);
+  });
+
+  it('throws (does not silently succeed) when the retry push also fails', async () => {
+    const localTable = 'tasks';
+    const localRowId = 'task-local-02';
+    db.prepare(
+      `INSERT OR REPLACE INTO ${localTable} (id, workspace_id, title) VALUES (?, ?, ?)`,
+    ).run(localRowId, 'ws-1', 'Local task 2');
+    const dirtyTracker = vi.mocked(await import('./dirty-tracker'));
+    dirtyTracker.listDirtyRows.mockReturnValue([
+      { table_name: localTable, row_id: localRowId, dirty: 1 },
+    ]);
+
+    const gitClient = vi.mocked(await import('./git-client'));
+    gitClient.push.mockResolvedValue({ ok: false, error: 'still rejected' });
+
+    // runCycle swallows the error into status.lastError (see _scheduleNext),
+    // but runCycle()/ _cycle propagate it; assert it rejects.
+    await expect(engine.runCycle()).rejects.toThrow(/push failed after retry/);
+  });
+});

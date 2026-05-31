@@ -302,6 +302,19 @@ export async function commitAndMerge(input: {
   });
   log.push(merge.stdout);
   stderr.push(merge.stderr);
+  if (merge.code !== 0) {
+    // A failed `git merge --no-ff` (most commonly a conflict, exit 1) leaves
+    // repoRoot with MERGE_HEAD set and the base branch in a half-merged,
+    // conflicted state. Abort so the base branch is restored to its pre-merge
+    // HEAD and is safe for the next operation. Best-effort: `merge --abort`
+    // is a no-op (non-zero, harmless) when there was no merge in progress.
+    const abort = await execCmd('git', ['merge', '--abort'], {
+      cwd: input.repoRoot,
+      timeoutMs: 30_000,
+    });
+    log.push(abort.stdout);
+    stderr.push(abort.stderr);
+  }
   return { stdout: log.join(''), stderr: stderr.join(''), code: merge.code };
 }
 

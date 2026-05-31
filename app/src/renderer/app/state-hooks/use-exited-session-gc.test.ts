@@ -96,6 +96,25 @@ describe('useExitedSessionGc — BUG-C3 timer race on unmount', () => {
   });
 });
 
+describe('useExitedSessionGc — BUG-6 revived session not removed', () => {
+  it('cancels a scheduled timer when the session status flips off "exited" within the grace window', () => {
+    const exited = session('s1', 'exited');
+    const revived = session('s1', 'running'); // same id, status changed
+    const { rerender } = renderHook(({ s }: { s: AgentSession[] }) =>
+      useExitedSessionGc(stateWith(s), dispatch),
+      { initialProps: { s: [exited] } },
+    );
+
+    // Timer is scheduled. Before it fires, the session revives.
+    rerender({ s: [revived] });
+
+    // Advance past the grace window — the timer must NOT fire for the revived session.
+    vi.advanceTimersByTime(10_000);
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});
+
 describe('useExitedSessionGc — v1.13.2 crashed panes persist', () => {
   it('does NOT auto-remove a session with status "error" (crash)', () => {
     const crashed = session('s1', 'error');

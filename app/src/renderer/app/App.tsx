@@ -18,6 +18,10 @@ import { useRightRailEnabled } from '@/renderer/features/right-rail/use-right-ra
 import { ThemeProvider } from '@/renderer/app/ThemeProvider';
 import { AppStateProvider, useAppState } from '@/renderer/app/state';
 import { ROOM_LOADERS, prefetchRooms } from '@/renderer/app/room-loaders';
+// ERR-1 — app-resilience layer: a root boundary so a render throw anywhere
+// no longer blanks the window, plus per-room boundaries so one crashing room
+// keeps the shell + other navigation alive.
+import { RootErrorBoundary, RoomErrorBoundary } from '@/renderer/app/ErrorBoundary';
 
 // --- Lazy rooms ----------------------------------------------------------
 // Each room is wrapped in `React.lazy` so its module (and the heavy feature
@@ -71,10 +75,19 @@ function RoomSwitch() {
   // cold boot). Every other room is lazy-mounted, so wrap them in a single
   // Suspense boundary keyed by room id — that way re-entering the same room
   // doesn't re-trigger the fallback once the chunk is cached.
+  //
+  // `eager` rooms (command) render without Suspense; lazy rooms render inside
+  // one Suspense boundary. Either way the result is wrapped in a per-room
+  // ErrorBoundary keyed by room id (ERR-1) so a render throw in one room shows
+  // a contained fallback instead of unmounting the whole app — and navigating
+  // away then back to a crashed room remounts the boundary with a clean slate.
   let body: ReactElement | null;
+  let eager = false;
   switch (state.room) {
     case 'command':
-      return <CommandRoom />;
+      body = <CommandRoom />;
+      eager = true;
+      break;
     case 'workspaces':
       body = <WorkspaceLauncher />;
       break;
@@ -109,9 +122,11 @@ function RoomSwitch() {
       body = <SettingsRoom />;
       break;
     default:
-      return null;
+      body = null;
   }
-  return <Suspense fallback={<RoomSkeleton />}>{body}</Suspense>;
+  if (body === null) return null;
+  const inner = eager ? body : <Suspense fallback={<RoomSkeleton />}>{body}</Suspense>;
+  return <RoomErrorBoundary key={state.room}>{inner}</RoomErrorBoundary>;
 }
 
 /**
@@ -151,6 +166,12 @@ export default function App() {
   return (
     <AppStateProvider>
       <ThemeProvider>
+        {/* ERR-1 — root resilience boundary. Wraps the entire app shell so an
+            uncaught render throw anywhere below shows an Apple-grade content-
+            unavailable fallback instead of a blank window. The Toaster +
+            modals below stay OUTSIDE the boundary so "Copy diagnostics" toasts
+            still surface even if the shell itself crashed. */}
+        <RootErrorBoundary>
         {/* v1.1.4 Step 3 — the right-rail's active-tab state lives in
             `RightRailContext` so both the top-bar `RightRailSwitcher`
             (inside Breadcrumb) and the rail itself (`RightRail`) share
@@ -180,6 +201,7 @@ export default function App() {
             </main>
           </div>
         </RightRailProvider>
+        </RootErrorBoundary>
         <CommandPalette />
         <OnboardingModal />
         <NativeRebuildModal />

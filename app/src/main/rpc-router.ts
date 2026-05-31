@@ -1798,6 +1798,42 @@ function buildRouter() {
   });
 }
 
+/**
+ * BUG-4 — single seam that registers an `ipcMain.handle` for `channel`, threads
+ * the renderer's first positional arg through the per-channel zod input schema
+ * (`validateChannelInput`, enforce mode), and wraps the result/error in the
+ * stable `{ ok, data } | { ok, error, stack }` envelope. Both the typed
+ * AppRouter loop AND every side-band loop (console / replay / sideBands) call
+ * this, so a side-band channel can no longer skip input validation, and the
+ * validate-then-handle pattern can't drift between the loops (grep-sibling
+ * class). It only ADDS validation — the handler's response/envelope shape and
+ * behaviour are untouched. The renderer invokes side-bands via
+ * `window.sigma.invoke` with an envelope that is unwrapped before it reaches
+ * here, so `args[0]` is already the INNER payload we validate (SF-12 lesson).
+ */
+function registerIpcHandler(
+  channel: string,
+  fn: (...args: unknown[]) => unknown,
+  isDev: boolean,
+): void {
+  ipcMain.handle(channel, async (_e, ...args) => {
+    try {
+      // Enforce the per-channel input schema at the boundary (no-op for
+      // z.any()/unhardened channels; throws ZodError on a tightened channel's
+      // malformed payload, converted to the error envelope below).
+      args[0] = validateChannelInput(channel, args[0]);
+      const out = await fn(...args);
+      return { ok: true, data: out };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Include stack in dev for easier debugging, omit in production to avoid
+      // leaking implementation details across IPC.
+      const stack = isDev && err instanceof Error ? err.stack : undefined;
+      return { ok: false, error: message, stack };
+    }
+  });
+}
+
 export function registerRouter(): void {
   if (router) return;
   router = buildRouter();
@@ -1825,23 +1861,7 @@ export function registerRouter(): void {
   }
   for (const [ns, handlers] of Object.entries(router)) {
     for (const [key, fn] of Object.entries(handlers)) {
-      const channel = `${ns}.${key}`;
-      ipcMain.handle(channel, async (_e, ...args) => {
-        try {
-          // H-8 — enforce the per-channel input schema at the boundary (no-op
-          // for z.any() / unhardened channels; throws ZodError on a tightened
-          // channel's malformed payload, converted to the error envelope below).
-          args[0] = validateChannelInput(channel, args[0]);
-          const out = await (fn as (...a: unknown[]) => unknown)(...args);
-          return { ok: true, data: out };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          // Include stack in dev for easier debugging, omit in production to
-          // avoid leaking implementation details across IPC.
-          const stack = isDev && err instanceof Error ? err.stack : undefined;
-          return { ok: false, error: message, stack };
-        }
-      });
+      registerIpcHandler(`${ns}.${key}`, fn as (...a: unknown[]) => unknown, isDev);
     }
   }
 
@@ -1852,17 +1872,9 @@ export function registerRouter(): void {
   // channels reject before reaching ipcMain.
   if (consoleHandlers) {
     for (const [key, fn] of Object.entries(consoleHandlers)) {
-      const channel = `swarm.${key}`;
-      ipcMain.handle(channel, async (_e, ...args) => {
-        try {
-          const out = await (fn as (...a: unknown[]) => unknown)(...args);
-          return { ok: true, data: out };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          const stack = isDev && err instanceof Error ? err.stack : undefined;
-          return { ok: false, error: message, stack };
-        }
-      });
+      // BUG-4 — route through the same validate-then-handle seam as the typed
+      // router so the `swarm.*` console side-band can't bypass input validation.
+      registerIpcHandler(`swarm.${key}`, fn, isDev);
     }
   }
 
@@ -1871,17 +1883,8 @@ export function registerRouter(): void {
   // the renderer's `swarm.replay.list` invocation routes here.
   if (replayHandlers) {
     for (const [key, fn] of Object.entries(replayHandlers)) {
-      const channel = `swarm.replay.${key}`;
-      ipcMain.handle(channel, async (_e, ...args) => {
-        try {
-          const out = await (fn as (...a: unknown[]) => unknown)(...args);
-          return { ok: true, data: out };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          const stack = isDev && err instanceof Error ? err.stack : undefined;
-          return { ok: false, error: message, stack };
-        }
-      });
+      // BUG-4 — same validate-then-handle seam for `swarm.replay.*`.
+      registerIpcHandler(`swarm.replay.${key}`, fn, isDev);
     }
   }
 
@@ -1969,17 +1972,11 @@ export function registerRouter(): void {
   for (const band of sideBands) {
     if (!band.map) continue;
     for (const [key, fn] of Object.entries(band.map)) {
-      const channel = `${band.prefix}${key}`;
-      ipcMain.handle(channel, async (_e, ...args) => {
-        try {
-          const out = await (fn as (...a: unknown[]) => unknown)(...args);
-          return { ok: true, data: out };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          const stack = isDev && err instanceof Error ? err.stack : undefined;
-          return { ok: false, error: message, stack };
-        }
-      });
+      // BUG-4 — route every side-band (`assistant.conversations.*`,
+      // `swarm.origin.*`, `voice.diagnostics.*`, `sigmabench.*`, and the
+      // DESTRUCTIVE `cleanup.*`) through the same validate-then-handle seam so
+      // a malformed payload is rejected at the boundary before the handler runs.
+      registerIpcHandler(`${band.prefix}${key}`, fn, isDev);
     }
   }
 }

@@ -39,6 +39,11 @@ const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 let tray: Tray | null = null;
 let globalCaptureCtrl: GlobalCaptureController | null = null;
 
+// BUG-5 — gate `app:session-restore` to fire AT MOST ONCE per app run.
+// `did-finish-load` re-fires on every HMR reload or renderer-crash recovery,
+// which was causing duplicate WORKSPACE_OPEN + panes.resume() dispatches.
+let sessionRestoreSent = false;
+
 /**
  * Build or rebuild the Tray context menu based on current capture state.
  * Called after any capture state change.
@@ -625,11 +630,15 @@ function createWindow(): void {
   // least one listener exists per channel, but to stay defensive we only
   // emit when a snapshot actually exists. A missing/corrupt row is silently
   // ignored so the user lands on the picker (= identical to first-run).
-  mainWindow.webContents.once('did-finish-load', () => {
+  mainWindow.webContents.on('did-finish-load', () => {
+    // BUG-5 — only emit on the FIRST load per app run (HMR reloads and
+    // renderer-crash recoveries must not re-fire WORKSPACE_OPEN / panes.resume).
+    if (sessionRestoreSent) return;
     try {
       const snapshot = readSessionSnapshot();
       if (snapshot && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('app:session-restore', snapshot);
+        sessionRestoreSent = true;
       }
     } catch {
       /* never block boot on session restore */
@@ -828,8 +837,9 @@ app.on('before-quit', (event) => {
     if (getCachedSnapshot()) {
       persistCachedSnapshot();
     }
-  } catch {
+  } catch (err) {
     /* never let session persistence block shutdown */
+    console.warn('[session] persist on quit failed:', err);
   }
   // The router shutdown self-bounds (daemon supervisors SIGKILL after ~5s), so
   // this can't hang quit indefinitely; re-quit once it settles.

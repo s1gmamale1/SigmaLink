@@ -8,6 +8,7 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema';
 import { migrate } from './migrate';
+import { isCorruptionError, shouldQuarantine, corruptBackupPath } from './corruption';
 
 let dbHandle: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let rawDb: Database.Database | null = null;
@@ -198,13 +199,16 @@ CREATE TABLE IF NOT EXISTS session_review (
 );
 `;
 
-export function initializeDatabase(userDataDir: string): {
-  db: ReturnType<typeof drizzle<typeof schema>>;
-  raw: Database.Database;
-  filePath: string;
-} {
-  if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
-  const filePath = path.join(userDataDir, 'sigmalink.db');
+/**
+ * Open a SQLite connection, apply the standard pragmas, and run a
+ * `PRAGMA quick_check` integrity probe.
+ *
+ * @throws if the file is corrupt — either the open/pragma call throws a
+ *   `SQLITE_CORRUPT`/`SQLITE_NOTADB` error, or `quick_check` reports a
+ *   non-`'ok'` result (we close the handle and re-throw a synthetic error so
+ *   the caller's corruption branch fires uniformly).
+ */
+function openAndCheck(filePath: string): Database.Database {
   const sqlite = new Database(filePath);
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
@@ -212,14 +216,39 @@ export function initializeDatabase(userDataDir: string): {
   // With WAL + multiple connections (HTTP daemon, sync engine) a migration's
   // write transaction can briefly contend; the timeout makes it wait, not fail.
   sqlite.pragma('busy_timeout = 5000');
+  // DB-1: integrity probe BEFORE bootstrap/migrate. quick_check is far cheaper
+  // than integrity_check and catches the corruption cases that make the file
+  // unusable as a database.
+  const quickCheck = sqlite.pragma('quick_check');
+  if (shouldQuarantine(quickCheck)) {
+    try { sqlite.close(); } catch { /* ignore */ }
+    const synthetic = new Error(
+      `sigmalink.db failed PRAGMA quick_check: ${JSON.stringify(quickCheck)}`,
+    ) as Error & { code: string };
+    synthetic.code = 'SQLITE_CORRUPT';
+    throw synthetic;
+  }
+  return sqlite;
+}
+
+/** DB-1 — bootstrap schema + forward-only migrations + legacy kv key migration. */
+function bootstrapAndMigrate(sqlite: Database.Database): void {
   sqlite.exec(BOOTSTRAP_SQL);
   // V3-W12-016: run forward-only migrations after bootstrap so existing
   // installs pick up new columns; fresh installs already have the columns
   // because the migration runner short-circuits via PRAGMA introspection.
   migrate(sqlite);
-  // v1.4.1 — transparently migrate the old bridge.activeConversationId kv key
-  // to sigma.activeConversationId so existing users don't lose their active
-  // conversation reference after the RoomId rename. Idempotent.
+  runKvMigrations(sqlite);
+}
+
+/**
+ * v1.4.1 — transparently migrate the old `bridge.*` kv keys to `sigma.*` so
+ * existing users don't lose their preferences after the RoomId rename. Each
+ * block is independent (a user may have toggled one preference but not the
+ * other) and idempotent. Wrapped in try/catch because the kv table may not
+ * exist on very old schemas. Mirrored by client.kv-migration.test.ts.
+ */
+function runKvMigrations(sqlite: Database.Database): void {
   try {
     const oldRow = sqlite.prepare("SELECT value FROM kv WHERE key = 'bridge.activeConversationId'").get() as { value: string } | undefined;
     if (oldRow) {
@@ -232,10 +261,6 @@ export function initializeDatabase(userDataDir: string): {
   } catch {
     /* kv table may not exist on very old schemas — ignore */
   }
-  // v1.4.1 — transparently migrate the old bridge.autoFocusOnDispatch kv key
-  // to sigma.autoFocusOnDispatch. Independent of the activeConversationId
-  // migration above — a user may have toggled one preference but not the other.
-  // Idempotent.
   try {
     const oldAutoFocusRow = sqlite.prepare("SELECT value FROM kv WHERE key = 'bridge.autoFocusOnDispatch'").get() as { value: string } | undefined;
     if (oldAutoFocusRow) {
@@ -248,6 +273,53 @@ export function initializeDatabase(userDataDir: string): {
   } catch {
     /* kv table may not exist on very old schemas — ignore */
   }
+}
+
+export function initializeDatabase(userDataDir: string): {
+  db: ReturnType<typeof drizzle<typeof schema>>;
+  raw: Database.Database;
+  filePath: string;
+} {
+  if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
+  const filePath = path.join(userDataDir, 'sigmalink.db');
+
+  let sqlite: Database.Database;
+  try {
+    // DB-1: open + pragmas + quick_check. A corrupt file throws here (either a
+    // SQLITE_CORRUPT/NOTADB open error or our synthetic quick_check error).
+    sqlite = openAndCheck(filePath);
+  } catch (err) {
+    if (!isCorruptionError(err)) throw err; // not a corruption signal — surface it.
+    // DB-1 recovery: PRESERVE the bad file (rename, don't delete), warn loudly,
+    // then recreate a fresh database so the app still boots. Data loss is
+    // unavoidable for the corrupt file, but the app remains usable and the old
+    // bytes are kept for forensic / manual-recovery purposes.
+    const backupPath = corruptBackupPath(filePath, Date.now());
+    console.warn(
+      `[db] sigmalink.db is corrupt (${err instanceof Error ? err.message : String(err)}). ` +
+        `Quarantining to ${backupPath} and recreating a fresh database.`,
+    );
+    try {
+      // Move the corrupt main file and any stale WAL/SHM sidecars out of the way
+      // so the fresh Database() starts clean.
+      if (fs.existsSync(filePath)) fs.renameSync(filePath, backupPath);
+      for (const sidecar of ['-wal', '-shm']) {
+        const sidecarPath = filePath + sidecar;
+        if (fs.existsSync(sidecarPath)) {
+          try { fs.renameSync(sidecarPath, backupPath + sidecar); } catch { /* best-effort */ }
+        }
+      }
+    } catch (renameErr) {
+      console.warn(
+        `[db] failed to quarantine corrupt database at ${filePath}: ` +
+          `${renameErr instanceof Error ? renameErr.message : String(renameErr)}`,
+      );
+    }
+    // Recreate. If THIS throws it is not recoverable — let it surface.
+    sqlite = openAndCheck(filePath);
+  }
+
+  bootstrapAndMigrate(sqlite);
   rawDb = sqlite;
   dbHandle = drizzle(sqlite, { schema });
   return { db: dbHandle, raw: sqlite, filePath };

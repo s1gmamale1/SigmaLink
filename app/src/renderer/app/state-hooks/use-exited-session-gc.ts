@@ -41,9 +41,12 @@ export function useExitedSessionGc(state: AppState, dispatch: Dispatch<Action>):
         timers.set(sessionId, t);
       }
     }
-    // Cancel timers for sessions that are no longer present.
+    // Cancel timers for sessions that are no longer present OR whose status has
+    // moved off 'exited' (e.g. revived within the 5s grace window). Presence-
+    // only cancellation left timers alive for revived sessions (BUG-6).
     for (const [id, t] of timers) {
-      if (!state.sessions.find((s) => s.id === id)) {
+      const live = state.sessions.find((s) => s.id === id);
+      if (!live || live.status !== 'exited') {
         clearTimeout(t);
         timers.delete(id);
       }

@@ -423,82 +423,121 @@ export class SyncEngine {
 
     const cloneDir = this._config.cloneDir;
 
-    // Read anonymise-paths setting once per push cycle (avoids per-row lookup).
-    const doAnonymise = readAnonymisePaths(this._db);
-
     await KeyManager.withKey(async (key) => {
-      // Encrypt + write each dirty row to the working tree.
-      for (const row of dirtyRows) {
-        const { table_name: tableName, row_id: rowId } = row;
-
-        // Read the row from the application table.
-        let rowData: Record<string, unknown>;
-        try {
-          rowData = this._db
-            .prepare(`SELECT * FROM ${tableName} WHERE id = ?`)
-            .get(rowId) as Record<string, unknown>;
-          if (!rowData) {
-            // Row was deleted since we marked it dirty — write tombstone instead.
-            const hlc = hlcNow();
-            const packed = hlcPack(hlc);
-            writeTombstoneToWorkTree(cloneDir, tableName, rowId, packed);
-            markDeleted(this._db, tableName, rowId, packed);
-            continue;
-          }
-        } catch {
-          continue; // unknown table shape — skip
-        }
-
-        // Optionally anonymise home-directory paths before encryption.
-        const serialisedData = doAnonymise ? anonymiseRowPaths(rowData) : rowData;
-
-        // Generate HLC for this write.
-        const hlc = hlcNow();
-        const hlcPacked = hlcPack(hlc);
-
-        // Build the sync envelope: row data + metadata.
-        const machineIdHex = Buffer.from(hlc.machineId).toString('hex');
-        const envelope = {
-          _hlc: hlcPacked,
-          _schema: SCHEMA_VERSION,
-          _machineId: machineIdHex,
-          data: serialisedData,
-        };
-        const plaintext = JSON.stringify(envelope);
-        // v2 AAD: "${table_name}|${row_id}" (schema_version is in the outer header).
-        const aad = buildAad(tableName, rowId);
-
-        const { payload } = await encrypt({ key, plaintext, aad, schemaVersion: SCHEMA_VERSION });
-        writeBlobToWorkTree(cloneDir, tableName, rowId, payload);
-      }
-
-      // Commit.
-      const oid = await stageAndCommit(cloneDir, `sigma-sync: push ${dirtyRows.length} rows`);
-      if (!oid) {
-        // Nothing to commit (all rows were skipped).
+      // Encode the current dirty set + commit.
+      let staged = await this._encodeDirtyRowsAndCommit(key, dirtyRows, cloneDir);
+      if (staged.length === 0) {
+        // Nothing to commit (all rows were skipped / no commit produced).
         return;
       }
 
-      // Push (with one retry after pull on conflict).
+      // Push (with one retry after a FULL reconcile on conflict).
       const pushResult = await push(this._config!);
       if (!pushResult.ok) {
-        // Push rejected — pull first, then retry.
-        await pull(this._config!);
+        // BUG-3: push rejected because the peer pushed concurrently. A bare
+        // pull() would only fetch into the git working tree and SKIP the
+        // decrypt→resolveRow→_applyRemoteRow reconciliation, so the retry push
+        // would overwrite (silently drop) the peer's edits. Instead run the
+        // FULL pull cycle so remote rows are actually applied to the local DB,
+        // THEN re-collect the dirty set (which now includes any rows the
+        // reconciliation touched / re-dirtied) and re-stage + re-commit so the
+        // newly-applied remote rows participate in the retry push.
+        await this._pullCycle();
+        const dirtyAfterReconcile = listDirtyRows(this._db);
+        const restaged = await this._encodeDirtyRowsAndCommit(
+          key,
+          dirtyAfterReconcile,
+          cloneDir,
+        );
+        // The rows to mark clean after a successful retry are whatever we just
+        // re-staged (falls back to the original set if nothing new was staged,
+        // e.g. the reconcile produced no further local changes).
+        staged = restaged.length > 0 ? restaged : staged;
+
         const retryResult = await push(this._config!);
         if (!retryResult.ok) {
           throw new Error(`sync push failed after retry: ${retryResult.error}`);
         }
       }
 
-      // Mark all pushed rows as clean.
+      // Mark all successfully-pushed rows as clean.
       const pushedAt = Date.now();
-      for (const row of dirtyRows) {
+      for (const row of staged) {
         markClean(this._db, row.table_name, row.row_id, pushedAt);
       }
     });
 
     this._status = { ...this._status, lastPushAt: Date.now() };
     this._emit();
+  }
+
+  /**
+   * Encrypt + write each dirty row to the working tree, then stage + commit.
+   *
+   * Shared by the initial push and the post-reconcile retry path (BUG-3) so the
+   * retry re-encodes the CURRENT dirty set (which may now include remote rows
+   * applied by `_pullCycle()`) rather than reusing the stale pre-reconcile blobs.
+   *
+   * @returns the dirty rows that were committed (empty if `stageAndCommit`
+   *   produced no commit — e.g. all rows were deleted/skipped and no change was
+   *   staged), so the caller knows which rows to mark clean after a successful push.
+   */
+  private async _encodeDirtyRowsAndCommit(
+    key: Uint8Array,
+    dirtyRows: ReturnType<typeof listDirtyRows>,
+    cloneDir: string,
+  ): Promise<ReturnType<typeof listDirtyRows>> {
+    if (dirtyRows.length === 0) return [];
+
+    // Read anonymise-paths setting once (avoids per-row lookup).
+    const doAnonymise = readAnonymisePaths(this._db);
+
+    for (const row of dirtyRows) {
+      const { table_name: tableName, row_id: rowId } = row;
+
+      // Read the row from the application table.
+      let rowData: Record<string, unknown>;
+      try {
+        rowData = this._db
+          .prepare(`SELECT * FROM ${tableName} WHERE id = ?`)
+          .get(rowId) as Record<string, unknown>;
+        if (!rowData) {
+          // Row was deleted since we marked it dirty — write tombstone instead.
+          const hlc = hlcNow();
+          const packed = hlcPack(hlc);
+          writeTombstoneToWorkTree(cloneDir, tableName, rowId, packed);
+          markDeleted(this._db, tableName, rowId, packed);
+          continue;
+        }
+      } catch {
+        continue; // unknown table shape — skip
+      }
+
+      // Optionally anonymise home-directory paths before encryption.
+      const serialisedData = doAnonymise ? anonymiseRowPaths(rowData) : rowData;
+
+      // Generate HLC for this write.
+      const hlc = hlcNow();
+      const hlcPacked = hlcPack(hlc);
+
+      // Build the sync envelope: row data + metadata.
+      const machineIdHex = Buffer.from(hlc.machineId).toString('hex');
+      const envelope = {
+        _hlc: hlcPacked,
+        _schema: SCHEMA_VERSION,
+        _machineId: machineIdHex,
+        data: serialisedData,
+      };
+      const plaintext = JSON.stringify(envelope);
+      // v2 AAD: "${table_name}|${row_id}" (schema_version is in the outer header).
+      const aad = buildAad(tableName, rowId);
+
+      const { payload } = await encrypt({ key, plaintext, aad, schemaVersion: SCHEMA_VERSION });
+      writeBlobToWorkTree(cloneDir, tableName, rowId, payload);
+    }
+
+    const oid = await stageAndCommit(cloneDir, `sigma-sync: push ${dirtyRows.length} rows`);
+    return oid ? dirtyRows : [];
   }
 
   // ------------------------------------------------------------------
