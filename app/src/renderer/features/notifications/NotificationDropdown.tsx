@@ -159,12 +159,13 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
       role="dialog"
       aria-label="Notifications"
       data-testid="notification-dropdown"
-      // The Popover (in NotificationBell) owns positioning, the portal, the
-      // glass-friendly surface chrome, focus-trap, Escape, and the MOT-1
-      // spring. We only paint the inner panel here. `sl-glass` is kept so the
-      // glass theme tints this surface (SF-4); width matches the trigger's
-      // PopoverContent (w-96).
-      className="sl-glass -m-px overflow-hidden rounded-md text-popover-foreground"
+      // The Popover (in NotificationBell) owns positioning, the portal,
+      // focus-trap, Escape, and the MOT-1 spring; its PopoverContent is made
+      // transparent/border-less so THIS panel is the single rendered surface
+      // (avoids the double-glass + doubled blur on the glass theme). `sl-glass`
+      // tints it on the glass theme (SF-4) + `relative` anchors the specular
+      // ::before; `bg-popover` supplies the solid surface on non-glass themes.
+      className="sl-glass relative overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
     >
       <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <h3 className="text-sm font-semibold tracking-tight">Notifications</h3>
