@@ -2,9 +2,13 @@
 //
 // v1.4.9 #07 — NotificationBell unit tests. Covers D4 badge math (color +
 // label thresholds) and D1 critical pulse class application.
+// UX-2 — the bell is now the trigger of a Radix Popover whose content is the
+//   NotificationDropdown. Tests assert the trigger wiring (open on click,
+//   dropdown mounts in the portal) + that the UX-9 critical bell classes are
+//   preserved on the trigger button.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { NotificationBell } from './NotificationBell';
 import { deriveBadgeState } from './helpers';
 import type { AppState } from '@/renderer/app/state.types';
@@ -13,7 +17,8 @@ import type { Notification, NotificationSeverity } from '@/shared/types';
 
 vi.mock('@/renderer/lib/drag-region', () => ({ noDragStyle: () => ({}) }));
 
-// Mock the dropdown — we test it separately.
+// Mock the dropdown — we test it separately. It only mounts inside the
+// Popover's portal when the bell trigger is open.
 vi.mock('./NotificationDropdown', () => ({
   NotificationDropdown: ({ onClose }: { onClose: () => void }) => (
     <div data-testid="notification-dropdown" onClick={onClose} />
@@ -112,7 +117,7 @@ describe('NotificationBell', () => {
     expect(screen.getByTestId('notification-bell-badge').textContent).toBe('9+');
   });
 
-  it('applies sl-bell-pulse class when an unread critical exists (D1)', () => {
+  it('applies the UX-9 critical bell classes when an unread critical exists (D1)', () => {
     mockState = {
       ...initialAppState,
       notifications: [makeNotification({ id: 'a', severity: 'critical' })],
@@ -120,7 +125,10 @@ describe('NotificationBell', () => {
     };
     render(<NotificationBell />);
     const btn = screen.getByTestId('notification-bell');
+    // UX-9 preserved: animated pulse + the static accent companion for
+    // reduced-motion operators.
     expect(btn.className).toContain('sl-bell-pulse');
+    expect(btn.className).toContain('sl-bell-critical-static');
   });
 
   it('does NOT pulse when criticals are all read', () => {
@@ -134,5 +142,19 @@ describe('NotificationBell', () => {
     render(<NotificationBell />);
     const btn = screen.getByTestId('notification-bell');
     expect(btn.className).not.toContain('sl-bell-pulse');
+    expect(btn.className).not.toContain('sl-bell-critical-static');
+  });
+
+  it('UX-2 — the bell is the Popover trigger; dropdown is closed until clicked', async () => {
+    mockState = { ...initialAppState, notifications: [], notificationsUnreadCount: 0 };
+    render(<NotificationBell />);
+    // Closed: the portal'd PopoverContent (and thus the dropdown) is unmounted.
+    expect(screen.queryByTestId('notification-dropdown')).toBeNull();
+    const trigger = screen.getByTestId('notification-bell');
+    expect(trigger.getAttribute('aria-haspopup')).toBe('dialog');
+    // Click the trigger → Popover opens → dropdown mounts in the portal.
+    fireEvent.click(trigger);
+    expect(await screen.findByTestId('notification-dropdown')).toBeTruthy();
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
   });
 });

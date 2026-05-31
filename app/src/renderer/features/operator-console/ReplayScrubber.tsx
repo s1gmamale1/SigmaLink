@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Bookmark, BookmarkPlus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { PromptDialog } from '@/components/ui/prompt-dialog';
 import { cn } from '@/lib/utils';
 
 // Wire-shapes — match the controller in `core/swarms/replay.ts`.
@@ -63,6 +64,8 @@ export function ReplayScrubber({ workspaceId, onFrameChange }: Props) {
   const [frame, setFrame] = useState<ReplayFrame | null>(null);
   const [bookmarks, setBookmarks] = useState<ReplayBookmark[]>([]);
   const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  // UX-3 — themed bookmark-label prompt (replaces window.prompt).
+  const [bookmarkPromptOpen, setBookmarkPromptOpen] = useState(false);
 
   // Hydrate the swarm picker on mount + workspace change.
   useEffect(() => {
@@ -119,20 +122,28 @@ export function ReplayScrubber({ workspaceId, onFrameChange }: Props) {
     } catch { /* UI stays at last good frame */ }
   }, [activeSwarmId, onFrameChange]);
 
-  const onBookmark = useCallback(async () => {
+  // UX-3 — open the themed prompt; the create runs in `onBookmarkConfirm`.
+  const onBookmark = useCallback(() => {
     if (!frame || !activeSwarmId) return;
-    const label = window.prompt('Bookmark label?', `Frame ${frame.frameIdx}`);
-    if (!label || !label.trim()) return;
-    try {
-      await invokeReplay('swarm.replay.bookmark', {
-        swarmId: activeSwarmId, frameIdx: frame.frameIdx, label: label.trim(),
-      });
-      const bm = await invokeReplay<ReplayBookmark[]>(
-        'swarm.replay.listBookmarks', { swarmId: activeSwarmId },
-      );
-      setBookmarks(bm);
-    } catch { /* ignore */ }
+    setBookmarkPromptOpen(true);
   }, [activeSwarmId, frame]);
+
+  const onBookmarkConfirm = useCallback(
+    async (label: string) => {
+      const trimmed = label.trim();
+      if (!frame || !activeSwarmId || !trimmed) return;
+      try {
+        await invokeReplay('swarm.replay.bookmark', {
+          swarmId: activeSwarmId, frameIdx: frame.frameIdx, label: trimmed,
+        });
+        const bm = await invokeReplay<ReplayBookmark[]>(
+          'swarm.replay.listBookmarks', { swarmId: activeSwarmId },
+        );
+        setBookmarks(bm);
+      } catch { /* ignore */ }
+    },
+    [activeSwarmId, frame],
+  );
 
   const onDeleteBookmark = useCallback(async (b: ReplayBookmark) => {
     try {
@@ -228,6 +239,16 @@ export function ReplayScrubber({ workspaceId, onFrameChange }: Props) {
           Frame {idx} of {max}
         </span>
       </div>
+      {/* UX-3 — themed bookmark-label prompt (replaces window.prompt). */}
+      <PromptDialog
+        open={bookmarkPromptOpen}
+        onOpenChange={setBookmarkPromptOpen}
+        title="Bookmark this frame"
+        label="Bookmark label"
+        defaultValue={frame ? `Frame ${frame.frameIdx}` : ''}
+        confirmLabel="Save bookmark"
+        onConfirm={(label) => void onBookmarkConfirm(label)}
+      />
     </div>
   );
 }

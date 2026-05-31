@@ -43,11 +43,37 @@ vi.mock('sonner', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// window.confirm mock — default: cancel (false). Override per-test.
+// UX-3 — the destructive confirm is now a themed AlertDialog (not the native
+// window.confirm). These helpers drive it: `confirmDialogShown()` waits for the
+// dialog to mount, `clickConfirm()` clicks the destructive action button, and
+// `clickCancel()` dismisses it. We still keep a `confirmMock` spy so any stray
+// window.confirm regression would surface (it should never be called now).
 // ---------------------------------------------------------------------------
 
 const confirmMock = vi.fn<() => boolean>(() => false);
 Object.defineProperty(window, 'confirm', { value: confirmMock, writable: true });
+
+async function confirmDialogShown(): Promise<HTMLElement> {
+  return waitFor(() => screen.getByRole('alertdialog'));
+}
+
+function queryConfirmDialog(): HTMLElement | null {
+  return screen.queryByRole('alertdialog');
+}
+
+async function clickConfirm(label: RegExp): Promise<void> {
+  const dialog = await confirmDialogShown();
+  const within = await import('@testing-library/react');
+  const btn = within.within(dialog).getByRole('button', { name: label });
+  fireEvent.click(btn);
+}
+
+async function clickCancel(): Promise<void> {
+  const dialog = await confirmDialogShown();
+  const within = await import('@testing-library/react');
+  const btn = within.within(dialog).getByRole('button', { name: /cancel/i });
+  fireEvent.click(btn);
+}
 
 // SF-13/SF-9-integration — the component now calls the `cleanup.*` side-band via
 // `window.sigma.invoke(channel, arg)` (not the typed rpc proxy) and unwraps the
@@ -152,7 +178,6 @@ describe('MaintenanceTab — rendering', () => {
 
 describe('MaintenanceTab — remove workspace', () => {
   it('calls dry-run first, then no mutation when user cancels', async () => {
-    confirmMock.mockReturnValue(false);
     await renderTab();
 
     await waitFor(() => screen.getAllByText('Remove workspace'));
@@ -167,10 +192,13 @@ describe('MaintenanceTab — remove workspace', () => {
       });
     });
 
-    // Confirm dialog shown
-    expect(confirmMock).toHaveBeenCalled();
+    // Themed confirm dialog shown; the native confirm is never used.
+    await confirmDialogShown();
+    expect(confirmMock).not.toHaveBeenCalled();
 
-    // No live mutation
+    // Cancel → no live mutation, dialog closes.
+    await clickCancel();
+    await waitFor(() => expect(queryConfirmDialog()).toBeNull());
     expect(rpcMocks['cleanup.removeWorkspace']).not.toHaveBeenCalledWith({
       workspaceId: 'ws-1',
       dryRun: false,
@@ -178,12 +206,13 @@ describe('MaintenanceTab — remove workspace', () => {
   });
 
   it('calls live mutation when user confirms', async () => {
-    confirmMock.mockReturnValue(true);
     await renderTab();
 
     await waitFor(() => screen.getAllByText('Remove workspace'));
     const [removeBtn] = screen.getAllByTestId(/maintenance-remove-ws-ws-1/);
     fireEvent.click(removeBtn);
+
+    await clickConfirm(/remove workspace/i);
 
     await waitFor(() => {
       expect(rpcMocks['cleanup.removeWorkspace']).toHaveBeenCalledWith({
@@ -196,7 +225,6 @@ describe('MaintenanceTab — remove workspace', () => {
 
 describe('MaintenanceTab — clear panes', () => {
   it('shows dry-run session count in confirm then cancels cleanly', async () => {
-    confirmMock.mockReturnValue(false);
     await renderTab();
 
     await waitFor(() => screen.getAllByText('Clear panes'));
@@ -209,8 +237,14 @@ describe('MaintenanceTab — clear panes', () => {
         dryRun: true,
       });
     });
-    expect(confirmMock).toHaveBeenCalled();
-    // No live delete
+    // Dry-run session count surfaced in the themed dialog body.
+    const dialog = await confirmDialogShown();
+    expect(dialog.textContent).toContain('2 session record(s)');
+    expect(confirmMock).not.toHaveBeenCalled();
+
+    // Cancel → no live delete.
+    await clickCancel();
+    await waitFor(() => expect(queryConfirmDialog()).toBeNull());
     expect(rpcMocks['cleanup.clearPanes']).not.toHaveBeenCalledWith({
       workspaceId: 'ws-1',
       dryRun: false,
@@ -218,12 +252,13 @@ describe('MaintenanceTab — clear panes', () => {
   });
 
   it('calls live delete when confirmed', async () => {
-    confirmMock.mockReturnValue(true);
     await renderTab();
 
     await waitFor(() => screen.getAllByText('Clear panes'));
     const [clearBtn] = screen.getAllByTestId(/maintenance-clear-panes-ws-1/);
     fireEvent.click(clearBtn);
+
+    await clickConfirm(/clear panes/i);
 
     await waitFor(() => {
       expect(rpcMocks['cleanup.clearPanes']).toHaveBeenCalledWith({
@@ -243,9 +278,11 @@ describe('MaintenanceTab — clear panes', () => {
     fireEvent.click(clearBtn);
 
     await waitFor(() => {
-      expect(confirmMock).not.toHaveBeenCalled();
       expect(toast.success).toHaveBeenCalled();
     });
+    // No confirm dialog (native or themed) when there is nothing to clear.
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(queryConfirmDialog()).toBeNull();
   });
 });
 
@@ -260,7 +297,6 @@ describe('MaintenanceTab — prune worktrees', () => {
   });
 
   it('calls dry-run, shows confirm, no mutation on cancel', async () => {
-    confirmMock.mockReturnValue(false);
     await renderTab();
 
     await waitFor(() => screen.getAllByText('Prune orphan worktrees'));
@@ -273,7 +309,11 @@ describe('MaintenanceTab — prune worktrees', () => {
         dryRun: true,
       });
     });
-    expect(confirmMock).toHaveBeenCalled();
+    await confirmDialogShown();
+    expect(confirmMock).not.toHaveBeenCalled();
+
+    await clickCancel();
+    await waitFor(() => expect(queryConfirmDialog()).toBeNull());
     expect(rpcMocks['cleanup.pruneWorktrees']).not.toHaveBeenCalledWith({
       workspaceId: 'ws-1',
       dryRun: false,
@@ -281,12 +321,13 @@ describe('MaintenanceTab — prune worktrees', () => {
   });
 
   it('calls live prune on confirm', async () => {
-    confirmMock.mockReturnValue(true);
     await renderTab();
 
     await waitFor(() => screen.getAllByText('Prune orphan worktrees'));
     const [pruneBtn] = screen.getAllByTestId(/maintenance-prune-worktrees-ws-1/);
     fireEvent.click(pruneBtn);
+
+    await clickConfirm(/prune worktrees/i);
 
     await waitFor(() => {
       expect(rpcMocks['cleanup.pruneWorktrees']).toHaveBeenCalledWith({
@@ -309,9 +350,10 @@ describe('MaintenanceTab — prune worktrees', () => {
     fireEvent.click(pruneBtn);
 
     await waitFor(() => {
-      expect(confirmMock).not.toHaveBeenCalled();
       expect(toast.success).toHaveBeenCalled();
     });
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(queryConfirmDialog()).toBeNull();
   });
 });
 

@@ -273,7 +273,7 @@ export function SkillsTab() {
             placeholder="Search skills…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="h-7 flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+            className="h-7 flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none"
             aria-label="Search skills"
           />
         </div>

@@ -68,7 +68,7 @@ export function MnemonicConfirm({ mnemonic, onConfirmed, onBack }: MnemonicConfi
         <textarea
           id="mnemonic-input"
           data-testid="mnemonic-input"
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono leading-relaxed resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
           rows={5}
           value={typed}
           onChange={(e) => setTyped(e.target.value)}

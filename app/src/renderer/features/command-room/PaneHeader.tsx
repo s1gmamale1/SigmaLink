@@ -495,28 +495,28 @@ function PaneHeaderBriefButton({ session }: { session: AgentSession }) {
             onChange={(e) => setGoal(e.target.value)}
             placeholder="Goal"
             rows={2}
-            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
           <textarea
             value={targetFiles}
             onChange={(e) => setTargetFiles(e.target.value)}
             placeholder="Target files (one per line)"
             rows={2}
-            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
           <textarea
             value={successCriteria}
             onChange={(e) => setSuccessCriteria(e.target.value)}
             placeholder="Success criteria (one per line)"
             rows={2}
-            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
           <textarea
             value={outOfScope}
             onChange={(e) => setOutOfScope(e.target.value)}
             placeholder="Out of scope (one per line)"
             rows={2}
-            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
           <Button type="submit" disabled={busy || !goal.trim()} className="mt-1 h-7 text-xs" aria-label="Inject capsule">
             Inject capsule

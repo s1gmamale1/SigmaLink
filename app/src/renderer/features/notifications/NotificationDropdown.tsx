@@ -1,5 +1,13 @@
 // v1.4.9 #07 — Notification dropdown panel.
 // v1.5.1-C — D5 deep-link navigation implemented (caveat 6).
+// UX-2 — rebuilt as the body of a Radix PopoverContent (owned by
+//   NotificationBell). Dismissal — outside-click, Escape, return-focus — is
+//   now handled by the Popover primitive, so the old manual mousedown-outside
+//   listener is gone. This is no longer a self-positioned surface; it renders
+//   the header / filter chips / scrollable list inside the portal'd content.
+//   ARIA fixed: `role="dialog"` labelled "Notifications" with a `role="list"`
+//   item list (the old `role="menu"` with non-menuitem children was a
+//   mismatch). The `onClose` prop closes the controlling Popover.
 //
 // Owns the filter-chip strip [All | This workspace | Errors only] and the
 // scrollable list of items. Mark-all-read and Clear-read controls live in
@@ -13,7 +21,7 @@
 //   fallback  → current filtered notifications view (source gone)
 
 import { CheckCheck, Trash2, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useAppState } from '@/renderer/app/state';
 import { rpc } from '@/renderer/lib/rpc';
@@ -28,22 +36,7 @@ interface DropdownProps {
 export function NotificationDropdown({ onClose }: DropdownProps) {
   const { state, dispatch } = useAppState();
   const [chip, setChip] = useState<FilterChip>('all');
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const activeWorkspaceId = state.activeWorkspace?.id ?? null;
-
-  // Close-on-outside-click. We deliberately do NOT mark-all-read on close
-  // — that's an anti-pattern per D4.
-  useEffect(() => {
-    function onDocClick(event: MouseEvent) {
-      const el = containerRef.current;
-      if (!el) return;
-      if (event.target instanceof Node && !el.contains(event.target)) {
-        onClose();
-      }
-    }
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [onClose]);
 
   const filtered = useMemo(
     () => applyFilter(state.notifications, chip, activeWorkspaceId),
@@ -163,11 +156,15 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
 
   return (
     <div
-      ref={containerRef}
-      role="menu"
+      role="dialog"
       aria-label="Notifications"
       data-testid="notification-dropdown"
-      className="sl-glass relative absolute right-0 top-full z-50 mt-1 w-96 rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+      // The Popover (in NotificationBell) owns positioning, the portal, the
+      // glass-friendly surface chrome, focus-trap, Escape, and the MOT-1
+      // spring. We only paint the inner panel here. `sl-glass` is kept so the
+      // glass theme tints this surface (SF-4); width matches the trigger's
+      // PopoverContent (w-96).
+      className="sl-glass -m-px overflow-hidden rounded-md text-popover-foreground"
     >
       <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <h3 className="text-sm font-semibold tracking-tight">Notifications</h3>

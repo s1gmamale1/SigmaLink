@@ -4,7 +4,19 @@
 // instead it renders an ErrorBanner that can be dismissed.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+
+// UX-3 — the new-note flow now opens a themed PromptDialog (not window.prompt).
+// This helper opens it, types the name, and clicks Create.
+async function createNote(name: string): Promise<void> {
+  const createBtn = screen.getByRole('button', { name: /create note/i });
+  fireEvent.click(createBtn);
+  const dialog = await waitFor(() => screen.getByRole('dialog'));
+  const input = within(dialog).getByRole('textbox');
+  fireEvent.change(input, { target: { value: name } });
+  const submit = within(dialog).getByRole('button', { name: /create/i });
+  fireEvent.click(submit);
+}
 
 // ---- mocks -----------------------------------------------------------------
 
@@ -62,10 +74,8 @@ describe('MemoryRoom — Stage-4 UX', () => {
 
     render(<MemoryRoom />);
 
-    // Trigger create via prompt
-    vi.spyOn(window, 'prompt').mockReturnValue('my-note');
-    const createBtn = screen.getByRole('button', { name: /create note/i });
-    fireEvent.click(createBtn);
+    // Trigger create via the themed prompt dialog.
+    await createNote('my-note');
 
     await waitFor(() => {
       expect(alertSpy).not.toHaveBeenCalled();
@@ -79,9 +89,7 @@ describe('MemoryRoom — Stage-4 UX', () => {
 
     render(<MemoryRoom />);
 
-    vi.spyOn(window, 'prompt').mockReturnValue('my-note');
-    const createBtn = screen.getByRole('button', { name: /create note/i });
-    fireEvent.click(createBtn);
+    await createNote('my-note');
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeDefined();
@@ -94,9 +102,7 @@ describe('MemoryRoom — Stage-4 UX', () => {
 
     render(<MemoryRoom />);
 
-    vi.spyOn(window, 'prompt').mockReturnValue('my-note');
-    const createBtn = screen.getByRole('button', { name: /create note/i });
-    fireEvent.click(createBtn);
+    await createNote('my-note');
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeDefined();

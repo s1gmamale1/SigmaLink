@@ -34,6 +34,7 @@ import {
   CommandList,
   CommandSeparator,
 } from '@/components/ui/command';
+import { PromptDialog } from '@/components/ui/prompt-dialog';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector, type RoomId } from '@/renderer/app/state';
 import { useTheme } from '@/renderer/app/ThemeProvider';
@@ -139,6 +140,39 @@ export function CommandPalette() {
   const [query, setQuery] = useState('');
   const [voiceHandle, setVoiceHandle] = useState<VoiceCaptureHandle | null>(null);
   const autoMicRef = useRef(false);
+
+  // UX-3 — themed replacement for the two `window.prompt` call sites below.
+  // A React dialog can't block the call stack, so each command closes the
+  // palette and parks a pending prompt; confirming runs the original action.
+  const [prompt, setPrompt] = useState<
+    | { kind: 'memory'; workspaceId: string }
+    | { kind: 'review'; sessionId: string }
+    | null
+  >(null);
+
+  const runMemoryCreate = useCallback(
+    (workspaceId: string, name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      void rpc.memory
+        .create_memory({ workspaceId, name: trimmed })
+        .then((memory) => {
+          dispatch({ type: 'UPSERT_MEMORY', workspaceId, memory });
+          dispatch({ type: 'SET_ACTIVE_MEMORY', workspaceId, name: memory.name });
+          dispatch({ type: 'SET_ROOM', room: 'memory' });
+        })
+        .catch((err) => console.error('create memory failed', err));
+    },
+    [dispatch],
+  );
+
+  const runReviewCommand = useCallback((sessionId: string, command: string) => {
+    const trimmed = command.trim();
+    if (!trimmed) return;
+    void rpc.review
+      .runCommand({ sessionId, command: trimmed })
+      .catch((err) => console.error('runCommand failed', err));
+  }, []);
   // Phase 4 Track C — Ruflo autopilot suggestion. Populated lazily on every
   // palette open via `ruflo.autopilot.predict()` with a 30s in-memory cache
   // and a 2s timeout. When the supervisor isn't `ready` the suggestion stays
@@ -377,20 +411,10 @@ export function CommandPalette() {
       disabled: !wsId,
       run: () => {
         if (!wsId) return;
-        const name = window.prompt('Note name:');
-        if (!name) {
-          setOpen(false);
-          return;
-        }
-        void rpc.memory
-          .create_memory({ workspaceId: wsId, name })
-          .then((memory) => {
-            dispatch({ type: 'UPSERT_MEMORY', workspaceId: wsId, memory });
-            dispatch({ type: 'SET_ACTIVE_MEMORY', workspaceId: wsId, name: memory.name });
-            dispatch({ type: 'SET_ROOM', room: 'memory' });
-          })
-          .catch((err) => console.error('create memory failed', err));
+        // UX-3 — close the palette, then open the themed prompt. The action
+        // runs in the dialog's confirm handler (`runMemoryCreate`).
         setOpen(false);
+        setPrompt({ kind: 'memory', workspaceId: wsId });
       },
     });
 
@@ -423,15 +447,10 @@ export function CommandPalette() {
       disabled: !activeReviewSessionId,
       run: () => {
         if (!activeReviewSessionId) return;
-        const cmd = window.prompt('Command to run:');
-        if (!cmd) {
-          setOpen(false);
-          return;
-        }
-        void rpc.review
-          .runCommand({ sessionId: activeReviewSessionId, command: cmd })
-          .catch((err) => console.error('runCommand failed', err));
+        // UX-3 — close the palette, then open the themed prompt. The action
+        // runs in the dialog's confirm handler (`runReviewCommand`).
         setOpen(false);
+        setPrompt({ kind: 'review', sessionId: activeReviewSessionId });
       },
     });
 
@@ -464,6 +483,7 @@ export function CommandPalette() {
   }, [items]);
 
   return (
+    <>
     <CommandDialog
       open={open}
       onOpenChange={setOpen}
@@ -527,5 +547,35 @@ export function CommandPalette() {
         <span>Esc to close · Enter to run</span>
       </div>
     </CommandDialog>
+    {/* UX-3 — themed prompts for the New-memory and Run-command actions.
+        A single dialog is reused; the pending `prompt` discriminant decides
+        the copy + confirm handler. */}
+    <PromptDialog
+      open={prompt?.kind === 'memory'}
+      onOpenChange={(o) => {
+        if (!o) setPrompt(null);
+      }}
+      title="New memory note"
+      label="Note name"
+      placeholder="Note name…"
+      confirmLabel="Create"
+      onConfirm={(name) => {
+        if (prompt?.kind === 'memory') runMemoryCreate(prompt.workspaceId, name);
+      }}
+    />
+    <PromptDialog
+      open={prompt?.kind === 'review'}
+      onOpenChange={(o) => {
+        if (!o) setPrompt(null);
+      }}
+      title="Run command in active worktree"
+      label="Command to run"
+      placeholder="e.g. npm test"
+      confirmLabel="Run"
+      onConfirm={(cmd) => {
+        if (prompt?.kind === 'review') runReviewCommand(prompt.sessionId, cmd);
+      }}
+    />
+    </>
   );
 }

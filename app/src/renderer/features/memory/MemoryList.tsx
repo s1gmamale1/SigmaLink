@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, Plus, Tag as TagIcon, Sparkles } from 'lucide-react';
+import { PromptDialog } from '@/components/ui/prompt-dialog';
 import { rpc, rpcSilent, onEvent } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
 import type { Memory, MemorySearchHit } from '@/shared/types';
@@ -50,6 +51,8 @@ export function MemoryList({ memories, workspaceId, activeName, onSelect, onCrea
   const [busy, setBusy] = useState(false);
   const [rufloReady, setRufloReady] = useState(false);
   const [semanticEnabled, setSemanticEnabled] = useState(true);
+  // UX-3 — themed replacement for the native `window.prompt` create flow.
+  const [createOpen, setCreateOpen] = useState(false);
 
   const trimmed = query.trim();
 
@@ -174,11 +177,14 @@ export function MemoryList({ memories, workspaceId, activeName, onSelect, onCrea
     return out;
   }, [hits, semanticHits, memories]);
 
-  const onCreateClick = useCallback(() => {
-    const name = window.prompt('New note name:');
-    if (!name || !name.trim()) return;
-    onCreate(name.trim());
-  }, [onCreate]);
+  const onCreateConfirm = useCallback(
+    (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      onCreate(trimmed);
+    },
+    [onCreate],
+  );
 
   return (
     <div className="flex h-full flex-col border-r border-border bg-card">
@@ -190,12 +196,12 @@ export function MemoryList({ memories, workspaceId, activeName, onSelect, onCrea
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search notes…"
-            className="w-full rounded border border-input bg-background py-1.5 pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+            className="w-full rounded border border-input bg-background py-1.5 pl-7 pr-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
         </div>
         <button
           type="button"
-          onClick={onCreateClick}
+          onClick={() => setCreateOpen(true)}
           title="Create note"
           aria-label="Create note"
           className="rounded border border-input bg-background px-2 py-1.5 text-xs hover:bg-accent"
@@ -276,6 +282,16 @@ export function MemoryList({ memories, workspaceId, activeName, onSelect, onCrea
           })}
         </ul>
       </div>
+      {/* UX-3 — themed new-note prompt (replaces window.prompt). */}
+      <PromptDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        title="New note"
+        label="Note name"
+        placeholder="New note name…"
+        confirmLabel="Create"
+        onConfirm={onCreateConfirm}
+      />
     </div>
   );
 }

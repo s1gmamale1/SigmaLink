@@ -4,6 +4,9 @@
 //   - Filter chips (All / This workspace / Errors only) and their semantics.
 //   - Mark-all-read + Clear-read controls trigger the right RPC method.
 //   - Item click marks read (optimistic) + invokes rpc.notifications.markRead.
+// UX-2 — the dropdown is now the body of a Radix PopoverContent. It is no
+//   longer self-positioned and no longer owns an outside-click listener
+//   (the Popover handles dismissal). ARIA is now role="dialog" + role="list".
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -123,6 +126,31 @@ describe('NotificationDropdown', () => {
     render(<NotificationDropdown onClose={() => undefined} />);
     const container = screen.getByTestId('notification-dropdown');
     expect(container.className).toContain('sl-glass');
+  });
+
+  it('UX-2 — exposes role="dialog" labelled Notifications (not the old role=menu)', () => {
+    render(<NotificationDropdown onClose={() => undefined} />);
+    const dialog = screen.getByRole('dialog', { name: 'Notifications' });
+    expect(dialog.getAttribute('data-testid')).toBe('notification-dropdown');
+    // The old hand-rolled surface used role="menu" with non-menuitem
+    // children — that ARIA mismatch must be gone.
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('UX-2 — renders the item list as role="list"', () => {
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'a', severity: 'info' })],
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+    expect(screen.getByRole('list')).toBeTruthy();
+  });
+
+  it('UX-2 — header close button invokes onClose (Popover dismissal)', () => {
+    const onClose = vi.fn();
+    render(<NotificationDropdown onClose={onClose} />);
+    fireEvent.click(screen.getByLabelText('Close notifications'));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('switching filter chip re-renders the list', () => {

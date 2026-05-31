@@ -1,5 +1,10 @@
 import { Suspense, lazy, useEffect, type ReactElement } from 'react';
-import { Toaster } from 'sonner';
+// UX-1 — themed toast surface. The wrapper reads SigmaLink's OWN `useTheme()`
+// and maps the active theme onto sonner's light/dark axis (and applies the
+// glass material on the Glass theme) instead of a hardcoded `theme="dark"`,
+// which slabbed every toast dark on the light Parchment theme.
+import { Toaster } from '@/components/ui/sonner';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { Spinner } from '@/components/ui/spinner';
 import { Sidebar } from '@/renderer/features/sidebar/Sidebar';
 import { Breadcrumb } from '@/renderer/features/top-bar/Breadcrumb';
@@ -126,7 +131,24 @@ function RoomSwitch() {
   }
   if (body === null) return null;
   const inner = eager ? body : <Suspense fallback={<RoomSkeleton />}>{body}</Suspense>;
-  return <RoomErrorBoundary key={state.room}>{inner}</RoomErrorBoundary>;
+  // UX-5 — one consistent enter transition for EVERY room. Previously only a
+  // couple of rooms applied a one-shot `sl-fade-in` on their own root, so room
+  // switches felt inconsistent (some faded, most hard-cut). Keying the wrapper
+  // by `state.room` re-fires the fade on each switch; the global
+  // prefers-reduced-motion reset in index.css neutralizes `.sl-fade-in` to a
+  // no-op for users who ask for less motion.
+  //
+  // The key is the room id, NOT a fresh value per render, so an eager room
+  // (CommandRoom) keeps its element identity for the whole time it is the
+  // active room — its terminal grid is mounted once on entry and is never
+  // remounted by unrelated re-renders.
+  return (
+    <RoomErrorBoundary key={state.room}>
+      <div key={state.room} className="sl-fade-in flex min-h-0 flex-1 flex-col">
+        {inner}
+      </div>
+    </RoomErrorBoundary>
+  );
 }
 
 /**
@@ -166,6 +188,12 @@ export default function App() {
   return (
     <AppStateProvider>
       <ThemeProvider>
+        {/* UX-7 — single root TooltipProvider. Per-cluster providers elsewhere
+            in the tree are harmless and left in place, but mounting one here
+            gives a consistent open/close delay app-wide (300ms hover-in;
+            150ms grace window so moving between adjacent tooltips skips the
+            re-delay). Wraps the shell so every tooltip inherits it. */}
+        <TooltipProvider delayDuration={300} skipDelayDuration={150}>
         {/* ERR-1 — root resilience boundary. Wraps the entire app shell so an
             uncaught render throw anywhere below shows an Apple-grade content-
             unavailable fallback instead of a blank window. The Toaster +
@@ -202,15 +230,16 @@ export default function App() {
           </div>
         </RightRailProvider>
         </RootErrorBoundary>
+        </TooltipProvider>
         <CommandPalette />
         <OnboardingModal />
         <NativeRebuildModal />
-        <Toaster
-          position="bottom-right"
-          richColors
-          closeButton
-          theme="dark"
-        />
+        {/* UX-1 — themed toast surface (see import above). Stays OUTSIDE the
+            RootErrorBoundary (ERR-1) so toasts survive a shell-body crash.
+            `theme`/`richColors` are intentionally omitted: the wrapper derives
+            light/dark from the active app theme and styles toasts from the
+            popover tokens (richColors would override that). */}
+        <Toaster position="bottom-right" closeButton />
       </ThemeProvider>
     </AppStateProvider>
   );

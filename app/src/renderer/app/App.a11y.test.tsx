@@ -29,6 +29,9 @@ vi.mock('@/renderer/lib/themes', () => ({
   DEFAULT_THEME: 'obsidian',
   isThemeId: vi.fn(() => false),
   KV_KEYS: { theme: 'app.theme' },
+  // The themed <Toaster> wrapper (mounted by App) reads `appearance` from the
+  // active theme via `findTheme`, so the mock must provide it.
+  findTheme: vi.fn(() => ({ id: 'obsidian', appearance: 'dark' })),
 }));
 
 // Mock AppStateProvider to avoid Electron context-bridge hooks (window.sigma).

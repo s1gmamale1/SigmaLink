@@ -548,7 +548,7 @@ function GlobalCaptureSection() {
             value={dispatchProvider}
             onChange={(e) => void onSetDispatchProvider(e.target.value as DispatchProvider)}
             data-testid="voice-dispatch-provider-select"
-            className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
             aria-label="Dispatch provider"
           >
             <option value="claude">Claude Code</option>
@@ -833,7 +833,7 @@ function DictionarySection() {
             value={newPattern}
             onChange={(e) => setNewPattern(e.target.value)}
             data-testid="voice-dict-pattern-input"
-            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
           <input
             type="text"
@@ -841,13 +841,13 @@ function DictionarySection() {
             value={newReplacement}
             onChange={(e) => setNewReplacement(e.target.value)}
             data-testid="voice-dict-replacement-input"
-            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
           <select
             value={newType}
             onChange={(e) => setNewType(e.target.value as 'phrase' | 'macro')}
             data-testid="voice-dict-type-select"
-            className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           >
             <option value="phrase">Phrase</option>
             <option value="macro">Macro</option>
@@ -957,7 +957,7 @@ function MacrosSection() {
             value={newPattern}
             onChange={(e) => setNewPattern(e.target.value)}
             data-testid="voice-macro-pattern-input"
-            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
           <input
             type="text"
@@ -965,7 +965,7 @@ function MacrosSection() {
             value={newReplacement}
             onChange={(e) => setNewReplacement(e.target.value)}
             data-testid="voice-macro-replacement-input"
-            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
           <button
             type="button"
