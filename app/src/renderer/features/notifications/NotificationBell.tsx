@@ -74,7 +74,7 @@ export function NotificationBell() {
           side="bottom"
           align="end"
           sideOffset={6}
-          className="w-96 p-0"
+          className="w-96 border-0 bg-transparent p-0 shadow-none"
         >
           <NotificationDropdown onClose={() => setOpen(false)} />
         </PopoverContent>
