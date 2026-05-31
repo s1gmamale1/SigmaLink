@@ -10,58 +10,154 @@
 
 ---
 
-## 🆕 New ideas (untriaged)
+## 🔭 Next-phase deep-dive — 2026-05-31 (75 findings)
 
-- _(empty — capture new ideas here)_
+A 9-agent deep-dive (perf · bugs · arch · apple-UI/UX · persistence/obsidian-memory · BridgeSpace
+re-research · YouTube competitor video) drove this batch, anchored to the operator's 6-pillar vision:
+**(a)** Apple-grade visuals · **(b)** responsive layouts · **(c)** smooth animations/popups ·
+**(d)** polished notification system · **(e)** tasteful sound effects · **(f)** persistent DB +
+agent memory that **mirrors Obsidian** (graph, backlinks, daily-notes, surface Ruflo agent memory).
+IDs are stable; the priority-ordered execution sequence is in `ROADMAP.md`. Evidence is file:line at
+audit time (v1.36.0 baseline). Sources: video review `docs/02-research/videos/0NU7O7u-yfM-REVIEW.md`
++ `docs/02-research/bridgemind-review-2026-05-22/`.
+
+### 🐞 Reliability & correctness (bugs)
+- **BUG-1** — Swarm-agent crashes silently marked `'exited'` (high/s). `swarms/factory-spawn.ts:395` uses an inline `earlyDeath` ternary while the pane path uses shared `isPtyCrash` (`workspaces/launcher.ts:145,567`) → a swarm CLI that exits non-zero after 1.5s reads as a clean exit (no error status, no warn notification). **Fix BOTH exit paths** (mirror-drift class) — call shared `isPtyCrash`. ✅ critic-verified real.
+- **BUG-2** — Daemon crash-recovery child never drains stdout → can deadlock a recovered Ruflo daemon (med/xs). `ruflo/http-daemon-supervisor.ts:562-580` wires stderr+exit but no `stdout.on('data')` drain (doSpawn has it at :407). Pipe fills → blocks → silent loss of cross-pane HTTP state. Factor a shared `wireChildIo()`.
+- **BUG-3** — Sync push-retry pulls remote rows but skips conflict resolution, then overwrites them (high/m, data-loss). `sync/engine.ts:482-498` does a bare `pull()` (working-tree only) not `_pullCycle()` (decrypt→resolveRow→apply) before retry-push → concurrent peer edits within one sync window are silently dropped. Re-run full `_pullCycle()` before re-collecting dirty rows.
+- **BUG-4** — 5 IPC side-band prefixes bypass `validateChannelInput` (med/m). Only typed AppRouter channels validate (`rpc-router.ts:1834`); `swarm.*`, `swarm.replay.*`, `assistant.conversations.*`, `voice.diagnostics.*`, `sigmabench.*`, `cleanup.*` (destructive!) register raw `ipcMain.handle`. Thread side-bands through the same validate envelope (extend `core/rpc/schemas.ts`).
+- **BUG-5** — `did-finish-load` re-fires `session-restore` on every renderer load → double `WORKSPACE_OPEN` + double `panes.resume()` (low/s). `electron/main.ts:628`. One-shot the main-side emit per app run.
+- **BUG-6** — Exited-session GC timer can REMOVE a re-launched live session reusing the same id (low/s). `use-exited-session-gc.ts:30-50` cancels by presence-of-id, not status. Cancel when `status !== 'exited'`.
+- **BUG-7** — `http-download.ts` promotes a truncated file as complete (low/s). `lib/http-download.ts:61-91` renames on `finish` with no `bytes === content-length` check → clean-FIN truncation surfaces later as a confusing `extract-failed`. Assert byte count before rename.
+- **BUG-8** — `before-quit` drops the session snapshot when `persistCachedSnapshot` throws (low/s). `electron/main.ts:827-833` swallows the error; combined with the 250ms snapshot debounce, quit-right-after-switch restores stale. Log the failure; optionally flush sync on the snapshot IPC.
+- **BUG-9 → see DB-1.** SQLite has no integrity check / corruption recovery at boot (filed under Persistence).
+- **BUG-10** — `frontmatter_json` memory column is dead — always written NULL (med/s). `memory/db.ts:168`; declared + synced but never read/written. Populate it (enabler for frontmatter UI + aliases) or drop it from schema + sync allowlist.
+- **BUG-11** — `MemoryEditor` stays stale when the active note changes externally (med/s). `MemoryEditor.tsx:41-52` hydrates on `[memory?.id]` only → an agent's MCP `append_to_memory` / sync update gets clobbered by debounced auto-save. Add `updatedAt` to deps + a non-destructive "changed on disk — reload?" banner when dirty.
+- **BUG-12** — Note-name uniqueness is case-sensitive in DB but case-insensitive everywhere else → split-brain (low/s). `memories_ws_name_uq` on raw name vs lowercased link resolution (`graph.ts:9`, `parse.ts:98`). Normalize to a `name_lower` unique index.
+- **BUG-13** — Duplicate `AddAgentToSwarmInput` interface (med/s). `shared/types.ts:213` vs `swarms/factory.ts:52` → a field added to one silently drops at the boundary (the SF-8 footgun). Re-export the shared type; lock with an assertion test.
+- **BUG-14** — `commitAndMerge` — the destructive worktree-merge **moat** path — has NO unit test (high/m). `git-ops.ts:262`, invoked from `review/controller.ts`. Add `git-ops-merge.test.ts` injecting the `execCmd` seam (mock, not real git/DB): ordered merges, abort-on-conflict leaves base untouched, partial-failure reporting. Highest-ROI test gap.
+
+### ⚡ Performance & optimization
+- **PERF-1** — Coalesce `pty:data` chunks before `webContents.send` (high/m). `rpc-router.ts:375` sends one structured-clone IPC msg per raw PTY chunk (~50/s/pane × N). Buffer per-session, flush on a ~8–16ms timer; keep an immediate-flush escape for the shell-first sentinel. Hottest path in the app.
+- **PERF-2** — Link-detection regex + `pty:link-detected` broadcast run on every chunk even when capture is OFF (med/s). Gate lives only renderer-side (`Terminal.tsx:71`); main pays it unconditionally (`pty/registry.ts:251`). Mirror `browser.captureLinks` KV in main; short-circuit when off.
+- **PERF-3** — Full-context `useAppState()` rebuilds its value on every dispatch → 25 components re-render on ANY state change (high/l). `state.tsx:137` memo dep is the whole `state`. Migrate the 25 consumers to granular `useAppStateSelector` (start with NotificationBell/Dropdown/Breadcrumb/RoomsMenu/RightRailSwitcher).
+- **PERF-4** — `sessionsByWorkspace` rebuilt whole on every session mutation → cross-workspace re-render leakage (med/m). `state.reducer.ts:48`. Make the regroup incremental (preserve untouched-workspace array identity).
+- **PERF-5** — Ruflo daemon health polled per-PaneHeader (N identical RPCs/5s) (med/s). `useRufloDaemonHealth.ts:53`. Hoist to one refcounted per-workspace poller (mirror pty-data-bus).
+- **PERF-6** — Per-pane git-status polling spawns a `git status` subprocess every 15s per pane (med/s). `PaneShell.tsx:101` → `git-ops.ts:64`. Batch per repo/workspace; pause when pane not visible; event-driven refresh on focus.
+- **PERF-7** — Constellation force-sim never sleeps on settle — O(n²) repulsion + redraw at 60fps while visible (low/s). `Constellation.tsx:253`. Stop RAF when kinetic energy < ε; restart on interaction/change.
+- **PERF-8** — Synchronous fs disk-scan on the main thread per fresh spawn (med/m). `session-disk-scanner.ts` uses `statSync/readdirSync/readFileSync` (depth-6, 500 entries) → blocks the event loop during spawn bursts. Convert to `fs.promises` / worker_thread.
+- **PERF-9** — `pty:exit`/`pty:link-detected` listeners not consolidated like `pty:data` (low/s). `terminal-cache.ts:291` registers one `ipcRenderer.on('pty:exit')` per cached terminal (LRU 32) → EventEmitter warnings + redundant filtering. Extend pty-data-bus into a generic per-session event bus.
+- **PERF-10** — Notification delta rebuilds + full-sorts the entire array per delta (low/s). `state.reducer.ts:558`; same for UPSERT_MEMORY/UPSERT_TASK. Binary-insert/unshift on the newest-first common case.
+- **PERF-11** — `broadcast()` iterates all windows + re-calls `getAllWindows()` per event (low/s). `rpc-router.ts:170`. Cache the main window; fast-path single-window. Pairs with PERF-1.
+- **PERF-12** — `listClaudeSessions` reads entire JSONL files synchronously for the first user message (low/s). `session-disk-scanner.ts:386` reads multi-MB transcripts whole → main-thread stall on the resume picker. Bounded first-N-line read.
+- **PERF-13** — MemoryGraph runs a perpetual RAF (no settle) + hardcoded non-theme colors + ignores reduced-motion (med/s). `MemoryGraph.tsx:104,195,214`. Sleep on settle; honor `prefers-reduced-motion`; read colors from CSS vars. (a11y + animation overlap — see MEM-10.)
+- **PERF-14** — FTS5 index for memory search (low/m). `index.ts:112` is an O(n) per-query token scan with a 2-char-ASCII tokenizer (drops short/numeric/CJK). Add a `memories_fts` virtual table (trigger-populated; H-7 txn migration). Low priority until vaults grow / agent-memory notes land.
+
+### 🏛 Architecture & code quality
+- **ARCH-1** — `src/main` (entire Electron main process) is type-checked ONLY by the renderer-oriented `tsconfig.app.json` (high/m). DOM globals + `vite/client` + bundler resolution leak into Node code → a class of main-process type errors silently pass `tsc -b` (the systemic in-main version of the "worktree-laxer-tsc" footgun). Add a `tsconfig.main.json` (node types, no DOM) to the build references; expect a latent backlog on first run.
+- **ARCH-2** — `rpc-router.ts` is 2101 lines; `buildRouter()` a ~1580-line god-function (l). 6 controllers still inline (`appCtl/ptyCtl/panesCtl/providersCtl/workspacesCtl/gitCtl`, ~565 lines) + 6 side-band handler maps. Extract via the proven `build*Controller` factory seam + a `registerHandlerMap()` helper. Where the BUG-4 validation bugs hide.
+- **ARCH-3** — `router-shape.ts` `AppRouter` is one ~1010-line interface (m). Pure types → split per bounded context (`shared/router/<ctx>.ts`), compose in `router-shape.ts`. Pairs with ARCH-2.
+- **ARCH-4** — `VoiceTab.tsx` is 1300 lines (l). Clean per-section seam (GlobalCapture ~586 / Dictionary / Macros / Usage / ModelDownload). Split into `features/settings/voice/*`.
+- **ARCH-5** — Assistant `controller.ts` `buildAssistantController()` is a 578-line fn in a 756-line file; `tools.ts` 769 lines (m). Extract the turn lifecycle into `assistant/turn.ts` (precedent: `conversations-controller.ts`).
+- **ARCH-6** — Dead duplicate `core/voice/whisper-engine.ts` — grep-proven ZERO importers (live engine is `voice-core`) (xs). The exact dead-tree trap from C-10. Delete + inoculate DOMAINS.md.
+- **ARCH-7** — `core/voice/voice-stats.ts` orphaned to a type-only consumer + dual `model-registry.ts` (core/voice vs voice-core) drift risk (s). Move `SessionStat` to shared types; consolidate registries on voice-core (verify importers first — registry was wrongly deleted once).
+- **ARCH-8** — Confusing twin namespaces `swarm` (singular, side-band) vs `swarms` (plural, typed router) split one context across two registration paths (s). Rename `swarm.*`→`swarmUi.*`/`swarms.ui.*` or document the invoke-pattern caveat inline.
+- **ARCH-9** — RPC output validation effectively off — 18/42 channels use the `any` passthrough (m). `rpc/schemas.ts:30`. Tighten highest-traffic/largest-payload outputs first (git.diff/status, fs.readDir) reusing existing typed shapes. Small ongoing wave.
+- **ARCH-10** — 29 stale **locked** agent worktrees (5.8 GB) under `.claude/worktrees` are accidental write targets + recon noise (s). Operator-owned: `git worktree remove --force` the abandoned trees + `prune`; add a wrap-up sweep step. ⚠️ never force-remove an unknown worktree without confirming.
+
+### 🎨 Apple-grade motion, overlays & a11y (pillars a/b/c)
+- **MOT-1** — **Motion-token foundation (PREREQ for all animation work).** Spring tokens exist (`index.css:63` `--ease-spring` cubic-bezier(0.32,0.72,0,1)) but ZERO overlays consume them — every Radix/vaul/sonner surface uses stock 200ms ease-out → two competing motion languages. `tailwind.config.js` has only 3 keyframes. Add Apple spring easings as CSS+tailwind tokens (smooth/snappy/bouncy, 150/250/350ms, reduced-motion-aware) + a `useSpringPresence` util; migrate the shared `components/ui/*` primitives. (med/m)
+- **UX-1** — Toaster is hard-pinned `theme="dark"` → toasts render as dark slabs on light/parchment themes (high/s). `App.tsx:186`; the correct themed `components/ui/sonner.tsx` wrapper is dead code AND reads next-themes not the app ThemeProvider. Drive it from app `useTheme()`; add `.sl-glass` on the glass theme.
+- **UX-2** — Notification dropdown is a hand-rolled `<div role=menu>` — no focus-trap, Escape, return-focus, or enter/exit animation (high/m). `NotificationDropdown.tsx:164`. Rebuild on Radix Popover (free focus-trap/Escape/portal) + MOT-1 spring. The most-used popover is the least Apple-grade.
+- **UX-3** — Native `window.prompt/confirm/alert` in 7+ places (med/m). CommandPalette, MemoryList/Editor, ReplayScrubber, MaintenanceTab (destructive!). Gray OS modals shatter the Liquid-Glass aesthetic, untrappable/un-VoiceOver-able. Use the existing `alert-dialog.tsx` for destructive + a reusable `PromptDialog`.
+- **UX-4** — Dialog content has no max-height / internal scroll → overflows on short windows (med/s). `dialog.tsx:60`, `sheet.tsx`. Add `max-h-[min(90vh,…)]` + scroll region, pinned header/footer. One-seam fix.
+- **UX-5** — Room switches swap with no transition; only some rooms get a one-shot fade (low/m). `App.tsx:75` hard switch(). Apply a keyed spring fade on the room container (MOT-1), gated by reduced-motion.
+- **UX-6** — Tasks @dnd-kit reorder has no drop/settle animation — cards teleport (low/m). `tasks/Card.tsx:22` useDraggable + inline transform. Use DragOverlay `dropAnimation` or `useSortable`; honor reduced-motion.
+- **UX-7** — `TooltipProvider` mounted per-component (delay drift) (low/s). Mount one `<TooltipProvider delayDuration=300 skipDelayDuration>` at App root; remove per-cluster providers + the self-wrap in `tooltip.tsx`.
+- **UX-8** — GridLayout pane divider is drag-only despite `role=separator` — no keyboard resize / `aria-valuenow` (low/m, a11y). `GridLayout.tsx:304`. Make focusable + Arrow-key nudge (or adopt the Resizable primitive — see RSP-1).
+- **UX-9** — Notification severity conveyed by color/opacity alone — no shape/label cue (low/s, a11y). `NotificationItem.tsx:50`, `NotificationBell.tsx:50`. Add per-severity lucide glyph + severity word in the accessible name; static ring for reduced-motion users (the critical pulse is correctly motion-gated → leaves zero cue today).
+- **UX-10** — Mixed `focus:` vs `focus-visible:` rings → focus flash on mouse click in ~10 feature files (low/m, a11y). Sweep feature code to `focus-visible:` (primitives already correct); optional eslint rule.
+- **ANIM-2** — Jorvis **Orb** ignores `prefers-reduced-motion` — 4 infinite keyframes (med/xs, a11y). `Orb.tsx:68`. SigmaLink's answer to BridgeSpace's most-praised "agent-as-presence" UX violates the global reduce-motion posture. One `@media (prefers-reduced-motion)` block. Quick win.
+- **ANIM-3** — Whimsical randomized progress verbs + elapsed/token aliveness on running agents (low/s). Video competitor shows "Percolating… 43s · 24.5k tokens" / rotating gerunds = cheap delight + "this pane is alive" signal. Rotating-verb indicator in PaneFooter (reduced-motion gated).
+
+### 🔔 Notification system (pillar d)
+- **NTF-1** — Do-Not-Disturb / quiet-hours / per-source mute (med/l). `os-notify.ts:18` explicitly out-of-scope; `KV_OS_PER_SOURCE` scaffolded but unused. Add DND toggle + quiet-hours window gating OS+sound; wire per-source array; per-row "Mute this source"; optional daily summary digest (Apple Scheduled Summary). Backend is mature — the front-end UX is the gap.
+- **NTF-2** — Notification-dropdown UX polish (med/m). Grouped/sectioned by workspace+kind (collapsible), animated enter/leave on MOT-1, "mark all read"/clear, coherent toast(sonner)↔bell handoff (transient toast for low severity, persistent bell for actionable). (Subsumes the UX-2 rebuild.)
+- **NTF-3** — see UX-9 (severity non-color cue).
+
+### 🔊 Sound design (pillar e)
+- **SND-1** — **Sound-design system.** Today = 2 synthesized Web-Audio tones (`lib/notifications.ts:61` playDing, :106 playNotificationTone), one tone for warn/error/critical, fixed gain, plays even under reduced-motion / hidden window. Build a central soundscape module: event→cue map (agent-done / agent-crash / message-arrive / merge-ready / error / send / record-start / record-stop), distinct per-severity tones, **global volume + per-event mute matrix** in NotificationsSettings, gated by reduced-motion **and** DND **and** `document.hidden`; optional short designed assets (CSP-safe, bundled, no remote fetch) with the synth path as fallback. Restraint default: NO per-PTY-data sound. (med/m)
+
+### 🗂 Responsiveness (pillar b)
+- **RSP-1** — **Responsive layout system.** The `resizable.tsx` primitive (react-resizable-panels) is bundled but has ZERO importers; only the pane GridLayout is drag-resizable; Memory uses a fixed `260px 1fr 280px` grid w/ one 900px breakpoint; no shared `useBreakpoint`/density scale. Adopt Resizable for rail/main/right-rail + multi-column rooms (Memory first), **persist sizes per workspace** (Apple "remembers my layout"); shared `useMediaQuery` + density (comfortable/compact/cozy); graceful narrow-width collapse; min-window e2e check. (med/l)
+
+### 🧠 Persistent DB + Obsidian-grade memory (pillar f — the headline)
+- **MEM-1** — **Surface the Ruflo AgentDB the Obsidian way** (high/xl, **HEADLINE**). The obsidian Memory feature (MemoryGraph/Backlinks/wikilink) renders ONLY local markdown notes; the Ruflo HNSW pattern store (what agents actually learn — patterns/feedback/verdicts/causal-edges) is invisible in-app (only a transient search-bar overlay, `MemoryList.tsx:108`). Add Ruflo entries as a distinct node class in MemoryGraph (color/icon legend), edges = causal-edges + semantic similarity, backlinks from notes that @mention them, openable as read-only linked notes, size nodes by confidence/recency (time-decay/pagerank). Namespace facets (patterns/feedback/verdict) as tag filters. Read-only first; "promote pattern → note" / write-linking fast-follow. Reuses `memory/graph.ts` node model + the existing ruflo proxy. The single largest vision + competitive gap (BridgeSpace leaves this bare).
+- **MEM-2** — Daily Notes (med/m). No daily-note concept exists. "Today" hotkey opens/creates a date-keyed note (configurable template) + a calendar/timeline picker in MemoryRoom + an optional auto-digest that appends the day's agent events (swarm merges, crashes, completions, dispatched goals) as linked entries (self-populating journal via the notification/event stream). Operator named "daily-notes feel" explicitly.
+- **MEM-3** — Tags pane + tag-filter navigation + `#tag`/`tag:` search (med/m). `memory_tags` table is populated + chips shown but non-interactive; `graph.ts:26` already computes per-node tagCount. Pure UI over the loaded array: collapsible Tags list w/ counts (click to filter), tag search prefix, graph tag filter.
+- **MEM-4** — Global Quick Switcher / unified memory+pattern search in the Command Palette (high/m). Today note search only works inside the Memory room's left list. Add a memory-notes (+ Ruflo patterns when ready) source to CommandPalette → jump to any note from anywhere (Obsidian ⌘O). Thin layer over `memory.search_memories` + ruflo search.
+- **MEM-5** — Aliases stored + searchable/navigable (med/m). Parsers already extract `|alias` (`parse.ts:57`, `wikilink.ts:51`) but the relationship is thrown away. Add `aliases` (frontmatter + table or `frontmatter_json`), index in search (name-tier), resolve wikilinks through an alias map.
+- **MEM-6** — Surface Orphans + Suggested connections in the UI (med/s, **shipped-but-hidden**). `manager.ts:200` + `controller.ts:104` fully implement `list_orphans` + `suggest_connections` but NO renderer calls them. Add an Orphans filter toggle + a "Suggested connections" subsection in Backlinks (one-click insert `[[wikilink]]`). Near-zero backend cost.
+- **MEM-7** — Unlinked Mentions in Backlinks (med/m). Backlinks only matches explicit `[[links]]`. Add an "Unlinked mentions" section: scan other notes' bodies for the active note's name/aliases (reuse the MemoryIndex token map), one-click promote to a real link. Depends on MEM-5.
+- **MEM-8** — Note Templates (low/m). Notes always start blank. Store templates under a reserved tag/prefix; picker in the create flow + "insert template" in the editor. Pairs with MEM-2.
+- **MEM-9** — Frontmatter/properties editor + outline (low/m). Editor is a plain textarea + comma-tag input. Add a Properties panel (backed by populated `frontmatter_json`, BUG-10) + a heading Outline rail. Depends on BUG-10.
+- **MEM-10** — MemoryGraph node/edge colors are hardcoded hex — ignore theme + Liquid Glass (med/s). `MemoryGraph.tsx:195,214,221`. Read `--primary/--accent/--muted-foreground/--border` via getComputedStyle (theme-agnostic pattern FE-4 established). Bundle with PERF-13 (RAF settle + reduced-motion).
+- **DB-1** — SQLite integrity check + corruption-recovery at boot (high/m). `db/client.ts:208` opens+migrates with zero corruption defense → a corrupt `sigmalink.db` (power loss mid-WAL, disk-full) = unbootable, data-loss-grade outage with no escape. Run `PRAGMA quick_check` before migrate; on `SQLITE_CORRUPT/NOTADB` quarantine to `.corrupt-<ts>`, notify, recreate fresh so the app still boots.
+- **DB-2** — DB backup / export-import in Settings → Storage (high/m). All persistent state lives in one un-backed-up `sigmalink.db`; StorageTab only shows worktree sizes. Add "Back up database" (better-sqlite3 online `db.backup()` — WAL-safe) + "Restore from backup" (quarantine→swap→re-init). Completes the portability story (the `.md` vault is already on-disk).
+
+### 🚀 Competitive features & leapfrogs (BridgeSpace + video research)
+- **FEAT-1** — "Resume your agents" relaunch modal (high/m). Video 03:12:10 — one dialog listing every agent live at quit, per-row Resume + Copy + "Resume all (N)". SigmaLink buries resume in the launcher stepper. Build a cross-workspace `RelaunchResumeModal` over `pty/last-resume-plan` + pane-slots (SF-12 territory) — turns invisible recovery logic into a confidence-building surface.
+- **FEAT-2** — Per-pane focused modal w/ Context/MCP/LSP metadata sidebar (med/m). Video 00:42:00 — focus opens a terminal modal with live "Context 15,367 tokens / 0% used / $0.01 spent · MCP connected · LSP state". Extend PaneHeader/PaneShell focus mode w/ a metadata panel (Ruflo health + token/cost from the stream + MCP connected-state).
+- **FEAT-3** — Per-pane usage/cost panel — session/week budget bars by model (med/m). Video 00:44:40 — Usage tab w/ cost, token I/O, per-model "87% used" + reset dates. SigmaLink has zero in-app cost/limit visibility → users hit Max limits blind. New usage aggregator in main (tally per session+week per model) → recharts bars; persist for week windows. (Subsumes per-pane token-transparency hover-card, video [80].)
+- **FEAT-4** — Interactive in-terminal prompt cards for agent clarifying-questions (med/l). Video 02:12:50 — clickable multi-select/checkbox + numbered single-select menus instead of free-text. Detect a structured-prompt convention in the PTY stream → overlay an interactive card that writes the answer to stdin. Opt-in to avoid false positives.
+- **FEAT-5** — In-app MCP Config Diagnostics / server manager (med/m). Video 03:10:00 — flags scope conflicts, missing env, duplicate defs + "Manage 21 servers". Extend `RufloSettings.tsx`: read project/user `.mcp.json` scopes + autowrite state, flag issues, offer inline fixes, raise a notification bell (not a terminal footer).
+- **FEAT-6** — Visible SigmaSwarm phase tree (fan-out → verify checklist) (med/l). Video 00:00:36 — named workflows expand to phase→sub-agent rows w/ model+tokens+status. Add a `SwarmProgressTree` to the right-rail Swarm tab fed by the Ruflo SendMessage/task stream + pty-exit/tool-error sources; click-to-focus the owning pane.
+- **FEAT-7** — Per-agent visual identity (color/ID badge) (med/s). Research's #1 documented identity failure: N identical-provider panes are indistinguishable. Assign a stable accent (hash sessionId→hue) + short ID badge in PaneHeader, echoed in the roster + notification deeplinks. Pure renderer.
+- **FEAT-8** — Coding-agent git-activity heatmap per worktree (med/m, **leapfrog**). C-2 roster is status-only; add a per-pane sparkline/heat strip (files touched, churn-colored) via `git log --name-only` on each worktree — real cross-worktree observability BridgeSpace's shared dir can't match. Recharts already a dep.
+- **FEAT-9** — Transmission-log / swarm-chat search, filter, pin (med/m). C-4 SideChat shipped but the research's exact rough edge (unwieldy past ~40 turns, no search/filter/pin) is unaddressed. Add filter/search input + per-message pin + collapsible older runs + timestamp grouping (renderer-only; pin persists via KV).
+- **FEAT-10** — Workspace-launch presets + distribution-mode presets (low/s). Persist named launch configs (folder + pane count + per-pane provider) as preset chips; add roster distribution buttons (one-of-each / split-evenly). Reuses existing launch/roster paths.
+- **FEAT-11** — Agent undo/rewind via per-pane worktree checkpoints (high/l, **leapfrog**). Research surfaces a reproducible Claude-Code-rewind pain ("literally didn't do it"). Per-pane worktree is the perfect substrate: auto stash/commit-tag before each dispatched turn → reliable "Rewind this agent's last change" that a shared dir can't offer. Own spec; gate behind a setting; confirm-on-destructive via toast.
+- **FEAT-12** — Discoverable drag-affordance + animated drop-zone for worktree→agent context (low/s). C-6 mechanic shipped but the research's loudest critique is it's invisible (no handle, no drop highlight). Add a drag-grip on PaneHeader + an animated drop-zone highlight on the composer (reuse `dragging` dataset flag) + first-use coachmark.
+- **FEAT-13** — Cross-pane merge-orchestration UI (med/l, **leapfrog**). The headline moat (`scoreConflicts`) is buried as a SigmaBench helper. Add a "Propose merge order" action to the Sigma Agent / swarm roster → ordered merge plan w/ conflict-probability badges + one-click sequential merge.
+- **FEAT-14** — Per-pane effort/model-tier quick control (low/s). Video shows a 6-step effort slider (top tier "ultracode") — but it glows ALL panes purple at once (cautionary; cf. the v1.36 purple-flash fix). Add a compact inline segmented control on a calm `bg-background` surface; never animate multiple panes' accent simultaneously.
+
+### 🧭 Onboarding, observability & cross-cutting
+- **ONB-1** — First-run tour + settings discoverability (low/m). OnboardingModal is a 3-step provider-probe, not a feature tour; ~19 settings tabs with no search; ⌘K palette untaught. Add an optional skippable feature spotlight (Memory/Swarm/Voice/⌘K) on MOT-1 coachmarks + a settings search field + empty-state CTAs + a "What's new" on version bump.
+- **ERR-1** — App-resilience layer (high/m). Exactly ONE React error boundary exists (`EditorTab.tsx`); the App root has none → a single render throw in any pane/room/graph blanks the whole window. Add a styled root + per-room ErrorBoundaries (ContentUnavailableView w/ "reload this view" + "copy diagnostics") + a `window.onerror`/`unhandledrejection` sink that files a tool-error notification instead of dying silently. **Reliability before sparkle.**
+- **SEC-1** — Phase security re-gate (med/s, ongoing). New ingestion/render surfaces reopen H-19-class exposure: daily-note auto-digest must `scanIngested` via `core/security/pii-scrub.ts`; Ruflo pattern text rendered in the graph/notes must be redacted + escaped; sound assets must be CSP-safe/bundled (no remote fetch). Run snitch/semgrep + Opus security-review over each phase that adds these.
+- **RES-1** — Provision whisper GGML / auto-subs for future video reviews (low/xs). This video review was frame-only (whisper-cpp model unprovisioned) → author's spoken design rationale across 4h was lost. Provision `base.en` or fetch `yt-dlp --write-auto-subs` next time.
+
+---
 
 ## ✅ SigmaVoice standalone — realized + shipping (2026-05-29)
 
-Was the big "new idea" above; now built + released. **Standalone system-wide dictation app
-in its own repo** `s1gmamale1/SigmaVoice` (operator-created), voice engine consumed from
-SigmaLink via a **git submodule** (single source of truth). **As of 2026-05-29 a different agent
-owns SigmaVoice app-shell dev IN THAT REPO** (full doc ecosystem + CLAUDE.md/HANDOFF shipped there);
-`sigma-voice/` here is now the historical dev copy. **Engine/native code is still authored in
-SigmaLink** (the submodule) — incl. the W-SV1/W-SV2 fixes — and pulled into the app via a
-submodule-pointer bump. Relocated `app/apps/sigma-voice` → top-level `sigma-voice/`; real
-push-to-talk (`node-global-key-listener`, lazy-loaded); focus-preserving recording HUD;
-dictionary/macros + stats UI; **model-download UX** (list + size + download w/ live % + activate);
-persistent KV; Apple-grade settings + distinct icon; single-instance. Merged to SigmaLink `main`.
-✅ **macOS DMG RELEASED — `SigmaVoice v0.3.2` (arm64)** (`releases/tag/v0.3.2`); `curl | bash`
-installer (`scripts/install-macos.sh`). v0.3.0/v0.3.1 deleted (each crashed; superseded).
+Was the big "new idea"; now built + released. **Standalone system-wide dictation app in its own repo**
+`s1gmamale1/SigmaVoice` (operator-created), voice engine consumed from SigmaLink via a **git submodule**
+(single source of truth). **As of 2026-05-29 a different agent owns SigmaVoice app-shell dev IN THAT REPO**
+(full doc ecosystem + CLAUDE.md/HANDOFF shipped there); `sigma-voice/` here is the historical dev copy.
+**Engine/native code is still authored in SigmaLink** (the submodule) — incl. the W-SV1/W-SV2 fixes —
+and pulled into the app via a submodule-pointer bump. ✅ **macOS DMG RELEASED — `SigmaVoice v0.3.2`
+(arm64)**; `curl | bash` installer (`scripts/install-macos.sh`).
 
-**Open follow-ups:**
-- **W-SV1 — Windows NSIS build BLOCKED (native bug).** release.yml win job: `voice-win` compiles,
-  `voice-whisper` x64 **fails to LINK** (`LNK1120: 40 unresolved ggml_* externals` —
-  `ggml_cpu_init`, `ggml_threadpool_new`, `ggml_barrier`, `ggml_backend_cuda_reg`, …). The shared
-  `app/native/voice-whisper/binding.gyp` links on macOS/clang but **not MSVC** (whisper.cpp is
-  CMake-on-Windows; gyp Windows port incomplete — `ggml_backend_cuda_reg` w/ no CUDA, arch-cond
-  CPU sources). Needs binding.gyp surgery + CI iteration on a Windows runner. Operator: mac now, Windows next.
-- **W-SV2 — quit-time SIGABRT (native TSFN teardown).** Quitting AFTER a recording session can throw
-  a crash report: `napi_release_threadsafe_function` → `uv_mutex_lock` abort during the voice
-  natives' ThreadSafeFunction release. App has already quit (no data loss; capture/transcribe
-  unaffected). `app.exit`/`process.exit` don't dodge it (abort is inside `dispose()`'s native
-  release). Proper fix is in `tsfn_bridge` release semantics (release/abort the TSFN before loop
-  teardown). Affects SigmaLink in-app voice too. Quit-only → lower priority.
-- ① live mic/permission smoke (Mic + Accessibility + Input-Monitoring grants — needs hardware)
+**Open follow-ups (engine/native — fixed in SigmaLink, not the app repo):**
+- **W-SV1 — Windows NSIS build BLOCKED.** `voice-whisper` x64 fails to LINK on MSVC (`LNK1120: 40 unresolved ggml_*`). Shared `app/native/voice-whisper/binding.gyp` links on macOS/clang but not MSVC (whisper.cpp is CMake-on-Windows; gyp Windows port incomplete). Needs binding.gyp surgery + Windows-runner CI iteration. Operator: mac now, Windows next.
+- **W-SV2 — quit-time SIGABRT (native TSFN teardown).** Quitting after a recording can throw `napi_release_threadsafe_function`→`uv_mutex_lock`. App has already quit (no data loss). Fix is in `tsfn_bridge` release semantics (release/abort the TSFN before loop teardown). Affects SigmaLink in-app voice too. Quit-only → lower priority.
+- ① live mic/permission smoke (Mic + Accessibility + Input-Monitoring grants — needs hardware).
 - ② deferred features: Windows keystroke-inject, AI-cleanup/cloud, floating pill, wake-word.
 
 ---
 
-## 🔎 Open findings (raw — sequenced in ROADMAP.md)
-
-All remaining findings are BLOCKED or operator-owned — nothing an agent can pick up unblocked. Add new findings above.
+## 🔎 Older open findings (sequenced in ROADMAP.md "Blocked/Operator-owned")
 
 - **W-4 P8–P9 + win32 shell-first dogfood** — resume simplification + drop `external_session_id`; win32 un-dogfooded. → ROADMAP **B1** (BLOCKED on operator win32 dogfood).
-- **FE-4 voice (blocked) + device a11y QA** — PCM sample-rate, whisper.cpp v1.7.x port, voice prebuildify (all behind unshipped native builds); device VoiceOver/Switch-Control QA needs hardware. → ROADMAP **B2** / operator. *(FE-4 a11y code — focus-trap, reduced-transparency, room prefetch — ✅ shipped `dbce7e6`; breadcrumb contrast = verified no-op.)*
-- **SF-12 migration `0026` (operator-owned)** — data-repair migration dormant pending the operator running the diagnostic SQL on a real `agent_sessions` dump. On sign-off → register `0026` + follow-up release. SQL in `docs/09-release/release-notes-1.35.0.txt`.
-- **SF-14 optional polish (low)** — auto-trigger the lazy Ruflo install on first workspace open (renderer-triggered today). *(Room-chunk prefetch half ✅ shipped `dbce7e6`.)*
-
-> Everything else (C-class M0–M5, FE-1…4 incl. **a11y subset**, R-1/R-2, W-class, **H-class fully complete incl. H-7**, **SF-14 daemon offline-CLI tier**, SF-1…15, CI Node-24 + e2e flake, **video+perf review harness**) is **shipped** — see `CHANGELOG.md` + master-memory. **Cursor skill fan-out DROPPED** (no-op). Don't re-note shipped items here.
+- **FE-4 voice (blocked) + device a11y QA** — PCM sample-rate, whisper.cpp v1.7.x port, voice prebuildify (behind unshipped native builds); device VoiceOver/Switch-Control QA needs hardware. → ROADMAP **B2** / operator.
+- **SF-12 migration `0026` (operator-owned)** — data-repair migration dormant pending the operator running diagnostic SQL on a real `agent_sessions` dump. SQL in `docs/09-release/release-notes-1.35.0.txt`.
+- **SF-14 optional polish (low)** — auto-trigger the lazy Ruflo install on first workspace open (renderer-triggered today).
 
 ---
 
 ## 📌 Standing references (not findings — kept for quick lookup)
 
 - **Distribution posture:** internal use only. No signed-distribution paths (EV cert, MS Store, WinGet, Apple Developer, wake-word licensing). Canonical: `app/build/nsis/README — First launch.txt` + `scripts/install-macos.sh`.
-- **ADR 2026-05-16 — Linux not supported:** macOS arm64 + Windows x64 only; no Linux CI/smoke/installer/docs. Reversal needs a new ADR (re-add Ubuntu CI lanes + a Linux release workflow + install docs).
-- **Source ledgers:** `docs/08-bugs/BACKLOG.md` (bugs/optimizations) · `docs/03-plan/V3_PARITY_BACKLOG.md` (V3 parity — resolved v1.5.1, historical) · `docs/02-research/bridgemind-review-2026-05-22/` (C-class source).
+- **ADR 2026-05-16 — Linux not supported:** macOS arm64 + Windows x64 only; no Linux CI/smoke/installer/docs. Reversal needs a new ADR.
+- **Source ledgers:** `docs/08-bugs/BACKLOG.md` (bugs/optimizations) · `docs/03-plan/V3_PARITY_BACKLOG.md` (V3 parity — resolved v1.5.1, historical) · `docs/02-research/bridgemind-review-2026-05-22/` + `docs/02-research/videos/0NU7O7u-yfM-REVIEW.md` (competitive source).
