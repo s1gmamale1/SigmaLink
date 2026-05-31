@@ -16,6 +16,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Loader2, Trash2, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
 
@@ -83,10 +93,26 @@ function isBusy(busy: BusyAction | null, workspaceId: string): boolean {
 // MaintenanceTab
 // ---------------------------------------------------------------------------
 
+/**
+ * UX-3 — pending destructive confirmation. Replaces the native `window.confirm`
+ * for the three maintenance ops. A React dialog can't block the call stack, so
+ * each handler stages the dynamic preview text + a `run` thunk here; the themed
+ * AlertDialog's destructive action invokes `run`. Cancelling (or dismissing)
+ * just clears the state — preserving the original "confirm gate" semantics.
+ */
+interface PendingConfirm {
+  title: string;
+  /** Multi-line preview body — rendered preformatted to keep the bullet list. */
+  message: string;
+  confirmLabel: string;
+  run: () => void;
+}
+
 export function MaintenanceTab() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<BusyAction | null>(null);
+  const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -138,26 +164,32 @@ export function MaintenanceTab() {
         preview.liveBlockedWorktrees.length > 0
           ? `\n\n⚠ ${preview.liveBlockedWorktrees.length} worktree(s) with live sessions will be KEPT.`
           : '';
-      const confirmed = window.confirm(
-        `Remove workspace "${ws.name}"?\n\n` +
+      // UX-3 — stage the themed confirm. The live mutation runs in `run`.
+      setConfirm({
+        title: `Remove workspace "${ws.name}"?`,
+        confirmLabel: 'Remove workspace',
+        message:
           `This will permanently delete:\n` +
           `  • ${preview.sessionCount} session record(s)\n` +
           `  • ${preview.worktreeCount} orphan worktree dir(s)` +
           liveWarn +
           `\n\nThis action cannot be undone.`,
-      );
-      if (!confirmed) return;
-
-      setBusy({ type: 'remove', workspaceId: ws.id });
-      try {
-        await invokeCleanup<unknown>('cleanup.removeWorkspace', { workspaceId: ws.id, dryRun: false });
-        toast.success(`Workspace "${ws.name}" removed`);
-        await refresh();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : String(err));
-      } finally {
-        setBusy(null);
-      }
+        run: () => {
+          setConfirm(null);
+          void (async () => {
+            setBusy({ type: 'remove', workspaceId: ws.id });
+            try {
+              await invokeCleanup<unknown>('cleanup.removeWorkspace', { workspaceId: ws.id, dryRun: false });
+              toast.success(`Workspace "${ws.name}" removed`);
+              await refresh();
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : String(err));
+            } finally {
+              setBusy(null);
+            }
+          })();
+        },
+      });
     },
     [refresh],
   );
@@ -185,24 +217,30 @@ export function MaintenanceTab() {
         return;
       }
 
-      const confirmed = window.confirm(
-        `Clear all panes for "${ws.name}"?\n\n` +
+      // UX-3 — stage the themed confirm. The live delete runs in `run`.
+      setConfirm({
+        title: `Clear all panes for "${ws.name}"?`,
+        confirmLabel: 'Clear panes',
+        message:
           `This will delete ${sessionCount} session record(s) from the database.\n` +
           `Active (running/starting) panes will stop appearing in the UI.\n\n` +
           `This action cannot be undone.`,
-      );
-      if (!confirmed) return;
-
-      setBusy({ type: 'clear', workspaceId: ws.id });
-      try {
-        const res = await invokeCleanup<{ sessionIds: string[]; deleted: number }>('cleanup.clearPanes', { workspaceId: ws.id, dryRun: false });
-        const deleted = (res as { deleted: number }).deleted;
-        toast.success(`Cleared ${deleted} pane session(s) for "${ws.name}"`);
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : String(err));
-      } finally {
-        setBusy(null);
-      }
+        run: () => {
+          setConfirm(null);
+          void (async () => {
+            setBusy({ type: 'clear', workspaceId: ws.id });
+            try {
+              const res = await invokeCleanup<{ sessionIds: string[]; deleted: number }>('cleanup.clearPanes', { workspaceId: ws.id, dryRun: false });
+              const deleted = (res as { deleted: number }).deleted;
+              toast.success(`Cleared ${deleted} pane session(s) for "${ws.name}"`);
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : String(err));
+            } finally {
+              setBusy(null);
+            }
+          })();
+        },
+      });
     },
     [],
   );
@@ -240,8 +278,11 @@ export function MaintenanceTab() {
           ? `\n\n${prunePreview.liveBlocked.length} dir(s) with live sessions will be KEPT.`
           : '';
 
-      const confirmed = window.confirm(
-        `Prune orphan worktrees for "${ws.name}"?\n\n` +
+      // UX-3 — stage the themed confirm. The live prune runs in `run`.
+      setConfirm({
+        title: `Prune orphan worktrees for "${ws.name}"?`,
+        confirmLabel: 'Prune worktrees',
+        message:
           `Will remove ${prunePreview.wouldRemove.length} orphan dir(s):` +
           prunePreview.wouldRemove.slice(0, 5).map((p) => `\n  ${p}`).join('') +
           (prunePreview.wouldRemove.length > 5
@@ -249,25 +290,28 @@ export function MaintenanceTab() {
             : '') +
           liveNote +
           `\n\nThis action cannot be undone.`,
-      );
-      if (!confirmed) return;
-
-      setBusy({ type: 'prune', workspaceId: ws.id });
-      try {
-        const res = await invokeCleanup<{ removed: number; liveBlocked: string[]; errors: number }>('cleanup.pruneWorktrees', { workspaceId: ws.id, dryRun: false });
-        const pruneResult = res as { removed: number; liveBlocked: string[]; errors: number };
-        if (pruneResult.errors > 0) {
-          toast.warning(
-            `Pruned ${pruneResult.removed} dir(s) for "${ws.name}" — ${pruneResult.errors} failed (check logs)`,
-          );
-        } else {
-          toast.success(`Pruned ${pruneResult.removed} orphan worktree dir(s) for "${ws.name}"`);
-        }
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : String(err));
-      } finally {
-        setBusy(null);
-      }
+        run: () => {
+          setConfirm(null);
+          void (async () => {
+            setBusy({ type: 'prune', workspaceId: ws.id });
+            try {
+              const res = await invokeCleanup<{ removed: number; liveBlocked: string[]; errors: number }>('cleanup.pruneWorktrees', { workspaceId: ws.id, dryRun: false });
+              const pruneResult = res as { removed: number; liveBlocked: string[]; errors: number };
+              if (pruneResult.errors > 0) {
+                toast.warning(
+                  `Pruned ${pruneResult.removed} dir(s) for "${ws.name}" — ${pruneResult.errors} failed (check logs)`,
+                );
+              } else {
+                toast.success(`Pruned ${pruneResult.removed} orphan worktree dir(s) for "${ws.name}"`);
+              }
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : String(err));
+            } finally {
+              setBusy(null);
+            }
+          })();
+        },
+      });
     },
     [],
   );
@@ -321,6 +365,37 @@ export function MaintenanceTab() {
           </div>
         )}
       </section>
+
+      {/* UX-3 — themed destructive confirm (replaces window.confirm). The
+          dynamic dry-run preview is rendered preformatted so the bullet list
+          + warnings survive verbatim. */}
+      <AlertDialog
+        open={confirm !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirm(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirm?.title}</AlertDialogTitle>
+            <AlertDialogDescription className="whitespace-pre-wrap font-mono text-xs">
+              {confirm?.message}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirm?.run();
+              }}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {confirm?.confirmLabel ?? 'Confirm'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

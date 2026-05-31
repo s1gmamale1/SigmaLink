@@ -204,7 +204,7 @@ export function SideChat({ swarm, messages }: Props) {
                 : `Message ${recipient}…`
             }
             rows={2}
-            className="min-h-[44px] flex-1 resize-none rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            className="min-h-[44px] flex-1 resize-none rounded-md border border-border bg-background px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           />
           <Button
             onClick={send}

@@ -7,6 +7,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Save, Trash2, Eye, Pencil, Hash } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { rpc } from '@/renderer/lib/rpc';
 import type { Memory } from '@/shared/types';
 import { extractWikilinks, renderChunks } from './wikilink';
@@ -35,6 +45,11 @@ export function MemoryEditor({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
+  // UX-3 — themed confirm state (replaces the two window.confirm calls).
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  // The wikilink target awaiting a "create missing note?" confirm. `null`
+  // closes the dialog.
+  const [pendingWikilink, setPendingWikilink] = useState<string | null>(null);
   const dirtyRef = useRef(false);
   const lastSentRef = useRef({ body: memory?.body ?? '', tags: memory?.tags.join(', ') ?? '' });
 
@@ -103,9 +118,16 @@ export function MemoryEditor({
     return () => clearTimeout(t);
   }, [body, tags, memory, saveNow]);
 
-  const onDelete = useCallback(async () => {
+  // UX-3 — open the themed destructive confirm; the delete runs in
+  // `confirmDelete`.
+  const onDelete = useCallback(() => {
     if (!memory) return;
-    if (!window.confirm(`Delete "${memory.name}"? This cannot be undone.`)) return;
+    setDeleteOpen(true);
+  }, [memory]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!memory) return;
+    setDeleteOpen(false);
     try {
       await rpc.memory.delete_memory({ workspaceId, name: memory.name });
       onDeleted(memory.id);
@@ -115,22 +137,32 @@ export function MemoryEditor({
   }, [memory, onDeleted, workspaceId]);
 
   const onWikilinkClick = useCallback(
-    async (target: string) => {
+    (target: string) => {
       const exists = knownNames.has(target.toLowerCase());
       if (!exists) {
-        const ok = window.confirm(`Create new note "${target}"?`);
-        if (!ok) return;
-        try {
-          await rpc.memory.create_memory({ workspaceId, name: target });
-        } catch (e) {
-          setErr(e instanceof Error ? e.message : String(e));
-          return;
-        }
+        // UX-3 — stage a themed "create missing note?" confirm instead of the
+        // blocking window.confirm. The create + navigate run in
+        // `confirmCreateWikilink`.
+        setPendingWikilink(target);
+        return;
       }
       onNavigate(target);
     },
-    [knownNames, onNavigate, workspaceId],
+    [knownNames, onNavigate],
   );
+
+  const confirmCreateWikilink = useCallback(async () => {
+    const target = pendingWikilink;
+    if (!target) return;
+    setPendingWikilink(null);
+    try {
+      await rpc.memory.create_memory({ workspaceId, name: target });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    onNavigate(target);
+  }, [onNavigate, pendingWikilink, workspaceId]);
 
   const wikilinkCount = useMemo(() => extractWikilinks(body).length, [body]);
 
@@ -185,7 +217,7 @@ export function MemoryEditor({
           value={tags}
           onChange={(e) => setTags(e.target.value)}
           placeholder="comma-separated tags"
-          className="flex-1 rounded border border-input bg-background px-2 py-1 outline-none focus:ring-1 focus:ring-ring"
+          className="flex-1 rounded border border-input bg-background px-2 py-1 outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
       </div>
 
@@ -208,6 +240,60 @@ export function MemoryEditor({
           <PreviewPane body={body} knownNames={knownNames} onWikilinkClick={onWikilinkClick} />
         )}
       </div>
+
+      {/* UX-3 — themed destructive delete confirm (replaces window.confirm). */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete &ldquo;{memory.name}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes the note. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDelete();
+              }}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* UX-3 — themed "create missing note?" confirm (replaces
+          window.confirm). Constructive action, so the default (non-red)
+          button variant is used. */}
+      <AlertDialog
+        open={pendingWikilink !== null}
+        onOpenChange={(o) => {
+          if (!o) setPendingWikilink(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Create new note &ldquo;{pendingWikilink}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This note does not exist yet. Create it and open it now?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmCreateWikilink();
+              }}
+            >
+              Create note
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

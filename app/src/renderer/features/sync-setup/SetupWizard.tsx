@@ -121,7 +121,7 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
               id="repo-url"
               data-testid="repo-url-input"
               type="url"
-              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
               placeholder="https://github.com/you/sigma-sync.git"
               value={creds.remoteUrl}
               onChange={(e) => setCreds((p) => ({ ...p, remoteUrl: e.target.value }))}
@@ -136,7 +136,7 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
               id="git-username"
               data-testid="git-username-input"
               type="text"
-              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
               placeholder="your-github-username"
               value={creds.username}
               onChange={(e) => setCreds((p) => ({ ...p, username: e.target.value }))}
@@ -151,7 +151,7 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
               id="git-token"
               data-testid="git-token-input"
               type="password"
-              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
               value={creds.password}
               onChange={(e) => setCreds((p) => ({ ...p, password: e.target.value }))}

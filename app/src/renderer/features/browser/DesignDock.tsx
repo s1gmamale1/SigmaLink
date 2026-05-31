@@ -386,7 +386,7 @@ export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) 
               id="design-pane-select"
               value={selectedPaneId}
               onChange={(e) => setSelectedPaneId(e.target.value)}
-              className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+              className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <option value="">— select a pane —</option>
               {livePanes.map((p) => (
@@ -462,7 +462,7 @@ export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) 
           placeholder="Describe the change…"
           rows={5}
           spellCheck={false}
-          className="min-h-[100px] w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-xs leading-snug outline-none focus:ring-1 focus:ring-ring"
+          className="min-h-[100px] w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-xs leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
         {error ? (
           <div className="rounded-sm bg-red-500/10 px-1.5 py-1 text-[10px] text-red-300">
