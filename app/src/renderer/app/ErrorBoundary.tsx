@@ -72,7 +72,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     // DevTools even after the fallback renders. Kept renderer-only. The label
     // is passed as a discrete argument (not interpolated into the first
     // string) so it can never be treated as a console format specifier.
-    // eslint-disable-next-line no-console
     console.error(
       '[ErrorBoundary]',
       this.props.label ?? 'unlabeled',

@@ -18,8 +18,8 @@ import {
 
 // ---- mocks -----------------------------------------------------------------
 
-const createMemoryMock = vi.fn(async (..._a: unknown[]) => ({ id: 'm1', name: 'note' }));
-const runCommandMock = vi.fn(async (..._a: unknown[]) => undefined);
+const createMemoryMock = vi.fn().mockResolvedValue({ id: 'm1', name: 'note' });
+const runCommandMock = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {

@@ -13,7 +13,6 @@
 // see what's been triaged at a glance.
 
 import { Info, TriangleAlert, OctagonAlert, RotateCcw, X } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Notification, NotificationSeverity } from '@/shared/types';
 import { relativeTime, severityClass } from './helpers';
@@ -26,16 +25,17 @@ interface ItemProps {
 }
 
 // UX-9 — per-severity icon: non-colour shape cue for colour-blind users.
-function severityIcon(severity: NotificationSeverity): LucideIcon {
+// Returns a rendered element (not a component reference) so callers don't
+// "create a component during render" (react-hooks/static-components).
+function severityIcon(severity: NotificationSeverity, className?: string) {
   switch (severity) {
     case 'info':
-      return Info;
+      return <Info className={className} />;
     case 'warn':
-      return TriangleAlert;
+      return <TriangleAlert className={className} />;
     case 'error':
-      return OctagonAlert;
     case 'critical':
-      return OctagonAlert;
+      return <OctagonAlert className={className} />;
   }
 }
 
@@ -62,7 +62,6 @@ export function NotificationItem({
 }: ItemProps) {
   const isRead = notification.readAt !== null;
   const isCritical = notification.severity === 'critical';
-  const SeverityIcon = severityIcon(notification.severity);
   const sevLabel = severityLabel(notification.severity);
   return (
     <div
@@ -93,7 +92,7 @@ export function NotificationItem({
             severityClass(notification.severity),
           )}
         >
-          <SeverityIcon className="h-3 w-3" />
+          {severityIcon(notification.severity, 'h-3 w-3')}
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex items-baseline gap-2">
