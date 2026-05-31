@@ -35,7 +35,6 @@ function installGlobalErrorSink(): void {
     const text = `${prefix}: ${message || 'Unknown error'}`;
 
     // Always log — the console is the developer surface and is not de-duped.
-    // eslint-disable-next-line no-console
     console.error('[global-error-sink]', prefix, detail);
 
     const now = Date.now();

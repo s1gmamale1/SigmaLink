@@ -77,6 +77,7 @@ function hslVar(root: CSSStyleDeclaration, name: string, fallback: string, alpha
 }
 
 /** Read the active theme's colors off the document root (re-read on change). */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, exported for unit tests
 export function resolveThemeColors(rootEl: HTMLElement | null): GraphColors {
   if (!rootEl || typeof getComputedStyle !== 'function') return FALLBACK_COLORS;
   const root = getComputedStyle(rootEl);
@@ -92,6 +93,7 @@ export function resolveThemeColors(rootEl: HTMLElement | null): GraphColors {
 }
 
 /** Total kinetic energy (Σ vx²+vy²). Used to decide when the layout settled. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, exported for unit tests
 export function kineticEnergy(nodes: ReadonlyArray<{ vx: number; vy: number }>): number {
   let e = 0;
   for (const n of nodes) e += n.vx * n.vx + n.vy * n.vy;
@@ -116,9 +118,12 @@ export function MemoryGraphView({ graph, onSelect }: Props) {
   }, []);
   const [hoverId, setHoverId] = useState<string | null>(null);
   // Mirror hover into a ref so the (possibly slept) RAF loop / static draw can
-  // read it without the effect re-subscribing on every hover change.
+  // read it without the effect re-subscribing on every hover change. Written in
+  // an effect (not during render) per react-hooks/refs.
   const hoverIdRef = useRef<string | null>(null);
-  hoverIdRef.current = hoverId;
+  useEffect(() => {
+    hoverIdRef.current = hoverId;
+  }, [hoverId]);
   const dragRef = useRef<{ id: string; offX: number; offY: number } | null>(null);
   const sizeRef = useRef({ w: 600, h: 400 });
 

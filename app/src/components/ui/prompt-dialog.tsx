@@ -91,11 +91,15 @@ export function PromptDialog({
   const [value, setValue] = React.useState(defaultValue)
   const inputId = React.useId()
 
-  // Re-seed the field with the default value whenever the dialog (re)opens so
-  // a stale edit from a previous open never leaks into the next prompt.
-  React.useEffect(() => {
+  // Re-seed the field with the default value whenever the dialog (re)opens so a
+  // stale edit from a previous open never leaks into the next prompt. Uses the
+  // React-recommended "adjust state during render on a prop change" pattern
+  // (guarded by prevOpen) instead of a setState-in-effect (react-hooks/set-state-in-effect).
+  const [prevOpen, setPrevOpen] = React.useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
     if (open) setValue(defaultValue)
-  }, [open, defaultValue])
+  }
 
   const canConfirm = !requireValue || value.trim().length > 0
 

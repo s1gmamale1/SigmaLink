@@ -16,9 +16,9 @@ import {
 } from '@testing-library/react';
 import type { Memory } from '@/shared/types';
 
-const deleteMemoryMock = vi.fn(async (..._a: unknown[]) => undefined);
-const createMemoryMock = vi.fn(async (..._a: unknown[]) => ({}) as Memory);
-const updateMemoryMock = vi.fn(async (..._a: unknown[]) => ({}) as Memory);
+const deleteMemoryMock = vi.fn().mockResolvedValue(undefined);
+const createMemoryMock = vi.fn().mockResolvedValue({} as Memory);
+const updateMemoryMock = vi.fn().mockResolvedValue({} as Memory);
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
