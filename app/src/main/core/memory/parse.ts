@@ -80,10 +80,12 @@ export function extractWikilinks(body: string): Wikilink[] {
   return out;
 }
 
-/** True when `line` closes the current fence. */
+/** True when `line` closes the current fence. A closing fence is a line that is
+ *  ONLY the marker plus optional surrounding whitespace — equivalent to the old
+ *  `^\s*<marker>\s*$` regex but without a (lint-flagged) dynamic RegExp. */
 function isFenceClose(marker: '```' | '~~~' | null, line: string): boolean {
   if (!marker) return false;
-  return new RegExp(`^\\s*${marker}\\s*$`).test(line);
+  return line.trim() === marker;
 }
 
 // ── Frontmatter (BUG-10) ────────────────────────────────────────────────────
@@ -228,10 +230,16 @@ export function uniqueLinkTargets(body: string): string[] {
 }
 
 /**
- * Render `body` into safe HTML with `[[wiki]]` chips replaced by `<a
- * data-wikilink="...">`. NOT a full markdown renderer — the editor preview
- * uses this output as the textual baseline before piping it through the
- * renderer's markdown lib.
+ * Replace `[[wiki]]` chips with `<a data-wikilink="…">`, leaving the
+ * surrounding body text untouched. NOT a full markdown renderer and NOT an
+ * HTML sanitizer.
+ *
+ * ⚠️ SECURITY (P4 review L1): the inter-chip body text is returned RAW
+ * (unescaped) by design — the only intended caller would pipe this through a
+ * markdown lib that escapes. The LIVE editor preview does NOT use this; it
+ * renders escaped React children via `wikilink.ts renderChunks`. **Never feed
+ * this output to `dangerouslySetInnerHTML` with untrusted (e.g. agent-authored)
+ * input** — it is an injection vector. Currently has no non-test callers.
  */
 export function transformWikilinksToAnchors(
   body: string,
@@ -245,8 +253,12 @@ export function transformWikilinksToAnchors(
     parts.push(body.slice(last, l.range[0]));
     const text = l.alias ?? l.target;
     const cls = exists(l.target) ? 'wikilink' : 'wikilink wikilink-missing';
-    const safeTarget = l.target.replace(/"/g, '&quot;');
-    const safeText = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Escape & first so a literal "&lt;" in a target can't be double-decoded.
+    const safeTarget = l.target.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const safeText = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
     parts.push(
       `<a class="${cls}" data-wikilink="${safeTarget}" href="#">${safeText}</a>`,
     );

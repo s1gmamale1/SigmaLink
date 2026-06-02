@@ -70,6 +70,11 @@ export function up(db: Database.Database): void {
       seen.add(groupKey);
       continue;
     }
+    // The 8-char id suffix makes losers distinct from each other and from the
+    // keeper. We assume no existing note is literally named "<name> (dup <id8>)"
+    // (astronomically unlikely given the random id); if one were, the post-rename
+    // set would still hold a NOCASE duplicate and the index build below would
+    // throw → the runner rolls back + retries next boot (no partial state).
     const suffix = ` (dup ${row.id.slice(0, 8)})`;
     rename.run(`${row.name}${suffix}`, row.id);
   }

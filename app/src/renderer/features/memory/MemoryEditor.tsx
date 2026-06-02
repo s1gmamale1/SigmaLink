@@ -197,6 +197,9 @@ export function MemoryEditor({
 
   const onWikilinkClick = useCallback(
     (target: string) => {
+      // P4 MEM-1 — a read-only Ruflo virtual note must never trigger a local
+      // write or navigation from its (agent-authored) body. Inert in readOnly.
+      if (readOnly) return;
       const exists = knownNames.has(target.toLowerCase());
       if (!exists) {
         // UX-3 — stage a themed "create missing note?" confirm instead of the
@@ -207,7 +210,7 @@ export function MemoryEditor({
       }
       onNavigate(target);
     },
-    [knownNames, onNavigate],
+    [knownNames, onNavigate, readOnly],
   );
 
   const confirmCreateWikilink = useCallback(async () => {
