@@ -12,6 +12,8 @@ import { isCorruptionError, shouldQuarantine, corruptBackupPath } from './corrup
 
 let dbHandle: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let rawDb: Database.Database | null = null;
+/** DB-2 — retained so restoreDatabase() can swap + reopen the same file. */
+let dbFilePath: string | null = null;
 
 const BOOTSTRAP_SQL = `
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -322,6 +324,7 @@ export function initializeDatabase(userDataDir: string): {
   bootstrapAndMigrate(sqlite);
   rawDb = sqlite;
   dbHandle = drizzle(sqlite, { schema });
+  dbFilePath = filePath;
   return { db: dbHandle, raw: sqlite, filePath };
 }
 
@@ -354,4 +357,77 @@ export function closeDatabase(): void {
   }
   rawDb = null;
   dbHandle = null;
+}
+
+/**
+ * DB-2 — write a clean, WAL-free snapshot of the live database to `destPath`
+ * via `VACUUM INTO` (atomic + fully compacted). `destPath` MUST NOT already
+ * exist (a SQLite requirement). Checkpoints the WAL first so the snapshot is
+ * complete. Throws on failure.
+ */
+export function backupDatabase(destPath: string): void {
+  const db = getRawDb();
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+  } catch {
+    /* best-effort — VACUUM INTO still yields a consistent snapshot */
+  }
+  // VACUUM INTO requires the destination NOT to exist. The save dialog already
+  // confirmed any overwrite, so clear a stale file first.
+  if (fs.existsSync(destPath)) {
+    try { fs.rmSync(destPath); } catch { /* surfaced by the exec below if it matters */ }
+  }
+  // No bind param for VACUUM INTO; escape single quotes for the SQL literal.
+  db.exec(`VACUUM INTO '${destPath.replace(/'/g, "''")}'`);
+}
+
+/**
+ * DB-2 — replace the live database with a previously-exported backup. DESTRUCTIVE.
+ * Validates `srcPath` is a healthy SQLite database (read-only open + quick_check)
+ * BEFORE clobbering anything; keeps a one-shot `<db>.pre-restore` copy of the
+ * current file; clears stale WAL/SHM; then reopens (re-running pragmas +
+ * quick_check + pending migrations on the restored file). Throws — leaving the
+ * live DB intact — if the source is missing or fails validation.
+ */
+export function restoreDatabase(srcPath: string): void {
+  if (!dbFilePath) throw new Error('restoreDatabase: database not initialized');
+  if (!fs.existsSync(srcPath)) {
+    throw new Error(`restoreDatabase: backup file not found at ${srcPath}`);
+  }
+  // Validate the incoming file READ-ONLY (so we never mutate the backup) before
+  // touching the live DB.
+  let probe: Database.Database | null = null;
+  try {
+    probe = new Database(srcPath, { readonly: true });
+    const res = probe.pragma('quick_check', { simple: true });
+    if (res !== 'ok') {
+      throw new Error(`restoreDatabase: backup failed integrity check (${String(res)})`);
+    }
+  } catch (err) {
+    if (probe) {
+      try { probe.close(); } catch { /* ignore */ }
+    }
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+  probe.close();
+
+  const target = dbFilePath;
+  const userDataDir = path.dirname(target);
+  closeDatabase();
+  // One-shot pre-restore safety copy so a bad restore is recoverable.
+  try {
+    if (fs.existsSync(target)) fs.copyFileSync(target, `${target}.pre-restore`);
+  } catch {
+    /* best-effort */
+  }
+  fs.copyFileSync(srcPath, target);
+  // Drop stale WAL/SHM from the old DB so the restored file opens clean.
+  for (const sidecar of ['-wal', '-shm']) {
+    const p = target + sidecar;
+    if (fs.existsSync(p)) {
+      try { fs.rmSync(p); } catch { /* best-effort */ }
+    }
+  }
+  // Reopen — re-runs openAndCheck + bootstrapAndMigrate on the restored file.
+  initializeDatabase(userDataDir);
 }

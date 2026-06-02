@@ -348,3 +348,22 @@ export function listOrphans(workspaceId: string): MemoryRowJoined[] {
   }
   return all.filter((m) => !linksFrom.has(m.row.name) && !linksTo.has(m.row.name));
 }
+
+/** MEM-3 — distinct tags in a workspace with their note counts, busiest first
+ *  (ties broken alphabetically). Reuses listMemoryRows (tags already joined). */
+export function listTags(workspaceId: string): Array<{ tag: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const m of listMemoryRows(workspaceId)) {
+    for (const t of m.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+}
+
+/** MEM-3 — notes carrying `tag` (most-recently-updated first). */
+export function listByTag(workspaceId: string, tag: string): MemoryRowJoined[] {
+  return listMemoryRows(workspaceId)
+    .filter((m) => m.tags.includes(tag))
+    .sort((a, b) => b.row.updatedAt - a.row.updatedAt);
+}

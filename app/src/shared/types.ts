@@ -401,6 +401,12 @@ export interface MemoryConnectionSuggestion {
   score: number;
 }
 
+/** P4 MEM-3 — a distinct tag in a workspace with its note count. */
+export interface MemoryTagCount {
+  tag: string;
+  count: number;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Review Room (Phase 6)
 // ──────────────────────────────────────────────────────────────────────────

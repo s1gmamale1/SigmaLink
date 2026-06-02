@@ -494,6 +494,15 @@ export interface AppRouter {
     getMcpCommand: (input: {
       workspaceId: string;
     }) => Promise<{ command: string; args: string[] } | null>;
+    /** P4 MEM-3 — distinct tags + note counts for the Tags pane / filter. */
+    list_tags: (input: { workspaceId: string }) => Promise<Array<{ tag: string; count: number }>>;
+    /** P4 MEM-3 — notes carrying a tag (most-recently-updated first). */
+    list_by_tag: (input: { workspaceId: string; tag: string }) => Promise<Memory[]>;
+    /** P4 DB-2 — main shows a save dialog, then writes a compacted DB snapshot. */
+    export_db: () => Promise<{ ok: boolean; canceled?: boolean; path?: string }>;
+    /** P4 DB-2 — DESTRUCTIVE: main shows an open dialog, validates + replaces the
+     *  live DB, then reopens. The renderer reloads on `{ok:true}`. */
+    import_db: () => Promise<{ ok: boolean; canceled?: boolean }>;
   };
   review: {
     list: (workspaceId: string) => Promise<ReviewState>;
