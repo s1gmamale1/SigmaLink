@@ -34,6 +34,7 @@ import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skil
 import { PANE_DRAG_MIME } from '@/renderer/lib/pane-context-builder';
 import { SkillBindingChip, type SkillBinding } from '@/renderer/features/skills/SkillBindingChip';
 import { PaneTabStrip, type ScratchTab } from './PaneTabStrip';
+import { PaneContextSidebar } from './PaneContextSidebar';
 import { useUncommittedCount } from '@/renderer/lib/use-git-status-poll';
 
 // v1.4.8 — Max number of files allowed in a single Finder multi-drop.
@@ -378,7 +379,9 @@ export function PaneShell({
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
-            <div className="relative min-h-0 flex-1">
+            {/* FEAT-2 — terminal area + (when fullscreen) a context sidebar. */}
+            <div className="flex min-h-0 flex-1">
+              <div className="relative min-h-0 flex-1">
               {launchFailed ? (
                 // ENOENT / pre-flight failure: no PTY ever started, so there is
                 // no scrollback to surface — show the launch error full-screen.
@@ -430,6 +433,8 @@ export function PaneShell({
                   ))}
                 </>
               )}
+              </div>
+              <PaneContextSidebar session={session} open={isFullscreen} />
             </div>
             <PaneFooter session={session} />
           </div>

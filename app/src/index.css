@@ -360,9 +360,17 @@
 .sl-pane-enter {
   animation: sl-pane-enter var(--motion) var(--ease-smooth) both;
 }
+/* FEAT-2 — pane context sidebar slide-in from the right edge. */
+.sl-sidebar-enter {
+  animation: sl-sidebar-enter var(--motion) var(--ease-smooth) both;
+}
 @keyframes sl-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@keyframes sl-sidebar-enter {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 @keyframes sl-slide-up {
   from { opacity: 0; transform: translateY(12px); }
@@ -376,7 +384,8 @@
 @media (prefers-reduced-motion: reduce) {
   .sl-fade-in,
   .sl-slide-up,
-  .sl-pane-enter {
+  .sl-pane-enter,
+  .sl-sidebar-enter {
     animation: none;
   }
 }

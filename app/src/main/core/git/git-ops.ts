@@ -596,10 +596,105 @@ export async function gitActivityLog(
   cwd: string,
   days = 30,
 ): Promise<GitActivityBucket[]> {
-  void cwd;
-  void days;
-  // FEAT-8 lane: implement `git log --no-merges --since=<days>.days.ago
-  // --numstat --pretty=format:'COMMIT %H %at' -n 500`, group by local day,
-  // sum filesChanged/linesAdded/linesDeleted/commitCount, churn=add+del.
-  return [];
+  if (!fs.existsSync(cwd)) return [];
+  try {
+    const root = await getRepoRoot(cwd);
+    if (!root) return [];
+
+    // `--date=unix` makes %at the author epoch; we convert to the OPERATOR's
+    // local calendar day (not UTC) so a commit at 11pm local lands on the right
+    // bucket. `--no-merges` skips merge commits (their numstat is noisy/empty),
+    // `-n 500` caps traversal cost. We emit one `COMMIT <sha> <epoch>` marker
+    // line per commit, then `git`'s numstat lines (`add\tdel\tpath`) follow.
+    const sinceArg = `--since=${Math.max(1, Math.floor(days))}.days.ago`;
+    const res = await execCmd(
+      'git',
+      [
+        'log',
+        '--no-merges',
+        sinceArg,
+        '--numstat',
+        '--date=unix',
+        '--pretty=format:COMMIT %H %at',
+        '-n',
+        '500',
+      ],
+      { cwd, timeoutMs: 15_000, maxBuffer: 2 * 1024 * 1024 },
+    );
+    if (res.code !== 0) return [];
+
+    // Accumulate per local-day. A commit's day is fixed by its marker line;
+    // every numstat line until the next marker belongs to that commit's day.
+    interface DayAccum {
+      commitCount: number;
+      filesChanged: number;
+      linesAdded: number;
+      linesDeleted: number;
+    }
+    const byDay = new Map<string, DayAccum>();
+    let currentDay: string | null = null;
+
+    const ensureDay = (day: string): DayAccum => {
+      let acc = byDay.get(day);
+      if (!acc) {
+        acc = { commitCount: 0, filesChanged: 0, linesAdded: 0, linesDeleted: 0 };
+        byDay.set(day, acc);
+      }
+      return acc;
+    };
+
+    for (const raw of res.stdout.split(/\r?\n/)) {
+      const line = raw.trimEnd();
+      if (line === '') continue;
+      if (line.startsWith('COMMIT ')) {
+        // `COMMIT <sha> <epochSeconds>` — the epoch is the LAST whitespace field.
+        const parts = line.split(/\s+/);
+        const epochSec = Number(parts[parts.length - 1]);
+        if (!Number.isFinite(epochSec)) {
+          currentDay = null;
+          continue;
+        }
+        currentDay = localCalendarDay(epochSec * 1000);
+        ensureDay(currentDay).commitCount += 1;
+        continue;
+      }
+      // numstat line: `<added>\t<deleted>\t<path>`. Binary files show `-`.
+      if (currentDay == null) continue;
+      const cols = line.split('\t');
+      if (cols.length < 3) continue;
+      const added = cols[0] === '-' ? 0 : Number(cols[0]);
+      const deleted = cols[1] === '-' ? 0 : Number(cols[1]);
+      const acc = ensureDay(currentDay);
+      acc.filesChanged += 1;
+      if (Number.isFinite(added)) acc.linesAdded += added;
+      if (Number.isFinite(deleted)) acc.linesDeleted += deleted;
+    }
+
+    // Oldest→newest. `git log` is newest-first; YYYY-MM-DD sorts chronologically.
+    const days_ = Array.from(byDay.keys()).sort();
+    return days_.map((date) => {
+      const acc = byDay.get(date)!;
+      return {
+        date,
+        commitCount: acc.commitCount,
+        filesChanged: acc.filesChanged,
+        linesAdded: acc.linesAdded,
+        linesDeleted: acc.linesDeleted,
+        churn: acc.linesAdded + acc.linesDeleted,
+      };
+    });
+  } catch {
+    // Degrade to [] on ANY failure (missing git, timeout, parse) — never throw;
+    // the strip simply renders nothing.
+    return [];
+  }
+}
+
+/** Epoch-ms → local `YYYY-MM-DD` (operator timezone, zero-padded). */
+function localCalendarDay(epochMs: number): string {
+  const d = new Date(epochMs);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }

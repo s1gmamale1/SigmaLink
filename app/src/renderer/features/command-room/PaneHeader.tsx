@@ -15,6 +15,7 @@
 
 import {
   ClipboardList,
+  Coins,
   Columns2,
   GitBranch,
   History,
@@ -54,6 +55,8 @@ import { agentColor, agentShortId } from '@/renderer/lib/workspace-color';
 import { useRufloDaemonHealth } from './useRufloDaemonHealth';
 import type { RufloDaemonState } from './useRufloDaemonHealth';
 import { CheckpointPanel } from './CheckpointPanel';
+import { UsagePopover } from './UsagePopover';
+import { GitActivityStrip } from './GitActivityStrip';
 
 // SF-7 — colour mapping for the Ruflo daemon health dot (FE-4 a11y standard).
 function rufloHealthDotClass(state: RufloDaemonState): string {
@@ -359,6 +362,24 @@ export function PaneHeader({
           {typeof uncommitted === 'number' && uncommitted > 0 ? (
             <span className="rounded bg-amber-500/15 px-1 text-[10px] text-amber-600" title={`${uncommitted} uncommitted`}>±{uncommitted}</span>
           ) : null}
+          {/* FEAT-8 — per-worktree git-activity heatmap (self-contained poller). */}
+          <GitActivityStrip worktreePath={session.worktreePath ?? null} />
+          {/* FEAT-3 — per-pane usage/cost + workspace week-to-date popover. */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center rounded p-0.5 text-muted-foreground/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                title="Usage & cost"
+                aria-label="Usage and cost"
+              >
+                <Coins className="h-3 w-3" aria-hidden />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="start" className="w-72 p-3">
+              <UsagePopover session={session} />
+            </PopoverContent>
+          </Popover>
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-0.5" onDragStart={(e) => e.stopPropagation()}>
           {/* v1.4.2 packet-12 — Pane Focus button is now a real fullscreen

@@ -1,8 +1,9 @@
-// SwarmRailTab — C-2 (agent index) + C-4 (chat log) in the right-rail.
+// SwarmRailTab — C-2 (agent index) + C-4 (chat log) + FEAT-6 phase tree in the right-rail.
 //
-// Surfaces the running swarm's agent roster (RoleRoster, read-only + clickable
-// for jump-to-pane) and the swarm's side-chat (SideChat) in a vertically
-// stacked layout. Mirrors the pattern in SwarmRoom.tsx for data wiring.
+// Surfaces:
+//   1. SwarmPhaseTree (FEAT-6) — phase-grouped agent tree above the roster.
+//   2. RoleRoster (C-2, read-only + click-to-focus) — existing compact overview.
+//   3. SideChat (C-4) — swarm broadcast chat.
 //
 // Mount guard: no active swarm → muted placeholder.
 
@@ -11,16 +12,20 @@ import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { RoleRoster } from '@/renderer/features/swarm-room/RoleRoster';
 import { SideChat } from '@/renderer/features/swarm-room/SideChat';
-import type { RoleAssignment, Swarm, SwarmMessage } from '@/shared/types';
+import { SwarmPhaseTree } from './SwarmPhaseTree';
+import type { AgentSession, RoleAssignment, Swarm, SwarmMessage } from '@/shared/types';
 
 const EMPTY_SWARMS: Swarm[] = [];
 const EMPTY_MESSAGES: SwarmMessage[] = [];
+const EMPTY_SESSIONS: AgentSession[] = [];
 
 export function SwarmRailTab() {
   const dispatch = useAppDispatch();
   const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspaceId);
   const activeSwarmId = useAppStateSelector((s) => s.activeSwarmId);
   const swarmMessages = useAppStateSelector((s) => s.swarmMessages);
+  // FEAT-6 — cross-ref PTY session status for phase-tree status derivation.
+  const sessions = useAppStateSelector((s) => s.sessions ?? EMPTY_SESSIONS);
   const workspaceSwarms = useAppStateSelector((s) =>
     activeWorkspaceId
       ? s.swarmsByWorkspace[activeWorkspaceId] ?? EMPTY_SWARMS
@@ -100,8 +105,17 @@ export function SwarmRailTab() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* C-2 — Agent roster (top region, scrollable) */}
-      <div className="max-h-[45%] overflow-y-auto border-b border-border p-2">
+      {/* FEAT-6 — Phase tree (collapsible; ~40% max height) */}
+      <div className="max-h-[40%] overflow-y-auto border-b border-border">
+        <SwarmPhaseTree
+          swarm={activeSwarm}
+          sessions={sessions}
+          messageCounts={messageCounts}
+          lastActivity={lastActivity}
+        />
+      </div>
+      {/* C-2 — Agent roster (compact overview, scrollable) */}
+      <div className="max-h-[30%] overflow-y-auto border-b border-border p-2">
         <RoleRoster
           readOnly
           roster={roster}
