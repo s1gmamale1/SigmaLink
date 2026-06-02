@@ -16,13 +16,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { noDragStyle } from '@/renderer/lib/drag-region';
 import { ROOMS_MENU_ITEMS, isRoomDisabled } from './rooms-menu-items';
 
 export function RoomsMenuButton() {
-  const { state, dispatch } = useAppState();
-  const hasActiveWorkspace = state.activeWorkspace !== null;
+  // PERF-3 — granular selectors + stable dispatch. `s.activeWorkspace` is a
+  // referentially-stable slice and `s.room` is a primitive, so both honour the
+  // useSyncExternalStore Object.is bail-out (no re-render on unrelated dispatch).
+  const dispatch = useAppDispatch();
+  const activeWorkspace = useAppStateSelector((s) => s.activeWorkspace);
+  const room = useAppStateSelector((s) => s.room);
+  const hasActiveWorkspace = activeWorkspace !== null;
 
   return (
     <DropdownMenu>
@@ -33,7 +38,7 @@ export function RoomsMenuButton() {
           title="Rooms"
           className={cn(
             'flex h-7 w-7 shrink-0 items-center justify-center rounded transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            state.room !== 'command'
+            room !== 'command'
               ? 'bg-accent/30 text-foreground hover:bg-accent/50 hover:text-foreground'
               : 'text-muted-foreground hover:bg-muted hover:text-foreground',
           )}
@@ -45,7 +50,7 @@ export function RoomsMenuButton() {
       <DropdownMenuContent align="start" sideOffset={6} className="w-56">
         {ROOMS_MENU_ITEMS.map((item) => {
           const Icon = item.icon;
-          const isActive = state.room === item.id;
+          const isActive = room === item.id;
           const disabled = isRoomDisabled(item.id, hasActiveWorkspace);
           return (
             <DropdownMenuItem

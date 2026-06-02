@@ -22,18 +22,22 @@ vi.mock('@/renderer/lib/drag-region', () => ({
   noDragStyle: () => ({}),
 }));
 
-vi.mock('@/renderer/app/state', () => ({
-  useAppState: () => ({
-    state: {
-      // Reads _room at call-time (inside the component), not at hoist-time.
-      get room() { return _room; },
-      activeWorkspace: { id: 'ws-1', name: 'Test' },
-    },
-    dispatch: vi.fn(),
-  }),
-  appStateReducer: (s: unknown) => s,
-  initialAppState: { room: 'workspaces', roomByWorkspace: {} },
-}));
+// PERF-3: RoomsMenuButton migrated to useAppStateSelector + useAppDispatch.
+// Each mock fn builds the state lazily (getter reads `_room` at call-time) so
+// the selector sees the per-test room — same lazy pattern as the old getter.
+vi.mock('@/renderer/app/state', () => {
+  const buildState = () => ({
+    get room() { return _room; },
+    activeWorkspace: { id: 'ws-1', name: 'Test' },
+  });
+  return {
+    useAppStateSelector: <T,>(sel: (s: ReturnType<typeof buildState>) => T) => sel(buildState()),
+    useAppDispatch: () => vi.fn(),
+    useAppState: () => ({ state: buildState(), dispatch: vi.fn() }),
+    appStateReducer: (s: unknown) => s,
+    initialAppState: { room: 'workspaces', roomByWorkspace: {} },
+  };
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 afterEach(() => {

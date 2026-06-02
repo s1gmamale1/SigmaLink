@@ -25,7 +25,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
 }));
 
 import { rpcSilent } from '@/renderer/lib/rpc';
-import { useRufloDaemonHealth } from './useRufloDaemonHealth';
+import { useRufloDaemonHealth, __resetRufloHealthPollers } from './useRufloDaemonHealth';
 
 type DaemonRow = {
   workspaceId: string;
@@ -44,10 +44,14 @@ const mockDaemonStatus = rpcSilent.ruflo.daemonStatus as ReturnType<
 beforeEach(() => {
   vi.useFakeTimers();
   mockDaemonStatus.mockReset();
+  // PERF-5: the poller is a module-level refcounted singleton — reset it so
+  // each test starts from a clean slate (no leaked interval / cached health).
+  __resetRufloHealthPollers();
 });
 
 afterEach(() => {
   cleanup();
+  __resetRufloHealthPollers();
   vi.useRealTimers();
 });
 
@@ -187,6 +191,96 @@ describe('useRufloDaemonHealth', () => {
 
     // No additional calls after unmount
     expect(mockDaemonStatus.mock.calls.length).toBe(callCountAfterUnmount);
+  });
+
+  // ── PERF-5: refcounted shared poller ───────────────────────────────────────
+
+  it('mounting N hooks for one workspace fires the RPC ONCE per tick (not N times)', async () => {
+    mockDaemonStatus.mockResolvedValue([
+      { workspaceId: 'ws-1', status: 'running', port: 53112, pid: 1234, uptime: 100, connections: 1 },
+    ]);
+
+    // 4 panes in the same workspace = 4 hook instances sharing one poller.
+    const h1 = renderHook(() => useRufloDaemonHealth('ws-1'));
+    const h2 = renderHook(() => useRufloDaemonHealth('ws-1'));
+    const h3 = renderHook(() => useRufloDaemonHealth('ws-1'));
+    const h4 = renderHook(() => useRufloDaemonHealth('ws-1'));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // ONE immediate poll covered all 4 subscribers, not 4.
+    expect(mockDaemonStatus).toHaveBeenCalledTimes(1);
+    // …and the resolved health fanned out to every subscriber.
+    expect(h1.result.current.state).toBe('running');
+    expect(h2.result.current.state).toBe('running');
+    expect(h3.result.current.state).toBe('running');
+    expect(h4.result.current.state).toBe('running');
+
+    // One interval tick → still exactly one additional RPC (2 total), not 8.
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+      await Promise.resolve();
+    });
+    expect(mockDaemonStatus).toHaveBeenCalledTimes(2);
+
+    h1.unmount();
+    h2.unmount();
+    h3.unmount();
+    h4.unmount();
+  });
+
+  it('tears down the shared interval only when the LAST subscriber unmounts', async () => {
+    mockDaemonStatus.mockResolvedValue([
+      { workspaceId: 'ws-1', status: 'running', port: 53112, pid: 1234, uptime: 100, connections: 1 },
+    ]);
+
+    const a = renderHook(() => useRufloDaemonHealth('ws-1'));
+    const b = renderHook(() => useRufloDaemonHealth('ws-1'));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mockDaemonStatus).toHaveBeenCalledTimes(1); // one shared immediate poll
+
+    // Drop one subscriber — the interval must keep running for the survivor.
+    a.unmount();
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+      await Promise.resolve();
+    });
+    expect(mockDaemonStatus).toHaveBeenCalledTimes(2); // interval still alive
+
+    // Drop the last subscriber — interval torn down, no further polls.
+    b.unmount();
+    const after = mockDaemonStatus.mock.calls.length;
+    await act(async () => {
+      vi.advanceTimersByTime(15000);
+      await Promise.resolve();
+    });
+    expect(mockDaemonStatus.mock.calls.length).toBe(after);
+  });
+
+  it('distinct workspaces each get their own poll (no cross-workspace sharing)', async () => {
+    mockDaemonStatus.mockImplementation(async (ws?: string) => [
+      { workspaceId: ws ?? 'ws-1', status: 'running', port: 1, pid: 1, uptime: 1, connections: 1 },
+    ]);
+
+    const a = renderHook(() => useRufloDaemonHealth('ws-A'));
+    const b = renderHook(() => useRufloDaemonHealth('ws-B'));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Two distinct workspaces → two immediate polls.
+    expect(mockDaemonStatus).toHaveBeenCalledTimes(2);
+    expect(mockDaemonStatus).toHaveBeenCalledWith('ws-A');
+    expect(mockDaemonStatus).toHaveBeenCalledWith('ws-B');
+
+    a.unmount();
+    b.unmount();
   });
 
   it('filters by workspaceId — ignores rows for other workspaces', async () => {

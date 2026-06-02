@@ -121,6 +121,20 @@ export interface PtyRegistryOptions {
    */
   onLinkDetected?: LinkSink;
   /**
+   * PERF-2 — gate for the per-chunk link-detection regex + emit. Returns
+   * `true` when link capture is enabled (`kv['browser.captureLinks']` is on).
+   * When this returns `false`, BOTH `detectLinks` and the `onLinkDetected`
+   * emit are short-circuited so the main process pays nothing on every chunk
+   * while capture is off — previously the regex ran unconditionally and the
+   * renderer was the only gate.
+   *
+   * When omitted, link detection always runs (when `onLinkDetected` is wired),
+   * which preserves the original always-on behaviour for existing callers and
+   * tests. The caller (rpc-router) owns the KV read; the registry stays
+   * DB-agnostic so it remains loadable under vitest.
+   */
+  shouldDetectLinks?: () => boolean;
+  /**
    * v1.2.8 — invoked once per fresh spawn (skipped on resume, which already
    * carries `opts.sessionId`). The router uses this to schedule the disk-scan
    * retries for codex/kimi/opencode and to persist the pre-assigned UUID
@@ -154,6 +168,7 @@ export class PtyRegistry {
   private readonly onExit: ExitSink;
   private readonly gracefulExitDelayMs: number;
   private readonly onLinkDetected: LinkSink | null;
+  private readonly shouldDetectLinks: (() => boolean) | null;
   private readonly onPostSpawnCapture: PostSpawnSink | null;
   private readonly onPaneEvent: PaneEventSink | null;
   private readonly onCliExited: CliExitedSink | null;
@@ -163,6 +178,7 @@ export class PtyRegistry {
     this.onExit = onExit;
     this.gracefulExitDelayMs = opts.gracefulExitDelayMs ?? 200;
     this.onLinkDetected = opts.onLinkDetected ?? null;
+    this.shouldDetectLinks = opts.shouldDetectLinks ?? null;
     this.onPostSpawnCapture = opts.onPostSpawnCapture ?? null;
     this.onPaneEvent = opts.onPaneEvent ?? null;
     this.onCliExited = opts.onCliExited ?? null;
@@ -227,6 +243,7 @@ export class PtyRegistry {
       buffer.restore(input.resumeScrollback);
     }
     const linkSink = this.onLinkDetected;
+    const shouldDetectLinks = this.shouldDetectLinks;
     const cliExitedSink = this.onCliExited;
     const unsubData = pty.onData((rawData) => {
       // v1.6.0 Phase 2 — sentinel detection (shell-first mode only).
@@ -248,7 +265,22 @@ export class PtyRegistry {
       }
       buffer.append(data);
       this.onData(id, data);
-      if (linkSink) {
+      // PERF-2 — only run the link-detection regex + emit when a sink is wired
+      // AND link capture is enabled. The `shouldDetectLinks` gate (when
+      // provided) mirrors the renderer's `kv['browser.captureLinks']` gate so
+      // the main process skips the per-chunk regex entirely while capture is
+      // off. Omitting the gate preserves the original always-on behaviour. A
+      // throwing gate must never break the data stream → default to detecting
+      // (matches the renderer's default-ON-when-KV-unreachable semantics).
+      let detectLinksEnabled = true;
+      if (shouldDetectLinks !== null) {
+        try {
+          detectLinksEnabled = shouldDetectLinks();
+        } catch {
+          detectLinksEnabled = true;
+        }
+      }
+      if (linkSink && detectLinksEnabled) {
         const hits = detectLinks(data);
         for (const hit of hits) {
           try {

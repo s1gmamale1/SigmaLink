@@ -19,15 +19,13 @@ vi.mock('@/renderer/lib/rpc', () => ({
   rpcSilent: { kv: { get: vi.fn().mockResolvedValue(null) } },
 }));
 
-// Capture dispatches from RightRailSwitcher's `useAppState().dispatch`.
+// Capture dispatches from RightRailSwitcher's `useAppDispatch()`.
+// PERF-3 — the switcher is dispatch-only; it no longer reads any state slice.
 const dispatchSpy = vi.fn();
 
 vi.mock('@/renderer/app/state', () => {
   return {
-    useAppState: () => ({
-      state: {},
-      dispatch: dispatchSpy,
-    }),
+    useAppDispatch: () => dispatchSpy,
   };
 });
 

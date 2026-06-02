@@ -9,7 +9,7 @@
 import { Bot, FileCode2, Globe, Settings, Users, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { noDragStyle } from '@/renderer/lib/drag-region';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch } from '@/renderer/app/state';
 import {
   useRightRail,
   type RightRailTabId,
@@ -34,7 +34,9 @@ const SEGMENTS: readonly SegmentDef[] = [
 
 export function RightRailSwitcher() {
   const { activeTab, setActiveTab } = useRightRail();
-  const { dispatch } = useAppState();
+  // PERF-3 — dispatch-only consumer. useAppDispatch is stable and never
+  // re-renders, so the switcher no longer wakes on every unrelated dispatch.
+  const dispatch = useAppDispatch();
 
   return (
     <div className="ml-auto flex items-center gap-1.5" style={noDragStyle()}>

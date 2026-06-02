@@ -15,7 +15,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppStateSelector } from '@/renderer/app/state';
 import { dragStyle } from '@/renderer/lib/drag-region';
 import { IS_WIN32 } from '@/renderer/lib/platform';
 import { RufloReadinessPill } from '@/renderer/components/RufloReadinessPill';
@@ -31,8 +31,11 @@ import { RightRailSwitcher } from './RightRailSwitcher';
 const WIN32_WCO_RESERVE_PX = 140;
 
 export function Breadcrumb() {
-  const { state } = useAppState();
-  const active = state.activeWorkspace;
+  // PERF-3 — granular selectors: re-render only when the active workspace or
+  // the persisted workspace list changes. Both are referentially-stable slices
+  // (the reducer replaces them by reference), so Object.is bail-out holds.
+  const active = useAppStateSelector((s) => s.activeWorkspace);
+  const workspaces = useAppStateSelector((s) => s.workspaces);
   const [userName, setUserName] = useState<string>('');
 
   // Hydrate kv on mount; if unset, peek at the path on the active workspace.
@@ -64,11 +67,11 @@ export function Breadcrumb() {
 
   const workspaceNumber = useMemo(() => {
     if (!active) return null;
-    const idx = state.workspaces.findIndex((w) => w.id === active.id);
+    const idx = workspaces.findIndex((w) => w.id === active.id);
     // 1-based; if the active workspace has not landed in the list yet (race
     // on first open), fall back to the workspace count.
-    return idx >= 0 ? idx + 1 : state.workspaces.length;
-  }, [active, state.workspaces]);
+    return idx >= 0 ? idx + 1 : workspaces.length;
+  }, [active, workspaces]);
 
   if (!active) {
     // Still render the chrome bar so the layout below does not jump when a

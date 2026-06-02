@@ -37,8 +37,11 @@ import { rpc as mockRpc } from '@/renderer/lib/rpc';
 
 let mockState: AppState = { ...initialAppState };
 const dispatchSpy = vi.fn();
+// PERF-3 — the dropdown now reads `s.notifications` + `s.activeWorkspace?.id`
+// via granular useAppStateSelector and dispatches via the stable useAppDispatch.
 vi.mock('@/renderer/app/state', () => ({
-  useAppState: () => ({ state: mockState, dispatch: dispatchSpy }),
+  useAppStateSelector: (sel: (s: AppState) => unknown) => sel(mockState),
+  useAppDispatch: () => dispatchSpy,
 }));
 
 function makeN(
