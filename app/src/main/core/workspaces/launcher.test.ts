@@ -21,7 +21,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as bridge from '../pty/claude-resume-sigma.ts';
 import { effectivePaneSpawnMode } from '../pty/local-pty';
-import { isPtyCrash } from './launcher';
+import { isPtyCrash, buildExtraArgs } from './launcher';
 
 describe('Claude resume bridge — provider gate semantics', () => {
   it('exports both helpers as async functions', () => {
@@ -198,5 +198,58 @@ describe('isPtyCrash — crash vs clean exit classification', () => {
 
   it('code 0, signal SIGKILL (9) → IS a crash', () => {
     expect(isPtyCrash(false, 0, 9)).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEAT-14 — buildExtraArgs `--model` injection (per-provider, fail-safe)
+//
+// Pure helper (findProvider is pure data). Verifies the launcher only appends
+// `--model <id>` for providers whose CLI accepts the flag, and never for the
+// SKIPPED set — so an unknown flag never breaks codex/kimi/opencode/shell.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildExtraArgs — FEAT-14 per-pane model flag', () => {
+  it('claude with a model → prepends --model <id>', () => {
+    expect(buildExtraArgs('claude', undefined, 'claude-sonnet-4-6')).toEqual([
+      '--model',
+      'claude-sonnet-4-6',
+    ]);
+  });
+
+  it('gemini with a model → prepends --model <id>', () => {
+    expect(buildExtraArgs('gemini', undefined, 'gemini-2.5-pro')).toEqual([
+      '--model',
+      'gemini-2.5-pro',
+    ]);
+  });
+
+  it('cursor with a model → prepends --model <id>', () => {
+    expect(buildExtraArgs('cursor', undefined, 'gpt-5')).toEqual(['--model', 'gpt-5']);
+  });
+
+  it('codex with a model → SKIPPED (no --model flag, no crash)', () => {
+    expect(buildExtraArgs('codex', undefined, 'gpt-5.4')).toEqual([]);
+  });
+
+  it('kimi / opencode / shell with a model → SKIPPED', () => {
+    expect(buildExtraArgs('kimi', undefined, 'kimi-k2.6')).toEqual([]);
+    expect(buildExtraArgs('opencode', undefined, 'opencode-default')).toEqual([]);
+    expect(buildExtraArgs('shell', undefined, 'whatever')).toEqual([]);
+  });
+
+  it('no model → no --model tokens (default behaviour preserved)', () => {
+    expect(buildExtraArgs('claude', undefined, undefined)).toEqual([]);
+  });
+
+  it('unknown provider → empty array (never throws)', () => {
+    expect(buildExtraArgs('does-not-exist', undefined, 'm')).toEqual([]);
+  });
+
+  it('model + prompt: model tokens precede the prompt tokens', () => {
+    // gemini uses initialPromptFlag — both should be present, model first.
+    const out = buildExtraArgs('gemini', 'hello world', 'gemini-2.5-pro');
+    expect(out.slice(0, 2)).toEqual(['--model', 'gemini-2.5-pro']);
+    expect(out).toContain('hello world');
   });
 });

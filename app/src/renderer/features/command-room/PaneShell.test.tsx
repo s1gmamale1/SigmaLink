@@ -33,7 +33,23 @@ vi.mock('@/renderer/lib/rpc', () => ({
       revealInFolder: (...args: unknown[]) => revealInFolderMock(...args),
       openShell: (...args: unknown[]) => openShellMock(...args),
     },
+    // FEAT-4 — PaneShell reads the pty.promptCards gate on mount. Default OFF
+    // (null) so the prompt-card feature stays inert in these scratch-tab tests.
+    kv: {
+      get: vi.fn().mockResolvedValue(null),
+    },
   },
+}));
+
+// FEAT-4 — the prompt-card hook + overlay are exercised in their own specs
+// (use-prompt-card.test.ts / PromptCard.test.tsx). Stub them here so these
+// scratch-tab tests aren't coupled to the PTY-scanning machinery.
+vi.mock('./use-prompt-card', () => ({
+  usePromptCard: () => ({ prompt: null, answer: vi.fn(), dismiss: vi.fn() }),
+}));
+
+vi.mock('./PromptCard', () => ({
+  PromptCard: () => null,
 }));
 
 vi.mock('sonner', () => ({

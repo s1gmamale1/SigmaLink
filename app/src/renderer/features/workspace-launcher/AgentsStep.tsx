@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { AGENT_PROVIDERS, type AgentProviderDefinition } from '@/shared/providers';
 import type { ProviderProbe } from '@/shared/types';
+import { listModelsFor, providerAcceptsModelFlag } from '@/shared/model-catalog';
 import { ProviderInstallModal } from './ProviderInstallModal';
 
 // v1.2.4 matrix order. `custom` is a renderer-only "Custom Command" row that
@@ -97,6 +98,14 @@ interface AgentsStepProps {
   skipAgents: boolean;
   onSkipChange: (skip: boolean) => void;
   probes: ProviderProbe[];
+  /**
+   * FEAT-14 — per-provider model selected at launch. Key = providerId, value =
+   * modelId. Only providers whose CLI accepts `--model` render a dropdown
+   * (claude / cursor / gemini); the launcher threads the choice into each
+   * pane's `--model` flag. Optional so legacy callers / tests need not supply.
+   */
+  models?: Record<string, string>;
+  onModelsChange?: (next: Record<string, string>) => void;
 }
 
 export function AgentsStep({
@@ -106,6 +115,8 @@ export function AgentsStep({
   skipAgents,
   onSkipChange,
   probes,
+  models = {},
+  onModelsChange,
 }: AgentsStepProps) {
   const probeMap = useMemo(() => new Map(probes.map((p) => [p.id, p])), [probes]);
   const rows = useMemo(() => buildRows(probeMap), [probeMap]);
@@ -121,6 +132,15 @@ export function AgentsStep({
     if (value <= 0) delete next[id];
     else next[id] = value;
     onCountsChange(next);
+  }
+
+  // FEAT-14 — set (or clear via the empty "Default" option) a row's model.
+  function setRowModel(id: string, modelId: string) {
+    if (!onModelsChange) return;
+    const next = { ...models };
+    if (modelId) next[id] = modelId;
+    else delete next[id];
+    onModelsChange(next);
   }
 
   function fillEvenly() {
@@ -217,6 +237,12 @@ export function AgentsStep({
                   {row.description}
                 </div>
               </div>
+              <ModelSelect
+                providerId={row.id}
+                value={models[row.id] ?? ''}
+                disabled={disabled || !onModelsChange}
+                onChange={(modelId) => setRowModel(row.id, modelId)}
+              />
               <CounterControls
                 value={count}
                 disabled={disabled}
@@ -261,6 +287,42 @@ export function AgentsStep({
         />
       ) : null}
     </div>
+  );
+}
+
+interface ModelSelectProps {
+  providerId: string;
+  value: string;
+  disabled?: boolean;
+  onChange: (modelId: string) => void;
+}
+
+// FEAT-14 — per-row model dropdown. Renders ONLY for providers whose CLI
+// accepts a `--model` flag (claude / cursor / gemini per the shared catalog);
+// codex / kimi / opencode / custom render nothing so the row layout is
+// unchanged for them. A calm `bg-background` surface (NOT `bg-accent` — see
+// the v1.36 purple-flash lesson) keeps the control visually quiet. The empty
+// value maps to "Default" (the launcher omits `--model`, so the CLI default
+// applies).
+function ModelSelect({ providerId, value, disabled, onChange }: ModelSelectProps) {
+  if (!providerAcceptsModelFlag(providerId)) return null;
+  const options = listModelsFor(providerId);
+  if (options.length === 0) return null;
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={`Model for ${providerId}`}
+      className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground transition hover:border-ring/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-40"
+    >
+      <option value="">Default</option>
+      {options.map((m) => (
+        <option key={m.modelId} value={m.modelId}>
+          {m.label}
+        </option>
+      ))}
+    </select>
   );
 }
 

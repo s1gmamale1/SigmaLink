@@ -11,12 +11,21 @@
 // a rotating whimsical progress verb + elapsed time ("Percolating… 1:23").
 // The verb advances every 4 ticks (4s); elapsed uses a single 1s interval.
 // Reduced motion: verb is frozen at index 0 (clock still ticks — not motion).
+//
+// FEAT-12: the footer composer area is a drop target for PANE_DRAG_MIME.
+// Dropping a pane grip on the footer calls buildPaneContext (async ~100-300ms)
+// then insertMention to inject the context string into the PTY input.
+// Visual feedback: ring-2 highlight while a pane drag is over the composer +
+// a brief "loading context…" label during the async fetch.
 
 import { useEffect, useRef, useState } from 'react';
 import { rpcSilent } from '@/renderer/lib/rpc';
 import { prefersReducedMotion } from '@/renderer/lib/motion';
 import { pickVerb } from './progress-verbs';
 import type { AgentSession } from '@/shared/types';
+import { PANE_DRAG_MIME, buildPaneContext } from '@/renderer/lib/pane-context-builder';
+import type { PaneDragPayload } from '@/renderer/lib/pane-context-builder';
+import { insertMention } from './insertMention';
 
 interface Props {
   session: AgentSession;
@@ -51,6 +60,11 @@ export function PaneFooter({ session, kvKey }: Props) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [verbIndex, setVerbIndex] = useState(0);
   const rotationTickRef = useRef(0);
+
+  // FEAT-12 — drop-zone state: isDragOver shows ring highlight, isLoadingContext
+  // shows a brief "loading context…" label while buildPaneContext is in flight.
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isLoadingContext, setIsLoadingContext] = useState(false);
 
   useEffect(() => {
     if (!kvKey) return;
@@ -100,15 +114,67 @@ export function PaneFooter({ session, kvKey }: Props) {
 
   const verb = pickVerb(verbIndex);
 
+  // FEAT-12 — drag-over handler: accept PANE_DRAG_MIME drops.
+  function handleDragOver(e: React.DragEvent): void {
+    if (!e.dataTransfer.types.includes(PANE_DRAG_MIME)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDragOver(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent): void {
+    // Only clear if leaving the footer root (not a child element).
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setIsDragOver(false);
+  }
+
+  function handleDrop(e: React.DragEvent): void {
+    e.preventDefault();
+    setIsDragOver(false);
+    const raw = e.dataTransfer.getData(PANE_DRAG_MIME);
+    if (!raw) return;
+    let payload: PaneDragPayload;
+    try {
+      payload = JSON.parse(raw) as PaneDragPayload;
+    } catch {
+      return;
+    }
+    // Guard: don't inject context into the same pane that was dragged from.
+    if (payload.sessionId === session.id) return;
+    setIsLoadingContext(true);
+    void buildPaneContext(payload)
+      .then((ctx) => insertMention(session.id, ctx, session.status))
+      .finally(() => setIsLoadingContext(false));
+  }
+
   return (
-    <div className="flex h-5 items-center border-t border-border/60 bg-card/80 px-2 text-[10px] text-muted-foreground">
-      {session.status === 'running' && (
+    <div
+      className={[
+        'flex h-5 items-center border-t border-border/60 bg-card/80 px-2 text-[10px] text-muted-foreground transition-all',
+        isDragOver
+          ? 'ring-2 ring-inset ring-primary bg-primary/10'
+          : '',
+      ].join(' ').trim()}
+      data-testid="pane-footer"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isLoadingContext ? (
+        <span className="shrink-0 italic text-muted-foreground/70" data-testid="pane-footer-loading">
+          loading context&hellip;
+        </span>
+      ) : session.status === 'running' ? (
         <span className="shrink-0 text-muted-foreground/70" data-testid="pane-aliveness">
           {verb}&hellip; {formatElapsed(elapsedSeconds)}
         </span>
-      )}
+      ) : null}
       <span className="ml-auto shrink-0">
-        {bypass ? (
+        {isDragOver ? (
+          <span className="font-medium text-primary" data-testid="pane-footer-drop-hint">
+            drop to inject context
+          </span>
+        ) : bypass ? (
           <span className="font-medium text-amber-400">bypass permissions on</span>
         ) : (
           <span>
