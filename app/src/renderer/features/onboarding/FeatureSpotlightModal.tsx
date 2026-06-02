@@ -81,9 +81,14 @@ export function FeatureSpotlightModal() {
   const { state, dispatch } = useAppState();
   const { loaded, seen, markSeen } = useCoachmark(COACHMARK_KEY);
 
-  // Gate: onboarding finished (reducer state, not kv) AND the coachmark lookup
-  // resolved AND the user hasn't seen the spotlight yet.
-  const open = state.onboarded && loaded && !seen;
+  // Gate: boot settled (uiBoot) so we evaluate the REAL onboarded value, not the
+  // optimistic `onboarded:true` initial — review C1: without uiBoot a fresh-install
+  // boot race (the coachmark read landing before BOOT_UI) could open the spotlight
+  // over the OnboardingModal for a never-onboarded user. uiBoot flips inside BOOT_UI
+  // alongside the real onboarded, making the onboarding→spotlight ordering
+  // deterministic. Then: onboarding finished AND the coachmark lookup resolved AND
+  // the user hasn't seen the spotlight yet.
+  const open = state.uiBoot && state.onboarded && loaded && !seen;
 
   function dismiss(): void {
     markSeen();

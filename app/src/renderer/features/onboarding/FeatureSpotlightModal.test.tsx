@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 const dispatch = vi.fn();
-let mockState: { onboarded: boolean } = { onboarded: true };
+let mockState: { onboarded: boolean; uiBoot: boolean } = { onboarded: true, uiBoot: true };
 vi.mock('@/renderer/app/state', () => ({
   useAppState: () => ({ state: mockState, dispatch }),
 }));
@@ -36,13 +36,23 @@ describe('FeatureSpotlightModal — ONB-1', () => {
   beforeEach(() => {
     dispatch.mockClear();
     markSeen.mockClear();
-    mockState = { onboarded: true };
+    mockState = { onboarded: true, uiBoot: true };
     coachmark = { loaded: true, seen: false, markSeen };
   });
   afterEach(() => cleanup());
 
+  it('C1 — is hidden during boot (uiBoot false) even with the optimistic onboarded:true', () => {
+    // Fresh-install boot race: coachmark resolved (loaded, !seen) + the optimistic
+    // onboarded:true, but BOOT_UI hasn't settled → must stay closed so it can't
+    // open over the OnboardingModal for a never-onboarded user.
+    mockState = { onboarded: true, uiBoot: false };
+    render(<FeatureSpotlightModal />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    cleanup();
+  });
+
   it('is hidden until onboarding completes', () => {
-    mockState = { onboarded: false };
+    mockState = { onboarded: false, uiBoot: true };
     render(<FeatureSpotlightModal />);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
