@@ -307,7 +307,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'git.restoreCheckpoint': {
     input: z.object({
       sessionId: z.string().min(1).max(200),
-      sha: z.string().min(4).max(200),
+      sha: z.string().regex(/^[0-9a-f]{7,64}$/), // review NIT-3 — git oid only
     }),
     output: any,
   },
