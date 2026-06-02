@@ -7,8 +7,8 @@
 > **Shipped baseline:** SigmaLink v1.36.0 (+ on-main-untagged video+perf harness & FE-4 a11y `dbce7e6`);
 > SigmaVoice standalone v0.3.2 (own repo, macOS arm64 DMG).
 >
-> **✅ P1 SHIPPED 2026-05-31 (PR #70 · `37f94a0`, untagged → rides next release).** Reliability spine done.
-> **ACTIVE PHASE → P2 (Apple-grade motion & overlays; `MOT-1` first).** ARCH-1 (main-process tsconfig) still owed.
+> **✅ P1 SHIPPED (PR #70 `37f94a0`) · ✅ P2 SHIPPED (PR #72) · ✅ P3 SHIPPED (PR #73) — all untagged → ride the next release.**
+> **ACTIVE PHASE → P4 (Obsidian memory + agent-memory unification; `MEM-1` is the headline).** ARCH-1 (main-process tsconfig) still owed.
 >
 > **Phase goal (operator's 6-pillar vision):** **(a)** Apple-grade visuals · **(b)** responsive layouts ·
 > **(c)** smooth animations/popups · **(d)** polished notifications · **(e)** tasteful sound ·
@@ -27,9 +27,9 @@
 | Phase | Theme (pillar) | Ships as¹ | Headline items (priority order) | Why here |
 |------|----------------|-----------|----------------|----------|
 | ✅ **P1** | Reliability & correctness spine | ✅ **merged PR #70** (`37f94a0`) | **DONE** — BUG-1/2/3/4/5/6/7/8/13/14 · DB-1 · ERR-1 · ARCH-10 + commitAndMerge `--abort` fix. *(ARCH-1 split to its own follow-up — still owed.)* | Shipped 2026-05-31. |
-| ◀ **P2** | Apple-grade motion & overlays (a/c) — **ACTIVE** | `v1.38.0` | **MOT-1 (prereq)**, UX-1, UX-2, UX-3, UX-4, UX-7, ANIM-2, UX-5/6/8/9/10, PERF-13/MEM-10 | One motion language; kill native modals + the dark-pinned toaster; the most-used popover becomes Apple-grade. |
-| **P3** | Notifications + sound (d/e) | `v1.39.0` | NTF-1, NTF-2, NTF-3(UX-9), SND-1, ANIM-3 | Built on P2's springs. DND/quiet-hours/per-source + a real restrained sound system. |
-| **P4** | Obsidian memory + agent-memory unification (f) — **HEADLINE** | `v1.40.0` | **MEM-1**, MEM-2, MEM-4, MEM-3, MEM-6, MEM-5, MEM-7, DB-2, BUG-10/11/12, MEM-9/8, PERF-14 | The operator's headline vision + the biggest competitive gap (BridgeSpace leaves it bare). |
+| ✅ **P2** | Apple-grade motion & overlays (a/c) | ✅ **merged PR #72** | **DONE** — MOT-1, UX-1/2/3/4/5/6/7/8/9/10, ANIM-2, PERF-13/MEM-10 | Shipped. One motion language; native modals + dark-pinned toaster gone. |
+| ✅ **P3** | Notifications + sound (d/e) | ✅ **merged PR #73** | **DONE** — NTF-1, NTF-2, NTF-3(=UX-9), SND-1, ANIM-3 | Shipped. DND/quiet-hours/per-source + restrained soundscape + toast↔bell handoff + pane aliveness. |
+| ◀ **P4** | Obsidian memory + agent-memory unification (f) — **HEADLINE · ACTIVE** | `v1.40.0` | **MEM-1**, MEM-2, MEM-4, MEM-3, MEM-6, MEM-5, MEM-7, DB-2, BUG-10/11/12, MEM-9/8, PERF-14 | The operator's headline vision + the biggest competitive gap (BridgeSpace leaves it bare). |
 | **P5** | Responsiveness & performance (b) | `v1.41.0` | RSP-1, PERF-1, PERF-3, PERF-2/4/5/6/8, PERF-7/9/10/11/12 | Adopt the dead Resizable primitive; tame the hottest IPC + re-render paths under live load. |
 | **P6** | Competitive features & leapfrogs | `v1.42.0`+ | FEAT-1, FEAT-3, FEAT-7, FEAT-11, FEAT-13, FEAT-2/5/6/8/9/4/10/12/14, ONB-1 | Parity surfaces + worktree leapfrogs (agent rewind, merge-orchestration, git heatmap). |
 | **×** | Cross-cutting (every phase) | within each release | SEC-1, ARCH-2/3/4/5/6/7/8/9, RES-1 | Security re-gate + opportunistic decompositions when touching those files. |
@@ -44,7 +44,7 @@
 **Gate:** `tsc -b` clean · 2000 vitest pass · e2e 9/3-skip · Opus review (no critical/high; the one MEDIUM — launcher DB-status parity — folded). Detail → `CHANGELOG.md` [Unreleased] + master memory.
 **Still owed from P1 scope:** **ARCH-1** — `tsconfig.main.json` so `src/main` is type-checked as Node (split to its own follow-up; expected to surface a latent main-process type-error backlog).
 
-### ▶ P2 — Apple-grade motion & overlays (pillars a, c) · ships as `v1.38.0`
+### ▶ P2 — Apple-grade motion & overlays (pillars a, c) · ✅ SHIPPED (PR #72, untagged)
 **Goal:** one cohesive Apple motion language across every overlay, zero native OS modals, theme-correct transient surfaces.
 **Deliverables:** `MOT-1` motion tokens + `useSpringPresence` with all `components/ui/*` overlays migrated; a themed Toaster; a Radix-based notification dropdown; themed Prompt/Alert dialogs replacing all native calls.
 **Work (priority — MOT-1 FIRST):**
@@ -53,7 +53,8 @@
 - **ANIM-2** Orb `prefers-reduced-motion` (quick win). **UX-5** room-switch transitions. **UX-6** dnd drop animation. **UX-8** keyboard pane-resize. **UX-9** notification non-color severity cue. **UX-10** `focus-visible:` sweep. **PERF-13 + MEM-10** MemoryGraph RAF-settle + theme colors + reduced-motion.
 **Exit criteria:** no `window.prompt/confirm/alert` remain (grep clean); toasts track the active theme; every Radix overlay uses the spring tokens; `prefers-reduced-motion` honored app-wide incl. Orb + MemoryGraph.
 
-### ▶ P3 — Notifications + sound (pillars d, e) · ships as `v1.39.0`
+### ▶ P3 — Notifications + sound (pillars d, e) · ✅ SHIPPED (PR #73, untagged)
+**Delivered:** NTF-1 (DND/quiet-hours/per-source via shared `notification-prefs.ts` + `os-notify.ts` gating) · SND-1 (`lib/sounds.ts` 12-cue soundscape + volume + per-cue mute matrix + preview; `notifications.ts` → back-compat shim) · NTF-2 (collapsible per-source dropdown grouping + max-severity tone + themed toast↔bell handoff) · ANIM-3 (PaneFooter rotating-verb + elapsed aliveness). NTF-3 = P2's UX-9. **Deferred → WISHLIST:** optional daily-summary digest. Detail → `CHANGELOG.md` [Unreleased].
 **Goal:** a calm, controllable notification + sound experience — tasteful where it adds value, silent where it doesn't.
 **Deliverables:** DND/quiet-hours/per-source mute UI, a grouped/animated notification dropdown, and a `lib/sounds.ts` soundscape module with a volume + per-event mute matrix in NotificationsSettings. Built on P2 springs; backend (`manager.ts`) is already mature.
 **Work (priority order):**
