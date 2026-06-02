@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyFrontmatter,
+  isFrontmatterFlat,
   parseFrontmatter,
   recordToRows,
   rowsToRecord,
@@ -117,5 +118,21 @@ describe('grid helpers', () => {
 
   it('rowsToRecord returns null when nothing usable', () => {
     expect(rowsToRecord([{ key: '', value: 'x' }])).toBeNull();
+  });
+
+  // H1 (review) — the grid must only edit faithfully-flat frontmatter; rich
+  // YAML (lists, block scalars, nested maps) is gated read-only to prevent loss.
+  describe('isFrontmatterFlat (H1 data-loss guard)', () => {
+    it('true for no frontmatter / flat key:value blocks', () => {
+      expect(isFrontmatterFlat('just a body, no frontmatter')).toBe(true);
+      expect(isFrontmatterFlat('---\ntitle: Hi\ntags: [a, b]\n---\nbody')).toBe(true);
+      expect(isFrontmatterFlat('---\n# a comment\nkey: val\n---\n')).toBe(true);
+    });
+    it('false for block scalars, list items, and nested maps', () => {
+      expect(isFrontmatterFlat('---\ndesc: |\n  multi\n  line\n---\n')).toBe(false);
+      expect(isFrontmatterFlat('---\nauthors:\n  - alice\n  - bob\n---\n')).toBe(false);
+      expect(isFrontmatterFlat('---\nnested:\n  key: val\n---\n')).toBe(false);
+      expect(isFrontmatterFlat('---\n- top-level-item\n---\n')).toBe(false);
+    });
   });
 });
