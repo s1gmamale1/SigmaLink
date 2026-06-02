@@ -49,11 +49,16 @@ test('sync IPC channels are reachable — no "IPC channel not allowed" on Settin
       try {
         // @ts-expect-error sigma is injected by preload
         await window.sigma.invoke('kv.set', 'app.onboarded', '1');
+        await window.sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
       } catch {
         // non-fatal — onboarding modal may already be dismissed
       }
     })
     .catch(() => undefined);
+  // ONB-1 — close the feature-spotlight Dialog if it opened this session (its
+  // overlay would intercept the Settings → Sync tab click below). Escape →
+  // onOpenChange → markSeen.
+  await win.keyboard.press('Escape').catch(() => undefined);
   await win.waitForTimeout(500);
 
   // Navigate to Settings via the test-event API used by the dogfood suite.

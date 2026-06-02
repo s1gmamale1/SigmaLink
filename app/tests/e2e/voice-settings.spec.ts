@@ -26,6 +26,7 @@ async function dismissOnboarding(win: Page): Promise<void> {
       try {
         // @ts-expect-error sigma is exposed by the preload bridge
         await window.sigma.invoke('kv.set', 'app.onboarded', '1');
+        await window.sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
       } catch {
         /* swallow */
       }

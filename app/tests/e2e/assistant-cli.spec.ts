@@ -82,6 +82,7 @@ test('Sigma Assistant streams a real Claude CLI reply', async () => {
         sigma: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> };
       }).sigma;
       await sigma.invoke('kv.set', 'app.onboarded', '1');
+      await sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
       await sigma.invoke('workspaces.open', root);
       window.dispatchEvent(new CustomEvent('sigma:test:activate-workspace', { detail: { rootPath: root } }));
     }, repoRoot);

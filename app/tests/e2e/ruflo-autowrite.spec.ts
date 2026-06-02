@@ -90,6 +90,7 @@ test('opening a workspace writes a Ruflo MCP entry', async () => {
     await win.evaluate(async (root) => {
       const sigma = (window as SigmaWindow).sigma;
       await sigma.invoke('kv.set', 'app.onboarded', '1');
+      await sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
       await sigma.invoke('workspaces.open', root);
     }, workspaceRoot);
 
