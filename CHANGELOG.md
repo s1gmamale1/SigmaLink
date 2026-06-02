@@ -4,6 +4,17 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added — ROADMAP P6 competitive features & leapfrogs (rounds 1–2; PRs #81 + #82, untagged)
+
+Phase 6 (the final phase; per the ROADMAP it spans several releases). **Both NAMED exit-criteria leapfrogs are met.**
+
+- **FEAT-7 — per-agent visual identity:** deterministic `agentColor`/`agentShortId` accent + short-id badge in `PaneHeader` + `RoleRoster` (two same-provider panes are now visually distinct; FNV-1a fixes a latent djb2-UUID-overflow).
+- **FEAT-1 — resume-agents modal (additive):** a "Resume agents…" command opens a modal to selectively relaunch a workspace's persisted panes (`panes.resumeSelected` subset RPC, workspace-scoped + input-hardened); the boot auto-resume path is unchanged.
+- **FEAT-11 — agent rewind (leapfrog):** per-pane worktree git checkpoints (`session_checkpoints` table + `git.createCheckpoint/listCheckpoints/restoreCheckpoint`); a `PaneHeader` "Rewind…" → AlertDialog-confirmed `git reset --hard` to a prior checkpoint, made safe via sha-format + ancestry + DB-ownership validation + a pre-rewind safety checkpoint. **Exit criterion met:** rewind reliably restores a worktree to a checkpoint.
+- **FEAT-13 — merge-orchestration:** exit criterion ALREADY met by the existing `OrchestratorPanel` (conflict-aware `proposeMergeOrder` → `batchCommitAndMerge`, base restored on conflict via the P1 BUG-14 `git merge --abort`). Badge/Review-Room polish → WISHLIST.
+
+Gate (both rounds): `tsc -b` · `vitest` 2301 pass / 1 skip · `eslint .` · build + electron:compile · full e2e 9 pass / 3 skip · migration guard. *P6 long-tail → WISHLIST (multi-release):* FEAT-3 (usage/cost — needs a data layer), FEAT-8 (git heatmap), FEAT-2/5/6/9/4/10/12/14, ONB-1, auto-checkpoint-on-dispatch, ARCH-1.
+
 ### Changed — ROADMAP P5 responsiveness & performance (PRs #78 + #79, untagged)
 
 Phase 5 — smoother under live multi-agent load + resizable, layout-remembering surfaces. Two rounds (perf internals; RSP-1 responsive layout), each gated + Opus-reviewed.
