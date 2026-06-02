@@ -1448,16 +1448,19 @@ function buildRouter() {
         totalBytes: number;
       } = { worktrees: [], totalBytes: 0 };
       if (!fs.existsSync(worktreesDir)) return result;
-      const repoHashes = fs.readdirSync(worktreesDir);
+      // PERF-8 — the directory walk runs on the main thread; use the async
+      // fs.promises variants so the readdir/lstat syscalls don't block the
+      // event loop before the (already-async) `dirSize` recursion.
+      const repoHashes = await fs.promises.readdir(worktreesDir);
       for (const repoHash of repoHashes) {
         const repoDir = path.join(worktreesDir, repoHash);
         // H-16 — lstat (no-follow): a symlink here is skipped rather than
         // traversed off-tree, consistent with the hardened dirSize.
-        if (!fs.lstatSync(repoDir).isDirectory()) continue;
-        const branchSegs = fs.readdirSync(repoDir);
+        if (!(await fs.promises.lstat(repoDir)).isDirectory()) continue;
+        const branchSegs = await fs.promises.readdir(repoDir);
         for (const branchSeg of branchSegs) {
           const wtPath = path.join(repoDir, branchSeg);
-          if (!fs.lstatSync(wtPath).isDirectory()) continue;
+          if (!(await fs.promises.lstat(wtPath)).isDirectory()) continue;
           const sizeBytes = await dirSize(wtPath);
           result.worktrees.push({ path: wtPath, sizeBytes, repoHash, branchSeg });
           result.totalBytes += sizeBytes;

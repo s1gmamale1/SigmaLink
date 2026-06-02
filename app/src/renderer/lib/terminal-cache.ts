@@ -47,6 +47,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { rpc } from '@/renderer/lib/rpc';
 import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
+import { subscribeExit } from '@/renderer/lib/pty-exit-bus';
 
 /** Maximum number of cached xterm instances before LRU eviction. */
 export const TERMINAL_CACHE_LIMIT = 32;
@@ -193,15 +194,6 @@ function buildTerminalOptions(ctx: TerminalCacheContext): ITerminalOptions {
   };
 }
 
-function isPtyExitPayload(p: unknown): p is { sessionId: string; exitCode: number } {
-  return (
-    !!p &&
-    typeof p === 'object' &&
-    'sessionId' in p &&
-    typeof (p as { sessionId: unknown }).sessionId === 'string'
-  );
-}
-
 function evictOldestIfFull(): void {
   if (cache.size < TERMINAL_CACHE_LIMIT) return;
   // Prefer evicting entries whose PTY has already exited (they're effectively
@@ -288,15 +280,19 @@ export function getOrCreateTerminal(
   // written into the scrollback exactly once, regardless of whether the
   // terminal is currently mounted. On exit we ALSO flag `ptyExited` so
   // mounted ResizeObservers stop forwarding `pty.resize` IPC.
-  const offExit = window.sigma.eventOn('pty:exit', (raw: unknown) => {
-    if (!isPtyExitPayload(raw)) return;
-    if (raw.sessionId !== sessionId) return;
+  //
+  // PERF-9 — subscribe via the shared exit bus instead of registering a raw
+  // per-session `eventOn('pty:exit')`. The bus runs ONE global listener and
+  // fans out by sessionId, so we no longer install up to 32 listeners that
+  // each re-validate + filter every exit. The payload is already sessionId-
+  // matched + exitCode-normalised by the bus; the `entry.ptyExited` double-
+  // write guard and the scrollback write are preserved verbatim.
+  const offExit = subscribeExit(sessionId, (payload) => {
     const entry = cache.get(sessionId);
     if (!entry) return;
     if (entry.ptyExited) return;
     entry.ptyExited = true;
-    const code = typeof raw.exitCode === 'number' ? raw.exitCode : -1;
-    term.write(`\r\n\x1b[2;90m[session exited code=${code}]\x1b[0m\r\n`);
+    term.write(`\r\n\x1b[2;90m[session exited code=${payload.exitCode}]\x1b[0m\r\n`);
   });
 
   const entry: CacheEntry = {

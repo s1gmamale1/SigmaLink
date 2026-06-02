@@ -212,9 +212,11 @@ export function PaneHeader({
       />
       {/* Density-aware height — comfortable/compact stay h-7; the dense tier
           (10+ panes) shrinks the strip to h-6 to claw back vertical chrome.
-          The arbitrary variant reads `data-density='dense'` off the GridLayout
-          cell ancestor so no new prop has to thread through PaneShell. */}
-      <div className="sl-glass-toolbar flex h-7 items-center gap-2 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))] [[data-density=dense]_&]:h-6">
+          The arbitrary variant reads `data-grid-density='dense'` off the
+          GridLayout cell ancestor so no new prop has to thread through
+          PaneShell. (P5.2: renamed from `data-density` so it doesn't collide
+          with the new user-controlled global density on <html>.) */}
+      <div className="sl-glass-toolbar flex h-7 items-center gap-2 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))] [[data-grid-density=dense]_&]:h-6">
         {/* FEAT-12 — visible drag-grip. Only this element initiates the context
             drag, so accidental header clicks no longer spawn a drag operation.
             The coachmark tooltip appears on first hover until KV flag is set. */}

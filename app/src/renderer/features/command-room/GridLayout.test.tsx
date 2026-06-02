@@ -285,37 +285,40 @@ describe('GridLayout — v1.4.2 packet-07 rAF coalescing on divider drag', () =>
 
 // B3 — grid density tiers (C-3)
 describe('GridLayout — B3 density tiers', () => {
-  it('sets data-density by pane count', () => {
+  it('sets data-grid-density by pane count', () => {
+    // P5.2 — attribute renamed `data-density` → `data-grid-density` so the new
+    // user-controlled global density (<html data-density>) doesn't collide.
     const c3 = renderGrid(3);
-    expect(c3.querySelector('[data-density]')?.getAttribute('data-density')).toBe('comfortable');
+    expect(c3.querySelector('[data-grid-density]')?.getAttribute('data-grid-density')).toBe('comfortable');
     cleanup();
 
     const c6 = renderGrid(6);
-    expect(c6.querySelector('[data-density]')?.getAttribute('data-density')).toBe('compact');
+    expect(c6.querySelector('[data-grid-density]')?.getAttribute('data-grid-density')).toBe('compact');
     cleanup();
 
     const c12 = renderGrid(12);
-    expect(c12.querySelector('[data-density]')?.getAttribute('data-density')).toBe('dense');
+    expect(c12.querySelector('[data-grid-density]')?.getAttribute('data-grid-density')).toBe('dense');
   });
 
   // Stage 2 / Lane P — P3 drives the grid gap + outer padding off the density
   // tier (not just the font scale). comfortable gap-2 p-2 / compact gap-1.5
   // p-1.5 / dense gap-1 p-1.
   it('drives gap + padding classes off the density tier', () => {
+    // P5.2 — `data-density` → `data-grid-density` (DOM dataset key gridDensity).
     const c3 = (renderGrid(3).firstChild as HTMLElement);
-    expect(c3.dataset.density).toBe('comfortable');
+    expect(c3.dataset.gridDensity).toBe('comfortable');
     expect(c3.className).toMatch(/\bgap-2\b/);
     expect(c3.className).toMatch(/\bp-2\b/);
     cleanup();
 
     const c6 = (renderGrid(6).firstChild as HTMLElement);
-    expect(c6.dataset.density).toBe('compact');
+    expect(c6.dataset.gridDensity).toBe('compact');
     expect(c6.className).toMatch(/\bgap-1\.5\b/);
     expect(c6.className).toMatch(/\bp-1\.5\b/);
     cleanup();
 
     const c12 = (renderGrid(12).firstChild as HTMLElement);
-    expect(c12.dataset.density).toBe('dense');
+    expect(c12.dataset.gridDensity).toBe('dense');
     expect(c12.className).toMatch(/\bgap-1\b/);
     expect(c12.className).toMatch(/\bp-1\b/);
   });

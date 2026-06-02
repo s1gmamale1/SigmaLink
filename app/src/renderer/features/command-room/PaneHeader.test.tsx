@@ -534,7 +534,8 @@ describe('PaneHeader', () => {
     // Comfortable/compact baseline stays h-7; the dense ancestor variant
     // shrinks it to h-6 without a new prop.
     expect(strip.className).toMatch(/\bh-7\b/);
-    expect(strip.className).toMatch(/\[\[data-density=dense\]_&\]:h-6/);
+    // P5.2 — attribute renamed `data-density` → `data-grid-density`.
+    expect(strip.className).toMatch(/\[\[data-grid-density=dense\]_&\]:h-6/);
   });
 
   describe('Brief popover (C-5)', () => {

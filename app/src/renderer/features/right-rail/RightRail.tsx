@@ -194,6 +194,7 @@ export function RightRail({ children }: Props) {
         className="sl-glass relative flex min-h-0 shrink-0 flex-col border-l border-border bg-background"
         style={{ width }}
         aria-label="Right rail"
+        data-testid="right-rail"
       >
         <RightRailTabs
           active={activeTab}

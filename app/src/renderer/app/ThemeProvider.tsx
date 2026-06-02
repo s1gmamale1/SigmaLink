@@ -5,11 +5,23 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
-import { applyTheme, DEFAULT_THEME, isThemeId, KV_KEYS, type ThemeId } from '@/renderer/lib/themes';
+import {
+  applyDensity,
+  applyTheme,
+  DEFAULT_DENSITY,
+  DEFAULT_THEME,
+  isDensityId,
+  isThemeId,
+  KV_KEYS,
+  type DensityId,
+  type ThemeId,
+} from '@/renderer/lib/themes';
 
 interface ThemeContextValue {
   theme: ThemeId;
   setTheme: (next: ThemeId) => void;
+  density: DensityId;
+  setDensity: (next: DensityId) => void;
   ready: boolean;
 }
 
@@ -17,11 +29,13 @@ const Ctx = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeId>(DEFAULT_THEME);
+  const [density, setDensityState] = useState<DensityId>(DEFAULT_DENSITY);
   const [ready, setReady] = useState(false);
 
-  // Apply default immediately so first paint is themed.
+  // Apply defaults immediately so first paint is themed + at the default density.
   useEffect(() => {
     applyTheme(DEFAULT_THEME);
+    applyDensity(DEFAULT_DENSITY);
   }, []);
 
   // Hydrate from kv.
@@ -29,18 +43,29 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     let alive = true;
     void (async () => {
       try {
-        const stored = await rpc.kv.get(KV_KEYS.theme);
+        const [storedTheme, storedDensity] = await Promise.all([
+          rpc.kv.get(KV_KEYS.theme),
+          rpc.kv.get(KV_KEYS.density).catch(() => null),
+        ]);
         if (!alive) return;
         // BUG-W7-003: validate the stored value. If it's missing OR not in the
         // canonical theme set, fall back to obsidian and write the corrected
         // value back to kv so the next boot is clean.
-        if (isThemeId(stored)) {
-          setThemeState(stored);
-          applyTheme(stored);
+        if (isThemeId(storedTheme)) {
+          setThemeState(storedTheme);
+          applyTheme(storedTheme);
         } else {
           setThemeState(DEFAULT_THEME);
           applyTheme(DEFAULT_THEME);
           void rpc.kv.set(KV_KEYS.theme, DEFAULT_THEME).catch(() => undefined);
+        }
+        // P5.2 — same validate-or-fall-back contract for the global density.
+        if (isDensityId(storedDensity)) {
+          setDensityState(storedDensity);
+          applyDensity(storedDensity);
+        } else {
+          setDensityState(DEFAULT_DENSITY);
+          applyDensity(DEFAULT_DENSITY);
         }
       } catch {
         // kv may be unavailable during very early app boot; non-fatal.
@@ -77,7 +102,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     void rpc.kv.set(KV_KEYS.theme, next).catch(() => undefined);
   };
 
-  return <Ctx.Provider value={{ theme, setTheme, ready }}>{children}</Ctx.Provider>;
+  const setDensity = (next: DensityId) => {
+    setDensityState(next);
+    applyDensity(next);
+    void rpc.kv.set(KV_KEYS.density, next).catch(() => undefined);
+  };
+
+  return (
+    <Ctx.Provider value={{ theme, setTheme, density, setDensity, ready }}>{children}</Ctx.Provider>
+  );
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

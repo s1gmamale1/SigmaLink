@@ -173,6 +173,11 @@ beforeEach(async () => {
   sigma = installSigmaStub();
   const busMod = await import('./pty-data-bus');
   busMod.__resetPtyDataBus();
+  // PERF-9 — the cache now subscribes to `pty:exit` through the shared exit
+  // bus (one global listener). Reset its singleton too so each test starts
+  // from a clean fan-out table.
+  const exitBusMod = await import('./pty-exit-bus');
+  exitBusMod.__resetPtyExitBus();
   const cacheMod = await import('./terminal-cache');
   cacheMod.__resetTerminalCache();
 });

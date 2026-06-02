@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DISK_SCAN_PROVIDERS,
@@ -334,6 +334,49 @@ describe('listSessionsInCwd — Claude', () => {
     }
     const sessions = await listSessionsInCwd('claude', cwd, { homeDir: tmpHome, maxCount: 3 });
     expect(sessions).toHaveLength(3);
+  });
+
+  // PERF-12 — bounded JSONL head read. A session file can grow to many MB;
+  // the preview scanner must read only the first chunk (MAX_PREVIEW_SCAN_BYTES
+  // = 32 KiB) via openSync/readSync, NOT slurp the whole file with
+  // fs.readFileSync. The first user turn lands near the top (line 2, within the
+  // cap), so the preview is still found despite the unbounded file size.
+  it('finds the preview without a full readFileSync on a >1MB session file', async () => {
+    const cwd = '/home/dev/huge';
+    const slug = cwd.replace(/\//g, '-');
+    const uuid = makeUuid('ee005555');
+    const filePath = path.join(tmpHome, '.claude', 'projects', slug, `${uuid}.jsonl`);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+    // Line 1: a large (~20 KiB, under the 32 KiB cap) system block.
+    // Line 2: the first user message — must be reachable by the bounded reader.
+    // Line 3+: a >1 MiB trailing blob that makes the whole file multi-MB so a
+    //          full readFileSync would be the expensive path we're avoiding.
+    const bigSystem = JSON.stringify({ type: 'system', blob: 'x'.repeat(20_000) });
+    const userMsg = JSON.stringify({ type: 'user', message: 'find me near the top' });
+    const trailing = JSON.stringify({ type: 'assistant', text: 'z'.repeat(1_200_000) });
+    fs.writeFileSync(filePath, `${bigSystem}\n${userMsg}\n${trailing}\n`);
+    expect(fs.statSync(filePath).size).toBeGreaterThan(1_000_000);
+    const t = new Date(1_700_000_000_000);
+    fs.utimesSync(filePath, t, t);
+
+    // Spy on the synchronous full-file read. If the scanner regresses to
+    // fs.readFileSync(filePath, ...) this fires; the bounded reader uses
+    // openSync/readSync instead.
+    const readFileSyncSpy = vi.spyOn(fs, 'readFileSync');
+
+    const sessions = await listSessionsInCwd('claude', cwd, { homeDir: tmpHome });
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].firstMessagePreview).toBe('find me near the top');
+
+    // The huge session file must NOT have been slurped whole.
+    const slurpedHuge = readFileSyncSpy.mock.calls.some(
+      (call) => call[0] === filePath,
+    );
+    expect(slurpedHuge).toBe(false);
+
+    readFileSyncSpy.mockRestore();
   });
 });
 

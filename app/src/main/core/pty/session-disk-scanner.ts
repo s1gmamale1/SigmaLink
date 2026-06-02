@@ -41,6 +41,11 @@ const MAX_RECURSION_DEPTH = 6;
  *  cache cannot starve the event loop. */
 const MAX_ENTRIES_PER_DIR = 500;
 
+/** PERF-12 — only the first 32 KiB of a session file is scanned for the
+ *  preview (first user turn). Session JSONL files grow unbounded; the full
+ *  read blocked the main thread on multi-MB transcripts. */
+const MAX_PREVIEW_SCAN_BYTES = 32 * 1024;
+
 export interface DiskScanOptions {
   /** Override the home dir (tests inject a tmpdir). */
   homeDir?: string;
@@ -331,6 +336,35 @@ function readFirstLine(filePath: string): string {
   }
 }
 
+/**
+ * PERF-12 — bounded JSONL head read. Session files grow unbounded (multi-MB)
+ * yet the preview scanners only need the first user turn, which lands near the
+ * top. Reading the whole file with `fs.readFileSync` blocks the main thread for
+ * up to ~50 files per `listSessionsInCwd` pass; instead read only the first
+ * `maxBytes` and split into lines.
+ *
+ * The trailing line is dropped because it may have been cut mid-record by the
+ * byte cap — the callers JSON.parse each line inside a try/catch and break on
+ * the first user message (near line 1-2), so a missing tail just degrades the
+ * preview gracefully (mtime/createdAt fallbacks already cover the rest).
+ */
+function readHeadLines(filePath: string, maxBytes: number): string[] {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(maxBytes);
+    const n = fs.readSync(fd, buf, 0, maxBytes, 0);
+    fs.closeSync(fd);
+    const lines = buf.slice(0, n).toString('utf8').split('\n');
+    // Drop the trailing (possibly truncated) partial line — but only when we
+    // actually hit the cap. If the whole file fit in `maxBytes` the last line
+    // is complete and must be kept.
+    if (n >= maxBytes && lines.length > 1) lines.pop();
+    return lines;
+  } catch {
+    return [];
+  }
+}
+
 /** Truncate a string to maxLen characters. */
 function trunc(s: string, maxLen = 80): string {
   return s.length <= maxLen ? s : `${s.slice(0, maxLen - 1)}…`;
@@ -383,7 +417,7 @@ function listClaudeSessions(
     }
     // Scan lines for first user message
     try {
-      const lines = fs.readFileSync(filePath, 'utf8').split('\n');
+      const lines = readHeadLines(filePath, MAX_PREVIEW_SCAN_BYTES);
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -689,7 +723,7 @@ async function listGeminiSessions(
     // Try to extract first user message from the JSONL.
     let firstMessagePreview: string | undefined;
     try {
-      const lines = fs.readFileSync(filePath, 'utf8').split('\n');
+      const lines = readHeadLines(filePath, MAX_PREVIEW_SCAN_BYTES);
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
