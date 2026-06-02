@@ -21,7 +21,16 @@ import {
 } from './core/pty/session-disk-scanner';
 import { resumeWorkspacePanes, respawnFailedWorkspacePanes } from './core/pty/resume-launcher';
 import { probeAllProviders, probeProviderById } from './core/providers/probe';
-import { commitAndMerge, gitDiff, gitStatus, runShellLine, worktreeRemove } from './core/git/git-ops';
+import {
+  commitAndMerge,
+  createCheckpoint,
+  gitDiff,
+  gitStatus,
+  restoreCheckpoint,
+  runShellLine,
+  worktreeRemove,
+} from './core/git/git-ops';
+import { buildGitCheckpointController } from './core/git/checkpoint-controller';
 import { WorktreePool } from './core/git/worktree';
 import { listWorkspaces, openWorkspace, removeWorkspace } from './core/workspaces/factory';
 import { cleanupOrphanWorktrees } from './core/workspaces/worktree-cleanup';
@@ -1261,6 +1270,17 @@ function buildRouter() {
     },
   });
 
+  // P6 FEAT-11 — agent undo/rewind checkpoint methods. The logic lives in a
+  // dependency-injected factory (core/git/checkpoint-controller.ts) so it is
+  // unit-testable without booting the whole router; here we build it with the
+  // live deps and spread the methods into gitCtl below.
+  const checkpointCtl = buildGitCheckpointController({
+    getDb,
+    createCheckpoint,
+    restoreCheckpoint,
+    onChanged: (sessionId) => broadcast('git:checkpoints-changed', { sessionId }),
+  });
+
   const gitCtl = defineController({
     status: async (cwd: string) => gitStatus(cwd),
     diff: async (cwd: string) => gitDiff(cwd),
@@ -1292,6 +1312,13 @@ function buildRouter() {
       if (!root) return;
       await worktreeRemove(root, worktreePath);
     },
+
+    // ── P6 FEAT-11 — agent undo/rewind via worktree git checkpoints ──────
+    // Delegated to the dependency-injected factory above; the renderer NEVER
+    // passes a filesystem path — these resolve the worktree server-side.
+    createCheckpoint: checkpointCtl.createCheckpoint,
+    listCheckpoints: checkpointCtl.listCheckpoints,
+    restoreCheckpoint: checkpointCtl.restoreCheckpoint,
   });
 
   const fsCtl = defineController({

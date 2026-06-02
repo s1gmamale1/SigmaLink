@@ -290,6 +290,27 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   },
   // H-8 — handler is `worktreeRemove(worktreePath: string)`; first arg is the path.
   'git.worktreeRemove': { input: PATH_STR, output: any },
+  // P6 FEAT-11 — agent undo/rewind. The renderer passes a sessionId (NOT a
+  // path); the controller resolves the worktree server-side. `sha` is a git
+  // object id — bound to a generous max so a malformed payload can't smuggle an
+  // unbounded string into git. The controller additionally validates that the
+  // sha is one of THIS session's checkpoints AND an ancestor of HEAD.
+  'git.createCheckpoint': {
+    input: z.object({
+      sessionId: z.string().min(1).max(200),
+      label: z.string().max(512).optional(),
+    }),
+    output: any,
+  },
+  // handler is `listCheckpoints(sessionId: string)`; first arg is the id.
+  'git.listCheckpoints': { input: z.string().min(1).max(200), output: any },
+  'git.restoreCheckpoint': {
+    input: z.object({
+      sessionId: z.string().min(1).max(200),
+      sha: z.string().min(4).max(200),
+    }),
+    output: any,
+  },
   // ── fs ───────────────────────────────────────────────────────────────
   // H-8 — handler is `exists(p: string)`; first arg is the bare path string
   // (NOT an object — verified against the fsCtl.exists signature).

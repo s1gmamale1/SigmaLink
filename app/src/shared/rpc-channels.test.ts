@@ -114,6 +114,9 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'git.runCommand',
   'git.commitAndMerge',
   'git.worktreeRemove',
+  'git.createCheckpoint',   // P6 FEAT-11 — agent undo/rewind
+  'git.listCheckpoints',    // P6 FEAT-11 — agent undo/rewind
+  'git.restoreCheckpoint',  // P6 FEAT-11 — agent undo/rewind
   // fs (fsCtl)
   'fs.exists',
   'fs.readDir',

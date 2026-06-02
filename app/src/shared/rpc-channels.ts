@@ -81,6 +81,10 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'git.runCommand',
   'git.commitAndMerge',
   'git.worktreeRemove',
+  // P6 FEAT-11 — agent undo/rewind via worktree git checkpoints
+  'git.createCheckpoint',
+  'git.listCheckpoints',
+  'git.restoreCheckpoint',
   // fs
   'fs.exists',
   // V3-W14-007 — Editor tab file tree + Monaco source loader.
@@ -358,6 +362,9 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'skills:install-progress',
   'skills:workspace-verified',
   'review:changed',
+  // P6 FEAT-11 — emitted after a checkpoint is created or restored so the
+  // rewind panel can refresh its list. Payload: { sessionId }.
+  'git:checkpoints-changed',
   'review:run-output',
   'tasks:changed',
   // V3-W12-017 — Operator Console + Bridge + Design + Voice events

@@ -410,6 +410,32 @@ export type TaskCommentInsert = typeof taskComments.$inferInsert;
 export type SessionReviewRow = typeof sessionReview.$inferSelect;
 export type SessionReviewInsert = typeof sessionReview.$inferInsert;
 
+// P6 FEAT-11 — agent undo/rewind. One row per checkpoint: a git commit on a
+// pane's own worktree branch that captures a savepoint of the WIP. `kind` is
+// 'manual' (operator pressed "Create checkpoint") or 'auto' (the pre-rewind
+// safety snapshot written by `restoreCheckpoint` before its destructive
+// `git reset --hard`). Migration 0028 owns the DDL; this Drizzle table mirrors
+// it so the gitCtl checkpoint methods stay end-to-end typed.
+export const sessionCheckpoints = sqliteTable(
+  'session_checkpoints',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    sha: text('sha').notNull(),
+    label: text('label'),
+    kind: text('kind', { enum: ['auto', 'manual'] }).notNull(),
+    createdAt: integer('created_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    sessionCheckpointsSessionIdx: index('session_checkpoints_session_idx').on(t.sessionId),
+  }),
+);
+
+export type SessionCheckpointRow = typeof sessionCheckpoints.$inferSelect;
+export type SessionCheckpointInsert = typeof sessionCheckpoints.$inferInsert;
+
 // Phase — V3-W13-008 — per-agent board namespace.
 // Mirrors the on-disk markdown file at
 //   <userData>/swarms/<swarmId>/boards/<agentId>/<postId>.md

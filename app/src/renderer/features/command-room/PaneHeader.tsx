@@ -17,6 +17,7 @@ import {
   ClipboardList,
   Columns2,
   GitBranch,
+  History,
   Maximize2,
   Minimize2,
   Rows2,
@@ -26,6 +27,7 @@ import {
 import { useState } from 'react';
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
@@ -51,6 +53,7 @@ import type { AgentSession } from '@/shared/types';
 import { agentColor, agentShortId } from '@/renderer/lib/workspace-color';
 import { useRufloDaemonHealth } from './useRufloDaemonHealth';
 import type { RufloDaemonState } from './useRufloDaemonHealth';
+import { CheckpointPanel } from './CheckpointPanel';
 
 // SF-7 — colour mapping for the Ruflo daemon health dot (FE-4 a11y standard).
 function rufloHealthDotClass(state: RufloDaemonState): string {
@@ -147,6 +150,13 @@ export function PaneHeader({
   // turn overrides the real `session.providerId`. Cosmetic only — model/effort
   // + drag payload below keep using the REAL providerId.
   const [displayOverride, setDisplayOverride] = useState<string | null | undefined>(undefined);
+  // P6 FEAT-11 — controlled rewind popover. Opened from the "Rewind…" item in
+  // the provider-label dropdown. Only offered for running/exited panes that
+  // have a worktree (a checkpoint == a commit on the worktree branch).
+  const [rewindOpen, setRewindOpen] = useState(false);
+  const canRewind =
+    Boolean(session.worktreePath) &&
+    (session.status === 'running' || session.status === 'exited');
   const effectiveProviderId =
     displayOverride !== undefined
       ? (displayOverride ?? session.providerId)
@@ -262,57 +272,85 @@ export function PaneHeader({
         {/* SF-10 — the provider label is a relabel dropdown (click to tag this
             pane with the CLI running in it). Keeps its hover tooltip via Radix
             asChild composition (Tooltip + DropdownMenu triggers on one span). */}
-        <DropdownMenu>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <span
-                    data-testid="pane-provider-label"
-                    role="button"
-                    tabIndex={0}
-                    title="Click to set this pane's CLI label"
-                    className="max-w-[80px] cursor-pointer truncate font-medium uppercase tracking-wider"
-                    style={{ color: providerColor }}
-                    aria-label={`${providerShort}·${paneIndex}`}
-                  >
-                    {providerShort}·{paneIndex}
-                  </span>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" align="start" className="font-mono text-[10px]">
-                <div className="space-y-0.5">
-                  <div>branch: {branch}</div>
-                  <div>model: {modelLabel}</div>
-                  <div>effort: {effortLabel}</div>
-                  <div>cwd: {session.cwd}</div>
-                  {isRelabelled ? <div className="text-amber-500">label: {providerName} (real: {realProviderName})</div> : null}
-                  {session.worktreePath ? (
-                    <div className="truncate text-[9px] text-muted-foreground" title={session.worktreePath}>
-                      worktree: {session.worktreePath}
-                    </div>
-                  ) : null}
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <DropdownMenuContent align="start">
-            <DropdownMenuLabel className="text-[10px]">Label this pane as…</DropdownMenuLabel>
-            {(providers ?? []).map((p) => (
-              <DropdownMenuItem key={p.id} onClick={() => relabel(p.id)}>
-                {p.name}
-              </DropdownMenuItem>
-            ))}
-            {isRelabelled ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => relabel(null)}>
-                  Reset to {realProviderName}
+        {/* P6 FEAT-11 — the rewind popover anchors to the same provider-label
+            span as the relabel dropdown. The Popover is controlled (open via
+            the "Rewind…" dropdown item) so it can open AFTER the dropdown closes
+            on item-select. */}
+        <Popover open={rewindOpen} onOpenChange={setRewindOpen}>
+          <DropdownMenu>
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <PopoverAnchor asChild>
+                      <span
+                        data-testid="pane-provider-label"
+                        role="button"
+                        tabIndex={0}
+                        title="Click to set this pane's CLI label"
+                        className="max-w-[80px] cursor-pointer truncate font-medium uppercase tracking-wider"
+                        style={{ color: providerColor }}
+                        aria-label={`${providerShort}·${paneIndex}`}
+                      >
+                        {providerShort}·{paneIndex}
+                      </span>
+                    </PopoverAnchor>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="start" className="font-mono text-[10px]">
+                  <div className="space-y-0.5">
+                    <div>branch: {branch}</div>
+                    <div>model: {modelLabel}</div>
+                    <div>effort: {effortLabel}</div>
+                    <div>cwd: {session.cwd}</div>
+                    {isRelabelled ? <div className="text-amber-500">label: {providerName} (real: {realProviderName})</div> : null}
+                    {session.worktreePath ? (
+                      <div className="truncate text-[9px] text-muted-foreground" title={session.worktreePath}>
+                        worktree: {session.worktreePath}
+                      </div>
+                    ) : null}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel className="text-[10px]">Label this pane as…</DropdownMenuLabel>
+              {(providers ?? []).map((p) => (
+                <DropdownMenuItem key={p.id} onClick={() => relabel(p.id)}>
+                  {p.name}
                 </DropdownMenuItem>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              ))}
+              {isRelabelled ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => relabel(null)}>
+                    Reset to {realProviderName}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+              {canRewind ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    data-testid="pane-rewind-item"
+                    onSelect={(e) => {
+                      // Defer opening the popover until the dropdown has closed
+                      // so Radix doesn't fight over focus/portals.
+                      e.preventDefault();
+                      setRewindOpen(true);
+                    }}
+                  >
+                    <History className="mr-2 h-3.5 w-3.5" aria-hidden />
+                    Rewind…
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <PopoverContent side="bottom" align="start" className="w-80 p-3">
+            <CheckpointPanel sessionId={session.id} />
+          </PopoverContent>
+        </Popover>
         {/* C-1 UI — inline branch · model · uncommitted badge */}
         <span className="flex items-center gap-1 truncate text-muted-foreground">
           <GitBranch className="h-3 w-3 shrink-0" aria-hidden />

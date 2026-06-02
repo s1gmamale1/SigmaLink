@@ -485,6 +485,24 @@ export interface BatchCommitResult {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Session checkpoints — P6 FEAT-11 agent undo/rewind
+// ──────────────────────────────────────────────────────────────────────────
+
+/** A reversible savepoint: a git commit on a pane's own worktree branch. */
+export interface SessionCheckpoint {
+  id: string;
+  sessionId: string;
+  /** The commit sha created in the worktree. */
+  sha: string;
+  /** Operator label, or 'pre-rewind' for auto safety snapshots; null = none. */
+  label: string | null;
+  /** 'manual' = operator-created; 'auto' = pre-rewind safety snapshot. */
+  kind: 'auto' | 'manual';
+  /** epoch ms. */
+  createdAt: number;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Tasks / Kanban (Phase 6)
 // ──────────────────────────────────────────────────────────────────────────
 
