@@ -18,7 +18,10 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { rpc, rpcSilent } from '@/renderer/lib/rpc';
+import { rpc } from '@/renderer/lib/rpc';
+import { useAppStateSelector } from '@/renderer/app/state';
+import { useBelowBreakpoint } from '@/renderer/lib/use-breakpoint';
+import { readWorkspaceUi, writeWorkspaceUi } from '@/renderer/lib/workspace-ui-kv';
 import { Splitter } from './Splitter';
 import { RightRailTabs } from './RightRailTabs';
 import { JorvisTabPlaceholder } from './JorvisTabPlaceholder';
@@ -62,12 +65,31 @@ interface Props {
 }
 
 const DEFAULT_WIDTH = 480;
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 1200;
+// Legacy GLOBAL kv key — read-through fallback so pre-RSP-1 widths aren't lost
+// on first run after the migration to per-workspace keying.
 const KV_WIDTH = 'rightRail.width';
+// Per-workspace panel id (combined into `ui.<wsId>.rightRail.width`).
+const RIGHT_RAIL_WIDTH_PANEL = 'rightRail.width';
 
 export function RightRail({ children }: Props) {
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [hydrated, setHydrated] = useState(false);
   const { activeTab, setActiveTab } = useRightRail();
+  // RSP-1 — per-workspace width keying. When no workspace is open, `wsId` is
+  // null and width persists under the legacy global key.
+  const wsId = useAppStateSelector((s) => s.activeWorkspace?.id ?? null);
+
+  // RSP-1 — narrow-viewport auto-collapse (NEW). Below the `narrow` breakpoint
+  // (900px) the rail hides and the body renders full-bleed; widening back above
+  // it re-shows the rail. This mirrors the Sidebar's one-way intent: collapsing
+  // is driven purely by the viewport and never fights an explicit user action —
+  // the rail's only re-open control (the top-bar `RightRailSwitcher`) lives
+  // outside this component, and on a wide viewport the rail simply renders. The
+  // value is derived in render (no effect, no setState cascade), so it stays in
+  // lock-step with the breakpoint hook's `useSyncExternalStore` snapshot.
+  const railCollapsed = useBelowBreakpoint('narrow');
   // Track the latest width so commit-handlers can persist without retriggering
   // a render via state lookups.
   const widthRef = useRef(DEFAULT_WIDTH);
@@ -96,18 +118,29 @@ export function RightRail({ children }: Props) {
     setSwarmActivated(true);
   }
 
-  // Hydrate persisted width once on mount. The active tab is hydrated by
+  // RSP-1 — hydrate persisted width from the per-workspace key
+  // (`ui.<wsId>.rightRail.width`) with read-through fallback to the legacy
+  // global key. Re-runs when `wsId` changes since a different workspace can
+  // persist a different width. When no workspace is open we read the global key
+  // directly so we don't crash. The active tab is hydrated by
   // `RightRailContext`, which is mounted higher in the tree.
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
-        const rawWidth = await rpcSilent.kv.get(KV_WIDTH).catch(() => null);
+        const rawWidth = wsId
+          ? await readWorkspaceUi(wsId, RIGHT_RAIL_WIDTH_PANEL, KV_WIDTH)
+          : await rpc.kv.get(KV_WIDTH).catch(() => null);
         if (!alive) return;
         const parsed = typeof rawWidth === 'string' ? parseInt(rawWidth, 10) : NaN;
-        if (Number.isFinite(parsed) && parsed >= 200 && parsed <= 1200) {
+        if (Number.isFinite(parsed) && parsed >= MIN_WIDTH && parsed <= MAX_WIDTH) {
           setWidth(parsed);
           widthRef.current = parsed;
+        } else {
+          // A workspace with no persisted width falls back to the default so a
+          // wide previous workspace doesn't bleed into a fresh one.
+          setWidth(DEFAULT_WIDTH);
+          widthRef.current = DEFAULT_WIDTH;
         }
       } finally {
         if (alive) setHydrated(true);
@@ -116,21 +149,35 @@ export function RightRail({ children }: Props) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [wsId]);
 
   const handleResize = useCallback((next: number) => {
     widthRef.current = next;
     setWidth(next);
   }, []);
 
-  const handleCommit = useCallback((final: number) => {
-    void rpc.kv.set(KV_WIDTH, String(Math.round(final))).catch(() => undefined);
-  }, []);
+  const handleCommit = useCallback(
+    (final: number) => {
+      const str = String(Math.round(final));
+      if (wsId) {
+        void writeWorkspaceUi(wsId, RIGHT_RAIL_WIDTH_PANEL, str);
+      } else {
+        void rpc.kv.set(KV_WIDTH, str).catch(() => undefined);
+      }
+    },
+    [wsId],
+  );
 
   // Until the kv read resolves we render the body full-bleed. Otherwise the
   // rail would flicker open at default width before snapping to the persisted
   // width — visually noisy on app boot.
-  if (!hydrated) {
+  //
+  // RSP-1 — also render full-bleed when the viewport is below the `narrow`
+  // breakpoint (rail auto-collapsed). The `min-w-0` wrapper is preserved so the
+  // body doesn't overflow its flex parent (SF-11). The parent dock gate
+  // (`MainBody` in App.tsx) still owns whether RightRail mounts at all; this
+  // only hides the rail column without unmounting the component.
+  if (!hydrated || railCollapsed) {
     return <div className="flex min-h-0 min-w-0 flex-1">{children}</div>;
   }
 

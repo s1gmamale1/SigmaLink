@@ -3,12 +3,19 @@
 // critique: list-first, graph as a secondary tab) and dedicate the full
 // canvas to "Graph" mode.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Sparkles, List as ListIcon, Network as NetworkIcon, CalendarDays } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
 import { bindShortcut } from '@/renderer/lib/shortcuts';
 import { useAppState } from '@/renderer/app/state';
+import { useBelowBreakpoint } from '@/renderer/lib/use-breakpoint';
+import { readWorkspaceUi, writeWorkspaceUi } from '@/renderer/lib/workspace-ui-kv';
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from '@/components/ui/resizable';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import { Spinner } from '@/components/ui/spinner';
@@ -24,6 +31,36 @@ import { MemoryQuickSwitcher } from './MemoryQuickSwitcher';
 import { openDailyNote } from './daily-note';
 
 type Tab = 'list' | 'graph';
+
+// RSP-1 — the list tab is a horizontal resizable tri-column. Stable panel ids
+// key the persisted layout; the order [left, editor, right] is the array order
+// stored under `memory.cols`.
+const MEMORY_COLS_PANEL = 'memory.cols';
+const PANEL_LEFT = 'mem-left';
+const PANEL_EDITOR = 'mem-editor';
+const PANEL_RIGHT = 'mem-right';
+/** Default percentages [left, editor, right]; editor is the largest primary. */
+const DEFAULT_COLS: [number, number, number] = [22, 56, 22];
+const PERSIST_DEBOUNCE_MS = 400;
+
+/** Parse a stored `JSON.stringify(number[])` of exactly 3 finite sizes; else
+ *  fall back to the defaults so a corrupt/legacy value never breaks layout. */
+function parseCols(raw: string | null): [number, number, number] {
+  if (!raw) return DEFAULT_COLS;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 3 &&
+      parsed.every((n) => typeof n === 'number' && Number.isFinite(n) && n > 0)
+    ) {
+      return [parsed[0], parsed[1], parsed[2]] as [number, number, number];
+    }
+  } catch {
+    /* fall through to defaults */
+  }
+  return DEFAULT_COLS;
+}
 
 export function MemoryRoom() {
   const { state, dispatch } = useAppState();
@@ -42,6 +79,55 @@ export function MemoryRoom() {
   // P4 MEM-3 — active tag filter (null = all). P4 MEM-4 — ⌘O quick switcher.
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+
+  // RSP-1 — narrow viewports stack the list tab to a single (editor) column,
+  // matching the prior 900px CSS collapse — now driven by the shared hook.
+  const isNarrow = useBelowBreakpoint('narrow');
+
+  // RSP-1 — per-workspace resizable column sizes. `null` until hydrated; we
+  // render the body full-bleed (default layout) until then so there's no flash
+  // (mirrors the async-hydrate-then-render guard used by the rail/sidebar).
+  const [cols, setCols] = useState<[number, number, number] | null>(null);
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Re-hydrate the column layout whenever the workspace changes. The reset to
+  // `null` (unhydrated) is deferred via queueMicrotask out of the effect body —
+  // matching the rufloView/graph-loading effects above — so B never flashes A's
+  // layout and the resizable group remounts with B's persisted sizes.
+  useEffect(() => {
+    if (!wsId) return;
+    let alive = true;
+    queueMicrotask(() => {
+      if (alive) setCols(null);
+    });
+    void (async () => {
+      const raw = await readWorkspaceUi(wsId, MEMORY_COLS_PANEL);
+      if (alive) setCols(parseCols(raw));
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [wsId]);
+
+  // Debounced persist of a layout change (best-effort, per workspace).
+  const persistCols = useCallback(
+    (next: [number, number, number]) => {
+      if (!wsId) return;
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      persistTimer.current = setTimeout(() => {
+        void writeWorkspaceUi(wsId, MEMORY_COLS_PANEL, JSON.stringify(next));
+      }, PERSIST_DEBOUNCE_MS);
+    },
+    [wsId],
+  );
+
+  // Clear any pending debounce on unmount.
+  useEffect(
+    () => () => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+    },
+    [],
+  );
 
   const knownNames = useMemo(
     () => new Set(memories.map((m) => m.name.toLowerCase())),
@@ -263,6 +349,140 @@ export function MemoryRoom() {
     );
   }
 
+  // RSP-1 — the three list-tab regions, extracted once so the resizable
+  // (wide) and single-column (narrow) layouts share identical children. The
+  // editor preserves its `rufloView ? read-only : normal` branch verbatim.
+  const leftRegion = (
+    <div className="flex min-h-0 flex-col overflow-hidden h-full">
+      {/* P4 MEM-3 — tag facets above the note list; clicking filters both. */}
+      <TagsPane
+        workspaceId={wsId}
+        activeTag={activeTag}
+        onTagClick={setActiveTag}
+        refreshKey={memVersion}
+      />
+      <div className="min-h-0 flex-1">
+        <MemoryList
+          memories={visibleMemories}
+          workspaceId={wsId}
+          activeName={activeName}
+          onSelect={onSelect}
+          onCreate={onCreate}
+        />
+      </div>
+    </div>
+  );
+
+  const editorRegion =
+    rufloView && rufloViewMemory ? (
+      <MemoryEditor
+        workspaceId={wsId}
+        memory={rufloViewMemory}
+        knownNames={knownNames}
+        onNavigate={onSelect}
+        onSaved={onSaved}
+        onDeleted={onDeleted}
+        readOnly
+        readOnlyMeta={{ namespace: rufloView.namespace, score: rufloView.score }}
+      />
+    ) : (
+      <MemoryEditor
+        workspaceId={wsId}
+        memory={activeMemory}
+        knownNames={knownNames}
+        onNavigate={onSelect}
+        onSaved={onSaved}
+        onDeleted={onDeleted}
+      />
+    );
+
+  const rightRegion = (
+    <div className="flex min-h-0 flex-col overflow-y-auto h-full">
+      <Backlinks
+        workspaceId={wsId}
+        noteName={activeName}
+        memoriesVersion={memVersion}
+        onSelect={onSelect}
+      />
+      {/* P4 MEM-6 — surface the shipped orphans + suggested-connections. */}
+      <MemoryAssistPanel
+        workspaceId={wsId}
+        activeName={activeName}
+        onSelect={onSelect}
+        refreshKey={memVersion}
+      />
+    </div>
+  );
+
+  // Build the list-tab body for the current viewport / hydration state.
+  // - Narrow: stack to a single (editor) column — reproduces the prior 900px
+  //   CSS collapse via the shared breakpoint hook (no resizable group).
+  // - Wide, not-yet-hydrated (`cols === null`): render a neutral full-bleed
+  //   placeholder so there's no flash AND so the three regions mount EXACTLY
+  //   ONCE — inside the group — rather than mounting in a default tree and
+  //   then remounting when hydration swaps in the group (a remount would reset
+  //   child-owned state such as the note-list create dialog). The resizable
+  //   group's mount-time `defaultSize`s thus reflect the persisted layout.
+  // - Wide, hydrated: the horizontal resizable tri-column persisted per workspace.
+  let listBody: ReactNode;
+  if (isNarrow) {
+    listBody = (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{editorRegion}</div>
+    );
+  } else if (cols === null) {
+    listBody = <div className="min-h-0 flex-1" aria-hidden />;
+  } else {
+    listBody = (
+      <ResizablePanelGroup
+        orientation="horizontal"
+        className="min-h-0 flex-1"
+        onLayoutChanged={(layout) => {
+          const left = layout[PANEL_LEFT];
+          const editor = layout[PANEL_EDITOR];
+          const right = layout[PANEL_RIGHT];
+          if (
+            Number.isFinite(left) &&
+            Number.isFinite(editor) &&
+            Number.isFinite(right)
+          ) {
+            persistCols([left, editor, right]);
+          }
+        }}
+      >
+        <ResizablePanel
+          id={PANEL_LEFT}
+          defaultSize={cols[0]}
+          minSize={14}
+          collapsible
+          collapsedSize={0}
+          className="flex min-h-0 flex-col"
+        >
+          {leftRegion}
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel
+          id={PANEL_EDITOR}
+          defaultSize={cols[1]}
+          minSize={30}
+          className="flex min-h-0 flex-col"
+        >
+          {editorRegion}
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel
+          id={PANEL_RIGHT}
+          defaultSize={cols[2]}
+          minSize={14}
+          collapsible
+          collapsedSize={0}
+          className="flex min-h-0 flex-col"
+        >
+          {rightRegion}
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {createError ? (
@@ -311,62 +531,7 @@ export function MemoryRoom() {
         </div>
       </header>
       {tab === 'list' ? (
-        <div className="memory-tri-grid grid min-h-0 flex-1">
-          <div className="flex min-h-0 flex-col overflow-hidden">
-            {/* P4 MEM-3 — tag facets above the note list; clicking filters both. */}
-            <TagsPane
-              workspaceId={wsId}
-              activeTag={activeTag}
-              onTagClick={setActiveTag}
-              refreshKey={memVersion}
-            />
-            <div className="min-h-0 flex-1">
-              <MemoryList
-                memories={visibleMemories}
-                workspaceId={wsId}
-                activeName={activeName}
-                onSelect={onSelect}
-                onCreate={onCreate}
-              />
-            </div>
-          </div>
-          {rufloView && rufloViewMemory ? (
-            <MemoryEditor
-              workspaceId={wsId}
-              memory={rufloViewMemory}
-              knownNames={knownNames}
-              onNavigate={onSelect}
-              onSaved={onSaved}
-              onDeleted={onDeleted}
-              readOnly
-              readOnlyMeta={{ namespace: rufloView.namespace, score: rufloView.score }}
-            />
-          ) : (
-            <MemoryEditor
-              workspaceId={wsId}
-              memory={activeMemory}
-              knownNames={knownNames}
-              onNavigate={onSelect}
-              onSaved={onSaved}
-              onDeleted={onDeleted}
-            />
-          )}
-          <div className="flex min-h-0 flex-col overflow-y-auto">
-            <Backlinks
-              workspaceId={wsId}
-              noteName={activeName}
-              memoriesVersion={memVersion}
-              onSelect={onSelect}
-            />
-            {/* P4 MEM-6 — surface the shipped orphans + suggested-connections. */}
-            <MemoryAssistPanel
-              workspaceId={wsId}
-              activeName={activeName}
-              onSelect={onSelect}
-              refreshKey={memVersion}
-            />
-          </div>
-        </div>
+        listBody
       ) : (
         <div className="relative min-h-0 flex-1">
           {graphLoading ? (
