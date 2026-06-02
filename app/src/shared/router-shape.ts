@@ -950,6 +950,34 @@ export interface AppRouter {
         }
       | { ok: false; code: 'ruflo-unavailable'; reason: string }
     >;
+    /** P4 MEM-1 — list Ruflo AgentDB entries (sweep, optionally narrowed by a
+     *  context query) as read-only graph nodes. */
+    'entries.list': (input: { query?: string; limit?: number }) => Promise<
+      | {
+          ok: true;
+          entries: Array<{
+            id: string;
+            text: string;
+            namespace: string;
+            score?: number;
+            createdAt?: number;
+          }>;
+        }
+      | { ok: false; code: 'ruflo-unavailable'; reason: string }
+    >;
+    /** P4 MEM-1 — semantic neighbors of one entry → similarity edges. */
+    'entries.neighbors': (input: { id: string; text: string; topK?: number }) => Promise<
+      | {
+          ok: true;
+          edges: Array<{
+            fromId: string;
+            toId: string;
+            kind: 'similarity' | 'causal';
+            weight: number;
+          }>;
+        }
+      | { ok: false; code: 'ruflo-unavailable'; reason: string }
+    >;
     'install.start': () => Promise<{ jobId: string }>;
     verifyForWorkspace: (workspaceRoot: string) => Promise<{
       claude: boolean;

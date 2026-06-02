@@ -331,6 +331,8 @@ export interface Memory {
   links: string[]; // outgoing wikilink targets (de-duplicated, in order seen)
   createdAt: number;
   updatedAt: number;
+  /** P4 BUG-10 — parsed YAML frontmatter (properties / aliases). Null/absent when none. */
+  frontmatter?: Record<string, unknown> | null;
 }
 
 export interface MemorySearchHit {
@@ -347,8 +349,38 @@ export interface MemoryGraph {
     label: string;
     tagCount: number;
     refCount: number; // incoming link count (backlinks)
+    /** P4 MEM-1 — node class. Local notes default to 'note'; Ruflo AgentDB entries 'ruflo'. */
+    kind?: 'note' | 'ruflo';
+    /** P4 MEM-1 — Ruflo namespace (patterns/feedback/verdict/…) used as a color + legend facet. */
+    group?: string;
   }>;
-  edges: Array<{ from: MemoryId; to: MemoryId }>;
+  edges: Array<{
+    from: MemoryId;
+    to: MemoryId;
+    /** P4 MEM-1 — wikilink (default, between notes) vs Ruflo similarity/causal edges. */
+    kind?: 'wikilink' | 'similarity' | 'causal';
+    /** P4 MEM-1 — similarity weight 0..1 (Ruflo similarity edges only). */
+    weight?: number;
+  }>;
+}
+
+/** P4 MEM-1 — a Ruflo AgentDB entry surfaced into the Memory graph as a
+ *  distinct, read-only node class. `id` is the stable AgentDB key. */
+export interface RufloEntry {
+  id: string;
+  text: string;
+  namespace: string;
+  score?: number;
+  createdAt?: number;
+}
+
+/** P4 MEM-1 — an edge between two Ruflo entries (semantic similarity now;
+ *  causal edges are a P4.2 follow-up pending the daemon's read API). */
+export interface RufloEntryEdge {
+  fromId: string;
+  toId: string;
+  kind: 'similarity' | 'causal';
+  weight: number;
 }
 
 export interface MemoryHubStatus {
