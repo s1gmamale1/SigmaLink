@@ -122,8 +122,8 @@ export function NotificationsSoundSettings() {
           const cues = SOUND_CATALOG.filter((c) => c.category === id);
           if (cues.length === 0) return null;
           return (
-            <div key={id} className="flex flex-col gap-1">
-              <legend className="px-1 text-xs font-medium text-muted-foreground">{label}</legend>
+            <div key={id} className="flex flex-col gap-1" role="group" aria-label={label}>
+              <p className="px-1 text-xs font-medium text-muted-foreground">{label}</p>
               <p className="px-1 text-[11px] text-muted-foreground/80">{hint}</p>
               {cues.map((def) => {
                 const isEnabled = !muted.has(def.cue);

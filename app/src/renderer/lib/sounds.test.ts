@@ -170,4 +170,20 @@ describe('persisted setters', () => {
     await setSoundMasterEnabled(false);
     expect(store.get(KV_SOUND_ENABLED)).toBe('0');
   });
+
+  // M1 regression: notify-info/warn/error share the legacy KV_LEGACY_SOUND key.
+  // Muting ONE must not drag its siblings down once the new matrix is authoritative.
+  it('muting one legacy-backed notify cue leaves its siblings audible', async () => {
+    await setCueMuted('notify-info', true);
+    invalidateSoundPrefsCache();
+    oscStarts = 0;
+    await playForSeverity('warn');
+    expect(oscStarts).toBeGreaterThan(0); // notify-warn still plays
+    oscStarts = 0;
+    await playForSeverity('error');
+    expect(oscStarts).toBeGreaterThan(0); // notify-error still plays
+    oscStarts = 0;
+    await playForSeverity('info');
+    expect(oscStarts).toBe(0); // only notify-info muted
+  });
 });
