@@ -28,7 +28,11 @@ vi.mock('@/renderer/lib/themes', () => ({
   applyTheme: vi.fn(),
   DEFAULT_THEME: 'obsidian',
   isThemeId: vi.fn(() => false),
-  KV_KEYS: { theme: 'app.theme' },
+  // P5.2 density — ThemeProvider now also hydrates/applies density on mount.
+  applyDensity: vi.fn(),
+  DEFAULT_DENSITY: 'comfortable',
+  isDensityId: vi.fn(() => false),
+  KV_KEYS: { theme: 'app.theme', density: 'app.density' },
   // The themed <Toaster> wrapper (mounted by App) reads `appearance` from the
   // active theme via `findTheme`, so the mock must provide it.
   findTheme: vi.fn(() => ({ id: 'obsidian', appearance: 'dark' })),

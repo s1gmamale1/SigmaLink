@@ -25,7 +25,11 @@ vi.mock('@/renderer/lib/themes', () => ({
   applyTheme: vi.fn(),
   DEFAULT_THEME: 'obsidian',
   isThemeId: vi.fn(() => false),
-  KV_KEYS: { theme: 'app.theme' },
+  // P5.2 density — ThemeProvider now also hydrates/applies density on mount.
+  applyDensity: vi.fn(),
+  DEFAULT_DENSITY: 'comfortable',
+  isDensityId: vi.fn(() => false),
+  KV_KEYS: { theme: 'app.theme', density: 'app.density' },
 }));
 
 // ---- import under test ------------------------------------------------------

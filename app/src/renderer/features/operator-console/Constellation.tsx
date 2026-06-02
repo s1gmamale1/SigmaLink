@@ -55,6 +55,14 @@ const CENTER_PULL = 0.0035;
 const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 3;
 
+// PERF-7 — "sleep on settle" (mirrors MemoryGraph's PERF-13). Once the
+// layout's total kinetic energy stays below ENERGY_EPSILON for SETTLE_FRAMES
+// consecutive frames (and nothing is being dragged), the RAF loop stops
+// entirely instead of redrawing a static graph at 60fps forever. It restarts
+// on interaction / data change / resize / visibility-or-intersection regain.
+const ENERGY_EPSILON = 0.05;
+const SETTLE_FRAMES = 30;
+
 // Role colour stripes — keep in sync with `--role-*` tokens in src/index.css
 // (HSL approximations baked here so canvas paint doesn't read the DOM).
 const ROLE_COLOR: Record<Role, string> = {
@@ -109,6 +117,10 @@ export function Constellation({
   );
   const dirtyRef = useRef<boolean>(false);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // PERF-7 — "wake" trigger filled by the animation effect so pointer / resize
+  // handlers can restart a slept loop without depending on render order. On
+  // first render it's a no-op (the effect installs the real one).
+  const wakeRef = useRef<() => void>(() => undefined);
   const [hoverId, setHoverId] = useState<string | null>(null);
 
   // ── Edges (Coordinator → assignees) ─────────────────────────────────────
@@ -213,6 +225,9 @@ export function Constellation({
       sizeRef.current = { w: rect.width, h: rect.height };
       const ctx = cv.getContext('2d');
       if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // PERF-7 — a resize changes bounds (centre-pull target) → wake the
+      // (possibly slept) layout so it re-settles + repaints at the new size.
+      wakeRef.current();
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -227,6 +242,15 @@ export function Constellation({
   //      screen or hidden by a tab switch inside OperatorConsole.
   // Both must be `true` (visible) for the loop to tick.
   //
+  // PERF-7 — on top of visibility gating, sleep on settle (mirrors PERF-13 in
+  // MemoryGraph). Once kinetic energy stays below ENERGY_EPSILON for
+  // SETTLE_FRAMES consecutive frames (and nothing is being dragged) we stop the
+  // loop entirely; it restarts via `wakeRef` on pointer-down-on-node / data /
+  // resize, and via the visibility+intersection reconcile on regain. A
+  // prefers-reduced-motion path settles synchronously and draws a single frame
+  // with no continuous loop at all (a JS/canvas RAF can't be stopped by the
+  // global CSS reduced-motion reset, so we guard it here).
+  //
   // Hooks lint complains about `step`/`draw` accessed before declaration —
   // they're declared via useCallback below and only invoked from within the
   // RAF callback after the component is mounted, so the runtime ordering is
@@ -238,8 +262,34 @@ export function Constellation({
     const ctx = cv.getContext('2d');
     if (!ctx) return;
 
+    // (a) prefers-reduced-motion: no continuous loop. Settle once synchronously
+    // so the layout isn't a random scatter, then draw a single frame. Wakes
+    // (data/resize/pointer) re-settle synchronously on a one-shot RAF.
+    if (prefersReducedMotion()) {
+      for (let i = 0; i < 300 && kineticEnergy(nodesRef.current) > ENERGY_EPSILON; i++) {
+        step();
+      }
+      step(); // at least one settling pass even for a zero-velocity layout
+      draw(ctx);
+      let reducedRaf = 0;
+      wakeRef.current = () => {
+        if (reducedRaf) return; // a wake is already scheduled
+        reducedRaf = requestAnimationFrame(() => {
+          reducedRaf = 0;
+          step();
+          draw(ctx);
+        });
+      };
+      return () => {
+        if (reducedRaf) cancelAnimationFrame(reducedRaf);
+        reducedRaf = 0;
+        wakeRef.current = () => undefined;
+      };
+    }
+
     let raf = 0;
     let running = false;
+    let idleFrames = 0;
     // Documents in jsdom don't always implement `document.hidden`; default
     // to "visible" when the value is missing so tests behave like a real
     // browser unless they explicitly mock the API.
@@ -253,11 +303,25 @@ export function Constellation({
     const tick = () => {
       step();
       draw(ctx);
+      // PERF-7 — energy-based settle detection. A live drag (node or pan) keeps
+      // the loop awake regardless of energy so the cursor stays responsive.
+      const dragging = !!dragNodeRef.current || !!dragPanRef.current;
+      if (kineticEnergy(nodesRef.current) < ENERGY_EPSILON && !dragging) {
+        idleFrames += 1;
+      } else {
+        idleFrames = 0;
+      }
+      if (idleFrames >= SETTLE_FRAMES) {
+        running = false;
+        raf = 0; // sleep — wake()/reconcile restarts us
+        return;
+      }
       raf = requestAnimationFrame(tick);
     };
     const startLoop = () => {
       if (running) return;
       running = true;
+      idleFrames = 0;
       raf = requestAnimationFrame(tick);
     };
     const stopLoop = () => {
@@ -269,6 +333,11 @@ export function Constellation({
     const reconcile = () => {
       if (pageVisible && inView) startLoop();
       else stopLoop();
+    };
+    // PERF-7 — wake = re-settle + (re)start, but only while visible+in-view.
+    // Pointer/resize/data handlers call this to revive a slept layout.
+    wakeRef.current = () => {
+      if (pageVisible && inView) startLoop();
     };
 
     const onVisibilityChange = () => {
@@ -300,6 +369,7 @@ export function Constellation({
     reconcile();
     return () => {
       stopLoop();
+      wakeRef.current = () => undefined;
       if (io) io.disconnect();
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -507,6 +577,10 @@ export function Constellation({
         const vp = viewportRef.current;
         dragPanRef.current = { startX: sx, startY: sy, vx: vp.x, vy: vp.y };
       }
+      // PERF-7 — a drag (node or pan) restarts a slept layout: the node case
+      // re-settles the simulation, the pan case repaints as the viewport moves.
+      // The tick's `dragging` check then keeps the loop awake until pointer-up.
+      wakeRef.current();
     },
     [hitTest, screenToWorld],
   );
@@ -537,7 +611,14 @@ export function Constellation({
         return;
       }
       const hit = hitTest(sx, sy);
-      setHoverId(hit?.id ?? null);
+      const nextHover = hit?.id ?? null;
+      setHoverId((prev) => {
+        // PERF-7 — repaint the hover highlight even if the layout has settled
+        // and the loop is asleep. Only wake on an actual change so idle
+        // mouse-moves over a static graph stay free.
+        if (prev !== nextHover) wakeRef.current();
+        return nextHover;
+      });
     },
     [hitTest, idIndex, screenToWorld],
   );
@@ -607,6 +688,27 @@ export function Constellation({
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * PERF-7 — total kinetic energy (Σ vx²+vy²) of the layout. Used to decide
+ * when the force simulation has settled enough to stop the RAF loop. Pure;
+ * exported only for unit tests (mirrors MemoryGraph.kineticEnergy).
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, exported for unit tests
+export function kineticEnergy(nodes: ReadonlyArray<{ vx: number; vy: number }>): number {
+  let e = 0;
+  for (const n of nodes) e += n.vx * n.vx + n.vy * n.vy;
+  return e;
+}
+
+/** PERF-7 — honor the OS "reduce motion" setting (settle synchronously, no loop). */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
 }
 
 function visibleByFilter(filter: AgentFilter, role: Role): boolean {

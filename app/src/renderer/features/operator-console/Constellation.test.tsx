@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
-import { Constellation } from './Constellation';
+import { Constellation, kineticEnergy } from './Constellation';
 import type { SwarmAgent } from '@/shared/types';
 
 // Minimal canvas 2d-context shim — Constellation only calls these methods,
@@ -224,5 +224,83 @@ describe('Constellation visibility gate', () => {
 
     expect(observer.disconnected).toBe(true);
     expect(cancelSpy).toHaveBeenCalled();
+  });
+});
+
+// PERF-7 — "sleep on settle". The force-directed loop must stop scheduling
+// frames once the layout goes quiet (energy < ENERGY_EPSILON for SETTLE_FRAMES
+// consecutive ticks with nothing being dragged), instead of redrawing a static
+// graph at 60fps forever. We drive a real fake-RAF queue so ticks actually run
+// and `idleFrames` can accumulate.
+describe('Constellation PERF-7 settle', () => {
+  it('kineticEnergy sums vx²+vy² (pure helper)', () => {
+    expect(kineticEnergy([{ vx: 0, vy: 0 }, { vx: 0, vy: 0 }])).toBe(0);
+    expect(kineticEnergy([{ vx: 3, vy: 4 }, { vx: 1, vy: 0 }])).toBe(25 + 1);
+  });
+
+  it('halts the rAF loop after the layout settles', () => {
+    // Drainable fake RAF: each scheduled callback runs when we manually flush.
+    // The loop reschedules itself by calling requestAnimationFrame again; once
+    // it settles it stops calling it, which we detect by the queue draining.
+    const queue: FrameRequestCallback[] = [];
+    rafSpy.mockImplementation((cb: FrameRequestCallback) => {
+      queue.push(cb);
+      return queue.length;
+    });
+
+    render(<Constellation swarmId="swarm-settle" agents={[agent('coordinator', 0)]} filter="all" />);
+
+    // Pump frames until the loop stops rescheduling (settled) or we hit a
+    // generous ceiling. A single near-center node bleeds its energy via DAMPING
+    // within a few hundred frames, then SETTLE_FRAMES more idle ticks sleep it.
+    let frames = 0;
+    const MAX = 2000;
+    while (queue.length > 0 && frames < MAX) {
+      const next = queue.shift()!;
+      next(performance.now());
+      frames += 1;
+    }
+
+    // The loop must have stopped scheduling well before the ceiling.
+    expect(queue.length).toBe(0);
+    expect(frames).toBeLessThan(MAX);
+
+    // Once asleep, advancing more (no queued callbacks) does not resurrect it.
+    const scheduledBefore = rafSpy.mock.calls.length;
+    expect(queue.length).toBe(0);
+    expect(rafSpy.mock.calls.length).toBe(scheduledBefore);
+  });
+
+  it('does NOT start a continuous loop under prefers-reduced-motion', () => {
+    // Force prefers-reduced-motion: the loop settles synchronously + draws one
+    // frame, scheduling zero animation frames. jsdom does not implement
+    // `window.matchMedia`, so we install it directly rather than spying.
+    const prior = (window as { matchMedia?: unknown }).matchMedia;
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (
+      q: string,
+    ) =>
+      ({
+        matches: q.includes('reduce'),
+        media: q,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      }) as unknown as MediaQueryList;
+    rafSpy.mockClear();
+
+    try {
+      render(<Constellation swarmId="swarm-rm" agents={[agent('coordinator', 0)]} filter="all" />);
+      // Reduced-motion path runs no continuous loop.
+      expect(rafSpy).not.toHaveBeenCalled();
+    } finally {
+      if (prior === undefined) {
+        delete (window as { matchMedia?: unknown }).matchMedia;
+      } else {
+        (window as unknown as { matchMedia: unknown }).matchMedia = prior;
+      }
+    }
   });
 });

@@ -241,7 +241,11 @@ export function GridLayout<T>({
       ref={containerRef}
       className={cn('relative grid h-full w-full', densitySpacing)}
       style={gridStyle}
-      data-density={density}
+      // P5.2 — RENAMED from `data-density` → `data-grid-density` so the new
+      // user-controlled GLOBAL density (on <html data-density>) doesn't collide
+      // with this auto-derived per-grid tier. Only consumer is PaneHeader's
+      // `[[data-grid-density=dense]_&]:h-6` arbitrary variant.
+      data-grid-density={density}
       data-fullscreen={isFullscreen ? 'true' : undefined}
     >
       {Array.from({ length: totalCells }, (_, cellIdx) => {

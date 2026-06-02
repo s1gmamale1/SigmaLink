@@ -5,7 +5,15 @@
 import { useEffect, useState } from 'react';
 import { Check, RotateCcw } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
-import { applyFontSize, DEFAULT_THEME, setRootCssVar, THEMES, type ThemeId } from '@/renderer/lib/themes';
+import {
+  applyFontSize,
+  DEFAULT_THEME,
+  DENSITIES,
+  setRootCssVar,
+  THEMES,
+  type DensityId,
+  type ThemeId,
+} from '@/renderer/lib/themes';
 import { useTheme } from '@/renderer/app/ThemeProvider';
 import { refreshTier, useTier } from '@/renderer/lib/canDo';
 import { cn } from '@/lib/utils';
@@ -32,7 +40,7 @@ const TIER_OPTIONS: ReadonlyArray<{ value: Tier; label: string }> = [
 ];
 
 export function AppearanceTab() {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, density, setDensity } = useTheme();
   const [fontSize, setFontSize] = useState<number>(14);
   const [terminalFont, setTerminalFont] = useState<string>(TERMINAL_FONTS[0]);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
@@ -78,7 +86,9 @@ export function AppearanceTab() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    // P5.2 — gap driven by the density `--space-6` token so this panel itself
+    // visibly responds to the picker below (honest, self-demonstrating wire-up).
+    <div className="flex flex-col" style={{ gap: 'var(--space-6)' }}>
       <section>
         <div className="mb-2 flex items-center justify-between">
           <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -148,6 +158,46 @@ export function AppearanceTab() {
             </button>
           ))}
         </div>
+      </section>
+
+      {/* P5.2 — Density. A segmented picker writing `app.density` + applying
+          `<html data-density>`, which rescales the `--space-*` tokens app-wide.
+          Mirrors the theme/font-size pattern (kv.set + apply* through the
+          ThemeProvider context). */}
+      <section>
+        <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Density
+        </div>
+        <div
+          className="inline-flex rounded-md border border-border bg-card/40 p-0.5"
+          role="radiogroup"
+          aria-label="Interface density"
+        >
+          {DENSITIES.map((d) => {
+            const selected = density === d.id;
+            return (
+              <button
+                key={d.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setDensity(d.id as DensityId)}
+                title={d.description}
+                className={cn(
+                  'rounded px-3 py-1.5 text-sm transition',
+                  selected
+                    ? 'bg-primary/15 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary))]'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {d.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+          Scales spacing across the app. Comfortable is the default.
+        </p>
       </section>
 
       <section>

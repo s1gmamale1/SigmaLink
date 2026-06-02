@@ -126,6 +126,35 @@
     --ease-spring: var(--ease-smooth);
     --motion-enter: var(--motion);
     --motion-exit: var(--motion-fast);
+
+    /* ------------------------------------------------------------------
+       P5.2 — DENSITY SCALE (global, user-controlled).
+
+       A single multiplier `--space-scale` drives a small ladder of
+       spacing tokens. The Appearance tab writes `<html data-density>`
+       (comfortable | cozy | compact) which overrides the scale below;
+       `comfortable` is the default and intentionally roomy (Mac
+       density-is-a-feature — never loosen further). The `--space-*`
+       tokens are derived from the scale so any surface that opts in
+       tightens uniformly across the app.
+
+       NOTE: distinct from GridLayout's auto-derived per-grid tier, which
+       now lives on `data-grid-density` to avoid colliding with this. */
+    --space-scale: 1;
+    --space-1: calc(0.25rem * var(--space-scale)); /* 4px  @ scale 1 */
+    --space-2: calc(0.5rem * var(--space-scale));  /* 8px  @ scale 1 */
+    --space-3: calc(0.75rem * var(--space-scale)); /* 12px @ scale 1 */
+    --space-4: calc(1rem * var(--space-scale));    /* 16px @ scale 1 */
+    --space-6: calc(1.5rem * var(--space-scale));  /* 24px @ scale 1 */
+  }
+
+  /* P5.2 — density overrides. `comfortable` = the :root default (scale 1).
+     Setting `data-density` on <html> rescales every `--space-*` token. */
+  :root[data-density='cozy'] {
+    --space-scale: 0.875;
+  }
+  :root[data-density='compact'] {
+    --space-scale: 0.75;
   }
 
   /* Obsidian — explicit override for clarity (matches :root above). */

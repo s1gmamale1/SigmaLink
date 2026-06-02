@@ -213,6 +213,7 @@ export function Sidebar() {
     <>
     <aside
       aria-label="Sidebar"
+      data-testid="sidebar"
       className={cn(
         'relative flex shrink-0 flex-col bg-sidebar text-sidebar-foreground sl-glass-heavy',
         // Collapsed state retains the border-r since no drag divider is rendered.
@@ -315,6 +316,7 @@ export function Sidebar() {
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize sidebar"
+        data-testid="sidebar-resize-handle"
         className="w-1 shrink-0 cursor-col-resize border-r border-border hover:bg-accent active:bg-accent/70"
         onPointerDown={startSidebarDrag}
         onDoubleClick={() => {
