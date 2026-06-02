@@ -7,6 +7,7 @@ import { defineController } from '../../../shared/rpc';
 import type {
   Memory,
   MemoryConnectionSuggestion,
+  MemoryUnlinkedMention,
   MemoryGraph,
   MemoryHubStatus,
   MemorySearchHit,
@@ -102,6 +103,16 @@ export function buildMemoryController(deps: MemoryControllerDeps) {
         workspaceId: requireString(input?.workspaceId, 'find_backlinks.workspaceId'),
         name: requireString(input?.name, 'find_backlinks.name'),
       });
+    },
+    // P4.2 MEM-7 — foundation stub; the backend lane (M-A) implements
+    // m.findUnlinkedMentions and replaces this body.
+    find_unlinked_mentions: async (input: {
+      workspaceId: string;
+      name: string;
+    }): Promise<MemoryUnlinkedMention[]> => {
+      void requireString(input?.workspaceId, 'find_unlinked_mentions.workspaceId');
+      void requireString(input?.name, 'find_unlinked_mentions.name');
+      return [];
     },
     list_orphans: async (input: { workspaceId: string }): Promise<Memory[]> => {
       return m.listOrphans({

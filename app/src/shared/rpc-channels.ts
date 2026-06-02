@@ -162,6 +162,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'memory.hub_status',
   'memory.getGraph',
   'memory.getMcpCommand',
+  'memory.find_unlinked_mentions', // P4.2 MEM-7 — unlinked mentions
   'memory.list_tags',       // P4 MEM-3 — tag facets
   'memory.list_by_tag',     // P4 MEM-3 — notes for a tag
   'memory.export_db',       // P4 DB-2 — backup

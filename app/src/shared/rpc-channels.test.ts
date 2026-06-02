@@ -175,6 +175,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'memory.delete_memory',
   'memory.search_memories',
   'memory.find_backlinks',
+  'memory.find_unlinked_mentions', // P4.2 MEM-7
   'memory.list_orphans',
   'memory.suggest_connections',
   'memory.init_hub',

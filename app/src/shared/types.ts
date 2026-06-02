@@ -342,6 +342,17 @@ export interface Memory {
   updatedAt: number;
   /** P4 BUG-10 — parsed YAML frontmatter (properties / aliases). Null/absent when none. */
   frontmatter?: Record<string, unknown> | null;
+  /** P4.2 MEM-5 — alternate names this note resolves under (from frontmatter `aliases`). */
+  aliases?: string[];
+}
+
+/** P4.2 MEM-7 — a note whose body mentions the active note's name/alias as plain
+ *  text (not yet an explicit `[[wikilink]]`). One-click promotable to a real link. */
+export interface MemoryUnlinkedMention {
+  sourceId: MemoryId;
+  sourceName: string;
+  /** A short excerpt of the body around the matched mention. */
+  excerpt: string;
 }
 
 export interface MemorySearchHit {

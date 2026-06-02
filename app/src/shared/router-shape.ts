@@ -24,6 +24,7 @@ import type {
   MemoryGraph,
   MemoryHubStatus,
   MemoryConnectionSuggestion,
+  MemoryUnlinkedMention,
   Notification,
   NotificationSeverity,
   ReviewState,
@@ -513,6 +514,11 @@ export interface AppRouter {
       limit?: number;
     }) => Promise<MemorySearchHit[]>;
     find_backlinks: (input: { workspaceId: string; name: string }) => Promise<Memory[]>;
+    /** P4.2 MEM-7 — notes that mention this note's name/alias as plain text (no explicit link yet). */
+    find_unlinked_mentions: (input: {
+      workspaceId: string;
+      name: string;
+    }) => Promise<MemoryUnlinkedMention[]>;
     list_orphans: (input: { workspaceId: string }) => Promise<Memory[]>;
     suggest_connections: (input: {
       workspaceId: string;
