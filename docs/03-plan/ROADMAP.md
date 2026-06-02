@@ -7,9 +7,9 @@
 > **Shipped baseline:** SigmaLink v1.36.0 (+ on-main-untagged video+perf harness & FE-4 a11y `dbce7e6`);
 > SigmaVoice standalone v0.3.2 (own repo, macOS arm64 DMG).
 >
-> **🎉 ALL 6 PHASES SHIPPED TO THEIR EXIT CRITERIA** (untagged → ride the next release):
-> ✅ P1 (#70) · ✅ P2 (#72) · ✅ P3 (#73) · ✅ P4 (#75+#76) · ✅ P5 (#78+#79) · ✅ P6 exit (#81+#82).
-> **P6 is a multi-release phase** — its two NAMED exit-criteria leapfrogs (FEAT-11 rewind ✅ shipped, FEAT-13 merge-order ✅ already met by OrchestratorPanel) are done; the **parity-surface long-tail** (FEAT-3/8/2/5/6/9/4/10/12/14, ONB-1) + **ARCH-1** (main-process tsconfig) + the P4.2/PERF-7/8/9/12/density follow-ups remain as next-cycle backlog in `WISHLIST.md` (a fresh ROADMAP re-derives from there). **Owed pre-tag:** P5 perf-harness + resize live smokes; DB-2 backup→restore round-trip smoke.
+> **🎉 ENTIRE 6-PHASE ROADMAP + ITS FULL LONG-TAIL SHIPPED — staged as `v2.0.0` (UNTAGGED on `main`, 2026-06-03).**
+> ✅ P1 (#70) · ✅ P2 (#72) · ✅ P3 (#73) · ✅ P4 (#75+#76) · ✅ P5 (#78+#79) · ✅ P6 exit (#81+#82) — **and the P6 long-tail (FEAT-2/3/4/5/6/8/9/10/12/14 + ONB-1), P4.2 (MEM-5/7/8/9, FTS5, causal edges, ⌘O, daily-note digest, auto-checkpoint), P5.2 (density, PERF-7/8/9/12), and ARCH-1/6/9 all merged this cycle.** Detail → `CHANGELOG.md` [2.0.0].
+> **Deferred → next-cycle WISHLIST (seed a fresh ROADMAP from there):** Resizable-shell **Strategy B** (rail/main px→%), **ARCH-2/3/4/5/7/8** (large splits — held per the DDD small-per-packet rule), **MEM-7 fence-awareness** (M2). **Owed pre-tag (operator live smokes):** DB-2 backup→restore round-trip; `npm run test:perf` jank-delta + `pty:data` IPC-rate; FEAT-11 rewind on a real worktree; responsive resize/collapse feel. **The tag is a separate operator step** (`sigmalink-release`).
 >
 > **Phase goal (operator's 6-pillar vision):** **(a)** Apple-grade visuals · **(b)** responsive layouts ·
 > **(c)** smooth animations/popups · **(d)** polished notifications · **(e)** tasteful sound ·
@@ -27,13 +27,13 @@
 
 | Phase | Theme (pillar) | Ships as¹ | Headline items (priority order) | Why here |
 |------|----------------|-----------|----------------|----------|
-| ✅ **P1** | Reliability & correctness spine | ✅ **merged PR #70** (`37f94a0`) | **DONE** — BUG-1/2/3/4/5/6/7/8/13/14 · DB-1 · ERR-1 · ARCH-10 + commitAndMerge `--abort` fix. *(ARCH-1 split to its own follow-up — still owed.)* | Shipped 2026-05-31. |
+| ✅ **P1** | Reliability & correctness spine | ✅ **merged PR #70** (`37f94a0`) | **DONE** — BUG-1/2/3/4/5/6/7/8/13/14 · DB-1 · ERR-1 · ARCH-10 + commitAndMerge `--abort` fix. *(ARCH-1 split to its own follow-up — ✅ shipped in v2.0.0.)* | Shipped 2026-05-31. |
 | ✅ **P2** | Apple-grade motion & overlays (a/c) | ✅ **merged PR #72** | **DONE** — MOT-1, UX-1/2/3/4/5/6/7/8/9/10, ANIM-2, PERF-13/MEM-10 | Shipped. One motion language; native modals + dark-pinned toaster gone. |
 | ✅ **P3** | Notifications + sound (d/e) | ✅ **merged PR #73** | **DONE** — NTF-1, NTF-2, NTF-3(=UX-9), SND-1, ANIM-3 | Shipped. DND/quiet-hours/per-source + restrained soundscape + toast↔bell handoff + pane aliveness. |
 | ✅ **P4** | Obsidian memory + agent-memory unification (f) — **HEADLINE** | ✅ **merged PRs #75+#76** | **DONE** — MEM-1, MEM-4, MEM-2, MEM-3, MEM-6, DB-2, BUG-10/11/12. *(MEM-5/7/8/9, PERF-14, causal edges, global ⌘O → P4.2/WISHLIST.)* | Shipped. Ruflo-as-graph + ⌘O + daily notes + tags + orphans + DB backup. |
 | ✅ **P5** | Responsiveness & performance (b) | ✅ **merged #78+#79** | **DONE** — PERF-1/11 (pty:data+broadcast), PERF-3 (selectors), PERF-5/6 (dedup polling), PERF-2/4/10, RSP-1 (resizable + per-ws sizes). *(PERF-7/8/9/12 + density → WISHLIST.)* | Shipped. Hottest IPC + re-render paths tamed; resizable layout-remembering surfaces. |
-| ✅ **P6 exit** | Competitive features & leapfrogs (multi-release) | ✅ **exit met #81+#82** | **EXIT DONE** — FEAT-7, FEAT-1, FEAT-11 (rewind ✅), FEAT-13 (merge-order ✅ already met). **Long-tail OPEN → WISHLIST:** FEAT-3/8/2/5/6/9/4/10/12/14, ONB-1. | Both named exit leapfrogs shipped; parity surfaces are the next-cycle backlog. |
-| **×** | Cross-cutting (every phase) | within each release | SEC-1, ARCH-2/3/4/5/6/7/8/9, RES-1 | Security re-gate + opportunistic decompositions when touching those files. |
+| ✅ **P6 FULL** | Competitive features & leapfrogs (multi-release) | ✅ **exit #81+#82 + long-tail (v2.0.0)** | **DONE** — FEAT-7, FEAT-1, FEAT-11 (rewind), FEAT-13 (merge-order + badges), **+ long-tail FEAT-2/3/4/5/6/8/9/10/12/14 + ONB-1** all shipped this cycle. | The whole parity surface + both leapfrogs are in v2.0.0. |
+| ✅ **×** | Cross-cutting (every phase) | within v2.0.0 | ✅ ARCH-1, ARCH-6, ARCH-9. **Deferred:** ARCH-2/3/4/5/7/8 (big-bang splits → next cycle), SEC-1 (ongoing), RES-1. | ARCH-1 type-seam + ARCH-6/9 done; the large file/god-function splits held per the DDD small-per-packet rule. |
 | **B** | Blocked / operator-owned (parked) | when unblocked | SV1, SV2, B1, B2, op-0026, op-smokes | Not actionable unblocked — see tail. |
 
 > ¹ **Ships as** = suggested release tag per phase, operator-authorized at ship time (not a commitment). A phase may split across point releases; P6 spans several.
@@ -43,7 +43,7 @@
 ### ▶ P1 — Reliability & correctness spine · ✅ SHIPPED 2026-05-31 (PR #70 · `37f94a0`, untagged)
 **Delivered (13 fixes):** BUG-1 (shared `isPtyCrash` in new dep-free `pty/crash.ts`, both exit paths persist `isCrash`) · BUG-2 (daemon `wireChildIo` drains stdout on both spawn paths) · BUG-3 (sync push-retry full `_pullCycle` reconcile + re-encode — closes a cross-device data-loss window) · BUG-4 (all side-band IPC validated via shared `registerIpcHandler`, incl. destructive `cleanup.*`) · BUG-5/6/7/8 (lifecycle / GC revival / truncated download / quit-persist log) · BUG-13 (dedup `AddAgentToSwarmInput`) · BUG-14 (commitAndMerge behavior tests **+ found & fixed a real HIGH: `git merge --abort` on conflict so the base branch is restored**) · DB-1 (SQLite `quick_check` + quarantine-and-recreate) · ERR-1 (root + per-room error boundaries + renderer error sink) · ARCH-10 (29 stale worktrees swept, 5.8 GB→0).
 **Gate:** `tsc -b` clean · 2000 vitest pass · e2e 9/3-skip · Opus review (no critical/high; the one MEDIUM — launcher DB-status parity — folded). Detail → `CHANGELOG.md` [Unreleased] + master memory.
-**Still owed from P1 scope:** **ARCH-1** — `tsconfig.main.json` so `src/main` is type-checked as Node (split to its own follow-up; expected to surface a latent main-process type-error backlog).
+**ARCH-1 (was owed from P1 scope) ✅ shipped in v2.0.0:** `tsconfig.main.json` type-checks `src/main` as Node (node types, no DOM) in the build references.
 
 ### ▶ P2 — Apple-grade motion & overlays (pillars a, c) · ✅ SHIPPED (PR #72, untagged)
 **Goal:** one cohesive Apple motion language across every overlay, zero native OS modals, theme-correct transient surfaces.
@@ -83,8 +83,8 @@
 - **PERF-1** coalesce `pty:data` (hottest path) + **PERF-11** single-window broadcast. **PERF-3** migrate `useAppState()`→granular selectors (25 components). **PERF-2** gate link-detection. **PERF-4** incremental `sessionsByWorkspace`. **PERF-5** refcounted per-workspace Ruflo-health poll. **PERF-6** batch per-pane git-status. **PERF-8** async disk-scan off the main thread. **PERF-7/9/10/12** (Constellation settle, exit-listener bus, delta re-sort, JSONL bounded read).
 **Exit criteria:** panel sizes persist per workspace across restart; `npm run test:perf` shows reduced jank windows under CPU throttle; no per-pane duplicate Ruflo/git polling; `pty:data` IPC message-rate drops materially under streaming output.
 
-### ▶ P6 — Competitive features & leapfrogs · ✅ EXIT CRITERIA MET (PRs #81 + #82, untagged) · long-tail multi-release
-**Exit criteria (both met):** FEAT-11 agent-rewind reliably restores a worktree to a checkpoint (shipped: per-pane `session_checkpoints` + confirm-gated `git reset --hard` with ancestry/ownership/safety-checkpoint guards); FEAT-13 merge-order merges N panes conflict-aware without touching base on conflict (already met by `OrchestratorPanel` + `proposeMergeOrder` + `batchCommitAndMerge` + the BUG-14 abort). **Also shipped:** FEAT-7 per-agent identity, FEAT-1 resume-agents modal. **Long-tail → WISHLIST (next cycle):** FEAT-3 (usage/cost data layer), FEAT-8 (git heatmap), FEAT-2/5/6/9/4/10/12/14, ONB-1, auto-checkpoint-on-dispatch, FEAT-13 badge polish. Detail → `CHANGELOG.md`.
+### ▶ P6 — Competitive features & leapfrogs · ✅ FULLY SHIPPED in v2.0.0 (exit #81+#82 + long-tail this cycle, untagged)
+**Exit criteria (both met):** FEAT-11 agent-rewind reliably restores a worktree to a checkpoint (per-pane `session_checkpoints` + confirm-gated `git reset --hard` with ancestry/ownership/safety-checkpoint guards; **+ auto-checkpoint-on-dispatch** so a restore point always exists); FEAT-13 merge-order merges N panes conflict-aware without touching base on conflict (`OrchestratorPanel` + `proposeMergeOrder` + `batchCommitAndMerge` + the BUG-14 abort; **+ conflict-probability badges**). **Also shipped (exit rounds):** FEAT-7 per-agent identity, FEAT-1 resume-agents modal. **Long-tail — ALL SHIPPED this cycle (v2.0.0):** FEAT-3 (usage/cost ledger), FEAT-8 (git heatmap), FEAT-2 (context sidebar), FEAT-5 (MCP diagnostics), FEAT-6 (phase tree), FEAT-9 (chat search/pin), FEAT-4 (prompt cards), FEAT-10 (presets), FEAT-12 (drag affordance), FEAT-14 (effort control), ONB-1 (tour + settings search). Detail → `CHANGELOG.md` [2.0.0].
 **Goal:** close v3.0.74 parity and ship the worktree-only differentiators a shared-dir competitor can't match.
 **Deliverables:** per-feature increments — resume modal, per-pane usage/cost, per-agent identity, agent rewind, merge-orchestration UI, MCP diagnostics, swarm phase tree, etc. Each non-trivial feature (FEAT-4/6/11/13) gets its own spec before build.
 **Work (priority — leapfrogs first):**
@@ -93,8 +93,8 @@
 **Exit criteria:** each feature ships behind its own acceptance test; specifically — rewind reliably restores a worktree to a prior checkpoint, and the merge-order action merges N panes conflict-aware without touching the base branch on conflict.
 
 ### ▶ × Cross-cutting (apply within every phase)
-- **SEC-1** phase security re-gate — daily-note digest + Ruflo-pattern rendering + sound assets reopen H-19-class surfaces; run snitch/semgrep + Opus review on each phase that adds ingestion/render.
-- **Decompositions (opportunistic, when already touching the file):** ARCH-2 (rpc-router 2101 → controllers + side-band maps), ARCH-3 (router-shape split), ARCH-4 (VoiceTab), ARCH-5 (assistant controller/tools), ARCH-9 (RPC output validation wave). **ARCH-6** delete dead `core/voice/whisper-engine.ts`; **ARCH-7** consolidate voice-stats/model-registry; **ARCH-8** `swarm`/`swarms` namespace clarity.
+- **SEC-1** phase security re-gate — daily-note digest + Ruflo-pattern rendering + sound assets reopen H-19-class surfaces; run snitch/semgrep + Opus review on each phase that adds ingestion/render. (Ongoing; the P4.2 digest went through `scanIngested`.)
+- **Decompositions:** ✅ **ARCH-1** (main-process tsconfig), ✅ **ARCH-6** (deleted dead `core/voice/whisper-engine.ts`), ✅ **ARCH-9** (RPC output-validation wave) shipped in v2.0.0. **Deferred → next cycle** (big-bang splits held per the DDD small-per-packet rule, not at release-eve): ARCH-2 (rpc-router 2101 → controllers + side-band maps), ARCH-3 (router-shape split), ARCH-4 (VoiceTab split), ARCH-5 (assistant controller/tools), ARCH-7 (consolidate voice-stats/model-registry), ARCH-8 (`swarm`/`swarms` namespace clarity).
 - **RES-1** provision whisper GGML / auto-subs before the next competitor-video review.
 
 ---
