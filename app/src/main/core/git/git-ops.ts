@@ -432,8 +432,9 @@ export async function mergePreview(
 /**
  * P6 FEAT-11 — agent undo/rewind. Create a checkpoint: a commit that captures
  * the worktree's current WIP as a reversible savepoint on the pane's own
- * throwaway branch. The branch squash/merges later via `commitAndMerge`, so an
- * extra commit here is harmless.
+ * throwaway branch. `commitAndMerge` merges that branch with `--no-ff`, so
+ * checkpoint commits DO enter the merged history (review NIT-2) — harmless to
+ * correctness (final tree is right, conflicts still abort cleanly), just noise.
  *
  * Implementation:
  *   1. `fs.existsSync` guard (worktree may have been pruned).
@@ -499,6 +500,12 @@ export async function restoreCheckpoint(
 ): Promise<{ ok: boolean; safetySha?: string; error?: string }> {
   if (!fs.existsSync(worktreePath)) {
     return { ok: false, error: 'worktree path missing' };
+  }
+  // 0) Hard sha-format guard (review NIT-1) — defends the `reset --hard <sha>`
+  //    argv against a `-`-prefixed value being parsed as a flag, even if a
+  //    future non-`rev-parse` insert path ever feeds the checkpoint table.
+  if (!/^[0-9a-f]{7,64}$/.test(sha)) {
+    return { ok: false, error: 'invalid checkpoint sha' };
   }
 
   // 1) Validate the sha is a real commit object in this worktree.

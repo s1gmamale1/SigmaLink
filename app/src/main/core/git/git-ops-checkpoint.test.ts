@@ -108,23 +108,23 @@ describe('restoreCheckpoint', () => {
       .mockResolvedValueOnce(res('safetysha000\n', { code: 0 })) // rev-parse
       .mockResolvedValueOnce(res('', { code: 0 })); // reset --hard
 
-    const out = await restoreCheckpoint('/wt', 'targetsha');
+    const out = await restoreCheckpoint('/wt', 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0');
     expect(out).toEqual({ ok: true, safetySha: 'safetysha000' });
 
     // ORDER: validation (0,1) → safety checkpoint (2,3,4) → reset (5)
-    expect(argsOf(0)).toEqual(['cat-file', '-e', 'targetsha^{commit}']);
-    expect(argsOf(1)).toEqual(['merge-base', '--is-ancestor', 'targetsha', 'HEAD']);
+    expect(argsOf(0)).toEqual(['cat-file', '-e', 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0^{commit}']);
+    expect(argsOf(1)).toEqual(['merge-base', '--is-ancestor', 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', 'HEAD']);
     expect(argsOf(2)).toEqual(['add', '-A']);
     expect(argsOf(3)[0]).toBe('commit'); // safety commit
     expect(argsOf(3)[argsOf(3).length - 1]).toContain('pre-rewind');
-    expect(argsOf(5)).toEqual(['reset', '--hard', 'targetsha']);
+    expect(argsOf(5)).toEqual(['reset', '--hard', 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0']);
     // reset is the LAST call — destructive op happens after the snapshot.
     expect(mockExecCmd).toHaveBeenCalledTimes(6);
   });
 
   it('rejects a sha that is not a commit object (no reset, no safety commit)', async () => {
     mockExecCmd.mockResolvedValueOnce(res('', { code: 1 })); // cat-file -e fails
-    const out = await restoreCheckpoint('/wt', 'bogus');
+    const out = await restoreCheckpoint('/wt', 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef');
     expect(out.ok).toBe(false);
     expect(out.error).toMatch(/not found/);
     // Only the validation call ran — nothing destructive.
@@ -135,7 +135,7 @@ describe('restoreCheckpoint', () => {
     mockExecCmd
       .mockResolvedValueOnce(res('', { code: 0 })) // cat-file -e ok
       .mockResolvedValueOnce(res('', { code: 1 })); // not an ancestor
-    const out = await restoreCheckpoint('/wt', 'foreignsha');
+    const out = await restoreCheckpoint('/wt', 'feedfacefeedfacefeedfacefeedfacefeedface');
     expect(out.ok).toBe(false);
     expect(out.error).toMatch(/ancestor/);
     expect(mockExecCmd).toHaveBeenCalledTimes(2);
@@ -152,7 +152,7 @@ describe('restoreCheckpoint', () => {
       .mockResolvedValueOnce(res('', { code: 0 })) // commit
       .mockResolvedValueOnce(res('safetysha\n', { code: 0 })) // rev-parse
       .mockResolvedValueOnce(res('', { code: 1, stderr: 'reset boom' })); // reset fails
-    const out = await restoreCheckpoint('/wt', 'targetsha');
+    const out = await restoreCheckpoint('/wt', 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0');
     expect(out.ok).toBe(false);
     expect(out.safetySha).toBe('safetysha'); // still recoverable
     expect(out.error).toMatch(/reset failed/);
@@ -164,7 +164,7 @@ describe('restoreCheckpoint', () => {
       .mockResolvedValueOnce(res('', { code: 0 })) // ancestor
       .mockResolvedValueOnce(res('', { code: 0 })) // add
       .mockResolvedValueOnce(res('', { code: 1, stderr: 'commit fail' })); // safety commit fails
-    const out = await restoreCheckpoint('/wt', 'targetsha');
+    const out = await restoreCheckpoint('/wt', 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0');
     expect(out.ok).toBe(false);
     expect(out.error).toMatch(/safety checkpoint failed/);
     // reset --hard never ran.
