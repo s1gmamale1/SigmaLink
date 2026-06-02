@@ -361,7 +361,9 @@ export function listTags(workspaceId: string): Array<{ tag: string; count: numbe
     .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
 }
 
-/** MEM-3 — notes carrying `tag` (most-recently-updated first). */
+/** MEM-3 — notes carrying `tag` (most-recently-updated first). Exposed as a typed
+ *  RPC for MCP/agent use + future server-side filtering of large vaults; the live
+ *  Tags-pane filter is client-side over the already-loaded note set (review L2). */
 export function listByTag(workspaceId: string, tag: string): MemoryRowJoined[] {
   return listMemoryRows(workspaceId)
     .filter((m) => m.tags.includes(tag))
