@@ -98,18 +98,30 @@ async function loadPrefs(): Promise<SoundPrefsSnapshot> {
     kv(KV_LEGACY_SOUND),
   ]);
 
-  const muted = parseMutedCues(mutedRaw);
-  // Honor the legacy v1.13 toggles so existing user prefs don't silently flip on.
-  if (dingRaw === '0') muted.add('agent-done');
-  if (soundRaw === '0') {
-    muted.add('notify-info');
-    muted.add('notify-warn');
-    muted.add('notify-error');
+  // The `sound.mutedCues` array is the source of truth. The legacy v1.13
+  // toggles are migrated in ONLY on first run (before the new matrix has ever
+  // been persisted), so existing "sound off" prefs are honored — without
+  // letting a shared legacy key (KV_LEGACY_SOUND backs THREE notify-* cues)
+  // clobber later per-cue edits.
+  let muted: Set<SoundCue>;
+  if (mutedRaw === null) {
+    muted = new Set();
+    if (dingRaw === '0') muted.add('agent-done');
+    if (soundRaw === '0') {
+      muted.add('notify-info');
+      muted.add('notify-warn');
+      muted.add('notify-error');
+    }
+  } else {
+    muted = parseMutedCues(mutedRaw);
   }
 
   const snapshot: SoundPrefsSnapshot = {
     enabled: enabledRaw === null || enabledRaw === undefined ? true : enabledRaw !== '0',
-    volume: volRaw === null ? DEFAULT_SOUND_VOLUME : clampVolume(Number(volRaw)),
+    volume:
+      volRaw === null || volRaw === '' || !Number.isFinite(Number(volRaw))
+        ? DEFAULT_SOUND_VOLUME
+        : clampVolume(Number(volRaw)),
     mutedCues: muted,
     prefs: {
       dnd: dndRaw === '1',
@@ -243,9 +255,12 @@ export async function setCueMuted(cue: SoundCue, muted: boolean): Promise<void> 
   invalidateSoundPrefsCache();
   try {
     await rpcSilent.kv.set(KV_SOUND_MUTED, JSON.stringify([...current]));
-    const def = cueDef(cue);
-    if (def?.legacyKey) {
-      await rpcSilent.kv.set(def.legacyKey, muted ? '0' : '1');
+    // Keep ONLY the 1:1 legacy ding toggle in sync (so getDingEnabled + the
+    // Jorvis chime agree). KV_LEGACY_SOUND backs three cues, so writing it from
+    // a single-cue toggle would clobber its siblings — it stays read-only and
+    // only seeds the first-run migration in loadPrefs.
+    if (cue === 'agent-done') {
+      await rpcSilent.kv.set(KV_LEGACY_DING, muted ? '0' : '1');
     }
   } catch {
     /* best-effort */
