@@ -26,10 +26,10 @@ const APP_SIDEBAR_MAX = 480;
 // state aren't lost on first run after the migration to per-workspace keying.
 const APP_SIDEBAR_LEGACY_WIDTH_KEY = 'app.sidebar.width';
 const APP_SIDEBAR_LEGACY_COLLAPSED_KEY = 'app.sidebar.collapsed';
-// Per-workspace panel ids (combined with the active workspace id into
-// `ui.<wsId>.<panel>` by workspace-ui-kv).
+// Per-workspace panel id (combined with the active workspace id into
+// `ui.<wsId>.<panel>` by workspace-ui-kv). Only the WIDTH is per-workspace;
+// collapse stays a global preference (see setCollapsed / session-restore).
 const SIDEBAR_WIDTH_PANEL = 'sidebar.width';
-const SIDEBAR_COLLAPSED_PANEL = 'sidebar.collapsed';
 
 export function Sidebar() {
   // V1.1.10 perf — slice subscriptions instead of full AppState. Sidebar
@@ -166,12 +166,10 @@ export function Sidebar() {
 
   function setCollapsed(next: boolean) {
     dispatch({ type: 'SET_SIDEBAR_COLLAPSED', collapsed: next });
-    const str = next ? '1' : '0';
-    if (wsId) {
-      void writeWorkspaceUi(wsId, SIDEBAR_COLLAPSED_PANEL, str);
-    } else {
-      void rpc.kv.set(APP_SIDEBAR_LEGACY_COLLAPSED_KEY, str).catch(() => undefined);
-    }
+    // review M1 — collapse is a GLOBAL preference: session-restore reads
+    // `app.sidebar.collapsed` on boot to seed BOOT_UI. (Only the WIDTH is
+    // per-workspace.) Always write the global key so collapse survives restart.
+    void rpc.kv.set(APP_SIDEBAR_LEGACY_COLLAPSED_KEY, next ? '1' : '0').catch(() => undefined);
   }
 
   async function openPersistedWorkspace(ws: Workspace) {
