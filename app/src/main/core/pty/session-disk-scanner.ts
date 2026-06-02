@@ -324,15 +324,24 @@ async function defaultOpencodeRunner(cwd: string): Promise<string> {
 
 /** Read the first line of a JSONL file; returns '' on any error. */
 function readFirstLine(filePath: string): string {
+  let fd: number | undefined;
   try {
-    const fd = fs.openSync(filePath, 'r');
+    fd = fs.openSync(filePath, 'r');
     const buf = Buffer.alloc(4096);
     const n = fs.readSync(fd, buf, 0, 4096, 0);
-    fs.closeSync(fd);
     const raw = buf.slice(0, n).toString('utf8');
     return raw.split('\n')[0] ?? '';
   } catch {
     return '';
+  } finally {
+    // review #3 — close even when readSync throws (no fd leak).
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* already closed / invalid fd */
+      }
+    }
   }
 }
 
@@ -349,11 +358,11 @@ function readFirstLine(filePath: string): string {
  * preview gracefully (mtime/createdAt fallbacks already cover the rest).
  */
 function readHeadLines(filePath: string, maxBytes: number): string[] {
+  let fd: number | undefined;
   try {
-    const fd = fs.openSync(filePath, 'r');
+    fd = fs.openSync(filePath, 'r');
     const buf = Buffer.alloc(maxBytes);
     const n = fs.readSync(fd, buf, 0, maxBytes, 0);
-    fs.closeSync(fd);
     const lines = buf.slice(0, n).toString('utf8').split('\n');
     // Drop the trailing (possibly truncated) partial line — but only when we
     // actually hit the cap. If the whole file fit in `maxBytes` the last line
@@ -362,6 +371,15 @@ function readHeadLines(filePath: string, maxBytes: number): string[] {
     return lines;
   } catch {
     return [];
+  } finally {
+    // review #3 — close even when readSync throws (no fd leak).
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* already closed / invalid fd */
+      }
+    }
   }
 }
 

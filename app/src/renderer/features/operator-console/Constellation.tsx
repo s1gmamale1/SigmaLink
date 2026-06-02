@@ -121,6 +121,9 @@ export function Constellation({
   // handlers can restart a slept loop without depending on render order. On
   // first render it's a no-op (the effect installs the real one).
   const wakeRef = useRef<() => void>(() => undefined);
+  // PERF-7 review #2 — latest `draw`, assigned each render below; the RAF loop
+  // calls through this ref so a hoverId change repaints with a fresh closure.
+  const drawRef = useRef<(ctx: CanvasRenderingContext2D) => void>(() => undefined);
   const [hoverId, setHoverId] = useState<string | null>(null);
 
   // ── Edges (Coordinator → assignees) ─────────────────────────────────────
@@ -201,6 +204,10 @@ export function Constellation({
           }
         }
         if (layout.viewport) viewportRef.current = layout.viewport;
+        // PERF-7 review #1 — the loop may have already settled+slept before this
+        // async kv read resolved; wake it so the restored positions/viewport get
+        // painted instead of leaving the default seed scatter on screen.
+        wakeRef.current?.();
       } catch {
         /* no layout yet — physics seeds from defaults */
       }
@@ -270,14 +277,14 @@ export function Constellation({
         step();
       }
       step(); // at least one settling pass even for a zero-velocity layout
-      draw(ctx);
+      drawRef.current(ctx);
       let reducedRaf = 0;
       wakeRef.current = () => {
         if (reducedRaf) return; // a wake is already scheduled
         reducedRaf = requestAnimationFrame(() => {
           reducedRaf = 0;
           step();
-          draw(ctx);
+          drawRef.current(ctx);
         });
       };
       return () => {
@@ -302,7 +309,7 @@ export function Constellation({
 
     const tick = () => {
       step();
-      draw(ctx);
+      drawRef.current(ctx);
       // PERF-7 — energy-based settle detection. A live drag (node or pan) keeps
       // the loop awake regardless of energy so the cursor stays responsive.
       const dragging = !!dragNodeRef.current || !!dragPanRef.current;
@@ -502,6 +509,14 @@ export function Constellation({
     },
     [edges, filter, hoverId, idIndex],
   );
+  // PERF-7 review #2 — keep `drawRef` (declared up top with the other refs)
+  // pointing at the latest `draw`, so the RAF loop (which captured `draw` at
+  // effect-creation time) repaints through the current closure after a hoverId
+  // change instead of a stale one. Assigned in an effect (not during render) to
+  // satisfy react-hooks/refs; the next RAF frame picks it up.
+  useEffect(() => {
+    drawRef.current = draw;
+  }, [draw]);
 
   // ── Hit testing in world coordinates ───────────────────────────────────
   const screenToWorld = useCallback(
