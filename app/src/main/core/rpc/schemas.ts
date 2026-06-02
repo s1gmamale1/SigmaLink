@@ -179,6 +179,43 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       failed: z.number().int().nonnegative(),
     }),
   },
+  // P6 FEAT-1 — on-demand subset relaunch. Handler is
+  // `resumeSelected(workspaceId, sessionIds)`. The validator only sees the
+  // FIRST positional arg, so we bound `workspaceId` here (matching the
+  // `panes.resume` workspaceId schema); `sessionIds` is the 2nd positional and
+  // out of reach of the single-arg validator — the controller filters it to
+  // non-empty string ids before passing it to the resume launcher. Output
+  // mirrors `PaneResumeResult` (same shape as `panes.resume`).
+  'panes.resumeSelected': {
+    input: z.string().min(1), // workspaceId
+    output: z.object({
+      workspaceId: z.string(),
+      resumed: z.array(
+        z.object({
+          sessionId: z.string(),
+          providerId: z.string(),
+          providerEffective: z.string(),
+          externalSessionId: z.string(),
+          pid: z.number().int(),
+        }),
+      ),
+      failed: z.array(
+        z.object({
+          sessionId: z.string(),
+          providerId: z.string(),
+          externalSessionId: z.string(),
+          error: z.string(),
+        }),
+      ),
+      skipped: z.array(
+        z.object({
+          sessionId: z.string(),
+          providerId: z.string(),
+          reason: z.string(),
+        }),
+      ),
+    }),
+  },
   // v1.3.0 — Session picker: list provider sessions for a cwd.
   'panes.listSessions': {
     input: z.object({

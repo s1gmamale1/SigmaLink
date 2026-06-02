@@ -382,9 +382,19 @@ export async function respawnFailedWorkspacePanes(
   return { workspaceId, spawned, failed };
 }
 
+/**
+ * P6 FEAT-1 — optional subset allowlist for an on-demand "Resume agents…"
+ * relaunch. When `sessionIds` is provided, only the eligible rows whose `id`
+ * appears in the set are resumed; every other eligible row is left untouched
+ * (NOT marked skipped — it is simply out of scope for this relaunch). When
+ * `sessionIds` is omitted (the default — including the boot auto-resume path),
+ * EVERY eligible row resumes exactly as before, so existing behaviour is
+ * unchanged. An empty `sessionIds` array resumes nothing.
+ */
 export async function resumeWorkspacePanes(
   workspaceId: string,
   deps: ResumeLauncherDeps,
+  sessionIds?: string[],
 ): Promise<PaneResumeResult> {
   const db = deps.db ?? await getDefaultRawDb();
   const now = deps.now ?? Date.now;
@@ -397,8 +407,13 @@ export async function resumeWorkspacePanes(
     skipped: [],
   };
 
+  // P6 FEAT-1 — when a subset is supplied, gate the eligible-row loop on
+  // membership. `undefined` ⇒ resume all eligible (boot/full behaviour).
+  const subset = sessionIds ? new Set(sessionIds) : null;
+
   const rows = listEligibleRows(db, workspaceId);
   for (const row of rows) {
+    if (subset && !subset.has(row.id)) continue;
     const live = deps.pty.get(row.id);
     if (live?.alive) {
       result.skipped.push({

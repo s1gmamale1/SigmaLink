@@ -165,6 +165,17 @@ export interface AppRouter {
       workspaceId: string,
     ) => Promise<{ workspaceId: string; spawned: number; failed: number }>;
     /**
+     * P6 FEAT-1 — on-demand subset relaunch. Resumes ONLY the eligible panes
+     * whose session id appears in `sessionIds` (every other pane is left
+     * untouched), returning the same `PaneResumeResult` as `resume`. Additive:
+     * the boot auto-resume path still calls `resume(workspaceId)` for the full
+     * set; this is the renderer-triggered "Resume agents…" picker.
+     */
+    resumeSelected: (
+      workspaceId: string,
+      sessionIds: string[],
+    ) => Promise<PaneResumeResult>;
+    /**
      * v1.3.0 — Session picker: list all provider sessions associated with
      * `cwd`, sorted by `updatedAt` DESC and capped at `maxCount` (default 50).
      * Never throws — returns empty array on unknown provider or no matches.

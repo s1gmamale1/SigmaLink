@@ -502,6 +502,119 @@ describe('resumeWorkspacePanes', () => {
   });
 });
 
+// ── P6 FEAT-1: subset-aware resume (sessionIds allowlist) ──────────────────
+// resumeWorkspacePanes accepts an optional `sessionIds` allowlist. When
+// provided, only the eligible rows whose id is in the set are resumed; the
+// boot path (and every existing call) omits it for full behaviour.
+
+describe('resumeWorkspacePanes — P6 FEAT-1 subset allowlist', () => {
+  function makeFanResolve(
+    calls: Array<{ sessionId?: string; args: string[] }>,
+  ): NonNullable<ResumeLauncherDeps['resolve']> {
+    return (_deps, opts) => {
+      calls.push({ sessionId: opts.sessionId, args: opts.extraArgs ?? [] });
+      return {
+        ptySession: makeSession(opts.sessionId ?? 'new-id', opts.providerId),
+        providerRequested: opts.providerId,
+        providerEffective: 'claude',
+        commandUsed: 'claude',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+      };
+    };
+  }
+
+  it('with sessionIds provided, resumes ONLY the allowlisted rows', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, { id: 'sess-a', started_at: 100 });
+    insertSession(rows, { id: 'sess-b', started_at: 200 });
+    insertSession(rows, { id: 'sess-c', started_at: 300 });
+    const calls: Array<{ sessionId?: string; args: string[] }> = [];
+
+    const result = await resumeWorkspacePanes(
+      'ws-1',
+      {
+        pty: { get: () => undefined } as unknown as PtyRegistry,
+        db,
+        claudeHomeDir: makeClaudeHome(),
+        getProvider: () => claudeProvider,
+        resolve: makeFanResolve(calls),
+      },
+      ['sess-b'],
+    );
+
+    expect(result.resumed.map((r) => r.sessionId)).toEqual(['sess-b']);
+    expect(calls.map((c) => c.sessionId)).toEqual(['sess-b']);
+    // The non-selected rows are untouched: still 'running', not re-spawned.
+    expect(rows.find((r) => r.id === 'sess-a')?.status).toBe('running');
+    expect(rows.find((r) => r.id === 'sess-c')?.status).toBe('running');
+  });
+
+  it('without sessionIds, resumes ALL eligible rows (boot behaviour unchanged)', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, { id: 'sess-a', started_at: 100 });
+    insertSession(rows, { id: 'sess-b', started_at: 200 });
+    const calls: Array<{ sessionId?: string; args: string[] }> = [];
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: { get: () => undefined } as unknown as PtyRegistry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => claudeProvider,
+      resolve: makeFanResolve(calls),
+    });
+
+    expect(result.resumed.map((r) => r.sessionId).sort()).toEqual([
+      'sess-a',
+      'sess-b',
+    ]);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('an empty sessionIds array resumes nothing', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, { id: 'sess-a', started_at: 100 });
+    const calls: Array<{ sessionId?: string; args: string[] }> = [];
+
+    const result = await resumeWorkspacePanes(
+      'ws-1',
+      {
+        pty: { get: () => undefined } as unknown as PtyRegistry,
+        db,
+        claudeHomeDir: makeClaudeHome(),
+        getProvider: () => claudeProvider,
+        resolve: makeFanResolve(calls),
+      },
+      [],
+    );
+
+    expect(result.resumed).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+    expect(rows[0]?.status).toBe('running');
+  });
+
+  it('ignores ids that are not eligible rows', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, { id: 'sess-a', started_at: 100 });
+    const calls: Array<{ sessionId?: string; args: string[] }> = [];
+
+    const result = await resumeWorkspacePanes(
+      'ws-1',
+      {
+        pty: { get: () => undefined } as unknown as PtyRegistry,
+        db,
+        claudeHomeDir: makeClaudeHome(),
+        getProvider: () => claudeProvider,
+        resolve: makeFanResolve(calls),
+      },
+      ['sess-a', 'sess-does-not-exist'],
+    );
+
+    expect(result.resumed.map((r) => r.sessionId)).toEqual(['sess-a']);
+    expect(calls).toHaveLength(1);
+  });
+});
+
 // ── A3: resume re-applies persisted auto_approve ──────────────────────────
 // SF-8 Yolo/Bypass — resumeWorkspacePanes must read `auto_approve` from the
 // agent_sessions row and pass `autoApprove: row.autoApprove === 1` to

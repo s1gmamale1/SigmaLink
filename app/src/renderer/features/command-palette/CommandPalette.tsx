@@ -17,6 +17,7 @@ import {
   Network,
   Palette,
   Power,
+  RotateCw,
   Settings as SettingsIcon,
   Skull,
   Sparkles,
@@ -35,6 +36,7 @@ import {
   CommandSeparator,
 } from '@/components/ui/command';
 import { PromptDialog } from '@/components/ui/prompt-dialog';
+import { RelaunchResumeModal } from '@/renderer/features/workspace-launcher/RelaunchResumeModal';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector, type RoomId } from '@/renderer/app/state';
 import { useTheme } from '@/renderer/app/ThemeProvider';
@@ -149,6 +151,11 @@ export function CommandPalette() {
     | { kind: 'review'; sessionId: string }
     | null
   >(null);
+
+  // P6 FEAT-1 — controlled open state for the on-demand "Resume agents…"
+  // relaunch modal. The command closes the palette and opens this; the modal
+  // resolves the active workspace's panes itself.
+  const [relaunchOpen, setRelaunchOpen] = useState(false);
 
   const runMemoryCreate = useCallback(
     (workspaceId: string, name: string) => {
@@ -418,6 +425,21 @@ export function CommandPalette() {
       },
     });
 
+    // P6 FEAT-1 — on-demand subset relaunch of the active workspace's agents.
+    // Disabled when no workspace is active; opening the modal lists the panes.
+    list.push({
+      id: 'panes:resume-selected',
+      label: 'Resume agents…',
+      group: 'Actions',
+      icon: RotateCw,
+      disabled: !wsId,
+      run: () => {
+        if (!wsId) return;
+        setOpen(false);
+        setRelaunchOpen(true);
+      },
+    });
+
     list.push({
       id: 'skill:ingest',
       label: 'Ingest a skill folder…',
@@ -575,6 +597,14 @@ export function CommandPalette() {
       onConfirm={(cmd) => {
         if (prompt?.kind === 'review') runReviewCommand(prompt.sessionId, cmd);
       }}
+    />
+    {/* P6 FEAT-1 — on-demand "Resume agents…" relaunch modal, controlled by the
+        palette. Mounted here so the palette owns its open state; it resolves
+        the active workspace's panes on open. */}
+    <RelaunchResumeModal
+      open={relaunchOpen}
+      onOpenChange={setRelaunchOpen}
+      workspaceId={activeWorkspaceId}
     />
     </>
   );
