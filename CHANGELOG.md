@@ -2,7 +2,36 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
-## [Unreleased]
+## [2.0.0] — release-staged 2026-06-03 · **UNTAGGED** (pending operator authorization + owed live smokes)
+
+**v2.0.0 bundles the entire 6-phase next-phase ROADMAP _and_ its full long-tail into one major release.** Everything below this header is on `main`, untagged. The major bump reflects the scope: a reliability spine (P1), one Apple motion language (P2), the notification + soundscape system (P3), the **headline obsidian-grade memory with Ruflo AgentDB surfaced as a graph node class** (P4), the responsiveness/perf pass (P5), and the **complete competitive-parity surface + both worktree leapfrogs** (P6 + long-tail) — plus the ARCH-1 main-process type-check seam and the ARCH-6/9 decompositions.
+
+> **Operator-owned before the tag** (CI cannot run these): DB-2 backup → restore → identical-state round-trip (no vitest coverage — better-sqlite3 ABI); `npm run test:perf` jank-delta + `pty:data` IPC-rate live measurement; FEAT-11 rewind on a real worktree; responsive resize/collapse feel. The tag itself is a separate operator step (`sigmalink-release`).
+>
+> **Deferred to the next cycle (in `WISHLIST.md`):** Resizable-shell **Strategy B** (rail/main px→% — regression risk at release-eve), **ARCH-2/3/4/5/7/8** (large god-function/file splits — big-bang refactors held per the DDD small-per-packet rule), **MEM-7 fence-awareness** (skip fenced-code when scanning unlinked mentions — M2 polish). Plus the standing Blocked/operator-owned set (SV1/SV2, win32 dogfood, voice-native, migration `0026`).
+
+### Added — ROADMAP P6 long-tail: full competitive-parity surface (this cycle; FEAT-2/3/4/5/6/8/9/10/12/14 + ONB-1)
+
+The remainder of the multi-release P6 — every parity surface from the competitor review, built lead-foundation + file-disjoint worktree lanes + Opus review per cycle.
+
+- **Observability (Cycle 2):** **FEAT-3** per-pane usage/cost — a `core/usage/{dao,controller}.ts` ledger (migration `0029_usage_ledger`) tallies tokens/cost per session+week per model → a `UsagePopover` with week budget bars. **FEAT-5** MCP-config diagnostics (`core/workspaces/mcp-diagnostic.ts` → `McpServersTab` flags scope conflicts / missing servers). **FEAT-6** `SwarmPhaseTree` (fan-out → status rows, click-to-focus the owning pane). **FEAT-8** per-worktree git-activity heatmap (`git-ops.gitActivityLog` + `use-git-activity-poll` → `GitActivityStrip` churn sparkline). **FEAT-2** focused-pane Context/MCP/LSP `PaneContextSidebar`.
+- **Interaction & polish (Cycle 3):** **FEAT-4** interactive in-terminal prompt cards — a `SIGMA::PROMPT` stream protocol verb → `PromptCard` overlay that writes the answer back to stdin (control-char-sanitized). **FEAT-9** swarm-chat search / filter / pinned messages. **FEAT-10** launch + roster-distribution presets. **FEAT-12** discoverable drag-grip on `PaneHeader` + animated composer drop-zone + first-use coachmark. **FEAT-14** compact per-pane effort control (single calm surface — never the all-panes purple glow). **FEAT-13** merge-order conflict-probability badges on `OrchestratorPanel` (the exit criterion was already met; this is the named badge polish).
+- **ONB-1 — first-run tour + discoverability (Cycle 7):** an optional, skippable **Feature Spotlight** (Memory / Swarm / Voice / ⌘K) after onboarding (gated on `uiBoot && onboarded && coachmark-loaded && !seen` — Opus-review C1 closed a fresh-install boot race), a **What's-New** modal on version bump (`use-whats-new`), a **Settings search field** + first-still-visible-tab fallback (the Settings `Tabs` became controlled), and empty-state CTAs across Command/Swarm/Memory/Tasks rooms.
+  - *Fix (CI for #90):* making the Settings `Tabs` `flex-wrap` over a fixed-height shadcn pill pushed the last triggers (Diagnostics/Sync) out of the list box and under the content area → un-clickable on both OSes. Fixed with `h-auto gap-1` on the list + `h-7 flex-none` per trigger (tailwind-merge overrides the base `flex-1`/height). The e2e spotlight dismissal was also made deterministic (wait-for-dialog → Escape → wait-hidden) since the modal opens asynchronously.
+
+### Added — ROADMAP P4.2 obsidian-memory follow-ups + auto-checkpoint (Cycle 4)
+
+- **MEM-5 aliases** (`aliases_json` column, migration `0030_memory_aliases`; resolved through an alias map in search + wikilinks). **MEM-7 unlinked mentions** (`find_unlinked_mentions` scan over the index token map; one-click promote to a real link — *fence-aware skipping deferred to M2*). **MEM-8 note templates**. **MEM-9 properties/outline** (`PropertiesPanel` over the BUG-10 `frontmatter_json` + `OutlineRail`; gated read-only to flat frontmatter so rich YAML can't be lossily round-tripped — Opus-review H1). **PERF-14 FTS5** (`memories_fts` virtual table, migration `0031_memory_fts5` + `sanitizeFtsQuery`). **Ruflo causal edges** rendered in the graph (`Promise.allSettled` over the daemon read-API). **Global ⌘O** quick-switcher from any room. **Daily-note agent-activity digest** (`agent-digest` + `daily-scheduler` + `digest-builder` — appends the day's swarm/merge/crash events to the daily note).
+- **auto-checkpoint-on-dispatch** (FEAT-11 fast-follow) — a pre-turn worktree checkpoint is taken automatically on pane spawn / swarm spawn (`launcher.ts` + `factory-spawn.ts`) so Rewind always has a restore point.
+
+### Changed — ROADMAP P5.2 responsiveness & perf follow-ups (Cycle 5)
+
+- **Shared density scale** (`--space-scale` tokens + `applyDensity`; comfortable / compact / cozy in AppearanceTab). **PERF-7** Constellation force-sim sleeps on settle (kinetic-energy threshold + hydration-wake). **PERF-8** async disk-scan (`fs.promises`, 32 KiB head cap, fd-leak `finally`). **PERF-9** generic per-session `pty-exit-bus` (consolidates the per-terminal exit listeners). **PERF-12** bounded JSONL first-line read on the resume picker. New `min-window.spec.ts` asserts the reachable compact-collapse breakpoint (the rail-collapse at <900px is unreachable under the `minWidth:1024` window clamp → noted).
+
+### Changed — Architecture (ARCH-1 type seam · ARCH-6/9 decompositions)
+
+- **ARCH-1** — `tsconfig.main.json` type-checks `src/main` as **Node** (node types, no DOM), added to the build references; closes the systemic "main process checked by the renderer config" footgun.
+- **ARCH-6** — deleted the grep-proven-dead `core/voice/whisper-engine.ts` (the live engine is `voice-core`) + inoculated DOMAINS.md. **ARCH-9** — RPC **output**-validation wave: `core/rpc/validate.ts` `validateChannelOutput` (fail-open — drift-detection only, never converts a working response to an error) + 8 typed output schemas (git status/diff, shell result, session checkpoint, fs readdir/readfile, usage summary; `.passthrough()`), wired at the router boundary.
 
 ### Added — ROADMAP P6 competitive features & leapfrogs (rounds 1–2; PRs #81 + #82, untagged)
 
