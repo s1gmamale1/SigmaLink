@@ -311,6 +311,24 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
     }),
     output: any,
   },
+  // P6 FEAT-8 — git-activity heatmap. args[0] is the worktree path; the real
+  // guard is assertAllowedPath in the rpc-router handler (the positional `days`
+  // arg is clamped in git-ops.ts and is not args[0], so not validated here).
+  'git.activityLog': { input: PATH_STR, output: any },
+  // ── usage (P6 FEAT-3) ──────────────────────────────────────────────────
+  'usage.sessionSummary': {
+    input: z.object({ sessionId: z.string().min(1).max(200) }),
+    output: any,
+  },
+  'usage.weekSummary': {
+    input: z.object({ workspaceId: z.string().min(1).max(200) }),
+    output: any,
+  },
+  // ── mcp diagnostics (P6 FEAT-5) ────────────────────────────────────────
+  'mcp.diagnoseWorkspace': {
+    input: z.object({ workspaceId: z.string().min(1).max(200) }),
+    output: any,
+  },
   // ── fs ───────────────────────────────────────────────────────────────
   // H-8 — handler is `exists(p: string)`; first arg is the bare path string
   // (NOT an object — verified against the fsCtl.exists signature).
