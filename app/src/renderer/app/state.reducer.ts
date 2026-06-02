@@ -53,12 +53,122 @@ function groupSessionsByWorkspace(sessions: AgentSession[]): Record<string, Agen
   return grouped;
 }
 
+/**
+ * PERF-4 — incremental regroup of `sessionsByWorkspace`.
+ *
+ * The naive `groupSessionsByWorkspace` rebuilds the WHOLE per-workspace map on
+ * every session mutation, so every workspace's array gets a brand-new identity.
+ * Any component memoised on `sessionsByWorkspace[someOtherWorkspace]` re-renders
+ * even though that workspace's sessions never changed — cross-workspace render
+ * leakage.
+ *
+ * This variant diffs the freshly-grouped result against the previous map and
+ * reuses the previous array reference for any workspace whose session list is
+ * unchanged (same length + same element identities in the same order). When NO
+ * workspace's array changed and the key set is identical, the previous map
+ * reference itself is returned so the top-level `sessionsByWorkspace` identity
+ * is also preserved.
+ *
+ * Correctness note: every reducer action that mutates `sessions` produces a NEW
+ * session object for the affected session (`.map(s => ({...s, …}))`) or a new
+ * array (filter / push), so element-identity comparison is sufficient to detect
+ * "this workspace's slice changed" — an in-place mutation that kept the same
+ * object identity never happens in this reducer.
+ */
+function regroupSessionsByWorkspace(
+  prev: Record<string, AgentSession[]>,
+  sessions: AgentSession[],
+): Record<string, AgentSession[]> {
+  const next = groupSessionsByWorkspace(sessions);
+  let changed = false;
+  for (const wsId of Object.keys(next)) {
+    const prevArr = prev[wsId];
+    const nextArr = next[wsId]!;
+    if (prevArr && sessionArraysEqual(prevArr, nextArr)) {
+      // Untouched workspace — preserve the previous array reference so
+      // identity-based memoisation downstream stays stable.
+      next[wsId] = prevArr;
+    } else {
+      changed = true;
+    }
+  }
+  // A workspace that existed before but has no sessions now (its last pane was
+  // removed) means the key set shrank → the map changed.
+  if (!changed) {
+    for (const wsId of Object.keys(prev)) {
+      if (!(wsId in next)) {
+        changed = true;
+        break;
+      }
+    }
+  }
+  return changed ? next : prev;
+}
+
+/** Reference-identity array equality: same length + same element refs in order. */
+function sessionArraysEqual(a: AgentSession[], b: AgentSession[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 function groupSwarmsByWorkspace(swarms: Swarm[]): Record<string, Swarm[]> {
   const grouped: Record<string, Swarm[]> = {};
   for (const swarm of swarms) {
     (grouped[swarm.workspaceId] ??= []).push(swarm);
   }
   return grouped;
+}
+
+/**
+ * PERF-10 — binary insert into a descending-sorted array.
+ *
+ * The delta reducers (notifications, memory, task) used to rebuild the whole
+ * array per delta via `[newItem, ...rest].sort(...)` — O(n log n) on every
+ * single insert. The arrays are already sorted descending by a numeric key, so
+ * a single insert is an O(log n) position search + one splice.
+ *
+ * `tiePolicy` selects where an item with a key EQUAL to an existing item lands,
+ * to byte-match the prior `Array.prototype.sort` output (V8's sort is stable):
+ *   - 'before' — insert ahead of equal-key items. Matches the memory/task path
+ *     `[newItem, ...sortedRest].sort()` where the new item started at index 0,
+ *     so a stable sort keeps it ahead of equal-key existing items.
+ *   - 'after'  — insert behind equal-key items. Matches the notifications path
+ *     `Array.from(map.values()).sort()` where the (new or re-inserted) item was
+ *     at the END of the pre-sort array, so a stable sort keeps it behind equals.
+ *
+ * Returns a NEW array; the input is not mutated. The newest-first common case
+ * (key ≥ the current head) resolves to index 0 with no comparisons past the
+ * first, i.e. an effective unshift.
+ */
+function insertSortedDesc<T>(
+  sorted: readonly T[],
+  item: T,
+  key: (t: T) => number,
+  tiePolicy: 'before' | 'after',
+): T[] {
+  const itemKey = key(item);
+  let lo = 0;
+  let hi = sorted.length;
+  // Find the insertion index `lo`. The array is descending, so we advance lo
+  // past every element that should stay AHEAD of `item`:
+  //   - 'before' — equals stay behind, so we only skip strictly-greater
+  //     elements → insertion point is the first element with key <= itemKey.
+  //   - 'after'  — equals stay ahead, so we skip greater-or-equal elements →
+  //     insertion point is the first element with key < itemKey.
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    const midKey = key(sorted[mid]!);
+    const stayAhead = tiePolicy === 'before' ? midKey > itemKey : midKey >= itemKey;
+    if (stayAhead) lo = mid + 1;
+    else hi = mid;
+  }
+  const next = sorted.slice();
+  next.splice(lo, 0, item);
+  return next;
 }
 
 /**
@@ -263,7 +373,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         sessions,
-        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
+        sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
         activeSessionId: state.activeSessionId ?? firstLive?.id ?? action.sessions[0]?.id ?? null,
       };
     }
@@ -278,7 +388,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         sessions,
-        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
+        sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
       };
     }
     case 'MARK_SESSION_ERROR': {
@@ -303,7 +413,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         sessions,
-        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
+        sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
       };
     }
     case 'REMOVE_SESSION': {
@@ -324,7 +434,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         sessions,
-        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
+        sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
         activeSessionId,
         focusedPaneId,
       };
@@ -416,14 +526,22 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         memories: { ...state.memories, [action.workspaceId]: action.memories },
       };
     case 'UPSERT_MEMORY': {
+      // PERF-10 — `list` is already sorted descending by updatedAt (every prior
+      // insert kept it so). Filter the upserted id out (it may be moving), then
+      // binary-insert. Tie policy 'before' matches the old `[memory, ...rest]`
+      // -prepend-then-stable-sort, where the new memory led equal-key existing
+      // ones.
       const list = state.memories[action.workspaceId] ?? [];
       const filtered = list.filter((m) => m.id !== action.memory.id);
       return {
         ...state,
         memories: {
           ...state.memories,
-          [action.workspaceId]: [action.memory, ...filtered].sort(
-            (a, b) => b.updatedAt - a.updatedAt,
+          [action.workspaceId]: insertSortedDesc(
+            filtered,
+            action.memory,
+            (m) => m.updatedAt,
+            'before',
           ),
         },
       };
@@ -464,14 +582,20 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         tasks: { ...state.tasks, [action.workspaceId]: action.tasks },
       };
     case 'UPSERT_TASK': {
+      // PERF-10 — same shape as UPSERT_MEMORY: `list` is already descending by
+      // updatedAt; filter the upserted id, then binary-insert with 'before' tie
+      // policy to byte-match the old prepend-then-stable-sort ordering.
       const list = state.tasks[action.task.workspaceId] ?? [];
       const filtered = list.filter((t) => t.id !== action.task.id);
       return {
         ...state,
         tasks: {
           ...state.tasks,
-          [action.task.workspaceId]: [action.task, ...filtered].sort(
-            (a, b) => b.updatedAt - a.updatedAt,
+          [action.task.workspaceId]: insertSortedDesc(
+            filtered,
+            action.task,
+            (t) => t.updatedAt,
+            'before',
           ),
         },
       };
@@ -534,7 +658,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         sessions,
-        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
+        sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
         activeSessionId: child.id,
       };
     }
@@ -545,7 +669,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         sessions,
-        sessionsByWorkspace: groupSessionsByWorkspace(sessions),
+        sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
       };
     }
     case 'SET_NOTIFICATIONS':
@@ -559,6 +683,29 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       // v1.4.9 #07 — main process owns the delta. Upsert by id (added rows
       // may overwrite an absorbing dedup row — same id, updated dup_count /
       // severity / body), then drop any ids in `removed`.
+      //
+      // PERF-10 — `state.notifications` is already sorted newest-first by
+      // createdAt. The overwhelmingly common delta is a SINGLE added row and no
+      // removals; that collapses to one remove-by-id + one binary insert
+      // (O(log n)) instead of rebuilding + full-sorting the whole list. The
+      // 'after' tie policy reproduces the prior `Array.from(map.values())
+      // .sort()` output exactly: the added/re-inserted row sat at the END of the
+      // pre-sort array, so a stable sort left it behind equal-createdAt rows.
+      if (action.removed.length === 0 && action.added.length === 1) {
+        const added = action.added[0]!;
+        const base =
+          state.notifications.some((n) => n.id === added.id)
+            ? state.notifications.filter((n) => n.id !== added.id)
+            : state.notifications;
+        const merged = insertSortedDesc(base, added, (n) => n.createdAt, 'after');
+        return {
+          ...state,
+          notifications: merged,
+          notificationsUnreadCount: action.unreadCount,
+        };
+      }
+      // Fallback for batched / mixed deltas (multiple adds, removals, or
+      // dedup-absorbing re-inserts) — keep the authoritative Map + full sort.
       const byId = new Map(state.notifications.map((n) => [n.id, n]));
       for (const n of action.added) byId.set(n.id, n);
       for (const id of action.removed) byId.delete(id);

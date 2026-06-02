@@ -983,6 +983,173 @@ describe('PtyRegistry — Phase 2 direct-mode regression guard', () => {
 // pane was wrapped-and-sentinelled but watched as direct (or vice-versa).
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PERF-2 — link-detection gate (main short-circuits when capture is OFF)
+//
+// Previously the registry ran detectLinks() + emitted `pty:link-detected` on
+// EVERY chunk regardless of the `browser.captureLinks` KV — the gate lived only
+// in the renderer (Terminal.tsx), so the main process paid the regex cost
+// unconditionally. The registry now consults an injected `shouldDetectLinks`
+// predicate (the rpc-router owns the cached KV read) and skips BOTH the regex
+// and the emit when capture is off. Omitting the predicate preserves the
+// original always-on behaviour for existing callers/tests.
+//
+// better-sqlite3 cannot load under vitest, so the KV read is NOT exercised here
+// — the predicate IS the seam, and these tests drive it directly (no Database).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PtyRegistry — PERF-2 link-detection gate', () => {
+  const URL_CHUNK = 'visit https://example.com for more\n';
+
+  it('with capture OFF: emits no pty:link-detected and does not consult the detector', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const hits: Array<{ sessionId: string; url: string }> = [];
+    const gate = vi.fn(() => false); // capture OFF
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      {
+        onLinkDetected: (sessionId, hit) => hits.push({ sessionId, url: hit.url }),
+        shouldDetectLinks: gate,
+      },
+    );
+    registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    fireData(URL_CHUNK);
+
+    // No emit while capture is off.
+    expect(hits).toHaveLength(0);
+    // The gate was consulted (so the regex was short-circuited, not run).
+    expect(gate).toHaveBeenCalled();
+  });
+
+  it('with capture ON: still emits pty:link-detected for URLs in the stream', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const hits: Array<{ sessionId: string; url: string }> = [];
+    const gate = vi.fn(() => true); // capture ON
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      {
+        onLinkDetected: (sessionId, hit) => hits.push({ sessionId, url: hit.url }),
+        shouldDetectLinks: gate,
+      },
+    );
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    fireData(URL_CHUNK);
+
+    expect(gate).toHaveBeenCalled();
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.sessionId).toBe(sess.id);
+    expect(hits[0]?.url).toBe('https://example.com');
+  });
+
+  it('a toggled gate takes effect per-chunk (OFF → ON without respawn)', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const hits: string[] = [];
+    let enabled = false;
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      {
+        onLinkDetected: (_sid, hit) => hits.push(hit.url),
+        shouldDetectLinks: () => enabled,
+      },
+    );
+    registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    fireData(URL_CHUNK); // OFF → no hit
+    expect(hits).toHaveLength(0);
+
+    enabled = true; // operator toggles capture on mid-session
+    fireData(URL_CHUNK); // ON → hit
+    expect(hits).toEqual(['https://example.com']);
+  });
+
+  it('omitting the gate preserves always-on detection (backwards compatible)', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const hits: string[] = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+      { onLinkDetected: (_sid, hit) => hits.push(hit.url) }, // no shouldDetectLinks
+    );
+    registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    fireData(URL_CHUNK);
+    expect(hits).toEqual(['https://example.com']);
+  });
+
+  it('a throwing gate never breaks the data stream and defaults to detecting', () => {
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const forwarded: string[] = [];
+    const hits: string[] = [];
+    const registry = new PtyRegistry(
+      (_sid, data) => forwarded.push(data),
+      () => undefined,
+      {
+        onLinkDetected: (_sid, hit) => hits.push(hit.url),
+        shouldDetectLinks: () => {
+          throw new Error('kv read blew up');
+        },
+      },
+    );
+    registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    expect(() => fireData(URL_CHUNK)).not.toThrow();
+    // Data is still forwarded to the renderer.
+    expect(forwarded).toEqual([URL_CHUNK]);
+    // Default-ON-on-error → the link is still detected.
+    expect(hits).toEqual(['https://example.com']);
+  });
+});
+
 describe('PtyRegistry — H-6 win32 shell-first consistency', () => {
   const originalPlatform = process.platform;
   afterEach(() => {

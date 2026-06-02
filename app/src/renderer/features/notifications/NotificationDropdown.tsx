@@ -31,7 +31,7 @@
 import { CheckCheck, ChevronRight, Trash2, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { rpc } from '@/renderer/lib/rpc';
 import type { NotificationSource } from '@/shared/notification-prefs';
 import type { Notification } from '@/shared/types';
@@ -43,15 +43,20 @@ interface DropdownProps {
 }
 
 export function NotificationDropdown({ onClose }: DropdownProps) {
-  const { state, dispatch } = useAppState();
+  // PERF-3 — granular selectors + stable dispatch. `s.notifications` is a
+  // referentially-stable slice; `s.activeWorkspace?.id` is a primitive — both
+  // honour the useSyncExternalStore Object.is bail-out. useAppDispatch never
+  // re-renders.
+  const dispatch = useAppDispatch();
+  const notifications = useAppStateSelector((s) => s.notifications);
+  const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspace?.id ?? null);
   const [chip, setChip] = useState<FilterChip>('all');
   // NTF-2 — sections collapsed by the operator. Default: empty = all expanded.
   const [collapsed, setCollapsed] = useState<Set<NotificationSource>>(new Set());
-  const activeWorkspaceId = state.activeWorkspace?.id ?? null;
 
   const filtered = useMemo(
-    () => applyFilter(state.notifications, chip, activeWorkspaceId),
-    [state.notifications, chip, activeWorkspaceId],
+    () => applyFilter(notifications, chip, activeWorkspaceId),
+    [notifications, chip, activeWorkspaceId],
   );
 
   // NTF-2 — bucket the filtered list by source into collapsible sections, in

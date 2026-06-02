@@ -405,6 +405,19 @@ function buildRouter() {
     {
       // v1.5.6 — 3s grace window prevents fast-exit binaries from clearing the ring buffer before the renderer's pty.snapshot IPC resolves (race surfaced when v1.5.5-A removed async timing slack from the worktree pool path).
       gracefulExitDelayMs: 3_000,
+      // PERF-2 — skip the per-chunk link-detection regex + emit in MAIN when the
+      // renderer's capture is off (matches Terminal.tsx's `browser.captureLinks`
+      // gate; default ON when the KV is unreachable). One indexed KV read per chunk.
+      shouldDetectLinks: () => {
+        try {
+          const row = getRawDb()
+            .prepare('SELECT value FROM kv WHERE key = ?')
+            .get('browser.captureLinks') as { value?: string } | undefined;
+          return row?.value == null ? true : row.value === '1';
+        } catch {
+          return true;
+        }
+      },
       // V3-W13-002 — surface OSC8 + plain URLs to the renderer so the click
       // handler can route them into the in-app browser. The renderer-side
       // gate (`kv['browser.captureLinks']`) decides whether to intercept.

@@ -25,11 +25,14 @@ vi.mock('./NotificationDropdown', () => ({
   ),
 }));
 
-// Mutable state holder so each test customises the AppState used by the
-// `useAppState` mock without re-importing.
+// Mutable state holder so each test customises the AppState the granular
+// `useAppStateSelector` mock reads from without re-importing. PERF-3 — the
+// component now selects `s.notifications` + `s.notificationsUnreadCount` via
+// useAppStateSelector and never reads dispatch.
 let mockState: AppState = { ...initialAppState };
 vi.mock('@/renderer/app/state', () => ({
-  useAppState: () => ({ state: mockState, dispatch: vi.fn() }),
+  useAppStateSelector: (sel: (s: AppState) => unknown) => sel(mockState),
+  useAppDispatch: () => vi.fn(),
 }));
 
 afterEach(() => {

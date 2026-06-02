@@ -34,6 +34,7 @@ import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skil
 import { PANE_DRAG_MIME } from '@/renderer/lib/pane-context-builder';
 import { SkillBindingChip, type SkillBinding } from '@/renderer/features/skills/SkillBindingChip';
 import { PaneTabStrip, type ScratchTab } from './PaneTabStrip';
+import { useUncommittedCount } from '@/renderer/lib/use-git-status-poll';
 
 // v1.4.8 — Max number of files allowed in a single Finder multi-drop.
 const MAX_DROP_FILES = 10;
@@ -96,22 +97,11 @@ export function PaneShell({
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [flashDrop, setFlashDrop] = useState(false);
-  // C-1 data — best-effort git status polling for the pane's worktree.
-  const [uncommitted, setUncommitted] = useState<number | null>(null);
-  useEffect(() => {
-    if (!session.worktreePath) return;
-    let alive = true; let t: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      try {
-        // Reuse the existing `git.status` RPC (returns GitStatus | null for a cwd).
-        const gs = await rpc.git.status(session.worktreePath!);
-        if (alive) setUncommitted(gs ? gs.staged.length + gs.unstaged.length + gs.untracked.length : null);
-      } catch { /* ignore */ }
-      if (alive) t = setTimeout(tick, 15_000);
-    };
-    void tick();
-    return () => { alive = false; clearTimeout(t); };
-  }, [session.worktreePath]);
+  // C-1 data — git-status count for the pane's worktree. PERF-6: backed by a
+  // shared refcounted per-repo poller so multiple panes on the same worktree
+  // share ONE 15 s poll (and it pauses while the window is hidden). The
+  // consumed `uncommitted: number | null` shape is unchanged.
+  const uncommitted = useUncommittedCount(session.worktreePath);
 
   // W-4 Phase 4 — Ephemeral scratch-shell sub-tabs.
   // scratchTabs: ordered list of open scratch PTY ids.

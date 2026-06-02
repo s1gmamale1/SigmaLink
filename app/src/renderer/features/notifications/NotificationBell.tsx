@@ -12,29 +12,34 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { noDragStyle } from '@/renderer/lib/drag-region';
-import { useAppState } from '@/renderer/app/state';
+import { useAppStateSelector } from '@/renderer/app/state';
 import { NotificationDropdown } from './NotificationDropdown';
 import { deriveBadgeState } from './helpers';
 
 export function NotificationBell() {
-  const { state } = useAppState();
+  // PERF-3 — granular selectors: re-render only when the notifications list or
+  // the unread count changes (not on every unrelated dispatch). Both selectors
+  // return referentially-stable slices straight off the store, so the
+  // useSyncExternalStore Object.is bail-out holds.
+  const notifications = useAppStateSelector((s) => s.notifications);
+  const notificationsUnreadCount = useAppStateSelector((s) => s.notificationsUnreadCount);
   const [open, setOpen] = useState(false);
 
   const { hasError, hasCritical, hasWarn } = useMemo(() => {
     let hasError = false;
     let hasCritical = false;
     let hasWarn = false;
-    for (const n of state.notifications) {
+    for (const n of notifications) {
       if (n.readAt !== null) continue;
       if (n.severity === 'critical') hasCritical = true;
       else if (n.severity === 'error') hasError = true;
       else if (n.severity === 'warn') hasWarn = true;
     }
     return { hasError, hasCritical, hasWarn };
-  }, [state.notifications]);
+  }, [notifications]);
 
   const badge = deriveBadgeState(
-    state.notificationsUnreadCount,
+    notificationsUnreadCount,
     hasError,
     hasCritical,
     hasWarn,

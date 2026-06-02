@@ -29,12 +29,16 @@ vi.mock('@/renderer/lib/drag-region', () => ({
   noDragStyle: () => ({}),
 }));
 
-vi.mock('@/renderer/app/state', () => ({
-  useAppState: () => ({
-    state: { workspaces: [], activeWorkspace: null },
-    dispatch: vi.fn(),
-  }),
-}));
+// PERF-3 — the breadcrumb now reads `s.activeWorkspace` + `s.workspaces` via
+// granular useAppStateSelector. These cases drive the no-active-workspace path
+// (empty-state bar), so the slice values are the initial empty/null.
+vi.mock('@/renderer/app/state', () => {
+  const mockState = { workspaces: [], activeWorkspace: null };
+  return {
+    useAppStateSelector: (sel: (s: typeof mockState) => unknown) => sel(mockState),
+    useAppDispatch: () => vi.fn(),
+  };
+});
 
 // The RufloReadinessPill + RightRailSwitcher + RoomsMenuButton have their own
 // dependency graphs (icons, contexts, RPC). Stub them to lightweight markers —
