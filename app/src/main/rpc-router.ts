@@ -165,6 +165,8 @@ let sigmabenchHandlers: Record<string, (...args: unknown[]) => unknown> | null =
 /** V3-W14-001..006 — Sigma Canvas controller cleanup hook. Called from
  *  `shutdownRouter` so picker overlays + dev-server watchers tear down. */
 let designShutdown: (() => void) | null = null;
+/** PERF-1 — module ref so shutdownRouter can flush + cancel the coalescer timer. */
+let ptyDataCoalescerRef: PtyDataCoalescer | null = null;
 
 const requireCJS = createRequire(import.meta.url);
 
@@ -396,6 +398,25 @@ function buildRouter() {
   const ptyDataCoalescer = new PtyDataCoalescer({
     emit: (sessionId, data) => broadcast('pty:data', { sessionId, data }),
   });
+  ptyDataCoalescerRef = ptyDataCoalescer; // PERF-1 — for shutdownRouter dispose
+  // PERF-2 — the link-capture flag only changes on an operator toggle, so cache
+  // the KV read for 2s instead of querying per chunk (~50/s/pane).
+  let linkGate = { value: true, at: 0 };
+  const shouldDetectLinks = (): boolean => {
+    const now = Date.now();
+    if (now - linkGate.at < 2_000) return linkGate.value;
+    let value = true;
+    try {
+      const row = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get('browser.captureLinks') as { value?: string } | undefined;
+      value = row?.value == null ? true : row.value === '1';
+    } catch {
+      value = true; // default ON when the KV is unreachable (matches Terminal.tsx)
+    }
+    linkGate = { value, at: now };
+    return value;
+  };
   const pty = new PtyRegistry(
     (sessionId, data) => ptyDataCoalescer.push(sessionId, data),
     (sessionId, exitCode, signal) => {
@@ -407,17 +428,8 @@ function buildRouter() {
       gracefulExitDelayMs: 3_000,
       // PERF-2 — skip the per-chunk link-detection regex + emit in MAIN when the
       // renderer's capture is off (matches Terminal.tsx's `browser.captureLinks`
-      // gate; default ON when the KV is unreachable). One indexed KV read per chunk.
-      shouldDetectLinks: () => {
-        try {
-          const row = getRawDb()
-            .prepare('SELECT value FROM kv WHERE key = ?')
-            .get('browser.captureLinks') as { value?: string } | undefined;
-          return row?.value == null ? true : row.value === '1';
-        } catch {
-          return true;
-        }
-      },
+      // gate; default ON when the KV is unreachable). The read is 2s-cached above.
+      shouldDetectLinks,
       // V3-W13-002 — surface OSC8 + plain URLs to the renderer so the click
       // handler can route them into the in-app browser. The renderer-side
       // gate (`kv['browser.captureLinks']`) decides whether to intercept.
@@ -490,6 +502,9 @@ function buildRouter() {
       // exit, so shell-first panes notify on CLI completion exactly like direct-
       // mode panes notify on PTY exit.
       onCliExited: ({ sessionId, exitCode }) => {
+        // PERF-1 — flush any buffered output for this session before the
+        // CLI-done notification fires (spec parity; harmless if already empty).
+        ptyDataCoalescer.flush(sessionId);
         try {
           pushPtyExitNotification(notificationsManager, {
             sessionId,
@@ -2111,6 +2126,13 @@ export async function shutdownRouter(): Promise<void> {
   }
   try {
     designShutdown?.();
+  } catch {
+    /* ignore */
+  }
+  try {
+    // PERF-1 — flush any buffered pty:data + cancel the coalescer timer.
+    ptyDataCoalescerRef?.dispose();
+    ptyDataCoalescerRef = null;
   } catch {
     /* ignore */
   }
