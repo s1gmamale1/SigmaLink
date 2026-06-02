@@ -19,6 +19,8 @@ const TOOL_TIMEOUTS: Record<string, number> = {
   'agentdb_pattern-search': 4_000,
   'agentdb_pattern-store': 8_000,
   autopilot_predict: 2_500,
+  // P4 MEM-1 — AgentDB sweep can touch many namespaces; give it headroom.
+  memory_search_unified: 5_000,
   hooks_intelligence_trajectory_start: 2_500,
   hooks_intelligence_trajectory_step: 2_500,
   hooks_intelligence_trajectory_end: 3_000,

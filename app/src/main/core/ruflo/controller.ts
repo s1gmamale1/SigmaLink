@@ -26,6 +26,7 @@ import type { RufloMcpSupervisor } from './supervisor';
 import type { RufloProxy } from './proxy';
 import type { RufloInstaller } from './installer';
 import type { RufloHealth } from './types';
+import type { RufloEntry, RufloEntryEdge } from '../../../shared/types';
 import type { RufloHttpDaemonSupervisor } from './http-daemon-supervisor';
 import { getRawDb } from '../db/client';
 import {
@@ -215,6 +216,65 @@ export function buildRufloController(deps: RufloControllerDeps) {
       }
     },
 
+    // P4 MEM-1 — surface the Ruflo AgentDB as graph nodes. Sweeps all
+    // namespaces via memory_search_unified; the renderer passes a context
+    // query (e.g. the active note's name/keywords) to get a relevant
+    // neighborhood. Degrades to empty (never throws) when Ruflo is offline.
+    'entries.list': async (input: {
+      query?: string;
+      limit?: number;
+    }): Promise<{ ok: true; entries: RufloEntry[] } | UnavailableEnvelope> => {
+      if (!proxy.isReady()) return unavailable(`supervisor state ${supervisor.health().state}`);
+      try {
+        const raw = (await proxy.call('memory_search_unified', {
+          query: typeof input.query === 'string' ? input.query : '',
+          limit: typeof input.limit === 'number' ? input.limit : 60,
+        })) as { results?: unknown };
+        const results = Array.isArray(raw?.results) ? raw.results : [];
+        return {
+          ok: true,
+          entries: results
+            .map((r) => normalizeEntry(r))
+            .filter((e): e is RufloEntry => e !== null),
+        };
+      } catch (err) {
+        if (isUnavailableError(err)) return unavailable((err as Error).message);
+        throw err;
+      }
+    },
+
+    // P4 MEM-1 — semantic neighbors of one entry → similarity edges (from the
+    // given id to each related entry). Causal edges are a P4.2 follow-up (the
+    // daemon's agentdb_causal-edge read API is unverified).
+    'entries.neighbors': async (input: {
+      id: string;
+      text: string;
+      topK?: number;
+    }): Promise<{ ok: true; edges: RufloEntryEdge[] } | UnavailableEnvelope> => {
+      if (!proxy.isReady()) return unavailable(`supervisor state ${supervisor.health().state}`);
+      if (typeof input.id !== 'string' || !input.id || typeof input.text !== 'string' || !input.text) {
+        return { ok: true, edges: [] };
+      }
+      try {
+        const raw = (await proxy.call('embeddings_search', {
+          query: input.text,
+          topK: typeof input.topK === 'number' ? input.topK : 8,
+          threshold: 0.4,
+        })) as { results?: unknown };
+        const results = Array.isArray(raw?.results) ? raw.results : [];
+        const edges: RufloEntryEdge[] = [];
+        for (const r of results) {
+          const hit = normalizeEmbeddingHit(r);
+          if (!hit || hit.id === input.id) continue;
+          edges.push({ fromId: input.id, toId: hit.id, kind: 'similarity', weight: hit.score });
+        }
+        return { ok: true, edges };
+      } catch (err) {
+        if (isUnavailableError(err)) return unavailable((err as Error).message);
+        throw err;
+      }
+    },
+
     'install.start': async (): Promise<{ jobId: string }> => {
       const { jobId, promise } = installer.start();
       // Fire-and-forget — the renderer subscribes to `ruflo:install-progress`
@@ -316,6 +376,46 @@ function normalizeEmbeddingHit(
     score: typeof r.score === 'number' ? r.score : 0,
     text: typeof r.text === 'string' ? r.text : '',
     namespace: typeof r.namespace === 'string' ? r.namespace : undefined,
+  };
+}
+
+// P4 MEM-1 — normalize a memory_search_unified row into a RufloEntry, tolerating
+// the daemon's key/content/value field variants and preserving the stable id +
+// namespace (which today's pattern/embedding normalizers drop).
+function normalizeEntry(raw: unknown): RufloEntry | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as {
+    key?: unknown;
+    id?: unknown;
+    content?: unknown;
+    text?: unknown;
+    value?: unknown;
+    namespace?: unknown;
+    score?: unknown;
+    createdAt?: unknown;
+    storedAt?: unknown;
+  };
+  const id = typeof r.key === 'string' ? r.key : typeof r.id === 'string' ? r.id : null;
+  if (!id) return null;
+  const text =
+    typeof r.content === 'string'
+      ? r.content
+      : typeof r.text === 'string'
+        ? r.text
+        : typeof r.value === 'string'
+          ? r.value
+          : '';
+  return {
+    id,
+    text,
+    namespace: typeof r.namespace === 'string' ? r.namespace : 'default',
+    score: typeof r.score === 'number' ? r.score : undefined,
+    createdAt:
+      typeof r.createdAt === 'number'
+        ? r.createdAt
+        : typeof r.storedAt === 'number'
+          ? r.storedAt
+          : undefined,
   };
 }
 

@@ -55,10 +55,13 @@ export interface RufloInstallProgress {
   jobId: string;
 }
 
-/** The 6 RPC tool names this app forwards into the Ruflo MCP server. */
+/** RPC tool names this app forwards into the Ruflo MCP server. (The supervisor's
+ *  `call()` is a generic passthrough — this union documents the wired set.) */
 export type RufloToolName =
   | 'embeddings_search'
   | 'embeddings_generate'
   | 'agentdb_pattern-search'
   | 'agentdb_pattern-store'
-  | 'autopilot_predict';
+  | 'autopilot_predict'
+  // P4 MEM-1 — surface the AgentDB the Obsidian way.
+  | 'memory_search_unified';

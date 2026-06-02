@@ -265,6 +265,9 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'ruflo.patterns.search',
   'ruflo.patterns.store',
   'ruflo.autopilot.predict',
+  // P4 MEM-1 — surface the AgentDB the Obsidian way (graph nodes + similarity edges).
+  'ruflo.entries.list',
+  'ruflo.entries.neighbors',
   'ruflo.install.start',
   'ruflo.verifyForWorkspace',
   // v1.6.1 B2 — Settings → Ruflo Daemon table: list + restart per-workspace
