@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeImage, clipboard } from 'electron';
 import { buildGlobalCaptureController, getWhisperEngine, type GlobalCaptureController } from '@sigmalink/voice-core';
-import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
+import { registerRouter, shutdownRouter, getSharedDeps, setBroadcastTarget } from '../src/main/rpc-router';
 import { getRawDb } from '../src/main/core/db/client';
 // C-11 "Hey Jorvis" listening-mode primitives (pure, shared).
 import { PcmRing } from '../src/shared/pcm-ring';
@@ -616,6 +616,9 @@ function createWindow(): void {
     },
   });
 
+  // PERF-11 — register the single renderer window as the broadcast fast-path.
+  setBroadcastTarget(mainWindow);
+
   if (devServerUrl) {
     void mainWindow.loadURL(devServerUrl);
   } else {
@@ -680,6 +683,7 @@ function createWindow(): void {
     } catch {
       /* ignore */
     }
+    setBroadcastTarget(null); // PERF-11 — drop the cached window on close
     mainWindow = null;
   });
 }

@@ -12,6 +12,7 @@ import type { AppRouter } from '../shared/router-shape';
 import { initializeDatabase, closeDatabase, getRawDb } from './core/db/client';
 import { runBootJanitor } from './core/db/janitor';
 import { PtyRegistry } from './core/pty/registry';
+import { PtyDataCoalescer } from './core/pty/pty-data-coalescer';
 import {
   DISK_SCAN_PROVIDERS,
   DISK_SCAN_RETRY_SCHEDULE_MS,
@@ -167,7 +168,24 @@ let designShutdown: (() => void) | null = null;
 
 const requireCJS = createRequire(import.meta.url);
 
+// PERF-11 — the app has exactly one renderer window. Cache it so the hot
+// `broadcast()` path (pty:data etc.) sends O(1) instead of rebuilding the
+// `getAllWindows()` array per event. `createWindow()` sets this; the window's
+// `closed` handler clears it. Falls back to the full sweep when unset/stale.
+let broadcastTarget: BrowserWindow | null = null;
+
+/** PERF-11 — register the single renderer window as the broadcast fast-path. */
+export function setBroadcastTarget(win: BrowserWindow | null): void {
+  broadcastTarget = win;
+}
+
 function broadcast(event: string, payload: unknown) {
+  const target = broadcastTarget;
+  if (target && !target.isDestroyed()) {
+    target.webContents.send(event, payload);
+    return;
+  }
+  // Fallback: no target registered yet (early boot) or it was destroyed.
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed()) w.webContents.send(event, payload);
   }
@@ -371,9 +389,19 @@ function buildRouter() {
   // D2 — boot GC. One indexed DELETE that drops read rows > 30d.
   void runBootNotificationsGc(notificationsManager);
 
+  // PERF-1 — coalesce per-session pty:data chunks into one IPC send per ~12ms
+  // (the registry still appends to the ring buffer + runs link detection per raw
+  // chunk). Flush a session immediately before its pty:exit so trailing output
+  // lands before the renderer's exit line.
+  const ptyDataCoalescer = new PtyDataCoalescer({
+    emit: (sessionId, data) => broadcast('pty:data', { sessionId, data }),
+  });
   const pty = new PtyRegistry(
-    (sessionId, data) => broadcast('pty:data', { sessionId, data }),
-    (sessionId, exitCode, signal) => broadcast('pty:exit', { sessionId, exitCode, signal }),
+    (sessionId, data) => ptyDataCoalescer.push(sessionId, data),
+    (sessionId, exitCode, signal) => {
+      ptyDataCoalescer.flush(sessionId);
+      broadcast('pty:exit', { sessionId, exitCode, signal });
+    },
     {
       // v1.5.6 — 3s grace window prevents fast-exit binaries from clearing the ring buffer before the renderer's pty.snapshot IPC resolves (race surfaced when v1.5.5-A removed async timing slack from the worktree pool path).
       gracefulExitDelayMs: 3_000,
