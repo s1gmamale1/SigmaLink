@@ -10,9 +10,11 @@ import type {
   MemoryGraph,
   MemoryHubStatus,
   MemorySearchHit,
+  MemoryTagCount,
 } from '../../../shared/types';
 import type { MemoryManager } from './manager';
 import type { MemoryMcpSupervisor } from './mcp-supervisor';
+import { backupDatabase, restoreDatabase } from '../db/client';
 
 export interface MemoryControllerDeps {
   manager: MemoryManager;
@@ -130,6 +132,58 @@ export function buildMemoryController(deps: MemoryControllerDeps) {
     },
     getGraph: async (input: { workspaceId: string }): Promise<MemoryGraph> => {
       return m.getGraph(requireString(input?.workspaceId, 'getGraph.workspaceId'));
+    },
+    // MEM-3 — tag facets for the Tags pane + tag filter.
+    list_tags: async (input: { workspaceId: string }): Promise<MemoryTagCount[]> => {
+      return m.listTags({ workspaceId: requireString(input?.workspaceId, 'list_tags.workspaceId') });
+    },
+    list_by_tag: async (input: { workspaceId: string; tag: string }): Promise<Memory[]> => {
+      return m.listByTag({
+        workspaceId: requireString(input?.workspaceId, 'list_by_tag.workspaceId'),
+        tag: requireString(input?.tag, 'list_by_tag.tag'),
+      });
+    },
+    // DB-2 — whole-database backup/restore (the Memory room hosts the UI; the
+    // file holds ALL workspaces). The MAIN process owns the file dialog + path so
+    // the renderer never supplies an arbitrary fs path (no traversal / arbitrary
+    // write). electron is imported lazily so this module stays loadable in vitest.
+    export_db: async (): Promise<{ ok: boolean; canceled?: boolean; path?: string }> => {
+      const { dialog, BrowserWindow } = await import('electron');
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
+      const res = win
+        ? await dialog.showSaveDialog(win, {
+            title: 'Back up SigmaLink database',
+            defaultPath: 'sigmalink-backup.db',
+            filters: [{ name: 'SQLite database', extensions: ['db'] }],
+          })
+        : await dialog.showSaveDialog({
+            title: 'Back up SigmaLink database',
+            defaultPath: 'sigmalink-backup.db',
+            filters: [{ name: 'SQLite database', extensions: ['db'] }],
+          });
+      if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+      backupDatabase(res.filePath);
+      return { ok: true, path: res.filePath };
+    },
+    import_db: async (): Promise<{ ok: boolean; canceled?: boolean }> => {
+      // DESTRUCTIVE — validates + keeps a .pre-restore copy. The renderer reloads
+      // after this resolves (DB handles were swapped).
+      const { dialog, BrowserWindow } = await import('electron');
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
+      const res = win
+        ? await dialog.showOpenDialog(win, {
+            title: 'Restore SigmaLink database from backup',
+            properties: ['openFile'],
+            filters: [{ name: 'SQLite database', extensions: ['db'] }],
+          })
+        : await dialog.showOpenDialog({
+            title: 'Restore SigmaLink database from backup',
+            properties: ['openFile'],
+            filters: [{ name: 'SQLite database', extensions: ['db'] }],
+          });
+      if (res.canceled || res.filePaths.length === 0) return { ok: false, canceled: true };
+      restoreDatabase(res.filePaths[0]);
+      return { ok: true };
     },
     getMcpCommand: async (input: {
       workspaceId: string;

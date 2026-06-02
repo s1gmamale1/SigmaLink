@@ -176,6 +176,10 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'memory.hub_status',
   'memory.getGraph',
   'memory.getMcpCommand',
+  'memory.list_tags',       // P4 MEM-3
+  'memory.list_by_tag',     // P4 MEM-3
+  'memory.export_db',       // P4 DB-2
+  'memory.import_db',       // P4 DB-2
   // review (reviewCtl — from buildReviewController)
   'review.list',
   'review.getDiff',

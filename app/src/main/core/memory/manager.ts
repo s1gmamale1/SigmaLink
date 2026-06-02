@@ -21,6 +21,8 @@ import {
   getMemoryRowByName,
   listMemoryRows,
   listOrphans,
+  listTags,
+  listByTag,
   restoreDeletedMemory,
   rollbackMemoryUpsert,
   rowToMemory,
@@ -200,6 +202,17 @@ export class MemoryManager {
   async listOrphans(input: { workspaceId: string }): Promise<Memory[]> {
     await this.hydrate(input.workspaceId);
     return listOrphans(input.workspaceId).map((r) => rowToMemory(r.row, r.tags, r.links));
+  }
+
+  // MEM-3 — tag facets.
+  async listTags(input: { workspaceId: string }): Promise<Array<{ tag: string; count: number }>> {
+    await this.hydrate(input.workspaceId);
+    return listTags(input.workspaceId);
+  }
+
+  async listByTag(input: { workspaceId: string; tag: string }): Promise<Memory[]> {
+    await this.hydrate(input.workspaceId);
+    return listByTag(input.workspaceId, input.tag).map((r) => rowToMemory(r.row, r.tags, r.links));
   }
 
   async suggestConnections(input: {
