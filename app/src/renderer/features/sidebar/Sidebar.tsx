@@ -14,15 +14,22 @@ import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { PLATFORM_IS_MAC } from '@/renderer/lib/shortcuts';
 import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
+import { useBelowBreakpoint } from '@/renderer/lib/use-breakpoint';
+import { readWorkspaceUi, writeWorkspaceUi } from '@/renderer/lib/workspace-ui-kv';
 import type { Workspace } from '@/shared/types';
 import { WorkspacesPanel } from './WorkspacesPanel';
-
-const COLLAPSE_BREAKPOINT_PX = 1100;
 
 const APP_SIDEBAR_DEFAULT = 240;
 const APP_SIDEBAR_MIN = 180;
 const APP_SIDEBAR_MAX = 480;
-const APP_SIDEBAR_KV_KEY = 'app.sidebar.width';
+// Legacy GLOBAL kv keys — read-through fallback so pre-RSP-1 widths/collapse
+// state aren't lost on first run after the migration to per-workspace keying.
+const APP_SIDEBAR_LEGACY_WIDTH_KEY = 'app.sidebar.width';
+const APP_SIDEBAR_LEGACY_COLLAPSED_KEY = 'app.sidebar.collapsed';
+// Per-workspace panel ids (combined with the active workspace id into
+// `ui.<wsId>.<panel>` by workspace-ui-kv).
+const SIDEBAR_WIDTH_PANEL = 'sidebar.width';
+const SIDEBAR_COLLAPSED_PANEL = 'sidebar.collapsed';
 
 export function Sidebar() {
   // V1.1.10 perf — slice subscriptions instead of full AppState. Sidebar
@@ -34,6 +41,9 @@ export function Sidebar() {
   const openWorkspaces = useAppStateSelector((s) => s.openWorkspaces);
   const workspaces = useAppStateSelector((s) => s.workspaces);
   const sessions = useAppStateSelector((s) => s.sessions);
+  // RSP-1 — per-workspace width keying. When no workspace is open, `wsId` is
+  // null and we fall back to the legacy global key (see read/write helpers).
+  const wsId = activeWorkspace?.id ?? null;
 
   // v1.4.8 packet-02 — stateful expanded width with kv persistence.
   const [sidebarWidth, setSidebarWidth] = useState<number>(APP_SIDEBAR_DEFAULT);
@@ -44,14 +54,44 @@ export function Sidebar() {
   const isDragging = useRef(false);
   const rafHandle = useRef<number | null>(null);
 
+  // RSP-1 — hydrate width from the per-workspace key (`ui.<wsId>.sidebar.width`)
+  // with read-through fallback to the legacy global key. Re-runs when `wsId`
+  // changes since a different workspace can persist a different width. When no
+  // workspace is open we read the global key directly so we don't crash.
   useEffect(() => {
-    void rpc.kv.get(APP_SIDEBAR_KV_KEY).then((v) => {
+    let alive = true;
+    void (async () => {
+      const v = wsId
+        ? await readWorkspaceUi(wsId, SIDEBAR_WIDTH_PANEL, APP_SIDEBAR_LEGACY_WIDTH_KEY)
+        : await rpc.kv.get(APP_SIDEBAR_LEGACY_WIDTH_KEY).catch(() => null);
+      if (!alive) return;
       const n = Number(v);
       if (Number.isFinite(n) && n >= APP_SIDEBAR_MIN && n <= APP_SIDEBAR_MAX) {
         setSidebarWidth(n);
+      } else {
+        // A workspace with no persisted width falls back to the default so a
+        // wide previous workspace doesn't bleed into a fresh one.
+        setSidebarWidth(APP_SIDEBAR_DEFAULT);
       }
-    });
-  }, []);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [wsId]);
+
+  // Persist the sidebar width under the active workspace's key (or the legacy
+  // global key when no workspace is open). Best-effort; layout is non-critical.
+  const persistWidth = useCallback(
+    (value: number) => {
+      const str = String(value);
+      if (wsId) {
+        void writeWorkspaceUi(wsId, SIDEBAR_WIDTH_PANEL, str);
+      } else {
+        void rpc.kv.set(APP_SIDEBAR_LEGACY_WIDTH_KEY, str).catch(() => undefined);
+      }
+    },
+    [wsId],
+  );
 
   const startSidebarDrag = useCallback(
     (ev: React.PointerEvent<HTMLDivElement>) => {
@@ -102,35 +142,36 @@ export function Sidebar() {
           }
         }
         pending = null;
-        // Persist the final committed width to kv.
-        void rpc.kv.set(APP_SIDEBAR_KV_KEY, String(committed));
+        // Persist the final committed width to the per-workspace kv key.
+        persistWidth(committed);
       };
 
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
     },
-    [sidebarWidth],
+    [sidebarWidth, persistWidth],
   );
 
-  // Auto-collapse on narrow windows. The user can still toggle manually; the
-  // resize listener only forces collapse when the viewport actually crosses
-  // below the breakpoint (it does not re-expand the sidebar on widening so
-  // the user's explicit choice on a wide monitor wins).
+  // RSP-1 — auto-collapse on narrow windows via the shared breakpoint hook
+  // (`compact` = 1100px), replacing the bespoke window.innerWidth listener.
+  // One-way semantics preserved: collapse when the viewport is below the
+  // breakpoint, but widening does NOT auto-re-expand — the user's explicit
+  // toggle on a wide monitor wins.
+  const belowCompact = useBelowBreakpoint('compact');
   useEffect(() => {
-    const onResize = () => {
-      const w = window.innerWidth;
-      if (w < COLLAPSE_BREAKPOINT_PX && !collapsed) {
-        dispatch({ type: 'SET_SIDEBAR_COLLAPSED', collapsed: true });
-      }
-    };
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [collapsed, dispatch]);
+    if (belowCompact && !collapsed) {
+      dispatch({ type: 'SET_SIDEBAR_COLLAPSED', collapsed: true });
+    }
+  }, [belowCompact, collapsed, dispatch]);
 
   function setCollapsed(next: boolean) {
     dispatch({ type: 'SET_SIDEBAR_COLLAPSED', collapsed: next });
-    void rpc.kv.set('app.sidebar.collapsed', next ? '1' : '0').catch(() => undefined);
+    const str = next ? '1' : '0';
+    if (wsId) {
+      void writeWorkspaceUi(wsId, SIDEBAR_COLLAPSED_PANEL, str);
+    } else {
+      void rpc.kv.set(APP_SIDEBAR_LEGACY_COLLAPSED_KEY, str).catch(() => undefined);
+    }
   }
 
   async function openPersistedWorkspace(ws: Workspace) {
@@ -280,7 +321,7 @@ export function Sidebar() {
         onPointerDown={startSidebarDrag}
         onDoubleClick={() => {
           setSidebarWidth(APP_SIDEBAR_DEFAULT);
-          void rpc.kv.set(APP_SIDEBAR_KV_KEY, String(APP_SIDEBAR_DEFAULT));
+          persistWidth(APP_SIDEBAR_DEFAULT);
         }}
       />
     ) : null}
