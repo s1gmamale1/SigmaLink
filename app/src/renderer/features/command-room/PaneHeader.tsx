@@ -51,6 +51,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { findProvider } from '@/shared/providers';
+import { defaultModelFor } from '@/shared/model-catalog';
 import type { AgentSession } from '@/shared/types';
 import { agentColor, agentShortId } from '@/renderer/lib/workspace-color';
 import { useRufloDaemonHealth } from './useRufloDaemonHealth';
@@ -71,21 +72,9 @@ function rufloHealthDotClass(state: RufloDaemonState): string {
   }
 }
 
-// Mirror of `MODEL_OPTIONS` in `main/core/providers/models.ts` — the renderer
-// can't import main-process modules so we duplicate the surface here. Keep
-// this in sync when a provider's default model or effort changes.
-interface ModelMeta {
-  label: string;
-  effort: 'low' | 'medium' | 'high';
-}
-
-const DEFAULT_MODELS: Record<string, ModelMeta> = {
-  claude: { label: 'claude-opus-4.7', effort: 'high' },
-  codex: { label: 'gpt-5.4', effort: 'high' },
-  gemini: { label: 'gemini-2.5-pro', effort: 'medium' },
-  kimi: { label: 'kimi-k2.6', effort: 'medium' },
-  opencode: { label: 'opencode-default', effort: 'medium' },
-};
+// N1 (review) — the per-provider default model/effort now comes from the single
+// source of truth `src/shared/model-catalog.ts` (defaultModelFor) instead of a
+// hand-maintained duplicate, so the header label can't drift from the launcher.
 
 interface Props {
   session: AgentSession;
@@ -182,9 +171,9 @@ export function PaneHeader({
       .catch(() => undefined);
   }
   const branch = session.branch ?? 'dev';
-  const meta = DEFAULT_MODELS[session.providerId];
+  const meta = defaultModelFor(session.providerId);
   const modelLabel = meta?.label ?? '—';
-  const effortLabel = meta?.effort ?? '—';
+  const effortLabel = meta?.defaultEffort ?? '—';
   // FEAT-7 — stable per-agent accent derived from session.id (not provider).
   const agentAccent = agentColor(session.id);
   const agentId = agentShortId(session.id);

@@ -143,7 +143,12 @@ export function PaneFooter({ session, kvKey }: Props) {
     if (payload.sessionId === session.id) return;
     setIsLoadingContext(true);
     void buildPaneContext(payload)
-      .then((ctx) => insertMention(session.id, ctx, session.status))
+      // L1 (review) — the context blob (git diff + scrollback of the peer pane)
+      // is injected into THIS pane's input LINE; insertMention does not append a
+      // submit newline, but interior newlines from the snapshot would themselves
+      // submit partial lines on a shell pane. Collapse them so the whole context
+      // lands as one un-submitted input the user explicitly sends.
+      .then((ctx) => insertMention(session.id, ctx.replace(/\r?\n/g, ' '), session.status))
       .finally(() => setIsLoadingContext(false));
   }
 

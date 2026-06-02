@@ -52,10 +52,14 @@ export interface PromptPayload {
 export function isPromptPayload(p: unknown): p is PromptPayload {
   if (!p || typeof p !== 'object') return false;
   const o = p as Record<string, unknown>;
+  // Bound question/choices (review C1 defense-in-depth) so a hostile PROMPT can't
+  // render thousands of buttons or megabyte strings; the write-time sanitizer in
+  // use-prompt-card.ts strips control chars from the chosen answer before stdin.
   if (typeof o.question !== 'string' || o.question.trim().length === 0) return false;
+  if (o.question.length > 500) return false;
   if (o.type !== 'single' && o.type !== 'multi') return false;
-  if (!Array.isArray(o.choices) || o.choices.length === 0) return false;
-  return o.choices.every((c) => typeof c === 'string');
+  if (!Array.isArray(o.choices) || o.choices.length === 0 || o.choices.length > 12) return false;
+  return o.choices.every((c) => typeof c === 'string' && c.length > 0 && c.length <= 200);
 }
 
 export interface ProtocolParse {

@@ -134,6 +134,19 @@ describe('usePromptCard — answer & dismiss', () => {
     expect(ptyWriteMock).toHaveBeenCalledWith('s1', 'blue\n');
   });
 
+  it('C1 — strips control/newline chars from the chosen answer (no stdin injection)', async () => {
+    const usePromptCard = await load();
+    const { result } = renderHook(() => usePromptCard('s1', true));
+    act(() => emit('s1', VALID_SINGLE));
+    // A hostile choice that smuggles a second command line.
+    act(() => result.current.answer(['yes\nrm -rf ~']));
+    const written = ptyWriteMock.mock.calls[0][1] as string;
+    // Exactly ONE trailing newline; the embedded \n is collapsed to a space.
+    expect(written.endsWith('\n')).toBe(true);
+    expect(written.slice(0, -1).includes('\n')).toBe(false);
+    expect(written).toBe('yes rm -rf ~\n');
+  });
+
   it('dismiss clears the prompt without writing', async () => {
     const usePromptCard = await load();
     const { result } = renderHook(() => usePromptCard('s1', true));
