@@ -18,11 +18,23 @@
 //   - workspace switch      → SET_SWARMS (rpc.swarms.list)
 
 import { useEffect, type Dispatch } from 'react';
+import { toast } from 'sonner';
 import { rpc, rpcSilent } from '../../lib/rpc';
 import type { Action, AppState } from '../state.types';
 import type { Notification } from '../../../shared/types';
 import { parseBrowserState, parseSwarmMessage, runRefreshOnEvent } from './parsers';
 import { playNotificationTone } from '../../lib/notifications';
+import {
+  KV_DND,
+  KV_OS_PER_SOURCE,
+  KV_QUIET_HOURS,
+  isQuietActive,
+  notificationSource,
+  parseMutedSources,
+  parseQuietHours,
+  type NotificationPrefs,
+} from '../../../shared/notification-prefs';
+import { maxSeverity, navigateToNotification } from '../../features/notifications/helpers';
 
 export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void {
   // Listen for PTY exit so the UI can mark sessions accordingly.
@@ -189,16 +201,82 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
         ? (p.removed.filter((id) => typeof id === 'string') as string[])
         : [];
       const unreadCount = typeof p.unreadCount === 'number' ? p.unreadCount : 0;
+
+      // Reducer upsert is the load-bearing path — do it SYNCHRONOUSLY, exactly
+      // as before, so the bell badge / dropdown reconcile immediately and never
+      // wait on the (async) sound + toast handoff below.
       dispatch({ type: 'NOTIFICATIONS_DELTA', added, removed, unreadCount });
-      // v1.13.1 — play a distinct tone once per delta when the delta contains
-      // any new unread notification. v1.29.0 (SF-5): widened from warn/error/
-      // critical to ALL severities incl. `info` per operator request — every new
-      // notification is now audible. playNotificationTone() respects the
-      // `notifications.sound` kv toggle (default ON). Fire-and-forget — non-critical.
-      const hasUnread = added.some((n) => n.readAt == null);
-      if (hasUnread) {
-        void playNotificationTone();
-      }
+
+      // P3 (NTF-2 / SND-1) — toast↔bell handoff. The new unread rows are
+      // surfaced as a distinct per-severity tone + a themed sonner toast, BOTH
+      // gated by the operator's notification prefs:
+      //   - per-source mute (notifications.osPerSource) silences a source's
+      //     tone AND toast — but the row still lands in the bell (recorded).
+      //   - DND / quiet-hours (notifications.dnd / .quietHours) suppress the
+      //     TOAST here (the bell badge still carries it visually). The tone is
+      //     still DISPATCHED to playNotificationTone — the sounds engine owns
+      //     the DND/quiet gate (isSoundSuppressedByPrefs) and drops it there, so
+      //     we keep a single gate source of truth rather than duplicating it.
+      // (Supersedes the v1.29.0 SF-5 "single tone, all severities, only the
+      //  notifications.sound toggle" behavior — now per-severity + per-source/
+      //  quiet aware.) Because the prefs live in KV (async reads), all of this
+      //  runs in a fire-and-forget block AFTER the synchronous dispatch above;
+      //  a few KV reads per delta is fine (deltas are user-paced).
+      const newUnread = added.filter((n) => n.readAt == null);
+      if (newUnread.length === 0) return;
+      void (async () => {
+        try {
+          const [perSourceRaw, quietRaw, dndRaw] = await Promise.all([
+            rpcSilent.kv.get(KV_OS_PER_SOURCE),
+            rpcSilent.kv.get(KV_QUIET_HOURS),
+            rpcSilent.kv.get(KV_DND),
+          ]);
+          const prefs: NotificationPrefs = {
+            dnd: dndRaw === '1',
+            quietHours: parseQuietHours(quietRaw),
+            mutedSources: parseMutedSources(perSourceRaw),
+          };
+
+          // Drop rows whose source the operator muted — never audible, no toast.
+          const audible = newUnread.filter(
+            (n) => !prefs.mutedSources.includes(notificationSource(n.kind)),
+          );
+          if (audible.length === 0) return;
+
+          // Distinct per-severity tone for the delta's MAX unread severity.
+          // Fire-and-forget; the sounds engine owns master/quiet/mute gating.
+          const sev = maxSeverity(audible);
+          if (sev) void playNotificationTone(sev);
+
+          // Suppress toasts entirely while DND / quiet-hours is active — the
+          // bell badge already carries the rows. Otherwise surface one themed
+          // toast per audible new unread row (typically 1 per delta).
+          const now = new Date();
+          const nowMinutes = now.getHours() * 60 + now.getMinutes();
+          if (isQuietActive(prefs, nowMinutes)) return;
+
+          for (const n of audible) {
+            const body = n.body ?? undefined;
+            if (n.severity === 'error' || n.severity === 'critical') {
+              toast.error(n.title, {
+                description: body,
+                duration: Infinity,
+                action: {
+                  label: 'View',
+                  onClick: () => navigateToNotification(n, dispatch),
+                },
+              });
+            } else if (n.severity === 'warn') {
+              toast.warning(n.title, { description: body, duration: 5000 });
+            } else {
+              toast(n.title, { description: body, duration: 3000 });
+            }
+          }
+        } catch {
+          // Prefs read / toast surface unavailable (early boot, no Toaster yet,
+          // controller not registered) — sound + toast are non-critical.
+        }
+      })();
     });
     return off;
   }, [dispatch]);

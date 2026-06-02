@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { NotificationDropdown } from './NotificationDropdown';
-import { applyFilter } from './helpers';
+import { applyFilter, groupBySource, maxSeverity } from './helpers';
 import type { AppState } from '@/renderer/app/state.types';
 import { initialAppState } from '@/renderer/app/state.types';
 import type { Notification, NotificationSeverity } from '@/shared/types';
@@ -91,6 +91,67 @@ describe('applyFilter', () => {
   });
 });
 
+// ---- NTF-2 grouping helpers -------------------------------------------------
+
+describe('groupBySource', () => {
+  it('buckets rows by source in NOTIFICATION_SOURCES order, omitting empty', () => {
+    const notes = [
+      makeN({ id: 's1', severity: 'info', kind: 'swarm-broadcast' }),
+      makeN({ id: 'p1', severity: 'warn', kind: 'pty-exit' }),
+      makeN({ id: 't1', severity: 'error', kind: 'tool-error' }),
+    ];
+    const groups = groupBySource(notes);
+    // Canonical order is pty → swarm → tool → system; `system` is empty here.
+    expect(groups.map((g) => g.source)).toEqual(['pty', 'swarm', 'tool']);
+    expect(groups.find((g) => g.source === 'pty')?.items.map((n) => n.id)).toEqual(['p1']);
+  });
+
+  it('preserves incoming (created-desc) order within a section', () => {
+    const notes = [
+      makeN({ id: 'p2', severity: 'info', kind: 'pty-exit' }),
+      makeN({ id: 'p1', severity: 'info', kind: 'pty-exit' }),
+    ];
+    const groups = groupBySource(notes);
+    expect(groups[0].items.map((n) => n.id)).toEqual(['p2', 'p1']);
+  });
+
+  it('counts only unread rows per section', () => {
+    const notes = [
+      makeN({ id: 'p1', severity: 'info', kind: 'pty-exit', readAt: null }),
+      makeN({ id: 'p2', severity: 'info', kind: 'pty-exit', readAt: 123 }),
+    ];
+    const grp = groupBySource(notes)[0];
+    expect(grp.items).toHaveLength(2);
+    expect(grp.unreadCount).toBe(1);
+  });
+
+  it('returns [] for an empty list', () => {
+    expect(groupBySource([])).toEqual([]);
+  });
+});
+
+describe('maxSeverity', () => {
+  it('returns the highest-ranked severity (critical > error > warn > info)', () => {
+    expect(
+      maxSeverity([
+        makeN({ id: 'a', severity: 'info' }),
+        makeN({ id: 'b', severity: 'error' }),
+        makeN({ id: 'c', severity: 'warn' }),
+      ]),
+    ).toBe('error');
+    expect(
+      maxSeverity([
+        makeN({ id: 'a', severity: 'warn' }),
+        makeN({ id: 'b', severity: 'critical' }),
+      ]),
+    ).toBe('critical');
+  });
+
+  it('returns null for an empty list', () => {
+    expect(maxSeverity([])).toBeNull();
+  });
+});
+
 describe('NotificationDropdown', () => {
   it('renders empty state when no rows', () => {
     render(<NotificationDropdown onClose={() => undefined} />);
@@ -108,6 +169,53 @@ describe('NotificationDropdown', () => {
     render(<NotificationDropdown onClose={() => undefined} />);
     expect(screen.getByTestId('notification-item-a')).toBeTruthy();
     expect(screen.getByTestId('notification-item-b')).toBeTruthy();
+  });
+
+  it('NTF-2 — groups rows into source sections with labels + unread counts', () => {
+    mockState = {
+      ...initialAppState,
+      notifications: [
+        makeN({ id: 'p1', severity: 'info', kind: 'pty-exit' }),
+        makeN({ id: 'p2', severity: 'info', kind: 'pty-exit', readAt: Date.now() }),
+        makeN({ id: 's1', severity: 'warn', kind: 'swarm-broadcast' }),
+      ],
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+    // Two sections rendered: pty + swarm (tool + system absent).
+    expect(screen.getByTestId('notification-section-pty')).toBeTruthy();
+    expect(screen.getByTestId('notification-section-swarm')).toBeTruthy();
+    expect(screen.queryByTestId('notification-section-tool')).toBeNull();
+    // pty has 1 unread of 2 rows → count badge shows "1".
+    expect(screen.getByTestId('notification-section-count-pty').textContent).toBe('1');
+    // Both pty rows render under the section.
+    expect(screen.getByTestId('notification-item-p1')).toBeTruthy();
+    expect(screen.getByTestId('notification-item-p2')).toBeTruthy();
+  });
+
+  it('NTF-2 — collapsing a section hides its items (default expanded)', () => {
+    mockState = {
+      ...initialAppState,
+      notifications: [
+        makeN({ id: 'p1', severity: 'info', kind: 'pty-exit' }),
+        makeN({ id: 's1', severity: 'warn', kind: 'swarm-broadcast' }),
+      ],
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+    // Default: expanded → both items visible.
+    expect(screen.getByTestId('notification-item-p1')).toBeTruthy();
+    expect(screen.getByTestId('notification-item-s1')).toBeTruthy();
+    // Collapse the pty section.
+    fireEvent.click(screen.getByTestId('notification-section-toggle-pty'));
+    expect(screen.queryByTestId('notification-item-p1')).toBeNull();
+    // The other section is unaffected.
+    expect(screen.getByTestId('notification-item-s1')).toBeTruthy();
+    // aria-expanded reflects the collapsed state.
+    expect(
+      screen.getByTestId('notification-section-toggle-pty').getAttribute('aria-expanded'),
+    ).toBe('false');
+    // Re-expand restores the items.
+    fireEvent.click(screen.getByTestId('notification-section-toggle-pty'));
+    expect(screen.getByTestId('notification-item-p1')).toBeTruthy();
   });
 
   it('Mark all read triggers rpc.notifications.markAllRead', () => {
