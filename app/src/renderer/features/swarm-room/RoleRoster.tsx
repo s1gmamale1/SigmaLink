@@ -338,6 +338,7 @@ export function RoleRoster({
                     Falls back to agentKey hash when no live session is present. */}
                 <span
                   className="flex items-center gap-0.5"
+                  role="img"
                   title={`agent ${agentId}`}
                   aria-label={`agent id: ${agentId}`}
                 >
