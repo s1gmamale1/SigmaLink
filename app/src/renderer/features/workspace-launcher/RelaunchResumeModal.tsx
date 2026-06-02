@@ -109,7 +109,7 @@ export function RelaunchResumeModal({
   );
 
   const handleRelaunch = useCallback(() => {
-    if (!workspaceId || selected.size === 0) return;
+    if (busy || !workspaceId || selected.size === 0) return; // review L4 — no double-fire
     const ids = [...selected];
     setBusy(true);
     void rpc.panes
@@ -132,7 +132,7 @@ export function RelaunchResumeModal({
       .finally(() => {
         setBusy(false);
       });
-  }, [workspaceId, selected, onOpenChange]);
+  }, [busy, workspaceId, selected, onOpenChange]);
 
   const hasSessions = sessions.length > 0;
 

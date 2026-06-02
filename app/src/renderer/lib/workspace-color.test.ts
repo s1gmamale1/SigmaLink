@@ -92,11 +92,13 @@ describe('agentShortId', () => {
     expect(new Set(ids).size).toBeGreaterThan(50);
   });
 
-  it('matches a snapshot for known ids (hash stability)', () => {
-    // Computed: djb2('session-1').toString(16).padStart(8,'0').slice(0,4)
-    expect(agentShortId('a')).toBe(agentShortId('a'));
-    // Verify stability: once computed it must never change
-    const snap = agentShortId('session-abc-123');
-    expect(agentShortId('session-abc-123')).toBe(snap);
+  it('matches FROZEN snapshots (FNV-1a — a constant change must fail this)', () => {
+    // Frozen values from the FNV-1a impl. NOT a tautology — hard-coded so a
+    // regression in the hash constants is caught (review L1).
+    expect(agentShortId('session-abc-123')).toBe('837b');
+    expect(agentShortId('session-1')).toBe('51cd');
+    expect(agentShortId('')).toBe('9dc5'); // FNV offset basis low 16 bits
+    expect(agentColor('session-abc-123')).toBe('#fb923c');
+    expect(agentColor('session-1')).toBe('#2dd4bf');
   });
 });

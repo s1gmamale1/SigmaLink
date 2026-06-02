@@ -236,6 +236,7 @@ export function PaneHeader({
             <TooltipTrigger asChild>
               <span
                 className="flex shrink-0 items-center gap-0.5"
+                role="img"
                 aria-label={`Agent id: ${agentId}`}
               >
                 <span
