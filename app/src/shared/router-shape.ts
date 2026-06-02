@@ -30,6 +30,7 @@ import type {
   ReviewDiff,
   ReviewConflict,
   BatchCommitResult,
+  SessionCheckpoint,
   Task,
   TaskAssignment,
   TaskComment,
@@ -274,6 +275,18 @@ export interface AppRouter {
       message: string;
     }) => Promise<{ stdout: string; stderr: string; code: number }>;
     worktreeRemove: (worktreePath: string) => Promise<void>;
+    // P6 FEAT-11 — agent undo/rewind via per-pane worktree git checkpoints.
+    // The controller resolves sessionId→worktreePath server-side; the renderer
+    // never passes a filesystem path.
+    createCheckpoint: (input: {
+      sessionId: string;
+      label?: string;
+    }) => Promise<SessionCheckpoint>;
+    listCheckpoints: (sessionId: string) => Promise<SessionCheckpoint[]>;
+    restoreCheckpoint: (input: {
+      sessionId: string;
+      sha: string;
+    }) => Promise<{ ok: true; safetySha: string | null }>;
   };
   fs: {
     exists: (path: string) => Promise<boolean>;

@@ -33,6 +33,7 @@ import * as mig0023 from './migrations/0023_benchmark_runs';
 import * as mig0024 from './migrations/0024_agent_sessions_auto_approve';
 import * as mig0025 from './migrations/0025_agent_sessions_display_provider';
 import * as mig0027 from './migrations/0027_memories_name_nocase';
+import * as mig0028 from './migrations/0028_session_checkpoints';
 
 export interface Migration {
   name: string;
@@ -76,6 +77,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   // 0026 (sf12 pane-slot repair) is intentionally UNREGISTERED — it stays
   // `.pending` until operator sign-off (see migrate.ts/SF-12 notes).
   mig0027,
+  mig0028,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `

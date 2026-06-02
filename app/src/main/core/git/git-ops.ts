@@ -430,6 +430,120 @@ export async function mergePreview(
 }
 
 /**
+ * P6 FEAT-11 — agent undo/rewind. Create a checkpoint: a commit that captures
+ * the worktree's current WIP as a reversible savepoint on the pane's own
+ * throwaway branch. The branch squash/merges later via `commitAndMerge`, so an
+ * extra commit here is harmless.
+ *
+ * Implementation:
+ *   1. `fs.existsSync` guard (worktree may have been pruned).
+ *   2. `git add -A`            — stage every change incl. new files.
+ *   3. `git commit --allow-empty --no-verify -m "sigmalink checkpoint: <label>"`
+ *      — `--allow-empty` so a checkpoint can be taken even with no pending
+ *        change (the savepoint is still a valid restore target); `--no-verify`
+ *        so a slow/broken pre-commit hook in the target repo can't block the
+ *        savepoint.
+ *   4. `git rev-parse HEAD`    — return the new commit's sha.
+ */
+export async function createCheckpoint(
+  worktreePath: string,
+  label?: string,
+): Promise<{ ok: boolean; sha?: string; error?: string }> {
+  if (!fs.existsSync(worktreePath)) {
+    return { ok: false, error: 'worktree path missing' };
+  }
+  const message = `sigmalink checkpoint: ${label && label.trim() ? label.trim() : new Date().toISOString()}`;
+
+  const add = await execCmd('git', ['add', '-A'], { cwd: worktreePath, timeoutMs: 30_000 });
+  if (add.code !== 0) {
+    return { ok: false, error: `git add failed: ${add.stderr || add.stdout}` };
+  }
+
+  const commit = await execCmd(
+    'git',
+    ['commit', '--allow-empty', '--no-verify', '-m', message],
+    { cwd: worktreePath, timeoutMs: 30_000 },
+  );
+  if (commit.code !== 0) {
+    return { ok: false, error: `git commit failed: ${commit.stderr || commit.stdout}` };
+  }
+
+  const rev = await execCmd('git', ['rev-parse', 'HEAD'], {
+    cwd: worktreePath,
+    timeoutMs: 5_000,
+  });
+  if (rev.code !== 0) {
+    return { ok: false, error: `git rev-parse failed: ${rev.stderr || rev.stdout}` };
+  }
+  return { ok: true, sha: rev.stdout.trim() };
+}
+
+/**
+ * P6 FEAT-11 — restore a worktree to a previous checkpoint. This is the
+ * DESTRUCTIVE half: `git reset --hard <sha>` discards every commit + working
+ * change after the target. Two safeguards make it bounded and reversible:
+ *
+ *   - VALIDATION (before anything mutates): the sha must be a real commit in
+ *     THIS worktree AND an ancestor of HEAD. `git cat-file -e <sha>^{commit}`
+ *     proves it's a commit object that exists; `git merge-base --is-ancestor`
+ *     proves it lies on this branch's history (rejecting an arbitrary or
+ *     foreign sha — you can only rewind to a point you actually came through).
+ *   - SAFETY-FIRST: BEFORE the reset we take an auto "pre-rewind" checkpoint of
+ *     the CURRENT state and return its sha. So even the rewind is undoable —
+ *     the operator can restore that safety sha to get the discarded work back.
+ *     ORDER MATTERS: the snapshot is committed before the destructive reset.
+ */
+export async function restoreCheckpoint(
+  worktreePath: string,
+  sha: string,
+): Promise<{ ok: boolean; safetySha?: string; error?: string }> {
+  if (!fs.existsSync(worktreePath)) {
+    return { ok: false, error: 'worktree path missing' };
+  }
+
+  // 1) Validate the sha is a real commit object in this worktree.
+  const exists = await execCmd('git', ['cat-file', '-e', `${sha}^{commit}`], {
+    cwd: worktreePath,
+    timeoutMs: 5_000,
+  });
+  if (exists.code !== 0) {
+    return { ok: false, error: 'checkpoint commit not found in this worktree' };
+  }
+  // 2) Validate the sha is an ancestor of HEAD (reachable on this branch) — so
+  //    a restore can only ever rewind, never jump to an unrelated commit.
+  const ancestor = await execCmd('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], {
+    cwd: worktreePath,
+    timeoutMs: 5_000,
+  });
+  if (ancestor.code !== 0) {
+    return { ok: false, error: 'checkpoint is not an ancestor of the current state' };
+  }
+
+  // 3) Safety snapshot of the CURRENT state BEFORE the destructive reset, so the
+  //    rewind itself is undoable.
+  const safety = await createCheckpoint(worktreePath, 'pre-rewind');
+  if (!safety.ok) {
+    return { ok: false, error: `pre-rewind safety checkpoint failed: ${safety.error ?? 'unknown'}` };
+  }
+
+  // 4) Now the destructive reset.
+  const reset = await execCmd('git', ['reset', '--hard', sha], {
+    cwd: worktreePath,
+    timeoutMs: 30_000,
+  });
+  if (reset.code !== 0) {
+    // The safety checkpoint is already committed, so the current state is
+    // recoverable even though the reset failed.
+    return {
+      ok: false,
+      safetySha: safety.sha,
+      error: `git reset failed: ${reset.stderr || reset.stdout}`,
+    };
+  }
+  return { ok: true, safetySha: safety.sha };
+}
+
+/**
  * Discard every uncommitted change in a worktree: revert tracked files to
  * HEAD, drop staged additions, and remove untracked / ignored files. Best
  * effort; logs are returned for the operator.
