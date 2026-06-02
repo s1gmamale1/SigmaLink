@@ -81,6 +81,14 @@ export function MemoryRoom() {
     };
   }, [rufloView, wsId]);
 
+  // P4 MEM-1 — clear the read-only Ruflo view when the workspace changes, so a
+  // virtual note opened in workspace A never lingers (stale) under workspace B.
+  // queueMicrotask defers the set out of the effect body (react-hooks/set-state-
+  // in-effect), matching the graph-loading effect's pattern below.
+  useEffect(() => {
+    queueMicrotask(() => setRufloView(null));
+  }, [wsId]);
+
   // Hydrate the hub on first mount per workspace.
   useEffect(() => {
     if (!wsId) return;
