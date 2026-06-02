@@ -38,6 +38,78 @@ const stub: ChannelSchema = { input: any, output: any };
 // with a string schema, and object-first-arg channels with an object schema.
 const PATH_STR = z.string().min(1).max(4096);
 
+// ARCH-9 — concrete OUTPUT shapes for the highest-traffic / largest-payload
+// channels (mirroring the router-shape return types). These are drift-DETECTION
+// only: `validateChannelOutput` fail-opens (logs once, returns the original) —
+// the main process is the trusted producer, so a shape mismatch is a controller
+// bug to surface in dev, never a reason to reject a working response. `.passthrough()`
+// tolerates extra fields so a benign additive change doesn't warn.
+const GIT_STATUS_OUTPUT = z
+  .object({
+    branch: z.string(),
+    ahead: z.number(),
+    behind: z.number(),
+    staged: z.array(z.string()),
+    unstaged: z.array(z.string()),
+    untracked: z.array(z.string()),
+    clean: z.boolean(),
+  })
+  .passthrough()
+  .nullable();
+const GIT_DIFF_OUTPUT = z
+  .object({
+    stat: z.string(),
+    patches: z.string(),
+    untrackedFiles: z.array(z.string()),
+    truncated: z.boolean(),
+  })
+  .passthrough()
+  .nullable();
+const SHELL_RESULT_OUTPUT = z
+  .object({ stdout: z.string(), stderr: z.string(), code: z.number() })
+  .passthrough();
+const SESSION_CHECKPOINT_OUTPUT = z
+  .object({
+    id: z.string(),
+    sessionId: z.string(),
+    sha: z.string(),
+    label: z.string().nullable(),
+    kind: z.enum(['auto', 'manual']),
+    createdAt: z.number(),
+  })
+  .passthrough();
+const FS_READDIR_OUTPUT = z
+  .object({
+    entries: z.array(
+      z
+        .object({
+          name: z.string(),
+          type: z.enum(['file', 'dir']),
+          size: z.number().optional(),
+          modifiedAt: z.number().optional(),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
+const FS_READFILE_OUTPUT = z
+  .object({
+    content: z.string(),
+    encoding: z.enum(['utf8', 'binary']),
+    truncated: z.boolean(),
+  })
+  .passthrough();
+const USAGE_SUMMARY_OUTPUT = z
+  .object({
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    cacheCreationTokens: z.number(),
+    cacheReadTokens: z.number(),
+    totalCostUsd: z.number().nullable(),
+    turnCount: z.number(),
+  })
+  .passthrough();
+
 /**
  * Validation mode for the rpc-router.
  *
@@ -270,13 +342,13 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'workspaces.launch': stub,
   // ── git ──────────────────────────────────────────────────────────────
   // H-8 — `status(cwd)` / `diff(cwd)`: first (and only) arg is a bounded cwd.
-  'git.status': { input: PATH_STR, output: any },
-  'git.diff': { input: PATH_STR, output: any },
+  'git.status': { input: PATH_STR, output: GIT_STATUS_OUTPUT },
+  'git.diff': { input: PATH_STR, output: GIT_DIFF_OUTPUT },
   // H-8 — handler is `runCommand(cwd, line, timeoutMs?)`. The validator only
   // sees the FIRST positional arg, so we bound `cwd` here; `line` + `timeoutMs`
   // are 2nd/3rd positional and out of reach of a single-arg validator (the
   // shell command itself is sandboxed by git-ops `runShellLine`).
-  'git.runCommand': { input: PATH_STR, output: any },
+  'git.runCommand': { input: PATH_STR, output: SHELL_RESULT_OUTPUT },
   // H-8 — handler is `commitAndMerge(input: { worktreePath, branch, repoRoot,
   // message })`; first arg is the object. Bound every string field.
   'git.commitAndMerge': {
@@ -286,7 +358,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       repoRoot: PATH_STR,
       message: z.string().max(16_384),
     }),
-    output: any,
+    output: SHELL_RESULT_OUTPUT,
   },
   // H-8 — handler is `worktreeRemove(worktreePath: string)`; first arg is the path.
   'git.worktreeRemove': { input: PATH_STR, output: any },
@@ -300,10 +372,10 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       sessionId: z.string().min(1).max(200),
       label: z.string().max(512).optional(),
     }),
-    output: any,
+    output: SESSION_CHECKPOINT_OUTPUT,
   },
   // handler is `listCheckpoints(sessionId: string)`; first arg is the id.
-  'git.listCheckpoints': { input: z.string().min(1).max(200), output: any },
+  'git.listCheckpoints': { input: z.string().min(1).max(200), output: z.array(SESSION_CHECKPOINT_OUTPUT) },
   'git.restoreCheckpoint': {
     input: z.object({
       sessionId: z.string().min(1).max(200),
@@ -318,7 +390,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   // ── usage (P6 FEAT-3) ──────────────────────────────────────────────────
   'usage.sessionSummary': {
     input: z.object({ sessionId: z.string().min(1).max(200) }),
-    output: any,
+    output: USAGE_SUMMARY_OUTPUT,
   },
   'usage.weekSummary': {
     input: z.object({ workspaceId: z.string().min(1).max(200) }),
@@ -335,13 +407,13 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'fs.exists': { input: PATH_STR, output: any },
   // V3-W14-007 — Editor tab. H-8 tightens these to the real `{ path, ... }`
   // object shapes (fsReadDir / fsReadFile / fsWriteFile in core/fs/controller.ts).
-  'fs.readDir': { input: z.object({ path: PATH_STR }), output: any },
+  'fs.readDir': { input: z.object({ path: PATH_STR }), output: FS_READDIR_OUTPUT },
   'fs.readFile': {
     input: z.object({
       path: PATH_STR,
       maxBytes: z.number().int().positive().max(64 * 1024 * 1024).optional(),
     }),
-    output: any,
+    output: FS_READFILE_OUTPUT,
   },
   'fs.writeFile': {
     input: z.object({

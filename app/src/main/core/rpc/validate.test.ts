@@ -30,6 +30,8 @@ const SCHEMAS: Record<string, ChannelSchema> = {
   'workspaces.launch': { input: z.any(), output: z.any() },
   // An output-only entry (no `input`): should always pass through.
   'app.tier': { output: z.enum(['basic', 'pro', 'ultra']) },
+  // ARCH-9 — a channel with a CONCRETE output schema for the output validator.
+  'git.status': { input: z.any(), output: z.object({ branch: z.string(), clean: z.boolean() }) },
 };
 
 vi.mock('./schemas', () => ({
@@ -42,7 +44,7 @@ vi.mock('./schemas', () => ({
 // Import AFTER the mock is registered. `validateChannelInput` reads
 // VALIDATION_MODE live through the getter, so flipping `mockState.mode` between
 // suites takes effect without re-importing.
-import { validateChannelInput } from './validate';
+import { validateChannelInput, validateChannelOutput } from './validate';
 
 const VALID_WRITE = {
   path: '/repo/src/a.ts',
@@ -133,5 +135,36 @@ describe('validateChannelInput — warn mode', () => {
     // Second call for the same channel must NOT re-warn (deduped).
     expect(validateChannelInput('warn.unknownChannel', payload)).toBe(payload);
     expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('validateChannelOutput — ARCH-9 fail-open drift detection', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => warnSpy.mockRestore());
+
+  it('returns the value unchanged when it matches the output schema (no warn)', () => {
+    const ok = { branch: 'main', clean: true };
+    expect(validateChannelOutput('git.status', ok)).toBe(ok);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('FAILS OPEN on a drifted output — returns the ORIGINAL + warns once', () => {
+    const bad = { branch: 123, clean: 'nope' } as unknown;
+    // never throws, never rejects — returns the original object identity.
+    expect(validateChannelOutput('git.status', bad)).toBe(bad);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    // second mismatch for the same channel does not spam.
+    validateChannelOutput('git.status', { branch: 1 });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes through channels with no output schema / z.any() output', () => {
+    const v = { whatever: [1, 2, 3] };
+    expect(validateChannelOutput('workspaces.launch', v)).toBe(v); // z.any()
+    expect(validateChannelOutput('does.not.exist', v)).toBe(v); // unknown channel
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
