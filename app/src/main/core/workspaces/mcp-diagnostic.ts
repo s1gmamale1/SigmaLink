@@ -139,6 +139,14 @@ function readConfigTarget(
   let raw: string;
   try {
     if (!fs.existsSync(target.file)) return; // absent → not configured, skip.
+    // M2 — MCP configs are KB-scale. Cap the read so a pathologically large
+    // file (e.g. a multi-hundred-MB .mcp.json) can't synchronously stall the
+    // main thread before JSON.parse. Over-cap → an 'unreadable' issue, not a hang.
+    const MAX_CONFIG_BYTES = 1024 * 1024; // 1 MiB
+    if (fs.statSync(target.file).size > MAX_CONFIG_BYTES) {
+      issues.push(unreadableIssue(target, 'config file is too large to scan (>1 MiB)'));
+      return;
+    }
     raw = fs.readFileSync(target.file, 'utf8');
   } catch {
     issues.push(unreadableIssue(target, 'config file could not be read'));
@@ -214,9 +222,12 @@ function parseTomlConfig(
   }
 
   for (const name of seen) {
-    // We treat a codex entry as managed only when it declares the ruflo command
-    // (npx). We approximate by checking the block has `command = "npx"`.
-    const managed = name === 'ruflo' && tomlBlockHasNpxCommand(raw, name);
+    // L2 — a codex entry named `ruflo` IS the SigmaLink-managed server, whatever
+    // its command form. The previous heuristic also required `command = "npx"`,
+    // but the SF-14 daemon path runs via process.execPath + ELECTRON_RUN_AS_NODE
+    // (NOT npx) → that false-negatived the daemon install and skipped its
+    // missing-env check. The table name is the reliable managed signal.
+    const managed = name === 'ruflo';
     servers.push({ name, provider: target.provider, scope: target.scope, file: target.file, managed });
     // Missing-env for a managed ruflo entry: no `[mcp_servers.ruflo.env]` table
     // OR the table lacks CLAUDE_FLOW_DIR.
@@ -230,17 +241,8 @@ function parseTomlConfig(
 // convention, to avoid the ReDoS lint (CWE-1333). The only variable input is a
 // TOML table NAME, which we match by exact-string scan rather than regex.
 
-/** `command = "npx"` (or single-quoted) on its own line. */
-const TOML_NPX_COMMAND_RE = /^\s*command\s*=\s*(?:"npx"|'npx')\s*(?:#.*)?$/m;
 /** `CLAUDE_FLOW_DIR = ...` on its own line — the one env key we check for. */
 const TOML_EXPECTED_ENV_RE = /^\s*CLAUDE_FLOW_DIR\s*=/m;
-
-/** Does the `[mcp_servers.<name>]` block declare `command = "npx"`? */
-function tomlBlockHasNpxCommand(raw: string, name: string): boolean {
-  const block = sliceTomlBlock(raw, `mcp_servers.${name}`);
-  if (block === null) return false;
-  return TOML_NPX_COMMAND_RE.test(block);
-}
 
 /** Does `[mcp_servers.<name>.env]` declare the expected CLAUDE_FLOW_DIR key? */
 function tomlEnvDeclaresExpectedKey(

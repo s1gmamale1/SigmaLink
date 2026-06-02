@@ -71,7 +71,7 @@ export function GitActivityStrip({ worktreePath }: GitActivityStripProps) {
 
   return (
     <div
-      className="h-4 w-full min-w-0"
+      className="h-4 w-12 shrink-0"
       role="img"
       aria-label={label}
       title={label}
