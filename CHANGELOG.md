@@ -4,6 +4,25 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added — ROADMAP P3 notifications + sound (PR #73, untagged — rides the next tagged release)
+
+Phase 3 of the next-phase ROADMAP — a calm, controllable notification + sound experience. A lead-owned shared foundation + four file-disjoint worktree lanes + lead integration + Opus review (APPROVE-WITH-NITS; M1/L2/L4 folded). Gate: `tsc -b` clean · 2093 vitest pass / 1 skip · `eslint .` clean · build + electron:compile clean · full `tests/e2e/` 9 pass / 3 manual-skipped.
+
+- **NTF-1 — Do-Not-Disturb / quiet-hours / per-source mute.** New pure shared contract `shared/notification-prefs.ts` (KV keys, wrap-aware quiet-hours math, source taxonomy `pty|swarm|tool|system`, suppression predicates, the sound cue catalog). `core/notifications/os-notify.ts` now gates OS popups via `isOsSuppressed` — per-source mute always wins; `critical` bypasses DND/quiet (must-see); every other severity is silenced while quiet is active. Settings (`NotificationsSettings.tsx`): DND toggle, quiet-hours window, per-source mute checkboxes.
+- **SND-1 — soundscape system.** `renderer/lib/sounds.ts` Web-Audio synth engine over a 12-cue catalog split into `alert` (play even when backgrounded / Reduce-Motion) vs `ui` (ambient — additionally gated by Reduce-Motion + `document.hidden`) categories; master toggle + global volume + per-cue mute matrix with a per-cue **Test** preview (`NotificationsSettings.sound.tsx`). Gated by master/mute/DND/quiet. `lib/notifications.ts` is now a thin back-compat shim (`playDing`→`agent-done`, `playNotificationTone(sev)`→per-severity cue); legacy `notifications.ding`/`notifications.sound` toggles seed the muted set on first run only (so the new per-cue matrix stays authoritative).
+- **NTF-2 — dropdown polish + toast↔bell handoff.** `NotificationDropdown.tsx` groups the list by source into collapsible sections (reduce-motion-safe enter via `sl-fade-in`); `navigateToNotification` extracted to `helpers.ts` (DRY across the dropdown click + the toast action). `use-live-events.ts` now plays the delta's max-severity tone and surfaces a themed sonner toast per new unread (info 3s / warn 5s / error+critical persistent with a "View" deep-link action) — both suppressed under DND/quiet and for muted sources, while the bell still records everything.
+- **ANIM-3 — pane aliveness.** `PaneFooter.tsx` shows a rotating whimsical progress verb + elapsed time on running panes (`progress-verbs.ts`); verb rotation is gated by `prefers-reduced-motion` (the elapsed clock keeps ticking). NTF-3 was satisfied by P2's UX-9.
+- *Deferred → WISHLIST:* the optional daily-summary digest (needs a main-process scheduler + a new notification kind). The catalog's non-notification cues (agent-crash/message-arrive/merge-ready/send/record-*) are wired for preview but not yet event-bound (forward-looking).
+
+### Changed — ROADMAP P2 Apple-grade motion & overlays (PR #72, untagged — rides the next tagged release)
+
+Phase 2 — one cohesive Apple motion language across every overlay, zero native OS modals, theme-correct transient surfaces. Built on `MOT-1`; gated + Opus-reviewed (single-glass dropdown + AlertDialog parity findings folded; a CI ESLint pass cleared 10 errors the local gate had skipped).
+
+- **MOT-1 — motion-token foundation.** Apple spring easings as CSS + Tailwind tokens (`--ease-smooth/snappy/bouncy`, `--motion-fast 150 / --motion 250 / --motion-slow 350`, reduced-motion-aware) + `lib/motion.ts` presence helpers; all shared `components/ui/*` overlays migrated off stock `duration-200 ease-out`.
+- **UX-1** themed Toaster (driven by the app `ThemeProvider`, `.sl-glass` on the glass theme — was hard-pinned dark). **UX-2** notification dropdown rebuilt on a Radix Popover (focus-trap / Escape / return-focus / spring). **UX-3** native `prompt/confirm/alert` replaced with themed `AlertDialog` + a reusable `PromptDialog`. **UX-4** dialog max-height + internal scroll. **UX-7** one root `TooltipProvider`.
+- **UX-5** keyed spring room-switch transitions. **UX-6** Tasks @dnd-kit `DragOverlay` drop animation. **UX-8** keyboard pane-resize on the GridLayout separators (`role=separator` + Arrow-key nudge + `aria-valuenow`). **UX-9** notification non-color severity cue (per-severity glyph + accessible severity word). **UX-10** `focus-visible:` ring sweep across feature code.
+- **ANIM-2** Orb honors `prefers-reduced-motion`. **PERF-13 + MEM-10** MemoryGraph sleeps on settle (kinetic-energy threshold), honors reduced-motion, and reads node/edge colors from CSS theme vars.
+
 ### Fixed — ROADMAP P1 reliability spine (PR #70 `37f94a0`, untagged — rides the next tagged release)
 
 First execution batch of the next-phase ROADMAP. Six file-disjoint worktree lanes + lead integration + Opus review. Gate: `tsc -b` clean · 2000 vitest pass · e2e 9 passed / 3 manual-skipped · Opus review (no critical/high). The 9-agent deep-dive that planned this batch also landed an enriched `docs/03-plan/WISHLIST.md`, a fresh 6-phase `docs/03-plan/ROADMAP.md`, and a BridgeSpace v3.0.74 competitor review.

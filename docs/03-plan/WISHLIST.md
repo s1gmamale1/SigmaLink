@@ -26,7 +26,7 @@ audit time (v1.36.0 baseline). Sources: video review `docs/02-research/videos/0N
 > DB-1, ERR-1** + the **`commitAndMerge --abort` HIGH** the BUG-14 test uncovered + **ARCH-10** (29 stale
 > worktrees swept, 5.8 GB→0). Gate: `tsc -b` clean · 2000 vitest · e2e 9/3-skip · Opus review (no
 > critical/high). Detail → `CHANGELOG.md` [Unreleased] + master memory. Shipped items are ✅-marked below.
-> **Next phase: P2 — Apple motion (MOT-1 first)** per `ROADMAP.md`.
+> **P1 + P2 + P3 shipped (PRs #70 / #72 / #73, untagged).** Next phase: **P4 — Obsidian memory + agent-memory unification (MEM-1 headline)** per `ROADMAP.md`.
 
 ### 🐞 Reliability & correctness (bugs)
 - ✅ **BUG-1** *(shipped P1)* — Swarm-agent crashes silently marked `'exited'` (high/s). `swarms/factory-spawn.ts:395` uses an inline `earlyDeath` ternary while the pane path uses shared `isPtyCrash` (`workspaces/launcher.ts:145,567`) → a swarm CLI that exits non-zero after 1.5s reads as a clean exit (no error status, no warn notification). **Fix BOTH exit paths** (mirror-drift class) — call shared `isPtyCrash`. ✅ critic-verified real.
@@ -72,7 +72,7 @@ audit time (v1.36.0 baseline). Sources: video review `docs/02-research/videos/0N
 - **ARCH-9** — RPC output validation effectively off — 18/42 channels use the `any` passthrough (m). `rpc/schemas.ts:30`. Tighten highest-traffic/largest-payload outputs first (git.diff/status, fs.readDir) reusing existing typed shapes. Small ongoing wave.
 - ✅ **ARCH-10** *(shipped P1 — done 2026-05-31)* — 29 stale **locked** agent worktrees (5.8 GB) under `.claude/worktrees` were accidental write targets + recon noise. Swept via `git worktree remove --force` + `prune` (operator-authorized) → 5.8 GB→0. Wrap-up sweep step still owed as a standing habit.
 
-### 🎨 Apple-grade motion, overlays & a11y (pillars a/b/c)
+### ✅ Apple-grade motion, overlays & a11y (pillars a/b/c) — SHIPPED (MOT-1/UX-1…10/ANIM-2 → P2 PR #72; ANIM-3 → P3 PR #73). Detail → CHANGELOG/ROADMAP.
 - **MOT-1** — **Motion-token foundation (PREREQ for all animation work).** Spring tokens exist (`index.css:63` `--ease-spring` cubic-bezier(0.32,0.72,0,1)) but ZERO overlays consume them — every Radix/vaul/sonner surface uses stock 200ms ease-out → two competing motion languages. `tailwind.config.js` has only 3 keyframes. Add Apple spring easings as CSS+tailwind tokens (smooth/snappy/bouncy, 150/250/350ms, reduced-motion-aware) + a `useSpringPresence` util; migrate the shared `components/ui/*` primitives. (med/m)
 - **UX-1** — Toaster is hard-pinned `theme="dark"` → toasts render as dark slabs on light/parchment themes (high/s). `App.tsx:186`; the correct themed `components/ui/sonner.tsx` wrapper is dead code AND reads next-themes not the app ThemeProvider. Drive it from app `useTheme()`; add `.sl-glass` on the glass theme.
 - **UX-2** — Notification dropdown is a hand-rolled `<div role=menu>` — no focus-trap, Escape, return-focus, or enter/exit animation (high/m). `NotificationDropdown.tsx:164`. Rebuild on Radix Popover (free focus-trap/Escape/portal) + MOT-1 spring. The most-used popover is the least Apple-grade.
@@ -87,13 +87,16 @@ audit time (v1.36.0 baseline). Sources: video review `docs/02-research/videos/0N
 - **ANIM-2** — Jorvis **Orb** ignores `prefers-reduced-motion` — 4 infinite keyframes (med/xs, a11y). `Orb.tsx:68`. SigmaLink's answer to BridgeSpace's most-praised "agent-as-presence" UX violates the global reduce-motion posture. One `@media (prefers-reduced-motion)` block. Quick win.
 - **ANIM-3** — Whimsical randomized progress verbs + elapsed/token aliveness on running agents (low/s). Video competitor shows "Percolating… 43s · 24.5k tokens" / rotating gerunds = cheap delight + "this pane is alive" signal. Rotating-verb indicator in PaneFooter (reduced-motion gated).
 
-### 🔔 Notification system (pillar d)
+### ✅ Notification system (pillar d) — SHIPPED P3 (PR #73). Detail → CHANGELOG/ROADMAP.
 - **NTF-1** — Do-Not-Disturb / quiet-hours / per-source mute (med/l). `os-notify.ts:18` explicitly out-of-scope; `KV_OS_PER_SOURCE` scaffolded but unused. Add DND toggle + quiet-hours window gating OS+sound; wire per-source array; per-row "Mute this source"; optional daily summary digest (Apple Scheduled Summary). Backend is mature — the front-end UX is the gap.
 - **NTF-2** — Notification-dropdown UX polish (med/m). Grouped/sectioned by workspace+kind (collapsible), animated enter/leave on MOT-1, "mark all read"/clear, coherent toast(sonner)↔bell handoff (transient toast for low severity, persistent bell for actionable). (Subsumes the UX-2 rebuild.)
-- **NTF-3** — see UX-9 (severity non-color cue).
+- ✅ **NTF-1** *(shipped P3)* — DND / quiet-hours / per-source mute. Shared `notification-prefs.ts` predicates + `os-notify.ts` gating + Settings UI.
+- ✅ **NTF-2** *(shipped P3)* — collapsible per-source dropdown grouping + MOT-1 enter + max-severity tone + themed toast↔bell handoff.
+- ✅ **NTF-3** *(shipped P2)* — see UX-9 (severity non-color cue).
+- **NTF-DIGEST** *(deferred from P3 NTF-1 — OPEN)* — optional daily-summary digest (Apple "Scheduled Summary"): a once-daily roll-up notification of the day's lower-severity items. Needs a main-process scheduler (fire at a local HH:MM) + a new `daily-summary` notification kind + an opt-in toggle in NotificationsSettings. (low/m)
 
-### 🔊 Sound design (pillar e)
-- **SND-1** — **Sound-design system.** Today = 2 synthesized Web-Audio tones (`lib/notifications.ts:61` playDing, :106 playNotificationTone), one tone for warn/error/critical, fixed gain, plays even under reduced-motion / hidden window. Build a central soundscape module: event→cue map (agent-done / agent-crash / message-arrive / merge-ready / error / send / record-start / record-stop), distinct per-severity tones, **global volume + per-event mute matrix** in NotificationsSettings, gated by reduced-motion **and** DND **and** `document.hidden`; optional short designed assets (CSP-safe, bundled, no remote fetch) with the synth path as fallback. Restraint default: NO per-PTY-data sound. (med/m)
+### ✅ Sound design (pillar e) — SHIPPED P3 (PR #73, `lib/sounds.ts` soundscape). Detail → CHANGELOG/ROADMAP.
+- ✅ **SND-1** *(shipped P3)* — **Sound-design system.** Today = 2 synthesized Web-Audio tones (`lib/notifications.ts:61` playDing, :106 playNotificationTone), one tone for warn/error/critical, fixed gain, plays even under reduced-motion / hidden window. Build a central soundscape module: event→cue map (agent-done / agent-crash / message-arrive / merge-ready / error / send / record-start / record-stop), distinct per-severity tones, **global volume + per-event mute matrix** in NotificationsSettings, gated by reduced-motion **and** DND **and** `document.hidden`; optional short designed assets (CSP-safe, bundled, no remote fetch) with the synth path as fallback. Restraint default: NO per-PTY-data sound. (med/m)
 
 ### 🗂 Responsiveness (pillar b)
 - **RSP-1** — **Responsive layout system.** The `resizable.tsx` primitive (react-resizable-panels) is bundled but has ZERO importers; only the pane GridLayout is drag-resizable; Memory uses a fixed `260px 1fr 280px` grid w/ one 900px breakpoint; no shared `useBreakpoint`/density scale. Adopt Resizable for rail/main/right-rail + multi-column rooms (Memory first), **persist sizes per workspace** (Apple "remembers my layout"); shared `useMediaQuery` + density (comfortable/compact/cozy); graceful narrow-width collapse; min-window e2e check. (med/l)
