@@ -132,9 +132,15 @@ export function SettingsRoom() {
             onValueChange={setActiveTab}
             className="flex h-full min-h-0 flex-col"
           >
-            <TabsList className="mx-4 mt-3 flex flex-wrap self-start">
+            <TabsList className="mx-4 mt-3 flex h-auto flex-wrap gap-1 self-start">
               {visibleTabs.map((t) => (
-                <TabsTrigger key={t.value} value={t.value}>
+                // h-7 flex-none override the shadcn single-row pill defaults
+                // (`flex-1` + `h-[calc(100%-1px)]`): in this WRAPPING list those
+                // would stretch a lone last-row trigger to full width and push
+                // wrapped rows out of the list's box into the content area below
+                // (making later tabs un-clickable). tailwind-merge in cn() keeps
+                // these later classes. See the ONB-1 wrap regression.
+                <TabsTrigger key={t.value} value={t.value} className="h-7 flex-none">
                   {t.label}
                 </TabsTrigger>
               ))}
