@@ -7,8 +7,8 @@
 > **Shipped baseline:** SigmaLink v1.36.0 (+ on-main-untagged video+perf harness & FE-4 a11y `dbce7e6`);
 > SigmaVoice standalone v0.3.2 (own repo, macOS arm64 DMG).
 >
-> **✅ P1 SHIPPED (PR #70 `37f94a0`) · ✅ P2 SHIPPED (PR #72) · ✅ P3 SHIPPED (PR #73) — all untagged → ride the next release.**
-> **ACTIVE PHASE → P4 (Obsidian memory + agent-memory unification; `MEM-1` is the headline).** ARCH-1 (main-process tsconfig) still owed.
+> **✅ P1 (PR #70) · ✅ P2 (PR #72) · ✅ P3 (PR #73) · ✅ P4 (PRs #75+#76) SHIPPED — all untagged → ride the next release.**
+> **ACTIVE PHASE → P5 (Responsiveness & performance; `RSP-1` + the hot IPC/re-render paths).** ARCH-1 (main-process tsconfig) still owed. P4.2 follow-ups (causal edges, global ⌘O, MEM-5/7/8/9, PERF-14) parked in WISHLIST.
 >
 > **Phase goal (operator's 6-pillar vision):** **(a)** Apple-grade visuals · **(b)** responsive layouts ·
 > **(c)** smooth animations/popups · **(d)** polished notifications · **(e)** tasteful sound ·
@@ -29,8 +29,8 @@
 | ✅ **P1** | Reliability & correctness spine | ✅ **merged PR #70** (`37f94a0`) | **DONE** — BUG-1/2/3/4/5/6/7/8/13/14 · DB-1 · ERR-1 · ARCH-10 + commitAndMerge `--abort` fix. *(ARCH-1 split to its own follow-up — still owed.)* | Shipped 2026-05-31. |
 | ✅ **P2** | Apple-grade motion & overlays (a/c) | ✅ **merged PR #72** | **DONE** — MOT-1, UX-1/2/3/4/5/6/7/8/9/10, ANIM-2, PERF-13/MEM-10 | Shipped. One motion language; native modals + dark-pinned toaster gone. |
 | ✅ **P3** | Notifications + sound (d/e) | ✅ **merged PR #73** | **DONE** — NTF-1, NTF-2, NTF-3(=UX-9), SND-1, ANIM-3 | Shipped. DND/quiet-hours/per-source + restrained soundscape + toast↔bell handoff + pane aliveness. |
-| ◀ **P4** | Obsidian memory + agent-memory unification (f) — **HEADLINE · ACTIVE** | `v1.40.0` | **MEM-1**, MEM-2, MEM-4, MEM-3, MEM-6, MEM-5, MEM-7, DB-2, BUG-10/11/12, MEM-9/8, PERF-14 | The operator's headline vision + the biggest competitive gap (BridgeSpace leaves it bare). |
-| **P5** | Responsiveness & performance (b) | `v1.41.0` | RSP-1, PERF-1, PERF-3, PERF-2/4/5/6/8, PERF-7/9/10/11/12 | Adopt the dead Resizable primitive; tame the hottest IPC + re-render paths under live load. |
+| ✅ **P4** | Obsidian memory + agent-memory unification (f) — **HEADLINE** | ✅ **merged PRs #75+#76** | **DONE** — MEM-1, MEM-4, MEM-2, MEM-3, MEM-6, DB-2, BUG-10/11/12. *(MEM-5/7/8/9, PERF-14, causal edges, global ⌘O → P4.2/WISHLIST.)* | Shipped. Ruflo-as-graph + ⌘O + daily notes + tags + orphans + DB backup. |
+| ◀ **P5** | Responsiveness & performance (b) — **ACTIVE** | `v1.41.0` | RSP-1, PERF-1, PERF-3, PERF-2/4/5/6/8, PERF-7/9/10/11/12 | Adopt the dead Resizable primitive; tame the hottest IPC + re-render paths under live load. |
 | **P6** | Competitive features & leapfrogs | `v1.42.0`+ | FEAT-1, FEAT-3, FEAT-7, FEAT-11, FEAT-13, FEAT-2/5/6/8/9/4/10/12/14, ONB-1 | Parity surfaces + worktree leapfrogs (agent rewind, merge-orchestration, git heatmap). |
 | **×** | Cross-cutting (every phase) | within each release | SEC-1, ARCH-2/3/4/5/6/7/8/9, RES-1 | Security re-gate + opportunistic decompositions when touching those files. |
 | **B** | Blocked / operator-owned (parked) | when unblocked | SV1, SV2, B1, B2, op-0026, op-smokes | Not actionable unblocked — see tail. |
@@ -64,7 +64,8 @@
 - **ANIM-3** whimsical progress verbs + elapsed/token aliveness on running panes.
 **Exit criteria:** DND silences OS + sound; per-source mute works; sound is suppressed under reduced-motion / DND / hidden-window; distinct severity tones; volume persists.
 
-### ▶ P4 — Obsidian memory + agent-memory unification (pillar f) — **HEADLINE** · ships as `v1.40.0`
+### ▶ P4 — Obsidian memory + agent-memory unification (pillar f) — **HEADLINE** · ✅ SHIPPED (PRs #75 + #76, untagged)
+**Delivered:** MEM-1 (Ruflo AgentDB as a read-only graph node class via `ruflo.entries.list`/`neighbors` + `useRufloGraphOverlay` + `MemoryGraph` legend + read-only virtual notes) · MEM-4 (⌘O quick switcher) · MEM-2 (daily notes) · MEM-3 (tags pane filtering list+graph) · MEM-6 (orphans/suggestions UI) · DB-2 (backup/restore, main-side dialog) · BUG-10/11/12. **Operator smoke owed pre-tag:** DB-2 backup→restore→identical round-trip (no vitest coverage — better-sqlite3 ABI). **→ P4.2/WISHLIST:** causal edges, global ⌘O, graph tag-dim, MEM-5/7/8/9, PERF-14, daily-note digest. Detail → `CHANGELOG.md`.
 **Goal:** the Ruflo agent memory is browsable the Obsidian way, and the Memory room feels like a real PKM (graph/backlinks/daily-notes/tags/quick-switcher).
 **Deliverables:** Ruflo patterns as a distinct graph node class with backlinks (read-only), a ⌘O quick switcher, Daily Notes, a tags pane, the orphans/suggestions UI, and DB backup/restore.
 **Work (priority — MEM-1 is the anchor):**

@@ -4,6 +4,17 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added — ROADMAP P4 obsidian memory + agent-memory unification (HEADLINE; PRs #75 + #76, untagged)
+
+Phase 4 — the Ruflo agent memory is now browsable the Obsidian way, and the Memory room is a real PKM. Two rounds (round-1 = the MEM-1 headline + correctness; round-2 = the PKM surfaces), each lead-foundation + file-disjoint worktree lanes + Opus review.
+
+- **MEM-1 — Ruflo AgentDB as a graph node class.** New `ruflo.entries.list` (memory_search_unified sweep → `RufloEntry[]` with id+namespace) + `ruflo.entries.neighbors` (embeddings_search → similarity edges). `useRufloGraphOverlay` + `MemoryGraph` render Ruflo entries as accent diamonds + dashed, weight-scaled similarity edges + a legend; clicking opens the entry as a **read-only virtual note** (cannot write back). Gated on `ruflo.health` → degrades to the local-only graph.
+- **MEM-4 — ⌘O Quick Switcher** over all notes + Ruflo entries. **MEM-2 — Daily Notes** ("Today" button; idempotent `YYYY-MM-DD` note). **MEM-3 — Tags pane** filtering both the list and the graph. **MEM-6 — Orphans & suggested-connections** UI (surfacing the shipped-but-hidden backend).
+- **DB-2 — Backup/Restore** (Settings → Storage): a main-side save/open dialog → `VACUUM INTO` snapshot / validate-then-swap-then-reopen restore (keeps a `.pre-restore` copy; the renderer never supplies an fs path).
+- **BUG-10** populate + map `frontmatter_json` (was an always-null dead column). **BUG-11** `MemoryEditor` re-hydrates on `[id, updatedAt]` + a non-destructive "changed on disk — Reload" banner. **BUG-12** migration `0027` makes note-name uniqueness + backlinks `COLLATE NOCASE` (defensively renaming case-collision duplicates; H-7-safe).
+
+Gate (both rounds): `tsc -b` · `vitest` 2184 pass / 1 skip · `eslint .` · build + electron:compile · full e2e 9 pass / 3 skip · migration guard. **Operator smoke owed before any tagged release:** the DB-2 backup → restore → identical-state round-trip (better-sqlite3 can't load under vitest, so it has no automated coverage). *Deferred → P4.2 / WISHLIST:* causal edges, global ⌘O from any room, graph tag-dim (vs prune), MEM-5/7/8/9, PERF-14, the daily-note digest.
+
 ### Added — ROADMAP P3 notifications + sound (PR #73, untagged — rides the next tagged release)
 
 Phase 3 of the next-phase ROADMAP — a calm, controllable notification + sound experience. A lead-owned shared foundation + four file-disjoint worktree lanes + lead integration + Opus review (APPROVE-WITH-NITS; M1/L2/L4 folded). Gate: `tsc -b` clean · 2093 vitest pass / 1 skip · `eslint .` clean · build + electron:compile clean · full `tests/e2e/` 9 pass / 3 manual-skipped.
