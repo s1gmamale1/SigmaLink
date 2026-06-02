@@ -131,17 +131,41 @@ describe('restoreCheckpoint', () => {
     expect(mockExecCmd).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a sha that is not an ancestor of HEAD (no reset)', async () => {
+  it('rejects a divergent sha — neither ancestor nor descendant (no reset)', async () => {
     mockExecCmd
       .mockResolvedValueOnce(res('', { code: 0 })) // cat-file -e ok
-      .mockResolvedValueOnce(res('', { code: 1 })); // not an ancestor
+      .mockResolvedValueOnce(res('', { code: 1 })) // not an ancestor of HEAD
+      .mockResolvedValueOnce(res('', { code: 1 })); // not a descendant either → divergent
     const out = await restoreCheckpoint('/wt', 'feedfacefeedfacefeedfacefeedfacefeedface');
     expect(out.ok).toBe(false);
-    expect(out.error).toMatch(/ancestor/);
-    expect(mockExecCmd).toHaveBeenCalledTimes(2);
-    // No reset --hard was ever issued.
+    expect(out.error).toMatch(/neither an ancestor nor a descendant/);
+    expect(mockExecCmd).toHaveBeenCalledTimes(3);
+    // Both lineage directions were probed; no reset --hard was issued.
+    expect(argsOf(1)).toEqual(['merge-base', '--is-ancestor', 'feedfacefeedfacefeedfacefeedfacefeedface', 'HEAD']);
+    expect(argsOf(2)).toEqual(['merge-base', '--is-ancestor', 'HEAD', 'feedfacefeedfacefeedfacefeedfacefeedface']);
     const allArgs = mockExecCmd.mock.calls.map((c) => (c[1] as string[]).join(' '));
     expect(allArgs.some((a) => a.includes('reset --hard'))).toBe(false);
+  });
+
+  it('allows a DESCENDANT sha (redo — undo a prior rewind) then safety-checkpoints + resets', async () => {
+    // FEAT-11 fix: restoring the auto "pre-rewind" safety checkpoint after a
+    // rewind is a forward jump — the safety commit is a descendant of the now-
+    // rewound HEAD. This must be permitted (it's how the UI's "this rewind can
+    // itself be undone" promise + the amber auto-checkpoint Restore button work).
+    mockExecCmd
+      .mockResolvedValueOnce(res('', { code: 0 })) // cat-file -e ok
+      .mockResolvedValueOnce(res('', { code: 1 })) // NOT an ancestor of HEAD
+      .mockResolvedValueOnce(res('', { code: 0 })) // IS a descendant (HEAD is-ancestor-of sha)
+      .mockResolvedValueOnce(res('', { code: 0 })) // safety add -A
+      .mockResolvedValueOnce(res('', { code: 0 })) // safety commit
+      .mockResolvedValueOnce(res('safetysha111\n', { code: 0 })) // safety rev-parse
+      .mockResolvedValueOnce(res('', { code: 0 })); // reset --hard
+    const out = await restoreCheckpoint('/wt', 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0');
+    expect(out).toEqual({ ok: true, safetySha: 'safetysha111' });
+    // Probed ancestor THEN descendant, then took the safety snapshot, then reset LAST.
+    expect(argsOf(2)).toEqual(['merge-base', '--is-ancestor', 'HEAD', 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0']);
+    expect(argsOf(6)).toEqual(['reset', '--hard', 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0']);
+    expect(mockExecCmd).toHaveBeenCalledTimes(7);
   });
 
   it('returns the safety sha even when the reset itself fails (recoverable)', async () => {

@@ -485,14 +485,16 @@ export async function createCheckpoint(
  * change after the target. Two safeguards make it bounded and reversible:
  *
  *   - VALIDATION (before anything mutates): the sha must be a real commit in
- *     THIS worktree AND an ancestor of HEAD. `git cat-file -e <sha>^{commit}`
+ *     THIS worktree AND on its linear history. `git cat-file -e <sha>^{commit}`
  *     proves it's a commit object that exists; `git merge-base --is-ancestor`
- *     proves it lies on this branch's history (rejecting an arbitrary or
- *     foreign sha — you can only rewind to a point you actually came through).
+ *     (checked in BOTH directions) proves it lies on this branch's history —
+ *     an ancestor of HEAD (rewind) or a descendant (redo, to undo a prior
+ *     rewind) — rejecting only an arbitrary / foreign / divergent sha.
  *   - SAFETY-FIRST: BEFORE the reset we take an auto "pre-rewind" checkpoint of
  *     the CURRENT state and return its sha. So even the rewind is undoable —
- *     the operator can restore that safety sha to get the discarded work back.
- *     ORDER MATTERS: the snapshot is committed before the destructive reset.
+ *     restoring that safety sha (a descendant of the rewound HEAD) gets the
+ *     discarded work back. ORDER MATTERS: the snapshot is committed before the
+ *     destructive reset.
  */
 export async function restoreCheckpoint(
   worktreePath: string,
@@ -516,14 +518,31 @@ export async function restoreCheckpoint(
   if (exists.code !== 0) {
     return { ok: false, error: 'checkpoint commit not found in this worktree' };
   }
-  // 2) Validate the sha is an ancestor of HEAD (reachable on this branch) — so
-  //    a restore can only ever rewind, never jump to an unrelated commit.
-  const ancestor = await execCmd('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], {
+  // 2) Validate the sha lies on THIS worktree's linear history — in EITHER
+  //    direction: an ancestor of HEAD (a rewind) OR a descendant of HEAD (a
+  //    redo — restoring the auto "pre-rewind" safety checkpoint to undo a
+  //    previous rewind and recover the discarded work). Both are `git reset
+  //    --hard <sha>` and equally safe mechanically; only a truly divergent /
+  //    foreign sha (neither ancestor nor descendant) is rejected. (The
+  //    controller's ownership guard already proves the sha is one of THIS
+  //    session's recorded checkpoints; this is the standalone git-layer net.)
+  const isAncestor = await execCmd('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], {
     cwd: worktreePath,
     timeoutMs: 5_000,
   });
-  if (ancestor.code !== 0) {
-    return { ok: false, error: 'checkpoint is not an ancestor of the current state' };
+  // Short-circuit the descendant probe when it's already an ancestor.
+  const isDescendant =
+    isAncestor.code === 0
+      ? { code: 1 }
+      : await execCmd('git', ['merge-base', '--is-ancestor', 'HEAD', sha], {
+          cwd: worktreePath,
+          timeoutMs: 5_000,
+        });
+  if (isAncestor.code !== 0 && isDescendant.code !== 0) {
+    return {
+      ok: false,
+      error: 'checkpoint is not on this worktree history (neither an ancestor nor a descendant of the current state)',
+    };
   }
 
   // 3) Safety snapshot of the CURRENT state BEFORE the destructive reset, so the
