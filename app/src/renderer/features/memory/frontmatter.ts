@@ -83,6 +83,52 @@ function stripCr(line: string): string {
   return line.endsWith('\r') ? line.slice(0, -1) : line;
 }
 
+/**
+ * H1 (review) — true only when the leading frontmatter block is FLAT enough that
+ * this parser can round-trip it without loss. The flat parser drops anything it
+ * doesn't understand (multi-line block scalars `|`/`>`, `- ` list items, nested
+ * maps via indentation, anchors/aliases), so writing a re-serialization back
+ * would DESTROY that content. PropertiesPanel calls this to gate editing: rich
+ * frontmatter is shown read-only ("edit in the body") instead of as a grid.
+ *
+ * Returns true when there is no frontmatter block (nothing to corrupt) or every
+ * in-block line is a blank, a `#` comment, or a flat single-line `key: scalar`.
+ */
+export function isFrontmatterFlat(body: string): boolean {
+  if (!body) return true;
+  const normalized = body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
+  const lines = normalized.split('\n');
+  if (lines.length === 0 || stripCr(lines[0]).trim() !== '---') return true; // no block
+
+  let closeIdx = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (stripCr(lines[i]).trim() === '---') {
+      closeIdx = i;
+      break;
+    }
+  }
+  if (closeIdx === -1) return true; // malformed/no close → parser treats as no block
+
+  for (let i = 1; i < closeIdx; i++) {
+    const rawLine = stripCr(lines[i]);
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue; // blank / comment — safe
+    // An indented line is a continuation / nested-map child / list item the flat
+    // parser can't represent.
+    if (/^\s/.test(rawLine)) return false;
+    if (line.startsWith('- ')) return false; // top-level list item
+    const sep = line.indexOf(':');
+    if (sep === -1) return false; // not a key: value line
+    const value = line.slice(sep + 1).trim();
+    // Block-scalar indicators mean the real value spans following indented lines.
+    if (value === '|' || value === '>' || value === '|-' || value === '>-' ||
+        value === '|+' || value === '>+') {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Coerce a trimmed YAML scalar into string / number / boolean / null / list. */
 function coerceScalar(raw: string): unknown {
   if (raw === '') return '';

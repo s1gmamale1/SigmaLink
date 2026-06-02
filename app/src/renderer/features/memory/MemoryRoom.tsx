@@ -24,14 +24,12 @@ import { MemoryEditor } from './MemoryEditor';
 import { Backlinks } from './Backlinks';
 import { MemoryGraphView, type MemoryGraphNodeSelection } from './MemoryGraph';
 import { useRufloGraphOverlay } from './useRufloGraphOverlay';
-import { TagsPane } from './TagsPane';
+import { TagsPane, type TagGraphMode } from './TagsPane';
 import { MemoryAssistPanel } from './MemoryAssistPanel';
 import { TEMPLATE_TAG } from './MemoryList';
 import { openDailyNote } from './daily-note';
 
 type Tab = 'list' | 'graph';
-/** #3 — tag-filter mode: prune the graph (default, legacy) vs dim non-matches. */
-type TagGraphMode = 'prune' | 'dim';
 
 // RSP-1 — the list tab is a horizontal resizable tri-column. Stable panel ids
 // key the persisted layout; the order [left, editor, right] is the array order

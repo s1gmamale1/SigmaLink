@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import {
   applyFrontmatter,
+  isFrontmatterFlat,
   parseFrontmatter,
   recordToRows,
   rowsToRecord,
@@ -32,6 +33,14 @@ export function PropertiesPanel({ body, onBodyChange, readOnly = false }: Props)
   const seeded = useMemo(() => recordToRows(parseFrontmatter(body).frontmatter), [body]);
   const [rows, setRows] = useState<PropertyRow[]>(seeded);
   const lastEmittedRef = useRef<string | null>(null);
+
+  // H1 (review) — the flat parser would DESTROY rich frontmatter (multi-line
+  // block scalars, `-` lists, nested maps) on write-back. When the block isn't
+  // faithfully flat we force read-only and tell the user to edit it in the body,
+  // so a property edit can never silently corrupt the canonical note content.
+  const isFlat = useMemo(() => isFrontmatterFlat(body), [body]);
+  const lockedByRich = !isFlat;
+  const effectiveReadOnly = readOnly || lockedByRich;
 
   useEffect(() => {
     // Re-seed only when the incoming body is NOT the one we just emitted (i.e.
@@ -60,7 +69,7 @@ export function PropertiesPanel({ body, onBodyChange, readOnly = false }: Props)
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="font-medium text-foreground">Properties</span>
-        {!readOnly ? (
+        {!effectiveReadOnly ? (
           <button
             type="button"
             onClick={addRow}
@@ -74,9 +83,18 @@ export function PropertiesPanel({ body, onBodyChange, readOnly = false }: Props)
         ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {lockedByRich ? (
+          <div
+            className="mb-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
+            data-testid="properties-rich-notice"
+          >
+            This note has structured frontmatter (lists, multi-line, or nested
+            values). Edit it directly in the body to avoid losing formatting.
+          </div>
+        ) : null}
         {rows.length === 0 ? (
           <div className="px-1 py-2 text-muted-foreground">
-            {readOnly ? 'No properties.' : 'No properties yet. Click + to add one.'}
+            {effectiveReadOnly ? 'No properties.' : 'No properties yet. Click + to add one.'}
           </div>
         ) : (
           <ul className="flex flex-col gap-1.5">
@@ -85,7 +103,7 @@ export function PropertiesPanel({ body, onBodyChange, readOnly = false }: Props)
                 <input
                   type="text"
                   value={row.key}
-                  readOnly={readOnly}
+                  readOnly={effectiveReadOnly}
                   onChange={(e) => updateRow(idx, { key: e.target.value })}
                   placeholder="key"
                   aria-label={`Property ${idx + 1} key`}
@@ -94,13 +112,13 @@ export function PropertiesPanel({ body, onBodyChange, readOnly = false }: Props)
                 <input
                   type="text"
                   value={row.value}
-                  readOnly={readOnly}
+                  readOnly={effectiveReadOnly}
                   onChange={(e) => updateRow(idx, { value: e.target.value })}
                   placeholder="value"
                   aria-label={`Property ${idx + 1} value`}
                   className="min-w-0 flex-1 rounded border border-input bg-background px-1.5 py-1 outline-none focus-visible:ring-1 focus-visible:ring-ring read-only:opacity-70"
                 />
-                {!readOnly ? (
+                {!effectiveReadOnly ? (
                   <button
                     type="button"
                     onClick={() => removeRow(idx)}

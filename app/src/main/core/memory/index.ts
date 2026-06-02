@@ -116,15 +116,6 @@ export class MemoryIndex {
     return this.entries.get(id)?.body ?? null;
   }
 
-  /** MEM-7 — iterate the indexed entries as lightweight {id, name, body}
-   *  records. Used by the manager's unlinked-mention scan; does NOT leak the
-   *  internal Entry shape or the `entries` Map. */
-  scan(): Array<{ id: string; name: string; body: string }> {
-    const out: Array<{ id: string; name: string; body: string }> = [];
-    for (const e of this.entries.values()) out.push({ id: e.id, name: e.name, body: e.body });
-    return out;
-  }
-
   remove(id: string): void {
     this.entries.delete(id);
   }
