@@ -238,6 +238,8 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'ruflo.patterns.search',
   'ruflo.patterns.store',
   'ruflo.autopilot.predict',
+  'ruflo.entries.list',       // P4 MEM-1 — AgentDB entries as graph nodes
+  'ruflo.entries.neighbors',  // P4 MEM-1 — similarity edges between entries
   'ruflo.install.start',
   'ruflo.verifyForWorkspace',
   'ruflo.daemonStatus',       // v1.6.1 B2 — Settings → Ruflo Daemon table

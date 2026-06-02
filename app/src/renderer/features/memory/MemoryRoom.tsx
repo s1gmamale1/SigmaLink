@@ -11,11 +11,12 @@ import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import { Spinner } from '@/components/ui/spinner';
-import type { Memory } from '@/shared/types';
+import type { Memory, MemoryGraph, RufloEntry } from '@/shared/types';
 import { MemoryList } from './MemoryList';
 import { MemoryEditor } from './MemoryEditor';
 import { Backlinks } from './Backlinks';
-import { MemoryGraphView } from './MemoryGraph';
+import { MemoryGraphView, type MemoryGraphNodeSelection } from './MemoryGraph';
+import { useRufloGraphOverlay } from './useRufloGraphOverlay';
 
 type Tab = 'list' | 'graph';
 
@@ -30,6 +31,9 @@ export function MemoryRoom() {
   const [tab, setTab] = useState<Tab>('list');
   const [graphLoading, setGraphLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // P4 MEM-1 — when a Ruflo (agent-memory) graph node is opened, the editor
+  // column shows it as a read-only virtual note instead of the active note.
+  const [rufloView, setRufloView] = useState<RufloEntry | null>(null);
 
   const knownNames = useMemo(
     () => new Set(memories.map((m) => m.name.toLowerCase())),
@@ -39,6 +43,43 @@ export function MemoryRoom() {
     () => memories.find((m) => m.name === activeName) ?? null,
     [memories, activeName],
   );
+
+  // P4 MEM-1 — Ruflo AgentDB overlay (read-only nodes/edges). Active only on the
+  // graph tab; the context query is the open note's name so the agent-memory
+  // shown is semantically related to what the operator is looking at. Degrades
+  // to empty when Ruflo is offline.
+  const rufloOverlay = useRufloGraphOverlay({
+    workspaceId: wsId ?? '',
+    contextQuery: activeName ?? ws?.name ?? '',
+    enabled: tab === 'graph' && !!wsId,
+  });
+
+  // Merge the local note graph (kind:'note') with the Ruflo overlay for the canvas.
+  const mergedGraph = useMemo<MemoryGraph | null>(() => {
+    if (!graph && rufloOverlay.nodes.length === 0) return null;
+    const localNodes = (graph?.nodes ?? []).map((n) => ({ ...n, kind: n.kind ?? ('note' as const) }));
+    const localEdges = (graph?.edges ?? []).map((e) => ({ ...e, kind: e.kind ?? ('wikilink' as const) }));
+    return {
+      nodes: [...localNodes, ...rufloOverlay.nodes],
+      edges: [...localEdges, ...rufloOverlay.edges],
+    };
+  }, [graph, rufloOverlay.nodes, rufloOverlay.edges]);
+
+  // A read-only Memory-shaped projection of the opened Ruflo entry for the editor.
+  const rufloViewMemory = useMemo<Memory | null>(() => {
+    if (!rufloView || !wsId) return null;
+    return {
+      id: rufloView.id,
+      workspaceId: wsId,
+      name: rufloView.id,
+      body: rufloView.text,
+      tags: [],
+      links: [],
+      createdAt: rufloView.createdAt ?? 0,
+      updatedAt: rufloView.createdAt ?? 0,
+      frontmatter: null,
+    };
+  }, [rufloView, wsId]);
 
   // Hydrate the hub on first mount per workspace.
   useEffect(() => {
@@ -73,6 +114,7 @@ export function MemoryRoom() {
   const onSelect = useCallback(
     (name: string) => {
       if (!wsId) return;
+      setRufloView(null); // selecting a real note exits the read-only Ruflo view
       dispatch({ type: 'SET_ACTIVE_MEMORY', workspaceId: wsId, name });
     },
     [dispatch, wsId],
@@ -115,6 +157,23 @@ export function MemoryRoom() {
       setTab('list');
     },
     [onSelect],
+  );
+
+  // P4 MEM-1 — graph node click. Local notes open by name; Ruflo nodes open
+  // their full entry as a read-only virtual note in the editor column.
+  const onGraphSelectNode = useCallback(
+    (node: MemoryGraphNodeSelection) => {
+      if (node.kind === 'ruflo') {
+        const entry = rufloOverlay.entriesById[node.id];
+        if (entry) {
+          setRufloView(entry);
+          setTab('list');
+        }
+        return;
+      }
+      onGraphSelect(node.label);
+    },
+    [onGraphSelect, rufloOverlay.entriesById],
   );
 
   if (!ws || !wsId) {
@@ -174,14 +233,27 @@ export function MemoryRoom() {
             onSelect={onSelect}
             onCreate={onCreate}
           />
-          <MemoryEditor
-            workspaceId={wsId}
-            memory={activeMemory}
-            knownNames={knownNames}
-            onNavigate={onSelect}
-            onSaved={onSaved}
-            onDeleted={onDeleted}
-          />
+          {rufloView && rufloViewMemory ? (
+            <MemoryEditor
+              workspaceId={wsId}
+              memory={rufloViewMemory}
+              knownNames={knownNames}
+              onNavigate={onSelect}
+              onSaved={onSaved}
+              onDeleted={onDeleted}
+              readOnly
+              readOnlyMeta={{ namespace: rufloView.namespace, score: rufloView.score }}
+            />
+          ) : (
+            <MemoryEditor
+              workspaceId={wsId}
+              memory={activeMemory}
+              knownNames={knownNames}
+              onNavigate={onSelect}
+              onSaved={onSaved}
+              onDeleted={onDeleted}
+            />
+          )}
           <Backlinks
             workspaceId={wsId}
             noteName={activeName}
@@ -195,8 +267,12 @@ export function MemoryRoom() {
             <div className="flex h-full items-center justify-center">
               <Spinner />
             </div>
-          ) : graph ? (
-            <MemoryGraphView graph={graph} onSelect={onGraphSelect} />
+          ) : mergedGraph ? (
+            <MemoryGraphView
+              graph={mergedGraph}
+              onSelect={onGraphSelect}
+              onSelectNode={onGraphSelectNode}
+            />
           ) : (
             <EmptyState
               icon={NetworkIcon}

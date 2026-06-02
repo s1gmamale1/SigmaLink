@@ -5,11 +5,16 @@
 // rollback function exported here restores the previous DB state.
 
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb, getRawDb } from '../db/client';
 import { memories, memoryLinks, memoryTags } from '../db/schema';
 import type { Memory } from '../../../shared/types';
-import { uniqueLinkTargets } from './parse';
+import {
+  frontmatterFromJson,
+  frontmatterToJson,
+  parseFrontmatter,
+  uniqueLinkTargets,
+} from './parse';
 
 export interface MemoryRowJoined {
   row: typeof memories.$inferSelect;
@@ -27,6 +32,9 @@ export function rowToMemory(row: typeof memories.$inferSelect, tags: string[], l
     links,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    // BUG-10: surface the cached frontmatter. Tolerates null / malformed JSON
+    // (frontmatterFromJson collapses both to null).
+    frontmatter: frontmatterFromJson(row.frontmatterJson),
   };
 }
 
@@ -123,6 +131,9 @@ export function upsertMemoryTx(args: UpsertArgs): UpsertResult {
   const links = uniqueLinkTargets(args.body);
   const tags = Array.from(new Set(args.tags.map((t) => t.trim()).filter(Boolean))).sort();
   const now = Date.now();
+  // BUG-10: derive the structured frontmatter cache from the body. Stored as
+  // JSON (or NULL when the body has no frontmatter block).
+  const frontmatterJson = frontmatterToJson(parseFrontmatter(args.body).frontmatter);
 
   let previous: UpsertResult['previous'] = null;
   let resultId = '';
@@ -151,7 +162,7 @@ export function upsertMemoryTx(args: UpsertArgs): UpsertResult {
           .map((l) => l.toMemoryName),
       };
       db.update(memories)
-        .set({ body: args.body, updatedAt: now })
+        .set({ body: args.body, frontmatterJson, updatedAt: now })
         .where(eq(memories.id, existing.id))
         .run();
       resultId = existing.id;
@@ -165,7 +176,7 @@ export function upsertMemoryTx(args: UpsertArgs): UpsertResult {
           workspaceId: args.workspaceId,
           name: args.name,
           body: args.body,
-          frontmatterJson: null,
+          frontmatterJson,
           createdAt: now,
           updatedAt: now,
         })
@@ -215,7 +226,11 @@ export function rollbackMemoryUpsert(
       return;
     }
     db.update(memories)
-      .set({ body: previous.body })
+      .set({
+        body: previous.body,
+        // Keep the frontmatter cache consistent with the restored body.
+        frontmatterJson: frontmatterToJson(parseFrontmatter(previous.body).frontmatter),
+      })
       .where(eq(memories.id, row.id))
       .run();
     db.delete(memoryTags).where(eq(memoryTags.memoryId, row.id)).run();
@@ -301,10 +316,14 @@ export function restoreDeletedMemory(workspaceId: string, snap: DeleteSnapshot):
 
 export function findBacklinks(workspaceId: string, toName: string): MemoryRowJoined[] {
   const db = getDb();
+  // BUG-12: link/graph resolution lowercases note names, so backlink lookups
+  // must be case-insensitive too — match with COLLATE NOCASE rather than a
+  // binary `=`. Migration 0027 also makes the note-name uniqueness NOCASE so a
+  // note and its inbound `[[Note]]` links agree on identity regardless of case.
   const linkRows = db
     .select()
     .from(memoryLinks)
-    .where(eq(memoryLinks.toMemoryName, toName))
+    .where(sql`${memoryLinks.toMemoryName} = ${toName} COLLATE NOCASE`)
     .all();
   if (linkRows.length === 0) return [];
   const candidateIds = Array.from(new Set(linkRows.map((l) => l.fromMemoryId)));

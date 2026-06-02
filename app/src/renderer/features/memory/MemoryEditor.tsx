@@ -5,7 +5,7 @@
 // in a future phase.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Save, Trash2, Eye, Pencil, Hash } from 'lucide-react';
+import { Save, Trash2, Eye, Pencil, Hash, RotateCw, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -28,6 +28,14 @@ interface Props {
   onNavigate(name: string): void;
   onSaved(memory: Memory): void;
   onDeleted(memoryId: string): void;
+  /**
+   * P4 MEM-1 — render an agent-authored Ruflo virtual note. The body is shown
+   * but not editable, no auto-save/update/delete RPC ever runs, and Save/Delete
+   * are hidden in favor of a read-only chip.
+   */
+  readOnly?: boolean;
+  /** P4 MEM-1 — metadata surfaced in the read-only chip (Ruflo namespace + score). */
+  readOnlyMeta?: { namespace?: string; score?: number };
 }
 
 const SAVE_DEBOUNCE_MS = 600;
@@ -39,6 +47,8 @@ export function MemoryEditor({
   onNavigate,
   onSaved,
   onDeleted,
+  readOnly = false,
+  readOnlyMeta,
 }: Props) {
   const [body, setBody] = useState(memory?.body ?? '');
   const [tags, setTags] = useState(memory?.tags.join(', ') ?? '');
@@ -50,25 +60,70 @@ export function MemoryEditor({
   // The wikilink target awaiting a "create missing note?" confirm. `null`
   // closes the dialog.
   const [pendingWikilink, setPendingWikilink] = useState<string | null>(null);
+  // BUG-11 — the on-disk version changed under us while we held unsaved local
+  // edits. We surface a non-destructive "Reload" banner instead of clobbering.
+  const [staleOnDisk, setStaleOnDisk] = useState(false);
   const dirtyRef = useRef(false);
-  const lastSentRef = useRef({ body: memory?.body ?? '', tags: memory?.tags.join(', ') ?? '' });
+  const lastSentRef = useRef<{ id: string | undefined; body: string; tags: string }>({
+    id: memory?.id,
+    body: memory?.body ?? '',
+    tags: memory?.tags.join(', ') ?? '',
+  });
+  // BUG-11 — the updatedAt we last hydrated from. Lets the hydration effect
+  // distinguish a true external bump from our own optimistic re-render.
+  const hydratedUpdatedAtRef = useRef(memory?.updatedAt);
 
+  // Pull the current `memory` prop into the editable fields. Hydrate when the
+  // selected note changes (id) and — BUG-11 — when an external writer (agent
+  // MCP / sync) advances `updatedAt` on the OPEN note. If the user has unsaved
+  // local edits when that happens, we do NOT clobber them: a Reload banner lets
+  // them opt in. Read-only notes always re-hydrate (no local edits possible).
   useEffect(() => {
     const nextBody = memory?.body ?? '';
     const nextTags = memory?.tags.join(', ') ?? '';
+    const idChanged = lastSentRef.current.id !== memory?.id;
+    const updatedAtAdvanced =
+      !idChanged &&
+      memory?.updatedAt !== undefined &&
+      hydratedUpdatedAtRef.current !== undefined &&
+      memory.updatedAt > hydratedUpdatedAtRef.current;
+
+    // Switching notes, or an external bump while there are no unsaved edits:
+    // hydrate. An external bump while dirty (and not read-only): show banner.
+    if (!idChanged && updatedAtAdvanced && dirtyRef.current && !readOnly) {
+      queueMicrotask(() => setStaleOnDisk(true));
+      return;
+    }
     queueMicrotask(() => {
       setBody(nextBody);
       setTags(nextTags);
       setErr(null);
+      setStaleOnDisk(false);
       dirtyRef.current = false;
-      lastSentRef.current = { body: nextBody, tags: nextTags };
+      lastSentRef.current = { id: memory?.id, body: nextBody, tags: nextTags };
+      hydratedUpdatedAtRef.current = memory?.updatedAt;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memory?.id]);
+  }, [memory?.id, memory?.updatedAt, readOnly]);
+
+  // BUG-11 — discard local edits and re-hydrate from the newer on-disk version.
+  const reloadFromDisk = useCallback(() => {
+    const nextBody = memory?.body ?? '';
+    const nextTags = memory?.tags.join(', ') ?? '';
+    setBody(nextBody);
+    setTags(nextTags);
+    setErr(null);
+    setStaleOnDisk(false);
+    dirtyRef.current = false;
+    lastSentRef.current = { id: memory?.id, body: nextBody, tags: nextTags };
+    hydratedUpdatedAtRef.current = memory?.updatedAt;
+  }, [memory?.body, memory?.id, memory?.tags, memory?.updatedAt]);
 
   const saveNow = useCallback(
     async (override?: { body?: string; tags?: string }) => {
-      if (!memory) return;
+      // BUG-11 / MEM-1 — never write back a read-only (agent) note, and never
+      // auto-save over a newer on-disk version (the Reload banner is the guard).
+      if (!memory || readOnly || staleOnDisk) return;
       const nextBody = override?.body ?? body;
       const nextTags = override?.tags ?? tags;
       if (
@@ -90,8 +145,11 @@ export function MemoryEditor({
           body: nextBody,
           tags: tagList,
         });
-        lastSentRef.current = { body: nextBody, tags: nextTags };
+        lastSentRef.current = { id: memory.id, body: nextBody, tags: nextTags };
         dirtyRef.current = false;
+        // Our own write advances updatedAt; track it so the resulting prop
+        // re-render isn't mistaken for an external bump (false stale banner).
+        hydratedUpdatedAtRef.current = updated.updatedAt;
         onSaved(updated);
       } catch (e) {
         setErr(e instanceof Error ? e.message : String(e));
@@ -99,12 +157,13 @@ export function MemoryEditor({
         setBusy(false);
       }
     },
-    [body, memory, onSaved, tags, workspaceId],
+    [body, memory, onSaved, readOnly, staleOnDisk, tags, workspaceId],
   );
 
-  // Auto-save with debounce on body/tag changes.
+  // Auto-save with debounce on body/tag changes. Read-only (Ruflo) notes never
+  // run this — their body is never editable, so it can never diverge.
   useEffect(() => {
-    if (!memory) return;
+    if (!memory || readOnly) return;
     if (
       body === lastSentRef.current.body &&
       tags === lastSentRef.current.tags
@@ -116,7 +175,7 @@ export function MemoryEditor({
       void saveNow();
     }, SAVE_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [body, tags, memory, saveNow]);
+  }, [body, tags, memory, readOnly, saveNow]);
 
   // UX-3 — open the themed destructive confirm; the delete runs in
   // `confirmDelete`.
@@ -166,6 +225,15 @@ export function MemoryEditor({
 
   const wikilinkCount = useMemo(() => extractWikilinks(body).length, [body]);
 
+  // MEM-1 — read-only chip label, e.g. "agent memory · patterns · 0.62".
+  const readOnlyChip = useMemo(() => {
+    if (!readOnly) return null;
+    const parts = ['agent memory'];
+    if (readOnlyMeta?.namespace) parts.push(readOnlyMeta.namespace);
+    if (typeof readOnlyMeta?.score === 'number') parts.push(readOnlyMeta.score.toFixed(2));
+    return parts.join(' · ');
+  }, [readOnly, readOnlyMeta]);
+
   if (!memory) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -193,33 +261,66 @@ export function MemoryEditor({
           {mode === 'edit' ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
           {mode === 'edit' ? 'Preview' : 'Edit'}
         </button>
-        <button
-          type="button"
-          onClick={() => void saveNow()}
-          disabled={busy}
-          className="flex items-center gap-1 rounded border border-input bg-background px-2 py-1 hover:bg-accent disabled:opacity-50"
-        >
-          <Save className="h-3.5 w-3.5" /> Save
-        </button>
-        <button
-          type="button"
-          onClick={() => void onDelete()}
-          className="flex items-center gap-1 rounded border border-destructive/40 bg-background px-2 py-1 text-destructive hover:bg-destructive/10"
-        >
-          <Trash2 className="h-3.5 w-3.5" /> Delete
-        </button>
+        {readOnly ? (
+          // MEM-1 — agent-authored Ruflo entry: a read-only chip in place of
+          // Save/Delete. No write/destructive action is reachable.
+          <span
+            data-testid="readonly-chip"
+            className="flex items-center gap-1 rounded border border-input bg-muted px-2 py-1 text-muted-foreground"
+            title="Read-only agent memory"
+          >
+            <Lock className="h-3.5 w-3.5" /> {readOnlyChip}
+          </span>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => void saveNow()}
+              disabled={busy}
+              className="flex items-center gap-1 rounded border border-input bg-background px-2 py-1 hover:bg-accent disabled:opacity-50"
+            >
+              <Save className="h-3.5 w-3.5" /> Save
+            </button>
+            <button
+              type="button"
+              onClick={() => void onDelete()}
+              className="flex items-center gap-1 rounded border border-destructive/40 bg-background px-2 py-1 text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete
+            </button>
+          </>
+        )}
       </div>
 
-      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs">
-        <Hash className="h-3.5 w-3.5 text-muted-foreground" />
-        <input
-          type="text"
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-          placeholder="comma-separated tags"
-          className="flex-1 rounded border border-input bg-background px-2 py-1 outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        />
-      </div>
+      {/* BUG-11 — the open note changed on disk while we held unsaved edits.
+          Non-destructive: nothing is overwritten until the user clicks Reload. */}
+      {staleOnDisk ? (
+        <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <span className="flex-1">
+            This note changed on disk — your local edits are unsaved.
+          </span>
+          <button
+            type="button"
+            onClick={reloadFromDisk}
+            className="flex items-center gap-1 rounded border border-amber-500/40 bg-background px-2 py-1 font-medium hover:bg-amber-500/10"
+          >
+            <RotateCw className="h-3.5 w-3.5" /> Reload
+          </button>
+        </div>
+      ) : null}
+
+      {readOnly ? null : (
+        <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs">
+          <Hash className="h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            type="text"
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            placeholder="comma-separated tags"
+            className="flex-1 rounded border border-input bg-background px-2 py-1 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
+      )}
 
       {err ? (
         <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-1 text-xs text-destructive">
@@ -232,8 +333,12 @@ export function MemoryEditor({
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            spellCheck
-            className="h-full w-full resize-none border-0 bg-transparent p-3 font-mono text-xs leading-relaxed outline-none"
+            readOnly={readOnly}
+            spellCheck={!readOnly}
+            className={cn(
+              'h-full w-full resize-none border-0 bg-transparent p-3 font-mono text-xs leading-relaxed outline-none',
+              readOnly && 'cursor-default text-muted-foreground',
+            )}
             placeholder="Write markdown. Wrap a name in [[double brackets]] to link to another note."
           />
         ) : (

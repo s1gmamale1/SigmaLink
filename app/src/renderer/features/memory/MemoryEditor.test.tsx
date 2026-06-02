@@ -18,7 +18,14 @@ import type { Memory } from '@/shared/types';
 
 const deleteMemoryMock = vi.fn().mockResolvedValue(undefined);
 const createMemoryMock = vi.fn().mockResolvedValue({} as Memory);
-const updateMemoryMock = vi.fn().mockResolvedValue({} as Memory);
+const updateMemoryMock = vi
+  .fn()
+  .mockImplementation(async (input: { name: string; body: string; tags: string[] }) => ({
+    ...MEM,
+    body: input.body,
+    tags: input.tags,
+    updatedAt: MEM.updatedAt + 1,
+  }));
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -58,13 +65,13 @@ function renderEditor(overrides: Partial<React.ComponentProps<typeof MemoryEdito
     onDeleted: vi.fn(),
     ...overrides,
   };
-  render(<MemoryEditor {...props} />);
-  return props;
+  const view = render(<MemoryEditor {...props} />);
+  return { props, rerender: view.rerender };
 }
 
 describe('MemoryEditor — UX-3 delete confirm', () => {
   it('does not delete until the themed confirm is accepted', async () => {
-    const props = renderEditor();
+    const { props } = renderEditor();
 
     fireEvent.click(screen.getByRole('button', { name: /delete/i }));
 
@@ -89,7 +96,7 @@ describe('MemoryEditor — UX-3 delete confirm', () => {
 describe('MemoryEditor — UX-3 wikilink-create confirm', () => {
   it('confirms before creating a missing wikilink target, then navigates', async () => {
     // knownNames excludes "beta" → clicking the wikilink should prompt.
-    const props = renderEditor({ knownNames: new Set<string>(['alpha']) });
+    const { props } = renderEditor({ knownNames: new Set<string>(['alpha']) });
 
     // Switch to preview so the wikilink button renders.
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
@@ -105,7 +112,7 @@ describe('MemoryEditor — UX-3 wikilink-create confirm', () => {
   });
 
   it('navigates immediately for an existing wikilink target (no confirm)', async () => {
-    const props = renderEditor({ knownNames: new Set<string>(['alpha', 'beta']) });
+    const { props } = renderEditor({ knownNames: new Set<string>(['alpha', 'beta']) });
 
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
     fireEvent.click(await screen.findByRole('button', { name: /beta/i }));
@@ -113,5 +120,99 @@ describe('MemoryEditor — UX-3 wikilink-create confirm', () => {
     await waitFor(() => expect(props.onNavigate).toHaveBeenCalledWith('Beta'));
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(createMemoryMock).not.toHaveBeenCalled();
+  });
+});
+
+// BUG-11 — staleness / clobber protection. An external writer (agent MCP /
+// sync) advancing `updatedAt` on the OPEN note must re-hydrate when clean, but
+// must NOT silently discard unsaved local edits when dirty.
+describe('MemoryEditor — BUG-11 staleness', () => {
+  function textarea() {
+    return screen.getByPlaceholderText(/write markdown/i) as HTMLTextAreaElement;
+  }
+
+  it('re-hydrates the textarea on an external updatedAt bump when there are no local edits', async () => {
+    const { rerender, props } = renderEditor();
+    // Wait out the deferred (queueMicrotask) initial hydration.
+    await waitFor(() => expect(textarea().value).toBe(MEM.body));
+
+    // External writer changed the note on disk (newer body + updatedAt).
+    const updated: Memory = { ...MEM, body: 'rewritten by an agent', updatedAt: MEM.updatedAt + 5 };
+    rerender(
+      <MemoryEditor
+        workspaceId="ws-1"
+        memory={updated}
+        knownNames={new Set(['alpha'])}
+        onNavigate={props.onNavigate}
+        onSaved={props.onSaved}
+        onDeleted={props.onDeleted}
+      />,
+    );
+
+    await waitFor(() => expect(textarea().value).toBe('rewritten by an agent'));
+    // Clean re-hydrate must not show the reload banner.
+    expect(screen.queryByRole('button', { name: /reload/i })).toBeNull();
+  });
+
+  it('shows a Reload banner (and does NOT clobber) on an external bump while dirty, until Reload is clicked', async () => {
+    const { rerender, props } = renderEditor();
+    await waitFor(() => expect(textarea().value).toBe(MEM.body));
+
+    // Local edit → dirty.
+    fireEvent.change(textarea(), { target: { value: 'my unsaved local edit' } });
+    expect(textarea().value).toBe('my unsaved local edit');
+
+    // External writer bumps updatedAt on the open note while we are dirty.
+    const updated: Memory = { ...MEM, body: 'disk version', updatedAt: MEM.updatedAt + 5 };
+    rerender(
+      <MemoryEditor
+        workspaceId="ws-1"
+        memory={updated}
+        knownNames={new Set(['alpha'])}
+        onNavigate={props.onNavigate}
+        onSaved={props.onSaved}
+        onDeleted={props.onDeleted}
+      />,
+    );
+
+    // Banner appears; local edits are preserved (NOT clobbered).
+    const reloadBtn = await screen.findByRole('button', { name: /reload/i });
+    expect(textarea().value).toBe('my unsaved local edit');
+
+    // Click Reload → discard local edits, hydrate the disk version.
+    fireEvent.click(reloadBtn);
+    await waitFor(() => expect(textarea().value).toBe('disk version'));
+    expect(screen.queryByRole('button', { name: /reload/i })).toBeNull();
+  });
+});
+
+// MEM-1 — read-only mode for Ruflo virtual (agent-authored) notes.
+describe('MemoryEditor — read-only (Ruflo) mode', () => {
+  it('disables editing, hides Save/Delete, shows the namespace/score chip, and never calls write RPCs', async () => {
+    renderEditor({
+      readOnly: true,
+      readOnlyMeta: { namespace: 'patterns', score: 0.62 },
+    });
+
+    const ta = screen.getByPlaceholderText(/write markdown/i) as HTMLTextAreaElement;
+    await waitFor(() => expect(ta.value).toBe(MEM.body));
+
+    // Textarea is read-only and shows the agent body (escaped React children).
+    expect(ta.readOnly).toBe(true);
+
+    // Save + Delete are gone.
+    expect(screen.queryByRole('button', { name: /^save$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^delete$/i })).toBeNull();
+
+    // Read-only chip carries namespace + score.
+    const chip = screen.getByTestId('readonly-chip');
+    expect(chip.textContent).toContain('agent memory');
+    expect(chip.textContent).toContain('patterns');
+    expect(chip.textContent).toContain('0.62');
+
+    // Editing attempts and time never trigger update/delete RPCs.
+    fireEvent.change(ta, { target: { value: 'cannot persist this' } });
+    await waitFor(() => expect(updateMemoryMock).not.toHaveBeenCalled());
+    expect(deleteMemoryMock).not.toHaveBeenCalled();
   });
 });
