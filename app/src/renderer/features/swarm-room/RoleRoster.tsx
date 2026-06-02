@@ -15,6 +15,7 @@
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import type { Role, RoleAssignment, SwarmAgent } from '@/shared/types';
+import { agentColor, agentShortId } from '@/renderer/lib/workspace-color';
 import { CUSTOM_ROSTER_CAP } from './preset-data';
 // V3-W15-005 — Plan-gated custom roster cap. Ultra (SigmaLink default) =
 // CUSTOM_ROSTER_CAP (20); Pro = 15; Basic = 5. The min() guarantees we never
@@ -281,6 +282,11 @@ export function RoleRoster({
                     : '#71717a';
           const modelId = row.modelId ?? DEFAULT_MODEL_BY_PROVIDER[row.providerId];
           const autoApprove = row.autoApprove ?? false;
+          // FEAT-7 — per-agent accent from live session id; graceful fallback to
+          // agentKey when no live session exists yet (still deterministic + stable).
+          const agentIdentityId = live?.sessionId ?? agentKey;
+          const agentAccent = agentColor(agentIdentityId);
+          const agentId = agentShortId(agentIdentityId);
           // onFocusPane jump-to-pane is navigation, not editing — allow even in readOnly mode.
           const canFocus = !!onFocusPane && !!live?.sessionId;
           return (
@@ -327,6 +333,28 @@ export function RoleRoster({
                 >
                   Auto
                 </button>
+                {/* FEAT-7 — per-agent accent (secondary cue alongside role colour).
+                    Static dot + short-id; reads on all themes incl. Liquid Glass.
+                    Falls back to agentKey hash when no live session is present. */}
+                <span
+                  className="flex items-center gap-0.5"
+                  title={`agent ${agentId}`}
+                  aria-label={`agent id: ${agentId}`}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ background: agentAccent }}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className="font-mono text-[9px] opacity-60"
+                    style={{ color: agentAccent }}
+                    data-testid="roster-agent-short-id"
+                    aria-hidden="true"
+                  >
+                    {agentId}
+                  </span>
+                </span>
                 <div className="ml-auto flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: dot }} />
                   {status}

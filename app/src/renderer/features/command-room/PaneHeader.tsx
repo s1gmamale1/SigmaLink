@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/tooltip';
 import { findProvider } from '@/shared/providers';
 import type { AgentSession } from '@/shared/types';
+import { agentColor, agentShortId } from '@/renderer/lib/workspace-color';
 import { useRufloDaemonHealth } from './useRufloDaemonHealth';
 import type { RufloDaemonState } from './useRufloDaemonHealth';
 
@@ -169,6 +170,9 @@ export function PaneHeader({
   const meta = DEFAULT_MODELS[session.providerId];
   const modelLabel = meta?.label ?? '—';
   const effortLabel = meta?.effort ?? '—';
+  // FEAT-7 — stable per-agent accent derived from session.id (not provider).
+  const agentAccent = agentColor(session.id);
+  const agentId = agentShortId(session.id);
 
   return (
     // `z-20` lifts the chrome above the PaneSplash overlay (z-10) so the
@@ -218,6 +222,39 @@ export function PaneHeader({
             </TooltipTrigger>
             <TooltipContent side="bottom" align="start" className="font-mono text-[10px]">
               Ruflo MCP — {rufloHealth.detail}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        {/* FEAT-7 — per-agent accent dot + short-id badge. Static, no animation.
+            Visually distinct from the provider stripe so same-provider panes
+            are immediately differentiable. The dot uses an inline hex accent
+            (agentColor) rather than a Tailwind class so it reads on all themes
+            including Liquid Glass. The short-id badge is aria-hidden — the
+            full session id surfaces in the provider tooltip below. */}
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="flex shrink-0 items-center gap-0.5"
+                aria-label={`Agent id: ${agentId}`}
+              >
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: agentAccent }}
+                  aria-hidden="true"
+                />
+                <span
+                  className="font-mono text-[9px] leading-none opacity-70"
+                  style={{ color: agentAccent }}
+                  data-testid="agent-short-id"
+                  aria-hidden="true"
+                >
+                  {agentId}
+                </span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="start" className="font-mono text-[10px]">
+              agent: {session.id}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>

@@ -938,6 +938,30 @@ function buildRouter() {
     // renderer can confirm via follow-up toast.
     respawnFailed: async (workspaceId: string) =>
       respawnFailedWorkspacePanes(workspaceId, { pty }),
+    // P6 FEAT-1 — on-demand subset relaunch from the "Resume agents…" command.
+    // ADDITIVE: the boot auto-resume keeps calling `resume(workspaceId)` with no
+    // subset (full behaviour). This passes the operator-chosen `sessionIds`
+    // allowlist so only the picked panes are relaunched. Reuses the same
+    // scrollback-seeding gate as `resume`.
+    resumeSelected: async (workspaceId: string, sessionIds: string[]) => {
+      let loadScrollbackForSession: ((sessionId: string) => string) | undefined;
+      try {
+        const scrollbackRow = getRawDb()
+          .prepare('SELECT value FROM kv WHERE key = ?')
+          .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
+        if (parseScrollbackPersistence(scrollbackRow?.value ?? null)) {
+          loadScrollbackForSession = (sessionId: string) =>
+            loadScrollback(userData, sessionId);
+        }
+      } catch {
+        /* flag read failed — default off */
+      }
+      // Defensive: only ever pass an array of non-empty string ids through.
+      const ids = Array.isArray(sessionIds)
+        ? sessionIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : [];
+      return resumeWorkspacePanes(workspaceId, { pty, loadScrollbackForSession }, ids);
+    },
     // v1.3.0 — Session picker: list provider sessions for a cwd. Delegates
     // entirely to the disk-scanner; never throws (returns []).
     listSessions: async (input: {
