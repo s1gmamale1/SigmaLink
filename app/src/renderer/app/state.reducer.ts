@@ -571,6 +571,11 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       };
     case 'SET_PENDING_RUFLO_VIEW':
       return { ...state, pendingRufloView: action.entry };
+    case 'SET_SETTINGS_TAB':
+      // ONB-1 — stage a Settings tab requested from outside the room (the
+      // Voice spotlight deep-link). SettingsRoom consumes + clears it on mount.
+      if (state.pendingSettingsTab === action.tab) return state;
+      return { ...state, pendingSettingsTab: action.tab };
     case 'SET_REVIEW':
       return {
         ...state,

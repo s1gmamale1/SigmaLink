@@ -69,6 +69,12 @@ vi.mock('@/renderer/features/command-palette/CommandPalette', () => ({
 vi.mock('@/renderer/features/onboarding/OnboardingModal', () => ({
   OnboardingModal: () => null,
 }));
+vi.mock('@/renderer/features/onboarding/FeatureSpotlightModal', () => ({
+  FeatureSpotlightModal: () => null,
+}));
+vi.mock('@/renderer/features/onboarding/use-whats-new', () => ({
+  useWhatsNew: () => undefined,
+}));
 vi.mock('@/renderer/components/NativeRebuildModal', () => ({
   NativeRebuildModal: () => null,
 }));

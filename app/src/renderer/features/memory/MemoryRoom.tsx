@@ -18,6 +18,7 @@ import {
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import { Spinner } from '@/components/ui/spinner';
+import { Button } from '@/components/ui/button';
 import type { Memory, MemoryGraph, RufloEntry } from '@/shared/types';
 import { MemoryList } from './MemoryList';
 import { MemoryEditor } from './MemoryEditor';
@@ -371,6 +372,11 @@ export function MemoryRoom() {
         icon={Sparkles}
         title="Open a workspace to use Memory"
         description="Notes, backlinks, and the memory graph are scoped per workspace."
+        action={
+          <Button size="sm" onClick={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}>
+            Open Workspaces
+          </Button>
+        }
       />
     );
   }
@@ -581,6 +587,11 @@ export function MemoryRoom() {
               icon={NetworkIcon}
               title="No notes yet"
               description="Create notes in the List tab to build your memory graph."
+              action={
+                <Button size="sm" onClick={() => setTab('list')}>
+                  Create note
+                </Button>
+              }
             />
           )}
         </div>

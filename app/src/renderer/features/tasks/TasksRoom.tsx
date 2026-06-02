@@ -60,7 +60,7 @@ const DROP_ANIMATION: DropAnimation = reducedMotion
     };
 
 export function TasksRoom() {
-  const { state } = useAppState();
+  const { state, dispatch } = useAppState();
   const wsId = state.activeWorkspace?.id ?? '';
   const tasks = state.tasks[wsId] ?? EMPTY_TASKS;
   const [newOpen, setNewOpen] = useState(false);
@@ -147,6 +147,11 @@ export function TasksRoom() {
         icon={ListChecks}
         title="Open a workspace to use Tasks"
         description="The Kanban board, swarm roster, and task assignment all live per workspace."
+        action={
+          <Button size="sm" onClick={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}>
+            Open Workspaces
+          </Button>
+        }
       />
     );
   }

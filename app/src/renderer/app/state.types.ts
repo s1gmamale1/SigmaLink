@@ -92,6 +92,11 @@ export interface AppState {
   // on mount to open the read-only virtual note (the room is the only place
   // that can render a Ruflo view). `null` when nothing is pending.
   pendingRufloView: RufloEntry | null;
+  // ONB-1 — a Settings tab requested from OUTSIDE the Settings room (e.g. the
+  // Feature Spotlight "Voice" deep-link). SettingsRoom reads this on mount and
+  // selects the tab, then clears it. Mirrors the `pendingRufloView` pattern.
+  // `undefined` when nothing is pending.
+  pendingSettingsTab?: string;
   // Review (Phase 6) — keyed by workspaceId
   review: Record<string, ReviewState>;
   activeReviewSessionId: string | null;
@@ -172,6 +177,9 @@ export type Action =
   // global-⌘O — stage (or clear) a Ruflo agent-memory entry for the Memory
   // room to open as a read-only virtual note. `entry: null` clears it.
   | { type: 'SET_PENDING_RUFLO_VIEW'; entry: RufloEntry | null }
+  // ONB-1 — stage (or clear) a Settings tab to open. `tab: undefined` clears
+  // it; SettingsRoom consumes it on mount and clears it after selecting.
+  | { type: 'SET_SETTINGS_TAB'; tab: string | undefined }
   | { type: 'SET_REVIEW'; state: ReviewState }
   | { type: 'SET_ACTIVE_REVIEW_SESSION'; id: string | null }
   | { type: 'SET_TASKS'; workspaceId: string; tasks: Task[] }
@@ -235,6 +243,7 @@ export const initialAppState: AppState = {
   memoryGraph: {},
   activeMemoryName: {},
   pendingRufloView: null,
+  pendingSettingsTab: undefined,
   review: {},
   activeReviewSessionId: null,
   tasks: {},
