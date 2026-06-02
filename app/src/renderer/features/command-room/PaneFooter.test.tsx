@@ -8,9 +8,10 @@
 //  3. After 4 seconds the verb advances (reduced-motion OFF).
 //  4. With prefersReducedMotion() === true the verb does NOT change across ticks.
 //  5. Exited session renders null (no DOM output).
+//  6. FEAT-12: drop-zone accepts PANE_DRAG_MIME → buildPaneContext + insertMention.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, act } from '@testing-library/react';
+import { cleanup, render, screen, act, fireEvent, waitFor } from '@testing-library/react';
 import type { AgentSession } from '@/shared/types';
 
 // Mock rpcSilent.kv.get so the existing kvKey effect resolves immediately
@@ -28,9 +29,22 @@ vi.mock('@/renderer/lib/motion', () => ({
   prefersReducedMotion: vi.fn(() => false),
 }));
 
+// FEAT-12 — mock pane-context-builder + insertMention so the drop-handler
+// tests don't trigger real IPC.
+vi.mock('@/renderer/lib/pane-context-builder', () => ({
+  PANE_DRAG_MIME: 'application/sigmalink-pane',
+  buildPaneContext: vi.fn().mockResolvedValue('--- Pane context ---\nbranch: main\n--- end pane context ---'),
+}));
+
+vi.mock('./insertMention', () => ({
+  insertMention: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { PaneFooter } from './PaneFooter';
 import { prefersReducedMotion } from '@/renderer/lib/motion';
 import { PROGRESS_VERBS } from './progress-verbs';
+import { buildPaneContext } from '@/renderer/lib/pane-context-builder';
+import { insertMention } from './insertMention';
 
 const mockPrefersReducedMotion = prefersReducedMotion as ReturnType<typeof vi.fn>;
 
@@ -166,5 +180,137 @@ describe('PaneFooter — ANIM-3 aliveness segment', () => {
   it('does not render the aliveness segment for a starting session', () => {
     render(<PaneFooter session={makeSession({ status: 'starting' })} />);
     expect(screen.queryByTestId('pane-aliveness')).toBeNull();
+  });
+});
+
+// FEAT-12 — drop-zone tests.
+describe('PaneFooter — FEAT-12 drop-zone', () => {
+  const PANE_MIME = 'application/sigmalink-pane';
+
+  function makePayload(overrides: Partial<{
+    sessionId: string; branch: string | null; worktreePath: string | null; providerId: string;
+  }> = {}) {
+    return JSON.stringify({
+      kind: 'pane',
+      sessionId: 'source-sess',
+      branch: 'main',
+      worktreePath: '/wt/main',
+      providerId: 'claude',
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    // FEAT-12 tests use real timers so that waitFor resolves correctly;
+    // the outer beforeEach sets fake timers but we override here.
+    vi.useRealTimers();
+    vi.mocked(buildPaneContext).mockResolvedValue('ctx-block');
+    vi.mocked(insertMention).mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    cleanup();
+  });
+
+  it('renders a footer element with data-testid=pane-footer for running sessions', () => {
+    render(<PaneFooter session={makeSession({ status: 'running' })} />);
+    expect(screen.getByTestId('pane-footer')).toBeTruthy();
+  });
+
+  it('does not render for exited sessions (no drop zone needed)', () => {
+    const { container } = render(<PaneFooter session={makeSession({ status: 'exited' })} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('shows ring highlight when PANE_DRAG_MIME is dragged over', () => {
+    render(<PaneFooter session={makeSession({ status: 'running' })} />);
+    const footer = screen.getByTestId('pane-footer');
+    fireEvent.dragOver(footer, {
+      dataTransfer: { types: [PANE_MIME] },
+    });
+    expect(footer.className).toMatch(/ring-2/);
+    expect(footer.className).toMatch(/ring-primary/);
+  });
+
+  it('shows "drop to inject context" hint during dragOver', () => {
+    render(<PaneFooter session={makeSession({ status: 'running' })} />);
+    const footer = screen.getByTestId('pane-footer');
+    fireEvent.dragOver(footer, {
+      dataTransfer: { types: [PANE_MIME] },
+    });
+    expect(screen.getByTestId('pane-footer-drop-hint')).toBeTruthy();
+  });
+
+  it('clears ring highlight on dragLeave', () => {
+    render(<PaneFooter session={makeSession({ status: 'running' })} />);
+    const footer = screen.getByTestId('pane-footer');
+    fireEvent.dragOver(footer, { dataTransfer: { types: [PANE_MIME] } });
+    // simulate leaving entirely (relatedTarget outside the footer)
+    fireEvent.dragLeave(footer, { relatedTarget: document.body });
+    expect(footer.className).not.toMatch(/ring-2/);
+  });
+
+  it('does NOT activate highlight for unrelated MIME types', () => {
+    render(<PaneFooter session={makeSession({ status: 'running' })} />);
+    const footer = screen.getByTestId('pane-footer');
+    fireEvent.dragOver(footer, { dataTransfer: { types: ['text/plain'] } });
+    expect(footer.className).not.toMatch(/ring-2/);
+  });
+
+  it('calls buildPaneContext + insertMention when pane is dropped', async () => {
+    render(<PaneFooter session={makeSession({ id: 'target-sess', status: 'running' })} />);
+    const footer = screen.getByTestId('pane-footer');
+    fireEvent.drop(footer, {
+      dataTransfer: {
+        getData: (mime: string) => mime === PANE_MIME ? makePayload({ sessionId: 'source-sess' }) : '',
+        types: [PANE_MIME],
+      },
+    });
+    await waitFor(() => {
+      expect(buildPaneContext).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'source-sess', branch: 'main' }),
+      );
+      expect(insertMention).toHaveBeenCalledWith('target-sess', 'ctx-block', 'running');
+    });
+  });
+
+  it('does NOT call buildPaneContext when the dropped pane is the same session', async () => {
+    render(<PaneFooter session={makeSession({ id: 'same-sess', status: 'running' })} />);
+    const footer = screen.getByTestId('pane-footer');
+    fireEvent.drop(footer, {
+      dataTransfer: {
+        getData: (mime: string) => mime === PANE_MIME ? makePayload({ sessionId: 'same-sess' }) : '',
+        types: [PANE_MIME],
+      },
+    });
+    // Wait a tick then assert no calls.
+    await act(async () => { await Promise.resolve(); });
+    expect(buildPaneContext).not.toHaveBeenCalled();
+    expect(insertMention).not.toHaveBeenCalled();
+  });
+
+  it('shows loading state while buildPaneContext is in flight', async () => {
+    let resolve!: (v: string) => void;
+    vi.mocked(buildPaneContext).mockReturnValueOnce(
+      new Promise<string>((res) => { resolve = res; }),
+    );
+    render(<PaneFooter session={makeSession({ id: 'target', status: 'running' })} />);
+    const footer = screen.getByTestId('pane-footer');
+    fireEvent.drop(footer, {
+      dataTransfer: {
+        getData: (mime: string) => mime === PANE_MIME ? makePayload({ sessionId: 'other-sess' }) : '',
+        types: [PANE_MIME],
+      },
+    });
+    // Still in-flight — should show loading indicator.
+    await waitFor(() => {
+      expect(screen.queryByTestId('pane-footer-loading')).not.toBeNull();
+    });
+    // Resolve the promise.
+    act(() => { resolve('ctx'); });
+    await waitFor(() => {
+      expect(screen.queryByTestId('pane-footer-loading')).toBeNull();
+    });
   });
 });

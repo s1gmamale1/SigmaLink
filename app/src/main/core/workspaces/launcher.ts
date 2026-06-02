@@ -33,6 +33,7 @@ import { writeRufloMcpIntoCwd } from './ruflo-worktree-mcp';
 import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from './mcp-autowrite';
 import { allocateLowestFreeLivePaneIndex } from './pane-slots';
 import { isPtyCrash } from '../pty/crash';
+import { providerAcceptsModelFlag } from '../providers/models';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -113,21 +114,38 @@ interface LauncherDeps {
 
 /**
  * Build the prompt-related "extra" args. The façade owns the base
- * `provider.args` and the autoApprove flag; this helper only contributes the
- * tokens that depend on `oneshotPrompt`. Returning an empty array when no
- * prompt is set is correct — the caller still types the prompt later via
- * `pty.write` for providers that lack a one-shot or initial-prompt flag.
+ * `provider.args` and the autoApprove flag; this helper contributes the tokens
+ * that depend on `oneshotPrompt` plus the FEAT-14 per-pane `--model` flag.
+ * Returning an empty array when neither a prompt nor a model is set is correct
+ * — the caller still types the prompt later via `pty.write` for providers that
+ * lack a one-shot or initial-prompt flag.
+ *
+ * FEAT-14 — per-pane model selection. When `modelId` is set AND the provider's
+ * CLI accepts the flag (`providerAcceptsModelFlag`: claude / cursor / gemini),
+ * prepend `--model <modelId>`. codex / kimi / opencode / shell are SKIPPED so
+ * an unknown flag never breaks their spawn. Resume launches reuse the existing
+ * session's model, so this helper is only consulted on the fresh-spawn branch.
+ *
+ * Exported for unit coverage (mirrors the `isPtyCrash` export pattern); the
+ * executeLaunchPlan spawn flow is otherwise untouched.
  */
-function buildExtraArgs(providerId: string, oneshotPrompt?: string): string[] {
+export function buildExtraArgs(
+  providerId: string,
+  oneshotPrompt?: string,
+  modelId?: string,
+): string[] {
   const p = findProvider(providerId);
-  if (!p || !oneshotPrompt) return [];
+  if (!p) return [];
+  const modelArgs: string[] =
+    modelId && providerAcceptsModelFlag(p.id) ? ['--model', modelId] : [];
+  if (!oneshotPrompt) return modelArgs;
   if (p.oneshotArgs && p.oneshotArgs.length) {
-    return p.oneshotArgs.map((tok) => tok.replace('{prompt}', oneshotPrompt));
+    return [...modelArgs, ...p.oneshotArgs.map((tok) => tok.replace('{prompt}', oneshotPrompt))];
   }
   if (p.initialPromptFlag) {
-    return [p.initialPromptFlag, oneshotPrompt];
+    return [...modelArgs, p.initialPromptFlag, oneshotPrompt];
   }
-  return [];
+  return modelArgs;
 }
 
 /**
@@ -343,7 +361,9 @@ export async function executeLaunchPlan(
           extraArgs = resumeResult?.args ?? [];
         }
       } else {
-        extraArgs = buildExtraArgs(provider.id, pane.initialPrompt);
+        // FEAT-14 — fresh spawn: thread the per-pane modelId so buildExtraArgs
+        // can prepend `--model <id>` for providers that accept the flag.
+        extraArgs = buildExtraArgs(provider.id, pane.initialPrompt, pane.modelId);
       }
       if (provider.id === 'claude') {
         await prepareClaudeWorkspaceContext(wsRow.rootPath, cwd);

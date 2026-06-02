@@ -18,9 +18,45 @@ export const PROTOCOL_VERBS = [
   'ROLLCALL_REPLY',
   'OPERATOR',
   'SYSTEM',
+  // FEAT-4 — interactive in-terminal prompt card. An agent may emit
+  // `SIGMA::PROMPT {"question":"…","type":"single"|"multi","choices":["…"]}`
+  // to ask the operator a structured clarifying question. The renderer (opt-in)
+  // overlays a clickable card and writes the chosen answer back to stdin.
+  //
+  // The swarm mailbox router (factory-spawn.ts) is intentionally verb-agnostic:
+  // it routes EVERY parsed envelope into the mailbox via `envelopeToInsert`.
+  // A PROMPT line therefore lands as a plain SwarmMessage row (kind 'PROMPT',
+  // toAgent 'operator') with NO side effect — it does not match the
+  // board_post / directive branches, so it is a graceful no-op there and never
+  // crashes the watcher. The card UI is purely a renderer concern.
+  'PROMPT',
 ] as const;
 
 export type ProtocolVerb = (typeof PROTOCOL_VERBS)[number];
+
+/**
+ * FEAT-4 — payload shape carried by a `SIGMA::PROMPT` line.
+ */
+export interface PromptPayload {
+  question: string;
+  type: 'single' | 'multi';
+  choices: string[];
+}
+
+/**
+ * FEAT-4 — defensive narrowing guard for a PROMPT payload. Returns true only
+ * when `question` is a non-empty string, `type` is `'single'`/`'multi'`, and
+ * `choices` is a non-empty array of strings. Used by the renderer prompt-card
+ * hook so a malformed / spoofed PROMPT line is ignored rather than rendered.
+ */
+export function isPromptPayload(p: unknown): p is PromptPayload {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  if (typeof o.question !== 'string' || o.question.trim().length === 0) return false;
+  if (o.type !== 'single' && o.type !== 'multi') return false;
+  if (!Array.isArray(o.choices) || o.choices.length === 0) return false;
+  return o.choices.every((c) => typeof c === 'string');
+}
 
 export interface ProtocolParse {
   verb: ProtocolVerb;

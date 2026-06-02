@@ -67,8 +67,18 @@ vi.mock('@/renderer/lib/rpc', () => ({
       revealInFolder: vi.fn(),
       openShell: vi.fn(),
     },
+    // P6 Cycle-3 — PaneShell reads the prompt-cards opt-in gate on mount (FEAT-4).
+    kv: {
+      get: vi.fn(() => Promise.resolve(null)),
+      set: vi.fn(() => Promise.resolve()),
+    },
   },
-  rpcSilent: { providers: { list: vi.fn(() => Promise.resolve([])) } },
+  rpcSilent: {
+    providers: { list: vi.fn(() => Promise.resolve([])) },
+    // PaneHeader drag-grip coachmark (FEAT-12) + git-activity strip (FEAT-8) read via rpcSilent.
+    kv: { get: vi.fn(() => Promise.resolve(null)), set: vi.fn(() => Promise.resolve()) },
+    git: { activityLog: vi.fn(() => Promise.resolve([])) },
+  },
 }));
 
 // Minimal app-state mock. Each test seeds the slice it cares about via

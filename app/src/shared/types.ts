@@ -101,6 +101,15 @@ export interface PaneAssignment {
    * (kimi/opencode/shell). Defaults to false (Yolo OFF).
    */
   autoApprove?: boolean;
+  /**
+   * FEAT-14 — per-pane model picked at LAUNCH time. The launcher appends
+   * `--model <modelId>` for providers whose CLI accepts the flag (claude /
+   * cursor / gemini per `MODEL_FLAG_PROVIDERS`); SKIPPED for codex / kimi /
+   * opencode / shell so an unknown flag never breaks their spawn. Live
+   * mid-session model changes are NOT possible — CLIs take model as a spawn
+   * flag, so this is launch-only. Undefined = provider default.
+   */
+  modelId?: string;
 }
 
 export interface LaunchPlan {

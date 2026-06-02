@@ -16,6 +16,7 @@ import { PickerCards, type LauncherMode } from './PickerCards';
 import { Stepper, type StepId } from './Stepper';
 import { StartStep } from './StartStep';
 import { LayoutStep } from './LayoutStep';
+import type { SavedLayout } from './PresetRow';
 import { AgentsStep } from './AgentsStep';
 import { SessionStep, fetchLastResumePlan } from './SessionStep';
 import type { PaneRow } from './SessionStep';
@@ -103,6 +104,10 @@ export function WorkspaceLauncher() {
   const [step, setStep] = useState<StepId>('start');
   const [preset, setPreset] = useState<GridPreset>(4);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  // FEAT-14 — per-provider model picked at launch (providerId → modelId).
+  // Only claude / cursor / gemini surface a dropdown; the launcher threads the
+  // pick into each matching pane's `--model` flag. Empty = provider default.
+  const [models, setModels] = useState<Record<string, string>>({});
   const [skipAgents, setSkipAgents] = useState(false);
   const [probes, setProbes] = useState<ProviderProbe[]>([]);
   const [launching, setLaunching] = useState(false);
@@ -303,18 +308,43 @@ export function WorkspaceLauncher() {
     }
   }
 
-  function expandCountsToPanes(): string[] {
+  function expandCountsToPanes(): Array<{ providerId: string; modelId?: string }> {
     // Convert {provider: count} → flat array sized to preset, padded with
     // the internal shell sentinel when the user under-assigned. The Custom
     // Command row also resolves to the shell sentinel at launch, which
     // routes through `defaultShell()` in `local-pty.ts`.
-    const flat: string[] = [];
+    //
+    // FEAT-14 — carry the per-provider model (keyed by the matrix row id, which
+    // equals the resolved providerId for the model-capable providers
+    // claude/cursor/gemini). `shell`/`custom` never have a model.
+    const flat: Array<{ providerId: string; modelId?: string }> = [];
     for (const [providerId, n] of Object.entries(counts)) {
       const id = providerId === 'custom' ? 'shell' : providerId;
-      for (let i = 0; i < n; i++) flat.push(id);
+      const modelId = models[providerId] || undefined;
+      for (let i = 0; i < n; i++) flat.push({ providerId: id, modelId });
     }
-    while (flat.length < preset) flat.push('shell');
+    while (flat.length < preset) flat.push({ providerId: 'shell' });
     return flat.slice(0, preset);
+  }
+
+  // FEAT-10 — restore a saved named layout: apply the preset (clamping counts)
+  // then overwrite the per-provider counts when the layout carries them. Old
+  // `{name, preset}` entries (counts undefined) restore the preset alone.
+  function restoreLayout(layout: SavedLayout): void {
+    changePreset(layout.preset);
+    if (layout.counts) {
+      // Clamp the restored distribution to the preset budget so we never seed
+      // an over-allocated matrix.
+      const trimmed: Record<string, number> = {};
+      let budget: number = layout.preset;
+      for (const [k, v] of Object.entries(layout.counts)) {
+        if (budget <= 0) break;
+        const give = Math.min(v, budget);
+        if (give > 0) trimmed[k] = give;
+        budget -= give;
+      }
+      setCounts(trimmed);
+    }
   }
 
   async function launch(): Promise<void> {
@@ -352,8 +382,8 @@ export function WorkspaceLauncher() {
     setLaunching(true);
     setError(null);
     try {
-      const paneProviders = skipAgents
-        ? Array(preset).fill('shell')
+      const paneProviders: Array<{ providerId: string; modelId?: string }> = skipAgents
+        ? Array.from({ length: preset }, () => ({ providerId: 'shell' }))
         : expandCountsToPanes();
       // v1.3.1 fix (Bug B): the launcher backend reads `plan.paneResumePlan`
       // (a top-level array), not `panes[i].sessionId`. v1.3.0 emitted the
@@ -364,12 +394,15 @@ export function WorkspaceLauncher() {
       const plan: LaunchPlan = {
         workspaceRoot: selectedWorkspace.rootPath,
         preset,
-        panes: paneProviders.map((providerId, paneIndex) => ({
+        panes: paneProviders.map(({ providerId, modelId }, paneIndex) => ({
           paneIndex,
           providerId,
           // SF-8 B2: thread yolo into every pane so the main process appends
           // the provider's autoApproveFlag when opts.autoApprove is true.
           autoApprove: yolo,
+          // FEAT-14: per-pane model → launcher appends `--model <id>` for
+          // providers that accept the flag. Omitted when no model was picked.
+          ...(modelId ? { modelId } : {}),
         })),
         ...(resumeArray.length > 0 ? { paneResumePlan: resumeArray } : {}),
       };
@@ -431,7 +464,12 @@ export function WorkspaceLauncher() {
           ) : null}
           {step === 'layout' ? (
             <div className="flex flex-col gap-3">
-              <LayoutStep preset={preset} onChange={changePreset} />
+              <LayoutStep
+                preset={preset}
+                onChange={changePreset}
+                counts={counts}
+                onRestoreLayout={restoreLayout}
+              />
               <div className="text-xs text-muted-foreground">{gridLabel(preset)}</div>
             </div>
           ) : null}
@@ -443,6 +481,8 @@ export function WorkspaceLauncher() {
               skipAgents={skipAgents}
               onSkipChange={setSkipAgents}
               probes={probes}
+              models={models}
+              onModelsChange={setModels}
             />
           ) : null}
           {step === 'sessions' ? (

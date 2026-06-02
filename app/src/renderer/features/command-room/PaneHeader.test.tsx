@@ -14,9 +14,15 @@ vi.mock('@/renderer/lib/rpc', () => ({
       brief: vi.fn().mockResolvedValue(undefined),
       setDisplayProvider: vi.fn().mockResolvedValue({ ok: true }),
     },
+    kv: {
+      set: vi.fn().mockResolvedValue(undefined),
+    },
   },
   rpcSilent: {
     ruflo: { daemonStatus: vi.fn().mockResolvedValue([]) },
+    kv: {
+      get: vi.fn().mockResolvedValue('1'), // default: coachmark already seen
+    },
   },
 }));
 
@@ -400,12 +406,41 @@ describe('PaneHeader', () => {
     expect(screen.queryByText(/^±/)).toBeNull();
   });
 
-  it('header is a drag source carrying pane payload', () => {
+  // FEAT-12: drag source is now narrowed to the grip handle only, not the
+  // entire header root (prevents accidental drags from header clicks).
+  it('FEAT-12: grip is the drag source carrying pane payload (not the header root)', () => {
+    render(<PaneHeader {...base} session={{ ...base.session, id: 's1', branch: 'feat/x' }} />);
+    const grip = screen.getByTestId('pane-drag-grip');
+    const setData = vi.fn();
+    fireEvent.dragStart(grip, { dataTransfer: { setData, effectAllowed: '' } });
+    expect(setData).toHaveBeenCalledWith('application/sigmalink-pane', expect.stringContaining('"sessionId":"s1"'));
+  });
+
+  it('FEAT-12: header root div is NOT draggable (only the grip is)', () => {
     render(<PaneHeader {...base} session={{ ...base.session, id: 's1', branch: 'feat/x' }} />);
     const header = screen.getByTestId('pane-header');
+    expect(header.getAttribute('draggable')).not.toBe('true');
+  });
+
+  it('FEAT-12: drag grip element exists and is marked draggable', () => {
+    render(<PaneHeader {...base} />);
+    const grip = screen.getByTestId('pane-drag-grip');
+    expect(grip).toBeTruthy();
+    expect(grip.getAttribute('draggable')).toBe('true');
+    expect(grip.getAttribute('aria-label')).toMatch(/inject.*context/i);
+  });
+
+  it('FEAT-12: drag payload includes providerId, branch, worktreePath', () => {
+    render(<PaneHeader {...base} session={{ ...base.session, id: 'sess-xyz', branch: 'main', worktreePath: '/wt/main', providerId: 'claude' }} />);
+    const grip = screen.getByTestId('pane-drag-grip');
     const setData = vi.fn();
-    fireEvent.dragStart(header, { dataTransfer: { setData } });
-    expect(setData).toHaveBeenCalledWith('application/sigmalink-pane', expect.stringContaining('"sessionId":"s1"'));
+    fireEvent.dragStart(grip, { dataTransfer: { setData, effectAllowed: '' } });
+    const payload = JSON.parse((setData.mock.calls[0] as [string, string])[1]) as Record<string, unknown>;
+    expect(payload.kind).toBe('pane');
+    expect(payload.sessionId).toBe('sess-xyz');
+    expect(payload.branch).toBe('main');
+    expect(payload.worktreePath).toBe('/wt/main');
+    expect(payload.providerId).toBe('claude');
   });
 
   // Stage 2 / Lane P — P1 hover/focus reveal of situational controls.
@@ -522,7 +557,7 @@ describe('PaneHeader', () => {
       // Fill in the goal field
       const goalField = screen.getByPlaceholderText(/goal/i);
       fireEvent.change(goalField, { target: { value: 'Add authentication' } });
-      const submitBtn = screen.getByRole('button', { name: /inject/i });
+      const submitBtn = screen.getByRole('button', { name: /inject capsule/i });
       fireEvent.click(submitBtn);
       await waitFor(() => {
         expect(rpc.panes.brief).toHaveBeenCalledWith(expect.objectContaining({

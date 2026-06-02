@@ -5,7 +5,7 @@
 // conflict-aware merge order, and executes an ordered batch merge.
 //
 // RPC-FREE: reuses existing rpc.swarms.create, rpc.panes.brief,
-// rpc.git.status, rpc.review.batchCommitAndMerge.
+// rpc.git.status, rpc.review.batchCommitAndMerge, rpc.review.getConflicts.
 
 import { useCallback, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
@@ -48,7 +48,27 @@ interface MergeOrderEntry {
   agentKey: string;
   fileCount: number;
   overlapScore: number;
+  /** Number of predicted-conflict files from getConflicts (optional enrichment). */
+  conflictFileCount?: number;
+  /** True once getConflicts has resolved for this entry. */
+  conflictsLoaded?: boolean;
 }
+
+// ─── Overlap badge helpers ──────────────────────────────────────────────────
+
+type OverlapTier = 'clean' | 'low' | 'high';
+
+function overlapTier(score: number): OverlapTier {
+  if (score === 0) return 'clean';
+  if (score <= 2) return 'low';
+  return 'high';
+}
+
+const OVERLAP_META: Record<OverlapTier, { label: string; glyph: string; className: string }> = {
+  clean:  { label: 'clean',        glyph: '✓', className: 'rounded bg-green-500/15 px-1 text-[10px] text-green-600' },
+  low:    { label: 'low overlap',  glyph: '⚠', className: 'rounded bg-amber-500/15 px-1 text-[10px] text-amber-600' },
+  high:   { label: 'high overlap', glyph: '✕', className: 'rounded bg-red-500/15   px-1 text-[10px] text-red-600'   },
+};
 
 type BatchResult = Awaited<ReturnType<typeof rpc.review.batchCommitAndMerge>>;
 
@@ -170,6 +190,24 @@ export function OrchestratorPanel() {
       });
 
       setMergeOrder(entries);
+
+      // Optional enrichment: fire getConflicts in parallel for each entry,
+      // degrading gracefully (errors are silently ignored — the overlap badge
+      // is still shown regardless).
+      void Promise.allSettled(
+        entries.map(async (entry) => {
+          const conflicts = await rpc.review.getConflicts(entry.sessionId);
+          setMergeOrder((prev) =>
+            prev
+              ? prev.map((e) =>
+                  e.sessionId === entry.sessionId
+                    ? { ...e, conflictFileCount: conflicts.length, conflictsLoaded: true }
+                    : e,
+                )
+              : prev,
+          );
+        }),
+      );
     } finally {
       setProposing(false);
     }
@@ -187,6 +225,9 @@ export function OrchestratorPanel() {
       const failed = result.results.filter((r) => !r.ok);
       if (failed.length === 0) {
         toast.success('All panes merged successfully.');
+        // Navigate to the Review Room so the operator sees the merged state.
+        // review:changed IPC will auto-refresh the room's content.
+        dispatch({ type: 'SET_ROOM', room: 'review' });
       } else {
         toast.warning(`Merge stopped at ${failed[0]?.sessionId ?? 'unknown'} — resolve conflicts and retry.`);
       }
@@ -197,7 +238,7 @@ export function OrchestratorPanel() {
     } finally {
       setMerging(false);
     }
-  }, [mergeOrder]);
+  }, [mergeOrder, dispatch]);
 
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
@@ -276,18 +317,41 @@ export function OrchestratorPanel() {
           {mergeOrder && mergeOrder.length > 0 ? (
             <>
               <ol className="flex flex-col gap-1 text-[11px]">
-                {mergeOrder.map((entry, i) => (
-                  <li key={entry.sessionId} className="flex items-center gap-2 text-muted-foreground">
-                    <span className="w-4 text-right font-mono text-foreground">{i + 1}.</span>
-                    <span className="font-medium text-foreground">{entry.agentKey}</span>
-                    <span>{entry.fileCount} file{entry.fileCount === 1 ? '' : 's'}</span>
-                    {entry.overlapScore > 0 ? (
-                      <span className="rounded bg-amber-500/15 px-1 text-[10px] text-amber-600">
-                        ±{entry.overlapScore} overlap
+                {mergeOrder.map((entry, i) => {
+                  const tier = overlapTier(entry.overlapScore);
+                  const meta = OVERLAP_META[tier];
+                  return (
+                    <li key={entry.sessionId} className="flex items-center gap-2 text-muted-foreground">
+                      <span className="w-4 text-right font-mono text-foreground">{i + 1}.</span>
+                      <span className="font-medium text-foreground">{entry.agentKey}</span>
+                      <span>{entry.fileCount} file{entry.fileCount === 1 ? '' : 's'}</span>
+                      {/* 3-tier file-name overlap badge (glyph + text for a11y; color is decorative) */}
+                      <span
+                        className={meta.className}
+                        title={`File-name overlap with other panes: ${entry.overlapScore} shared filename${entry.overlapScore === 1 ? '' : 's'} (not a semantic conflict prediction)`}
+                        aria-label={`File overlap: ${meta.label}`}
+                      >
+                        {meta.glyph} {meta.label}
                       </span>
-                    ) : null}
-                  </li>
-                ))}
+                      {/* Optional getConflicts enrichment — shown once loaded */}
+                      {entry.conflictsLoaded ? (
+                        <span
+                          className={
+                            entry.conflictFileCount && entry.conflictFileCount > 0
+                              ? 'rounded bg-red-500/15 px-1 text-[10px] text-red-600'
+                              : 'rounded bg-green-500/15 px-1 text-[10px] text-green-600'
+                          }
+                          title="Predicted-conflict files from git merge-tree analysis"
+                          aria-label={`Predicted conflicts: ${entry.conflictFileCount ?? 0} file${entry.conflictFileCount === 1 ? '' : 's'}`}
+                        >
+                          {entry.conflictFileCount && entry.conflictFileCount > 0
+                            ? `${entry.conflictFileCount} conflict${entry.conflictFileCount === 1 ? '' : 's'} predicted`
+                            : 'no conflicts predicted'}
+                        </span>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ol>
 
               <Button
@@ -296,9 +360,11 @@ export function OrchestratorPanel() {
                 className="h-7 w-full text-xs"
                 onClick={() => void mergeInOrder()}
                 disabled={merging}
-                aria-label="Merge in order"
+                aria-label={`Sequential merge (${mergeOrder.length} pane${mergeOrder.length === 1 ? '' : 's'})`}
               >
-                {merging ? 'Merging…' : 'Merge in order'}
+                {merging
+                  ? 'Merging…'
+                  : `Sequential merge (${mergeOrder.length} pane${mergeOrder.length === 1 ? '' : 's'})`}
               </Button>
             </>
           ) : null}

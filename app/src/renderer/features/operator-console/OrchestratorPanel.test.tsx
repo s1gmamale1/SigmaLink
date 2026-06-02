@@ -48,6 +48,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
       batchCommitAndMerge: vi.fn().mockResolvedValue({
         results: [{ sessionId: 'sess-1', ok: true, code: 0 }],
       }),
+      getConflicts: vi.fn().mockResolvedValue([]),
     },
   },
 }));
@@ -135,7 +136,7 @@ describe('OrchestratorPanel — O3: author tasks + launch swarm', () => {
 });
 
 describe('OrchestratorPanel — O4: merge order + batch merge', () => {
-  it('calls git.status on propose and batchCommitAndMerge on merge', async () => {
+  it('calls git.status on propose and batchCommitAndMerge on sequential merge', async () => {
     render(<OrchestratorPanel />);
 
     // Seed the active swarm directly via the panel's internal state by
@@ -155,11 +156,133 @@ describe('OrchestratorPanel — O4: merge order + batch merge', () => {
 
     await waitFor(() => expect(rpc.git.status).toHaveBeenCalled());
 
-    // Merge in order (also gated on a post-propose re-render — poll for it too).
-    fireEvent.click(await screen.findByRole('button', { name: /merge in order/i }));
+    // Sequential merge button — label updated to "Sequential merge (N panes)".
+    fireEvent.click(await screen.findByRole('button', { name: /sequential merge/i }));
 
     expect(rpc.review.batchCommitAndMerge).toHaveBeenCalledWith(
       expect.objectContaining({ sessionIds: expect.any(Array) }),
     );
+  });
+
+  it('dispatches SET_ROOM review after a fully-successful merge', async () => {
+    render(<OrchestratorPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /add task/i }));
+    fireEvent.change(screen.getByLabelText(/goal|prompt/i), { target: { value: 'add login' } });
+    fireEvent.click(screen.getByRole('button', { name: /launch swarm/i }));
+    await waitFor(() => expect(rpc.swarms.create).toHaveBeenCalled());
+
+    fireEvent.click(await screen.findByRole('button', { name: /propose merge order/i }));
+    await waitFor(() => expect(rpc.git.status).toHaveBeenCalled());
+
+    fireEvent.click(await screen.findByRole('button', { name: /sequential merge/i }));
+    await waitFor(() => expect(rpc.review.batchCommitAndMerge).toHaveBeenCalled());
+
+    await waitFor(() =>
+      expect(mockDispatch).toHaveBeenCalledWith({ type: 'SET_ROOM', room: 'review' }),
+    );
+  });
+
+  it('does NOT dispatch SET_ROOM when a merge fails', async () => {
+    (rpc.review.batchCommitAndMerge as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      results: [{ sessionId: 'sess-1', ok: false, code: 1, stderr: 'conflict' }],
+    });
+
+    render(<OrchestratorPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /add task/i }));
+    fireEvent.change(screen.getByLabelText(/goal|prompt/i), { target: { value: 'failing task' } });
+    fireEvent.click(screen.getByRole('button', { name: /launch swarm/i }));
+    await waitFor(() => expect(rpc.swarms.create).toHaveBeenCalled());
+
+    fireEvent.click(await screen.findByRole('button', { name: /propose merge order/i }));
+    await waitFor(() => expect(rpc.git.status).toHaveBeenCalled());
+
+    fireEvent.click(await screen.findByRole('button', { name: /sequential merge/i }));
+    await waitFor(() => expect(rpc.review.batchCommitAndMerge).toHaveBeenCalled());
+
+    // After partial failure the dispatch must NOT have been called with SET_ROOM review.
+    expect(mockDispatch).not.toHaveBeenCalledWith({ type: 'SET_ROOM', room: 'review' });
+  });
+});
+
+// ─── Overlap badge thresholds ────────────────────────────────────────────────
+
+describe('OrchestratorPanel — overlap badge: 3-tier thresholds', () => {
+  /** Helper: launch → propose → return the first list-item text content. */
+  async function getBadgeText(): Promise<string> {
+    fireEvent.click(screen.getByRole('button', { name: /add task/i }));
+    fireEvent.change(screen.getByLabelText(/goal|prompt/i), { target: { value: 'task' } });
+    fireEvent.click(screen.getByRole('button', { name: /launch swarm/i }));
+    await waitFor(() => expect(rpc.swarms.create).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole('button', { name: /propose merge order/i }));
+    await waitFor(() => expect(rpc.git.status).toHaveBeenCalled());
+
+    // Wait for the ordered list to appear.
+    await screen.findByRole('list');
+    const item = screen.getAllByRole('listitem')[0];
+    return item?.textContent ?? '';
+  }
+
+  it('shows "clean" badge when overlapScore is 0 (no shared filenames)', async () => {
+    // git.status returns unique files for the single pane — no overlap with anything.
+    render(<OrchestratorPanel />);
+    const text = await getBadgeText();
+    expect(text).toMatch(/clean/i);
+    expect(text).not.toMatch(/overlap/i);
+  });
+
+  it('shows "low overlap" badge when overlapScore is 1–2', async () => {
+    // Two agents both touch 'shared.ts' → overlapScore = 1 for the first entry.
+    (rpc.git.status as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ branch: 'b', staged: ['shared.ts', 'a.ts'], unstaged: [], untracked: [], clean: false })
+      .mockResolvedValueOnce({ branch: 'b', staged: ['shared.ts', 'b.ts'], unstaged: [], untracked: [], clean: false });
+
+    // Provide a second agent in the swarm so there IS something to overlap with.
+    (rpc.swarms.create as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'swarm-2',
+      workspaceId: 'ws-1',
+      name: 'Two Agent Swarm',
+      mission: 'test',
+      preset: 'custom',
+      status: 'running',
+      createdAt: 0,
+      endedAt: null,
+      agents: [
+        { id: 'a1', swarmId: 'swarm-2', role: 'builder', roleIndex: 1, providerId: 'claude', sessionId: 'sess-a', status: 'idle', inboxPath: '/tmp/ia', agentKey: 'builder-a', worktreePath: '/tmp/wta' },
+        { id: 'a2', swarmId: 'swarm-2', role: 'builder', roleIndex: 2, providerId: 'claude', sessionId: 'sess-b', status: 'idle', inboxPath: '/tmp/ib', agentKey: 'builder-b', worktreePath: '/tmp/wtb' },
+      ],
+    });
+
+    render(<OrchestratorPanel />);
+    const text = await getBadgeText();
+    expect(text).toMatch(/low overlap/i);
+  });
+
+  it('shows "high overlap" badge when overlapScore is ≥ 3', async () => {
+    // Three agents share the same 3 files → overlapScore = 3 for first entry.
+    const sharedFiles = ['x.ts', 'y.ts', 'z.ts'];
+    (rpc.git.status as ReturnType<typeof vi.fn>)
+      .mockResolvedValue({ branch: 'b', staged: sharedFiles, unstaged: [], untracked: [], clean: false });
+
+    (rpc.swarms.create as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'swarm-3',
+      workspaceId: 'ws-1',
+      name: 'Three Agent Swarm',
+      mission: 'test',
+      preset: 'custom',
+      status: 'running',
+      createdAt: 0,
+      endedAt: null,
+      agents: [
+        { id: 'a1', swarmId: 'swarm-3', role: 'builder', roleIndex: 1, providerId: 'claude', sessionId: 'sess-a', status: 'idle', inboxPath: '/tmp/ia', agentKey: 'builder-a', worktreePath: '/tmp/wta' },
+        { id: 'a2', swarmId: 'swarm-3', role: 'builder', roleIndex: 2, providerId: 'claude', sessionId: 'sess-b', status: 'idle', inboxPath: '/tmp/ib', agentKey: 'builder-b', worktreePath: '/tmp/wtb' },
+        { id: 'a3', swarmId: 'swarm-3', role: 'builder', roleIndex: 3, providerId: 'claude', sessionId: 'sess-c', status: 'idle', inboxPath: '/tmp/ic', agentKey: 'builder-c', worktreePath: '/tmp/wtc' },
+      ],
+    });
+
+    render(<OrchestratorPanel />);
+    const text = await getBadgeText();
+    expect(text).toMatch(/high overlap/i);
   });
 });

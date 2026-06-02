@@ -36,9 +36,16 @@ import { SkillBindingChip, type SkillBinding } from '@/renderer/features/skills/
 import { PaneTabStrip, type ScratchTab } from './PaneTabStrip';
 import { PaneContextSidebar } from './PaneContextSidebar';
 import { useUncommittedCount } from '@/renderer/lib/use-git-status-poll';
+import { usePromptCard } from './use-prompt-card';
+import { PromptCard } from './PromptCard';
 
 // v1.4.8 — Max number of files allowed in a single Finder multi-drop.
 const MAX_DROP_FILES = 10;
+
+// FEAT-4 — opt-in gate for interactive in-terminal prompt cards. Default OFF
+// ('1' = on) to avoid false positives on untrusted PTY output. Mirrors the
+// off-by-default pty.spawnMode / pty.scrollbackPersistence reads.
+const KV_PROMPT_CARDS = 'pty.promptCards';
 
 export function PaneShell({
   session,
@@ -103,6 +110,30 @@ export function PaneShell({
   // share ONE 15 s poll (and it pauses while the window is hidden). The
   // consumed `uncommitted: number | null` shape is unchanged.
   const uncommitted = useUncommittedCount(session.worktreePath);
+
+  // FEAT-4 — opt-in interactive prompt cards. Read the KV gate ONCE on mount
+  // (off-by-default; '1' = on). The hook watches this pane's PTY for a valid
+  // SIGMA::PROMPT line and exposes the active prompt + an answer writer.
+  const [promptCardsEnabled, setPromptCardsEnabled] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void rpc.kv
+      .get(KV_PROMPT_CARDS)
+      .then((v) => {
+        if (!cancelled) setPromptCardsEnabled(v === '1');
+      })
+      .catch(() => {
+        /* default OFF on read failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const {
+    prompt: activePrompt,
+    answer: answerPrompt,
+    dismiss: dismissPrompt,
+  } = usePromptCard(session.id, promptCardsEnabled);
 
   // W-4 Phase 4 — Ephemeral scratch-shell sub-tabs.
   // scratchTabs: ordered list of open scratch PTY ids.
@@ -433,6 +464,19 @@ export function PaneShell({
                   ))}
                 </>
               )}
+              {/* FEAT-4 — opt-in interactive prompt card. Overlays the live
+                  terminal (absolute inset-x-0 bottom-0 z-20 inside this
+                  `relative min-h-0 flex-1` container, like CrashBanner does at
+                  the top). Only rendered when the agent emitted a valid
+                  SIGMA::PROMPT line AND the KV gate is on; never over the
+                  "Failed to launch" surface (no PTY/stdin to answer into). */}
+              {activePrompt && !launchFailed ? (
+                <PromptCard
+                  prompt={activePrompt}
+                  onSubmit={answerPrompt}
+                  onDismiss={dismissPrompt}
+                />
+              ) : null}
               </div>
               <PaneContextSidebar session={session} open={isFullscreen} />
             </div>

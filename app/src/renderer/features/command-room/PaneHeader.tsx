@@ -18,6 +18,7 @@ import {
   Coins,
   Columns2,
   GitBranch,
+  GripVertical,
   History,
   Maximize2,
   Minimize2,
@@ -57,6 +58,7 @@ import type { RufloDaemonState } from './useRufloDaemonHealth';
 import { CheckpointPanel } from './CheckpointPanel';
 import { UsagePopover } from './UsagePopover';
 import { GitActivityStrip } from './GitActivityStrip';
+import { useCoachmark } from './use-coachmark';
 
 // SF-7 — colour mapping for the Ruflo daemon health dot (FE-4 a11y standard).
 function rufloHealthDotClass(state: RufloDaemonState): string {
@@ -187,25 +189,31 @@ export function PaneHeader({
   const agentAccent = agentColor(session.id);
   const agentId = agentShortId(session.id);
 
+  // FEAT-12 — coachmark: first-use tooltip on the drag grip.
+  const coachmark = useCoachmark('coachmark.dragGrip.seen');
+
+  // FEAT-12 — drag-start handler shared by the grip element.
+  function handleGripDragStart(e: React.DragEvent): void {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData(
+      PANE_DRAG_MIME,
+      JSON.stringify({
+        kind: 'pane',
+        sessionId: session.id,
+        branch: session.branch ?? null,
+        worktreePath: session.worktreePath ?? null,
+        providerId: session.providerId,
+      }),
+    );
+  }
+
   return (
     // `z-20` lifts the chrome above the PaneSplash overlay (z-10) so the
     // focus/close buttons stay clickable while the boot splash is rendered.
+    // FEAT-12: `draggable` removed from the root div — only the grip initiates.
     <div
       className="relative z-20"
       data-testid="pane-header"
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData(
-          PANE_DRAG_MIME,
-          JSON.stringify({
-            kind: 'pane',
-            sessionId: session.id,
-            branch: session.branch ?? null,
-            worktreePath: session.worktreePath ?? null,
-            providerId: session.providerId,
-          }),
-        );
-      }}
     >
       {/* Provider color stripe — 2px accent at top */}
       <div
@@ -218,6 +226,36 @@ export function PaneHeader({
           The arbitrary variant reads `data-density='dense'` off the GridLayout
           cell ancestor so no new prop has to thread through PaneShell. */}
       <div className="sl-glass-toolbar flex h-7 items-center gap-2 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))] [[data-density=dense]_&]:h-6">
+        {/* FEAT-12 — visible drag-grip. Only this element initiates the context
+            drag, so accidental header clicks no longer spawn a drag operation.
+            The coachmark tooltip appears on first hover until KV flag is set. */}
+        <TooltipProvider delayDuration={coachmark.loaded && !coachmark.seen ? 300 : 200}>
+          <Tooltip defaultOpen={coachmark.loaded && !coachmark.seen}>
+            <TooltipTrigger asChild>
+              <span
+                role="button"
+                tabIndex={0}
+                draggable
+                onDragStart={handleGripDragStart}
+                onMouseEnter={coachmark.seen ? undefined : coachmark.markSeen}
+                onKeyDown={(e) => {
+                  // Allow keyboard users to initiate via Enter/Space (focus only — actual drag needs pointer).
+                  if (e.key === 'Enter' || e.key === ' ') coachmark.markSeen();
+                }}
+                aria-label="Drag to inject this pane's context into another pane"
+                data-testid="pane-drag-grip"
+                className="flex h-4 w-4 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <GripVertical className="h-3.5 w-3.5" aria-hidden />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="start" className="max-w-[200px] text-[10px]">
+              {coachmark.seen
+                ? 'Drag to inject this pane\'s context into another pane'
+                : 'Drag this grip to inject context into another pane\'s composer'}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <span
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ background: dotColor }}
