@@ -1,10 +1,16 @@
-// v1.4.9 #07 — Native OS notification wrapper (D6).
+// v1.4.9 #07 — Native OS notification wrapper (D6); P3 (NTF-1) prefs gating.
 //
 // Encapsulates:
 //   - Master toggle gate (`kv['notifications.osEnabled'] === '1'`).
 //   - Per-severity gate (`kv['notifications.osSeverities']` JSON array;
 //     defaults to `['warn','error','critical']`). Critical is forced-on at
 //     the UI layer; this module enforces it at the runtime layer too.
+//   - P3 (NTF-1) prefs gate — Do-Not-Disturb (`notifications.dnd`),
+//     quiet-hours window (`notifications.quietHours`), and per-source mute
+//     (`notifications.osPerSource`) are enforced HERE via the shared pure
+//     predicates in `shared/notification-prefs.ts` (identical evaluation in
+//     main + renderer). Per-source mute always wins; `critical` bypasses
+//     DND/quiet (must-see) but is still silenced by an explicit source mute.
 //   - 5-minute throttle per `dedup_key` so a swarm broadcast burst doesn't
 //     paint the OS Notification Center with duplicates.
 //   - Electron `Notification` lifecycle (icon path, click handler).
@@ -14,20 +20,28 @@
 // same `app:navigate`-style channel the in-app dropdown's click action
 // uses; we don't define a new event because the deep-link target is
 // identical between in-app and OS-level surfaces).
-//
-// Quiet hours and per-source toggles are explicitly out of scope for v1.4.9
-// (D6). The kv key `notifications.osPerSource` is scaffolded but unused so
-// v1.4.10+ can wire it without a schema change.
 
 import path from 'node:path';
 import { app, BrowserWindow, Notification } from 'electron';
 import { getRawDb } from '../db/client';
 import type { Notification as AppNotification, NotificationSeverity } from '../../../shared/types';
+import {
+  KV_DND,
+  KV_QUIET_HOURS,
+  KV_OS_PER_SOURCE,
+  parseQuietHours,
+  parseMutedSources,
+  isOsSuppressed,
+  notificationSource,
+  type NotificationPrefs,
+} from '../../../shared/notification-prefs';
 
 export const KV_OS_ENABLED = 'notifications.osEnabled';
 export const KV_OS_SEVERITIES = 'notifications.osSeverities';
-/** Scaffolded per D6 §6 — read by future v1.5+ per-source UI; unused in v1. */
-export const KV_OS_PER_SOURCE = 'notifications.osPerSource';
+// Re-export the shared per-source KV key so prior consumers of
+// `os-notify`'s `KV_OS_PER_SOURCE` keep resolving (single source of truth
+// now lives in `shared/notification-prefs.ts`).
+export { KV_OS_PER_SOURCE };
 
 /** D6 — 5 minute throttle window per dedup_key. */
 export const OS_THROTTLE_MS = 5 * 60 * 1000;
@@ -134,6 +148,26 @@ export class OsNotifier {
     if (!isEnabled()) return false;
     const allowed = readAllowedSeverities();
     if (!allowed.has(notification.severity)) return false;
+    // P3 (NTF-1) — DND / quiet-hours / per-source mute gate. Read prefs from
+    // KV and evaluate the shared pure predicate. `isOsSuppressed` already
+    // encodes the policy (per-source mute always wins; `critical` bypasses
+    // DND/quiet) — do not re-implement severity special-casing here.
+    const prefs: NotificationPrefs = {
+      dnd: readKv(KV_DND) === '1',
+      quietHours: parseQuietHours(readKv(KV_QUIET_HOURS)),
+      mutedSources: parseMutedSources(readKv(KV_OS_PER_SOURCE)),
+    };
+    const d = new Date(this.now());
+    const nowMin = d.getHours() * 60 + d.getMinutes();
+    if (
+      isOsSuppressed(
+        prefs,
+        { source: notificationSource(notification.kind), severity: notification.severity },
+        nowMin,
+      )
+    ) {
+      return false;
+    }
     // Throttle on dedupKey.
     const last = this.lastFireByKey.get(notification.dedupKey);
     const ts = this.now();

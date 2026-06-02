@@ -14,20 +14,29 @@
 // the header. Per D4, opening the dropdown does NOT auto-mark-read — the
 // operator must click items or hit "Mark all read".
 //
-// D5 navigation routes:
+// P3 / NTF-2 — the filtered list is now bucketed by source (`groupBySource`)
+// into collapsible sections rendered in the canonical NOTIFICATION_SOURCES
+// order. Each section header shows the source label + an unread count + a
+// collapse chevron (collapsed state is local; default all expanded). Rows
+// keep their created-desc order inside a section. Sections + rows fade in
+// (reduced-motion-safe `sl-fade-in`) so new arrivals settle rather than pop.
+//
+// D5 navigation routes (extracted to the shared `navigateToNotification`
+// helper so the toast "View" action in `use-live-events.ts` reuses it):
 //   pty-exit  → 'command' room; scroll session-history to sessionId
 //   swarm-*   → 'swarm' room; scroll mailbox to messageId (via swarmId)
-//   tool-error → 'sigma' room; scroll conversation to messageId
+//   tool-error → 'jorvis' room; scroll conversation to messageId
 //   fallback  → current filtered notifications view (source gone)
 
-import { CheckCheck, Trash2, X } from 'lucide-react';
+import { CheckCheck, ChevronRight, Trash2, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useAppState } from '@/renderer/app/state';
 import { rpc } from '@/renderer/lib/rpc';
+import type { NotificationSource } from '@/shared/notification-prefs';
 import type { Notification } from '@/shared/types';
 import { NotificationItem } from './NotificationItem';
-import { applyFilter, type FilterChip } from './helpers';
+import { applyFilter, groupBySource, navigateToNotification, type FilterChip } from './helpers';
 
 interface DropdownProps {
   onClose: () => void;
@@ -36,12 +45,27 @@ interface DropdownProps {
 export function NotificationDropdown({ onClose }: DropdownProps) {
   const { state, dispatch } = useAppState();
   const [chip, setChip] = useState<FilterChip>('all');
+  // NTF-2 — sections collapsed by the operator. Default: empty = all expanded.
+  const [collapsed, setCollapsed] = useState<Set<NotificationSource>>(new Set());
   const activeWorkspaceId = state.activeWorkspace?.id ?? null;
 
   const filtered = useMemo(
     () => applyFilter(state.notifications, chip, activeWorkspaceId),
     [state.notifications, chip, activeWorkspaceId],
   );
+
+  // NTF-2 — bucket the filtered list by source into collapsible sections, in
+  // the canonical NOTIFICATION_SOURCES order (empty sections omitted).
+  const groups = useMemo(() => groupBySource(filtered), [filtered]);
+
+  const toggleSection = useCallback((source: NotificationSource) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
+      return next;
+    });
+  }, []);
 
   const handleMarkAllRead = async () => {
     try {
@@ -62,10 +86,11 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
   };
 
   /**
-   * D5 deep-link navigation. Reads the notification kind + payload and
-   * dispatches the appropriate SET_ROOM action. On any deep-link, also
-   * marks-read. Falls back to the filtered notifications view if the source
-   * pane / swarm / conversation is gone.
+   * D5 deep-link navigation. Marks-read (optimistic) then delegates the
+   * room-routing to the shared {@link navigateToNotification} helper (DRY with
+   * the toast "View" action in `use-live-events.ts`). Falls back to the current
+   * filtered view if the source pane / swarm / conversation is gone (the helper
+   * simply does not navigate for unknown kinds).
    */
   const handleItemClick = useCallback(
     async (notification: Notification) => {
@@ -82,52 +107,8 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
         /* swallow */
       }
 
-      // D5 — deep-link to the source context.
-      const payload = notification.payload ?? {};
-      const kind = notification.kind;
-
-      if (kind === 'pty-exit') {
-        // Navigate to command room and scroll to the session in session history.
-        dispatch({ type: 'SET_ROOM', room: 'command' });
-        const sessionId = payload.sessionId as string | undefined;
-        if (sessionId) {
-          // Emit a custom event so the CommandRoom's session-history list can
-          // scroll to the target session. The event is best-effort — if the
-          // CommandRoom is not mounted yet it will be ignored.
-          window.dispatchEvent(
-            new CustomEvent('sigma:scroll-to-session', { detail: { sessionId } }),
-          );
-        }
-      } else if (kind === 'swarm-broadcast' || kind.startsWith('swarm')) {
-        // Navigate to swarm room and scroll the mailbox to the target message.
-        dispatch({ type: 'SET_ROOM', room: 'swarm' });
-        const swarmId = payload.swarmId as string | undefined;
-        const messageId = payload.messageId as string | undefined;
-        if (swarmId) {
-          dispatch({ type: 'SET_ACTIVE_SWARM', id: swarmId });
-        }
-        if (messageId) {
-          window.dispatchEvent(
-            new CustomEvent('sigma:scroll-to-swarm-message', { detail: { messageId, swarmId } }),
-          );
-        }
-      } else if (kind === 'tool-error') {
-        // Navigate to sigma assistant room and scroll to the target message.
-        dispatch({ type: 'SET_ROOM', room: 'jorvis' });
-        const conversationId = payload.conversationId as string | undefined;
-        const messageId = payload.messageId as string | undefined;
-        if (conversationId || messageId) {
-          window.dispatchEvent(
-            new CustomEvent('sigma:scroll-to-message', {
-              detail: { conversationId, messageId },
-            }),
-          );
-        }
-      }
-      // For unknown kinds, fall back: keep the dropdown open on the
-      // current filtered view (no navigation); the mark-read above is
-      // the only side effect. This covers 'tool-error-summary', '*-summary',
-      // and any future kinds not yet in the registry.
+      // D5 — deep-link to the source context (shared with the toast handoff).
+      navigateToNotification(notification, dispatch);
 
       // We do NOT close the dropdown on click — operator may want to triage
       // multiple items in sequence.
@@ -222,7 +203,7 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
         className="max-h-96 overflow-y-auto"
         data-testid="notification-list"
       >
-        {filtered.length === 0 ? (
+        {groups.length === 0 ? (
           <p
             className="px-3 py-6 text-center text-xs text-muted-foreground"
             data-testid="notification-empty"
@@ -230,18 +211,58 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
             No notifications.
           </p>
         ) : (
-          <ul role="list">
-            {filtered.map((n) => (
-              <li key={n.id}>
-                <NotificationItem
-                  notification={n}
-                  onClick={() => handleItemClick(n)}
-                  onDismiss={() => handleDismiss(n)}
-                  onMarkUnread={() => handleMarkUnread(n)}
-                />
-              </li>
-            ))}
-          </ul>
+          // NTF-2 — grouped collapsible sections in NOTIFICATION_SOURCES order.
+          // Each section is a sl-fade-in (reduced-motion-safe) so a freshly
+          // appearing source settles in rather than popping.
+          groups.map((group) => {
+            const isCollapsed = collapsed.has(group.source);
+            return (
+              <section
+                key={group.source}
+                data-testid={`notification-section-${group.source}`}
+                className="sl-fade-in border-b border-border last:border-b-0"
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleSection(group.source)}
+                  data-testid={`notification-section-toggle-${group.source}`}
+                  aria-expanded={!isCollapsed}
+                  className="flex w-full items-center gap-1.5 bg-muted/30 px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                >
+                  <ChevronRight
+                    aria-hidden
+                    className={cn(
+                      'h-3 w-3 shrink-0 transition-transform',
+                      !isCollapsed && 'rotate-90',
+                    )}
+                  />
+                  <span className="flex-1 truncate normal-case">{group.label}</span>
+                  {group.unreadCount > 0 ? (
+                    <span
+                      className="rounded bg-muted px-1 text-[10px] tabular-nums text-foreground"
+                      data-testid={`notification-section-count-${group.source}`}
+                    >
+                      {group.unreadCount}
+                    </span>
+                  ) : null}
+                </button>
+                {isCollapsed ? null : (
+                  <ul role="list">
+                    {group.items.map((n) => (
+                      <li key={n.id} className="sl-fade-in">
+                        <NotificationItem
+                          notification={n}
+                          onClick={() => handleItemClick(n)}
+                          onDismiss={() => handleDismiss(n)}
+                          onMarkUnread={() => handleMarkUnread(n)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            );
+          })
         )}
       </div>
     </div>

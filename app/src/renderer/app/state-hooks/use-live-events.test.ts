@@ -11,10 +11,18 @@
 //   - tone plays on info-only delta (SF-5)
 //   - silent when toggle off
 //   - silent on removed-only / empty deltas
+//
+// P3 (NTF-2 / SND-1) — extends to the toast↔bell handoff:
+//   - tone called with the delta's MAX unread severity
+//   - a themed sonner toast fires per audible new unread row
+//   - DND (KV_DND='1') suppresses BOTH tone + toast
+//   - a muted source (KV_OS_PER_SOURCE includes it) is neither toned nor toasted
+//   - error/critical toast is persistent (duration Infinity) + carries a View action
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { AgentSession, Notification, ReviewState } from '@/shared/types';
+import { KV_DND, KV_OS_PER_SOURCE, KV_QUIET_HOURS } from '@/shared/notification-prefs';
 import type { Action, AppState } from '../state.types';
 import { initialAppState } from '../state.types';
 
@@ -64,6 +72,20 @@ vi.mock('../../lib/notifications', () => ({
   playNotificationTone: (...args: unknown[]) => playNotificationToneMock(...args),
 }));
 
+// P3 — sonner is the toast surface for the bell handoff. Mock the three call
+// shapes the delta effect uses (`toast`, `toast.warning`, `toast.error`).
+const toastMock = vi.fn() as ReturnType<typeof vi.fn> & {
+  warning: ReturnType<typeof vi.fn>;
+  error: ReturnType<typeof vi.fn>;
+};
+toastMock.warning = vi.fn();
+toastMock.error = vi.fn();
+vi.mock('sonner', () => ({ toast: toastMock }));
+
+// P3 — KV is read per delta (DND / quiet-hours / per-source mute). Back it with
+// a mutable store the tests set up per case; default = empty (all permissive).
+let kvStore: Record<string, string | null> = {};
+
 const rpcMock = {
   review: { list: (id: string) => reviewListMock(id) },
   skills: { list: () => Promise.resolve({ skills: [], states: [] }) },
@@ -76,7 +98,7 @@ const rpcSilentMock = {
     list: () => Promise.resolve([]),
     unreadCount: () => Promise.resolve(0),
   },
-  kv: { get: () => Promise.resolve(null) },
+  kv: { get: (key: string) => Promise.resolve(kvStore[key] ?? null) },
 };
 
 vi.mock('@/renderer/lib/rpc', () => ({
@@ -131,6 +153,10 @@ beforeEach(() => {
   reviewListMock.mockReset();
   reviewListMock.mockResolvedValue(emptyReview('a'));
   playNotificationToneMock.mockReset();
+  kvStore = {};
+  toastMock.mockReset();
+  toastMock.warning.mockReset();
+  toastMock.error.mockReset();
 });
 
 afterEach(() => {
@@ -303,6 +329,32 @@ function makeNotification(
   };
 }
 
+// P3 — the tone + toast now run in a fire-and-forget async block AFTER the
+// synchronous reducer dispatch (it awaits a Promise.all of KV reads). A single
+// microtask turn no longer flushes it, so drain several turns deterministically.
+async function flushAsync(): Promise<void> {
+  for (let i = 0; i < 6; i += 1) {
+    await Promise.resolve();
+  }
+}
+
+interface DeltaInput {
+  added?: Notification[];
+  removed?: string[];
+  unreadCount?: number;
+}
+
+async function emitDelta(input: DeltaInput): Promise<void> {
+  await act(async () => {
+    sigma.emit('notifications:changed', {
+      added: input.added ?? [],
+      removed: input.removed ?? [],
+      unreadCount: input.unreadCount ?? (input.added ?? []).length,
+    });
+    await flushAsync();
+  });
+}
+
 describe('useLiveEvents — v1.13.1 notification sound', () => {
   it('plays tone once per delta when added contains unread warn notification', async () => {
     await renderLiveEvents(stateWith([]));
@@ -311,14 +363,7 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
       await Promise.resolve();
     });
 
-    await act(async () => {
-      sigma.emit('notifications:changed', {
-        added: [makeNotification({ severity: 'warn', readAt: null })],
-        removed: [],
-        unreadCount: 1,
-      });
-      await Promise.resolve();
-    });
+    await emitDelta({ added: [makeNotification({ severity: 'warn', readAt: null })] });
 
     expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
   });
@@ -327,14 +372,7 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
     await renderLiveEvents(stateWith([]));
     await act(async () => { await Promise.resolve(); });
 
-    await act(async () => {
-      sigma.emit('notifications:changed', {
-        added: [makeNotification({ severity: 'error', readAt: null })],
-        removed: [],
-        unreadCount: 1,
-      });
-      await Promise.resolve();
-    });
+    await emitDelta({ added: [makeNotification({ severity: 'error', readAt: null })] });
 
     expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
   });
@@ -343,14 +381,7 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
     await renderLiveEvents(stateWith([]));
     await act(async () => { await Promise.resolve(); });
 
-    await act(async () => {
-      sigma.emit('notifications:changed', {
-        added: [makeNotification({ severity: 'critical', readAt: null })],
-        removed: [],
-        unreadCount: 1,
-      });
-      await Promise.resolve();
-    });
+    await emitDelta({ added: [makeNotification({ severity: 'critical', readAt: null })] });
 
     expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
   });
@@ -359,16 +390,11 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
     await renderLiveEvents(stateWith([]));
     await act(async () => { await Promise.resolve(); });
 
-    await act(async () => {
-      sigma.emit('notifications:changed', {
-        added: [
-          makeNotification({ severity: 'warn', readAt: null }),
-          makeNotification({ severity: 'error', readAt: null }),
-        ],
-        removed: [],
-        unreadCount: 2,
-      });
-      await Promise.resolve();
+    await emitDelta({
+      added: [
+        makeNotification({ severity: 'warn', readAt: null }),
+        makeNotification({ severity: 'error', readAt: null }),
+      ],
     });
 
     // Once per delta, not once per notification row.
@@ -379,14 +405,7 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
     await renderLiveEvents(stateWith([]));
     await act(async () => { await Promise.resolve(); });
 
-    await act(async () => {
-      sigma.emit('notifications:changed', {
-        added: [makeNotification({ severity: 'info', readAt: null })],
-        removed: [],
-        unreadCount: 1,
-      });
-      await Promise.resolve();
-    });
+    await emitDelta({ added: [makeNotification({ severity: 'info', readAt: null })] });
 
     expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
   });
@@ -395,14 +414,7 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
     await renderLiveEvents(stateWith([]));
     await act(async () => { await Promise.resolve(); });
 
-    await act(async () => {
-      sigma.emit('notifications:changed', {
-        added: [],
-        removed: ['n-1'],
-        unreadCount: 0,
-      });
-      await Promise.resolve();
-    });
+    await emitDelta({ added: [], removed: ['n-1'], unreadCount: 0 });
 
     expect(playNotificationToneMock).not.toHaveBeenCalled();
   });
@@ -411,14 +423,7 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
     await renderLiveEvents(stateWith([]));
     await act(async () => { await Promise.resolve(); });
 
-    await act(async () => {
-      sigma.emit('notifications:changed', {
-        added: [],
-        removed: [],
-        unreadCount: 0,
-      });
-      await Promise.resolve();
-    });
+    await emitDelta({ added: [], removed: [], unreadCount: 0 });
 
     expect(playNotificationToneMock).not.toHaveBeenCalled();
   });
@@ -427,15 +432,150 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
     await renderLiveEvents(stateWith([]));
     await act(async () => { await Promise.resolve(); });
 
-    await act(async () => {
-      sigma.emit('notifications:changed', {
-        added: [makeNotification({ severity: 'warn', readAt: Date.now() })],
-        removed: [],
-        unreadCount: 0,
-      });
-      await Promise.resolve();
+    await emitDelta({
+      added: [makeNotification({ severity: 'warn', readAt: Date.now() })],
+      unreadCount: 0,
     });
 
     expect(playNotificationToneMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---- P3 (NTF-2) toast↔bell handoff ------------------------------------------
+
+describe('useLiveEvents — P3 toast↔bell handoff', () => {
+  it('plays the tone with the delta MAX unread severity', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await emitDelta({
+      added: [
+        makeNotification({ severity: 'info', readAt: null }),
+        makeNotification({ severity: 'error', readAt: null }),
+        makeNotification({ severity: 'warn', readAt: null }),
+      ],
+    });
+
+    expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
+    expect(playNotificationToneMock).toHaveBeenCalledWith('error');
+  });
+
+  it('surfaces an info toast (auto-dismiss 3000ms) for a new unread info row', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await emitDelta({
+      added: [makeNotification({ severity: 'info', title: 'Hi', body: 'world', readAt: null })],
+    });
+
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(toastMock).toHaveBeenCalledWith('Hi', { description: 'world', duration: 3000 });
+    expect(toastMock.warning).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a warning toast (5000ms) for a new unread warn row', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await emitDelta({
+      added: [makeNotification({ severity: 'warn', title: 'Heads up', readAt: null })],
+    });
+
+    expect(toastMock.warning).toHaveBeenCalledTimes(1);
+    expect(toastMock.warning.mock.calls[0][0]).toBe('Heads up');
+    expect(toastMock.warning.mock.calls[0][1]).toMatchObject({ duration: 5000 });
+  });
+
+  it('error/critical toast is persistent (duration Infinity) + carries a View action', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await emitDelta({
+      added: [
+        makeNotification({ severity: 'error', title: 'Boom', kind: 'tool-error', readAt: null }),
+      ],
+    });
+
+    expect(toastMock.error).toHaveBeenCalledTimes(1);
+    const opts = toastMock.error.mock.calls[0][1] as {
+      duration: number;
+      action: { label: string; onClick: () => void };
+    };
+    expect(opts.duration).toBe(Infinity);
+    expect(opts.action.label).toBe('View');
+    // The View action deep-links via navigateToNotification → SET_ROOM 'jorvis'.
+    act(() => opts.action.onClick());
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ROOM', room: 'jorvis' });
+  });
+
+  it('DND (KV_DND="1") suppresses the TOAST (tone is left to the engine gate)', async () => {
+    kvStore[KV_DND] = '1';
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await emitDelta({
+      added: [makeNotification({ severity: 'error', readAt: null })],
+    });
+
+    // DND active → no toast surfaces. The tone is still DISPATCHED (the sounds
+    // engine — mocked here — owns the DND/quiet gate; this call site keeps a
+    // single gate source of truth rather than duplicating it).
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(toastMock.warning).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
+    expect(playNotificationToneMock).toHaveBeenCalledWith('error');
+  });
+
+  it('quiet-hours active suppresses the toast (bell still records it)', async () => {
+    // A 00:00→23:59 window is active for (almost) any local clock.
+    kvStore[KV_QUIET_HOURS] = JSON.stringify({ enabled: true, start: '00:00', end: '23:59' });
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await emitDelta({
+      added: [makeNotification({ severity: 'warn', readAt: null })],
+    });
+
+    // No toast while quiet is active; the tone is still dispatched (engine gates).
+    expect(toastMock.warning).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(playNotificationToneMock).toHaveBeenCalledWith('warn');
+  });
+
+  it('a muted source is neither toned nor toasted (but still upserted to the bell)', async () => {
+    kvStore[KV_OS_PER_SOURCE] = JSON.stringify(['pty']);
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await emitDelta({
+      added: [makeNotification({ severity: 'error', kind: 'pty-exit', readAt: null })],
+    });
+
+    expect(playNotificationToneMock).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
+    // The reducer upsert (recording in the bell) still happened synchronously.
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'NOTIFICATIONS_DELTA' }),
+    );
+  });
+
+  it('mutes only the muted source: an unmuted row in the same delta still toasts', async () => {
+    kvStore[KV_OS_PER_SOURCE] = JSON.stringify(['pty']);
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await emitDelta({
+      added: [
+        makeNotification({ severity: 'error', kind: 'pty-exit', readAt: null }),
+        makeNotification({ severity: 'warn', kind: 'swarm-broadcast', readAt: null }),
+      ],
+    });
+
+    // pty muted → its row is dropped; swarm row drives the tone (max sev = warn)
+    // and a single warning toast.
+    expect(playNotificationToneMock).toHaveBeenCalledWith('warn');
+    expect(toastMock.warning).toHaveBeenCalledTimes(1);
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 });
