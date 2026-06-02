@@ -7,8 +7,9 @@
 > **Shipped baseline:** SigmaLink v1.36.0 (+ on-main-untagged video+perf harness & FE-4 a11y `dbce7e6`);
 > SigmaVoice standalone v0.3.2 (own repo, macOS arm64 DMG).
 >
-> **✅ P1 (#70) · ✅ P2 (#72) · ✅ P3 (#73) · ✅ P4 (#75+#76) · ✅ P5 (#78+#79) SHIPPED — all untagged → ride the next release.**
-> **ACTIVE PHASE → P6 (Competitive features & leapfrogs; `FEAT-*` + worktree leapfrogs).** ARCH-1 (main-process tsconfig) still owed. Deferred follow-ups (P4.2 memory items, PERF-7/8/9/12, density scale) parked in WISHLIST. Owed pre-tag: the P5 perf-harness + resize live smokes.
+> **🎉 ALL 6 PHASES SHIPPED TO THEIR EXIT CRITERIA** (untagged → ride the next release):
+> ✅ P1 (#70) · ✅ P2 (#72) · ✅ P3 (#73) · ✅ P4 (#75+#76) · ✅ P5 (#78+#79) · ✅ P6 exit (#81+#82).
+> **P6 is a multi-release phase** — its two NAMED exit-criteria leapfrogs (FEAT-11 rewind ✅ shipped, FEAT-13 merge-order ✅ already met by OrchestratorPanel) are done; the **parity-surface long-tail** (FEAT-3/8/2/5/6/9/4/10/12/14, ONB-1) + **ARCH-1** (main-process tsconfig) + the P4.2/PERF-7/8/9/12/density follow-ups remain as next-cycle backlog in `WISHLIST.md` (a fresh ROADMAP re-derives from there). **Owed pre-tag:** P5 perf-harness + resize live smokes; DB-2 backup→restore round-trip smoke.
 >
 > **Phase goal (operator's 6-pillar vision):** **(a)** Apple-grade visuals · **(b)** responsive layouts ·
 > **(c)** smooth animations/popups · **(d)** polished notifications · **(e)** tasteful sound ·
@@ -31,7 +32,7 @@
 | ✅ **P3** | Notifications + sound (d/e) | ✅ **merged PR #73** | **DONE** — NTF-1, NTF-2, NTF-3(=UX-9), SND-1, ANIM-3 | Shipped. DND/quiet-hours/per-source + restrained soundscape + toast↔bell handoff + pane aliveness. |
 | ✅ **P4** | Obsidian memory + agent-memory unification (f) — **HEADLINE** | ✅ **merged PRs #75+#76** | **DONE** — MEM-1, MEM-4, MEM-2, MEM-3, MEM-6, DB-2, BUG-10/11/12. *(MEM-5/7/8/9, PERF-14, causal edges, global ⌘O → P4.2/WISHLIST.)* | Shipped. Ruflo-as-graph + ⌘O + daily notes + tags + orphans + DB backup. |
 | ✅ **P5** | Responsiveness & performance (b) | ✅ **merged #78+#79** | **DONE** — PERF-1/11 (pty:data+broadcast), PERF-3 (selectors), PERF-5/6 (dedup polling), PERF-2/4/10, RSP-1 (resizable + per-ws sizes). *(PERF-7/8/9/12 + density → WISHLIST.)* | Shipped. Hottest IPC + re-render paths tamed; resizable layout-remembering surfaces. |
-| ◀ **P6** | Competitive features & leapfrogs — **ACTIVE** | `v1.42.0`+ | FEAT-1, FEAT-3, FEAT-7, FEAT-11, FEAT-13, FEAT-2/5/6/8/9/4/10/12/14, ONB-1 | Parity surfaces + worktree leapfrogs (agent rewind, merge-orchestration, git heatmap). |
+| ✅ **P6 exit** | Competitive features & leapfrogs (multi-release) | ✅ **exit met #81+#82** | **EXIT DONE** — FEAT-7, FEAT-1, FEAT-11 (rewind ✅), FEAT-13 (merge-order ✅ already met). **Long-tail OPEN → WISHLIST:** FEAT-3/8/2/5/6/9/4/10/12/14, ONB-1. | Both named exit leapfrogs shipped; parity surfaces are the next-cycle backlog. |
 | **×** | Cross-cutting (every phase) | within each release | SEC-1, ARCH-2/3/4/5/6/7/8/9, RES-1 | Security re-gate + opportunistic decompositions when touching those files. |
 | **B** | Blocked / operator-owned (parked) | when unblocked | SV1, SV2, B1, B2, op-0026, op-smokes | Not actionable unblocked — see tail. |
 
@@ -82,7 +83,8 @@
 - **PERF-1** coalesce `pty:data` (hottest path) + **PERF-11** single-window broadcast. **PERF-3** migrate `useAppState()`→granular selectors (25 components). **PERF-2** gate link-detection. **PERF-4** incremental `sessionsByWorkspace`. **PERF-5** refcounted per-workspace Ruflo-health poll. **PERF-6** batch per-pane git-status. **PERF-8** async disk-scan off the main thread. **PERF-7/9/10/12** (Constellation settle, exit-listener bus, delta re-sort, JSONL bounded read).
 **Exit criteria:** panel sizes persist per workspace across restart; `npm run test:perf` shows reduced jank windows under CPU throttle; no per-pane duplicate Ruflo/git polling; `pty:data` IPC message-rate drops materially under streaming output.
 
-### ▶ P6 — Competitive features & leapfrogs · ships as `v1.42.0`+ (spans several releases)
+### ▶ P6 — Competitive features & leapfrogs · ✅ EXIT CRITERIA MET (PRs #81 + #82, untagged) · long-tail multi-release
+**Exit criteria (both met):** FEAT-11 agent-rewind reliably restores a worktree to a checkpoint (shipped: per-pane `session_checkpoints` + confirm-gated `git reset --hard` with ancestry/ownership/safety-checkpoint guards); FEAT-13 merge-order merges N panes conflict-aware without touching base on conflict (already met by `OrchestratorPanel` + `proposeMergeOrder` + `batchCommitAndMerge` + the BUG-14 abort). **Also shipped:** FEAT-7 per-agent identity, FEAT-1 resume-agents modal. **Long-tail → WISHLIST (next cycle):** FEAT-3 (usage/cost data layer), FEAT-8 (git heatmap), FEAT-2/5/6/9/4/10/12/14, ONB-1, auto-checkpoint-on-dispatch, FEAT-13 badge polish. Detail → `CHANGELOG.md`.
 **Goal:** close v3.0.74 parity and ship the worktree-only differentiators a shared-dir competitor can't match.
 **Deliverables:** per-feature increments — resume modal, per-pane usage/cost, per-agent identity, agent rewind, merge-orchestration UI, MCP diagnostics, swarm phase tree, etc. Each non-trivial feature (FEAT-4/6/11/13) gets its own spec before build.
 **Work (priority — leapfrogs first):**
