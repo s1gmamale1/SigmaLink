@@ -1,9 +1,21 @@
 // v1.4.2-06 — Settings → Storage panel.
 // Lists all worktree directories with their disk sizes and a "Reveal" button.
+// DB-2 — Database backup/restore section.
 
 import { useCallback, useEffect, useState } from 'react';
-import { FolderOpen, HardDrive, Loader2 } from 'lucide-react';
+import { FolderOpen, HardDrive, Loader2, Database } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { rpc } from '@/renderer/lib/rpc';
 
 interface WorktreeEntry {
@@ -25,6 +37,8 @@ export function StorageTab() {
   const [totalBytes, setTotalBytes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [userDataPath, setUserDataPath] = useState('');
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [dbBusy, setDbBusy] = useState<'backup' | 'restore' | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -51,6 +65,42 @@ export function StorageTab() {
 
   const handleRevealOne = useCallback((p: string) => {
     void rpc.app.revealInFolder(p).catch(() => undefined);
+  }, []);
+
+  const handleBackup = useCallback(async () => {
+    setDbBusy('backup');
+    try {
+      const result = await rpc.memory.export_db();
+      if (result.canceled) return;
+      if (result.ok && result.path) {
+        toast.success(`Backed up to ${result.path}`);
+      } else if (!result.ok) {
+        toast.error('Backup failed — see logs for details');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Backup failed');
+    } finally {
+      setDbBusy(null);
+    }
+  }, []);
+
+  const handleRestoreConfirm = useCallback(async () => {
+    setRestoreOpen(false);
+    setDbBusy('restore');
+    try {
+      const result = await rpc.memory.import_db();
+      if (result.canceled) return;
+      if (result.ok) {
+        toast.success('Database restored — reloading…');
+        window.location.reload();
+      } else {
+        toast.error('Restore failed — live database is untouched');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Restore failed');
+    } finally {
+      setDbBusy(null);
+    }
   }, []);
 
   const sectionLabel = 'mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground';
@@ -144,6 +194,82 @@ export function StorageTab() {
           independently. They are stored under the app&apos;s data directory following OS conventions.
         </div>
       </section>
+
+      {/* DB-2 — Database backup / restore */}
+      <section>
+        <div className={sectionLabel}>Database</div>
+        <div className={cardCls}>
+          <div className="mb-3 flex items-center gap-2 text-sm">
+            <Database className="h-4 w-4 text-muted-foreground" aria-hidden />
+            <span className="font-medium">SQLite snapshot</span>
+          </div>
+          <div className="mb-4 text-[11px] text-muted-foreground">
+            Backups are plain SQLite <code>.db</code> files containing ALL workspace data. The
+            restore flow validates the file first and keeps a <code>.pre-restore</code> copy before
+            replacing the live database.
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={dbBusy !== null}
+              onClick={() => void handleBackup()}
+              data-testid="db-backup-btn"
+              className="gap-1.5"
+            >
+              {dbBusy === 'backup' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Database className="h-3.5 w-3.5" aria-hidden />
+              )}
+              Back up database
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={dbBusy !== null}
+              onClick={() => setRestoreOpen(true)}
+              data-testid="db-restore-btn"
+              className="gap-1.5"
+            >
+              {dbBusy === 'restore' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <HardDrive className="h-3.5 w-3.5" aria-hidden />
+              )}
+              Restore from backup
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* DB-2 — restore confirmation dialog */}
+      <AlertDialog open={restoreOpen} onOpenChange={(o) => { if (!o) setRestoreOpen(false); }}>
+        <AlertDialogContent data-testid="db-restore-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore database?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This replaces <strong>ALL</strong> current data with the selected backup. A one-time{' '}
+              <code>.pre-restore</code> copy is kept automatically. The app will reload after a
+              successful restore.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setRestoreOpen(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void handleRestoreConfirm();
+              }}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Restore
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
