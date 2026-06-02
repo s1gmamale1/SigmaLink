@@ -56,10 +56,16 @@ test('sync IPC channels are reachable — no "IPC channel not allowed" on Settin
     })
     .catch(() => undefined);
   // ONB-1 — close the feature-spotlight Dialog if it opened this session (its
-  // overlay would intercept the Settings → Sync tab click below). Escape →
-  // onOpenChange → markSeen.
-  await win.keyboard.press('Escape').catch(() => undefined);
-  await win.waitForTimeout(500);
+  // overlay would intercept the Settings → Sync tab click below). The Dialog
+  // opens ASYNCHRONOUSLY after onboarded + uiBoot + coachmark-loaded, and the
+  // seed above races useCoachmark's read — so wait for the Dialog, Escape it
+  // (onOpenChange → markSeen), and confirm it is gone. No-op if the seed won.
+  const tour = win.getByRole('dialog').filter({ hasText: 'quick tour of SigmaLink' });
+  if (await tour.isVisible({ timeout: 4000 }).catch(() => false)) {
+    await win.keyboard.press('Escape').catch(() => undefined);
+    await tour.waitFor({ state: 'hidden', timeout: 4000 }).catch(() => undefined);
+  }
+  await win.waitForTimeout(300);
 
   // Navigate to Settings via the test-event API used by the dogfood suite.
   await win

@@ -84,12 +84,20 @@ async function dismissOnboarding(win: Page): Promise<void> {
       }
     })
     .catch(() => undefined);
-  // ONB-1 — dismissing onboarding flips `onboarded` true, which opens the
-  // feature-spotlight Dialog this session (its useCoachmark already read the
-  // seen-flag as unset before we seeded it). Escape closes it (markSeen fires)
-  // so its overlay doesn't cover the surfaces the dogfood checks inspect.
-  await win.keyboard.press('Escape').catch(() => undefined);
-  await win.waitForTimeout(300);
+  // ONB-1 — dismissing onboarding flips `onboarded` true, which can open the
+  // feature-spotlight Dialog this session: useCoachmark may have already read
+  // the seen-flag as unset before we seeded it above (a read/seed race). The
+  // Dialog opens ASYNCHRONOUSLY (after onboarded + uiBoot + coachmark-loaded),
+  // so a fire-and-forget Escape fires too early and its overlay then blocks
+  // every later tab click. Wait for the Dialog, dismiss it deterministically
+  // (Escape → markSeen), and confirm it is gone. If the seed won the race the
+  // Dialog never opens and this is a fast no-op.
+  const tour = win.getByRole('dialog').filter({ hasText: 'quick tour of SigmaLink' });
+  if (await tour.isVisible({ timeout: 4000 }).catch(() => false)) {
+    await win.keyboard.press('Escape').catch(() => undefined);
+    await tour.waitFor({ state: 'hidden', timeout: 4000 }).catch(() => undefined);
+  }
+  await win.waitForTimeout(200);
 }
 
 async function activateRepoWorkspace(win: Page, repoRoot: string): Promise<string | null> {
