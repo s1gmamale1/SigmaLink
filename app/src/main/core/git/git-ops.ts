@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { execCmd } from '../../lib/exec';
 import { resolveWindowsCommand } from '../pty/local-pty';
-import type { GitDiff, GitStatus } from '../../../shared/types';
+import type { GitActivityBucket, GitDiff, GitStatus } from '../../../shared/types';
 
 export async function getRepoRoot(cwd: string): Promise<string | null> {
   try {
@@ -583,4 +583,23 @@ export async function dropChanges(
     stderr: err.join(''),
     code: r1.code === 0 && r2.code === 0 ? 0 : r1.code || r2.code,
   };
+}
+
+// ── P6 FEAT-8 — per-worktree git-activity heatmap ──────────────────────────
+// Returns one bucket per local calendar day (oldest→newest) for the last
+// `days` of the worktree's checked-out branch history. Foundation skeleton;
+// the FEAT-8 lane implements via `git log --numstat --since`.
+//
+// Callers MUST contain `cwd` (assertAllowedPath) before invoking — git log
+// traverses commit history and must only run inside allowed workspace roots.
+export async function gitActivityLog(
+  cwd: string,
+  days = 30,
+): Promise<GitActivityBucket[]> {
+  void cwd;
+  void days;
+  // FEAT-8 lane: implement `git log --no-merges --since=<days>.days.ago
+  // --numstat --pretty=format:'COMMIT %H %at' -n 500`, group by local day,
+  // sum filesChanged/linesAdded/linesDeleted/commitCount, churn=add+del.
+  return [];
 }

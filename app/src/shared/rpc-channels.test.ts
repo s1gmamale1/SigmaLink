@@ -117,6 +117,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'git.createCheckpoint',   // P6 FEAT-11 — agent undo/rewind
   'git.listCheckpoints',    // P6 FEAT-11 — agent undo/rewind
   'git.restoreCheckpoint',  // P6 FEAT-11 — agent undo/rewind
+  'git.activityLog',        // P6 FEAT-8 — git-activity heatmap
   // fs (fsCtl)
   'fs.exists',
   'fs.readDir',
@@ -279,6 +280,9 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'telegram.lock',
   'telegram.unlock',
   'telegram.auditTail',
+  'usage.sessionSummary',     // P6 FEAT-3 — per-pane usage/cost
+  'usage.weekSummary',        // P6 FEAT-3 — per-pane usage/cost
+  'mcp.diagnoseWorkspace',    // P6 FEAT-5 — MCP config diagnostics
 ];
 
 // ------------------------------------------------------------------

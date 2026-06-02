@@ -628,3 +628,82 @@ export interface SyncConflict {
   remoteRowJson: string;
   createdAt: number;
 }
+
+// ── P6 FEAT-3 — per-pane usage / cost ──────────────────────────────────────
+// Token/cost telemetry harvested from the Claude CLI `result` envelope
+// (total_cost_usd + usage{}). Only Claude-family panes emit machine-readable
+// usage; other providers leave the ledger empty for that session.
+
+/** Rolled-up usage for a single pane/session (all turns summed). */
+export interface UsageSummary {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  /** USD; null when no priced turn has been recorded yet. */
+  totalCostUsd: number | null;
+  turnCount: number;
+}
+
+/** One provider's slice of a workspace's week-to-date spend. */
+export interface UsageByProvider {
+  providerId: string;
+  totalCostUsd: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  turnCount: number;
+}
+
+/** Week-to-date usage for a workspace, split by provider (FEAT-3 budget bars). */
+export interface UsageWeekSummary {
+  /** Epoch ms of the start of the aggregation window (7 days ago). */
+  weekStartMs: number;
+  byProvider: UsageByProvider[];
+}
+
+// ── P6 FEAT-8 — per-worktree git-activity heatmap ──────────────────────────
+
+/** One day's churn for a worktree, oldest→newest (FEAT-8 sparkline). */
+export interface GitActivityBucket {
+  /** Local calendar day, `YYYY-MM-DD`. */
+  date: string;
+  commitCount: number;
+  filesChanged: number;
+  linesAdded: number;
+  linesDeleted: number;
+  /** linesAdded + linesDeleted — drives the heat color. */
+  churn: number;
+}
+
+// ── P6 FEAT-5 — MCP config diagnostics ─────────────────────────────────────
+
+/** One MCP server entry discovered across a workspace's provider configs. */
+export interface McpServerEntry {
+  name: string;
+  /** Which provider config file this entry came from. */
+  provider: 'claude' | 'cursor' | 'codex' | 'gemini' | 'kimi' | 'opencode';
+  scope: 'project' | 'user';
+  /** Absolute path of the config file the entry lives in. */
+  file: string;
+  /** True when the entry was written/owned by SigmaLink (isManagedRufloEntry). */
+  managed: boolean;
+}
+
+/** A flagged configuration problem the diagnostics pass surfaced. */
+export interface McpIssue {
+  severity: 'info' | 'warn' | 'error';
+  /** Stable machine kind: 'scope-conflict' | 'missing-env' | 'duplicate' | 'unreadable'. */
+  kind: string;
+  title: string;
+  detail: string;
+  file?: string;
+}
+
+/** Structured MCP diagnostics for one workspace (FEAT-5 server manager). */
+export interface McpDiagnostic {
+  workspaceId: string;
+  servers: McpServerEntry[];
+  issues: McpIssue[];
+  /** Epoch ms the scan ran. */
+  scannedAt: number;
+}

@@ -38,6 +38,10 @@ import type {
   SyncConfig,
   SyncStatus,
   SyncConflict,
+  GitActivityBucket,
+  UsageSummary,
+  UsageWeekSummary,
+  McpDiagnostic,
 } from './types';
 import type { PlanCapsule } from './plan-capsule';
 
@@ -287,6 +291,10 @@ export interface AppRouter {
       sessionId: string;
       sha: string;
     }) => Promise<{ ok: true; safetySha: string | null }>;
+    // P6 FEAT-8 — per-worktree git-activity heatmap. Positional cwd mirrors
+    // git.status (the renderer poller passes the worktree path); contained
+    // server-side via assertAllowedPath.
+    activityLog: (cwd: string, days?: number) => Promise<GitActivityBucket[]>;
   };
   fs: {
     exists: (path: string) => Promise<boolean>;
@@ -1159,6 +1167,18 @@ export interface AppRouter {
     unlock: () => Promise<void>;
     /** Tail the audit log, newest first. */
     auditTail: (n: number) => Promise<TelegramAuditEntry[]>;
+  };
+  // P6 FEAT-3 — per-pane usage / cost rollups.
+  usage: {
+    /** Summed token/cost for one pane/session. */
+    sessionSummary: (input: { sessionId: string }) => Promise<UsageSummary>;
+    /** Week-to-date spend for a workspace, split by provider. */
+    weekSummary: (input: { workspaceId: string }) => Promise<UsageWeekSummary>;
+  };
+  // P6 FEAT-5 — MCP config diagnostics / server manager.
+  mcp: {
+    /** Read+parse each provider's MCP config for a workspace and flag issues. */
+    diagnoseWorkspace: (input: { workspaceId: string }) => Promise<McpDiagnostic>;
   };
 }
 
