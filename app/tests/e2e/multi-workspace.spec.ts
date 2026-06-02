@@ -97,6 +97,7 @@ test('room switch preserves the xterm DOM instance (no replay flash)', async () 
     test.skip(!sigmaReady, `Sigma preload bridge unavailable; window title="${await win.title()}"`);
 
     await invoke(win, 'kv.set', 'app.onboarded', '1');
+    await invoke(win, 'kv.set', 'coachmark.featureSpotlight.seen', '1');
     await invoke(win, 'workspaces.open', wsA);
     await activateWorkspace(win, wsA);
     await invoke(win, 'workspaces.launch', {
@@ -207,6 +208,7 @@ test('workspace switching keeps PTY pid alive and stable', async () => {
     test.skip(!sigmaReady, `Sigma preload bridge unavailable; window title="${await win.title()}"`);
 
     await invoke(win, 'kv.set', 'app.onboarded', '1');
+    await invoke(win, 'kv.set', 'coachmark.featureSpotlight.seen', '1');
     await invoke(win, 'workspaces.open', wsA);
     await invoke(win, 'workspaces.open', wsB);
     await activateWorkspace(win, wsA);

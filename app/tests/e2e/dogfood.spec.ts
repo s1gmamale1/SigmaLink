@@ -78,11 +78,17 @@ async function dismissOnboarding(win: Page): Promise<void> {
     .evaluate(async () => {
       try {
         await window.sigma.invoke('kv.set', 'app.onboarded', '1');
+        await window.sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
       } catch {
         /* ignore */
       }
     })
     .catch(() => undefined);
+  // ONB-1 — dismissing onboarding flips `onboarded` true, which opens the
+  // feature-spotlight Dialog this session (its useCoachmark already read the
+  // seen-flag as unset before we seeded it). Escape closes it (markSeen fires)
+  // so its overlay doesn't cover the surfaces the dogfood checks inspect.
+  await win.keyboard.press('Escape').catch(() => undefined);
   await win.waitForTimeout(300);
 }
 

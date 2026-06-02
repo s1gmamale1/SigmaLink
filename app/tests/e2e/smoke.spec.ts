@@ -239,6 +239,7 @@ test('SigmaLink full visual sweep', async () => {
       try {
         // @ts-expect-error sigma is exposed
         await window.sigma.invoke('kv.set', 'app.onboarded', '1');
+        await window.sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
       } catch (err) {
         return String(err);
       }
