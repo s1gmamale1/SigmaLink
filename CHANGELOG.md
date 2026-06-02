@@ -4,6 +4,18 @@ All notable changes to SigmaLink are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed — ROADMAP P5 responsiveness & performance (PRs #78 + #79, untagged)
+
+Phase 5 — smoother under live multi-agent load + resizable, layout-remembering surfaces. Two rounds (perf internals; RSP-1 responsive layout), each gated + Opus-reviewed.
+
+- **PERF-1** coalesce `pty:data` into one IPC send per ~12ms (the hottest path; flush-before-exit + size-cap); **PERF-11** single-window `broadcast()` fast-path.
+- **PERF-3** the 5 hottest `useAppState()` consumers migrated to granular `useAppStateSelector`/`useAppDispatch` (no more whole-app re-render on every dispatch).
+- **PERF-5/6** one refcounted per-workspace Ruflo-health poller + one shared per-repo git-status poller (pause-when-hidden) — no per-pane duplicate polling.
+- **PERF-4** incremental `sessionsByWorkspace` (untouched workspaces keep array identity); **PERF-10** binary-insert deltas (order-preserving); **PERF-2** main-side link-detection gated on `browser.captureLinks` (2s-cached).
+- **RSP-1** the Memory tri-column is now a resizable `ResizablePanelGroup` with per-workspace persisted sizes + narrow-collapse; Sidebar/RightRail widths persist per workspace (collapse stays global) via a shared `useBreakpoint` + a new right-rail narrow auto-collapse.
+
+Gate (both rounds): `tsc -b` · `vitest` 2252 pass / 1 skip · `eslint .` · build + electron:compile · full e2e 9 pass / 3 skip. **Owed pre-tag (live smoke):** `npm run test:perf` jank-delta + `pty:data` IPC-rate; sidebar-collapse-survives-restart; <900px rail/Memory collapse + the rail WebContentsView teardown. *Deferred → WISHLIST:* PERF-7 (Constellation settle), PERF-8 (async disk-scan), PERF-9 (exit-listener bus), PERF-12 (bounded JSONL read), the shared density scale.
+
 ### Added — ROADMAP P4 obsidian memory + agent-memory unification (HEADLINE; PRs #75 + #76, untagged)
 
 Phase 4 — the Ruflo agent memory is now browsable the Obsidian way, and the Memory room is a real PKM. Two rounds (round-1 = the MEM-1 headline + correctness; round-2 = the PKM surfaces), each lead-foundation + file-disjoint worktree lanes + Opus review.
