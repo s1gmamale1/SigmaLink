@@ -6,6 +6,7 @@ import {
   sqliteTable,
   text,
   integer,
+  real,
   index,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
@@ -435,6 +436,38 @@ export const sessionCheckpoints = sqliteTable(
 
 export type SessionCheckpointRow = typeof sessionCheckpoints.$inferSelect;
 export type SessionCheckpointInsert = typeof sessionCheckpoints.$inferInsert;
+
+// P6 FEAT-3 — per-pane / per-workspace usage & cost ledger. One row per
+// recorded Claude CLI turn, harvested from the `result` envelope
+// (`total_cost_usd` + `usage{}`). Only the in-app Jorvis assistant CLI turn
+// path emits machine-readable usage today, so rows are keyed by
+// `conversationId` (the assistant has no agent_sessions row); `sessionId` is
+// reserved for any future PTY-session source and stays NULL for assistant turns.
+// Migration 0029 owns the DDL; this Drizzle table mirrors it so the usage DAO
+// stays end-to-end typed.
+export const usageLedger = sqliteTable(
+  'usage_ledger',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id'),
+    conversationId: text('conversation_id'),
+    providerId: text('provider_id').notNull(),
+    modelId: text('model_id'),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheCreationTokens: integer('cache_creation_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    totalCostUsd: real('total_cost_usd'),
+    recordedAt: integer('recorded_at').notNull(),
+  },
+  (t) => ({
+    usageLedgerSessionIdx: index('usage_ledger_session_idx').on(t.sessionId, t.recordedAt),
+    usageLedgerRecordedIdx: index('usage_ledger_recorded_idx').on(t.recordedAt),
+  }),
+);
+
+export type UsageLedgerRow = typeof usageLedger.$inferSelect;
+export type UsageLedgerInsert = typeof usageLedger.$inferInsert;
 
 // Phase — V3-W13-008 — per-agent board namespace.
 // Mirrors the on-disk markdown file at

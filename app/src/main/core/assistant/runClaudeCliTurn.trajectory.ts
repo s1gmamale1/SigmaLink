@@ -12,7 +12,10 @@ import {
   type CliAssistantEnvelope,
   type CliAssistantContentBlock,
   type CliResultErrorEnvelope,
+  type CliResultSuccessEnvelope,
 } from './cli-envelope';
+import { getDb } from '../db/client';
+import { recordTurn } from '../usage/dao';
 import { safeSerialize, type ToolTrace, type ToolTracer } from './tool-tracer';
 import { findTool } from './tools';
 import type { CliTurnDeps, CliTurnHandle } from './runClaudeCliTurn';
@@ -97,6 +100,10 @@ export function handleParsedEnvelope(
         });
       pendingToolRoutes.add(finalP);
       finalP.finally(() => pendingToolRoutes.delete(finalP));
+      // FEAT-3 — record this turn's token/cost into the usage ledger. Fully
+      // defensive + fire-and-forget: a recording failure must never affect the
+      // reply. Synchronous DAO write wrapped in its own try/catch inside.
+      recordTurnUsage(turn, env);
       void endTrajectory(deps, trajectoryId, true, state.finalText.slice(0, 300));
       return;
     }
@@ -138,6 +145,54 @@ export async function finalizeSuccess(
   }
   persistFinal(turn, assistantMessageId, outText);
   emitFinal(deps, turn, assistantMessageId, outText, usage);
+}
+
+/**
+ * FEAT-3 — harvest token/cost from a successful `result` envelope into the
+ * usage ledger. Keyed by `conversationId` (the assistant has no agent_sessions
+ * row, so `sessionId` is NULL) with `providerId: 'claude'` — the assistant CLI
+ * turn path is the only machine-readable usage source today.
+ *
+ * Fully defensive: every read goes through a numeric coercion in the DAO, and
+ * the whole call is wrapped in try/catch so a missing DB (pre-boot / tests) or a
+ * malformed envelope can NEVER throw into the turn loop. Synchronous fire-and-
+ * forget — not awaited; the DAO write is a single better-sqlite3 INSERT.
+ */
+export function recordTurnUsage(
+  turn: CliTurnHandle,
+  env: CliResultSuccessEnvelope,
+): void {
+  try {
+    const usage = (env.usage ?? {}) as Record<string, unknown>;
+    // The CLI envelope sometimes carries a top-level `model`; read it defensively.
+    const modelId =
+      typeof (env as { model?: unknown }).model === 'string'
+        ? ((env as { model?: string }).model as string)
+        : null;
+    recordTurn(getDb(), {
+      sessionId: null,
+      conversationId: turn.conversationId || null,
+      providerId: 'claude',
+      modelId,
+      inputTokens: numFromUsage(usage.input_tokens),
+      outputTokens: numFromUsage(usage.output_tokens),
+      cacheCreationTokens: numFromUsage(usage.cache_creation_input_tokens),
+      cacheReadTokens: numFromUsage(usage.cache_read_input_tokens),
+      totalCostUsd:
+        typeof env.total_cost_usd === 'number' && Number.isFinite(env.total_cost_usd)
+          ? env.total_cost_usd
+          : null,
+      recordedAt: Date.now(),
+    });
+  } catch {
+    /* usage telemetry is best-effort — never affect the reply or the turn. */
+  }
+}
+
+/** Coerce an untrusted usage field to a non-negative integer; missing → 0. */
+function numFromUsage(value: unknown): number {
+  const n = Math.trunc(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /** Drain the final transitions when the CLI child closes (cancelled or no-result). */
