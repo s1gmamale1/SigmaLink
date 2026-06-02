@@ -1,20 +1,23 @@
 // P5.2 — min-window responsive e2e.
 //
-// Verifies the responsive-collapse contract driven by `use-breakpoint.ts`:
-//   - BELOW the `narrow` (900px) breakpoint the Right rail column drops out
-//     (RightRail returns its full-bleed body — no `<aside data-testid="right-rail">`).
-//   - The Sidebar `<aside data-testid="sidebar">` is ALWAYS rendered (it only
-//     collapses to its icon rail; it never unmounts).
-//   - Widening back above the breakpoint brings the right rail back.
+// Verifies the responsive auto-collapse driven by `use-breakpoint.ts` at a
+// window size the app can ACTUALLY reach. The BrowserWindow has minWidth 1024
+// (electron/main.ts), so:
+//   - The `compact` (1100px) breakpoint IS reachable — at the minimum width
+//     (1024 < 1100) the Sidebar auto-collapses to its icon rail (the persisted
+//     one-way collapse). Its `<aside data-testid="sidebar">` stays mounted, but
+//     the resize divider (`data-testid="sidebar-resize-handle"`, guarded by
+//     `!collapsed`) disappears — that's our collapse signal.
+//   - The `narrow` (900px) right-rail breakpoint is NOT reachable via resize
+//     (minWidth 1024 > 900), so it is covered by RightRail.rsp unit tests, not
+//     here. (smoke.spec.ts's setSize(900,…) likewise clamps to 1024 — which is
+//     exactly why its screenshot shows a collapsed sidebar.)
 //
-// We deliberately do NOT assert the sidebar re-EXPANDS on widening: the
-// `compact` (1100px) auto-collapse is one-way by design (it sets the persisted
-// collapsed flag and never auto-re-expands), so an "it re-expands" assertion
-// would be wrong. We only assert presence of the sidebar testid.
+// The collapse is asserted at the minimum width regardless of the initial
+// collapsed state, so the test is robust to a persisted-collapsed profile.
 //
 // Boot mirrors smoke.spec.ts (`_electron.launch` against electron-dist/main.js).
-// Requires a built app (`npm run build`); this file is authored + typechecked
-// here but exercised in CI's e2e-matrix.
+// Requires a built app (`npm run build`); exercised in CI's e2e-matrix.
 
 import { test, _electron as electron, expect, type ElectronApplication } from '@playwright/test';
 import path from 'node:path';
@@ -23,11 +26,10 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Width thresholds mirror src/renderer/lib/use-breakpoint.ts (narrow = 900).
-const NARROW_W = 760; // well below narrow(900) — wide chrome margin so innerWidth can't stay ≥900 (review #4)
-const WIDE_W = 1200; // above narrow → right rail returns
+const MIN_W = 1024; // the BrowserWindow minWidth; below compact(1100) → sidebar collapses
+const WIDE_W = 1440; // comfortably above compact
 const HEIGHT = 800;
-const SETTLE_MS = 650; // ≥600ms so the resize listener + React re-render settle
+const SETTLE_MS = 700; // resize listener + useSyncExternalStore re-read + React commit
 
 async function setWindowSize(app: ElectronApplication, w: number, h: number): Promise<void> {
   await app
@@ -43,11 +45,10 @@ async function setWindowSize(app: ElectronApplication, w: number, h: number): Pr
 
 test.describe.configure({ retries: 1 });
 
-test('min-window — right rail collapses below the narrow breakpoint, sidebar persists', async () => {
+test('min-window — sidebar auto-collapses at the minimum window width (compact breakpoint)', async () => {
   test.setTimeout(120_000);
 
-  let app: ElectronApplication | null = null;
-  app = await electron.launch({
+  const app = await electron.launch({
     args: [path.resolve(__dirname, '../../electron-dist/main.js')],
     env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
     timeout: 60_000,
@@ -65,33 +66,27 @@ test('min-window — right rail collapses below the narrow breakpoint, sidebar p
     );
     expect(bridgeType, 'window.sigma preload bridge must be defined').toBe('object');
 
-    // Start wide so the rail has a chance to mount at all.
+    // The sidebar aside is always mounted (it only collapses to an icon rail).
+    await expect(win.getByTestId('sidebar'), 'sidebar aside is always mounted').toHaveCount(1);
+
+    // --- Shrink to the minimum width → below compact(1100) → sidebar collapses.
+    await setWindowSize(app, MIN_W, HEIGHT);
+    await win.waitForTimeout(SETTLE_MS);
+
+    await expect(
+      win.getByTestId('sidebar'),
+      'sidebar aside stays mounted when collapsed',
+    ).toHaveCount(1);
+    await expect(
+      win.getByTestId('sidebar-resize-handle'),
+      'sidebar resize divider is hidden once collapsed below the compact breakpoint',
+    ).toHaveCount(0);
+
+    // --- Restore the standard test window size. We do NOT assert the sidebar
+    // re-expands — the compact auto-collapse is one-way by design.
     await setWindowSize(app, WIDE_W, HEIGHT);
     await win.waitForTimeout(SETTLE_MS);
-
-    // --- Narrow: right rail drops out, sidebar persists -------------------
-    await setWindowSize(app, NARROW_W, HEIGHT);
-    await win.waitForTimeout(SETTLE_MS);
-
-    const railCountNarrow = await win.getByTestId('right-rail').count();
-    expect(railCountNarrow, 'right rail should collapse out below the narrow breakpoint').toBe(0);
-
-    const sidebarNarrow = win.getByTestId('sidebar');
-    await expect(sidebarNarrow, 'sidebar should remain present when narrow').toHaveCount(1);
-
-    // --- Wide again: right rail reappears ---------------------------------
-    await setWindowSize(app, WIDE_W, HEIGHT);
-    await win.waitForTimeout(SETTLE_MS);
-
-    const railWide = win.getByTestId('right-rail');
-    await expect(railWide, 'right rail should reappear above the narrow breakpoint').toHaveCount(1);
-
-    // Sidebar is still present (we do NOT assert it re-expands — one-way collapse).
-    await expect(win.getByTestId('sidebar'), 'sidebar should still be present when wide').toHaveCount(1);
-
-    // --- Restore the standard test window size ----------------------------
-    await setWindowSize(app, 1440, 900);
-    await win.waitForTimeout(SETTLE_MS);
+    await expect(win.getByTestId('sidebar'), 'sidebar still mounted when wide').toHaveCount(1);
   } finally {
     await app.close().catch(() => undefined);
   }
