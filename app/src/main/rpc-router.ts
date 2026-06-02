@@ -24,6 +24,7 @@ import { probeAllProviders, probeProviderById } from './core/providers/probe';
 import {
   commitAndMerge,
   createCheckpoint,
+  gitActivityLog,
   gitDiff,
   gitStatus,
   restoreCheckpoint,
@@ -31,6 +32,8 @@ import {
   worktreeRemove,
 } from './core/git/git-ops';
 import { buildGitCheckpointController } from './core/git/checkpoint-controller';
+import { buildUsageController } from './core/usage/controller';
+import { buildMcpDiagnosticController } from './core/workspaces/mcp-diagnostic';
 import { WorktreePool } from './core/git/worktree';
 import { listWorkspaces, openWorkspace, removeWorkspace } from './core/workspaces/factory';
 import { cleanupOrphanWorktrees } from './core/workspaces/worktree-cleanup';
@@ -1319,6 +1322,14 @@ function buildRouter() {
     createCheckpoint: checkpointCtl.createCheckpoint,
     listCheckpoints: checkpointCtl.listCheckpoints,
     restoreCheckpoint: checkpointCtl.restoreCheckpoint,
+
+    // ── P6 FEAT-8 — per-worktree git-activity heatmap ────────────────────
+    // The renderer poller passes the worktree path; contain it to an allowed
+    // workspace root (H-4) before traversing commit history there.
+    activityLog: async (cwd: string, days?: number) => {
+      assertAllowedPath(cwd, fsAllowedRoots());
+      return gitActivityLog(cwd, days);
+    },
   });
 
   const fsCtl = defineController({
@@ -1880,6 +1891,27 @@ function buildRouter() {
     );
   });
 
+  // P6 FEAT-3 — per-pane usage/cost rollups (reads the usage_ledger).
+  const usageCtl = defineController(buildUsageController({ getDb }));
+
+  // P6 FEAT-5 — MCP config diagnostics; raises an actionable bell per issue.
+  const mcpCtl = defineController(
+    buildMcpDiagnosticController({
+      getDb,
+      notify: {
+        add: (input) =>
+          notificationsManager.add({
+            workspaceId: input.workspaceId,
+            kind: input.kind,
+            severity: input.severity,
+            title: input.title,
+            body: input.body,
+            dedupKey: input.dedupKey,
+          }),
+      },
+    }),
+  );
+
   return defineRouter({
     app: appCtl,
     pty: ptyCtl,
@@ -1902,6 +1934,8 @@ function buildRouter() {
     notifications: notificationsCtl,
     sync: syncCtl,
     telegram: telegramCtl,
+    usage: usageCtl,
+    mcp: mcpCtl,
   });
 }
 

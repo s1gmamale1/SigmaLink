@@ -85,6 +85,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'git.createCheckpoint',
   'git.listCheckpoints',
   'git.restoreCheckpoint',
+  // P6 FEAT-8 — per-worktree git-activity heatmap
+  'git.activityLog',
   // fs
   'fs.exists',
   // V3-W14-007 — Editor tab file tree + Monaco source loader.
@@ -333,6 +335,11 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'telegram.lock',
   'telegram.unlock',
   'telegram.auditTail',
+  // P6 FEAT-3 — per-pane usage / cost
+  'usage.sessionSummary',
+  'usage.weekSummary',
+  // P6 FEAT-5 — MCP config diagnostics
+  'mcp.diagnoseWorkspace',
 ]);
 
 /**
