@@ -24,7 +24,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Width thresholds mirror src/renderer/lib/use-breakpoint.ts (narrow = 900).
-const NARROW_W = 850; // below narrow → right rail collapses out
+const NARROW_W = 760; // well below narrow(900) — wide chrome margin so innerWidth can't stay ≥900 (review #4)
 const WIDE_W = 1200; // above narrow → right rail returns
 const HEIGHT = 800;
 const SETTLE_MS = 650; // ≥600ms so the resize listener + React re-render settle
