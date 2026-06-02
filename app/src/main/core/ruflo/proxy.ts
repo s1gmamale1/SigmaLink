@@ -21,6 +21,8 @@ const TOOL_TIMEOUTS: Record<string, number> = {
   autopilot_predict: 2_500,
   // P4 MEM-1 — AgentDB sweep can touch many namespaces; give it headroom.
   memory_search_unified: 5_000,
+  // P4.2 — causal-edge read; quick like the similarity search it runs beside.
+  'agentdb_causal-edge': 3_000,
   hooks_intelligence_trajectory_start: 2_500,
   hooks_intelligence_trajectory_step: 2_500,
   hooks_intelligence_trajectory_end: 3_000,

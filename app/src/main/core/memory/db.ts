@@ -8,13 +8,59 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb, getRawDb } from '../db/client';
 import { memories, memoryLinks, memoryTags } from '../db/schema';
-import type { Memory } from '../../../shared/types';
+import type { Memory, MemorySearchHit } from '../../../shared/types';
 import {
   frontmatterFromJson,
   frontmatterToJson,
   parseFrontmatter,
   uniqueLinkTargets,
 } from './parse';
+
+/**
+ * P4.2 MEM-5 — pull the `aliases` list out of a parsed frontmatter record,
+ * keeping only non-empty strings. The frontmatter parser already coerces an
+ * inline `aliases: [a, b]` flow list into an array; a single scalar
+ * `aliases: foo` is also accepted (wrapped into a one-element list). Anything
+ * else (numbers, booleans, nested maps) is dropped. Returned trimmed +
+ * de-duplicated (case-insensitively) preserving first-seen order.
+ */
+export function extractAliases(frontmatter: Record<string, unknown> | null): string[] {
+  if (!frontmatter) return [];
+  const raw = frontmatter.aliases;
+  const candidates: unknown[] = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of candidates) {
+    if (typeof c !== 'string') continue;
+    const trimmed = c.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/** Parse the cached `aliases_json` column back into a string[]. Tolerates null,
+ *  empty, malformed JSON, and non-array JSON — all collapse to [] so a bad
+ *  cached value never throws on read. */
+function aliasesFromJson(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (Array.isArray(parsed)) return parsed.filter((a): a is string => typeof a === 'string');
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/** Serialize aliases for the `aliases_json` column. NULL when empty so the
+ *  column stays NULL rather than holding a meaningless `"[]"`. */
+function aliasesToJson(aliases: string[]): string | null {
+  return aliases.length === 0 ? null : JSON.stringify(aliases);
+}
 
 export interface MemoryRowJoined {
   row: typeof memories.$inferSelect;
@@ -35,18 +81,53 @@ export function rowToMemory(row: typeof memories.$inferSelect, tags: string[], l
     // BUG-10: surface the cached frontmatter. Tolerates null / malformed JSON
     // (frontmatterFromJson collapses both to null).
     frontmatter: frontmatterFromJson(row.frontmatterJson),
+    // MEM-5: surface the cached aliases. Tolerates null / malformed JSON (→ []).
+    aliases: aliasesFromJson(row.aliasesJson),
   };
 }
 
 export function getMemoryRowByName(workspaceId: string, name: string): MemoryRowJoined | null {
   const db = getDb();
+  // Primary: exact (case-insensitive — migration 0027 makes the unique index
+  // NOCASE) name match.
   const row = db
     .select()
     .from(memories)
-    .where(and(eq(memories.workspaceId, workspaceId), eq(memories.name, name)))
+    .where(
+      and(
+        eq(memories.workspaceId, workspaceId),
+        sql`${memories.name} = ${name} COLLATE NOCASE`,
+      ),
+    )
     .get();
-  if (!row) return null;
-  return joinAuxiliaryRows(row);
+  if (row) return joinAuxiliaryRows(row);
+  // MEM-5 fallback: no note is literally named `name`, but a note may resolve
+  // under `name` as an alias. Scan the workspace's cached aliases (small
+  // volumes) and return the first match.
+  const aliasRow = findRowByAlias(workspaceId, name);
+  return aliasRow ? joinAuxiliaryRows(aliasRow) : null;
+}
+
+/** MEM-5 — find the first note in `workspaceId` whose cached `aliases_json`
+ *  contains `name` (case-insensitively). Returns null when none match. */
+function findRowByAlias(
+  workspaceId: string,
+  name: string,
+): typeof memories.$inferSelect | null {
+  const db = getDb();
+  const target = name.trim().toLowerCase();
+  if (!target) return null;
+  const rows = db
+    .select()
+    .from(memories)
+    .where(eq(memories.workspaceId, workspaceId))
+    .all();
+  for (const r of rows) {
+    if (aliasesFromJson(r.aliasesJson).some((a) => a.toLowerCase() === target)) {
+      return r;
+    }
+  }
+  return null;
 }
 
 export function getMemoryById(id: string): MemoryRowJoined | null {
@@ -133,7 +214,11 @@ export function upsertMemoryTx(args: UpsertArgs): UpsertResult {
   const now = Date.now();
   // BUG-10: derive the structured frontmatter cache from the body. Stored as
   // JSON (or NULL when the body has no frontmatter block).
-  const frontmatterJson = frontmatterToJson(parseFrontmatter(args.body).frontmatter);
+  const parsedFrontmatter = parseFrontmatter(args.body).frontmatter;
+  const frontmatterJson = frontmatterToJson(parsedFrontmatter);
+  // MEM-5: cache the frontmatter aliases (filtered to strings) so the
+  // link/backlink/graph layers can resolve a wikilink to this note by alias.
+  const aliasesJson = aliasesToJson(extractAliases(parsedFrontmatter));
 
   let previous: UpsertResult['previous'] = null;
   let resultId = '';
@@ -162,7 +247,7 @@ export function upsertMemoryTx(args: UpsertArgs): UpsertResult {
           .map((l) => l.toMemoryName),
       };
       db.update(memories)
-        .set({ body: args.body, frontmatterJson, updatedAt: now })
+        .set({ body: args.body, frontmatterJson, aliasesJson, updatedAt: now })
         .where(eq(memories.id, existing.id))
         .run();
       resultId = existing.id;
@@ -177,6 +262,7 @@ export function upsertMemoryTx(args: UpsertArgs): UpsertResult {
           name: args.name,
           body: args.body,
           frontmatterJson,
+          aliasesJson,
           createdAt: now,
           updatedAt: now,
         })
@@ -225,11 +311,13 @@ export function rollbackMemoryUpsert(
       db.delete(memories).where(eq(memories.id, row.id)).run();
       return;
     }
+    const prevFrontmatter = parseFrontmatter(previous.body).frontmatter;
     db.update(memories)
       .set({
         body: previous.body,
-        // Keep the frontmatter cache consistent with the restored body.
-        frontmatterJson: frontmatterToJson(parseFrontmatter(previous.body).frontmatter),
+        // Keep the frontmatter + alias caches consistent with the restored body.
+        frontmatterJson: frontmatterToJson(prevFrontmatter),
+        aliasesJson: aliasesToJson(extractAliases(prevFrontmatter)),
       })
       .where(eq(memories.id, row.id))
       .run();
@@ -320,21 +408,39 @@ export function findBacklinks(workspaceId: string, toName: string): MemoryRowJoi
   // must be case-insensitive too — match with COLLATE NOCASE rather than a
   // binary `=`. Migration 0027 also makes the note-name uniqueness NOCASE so a
   // note and its inbound `[[Note]]` links agree on identity regardless of case.
+  //
+  // MEM-5: a note also answers to its aliases, so a `[[Alias]]` link counts as a
+  // backlink to the target note. We resolve the target's aliases and match links
+  // pointing at the canonical name OR any alias (all NOCASE).
+  const targetRow = getMemoryRowByName(workspaceId, toName);
+  const names = new Set<string>([toName.toLowerCase()]);
+  if (targetRow) {
+    names.add(targetRow.row.name.toLowerCase());
+    for (const a of aliasesFromJson(targetRow.row.aliasesJson)) names.add(a.toLowerCase());
+  }
+  // Pull every link row in the workspace's note set, then filter case-insensitively
+  // in JS so the alias-set membership test is a single pass (small volumes).
+  const wsRows = db
+    .select()
+    .from(memories)
+    .where(eq(memories.workspaceId, workspaceId))
+    .all();
+  if (wsRows.length === 0) return [];
+  const wsIds = wsRows.map((r) => r.id);
   const linkRows = db
     .select()
     .from(memoryLinks)
-    .where(sql`${memoryLinks.toMemoryName} = ${toName} COLLATE NOCASE`)
+    .where(inArray(memoryLinks.fromMemoryId, wsIds))
     .all();
-  if (linkRows.length === 0) return [];
-  const candidateIds = Array.from(new Set(linkRows.map((l) => l.fromMemoryId)));
-  const rows = db
-    .select()
-    .from(memories)
-    .where(
-      and(eq(memories.workspaceId, workspaceId), inArray(memories.id, candidateIds)),
-    )
-    .all();
-  return rows.map((row) => joinAuxiliaryRows(row));
+  const matchingFromIds = new Set(
+    linkRows.filter((l) => names.has(l.toMemoryName.toLowerCase())).map((l) => l.fromMemoryId),
+  );
+  if (matchingFromIds.size === 0) return [];
+  // Exclude the target note linking to itself via its own alias.
+  const targetId = targetRow?.row.id;
+  return wsRows
+    .filter((r) => matchingFromIds.has(r.id) && r.id !== targetId)
+    .map((row) => joinAuxiliaryRows(row));
 }
 
 export function listOrphans(workspaceId: string): MemoryRowJoined[] {
@@ -368,4 +474,113 @@ export function listByTag(workspaceId: string, tag: string): MemoryRowJoined[] {
   return listMemoryRows(workspaceId)
     .filter((m) => m.tags.includes(tag))
     .sort((a, b) => b.row.updatedAt - a.row.updatedAt);
+}
+
+// ── PERF-14 — FTS5 full-text search ──────────────────────────────────────────
+
+/**
+ * Sanitize raw user input into a safe FTS5 MATCH expression. FTS5 has its own
+ * query grammar (AND / OR / NOT / NEAR / column filters / prefix `*`), and raw
+ * user input containing those operators — or an unbalanced quote — would throw
+ * SQLITE_ERROR. We neutralize the grammar entirely by tokenizing the input into
+ * bare alphanumeric/underscore terms and re-emitting each as a double-quoted
+ * STRING (an FTS5 "string" matches the term literally). Inner double-quotes are
+ * impossible after tokenization, so no escaping is needed. The terms are joined
+ * with a space (implicit AND in FTS5). Returns '' when nothing usable remains.
+ *
+ * NO dynamic RegExp (semgrep ReDoS) — the term pattern is a static literal.
+ */
+export function sanitizeFtsQuery(query: string): string {
+  if (!query) return '';
+  const terms: string[] = [];
+  // Static regex: runs of letters/digits/underscore length >= 1. The `g` flag
+  // walks every term; FTS5 operator chars (", *, :, (), -, ^, etc.) and
+  // whitespace act purely as separators and are discarded.
+  const re = /[A-Za-z0-9_]+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(query)) !== null) {
+    terms.push(`"${m[0]}"`);
+  }
+  return terms.join(' ');
+}
+
+/**
+ * Full-text search the `memories` FTS5 index (migration 0031). Ranks by
+ * bm25(memories_fts) ascending (lower = better in FTS5) and joins back to
+ * `memories` so we can filter to one workspace and surface the row fields.
+ *
+ * Returns [] when the sanitized query is empty OR the FTS index/table is
+ * unavailable (e.g. migration not yet applied) — callers fall back to the JS
+ * index in that case. The raw query is NEVER interpolated into SQL: the column
+ * data uses bound params and the MATCH expression is the sanitized, fully
+ * double-quoted term list.
+ */
+export function searchMemoriesFts(
+  workspaceId: string,
+  query: string,
+  limit = 20,
+): MemorySearchHit[] {
+  const match = sanitizeFtsQuery(query);
+  if (!match) return [];
+  const raw = getRawDb();
+  try {
+    const rows = raw
+      .prepare(
+        `SELECT m.id   AS id,
+                m.name AS name,
+                m.body AS body,
+                m.updated_at AS updatedAt,
+                bm25(memories_fts) AS rank
+           FROM memories_fts
+           JOIN memories m ON m.rowid = memories_fts.rowid
+          WHERE memories_fts MATCH ?
+            AND m.workspace_id = ?
+          ORDER BY rank ASC
+          LIMIT ?`,
+      )
+      .all(match, workspaceId, limit) as Array<{
+      id: string;
+      name: string;
+      body: string;
+      updatedAt: number;
+      rank: number;
+    }>;
+    // Surface the matched terms for snippet generation. We strip the surrounding
+    // quotes back off the sanitized terms so the index's snippet() can locate
+    // them in the body.
+    const qTokens = match.split(' ').map((t) => t.replace(/"/g, '').toLowerCase());
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      // bm25 is negative (more-negative = better). Map to a positive descending
+      // score so the renderer's existing "higher is better" assumption holds.
+      score: -r.rank,
+      snippet: ftsSnippet(r.body, qTokens),
+      updatedAt: r.updatedAt,
+    }));
+  } catch {
+    // FTS table missing / malformed MATCH that slipped past sanitization /
+    // SQLITE_ERROR — degrade to empty so the manager falls back to the JS index.
+    return [];
+  }
+}
+
+/** Lightweight body excerpt around the first matched token (mirrors the
+ *  index.ts snippet() heuristic). Kept local so db.ts has no import cycle with
+ *  index.ts; the manager reuses index.ts's snippet for the JS-index path. */
+function ftsSnippet(body: string, qTokens: string[]): string {
+  if (!body) return '';
+  const lower = body.toLowerCase();
+  for (const tok of qTokens) {
+    if (!tok) continue;
+    const idx = lower.indexOf(tok);
+    if (idx !== -1) {
+      const start = Math.max(0, idx - 40);
+      const end = Math.min(body.length, idx + tok.length + 80);
+      const prefix = start > 0 ? '… ' : '';
+      const suffix = end < body.length ? ' …' : '';
+      return prefix + body.slice(start, end).replace(/\s+/g, ' ').trim() + suffix;
+    }
+  }
+  return body.slice(0, 120).replace(/\s+/g, ' ').trim();
 }

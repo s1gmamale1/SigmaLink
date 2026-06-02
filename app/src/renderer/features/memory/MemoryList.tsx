@@ -11,18 +11,29 @@
 // silently falls back to token-only.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, Plus, Tag as TagIcon, Sparkles } from 'lucide-react';
+import { Search, Plus, Tag as TagIcon, Sparkles, FileText, LayoutTemplate } from 'lucide-react';
 import { PromptDialog } from '@/components/ui/prompt-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { rpc, rpcSilent, onEvent } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
 import type { Memory, MemorySearchHit } from '@/shared/types';
+
+/** MEM-8 — the tag convention that marks a note as a reusable template. */
+export const TEMPLATE_TAG = 'template';
 
 interface Props {
   memories: Memory[];
   workspaceId: string;
   activeName: string | null;
   onSelect(name: string): void;
-  onCreate(name: string): void;
+  /** MEM-8 — optional `body` seeds the new note from a chosen template. */
+  onCreate(name: string, body?: string): void;
 }
 
 interface SemanticHit {
@@ -53,8 +64,19 @@ export function MemoryList({ memories, workspaceId, activeName, onSelect, onCrea
   const [semanticEnabled, setSemanticEnabled] = useState(true);
   // UX-3 — themed replacement for the native `window.prompt` create flow.
   const [createOpen, setCreateOpen] = useState(false);
+  // MEM-8 — two-step create: after a name is entered, if any template notes
+  // exist we surface a "Blank vs <template>" picker before creating. `null`
+  // means no picker pending.
+  const [pendingName, setPendingName] = useState<string | null>(null);
 
   const trimmed = query.trim();
+
+  // MEM-8 — template notes (tagged `template`), filtered client-side from the
+  // in-memory list so no new RPC is needed.
+  const templates = useMemo(
+    () => memories.filter((m) => m.tags.includes(TEMPLATE_TAG)),
+    [memories],
+  );
 
   // Phase 4 Track C — track Ruflo health so we only render the toggle when
   // the supervisor is actually `ready`. The toggle disappears for any
@@ -179,11 +201,28 @@ export function MemoryList({ memories, workspaceId, activeName, onSelect, onCrea
 
   const onCreateConfirm = useCallback(
     (name: string) => {
-      const trimmed = name.trim();
-      if (!trimmed) return;
-      onCreate(trimmed);
+      const cleaned = name.trim();
+      if (!cleaned) return;
+      // MEM-8 — when templates exist, stage the name and open the template
+      // picker; otherwise create a blank note immediately (unchanged flow).
+      if (templates.length > 0) {
+        setPendingName(cleaned);
+        return;
+      }
+      onCreate(cleaned);
     },
-    [onCreate],
+    [onCreate, templates.length],
+  );
+
+  // MEM-8 — finish the two-step create with the chosen template body (or blank).
+  const onPickTemplate = useCallback(
+    (body?: string) => {
+      const name = pendingName;
+      setPendingName(null);
+      if (!name) return;
+      onCreate(name, body);
+    },
+    [onCreate, pendingName],
   );
 
   return (
@@ -292,6 +331,51 @@ export function MemoryList({ memories, workspaceId, activeName, onSelect, onCrea
         confirmLabel="Create"
         onConfirm={onCreateConfirm}
       />
+
+      {/* MEM-8 — second step: pick a template (or Blank) for the staged name.
+          Only reachable when ≥1 template note exists. */}
+      <Dialog
+        open={pendingName !== null}
+        onOpenChange={(o) => {
+          if (!o) setPendingName(null);
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Start “{pendingName}” from…</DialogTitle>
+            <DialogDescription>
+              Pick a template to seed the note, or start blank.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+            {/* "Blank" first, per the MEM-8 spec. */}
+            <li>
+              <button
+                type="button"
+                data-testid="create-template-blank"
+                onClick={() => onPickTemplate(undefined)}
+                className="flex w-full items-center gap-2 rounded border border-input bg-background px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                Blank note
+              </button>
+            </li>
+            {templates.map((t) => (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  data-testid={`create-template-${t.name}`}
+                  onClick={() => onPickTemplate(t.body)}
+                  className="flex w-full items-center gap-2 rounded border border-input bg-background px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
+                  <span className="truncate">{t.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

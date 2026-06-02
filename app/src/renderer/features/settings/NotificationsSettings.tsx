@@ -19,8 +19,13 @@ import {
   KV_DND,
   KV_QUIET_HOURS,
   KV_OS_PER_SOURCE,
+  KV_DAILY_SUMMARY_ENABLED,
+  KV_DAILY_SUMMARY_TIME,
+  KV_DAILY_NOTE_DIGEST_ENABLED,
+  DEFAULT_DAILY_SUMMARY_TIME,
   NOTIFICATION_SOURCES,
   DEFAULT_QUIET_HOURS,
+  hhmmToMinutes,
   parseQuietHours,
   parseMutedSources,
   type NotificationSource,
@@ -65,6 +70,10 @@ export function NotificationsSettings() {
   const [dnd, setDnd] = useState<boolean>(false);
   const [quiet, setQuiet] = useState<QuietHoursConfig>(DEFAULT_QUIET_HOURS);
   const [mutedSources, setMutedSources] = useState<NotificationSource[]>([]);
+  // P4.2 — NTF-DIGEST once-daily summary + daily-note agent-activity digest.
+  const [summaryEnabled, setSummaryEnabled] = useState<boolean>(false);
+  const [summaryTime, setSummaryTime] = useState<string>(DEFAULT_DAILY_SUMMARY_TIME);
+  const [noteDigestEnabled, setNoteDigestEnabled] = useState<boolean>(false);
   const [ready, setReady] = useState(false);
 
   // Hydrate from kv on mount.
@@ -72,12 +81,15 @@ export function NotificationsSettings() {
     let alive = true;
     void (async () => {
       try {
-        const [e, s, d, q, ms] = await Promise.all([
+        const [e, s, d, q, ms, sum, sumTime, note] = await Promise.all([
           rpc.kv.get(KV_OS_ENABLED),
           rpc.kv.get(KV_OS_SEVERITIES),
           rpc.kv.get(KV_DND),
           rpc.kv.get(KV_QUIET_HOURS),
           rpc.kv.get(KV_OS_PER_SOURCE),
+          rpc.kv.get(KV_DAILY_SUMMARY_ENABLED),
+          rpc.kv.get(KV_DAILY_SUMMARY_TIME),
+          rpc.kv.get(KV_DAILY_NOTE_DIGEST_ENABLED),
         ]);
         if (!alive) return;
         setEnabled(e === '1');
@@ -85,6 +97,13 @@ export function NotificationsSettings() {
         setDnd(d === '1');
         setQuiet(parseQuietHours(q));
         setMutedSources(parseMutedSources(ms));
+        setSummaryEnabled(sum === '1');
+        setSummaryTime(
+          typeof sumTime === 'string' && hhmmToMinutes(sumTime) !== null
+            ? sumTime
+            : DEFAULT_DAILY_SUMMARY_TIME,
+        );
+        setNoteDigestEnabled(note === '1');
       } finally {
         if (alive) setReady(true);
       }
@@ -138,6 +157,28 @@ export function NotificationsSettings() {
       ? mutedSources.filter((s) => s !== src)
       : [...mutedSources, src];
     void persistMutedSources(next);
+  };
+
+  // P4.2 — these are MAIN-process concerns (the once-daily scheduler re-reads
+  // KV on every fire; the digest collector re-reads on every event), so no
+  // renderer cache to invalidate. Just persist the KV.
+  const persistSummaryEnabled = async (next: boolean) => {
+    setSummaryEnabled(next);
+    await rpc.kv.set(KV_DAILY_SUMMARY_ENABLED, next ? '1' : '0').catch(() => undefined);
+  };
+
+  const persistSummaryTime = async (next: string) => {
+    setSummaryTime(next);
+    // Only persist a well-formed HH:MM; the native time input can briefly emit
+    // '' while the operator is typing.
+    if (hhmmToMinutes(next) !== null) {
+      await rpc.kv.set(KV_DAILY_SUMMARY_TIME, next).catch(() => undefined);
+    }
+  };
+
+  const persistNoteDigestEnabled = async (next: boolean) => {
+    setNoteDigestEnabled(next);
+    await rpc.kv.set(KV_DAILY_NOTE_DIGEST_ENABLED, next ? '1' : '0').catch(() => undefined);
   };
 
   if (!ready) {
@@ -276,6 +317,63 @@ export function NotificationsSettings() {
           A muted source makes no OS popup and no sound, but still lands in the bell.
         </p>
       </fieldset>
+
+      {/* P4.2 NTF-DIGEST — once-daily summary */}
+      <fieldset
+        className="flex flex-col gap-2 text-sm"
+        data-testid="notifications-daily-summary-fieldset"
+      >
+        <legend className="px-1 text-xs text-muted-foreground">Daily summary</legend>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={summaryEnabled}
+            onChange={(e) => void persistSummaryEnabled(e.target.checked)}
+            data-testid="notifications-daily-summary-enabled"
+            className="accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <span>Send a once-daily summary notification</span>
+        </label>
+        <div
+          className="flex items-center gap-2 pl-6 text-xs text-muted-foreground"
+          aria-disabled={!summaryEnabled}
+        >
+          <span>At</span>
+          <input
+            type="time"
+            value={summaryTime}
+            disabled={!summaryEnabled}
+            onChange={(e) => void persistSummaryTime(e.target.value)}
+            data-testid="notifications-daily-summary-time"
+            className="rounded border border-border bg-background px-1.5 py-0.5 text-foreground disabled:opacity-50"
+          />
+        </div>
+        <p className="pl-6 text-xs text-muted-foreground">
+          A single info notification rolling up the day's events by kind and severity. Subject to
+          Do Not Disturb / quiet hours like any other system notification.
+        </p>
+      </fieldset>
+
+      {/* P4.2 — daily-note agent-activity digest */}
+      <div className="flex flex-col gap-1">
+        <label
+          className="flex items-center gap-2 text-sm"
+          data-testid="notifications-note-digest-row"
+        >
+          <input
+            type="checkbox"
+            checked={noteDigestEnabled}
+            onChange={(e) => void persistNoteDigestEnabled(e.target.checked)}
+            data-testid="notifications-note-digest-enabled"
+            className="accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <span>Write notable agent events to today's daily note</span>
+        </label>
+        <p className="pl-6 text-xs text-muted-foreground">
+          A self-writing journal: warn-and-above events are appended as timestamped bullets to the{' '}
+          <code>YYYY-MM-DD</code> daily note in this workspace's memory.
+        </p>
+      </div>
 
       {/* P3 SND-1 — soundscape controls */}
       <NotificationsSoundSettings />

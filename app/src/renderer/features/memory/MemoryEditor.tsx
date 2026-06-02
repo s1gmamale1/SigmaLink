@@ -5,7 +5,17 @@
 // in a future phase.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Save, Trash2, Eye, Pencil, Hash, RotateCw, Lock } from 'lucide-react';
+import {
+  Save,
+  Trash2,
+  Eye,
+  Pencil,
+  Hash,
+  RotateCw,
+  Lock,
+  PanelRight,
+  FilePlus2,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -17,9 +27,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { rpc } from '@/renderer/lib/rpc';
 import type { Memory } from '@/shared/types';
 import { extractWikilinks, renderChunks } from './wikilink';
+import { PropertiesPanel } from './PropertiesPanel';
+import { OutlineRail, scrollTopForLine } from './OutlineRail';
 
 interface Props {
   workspaceId: string;
@@ -36,9 +53,20 @@ interface Props {
   readOnly?: boolean;
   /** P4 MEM-1 — metadata surfaced in the read-only chip (Ruflo namespace + score). */
   readOnlyMeta?: { namespace?: string; score?: number };
+  /**
+   * MEM-8 — notes tagged `template`, surfaced as an "Insert template" Popover in
+   * the toolbar. Selecting one REPLACES the editor body. Optional; the button
+   * only renders when at least one template exists.
+   */
+  templates?: Memory[];
 }
 
 const SAVE_DEBOUNCE_MS = 600;
+/** MEM-9 — approximate rendered line height of the mono editor textarea (px).
+ *  `text-xs` (12px) × the `leading-relaxed` ratio (1.625) ≈ 19.5px. */
+const EDITOR_LINE_HEIGHT = 19.5;
+/** MEM-9 — the optional right-side editor panel: Properties grid or Outline rail. */
+type SidePanel = 'none' | 'properties' | 'outline';
 
 export function MemoryEditor({
   workspaceId,
@@ -49,12 +77,20 @@ export function MemoryEditor({
   onDeleted,
   readOnly = false,
   readOnlyMeta,
+  templates,
 }: Props) {
   const [body, setBody] = useState(memory?.body ?? '');
   const [tags, setTags] = useState(memory?.tags.join(', ') ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
+  // MEM-9 — which (if any) right-side editor panel is open. Persists across
+  // note switches within the room (it's a viewing preference, not note state).
+  const [sidePanel, setSidePanel] = useState<SidePanel>('none');
+  // MEM-8 — "Insert template" Popover open state.
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  // MEM-9 — the editor textarea, so the outline can scroll it to a heading line.
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // UX-3 — themed confirm state (replaces the two window.confirm calls).
   const [deleteOpen, setDeleteOpen] = useState(false);
   // The wikilink target awaiting a "create missing note?" confirm. `null`
@@ -228,6 +264,32 @@ export function MemoryEditor({
 
   const wikilinkCount = useMemo(() => extractWikilinks(body).length, [body]);
 
+  // MEM-8 — replace the editor body with a chosen template's body. The
+  // auto-save effect persists the change like any other edit (read-only notes
+  // never reach this — the button isn't rendered for them).
+  const onInsertTemplate = useCallback((templateBody: string) => {
+    setTemplateMenuOpen(false);
+    setBody(templateBody);
+  }, []);
+
+  // MEM-9 — scroll the editor textarea so a clicked outline heading sits at the
+  // top. Mono, non-wrapping editor → lineIndex × lineHeight is the row offset.
+  const onOutlineJump = useCallback((lineIndex: number) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.scrollTop = scrollTopForLine(lineIndex, EDITOR_LINE_HEIGHT);
+  }, []);
+
+  // MEM-8 — the available template notes (filtered upstream; defensive here).
+  const availableTemplates = useMemo(
+    () => (readOnly ? [] : (templates ?? []).filter((t) => t.id !== memory?.id)),
+    [templates, readOnly, memory?.id],
+  );
+
+  const toggleSidePanel = useCallback((panel: 'properties' | 'outline') => {
+    setSidePanel((cur) => (cur === panel ? 'none' : panel));
+  }, []);
+
   // MEM-1 — read-only chip label, e.g. "agent memory · patterns · 0.62".
   const readOnlyChip = useMemo(() => {
     if (!readOnly) return null;
@@ -263,6 +325,67 @@ export function MemoryEditor({
         >
           {mode === 'edit' ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
           {mode === 'edit' ? 'Preview' : 'Edit'}
+        </button>
+        {/* MEM-8 — Insert template (only when ≥1 template note exists + editable). */}
+        {availableTemplates.length > 0 ? (
+          <Popover open={templateMenuOpen} onOpenChange={setTemplateMenuOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                data-testid="insert-template-trigger"
+                className="flex items-center gap-1 rounded border border-input bg-background px-2 py-1 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                title="Replace the body with a template"
+              >
+                <FilePlus2 className="h-3.5 w-3.5" /> Template
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56 p-1">
+              <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                Insert template
+              </div>
+              <ul className="max-h-64 overflow-y-auto">
+                {availableTemplates.map((t) => (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      data-testid={`insert-template-${t.name}`}
+                      onClick={() => onInsertTemplate(t.body)}
+                      className="block w-full truncate rounded px-2 py-1.5 text-left text-xs text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      {t.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </PopoverContent>
+          </Popover>
+        ) : null}
+        {/* MEM-9 — Properties + Outline panel toggles. */}
+        <button
+          type="button"
+          data-testid="toggle-properties"
+          aria-pressed={sidePanel === 'properties'}
+          onClick={() => toggleSidePanel('properties')}
+          className={cn(
+            'flex items-center gap-1 rounded border border-input px-2 py-1 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            sidePanel === 'properties' ? 'bg-accent text-accent-foreground' : 'bg-background',
+          )}
+          title="Toggle the properties editor"
+        >
+          <Hash className="h-3.5 w-3.5" /> Props
+        </button>
+        <button
+          type="button"
+          data-testid="toggle-outline"
+          aria-pressed={sidePanel === 'outline'}
+          onClick={() => toggleSidePanel('outline')}
+          className={cn(
+            'flex items-center gap-1 rounded border border-input px-2 py-1 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            sidePanel === 'outline' ? 'bg-accent text-accent-foreground' : 'bg-background',
+          )}
+          title="Toggle the document outline"
+        >
+          <PanelRight className="h-3.5 w-3.5" /> Outline
         </button>
         {readOnly ? (
           // MEM-1 — agent-authored Ruflo entry: a read-only chip in place of
@@ -331,22 +454,37 @@ export function MemoryEditor({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1">
-        {mode === 'edit' ? (
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            readOnly={readOnly}
-            spellCheck={!readOnly}
-            className={cn(
-              'h-full w-full resize-none border-0 bg-transparent p-3 font-mono text-xs leading-relaxed outline-none',
-              readOnly && 'cursor-default text-muted-foreground',
-            )}
-            placeholder="Write markdown. Wrap a name in [[double brackets]] to link to another note."
-          />
-        ) : (
-          <PreviewPane body={body} knownNames={knownNames} onWikilinkClick={onWikilinkClick} />
-        )}
+      <div className="flex min-h-0 flex-1">
+        <div className="min-h-0 flex-1">
+          {mode === 'edit' ? (
+            <textarea
+              ref={textareaRef}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              readOnly={readOnly}
+              spellCheck={!readOnly}
+              wrap="off"
+              className={cn(
+                'h-full w-full resize-none whitespace-pre overflow-auto border-0 bg-transparent p-3 font-mono text-xs leading-relaxed outline-none',
+                readOnly && 'cursor-default text-muted-foreground',
+              )}
+              placeholder="Write markdown. Wrap a name in [[double brackets]] to link to another note."
+            />
+          ) : (
+            <PreviewPane body={body} knownNames={knownNames} onWikilinkClick={onWikilinkClick} />
+          )}
+        </div>
+        {/* MEM-9 — optional right-side editor panel. */}
+        {sidePanel === 'properties' ? (
+          <div className="w-64 shrink-0">
+            <PropertiesPanel body={body} onBodyChange={setBody} readOnly={readOnly} />
+          </div>
+        ) : null}
+        {sidePanel === 'outline' ? (
+          <div className="w-56 shrink-0">
+            <OutlineRail body={body} onJump={onOutlineJump} />
+          </div>
+        ) : null}
       </div>
 
       {/* UX-3 — themed destructive delete confirm (replaces window.confirm). */}

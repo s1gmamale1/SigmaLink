@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Sparkles, List as ListIcon, Network as NetworkIcon, CalendarDays } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
-import { bindShortcut } from '@/renderer/lib/shortcuts';
 import { useAppState } from '@/renderer/app/state';
 import { useBelowBreakpoint } from '@/renderer/lib/use-breakpoint';
 import { readWorkspaceUi, writeWorkspaceUi } from '@/renderer/lib/workspace-ui-kv';
@@ -27,10 +26,12 @@ import { MemoryGraphView, type MemoryGraphNodeSelection } from './MemoryGraph';
 import { useRufloGraphOverlay } from './useRufloGraphOverlay';
 import { TagsPane } from './TagsPane';
 import { MemoryAssistPanel } from './MemoryAssistPanel';
-import { MemoryQuickSwitcher } from './MemoryQuickSwitcher';
+import { TEMPLATE_TAG } from './MemoryList';
 import { openDailyNote } from './daily-note';
 
 type Tab = 'list' | 'graph';
+/** #3 — tag-filter mode: prune the graph (default, legacy) vs dim non-matches. */
+type TagGraphMode = 'prune' | 'dim';
 
 // RSP-1 — the list tab is a horizontal resizable tri-column. Stable panel ids
 // key the persisted layout; the order [left, editor, right] is the array order
@@ -76,9 +77,10 @@ export function MemoryRoom() {
   // P4 MEM-1 — when a Ruflo (agent-memory) graph node is opened, the editor
   // column shows it as a read-only virtual note instead of the active note.
   const [rufloView, setRufloView] = useState<RufloEntry | null>(null);
-  // P4 MEM-3 — active tag filter (null = all). P4 MEM-4 — ⌘O quick switcher.
+  // P4 MEM-3 — active tag filter (null = all).
   const [activeTag, setActiveTag] = useState<string | null>(null);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  // #3 — graph tag-filter behaviour: prune (default) vs dim non-matching nodes.
+  const [tagGraphMode, setTagGraphMode] = useState<TagGraphMode>('prune');
 
   // RSP-1 — narrow viewports stack the list tab to a single (editor) column,
   // matching the prior 900px CSS collapse — now driven by the shared hook.
@@ -139,6 +141,12 @@ export function MemoryRoom() {
     () => (activeTag ? memories.filter((m) => m.tags.includes(activeTag)) : memories),
     [memories, activeTag],
   );
+  // MEM-8 — template notes (tagged `template`), passed to the editor's
+  // "Insert template" Popover. Filtered client-side from the in-memory list.
+  const templates = useMemo(
+    () => memories.filter((m) => m.tags.includes(TEMPLATE_TAG)),
+    [memories],
+  );
   const activeMemory = useMemo(
     () => memories.find((m) => m.name === activeName) ?? null,
     [memories, activeName],
@@ -162,14 +170,16 @@ export function MemoryRoom() {
   });
 
   // Merge the local note graph (kind:'note') with the Ruflo overlay for the
-  // canvas. When a tag filter is active, the local graph is narrowed to notes
-  // carrying that tag (Ruflo nodes are always kept — they aren't tag-scoped),
-  // and edges to dropped nodes are pruned, so a tag click filters the graph too.
+  // canvas. When a tag filter is active in PRUNE mode, the local graph is
+  // narrowed to notes carrying that tag (Ruflo nodes are always kept — they
+  // aren't tag-scoped) and edges to dropped nodes are pruned. In DIM mode the
+  // full graph is kept and `dimmedIds` (below) tells MemoryGraph which nodes to
+  // fade — so the structure stays visible while the tag set is highlighted.
   const mergedGraph = useMemo<MemoryGraph | null>(() => {
     if (!graph && rufloOverlay.nodes.length === 0) return null;
     let localNodes = (graph?.nodes ?? []).map((n) => ({ ...n, kind: n.kind ?? ('note' as const) }));
     let localEdges = (graph?.edges ?? []).map((e) => ({ ...e, kind: e.kind ?? ('wikilink' as const) }));
-    if (activeTag) {
+    if (activeTag && tagGraphMode === 'prune') {
       const tagged = new Set(memories.filter((m) => m.tags.includes(activeTag)).map((m) => m.id));
       localNodes = localNodes.filter((n) => tagged.has(n.id));
       localEdges = localEdges.filter((e) => tagged.has(e.from) && tagged.has(e.to));
@@ -178,7 +188,23 @@ export function MemoryRoom() {
       nodes: [...localNodes, ...rufloOverlay.nodes],
       edges: [...localEdges, ...rufloOverlay.edges],
     };
-  }, [graph, rufloOverlay.nodes, rufloOverlay.edges, memories, activeTag]);
+  }, [graph, rufloOverlay.nodes, rufloOverlay.edges, memories, activeTag, tagGraphMode]);
+
+  // #3 — in DIM mode, the ids of LOCAL note nodes that DON'T carry the active
+  // tag (Ruflo `ruflo:*` nodes are excluded — they're never tag-scoped, so they
+  // stay at full opacity). Undefined when no tag filter or in prune mode, so
+  // MemoryGraph dims nothing. A stable empty set isn't needed — undefined is the
+  // "dim nothing" signal.
+  const dimmedIds = useMemo<ReadonlySet<string> | undefined>(() => {
+    if (!activeTag || tagGraphMode !== 'dim') return undefined;
+    const tagged = new Set(memories.filter((m) => m.tags.includes(activeTag)).map((m) => m.id));
+    const out = new Set<string>();
+    for (const n of graph?.nodes ?? []) {
+      if ((n.kind ?? 'note') === 'ruflo') continue; // EXCLUDE ruflo:* nodes
+      if (!tagged.has(n.id)) out.add(n.id);
+    }
+    return out;
+  }, [activeTag, tagGraphMode, memories, graph]);
 
   // A read-only Memory-shaped projection of the opened Ruflo entry for the editor.
   const rufloViewMemory = useMemo<Memory | null>(() => {
@@ -215,6 +241,22 @@ export function MemoryRoom() {
     });
   }, [wsId]);
 
+  // global-⌘O — when the global Memory quick-switcher (in App.tsx) selected a
+  // Ruflo agent-memory entry from OUTSIDE this room, it stashed it on
+  // `state.pendingRufloView` + switched to the Memory room. Only THIS room can
+  // render a Ruflo read-only view, so consume it on mount: open the virtual
+  // note on the List tab, then clear the pending slot so a later remount doesn't
+  // re-open a stale entry.
+  const pendingRufloView = state.pendingRufloView;
+  useEffect(() => {
+    if (!pendingRufloView) return;
+    queueMicrotask(() => {
+      setRufloView(pendingRufloView);
+      setTab('list');
+      dispatch({ type: 'SET_PENDING_RUFLO_VIEW', entry: null });
+    });
+  }, [pendingRufloView, dispatch]);
+
   // Refresh graph whenever memories change AND the user is on the graph tab.
   useEffect(() => {
     if (!wsId || tab !== 'graph') return;
@@ -247,10 +289,12 @@ export function MemoryRoom() {
   );
 
   const onCreate = useCallback(
-    async (name: string) => {
+    async (name: string, body?: string) => {
       if (!wsId) return;
       try {
-        const created = await rpc.memory.create_memory({ workspaceId: wsId, name });
+        // MEM-8 — `body` (a chosen template's body) is passed through to the
+        // RPC which already accepts an optional body. Blank create omits it.
+        const created = await rpc.memory.create_memory({ workspaceId: wsId, name, body });
         dispatch({ type: 'UPSERT_MEMORY', workspaceId: wsId, memory: created });
         dispatch({ type: 'SET_ACTIVE_MEMORY', workspaceId: wsId, name: created.name });
       } catch (err) {
@@ -302,11 +346,10 @@ export function MemoryRoom() {
     [onGraphSelect, rufloOverlay.entriesById],
   );
 
-  // P4 MEM-4 — ⌘O opens the quick switcher (active while the Memory room is mounted).
-  useEffect(() => bindShortcut('mod+o', (e) => {
-    e.preventDefault();
-    setSwitcherOpen(true);
-  }), []);
+  // P4 MEM-4 — the ⌘O quick switcher is now GLOBAL (lifted to App.tsx so it
+  // fires from any room, not just while Memory is mounted). The room no longer
+  // binds the shortcut or renders the switcher; it consumes a Ruflo selection
+  // made from elsewhere via `state.pendingRufloView` (effect above).
 
   // P4 MEM-2 — open (or idempotently create) today's daily note.
   const onOpenDaily = useCallback(async () => {
@@ -324,21 +367,6 @@ export function MemoryRoom() {
     }
   }, [wsId, dispatch, onSelect]);
 
-  // Quick-switcher selection handlers.
-  const onSwitcherNote = useCallback(
-    (name: string) => {
-      onSelect(name);
-      setTab('list');
-      setSwitcherOpen(false);
-    },
-    [onSelect],
-  );
-  const onSwitcherRuflo = useCallback((entry: RufloEntry) => {
-    setRufloView(entry);
-    setTab('list');
-    setSwitcherOpen(false);
-  }, []);
-
   if (!ws || !wsId) {
     return (
       <EmptyState
@@ -354,12 +382,15 @@ export function MemoryRoom() {
   // editor preserves its `rufloView ? read-only : normal` branch verbatim.
   const leftRegion = (
     <div className="flex min-h-0 flex-col overflow-hidden h-full">
-      {/* P4 MEM-3 — tag facets above the note list; clicking filters both. */}
+      {/* P4 MEM-3 — tag facets above the note list; clicking filters both.
+          #3 — the dim/prune toggle controls how the graph reacts to the tag. */}
       <TagsPane
         workspaceId={wsId}
         activeTag={activeTag}
         onTagClick={setActiveTag}
         refreshKey={memVersion}
+        graphMode={tagGraphMode}
+        onGraphModeChange={setTagGraphMode}
       />
       <div className="min-h-0 flex-1">
         <MemoryList
@@ -393,6 +424,7 @@ export function MemoryRoom() {
         onNavigate={onSelect}
         onSaved={onSaved}
         onDeleted={onDeleted}
+        templates={templates}
       />
     );
 
@@ -402,6 +434,7 @@ export function MemoryRoom() {
         workspaceId={wsId}
         noteName={activeName}
         memoriesVersion={memVersion}
+        memories={memories}
         onSelect={onSelect}
       />
       {/* P4 MEM-6 — surface the shipped orphans + suggested-connections. */}
@@ -543,6 +576,7 @@ export function MemoryRoom() {
               graph={mergedGraph}
               onSelect={onGraphSelect}
               onSelectNode={onGraphSelectNode}
+              dimmedIds={dimmedIds}
             />
           ) : (
             <EmptyState
@@ -553,14 +587,6 @@ export function MemoryRoom() {
           )}
         </div>
       )}
-      {/* P4 MEM-4 — ⌘O quick switcher (searches ALL notes + agent memory). */}
-      <MemoryQuickSwitcher
-        open={switcherOpen}
-        onOpenChange={setSwitcherOpen}
-        memories={memories}
-        onSelectNote={onSwitcherNote}
-        onSelectRuflo={onSwitcherRuflo}
-      />
     </div>
   );
 }

@@ -64,4 +64,7 @@ export type RufloToolName =
   | 'agentdb_pattern-store'
   | 'autopilot_predict'
   // P4 MEM-1 — surface the AgentDB the Obsidian way.
-  | 'memory_search_unified';
+  | 'memory_search_unified'
+  // P4.2 — causal edges for the Memory graph (read API shape UNVERIFIED; the
+  // controller calls this defensively and degrades to similarity-only on error).
+  | 'agentdb_causal-edge';

@@ -19,6 +19,9 @@ interface TagCount {
   count: number;
 }
 
+/** #3 — how the memory graph reacts to the active tag filter. */
+export type TagGraphMode = 'prune' | 'dim';
+
 interface Props {
   workspaceId: string;
   /** Currently-selected tag, or null when unfiltered. Owned by the parent. */
@@ -27,9 +30,22 @@ interface Props {
   onTagClick: (tag: string | null) => void;
   /** Bump to force a refetch (e.g. after a note's tags change). */
   refreshKey?: number;
+  /** #3 — current graph filter behaviour. When provided, a dim/prune toggle
+   *  renders so the user can choose whether a tag click prunes the graph
+   *  (default) or just dims the non-matching nodes. */
+  graphMode?: TagGraphMode;
+  /** #3 — change handler for the dim/prune toggle. */
+  onGraphModeChange?: (mode: TagGraphMode) => void;
 }
 
-export function TagsPane({ workspaceId, activeTag, onTagClick, refreshKey }: Props) {
+export function TagsPane({
+  workspaceId,
+  activeTag,
+  onTagClick,
+  refreshKey,
+  graphMode,
+  onGraphModeChange,
+}: Props) {
   const [tags, setTags] = useState<TagCount[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -67,6 +83,44 @@ export function TagsPane({ workspaceId, activeTag, onTagClick, refreshKey }: Pro
       data-testid="tags-pane"
       className="flex h-full flex-col border-r border-border bg-card"
     >
+      {/* #3 — graph filter behaviour toggle (dim vs prune). Only rendered when
+          the parent wires it; a segmented control so the choice is explicit. */}
+      {graphMode && onGraphModeChange ? (
+        <div
+          data-testid="tags-graph-mode"
+          className="flex items-center gap-1 border-b border-border px-3 py-1.5 text-[10px] text-muted-foreground"
+          role="group"
+          aria-label="Graph tag filter mode"
+        >
+          <span>Graph:</span>
+          {(['prune', 'dim'] as const).map((mode) => {
+            const isActive = graphMode === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                data-testid={`tags-graph-mode-${mode}`}
+                aria-pressed={isActive}
+                onClick={() => onGraphModeChange(mode)}
+                title={
+                  mode === 'prune'
+                    ? 'Hide notes that don’t match the tag'
+                    : 'Keep all notes; fade non-matching ones'
+                }
+                className={cn(
+                  'rounded px-1.5 py-0.5 capitalize transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  isActive
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-accent/50',
+                )}
+              >
+                {mode}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
           <TagIcon className="h-3.5 w-3.5 text-muted-foreground" />

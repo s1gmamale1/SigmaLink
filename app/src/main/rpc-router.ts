@@ -70,6 +70,17 @@ import { pushSwarmMessageNotification } from './core/notifications/sources/swarm
 import { pushToolErrorNotification } from './core/notifications/sources/tool-error';
 import { runBootNotificationsGc } from './core/notifications/gc';
 import { OsNotifier } from './core/notifications/os-notify';
+// P4.2 — daily-note agent-activity digest + NTF-DIGEST once-daily summary.
+import { DigestCollector, parseMinSeverity } from './core/memory/agent-digest';
+import { DailyScheduler } from './core/notifications/daily-scheduler';
+import { buildDailySummary, type DigestRow } from './core/notifications/digest-builder';
+import {
+  KV_DAILY_SUMMARY_ENABLED,
+  KV_DAILY_SUMMARY_TIME,
+  KV_DAILY_NOTE_DIGEST_ENABLED,
+  KV_DAILY_NOTE_DIGEST_MIN_SEVERITY,
+  DEFAULT_DAILY_SUMMARY_TIME,
+} from '../shared/notification-prefs';
 import { and, eq } from 'drizzle-orm';
 import { agentSessions, jorvisPaneEvents, swarmAgents, workspaces } from './core/db/schema';
 import { getDb } from './core/db/client';
@@ -152,6 +163,15 @@ interface SharedDeps {
   mcpHostSigma?: McpHostSigma;
   /** R-1 — Jorvis Telegram remote supervisor. Stopped in the shutdown path. */
   telegramBridge?: TelegramBridge;
+  /** P4.2 — daily-note agent-activity digest collector. Final flush + cancel
+   *  run in the shutdown path. */
+  digestCollector?: DigestCollector;
+  /** P4.2 NTF-DIGEST — once-daily summary scheduler. Cancelled in shutdown. */
+  dailyScheduler?: DailyScheduler;
+  /** P4.2 NTF-DIGEST — re-arm the daily-summary scheduler from current KV.
+   *  Callable from a Settings-persistence side if it wants eager re-arm; the
+   *  scheduler also re-reads KV on every fire so this is optional. */
+  rearmDailySummary?: () => void;
 }
 
 let router: ReturnType<typeof buildRouter> | null = null;
@@ -382,6 +402,12 @@ function buildRouter() {
   // The OS-notify wrapper consumes new rows surfaced via the manager's delta
   // emit; the renderer subscribes to the same delta via `notifications:changed`.
   const osNotifier = new OsNotifier();
+  // P4.2 — forward ref so the manager's emit tap can feed delta.added into the
+  // daily-note digest. The collector is constructed after memoryManager exists
+  // (a few lines down); the closure captures this binding by reference, so it
+  // sees the live instance once assigned. Tap-before-construct is a no-op
+  // (`?.`), which is fine — no notifications fire during the construct gap.
+  let digestCollector: DigestCollector | null = null;
   const notificationsManager = new NotificationsManager({
     emit: (delta) => {
       // Fan out the delta to every renderer window.
@@ -396,6 +422,14 @@ function buildRouter() {
           osNotifier.notify(added);
         } catch {
           /* OS notifier is best-effort; never block the IPC fan-out */
+        }
+        // P4.2 daily-note digest — tap every newly-surfaced row. The collector
+        // itself gates on KV-enabled + severity + null-workspace; here we only
+        // forward. Failures must never break the IPC fan-out.
+        try {
+          digestCollector?.onNotification(added);
+        } catch {
+          /* digest journaling is best-effort */
         }
       }
     },
@@ -702,6 +736,67 @@ function buildRouter() {
     }
   });
 
+  // P4.2 — daily-note agent-activity digest + NTF-DIGEST once-daily summary.
+  // Both read their KV gates lazily (each event / each re-arm) so a Settings
+  // toggle takes effect without a restart. `readKv` is a tiny cached-free
+  // helper matching the existing `SELECT value FROM kv` pattern; the reads are
+  // cold-path (a digest event or a once-a-day fire), so no caching is needed.
+  const readKv = (key: string): string | null => {
+    try {
+      const row = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get(key) as { value?: string } | undefined;
+      return row?.value ?? null;
+    } catch {
+      return null;
+    }
+  };
+  digestCollector = new DigestCollector({
+    appendToMemory: (input) => memoryManager.appendToMemory(input),
+    isEnabled: () => readKv(KV_DAILY_NOTE_DIGEST_ENABLED) === '1',
+    getMinSeverity: () => parseMinSeverity(readKv(KV_DAILY_NOTE_DIGEST_MIN_SEVERITY)),
+  });
+  const digestCollectorRef = digestCollector;
+  // NTF-DIGEST — once-daily summary. The scheduler re-reads the enabled gate +
+  // fire-time KV on every (re-)arm, so toggling the time in Settings re-points
+  // the next fire. `armDailySummary` is the canonical (re-)arm entry: it is
+  // called once at boot, on each fire (inside onFire), and by the side that
+  // owns Settings persistence if it chooses to re-arm eagerly.
+  const dailyScheduler = new DailyScheduler({
+    onFire: () => {
+      // Re-read the enabled gate at fire time — the operator may have toggled
+      // it off after the timer was armed.
+      if (readKv(KV_DAILY_SUMMARY_ENABLED) !== '1') return;
+      try {
+        buildDailySummary(
+          {
+            notifications: notificationsManager,
+            queryDay: (since, until) =>
+              getRawDb()
+                .prepare(
+                  `SELECT kind, severity FROM notifications
+                   WHERE created_at >= ? AND created_at < ?
+                     AND kind != 'daily-summary'`,
+                )
+                .all(since, until) as DigestRow[],
+          },
+          new Date(),
+        );
+      } catch {
+        /* a failed summary build must not break the scheduler's re-arm */
+      }
+    },
+  });
+  const armDailySummary = (): void => {
+    if (readKv(KV_DAILY_SUMMARY_ENABLED) === '1') {
+      const time = readKv(KV_DAILY_SUMMARY_TIME) ?? DEFAULT_DAILY_SUMMARY_TIME;
+      dailyScheduler.schedule(time);
+    } else {
+      dailyScheduler.cancel();
+    }
+  };
+  armDailySummary();
+
   sharedDeps = {
     pty,
     worktreePool,
@@ -715,6 +810,9 @@ function buildRouter() {
     rufloSupervisor,
     rufloHttpDaemonSupervisor,
     mcpHostSigma,
+    digestCollector: digestCollectorRef,
+    dailyScheduler,
+    rearmDailySummary: armDailySummary,
   };
 
   const appCtl = defineController({
@@ -2218,6 +2316,25 @@ export async function shutdownRouter(): Promise<void> {
     // PERF-1 — flush any buffered pty:data + cancel the coalescer timer.
     ptyDataCoalescerRef?.dispose();
     ptyDataCoalescerRef = null;
+  } catch {
+    /* ignore */
+  }
+  try {
+    // P4.2 NTF-DIGEST — cancel the once-daily summary timer.
+    sharedDeps?.dailyScheduler?.cancel();
+  } catch {
+    /* ignore */
+  }
+  try {
+    // P4.2 — flush the last buffered digest bullets BEFORE the DB closes, then
+    // cancel the debounce timer. flushNow writes via memoryManager.appendToMemory
+    // (DB still open here); cancel() stops the pending setTimeout.
+    await sharedDeps?.digestCollector?.flushNow();
+  } catch {
+    /* ignore */
+  }
+  try {
+    sharedDeps?.digestCollector?.cancel();
   } catch {
     /* ignore */
   }

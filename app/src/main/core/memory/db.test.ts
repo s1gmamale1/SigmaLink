@@ -18,7 +18,15 @@ vi.mock('../db/client', () => ({
 }));
 
 import { getDb, getRawDb } from '../db/client';
-import { rowToMemory, upsertMemoryTx, findBacklinks } from './db';
+import {
+  rowToMemory,
+  upsertMemoryTx,
+  findBacklinks,
+  getMemoryRowByName,
+  extractAliases,
+  sanitizeFtsQuery,
+  searchMemoriesFts,
+} from './db';
 import { memories, memoryLinks, memoryTags } from '../db/schema';
 
 // ── Minimal in-memory fake ────────────────────────────────────────────────────
@@ -286,5 +294,145 @@ describe('findBacklinks case-insensitivity (BUG-12)', () => {
 
   it('does not match an unrelated name', () => {
     expect(findBacklinks('ws1', 'Bar')).toHaveLength(0);
+  });
+});
+
+// ── MEM-5 extractAliases (pure) ───────────────────────────────────────────────
+describe('extractAliases', () => {
+  it('returns [] for null frontmatter', () => {
+    expect(extractAliases(null)).toEqual([]);
+  });
+  it('extracts a string array, trimming + de-duping case-insensitively', () => {
+    expect(extractAliases({ aliases: [' Foo ', 'bar', 'FOO', 'baz'] })).toEqual(['Foo', 'bar', 'baz']);
+  });
+  it('wraps a single scalar alias into a one-element list', () => {
+    expect(extractAliases({ aliases: 'Solo' })).toEqual(['Solo']);
+  });
+  it('drops non-string entries (numbers/booleans/nested)', () => {
+    expect(extractAliases({ aliases: ['ok', 3, true, null, ['nested']] })).toEqual(['ok']);
+  });
+  it('returns [] when there is no aliases key', () => {
+    expect(extractAliases({ title: 'T' })).toEqual([]);
+  });
+});
+
+// ── MEM-5 alias storage round-trips through upsert → rowToMemory ──────────────
+describe('upsertMemoryTx alias population (MEM-5)', () => {
+  it('caches frontmatter aliases as JSON and surfaces them on Memory.aliases', () => {
+    const body = '---\ntitle: T\naliases: [Nick, AKA]\n---\nbody';
+    const { joined } = upsertMemoryTx({ workspaceId: 'ws1', name: 'Note', body, tags: [] });
+    expect(joined.row.aliasesJson).toBe('["Nick","AKA"]');
+    expect(rowToMemory(joined.row, joined.tags, joined.links).aliases).toEqual(['Nick', 'AKA']);
+  });
+
+  it('stores NULL aliases_json when there are no aliases', () => {
+    const { joined } = upsertMemoryTx({ workspaceId: 'ws1', name: 'Plain', body: '---\ntitle: T\n---\nb', tags: [] });
+    expect(joined.row.aliasesJson).toBeNull();
+    expect(rowToMemory(joined.row, joined.tags, joined.links).aliases).toEqual([]);
+  });
+
+  it('update that removes aliases clears the cache to NULL', () => {
+    upsertMemoryTx({ workspaceId: 'ws1', name: 'Note', body: '---\naliases: [X]\n---\nb', tags: [] });
+    const { joined } = upsertMemoryTx({ workspaceId: 'ws1', name: 'Note', body: 'now plain', tags: [] });
+    expect(joined.row.aliasesJson).toBeNull();
+  });
+});
+
+// ── MEM-5 getMemoryRowByName resolves through aliases ────────────────────────
+describe('getMemoryRowByName alias fallback (MEM-5)', () => {
+  beforeEach(() => {
+    // A note literally named "Canonical" with alias "Nick".
+    fake.memories.push({
+      id: 'm1',
+      workspaceId: 'ws1',
+      name: 'Canonical',
+      body: 'b',
+      frontmatterJson: '{"aliases":["Nick"]}',
+      aliasesJson: '["Nick"]',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+  });
+
+  it('resolves the exact name (case-insensitively)', () => {
+    expect(getMemoryRowByName('ws1', 'canonical')?.row.id).toBe('m1');
+  });
+
+  it('falls back to an alias when no note is literally named the query', () => {
+    expect(getMemoryRowByName('ws1', 'Nick')?.row.id).toBe('m1');
+    expect(getMemoryRowByName('ws1', 'nick')?.row.id).toBe('m1'); // case-insensitive alias
+  });
+
+  it('returns null for an unknown name with no alias match', () => {
+    expect(getMemoryRowByName('ws1', 'Unknown')).toBeNull();
+  });
+});
+
+// ── MEM-5 findBacklinks resolves `[[Alias]]` links to the aliased note ───────
+describe('findBacklinks alias resolution (MEM-5)', () => {
+  beforeEach(() => {
+    // Target note "Canonical" answers to alias "Nick".
+    fake.memories.push(
+      { id: 'tgt', workspaceId: 'ws1', name: 'Canonical', body: '', frontmatterJson: '{"aliases":["Nick"]}', aliasesJson: '["Nick"]', createdAt: 1, updatedAt: 1 },
+      { id: 'src', workspaceId: 'ws1', name: 'Source', body: '[[Nick]]', frontmatterJson: null, aliasesJson: null, createdAt: 1, updatedAt: 1 },
+    );
+    // Source links to the ALIAS, not the canonical name.
+    fake.memory_links.push({ id: 'l1', fromMemoryId: 'src', toMemoryName: 'Nick', createdAt: 1 });
+  });
+
+  it('counts an inbound `[[Alias]]` link as a backlink to the canonical note', () => {
+    const back = findBacklinks('ws1', 'Canonical');
+    expect(back.map((r) => r.row.id)).toEqual(['src']);
+  });
+});
+
+// ── PERF-14 sanitizeFtsQuery (pure) ──────────────────────────────────────────
+describe('sanitizeFtsQuery (PERF-14)', () => {
+  it('quotes each bare term', () => {
+    expect(sanitizeFtsQuery('hello world')).toBe('"hello" "world"');
+  });
+  it('strips FTS5 operators / metacharacters, keeping only word terms', () => {
+    expect(sanitizeFtsQuery('foo AND (bar OR baz*)')).toBe('"foo" "AND" "bar" "OR" "baz"');
+  });
+  it('neutralizes a malicious unbalanced-quote / column-filter payload', () => {
+    // None of ", :, -, ^ survive — only the word tokens, each re-quoted.
+    expect(sanitizeFtsQuery('name:"x" OR 1=1 -- "')).toBe('"name" "x" "OR" "1" "1"');
+  });
+  it('returns empty string for operator-only / empty input', () => {
+    expect(sanitizeFtsQuery('')).toBe('');
+    expect(sanitizeFtsQuery('  *:^()  ')).toBe('');
+  });
+});
+
+// ── PERF-14 searchMemoriesFts degrades to [] ─────────────────────────────────
+describe('searchMemoriesFts (PERF-14)', () => {
+  it('returns [] for an empty/operator-only query without touching the db', () => {
+    expect(searchMemoriesFts('ws1', '   ', 10)).toEqual([]);
+  });
+
+  it('returns [] (no throw) when the raw db prepare/all throws (FTS table missing)', () => {
+    vi.mocked(getRawDb).mockReturnValue({
+      prepare: () => ({ all: () => { throw new Error('no such table: memories_fts'); } }),
+    } as unknown as ReturnType<typeof getRawDb>);
+    expect(searchMemoriesFts('ws1', 'hello', 10)).toEqual([]);
+  });
+
+  it('maps bm25 rows into MemorySearchHit (positive descending score)', () => {
+    vi.mocked(getRawDb).mockReturnValue({
+      prepare: () => ({
+        all: (...bound: unknown[]) => {
+          const match = bound[0] as string;
+          expect(match).toBe('"hello"'); // sanitized + quoted
+          return [
+            { id: 'a', name: 'A', body: 'say hello there', updatedAt: 5, rank: -2.5 },
+            { id: 'b', name: 'B', body: 'hello again', updatedAt: 9, rank: -1.0 },
+          ];
+        },
+      }),
+    } as unknown as ReturnType<typeof getRawDb>);
+    const hits = searchMemoriesFts('ws1', 'hello', 10);
+    expect(hits.map((h) => h.id)).toEqual(['a', 'b']);
+    expect(hits[0].score).toBe(2.5); // -rank
+    expect(hits[0].snippet).toContain('hello');
   });
 });

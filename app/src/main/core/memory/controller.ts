@@ -104,15 +104,16 @@ export function buildMemoryController(deps: MemoryControllerDeps) {
         name: requireString(input?.name, 'find_backlinks.name'),
       });
     },
-    // P4.2 MEM-7 — foundation stub; the backend lane (M-A) implements
-    // m.findUnlinkedMentions and replaces this body.
+    // P4.2 MEM-7 — notes mentioning the active note's name/alias as plain text
+    // without an explicit `[[wikilink]]`. Promotable to a real link in the UI.
     find_unlinked_mentions: async (input: {
       workspaceId: string;
       name: string;
     }): Promise<MemoryUnlinkedMention[]> => {
-      void requireString(input?.workspaceId, 'find_unlinked_mentions.workspaceId');
-      void requireString(input?.name, 'find_unlinked_mentions.name');
-      return [];
+      return m.findUnlinkedMentions({
+        workspaceId: requireString(input?.workspaceId, 'find_unlinked_mentions.workspaceId'),
+        name: requireString(input?.name, 'find_unlinked_mentions.name'),
+      });
     },
     list_orphans: async (input: { workspaceId: string }): Promise<Memory[]> => {
       return m.listOrphans({

@@ -569,6 +569,8 @@ export function appStateReducer(state: AppState, action: Action): AppState {
           [action.workspaceId]: action.name,
         },
       };
+    case 'SET_PENDING_RUFLO_VIEW':
+      return { ...state, pendingRufloView: action.entry };
     case 'SET_REVIEW':
       return {
         ...state,

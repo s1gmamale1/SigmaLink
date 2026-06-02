@@ -73,7 +73,7 @@ export const COLUMN_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Ma
   // syncing 'sigma_pane_events' won't match a renamed peer syncing
   // 'jorvis_pane_events'. This is an intentional coordinated rename.
   ['jorvis_pane_events', new Set(['id', 'conversation_id', 'session_id', 'kind', 'body', 'ts'])],
-  ['memories', new Set(['id', 'workspace_id', 'name', 'body', 'frontmatter_json', 'created_at', 'updated_at'])],
+  ['memories', new Set(['id', 'workspace_id', 'name', 'body', 'frontmatter_json', 'aliases_json', 'created_at', 'updated_at'])],
   ['memory_links', new Set(['id', 'from_memory_id', 'to_memory_name', 'created_at'])],
   ['memory_tags', new Set(['memory_id', 'tag'])],
   ['tasks', new Set(['id', 'workspace_id', 'title', 'description', 'status', 'assigned_session_id', 'assigned_swarm_id', 'assigned_swarm_agent_id', 'labels_json', 'created_at', 'updated_at', 'archived_at'])],

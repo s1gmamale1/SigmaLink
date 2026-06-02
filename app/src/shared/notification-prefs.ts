@@ -28,6 +28,22 @@ export const KV_SOUND_VOLUME = 'sound.volume';
 /** Per-cue mute — JSON `SoundCue[]`. */
 export const KV_SOUND_MUTED = 'sound.mutedCues';
 
+// ── P4.2 digest / once-daily summary ──────────────────────────────────────────
+/** NTF-DIGEST master switch for the once-daily summary notification. `'1'` = on.
+ *  Default off (opt-in). */
+export const KV_DAILY_SUMMARY_ENABLED = 'notifications.dailySummaryEnabled';
+/** Local wall-clock "HH:MM" (24h) the daily summary fires at. Default '18:00'. */
+export const KV_DAILY_SUMMARY_TIME = 'notifications.dailySummaryTime';
+/** Default fire time for the daily summary when the KV is unset/malformed. */
+export const DEFAULT_DAILY_SUMMARY_TIME = '18:00';
+/** Daily-note agent-activity digest master switch — appends notable agent
+ *  events to today's daily note as a self-writing journal. `'1'` = on.
+ *  Default off (opt-in). */
+export const KV_DAILY_NOTE_DIGEST_ENABLED = 'digest.dailyNoteEnabled';
+/** Minimum severity that the daily-note digest records — JSON-free plain
+ *  string ('info'|'warn'|'error'|'critical'). Default 'warn'. */
+export const KV_DAILY_NOTE_DIGEST_MIN_SEVERITY = 'digest.minSeverity';
+
 /** Legacy v1.13 toggle for the Jorvis completion chime → cue `agent-done`. */
 export const KV_LEGACY_DING = 'notifications.ding';
 /** Legacy v1.13 toggle for the new-notification tone → notification cues. */
@@ -51,6 +67,10 @@ export function notificationSource(kind: string): NotificationSource {
   if (kind === 'pty-exit') return 'pty';
   if (kind.startsWith('swarm')) return 'swarm';
   if (kind.startsWith('tool')) return 'tool';
+  // NTF-DIGEST — the once-daily summary routes through the 'system' source so
+  // it inherits the existing DND / quiet-hours / system-mute gates without
+  // widening the source union or the mute matrix.
+  if (kind === 'daily-summary') return 'system';
   return 'system';
 }
 

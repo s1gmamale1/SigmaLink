@@ -39,6 +39,7 @@ import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from '../workspaces/mc
 import { getSharedDeps } from '../../rpc-router';
 import { allocateLowestFreeLivePaneIndex } from '../workspaces/pane-slots';
 import { isPtyCrash } from '../pty/crash';
+import { maybeAutoCheckpoint } from '../git/auto-checkpoint';
 
 /**
  * SF-15 — write the bundled `ruflo` MCP entry (+ claude trust) into a swarm
@@ -359,6 +360,13 @@ export async function spawnAgentSession(
   } catch {
     /* column may not exist yet — ignore */
   }
+
+  // FEAT-11 fast-follow — auto-checkpoint-on-dispatch (swarm path). The
+  // agent_sessions row now exists (FK target) and the worktree is resolved,
+  // but the initial prompt has NOT been delivered yet — so this captures the
+  // pre-dispatch state before the agent's first turn touches the tree. Gated
+  // (KV, default OFF), change-checked, min-interval throttled, fully fail-open.
+  await maybeAutoCheckpoint({ sessionId: rec.id, worktreePath });
 
   if (
     args.initialPrompt &&
