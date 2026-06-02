@@ -115,7 +115,7 @@ import { CredentialStore } from './core/credentials/storage';
 import { runVoiceDiagnostics } from './core/voice/diagnostics';
 import { fsReadDir, fsReadFile, fsWriteFile } from './core/fs/controller';
 import { assertAllowedPath, type AllowedRootsSource } from './core/security/path-guard';
-import { validateChannelInput } from './core/rpc/validate';
+import { validateChannelInput, validateChannelOutput } from './core/rpc/validate';
 import { getChannelSchema } from './core/rpc/schemas';
 // Phase 4 Track C — Ruflo MCP embed. Process-singleton supervisor + lazy
 // installer + JSON-RPC proxy fronting the renderer-facing controller.
@@ -2065,7 +2065,9 @@ function registerIpcHandler(
       // malformed payload, converted to the error envelope below).
       args[0] = validateChannelInput(channel, args[0]);
       const out = await fn(...args);
-      return { ok: true, data: out };
+      // ARCH-9 — fail-open output drift detection (logs once, returns the
+      // original). Never converts a working response into an error.
+      return { ok: true, data: validateChannelOutput(channel, out) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // Include stack in dev for easier debugging, omit in production to avoid

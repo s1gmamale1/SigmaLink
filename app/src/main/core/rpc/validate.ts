@@ -72,3 +72,30 @@ export function validateChannelInput(channel: string, input: unknown): unknown {
   }
   return result.data;
 }
+
+/** Channels whose output already drifted from its schema (warn once). */
+const warnedOutput = new Set<string>();
+
+/**
+ * ARCH-9 — validate a channel's OUTPUT (the controller's return value) against
+ * its declared `output` schema. ALWAYS fail-open, in BOTH modes: the main
+ * process is the trusted producer, so output validation is drift-DETECTION
+ * (catch a controller whose returned shape diverged from its declared type),
+ * never a reason to convert a working response into an error envelope. On a
+ * mismatch we log once per channel and return the ORIGINAL output untouched.
+ *
+ * Channels without an `output` schema, and the `z.any()` passthroughs, are
+ * no-ops here — only the concretely-typed outputs gain drift detection.
+ */
+export function validateChannelOutput(channel: string, output: unknown): unknown {
+  const schema = getChannelSchema(channel);
+  if (!schema || !schema.output) return output;
+  const result = schema.output.safeParse(output);
+  if (!result.success && !warnedOutput.has(channel)) {
+    warnedOutput.add(channel);
+    console.warn(
+      `[rpc-validate] '${channel}' output drifted from its declared schema (not rejected): ${result.error.message}`,
+    );
+  }
+  return output; // fail-open — always the original
+}
