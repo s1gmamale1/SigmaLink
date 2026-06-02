@@ -297,6 +297,11 @@ export const memories = sqliteTable(
     name: text('name').notNull(),
     body: text('body').notNull().default(''),
     frontmatterJson: text('frontmatter_json'),
+    // P4.2 MEM-5 — cached JSON array of alternate names this note resolves
+    // under (the frontmatter `aliases:` list, filtered to strings). NULL when
+    // the note has no aliases. Migration 0030 adds the column; resolution of
+    // wikilinks/backlinks/graph through aliases reads this cache.
+    aliasesJson: text('aliases_json'),
     createdAt: integer('created_at')
       .notNull()
       .default(sql`(unixepoch() * 1000)`),

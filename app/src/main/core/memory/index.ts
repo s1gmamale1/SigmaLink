@@ -78,6 +78,9 @@ interface Entry {
   name: string;
   bodyTokens: Map<string, number>;
   nameTokens: Set<string>;
+  /** MEM-5 — tokens drawn from the note's aliases. Matched at name-weight so a
+   *  query hitting an alias ranks alongside a title hit. */
+  aliasTokens: Set<string>;
   updatedAt: number;
   body: string; // raw, for snippet generation
 }
@@ -91,14 +94,35 @@ export class MemoryIndex {
   }
 
   upsert(memory: Memory): void {
+    const aliasTokens = new Set<string>();
+    for (const alias of memory.aliases ?? []) {
+      for (const tok of tokens(alias)) aliasTokens.add(tok);
+    }
     this.entries.set(memory.id, {
       id: memory.id,
       name: memory.name,
       bodyTokens: tokenCounts(memory.body),
       nameTokens: new Set(tokens(memory.name)),
+      aliasTokens,
       updatedAt: memory.updatedAt,
       body: memory.body,
     });
+  }
+
+  /** MEM-7 — internal accessor: the raw body of an entry (or null when absent).
+   *  Kept private-to-package so the manager can scan bodies for unlinked
+   *  mentions without exposing the `entries` map itself. */
+  bodyOf(id: string): string | null {
+    return this.entries.get(id)?.body ?? null;
+  }
+
+  /** MEM-7 — iterate the indexed entries as lightweight {id, name, body}
+   *  records. Used by the manager's unlinked-mention scan; does NOT leak the
+   *  internal Entry shape or the `entries` Map. */
+  scan(): Array<{ id: string; name: string; body: string }> {
+    const out: Array<{ id: string; name: string; body: string }> = [];
+    for (const e of this.entries.values()) out.push({ id: e.id, name: e.name, body: e.body });
+    return out;
   }
 
   remove(id: string): void {
@@ -120,6 +144,10 @@ export class MemoryIndex {
         const bodyHit = entry.bodyTokens.get(tok) ?? 0;
         if (bodyHit > 0) score += bodyHit;
         if (entry.nameTokens.has(tok)) score += 4;
+        // MEM-5 — alias hits rank at name-weight (4x). A token in BOTH the name
+        // and an alias only scores the name weight once (the alias adds nothing
+        // extra) to avoid double-counting synonymous title/alias terms.
+        else if (entry.aliasTokens.has(tok)) score += 4;
       }
       if (score === 0) continue;
       hits.push({
@@ -157,7 +185,10 @@ function tokenCounts(text: string): Map<string, number> {
   return map;
 }
 
-function snippet(body: string, qTokens: string[]): string {
+/** Build a short body excerpt centred on the first matched query token. Exported
+ *  (MEM-7 / PERF-14) so the manager + FTS path produce snippets identical to the
+ *  JS-index search path. `qTokens` should already be lowercase. */
+export function snippet(body: string, qTokens: string[]): string {
   if (!body) return '';
   const lower = body.toLowerCase();
   for (const tok of qTokens) {

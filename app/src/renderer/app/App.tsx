@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, type ReactElement } from 'react';
+import { Suspense, lazy, useEffect, useState, type ReactElement } from 'react';
 // UX-1 — themed toast surface. The wrapper reads SigmaLink's OWN `useTheme()`
 // and maps the active theme onto sonner's light/dark axis (and applies the
 // glass material on the Glass theme) instead of a hardcoded `theme="dark"`,
@@ -15,7 +15,10 @@ import { VoicePill } from '@/renderer/features/voice/VoicePill';
 // (rooms are only fetched when the user navigates to them).
 import { CommandRoom } from '@/renderer/features/command-room/CommandRoom';
 import { CommandPalette } from '@/renderer/features/command-palette/CommandPalette';
+import { MemoryQuickSwitcher } from '@/renderer/features/memory/MemoryQuickSwitcher';
 import { OnboardingModal } from '@/renderer/features/onboarding/OnboardingModal';
+import { bindShortcut } from '@/renderer/lib/shortcuts';
+import type { RufloEntry } from '@/shared/types';
 import { NativeRebuildModal } from '@/renderer/components/NativeRebuildModal';
 import { RightRail } from '@/renderer/features/right-rail/RightRail';
 import { RightRailProvider } from '@/renderer/features/right-rail/RightRailContext';
@@ -179,6 +182,64 @@ function MainBody() {
   return <RightRail>{body}</RightRail>;
 }
 
+/**
+ * global-⌘O — the Memory Quick Switcher, lifted out of MemoryRoom so ⌘O works
+ * from ANY room (like the CommandPalette's global mod+k). Reads the active
+ * workspace's notes from state; selecting a note jumps to the Memory room with
+ * that note active, and selecting a Ruflo agent-memory entry stages it on
+ * `state.pendingRufloView` (the Memory room consumes it on mount — it's the
+ * only surface that can render a read-only Ruflo view) and routes there.
+ *
+ * The note list comes from `state.memories[activeWs]`, kept live by the
+ * app-level `use-live-events` memory hydration (keyed on the active workspace),
+ * so there's no need for a dedicated fetch here. When no workspace is active
+ * the binding is inert (nothing to switch to).
+ */
+function GlobalMemorySwitcher() {
+  const { state, dispatch } = useAppState();
+  const [open, setOpen] = useState(false);
+  const wsId = state.activeWorkspaceId;
+  const memories = wsId ? state.memories[wsId] ?? [] : [];
+
+  useEffect(
+    () =>
+      bindShortcut('mod+o', (e) => {
+        if (!wsId) return; // no active workspace → nothing to switch to
+        e.preventDefault();
+        setOpen(true);
+      }),
+    [wsId],
+  );
+
+  const onSelectNote = (name: string) => {
+    if (!wsId) return;
+    dispatch({ type: 'SET_ACTIVE_MEMORY', workspaceId: wsId, name });
+    dispatch({ type: 'SET_ROOM', room: 'memory' });
+    setOpen(false);
+  };
+  const onSelectRuflo = (entry: RufloEntry) => {
+    dispatch({ type: 'SET_PENDING_RUFLO_VIEW', entry });
+    dispatch({ type: 'SET_ROOM', room: 'memory' });
+    setOpen(false);
+  };
+
+  // Mount the switcher (and run its Ruflo-health/entries effects) only while
+  // it's open — at rest it's a no-op, so cold App boot never fires the
+  // switcher's rpc probes. The ⌘O binding above always stays installed; the
+  // re-mount on open re-runs the cheap health probe.
+  if (!open) return null;
+
+  return (
+    <MemoryQuickSwitcher
+      open={open}
+      onOpenChange={setOpen}
+      memories={memories}
+      onSelectNote={onSelectNote}
+      onSelectRuflo={onSelectRuflo}
+    />
+  );
+}
+
 export default function App() {
   // FE-4 — prefetch every lazy room chunk during idle time after mount, so the
   // first navigation to a not-yet-visited room skips even the Suspense spinner.
@@ -232,6 +293,8 @@ export default function App() {
         </RootErrorBoundary>
         </TooltipProvider>
         <CommandPalette />
+        {/* global-⌘O — Memory Quick Switcher, global like the CommandPalette. */}
+        <GlobalMemorySwitcher />
         <OnboardingModal />
         <NativeRebuildModal />
         {/* UX-1 — themed toast surface (see import above). Stays OUTSIDE the

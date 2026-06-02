@@ -14,6 +14,7 @@ import type {
   MemoryGraph,
   MemoryHubStatus,
   MemorySearchHit,
+  MemoryUnlinkedMention,
 } from '../../../shared/types';
 import {
   deleteMemoryTx,
@@ -26,6 +27,7 @@ import {
   restoreDeletedMemory,
   rollbackMemoryUpsert,
   rowToMemory,
+  searchMemoriesFts,
   upsertMemoryTx,
 } from './db';
 import {
@@ -189,7 +191,15 @@ export class MemoryManager {
     limit?: number;
   }): Promise<MemorySearchHit[]> {
     await this.hydrate(input.workspaceId);
-    return this.indexFor(input.workspaceId).search(input.query, input.limit ?? 20);
+    const limit = input.limit ?? 20;
+    // PERF-14 — prefer the FTS5 index (bm25 ranking, sanitized MATCH). Fall back
+    // to the in-process JS inverted index when FTS returns nothing (empty result
+    // OR the index/table is unavailable — searchMemoriesFts swallows those into
+    // []), so search keeps working before migration 0031 applies or when the
+    // query has no FTS hits but the JS index (e.g. alias tier) would.
+    const fts = searchMemoriesFts(input.workspaceId, input.query, limit);
+    if (fts.length > 0) return fts;
+    return this.indexFor(input.workspaceId).search(input.query, limit);
   }
 
   async findBacklinks(input: { workspaceId: string; name: string }): Promise<Memory[]> {
@@ -197,6 +207,78 @@ export class MemoryManager {
     const safe = sanitizeName(input.name);
     const rows = findBacklinks(input.workspaceId, safe);
     return rows.map((r) => rowToMemory(r.row, r.tags, r.links));
+  }
+
+  /**
+   * MEM-7 — unlinked mentions: notes whose body mentions the active note's name
+   * (or any MEM-5 alias) as plain text, but which do NOT already carry an
+   * explicit `[[wikilink]]` to it. One-click promotable to a real link in the UI.
+   *
+   * Algorithm (O(notes × body) — guarded for vault size below):
+   *   1. Resolve the active note → canonical name + aliases + id.
+   *   2. Build the set of mention strings (name + aliases).
+   *   3. For every OTHER note: skip if it already links to the active note (its
+   *      outgoing links include the name or an alias, case-insensitively); else
+   *      scan its body for any mention string at a word boundary; if found,
+   *      emit a {sourceId, sourceName, excerpt}.
+   *
+   * Vault-size guard: this is linear in (notes × bodyLength). Fine for the ≤500
+   * notes the Memory hub targets; above that we cap the scan to keep the call
+   * snappy rather than block the main process.
+   */
+  async findUnlinkedMentions(input: {
+    workspaceId: string;
+    name: string;
+  }): Promise<MemoryUnlinkedMention[]> {
+    await this.hydrate(input.workspaceId);
+    const safe = sanitizeName(input.name);
+    const target = getMemoryRowByName(input.workspaceId, safe);
+    if (!target) return [];
+
+    // Mention strings: canonical name + aliases. Trimmed, de-duplicated, and
+    // sorted longest-first so a longer alias wins the first match.
+    const aliases = rowToMemory(target.row, target.tags, target.links).aliases ?? [];
+    const mentionSet = new Set<string>();
+    for (const s of [target.row.name, ...aliases]) {
+      const t = s.trim();
+      if (t) mentionSet.add(t);
+    }
+    const mentions = [...mentionSet]
+      .map((m) => ({ raw: m, lower: m.toLowerCase() }))
+      .sort((a, b) => b.lower.length - a.lower.length);
+    if (mentions.length === 0) return [];
+
+    // Names this note answers to (for the "already linked" exclusion).
+    const targetNames = new Set(mentions.map((m) => m.lower));
+
+    const VAULT_SCAN_CAP = 500;
+    const allRows = listMemoryRows(input.workspaceId);
+    const idx = this.indexFor(input.workspaceId);
+    const out: MemoryUnlinkedMention[] = [];
+
+    let scanned = 0;
+    for (const r of allRows) {
+      if (scanned >= VAULT_SCAN_CAP) break;
+      if (r.row.id === target.row.id) continue; // never self-mention
+      // Exclude notes already linking to the active note (or any of its aliases).
+      if (r.links.some((l) => targetNames.has(l.toLowerCase()))) continue;
+      scanned += 1;
+
+      // Prefer the index's cached body; fall back to the row body if the index
+      // is cold for this entry (shouldn't happen post-hydrate, but be safe).
+      const body = idx.bodyOf(r.row.id) ?? r.row.body;
+      if (!body) continue;
+
+      const hit = findMentionInBody(body, mentions);
+      if (hit) {
+        out.push({
+          sourceId: r.row.id,
+          sourceName: r.row.name,
+          excerpt: mentionExcerpt(body, hit.index, hit.length),
+        });
+      }
+    }
+    return out;
   }
 
   async listOrphans(input: { workspaceId: string }): Promise<Memory[]> {
@@ -381,4 +463,60 @@ export function memoryAbsolutePath(workspaceRoot: string, name: string): string 
 // Convenience link calculator for renderers needing fresh outgoing links.
 export function outgoingLinks(body: string): string[] {
   return uniqueLinkTargets(body);
+}
+
+// ── MEM-7 mention-scan helpers ────────────────────────────────────────────────
+
+/** True when `ch` is an alphanumeric or underscore "word" character. Used for
+ *  word-boundary checks so "Foo" does not match inside "Foobar". No RegExp. */
+function isWordChar(ch: string | undefined): boolean {
+  if (ch === undefined) return false;
+  return /[A-Za-z0-9_]/.test(ch); // static literal pattern, single char input
+}
+
+/**
+ * Find the first whole-word, case-insensitive occurrence of any mention string
+ * in `body`. Returns the match offset + matched length, or null. Mentions must
+ * already be sorted longest-first so the longest match wins at a given position.
+ * A match is "whole word" only when the chars immediately before/after the hit
+ * are non-word chars (or the string boundary) — this avoids false positives like
+ * matching "API" inside "RAPID". A mention that contains non-word chars (e.g.
+ * "Note v2") still matches by substring; the boundary test uses the body chars
+ * adjacent to the substring, which behaves sensibly for such names.
+ */
+function findMentionInBody(
+  body: string,
+  mentions: Array<{ raw: string; lower: string }>,
+): { index: number; length: number } | null {
+  const lowerBody = body.toLowerCase();
+  let best: { index: number; length: number } | null = null;
+  for (const mention of mentions) {
+    let from = 0;
+    for (;;) {
+      const idx = lowerBody.indexOf(mention.lower, from);
+      if (idx === -1) break;
+      const before = idx > 0 ? lowerBody[idx - 1] : undefined;
+      const after =
+        idx + mention.lower.length < lowerBody.length
+          ? lowerBody[idx + mention.lower.length]
+          : undefined;
+      if (!isWordChar(before) && !isWordChar(after)) {
+        if (best === null || idx < best.index) best = { index: idx, length: mention.lower.length };
+        break; // earliest hit for this mention found; move to next mention
+      }
+      from = idx + 1;
+    }
+  }
+  return best;
+}
+
+/** Short excerpt of `body` centred on a matched mention at [index, index+length).
+ *  Mirrors the index.ts snippet() window so unlinked-mention previews read the
+ *  same as search snippets. */
+function mentionExcerpt(body: string, index: number, length: number): string {
+  const start = Math.max(0, index - 40);
+  const end = Math.min(body.length, index + length + 80);
+  const prefix = start > 0 ? '… ' : '';
+  const suffix = end < body.length ? ' …' : '';
+  return prefix + body.slice(start, end).replace(/\s+/g, ' ').trim() + suffix;
 }

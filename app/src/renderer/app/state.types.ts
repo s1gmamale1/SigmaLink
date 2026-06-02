@@ -11,6 +11,7 @@ import type {
   MemoryGraph,
   Notification,
   ReviewState,
+  RufloEntry,
   Skill,
   SkillProviderState,
   Swarm,
@@ -86,6 +87,11 @@ export interface AppState {
   memories: Record<string, Memory[]>; // workspaceId -> list
   memoryGraph: Record<string, MemoryGraph>; // workspaceId -> graph cache
   activeMemoryName: Record<string, string | null>; // workspaceId -> selected note name
+  // MEM-9/global-⌘O — a Ruflo agent-memory entry chosen in the global Memory
+  // quick-switcher from OUTSIDE the Memory room. The room consumes + clears it
+  // on mount to open the read-only virtual note (the room is the only place
+  // that can render a Ruflo view). `null` when nothing is pending.
+  pendingRufloView: RufloEntry | null;
   // Review (Phase 6) — keyed by workspaceId
   review: Record<string, ReviewState>;
   activeReviewSessionId: string | null;
@@ -163,6 +169,9 @@ export type Action =
   | { type: 'REMOVE_MEMORY'; workspaceId: string; memoryId: string }
   | { type: 'SET_MEMORY_GRAPH'; workspaceId: string; graph: MemoryGraph }
   | { type: 'SET_ACTIVE_MEMORY'; workspaceId: string; name: string | null }
+  // global-⌘O — stage (or clear) a Ruflo agent-memory entry for the Memory
+  // room to open as a read-only virtual note. `entry: null` clears it.
+  | { type: 'SET_PENDING_RUFLO_VIEW'; entry: RufloEntry | null }
   | { type: 'SET_REVIEW'; state: ReviewState }
   | { type: 'SET_ACTIVE_REVIEW_SESSION'; id: string | null }
   | { type: 'SET_TASKS'; workspaceId: string; tasks: Task[] }
@@ -225,6 +234,7 @@ export const initialAppState: AppState = {
   memories: {},
   memoryGraph: {},
   activeMemoryName: {},
+  pendingRufloView: null,
   review: {},
   activeReviewSessionId: null,
   tasks: {},

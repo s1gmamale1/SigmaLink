@@ -33,6 +33,7 @@ import { writeRufloMcpIntoCwd } from './ruflo-worktree-mcp';
 import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from './mcp-autowrite';
 import { allocateLowestFreeLivePaneIndex } from './pane-slots';
 import { isPtyCrash } from '../pty/crash';
+import { maybeAutoCheckpoint } from '../git/auto-checkpoint';
 import { providerAcceptsModelFlag, listModelsFor } from '../providers/models';
 
 /**
@@ -542,6 +543,14 @@ export async function executeLaunchPlan(
         // have to special-case nulls.
         writeProviderEffective(finalSessionId, spawnResult.providerEffective);
       }
+
+      // FEAT-11 fast-follow — auto-checkpoint-on-dispatch. The session row now
+      // exists (FK target) and the worktree is resolved, but the initial prompt
+      // has NOT been typed yet — so this captures the pre-dispatch state before
+      // the agent's first turn touches the tree. Gated (KV, default OFF),
+      // change-checked, min-interval throttled, and fully fail-open — it can
+      // only ever skip, never block or break the launch.
+      await maybeAutoCheckpoint({ sessionId: finalSessionId, worktreePath });
 
       // If we wanted a non-oneshot prompt to be typed, push it after a tick.
       // The launcher is the single source-of-truth for typing the initial

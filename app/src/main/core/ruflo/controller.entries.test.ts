@@ -58,13 +58,16 @@ describe('ruflo.entries.list', () => {
 describe('ruflo.entries.neighbors', () => {
   it('builds similarity edges from embeddings_search, dropping self', async () => {
     const { controller } = build({
-      call: () => ({
-        results: [
-          { id: 'self', score: 1 },
-          { id: 'near', score: 0.8, text: 't' },
-          { id: 'far', score: 0.45, text: 't' },
-        ],
-      }),
+      call: (tool) =>
+        tool === 'embeddings_search'
+          ? {
+              results: [
+                { id: 'self', score: 1 },
+                { id: 'near', score: 0.8, text: 't' },
+                { id: 'far', score: 0.45, text: 't' },
+              ],
+            }
+          : {}, // causal call returns nothing → no causal edges
     });
     const res = (await controller['entries.neighbors']({ id: 'self', text: 'some text' })) as {
       ok: true;
@@ -83,5 +86,74 @@ describe('ruflo.entries.neighbors', () => {
     expect(res.ok).toBe(true);
     expect(res.edges).toEqual([]);
     expect(proxy.call).not.toHaveBeenCalled();
+  });
+
+  // P4.2 — causal edges merged alongside similarity edges.
+  it('merges causal edges from agentdb_causal-edge ({edges:[{to,weight}]} shape)', async () => {
+    const { controller, proxy } = build({
+      call: (tool) =>
+        tool === 'embeddings_search'
+          ? { results: [{ id: 'near', score: 0.7, text: 't' }] }
+          : { edges: [{ to: 'effect', weight: 0.9 }, { to: 'self' }] }, // self filtered out
+    });
+    const res = (await controller['entries.neighbors']({ id: 'self', text: 't' })) as {
+      ok: true;
+      edges: Array<{ fromId: string; toId: string; kind: string; weight: number }>;
+    };
+    expect(res.edges).toEqual([
+      { fromId: 'self', toId: 'near', kind: 'similarity', weight: 0.7 },
+      { fromId: 'self', toId: 'effect', kind: 'causal', weight: 0.9 },
+    ]);
+    // Both reads were issued (Promise.allSettled).
+    expect(proxy.call).toHaveBeenCalledWith('embeddings_search', expect.anything());
+    expect(proxy.call).toHaveBeenCalledWith('agentdb_causal-edge', { id: 'self', topK: 8 });
+  });
+
+  it('accepts a bare top-level array of causal edges + alternate target keys', async () => {
+    const { controller } = build({
+      call: (tool) =>
+        tool === 'embeddings_search'
+          ? { results: [] }
+          : [{ target: 'x', score: 0.5 }, { toId: 'y' }], // weight default 1 for y
+    });
+    const res = (await controller['entries.neighbors']({ id: 'src', text: 't' })) as {
+      ok: true;
+      edges: Array<{ toId: string; kind: string; weight: number }>;
+    };
+    expect(res.edges).toEqual([
+      { fromId: 'src', toId: 'x', kind: 'causal', weight: 0.5 },
+      { fromId: 'src', toId: 'y', kind: 'causal', weight: 1 },
+    ]);
+  });
+
+  it('degrades to similarity-only when the causal call REJECTS (never throws)', async () => {
+    const { controller } = build({
+      call: (tool) => {
+        if (tool === 'embeddings_search') return { results: [{ id: 'near', score: 0.8, text: 't' }] };
+        throw new Error('agentdb_causal-edge: unimplemented'); // causal blows up
+      },
+    });
+    const res = (await controller['entries.neighbors']({ id: 'self', text: 't' })) as {
+      ok: true;
+      edges: Array<{ kind: string }>;
+    };
+    expect(res.ok).toBe(true);
+    expect(res.edges).toEqual([
+      { fromId: 'self', toId: 'near', kind: 'similarity', weight: 0.8 },
+    ]);
+  });
+
+  it('degrades to similarity-only when the causal call returns an unexpected shape', async () => {
+    const { controller } = build({
+      call: (tool) =>
+        tool === 'embeddings_search'
+          ? { results: [{ id: 'near', score: 0.8, text: 't' }] }
+          : { unexpected: 'totally', not: ['an', 'edge', 'list'] },
+    });
+    const res = (await controller['entries.neighbors']({ id: 'self', text: 't' })) as {
+      ok: true;
+      edges: Array<{ kind: string }>;
+    };
+    expect(res.edges.map((e) => e.kind)).toEqual(['similarity']);
   });
 });

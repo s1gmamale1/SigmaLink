@@ -7,6 +7,16 @@ import type { Memory, MemoryGraph } from '../../../shared/types';
 
 export function buildGraph(memories: Memory[]): MemoryGraph {
   const byName = new Map<string, Memory>();
+  // Index every note by its canonical name AND each of its MEM-5 aliases so a
+  // `[[Alias]]` wikilink resolves to the aliased note. The canonical name is
+  // inserted LAST so a real note never loses out to another note's alias on a
+  // collision (canonical identity wins).
+  for (const m of memories) {
+    for (const alias of m.aliases ?? []) {
+      const key = alias.toLowerCase();
+      if (!byName.has(key)) byName.set(key, m);
+    }
+  }
   for (const m of memories) byName.set(m.name.toLowerCase(), m);
   const incoming = new Map<string, number>();
   const edges: MemoryGraph['edges'] = [];

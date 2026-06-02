@@ -28,7 +28,17 @@ interface Props {
   onSelect(name: string): void;
   /** P4 MEM-1 — preferred select callback; receives the full clicked node incl. its kind. */
   onSelectNode?: (node: MemoryGraphNodeSelection) => void;
+  /**
+   * #3 — node ids to render DIMMED (low globalAlpha) instead of pruning them.
+   * Used by the tag-filter "dim" mode so the graph structure stays visible
+   * while the tag's notes are highlighted. Undefined/empty = dim nothing. An
+   * edge is dimmed when EITHER endpoint is dimmed.
+   */
+  dimmedIds?: ReadonlySet<string>;
 }
+
+/** #3 — opacity applied to dimmed nodes/edges/labels in "dim" tag-filter mode. */
+const DIM_ALPHA = 0.2;
 
 interface Node {
   id: string;
@@ -137,10 +147,15 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-export function MemoryGraphView({ graph, onSelect, onSelectNode }: Props) {
+export function MemoryGraphView({ graph, onSelect, onSelectNode, dimmedIds }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const nodesRef = useRef<Node[]>([]);
+  // #3 — dimmed-id set mirrored into a ref so `draw()` reads it without being
+  // re-created on every tag change (which would tear down + restart the RAF
+  // loop). Updated in an effect that then `wakeRef.current()`s a repaint —
+  // mirroring the hover/theme ref pattern already used here.
+  const dimmedIdsRef = useRef<ReadonlySet<string> | undefined>(dimmedIds);
   const idIndex = useMemo(() => {
     const m = new Map<string, number>();
     return m;
@@ -163,6 +178,15 @@ export function MemoryGraphView({ graph, onSelect, onSelectNode }: Props) {
   // without depending on render order.
   const rafRef = useRef(0);
   const wakeRef = useRef<() => void>(() => undefined);
+
+  // #3 — keep the dimmed-id ref current + repaint when the tag dim set changes.
+  // wakeRef is filled by the animation effect; on first render it's a no-op,
+  // and the initial draw already uses the up-to-date ref, so a missed early
+  // wake is harmless. Declared AFTER wakeRef so it never reads it before init.
+  useEffect(() => {
+    dimmedIdsRef.current = dimmedIds;
+    wakeRef.current();
+  }, [dimmedIds]);
 
   // Initialize / reconcile nodes when graph identity changes.
   useEffect(() => {
@@ -381,10 +405,15 @@ export function MemoryGraphView({ graph, onSelect, onSelectNode }: Props) {
       ctx.clearRect(0, 0, w, h);
       const nodes = nodesRef.current;
       const colors = colorsRef.current;
+      // #3 — current dimmed-id set (tag "dim" mode). Read from the ref so this
+      // callback isn't re-created on every tag change.
+      const dimmed = dimmedIdsRef.current;
+      const isDimmed = (id: string): boolean => !!dimmed && dimmed.has(id);
       // Edges — P4 MEM-1: wikilinks (default) draw as the current solid line;
       // Ruflo similarity/causal edges draw lighter + dashed so the two relation
       // classes are separable without relying on color alone (a11y). Opacity is
-      // scaled by `weight` (0..1) for similarity edges when supplied.
+      // scaled by `weight` (0..1) for similarity edges when supplied. #3: an
+      // edge with a dimmed endpoint is multiplied by DIM_ALPHA.
       ctx.lineWidth = 1;
       for (const e of graph.edges) {
         const ai = idIndex.get(e.from);
@@ -393,19 +422,22 @@ export function MemoryGraphView({ graph, onSelect, onSelectNode }: Props) {
         const a = nodes[ai];
         const b = nodes[bi];
         const isRufloEdge = e.kind === 'similarity' || e.kind === 'causal';
+        let alpha: number;
         if (isRufloEdge) {
           ctx.setLineDash(e.kind === 'causal' ? [2, 3] : [5, 4]);
           ctx.strokeStyle = colors.edgeRuflo;
           // Fade by similarity weight (clamped 0.15..1) for a hierarchy of relatedness.
-          ctx.globalAlpha =
+          alpha =
             e.kind === 'similarity' && typeof e.weight === 'number'
               ? Math.min(1, Math.max(0.15, e.weight))
               : 1;
         } else {
           ctx.setLineDash([]);
           ctx.strokeStyle = colors.edge;
-          ctx.globalAlpha = 1;
+          alpha = 1;
         }
+        if (isDimmed(e.from) || isDimmed(e.to)) alpha *= DIM_ALPHA;
+        ctx.globalAlpha = alpha;
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
@@ -420,6 +452,9 @@ export function MemoryGraphView({ graph, onSelect, onSelectNode }: Props) {
         const r = nodeRadius(n);
         const isHover = activeHover === n.id;
         const isRuflo = n.kind === 'ruflo';
+        // #3 — dim non-matching nodes (hover always wins, so an explicitly
+        // hovered dimmed node still reads at full strength).
+        ctx.globalAlpha = !isHover && isDimmed(n.id) ? DIM_ALPHA : 1;
         // P4 MEM-1: fill is theme-driven per class. Hover always uses the shared
         // hover accent so the highlight reads the same for both classes.
         const fill = isHover ? colors.nodeHover : isRuflo ? colors.ruflo : colors.note;
@@ -448,6 +483,8 @@ export function MemoryGraphView({ graph, onSelect, onSelectNode }: Props) {
           ctx.fillText(n.label.length > 24 ? n.label.slice(0, 22) + '…' : n.label, n.x, n.y + r + 2);
         }
       }
+      // Reset alpha so subsequent draws (next frame) aren't affected.
+      ctx.globalAlpha = 1;
     },
     [graph, idIndex],
   );

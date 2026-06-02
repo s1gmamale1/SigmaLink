@@ -13,9 +13,10 @@
 //   - Errors are surfaced via toast; partial failures are shown inline.
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Loader2, Trash2, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Loader2, Trash2, RefreshCw, X, History } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,6 +29,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
+
+// FEAT-11 fast-follow — auto-checkpoint-on-dispatch flag. DEFAULT OFF; '1' = on.
+// Literal string (the main-process const lives in core/git/auto-checkpoint.ts and
+// must not be imported into the renderer bundle).
+const KV_AUTO_CHECKPOINT = 'git.autoCheckpointOnDispatch';
 
 /**
  * SF-13 — side-band invoker for the `cleanup.<method>` channels. The typed `rpc`
@@ -113,6 +119,8 @@ export function MaintenanceTab() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
+  // FEAT-11 fast-follow — auto-checkpoint-on-dispatch toggle (default OFF).
+  const [autoCheckpoint, setAutoCheckpoint] = useState<boolean>(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -137,9 +145,23 @@ export function MaintenanceTab() {
       } finally {
         if (alive) setLoading(false);
       }
+      // Hydrate the auto-checkpoint flag (default OFF — only explicit '1' enables).
+      try {
+        const v = await rpc.kv.get(KV_AUTO_CHECKPOINT);
+        if (alive) setAutoCheckpoint(v === '1');
+      } catch {
+        /* default OFF */
+      }
     }
     void load();
     return () => { alive = false; };
+  }, []);
+
+  // FEAT-11 — persist the auto-checkpoint preference. Read at spawn time by both
+  // spawn paths (launcher + swarm); takes effect on the next dispatch.
+  const onToggleAutoCheckpoint = useCallback((next: boolean) => {
+    setAutoCheckpoint(next);
+    void rpc.kv.set(KV_AUTO_CHECKPOINT, next ? '1' : '0').catch(() => undefined);
   }, []);
 
   // -------------------------------------------------------------------------
@@ -335,6 +357,29 @@ export function MaintenanceTab() {
               dialog before proceeding. Live (starting/running) pane worktrees are never deleted.
             </span>
           </div>
+        </div>
+      </section>
+
+      {/* FEAT-11 fast-follow — auto-checkpoint-on-dispatch toggle (default OFF). */}
+      <section>
+        <div className={sectionLabel}>Checkpoints</div>
+        <div className="flex items-center justify-between rounded-md border border-border bg-card/40 p-3">
+          <div className="min-w-0 pr-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <History className="h-3.5 w-3.5 text-primary" aria-hidden />
+              Auto-checkpoint before each dispatch
+            </div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              Commits a savepoint of a pane&apos;s worktree before a dispatched agent
+              starts, so its first changes are always reversible from Rewind. Off by
+              default; skips clean trees and rapid re-dispatches.
+            </div>
+          </div>
+          <Switch
+            checked={autoCheckpoint}
+            onCheckedChange={onToggleAutoCheckpoint}
+            data-testid="auto-checkpoint-toggle"
+          />
         </div>
       </section>
 

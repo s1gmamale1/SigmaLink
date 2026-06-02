@@ -243,9 +243,20 @@ export function buildRufloController(deps: RufloControllerDeps) {
       }
     },
 
-    // P4 MEM-1 — semantic neighbors of one entry → similarity edges (from the
-    // given id to each related entry). Causal edges are a P4.2 follow-up (the
-    // daemon's agentdb_causal-edge read API is unverified).
+    // P4 MEM-1 / P4.2 — neighbors of one entry → similarity edges (semantic) +
+    // causal edges. Both reads run side-by-side via Promise.allSettled so a
+    // failure (or unexpected shape) in the causal call degrades GRACEFULLY to
+    // similarity-only — the canvas already renders kind:'causal' edges (dashed).
+    //
+    // ASSUMED agentdb_causal-edge READ-API SHAPE (UNVERIFIED — implemented
+    // defensively): we call with { id, topK } and accept either
+    //   { edges: [{ from|fromId|source, to|toId|target, weight? }, ...] }
+    // or a bare top-level array of the same edge objects, or
+    //   { results: [...] } / { causal: [...] }.
+    // Each edge must yield a target id distinct from the source; `from` is
+    // ignored (we always anchor the edge at input.id) and weight defaults to 1.
+    // Anything we cannot parse is dropped; a reject/throw drops ALL causal edges
+    // and we still return the similarity edges. NEVER throws on causal failure.
     'entries.neighbors': async (input: {
       id: string;
       text: string;
@@ -255,19 +266,42 @@ export function buildRufloController(deps: RufloControllerDeps) {
       if (typeof input.id !== 'string' || !input.id || typeof input.text !== 'string' || !input.text) {
         return { ok: true, edges: [] };
       }
+      const topK = typeof input.topK === 'number' ? input.topK : 8;
       try {
-        const raw = (await proxy.call('embeddings_search', {
-          query: input.text,
-          topK: typeof input.topK === 'number' ? input.topK : 8,
-          threshold: 0.4,
-        })) as { results?: unknown };
-        const results = Array.isArray(raw?.results) ? raw.results : [];
+        const [simSettled, causalSettled] = await Promise.allSettled([
+          proxy.call('embeddings_search', { query: input.text, topK, threshold: 0.4 }),
+          proxy.call('agentdb_causal-edge', { id: input.id, topK }),
+        ]);
+
+        // Similarity is the primary signal — if it failed because the supervisor
+        // is unavailable, surface that; if it failed for another reason, rethrow.
+        if (simSettled.status === 'rejected') {
+          const err = simSettled.reason;
+          if (isUnavailableError(err)) return unavailable((err as Error).message);
+          throw err instanceof Error ? err : new Error(String(err));
+        }
+
         const edges: RufloEntryEdge[] = [];
-        for (const r of results) {
+        const seen = new Set<string>();
+
+        const simRaw = simSettled.value as { results?: unknown };
+        const simResults = Array.isArray(simRaw?.results) ? simRaw.results : [];
+        for (const r of simResults) {
           const hit = normalizeEmbeddingHit(r);
-          if (!hit || hit.id === input.id) continue;
+          if (!hit || hit.id === input.id || seen.has(hit.id)) continue;
+          seen.add(hit.id);
           edges.push({ fromId: input.id, toId: hit.id, kind: 'similarity', weight: hit.score });
         }
+
+        // Causal edges — best-effort. Any failure / odd shape → just skip them.
+        if (causalSettled.status === 'fulfilled') {
+          for (const e of extractCausalEdges(causalSettled.value)) {
+            if (e.toId === input.id || seen.has(e.toId)) continue;
+            seen.add(e.toId);
+            edges.push({ fromId: input.id, toId: e.toId, kind: 'causal', weight: e.weight });
+          }
+        }
+
         return { ok: true, edges };
       } catch (err) {
         if (isUnavailableError(err)) return unavailable((err as Error).message);
@@ -417,6 +451,52 @@ function normalizeEntry(raw: unknown): RufloEntry | null {
           ? r.storedAt
           : undefined,
   };
+}
+
+// P4.2 — defensively extract causal edges from the UNVERIFIED agentdb_causal-edge
+// response. Accepts a bare array, or an object carrying the edge list under
+// `edges` / `results` / `causal`. Each edge's target id is read from the first
+// present of `toId` / `to` / `target` / `id`; weight from `weight` / `score`
+// (default 1, clamped to a finite number). Unparseable entries are dropped.
+function extractCausalEdges(raw: unknown): Array<{ toId: string; weight: number }> {
+  const list = pickEdgeArray(raw);
+  const out: Array<{ toId: string; weight: number }> = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const e = item as {
+      toId?: unknown;
+      to?: unknown;
+      target?: unknown;
+      id?: unknown;
+      weight?: unknown;
+      score?: unknown;
+    };
+    const toId =
+      typeof e.toId === 'string'
+        ? e.toId
+        : typeof e.to === 'string'
+          ? e.to
+          : typeof e.target === 'string'
+            ? e.target
+            : typeof e.id === 'string'
+              ? e.id
+              : null;
+    if (!toId) continue;
+    const rawWeight = typeof e.weight === 'number' ? e.weight : typeof e.score === 'number' ? e.score : 1;
+    out.push({ toId, weight: Number.isFinite(rawWeight) ? rawWeight : 1 });
+  }
+  return out;
+}
+
+/** Find the array of edge objects inside an unverified causal-edge response. */
+function pickEdgeArray(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  if (!raw || typeof raw !== 'object') return [];
+  const r = raw as { edges?: unknown; results?: unknown; causal?: unknown };
+  if (Array.isArray(r.edges)) return r.edges;
+  if (Array.isArray(r.results)) return r.results;
+  if (Array.isArray(r.causal)) return r.causal;
+  return [];
 }
 
 function normalizePatternHit(
