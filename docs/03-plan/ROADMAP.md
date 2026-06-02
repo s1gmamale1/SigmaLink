@@ -7,8 +7,8 @@
 > **Shipped baseline:** SigmaLink v1.36.0 (+ on-main-untagged video+perf harness & FE-4 a11y `dbce7e6`);
 > SigmaVoice standalone v0.3.2 (own repo, macOS arm64 DMG).
 >
-> **✅ P1 (PR #70) · ✅ P2 (PR #72) · ✅ P3 (PR #73) · ✅ P4 (PRs #75+#76) SHIPPED — all untagged → ride the next release.**
-> **ACTIVE PHASE → P5 (Responsiveness & performance; `RSP-1` + the hot IPC/re-render paths).** ARCH-1 (main-process tsconfig) still owed. P4.2 follow-ups (causal edges, global ⌘O, MEM-5/7/8/9, PERF-14) parked in WISHLIST.
+> **✅ P1 (#70) · ✅ P2 (#72) · ✅ P3 (#73) · ✅ P4 (#75+#76) · ✅ P5 (#78+#79) SHIPPED — all untagged → ride the next release.**
+> **ACTIVE PHASE → P6 (Competitive features & leapfrogs; `FEAT-*` + worktree leapfrogs).** ARCH-1 (main-process tsconfig) still owed. Deferred follow-ups (P4.2 memory items, PERF-7/8/9/12, density scale) parked in WISHLIST. Owed pre-tag: the P5 perf-harness + resize live smokes.
 >
 > **Phase goal (operator's 6-pillar vision):** **(a)** Apple-grade visuals · **(b)** responsive layouts ·
 > **(c)** smooth animations/popups · **(d)** polished notifications · **(e)** tasteful sound ·
@@ -30,8 +30,8 @@
 | ✅ **P2** | Apple-grade motion & overlays (a/c) | ✅ **merged PR #72** | **DONE** — MOT-1, UX-1/2/3/4/5/6/7/8/9/10, ANIM-2, PERF-13/MEM-10 | Shipped. One motion language; native modals + dark-pinned toaster gone. |
 | ✅ **P3** | Notifications + sound (d/e) | ✅ **merged PR #73** | **DONE** — NTF-1, NTF-2, NTF-3(=UX-9), SND-1, ANIM-3 | Shipped. DND/quiet-hours/per-source + restrained soundscape + toast↔bell handoff + pane aliveness. |
 | ✅ **P4** | Obsidian memory + agent-memory unification (f) — **HEADLINE** | ✅ **merged PRs #75+#76** | **DONE** — MEM-1, MEM-4, MEM-2, MEM-3, MEM-6, DB-2, BUG-10/11/12. *(MEM-5/7/8/9, PERF-14, causal edges, global ⌘O → P4.2/WISHLIST.)* | Shipped. Ruflo-as-graph + ⌘O + daily notes + tags + orphans + DB backup. |
-| ◀ **P5** | Responsiveness & performance (b) — **ACTIVE** | `v1.41.0` | RSP-1, PERF-1, PERF-3, PERF-2/4/5/6/8, PERF-7/9/10/11/12 | Adopt the dead Resizable primitive; tame the hottest IPC + re-render paths under live load. |
-| **P6** | Competitive features & leapfrogs | `v1.42.0`+ | FEAT-1, FEAT-3, FEAT-7, FEAT-11, FEAT-13, FEAT-2/5/6/8/9/4/10/12/14, ONB-1 | Parity surfaces + worktree leapfrogs (agent rewind, merge-orchestration, git heatmap). |
+| ✅ **P5** | Responsiveness & performance (b) | ✅ **merged #78+#79** | **DONE** — PERF-1/11 (pty:data+broadcast), PERF-3 (selectors), PERF-5/6 (dedup polling), PERF-2/4/10, RSP-1 (resizable + per-ws sizes). *(PERF-7/8/9/12 + density → WISHLIST.)* | Shipped. Hottest IPC + re-render paths tamed; resizable layout-remembering surfaces. |
+| ◀ **P6** | Competitive features & leapfrogs — **ACTIVE** | `v1.42.0`+ | FEAT-1, FEAT-3, FEAT-7, FEAT-11, FEAT-13, FEAT-2/5/6/8/9/4/10/12/14, ONB-1 | Parity surfaces + worktree leapfrogs (agent rewind, merge-orchestration, git heatmap). |
 | **×** | Cross-cutting (every phase) | within each release | SEC-1, ARCH-2/3/4/5/6/7/8/9, RES-1 | Security re-gate + opportunistic decompositions when touching those files. |
 | **B** | Blocked / operator-owned (parked) | when unblocked | SV1, SV2, B1, B2, op-0026, op-smokes | Not actionable unblocked — see tail. |
 
@@ -73,7 +73,8 @@
 - **MEM-4** global Quick Switcher (⌘O) unified memory+pattern search in the command palette. **MEM-2** Daily Notes (+ self-populating agent-activity digest). **MEM-3** Tags pane + tag filters. **MEM-6** orphans + suggested-connections UI (shipped-but-hidden quick win). **MEM-5** aliases → **MEM-7** unlinked mentions. **DB-2** DB backup/export-import. **BUG-10** populate `frontmatter_json` → **MEM-9** properties/outline editor; **MEM-8** templates. **BUG-11/12** editor staleness + case-uniqueness. **PERF-14** FTS5 search (when vaults grow).
 **Exit criteria:** Ruflo patterns appear as a distinct node class with similarity/causal edges + backlinks; ⌘O jumps to any note from anywhere; a "Today" note auto-creates; tag-click filters the list + graph; DB backup round-trips (backup → restore → identical state).
 
-### ▶ P5 — Responsiveness & performance (pillar b) · ships as `v1.41.0`
+### ▶ P5 — Responsiveness & performance (pillar b) · ✅ SHIPPED (PRs #78 + #79, untagged)
+**Delivered:** PERF-1 (`pty:data` coalescer) · PERF-11 (single-window broadcast) · PERF-3 (granular selectors for the 5 hottest consumers) · PERF-5/6 (refcounted Ruflo-health + shared per-repo git-status pollers, pause-when-hidden) · PERF-4 (incremental sessionsByWorkspace) · PERF-10 (binary-insert deltas) · PERF-2 (main-side link-detect gate) · RSP-1 (`useBreakpoint` + per-workspace UI kv; resizable Memory tri-column; per-workspace rail widths + narrow auto-collapse). **Owed pre-tag:** `npm run test:perf` jank-delta + `pty:data` IPC-rate live measurement; resize/collapse live smoke. **→ WISHLIST:** PERF-7/8/9/12, density scale. Detail → `CHANGELOG.md`.
 **Goal:** resizable, layout-remembering surfaces that stay smooth under live multi-agent load.
 **Deliverables:** the Resizable primitive adopted for rail/main/right-rail + Memory (sizes persisted per workspace), `pty:data` coalescing, granular state selectors, per-pane polling dedup — with before/after perf-harness deltas recorded.
 **Work (priority order):**
