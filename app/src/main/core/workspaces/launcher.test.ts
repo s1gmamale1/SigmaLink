@@ -242,6 +242,13 @@ describe('buildExtraArgs — FEAT-14 per-pane model flag', () => {
     expect(buildExtraArgs('claude', undefined, undefined)).toEqual([]);
   });
 
+  it('M1 — model NOT in the catalog allowlist → dropped (no --model)', () => {
+    // A renderer-supplied modelId that isn't a known catalog model for the
+    // provider must not flow through as a CLI arg.
+    expect(buildExtraArgs('claude', undefined, '--dangerously-skip-permissions')).toEqual([]);
+    expect(buildExtraArgs('claude', undefined, 'gemini-2.5-pro')).toEqual([]); // wrong provider's model
+  });
+
   it('unknown provider → empty array (never throws)', () => {
     expect(buildExtraArgs('does-not-exist', undefined, 'm')).toEqual([]);
   });

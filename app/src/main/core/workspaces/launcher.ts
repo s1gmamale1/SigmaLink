@@ -33,7 +33,7 @@ import { writeRufloMcpIntoCwd } from './ruflo-worktree-mcp';
 import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from './mcp-autowrite';
 import { allocateLowestFreeLivePaneIndex } from './pane-slots';
 import { isPtyCrash } from '../pty/crash';
-import { providerAcceptsModelFlag } from '../providers/models';
+import { providerAcceptsModelFlag, listModelsFor } from '../providers/models';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -136,8 +136,16 @@ export function buildExtraArgs(
 ): string[] {
   const p = findProvider(providerId);
   if (!p) return [];
+  // M1 (review) — `modelId` rides the renderer's LaunchPlan; allowlist it against
+  // the shared catalog before it becomes a `--model <id>` CLI arg. Unknown models
+  // are dropped silently (the CLI default applies). Spawn is shell:false argv, but
+  // this is defense-in-depth at the renderer→spawn boundary.
   const modelArgs: string[] =
-    modelId && providerAcceptsModelFlag(p.id) ? ['--model', modelId] : [];
+    modelId &&
+    providerAcceptsModelFlag(p.id) &&
+    listModelsFor(p.id).some((m) => m.modelId === modelId)
+      ? ['--model', modelId]
+      : [];
   if (!oneshotPrompt) return modelArgs;
   if (p.oneshotArgs && p.oneshotArgs.length) {
     return [...modelArgs, ...p.oneshotArgs.map((tok) => tok.replace('{prompt}', oneshotPrompt))];

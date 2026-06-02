@@ -86,9 +86,18 @@ export function usePromptCard(sessionId: string, enabled: boolean): UsePromptCar
   }, [sessionId, enabled]);
 
   const answer = useCallback((choices: string[]) => {
-    const text = choices.join(', ');
+    // C1 (review) — `choices` are AGENT-controlled (decoded from the SIGMA::PROMPT
+    // JSON, so an escaped "\n" becomes a real newline). Strip control chars and
+    // collapse newlines from each choice so a hostile choice like "yes\nrm -rf ~"
+    // cannot inject a SECOND command line into the pane's stdin. The single
+    // trailing '\n' we append below is the ONLY newline that reaches the CLI.
+    const text = choices
+      // eslint-disable-next-line no-control-regex -- stripping control chars IS the point (C1).
+      .map((c) => c.replace(/[\r\n\x00-\x1f\x7f]+/g, ' ').trim())
+      .filter((c) => c.length > 0)
+      .join(', ');
     // Raw write — pty.write does not append a newline (see insertMention.ts /
-    // insertSkillCommand.ts). The '\n' submits the answer to the CLI.
+    // insertSkillCommand.ts). The '\n' submits the (sanitized) answer to the CLI.
     void rpc.pty.write(sessionRef.current, `${text}\n`).catch(() => {
       /* registry swallows unknown-session writes; nothing to surface here */
     });

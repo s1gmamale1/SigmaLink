@@ -395,7 +395,8 @@ describe('PaneHeader', () => {
   it('renders inline branch + model + uncommitted badge', () => {
     render(<PaneHeader {...base} session={{ ...base.session, branch: 'feat/auth', providerId: 'claude' }} uncommitted={3} />);
     expect(screen.getByText('feat/auth')).toBeTruthy();
-    expect(screen.getByText(/opus/)).toBeTruthy();
+    // N1 — label now comes from the shared catalog ("Opus 4.7 (1M)"); match case-insensitively.
+    expect(screen.getByText(/opus/i)).toBeTruthy();
     expect(screen.getByText('±3')).toBeTruthy();
   });
 
