@@ -8,7 +8,7 @@
 //   • settle               — the RAF loop sleeps once the layout goes quiet
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import { MemoryGraphView, kineticEnergy, resolveThemeColors } from './MemoryGraph';
 import type { MemoryGraph } from '@/shared/types';
 
@@ -23,6 +23,33 @@ const GRAPH: MemoryGraph = {
     { from: 'b' as never, to: 'c' as never },
   ],
 };
+
+// P4 MEM-1 — a mixed graph: a local note + a Ruflo agent-memory node joined by a
+// `similarity` edge (the new node/edge classes). Used to exercise the draw path.
+const RUFLO_GRAPH: MemoryGraph = {
+  nodes: [
+    { id: 'n1' as never, label: 'Local note', tagCount: 1, refCount: 1, kind: 'note' },
+    {
+      id: 'r1' as never,
+      label: 'Agent memory',
+      tagCount: 0,
+      refCount: 0,
+      kind: 'ruflo',
+      group: 'patterns',
+    },
+  ],
+  edges: [{ from: 'n1' as never, to: 'r1' as never, kind: 'similarity', weight: 0.7 }],
+};
+
+// A single Ruflo node placed deterministically near a known canvas coordinate so
+// a pointerup can hit it. With Math.random stubbed to 0.5 (jitter→0) the node-build
+// for index 0 lands at (w/2 + cos(0)*80, h/2 + sin(0)*80) = (380, 200) for a 600×400 box.
+const SINGLE_NODE: MemoryGraph = {
+  nodes: [{ id: 'solo' as never, label: 'Solo', tagCount: 0, refCount: 0, kind: 'ruflo', group: 'verdict' }],
+  edges: [],
+};
+const SOLO_X = 380;
+const SOLO_Y = 200;
 
 // jsdom lacks ResizeObserver + a real canvas 2D context. Provide minimal fakes
 // so the component's effects run (the loop only needs a non-null context).
@@ -158,5 +185,74 @@ describe('MemoryGraphView animation lifecycle', () => {
     const { container } = render(<MemoryGraphView graph={GRAPH} onSelect={() => undefined} />);
     expect(container.textContent).toContain('3 notes');
     expect(container.textContent).toContain('2 links');
+  });
+
+  it('renders the node-class legend', () => {
+    setReducedMotion(false);
+    const { container } = render(<MemoryGraphView graph={GRAPH} onSelect={() => undefined} />);
+    expect(container.textContent).toContain('Notes');
+    expect(container.textContent).toContain('Agent memory');
+  });
+});
+
+describe('MemoryGraphView Ruflo node class (P4 MEM-1)', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function installRafNoop() {
+    vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1 as unknown as number);
+    vi.spyOn(window, 'cancelAnimationFrame').mockReturnValue(undefined);
+  }
+
+  it('draws a ruflo node + similarity edge without throwing (reduced-motion sync draw)', () => {
+    installCanvasEnv();
+    installRafNoop();
+    // Reduced-motion path settles + draws a single frame synchronously, so the
+    // new diamond/dashed-edge branches run during render.
+    setReducedMotion(true);
+    expect(() =>
+      render(<MemoryGraphView graph={RUFLO_GRAPH} onSelect={() => undefined} />),
+    ).not.toThrow();
+  });
+
+  it('calls onSelectNode with the clicked node incl. its kind + group', () => {
+    installCanvasEnv();
+    installRafNoop();
+    // Pin layout: motion on (RAF mocked → no step()), random jitter → 0, so the
+    // single node sits at the known SOLO_X/SOLO_Y coordinate.
+    setReducedMotion(false);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const onSelectNode = vi.fn();
+    const onSelect = vi.fn();
+    const { container } = render(
+      <MemoryGraphView graph={SINGLE_NODE} onSelect={onSelect} onSelectNode={onSelectNode} />,
+    );
+    const canvas = container.querySelector('canvas')!;
+    // A bare pointerUp (no prior drag) exercises the select branch directly,
+    // avoiding jsdom's missing canvas.setPointerCapture.
+    fireEvent.pointerUp(canvas, { clientX: SOLO_X, clientY: SOLO_Y, pointerId: 1 });
+    expect(onSelectNode).toHaveBeenCalledWith({
+      id: 'solo',
+      label: 'Solo',
+      kind: 'ruflo',
+      group: 'verdict',
+    });
+    // Preferred callback wins; the legacy label-only one is NOT invoked.
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('falls back to onSelect(label) when onSelectNode is absent', () => {
+    installCanvasEnv();
+    installRafNoop();
+    setReducedMotion(false);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const onSelect = vi.fn();
+    const { container } = render(<MemoryGraphView graph={SINGLE_NODE} onSelect={onSelect} />);
+    const canvas = container.querySelector('canvas')!;
+    fireEvent.pointerUp(canvas, { clientX: SOLO_X, clientY: SOLO_Y, pointerId: 1 });
+    expect(onSelect).toHaveBeenCalledWith('Solo');
   });
 });

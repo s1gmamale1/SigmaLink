@@ -14,9 +14,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MemoryGraph } from '@/shared/types';
 
+/** P4 MEM-1 — payload handed to `onSelectNode` (carries the node class). */
+export interface MemoryGraphNodeSelection {
+  id: string;
+  label: string;
+  kind?: 'note' | 'ruflo';
+  group?: string;
+}
+
 interface Props {
   graph: MemoryGraph;
+  /** Legacy select-by-label (kept for back-compat; called when onSelectNode is absent). */
   onSelect(name: string): void;
+  /** P4 MEM-1 — preferred select callback; receives the full clicked node incl. its kind. */
+  onSelectNode?: (node: MemoryGraphNodeSelection) => void;
 }
 
 interface Node {
@@ -28,6 +39,10 @@ interface Node {
   vy: number;
   refCount: number;
   tagCount: number;
+  /** P4 MEM-1 — node class ('note' = local note circle, 'ruflo' = agent-memory diamond). */
+  kind?: 'note' | 'ruflo';
+  /** P4 MEM-1 — Ruflo namespace facet, carried through for the select callback. */
+  group?: string;
   fx?: number; // pinned x while dragging
   fy?: number;
 }
@@ -56,6 +71,12 @@ interface GraphColors {
   edge: string;
   label: string;
   labelHover: string;
+  // P4 MEM-1 — node-class fills. `note` mirrors `node` (the --primary circle);
+  // `ruflo` is a distinct theme color (--accent) for the agent-memory diamond.
+  note: string;
+  ruflo: string;
+  // P4 MEM-1 — Ruflo similarity/causal edges render lighter/dashed vs wikilinks.
+  edgeRuflo: string;
 }
 
 const FALLBACK_COLORS: GraphColors = {
@@ -66,6 +87,9 @@ const FALLBACK_COLORS: GraphColors = {
   edge: 'rgba(120,140,180,0.45)',
   label: '#cbd5e1',
   labelHover: '#fff',
+  note: '#3b82f6',
+  ruflo: '#a855f7',
+  edgeRuflo: 'rgba(168,85,247,0.4)',
 };
 
 // Theme vars are stored as raw HSL channels ("270 60% 55%") consumed via
@@ -89,6 +113,11 @@ export function resolveThemeColors(rootEl: HTMLElement | null): GraphColors {
     edge: hslVar(root, '--muted-foreground', FALLBACK_COLORS.edge, 0.45),
     label: hslVar(root, '--muted-foreground', FALLBACK_COLORS.label),
     labelHover: hslVar(root, '--ring', FALLBACK_COLORS.labelHover),
+    // P4 MEM-1: notes reuse --primary; Ruflo agent-memory nodes use --accent so
+    // they read as a distinct class while staying theme-correct + Glass-aware.
+    note: hslVar(root, '--primary', FALLBACK_COLORS.note),
+    ruflo: hslVar(root, '--accent', FALLBACK_COLORS.ruflo),
+    edgeRuflo: hslVar(root, '--accent', FALLBACK_COLORS.edgeRuflo, 0.4),
   };
 }
 
@@ -108,7 +137,7 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-export function MemoryGraphView({ graph, onSelect }: Props) {
+export function MemoryGraphView({ graph, onSelect, onSelectNode }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const nodesRef = useRef<Node[]>([]);
@@ -153,10 +182,15 @@ export function MemoryGraphView({ graph, onSelect }: Props) {
         vy: 0,
         refCount: n.refCount,
         tagCount: n.tagCount,
+        kind: n.kind,
+        group: n.group,
       };
       node.label = n.label;
       node.refCount = n.refCount;
       node.tagCount = n.tagCount;
+      // P4 MEM-1: carry the (possibly updated) node class + namespace facet.
+      node.kind = n.kind;
+      node.group = n.group;
       idIndex.set(n.id, next.length);
       next.push(node);
     });
@@ -347,8 +381,10 @@ export function MemoryGraphView({ graph, onSelect }: Props) {
       ctx.clearRect(0, 0, w, h);
       const nodes = nodesRef.current;
       const colors = colorsRef.current;
-      // Edges
-      ctx.strokeStyle = colors.edge;
+      // Edges — P4 MEM-1: wikilinks (default) draw as the current solid line;
+      // Ruflo similarity/causal edges draw lighter + dashed so the two relation
+      // classes are separable without relying on color alone (a11y). Opacity is
+      // scaled by `weight` (0..1) for similarity edges when supplied.
       ctx.lineWidth = 1;
       for (const e of graph.edges) {
         const ai = idIndex.get(e.from);
@@ -356,19 +392,49 @@ export function MemoryGraphView({ graph, onSelect }: Props) {
         if (ai === undefined || bi === undefined) continue;
         const a = nodes[ai];
         const b = nodes[bi];
+        const isRufloEdge = e.kind === 'similarity' || e.kind === 'causal';
+        if (isRufloEdge) {
+          ctx.setLineDash(e.kind === 'causal' ? [2, 3] : [5, 4]);
+          ctx.strokeStyle = colors.edgeRuflo;
+          // Fade by similarity weight (clamped 0.15..1) for a hierarchy of relatedness.
+          ctx.globalAlpha =
+            e.kind === 'similarity' && typeof e.weight === 'number'
+              ? Math.min(1, Math.max(0.15, e.weight))
+              : 1;
+        } else {
+          ctx.setLineDash([]);
+          ctx.strokeStyle = colors.edge;
+          ctx.globalAlpha = 1;
+        }
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
         ctx.stroke();
       }
+      // Reset stroke dash/alpha so node strokes below aren't affected.
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
       // Nodes
       const activeHover = hoverIdRef.current;
       for (const n of nodes) {
         const r = nodeRadius(n);
         const isHover = activeHover === n.id;
+        const isRuflo = n.kind === 'ruflo';
+        // P4 MEM-1: fill is theme-driven per class. Hover always uses the shared
+        // hover accent so the highlight reads the same for both classes.
+        const fill = isHover ? colors.nodeHover : isRuflo ? colors.ruflo : colors.note;
         ctx.beginPath();
-        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = isHover ? colors.nodeHover : colors.node;
+        if (isRuflo) {
+          // Distinct DIAMOND shape so Ruflo nodes are separable without color (a11y).
+          ctx.moveTo(n.x, n.y - r);
+          ctx.lineTo(n.x + r, n.y);
+          ctx.lineTo(n.x, n.y + r);
+          ctx.lineTo(n.x - r, n.y);
+          ctx.closePath();
+        } else {
+          ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+        }
+        ctx.fillStyle = fill;
         ctx.fill();
         ctx.lineWidth = 1.5;
         ctx.strokeStyle = isHover ? colors.nodeHoverStroke : colors.nodeStroke;
@@ -444,6 +510,20 @@ export function MemoryGraphView({ graph, onSelect }: Props) {
     [hitTest, idIndex],
   );
 
+  // P4 MEM-1: prefer the kind-aware `onSelectNode`; fall back to the legacy
+  // label-only `onSelect` so existing callers keep working until the lead wires
+  // up onSelectNode at integration.
+  const emitSelect = useCallback(
+    (hit: Node) => {
+      if (onSelectNode) {
+        onSelectNode({ id: hit.id, label: hit.label, kind: hit.kind, group: hit.group });
+      } else {
+        onSelect(hit.label);
+      }
+    },
+    [onSelect, onSelectNode],
+  );
+
   const onPointerUp = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const cv = canvasRef.current;
@@ -464,14 +544,14 @@ export function MemoryGraphView({ graph, onSelect }: Props) {
         wakeRef.current(); // PERF-13: re-settle after the node is released
         if (!moved) {
           const hit = hitTest(x, y);
-          if (hit) onSelect(hit.label);
+          if (hit) emitSelect(hit);
         }
       } else {
         const hit = hitTest(x, y);
-        if (hit) onSelect(hit.label);
+        if (hit) emitSelect(hit);
       }
     },
-    [hitTest, idIndex, onSelect],
+    [hitTest, idIndex, emitSelect],
   );
 
   return (
@@ -489,8 +569,28 @@ export function MemoryGraphView({ graph, onSelect }: Props) {
         }}
         style={{ touchAction: 'none' }}
       />
-      <div className="pointer-events-none absolute left-3 top-3 rounded bg-card/80 px-2 py-1 text-[11px] text-muted-foreground">
-        {graph.nodes.length} notes · {graph.edges.length} links
+      <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1 rounded bg-card/80 px-2 py-1 text-[11px] text-muted-foreground">
+        <span>
+          {graph.nodes.length} notes · {graph.edges.length} links
+        </span>
+        {/* P4 MEM-1 legend — matches the canvas node classes: --primary circle =
+            notes, --accent diamond = Ruflo agent memory. Unobtrusive + theme-colored. */}
+        <span className="flex items-center gap-3">
+          <span className="flex items-center gap-1">
+            <span
+              aria-hidden
+              className="inline-block h-2 w-2 rounded-full bg-primary"
+            />
+            Notes
+          </span>
+          <span className="flex items-center gap-1">
+            <span
+              aria-hidden
+              className="inline-block h-2 w-2 rotate-45 bg-accent"
+            />
+            Agent memory
+          </span>
+        </span>
       </div>
     </div>
   );
