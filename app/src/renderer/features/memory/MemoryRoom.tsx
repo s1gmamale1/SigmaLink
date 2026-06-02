@@ -57,8 +57,13 @@ export function MemoryRoom() {
     () => memories.find((m) => m.name === activeName) ?? null,
     [memories, activeName],
   );
-  // Refresh signal for TagsPane / MemoryAssistPanel when the note set changes.
-  const memVersion = memories.length + (activeMemory?.updatedAt ?? 0);
+  // Refresh signal for TagsPane / MemoryAssistPanel. Bumps on ANY note's update
+  // (count + max updatedAt) — review L3: a tag edit on a NON-active note (e.g. via
+  // sync/agent) must still refresh the tag counts, which `activeMemory.updatedAt` missed.
+  const memVersion = useMemo(
+    () => memories.length + memories.reduce((mx, m) => Math.max(mx, m.updatedAt), 0),
+    [memories],
+  );
 
   // P4 MEM-1 — Ruflo AgentDB overlay (read-only nodes/edges). Active only on the
   // graph tab; the context query is the open note's name so the agent-memory
@@ -110,7 +115,10 @@ export function MemoryRoom() {
   // queueMicrotask defers the set out of the effect body (react-hooks/set-state-
   // in-effect), matching the graph-loading effect's pattern below.
   useEffect(() => {
-    queueMicrotask(() => setRufloView(null));
+    queueMicrotask(() => {
+      setRufloView(null);
+      setActiveTag(null); // review L1 — don't carry a tag filter across workspaces (would empty B's list)
+    });
   }, [wsId]);
 
   // Hydrate the hub on first mount per workspace.
