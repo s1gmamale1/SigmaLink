@@ -225,6 +225,11 @@ export function CommandRoom() {
         icon={TerminalIcon}
         title="Open a workspace first"
         description="The Command Room shows live agent terminals once a workspace is launched."
+        action={
+          <Button size="sm" onClick={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}>
+            Open Workspaces
+          </Button>
+        }
       />
     );
   }

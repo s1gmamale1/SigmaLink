@@ -17,6 +17,8 @@ import { CommandRoom } from '@/renderer/features/command-room/CommandRoom';
 import { CommandPalette } from '@/renderer/features/command-palette/CommandPalette';
 import { MemoryQuickSwitcher } from '@/renderer/features/memory/MemoryQuickSwitcher';
 import { OnboardingModal } from '@/renderer/features/onboarding/OnboardingModal';
+import { FeatureSpotlightModal } from '@/renderer/features/onboarding/FeatureSpotlightModal';
+import { useWhatsNew } from '@/renderer/features/onboarding/use-whats-new';
 import { bindShortcut } from '@/renderer/lib/shortcuts';
 import type { RufloEntry } from '@/shared/types';
 import { NativeRebuildModal } from '@/renderer/components/NativeRebuildModal';
@@ -240,6 +242,17 @@ function GlobalMemorySwitcher() {
   );
 }
 
+/**
+ * ONB-1 — runs the "What's new" upgrade-toast hook. The hook reads global app
+ * state (`useAppState`), so it must live inside `AppStateProvider`. This
+ * component renders nothing — it exists only to host the effect within the
+ * provider tree.
+ */
+function WhatsNewMount() {
+  useWhatsNew();
+  return null;
+}
+
 export default function App() {
   // FE-4 — prefetch every lazy room chunk during idle time after mount, so the
   // first navigation to a not-yet-visited room skips even the Suspense spinner.
@@ -296,6 +309,11 @@ export default function App() {
         {/* global-⌘O — Memory Quick Switcher, global like the CommandPalette. */}
         <GlobalMemorySwitcher />
         <OnboardingModal />
+        {/* ONB-1 — Feature Spotlight: shown once after onboarding completes.
+            Self-gates on the coachmark "seen" flag + `state.onboarded`. */}
+        <FeatureSpotlightModal />
+        {/* ONB-1 — "What's new" upgrade toast (effect-only; renders null). */}
+        <WhatsNewMount />
         <NativeRebuildModal />
         {/* UX-1 — themed toast surface (see import above). Stays OUTSIDE the
             RootErrorBoundary (ERR-1) so toasts survive a shell-body crash.

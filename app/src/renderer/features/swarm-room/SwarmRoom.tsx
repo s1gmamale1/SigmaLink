@@ -154,6 +154,11 @@ export function SwarmRoom() {
         icon={Network}
         title="Open a workspace first"
         description="Swarms are scoped per workspace — open a project folder to start one."
+        action={
+          <Button size="sm" onClick={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}>
+            Open Workspaces
+          </Button>
+        }
       />
     );
   }

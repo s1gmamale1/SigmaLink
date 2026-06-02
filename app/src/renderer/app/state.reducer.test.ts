@@ -349,3 +349,24 @@ describe('PERF-10 — NOTIFICATIONS_DELTA single-add fast path preserves order',
     expect(after.notifications.map((n) => n.id)).toEqual(['ny', 'n3', 'nx', 'n2']);
   });
 });
+
+// ─── ONB-1 — SET_SETTINGS_TAB ────────────────────────────────────────────────
+
+describe('ONB-1 — SET_SETTINGS_TAB stages a Settings tab', () => {
+  it('stages the requested tab on pendingSettingsTab', () => {
+    const after = appStateReducer(initialAppState, { type: 'SET_SETTINGS_TAB', tab: 'voice' });
+    expect(after.pendingSettingsTab).toBe('voice');
+  });
+
+  it('clears the pending tab when given undefined', () => {
+    const staged: AppState = { ...initialAppState, pendingSettingsTab: 'voice' };
+    const after = appStateReducer(staged, { type: 'SET_SETTINGS_TAB', tab: undefined });
+    expect(after.pendingSettingsTab).toBeUndefined();
+  });
+
+  it('returns the same state object when the value is unchanged (no-op)', () => {
+    const staged: AppState = { ...initialAppState, pendingSettingsTab: 'voice' };
+    const after = appStateReducer(staged, { type: 'SET_SETTINGS_TAB', tab: 'voice' });
+    expect(after).toBe(staged);
+  });
+});
