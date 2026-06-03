@@ -632,6 +632,91 @@ describe('RufloHttpDaemonSupervisor', () => {
     expect(lastEvent).toEqual(['ws-giveup', false]);
   });
 
+  // ── B4: clean exit during startup = HTTP mode unsupported, no retries ──
+
+  it('B4: a clean (code 0) exit before /health classifies as down with NO crash-recovery', async () => {
+    // HTTP server-mode is upstream-broken: the CLI runs `mcp start -t http`,
+    // then exits cleanly (code 0) instead of serving. Health never comes up.
+    alwaysHealthFail();
+    const child = makeChild(4801);
+    mockSpawn.mockReturnValue(child);
+
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const spawnPromise = supervisor.spawn('ws-b4', '/proj');
+    const settled = spawnPromise.then(
+      (v) => ({ ok: true as const, value: v }),
+      (e: Error) => ({ ok: false as const, error: e }),
+    );
+
+    // spawn() awaits allocatePort() before doSpawn() registers the exit
+    // handler — flush microtasks so the child is wired before we emit exit.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Clean exit during startup (status still 'starting').
+    child.emit('exit', 0, null);
+    await vi.runAllTimersAsync();
+
+    const result = await settled;
+    // spawn() rejects (caller falls back to stdio).
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toMatch(/HTTP mode unsupported/);
+    }
+    // Marked 'down' — and NOT respawned (only the single initial spawn).
+    expect(supervisor.status('ws-b4')).toBe('down');
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    // Logged ONCE at info (not warn-spam).
+    const unsupportedInfo = infoSpy.mock.calls.filter((c) =>
+      String(c[0]).includes('HTTP mode unsupported'),
+    );
+    expect(unsupportedInfo).toHaveLength(1);
+    // No "daemon exited" warn was emitted for the clean-exit-during-startup case.
+    const exitWarns = warnSpy.mock.calls.filter((c) =>
+      String(c[0]).includes('daemon exited'),
+    );
+    expect(exitWarns).toHaveLength(0);
+
+    infoSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it('B4: a non-zero exit during startup still warns and marks crashed (not the clean-exit path)', async () => {
+    alwaysHealthFail();
+    const child = makeChild(4802);
+    mockSpawn.mockReturnValue(child);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const spawnPromise = supervisor.spawn('ws-b4-crash', '/proj');
+    const settled = spawnPromise.then(
+      () => ({ ok: true as const }),
+      (e: Error) => ({ ok: false as const, error: e }),
+    );
+
+    // Flush microtasks so doSpawn() wires the exit handler before we emit.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    child.emit('exit', 1, null);
+    await vi.runAllTimersAsync();
+
+    const result = await settled;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toMatch(/exited during startup/);
+    }
+    expect(supervisor.status('ws-b4-crash')).toBe('crashed');
+    const exitWarns = warnSpy.mock.calls.filter((c) =>
+      String(c[0]).includes('daemon exited'),
+    );
+    expect(exitWarns).toHaveLength(1);
+
+    warnSpy.mockRestore();
+  });
+
   // ── stop(): SIGTERM → SIGKILL ──────────────────────────────────────────
 
   it('stop(): sends SIGTERM; after 5s sends SIGKILL if still alive', async () => {

@@ -39,6 +39,24 @@ export interface RemoveWorkspaceDeps {
   rufloHttpDaemonSupervisor?: Pick<RufloHttpDaemonSupervisor, 'stop'>;
 }
 
+/**
+ * B4 — feature gate for the per-workspace Ruflo HTTP daemon.
+ *
+ * HTTP server-mode is UPSTREAM-BROKEN in every installed/published
+ * `@claude-flow/cli` / `ruflo`: the homebrew alpha ignores `-t http` and falls
+ * back to stdio (then exits on EOF); npm @3.10.x crashes with "Unexpected end
+ * of input"; the old SF-14 pin `2.0.0-alpha.91` is unpublished (ETARGET). The
+ * supervisor sends the CORRECT command — the server mode just doesn't work. So
+ * spawning the daemon on every workspace open only produced a spawn → crash →
+ * retry → warn-spam cycle, while panes silently kept working via the per-CLI
+ * stdio autowrite (SF-15).
+ *
+ * While disabled we SKIP the daemon spawn entirely and write stdio MCP entries
+ * (no port). Flip this to `true` ONLY once a `@claude-flow/cli` version is
+ * verified to keep `mcp start -t http -p N` alive AND answer GET /health.
+ */
+const ENABLE_RUFLO_HTTP_DAEMON = false;
+
 function rowToWorkspace(row: typeof workspaces.$inferSelect): Workspace {
   return {
     id: row.id,
@@ -106,8 +124,12 @@ export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = 
       // we know the port to thread into mcp-autowrite. If spawn returns null
       // (binary missing, port collision after retries, etc.) we fall through
       // to stdio entries — no regression vs v1.5.6.
+      //
+      // B4 — gated OFF: HTTP server-mode is upstream-broken (see
+      // ENABLE_RUFLO_HTTP_DAEMON). When disabled we skip the spawn entirely and
+      // leave `port` undefined so writeWorkspaceMcpConfig emits stdio entries.
       let port: number | undefined;
-      if (deps.rufloHttpDaemonSupervisor) {
+      if (ENABLE_RUFLO_HTTP_DAEMON && deps.rufloHttpDaemonSupervisor) {
         try {
           const handle = await deps.rufloHttpDaemonSupervisor.spawn(resultId, abs);
           if (handle) port = handle.port;

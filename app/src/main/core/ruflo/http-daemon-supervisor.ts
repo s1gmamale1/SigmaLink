@@ -411,10 +411,29 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
         if (entry.shuttingDown) return;
 
         const reason = `exit code=${code ?? 'null'} signal=${signal ?? 'null'} stderr=${getStderrTail().slice(-400)}`;
-        console.warn(`[ruflo-http] daemon exited (ws=${entry.workspaceId}): ${reason}`);
 
         // If still starting (health not yet confirmed), cancel the spawn wait.
         if (entry.status === 'starting') {
+          // B4 — a CLEAN exit (code 0) before /health ever succeeded means the
+          // installed CLI does not actually support HTTP server-mode (it ran the
+          // command, then exited normally instead of serving). Retrying can never
+          // succeed, so classify it as "HTTP mode unsupported", do NOT schedule
+          // crash recovery, and log ONCE at info (not warn-spam per open). Panes
+          // still get a working stdio MCP via the per-worktree autowrite (SF-15).
+          if (code === 0) {
+            entry.status = 'down';
+            console.info(
+              `[ruflo-http] HTTP mode unsupported by the installed @claude-flow/cli ` +
+                `(ws=${entry.workspaceId}): daemon exited cleanly before /health came up. ` +
+                `Skipping crash-recovery; panes use stdio MCP. ${reason}`,
+            );
+            this.cancelSpawnWait(
+              entry,
+              new Error(`[ruflo-http] HTTP mode unsupported (clean exit during startup): ${reason}`),
+            );
+            return;
+          }
+          console.warn(`[ruflo-http] daemon exited (ws=${entry.workspaceId}): ${reason}`);
           entry.status = 'crashed';
           this.cancelSpawnWait(
             entry,
@@ -424,6 +443,7 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
         }
 
         // Was running — schedule crash recovery.
+        console.warn(`[ruflo-http] daemon exited (ws=${entry.workspaceId}): ${reason}`);
         entry.status = 'crashed';
         this.scheduleCrashRecovery(entry);
       });

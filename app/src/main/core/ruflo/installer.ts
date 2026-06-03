@@ -27,9 +27,18 @@ import { EventEmitter } from 'node:events';
 import https from 'node:https';
 import type { RufloInstallProgress } from './types';
 
-/** Pinned semver for the v1 release. Bumping here triggers a re-download
- *  prompt on the next app launch (see docs/04-design/ruflo-mcp-embed.md §5). */
-export const PINNED_RUFLO_VERSION = '2.0.0-alpha.91';
+/** Pinned semver for the lazy offline install. Bumping here triggers a
+ *  re-download prompt on the next app launch (see
+ *  docs/04-design/ruflo-mcp-embed.md §5).
+ *
+ *  B4 — this tier is the offline STDIO fallback only; the per-workspace HTTP
+ *  daemon is gated OFF in workspaces/factory.ts (ENABLE_RUFLO_HTTP_DAEMON)
+ *  because HTTP server-mode is upstream-broken. The previous pin
+ *  `2.0.0-alpha.91` is UNPUBLISHED on npm → the install ETARGETed and the
+ *  offline tier could never populate. Pinned to a currently-published version
+ *  (npm `@claude-flow/cli` `latest`/`alpha` dist-tag as of 2026-06; bump as
+ *  newer published releases land). */
+export const PINNED_RUFLO_VERSION = '3.10.36';
 
 const NPM_REGISTRY = 'https://registry.npmjs.org';
 const TAR_BIN = process.platform === 'win32' ? 'tar.exe' : 'tar';
