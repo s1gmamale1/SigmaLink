@@ -37,6 +37,12 @@ export interface TurnLoopState {
   capturedSessionId?: string;
   resumeAttempted?: boolean;
   resumeLikelyFailed?: boolean;
+  /**
+   * B3 — set true when the overall turn timeout fired and already emitted an
+   * error-final. `finalizeTurnOnClose` checks this so the subsequent `close`
+   * (from the kill) doesn't emit a second, redundant error.
+   */
+  timedOut?: boolean;
 }
 
 export interface TurnLoopCtx {
@@ -203,6 +209,9 @@ export function finalizeTurnOnClose(
   stderrChunks: string[],
 ): void {
   const { deps, turn, assistantMessageId, trajectoryId } = ctx;
+  // B3 — the overall turn timeout already killed the child + emitted the
+  // error-final. Don't double-emit on the resulting `close`.
+  if (state.timedOut) return;
   if (turn.cancelled) {
     emitState(deps, 'standby', turn, { cancelled: true, messageId: assistantMessageId });
     void endTrajectory(deps, trajectoryId, false, 'cancelled');
