@@ -14,18 +14,20 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { findTomlTableRanges, replaceTomlTables, stripMarkerLines } from '../../lib/toml-merge';
 
-const MARKER = '# sigmalink-browser';
-const END_MARKER = '# end sigmalink-browser';
-const MEMORY_MARKER = '# sigmalink-memory';
-const MEMORY_END_MARKER = '# end sigmalink-memory';
-
-// BUG-W7-fix (P3 Step 4): regex anchored on BOTH the START and END markers
-// (multiline `^…$`) so a partial/legacy block (e.g. missing the end marker)
-// doesn't gobble unrelated trailing content. If the pattern doesn't match,
-// callers append a fresh block instead of mutating in place.
-const BROWSER_BLOCK_RE = /^# sigmalink-browser\b[\s\S]*?^# end sigmalink-browser[^\n]*\n?/m;
-const MEMORY_BLOCK_RE = /^# sigmalink-memory\b[\s\S]*?^# end sigmalink-memory[^\n]*\n?/m;
+// Legacy marker comments. Codex's own TOML rewriter strips/relocates comments,
+// which orphaned the old start+end marker-pair regex → a fresh
+// `[mcp_servers.browser]` table got APPENDED on every workspace open until codex
+// failed to load with a duplicate-key error (B1). We no longer key off markers:
+// the codex writer now collapses tables by NAME (marker-independent) and sweeps
+// any of these legacy markers a previous version left behind.
+const LEGACY_MARKERS = [
+  '# sigmalink-browser',
+  '# end sigmalink-browser',
+  '# sigmalink-memory',
+  '# end sigmalink-memory',
+] as const;
 
 /**
  * v1.2.6 — browser MCP is now stdio (npx-on-demand) instead of an HTTP
@@ -109,51 +111,45 @@ function writeCodexConfigToml(opts: WriteOptions): string | null {
     const target = path.join(dir, 'config.toml');
     const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
 
-    // Idempotency: search for the START+END marker pair; replace if both
-    // present, otherwise append a fresh block (first run, or legacy partial
-    // block that no longer matches the strict pattern).
+    // Idempotency is TABLE-NAME-based, not marker-based (B1). Codex rewrites its
+    // own config.toml and moves/strips comments, so a marker-anchored regex
+    // can't reliably find our prior block → it would append a duplicate
+    // `[mcp_servers.browser]` table → TOML duplicate-key → codex fails to load.
+    // Instead: sweep any legacy markers, then collapse ALL `mcp_servers.browser`
+    // (and `mcp_servers.sigmamemory[.*]`) tables to exactly one fresh block by
+    // name. `replaceTomlTables` is a stable fixpoint (re-running re-collapses).
+    // The accumulator threads browser → memory so the second collapse sees the
+    // first's output (never clobbers it).
+    let next = stripMarkerLines(existing, LEGACY_MARKERS);
+
     const browserBlock = [
-      MARKER,
       '[mcp_servers.browser]',
       'transport = "stdio"',
       `command = "npx"`,
       `args = ["-y", "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}"]`,
-      END_MARKER,
-      '',
     ].join('\n');
-
-    let next = existing;
-    if (BROWSER_BLOCK_RE.test(existing)) {
-      next = next.replace(BROWSER_BLOCK_RE, browserBlock);
-    } else {
-      const sep = next.length === 0 || next.endsWith('\n') ? '' : '\n';
-      next = next + sep + '\n' + browserBlock;
-    }
+    next = replaceTomlTables(next, findTomlTableRanges(next, 'mcp_servers.browser'), browserBlock);
 
     if (opts.memory) {
       const envLines = Object.entries(opts.memory.env).map(
-        ([k, v]) => `  ${k} = ${JSON.stringify(v)}`,
+        ([k, v]) => `${k} = ${JSON.stringify(v)}`,
       );
       const memoryBlock = [
-        MEMORY_MARKER,
         '[mcp_servers.sigmamemory]',
         'transport = "stdio"',
         `command = ${JSON.stringify(opts.memory.command)}`,
         `args = ${JSON.stringify(opts.memory.args)}`,
         '[mcp_servers.sigmamemory.env]',
         ...envLines,
-        MEMORY_END_MARKER,
-        '',
       ].join('\n');
-      if (MEMORY_BLOCK_RE.test(next)) {
-        next = next.replace(MEMORY_BLOCK_RE, memoryBlock);
-      } else {
-        const sep = next.length === 0 || next.endsWith('\n') ? '' : '\n';
-        next = next + sep + '\n' + memoryBlock;
-      }
+      next = replaceTomlTables(
+        next,
+        findTomlTableRanges(next, 'mcp_servers.sigmamemory'),
+        memoryBlock,
+      );
     }
 
-    fs.writeFileSync(target, next, 'utf8');
+    fs.writeFileSync(target, next.endsWith('\n') ? next : `${next}\n`, 'utf8');
     return target;
   } catch {
     return null;
