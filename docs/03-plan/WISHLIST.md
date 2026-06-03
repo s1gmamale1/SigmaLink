@@ -10,11 +10,18 @@
 
 ---
 
-## 🚨 v2.0.0 operator-smoke findings — 2026-06-03 (RELEASE-BLOCKERS — tag PAUSED)
+## ✅ v2.0.0 operator-smoke findings — 2026-06-03 (RELEASE-BLOCKERS — ALL SHIPPED)
 
 Real-device smoke of the staged v2.0.0 surfaced bugs + new-feature direction. Root-caused by two
-parallel debug/research teams (13 agents). **The v2.0.0 tag is held until these are fixed.** IDs B1–B4
-(bugs) + N1–N4 (features). Detail/evidence below; sequence in `ROADMAP.md`.
+parallel debug/research teams (13 agents). **ALL 6 blockers merged to main + full gate green (tsc ·
+eslint . · vitest 2693 · build · full e2e 10/3-skip); the v2.0.0 tag is re-offered (operator step).**
+✅ **B1** codex TOML dup (`ce2474e` #96) · ✅ **B2** resume scoping (`21ac09e` #99) · ✅ **B3** Jorvis silent
+(`e9cadc3`+`7c6d6d4` #100) · ✅ **B4** Ruflo HTTP daemon (`bc2af32` #97) · ✅ **N1** wizard (`5c62635`+`9da0e20` #101) ·
+✅ **N2** resizable browser (`84212e1` #98) · ✅ **N4** video-lens-review skill.
+**🔭 OPEN → next cycle:** **N3** premium Jorvis FE (was B3-blocked, now unblocked) · B3 review nits
+(SIGKILL escalation, sub-second adopt window, conv-switch busy-clear) · N1 `Launcher.tsx`>500 → `launch-plan.ts` split.
+**Owed operator VISUAL smoke:** N1 wizard across themes · N2 browser drag + no-reload-on-reopen · Jorvis live reply (run `claude` once for trust).
+Detail/evidence below.
 
 ### 🐞 Bugs
 - 🐞 **B1 [high] — codex broken globally (duplicate `[mcp_servers.browser]`).** ✅ root-cause CONFIRMED. `writeCodexConfigToml` dedups via a marker regex anchored on BOTH `# sigmalink-browser` start + `# end` markers (`core/browser/mcp-config-writer.ts:18-28,104-161`); codex's own TOML rewriter inserts a table between start+body → marker orphaned → next workspace-open APPENDS a 3rd block → TOML duplicate-key → codex won't load. Fix: make it TOML-table-aware like the ruflo writer (`mcp-autowrite.ts:488-536 findTomlTableRanges/replaceTomlTables` — extract a shared `toml-merge` util), strip stray markers, collapse to one block; thread the accumulator through browser-collapse THEN sigmamemory-collapse (or one clobbers the other). + one-time global repair of `~/.codex/config.toml` (3 headers → 1; back up first; operator sign-off). Idempotency regression test on the 3-block fixture. Effort: M.
