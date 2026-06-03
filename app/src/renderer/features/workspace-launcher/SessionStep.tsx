@@ -83,16 +83,31 @@ function sessionLabel(item: SessionListItem): string {
 // ─── Mock RPC (removed once backend lands) ───────────────────────────────────
 
 type PanesRpc = {
-  listSessions: (args: { providerId: string; cwd: string; opts?: unknown }) => Promise<SessionListItem[]>;
+  listSessions: (args: {
+    providerId: string;
+    cwd: string;
+    workspaceId?: string;
+    opts?: unknown;
+  }) => Promise<SessionListItem[]>;
   lastResumePlan: (workspaceId: string) => Promise<ResumePlanEntry[]>;
 };
 
 // Access rpc.panes via cast — channels not yet registered in router-shape.
 const panesRpc = (rpcSilent as unknown as { panes: PanesRpc }).panes;
 
-async function fetchSessions(providerId: string, cwd: string): Promise<SessionListItem[]> {
+// B2 — pass `workspaceId` so codex/kimi/gemini lists are scoped to THIS
+// workspace's recorded sessions (Option-B whitelist) instead of every session
+// on the machine. Without it the picker surfaced — and resumed — a session
+// from a different project. `workspaceId` may be undefined while a workspace is
+// mid-open; the backend then returns the (unscoped) global list and the
+// smart-default deliberately falls back to "New session" (see useEffect below).
+async function fetchSessions(
+  providerId: string,
+  cwd: string,
+  workspaceId?: string,
+): Promise<SessionListItem[]> {
   try {
-    const items = await panesRpc.listSessions({ providerId, cwd });
+    const items = await panesRpc.listSessions({ providerId, cwd, workspaceId });
     return Array.isArray(items) ? items.slice(0, 50) : [];
   } catch {
     return [];
@@ -195,6 +210,9 @@ function SessionCommand({ sessions, selectedId, onSelect }: SessionCommandProps)
 export interface SessionStepProps {
   rows: PaneRow[];
   cwd: string;
+  /** B2 — workspace id used to scope codex/kimi/gemini session lists to THIS
+   *  workspace (Option-B whitelist). Undefined while a workspace is mid-open. */
+  workspaceId?: string;
   /** Controlled selection: paneIndex → { sessionId | null } */
   selections: Record<number, string | null>;
   onSelectionsChange: (next: Record<number, string | null>) => void;
@@ -204,6 +222,7 @@ export interface SessionStepProps {
 export function SessionStep({
   rows,
   cwd,
+  workspaceId,
   selections,
   onSelectionsChange,
   onReconfigure,
@@ -217,17 +236,27 @@ export function SessionStep({
   const suggestedRef = useRef<Record<number, string | null>>({});
 
   // On step enter: pre-select top-N synchronously for each pane.
+  //
+  // B2 — only auto-select the newest session (`items[0]`) when the list was
+  // WORKSPACE-SCOPED (a `workspaceId` was passed, so the backend filtered to
+  // sessions recorded for THIS workspace). When unscoped — `workspaceId` is
+  // absent — codex/kimi return every session on the machine, so `items[0]`
+  // could be a session from a DIFFERENT project; auto-picking it silently
+  // resumed the wrong conversation. In that case default to `null`
+  // ("New session") so a wrong cross-project session is never auto-picked. The
+  // user can still explicitly choose any session via the "Change…" popover.
   useEffect(() => {
     if (rows.length === 0) return;
     let alive = true;
+    const scoped = !!workspaceId;
 
     void (async () => {
       const initial: Record<number, string | null> = {};
       for (const row of rows) {
         try {
-          const items = await fetchSessions(row.providerId, cwd);
+          const items = await fetchSessions(row.providerId, cwd, workspaceId);
           if (!alive) return;
-          const topId = items[0]?.id ?? null;
+          const topId = scoped ? items[0]?.id ?? null : null;
           initial[row.paneIndex] = topId;
           suggestedRef.current[row.paneIndex] = topId;
           setSessionLists((prev) => ({ ...prev, [row.paneIndex]: items }));
@@ -244,14 +273,14 @@ export function SessionStep({
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, cwd]);
+  }, [rows, cwd, workspaceId]);
 
   // Lazy-load full session list on popover open.
   function handlePopoverOpen(paneIndex: number, providerId: string): void {
     setOpenPopover(paneIndex);
     if (sessionLists[paneIndex] !== undefined) return; // already loaded
     setLoadingPanes((prev) => ({ ...prev, [paneIndex]: true }));
-    void fetchSessions(providerId, cwd).then((items) => {
+    void fetchSessions(providerId, cwd, workspaceId).then((items) => {
       setSessionLists((prev) => ({ ...prev, [paneIndex]: items }));
       setLoadingPanes((prev) => ({ ...prev, [paneIndex]: false }));
     });

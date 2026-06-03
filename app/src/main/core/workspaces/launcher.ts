@@ -348,11 +348,13 @@ export async function executeLaunchPlan(
           }
         }
         // v1.4.3-01 — Gemini session-slug bridge.
-        // If the bridge cannot alias the worktree to the workspace slug (e.g.
-        // workspace has no session history yet), drop the captured session id.
-        // The spawn still falls through to `--resume latest`, which resolves
-        // against the (now-empty) chats dir that ensureGeminiProjectDir pre-creates
-        // on the same code path — gemini exits cleanly into a fresh session.
+        // B2 fix — if the bridge cannot alias the worktree to the workspace
+        // slug (the workspace slug has NO session history → 'missing'), drop the
+        // picked id. The OLD code then still pre-created+aliased the dir and
+        // spawned `--resume latest`, which fell through to gemini's GLOBAL
+        // newest session (a DIFFERENT project) — silently resuming the wrong
+        // chat. Now a dropped id means a FRESH spawn (no alias, no --resume; see
+        // the gated ensureGeminiProjectDir below + buildResumeArgs gemini).
         if (provider.id === 'gemini') {
           const bridge = await prepareGeminiResume(wsRow.rootPath, cwd);
           if (bridge === 'missing') {
@@ -381,12 +383,22 @@ export async function executeLaunchPlan(
         // without bailing on ENOENT for the parent dir.
         await ensureClaudeProjectDir(cwd);
       }
-      // v1.4.3-01 — pre-create ~/.gemini/tmp/<workspace-slug>/{chats,tool-outputs}/
-      // and register the worktreeCwd → workspaceSlug alias in projects.json so
-      // gemini reads the same chats directory from any worktree that derives
-      // from this workspace. Called for every gemini spawn (fresh OR resume).
+      // v1.4.3-01 / B2 — pre-create the gemini chats dir.
+      //   * RESUME (resumeSessionId still set after the bridge check above):
+      //     alias worktreeCwd → workspaceSlug so `--resume latest` reads the
+      //     SAME chats directory the picked session lives in.
+      //   * FRESH / dropped-id ('missing' bridge, or no session picked):
+      //     pre-create gemini's OWN worktree-slug dir WITHOUT aliasing
+      //     (worktreeCwd === workspaceCwd → no projects.json write), so a brand
+      //     new gemini session does NOT latch onto the workspace's history and
+      //     `--resume latest` (which we no longer emit for a null id) can't
+      //     resolve to a foreign global session.
       if (provider.id === 'gemini') {
-        await ensureGeminiProjectDir(cwd, wsRow.rootPath);
+        if (resumeSessionId) {
+          await ensureGeminiProjectDir(cwd, wsRow.rootPath);
+        } else {
+          await ensureGeminiProjectDir(cwd, cwd);
+        }
       }
       // v1.6.0 Phase 3 — per-pane safe-scope spawn-mode override.
       //

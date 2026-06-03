@@ -293,10 +293,16 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
     input: z.object({
       providerId: z.string().min(1),
       cwd: z.string().min(1),
+      // B2 — workspace scoping for codex/kimi/gemini lists (Option-B
+      // whitelist). Without it those providers leak sessions from OTHER
+      // projects into the picker. Zod strips unknown keys, so it MUST be
+      // declared here or the handler never sees it.
+      workspaceId: z.string().min(1).optional(),
       opts: z
         .object({
           maxCount: z.number().int().positive().max(200).optional(),
           sinceMs: z.number().int().positive().optional(),
+          workspaceId: z.string().min(1).optional(),
         })
         .optional(),
     }),

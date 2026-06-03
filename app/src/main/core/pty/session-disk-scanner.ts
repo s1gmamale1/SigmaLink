@@ -389,6 +389,27 @@ function trunc(s: string, maxLen = 80): string {
 }
 
 /**
+ * B2 — shared cwd/workspace scoping gate for the per-provider `list*Sessions`
+ * helpers. When `opts.workspaceId` is set, returns the Set of external session
+ * ids already recorded in `agent_sessions` for that workspace (Option-B
+ * whitelist from v1.4.2-10, reusing `listSessionExternalIdsForWorkspace`). A
+ * caller then drops any on-disk session whose id is NOT in this Set, so
+ * providers whose disk layout does not partition by project (codex, kimi) no
+ * longer leak sessions from OTHER projects into the workspace session picker.
+ *
+ * Returns `null` when no `workspaceId` is provided — callers treat `null` as
+ * "no scoping" and return every session (unchanged behaviour for callers that
+ * genuinely want the global list).
+ */
+async function workspaceAllowedIds(
+  opts: ListSessionsOptions,
+): Promise<Set<string> | null> {
+  if (!opts.workspaceId) return null;
+  const wsIds = await listSessionExternalIdsForWorkspace(opts.workspaceId, opts.db);
+  return new Set(wsIds);
+}
+
+/**
  * Claude stores sessions at `~/.claude/projects/<slug>/<uuid>.jsonl` where
  * slug = `claudeSlugForCwd(cwd)` (every non-alphanumeric char → `-`; SF-2 —
  * single source of truth, was a latent `/`-only copy). The first JSONL line is the session-init
@@ -476,15 +497,26 @@ function listClaudeSessions(
  * Codex: list all rollout JSONL files under `~/.codex/sessions/`.
  * No mtime gate (unlike `findCodexSession`) — list variant returns everything
  * sorted DESC, capped at `maxCount`.
+ *
+ * B2 — codex's on-disk layout (`~/.codex/sessions/YYYY/MM/DD/`) does NOT
+ * partition by project, so a raw scan returns EVERY codex session on the
+ * machine regardless of cwd. When the workspace session picker passes
+ * `opts.workspaceId`, scope the result to sessions whose id is already
+ * recorded in `agent_sessions` for that workspace — the same Option-B
+ * whitelist gemini uses (`listSessionExternalIdsForWorkspace`). Without a
+ * workspaceId (callers that genuinely want every session) the scan is
+ * unchanged.
  */
-function listCodexSessions(
+async function listCodexSessions(
   homeDir: string,
   cwd: string,
   maxCount: number,
   sinceMs: number | undefined,
-): SessionListItem[] {
+  opts: ListSessionsOptions,
+): Promise<SessionListItem[]> {
   const root = path.join(homeDir, '.codex', 'sessions');
   if (!safeStat(root)) return [];
+  const allowedIds = await workspaceAllowedIds(opts);
   const files = findFiles(root, (name) => /^rollout-.*\.jsonl$/i.test(name));
   const items: SessionListItem[] = [];
   for (const file of files) {
@@ -496,6 +528,7 @@ function listCodexSessions(
     const uuidMatch = base.match(UUID_RE);
     if (!uuidMatch) continue;
     const uuid = uuidMatch[0];
+    if (allowedIds !== null && !allowedIds.has(uuid)) continue;
     // ISO timestamp from filename: rollout-YYYY-MM-DDThh-mm-ss-<uuid>.jsonl
     const tsMatch = base.match(/^rollout-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/);
     let createdAt = updatedAt;
@@ -527,15 +560,24 @@ function listCodexSessions(
  * Kimi: list session UUID directories under `~/.kimi/sessions/<sha1(cwd)>/<uuid>/`
  * and attempt to read `state.json` for metadata.
  * Falls back to mtime if `state.json` is missing or unparseable.
+ *
+ * B2 — the project bucket (`<sha1(cwd)>`) is not deterministic for us, so the
+ * scan walks every bucket and returns sessions for ALL projects. When the
+ * workspace session picker passes `opts.workspaceId`, scope the result to
+ * sessions already recorded in `agent_sessions` for that workspace (same
+ * Option-B whitelist gemini/codex use). Without a workspaceId the scan is
+ * unchanged.
  */
-function listKimiSessions(
+async function listKimiSessions(
   homeDir: string,
   cwd: string,
   maxCount: number,
   sinceMs: number | undefined,
-): SessionListItem[] {
+  opts: ListSessionsOptions,
+): Promise<SessionListItem[]> {
   const root = path.join(homeDir, '.kimi', 'sessions');
   if (!safeStat(root)) return [];
+  const allowedIds = await workspaceAllowedIds(opts);
   // Collect all UUID-shaped session directories (two-level or flat).
   const sessionDirs: string[] = [];
   const projectEntries = safeReadDir(root).slice(0, MAX_ENTRIES_PER_DIR);
@@ -560,6 +602,7 @@ function listKimiSessions(
     if (sinceMs !== undefined && sinceMs > 0 && Date.now() - updatedAt > sinceMs) continue;
     const uuid = path.basename(dir).match(UUID_RE)?.[0];
     if (!uuid) continue;
+    if (allowedIds !== null && !allowedIds.has(uuid)) continue;
     let createdAt = updatedAt;
     let title: string | undefined;
     let firstMessagePreview: string | undefined;
@@ -712,12 +755,8 @@ async function listGeminiSessions(
 
   // Workspace scoping: when workspaceId is provided, only return sessions
   // whose id is already recorded for that workspace. This mirrors the Option B
-  // whitelist approach from v1.4.2-10.
-  let allowedIds: Set<string> | null = null;
-  if (opts.workspaceId) {
-    const wsIds = await listSessionExternalIdsForWorkspace(opts.workspaceId, opts.db);
-    allowedIds = new Set(wsIds);
-  }
+  // whitelist approach from v1.4.2-10 (shared with codex/kimi via the helper).
+  const allowedIds = await workspaceAllowedIds(opts);
 
   const items: SessionListItem[] = [];
   for (const entry of entries) {
@@ -802,9 +841,9 @@ export async function listSessionsInCwd(
     case 'claude':
       return listClaudeSessions(homeDir, cwd, maxCount, sinceMs);
     case 'codex':
-      return listCodexSessions(homeDir, cwd, maxCount, sinceMs);
+      return listCodexSessions(homeDir, cwd, maxCount, sinceMs, opts);
     case 'kimi':
-      return listKimiSessions(homeDir, cwd, maxCount, sinceMs);
+      return listKimiSessions(homeDir, cwd, maxCount, sinceMs, opts);
     case 'opencode':
       return listOpencodeSessions(cwd, maxCount, sinceMs, opts.runOpencodeList);
     case 'gemini':

@@ -1074,12 +1074,24 @@ function buildRouter() {
     },
     // v1.3.0 — Session picker: list provider sessions for a cwd. Delegates
     // entirely to the disk-scanner; never throws (returns []).
+    //
+    // B2 — thread `workspaceId` so codex/kimi/gemini lists scope to the
+    // workspace (Option-B whitelist). Without it codex/kimi return EVERY
+    // session on the machine (their disk layouts don't partition by project),
+    // which let the picker surface — and then resume — a session from a
+    // DIFFERENT project. `workspaceId` may ride either the top-level field
+    // (SessionStep) or inside `opts`; the top-level wins when both are set.
     listSessions: async (input: {
       providerId: string;
       cwd: string;
-      opts?: { maxCount?: number; sinceMs?: number };
+      workspaceId?: string;
+      opts?: { maxCount?: number; sinceMs?: number; workspaceId?: string };
     }) => {
-      return listSessionsInCwd(input.providerId, input.cwd, input.opts);
+      const opts = {
+        ...input.opts,
+        workspaceId: input.workspaceId ?? input.opts?.workspaceId,
+      };
+      return listSessionsInCwd(input.providerId, input.cwd, opts);
     },
     // v1.3.0 — Session picker: most-recent resume plan for a workspace.
     // Returns ONE row per pane slot with the provider and last-captured
