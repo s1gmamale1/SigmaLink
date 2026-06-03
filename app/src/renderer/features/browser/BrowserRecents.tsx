@@ -22,6 +22,12 @@ interface Props {
   activeTabId: string | null;
   /** When `false` we render a disabled-looking strip but still draw the chrome. */
   disabled?: boolean;
+  /**
+   * N2 — when hosted inside the Browser room's resizable sidebar panel the
+   * width is owned by the panel (flex-grow), so the column fills it (`w-full`)
+   * instead of its standalone fixed `w-[180px]`.
+   */
+  compact?: boolean;
 }
 
 const RECENTS_LIMIT = 10;
@@ -70,7 +76,7 @@ function shortLabel(origin: string): string {
   }
 }
 
-function BrowserRecentsInner({ workspaceId, tabs, activeTabId, disabled }: Props) {
+function BrowserRecentsInner({ workspaceId, tabs, activeTabId, disabled, compact }: Props) {
   const recents = useMemo(() => buildRecents(tabs), [tabs]);
 
   const onClick = (entry: OriginEntry) => {
@@ -84,7 +90,8 @@ function BrowserRecentsInner({ workspaceId, tabs, activeTabId, disabled }: Props
     <aside
       aria-label="Recent origins"
       className={cn(
-        'flex w-[180px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-sidebar/60 p-2',
+        'flex flex-col gap-1 overflow-y-auto border-r border-border bg-sidebar/60 p-2',
+        compact ? 'w-full' : 'w-[180px] shrink-0',
       )}
     >
       <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -139,6 +146,7 @@ export const BrowserRecents = memo(BrowserRecentsInner, (prev, next) => {
     prev.workspaceId === next.workspaceId &&
     prev.activeTabId === next.activeTabId &&
     prev.disabled === next.disabled &&
+    prev.compact === next.compact &&
     recentsInputsEqual(prev.tabs, next.tabs)
   );
 });

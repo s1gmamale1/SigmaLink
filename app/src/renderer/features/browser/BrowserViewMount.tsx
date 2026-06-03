@@ -24,6 +24,17 @@ import { rpc } from '@/renderer/lib/rpc';
 interface Props {
   workspaceId: string;
   visible: boolean;
+  /**
+   * N2 — authoritative bounds-recompute trigger. The resizable sidebar drag is
+   * normally tracked by the container ResizeObserver below (the viewport flex
+   * cell physically changes width as the divider moves). On drag-END the parent
+   * bumps this nonce to force ONE final, deduped `setBounds` so the
+   * WebContentsView is guaranteed to land on the settled layout even if the last
+   * ResizeObserver tick was coalesced away. It is only an effect-dep — the
+   * existing rAF + value-dedup pipeline still owns the actual IPC, so a bump
+   * with an unchanged rect no-ops.
+   */
+  boundsNonce?: number;
 }
 
 interface SentBounds {
@@ -34,7 +45,7 @@ interface SentBounds {
   height: number;
 }
 
-function BrowserViewMountInner({ workspaceId, visible }: Props) {
+function BrowserViewMountInner({ workspaceId, visible, boundsNonce }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   // Last bounds payload actually sent over IPC. We compare by value and skip
   // duplicate sends — this is the BUG-DF-01 flicker fix. ResizeObserver can
@@ -42,6 +53,11 @@ function BrowserViewMountInner({ workspaceId, visible }: Props) {
   // round-trips through the main process and calls `view.setBounds()` which
   // is observable as a one-frame flash.
   const lastSentRef = useRef<SentBounds | null>(null);
+  // N2 — the live scheduler from the bounds-sync effect, exposed so the
+  // `boundsNonce` effect below can request ONE authoritative recompute without
+  // tearing down + re-arming the ResizeObserver (which would emit a transient
+  // hide/show flicker). `null` between effect runs.
+  const schedRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -89,6 +105,7 @@ function BrowserViewMountInner({ workspaceId, visible }: Props) {
       raf = requestAnimationFrame(send);
     };
 
+    schedRef.current = sched;
     sched();
 
     const ro = new ResizeObserver(sched);
@@ -98,6 +115,7 @@ function BrowserViewMountInner({ workspaceId, visible }: Props) {
     window.addEventListener('scroll', sched, true);
 
     return () => {
+      schedRef.current = null;
       ro.disconnect();
       window.removeEventListener('resize', sched);
       window.removeEventListener('scroll', sched, true);
@@ -110,6 +128,18 @@ function BrowserViewMountInner({ workspaceId, visible }: Props) {
       void rpc.browser.setBounds({ workspaceId, bounds: null }).catch(() => undefined);
     };
   }, [workspaceId, visible]);
+
+  // N2 — drag-END authoritative recompute. The sidebar-resize observer already
+  // re-syncs bounds continuously as the divider moves; this re-runs the SAME
+  // deduped scheduler once after `onLayoutChanged`, so the settled layout is
+  // guaranteed to be pushed even if the final ResizeObserver tick was coalesced.
+  // The initial mount (boundsNonce === 0/undefined) is a no-op beyond what the
+  // main effect's own `sched()` already did. Value-dedup makes an unchanged-rect
+  // bump free (no IPC).
+  useEffect(() => {
+    if (boundsNonce == null || boundsNonce === 0) return;
+    schedRef.current?.();
+  }, [boundsNonce]);
 
   return (
     <div
