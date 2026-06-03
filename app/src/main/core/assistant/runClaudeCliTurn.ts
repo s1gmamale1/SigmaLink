@@ -321,11 +321,12 @@ export async function runClaudeCliTurn(
     // renderer clears) and SIGTERM the child; the resulting `close` is a no-op
     // because `state.timedOut` short-circuits `finalizeTurnOnClose`.
     const turnTimeoutMs = Math.max(1, opts.turnTimeoutMs ?? TURN_TIMEOUT_MS);
-    let turnTimer: NodeJS.Timeout | null = setTimeout(() => {
+    let turnTimer: NodeJS.Timeout | null = null;
+    const fireTurnTimeout = () => {
       turnTimer = null;
-      if (state.sawResult || turn.cancelled) return;
+      if (state.sawResult || turn.cancelled || state.timedOut) return;
       state.timedOut = true;
-      const msg = 'Jorvis turn timed out — the claude CLI never responded. If this is the first run, open a terminal and run `claude` once to accept the trust prompt, then try again.';
+      const msg = 'Jorvis turn timed out — the claude CLI stopped responding. If this is the first run, open a terminal and run `claude` once to accept the trust prompt, then try again.';
       persistFinal(turn, assistantMessageId, msg);
       emitErrorFinal(deps, turn, msg, assistantMessageId);
       void endTrajectory(deps, trajectoryId, false, 'turn_timeout');
@@ -334,17 +335,29 @@ export async function runClaudeCliTurn(
       } catch {
         /* best-effort — child may already be dead */
       }
-    }, turnTimeoutMs);
+    };
     const clearTurnTimer = () => {
       if (turnTimer) {
         clearTimeout(turnTimer);
         turnTimer = null;
       }
     };
+    // Review #1 — this is an IDLE timeout, not a wall-clock cap: every stream
+    // line re-arms it (see rl.on('line')), so a legitimately long agentic turn
+    // that keeps streaming (many tool round-trips) is NEVER cut off — only
+    // `turnTimeoutMs` of total SILENCE (a hung CLI blocked on trust/login that
+    // emits nothing) trips it.
+    const armTurnTimer = () => {
+      if (state.timedOut || turn.cancelled || state.sawResult) return;
+      clearTurnTimer();
+      turnTimer = setTimeout(fireTurnTimeout, turnTimeoutMs);
+    };
+    armTurnTimer();
 
     await new Promise<void>((resolve) => {
       rl.on('line', (line) => {
         if (turn.cancelled) return;
+        armTurnTimer(); // review #1: any stream activity re-arms the idle timeout
         const env = parseCliLine(line);
         if (!env) {
           // Non-JSON lines (rare) — forward as raw text so the user sees something.
@@ -366,6 +379,12 @@ export async function runClaudeCliTurn(
       child.on('error', (err: Error) => {
         clearTurnTimer();
         activeChildren.delete(turn.turnId);
+        // Review #2 — if the turn timeout already fired it emitted the error-final
+        // + SIGTERM'd the child; a concurrent 'error' must NOT double-emit.
+        if (state.timedOut) {
+          resolve();
+          return;
+        }
         const msg = `claude CLI process error: ${err.message}`;
         persistFinal(turn, assistantMessageId, msg);
         emitErrorFinal(deps, turn, msg, assistantMessageId);
