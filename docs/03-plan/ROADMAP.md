@@ -9,7 +9,16 @@
 >
 > **🎉 ENTIRE 6-PHASE ROADMAP + ITS FULL LONG-TAIL SHIPPED — staged as `v2.0.0` (UNTAGGED on `main`, 2026-06-03).**
 > ✅ P1 (#70) · ✅ P2 (#72) · ✅ P3 (#73) · ✅ P4 (#75+#76) · ✅ P5 (#78+#79) · ✅ P6 exit (#81+#82) — **and the P6 long-tail (FEAT-2/3/4/5/6/8/9/10/12/14 + ONB-1), P4.2 (MEM-5/7/8/9, FTS5, causal edges, ⌘O, daily-note digest, auto-checkpoint), P5.2 (density, PERF-7/8/9/12), and ARCH-1/6/9 all merged this cycle.** Detail → `CHANGELOG.md` [2.0.0].
-> **Deferred → next-cycle WISHLIST (seed a fresh ROADMAP from there):** Resizable-shell **Strategy B** (rail/main px→%), **ARCH-2/3/4/5/7/8** (large splits — held per the DDD small-per-packet rule), **MEM-7 fence-awareness** (M2). **Owed pre-tag (operator live smokes):** DB-2 backup→restore round-trip; `npm run test:perf` jank-delta + `pty:data` IPC-rate; FEAT-11 rewind on a real worktree; responsive resize/collapse feel. **The tag is a separate operator step** (`sigmalink-release`).
+> **Deferred → next-cycle WISHLIST (seed a fresh ROADMAP from there):** Resizable-shell **Strategy B** (rail/main px→%), **ARCH-2/3/4/5/7/8** (large splits — held per the DDD small-per-packet rule), **MEM-7 fence-awareness** (M2). **Owed pre-tag (operator live smokes):** DB-2 backup→restore round-trip ✅ (smoke-verified) · perf-harness ✅ · FEAT-11 rewind ✅ (+ found+fixed the safety-redo bug, PR #93) · responsive ✅.
+>
+> ## 🚨 v2.0.0 TAG PAUSED — pre-release bugfix cycle (2026-06-03 operator smoke)
+> A real-device smoke surfaced release-blockers; **do NOT tag v2.0.0 until these land.** Sequence (detail/evidence → `WISHLIST.md` "v2.0.0 operator-smoke findings"):
+> 1. **B1 codex config dup** (HIGH, confirmed) — TOML-aware codex MCP writer + global repair. **First** (breaks codex globally, worsens each open).
+> 2. **B2 resume cross-project** (HIGH, confirmed) — scope codex/kimi/gemini session lists to cwd + default "New session"; gemini drop-fresh.
+> 3. **B4 Ruflo HTTP daemon** (MED, confirmed UPSTREAM) — gate HTTP off by default, clean stdio, kill the spawn/crash/log-spam.
+> 4. **B3 Jorvis silent** (HIGH, root-cause re-trace in progress) — operator confirms TOTAL SILENCE → break is pre-output; **blocks N3**. + cheap `~/.local/bin`/cache-TTL hardening.
+> 5. **N1 workspace wizard** (✅ greenlit, M) + **N2 resizable browser** (✅ greenlit, M). **N3 Jorvis FE** ⏸️ after B3. **N4 video skill** ✅ done.
+> **Build set this cycle: B1, B2, B4, B3(fix), N1, N2.** Then re-run the release gate + re-offer the tag.
 >
 > **Phase goal (operator's 6-pillar vision):** **(a)** Apple-grade visuals · **(b)** responsive layouts ·
 > **(c)** smooth animations/popups · **(d)** polished notifications · **(e)** tasteful sound ·
