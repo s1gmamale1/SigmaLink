@@ -201,16 +201,19 @@ function makeSession(id: string, providerId: string, startedAt = 1234): SessionR
 describe('buildResumeArgs', () => {
   // v1.2.8 — the new per-provider matrix. Each provider has two flavours:
   // by captured id (use the native flag) and the universal --continue fallback.
-  // Note: gemini always uses '--resume latest' regardless of externalSessionId
-  // because the Gemini CLI only accepts 'latest' or an index — not a filename stem.
+  // B2 — gemini's CLI only accepts 'latest'/index (not a filename stem), so a
+  // PRESENT id still maps to '--resume latest' (against the bridge-aliased
+  // workspace slug). But a NULL id now emits NO --resume — a fresh spawn —
+  // instead of latching onto gemini's GLOBAL newest session (a different
+  // project). See gemini-resume-sigma.ts + the launcher gemini branch.
   it.each([
     ['claude', 'ext-id', ['--resume', 'ext-id'], 'id'],
     ['claude', null, ['--continue'], 'continue'],
     ['codex', 'ext-id', ['resume', 'ext-id'], 'id'],
     ['codex', null, ['resume', '--last'], 'continue'],
-    // gemini: always '--resume latest' — flag fix (G-2); see 04-gemini-errors.md
+    // gemini with id → '--resume latest' (G-2 flag fix); null → fresh (B2)
     ['gemini', 'ext-id', ['--resume', 'latest'], 'continue'],
-    ['gemini', null, ['--resume', 'latest'], 'continue'],
+    ['gemini', null, [], 'continue'],
     ['kimi', 'ext-id', ['--session', 'ext-id'], 'id'],
     ['kimi', null, ['--continue'], 'continue'],
     ['opencode', 'ext-id', ['--session', 'ext-id'], 'id'],
@@ -236,8 +239,11 @@ describe('buildResumeArgs', () => {
     expect(buildResumeArgs('claude', '   ')?.args).toEqual(['--continue']);
   });
 
-  // G-2 fix: gemini --resume never passes a filename stem — always 'latest'
-  it('gemini resume always uses --resume latest regardless of stored externalSessionId', () => {
+  // G-2 + B2: gemini --resume never passes a filename stem. With a picked id
+  // it maps to '--resume latest' (resolved against the bridge-aliased workspace
+  // slug). With NO id it emits an EMPTY arg list — a fresh spawn — so it never
+  // falls through to gemini's GLOBAL newest session in a DIFFERENT project.
+  it('gemini resume: present id → --resume latest; null id → fresh (no resume arg)', () => {
     const withId = buildResumeArgs('gemini', 'session-2024-01-01T12-00-abc');
     expect(withId).not.toBeNull();
     expect(withId!.args).toEqual(['--resume', 'latest']);
@@ -245,7 +251,7 @@ describe('buildResumeArgs', () => {
 
     const withoutId = buildResumeArgs('gemini', null);
     expect(withoutId).not.toBeNull();
-    expect(withoutId!.args).toEqual(['--resume', 'latest']);
+    expect(withoutId!.args).toEqual([]);
     expect(withoutId!.mode).toBe('continue');
   });
 });
@@ -460,7 +466,9 @@ describe('resumeWorkspacePanes', () => {
     const providers = [
       { def: claudeProvider, expected: ['--continue'] },
       { def: codexProvider, expected: ['resume', '--last'] },
-      { def: geminiProvider, expected: ['--resume', 'latest'] },
+      // B2 — gemini with NO external id now spawns FRESH (empty args) rather
+      // than '--resume latest' (which resumed a foreign global session).
+      { def: geminiProvider, expected: [] },
       { def: kimiProvider, expected: ['--continue'] },
       { def: opencodeProvider, expected: ['--continue'] },
       // R-2 — cursor falls back to --continue when no external id was captured

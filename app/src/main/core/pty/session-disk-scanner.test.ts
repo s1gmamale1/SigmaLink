@@ -456,6 +456,95 @@ describe('listSessionsInCwd — Kimi', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// B2 — codex/kimi list cwd/workspace scoping. Their on-disk layouts do NOT
+// partition by project, so without scoping the picker leaked — and resumed —
+// sessions from OTHER projects. When `workspaceId` is passed, the list is
+// scoped to the ids recorded in agent_sessions for that workspace (Option-B
+// whitelist, shared with gemini). Without `workspaceId` every session is
+// returned (backward compat).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Fake DB returning the given ids as the workspace whitelist (mirrors the
+ *  `SELECT external_session_id … WHERE workspace_id = ?` query shape). */
+function whitelistDb(ids: string[]) {
+  return {
+    prepare: () => ({
+      all: () => ids.map((id) => ({ external_session_id: id })),
+      get: () => undefined,
+    }),
+  };
+}
+
+describe('listSessionsInCwd — Codex workspace scoping (B2)', () => {
+  it('scopes to the workspace whitelist when workspaceId is provided', async () => {
+    const baseTime = 1_700_000_000_000;
+    const mine = makeUuid('codexmine');
+    const foreign = makeUuid('codexforeign');
+    touch(
+      path.join(tmpHome, '.codex', 'sessions', '2026', '05', '13', `rollout-2026-05-13T10-00-00-${mine}.jsonl`),
+      baseTime - 60_000,
+    );
+    touch(
+      path.join(tmpHome, '.codex', 'sessions', '2026', '05', '13', `rollout-2026-05-13T10-05-00-${foreign}.jsonl`),
+      baseTime - 1_000,
+    );
+
+    const sessions = await listSessionsInCwd('codex', '/tmp/proj', {
+      homeDir: tmpHome,
+      workspaceId: 'ws-current',
+      db: whitelistDb([mine]),
+    });
+    // Foreign is newer (would be items[0] unscoped) but is filtered out.
+    expect(sessions.map((s) => s.id)).toEqual([mine]);
+  });
+
+  it('returns every session when no workspaceId is provided (backward compat)', async () => {
+    const baseTime = 1_700_000_000_000;
+    const a = makeUuid('codexaaa');
+    const b = makeUuid('codexbbb');
+    touch(
+      path.join(tmpHome, '.codex', 'sessions', '2026', '05', '13', `rollout-2026-05-13T10-00-00-${a}.jsonl`),
+      baseTime - 60_000,
+    );
+    touch(
+      path.join(tmpHome, '.codex', 'sessions', '2026', '05', '13', `rollout-2026-05-13T10-05-00-${b}.jsonl`),
+      baseTime - 1_000,
+    );
+
+    const sessions = await listSessionsInCwd('codex', '/tmp/proj', { homeDir: tmpHome });
+    expect(sessions.map((s) => s.id).sort()).toEqual([a, b].sort());
+  });
+});
+
+describe('listSessionsInCwd — Kimi workspace scoping (B2)', () => {
+  it('scopes to the workspace whitelist when workspaceId is provided', async () => {
+    const baseTime = 1_700_000_000_000;
+    const mine = makeUuid('kimimine');
+    const foreign = makeUuid('kimiforeign');
+    touchDir(path.join(tmpHome, '.kimi', 'sessions', 'proj-hash', mine), baseTime - 60_000);
+    touchDir(path.join(tmpHome, '.kimi', 'sessions', 'proj-hash', foreign), baseTime - 1_000);
+
+    const sessions = await listSessionsInCwd('kimi', '/tmp/proj', {
+      homeDir: tmpHome,
+      workspaceId: 'ws-current',
+      db: whitelistDb([mine]),
+    });
+    expect(sessions.map((s) => s.id)).toEqual([mine]);
+  });
+
+  it('returns every session when no workspaceId is provided (backward compat)', async () => {
+    const baseTime = 1_700_000_000_000;
+    const a = makeUuid('kimiaaa');
+    const b = makeUuid('kimibbb');
+    touchDir(path.join(tmpHome, '.kimi', 'sessions', 'proj-hash', a), baseTime - 60_000);
+    touchDir(path.join(tmpHome, '.kimi', 'sessions', 'proj-hash', b), baseTime - 1_000);
+
+    const sessions = await listSessionsInCwd('kimi', '/tmp/proj', { homeDir: tmpHome });
+    expect(sessions.map((s) => s.id).sort()).toEqual([a, b].sort());
+  });
+});
+
 describe('listSessionsInCwd — OpenCode', () => {
   it('returns sessions filtered by cwd, sorted DESC', async () => {
     const now = 1_700_000_000_000;

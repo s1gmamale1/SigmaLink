@@ -489,6 +489,7 @@ export function WorkspaceLauncher() {
             <SessionStep
               rows={buildPaneRows(counts, skipAgents, preset)}
               cwd={selectedWorkspace?.rootPath ?? ''}
+              workspaceId={selectedWorkspace?.id}
               selections={paneResumePlan}
               onSelectionsChange={setPaneResumePlan}
               onReconfigure={() => setStep('layout')}

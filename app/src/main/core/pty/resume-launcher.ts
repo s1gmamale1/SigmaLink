@@ -73,10 +73,26 @@ export function buildResumeArgs(
       // Gemini's --resume flag only accepts 'latest' or an index number, NOT a
       // filename stem. The session-disk-scanner stores the JSONL filename stem as
       // external_session_id for history display only; the projects.json alias
-      // bridge (gemini-resume-sigma.ts) ensures the correct chats directory is
-      // resolved, so actual resume always uses '--resume latest'.
-      // See: session-disk-scanner.ts:639-642 and bug investigation 04-gemini-errors.md.
-      return { args: ['--resume', 'latest'], mode: 'continue' };
+      // bridge (gemini-resume-sigma.ts) maps the worktree cwd to the workspace
+      // slug so '--resume latest' resolves against the SAME chats directory the
+      // picked session lives in.
+      //
+      // B2 fix — the prior code returned `--resume latest` UNCONDITIONALLY,
+      // even when `externalSessionId` is null. A null id means "no session was
+      // picked / the bridge was 'missing'" — in that case `--resume latest`
+      // fell through to gemini's GLOBAL newest session (a DIFFERENT project),
+      // silently resuming the wrong conversation. The caller only ever passes
+      // a non-null id here AFTER the projects.json alias has been registered
+      // (slug truly has the picked session), so:
+      //   * id present → resume the aliased workspace slug via `--resume latest`.
+      //   * id null    → spawn FRESH (no --resume arg) instead of latching onto
+      //                  a foreign global session.
+      // See: session-disk-scanner.ts (listGeminiSessions) and the launcher /
+      // resumeWorkspacePanes gemini branches that gate ensure/alias on bridge
+      // !== 'missing'.
+      return id
+        ? { args: ['--resume', 'latest'], mode: 'continue' }
+        : { args: [], mode: 'continue' };
     case 'kimi':
       return id
         ? { args: ['--session', id], mode: 'id' }
@@ -466,12 +482,16 @@ export async function resumeWorkspacePanes(
       }
       await ensureClaudeProjectDir(cwd, { homeDir: deps.claudeHomeDir });
     }
-    // v1.4.3-01 — Gemini boot-restore path. Mirror the claude branch above:
-    // alias the worktree cwd to the workspace slug so gemini reads the same
-    // chats directory. If the workspace slug has no sessions ('missing'),
-    // drop the external session id so buildResumeArgs falls through to
-    // '--resume latest' — which will still fail gracefully (empty chats dir
-    // is handled by ensureGeminiProjectDir pre-creating it).
+    // v1.4.3-01 / B2 — Gemini boot-restore path. Mirror the claude branch
+    // above AND the workspace launcher's gemini branch:
+    //   * Bridge resolves (workspace slug HAS the session) → alias worktreeCwd
+    //     → workspaceSlug so `--resume latest` reads that chats directory.
+    //   * Bridge 'missing' (workspace slug has no sessions) → drop the external
+    //     id so buildResumeArgs emits NO --resume (fresh spawn) instead of
+    //     `--resume latest`, which previously fell through to gemini's GLOBAL
+    //     newest session (a DIFFERENT project). On the fresh path we pre-create
+    //     gemini's OWN worktree-slug dir WITHOUT aliasing so a new session does
+    //     not write into the workspace's history.
     if (resumeProviderId === 'gemini') {
       const bridge = await prepareGeminiResume(row.workspaceRoot, cwd, {
         homeDir: deps.claudeHomeDir,
@@ -479,9 +499,15 @@ export async function resumeWorkspacePanes(
       if (bridge === 'missing') {
         externalSessionId = null;
       }
-      await ensureGeminiProjectDir(cwd, row.workspaceRoot, {
-        homeDir: deps.claudeHomeDir,
-      });
+      if (externalSessionId) {
+        await ensureGeminiProjectDir(cwd, row.workspaceRoot, {
+          homeDir: deps.claudeHomeDir,
+        });
+      } else {
+        await ensureGeminiProjectDir(cwd, cwd, {
+          homeDir: deps.claudeHomeDir,
+        });
+      }
     }
 
     const resume = buildResumeArgs(resumeProviderId, externalSessionId);

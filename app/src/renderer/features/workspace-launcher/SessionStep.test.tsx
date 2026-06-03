@@ -28,7 +28,7 @@ if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
 
 // ─── rpcSilent mock ──────────────────────────────────────────────────────────
 
-const mockListSessions = vi.fn<(args: { providerId: string; cwd: string; opts?: unknown }) => Promise<SessionListItem[]>>();
+const mockListSessions = vi.fn<(args: { providerId: string; cwd: string; workspaceId?: string; opts?: unknown }) => Promise<SessionListItem[]>>();
 const mockLastResumePlan = vi.fn<(workspaceId: string) => Promise<unknown>>();
 
 vi.mock('@/renderer/lib/rpc', () => ({
@@ -77,13 +77,20 @@ function renderStep(
     rows: PaneRow[];
     selections: Record<number, string | null>;
     onChange: (n: Record<number, string | null>) => void;
+    // B2 — default to a scoped workspace so the smart-default auto-selects the
+    // top (workspace-recorded) session. Pass `null` to exercise the unscoped
+    // path where the default must fall back to "New session".
+    workspaceId: string | null;
   }> = {},
 ) {
   const onChange = overrides.onChange ?? vi.fn();
+  const workspaceId =
+    overrides.workspaceId === null ? undefined : overrides.workspaceId ?? 'ws-current';
   const { rerender, ...rest } = render(
     <SessionStep
       rows={overrides.rows ?? ROWS}
       cwd="/workspace/proj"
+      workspaceId={workspaceId}
       selections={overrides.selections ?? {}}
       onSelectionsChange={onChange}
       onReconfigure={vi.fn()}
@@ -164,6 +171,36 @@ describe('SessionStep — smart-default selection', () => {
     await waitFor(() => {
       const badges = screen.getAllByText('New session');
       expect(badges.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // B2 (defect 3) — when the list is UNSCOPED (no workspaceId), the disk
+  // scanner returns every session on the machine, so items[0] could be a
+  // session from a DIFFERENT project. The default must be null ("New session")
+  // so a cross-project session is never auto-picked, EVEN when sessions exist.
+  it('defaults to null (New session) for an unscoped list even when sessions exist', async () => {
+    const onChange = vi.fn();
+    // listSessions still returns sessions, but no workspaceId is passed.
+    renderStep({ onChange, workspaceId: null });
+
+    await waitFor(() => {
+      const calls = onChange.mock.calls;
+      const lastCall = calls[calls.length - 1]?.[0] as Record<number, string | null>;
+      expect(lastCall).toBeDefined();
+      expect(lastCall[0]).toBeNull();
+      expect(lastCall[1]).toBeNull();
+    });
+  });
+
+  // B2 (defect 2) — the workspaceId must be forwarded to listSessions so the
+  // backend can scope codex/kimi/gemini to the workspace whitelist.
+  it('forwards workspaceId to listSessions for scoping', async () => {
+    renderStep({ workspaceId: 'ws-42' });
+
+    await waitFor(() => {
+      expect(mockListSessions).toHaveBeenCalled();
+      const arg = mockListSessions.mock.calls[0]?.[0];
+      expect(arg?.workspaceId).toBe('ws-42');
     });
   });
 });
