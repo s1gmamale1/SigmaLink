@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { rpcSilent, onEvent } from '@/renderer/lib/rpc';
 import type { OrbState } from './Orb';
 import type { ChatMessageView } from './ChatTranscript';
@@ -20,10 +20,39 @@ export interface UseJorvisAssistantStateArgs {
   setStreaming: React.Dispatch<React.SetStateAction<{ turnId: string; delta: string } | null>>;
   lastSentPromptRef: React.MutableRefObject<string | null>;
   rufloReadyRef: React.MutableRefObject<boolean>;
+  /**
+   * B3 — the id of the in-flight turn started by THIS room in THIS session.
+   * `sendPrompt` writes the turnId returned by `assistant.send` here; the
+   * handler below only reacts to busy/orb-affecting events whose `turnId`
+   * matches. A boot/restore/stale/cross-conversation `assistant:state` event
+   * can therefore no longer latch `busy=true` (or the Orb to 'thinking') at
+   * rest — the at-rest state stays ungated until the local turn actually runs.
+   */
+  activeTurnIdRef: React.MutableRefObject<string | null>;
+  /**
+   * B3 — true between `sendPrompt` (which optimistically sets busy) and the
+   * turn's terminal 'standby'. Lets the handler ADOPT the first event of a
+   * turn even if it lands before `assistant.send` resolves and writes
+   * `activeTurnIdRef` (an IPC race). At rest (`busy === false`) no event is
+   * adopted, so a boot/stale event still can't gate the composer.
+   */
+  busyRef: React.MutableRefObject<boolean>;
+  /**
+   * B3 — per-turn watchdog. `clearWatchdog` cancels the pending timer when a
+   * turn reaches standby/error (or is superseded). Owned by JorvisRoom so it
+   * can also be invoked from `sendPrompt` (arm) and `onNewConversation`.
+   */
+  clearWatchdog: () => void;
 }
 
 /** assistant:state event handler for streaming. Handles state transitions,
- *  delta accumulation, and fire-and-forget pattern store on standby. */
+ *  delta accumulation, and fire-and-forget pattern store on standby.
+ *
+ *  B3 — every busy/orb mutation is now gated on `turnId === activeTurnIdRef`.
+ *  Deltas for the active turn still stream; standby for the active turn clears
+ *  busy + the watchdog. Events for any OTHER turn (a stale in-flight turn from
+ *  before a reload, a turn for a different conversation, a replayed boot event)
+ *  are ignored for busy/orb purposes so they cannot brick the composer. */
 export function useJorvisAssistantState({
   conversationId,
   setMessages,
@@ -32,20 +61,81 @@ export function useJorvisAssistantState({
   setStreaming,
   lastSentPromptRef,
   rufloReadyRef,
+  activeTurnIdRef,
+  busyRef,
+  clearWatchdog,
 }: UseJorvisAssistantStateArgs): void {
+  // Keep the latest props on a ref so the event subscription can stay stable
+  // (it never needs to re-subscribe just because `conversationId` changed).
+  // The ref is refreshed in a layout effect — writing it during render trips
+  // `react-hooks/refs` ("cannot update ref during render"); a layout effect
+  // commits synchronously before paint so the handler never reads stale props.
+  const propsRef = useRef({
+    conversationId,
+    setMessages,
+    setOrbState,
+    setBusy,
+    setStreaming,
+    lastSentPromptRef,
+    rufloReadyRef,
+    activeTurnIdRef,
+    busyRef,
+    clearWatchdog,
+  });
+  useLayoutEffect(() => {
+    propsRef.current = {
+      conversationId,
+      setMessages,
+      setOrbState,
+      setBusy,
+      setStreaming,
+      lastSentPromptRef,
+      rufloReadyRef,
+      activeTurnIdRef,
+      busyRef,
+      clearWatchdog,
+    };
+  });
+
   useEffect(() => {
     const off = onEvent<AssistantStateEvent>('assistant:state', (raw) => {
       if (!raw || typeof raw !== 'object') return;
       const e = raw as AssistantStateEvent;
-      if (conversationId && e.conversationId !== conversationId) return;
+      const p = propsRef.current;
+      if (typeof e.turnId !== 'string' || !e.turnId) return;
+      // B3 — only the turn THIS room started this session may move busy/orb or
+      // commit a streamed reply.
+      //
+      // Match path: the event's turnId equals the one `assistant.send` returned.
+      // Adopt path: we're busy (sendPrompt ran) but `activeTurnIdRef` isn't set
+      //   yet — the first turn event raced ahead of the send response. Adopt it
+      //   so early deltas aren't dropped. This only fires while busy, so a
+      //   boot/stale event AT REST is never adopted and cannot gate the room.
+      // Reject everything else (stale in-flight turn from before a reload, a
+      //   turn for a different conversation, a replayed boot event).
+      if (e.turnId !== p.activeTurnIdRef.current) {
+        const adoptable =
+          p.busyRef.current &&
+          p.activeTurnIdRef.current === null &&
+          (!p.conversationId || e.conversationId === p.conversationId);
+        if (!adoptable) return;
+        p.activeTurnIdRef.current = e.turnId;
+      }
+      // Defensive conversation match: once a turn is adopted the conversation
+      // must stay consistent (a forked/renamed conversation can't hijack it).
+      if (p.conversationId && e.conversationId !== p.conversationId) return;
       if (e.kind === 'state') {
-        if (e.state) setOrbState(e.state);
+        if (e.state) p.setOrbState(e.state);
         if (e.state === 'standby') {
-          setBusy(false);
+          // B3 — turn is done; clear the gate + cancel the watchdog and retire
+          // the active turn id so subsequent stray events for it are ignored.
+          p.setBusy(false);
+          p.activeTurnIdRef.current = null;
+          p.clearWatchdog();
           // Phase 4 Track C — fire-and-forget pattern store.
-          if (lastSentPromptRef.current && rufloReadyRef.current) {
-            const pat = lastSentPromptRef.current;
-            lastSentPromptRef.current = null;
+          if (p.lastSentPromptRef.current && p.rufloReadyRef.current) {
+            const pat = p.lastSentPromptRef.current;
+            p.lastSentPromptRef.current = null;
             void rpcSilent.ruflo['patterns.store']({
               pattern: pat,
               type: 'task-completion',
@@ -54,10 +144,10 @@ export function useJorvisAssistantState({
               /* background telemetry — losing it is acceptable */
             });
           }
-          setStreaming((prev) => {
+          p.setStreaming((prev) => {
             if (!prev || !e.messageId) return null;
             const messageId = e.messageId;
-            setMessages((rows) =>
+            p.setMessages((rows) =>
               rows.some((r) => r.id === messageId)
                 ? rows
                 : [
@@ -74,7 +164,7 @@ export function useJorvisAssistantState({
           });
         }
       } else if (e.kind === 'delta' && e.delta) {
-        setStreaming((prev) =>
+        p.setStreaming((prev) =>
           !prev || prev.turnId !== e.turnId
             ? { turnId: e.turnId, delta: e.delta ?? '' }
             : { turnId: prev.turnId, delta: prev.delta + e.delta },
@@ -82,5 +172,5 @@ export function useJorvisAssistantState({
       }
     });
     return off;
-  }, [conversationId, setMessages, setOrbState, setBusy, setStreaming, lastSentPromptRef, rufloReadyRef]);
+  }, []);
 }

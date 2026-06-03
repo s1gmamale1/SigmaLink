@@ -92,6 +92,12 @@ export interface CliTurnOptions {
   buildSystemPrompt?: (workspaceId: string) => string;
   /** Captures spawn args without supplying a full fake. Sync, called before spawn. */
   onSpawnArgs?: (bin: string, args: string[]) => void;
+  /**
+   * B3 — override the overall per-turn timeout (ms). Defaults to
+   * {@link TURN_TIMEOUT_MS}. Tests pass a tiny value to assert the hung-turn
+   * teardown without waiting 90s.
+   */
+  turnTimeoutMs?: number;
 }
 
 /** Minimal subset of ChildProcessWithoutNullStreams the driver depends on. */
@@ -116,6 +122,18 @@ interface CachedProbe {
   resolvedPath?: string;
   version?: string;
 }
+
+/**
+ * B3 (defense-in-depth) — overall wall-clock budget for a single CLI turn.
+ * If the `claude` child produces no terminal `result` envelope within this
+ * window (e.g. it blocks on an interactive trust/login prompt in dev and never
+ * streams anything), we kill the child and emit an error-final through the
+ * SAME `assistant:state` path so the renderer's Orb/composer clear instead of
+ * hanging silently. The stdin-write timeout (30s) only covers a stuck WRITE;
+ * this covers a child that accepts input but never answers. Generous so a
+ * legitimately long, actively-streaming turn isn't cut off.
+ */
+export const TURN_TIMEOUT_MS = 90_000;
 
 let cachedProbe: CachedProbe | null = null;
 
@@ -293,6 +311,37 @@ export async function runClaudeCliTurn(
     };
     const rl = readline.createInterface({ input: child.stdout });
 
+    // B3 (defense-in-depth) — overall turn timeout. A `claude -p stream-json`
+    // that blocks on interactive trust/login (common in dev before the
+    // operator has accepted trust once) accepts our stdin but never streams a
+    // `result`, so neither the stdin-write timeout nor the readline loop ever
+    // fires. Without this the child stays alive, `close` never fires, the turn
+    // promise never resolves, and the renderer's Orb spins forever. On timeout
+    // we emit an error-final through the SAME `assistant:state` path (so the
+    // renderer clears) and SIGTERM the child; the resulting `close` is a no-op
+    // because `state.timedOut` short-circuits `finalizeTurnOnClose`.
+    const turnTimeoutMs = Math.max(1, opts.turnTimeoutMs ?? TURN_TIMEOUT_MS);
+    let turnTimer: NodeJS.Timeout | null = setTimeout(() => {
+      turnTimer = null;
+      if (state.sawResult || turn.cancelled) return;
+      state.timedOut = true;
+      const msg = 'Jorvis turn timed out — the claude CLI never responded. If this is the first run, open a terminal and run `claude` once to accept the trust prompt, then try again.';
+      persistFinal(turn, assistantMessageId, msg);
+      emitErrorFinal(deps, turn, msg, assistantMessageId);
+      void endTrajectory(deps, trajectoryId, false, 'turn_timeout');
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        /* best-effort — child may already be dead */
+      }
+    }, turnTimeoutMs);
+    const clearTurnTimer = () => {
+      if (turnTimer) {
+        clearTimeout(turnTimer);
+        turnTimer = null;
+      }
+    };
+
     await new Promise<void>((resolve) => {
       rl.on('line', (line) => {
         if (turn.cancelled) return;
@@ -306,6 +355,7 @@ export async function runClaudeCliTurn(
         handleParsedEnvelope(env, ctx, state);
       });
       child.on('close', async (code: number | null) => {
+        clearTurnTimer();
         activeChildren.delete(turn.turnId);
         rl.close();
         await Promise.allSettled(Array.from(ctx.pendingToolRoutes));
@@ -314,6 +364,7 @@ export async function runClaudeCliTurn(
         resolve();
       });
       child.on('error', (err: Error) => {
+        clearTurnTimer();
         activeChildren.delete(turn.turnId);
         const msg = `claude CLI process error: ${err.message}`;
         persistFinal(turn, assistantMessageId, msg);
@@ -322,6 +373,7 @@ export async function runClaudeCliTurn(
         resolve();
       });
     });
+    clearTurnTimer();
 
     if (state.resumeAttempted && state.resumeLikelyFailed && !retryWithoutResume) {
       clearPriorClaudeSessionId(turn.conversationId);

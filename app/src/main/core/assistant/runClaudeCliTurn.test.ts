@@ -1030,6 +1030,70 @@ describe('runClaudeCliTurn', () => {
     });
   });
 
+  describe('B3 — overall turn timeout (hung claude CLI defense-in-depth)', () => {
+    it('kills the child and emits error-final + standby when no result arrives in time', async () => {
+      const deps = makeDeps();
+      // A child that streams nothing and never finishes — mimics `claude`
+      // blocking on an interactive trust/login prompt in dev.
+      const child = new FakeChild();
+      const turn = makeTurn();
+
+      const turnPromise = runClaudeCliTurn(turn, 'hello', deps, {
+        probeOverride: fakeProbe,
+        spawnOverride: () => child,
+        buildSystemPrompt: fixedSysPrompt,
+        turnTimeoutMs: 20, // tiny so the test doesn't wait 90s
+      });
+
+      // The turn must resolve on its own via the timeout (no manual finish()).
+      const out = await turnPromise;
+      expect(out.handled).toBe(true);
+
+      // The hung child was SIGTERM'd.
+      expect(child.killed).toBe(true);
+      expect(child.killSignal).toBe('SIGTERM');
+
+      const states = deps.events
+        .filter((e) => e.channel === 'assistant:state')
+        .map((e) => e.payload);
+
+      // An error envelope surfaced through the SAME assistant:state path…
+      const errEvt = states.find((s) => s.kind === 'error');
+      expect(errEvt).toBeDefined();
+      expect(errEvt?.message as string).toMatch(/timed out/i);
+
+      // …and a single standby so the renderer's Orb/composer clear.
+      const standbys = states.filter((s) => s.kind === 'state' && s.state === 'standby');
+      expect(standbys.length).toBe(1);
+    });
+
+    it('does NOT fire the timeout when a result arrives first', async () => {
+      const deps = makeDeps();
+      const child = new FakeChild();
+      const turnPromise = runClaudeCliTurn(makeTurn(), 'hi', deps, {
+        probeOverride: fakeProbe,
+        spawnOverride: () => child,
+        buildSystemPrompt: fixedSysPrompt,
+        turnTimeoutMs: 5_000, // ample — the result lands well before this
+      });
+
+      await new Promise((r) => setImmediate(r));
+      child.pushLine({ type: 'result', subtype: 'success', result: 'done', is_error: false });
+      child.finish(0);
+      await turnPromise;
+
+      const states = deps.events
+        .filter((e) => e.channel === 'assistant:state')
+        .map((e) => e.payload);
+      // No timeout error — the success path owns the standby.
+      expect(states.find((s) => s.kind === 'error')).toBeUndefined();
+      const final = states.find((s) => s.kind === 'final');
+      expect(final?.text).toBe('done');
+      // The child was not killed by the timeout.
+      expect(child.killed).toBe(false);
+    });
+  });
+
   describe('H-19 outbound PII scrub on the final reply', () => {
     // Typed with the real signature (function-type form, not tuple) so it
     // compiles under the lead's stricter main `tsc -b`.

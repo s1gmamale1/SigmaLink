@@ -44,6 +44,17 @@ interface Props {
   className?: string;
 }
 
+/**
+ * B3 — renderer-side per-turn watchdog. If a turn never emits 'standby'
+ * (e.g. the `claude` CLI blocks on an interactive trust/login prompt in dev
+ * and produces no envelopes), the composer would stay gated forever. After
+ * this long with no terminal state the renderer self-heals: clears `busy`,
+ * resets the Orb to standby, and retires the active turn id. Generous so a
+ * legitimately slow turn isn't cut off mid-stream — the main-side turn timeout
+ * (runClaudeCliTurn) is the primary teardown; this is the renderer backstop.
+ */
+const TURN_WATCHDOG_MS = 120_000;
+
 export function JorvisRoom({ variant = 'standalone', className }: Props) {
   const { state, dispatch } = useAppState();
   const activeWorkspace = state.activeWorkspace;
@@ -76,6 +87,29 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const sendPromptRef = useRef<(prompt: string) => Promise<void>>(async () => {});
+  // B3 — the turn THIS room started this session. The assistant-state handler
+  // only moves busy/orb for events whose turnId matches this ref, so a stale /
+  // boot / cross-conversation `assistant:state` event can never latch `busy`.
+  const activeTurnIdRef = useRef<string | null>(null);
+  // B3 — mirror of `busy` so the event handler can read it synchronously
+  // (to adopt the first event of an in-flight turn) without re-subscribing.
+  // Writing a ref in an effect is allowed; `react-hooks/set-state-in-effect`
+  // only forbids setState in the effect body.
+  const busyRef = useRef(busy);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+  // B3 — per-turn watchdog timer. If a turn never reaches 'standby' within
+  // TURN_WATCHDOG_MS the composer would be permanently gated; the watchdog
+  // resets busy + orb so a hung turn can't brick the room.
+  const watchdogTimerRef = useRef<number | null>(null);
+
+  const clearWatchdog = useCallback(() => {
+    if (watchdogTimerRef.current !== null) {
+      window.clearTimeout(watchdogTimerRef.current);
+      watchdogTimerRef.current = null;
+    }
+  }, []);
 
   const { rufloReady, rufloReadyRef } = useJorvisRufloHealth();
   const { patternHit } = useJorvisPatternProbe({ composerText, rufloReady });
@@ -93,6 +127,9 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
     setStreaming,
     lastSentPromptRef,
     rufloReadyRef,
+    activeTurnIdRef,
+    busyRef,
+    clearWatchdog,
   });
   const { onOrbClick } = useJorvisVoice({ composerRef, sendPromptRef, setOrbState });
 
@@ -133,16 +170,37 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
       ]);
       setBusy(true);
       setOrbState('thinking');
+      // B3 — arm the per-turn watchdog. If no terminal 'standby'/'error' for
+      // this turn arrives in time, self-heal so the composer can't stay gated
+      // forever on a hung turn. Armed BEFORE the await so a turn that hangs at
+      // dispatch is still covered.
+      clearWatchdog();
+      watchdogTimerRef.current = window.setTimeout(() => {
+        watchdogTimerRef.current = null;
+        activeTurnIdRef.current = null;
+        setBusy(false);
+        setOrbState('standby');
+        setStreaming(null);
+        lastSentPromptRef.current = null;
+        toast.error('Jorvis stopped responding', {
+          description: 'The turn timed out. You can send your message again.',
+        });
+      }, TURN_WATCHDOG_MS);
       try {
         const res = await rpc.assistant.send({
           workspaceId: activeWorkspace.id,
           conversationId: conversationId ?? undefined,
           prompt,
         });
+        // B3 — record the live turn id so the assistant-state handler only
+        // reacts to events for THIS turn (boot/stale events are dropped).
+        activeTurnIdRef.current = res.turnId;
         setConversationId(res.conversationId);
         persistActiveConversation(res.conversationId);
         void refreshConversations(activeWorkspace.id);
       } catch (err) {
+        clearWatchdog();
+        activeTurnIdRef.current = null;
         setBusy(false);
         setOrbState('standby');
         toast.error('Jorvis failed to accept your message', {
@@ -150,12 +208,22 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
         });
       }
     },
-    [activeWorkspace, conversationId, setConversationId, setMessages, refreshConversations],
+    [
+      activeWorkspace,
+      conversationId,
+      setConversationId,
+      setMessages,
+      refreshConversations,
+      clearWatchdog,
+    ],
   );
 
   useEffect(() => {
     sendPromptRef.current = sendPrompt;
   }, [sendPrompt]);
+
+  // B3 — make sure a pending watchdog timer never fires after unmount.
+  useEffect(() => clearWatchdog, [clearWatchdog]);
 
   const onNewConversation = useCallback(() => {
     clearConversation();
@@ -163,8 +231,13 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
     setStreaming(null);
     setOrbState('standby');
     setBusy(false);
+    // B3 — retire any in-flight turn + cancel its watchdog so the fresh
+    // conversation starts ungated and a stray standby for the old turn is
+    // ignored.
+    clearWatchdog();
+    activeTurnIdRef.current = null;
     composerRef.current?.focus();
-  }, [clearConversation, resetDismissed]);
+  }, [clearConversation, resetDismissed, clearWatchdog]);
 
   const paneEvents = useJorvisPaneEvents(conversationId);
 
