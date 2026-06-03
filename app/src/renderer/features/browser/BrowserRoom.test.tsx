@@ -48,6 +48,17 @@ vi.mock('@/renderer/lib/rpc', () => ({
   },
 }));
 
+// N2 — the body row is now a per-workspace resizable [sidebar | viewport]
+// group; mock the persistence helper so hydration resolves to defaults and the
+// group mounts (we assert the data/branch path, not measured pixel sizes).
+const readWorkspaceUiMock = vi.fn<(...a: unknown[]) => Promise<string | null>>();
+const writeWorkspaceUiMock = vi.fn<(...a: unknown[]) => Promise<void>>();
+
+vi.mock('@/renderer/lib/workspace-ui-kv', () => ({
+  readWorkspaceUi: (...args: unknown[]) => readWorkspaceUiMock(...args),
+  writeWorkspaceUi: (...args: unknown[]) => writeWorkspaceUiMock(...args),
+}));
+
 // Mock heavy native sub-components that depend on Electron IPC or ResizeObserver.
 vi.mock('./BrowserViewMount', () => ({
   BrowserViewMount: () => <div data-testid="browser-view-mount" />,
@@ -133,6 +144,14 @@ function makeBrowserSlice(overrides: Partial<BrowserState> = {}): BrowserState {
 // Deferred import so mocks are hoisted before the module resolves.
 let BrowserRoom: typeof import('./BrowserRoom').BrowserRoom;
 
+// N2 — react-resizable-panels v4 uses ResizeObserver + matchMedia in a layout
+// effect; jsdom provides neither. Stub them so the resizable group can mount.
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
 beforeEach(async () => {
   vi.clearAllMocks();
   mockDispatch.mockReset();
@@ -147,11 +166,28 @@ beforeEach(async () => {
   });
   // Default: getState returns empty tabs (no active tab to re-activate).
   mockGetState.mockResolvedValue(makeBrowserSlice());
+  // Hydration resolves to defaults → the resizable group mounts.
+  readWorkspaceUiMock.mockResolvedValue(null);
+  writeWorkspaceUiMock.mockResolvedValue(undefined);
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  if (typeof window.matchMedia !== 'function') {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      }),
+    );
+  }
   ({ BrowserRoom } = await import('./BrowserRoom'));
 });
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   // Reset shared mutable state.
   mockActiveWorkspace = null;
   mockBrowserSlice = null;
@@ -162,17 +198,19 @@ afterEach(() => {
 // ──────────────────────────────────────────────────────────────────────────
 
 describe('<BrowserRoom /> — EmptyState (v1.4.8 sub-task A)', () => {
-  it('renders "No tabs open" EmptyState when tabs are empty and workspace is active', () => {
+  it('renders "No tabs open" EmptyState when tabs are empty and workspace is active', async () => {
     mockActiveWorkspace = makeWorkspace();
     mockBrowserSlice = makeBrowserSlice({ tabs: [] });
 
     render(<BrowserRoom />);
 
-    expect(screen.getByText('No tabs open')).toBeTruthy();
+    // N2 — the viewport (with its EmptyState) mounts inside the resizable group
+    // only after the per-workspace layout hydrates (async kv read).
+    expect(await screen.findByText('No tabs open')).toBeTruthy();
     expect(screen.getByText('Open a new tab to start browsing')).toBeTruthy();
   });
 
-  it('renders BrowserViewMount with visible=false (not unmounted) when tabs are empty', () => {
+  it('renders BrowserViewMount with visible=false (not unmounted) when tabs are empty', async () => {
     // v1.5.1-A caveat 6: BrowserViewMount stays mounted to avoid WebContentsView
     // lifecycle churn; it receives visible={false} when tabs.length === 0.
     mockActiveWorkspace = makeWorkspace();
@@ -181,7 +219,7 @@ describe('<BrowserRoom /> — EmptyState (v1.4.8 sub-task A)', () => {
     render(<BrowserRoom />);
 
     // BrowserViewMount is in the DOM (not unmounted) but its visible prop is false.
-    expect(screen.getByTestId('browser-view-mount')).toBeTruthy();
+    expect(await screen.findByTestId('browser-view-mount')).toBeTruthy();
   });
 
   it('clicking the EmptyState "New tab" button calls rpc.browser.openTab', async () => {
@@ -190,7 +228,7 @@ describe('<BrowserRoom /> — EmptyState (v1.4.8 sub-task A)', () => {
 
     render(<BrowserRoom />);
 
-    const newTabButton = screen.getByRole('button', { name: /new tab/i });
+    const newTabButton = await screen.findByRole('button', { name: /new tab/i });
     fireEvent.click(newTabButton);
 
     // Give the async callback a tick to fire.
@@ -202,7 +240,7 @@ describe('<BrowserRoom /> — EmptyState (v1.4.8 sub-task A)', () => {
     });
   });
 
-  it('renders BrowserViewMount (no EmptyState) when tabs are present', () => {
+  it('renders BrowserViewMount (no EmptyState) when tabs are present', async () => {
     mockActiveWorkspace = makeWorkspace();
     mockBrowserSlice = makeBrowserSlice({
       tabs: [
@@ -221,8 +259,8 @@ describe('<BrowserRoom /> — EmptyState (v1.4.8 sub-task A)', () => {
 
     render(<BrowserRoom />);
 
+    expect(await screen.findByTestId('browser-view-mount')).toBeTruthy();
     expect(screen.queryByText('No tabs open')).toBeNull();
-    expect(screen.getByTestId('browser-view-mount')).toBeTruthy();
   });
 
   it('renders "Open a workspace" EmptyState when activeWorkspace is null', () => {
