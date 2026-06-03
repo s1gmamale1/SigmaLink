@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { findTomlTableRanges, replaceTomlTables } from '../../lib/toml-merge';
 
 export const KV_RUFLO_AUTOWRITE_MCP = 'ruflo.autowriteMcp';
 
@@ -479,38 +480,6 @@ function isManagedTomlRufloBlock(block: string): boolean {
   return false;
 }
 
-interface TomlTableRange {
-  header: string;
-  start: number;
-  end: number;
-}
-
-function findTomlTableRanges(source: string, tablePrefix: string): TomlTableRange[] {
-  const headerRe = /^\s*\[([^\]]+)\]\s*$/gm;
-  const headers: Array<{ header: string; start: number }> = [];
-  let match: RegExpExecArray | null;
-  while ((match = headerRe.exec(source))) {
-    headers.push({
-      header: match[1].trim(),
-      start: match.index,
-    });
-  }
-
-  const ranges: TomlTableRange[] = [];
-  for (let i = 0; i < headers.length; i += 1) {
-    const current = headers[i];
-    if (current.header !== tablePrefix && !current.header.startsWith(`${tablePrefix}.`)) {
-      continue;
-    }
-    ranges.push({
-      header: current.header,
-      start: current.start,
-      end: i + 1 < headers.length ? headers[i + 1].start : source.length,
-    });
-  }
-  return ranges;
-}
-
 // Hardcoded per-key regexes avoid the dynamic RegExp() ReDoS risk.
 // Only the three TOML keys this module queries are represented here.
 const TOML_STRING_RE: Readonly<Record<string, RegExp>> = {
@@ -526,14 +495,6 @@ function parseTomlStringValue(source: string, key: string): string | null {
   return m ? (m[1] ?? m[2] ?? '') : null;
 }
 
-function replaceTomlTables(source: string, ranges: TomlTableRange[], replacement: string): string {
-  let next = source;
-  for (const range of [...ranges].sort((a, b) => b.start - a.start)) {
-    next = next.slice(0, range.start) + next.slice(range.end);
-  }
-  next = next.trimEnd();
-  return next.length > 0 ? `${next}\n\n${replacement}` : replacement;
-}
 
 function warnRefusal(
   refused: string[],
