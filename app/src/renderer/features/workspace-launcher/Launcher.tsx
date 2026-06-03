@@ -439,7 +439,11 @@ export function WorkspaceLauncher() {
     // plain shell. This rides the SAME workspaces.launch RPC as the grid path —
     // only the pane budget differs.
     const effectivePreset: GridPreset = mode === 'single' ? 1 : preset;
-    const singleShell = mode === 'single' && Object.keys(counts).length === 0;
+    // N1 review (Medium): "Open a single terminal" must ALWAYS be a plain shell,
+    // regardless of any stale grid counts/models left from a prior visit to the
+    // Agents step (space → assign agents → Back → single). Force shell on mode,
+    // not on empty-counts.
+    const singleShell = mode === 'single';
 
     setLaunching(true);
     setError(null);
@@ -498,9 +502,7 @@ export function WorkspaceLauncher() {
       : mode === 'canvas'
         ? 'Open Sigma Canvas'
         : mode === 'single'
-          ? Object.keys(counts).length > 0
-            ? 'Launch 1 agent'
-            : 'Open 1 terminal'
+          ? 'Open 1 terminal'
           : skipAgents
             ? `Open ${preset} ${preset === 1 ? 'shell' : 'shells'}`
             : `Launch ${preset} ${preset === 1 ? 'agent' : 'agents'}`;

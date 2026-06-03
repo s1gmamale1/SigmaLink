@@ -372,7 +372,10 @@ describe('WorkspaceLauncher — N1 mode-aware flow', () => {
       await Promise.resolve();
     });
 
-    const launchBtn = screen.getByRole('button', { name: /open 1 terminal|launch 1 agent/i });
+    // N1 review (Medium) — single mode is ALWAYS a plain terminal: the label is
+    // "Open 1 terminal" (never the agent variant), and the launched pane is a
+    // shell regardless of any stale grid counts (singleShell = mode==='single').
+    const launchBtn = screen.getByRole('button', { name: /open 1 terminal/i });
     await act(async () => {
       fireEvent.click(launchBtn);
       await Promise.resolve();
