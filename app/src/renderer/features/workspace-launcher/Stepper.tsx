@@ -1,7 +1,9 @@
-// V3-W12-006: 3-step stepper Start → Layout → Agents shown above the
-// wizard body. Steps render with check-state once their preconditions are
-// met. Clicking a completed step navigates back to it; clicking a future
-// step is a no-op until prior gates pass.
+// Mode-aware wizard stepper. N1: the visible steps are driven by the chosen
+// launcher mode (see modes.ts) — 'space' shows Start → Layout → Agents →
+// Sessions, every other mode shows Start alone (intent → launch). Steps render
+// with a check-state once their preconditions are met. Clicking a completed
+// step navigates back to it; clicking a future step is a no-op until prior
+// gates pass.
 
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -11,27 +13,29 @@ export type StepId = 'start' | 'layout' | 'agents' | 'sessions';
 interface StepSpec {
   id: StepId;
   label: string;
-  num: number;
 }
 
-const STEPS: StepSpec[] = [
-  { id: 'start', label: 'Start', num: 1 },
-  { id: 'layout', label: 'Layout', num: 2 },
-  { id: 'agents', label: 'Agents', num: 3 },
-  { id: 'sessions', label: 'Sessions', num: 4 },
-];
+const STEP_LABELS: Record<StepId, string> = {
+  start: 'Start',
+  layout: 'Layout',
+  agents: 'Agents',
+  sessions: 'Sessions',
+};
 
 interface StepperProps {
   current: StepId;
+  /** Ordered, mode-filtered step ids to display (from stepsForMode). */
+  steps: StepId[];
   /** Set of step ids that pass their gate (folder picked, layout chosen, ...). */
   completed: Partial<Record<StepId, boolean>>;
   onJump: (id: StepId) => void;
 }
 
-export function Stepper({ current, completed, onJump }: StepperProps) {
+export function Stepper({ current, steps, completed, onJump }: StepperProps) {
+  const specs: StepSpec[] = steps.map((id) => ({ id, label: STEP_LABELS[id] }));
   return (
     <ol className="flex items-center gap-1.5 text-sm" aria-label="Wizard progress">
-      {STEPS.map((step, idx) => {
+      {specs.map((step, idx) => {
         const isCurrent = step.id === current;
         const isDone = !!completed[step.id] && !isCurrent;
         const isFuture = !isCurrent && !isDone;
@@ -45,6 +49,7 @@ export function Stepper({ current, completed, onJump }: StepperProps) {
               disabled={!canJump}
               className={cn(
                 'flex items-center gap-2 rounded-md px-2.5 py-1.5 transition',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 isCurrent && 'bg-accent/15 text-foreground',
                 isDone && 'text-foreground hover:bg-muted/40',
                 isFuture && 'cursor-not-allowed text-muted-foreground/60',
@@ -61,11 +66,11 @@ export function Stepper({ current, completed, onJump }: StepperProps) {
                       : 'border-border text-muted-foreground',
                 )}
               >
-                {isDone ? <Check className="h-3 w-3" /> : step.num}
+                {isDone ? <Check className="h-3 w-3" /> : idx + 1}
               </span>
               <span className="text-sm font-medium">{step.label}</span>
             </button>
-            {idx < STEPS.length - 1 ? (
+            {idx < specs.length - 1 ? (
               <span
                 aria-hidden
                 className={cn(

@@ -55,6 +55,9 @@ vi.mock('@/renderer/lib/rpc', () => ({
     design: { createCanvas: async () => ({}) },
     browser: { getState: async () => ({ tabs: [] }) },
   },
+  // N1 — IntentCards reads `rpcSilent.kv.get('canvas.gaSign')` on mount. Provide
+  // a silent stub so the real IntentCards (rendered in the Start step) is inert.
+  rpcSilent: { kv: { get: async () => null } },
 }));
 
 const dispatchMock = vi.fn();
@@ -69,14 +72,23 @@ vi.mock('@/renderer/app/state', () => ({
 }));
 
 // Stub sub-step components to avoid full render complexity.
-vi.mock('./PickerCards', () => ({
-  PickerCards: ({ onChange }: { onChange: (m: string) => void }) => (
-    <button data-testid="picker-space" onClick={() => onChange('space')}>space</button>
+// N1 — IntentCards replaces the old PickerCards row; the stub exposes one
+// button per mode so routing tests can switch modes.
+vi.mock('./IntentCards', () => ({
+  IntentCards: ({ onChange }: { onChange: (m: string) => void }) => (
+    <div data-testid="intent-cards">
+      <button data-testid="pick-space" onClick={() => onChange('space')}>space</button>
+      <button data-testid="pick-single" onClick={() => onChange('single')}>single</button>
+      <button data-testid="pick-swarm" onClick={() => onChange('swarm')}>swarm</button>
+      <button data-testid="pick-canvas" onClick={() => onChange('canvas')}>canvas</button>
+    </div>
   ),
 }));
 vi.mock('./Stepper', () => ({
-  Stepper: ({ onJump }: { onJump: (s: string) => void }) => (
-    <div data-testid="stepper">
+  // N1 — the mode-aware Stepper now receives a `steps` array; the stub renders
+  // the visible step ids so routing tests can assert which steps show.
+  Stepper: ({ steps, onJump }: { steps: string[]; onJump: (s: string) => void }) => (
+    <div data-testid="stepper" data-steps={steps.join(',')}>
       <button data-testid="jump-agents" onClick={() => onJump('agents')}>agents</button>
     </div>
   ),
@@ -312,6 +324,101 @@ describe('WorkspaceLauncher — Yolo/Bypass toggle (SF-8 B2)', () => {
     });
 
     expect(kvSetMock).toHaveBeenCalledWith('pane.autoApprove.default.ws-42', '0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// N1 — intent-first, mode-aware launcher flow
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceLauncher — N1 mode-aware flow', () => {
+  it('N1-1: defaults to the SigmaLink grid mode showing all four steps', async () => {
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    const stepper = screen.getByTestId('stepper');
+    expect(stepper.getAttribute('data-steps')).toBe('start,layout,agents,sessions');
+  });
+
+  it('N1-2: switching to single mode collapses the stepper to Start only', async () => {
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pick-single'));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('stepper').getAttribute('data-steps')).toBe('start');
+  });
+
+  it('N1-3: switching to swarm mode collapses the stepper to Start only', async () => {
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pick-swarm'));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('stepper').getAttribute('data-steps')).toBe('start');
+  });
+
+  it('N1-4: single mode launches exactly ONE shell pane via workspaces.launch', async () => {
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pick-single'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const launchBtn = screen.getByRole('button', { name: /open 1 terminal|launch 1 agent/i });
+    await act(async () => {
+      fireEvent.click(launchBtn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(workspacesLaunchMock).toHaveBeenCalledOnce();
+    const plan = workspacesLaunchMock.mock.calls[0][0] as {
+      preset: number;
+      panes: Array<{ providerId: string }>;
+    };
+    expect(plan.preset).toBe(1);
+    expect(plan.panes).toHaveLength(1);
+    expect(plan.panes[0].providerId).toBe('shell');
+  });
+
+  it('N1-5: swarm mode routes to the Swarm Room WITHOUT calling workspaces.launch', async () => {
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pick-swarm'));
+      await Promise.resolve();
+    });
+
+    const launchBtn = screen.getByRole('button', { name: /open swarm room/i });
+    await act(async () => {
+      fireEvent.click(launchBtn);
+      await Promise.resolve();
+    });
+
+    expect(workspacesLaunchMock).not.toHaveBeenCalled();
+    expect(dispatchMock).toHaveBeenCalledWith({ type: 'SET_ROOM', room: 'swarm' });
+  });
+
+  it('N1-6: the Yolo toggle is hidden for swarm mode (no agent panes spawned there)', async () => {
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    // Grid (default) shows it.
+    expect(screen.queryByTestId('yolo-toggle')).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pick-swarm'));
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('yolo-toggle')).toBeNull();
   });
 });
 

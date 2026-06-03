@@ -1,7 +1,13 @@
-// Workspace launcher orchestrator. Wave 12 (V3-W12-004/005/006/007 +
-// BUG-W7-015) splits the chrome across PickerCards / Stepper /
-// StartStep / LayoutStep / AgentsStep. BUG-W7-001 is preserved:
-// `state.activeWorkspace` is the single source of truth.
+// Workspace launcher orchestrator. N1 redesigns the flow to be intent-first
+// (BridgeSpace-style): Step 1 "Start" picks HOW you want to work via the hero
+// IntentCards (SigmaLink grid / SigmaSwarm / single terminal / SigmaCanvas) and
+// THEN picks a folder. The chosen mode drives a mode-aware Stepper (modes.ts):
+// only the SigmaLink grid mode shows Layout → Agents → Sessions; every other
+// mode is intent → launch. The launch RPCs are UNCHANGED — `launch()` still
+// branches on the mode and calls the same workspaces.launch / SET_ROOM 'swarm'
+// / design.createCanvas paths. BUG-W7-001 preserved: `state.activeWorkspace`
+// is the single source of truth. B2 preserved: SessionStep's workspaceId prop
+// + resume picker keep working in the grid path.
 
 import { useEffect, useMemo, useState } from 'react';
 import { Play, Plus, Settings as SettingsIcon, SplitSquareHorizontal } from 'lucide-react';
@@ -12,7 +18,14 @@ import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { GridPreset, LaunchPlan, ProviderProbe, Workspace } from '@/shared/types';
-import { PickerCards, type LauncherMode } from './PickerCards';
+import { IntentCards } from './IntentCards';
+import {
+  type LauncherMode,
+  nextStepForMode,
+  prevStepForMode,
+  stepAfterStart,
+  stepsForMode,
+} from './modes';
 import { Stepper, type StepId } from './Stepper';
 import { StartStep } from './StartStep';
 import { LayoutStep } from './LayoutStep';
@@ -103,6 +116,10 @@ export function WorkspaceLauncher() {
   const [mode, setMode] = useState<LauncherMode>('space');
   const [step, setStep] = useState<StepId>('start');
   const [preset, setPreset] = useState<GridPreset>(4);
+  // N1 — remember the grid preset the operator picked so that toggling into
+  // 'single' (which pins 1 pane) and back out restores their choice instead of
+  // leaving the grid stuck at 1.
+  const [gridPreset, setGridPreset] = useState<GridPreset>(4);
   const [counts, setCounts] = useState<Record<string, number>>({});
   // FEAT-14 — per-provider model picked at launch (providerId → modelId).
   // Only claude / cursor / gemini surface a dropdown; the launcher threads the
@@ -174,8 +191,32 @@ export function WorkspaceLauncher() {
   // (changeStepOnPick / changePreset). Avoiding setState-in-effect keeps the
   // render pass single-pass per react-hooks/set-state-in-effect rule.
 
+  // N1 — change the launcher mode (intent-first). Resets the wizard to the
+  // Start step so a mode switch never leaves the user stranded on a step the
+  // new mode doesn't show. 'single' pins the pane budget to 1; switching back
+  // to a grid mode restores the operator's last grid preset. Clears any stale
+  // error. The launch RPC each mode ultimately calls is decided in launch().
+  function changeMode(next: LauncherMode): void {
+    if (next === mode) return;
+    setError(null);
+    setMode(next);
+    setStep('start');
+    if (next === 'single') {
+      // Remember the current grid preset so it can be restored on switch-back,
+      // then pin to a single pane.
+      if (mode === 'space') setGridPreset(preset);
+      setPreset(1);
+    } else if (mode === 'single') {
+      // Leaving single → restore the remembered grid preset.
+      setPreset(gridPreset);
+    }
+  }
+
   function changePreset(next: GridPreset): void {
     setPreset(next);
+    // N1 — track the operator's grid preset so a 'single' detour can restore
+    // it. Only meaningful in grid mode; harmless otherwise.
+    if (mode === 'space') setGridPreset(next);
     // Clamp existing per-provider counts so the sum never exceeds the new
     // pane budget. Done synchronously alongside the preset change so the
     // matrix never flashes an over-allocated state.
@@ -194,11 +235,14 @@ export function WorkspaceLauncher() {
     });
   }
 
-  // Auto-advance Step 1 → 2 once a workspace lands in `state.activeWorkspace`.
-  // We don't auto-advance Step 2 → 3 — the user picks the pane count and
+  // Auto-advance Step 1 once a workspace lands in `state.activeWorkspace`.
+  // N1 — the destination depends on the mode: grid mode advances to Layout;
+  // single / swarm / canvas stay on Start (the launch CTA does the routing).
+  // We don't auto-advance Layout → Agents — the user picks the pane count and
   // that click is the gate.
   function maybeAdvanceFromStart(): void {
-    setStep((curr) => (curr === 'start' ? 'layout' : curr));
+    const dest = stepAfterStart(mode);
+    setStep((curr) => (curr === 'start' ? dest : curr));
   }
 
   const completed = useMemo<Partial<Record<StepId, boolean>>>(
@@ -217,6 +261,9 @@ export function WorkspaceLauncher() {
     }),
     [selectedWorkspace, preset, counts, skipAgents],
   );
+
+  // N1 — the mode-filtered, ordered step list the Stepper + StepNav navigate.
+  const visibleSteps = useMemo(() => stepsForMode(mode), [mode]);
 
   async function pickFolder(): Promise<void> {
     const r = await rpc.workspaces.pickFolder();
@@ -274,6 +321,14 @@ export function WorkspaceLauncher() {
     // hydrate paneResumePlan + derive preset/counts, then jump directly to
     // the sessions step instead of the Layout step. Stale IDs are silently
     // tolerated — SessionStep's smart-default effect will overwrite them.
+    //
+    // N1 — this multi-pane resume jump is grid-flow specific (it infers a
+    // preset/counts grid + lands on the Sessions step, which only the 'space'
+    // mode shows). For single/swarm/canvas, skip it and stay on Start.
+    if (mode !== 'space') {
+      maybeAdvanceFromStart();
+      return;
+    }
     try {
       const plan = await fetchLastResumePlan(reopened.id);
       if (plan.length > 0) {
@@ -379,12 +434,20 @@ export function WorkspaceLauncher() {
       dispatch({ type: 'SET_ROOM', room: 'browser' });
       return;
     }
+    // N1 — single-terminal mode: launch exactly ONE pane. If the operator never
+    // assigned an agent (the Agents step is hidden in this mode), default to a
+    // plain shell. This rides the SAME workspaces.launch RPC as the grid path —
+    // only the pane budget differs.
+    const effectivePreset: GridPreset = mode === 'single' ? 1 : preset;
+    const singleShell = mode === 'single' && Object.keys(counts).length === 0;
+
     setLaunching(true);
     setError(null);
     try {
-      const paneProviders: Array<{ providerId: string; modelId?: string }> = skipAgents
-        ? Array.from({ length: preset }, () => ({ providerId: 'shell' }))
-        : expandCountsToPanes();
+      const paneProviders: Array<{ providerId: string; modelId?: string }> =
+        skipAgents || singleShell
+          ? Array.from({ length: effectivePreset }, () => ({ providerId: 'shell' }))
+          : expandCountsToPanes();
       // v1.3.1 fix (Bug B): the launcher backend reads `plan.paneResumePlan`
       // (a top-level array), not `panes[i].sessionId`. v1.3.0 emitted the
       // sessionId per-pane only, so `paneResumePlan` was undefined and every
@@ -393,7 +456,7 @@ export function WorkspaceLauncher() {
       const resumeArray = buildPaneResumePlanArray(paneProviders.length, paneResumePlan);
       const plan: LaunchPlan = {
         workspaceRoot: selectedWorkspace.rootPath,
-        preset,
+        preset: effectivePreset,
         panes: paneProviders.map(({ providerId, modelId }, paneIndex) => ({
           paneIndex,
           providerId,
@@ -424,6 +487,9 @@ export function WorkspaceLauncher() {
     (skipAgents ||
       mode === 'swarm' ||
       mode === 'canvas' ||
+      // N1 — single-terminal mode always launches one pane (shell by default),
+      // so it is enabled as soon as a folder is picked.
+      mode === 'single' ||
       Object.values(counts).reduce((a, b) => a + b, 0) === preset);
 
   const launchLabel =
@@ -431,9 +497,13 @@ export function WorkspaceLauncher() {
       ? 'Open Swarm Room'
       : mode === 'canvas'
         ? 'Open Sigma Canvas'
-        : skipAgents
-          ? `Open ${preset} ${preset === 1 ? 'shell' : 'shells'}`
-          : `Launch ${preset} ${preset === 1 ? 'agent' : 'agents'}`;
+        : mode === 'single'
+          ? Object.keys(counts).length > 0
+            ? 'Launch 1 agent'
+            : 'Open 1 terminal'
+          : skipAgents
+            ? `Open ${preset} ${preset === 1 ? 'shell' : 'shells'}`
+            : `Launch ${preset} ${preset === 1 ? 'agent' : 'agents'}`;
 
   return (
     <div className="sl-fade-in flex h-full flex-col gap-4 overflow-y-auto p-6">
@@ -442,25 +512,27 @@ export function WorkspaceLauncher() {
       ) : null}
       <header className="flex flex-col gap-1">
         <div className="text-2xl font-semibold tracking-tight">Build the future.</div>
-        <div className="text-sm text-muted-foreground">
-          Pick a workspace shape, choose a layout, then assign agents.
-        </div>
+        <div className="text-sm text-muted-foreground">{headerSubtitle(mode)}</div>
       </header>
 
-      <PickerCards mode={mode} onChange={setMode} />
-
       <Card className="flex flex-col gap-4 p-4">
-        <Stepper current={step} completed={completed} onJump={setStep} />
+        <Stepper current={step} steps={visibleSteps} completed={completed} onJump={setStep} />
 
         <div className="border-t border-border/60 pt-4">
           {step === 'start' ? (
-            <StartStep
-              selected={selectedWorkspace}
-              recents={persistedWorkspaces}
-              onPickFolder={pickFolder}
-              onChooseRecent={chooseExisting}
-              onForgetRecent={removeExisting}
-            />
+            <div className="flex flex-col gap-6">
+              {/* N1 — intent-first: pick HOW you want to work, then a folder. */}
+              <IntentCards mode={mode} onChange={changeMode} />
+              <div className="border-t border-border/60 pt-5">
+                <StartStep
+                  selected={selectedWorkspace}
+                  recents={persistedWorkspaces}
+                  onPickFolder={pickFolder}
+                  onChooseRecent={chooseExisting}
+                  onForgetRecent={removeExisting}
+                />
+              </div>
+            </div>
           ) : null}
           {step === 'layout' ? (
             <div className="flex flex-col gap-3">
@@ -497,32 +569,42 @@ export function WorkspaceLauncher() {
           ) : null}
         </div>
 
-        {/* SF-8 B2 — Yolo/Bypass mode row, rendered above the bottom action row. */}
-        <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
-          <Switch
-            id="yolo-toggle"
-            data-testid="yolo-toggle"
-            checked={yolo}
-            onCheckedChange={toggleYolo}
-            aria-label="Yolo / Bypass mode — starts agents with their bypass flag"
-            aria-checked={yolo}
-          />
-          <div className="flex flex-col gap-0.5">
-            <label
-              htmlFor="yolo-toggle"
-              className="cursor-pointer text-xs font-semibold text-amber-600 dark:text-amber-400"
-            >
-              ⚠️ Yolo / Bypass mode
-            </label>
-            <p className="text-[10px] text-muted-foreground">
-              Starts agents with their bypass flag — disables the agent's own approval prompts.
-              Use only in trusted workspaces.
-            </p>
+        {/* SF-8 B2 — Yolo/Bypass mode row. N1: only shown for the modes that
+            actually spawn agent panes via workspaces.launch (grid + single).
+            Swarm has its own approval controls in the Swarm Room and Canvas
+            spawns no agents, so the toggle would be a no-op there. */}
+        {mode === 'space' || mode === 'single' ? (
+          <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
+            <Switch
+              id="yolo-toggle"
+              data-testid="yolo-toggle"
+              checked={yolo}
+              onCheckedChange={toggleYolo}
+              aria-label="Yolo / Bypass mode — starts agents with their bypass flag"
+              aria-checked={yolo}
+            />
+            <div className="flex flex-col gap-0.5">
+              <label
+                htmlFor="yolo-toggle"
+                className="cursor-pointer text-xs font-semibold text-amber-600 dark:text-amber-400"
+              >
+                ⚠️ Yolo / Bypass mode
+              </label>
+              <p className="text-[10px] text-muted-foreground">
+                Starts agents with their bypass flag — disables the agent's own approval prompts.
+                Use only in trusted workspaces.
+              </p>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-3">
-          <StepNav step={step} onChange={setStep} canAgents={!!selectedWorkspace} />
+          <StepNav
+            mode={mode}
+            step={step}
+            onChange={setStep}
+            canAgents={!!selectedWorkspace}
+          />
           <Button
             onClick={launch}
             disabled={!launchEnabled}
@@ -546,27 +628,34 @@ export function WorkspaceLauncher() {
   );
 }
 
+// N1 — mode-aware header copy. The subtitle reflects what the chosen mode will
+// actually do so the Start step reads as intent-first.
+function headerSubtitle(mode: LauncherMode): string {
+  switch (mode) {
+    case 'swarm':
+      return 'A team of AI agents will plan, build, and review one goal together.';
+    case 'single':
+      return 'Open a single terminal — pick a folder and launch.';
+    case 'canvas':
+      return 'Open the visual design canvas for this workspace.';
+    case 'space':
+    default:
+      return 'Pick a workspace shape, choose a layout, then assign agents.';
+  }
+}
+
 interface StepNavProps {
+  mode: LauncherMode;
   step: StepId;
   onChange: (s: StepId) => void;
   canAgents: boolean;
 }
 
-function StepNav({ step, onChange, canAgents }: StepNavProps) {
-  const next: Record<StepId, StepId | null> = {
-    start: 'layout',
-    layout: 'agents',
-    agents: 'sessions',
-    sessions: null,
-  };
-  const prev: Record<StepId, StepId | null> = {
-    start: null,
-    layout: 'start',
-    agents: 'layout',
-    sessions: 'agents',
-  };
-  const nextStep = next[step];
-  const prevStep = prev[step];
+function StepNav({ mode, step, onChange, canAgents }: StepNavProps) {
+  // N1 — Back/Next walk the MODE-FILTERED step list (modes.ts), so the
+  // non-grid modes (single/swarm/canvas) correctly have no further steps.
+  const nextStep = nextStepForMode(mode, step);
+  const prevStep = prevStepForMode(mode, step);
   return (
     <div className="flex items-center gap-2">
       <Button
