@@ -49,8 +49,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         ]);
         if (!alive) return;
         // BUG-W7-003: validate the stored value. If it's missing OR not in the
-        // canonical theme set, fall back to obsidian and write the corrected
-        // value back to kv so the next boot is clean.
+        // canonical theme set, fall back to DEFAULT_THEME (glass) and write the
+        // corrected value back to kv so the next boot is clean.
         if (isThemeId(storedTheme)) {
           setThemeState(storedTheme);
           applyTheme(storedTheme);

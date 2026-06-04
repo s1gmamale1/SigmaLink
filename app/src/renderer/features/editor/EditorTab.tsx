@@ -1,8 +1,9 @@
 // V3-W14-007 — Editor right-rail tab. 240px FileTree on the left, Monaco on
 // the right. Monaco is lazy-loaded via React.lazy so it stays out of the
 // initial bundle; if the chunk fails (or runtime-throws) we render a
-// read-only <pre> fallback. Theme map: parchment → vs-light, all others
-// → vs-dark. External callers focus a file by dispatching the
+// read-only <pre> fallback. Theme map: any LIGHT-appearance theme (parchment,
+// clean-light, …) → vs-light, all dark themes → vs-dark (data-driven via the
+// theme catalog's `appearance` field). External callers focus a file by dispatching the
 // `editor:focus` CustomEvent (see useEditor.ts).
 //
 // W-8 — Per-pane worktree browsing. A root selector above the FileTree lets
@@ -25,6 +26,7 @@ import {
 } from 'react';
 import { AlertTriangle, ChevronDown, FileCode2, Save } from 'lucide-react';
 import { useTheme } from '@/renderer/app/ThemeProvider';
+import { findTheme } from '@/renderer/lib/themes';
 import { useAppState } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { rpc } from '@/renderer/lib/rpc';
@@ -51,7 +53,9 @@ const MonacoLoader = lazy(async () => {
 });
 
 function themeToMonaco(themeId: string): 'vs-dark' | 'vs-light' {
-  return themeId === 'parchment' ? 'vs-light' : 'vs-dark';
+  // Data-driven off the catalog `appearance` so EVERY light theme (parchment,
+  // clean-light, …) gets vs-light — not just a hardcoded id.
+  return findTheme(themeId).appearance === 'light' ? 'vs-light' : 'vs-dark';
 }
 
 const LANG_MAP: Record<string, string> = {

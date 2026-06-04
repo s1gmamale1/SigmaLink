@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 // (P5.2: applyDensity touches document.documentElement, so this file needs a DOM.)
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_THEME,
@@ -8,6 +10,7 @@ import {
   isDensityId,
   isThemeId,
   findTheme,
+  THEMES,
 } from './themes';
 
 describe('themes — DEFAULT_THEME is glass', () => {
@@ -61,5 +64,60 @@ describe('themes — density (P5.2)', () => {
     expect(document.documentElement.getAttribute('data-density')).toBe('compact');
     applyDensity('comfortable');
     expect(document.documentElement.getAttribute('data-density')).toBe('comfortable');
+  });
+});
+
+// BSP-T1/T2 — the Clean + Glass-Spectrum theme library.
+describe('themes — catalog (BSP-T1/T2 theme library)', () => {
+  it('ships 15 themes (4 classic + 5 glass + 6 clean)', () => {
+    expect(THEMES.length).toBe(15);
+  });
+
+  it('every theme id is unique', () => {
+    const ids = THEMES.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('isThemeId accepts every catalog id + the new families, rejects unknowns', () => {
+    for (const t of THEMES) expect(isThemeId(t.id)).toBe(true);
+    expect(isThemeId('glass-teal')).toBe(true);
+    expect(isThemeId('clean')).toBe(true);
+    expect(isThemeId('clean-light')).toBe(true);
+    expect(isThemeId('bogus')).toBe(false);
+  });
+
+  it('every swatch field is a 6-digit hex', () => {
+    const hex = /^#[0-9a-fA-F]{6}$/;
+    for (const t of THEMES) {
+      for (const k of ['bg', 'fg', 'primary', 'accent'] as const) {
+        expect(hex.test(t.swatch[k]), `${t.id}.swatch.${k}`).toBe(true);
+      }
+    }
+  });
+
+  it('appearance is dark|light for every theme; clean-light is the only light Clean', () => {
+    for (const t of THEMES) {
+      expect(t.appearance === 'dark' || t.appearance === 'light').toBe(true);
+    }
+    expect(THEMES.find((t) => t.id === 'clean-light')?.appearance).toBe('light');
+    expect(THEMES.find((t) => t.id === 'clean')?.appearance).toBe('dark');
+  });
+
+  // Drift guard (Phase 1 risk): a catalog theme with no CSS block renders
+  // invisibly. Assert each id is reachable in index.css — either an explicit
+  // `[data-theme='id']` block or its family prefix `[data-theme^='fam']`.
+  it('every theme id has a matching CSS block in index.css (no drift)', () => {
+    // vitest runs with cwd = app/, so the stylesheet is at src/index.css.
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+    for (const t of THEMES) {
+      // A variant (id contains '-') MUST have its own explicit block — the
+      // family-prefix `^=` selector only proves the base exists, so without this
+      // an id whose override block was deleted would silently render as the base
+      // (e.g. clean-light → the dark clean base despite appearance:'light').
+      const reachable = t.id.includes('-')
+        ? css.includes(`data-theme='${t.id}'`)
+        : css.includes(`data-theme='${t.id}'`) || css.includes(`data-theme^='${t.id}'`);
+      expect(reachable, `no CSS block for theme '${t.id}'`).toBe(true);
+    }
   });
 });

@@ -35,7 +35,9 @@ import { findTheme } from "@/renderer/lib/themes"
 const Toaster = ({ toastOptions, ...props }: ToasterProps) => {
   const { theme } = useTheme()
   const appearance = findTheme(theme).appearance // 'light' | 'dark'
-  const isGlass = theme === "glass"
+  // Any glass-family theme (glass, glass-teal/violet/slate/frost) gets the
+  // chrome glass material — glass-material.css matches every `[data-theme^='glass']`.
+  const isGlass = theme.startsWith("glass")
 
   return (
     <Sonner
