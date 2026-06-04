@@ -1,120 +1,247 @@
 # SigmaLink — Execution Roadmap (next-phase whiteboard)
 
-> **Ephemeral working doc.** The priority-ordered execution sequence for the CURRENT phase,
-> derived from findings in `WISHLIST.md`. A whiteboard — refreshed each phase, **not permanent
+> **Ephemeral working doc.** The priority-ordered execution sequence for the CURRENT cycle,
+> derived from `WISHLIST.md`. A whiteboard — refreshed each cycle, **not permanent
 > documentation**. Permanent record → `CHANGELOG.md` + master memory + Ruflo AgentDB.
 >
-> **Shipped baseline:** SigmaLink v1.36.0 (+ on-main-untagged video+perf harness & FE-4 a11y `dbce7e6`).
->
-> **🎉 ENTIRE 6-PHASE ROADMAP + ITS FULL LONG-TAIL SHIPPED — staged as `v2.0.0` (UNTAGGED on `main`, 2026-06-03).**
-> ✅ P1 (#70) · ✅ P2 (#72) · ✅ P3 (#73) · ✅ P4 (#75+#76) · ✅ P5 (#78+#79) · ✅ P6 exit (#81+#82) — **and the P6 long-tail (FEAT-2/3/4/5/6/8/9/10/12/14 + ONB-1), P4.2 (MEM-5/7/8/9, FTS5, causal edges, ⌘O, daily-note digest, auto-checkpoint), P5.2 (density, PERF-7/8/9/12), and ARCH-1/6/9 all merged this cycle.** Detail → `CHANGELOG.md` [2.0.0].
-> **Deferred → next-cycle WISHLIST (seed a fresh ROADMAP from there):** Resizable-shell **Strategy B** (rail/main px→%), **ARCH-2/3/4/5/7/8** (large splits — held per the DDD small-per-packet rule), **MEM-7 fence-awareness** (M2). **Owed pre-tag (operator live smokes):** DB-2 backup→restore round-trip ✅ (smoke-verified) · perf-harness ✅ · FEAT-11 rewind ✅ (+ found+fixed the safety-redo bug, PR #93) · responsive ✅.
->
-> ## ✅ v2.0.0 pre-release bugfix cycle COMPLETE (2026-06-03 operator smoke) — tag re-offered
-> A real-device smoke surfaced 6 release-blockers; **ALL MERGED to main + full gate green** (tsc · eslint . · vitest 2693 · build · full `tests/e2e/` 10 pass/3 manual-skip). The v2.0.0 tag is un-paused → re-offered to the operator (operator-authorized step). Detail/evidence → `WISHLIST.md` "v2.0.0 operator-smoke findings".
-> 1. ✅ **B1 codex config dup** (`ce2474e`, PR #96) — table-name-aware codex MCP writer (shared `lib/toml-merge`) + live config repaired.
-> 2. ✅ **B2 resume cross-project** (`21ac09e`, #99) — codex/kimi/gemini session lists cwd-scoped + default "New session"; gemini drop-fresh.
-> 3. ✅ **B4 Ruflo HTTP daemon** (`bc2af32`, #97) — HTTP gated off (upstream-broken), clean stdio, no more spawn/crash/log-spam; installer pin fixed.
-> 4. ✅ **B3 Jorvis silent** (`e9cadc3`+`7c6d6d4`, #100) — composer no longer latches busy; idle turn-timeout + watchdog + error-final (Opus-APPROVE, idle-timeout + error-guard folded).
-> 5. ✅ **N1 workspace wizard** (`5c62635`+`9da0e20`, #101, Opus-APPROVE + single-shell fold) + ✅ **N2 resizable browser** (`84212e1`, #98). ✅ **N4 video-lens-review skill** done.
-> **Owed (operator visual smoke before/at tag):** N1 wizard look across themes · N2 browser drag + bounds-sync + no-reload-on-reopen · Jorvis live reply (run `claude` once for trust). **Deferred → next cycle:** **N3 Jorvis FE** (premium streaming/bubbles — was B3-blocked, now unblocked) · B3 nits (SIGKILL escalation, sub-second adopt window, conv-switch busy-clear) · N1 `Launcher.tsx`>500-line `launch-plan.ts` split · the prior v2.0.0 long-tail deferrals (Resizable Strategy B, ARCH-2/3/4/5/7/8, MEM-7 fence).
->
-> **Phase goal (operator's 6-pillar vision):** **(a)** Apple-grade visuals · **(b)** responsive layouts ·
-> **(c)** smooth animations/popups · **(d)** polished notifications · **(e)** tasteful sound ·
-> **(f)** persistent DB + agent memory that **mirrors Obsidian** (graph/backlinks/daily-notes/Ruflo).
->
-> **Ordering principle (critic-enforced): reliability spine + motion foundation BEFORE sparkle, then
-> the headline obsidian-memory, then perf/responsive, then competitive features.** A single uncaught
-> render throw blanks the window today (ERR-1) and swarm crashes are silently swallowed (BUG-1) — those
-> land first. `MOT-1` is the load-bearing prerequisite every animation/notification item assumes, so it
-> opens P2. Full backlog (75 items + evidence + proposals) lives in `WISHLIST.md`.
+> **This cycle (set 2026-06-04)** is driven by the **BridgeSpace competitor teardown** (6-agent
+> `video-lens-review` of BridgeMind Day 187 + Day 188 streams — see `WISHLIST.md` "BridgeSpace
+> competitor teardown — 2026-06-04"). **Operator headline: ship a flat "Clean/Clear" theme +
+> more Glass variations FIRST**, then the high-leverage worktree/git UI, FE polish, premium
+> Jorvis FE, and orchestration/browser/voice depth.
+
+This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## 🎯 Phase sequence (priority order — set 2026-05-31)
-
-| Phase | Theme (pillar) | Ships as¹ | Headline items (priority order) | Why here |
-|------|----------------|-----------|----------------|----------|
-| ✅ **P1** | Reliability & correctness spine | ✅ **merged PR #70** (`37f94a0`) | **DONE** — BUG-1/2/3/4/5/6/7/8/13/14 · DB-1 · ERR-1 · ARCH-10 + commitAndMerge `--abort` fix. *(ARCH-1 split to its own follow-up — ✅ shipped in v2.0.0.)* | Shipped 2026-05-31. |
-| ✅ **P2** | Apple-grade motion & overlays (a/c) | ✅ **merged PR #72** | **DONE** — MOT-1, UX-1/2/3/4/5/6/7/8/9/10, ANIM-2, PERF-13/MEM-10 | Shipped. One motion language; native modals + dark-pinned toaster gone. |
-| ✅ **P3** | Notifications + sound (d/e) | ✅ **merged PR #73** | **DONE** — NTF-1, NTF-2, NTF-3(=UX-9), SND-1, ANIM-3 | Shipped. DND/quiet-hours/per-source + restrained soundscape + toast↔bell handoff + pane aliveness. |
-| ✅ **P4** | Obsidian memory + agent-memory unification (f) — **HEADLINE** | ✅ **merged PRs #75+#76** | **DONE** — MEM-1, MEM-4, MEM-2, MEM-3, MEM-6, DB-2, BUG-10/11/12. *(MEM-5/7/8/9, PERF-14, causal edges, global ⌘O → P4.2/WISHLIST.)* | Shipped. Ruflo-as-graph + ⌘O + daily notes + tags + orphans + DB backup. |
-| ✅ **P5** | Responsiveness & performance (b) | ✅ **merged #78+#79** | **DONE** — PERF-1/11 (pty:data+broadcast), PERF-3 (selectors), PERF-5/6 (dedup polling), PERF-2/4/10, RSP-1 (resizable + per-ws sizes). *(PERF-7/8/9/12 + density → WISHLIST.)* | Shipped. Hottest IPC + re-render paths tamed; resizable layout-remembering surfaces. |
-| ✅ **P6 FULL** | Competitive features & leapfrogs (multi-release) | ✅ **exit #81+#82 + long-tail (v2.0.0)** | **DONE** — FEAT-7, FEAT-1, FEAT-11 (rewind), FEAT-13 (merge-order + badges), **+ long-tail FEAT-2/3/4/5/6/8/9/10/12/14 + ONB-1** all shipped this cycle. | The whole parity surface + both leapfrogs are in v2.0.0. |
-| ✅ **×** | Cross-cutting (every phase) | within v2.0.0 | ✅ ARCH-1, ARCH-6, ARCH-9. **Deferred:** ARCH-2/3/4/5/7/8 (big-bang splits → next cycle), SEC-1 (ongoing), RES-1. | ARCH-1 type-seam + ARCH-6/9 done; the large file/god-function splits held per the DDD small-per-packet rule. |
-| **B** | Blocked / operator-owned (parked) | when unblocked | B1, B2, op-0026, op-smokes | Not actionable unblocked — see tail. |
-
-> ¹ **Ships as** = suggested release tag per phase, operator-authorized at ship time (not a commitment). A phase may split across point releases; P6 spans several.
+## How to read this
+- **Phases are ordered by value/effort**, with cross-phase prerequisites called out.
+- **Effort:** S (≤½ day), M (1–2 days), L (3–5 days), XL (>1 week).
+- Item codes (`BSP-*`, `FEAT-*`) trace back to `WISHLIST.md`. Confirmed bugs are fixed before new feature phases.
+- **Already-shipped competitor parity is NOT re-built** — see "Skip / market better" at the tail.
 
 ---
 
-### ▶ P1 — Reliability & correctness spine · ✅ SHIPPED 2026-05-31 (PR #70 · `37f94a0`, untagged)
-**Delivered (13 fixes):** BUG-1 (shared `isPtyCrash` in new dep-free `pty/crash.ts`, both exit paths persist `isCrash`) · BUG-2 (daemon `wireChildIo` drains stdout on both spawn paths) · BUG-3 (sync push-retry full `_pullCycle` reconcile + re-encode — closes a cross-device data-loss window) · BUG-4 (all side-band IPC validated via shared `registerIpcHandler`, incl. destructive `cleanup.*`) · BUG-5/6/7/8 (lifecycle / GC revival / truncated download / quit-persist log) · BUG-13 (dedup `AddAgentToSwarmInput`) · BUG-14 (commitAndMerge behavior tests **+ found & fixed a real HIGH: `git merge --abort` on conflict so the base branch is restored**) · DB-1 (SQLite `quick_check` + quarantine-and-recreate) · ERR-1 (root + per-room error boundaries + renderer error sink) · ARCH-10 (29 stale worktrees swept, 5.8 GB→0).
-**Gate:** `tsc -b` clean · 2000 vitest pass · e2e 9/3-skip · Opus review (no critical/high; the one MEDIUM — launcher DB-status parity — folded). Detail → `CHANGELOG.md` [Unreleased] + master memory.
-**ARCH-1 (was owed from P1 scope) ✅ shipped in v2.0.0:** `tsconfig.main.json` type-checks `src/main` as Node (node types, no DOM) in the build references.
+## 🔓 Release carry-over (operator-owned — blocks nothing below)
+**v2.0.0 is shipped to `main` (untagged).** The tag is a separate operator-authorized step via `/sigmalink-release`. Owed operator VISUAL smokes before/at the tag: N1 wizard across themes (esp. Glass/Parchment) · N2 browser drag + bounds-sync + no-reload-on-reopen · Jorvis live reply (run `claude` once for trust). These are operator-owned; new cycle work below proceeds in parallel.
 
-### ▶ P2 — Apple-grade motion & overlays (pillars a, c) · ✅ SHIPPED (PR #72, untagged)
-**Goal:** one cohesive Apple motion language across every overlay, zero native OS modals, theme-correct transient surfaces.
-**Deliverables:** `MOT-1` motion tokens + `useSpringPresence` with all `components/ui/*` overlays migrated; a themed Toaster; a Radix-based notification dropdown; themed Prompt/Alert dialogs replacing all native calls.
-**Work (priority — MOT-1 FIRST):**
-- **MOT-1** motion-token foundation **(prereq for P2/P3 animation)**: Apple spring easings as CSS+tailwind tokens (smooth/snappy/bouncy, 150/250/350ms, reduced-motion-aware) + `useSpringPresence`; migrate `components/ui/*`.
-- **UX-1** themed Toaster (kill the hard-pinned dark). **UX-2** rebuild notification dropdown on Radix Popover (focus-trap/Escape/spring). **UX-3** replace native `prompt/confirm/alert` with themed dialogs (destructive → AlertDialog first). **UX-4** dialog max-height + scroll. **UX-7** single root TooltipProvider.
-- **ANIM-2** Orb `prefers-reduced-motion` (quick win). **UX-5** room-switch transitions. **UX-6** dnd drop animation. **UX-8** keyboard pane-resize. **UX-9** notification non-color severity cue. **UX-10** `focus-visible:` sweep. **PERF-13 + MEM-10** MemoryGraph RAF-settle + theme colors + reduced-motion.
-**Exit criteria:** no `window.prompt/confirm/alert` remain (grep clean); toasts track the active theme; every Radix overlay uses the spring tokens; `prefers-reduced-motion` honored app-wide incl. Orb + MemoryGraph.
+## 🐞 Confirmed bugs to fix first (hotlist)
 
-### ▶ P3 — Notifications + sound (pillars d, e) · ✅ SHIPPED (PR #73, untagged)
-**Delivered:** NTF-1 (DND/quiet-hours/per-source via shared `notification-prefs.ts` + `os-notify.ts` gating) · SND-1 (`lib/sounds.ts` 12-cue soundscape + volume + per-cue mute matrix + preview; `notifications.ts` → back-compat shim) · NTF-2 (collapsible per-source dropdown grouping + max-severity tone + themed toast↔bell handoff) · ANIM-3 (PaneFooter rotating-verb + elapsed aliveness). NTF-3 = P2's UX-9. **Deferred → WISHLIST:** optional daily-summary digest. Detail → `CHANGELOG.md` [Unreleased].
-**Goal:** a calm, controllable notification + sound experience — tasteful where it adds value, silent where it doesn't.
-**Deliverables:** DND/quiet-hours/per-source mute UI, a grouped/animated notification dropdown, and a `lib/sounds.ts` soundscape module with a volume + per-event mute matrix in NotificationsSettings. Built on P2 springs; backend (`manager.ts`) is already mature.
-**Work (priority order):**
-- **NTF-1** DND / quiet-hours / per-source mute (wire the scaffolded `KV_OS_PER_SOURCE`) + optional daily summary.
-- **NTF-2** grouped/animated dropdown + mark-all-read + coherent toast↔bell handoff. **NTF-3** = UX-9.
-- **SND-1** central soundscape (event→cue, per-severity tones, volume + per-event mute matrix, gated by reduced-motion/DND/hidden, record-start/stop, CSP-safe optional assets, synth fallback). Restraint default: no per-PTY-data sound.
-- **ANIM-3** whimsical progress verbs + elapsed/token aliveness on running panes.
-**Exit criteria:** DND silences OS + sound; per-source mute works; sound is suppressed under reduced-motion / DND / hidden-window; distinct severity tones; volume persists.
+| # | Sev | Bug | Where | Effort |
+|---|-----|-----|-------|--------|
+| BSP-B4 | medium | Embedded-browser input/focus reliability — audit `WebContentsView` focus forwarding to form fields (BridgeSpace still fights this in v3.1 → differentiation chance) | `core/browser/{manager,controller}.ts`, `renderer/browser/BrowserViewMount.tsx` | M |
 
-### ▶ P4 — Obsidian memory + agent-memory unification (pillar f) — **HEADLINE** · ✅ SHIPPED (PRs #75 + #76, untagged)
-**Delivered:** MEM-1 (Ruflo AgentDB as a read-only graph node class via `ruflo.entries.list`/`neighbors` + `useRufloGraphOverlay` + `MemoryGraph` legend + read-only virtual notes) · MEM-4 (⌘O quick switcher) · MEM-2 (daily notes) · MEM-3 (tags pane filtering list+graph) · MEM-6 (orphans/suggestions UI) · DB-2 (backup/restore, main-side dialog) · BUG-10/11/12. **Operator smoke owed pre-tag:** DB-2 backup→restore→identical round-trip (no vitest coverage — better-sqlite3 ABI). **→ P4.2/WISHLIST:** causal edges, global ⌘O, graph tag-dim, MEM-5/7/8/9, PERF-14, daily-note digest. Detail → `CHANGELOG.md`.
-**Goal:** the Ruflo agent memory is browsable the Obsidian way, and the Memory room feels like a real PKM (graph/backlinks/daily-notes/tags/quick-switcher).
-**Deliverables:** Ruflo patterns as a distinct graph node class with backlinks (read-only), a ⌘O quick switcher, Daily Notes, a tags pane, the orphans/suggestions UI, and DB backup/restore.
-**Work (priority — MEM-1 is the anchor):**
-- **MEM-1** **surface the Ruflo AgentDB the Obsidian way** (graph nodes + backlinks + read-only linked notes; causal-edges/similarity edges; namespace tag facets; node sizing by time-decay). Start read-only; write-linking fast-follow.
-- **MEM-4** global Quick Switcher (⌘O) unified memory+pattern search in the command palette. **MEM-2** Daily Notes (+ self-populating agent-activity digest). **MEM-3** Tags pane + tag filters. **MEM-6** orphans + suggested-connections UI (shipped-but-hidden quick win). **MEM-5** aliases → **MEM-7** unlinked mentions. **DB-2** DB backup/export-import. **BUG-10** populate `frontmatter_json` → **MEM-9** properties/outline editor; **MEM-8** templates. **BUG-11/12** editor staleness + case-uniqueness. **PERF-14** FTS5 search (when vaults grow).
-**Exit criteria:** Ruflo patterns appear as a distinct node class with similarity/causal edges + backlinks; ⌘O jumps to any note from anywhere; a "Today" note auto-creates; tag-click filters the list + graph; DB backup round-trips (backup → restore → identical state).
-
-### ▶ P5 — Responsiveness & performance (pillar b) · ✅ SHIPPED (PRs #78 + #79, untagged)
-**Delivered:** PERF-1 (`pty:data` coalescer) · PERF-11 (single-window broadcast) · PERF-3 (granular selectors for the 5 hottest consumers) · PERF-5/6 (refcounted Ruflo-health + shared per-repo git-status pollers, pause-when-hidden) · PERF-4 (incremental sessionsByWorkspace) · PERF-10 (binary-insert deltas) · PERF-2 (main-side link-detect gate) · RSP-1 (`useBreakpoint` + per-workspace UI kv; resizable Memory tri-column; per-workspace rail widths + narrow auto-collapse). **Owed pre-tag:** `npm run test:perf` jank-delta + `pty:data` IPC-rate live measurement; resize/collapse live smoke. **→ WISHLIST:** PERF-7/8/9/12, density scale. Detail → `CHANGELOG.md`.
-**Goal:** resizable, layout-remembering surfaces that stay smooth under live multi-agent load.
-**Deliverables:** the Resizable primitive adopted for rail/main/right-rail + Memory (sizes persisted per workspace), `pty:data` coalescing, granular state selectors, per-pane polling dedup — with before/after perf-harness deltas recorded.
-**Work (priority order):**
-- **RSP-1** adopt the bundled-but-dead Resizable primitive for rail/main/right-rail + Memory tri-column, **persist sizes per workspace**; shared `useBreakpoint` + density scale; narrow-width collapse.
-- **PERF-1** coalesce `pty:data` (hottest path) + **PERF-11** single-window broadcast. **PERF-3** migrate `useAppState()`→granular selectors (25 components). **PERF-2** gate link-detection. **PERF-4** incremental `sessionsByWorkspace`. **PERF-5** refcounted per-workspace Ruflo-health poll. **PERF-6** batch per-pane git-status. **PERF-8** async disk-scan off the main thread. **PERF-7/9/10/12** (Constellation settle, exit-listener bus, delta re-sort, JSONL bounded read).
-**Exit criteria:** panel sizes persist per workspace across restart; `npm run test:perf` shows reduced jank windows under CPU throttle; no per-pane duplicate Ruflo/git polling; `pty:data` IPC message-rate drops materially under streaming output.
-
-### ▶ P6 — Competitive features & leapfrogs · ✅ FULLY SHIPPED in v2.0.0 (exit #81+#82 + long-tail this cycle, untagged)
-**Exit criteria (both met):** FEAT-11 agent-rewind reliably restores a worktree to a checkpoint (per-pane `session_checkpoints` + confirm-gated `git reset --hard` with ancestry/ownership/safety-checkpoint guards; **+ auto-checkpoint-on-dispatch** so a restore point always exists); FEAT-13 merge-order merges N panes conflict-aware without touching base on conflict (`OrchestratorPanel` + `proposeMergeOrder` + `batchCommitAndMerge` + the BUG-14 abort; **+ conflict-probability badges**). **Also shipped (exit rounds):** FEAT-7 per-agent identity, FEAT-1 resume-agents modal. **Long-tail — ALL SHIPPED this cycle (v2.0.0):** FEAT-3 (usage/cost ledger), FEAT-8 (git heatmap), FEAT-2 (context sidebar), FEAT-5 (MCP diagnostics), FEAT-6 (phase tree), FEAT-9 (chat search/pin), FEAT-4 (prompt cards), FEAT-10 (presets), FEAT-12 (drag affordance), FEAT-14 (effort control), ONB-1 (tour + settings search). Detail → `CHANGELOG.md` [2.0.0].
-**Goal:** close v3.0.74 parity and ship the worktree-only differentiators a shared-dir competitor can't match.
-**Deliverables:** per-feature increments — resume modal, per-pane usage/cost, per-agent identity, agent rewind, merge-orchestration UI, MCP diagnostics, swarm phase tree, etc. Each non-trivial feature (FEAT-4/6/11/13) gets its own spec before build.
-**Work (priority — leapfrogs first):**
-- **FEAT-1** Resume-agents relaunch modal. **FEAT-3** per-pane usage/cost panel (session/week budget bars). **FEAT-7** per-agent visual identity (color + ID). **FEAT-11** agent undo/rewind via worktree checkpoints (**leapfrog**). **FEAT-13** cross-pane merge-orchestration UI (surface `scoreConflicts`, **leapfrog**). **FEAT-8** per-worktree git-activity heatmap (**leapfrog**).
-- **FEAT-2** focused-pane Context/MCP/LSP sidebar. **FEAT-5** MCP Config Diagnostics. **FEAT-6** SigmaSwarm phase tree. **FEAT-9** swarm-chat search/filter/pin. **FEAT-4** interactive in-terminal prompt cards. **FEAT-10** launch + distribution presets. **FEAT-12** discoverable drag-affordance. **FEAT-14** compact per-pane effort control (avoid the all-panes-glow). **ONB-1** first-run tour + settings search.
-**Exit criteria:** each feature ships behind its own acceptance test; specifically — rewind reliably restores a worktree to a prior checkpoint, and the merge-order action merges N panes conflict-aware without touching the base branch on conflict.
-
-### ▶ × Cross-cutting (apply within every phase)
-- **SEC-1** phase security re-gate — daily-note digest + Ruflo-pattern rendering + sound assets reopen H-19-class surfaces; run snitch/semgrep + Opus review on each phase that adds ingestion/render. (Ongoing; the P4.2 digest went through `scanIngested`.)
-- **Decompositions:** ✅ **ARCH-1** (main-process tsconfig), ✅ **ARCH-6** (deleted dead `core/voice/whisper-engine.ts`), ✅ **ARCH-9** (RPC output-validation wave) shipped in v2.0.0. **Deferred → next cycle** (big-bang splits held per the DDD small-per-packet rule, not at release-eve): ARCH-2 (rpc-router 2101 → controllers + side-band maps), ARCH-3 (router-shape split), ARCH-4 (VoiceTab split), ARCH-5 (assistant controller/tools), ARCH-7 (consolidate voice-stats/model-registry), ARCH-8 (`swarm`/`swarms` namespace clarity).
-- **RES-1** provision whisper GGML / auto-subs before the next competitor-video review.
+*(The v2.0.0 owed smokes are operator QA, not code bugs. No other confirmed product bugs this cycle.)*
 
 ---
+
+## Phase 1 — "Clean/Clear" theme + Glass variations  ·  **OPERATOR HEADLINE — do first**
+
+**Goal.** SigmaLink offers a flat, opaque "Clean/Clear" theme alongside Glass, plus a family of Glass variations, all selectable like the existing themes.
+
+**Deliverables.**
+- **BSP-T1** new `clean` theme (dark) + a `clean-light` variant — `ThemeDefinition` entries + `[data-theme="clean"]` / `[data-theme="clean-light"]` CSS-var blocks.
+- **BSP-T2** Glass-variation tier: a `--surface-tint` + `--glass-image-opacity` layer over the glass base + 3–4 presets (`glass-teal` / `glass-violet` / `glass-slate` / `glass-frost`).
+
+**Why now.** The user's explicit #1 ask. Cohesive, self-contained (theme layer only), and unblocks the gallery (Phase 2) having real content to show.
+
+**Scope.**
+- `src/renderer/lib/themes.ts:6` — extend `ThemeId` union (`'clean' | 'clean-light' | 'glass-teal' | …`); add `THEMES[]` entries with swatches. Keep `DEFAULT_THEME='glass'`.
+- `src/index.css` — add the Clean palette as flat-opaque tokens (bg `#0c0d0f` / pane `#15171a` / raised `#1c1f23` / divider `#23262b` / text `#e6e8ea` / muted `#8a9099` / **accent/focus amber `#e8833a`**; light variant mirrors it); add a `--surface-tint`/`--glass-image-opacity` layer the glass blocks read so a tint preset = a few overrides, NOT a copied block (see ADR-001).
+- Verify token consumers still resolve: `app/App.tsx`, `sidebar/Sidebar.tsx`, `command-room/PaneHeader.tsx`, the `.sl-glass` utility — Clean must set `--blur: 0` and flat surfaces (no translucency).
+
+**Findings + recommendation.** themes.ts is a thin metadata layer (id/label/swatch/appearance); real tokens live per-`data-theme` in `src/index.css`. BridgeSpace ships 23 themes cheaply by varying *backdrop + accent* over one base (D187 00:33:08) — so model variations as a **tint/opacity layer**, not N hand-authored themes. Clean is the *opposite* of Glass depth (flat, zero-shadow, hairline dividers, single amber focus-ring) → it's a distinct family, not a glass tint.
+
+**Risks.** Token drift — a variant that overrides too little looks identical, too much diverges. Mitigation: a small Vitest snapshot asserting each new `data-theme` sets `--background`/`--accent`/`--blur`. Glass `backdrop-filter` perf on tinted variants — reuse the existing glass blur budget.
+
+**Definition of done.** Each new theme is selectable; Clean renders fully flat (no blur/shadow) with the amber focus-ring; a Glass tint preset changes hue via one `--surface-tint` swap; `tsc -b` + vitest green.
+
+---
+
+## Phase 2 — Appearance theme-gallery picker + per-workspace tint
+
+**Goal.** Themes are chosen from a live card-gallery (like BridgeSpace's), and each workspace can carry its own tint.
+
+**Deliverables.**
+- **BSP-T3** `AppearanceTab` rebuilt as a card grid: each card = a live scaled-down pane preview (that theme's CSS vars) + label + muted taxonomy sub-label + accent bar; `All / Dark / Light` count-segmented filter; search; `✓ ACTIVE + accent-border` selected state; hero header with a one-line value-prop.
+- **BSP-T4** per-workspace accent/tint (workspace KV → `--surface-tint`/`--accent`).
+
+**Why now.** Makes Phase 1's new themes discoverable and sells breadth; reuses the selectable-preview-card pattern we'll want elsewhere.
+
+**Scope.**
+- `src/renderer/features/settings/AppearanceTab.tsx` (295 lines) — replace the current list with a responsive card grid; render each preview by scoping a mini-DOM under `data-theme={id}`; derive `All/Dark/Light` counts from `THEMES[].appearance`; wire search over label/description; mirror the pattern for the density control.
+- Per-workspace tint: store `ui.<ws>.theme.tint` in workspace KV; apply on workspace open alongside the global theme (respect the GLOBAL boot reader — cf. the per-workspace-key migration lesson).
+
+**Findings + recommendation.** AppearanceTab is already controlled-tab + search-aware (ONB-1). Live preview cards (not static swatches) are the high-value detail (D187 00:32:58); the `image @ N%` opacity tag (D187 00:33:08) is exactly our `--glass-image-opacity` token surfaced as UI.
+
+**Risks.** N live previews = N themed sub-trees → render cost. Mitigation: render previews as lightweight static mock markup (titlebar + 3 lines + accent bar), not real panes; lazy-mount offscreen cards.
+
+**Definition of done.** Gallery shows every theme as a live-ish preview card; filter + search narrow it; selecting sets the theme + `✓ ACTIVE`; a per-workspace tint persists across restart and doesn't leak across workspaces.
+
+---
+
+## Phase 3 — FE polish sweep (quick wins)
+
+**Goal.** Land the cheap, high-visibility BridgeSpace UI steals in one coherent pass.
+
+**Deliverables.** **BSP-F1** single-accent active-pane focus ring + header-as-pill · **BSP-F2** dim per-pane footer status line · **BSP-F3** benefit-led empty states + recents (browser + fresh-agent) · **BSP-F4** side-docked onboarding/promo · **BSP-F5** memory KPI big-number tiles · **BSP-F6** semantic action colors (git=green/review=amber) · **BSP-F7** detached-pane placeholder + re-dock · **BSP-F8** orchestrator orb idle "Standby/Tap to activate" · **BSP-F9** permission-chip onboarding card · **BSP-B1** browser URL bar · **BSP-V3** `/skills` + `@context` in the launch composer · **BSP-P2** branch pill on pane title · **BSP-P3** human-name alias + effort tier on header chip.
+
+**Why now.** All S-effort, individually shippable, collectively a big perceived-quality jump; no architectural risk; good momentum after the theme work.
+
+**Scope.**
+- Panes: `command-room/{PaneHeader,PaneShell,PaneFooter}.tsx` — focus ring (F1), footer line (F2), branch pill (P2), alias/effort chip (P3 — extends FEAT-7/FEAT-14, surfacing only).
+- Browser: `renderer/browser/BrowserRoom.tsx` — URL bar (B1), empty state + recents (F3).
+- Launcher: `workspace-launcher/Launcher.tsx` — `/skills`+`@context` discovery (V3).
+- Memory: `features/memory/*` — KPI tile row (F5). Orb: command-room/orchestrator orb idle (F8). Onboarding card (F9): `features/onboarding/*`.
+
+**Findings + recommendation.** These map cleanly onto existing components; P2/P3 ride already-shipped identity/effort data. Batch as one PR with per-item commits.
+
+**Risks.** Scope creep into Phase 1's theme tokens. Mitigation: this phase consumes tokens, never defines them; hard stop at behavior/markup.
+
+**Definition of done.** Each item visible + reduced-motion-safe; `tsc -b` + vitest + lint green; no regression in pane grid e2e.
+
+---
+
+## Phase 4 — Premium Jorvis FE (N3, carry-over — now B3-unblocked)
+
+**Goal.** The Jorvis assistant feels premium: streamed reveal, animated bubbles, inline tool chips.
+
+**Deliverables.** rAF catch-up token reveal + in-flight `ChatMessageView`; spring bubble-enter (first-mount only); gated typewriter + caret (bypassed under reduce-motion); per-turn tool-chip rail; the backend token-stream change so text arrives incrementally (not whole blocks).
+
+**Why now.** B3 (composer silent-latch) is fixed in v2.0.0, unblocking N3; FE quality is this cycle's through-line and the user re-flagged "improve the frontend of Jorvis".
+
+**Scope.** Backend: `core/assistant/cli-envelope.ts` / `emit.ts` — emit incremental deltas (today whole blocks). Renderer: new `jorvis-assistant/use-jorvis-stream-reveal.ts` + `InlineToolChips.tsx`; `ChatTranscript.tsx` for spring enter. Apply `/apple-design` family.
+
+**Findings + recommendation.** Today streaming is fake (whole-block emit) — the backend delta change is the prerequisite; do it first, then the reveal hook. First-mount-only spring (don't re-animate on every render — cf. the managed-focus React-19 lesson).
+
+**Risks.** Re-render storms from per-token state. Mitigation: rAF-batch the reveal; gate under reduced-motion; cap typewriter rate.
+
+**Definition of done.** A live Jorvis reply streams token-by-token with a caret, bubbles spring in once, tool calls render as chips; reduce-motion shows instant text; a B3-style hung turn still clears via the watchdog.
+
+---
+
+## Phase 5 — Worktree GUI (our moat, made one-click)
+
+**Goal.** Creating/working in worktrees is GUI-driven, not CLI-only.
+
+**Deliverables.** **BSP-G1** "Create Git Worktree" modal (source repo auto, branch name, path + browse, preview command, confirm) · **BSP-G3** "open in current pane" option (switch cwd vs spawn) · **BSP-P1** pane right-click context menu (Generate handoff / Create worktree / Open Git panel / Copy path / Copy output / Open dir).
+
+**Why now.** We already own the worktree *engine*; the missing piece is UI. Highest-leverage gap on our differentiator (D187 00:04:45–00:05:26). The context menu (P1) is the natural host for these actions.
+
+**Scope.** `core/git/worktree.ts` (engine — reuse) + a new modal in `renderer/command-room/*`; `workspaces.launch`/`+Pane` flow for the in-current-pane option; `command-room/PaneHeader.tsx`/PaneShell for the context menu. New RPC for modal-driven create if not already exposed.
+
+**Findings + recommendation.** Worktree creation is CLI-only today; a thin modal over the existing engine + a context menu is mostly renderer + one RPC. "Open in current pane" needs a cwd-swap path distinct from spawn.
+
+**Risks.** cwd-swap mid-session corrupting pane state. Mitigation: only offer it for idle panes; otherwise spawn. Validate branch/path at the boundary.
+
+**Definition of done.** Right-click a pane → Create worktree → modal → new worktree+branch created (or current pane re-homed); context-menu actions all work; no base-branch mutation.
+
+---
+
+## Phase 6 — In-app Git diff / Review panel
+
+**Goal.** Browse diffs and review changes inside SigmaLink without dropping to a CLI.
+
+**Deliverables.** **BSP-G2** a first-class Git panel (Changes/History tabs, staged/unstaged, file list, inline diff, branch selector, pop-out window) · **BSP-G4** local-vs-remote ahead/behind · **BSP-G5** post-swarm auto-teardown policy (keep-all / keep-passing / destroy-failing).
+
+**Why now.** We're worktree-native yet have no in-app diff viewer — the single biggest feature gap the teardown surfaced (D187 00:05:33–00:11:40). Spec-before-build (this is the cycle's one L feature).
+
+**Scope.** Backend already has `core/git/git-ops.ts` (`gitStatus`/`gitDiff`/`mergePreview`) + `core/review/*` — surface them in a new `renderer/features/review/*` panel; ahead/behind via `git rev-list --count`; teardown policy hooks into the C-7 orchestrator post-gate. Reuse RSP-1 Resizable for the panel; pop-out reuses the (Phase 8) detach plumbing or a simple BrowserWindow.
+
+**Findings + recommendation.** The data layer exists; this is mostly a renderer surface + 2 small RPCs. Write a short spec first (panel layout, diff virtualization for big files).
+
+**Risks.** Large-diff render cost. Mitigation: virtualized file list + lazy per-file diff; cap inline hunks with "show more".
+
+**Definition of done.** Open the panel for a worktree → see staged/unstaged + inline diff + ahead/behind; auto-teardown destroys only failing worktrees on a gate run; pop-out works.
+
+---
+
+## Phase 7 — Orchestration & memory surfacing
+
+**Goal.** The Sigma orchestrator and Ruflo memory are first-class, persistent surfaces — not buried in a pane.
+
+**Deliverables.** **BSP-O1** persistent chrome-level "Sigma" rail panel with a Canvas (numbered structured to-dos + live token delta `+509/-44`) + Review tab (extends C-7 from in-pane → right-rail) · **BSP-O2** live routing/orchestrator trace · **BSP-O3** "Automations" (scheduling/macros) nav · **BSP-O4** "Artifacts" memory type + per-conversation named-session history · **BSP-O5** make the Ruflo memory graph more prominent (BridgeBoard is announced-not-shipped — we lead).
+
+**Why now.** BridgeSpace's "Bridge" panel + announced BridgeBoard target exactly our shipped strengths (Sigma-Agent C-7, MEM-1 graph). Surfacing them defends the lead before they ship.
+
+**Scope.** `operator-console/OrchestratorPanel.tsx` → extract into `right-rail/*` as a persistent tab; Canvas from `shared/orchestrator-tasks.ts`/`plan-capsule.ts`; routing trace from Ruflo `hooks_route`/agentdb; Artifacts + named sessions in `core/memory/*` + `features/memory/*`; graph prominence in `features/memory/MemoryGraph.tsx`.
+
+**Findings + recommendation.** C-7 + the merge-order/plan-capsule machinery already exist in-pane; O1 is a relocation + persistence packet, not a rebuild. O3/O4 are net-new but medium.
+
+**Risks.** Right-rail real-estate contention with existing Swarm/Skills tabs. Mitigation: tabbed rail; collapse when narrow (RSP-1).
+
+**Definition of done.** Sigma panel persists across pane layouts showing live to-dos + token delta; a routing decision is visible; the graph is reachable in ≤1 click from any room.
+
+---
+
+## Phase 8 — Voice / model & browser depth
+
+**Goal.** Cloud STT choice, live cost/speed visibility, and a more capable embedded browser.
+
+**Deliverables.** **BSP-V1** multi-provider STT picker (local / Fireworks / Groq) · **BSP-V2** live per-pane tok/s + cost in the header + a fast/balanced/deep dispatch preset (Haiku/Sonnet/Opus) · **BSP-B2** browser detach-to-monitor / reattach · **BSP-B3** agent-drivable headless-browser skill (`browser.navigate`/`browser.evaluate`) for self-testing · (BSP-B4 from the hotlist lands here if not already fixed).
+
+**Why now.** Rounds out parity on voice/model transparency and opens the "agent-native testing" story (B3 — a gap for both products).
+
+**Scope.** `resolveTranscriptionEngine` + voice settings (V1); pane header tok/s+cost off the SigmaBench foundation + `+Pane` preset (V2, extends FEAT-3/14); `core/browser/*` detach + a skill exposing browser RPCs to panes (B2/B3).
+
+**Findings + recommendation.** V2 builds on the existing usage ledger + SigmaBench; B3 reuses the embedded browser + skills system. B2 detach overlaps Phase 6 pop-out plumbing — share it.
+
+**Risks.** B3 gives agents a controllable browser → SSRF/abuse surface. Mitigation: route through the H-19 aidefence gate + same-origin/https allowlist; gate behind a setting.
+
+**Definition of done.** STT provider switch works; a running pane shows live tok/s + $; an agent can navigate+evaluate the embedded browser under the security gate; browser detaches to a 2nd monitor and re-docks.
+
+---
+
+## 🧊 Deferred this cycle (XL / big-bang — held per the DDD small-per-packet rule)
+- **BSP-P4 — Canvas mode** (freeform draggable/resizable panes + bottom voice bar; their BridgeCanvas direction). XL — pane layout-engine rewrite. Revisit as its own cycle; leapfrog if shipped before BridgeCanvas.
+- **BSP-P6 — multi-window / dual-window** (detach a workspace/panel into its own OS window, multi-monitor). L–XL — multi-`BrowserWindow` architecture. (Phase 8 B2 delivers the browser-only slice.)
+- **BSP-P5 — workspaces-as-tabs** top strip. S, but a layout-shell change — fold into a future shell pass.
+
+## ✅ Skip / market better (already shipped — do NOT rebuild)
+Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per-agent identity ≈ **FEAT-7** · effort control ≈ **FEAT-14** · browser-in-separate-window ≈ **C-8** · 30-sub-agent plan→review→build ≈ **C-7** (add a prominent named one-click mode = discoverability, not a rebuild) · MCP autowrite per-CLI = **SF-7** (answers their community's #1 swarm pain — *market it*). **WE LEAD & they lack:** worktree isolation, 6 providers, SigmaBench, Obsidian memory graph, voice **dispatch** (BridgeVoice = dictation-only), Telegram remote, agent rewind, sub-agent depth control. Positioning to adopt: **"ADE — Agent Development Environment"** + **"Context layer"**.
 
 ## 🚧 Blocked / operator-owned (parked — not actionable unblocked)
 
 | # | Item | Status |
 |---|------|--------|
-| **B1** | W-4 P8–P9 + win32 shell-first dogfood | 🚧 BLOCKED — needs an operator Windows dogfood (revert path `pty.spawnMode='direct'`) |
-| **B2** | FE-4 voice items (PCM rate, whisper v1.7.x port, prebuildify, win `IsAvailable()` race) | 🚧 BLOCKED — behind unshipped native voice builds |
+| **rel** | v2.0.0 tag (`/sigmalink-release`) + 3 operator visual smokes | operator-owned — see Release carry-over above |
+| **B1** | W-4 P8–P9 + win32 shell-first dogfood | 🚧 needs an operator Windows device (revert path `pty.spawnMode='direct'`). *SSH/RDP to a Windows box would unblock the headless half — build/ConPTY/native-link — but not the visual/audio smokes.* |
+| **B2** | FE-4 voice items (PCM rate, whisper v1.7.x port, prebuildify, win `IsAvailable()` race) | 🚧 behind unshipped native voice builds |
 | **op** | SF-12 migration `0026` register + ship | dormant — needs diagnostic-SQL sign-off on a real `agent_sessions` dump |
 | **op** | FE-4 device a11y QA (VoiceOver/Switch-Control) | needs the device |
 
+---
+
+## Architecture decisions (ADRs)
+
+### ADR-001 — Theme variations are a tint/opacity layer, not N hand-authored themes
+**Decision.** Model Glass variations (and future families) as a small set of override tokens (`--surface-tint`, `--accent`, `--glass-image-opacity`) layered over a base `data-theme`, rather than copying a full CSS block per variant. **Context.** BridgeSpace ships 23 themes by varying backdrop+accent over one base (D187 00:33:08); `src/index.css` currently declares full token blocks per `data-theme`. **Consequences.** (+) one variable → N looks; cheap per-workspace tint; less drift. (−) the base theme's structure constrains variants; a radically different look (e.g. Clean) must still be its own family/block, not a tint.
+
+### ADR-002 — "Clean/Clear" is its own flat-opaque family, separate from Glass
+**Decision.** Clean is a distinct theme family (flat, opaque, zero-shadow, hairline dividers, single amber focus-ring), NOT a Glass tint. **Context.** It is the visual opposite of Glass's translucent-depth model. **Consequences.** (+) honest token semantics (`--blur:0`, opaque surfaces); a clean baseline for future flat themes. (−) two families to maintain; components must not assume translucency (audit `.sl-glass` consumers).
+
+### ADR-003 — Defer Canvas mode + multi-window (XL) per the small-per-packet rule
+**Decision.** Park BSP-P4 (Canvas) and BSP-P6 (multi-window) out of this cycle; ship the browser-detach slice (B2) only. **Context.** Both are layout-engine / multi-`BrowserWindow` rewrites; the DDD rule favors small per-packet wins at release cadence. **Consequences.** (+) cycle stays shippable in small increments. (−) BridgeCanvas could ship first — accept the risk; re-evaluate next cycle.
+
+---
+
+## Effort / impact table
+
+| Item | Phase | Effort | Impact | Notes |
+|------|-------|--------|--------|-------|
+| BSP-T1 Clean theme | 1 | M | High | Operator headline |
+| BSP-T2 Glass variations | 1 | M | High | Tint/opacity layer (ADR-001) |
+| BSP-T3 theme gallery | 2 | M | High | Live preview cards |
+| BSP-T4 per-workspace tint | 2 | S | Med | Workspace KV |
+| FE polish sweep (F1–F9,B1,V3,P2,P3) | 3 | M | High | Batch of S quick-wins |
+| Premium Jorvis FE (N3) | 4 | L | High | Needs backend token-stream |
+| Worktree GUI (G1,G3,P1) | 5 | M | High | Engine exists; UI gap |
+| Git diff/Review panel (G2,G4,G5) | 6 | L | High | Biggest feature gap; spec first |
+| Orchestration+memory (O1–O5) | 7 | L | Med-High | Relocate C-7 + surface graph |
+| Voice/model+browser (V1,V2,B2,B3) | 8 | M-L | Med | B3 needs security gate |
+| BSP-B4 browser focus | hotlist | M | Med | Reliability audit |
+| Canvas mode (P4) | deferred | XL | High | Layout rewrite |
+| Multi-window (P6) | deferred | L-XL | Med | Multi-BrowserWindow |
+
 ## When an item ships
-→ move its one-line note to `CHANGELOG.md` + the master-memory project entry + (reusable lessons) Ruflo AgentDB; delete it from this whiteboard and from `WISHLIST.md`. Keep `WISHLIST.md` for new raw findings/ideas.
+→ move its one-line note to `CHANGELOG.md` + the master-memory project entry + (reusable lessons) Ruflo AgentDB; mark it promoted/struck in `WISHLIST.md`; delete it from this whiteboard. Keep `WISHLIST.md` for new raw findings.
