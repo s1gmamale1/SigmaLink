@@ -37,6 +37,68 @@ Detail/evidence below.
 
 ---
 
+## 🔬 BridgeSpace competitor teardown — 2026-06-04 (Day 187 + Day 188 "vibe coding" streams)
+
+6-agent lens teardown (`video-lens-review` skill: frontend-ui / ideas-mining / competitive × 2 videos) of BridgeMind's **BridgeSpace** (v3.0.83→v3.1.x) — `yt LzqwmdplSNM` (Day 188, 7h32m, no captions → frame-first) + `yt ZPR9J9gTfPw` (Day 187, 4h22m, full transcript). BridgeSpace is the closest direct analog to SigmaLink (workspaces rail · grid of CLI agent panes · embedded browser · orchestrator panel · theme system). Timestamps are `D188`/`D187 HH:MM:SS`. **Operator headline ask drives the ordering: (1) a "Clean/Clear" theme + (2) more Glass variations come FIRST.**
+
+### 🎨 Themes & visual style — OPERATOR HEADLINE (build first)
+- ✨ **[theme] BSP-T1 — new "Clean/Clear" theme (flat-opaque, BridgeSpace-style).** Their default is the opposite of our Glass depth model and reads premium-but-calm: **flat opaque surfaces, hairline 1px dividers, ZERO drop-shadow**, hierarchy from surface-lightness steps + a single accent focus-ring. Spec (D187 00:33:30, D188 03:00:00): bg `#0c0d0f`/`#0a0b0d` · pane `#15171a`/`#0e0f12` · raised `#1c1f23` · divider `#23262b`/`#1c1e22` · text `#e6e8ea` / muted `#8a9099` · **active-pane accent ring amber `#e8833a`**; dense spacing (~6–8px header pad, ~8px pane gutter); system-sans UI + mono terminal; a Light variant too. Why: the user explicitly wants this calm clean look as a first-class theme alongside Glass. SigmaLink target: theme registry + `sl-glass`/CSS-var token set (`src/renderer/**` styles; grep the Glass token defs at scope time). Effort: M.
+- ✨ **[theme] BSP-T2 — more Glass variations via ONE hue token + a backdrop taxonomy.** BridgeSpace ships 23 themes cheaply by varying backdrop + accent over a shared base (D187 00:33:08): three explicit tiers — **solid** / **gradient (+gradient accent)** / **image (`@ N%` opacity is part of the theme spec)** — and per-workspace tints (D188 05:23:00 teal "Dev" workspace vs neutral). Apply to OUR Glass: derive variants by rotating a single `--surface-tint` + `--accent` hue over the frosted base → **frosted / tinted (teal/violet/slate) / gradient-glass / image-glass** tiers, with an `@ N%` wallpaper-opacity knob (one var, N looks). Why: directly satisfies "more variations of our Glassy style". Target: Glass token set + a tint/opacity variable layer. Effort: M.
+- ✨ **[theme] BSP-T3 — theme-picker rebuilt as a card-gallery.** (D187 00:32:58–00:33:14) 3-col grid; each card = a **live scaled-down pane preview** with that theme's CSS vars (not a static swatch) + a muted **taxonomy sub-label** + per-theme accent bar; `All / Dark / Light` **count-segmented filter**; search box; hero header with a one-line value-prop ("applies instantly across rail / panes / editor"); selected = **`✓ ACTIVE` chip + accent border**. Big-preview-card + selected-ring pattern reused for settings choices (D188 06:00:00 Local/Cloud cards). Why: makes the new Glass-tier + Clean themes discoverable and sells breadth. Target: Settings → Appearance (renderer). Effort: M.
+- ✨ **[theme] BSP-T4 — per-workspace accent/tint.** (D188 05:23:00) workspace-keyed `--surface-tint`/`--accent` so each workspace is visually distinct at a glance. Why: cheap orientation cue in multi-workspace use. Target: workspace KV + theme var layer. Effort: S.
+
+### ✨ Frontend polish (smaller steals)
+- ✨ **[ui] BSP-F1 — single-accent active-pane focus ring (amber, no elevation) + header-as-pill.** (D187 00:33:20) only the focused pane's 1px border lights; siblings flat; pane header = a rounded title/provider pill in a flat bar + a right cluster of ~16px mono glyph buttons. Cleaner/cheaper than elevation-based focus. Target: `command-room/{PaneHeader,PaneShell}.tsx`. Effort: S.
+- ✨ **[ui] BSP-F2 — dim per-pane footer status line.** (D187 00:33:20) muted always-visible hint (`auto mode on (shift+tab to cycle)`); we lack a lightweight per-pane state line. Target: `command-room/PaneFooter` (ANIM-3 aliveness already there — extend). Effort: S.
+- ✨ **[ui] BSP-F3 — benefit-led empty states + recents.** Browser empty (D188 05:57:00): glyph + bold label + one value sentence ("Preview localhost, pin docs, or open any URL — all without leaving …") + `+ New tab` + a "Recently Opened" favicon list; branded big-type centered empty state for a fresh agent session (D187 02:03:15). Target: `browser/*`, jorvis/command-room empties. Effort: S.
+- ✨ **[ui] BSP-F4 — side-docked onboarding/promo (not a blocking modal).** (D187 00:34:05) upsell/onboarding content docked in the right panel, stacked primary/secondary buttons — never blocks the grid. Effort: S.
+- ✨ **[ui] BSP-F5 — KPI big-number tile row for the memory/Ruflo dashboard.** (D188 03:19:00) 4 big-number tiles (entries · sessions · time · avg) + recent-activity list + "view full history". Target: `features/memory/*`. Effort: S.
+- ✨ **[ui] BSP-F6 — semantic action color-coding on pane toolbar.** (D188 03:30:00) git=green, review=amber pill accents → at-a-glance verb legibility. Effort: S.
+- ✨ **[ui] BSP-F7 — detached-pane placeholder card + re-dock controls.** (D188 06:27:00) when a pane pops out, leave a labelled placeholder ("opened in a separate window") with "Bring back / Focus window" instead of a hole. Pairs with BSP-P6/BSP-B2. Effort: S.
+- ✨ **[ui] BSP-F8 — orchestrator orb calm idle ("Standby / Tap to activate").** (D188 00:03:00) premium idle for the Command-Room/Sigma orb vs a static label. Effort: S.
+- ✨ **[ui] BSP-F9 — first-run permission-chip onboarding card.** (D188 06:48:45) compact 3-step centered card with green ✓ permission chips (Accessibility/Input-Monitoring) — cleaner than a multi-screen flow (relevant to in-app voice/Hey-Jorvis setup). Effort: S.
+
+### 🔧 Git / worktree UI (high-leverage — engine exists, UI is thin)
+- ✨ **[git] BSP-G1 — GUI "Create Git Worktree" modal.** (D187 00:04:45–00:05:26) right-click → modal: source repo (auto), new branch name, folder path (+browse), preview command, one-click create + confirmation. We have the worktree engine (`core/git/worktree.ts`) but creation is CLI-only. Why: removes the CLI step on our core moat. Effort: M.
+- ✨ **[git] BSP-G2 — integrated Git diff/Review panel (Changes/History, staged/unstaged, pop-out).** (D187 00:05:33–00:11:40) first-class right panel with file-diff list + branch selector + inline diff + "open in separate window"; shipped on-stream as a top request. We are worktree-native yet have **no in-app diff viewer** (`core/review/*`, `core/git/git-ops.ts` exist backend-side). Highest-leverage feature gap. Effort: L.
+- ✨ **[git] BSP-G3 — worktree-create "in current pane" option.** (D187 00:49:12) option to switch the originating pane's cwd into the new worktree instead of always spawning a fresh pane. Target: `workspaces.launch`/`+Pane`. Effort: S.
+- ✨ **[git] BSP-G4 — git local-vs-remote ahead/behind in the panel.** (D187 00:40:52) upstream divergence inline (matters for swarms that push branches). Target: WorktreeMap/git view. Effort: S.
+- ✨ **[git] BSP-G5 — post-swarm auto-teardown policy.** (D187 00:37:21/00:37:36, D188 ideas) keep-all / keep-passing / destroy-failing after a gate run — their community is requesting the validate-and-destroy pattern we already half-own via the orchestrator. Target: C-7 orchestrator cleanup policy. Effort: M.
+
+### 🧩 Pane / layout
+- ✨ **[pane] BSP-P1 — pane right-click context menu.** (D188 07:33, D187 00:04:45) Generate handoff / Create Git worktree / Open Git panel / Copy current path / Copy output / Open current directory — surfaces worktree+handoff without a wizard. Target: `command-room/PaneHeader`/PaneShell. Effort: M.
+- ✨ **[pane] BSP-P2 — branch pill on the pane title row.** (D188 00:03:00) promote branch from the info-bar to a first-class header badge. Effort: S.
+- ✨ **[pane] BSP-P3 — human-name agent aliases + effort tier on the header chip.** (D188 00:03:00) cosmetic name layer (Thea/Ava/…) over path/branch + visible effort level. EXTENDS FEAT-7 (identity) + FEAT-14 (effort) — already shipped; this is the surfacing. Effort: S.
+- ✨ **[layout] BSP-P4 — Canvas mode (freeform draggable/resizable panes + bottom voice bar).** (D187 01:03:29/03:34:11) their announced **BridgeCanvas** direction: spatial pane tiles vs fixed grid, orchestrator/voice in a persistent bottom bar. Positioning threat — leapfrog if we ship first. Target: pane layout engine (big). Effort: XL.
+- ✨ **[layout] BSP-P5 — workspaces-as-tabs (top strip).** (D187 01:06:19) a top tab-strip variant of the workspace switcher (vs left-rail list) for muscle-memory switching. Effort: S.
+- ✨ **[layout] BSP-P6 — multi-window / dual-window (detach to own OS window, multi-monitor).** (D187 01:53:32, D188 06:27:00) detach a workspace/panel into its own BrowserWindow; assign panels to displays; detach/reattach controls. Effort: L.
+
+### 🧠 Orchestration / memory
+- ✨ **[orch] BSP-O1 — persistent chrome-level orchestrator panel ("Sigma") with a Canvas + Review tab.** (D188 00:02:00/03:22:30) out-of-band right-rail meta-orchestrator that persists across pane layouts, renders a **Canvas** (numbered structured to-dos + **live token delta `+509/-44`**) + a Review tab. Ours (Sigma-Agent/C-7) runs *inside* a pane. EXTENDS C-7 from in-pane → persistent rail. Target: `operator-console/OrchestratorPanel.tsx` + `right-rail/*`. Effort: L.
+- ✨ **[orch] BSP-O2 — live routing/orchestrator trace surface.** (D188 00:09:00) show which orchestrator/model resolved a task in real time; Ruflo routing is opaque today. Effort: S.
+- ✨ **[orch] BSP-O3 — "Automations" (scheduling/macros) nav section.** (D188 00:03:00) named cron/macro system (cf. third-party "Chorus" schedule cards: nightly backup / weekly digest / health check, D188 04:30:00). Effort: M.
+- ✨ **[mem] BSP-O4 — "Artifacts" memory type + per-conversation named-session history.** (D188 04:42:00) first-class artifacts + named orchestrator sessions ("CloudFlare Attack Mon…", "BridgeSpace Memory U…"). Our memory is workspace-level (⌘O/daily-digest), not per-conversation. Effort: M.
+- ✅ **[mem] BSP-O5 — surface our memory graph more prominently.** Their **BridgeBoard** ("living knowledge graph for planning") + **BridgeCanvas** are ANNOUNCED-not-shipped (D187 01:03:19); we shipped MEM-1 Ruflo-as-graph + backlinks. WE LEAD — make the graph view more front-and-center before they ship. Effort: S.
+
+### 🌐 Browser
+- ✨ **[browser] BSP-B1 — URL/address bar in the browser pane chrome.** (D187 02:58:52) navigate to a new URL without re-invoking the skill; we can launch but not re-navigate. Target: `browser/BrowserRoom.tsx`. Effort: S.
+- ✨ **[browser] BSP-B2 — browser detach-to-monitor / reattach.** (D188 06:27:00) multi-monitor pop-out + re-dock (overlaps BSP-P6/BSP-F7). Effort: M.
+- ✨ **[browser] BSP-B3 — agent-drivable headless browser skill.** (D187 00:18:54) expose `browser.navigate`/`browser.evaluate` (Playwright) callable from an agent pane so agent-built web apps self-test inside the session — open gap for BOTH; "agent-native testing" story. Effort: M.
+- 🐞 **[browser] BSP-B4 [medium] — embedded-browser input/focus reliability audit.** (D187 00:27:34) BridgeSpace still fights webview input-focus in v3.1; audit our Electron `WebContentsView` focus forwarding (esp. form fields) to differentiate. Effort: M.
+
+### 🎙️ Voice / model (mostly we lead — extensions only)
+- ✨ **[voice] BSP-V1 — multi-provider STT picker (local / Fireworks / Groq) in Settings.** (D188 05:00:00/06:28:00) cloud STT provider choice alongside local Whisper. Target: `resolveTranscriptionEngine` + voice settings. Effort: M.
+- ✨ **[perf] BSP-V2 — live per-pane tok/s + cost in the header + fast/balanced/deep dispatch preset.** (D187 00:27:08 "fast mode" 115 vs 62 tok/s; 00:25:17 per-task model routing) surface real-time speed/cost (SigmaBench is the foundation) + a fast/balanced/deep preset mapping to Haiku/Sonnet/Opus at `+Pane`. EXTENDS FEAT-3 (ledger) + FEAT-14. Effort: M.
+- ✨ **[ux] BSP-V3 — `/skills` + `@context` discovery in the pane-launch composer.** (D188 07:22:00) slash-skill + @-context attachment in the launch input ("Plan, Build, / for skills, @ for context"). Effort: S.
+
+### ✅ Already shipped in SigmaLink — SKIP (or just market better)
+- Session-resume-on-reopen modal ≈ **FEAT-1** (have; only the auto-prompt-on-reopen polish is open). Per-pane usage/cost ≈ **FEAT-3**. Per-agent identity ≈ **FEAT-7**. Effort control ≈ **FEAT-14**. Browser-in-separate-window ≈ **C-8**. 30-sub-agent plan→review→build ≈ **C-7** (needs a prominent named one-click mode = discoverability). **MCP autowrite per-CLI = SF-7** — directly answers their community's #1 swarm pain ("set once, all agents get it"). **WE LEAD & they lack:** worktree isolation (theirs new+buggy, shared-dir), 6 providers (their D188 was Claude-only), SigmaBench leaderboard, Obsidian-grade memory graph, voice **dispatch** (BridgeVoice is dictation-only), Telegram remote, agent rewind, sub-agent depth control.
+
+### 🏷️ Positioning (non-code — strategy signals)
+- Adopt sharper framing: **"ADE — Agent Development Environment"** + **"Context layer"** (their stream brand narrative; we're arguably more ADE than they are). Their growth mechanics (50%-off "code V3" referral funnel · Discord as the front-line feature-request/bug channel · scheduled community "project sharing" events) are strategy, not code — noted, out of scope for the build wishlist.
+
+---
+
 ## 🔭 Next-phase deep-dive — 2026-05-31 (75 findings)
 
 A 9-agent deep-dive (perf · bugs · arch · apple-UI/UX · persistence/obsidian-memory · BridgeSpace
