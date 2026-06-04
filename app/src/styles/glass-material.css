@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    glass-material.css — Apple-grade Liquid Glass material layer (FE-1 v2)
    ─────────────────────────────────────────────────────────────────────────────
-   The reusable Liquid Glass material layer for SigmaLink's `glass` theme.
+   The reusable Liquid Glass material layer for SigmaLink's `glass` theme FAMILY.
 
    WHAT THIS IS
    ------------
@@ -22,13 +22,18 @@
    Terminals are opaque by hard constraint (xterm `#0a0c12`, allowTransparency:
    false) — we never attempt to make a terminal background translucent.
 
-   SCOPE & ISOLATION
-   -----------------
-   EVERY rule below is scoped under `:root[data-theme='glass']`, so the other four
-   themes (light / dark / midnight / paper, etc.) are byte-for-byte unaffected.
-   Palette tokens (`--card`, `--background`, `--primary`, `--accent`, …) are
-   defined in index.css under `:root[data-theme='glass']`; we reference them via
-   `hsl(var(--token) / α)` so the material tracks any future palette change.
+   SCOPE & ISOLATION — GLASS FAMILY (BSP-T2)
+   -----------------------------------------
+   EVERY rule below is scoped under `:root[data-theme^='glass']`, so it applies to
+   the base `glass` theme AND its Spectrum variants (`glass-teal` / `glass-violet`
+   / `glass-slate` / `glass-frost`) — and to NOTHING else (the Clean family and the
+   four classic themes are byte-for-byte unaffected; `clean*` never matches `^=glass`).
+   Palette tokens (`--card`, `--background`, `--primary`, `--accent`, …) are defined
+   per `[data-theme]` in index.css; the mesh/edge HUE is parameterised via the
+   `--glass-mesh-{1,2,3}` / `--glass-mesh-anchor` / `--glass-edge` tokens (defaults
+   on the glass family base, overridden per variant) so ONE material recipe yields
+   N looks (ADR-001). We reference everything via `hsl(var(--token) / α)` so the
+   material tracks any palette/hue change.
 
    CROSS-LANE CONTRACT (do not rename — components apply these)
    ------------------------------------------------------------
@@ -53,21 +58,22 @@
    A 4-gradient radial mesh painted over the dark base gives the glass colourful,
    spatially-varied content to sample. Without it, blur(20px) over a flat dark
    field collapses to a dead flat gray — the #1 reason "glassmorphism" looks
-   cheap. Hues are drawn from the palette: cyan ~190, violet ~275, magenta ~320,
-   with an indigo ~232 anchor wash. `background-attachment: fixed` keeps the mesh
-   pinned to the viewport so scrolling chrome reveals different regions of it.
+   cheap. Hues are driven by the `--glass-mesh-*` tokens (cyan ~190, violet ~275,
+   magenta ~320, with an indigo ~232 anchor wash by default; variants re-tint).
+   `background-attachment: fixed` keeps the mesh pinned to the viewport so
+   scrolling chrome reveals different regions of it.
    ───────────────────────────────────────────────────────────────────────────── */
-:root[data-theme='glass'] body {
-  background-color: hsl(230 45% 5%);
+:root[data-theme^='glass'] body {
+  background-color: hsl(var(--background));
   background-image:
-    /* cyan — top-left light source */
-    radial-gradient(58rem 58rem at 12% -10%, hsl(190 95% 56% / 0.16), transparent 60%),
-    /* violet — top-right */
-    radial-gradient(54rem 54rem at 104% -4%, hsl(275 90% 64% / 0.18), transparent 56%),
-    /* magenta — bottom warmth */
-    radial-gradient(46rem 46rem at 48% 116%, hsl(320 90% 60% / 0.12), transparent 60%),
-    /* indigo anchor — broad low-alpha wash that ties the mesh into the base */
-    radial-gradient(72rem 72rem at 70% 45%, hsl(232 60% 30% / 0.10), transparent 70%);
+    /* mesh-1 — top-left light source */
+    radial-gradient(58rem 58rem at 12% -10%, hsl(var(--glass-mesh-1) / 0.16), transparent 60%),
+    /* mesh-2 — top-right */
+    radial-gradient(54rem 54rem at 104% -4%, hsl(var(--glass-mesh-2) / 0.18), transparent 56%),
+    /* mesh-3 — bottom warmth */
+    radial-gradient(46rem 46rem at 48% 116%, hsl(var(--glass-mesh-3) / 0.12), transparent 60%),
+    /* anchor — broad low-alpha wash that ties the mesh into the base */
+    radial-gradient(72rem 72rem at 70% 45%, hsl(var(--glass-mesh-anchor) / 0.10), transparent 70%);
   background-attachment: fixed;
   background-repeat: no-repeat;
 }
@@ -80,15 +86,15 @@
   50%  { transform: translate3d(-3px, 2px, 0); }
   100% { transform: translate3d(0, 0, 0); }
 }
-:root[data-theme='glass'] body::after {
+:root[data-theme^='glass'] body::after {
   content: '';
   position: fixed;
   inset: -4rem;            /* over-scan so the drift never reveals an edge */
   z-index: -1;
   pointer-events: none;
   background-image:
-    radial-gradient(40rem 40rem at 25% 20%, hsl(190 95% 56% / 0.06), transparent 60%),
-    radial-gradient(40rem 40rem at 80% 70%, hsl(275 90% 64% / 0.06), transparent 60%);
+    radial-gradient(40rem 40rem at 25% 20%, hsl(var(--glass-mesh-1) / 0.06), transparent 60%),
+    radial-gradient(40rem 40rem at 80% 70%, hsl(var(--glass-mesh-2) / 0.06), transparent 60%);
   will-change: transform;
   animation: sl-glass-mesh-drift 60s ease-in-out infinite;
 }
@@ -100,52 +106,52 @@
    (.sl-glass-toolbar). Each carries:
      • a translucent palette fill,
      • backdrop blur + saturation boost (the Liquid Glass "sampling"),
-     • a 1px neon-cyan ring border,
-     • a layered box-shadow: tight cyan ring + dark drop + soft violet bloom,
+     • a 1px neon edge border (--glass-edge hue),
+     • a layered box-shadow: tight edge ring + dark drop + soft bloom,
      • a ::before specular highlight raking the top edge (the wet-glass sheen).
    Lane C makes the host elements `position: relative` so ::before anchors to them.
    ───────────────────────────────────────────────────────────────────────────── */
 
 /* Standard chrome panel — popovers, right-rail. */
-:root[data-theme='glass'] .sl-glass {
+:root[data-theme^='glass'] .sl-glass {
   background: hsl(var(--card) / 0.55);
   backdrop-filter: blur(20px) saturate(165%);
   -webkit-backdrop-filter: blur(20px) saturate(165%);
-  border: 1px solid hsl(195 85% 65% / 0.16);
+  border: 1px solid hsl(var(--glass-edge) / 0.16);
   box-shadow:
-    inset 0 0 0 1px hsl(190 95% 60% / 0.10),   /* inner cyan ring */
-    0 12px 36px hsl(232 60% 2% / 0.55),         /* dark depth drop  */
-    0 0 28px hsl(275 90% 62% / 0.10);           /* soft violet bloom */
+    inset 0 0 0 1px hsl(var(--glass-ring) / 0.10),   /* inner edge ring */
+    0 12px 36px hsl(232 60% 2% / 0.55),                /* dark depth drop  */
+    0 0 28px hsl(var(--glass-bloom) / 0.10);          /* soft bloom */
 }
 
 /* Heavy weight — sidebar. Wider blur, lower fill so the mesh reads through. */
-:root[data-theme='glass'] .sl-glass-heavy {
+:root[data-theme^='glass'] .sl-glass-heavy {
   background: hsl(var(--card) / 0.50);
   backdrop-filter: blur(30px) saturate(150%);
   -webkit-backdrop-filter: blur(30px) saturate(150%);
-  border: 1px solid hsl(195 85% 65% / 0.16);
+  border: 1px solid hsl(var(--glass-edge) / 0.16);
   box-shadow:
-    inset 0 0 0 1px hsl(190 95% 60% / 0.10),
+    inset 0 0 0 1px hsl(var(--glass-ring) / 0.10),
     0 16px 44px hsl(232 60% 2% / 0.60),
-    0 0 32px hsl(275 90% 62% / 0.10);
+    0 0 32px hsl(var(--glass-bloom) / 0.10);
 }
 
 /* Toolbar / pane-header strip — anchored to the window edge, so it leans on the
    darker --background fill and only carries a hairline bottom border. The slight
    brightness(0.95) keeps the bar reading as "behind" the content it caps. */
-:root[data-theme='glass'] .sl-glass-toolbar {
+:root[data-theme^='glass'] .sl-glass-toolbar {
   background: hsl(var(--background) / 0.62);
   backdrop-filter: blur(20px) saturate(160%) brightness(0.95);
   -webkit-backdrop-filter: blur(20px) saturate(160%) brightness(0.95);
-  border-bottom: 1px solid hsl(195 85% 65% / 0.14);
+  border-bottom: 1px solid hsl(var(--glass-edge) / 0.14);
 }
 
 /* Specular highlight — a soft ellipse of white raking the top edge, the single
    touch that reads as light catching wet glass. inset:0, non-interactive,
    inherits the host's radius. Lane C sets the host `position: relative`. */
-:root[data-theme='glass'] .sl-glass::before,
-:root[data-theme='glass'] .sl-glass-heavy::before,
-:root[data-theme='glass'] .sl-glass-toolbar::before {
+:root[data-theme^='glass'] .sl-glass::before,
+:root[data-theme^='glass'] .sl-glass-heavy::before,
+:root[data-theme^='glass'] .sl-glass-toolbar::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -167,25 +173,25 @@
    ───────────────────────────────────────────────────────────────────────────── */
 
 /* Sidebar shell → heavy glass. */
-:root[data-theme='glass'] .bg-sidebar {
+:root[data-theme^='glass'] .bg-sidebar {
   background: hsl(var(--card) / 0.50);
   backdrop-filter: blur(30px) saturate(150%);
   -webkit-backdrop-filter: blur(30px) saturate(150%);
   box-shadow:
-    inset 0 0 0 1px hsl(190 95% 60% / 0.10),
+    inset 0 0 0 1px hsl(var(--glass-ring) / 0.10),
     0 16px 44px hsl(232 60% 2% / 0.60),
-    0 0 32px hsl(275 90% 62% / 0.10);
+    0 0 32px hsl(var(--glass-bloom) / 0.10);
 }
 
 /* Popovers / floating menus → standard glass. */
-:root[data-theme='glass'] .bg-popover {
+:root[data-theme^='glass'] .bg-popover {
   background: hsl(var(--card) / 0.55);
   backdrop-filter: blur(20px) saturate(165%);
   -webkit-backdrop-filter: blur(20px) saturate(165%);
   box-shadow:
-    inset 0 0 0 1px hsl(190 95% 60% / 0.10),
+    inset 0 0 0 1px hsl(var(--glass-ring) / 0.10),
     0 12px 36px hsl(232 60% 2% / 0.55),
-    0 0 28px hsl(275 90% 62% / 0.10);
+    0 0 28px hsl(var(--glass-bloom) / 0.10);
 }
 
 /* CONTENT CARDS → NEAR-OPAQUE, NO BLUR.
@@ -193,27 +199,27 @@
    data reads cleanly, and the GPU never composites 100+ blurred layers. We
    explicitly null `backdrop-filter` to override the first-pass grouped rule in
    index.css that lumped `.bg-card` in with the blurred chrome surfaces. */
-:root[data-theme='glass'] .bg-card {
+:root[data-theme^='glass'] .bg-card {
   background-color: hsl(var(--card) / 0.92);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
 /* Large app shells — let just a whisper of the mesh bleed through. */
-:root[data-theme='glass'] .bg-background {
+:root[data-theme^='glass'] .bg-background {
   background-color: hsl(var(--background) / 0.85);
 }
 
 /* Neon hairline borders + a glow on raised surfaces. */
-:root[data-theme='glass'] .border-border {
-  border-color: hsl(195 85% 65% / 0.14);
+:root[data-theme^='glass'] .border-border {
+  border-color: hsl(var(--glass-edge) / 0.14);
 }
-:root[data-theme='glass'] .shadow-lg,
-:root[data-theme='glass'] .shadow-md {
+:root[data-theme^='glass'] .shadow-lg,
+:root[data-theme^='glass'] .shadow-md {
   box-shadow:
-    0 0 0 1px hsl(190 95% 60% / 0.08),
+    0 0 0 1px hsl(var(--glass-ring) / 0.08),
     0 12px 36px hsl(232 60% 2% / 0.55),
-    0 0 28px hsl(275 90% 62% / 0.09);
+    0 0 28px hsl(var(--glass-bloom) / 0.09);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -224,30 +230,30 @@
    near-opaque solid: blur is removed entirely (cheaper + legible) and the mesh
    drift is stopped. Covers both the utility classes and the mapped surfaces. */
 @media (prefers-reduced-transparency: reduce) {
-  :root[data-theme='glass'] .sl-glass,
-  :root[data-theme='glass'] .sl-glass-heavy,
-  :root[data-theme='glass'] .sl-glass-toolbar,
-  :root[data-theme='glass'] .bg-sidebar,
-  :root[data-theme='glass'] .bg-popover {
+  :root[data-theme^='glass'] .sl-glass,
+  :root[data-theme^='glass'] .sl-glass-heavy,
+  :root[data-theme^='glass'] .sl-glass-toolbar,
+  :root[data-theme^='glass'] .bg-sidebar,
+  :root[data-theme^='glass'] .bg-popover {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background-color: hsl(var(--card) / 0.97);
   }
-  :root[data-theme='glass'] body::after {
+  :root[data-theme^='glass'] body::after {
     animation: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  :root[data-theme='glass'] .sl-glass,
-  :root[data-theme='glass'] .sl-glass-heavy,
-  :root[data-theme='glass'] .sl-glass-toolbar,
-  :root[data-theme='glass'] .bg-sidebar,
-  :root[data-theme='glass'] .bg-popover {
+  :root[data-theme^='glass'] .sl-glass,
+  :root[data-theme^='glass'] .sl-glass-heavy,
+  :root[data-theme^='glass'] .sl-glass-toolbar,
+  :root[data-theme^='glass'] .bg-sidebar,
+  :root[data-theme^='glass'] .bg-popover {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background-color: hsl(var(--card) / 0.97);
   }
-  :root[data-theme='glass'] body::after {
+  :root[data-theme^='glass'] body::after {
     animation: none;
   }
 }
@@ -256,18 +262,18 @@
    `data-window-focused='false'` on <html>), Apple recedes the glass: shrink the
    blur and drop opacity so background chrome quiets down behind the foreground
    app the user switched to. */
-:root[data-theme='glass'][data-window-focused='false'] .sl-glass,
-:root[data-theme='glass'][data-window-focused='false'] .sl-glass-heavy,
-:root[data-theme='glass'][data-window-focused='false'] .sl-glass-toolbar {
+:root[data-theme^='glass'][data-window-focused='false'] .sl-glass,
+:root[data-theme^='glass'][data-window-focused='false'] .sl-glass-heavy,
+:root[data-theme^='glass'][data-window-focused='false'] .sl-glass-toolbar {
   backdrop-filter: blur(8px) saturate(120%);
   -webkit-backdrop-filter: blur(8px) saturate(120%);
   opacity: 0.9;
 }
 
 /* ACTIVE NAV ROW — Lane C applies `.sl-nav-active` to the selected sidebar row;
-   a 15% primary (cyan) tint fill + primary-coloured text marks selection within
+   a 15% primary tint fill + primary-coloured text marks selection within
    the glass without an opaque block. */
-:root[data-theme='glass'] .sl-nav-active {
+:root[data-theme^='glass'] .sl-nav-active {
   background: hsl(var(--primary) / 0.15);
   color: hsl(var(--primary));
 }
@@ -275,8 +281,9 @@
 /* ACTIVE PANE — Lane P applies `.sl-pane-active` alongside the flat-theme
    hairline ring on the focused grid cell. On glass we layer a soft 12px bloom
    in the ring colour so the active pane reads as the focused surface without an
-   opaque border. Flat themes ignore this rule and keep just the hairline. */
-:root[data-theme='glass'] .sl-pane-active {
+   opaque border. Flat themes (incl. the Clean family) ignore this rule and keep
+   just the hairline. */
+:root[data-theme^='glass'] .sl-pane-active {
   box-shadow: 0 0 0 1px hsl(var(--ring)), 0 0 12px 2px hsl(var(--ring) / 0.22);
   border-color: hsl(var(--ring));
 }

@@ -3,7 +3,26 @@
 // theme in `src/index.css` — this module is the metadata layer (id, label,
 // description, swatches) used by the Appearance tab + command palette.
 
-export type ThemeId = 'obsidian' | 'parchment' | 'nord' | 'synthwave' | 'glass';
+export type ThemeId =
+  | 'obsidian'
+  | 'parchment'
+  | 'nord'
+  | 'synthwave'
+  // Glass family — translucent Liquid-Glass material (glass-material.css applies
+  // to every `[data-theme^='glass']`). Variants hue-shift the mesh + accents.
+  | 'glass'
+  | 'glass-teal'
+  | 'glass-violet'
+  | 'glass-slate'
+  | 'glass-frost'
+  // Clean family (BSP-T1) — flat, opaque, zero-blur (no glass-material match).
+  // Base is dark/amber; variants swap the accent; `clean-light` is the light cut.
+  | 'clean'
+  | 'clean-light'
+  | 'clean-violet'
+  | 'clean-blue'
+  | 'clean-rose'
+  | 'clean-emerald';
 
 export interface ThemeDefinition {
   id: ThemeId;
@@ -52,6 +71,78 @@ export const THEMES: ThemeDefinition[] = [
     label: 'Glass',
     description: 'Neon glassmorphism — translucent blurred panels over a cyan/violet glow.',
     swatch: { bg: '#070a14', fg: '#eaf6ff', primary: '#22d3ee', accent: '#a855f7' },
+    appearance: 'dark',
+  },
+  // ── Glass Spectrum (BSP-T2) — same Liquid-Glass material, hue-shifted mesh + accent.
+  {
+    id: 'glass-teal',
+    label: 'Glass Teal',
+    description: 'Glass — aqua/teal mesh over a deep teal base.',
+    swatch: { bg: '#061412', fg: '#eafcf6', primary: '#2ed6a8', accent: '#22d3ee' },
+    appearance: 'dark',
+  },
+  {
+    id: 'glass-violet',
+    label: 'Glass Violet',
+    description: 'Glass — violet/magenta neon mesh.',
+    swatch: { bg: '#0c0716', fg: '#f3eafc', primary: '#b06bff', accent: '#e85bd0' },
+    appearance: 'dark',
+  },
+  {
+    id: 'glass-slate',
+    label: 'Glass Slate',
+    description: 'Glass — muted, low-saturation slate glass.',
+    swatch: { bg: '#0a0d12', fg: '#e8eef5', primary: '#a6bace', accent: '#8aa0b8' },
+    appearance: 'dark',
+  },
+  {
+    id: 'glass-frost',
+    label: 'Glass Frost',
+    description: 'Glass — bright frosted white-blue.',
+    swatch: { bg: '#08111c', fg: '#f0f8ff', primary: '#7fd4f5', accent: '#b0d8f7' },
+    appearance: 'dark',
+  },
+  // ── Clean family (BSP-T1) — flat, opaque, hairline dividers, single accent ring.
+  {
+    id: 'clean',
+    label: 'Clean',
+    description: 'Flat opaque near-black — amber accent, zero blur.',
+    swatch: { bg: '#0c0d0f', fg: '#e6e8ea', primary: '#e8833a', accent: '#e8833a' },
+    appearance: 'dark',
+  },
+  {
+    id: 'clean-light',
+    label: 'Clean Light',
+    description: 'Flat light surface — amber accent.',
+    swatch: { bg: '#f7f8fa', fg: '#1a1d22', primary: '#d4711f', accent: '#d4711f' },
+    appearance: 'light',
+  },
+  {
+    id: 'clean-violet',
+    label: 'Clean Violet',
+    description: 'Flat dark — violet accent (SigmaLink brand).',
+    swatch: { bg: '#0c0d0f', fg: '#e6e8ea', primary: '#a86bff', accent: '#a86bff' },
+    appearance: 'dark',
+  },
+  {
+    id: 'clean-blue',
+    label: 'Clean Blue',
+    description: 'Flat dark — cool blue accent.',
+    swatch: { bg: '#0c0d0f', fg: '#e6e8ea', primary: '#4aa3e0', accent: '#4aa3e0' },
+    appearance: 'dark',
+  },
+  {
+    id: 'clean-rose',
+    label: 'Clean Rose',
+    description: 'Flat dark — rose accent.',
+    swatch: { bg: '#0c0d0f', fg: '#e6e8ea', primary: '#e05299', accent: '#e05299' },
+    appearance: 'dark',
+  },
+  {
+    id: 'clean-emerald',
+    label: 'Clean Emerald',
+    description: 'Flat dark — emerald accent.',
+    swatch: { bg: '#0c0d0f', fg: '#e6e8ea', primary: '#3ecf8e', accent: '#3ecf8e' },
     appearance: 'dark',
   },
 ];

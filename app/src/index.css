@@ -322,7 +322,19 @@
 
   /* Glass — neon glassmorphism (palette only; the translucent/blur surface
      treatment lives in the unlayered block near the end of this file). */
-  :root[data-theme='glass'] {
+  :root[data-theme^='glass'] {
+    /* Glass FAMILY base. The mesh/edge HUE tokens below are consumed by
+       glass-material.css (which now matches every `[data-theme^='glass']`).
+       The Spectrum variants further down override these + the accent palette,
+       so one base recipe yields N looks (ADR-001). */
+    --glass-mesh-1: 190 95% 56%;       /* primary light-source (cyan) */
+    --glass-mesh-2: 275 90% 64%;       /* secondary (violet) */
+    --glass-mesh-3: 320 90% 60%;       /* warmth (magenta) */
+    --glass-mesh-anchor: 232 60% 30%;  /* broad low-alpha wash */
+    --glass-edge: 195 85% 65%;         /* specular edge / hairline */
+    --glass-ring: 190 95% 60%;         /* inner 1px ring (kept exact → base glass byte-identical) */
+    --glass-bloom: 275 90% 62%;        /* outer soft bloom (kept exact). Variants inherit these
+                                          faint (~8–10% α) accents; the dominant mesh re-tints. */
     --background: 230 45% 5%;
     --foreground: 205 35% 96%;
     --card: 226 38% 12%;
@@ -362,6 +374,211 @@
     --role-builder: 275 88% 70%;
     --role-scout: 152 80% 52%;
     --role-reviewer: 45 100% 62%;
+  }
+
+  /* ═══ Glass Spectrum variants (BSP-T2) ═══
+     Each hue-shifts the mesh + accents over the glass family base above.
+     glass-material.css applies to all `[data-theme^='glass']`, so these inherit
+     the full Liquid-Glass material and only re-tint it. Placed AFTER the base
+     so equal-specificity attribute selectors win by source order. */
+  :root[data-theme='glass-teal'] {
+    --glass-mesh-1: 168 85% 52%;
+    --glass-mesh-2: 190 85% 58%;
+    --glass-mesh-3: 150 80% 52%;
+    --glass-edge: 172 80% 60%;
+    --background: 192 45% 5%;
+    --card: 190 36% 12%;
+    --popover: 190 38% 11%;
+    --primary: 168 80% 50%;
+    --primary-foreground: 190 60% 6%;
+    --accent: 190 88% 58%;
+    --accent-foreground: 190 60% 6%;
+    --ring: 168 80% 50%;
+    --sidebar-primary: 168 80% 50%;
+    --sidebar-ring: 168 80% 50%;
+    --brand-cool: 190 88% 58%;
+    --role-coordinator: 190 85% 58%;
+    --role-builder: 168 80% 55%;
+    --role-scout: 150 80% 52%;
+  }
+  :root[data-theme='glass-violet'] {
+    --glass-mesh-1: 275 90% 64%;
+    --glass-mesh-2: 300 88% 64%;
+    --glass-mesh-3: 322 88% 60%;
+    --glass-edge: 280 80% 70%;
+    --background: 265 45% 6%;
+    --card: 268 38% 13%;
+    --popover: 268 40% 12%;
+    --primary: 275 88% 70%;
+    --primary-foreground: 265 60% 7%;
+    --accent: 312 85% 66%;
+    --accent-foreground: 265 60% 7%;
+    --ring: 275 88% 70%;
+    --sidebar-primary: 275 88% 70%;
+    --sidebar-ring: 275 88% 70%;
+    --brand-warm: 312 85% 66%;
+    --role-builder: 275 88% 72%;
+  }
+  :root[data-theme='glass-slate'] {
+    --glass-mesh-1: 210 35% 60%;
+    --glass-mesh-2: 220 25% 55%;
+    --glass-mesh-3: 200 22% 55%;
+    --glass-mesh-anchor: 215 25% 30%;
+    --glass-edge: 210 28% 62%;
+    --background: 215 22% 6%;
+    --card: 215 16% 13%;
+    --popover: 215 18% 12%;
+    --primary: 210 30% 72%;
+    --primary-foreground: 215 30% 10%;
+    --accent: 205 28% 64%;
+    --accent-foreground: 215 30% 10%;
+    --ring: 210 30% 72%;
+    --sidebar-primary: 210 30% 72%;
+    --sidebar-ring: 210 30% 72%;
+    --brand-cool: 205 35% 66%;
+  }
+  :root[data-theme='glass-frost'] {
+    --glass-mesh-1: 195 95% 74%;
+    --glass-mesh-2: 210 85% 80%;
+    --glass-mesh-3: 230 60% 76%;
+    --glass-mesh-anchor: 210 50% 40%;
+    --glass-edge: 200 90% 82%;
+    --background: 210 42% 7%;
+    --foreground: 205 40% 98%;
+    --card: 212 30% 15%;
+    --popover: 212 32% 14%;
+    --primary: 195 90% 70%;
+    --primary-foreground: 210 60% 8%;
+    --accent: 210 85% 80%;
+    --accent-foreground: 210 60% 8%;
+    --ring: 195 90% 72%;
+    --sidebar-primary: 195 90% 70%;
+    --sidebar-ring: 195 90% 72%;
+  }
+
+  /* ═══ Clean family (BSP-T1) ═══
+     Flat, opaque, zero blur. These do NOT match `[data-theme^='glass']`, so the
+     Liquid-Glass material in glass-material.css never applies — surfaces stay
+     crisp. The base is dark/amber; dark variants only swap the accent; the
+     `clean-light` block (last) fully overrides the palette for the light cut. */
+  :root[data-theme^='clean'] {
+    --background: 220 11% 5%;
+    --foreground: 213 8% 91%;
+    --card: 220 12% 9%;
+    --card-foreground: 213 8% 91%;
+    --popover: 215 11% 12%;
+    --popover-foreground: 213 8% 91%;
+    --primary: 25 79% 57%;
+    --primary-foreground: 24 35% 8%;
+    --secondary: 220 9% 14%;
+    --secondary-foreground: 213 8% 91%;
+    --muted: 220 9% 16%;
+    --muted-foreground: 213 8% 58%;
+    --accent: 25 79% 57%;
+    --accent-foreground: 24 35% 8%;
+    --destructive: 0 65% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 216 10% 15%;
+    --input: 216 10% 15%;
+    --ring: 25 79% 57%;
+    --radius: 0.5rem;
+    --sidebar-background: 220 12% 6%;
+    --sidebar-foreground: 213 8% 88%;
+    --sidebar-primary: 25 79% 57%;
+    --sidebar-primary-foreground: 24 35% 8%;
+    --sidebar-accent: 220 9% 12%;
+    --sidebar-accent-foreground: 213 8% 88%;
+    --sidebar-border: 216 10% 15%;
+    --sidebar-ring: 25 79% 57%;
+    --status-success: 142 60% 45%;
+    --status-warning: 38 90% 55%;
+    --status-info: 205 80% 60%;
+    --status-danger: 0 68% 52%;
+    --brand-warm: 25 79% 57%;
+    --brand-cool: 205 72% 58%;
+    --role-coordinator: 205 80% 60%;
+    --role-builder: 262 70% 66%;
+    --role-scout: 150 60% 50%;
+    --role-reviewer: 38 90% 58%;
+  }
+  :root[data-theme='clean-violet'] {
+    --primary: 262 85% 70%;
+    --primary-foreground: 262 40% 10%;
+    --accent: 262 85% 70%;
+    --accent-foreground: 262 40% 10%;
+    --ring: 262 85% 70%;
+    --sidebar-primary: 262 85% 70%;
+    --sidebar-ring: 262 85% 70%;
+    --brand-warm: 262 85% 70%;
+  }
+  :root[data-theme='clean-blue'] {
+    --primary: 205 72% 58%;
+    --primary-foreground: 205 50% 8%;
+    --accent: 205 72% 58%;
+    --accent-foreground: 205 50% 8%;
+    --ring: 205 72% 58%;
+    --sidebar-primary: 205 72% 58%;
+    --sidebar-ring: 205 72% 58%;
+    --brand-warm: 205 72% 58%;
+  }
+  :root[data-theme='clean-rose'] {
+    --primary: 327 72% 62%;
+    --primary-foreground: 327 40% 10%;
+    --accent: 327 72% 62%;
+    --accent-foreground: 327 40% 10%;
+    --ring: 327 72% 62%;
+    --sidebar-primary: 327 72% 62%;
+    --sidebar-ring: 327 72% 62%;
+    --brand-warm: 327 72% 62%;
+  }
+  :root[data-theme='clean-emerald'] {
+    --primary: 153 58% 52%;
+    --primary-foreground: 153 50% 8%;
+    --accent: 153 58% 52%;
+    --accent-foreground: 153 50% 8%;
+    --ring: 153 58% 52%;
+    --sidebar-primary: 153 58% 52%;
+    --sidebar-ring: 153 58% 52%;
+    --brand-warm: 153 58% 52%;
+  }
+  :root[data-theme='clean-light'] {
+    --background: 210 20% 97%;
+    --foreground: 220 14% 14%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 14% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 14% 14%;
+    --primary: 25 80% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 16% 92%;
+    --secondary-foreground: 220 14% 22%;
+    --muted: 210 16% 92%;
+    --muted-foreground: 215 10% 40%;
+    --accent: 25 82% 38%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 65% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 14% 86%;
+    --input: 214 14% 86%;
+    --ring: 25 80% 40%;
+    --sidebar-background: 210 18% 94%;
+    --sidebar-foreground: 220 14% 22%;
+    --sidebar-primary: 25 80% 40%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 16% 90%;
+    --sidebar-accent-foreground: 220 14% 22%;
+    --sidebar-border: 214 14% 82%;
+    --sidebar-ring: 25 80% 40%;
+    --status-success: 142 55% 35%;
+    --status-warning: 32 90% 42%;
+    --status-info: 205 80% 42%;
+    --status-danger: 0 65% 45%;
+    --brand-warm: 25 80% 40%;
+    --brand-cool: 205 72% 45%;
+    --role-coordinator: 205 75% 45%;
+    --role-builder: 262 65% 52%;
+    --role-scout: 150 55% 36%;
+    --role-reviewer: 32 88% 42%;
   }
 }
 
