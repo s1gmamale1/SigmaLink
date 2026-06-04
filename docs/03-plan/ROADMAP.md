@@ -29,13 +29,18 @@ This ROADMAP is the single source of truth for what to build next.
 
 | # | Sev | Bug | Where | Effort |
 |---|-----|-----|-------|--------|
+| SMK-1 | high | New-workspace wizard "Sessions per pane" lists ALL global cross-project sessions + auto-resumes them onto fresh worktrees (B2 scoping gap in the N1 path) | `renderer/features/workspace-launcher/SessionStep.tsx`, `rpc-router.ts` (`panes.listSessions`), `core/pty/session-disk-scanner.ts` | M |
+| SMK-2 | high | Wizard Sessions-step buttons dead — "Resume newest for all"/"All new"/"Reset to suggested"/per-pane "Change…" no-op → can't force New session | `renderer/features/workspace-launcher/SessionStep.tsx` | M |
+| SMK-3 | high | Skills tab shows ONLY Superpowers — must enumerate all globally-installed skills per provider + show invocation prefix (claude `/`, codex `$`, …) | `renderer/features/skills/SkillsTab.tsx`, `core/skills/*` | M–L |
 | BSP-B4 | medium | Embedded-browser input/focus reliability — audit `WebContentsView` focus forwarding to form fields (BridgeSpace still fights this in v3.1 → differentiation chance) | `core/browser/{manager,controller}.ts`, `renderer/browser/BrowserViewMount.tsx` | M |
 
-*(The v2.0.0 owed smokes are operator QA, not code bugs. No other confirmed product bugs this cycle.)*
+*(SMK-1/2/3 found in the 2026-06-04 Phase-1 theme smoke — detail in `WISHLIST.md`. The v2.0.0 owed smokes are operator QA, not code bugs.)*
 
 ---
 
-## Phase 1 — "Clean/Clear" theme + Glass variations  ·  **OPERATOR HEADLINE — do first**
+## Phase 1 — "Clean/Clear" theme + Glass variations  ·  ✅ **SHIPPED** (PR #104 · `f78c6e0`, 2026-06-04)
+
+**Shipped:** 15 themes (was 5) — Clean family (`clean`/`clean-light`/`clean-violet`/`clean-blue`/`clean-rose`/`clean-emerald`, flat-opaque, zero-blur, single accent ring) + Glass Spectrum (`glass-teal`/`glass-violet`/`glass-slate`/`glass-frost`). `glass-material.css` parameterized to hue tokens + selectors broadened to `[data-theme^='glass']` (ADR-001); base `glass` byte-identical; drift-guard test. Opus-reviewed (H1 EditorTab Monaco, M1 clean-light contrast, M2 byte-identical, M3 drift-guard all folded). CI 4/4 green incl. both smoke e2e. **Operator visual smoke ✅ — confirmed working/liked.** Gallery card-picker = Phase 2. → promote to CHANGELOG/memory on wrap-up.
 
 **Goal.** SigmaLink offers a flat, opaque "Clean/Clear" theme alongside Glass, plus a family of Glass variations, all selectable like the existing themes.
 

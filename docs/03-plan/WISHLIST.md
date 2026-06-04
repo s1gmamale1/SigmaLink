@@ -10,6 +10,23 @@
 
 ---
 
+## 🔬 Phase-1 theme smoke — 2026-06-04 (themes ✅ shipped; 3 new bugs found)
+
+Operator visual smoke of the Phase-1 theme library (PR #104, `f78c6e0`). **✅ Themes confirmed
+working + liked** — 15 themes (Clean family + Glass Spectrum) render correctly; ROADMAP **Phase 1
+→ SHIPPED**. The smoke surfaced 3 unrelated bugs in already-shipped surfaces (the N1 wizard's
+Sessions step + the Skills tab):
+
+### 🐞 Bugs
+- 🐞 **[high] New-workspace wizard "Sessions per pane" lists ALL global cross-project sessions + auto-resumes them onto fresh worktrees.** The N1 wizard Sessions step (screenshot: Claude Code "just now", Codex CLI "1d ago", OpenCode CLI carrying a prompt from another project) pulls each provider's NEWEST session **globally**, not scoped to this workspace/cwd, and the smart-default RESUMES it — so a brand-new workspace silently re-attaches stale sessions on its new worktrees. This is the **B2 resume-scoping gap not applied in the wizard path** (B2 `#99` fixed `panes.listSessions`/`session-disk-scanner` cwd-scoping + defaulted unscoped lists to "New session", but the N1 `SessionStep` either doesn't pass `workspaceId` or defaults to resume). Fix: thread `workspaceId` into `SessionStep.fetchSessions` (`renderer/features/workspace-launcher/SessionStep.tsx`) → `panes.listSessions` (`rpc-router.ts`), cwd-whitelist codex/kimi/gemini (`core/pty/session-disk-scanner.ts` `workspaceAllowedIds`), and make the wizard default to **New session** for a fresh workspace. Effort: M.
+- 🐞 **[high] Wizard Sessions-step buttons are dead — can't force a new session.** "Resume newest for all" / "All new" / "Reset to suggested" + the per-pane "Change…" buttons don't mutate the selection (no-op on click). Combined with the bug above, the operator **cannot opt out** of resuming stale sessions. Fix: wire the SessionStep control handlers to update per-pane session state (`renderer/features/workspace-launcher/SessionStep.tsx`); likely an N1-wizard regression where the controls render but aren't bound. Add an interaction test. Effort: M.
+- 🐞 **[high] Skills tab only shows Superpowers plugin skills.** The right-rail Skills tab (under Guardrails) lists ONLY the `superpowers`-tagged skills; it must enumerate **all globally-installed skills per provider** and show each provider's **invocation prefix** (Claude Code via `/`, Codex CLI via `$`, Gemini/others as applicable). Today the discovery source is the superpowers plugin only. Fix: scan each provider's skill/command registry (Claude `~/.claude/skills` + plugin skills + project `.claude`; Codex prompts/commands; etc.), tag each by provider + prefix, and group/filter the tab by provider (`renderer/features/skills/SkillsTab.tsx`, `core/skills/*`). Effort: M–L (discovery per provider).
+
+### ✅ Shipped this round
+- ✅ **Phase 1 themes (BSP-T1/T2)** — `clean`/`clean-light`/`clean-violet`/`clean-blue`/`clean-rose`/`clean-emerald` + `glass-teal`/`glass-violet`/`glass-slate`/`glass-frost` (PR #104 `f78c6e0`, CI 4/4 green incl. both smoke e2e). Base `glass` byte-identical. → promote to CHANGELOG/memory on wrap-up.
+
+---
+
 ## ✅ v2.0.0 operator-smoke findings — 2026-06-03 (RELEASE-BLOCKERS — ALL SHIPPED)
 
 Real-device smoke of the staged v2.0.0 surfaced bugs + new-feature direction. Root-caused by two
