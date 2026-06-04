@@ -29,12 +29,13 @@ This ROADMAP is the single source of truth for what to build next.
 
 | # | Sev | Bug | Where | Effort |
 |---|-----|-----|-------|--------|
-| SMK-1 | high | New-workspace wizard "Sessions per pane" lists ALL global cross-project sessions + auto-resumes them onto fresh worktrees (B2 scoping gap in the N1 path) | `renderer/features/workspace-launcher/SessionStep.tsx`, `rpc-router.ts` (`panes.listSessions`), `core/pty/session-disk-scanner.ts` | M |
-| SMK-2 | high | Wizard Sessions-step buttons dead — "Resume newest for all"/"All new"/"Reset to suggested"/per-pane "Change…" no-op → can't force New session | `renderer/features/workspace-launcher/SessionStep.tsx` | M |
-| SMK-3 | high | Skills tab shows ONLY Superpowers — must enumerate all globally-installed skills per provider + show invocation prefix (claude `/`, codex `$`, …) | `renderer/features/skills/SkillsTab.tsx`, `core/skills/*` | M–L |
+| SMK-1 | high | Wizard auto-resumes a stale CROSS-PROJECT session onto fresh worktrees. ✅ root-caused: opencode never cwd-scoped (`session-disk-scanner.ts:848` drops `opts`; `:696` keeps no-`directory` rows) + `scoped=!!workspaceId` always-true → auto-resume newest (`SessionStep.tsx:251,259,269`) | `core/pty/session-disk-scanner.ts:642/696/848`, `SessionStep.tsx:259` | M |
+| SMK-2 | high | Sessions-step buttons revert instantly. ✅ root-caused: smart-default `useEffect` re-fires every render b/c `rows=buildPaneRows(...)` is inline (new array) → clobbers the pick | `Launcher.tsx:564` (memoize) + `SessionStep.tsx:248-276` (init-once ref) | S |
+| SMK-3 | high | Skills tab Superpowers-only. ✅ root-caused: `discoverInstalledSkills` hard-codes 2 cache paths + the ruflo branch is dir-depth-broken; must scan all providers (~580+ on disk) + carry provider/prefix | `core/skills/controller.ts:276-357` (+ new `discovery.ts`), `SkillsTab.tsx`, `shared/providers.ts` | M |
+| SMK-3b | medium | Codex skill injection writes `/foo` not `$foo` (hardcoded `/` for all providers) | `renderer/command-room/insertSkillCommand.ts:38` | S |
 | BSP-B4 | medium | Embedded-browser input/focus reliability — audit `WebContentsView` focus forwarding to form fields (BridgeSpace still fights this in v3.1 → differentiation chance) | `core/browser/{manager,controller}.ts`, `renderer/browser/BrowserViewMount.tsx` | M |
 
-*(SMK-1/2/3 found in the 2026-06-04 Phase-1 theme smoke — detail in `WISHLIST.md`. The v2.0.0 owed smokes are operator QA, not code bugs.)*
+*(SMK-1/2/3 + SMK-3b root-caused by 2 opus debug agents 2026-06-04 — full evidence/fix-plans in `WISHLIST.md`. Test-blindness: `Launcher.test` stubs `SessionStep`; fixes must add an un-stubbed integration test. The v2.0.0 owed smokes are operator QA, not code bugs.)*
 
 ---
 
