@@ -6,9 +6,11 @@
 >
 > **This cycle (set 2026-06-04)** is driven by the **BridgeSpace competitor teardown** (6-agent
 > `video-lens-review` of BridgeMind Day 187 + Day 188 streams — see `WISHLIST.md` "BridgeSpace
-> competitor teardown — 2026-06-04"). **Operator headline: ship a flat "Clean/Clear" theme +
-> more Glass variations FIRST**, then the high-leverage worktree/git UI, FE polish, premium
-> Jorvis FE, and orchestration/browser/voice depth.
+> competitor teardown — 2026-06-04"). **Operator headline: ship a flat "Clean/Clear" theme + more Glass variations FIRST** — ✅ **Phase 1
+> shipped** (PR #104). **▶ NEXT = Phase 2: operator-smoke bugfix batch (SMK-1/2/3/3b) — confirmed bugs,
+> fixed before features.** Then the feature phases: theme gallery (3) · FE polish (4) · premium Jorvis FE (5) ·
+> worktree/git UI (6) · git diff panel (7) · orchestration (8) · browser/voice depth (9).
+> *(Paused 2026-06-04 by operator — resume at Phase 2.)*
 
 This ROADMAP is the single source of truth for what to build next.
 
@@ -41,7 +43,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ## Phase 1 — "Clean/Clear" theme + Glass variations  ·  ✅ **SHIPPED** (PR #104 · `f78c6e0`, 2026-06-04)
 
-**Shipped:** 15 themes (was 5) — Clean family (`clean`/`clean-light`/`clean-violet`/`clean-blue`/`clean-rose`/`clean-emerald`, flat-opaque, zero-blur, single accent ring) + Glass Spectrum (`glass-teal`/`glass-violet`/`glass-slate`/`glass-frost`). `glass-material.css` parameterized to hue tokens + selectors broadened to `[data-theme^='glass']` (ADR-001); base `glass` byte-identical; drift-guard test. Opus-reviewed (H1 EditorTab Monaco, M1 clean-light contrast, M2 byte-identical, M3 drift-guard all folded). CI 4/4 green incl. both smoke e2e. **Operator visual smoke ✅ — confirmed working/liked.** Gallery card-picker = Phase 2. → promote to CHANGELOG/memory on wrap-up.
+**Shipped:** 15 themes (was 5) — Clean family (`clean`/`clean-light`/`clean-violet`/`clean-blue`/`clean-rose`/`clean-emerald`, flat-opaque, zero-blur, single accent ring) + Glass Spectrum (`glass-teal`/`glass-violet`/`glass-slate`/`glass-frost`). `glass-material.css` parameterized to hue tokens + selectors broadened to `[data-theme^='glass']` (ADR-001); base `glass` byte-identical; drift-guard test. Opus-reviewed (H1 EditorTab Monaco, M1 clean-light contrast, M2 byte-identical, M3 drift-guard all folded). CI 4/4 green incl. both smoke e2e. **Operator visual smoke ✅ — confirmed working/liked.** Gallery card-picker = Phase 3. → promote to CHANGELOG/memory on wrap-up.
 
 **Goal.** SigmaLink offers a flat, opaque "Clean/Clear" theme alongside Glass, plus a family of Glass variations, all selectable like the existing themes.
 
@@ -49,7 +51,7 @@ This ROADMAP is the single source of truth for what to build next.
 - **BSP-T1** new `clean` theme (dark) + a `clean-light` variant — `ThemeDefinition` entries + `[data-theme="clean"]` / `[data-theme="clean-light"]` CSS-var blocks.
 - **BSP-T2** Glass-variation tier: a `--surface-tint` + `--glass-image-opacity` layer over the glass base + 3–4 presets (`glass-teal` / `glass-violet` / `glass-slate` / `glass-frost`).
 
-**Why now.** The user's explicit #1 ask. Cohesive, self-contained (theme layer only), and unblocks the gallery (Phase 2) having real content to show.
+**Why now.** The user's explicit #1 ask. Cohesive, self-contained (theme layer only), and unblocks the gallery (Phase 3) having real content to show.
 
 **Scope.**
 - `src/renderer/lib/themes.ts:6` — extend `ThemeId` union (`'clean' | 'clean-light' | 'glass-teal' | …`); add `THEMES[]` entries with swatches. Keep `DEFAULT_THEME='glass'`.
@@ -64,7 +66,32 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## Phase 2 — Appearance theme-gallery picker + per-workspace tint
+## Phase 2 — Operator-smoke bugfix batch (SMK-1/2/3/3b)  ·  ▶ **NEXT UP** (paused 2026-06-04)
+
+**Goal.** New-workspace creation never silently resumes a stale cross-project session, the Sessions-step controls work, and the Skills tab shows every provider's installed skills with the right invocation prefix.
+
+**Deliverables.**
+- **SMK-1** opencode session listing cwd-scoped + the wizard defaults to **New session** for a fresh workspace.
+- **SMK-2** Sessions-step controls (Resume newest / All new / Reset / per-pane Change…) actually stick.
+- **SMK-3** per-provider skill discovery (`core/skills/discovery.ts`) feeding a provider-grouped Skills tab with the correct prefix.
+- **SMK-3b** Codex skill injection uses `$` not `/`.
+- An **un-stubbed Launcher↔SessionStep integration test** + an opencode-scoping unit test (closes the test-blindness).
+
+**Why now.** Confirmed, root-caused bugs in the two most-used entry surfaces (workspace creation + the skills rail) — bugs before features, and before the Phase-3 gallery touches the same Appearance/launcher area. Full evidence + fix plans in `WISHLIST.md` "Phase-1 theme smoke — 2026-06-04".
+
+**Scope.**
+- *Sessions packet (SMK-1+2):* `core/pty/session-disk-scanner.ts:642/696/848` — pass `opts` to `listOpencodeSessions` + `workspaceAllowedIds`-filter + skip no-`directory` rows under an enforced cwd; `SessionStep.tsx:259` — default the smart-selection to `null` for a fresh workspace; `Launcher.tsx:564` — `useMemo` the `buildPaneRows(...)` so the smart-default `useEffect` (`SessionStep.tsx:248-276`) stops re-firing + an init-once `useRef` guard so an explicit pick is never clobbered. Sibling: `findOpencodeSession:288` fail-open.
+- *Skills packet (SMK-3+3b):* new `core/skills/discovery.ts` (per-provider scanners — claude user/project/commands + manifest-resolved plugin skills excluding `temp_git_*`/`*.clone` + version-dir; codex `~/.codex/{skills,prompts}`; cursor; opencode; gemini) replacing the 2 hardcoded paths at `controller.ts:276-357`; widen `InstalledSkillEntry` (`controller.ts:24-28` + the duplicate in `SkillsTab.tsx:40-44` + the test mocks — all 3) to carry `provider/prefix/source/kind/sourcePath`; a central `INVOCATION_PREFIX` keyed on `shared/providers.ts`; group/filter `SkillsTab.tsx` by provider + show the prefix; fix `insertSkillCommand.ts:38` to inject `entry.prefix + name` keyed on the pane's providerId.
+
+**Findings + recommendation.** Two opus debug agents (2026-06-04, `/systematic-debugging`) statically confirmed each root cause + adversarially disproved the obvious theories (it is NOT a missing `workspaceId`; the buttons DO fire but get clobbered by a re-firing effect; the skills tab is hardcoded-2-paths + a latent ruflo dir-depth bug). Lead spot-checked the load-bearing lines. Ship as **two file-disjoint lanes** (sessions vs skills) → integrate → gate → Opus review.
+
+**Risks.** SMK-3's plugin-manifest walk + version-dir resolution is the only non-trivial part (cache pollution + multi-version) — read the installed-plugin manifest, never blind-glob. The 3 mirrored `InstalledSkillEntry` sites are the classic SigmaLink miss — change together. Do NOT widen the *fanout* target set (separate, larger change).
+
+**Definition of done.** Creating a fresh workspace shows "New session" for every pane by default (no cross-project resume) and the Sessions-step buttons change + persist the selection; the Skills tab lists skills from ≥2 providers grouped with their prefix, and dropping a skill on a Codex pane types `$name`; the new integration + opencode-scoping tests fail before / pass after; `tsc -b` · vitest · lint · build green.
+
+---
+
+## Phase 3 — Appearance theme-gallery picker + per-workspace tint
 
 **Goal.** Themes are chosen from a live card-gallery (like BridgeSpace's), and each workspace can carry its own tint.
 
@@ -86,7 +113,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## Phase 3 — FE polish sweep (quick wins)
+## Phase 4 — FE polish sweep (quick wins)
 
 **Goal.** Land the cheap, high-visibility BridgeSpace UI steals in one coherent pass.
 
@@ -108,7 +135,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## Phase 4 — Premium Jorvis FE (N3, carry-over — now B3-unblocked)
+## Phase 5 — Premium Jorvis FE (N3, carry-over — now B3-unblocked)
 
 **Goal.** The Jorvis assistant feels premium: streamed reveal, animated bubbles, inline tool chips.
 
@@ -126,7 +153,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## Phase 5 — Worktree GUI (our moat, made one-click)
+## Phase 6 — Worktree GUI (our moat, made one-click)
 
 **Goal.** Creating/working in worktrees is GUI-driven, not CLI-only.
 
@@ -144,7 +171,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## Phase 6 — In-app Git diff / Review panel
+## Phase 7 — In-app Git diff / Review panel
 
 **Goal.** Browse diffs and review changes inside SigmaLink without dropping to a CLI.
 
@@ -152,7 +179,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 **Why now.** We're worktree-native yet have no in-app diff viewer — the single biggest feature gap the teardown surfaced (D187 00:05:33–00:11:40). Spec-before-build (this is the cycle's one L feature).
 
-**Scope.** Backend already has `core/git/git-ops.ts` (`gitStatus`/`gitDiff`/`mergePreview`) + `core/review/*` — surface them in a new `renderer/features/review/*` panel; ahead/behind via `git rev-list --count`; teardown policy hooks into the C-7 orchestrator post-gate. Reuse RSP-1 Resizable for the panel; pop-out reuses the (Phase 8) detach plumbing or a simple BrowserWindow.
+**Scope.** Backend already has `core/git/git-ops.ts` (`gitStatus`/`gitDiff`/`mergePreview`) + `core/review/*` — surface them in a new `renderer/features/review/*` panel; ahead/behind via `git rev-list --count`; teardown policy hooks into the C-7 orchestrator post-gate. Reuse RSP-1 Resizable for the panel; pop-out reuses the (Phase 9) detach plumbing or a simple BrowserWindow.
 
 **Findings + recommendation.** The data layer exists; this is mostly a renderer surface + 2 small RPCs. Write a short spec first (panel layout, diff virtualization for big files).
 
@@ -162,7 +189,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## Phase 7 — Orchestration & memory surfacing
+## Phase 8 — Orchestration & memory surfacing
 
 **Goal.** The Sigma orchestrator and Ruflo memory are first-class, persistent surfaces — not buried in a pane.
 
@@ -180,7 +207,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## Phase 8 — Voice / model & browser depth
+## Phase 9 — Voice / model & browser depth
 
 **Goal.** Cloud STT choice, live cost/speed visibility, and a more capable embedded browser.
 
@@ -190,7 +217,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 **Scope.** `resolveTranscriptionEngine` + voice settings (V1); pane header tok/s+cost off the SigmaBench foundation + `+Pane` preset (V2, extends FEAT-3/14); `core/browser/*` detach + a skill exposing browser RPCs to panes (B2/B3).
 
-**Findings + recommendation.** V2 builds on the existing usage ledger + SigmaBench; B3 reuses the embedded browser + skills system. B2 detach overlaps Phase 6 pop-out plumbing — share it.
+**Findings + recommendation.** V2 builds on the existing usage ledger + SigmaBench; B3 reuses the embedded browser + skills system. B2 detach overlaps Phase 7 pop-out plumbing — share it.
 
 **Risks.** B3 gives agents a controllable browser → SSRF/abuse surface. Mitigation: route through the H-19 aidefence gate + same-origin/https allowlist; gate behind a setting.
 
@@ -200,7 +227,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ## 🧊 Deferred this cycle (XL / big-bang — held per the DDD small-per-packet rule)
 - **BSP-P4 — Canvas mode** (freeform draggable/resizable panes + bottom voice bar; their BridgeCanvas direction). XL — pane layout-engine rewrite. Revisit as its own cycle; leapfrog if shipped before BridgeCanvas.
-- **BSP-P6 — multi-window / dual-window** (detach a workspace/panel into its own OS window, multi-monitor). L–XL — multi-`BrowserWindow` architecture. (Phase 8 B2 delivers the browser-only slice.)
+- **BSP-P6 — multi-window / dual-window** (detach a workspace/panel into its own OS window, multi-monitor). L–XL — multi-`BrowserWindow` architecture. (Phase 9 B2 delivers the browser-only slice.)
 - **BSP-P5 — workspaces-as-tabs** top strip. S, but a layout-shell change — fold into a future shell pass.
 
 ## ✅ Skip / market better (already shipped — do NOT rebuild)
@@ -235,17 +262,18 @@ Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per
 
 | Item | Phase | Effort | Impact | Notes |
 |------|-------|--------|--------|-------|
-| BSP-T1 Clean theme | 1 | M | High | Operator headline |
-| BSP-T2 Glass variations | 1 | M | High | Tint/opacity layer (ADR-001) |
-| BSP-T3 theme gallery | 2 | M | High | Live preview cards |
-| BSP-T4 per-workspace tint | 2 | S | Med | Workspace KV |
-| FE polish sweep (F1–F9,B1,V3,P2,P3) | 3 | M | High | Batch of S quick-wins |
-| Premium Jorvis FE (N3) | 4 | L | High | Needs backend token-stream |
-| Worktree GUI (G1,G3,P1) | 5 | M | High | Engine exists; UI gap |
-| Git diff/Review panel (G2,G4,G5) | 6 | L | High | Biggest feature gap; spec first |
-| Orchestration+memory (O1–O5) | 7 | L | Med-High | Relocate C-7 + surface graph |
-| Voice/model+browser (V1,V2,B2,B3) | 8 | M-L | Med | B3 needs security gate |
-| BSP-B4 browser focus | hotlist | M | Med | Reliability audit |
+| BSP-T1 Clean theme | 1 | M | High | ✅ shipped (PR #104) |
+| BSP-T2 Glass variations | 1 | M | High | ✅ shipped (ADR-001) |
+| **Operator-smoke bugfix batch (SMK-1/2/3/3b)** | **2** | **M–L** | **High** | **Confirmed bugs — ▶ NEXT (resume here)** |
+| BSP-T3 theme gallery | 3 | M | High | Live preview cards |
+| BSP-T4 per-workspace tint | 3 | S | Med | Workspace KV |
+| FE polish sweep (F1–F9,B1,V3,P2,P3) | 4 | M | High | Batch of S quick-wins |
+| Premium Jorvis FE (N3) | 5 | L | High | Needs backend token-stream |
+| Worktree GUI (G1,G3,P1) | 6 | M | High | Engine exists; UI gap |
+| Git diff/Review panel (G2,G4,G5) | 7 | L | High | Biggest feature gap; spec first |
+| Orchestration+memory (O1–O5) | 8 | L | Med-High | Relocate C-7 + surface graph |
+| Voice/model+browser (V1,V2,B2,B3) | 9 | M-L | Med | B3 needs security gate |
+| BSP-B4 browser focus | 9/hotlist | M | Med | Reliability audit |
 | Canvas mode (P4) | deferred | XL | High | Layout rewrite |
 | Multi-window (P6) | deferred | L-XL | Med | Multi-BrowserWindow |
 
