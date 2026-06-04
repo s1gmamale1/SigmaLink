@@ -4,8 +4,7 @@
 > derived from findings in `WISHLIST.md`. A whiteboard — refreshed each phase, **not permanent
 > documentation**. Permanent record → `CHANGELOG.md` + master memory + Ruflo AgentDB.
 >
-> **Shipped baseline:** SigmaLink v1.36.0 (+ on-main-untagged video+perf harness & FE-4 a11y `dbce7e6`);
-> SigmaVoice standalone v0.3.2 (own repo, macOS arm64 DMG).
+> **Shipped baseline:** SigmaLink v1.36.0 (+ on-main-untagged video+perf harness & FE-4 a11y `dbce7e6`).
 >
 > **🎉 ENTIRE 6-PHASE ROADMAP + ITS FULL LONG-TAIL SHIPPED — staged as `v2.0.0` (UNTAGGED on `main`, 2026-06-03).**
 > ✅ P1 (#70) · ✅ P2 (#72) · ✅ P3 (#73) · ✅ P4 (#75+#76) · ✅ P5 (#78+#79) · ✅ P6 exit (#81+#82) — **and the P6 long-tail (FEAT-2/3/4/5/6/8/9/10/12/14 + ONB-1), P4.2 (MEM-5/7/8/9, FTS5, causal edges, ⌘O, daily-note digest, auto-checkpoint), P5.2 (density, PERF-7/8/9/12), and ARCH-1/6/9 all merged this cycle.** Detail → `CHANGELOG.md` [2.0.0].
@@ -43,7 +42,7 @@
 | ✅ **P5** | Responsiveness & performance (b) | ✅ **merged #78+#79** | **DONE** — PERF-1/11 (pty:data+broadcast), PERF-3 (selectors), PERF-5/6 (dedup polling), PERF-2/4/10, RSP-1 (resizable + per-ws sizes). *(PERF-7/8/9/12 + density → WISHLIST.)* | Shipped. Hottest IPC + re-render paths tamed; resizable layout-remembering surfaces. |
 | ✅ **P6 FULL** | Competitive features & leapfrogs (multi-release) | ✅ **exit #81+#82 + long-tail (v2.0.0)** | **DONE** — FEAT-7, FEAT-1, FEAT-11 (rewind), FEAT-13 (merge-order + badges), **+ long-tail FEAT-2/3/4/5/6/8/9/10/12/14 + ONB-1** all shipped this cycle. | The whole parity surface + both leapfrogs are in v2.0.0. |
 | ✅ **×** | Cross-cutting (every phase) | within v2.0.0 | ✅ ARCH-1, ARCH-6, ARCH-9. **Deferred:** ARCH-2/3/4/5/7/8 (big-bang splits → next cycle), SEC-1 (ongoing), RES-1. | ARCH-1 type-seam + ARCH-6/9 done; the large file/god-function splits held per the DDD small-per-packet rule. |
-| **B** | Blocked / operator-owned (parked) | when unblocked | SV1, SV2, B1, B2, op-0026, op-smokes | Not actionable unblocked — see tail. |
+| **B** | Blocked / operator-owned (parked) | when unblocked | B1, B2, op-0026, op-smokes | Not actionable unblocked — see tail. |
 
 > ¹ **Ships as** = suggested release tag per phase, operator-authorized at ship time (not a commitment). A phase may split across point releases; P6 spans several.
 
@@ -112,12 +111,10 @@
 
 | # | Item | Status |
 |---|------|--------|
-| **SV1** | SigmaVoice W-SV1 — Windows NSIS build (`voice-whisper` MSVC `LNK1120`) | 🚧 binding.gyp surgery + Windows-runner CI (engine repo) |
-| **SV2** | SigmaVoice W-SV2 — quit-time TSFN SIGABRT | quit-only; `tsfn_bridge` release-semantics fix (also affects in-app voice) |
 | **B1** | W-4 P8–P9 + win32 shell-first dogfood | 🚧 BLOCKED — needs an operator Windows dogfood (revert path `pty.spawnMode='direct'`) |
 | **B2** | FE-4 voice items (PCM rate, whisper v1.7.x port, prebuildify, win `IsAvailable()` race) | 🚧 BLOCKED — behind unshipped native voice builds |
 | **op** | SF-12 migration `0026` register + ship | dormant — needs diagnostic-SQL sign-off on a real `agent_sessions` dump |
-| **op** | SigmaVoice live mic/permission smoke · FE-4 device a11y QA (VoiceOver/Switch-Control) | needs the device |
+| **op** | FE-4 device a11y QA (VoiceOver/Switch-Control) | needs the device |
 
 ## When an item ships
 → move its one-line note to `CHANGELOG.md` + the master-memory project entry + (reusable lessons) Ruflo AgentDB; delete it from this whiteboard and from `WISHLIST.md`. Keep `WISHLIST.md` for new raw findings/ideas.

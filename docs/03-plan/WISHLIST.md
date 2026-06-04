@@ -173,24 +173,6 @@ audit time (v1.36.0 baseline). Sources: video review `docs/02-research/videos/0N
 
 ---
 
-## ✅ SigmaVoice standalone — realized + shipping (2026-05-29)
-
-Was the big "new idea"; now built + released. **Standalone system-wide dictation app in its own repo**
-`s1gmamale1/SigmaVoice` (operator-created), voice engine consumed from SigmaLink via a **git submodule**
-(single source of truth). **As of 2026-05-29 a different agent owns SigmaVoice app-shell dev IN THAT REPO**
-(full doc ecosystem + CLAUDE.md/HANDOFF shipped there); `sigma-voice/` here is the historical dev copy.
-**Engine/native code is still authored in SigmaLink** (the submodule) — incl. the W-SV1/W-SV2 fixes —
-and pulled into the app via a submodule-pointer bump. ✅ **macOS DMG RELEASED — `SigmaVoice v0.3.2`
-(arm64)**; `curl | bash` installer (`scripts/install-macos.sh`).
-
-**Open follow-ups (engine/native — fixed in SigmaLink, not the app repo):**
-- **W-SV1 — Windows NSIS build BLOCKED.** `voice-whisper` x64 fails to LINK on MSVC (`LNK1120: 40 unresolved ggml_*`). Shared `app/native/voice-whisper/binding.gyp` links on macOS/clang but not MSVC (whisper.cpp is CMake-on-Windows; gyp Windows port incomplete). Needs binding.gyp surgery + Windows-runner CI iteration. Operator: mac now, Windows next.
-- **W-SV2 — quit-time SIGABRT (native TSFN teardown).** Quitting after a recording can throw `napi_release_threadsafe_function`→`uv_mutex_lock`. App has already quit (no data loss). Fix is in `tsfn_bridge` release semantics (release/abort the TSFN before loop teardown). Affects SigmaLink in-app voice too. Quit-only → lower priority.
-- ① live mic/permission smoke (Mic + Accessibility + Input-Monitoring grants — needs hardware).
-- ② deferred features: Windows keystroke-inject, AI-cleanup/cloud, floating pill, wake-word.
-
----
-
 ## 🔎 Older open findings (sequenced in ROADMAP.md "Blocked/Operator-owned")
 
 - **W-4 P8–P9 + win32 shell-first dogfood** — resume simplification + drop `external_session_id`; win32 un-dogfooded. → ROADMAP **B1** (BLOCKED on operator win32 dogfood).
