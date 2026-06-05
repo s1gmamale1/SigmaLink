@@ -77,6 +77,14 @@ interface Props<T> {
 
 const MIN_FRAC = 0.15;
 
+// pane-switch jank — how long to keep the grid-template transition suppressed
+// after a workspace switch. Long enough to cover the synchronous reshape AND
+// the async per-workspace KV frac-load that follows, so the new workspace's
+// layout snaps into place instead of animating. Restored afterwards so an
+// in-workspace pane add/remove still animates its reflow. Overshooting only
+// means a pane added within this window of a switch won't animate (graceful).
+const SWITCH_SETTLE_MS = 300;
+
 export function GridLayout<T>({
   items,
   getKey,
@@ -91,6 +99,30 @@ export function GridLayout<T>({
   const [rowFracs, setRowFracs] = useState<number[]>(() => Array(rows).fill(1));
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // pane-switch jank — when the active workspace changes, snap the grid to the
+  // new workspace's proportions instead of animating from the previous one's.
+  // The grid-template transition (below) is otherwise always on, so on a switch
+  // the fracs change twice (carry-over/reshape, then the async KV frac-load)
+  // and the 200ms animation drove the xterm ResizeObserver to refit against
+  // every intermediate cell size → "stuck for a sec" on every switch. We set
+  // the suppress flag IN RENDER (guarded by the ref so it runs once per switch)
+  // so the snap is in effect for the same commit the switched-in fracs land in;
+  // a CSS transition only animates a value change when the transition property
+  // already existed, so removing it for that commit yields an instant snap.
+  const [suppressTransition, setSuppressTransition] = useState(false);
+  const prevWorkspaceIdRef = useRef<string | null>(workspaceId);
+  if (prevWorkspaceIdRef.current !== workspaceId) {
+    prevWorkspaceIdRef.current = workspaceId;
+    if (!suppressTransition) setSuppressTransition(true);
+  }
+  // Restore the transition a short beat after the switch (keyed on workspaceId
+  // so a rapid A→B→A re-arms it). The window covers the async KV frac-load so
+  // the persisted layout also lands without animating.
+  useEffect(() => {
+    const t = setTimeout(() => setSuppressTransition(false), SWITCH_SETTLE_MS);
+    return () => clearTimeout(t);
+  }, [workspaceId]);
 
   // DEV-L2 — preserve user proportions across shape change (was Array(n).fill(1)).
   if (colFracs.length !== cols) setColFracs((prev) => reshapeFracs(prev, cols));
@@ -300,8 +332,9 @@ export function GridLayout<T>({
         'relative grid h-full w-full',
         densitySpacing,
         // DEV-L2 — animate reflow when pane count changes; suppress during drag
-        // (keeps divider 1:1) and on reduced-motion devices.
-        !isDragging && 'transition-[grid-template-columns,grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
+        // (keeps divider 1:1), on a workspace switch (snap to the new layout —
+        // pane-switch jank fix), and on reduced-motion devices.
+        !isDragging && !suppressTransition && 'transition-[grid-template-columns,grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
       )}
       style={gridStyle}
       // P5.2 — RENAMED from `data-density` → `data-grid-density` so the new
