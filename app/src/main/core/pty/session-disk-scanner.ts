@@ -114,17 +114,17 @@ function isWithinWindow(mtimeMs: number, now: number, windowMs: number): boolean
   return now - mtimeMs >= 0 && now - mtimeMs <= windowMs;
 }
 
-function safeStat(p: string): fs.Stats | null {
+async function safeStat(p: string): Promise<fs.Stats | null> {
   try {
-    return fs.statSync(p);
+    return await fs.promises.stat(p);
   } catch {
     return null;
   }
 }
 
-function safeReadDir(p: string): fs.Dirent[] {
+async function safeReadDir(p: string): Promise<fs.Dirent[]> {
   try {
-    return fs.readdirSync(p, { withFileTypes: true });
+    return await fs.promises.readdir(p, { withFileTypes: true });
   } catch {
     return [];
   }
@@ -136,21 +136,21 @@ function safeReadDir(p: string): fs.Dirent[] {
  * where the date partitions are not deterministic for us (we don't know which
  * folder the running CLI just touched).
  */
-function findFiles(
+async function findFiles(
   root: string,
   predicate: (name: string) => boolean,
   maxDepth = MAX_RECURSION_DEPTH,
-): string[] {
+): Promise<string[]> {
   const matches: string[] = [];
-  const stack: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
-  while (stack.length > 0) {
-    const { dir, depth } = stack.pop()!;
+  const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+  while (queue.length > 0) {
+    const { dir, depth } = queue.shift()!;
     if (depth > maxDepth) continue;
-    const entries = safeReadDir(dir).slice(0, MAX_ENTRIES_PER_DIR);
+    const entries = (await safeReadDir(dir)).slice(0, MAX_ENTRIES_PER_DIR);
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        stack.push({ dir: full, depth: depth + 1 });
+        queue.push({ dir: full, depth: depth + 1 });
       } else if (entry.isFile() && predicate(entry.name)) {
         matches.push(full);
       }
@@ -169,18 +169,18 @@ function findFiles(
  * metadata line; v1 keeps this simple (newest-in-window) per the plan's
  * explicit simplification clause.
  */
-function findCodexSession(
+async function findCodexSession(
   homeDir: string,
   cwd: string,
   now: number,
   windowMs: number,
-): CandidateFile | null {
+): Promise<CandidateFile | null> {
   const root = path.join(homeDir, '.codex', 'sessions');
-  if (!safeStat(root)) return null;
-  const files = findFiles(root, (name) => /^rollout-.*\.jsonl$/i.test(name));
+  if (!(await safeStat(root))) return null;
+  const files = await findFiles(root, (name) => /^rollout-.*\.jsonl$/i.test(name));
   let best: CandidateFile | null = null;
   for (const file of files) {
-    const stat = safeStat(file);
+    const stat = await safeStat(file);
     if (!stat) continue;
     if (!isWithinWindow(stat.mtimeMs, now, windowMs)) continue;
     const base = path.basename(file);
@@ -205,20 +205,20 @@ function findCodexSession(
  * `~/.kimi/sessions/` two levels deep and pick the newest UUID-shaped leaf
  * directory whose mtime falls inside the scan window.
  */
-function findKimiSession(
+async function findKimiSession(
   homeDir: string,
   cwd: string,
   now: number,
   windowMs: number,
-): CandidateFile | null {
+): Promise<CandidateFile | null> {
   const root = path.join(homeDir, '.kimi', 'sessions');
-  if (!safeStat(root)) return null;
+  if (!(await safeStat(root))) return null;
   void cwd; // future: SHA1(cwd) cross-check if upstream stabilises
   let best: CandidateFile | null = null;
   // Two-level walk: top entry is the project bucket; second-level entries are
   // the session UUID dirs. We tolerate sessions stored directly under
   // `~/.kimi/sessions/<uuid>/` too (some installs flatten the project hash).
-  const projectEntries = safeReadDir(root).slice(0, MAX_ENTRIES_PER_DIR);
+  const projectEntries = (await safeReadDir(root)).slice(0, MAX_ENTRIES_PER_DIR);
   const sessionDirs: string[] = [];
   for (const entry of projectEntries) {
     if (!entry.isDirectory()) continue;
@@ -229,14 +229,14 @@ function findKimiSession(
       continue;
     }
     // Otherwise treat it as a project bucket and list its UUID children.
-    for (const child of safeReadDir(full).slice(0, MAX_ENTRIES_PER_DIR)) {
+    for (const child of (await safeReadDir(full)).slice(0, MAX_ENTRIES_PER_DIR)) {
       if (!child.isDirectory()) continue;
       if (!UUID_RE.test(child.name)) continue;
       sessionDirs.push(path.join(full, child.name));
     }
   }
   for (const dir of sessionDirs) {
-    const stat = safeStat(dir);
+    const stat = await safeStat(dir);
     if (!stat) continue;
     if (!isWithinWindow(stat.mtimeMs, now, windowMs)) continue;
     const match = path.basename(dir).match(UUID_RE);
@@ -323,23 +323,23 @@ async function defaultOpencodeRunner(cwd: string): Promise<string> {
 // ─────────────────────────────────────────────────────────────────────────
 
 /** Read the first line of a JSONL file; returns '' on any error. */
-function readFirstLine(filePath: string): string {
-  let fd: number | undefined;
+async function readFirstLine(filePath: string): Promise<string> {
+  let handle: fs.promises.FileHandle | undefined;
   try {
-    fd = fs.openSync(filePath, 'r');
+    handle = await fs.promises.open(filePath, 'r');
     const buf = Buffer.alloc(4096);
-    const n = fs.readSync(fd, buf, 0, 4096, 0);
-    const raw = buf.slice(0, n).toString('utf8');
+    const { bytesRead } = await handle.read(buf, 0, 4096, 0);
+    const raw = buf.slice(0, bytesRead).toString('utf8');
     return raw.split('\n')[0] ?? '';
   } catch {
     return '';
   } finally {
-    // review #3 — close even when readSync throws (no fd leak).
-    if (fd !== undefined) {
+    // review #3 — close even when read throws (no fd leak).
+    if (handle !== undefined) {
       try {
-        fs.closeSync(fd);
+        await handle.close();
       } catch {
-        /* already closed / invalid fd */
+        /* already closed */
       }
     }
   }
@@ -357,27 +357,27 @@ function readFirstLine(filePath: string): string {
  * the first user message (near line 1-2), so a missing tail just degrades the
  * preview gracefully (mtime/createdAt fallbacks already cover the rest).
  */
-function readHeadLines(filePath: string, maxBytes: number): string[] {
-  let fd: number | undefined;
+async function readHeadLines(filePath: string, maxBytes: number): Promise<string[]> {
+  let handle: fs.promises.FileHandle | undefined;
   try {
-    fd = fs.openSync(filePath, 'r');
+    handle = await fs.promises.open(filePath, 'r');
     const buf = Buffer.alloc(maxBytes);
-    const n = fs.readSync(fd, buf, 0, maxBytes, 0);
-    const lines = buf.slice(0, n).toString('utf8').split('\n');
+    const { bytesRead } = await handle.read(buf, 0, maxBytes, 0);
+    const lines = buf.slice(0, bytesRead).toString('utf8').split('\n');
     // Drop the trailing (possibly truncated) partial line — but only when we
     // actually hit the cap. If the whole file fit in `maxBytes` the last line
     // is complete and must be kept.
-    if (n >= maxBytes && lines.length > 1) lines.pop();
+    if (bytesRead >= maxBytes && lines.length > 1) lines.pop();
     return lines;
   } catch {
     return [];
   } finally {
-    // review #3 — close even when readSync throws (no fd leak).
-    if (fd !== undefined) {
+    // review #3 — close even when read throws (no fd leak).
+    if (handle !== undefined) {
       try {
-        fs.closeSync(fd);
+        await handle.close();
       } catch {
-        /* already closed / invalid fd */
+        /* already closed */
       }
     }
   }
@@ -418,22 +418,22 @@ async function workspaceAllowedIds(
  *
  * Returns up to `maxCount` items sorted by updatedAt DESC.
  */
-function listClaudeSessions(
+async function listClaudeSessions(
   homeDir: string,
   cwd: string,
   maxCount: number,
   sinceMs: number | undefined,
-): SessionListItem[] {
+): Promise<SessionListItem[]> {
   const slug = claudeSlugForCwd(cwd);
   const projectDir = path.join(homeDir, '.claude', 'projects', slug);
-  if (!safeStat(projectDir)) return [];
-  const entries = safeReadDir(projectDir).filter(
+  if (!(await safeStat(projectDir))) return [];
+  const entries = (await safeReadDir(projectDir)).filter(
     (e) => e.isFile() && e.name.endsWith('.jsonl') && UUID_RE.test(path.basename(e.name, '.jsonl')),
   );
   const items: SessionListItem[] = [];
   for (const entry of entries) {
     const filePath = path.join(projectDir, entry.name);
-    const stat = safeStat(filePath);
+    const stat = await safeStat(filePath);
     if (!stat) continue;
     const updatedAt = stat.mtimeMs;
     if (sinceMs !== undefined && sinceMs > 0 && Date.now() - updatedAt > sinceMs) continue;
@@ -441,7 +441,7 @@ function listClaudeSessions(
     // Parse first line for metadata
     let createdAt = updatedAt;
     let firstMessagePreview: string | undefined;
-    const firstLine = readFirstLine(filePath);
+    const firstLine = await readFirstLine(filePath);
     if (firstLine) {
       try {
         const meta = JSON.parse(firstLine) as Record<string, unknown>;
@@ -456,7 +456,7 @@ function listClaudeSessions(
     }
     // Scan lines for first user message
     try {
-      const lines = readHeadLines(filePath, MAX_PREVIEW_SCAN_BYTES);
+      const lines = await readHeadLines(filePath, MAX_PREVIEW_SCAN_BYTES);
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -515,12 +515,12 @@ async function listCodexSessions(
   opts: ListSessionsOptions,
 ): Promise<SessionListItem[]> {
   const root = path.join(homeDir, '.codex', 'sessions');
-  if (!safeStat(root)) return [];
+  if (!(await safeStat(root))) return [];
   const allowedIds = await workspaceAllowedIds(opts);
-  const files = findFiles(root, (name) => /^rollout-.*\.jsonl$/i.test(name));
+  const files = await findFiles(root, (name) => /^rollout-.*\.jsonl$/i.test(name));
   const items: SessionListItem[] = [];
   for (const file of files) {
-    const stat = safeStat(file);
+    const stat = await safeStat(file);
     if (!stat) continue;
     const updatedAt = stat.mtimeMs;
     if (sinceMs !== undefined && sinceMs > 0 && Date.now() - updatedAt > sinceMs) continue;
@@ -539,7 +539,7 @@ async function listCodexSessions(
     }
     // First user message from first JSONL line
     let firstMessagePreview: string | undefined;
-    const firstLine = readFirstLine(file);
+    const firstLine = await readFirstLine(file);
     if (firstLine) {
       try {
         const meta = JSON.parse(firstLine) as Record<string, unknown>;
@@ -576,18 +576,18 @@ async function listKimiSessions(
   opts: ListSessionsOptions,
 ): Promise<SessionListItem[]> {
   const root = path.join(homeDir, '.kimi', 'sessions');
-  if (!safeStat(root)) return [];
+  if (!(await safeStat(root))) return [];
   const allowedIds = await workspaceAllowedIds(opts);
   // Collect all UUID-shaped session directories (two-level or flat).
   const sessionDirs: string[] = [];
-  const projectEntries = safeReadDir(root).slice(0, MAX_ENTRIES_PER_DIR);
+  const projectEntries = (await safeReadDir(root)).slice(0, MAX_ENTRIES_PER_DIR);
   for (const entry of projectEntries) {
     if (!entry.isDirectory()) continue;
     const full = path.join(root, entry.name);
     if (UUID_RE.test(entry.name)) {
       sessionDirs.push(full);
     } else {
-      for (const child of safeReadDir(full).slice(0, MAX_ENTRIES_PER_DIR)) {
+      for (const child of (await safeReadDir(full)).slice(0, MAX_ENTRIES_PER_DIR)) {
         if (!child.isDirectory()) continue;
         if (!UUID_RE.test(child.name)) continue;
         sessionDirs.push(path.join(full, child.name));
@@ -596,7 +596,7 @@ async function listKimiSessions(
   }
   const items: SessionListItem[] = [];
   for (const dir of sessionDirs) {
-    const stat = safeStat(dir);
+    const stat = await safeStat(dir);
     if (!stat) continue;
     const updatedAt = stat.mtimeMs;
     if (sinceMs !== undefined && sinceMs > 0 && Date.now() - updatedAt > sinceMs) continue;
@@ -608,10 +608,10 @@ async function listKimiSessions(
     let firstMessagePreview: string | undefined;
     // Try reading state.json
     const stateFile = path.join(dir, 'state.json');
-    const stateStat = safeStat(stateFile);
+    const stateStat = await safeStat(stateFile);
     if (stateStat) {
       try {
-        const raw = fs.readFileSync(stateFile, 'utf8');
+        const raw = await fs.promises.readFile(stateFile, 'utf8');
         const data = JSON.parse(raw) as Record<string, unknown>;
         if (typeof data.timestamp === 'number') createdAt = data.timestamp;
         if (typeof data.model === 'string') title = data.model;
@@ -747,9 +747,9 @@ async function listGeminiSessions(
 ): Promise<SessionListItem[]> {
   const slug = await geminiSlugForCwd(homeDir, cwd);
   const chatsDir = path.join(homeDir, '.gemini', 'tmp', slug, 'chats');
-  if (!safeStat(chatsDir)) return [];
+  if (!(await safeStat(chatsDir))) return [];
 
-  const entries = safeReadDir(chatsDir).filter(
+  const entries = (await safeReadDir(chatsDir)).filter(
     (e) => e.isFile() && e.name.startsWith('session-') && e.name.endsWith('.jsonl'),
   );
 
@@ -761,7 +761,7 @@ async function listGeminiSessions(
   const items: SessionListItem[] = [];
   for (const entry of entries) {
     const filePath = path.join(chatsDir, entry.name);
-    const stat = safeStat(filePath);
+    const stat = await safeStat(filePath);
     if (!stat) continue;
     const updatedAt = stat.mtimeMs;
     if (sinceMs !== undefined && sinceMs > 0 && Date.now() - updatedAt > sinceMs) continue;
@@ -780,7 +780,7 @@ async function listGeminiSessions(
     // Try to extract first user message from the JSONL.
     let firstMessagePreview: string | undefined;
     try {
-      const lines = readHeadLines(filePath, MAX_PREVIEW_SCAN_BYTES);
+      const lines = await readHeadLines(filePath, MAX_PREVIEW_SCAN_BYTES);
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -839,20 +839,20 @@ export async function listSessionsInCwd(
   const provider = providerId.trim().toLowerCase();
   switch (provider) {
     case 'claude':
-      return listClaudeSessions(homeDir, cwd, maxCount, sinceMs);
+      return await listClaudeSessions(homeDir, cwd, maxCount, sinceMs);
     case 'codex':
-      return listCodexSessions(homeDir, cwd, maxCount, sinceMs, opts);
+      return await listCodexSessions(homeDir, cwd, maxCount, sinceMs, opts);
     case 'kimi':
-      return listKimiSessions(homeDir, cwd, maxCount, sinceMs, opts);
+      return await listKimiSessions(homeDir, cwd, maxCount, sinceMs, opts);
     case 'opencode':
-      return listOpencodeSessions(cwd, maxCount, sinceMs, opts.runOpencodeList);
+      return await listOpencodeSessions(cwd, maxCount, sinceMs, opts.runOpencodeList);
     case 'gemini':
       // v1.4.3-01 — disk layout now known. Sessions live at:
       //   ~/.gemini/tmp/<slug>/chats/session-YYYY-MM-DDThh-mm-<short>.jsonl
       // where slug is authoritative from ~/.gemini/projects.json, falling
       // back to path.basename(cwd). We use listSessionExternalIdsForWorkspace
       // to filter by workspace when opts.workspaceId is provided.
-      return listGeminiSessions(homeDir, cwd, maxCount, sinceMs, opts);
+      return await listGeminiSessions(homeDir, cwd, maxCount, sinceMs, opts);
     default:
       return [];
   }
@@ -881,9 +881,9 @@ export async function findLatestSessionId(
   const provider = providerId.trim().toLowerCase();
   let hit: CandidateFile | null = null;
   if (provider === 'codex') {
-    hit = findCodexSession(homeDir, cwd, now, windowMs);
+    hit = await findCodexSession(homeDir, cwd, now, windowMs);
   } else if (provider === 'kimi') {
-    hit = findKimiSession(homeDir, cwd, now, windowMs);
+    hit = await findKimiSession(homeDir, cwd, now, windowMs);
   } else if (provider === 'opencode') {
     hit = await findOpencodeSession(cwd, now, windowMs, opts.runOpencodeList);
   }
