@@ -178,7 +178,8 @@ CRIT-1/2/3 (Phase 0) + **SMK-2/3/3b + DEV-1/2/3/4** (Phase 1) all shipped to `ma
 
 ---
 
-## Phase 6 — Premium Jorvis FE (N3, B3-unblocked)
+## Phase 6 — Premium Jorvis FE (N3, B3-unblocked) · ⏳ **IN PROGRESS** (claimed 2026-06-05)
+> **Claimed — do not double-assign.** Pipeline: backend incremental-delta emit (the prerequisite contract) → renderer stream-reveal + first-mount spring bubbles + inline tool-chip rail. Plan: `docs/superpowers/plans/2026-06-05-phase6-premium-jorvis-fe.md`.
 **Goal.** The Jorvis assistant feels premium: streamed reveal, animated bubbles, inline tool chips.
 **Deliverables.** rAF catch-up token reveal + in-flight `ChatMessageView`; first-mount-only spring bubble-enter; reduce-motion-gated typewriter+caret; per-turn tool-chip rail; the backend incremental-delta emit (today whole blocks).
 **Why now.** B3 is fixed (v2.0.0) unblocking N3; FE quality is the cycle through-line.
