@@ -10,7 +10,7 @@
 // surviving worktree rows, but only if doing so completes within ~1s; we do
 // not want to slow boot for users with very large worktree pools.
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { getDb } from './client';
 import { agentSessions, swarms as swarmsTable, workspaces as workspacesTable } from './schema';
 import { worktreePruneRepo } from '../git/git-ops';
@@ -33,13 +33,18 @@ export async function runBootJanitor(): Promise<JanitorReport> {
   const running = db
     .select()
     .from(agentSessions)
-    .where(eq(agentSessions.status, 'running'))
+    .where(inArray(agentSessions.status, ['running', 'starting']))
     .all();
   let marked = 0;
   for (const row of running) {
     db.update(agentSessions)
       .set({ status: 'exited', exitCode: -1, exitedAt: now })
-      .where(and(eq(agentSessions.id, row.id), eq(agentSessions.status, 'running')))
+      .where(
+        and(
+          eq(agentSessions.id, row.id),
+          inArray(agentSessions.status, ['running', 'starting']),
+        ),
+      )
       .run();
     marked += 1;
   }
