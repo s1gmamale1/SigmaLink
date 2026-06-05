@@ -20,8 +20,13 @@ export interface ChatMessageView {
 
 interface Props {
   messages: ChatMessageView[];
-  /** Phase 6: pass the full streaming object (turnId+delta) instead of bare string. */
-  streaming?: { turnId: string; delta: string } | null;
+  /**
+   * Phase 6: pass the full streaming object (turnId+delta+messageId) instead of
+   * a bare string. `messageId` is the id the committed row will eventually take
+   * — used to key the in-flight sentinel so React reuses the DOM node across the
+   * commit (no remount → no re-spring).
+   */
+  streaming?: { turnId: string; delta: string; messageId?: string | null } | null;
   /** Legacy prop kept for backward-compat — ignored when `streaming` is provided. */
   streamingDelta?: string;
   conversationId?: string | null;
@@ -48,7 +53,7 @@ export function ChatTranscript({ messages, streaming, streamingDelta, conversati
       streaming !== undefined
         ? streaming
         : streamingDelta != null
-          ? { turnId: '', delta: streamingDelta }
+          ? { turnId: '', delta: streamingDelta, messageId: null }
           : null,
     [streaming, streamingDelta],
   );
@@ -65,11 +70,30 @@ export function ChatTranscript({ messages, streaming, streamingDelta, conversati
   // The in-flight row is SEPARATE from the stored messages — it's a virtual
   // bubble that disappears once the turn commits and the final message is added.
   const hasInFlight = effectiveStreaming != null;
+  // Phase 6 — key the sentinel row by the turn's EVENTUAL committed messageId
+  // when it's known (it rides along on the delta events). When the turn commits,
+  // the standby handler appends a message with this exact id, so React keeps the
+  // same key → reuses the same DOM node → no remount → the bubble does NOT
+  // re-spring. Falls back to a constant sentinel id when the messageId is not yet
+  // known (persistence failed / pre-first-delta); in that case the row simply
+  // disappears on commit without a committed twin, so there's no double-spring.
+  const inFlightRowId =
+    (effectiveStreaming?.messageId && effectiveStreaming.messageId.length > 0)
+      ? effectiveStreaming.messageId
+      : STREAMING_ROW_ID;
+  // Guard against a duplicate React key: if the committed row already landed in
+  // `messages` (event-ordering edge where the standby-commit appended the message
+  // before `streaming` cleared), the committed row wins and we skip the sentinel.
+  const committedAlreadyPresent =
+    hasInFlight && inFlightRowId !== STREAMING_ROW_ID
+      ? messages.some((m) => m.id === inFlightRowId)
+      : false;
   // createdAt 0 for the sentinel row — formatTime returns '' for 0, which is
   // acceptable: a streaming row has no committed timestamp yet.
-  const inFlightMsg: ChatMessageView | null = hasInFlight
-    ? { id: STREAMING_ROW_ID, role: 'assistant', content: '', createdAt: 0 }
-    : null;
+  const inFlightMsg: ChatMessageView | null =
+    hasInFlight && !committedAlreadyPresent
+      ? { id: inFlightRowId, role: 'assistant', content: '', createdAt: 0 }
+      : null;
 
   const allRows: ChatMessageView[] = inFlightMsg
     ? [...messages, inFlightMsg]
@@ -95,7 +119,12 @@ export function ChatTranscript({ messages, streaming, streamingDelta, conversati
         </div>
       ) : null}
       {allRows.map((m) => {
-        const isStreaming = m.id === STREAMING_ROW_ID && effectiveStreaming != null;
+        // The in-flight row is the sentinel we appended above (identified by the
+        // resolved `inFlightRowId`, which is either the eventual messageId or the
+        // constant sentinel). `inFlightMsg` is only non-null while streaming, and
+        // a stored message never shares the sentinel's identity until AFTER the
+        // turn commits (at which point `effectiveStreaming` is null again).
+        const isStreaming = inFlightMsg != null && m === inFlightMsg;
         return (
           <ChatRow
             key={m.id}
