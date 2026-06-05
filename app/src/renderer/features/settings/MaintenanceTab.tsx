@@ -13,10 +13,17 @@
 //   - Errors are surfaced via toast; partial failures are shown inline.
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Loader2, Trash2, RefreshCw, X, History } from 'lucide-react';
+import { AlertTriangle, Loader2, Trash2, RefreshCw, X, History, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +36,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
+import {
+  swarmTeardownPolicyKey,
+  type SwarmTeardownPolicy,
+} from '@/shared/swarm-teardown-policy';
 
 // FEAT-11 fast-follow — auto-checkpoint-on-dispatch flag. DEFAULT OFF; '1' = on.
 // Literal string (the main-process const lives in core/git/auto-checkpoint.ts and
@@ -122,6 +133,8 @@ export function MaintenanceTab() {
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
   // FEAT-11 fast-follow — auto-checkpoint-on-dispatch toggle (default OFF).
   const [autoCheckpoint, setAutoCheckpoint] = useState<boolean>(false);
+  // BSP-G5 — per-workspace swarm teardown policy. Map of workspaceId → policy.
+  const [teardownPolicies, setTeardownPolicies] = useState<Record<string, SwarmTeardownPolicy>>({});
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -153,6 +166,27 @@ export function MaintenanceTab() {
       } catch {
         /* default OFF */
       }
+      // BSP-G5 — hydrate per-workspace teardown policies (default keep-all).
+      try {
+        const wsList = await rpc.workspaces.list() as Workspace[];
+        const entries = await Promise.all(
+          wsList.map(async (ws) => {
+            try {
+              const v = await rpc.kv.get(swarmTeardownPolicyKey(ws.id));
+              const policy: SwarmTeardownPolicy =
+                v === 'keep-passing' || v === 'destroy-failing' ? v : 'keep-all';
+              return [ws.id, policy] as [string, SwarmTeardownPolicy];
+            } catch {
+              return [ws.id, 'keep-all' as SwarmTeardownPolicy];
+            }
+          }),
+        );
+        if (alive) {
+          setTeardownPolicies(Object.fromEntries(entries));
+        }
+      } catch {
+        /* default keep-all for all workspaces */
+      }
     }
     void load();
     return () => { alive = false; };
@@ -164,6 +198,15 @@ export function MaintenanceTab() {
     setAutoCheckpoint(next);
     void rpc.kv.set(KV_AUTO_CHECKPOINT, next ? '1' : '0').catch(() => undefined);
   }, []);
+
+  // BSP-G5 — persist the per-workspace swarm teardown policy.
+  const onChangeTeardownPolicy = useCallback(
+    (workspaceId: string, next: SwarmTeardownPolicy) => {
+      setTeardownPolicies((prev) => ({ ...prev, [workspaceId]: next }));
+      void rpc.kv.set(swarmTeardownPolicyKey(workspaceId), next).catch(() => undefined);
+    },
+    [],
+  );
 
   // -------------------------------------------------------------------------
   // Action: Remove workspace + sessions + GC worktrees
@@ -395,6 +438,28 @@ export function MaintenanceTab() {
         </div>
       </section>
 
+      {/* BSP-G5 — Swarm worktree cleanup policy */}
+      <section>
+        <div className={sectionLabel}>Swarm worktree cleanup</div>
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            Loading…
+          </div>
+        ) : workspaces.length === 0 ? null : (
+          <div className="flex flex-col gap-2">
+            {workspaces.map((ws) => (
+              <SwarmTeardownRow
+                key={ws.id}
+                workspace={ws}
+                policy={teardownPolicies[ws.id] ?? 'keep-all'}
+                onChange={(next) => onChangeTeardownPolicy(ws.id, next)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Workspace list */}
       <section>
         <div className={sectionLabel}>Workspaces</div>
@@ -579,5 +644,62 @@ function ActionButton({ icon, label, disabled, onClick, variant, testId }: Actio
       {icon}
       {label}
     </Button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BSP-G5 — SwarmTeardownRow
+// ---------------------------------------------------------------------------
+
+interface SwarmTeardownRowProps {
+  workspace: Workspace;
+  policy: SwarmTeardownPolicy;
+  onChange: (next: SwarmTeardownPolicy) => void;
+}
+
+
+/**
+ * BSP-G5 — Per-workspace row for the "Swarm worktree cleanup" section.
+ * Renders a select to choose the post-swarm teardown policy.
+ */
+function SwarmTeardownRow({ workspace, policy, onChange }: SwarmTeardownRowProps) {
+  const isDestructive = policy === 'keep-passing' || policy === 'destroy-failing';
+
+  return (
+    <div
+      className="rounded-md border border-border bg-card/40 p-3"
+      data-testid={`swarm-teardown-row-${workspace.id}`}
+    >
+      <div className="mb-2">
+        <div className="text-sm font-medium">{workspace.name}</div>
+        <div className="truncate text-[11px] text-muted-foreground" title={workspace.rootPath}>
+          {workspace.rootPath}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <Select
+          value={policy}
+          onValueChange={(v) => onChange(v as SwarmTeardownPolicy)}
+        >
+          <SelectTrigger
+            className="h-7 w-[220px] text-[11px]"
+            data-testid={`swarm-teardown-select-${workspace.id}`}
+          >
+            <SelectValue placeholder="Keep all (default)" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="keep-all">Keep all (default)</SelectItem>
+            <SelectItem value="keep-passing">Keep passing — remove failed</SelectItem>
+            <SelectItem value="destroy-failing">Destroy failing</SelectItem>
+          </SelectContent>
+        </Select>
+        {isDestructive && (
+          <span className="flex items-center gap-1 text-[11px] text-amber-400">
+            <ShieldAlert className="h-3 w-3" aria-hidden />
+            Removes failed-session worktrees after swarm completes
+          </span>
+        )}
+      </div>
+    </div>
   );
 }

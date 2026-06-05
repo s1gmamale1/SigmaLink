@@ -44,6 +44,7 @@ import { readWorktreeMode } from '../workspaces/worktree-mode';
 import { WorktreeDiskGuardError } from '../git/worktree';
 import type { AddInput } from '../notifications/manager';
 import { KV_PTY_SPAWN_MODE, effectivePaneSpawnMode, parseSpawnMode } from '../pty/local-pty';
+import { applyTeardownPolicy } from './swarm-teardown';
 
 /**
  * SF-15 — write the bundled `ruflo` MCP entry (+ claude trust) into a swarm
@@ -479,6 +480,45 @@ export async function spawnAgentSession(
         .run();
     } catch {
       /* db may be closing during shutdown */
+    }
+
+    // BSP-G5 — post-swarm auto-teardown: after EVERY agent exits, check whether
+    // this was the LAST pending agent in the swarm. If so, apply the per-workspace
+    // teardown policy (default keep-all → no-op unless operator opted in).
+    //
+    // We only trigger for 'destroy-failing' / 'keep-passing' policies; 'keep-all'
+    // short-circuits inside applyTeardownPolicy, but we skip the COUNT query too.
+    try {
+      const rawDb = getRawDb();
+      const policyRow = rawDb
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get(`workspace.swarmTeardownPolicy.${args.wsRow.id}`) as
+        | { value?: string }
+        | undefined;
+      const policyVal = policyRow?.value;
+      const isPolicyActive =
+        policyVal === 'keep-passing' || policyVal === 'destroy-failing';
+      if (isPolicyActive) {
+        const remaining = rawDb
+          .prepare(
+            `SELECT COUNT(*) as cnt FROM swarm_agents
+             WHERE swarm_id = ? AND status NOT IN ('done', 'error')`,
+          )
+          .get(args.swarmId) as { cnt: number };
+        if (remaining.cnt === 0 && args.wsRow.repoRoot) {
+          void applyTeardownPolicy({
+            swarmId: args.swarmId,
+            workspaceId: args.wsRow.id,
+            repoRoot: args.wsRow.repoRoot,
+            rawDb,
+            worktreePool: args.deps.worktreePool,
+          }).catch(() => {
+            /* best-effort — never propagate into onExit */
+          });
+        }
+      }
+    } catch {
+      /* never let teardown logic throw into onExit */
     }
   });
 
