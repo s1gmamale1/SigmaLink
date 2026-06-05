@@ -9,7 +9,7 @@
 > `8e203b2`) + **Lane B** (status-aware pane-slot index migration 0032 + awaited janitor + adopt/replace +
 > throttled snapshot flush) + the **pane-resume regression fix** (`93fbca6`) + an automated **crash-recovery
 > smoke** (`d9f3ba4`, red→green). Verified 3 ways: operator GUI force-quit→relaunch, Lane B's gate, and the
-> smoke. Full record → `CHANGELOG.md` + master memory. **▶ NEXT = Phase 1 bugfix batch (SMK + DEV).** Then:
+> smoke. Full record → `CHANGELOG.md` + master memory. **Phase 1 ✅ SHIPPED (`cca05ad`, 2026-06-05)** — the SMK + DEV bugfix batch (sessions/skills/browser), re-gated on `main` + CI-green (the Phase-0 crash-recovery smoke's `node:sqlite` import made lazy so it no longer crashes e2e collection on CI's Node 20). **▶ NEXT = Phase 2.** Then:
 > Phase 2 OPT perf/resource + in-place worktree mode · 3 workspace/panel UX · 4 pane chrome+grid · then the
 > carried feature phases (theme gallery · Jorvis FE · worktree GUI · git diff · orchestration · voice). The
 > 2026-06-04 themes work also **✅ shipped** (PR #104). **v2.0.0 tag** now only awaits the remaining operator
@@ -28,30 +28,21 @@ This ROADMAP is the single source of truth for what to build next.
 ---
 
 ## 🔓 Release carry-over (operator-owned)
-**v2.0.0 is on `main` (untagged) — and the tag is now GATED on Phase 0.** The disk-fill + launch-lockout are release-blockers; do not tag until Phase 0 ships + an operator smoke confirms a clean relaunch survives a force-quit. Owed operator VISUAL smokes still stand: N1 wizard across themes · N2 browser drag/no-reload · Jorvis live reply. Tag via `/sigmalink-release`.
+**v2.0.0 is on `main` (untagged).** Phase 0 (crisis) + Phase 1 (SMK/DEV bugfix batch) are both ✅ shipped and CI-green (e2e-matrix on Node 20). The tag now only awaits the owed operator VISUAL smokes: N1 wizard across themes · N2 browser drag/no-reload · Jorvis live reply. Tag via `/sigmalink-release`.
 
-## 🐞 Confirmed bugs to fix first (hotlist)
+## 🐞 Confirmed bugs — Phase 0 + Phase 1 hotlist ✅ SHIPPED (full record → `CHANGELOG.md`)
 
-| # | Sev | Bug | Where (file:line) | Phase | Effort |
-|---|-----|-----|-------------------|-------|--------|
-| **CRIT-1** | **critical** | Runaway disk fill (49 GB) — leaked git worktrees from a UNIQUE-collision spawn loop; catch branches never remove the worktree they created; amplified by agent `node_modules` installs; no cap/guard/sweep | `factory-spawn.ts:334-347`, `launcher.ts:516-546`, `worktree.ts:39-115`, `worktree-cleanup.ts:31-112` | **0** | L |
-| **CRIT-2** | **critical** | Post-crash launch lockout — janitor flips zombies `running→exited` but leaves `pane_index`; partial unique index `agent_sessions_ws_pane_uq` is status-agnostic; allocator counts only live → every fresh INSERT collides → suppressed (no liveness/adopt) | `janitor.ts:40-43`, `migration 0020:62-67`, `pane-slots.ts:22-42`, `factory-spawn.ts:298-350`, `launcher.ts:478-550` | **0** | M |
-| **CRIT-3** | **high** | Workspaces not saved across a crash — `app.lastSession` is written only in `before-quit`, which a SIGKILL force-quit never runs (data loss, independent of the lockout) | `electron/main.ts:820,841-843`, `session-restore.ts:78-122` | **0** | M |
-| SMK-1 | high | Wizard auto-resumes a stale CROSS-PROJECT session onto fresh worktrees (opencode never cwd-scoped; `scoped=!!workspaceId` always-true → auto-resume newest) | `session-disk-scanner.ts:642/696/848`, `SessionStep.tsx:259` | 1 | M |
-| SMK-2 | high | Sessions-step buttons revert instantly (smart-default `useEffect` re-fires every render b/c `rows=buildPaneRows(...)` is inline) | `Launcher.tsx:564`, `SessionStep.tsx:248-276` | 1 | S |
-| SMK-3 | high | Skills tab Superpowers-only (`discoverInstalledSkills` hard-codes 2 cache paths + ruflo branch dir-depth-broken; must scan all providers + carry prefix) | `core/skills/controller.ts:276-357` (+ new `discovery.ts`), `SkillsTab.tsx` | 1 | M |
-| SMK-3b | medium | Codex skill injection writes `/foo` not `$foo` | `insertSkillCommand.ts:38` | 1 | S |
-| DEV-5 | high | Multiple providers selected → all panes launch the SAME session (extends SMK-1/2) | `SessionStep.tsx`/`Launcher.tsx`/`session-disk-scanner.ts` | 1 | M |
-| DEV-1 | medium | Browser "Design" element-pick → spawn-new/select-existing no-op: capture never seeds the prompt → Dispatch stays `disabled`; existing-pane path appends `\r` (auto-submits) | `DesignDock.tsx:110-117,475-480`, `core/design/controller.ts:290` | 1 | M |
-| DEV-2 | medium | Browser recently-closed tabs not persisted — `closeTab` hard-deletes; "Recents" is derived from OPEN tabs | `core/browser/manager.ts:127-143`, `BrowserRecents.tsx:52-68`, `db/schema.ts:229-247` | 1 | S |
-| DEV-3 | low | Browser URL box inert until a tab exists — `disabled={!activeTab}` + `handleNavigate` early-returns with no tab | `BrowserRoom.tsx:177-183,358-361`, `AddressBar.tsx:101-115` | 1 | S |
-| DEV-4 | low | Workspace rail reorders on click — `SET_ACTIVE_WORKSPACE_ID` calls `upsertOpenWorkspace` which prepends | `state.reducer.ts:29-32,327-333` | 1 | S |
-| DEV-6 | low | 46 RPC channels have no zod schema (IPC input-validation hole; extends BUG-4/ARCH-9) | `core/rpc/schemas.ts`, `rpc-router.ts:2102` | 1 | M |
-| DEV-7 | low | `electron:dev` runs a PROD build but never sets `VITE_DEV_SERVER_URL`; the ERR_CONNECTION_REFUSED noise is the Ruflo daemon health-probe (verify the renderer 8080/8081 port too) | `package.json:19`, `electron/main.ts:33,622-625`, `ruflo/http-daemon-supervisor.ts:29` | 1 | S |
-| DEV-8 | low | Bundle hygiene: `SkillsTab` static+dynamic import (extract `SKILL_DRAG_MIME`/types to a leaf file) + split `vendor-react`/`vendor-xterm` + `ease-[var(--ease-smooth)]` warn | `vite.config.ts:24-36`, `CommandRoom.tsx:25`/`PaneShell.tsx:33`/`RightRail.tsx:33-35`, `IntentCards.tsx:111` | 1 | S |
+CRIT-1/2/3 (Phase 0) + **SMK-2/3/3b + DEV-1/2/3/4** (Phase 1) all shipped to `main` 2026-06-05, each with the regression test whose absence had hidden it. **DEV-5 was refuted** — it is SMK-2 observed across multiple panes (fixed by the SMK-2 memoization), not a separate code path. **SMK-1**'s `scoped` guard already landed (B2 fix); only the benign opencode same-cwd residual remains (deferred). Remaining unshipped items:
+
+| # | Sev | Bug | Where | Phase | Effort |
+|---|-----|-----|-------|-------|--------|
+| DEV-6 | low | 46 RPC channels have no zod schema (IPC input-validation hole; extends BUG-4/ARCH-9) | `core/rpc/schemas.ts`, `rpc-router.ts` | deferred → fold into a hardening/perf pass | M |
+| DEV-7 | low | `electron:dev` runs a PROD build, never sets `VITE_DEV_SERVER_URL`; daemon health-probe noise | `package.json`, `electron/main.ts`, `ruflo/http-daemon-supervisor.ts` | deferred | S |
+| DEV-8 | low | Bundle hygiene: `SkillsTab` static+dynamic import; split `vendor-react`/`vendor-xterm`; `ease-[var()]` warn | `vite.config.ts`, `CommandRoom/PaneShell/RightRail.tsx` | deferred | S |
+| SMK-1 (residual) | low | opencode sessions not threaded with `opts.workspaceId` → can't join the Option-B whitelist (benign unless two workspaces share an identical cwd) | `session-disk-scanner.ts` (`listOpencodeSessions`) | deferred | S |
 | BSP-B4 | medium | Embedded-browser input/focus reliability — audit `WebContentsView` focus forwarding to form fields | `core/browser/{manager,controller}.ts`, `BrowserViewMount.tsx` | 10 | M |
 
-*(CRIT-1/2/3 root-caused by the 6-agent fleet 2026-06-05; SMK-1/2/3/3b by 2 opus agents 2026-06-04; DEV-* by the same 2026-06-05 fleet — full evidence + fix sketches in `WISHLIST.md`. Test-blindness threads through all of them: `factory-spawn.test.ts` only runs `repoMode:'plain'` so the worktree leak was invisible; no test asserts allocator-vs-unique-index agreement; `Launcher.test` stubs `SessionStep`. Every Phase 0/1 fix MUST add the missing test.)*
+*(Phase-1 reviewers' non-blocking follow-ups, parked in `WISHLIST.md`: the closed-tabs table has no GC — `listRecents` is bounded but rows accumulate; the SMK-2 loop test fails via a 5s timeout rather than a fast message assertion.)*
 
 ---
 
@@ -101,7 +92,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## Phase 1 — Bugfix batch (SMK + DEV) · after Phase 0
+## Phase 1 — Bugfix batch (SMK + DEV) · ✅ **SHIPPED** (2026-06-05 `cca05ad`, see `CHANGELOG.md`)
 
 **Goal.** The two most-used entry surfaces (workspace creation, the skills rail) and the browser work correctly; the dev-log is clean.
 
@@ -124,7 +115,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## Phase 2 — OPT: perf/resource pass + in-place worktree mode · after Phase 1
+## Phase 2 — OPT: perf/resource pass + in-place worktree mode · ▶ **NEXT**
 
 **Goal.** The app's steady-state CPU/memory/disk footprint drops sharply, and users who don't need isolation can run with zero worktrees.
 

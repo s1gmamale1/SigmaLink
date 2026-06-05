@@ -51,8 +51,25 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+
+// node:sqlite is a Node >=22.5 built-in. A STATIC top-level import crashes the
+// whole file at module-load on older Node (e.g. CI's Node 20) — which fails the
+// e2e job at collection time even though this SMOKE_CRASH-gated smoke is skipped
+// there. Load it LAZILY so the file imports cleanly everywhere; node:sqlite is
+// only touched when the SMOKE_CRASH=1 test actually runs (on a Node >=22.5 host).
+const requireNodeBuiltin = createRequire(import.meta.url);
+type DatabaseSyncCtor = new (
+  dbFile: string,
+  opts?: { readOnly?: boolean },
+) => {
+  prepare: (sql: string) => { all: (...a: unknown[]) => unknown[]; get: (...a: unknown[]) => unknown };
+  close: () => void;
+};
+function getDatabaseSync(): DatabaseSyncCtor {
+  return (requireNodeBuiltin('node:sqlite') as { DatabaseSync: DatabaseSyncCtor }).DatabaseSync;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -173,6 +190,7 @@ function readAgentSessions(userDataDir: string): Array<{
 }> {
   const dbPath = path.join(userDataDir, 'sigmalink.db');
   if (!fs.existsSync(dbPath)) return [];
+  const DatabaseSync = getDatabaseSync();
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     return db.prepare('SELECT id, pane_index, status FROM agent_sessions').all() as Array<{
@@ -189,6 +207,7 @@ function readAgentSessions(userDataDir: string): Array<{
 function readKv(userDataDir: string, key: string): string | null {
   const dbPath = path.join(userDataDir, 'sigmalink.db');
   if (!fs.existsSync(dbPath)) return null;
+  const DatabaseSync = getDatabaseSync();
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     const row = db.prepare('SELECT value FROM kv WHERE key = ?').get(key) as
