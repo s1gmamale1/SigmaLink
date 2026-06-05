@@ -201,5 +201,7 @@ export function parseBrowserState(raw: unknown): BrowserState | null {
         }
       : null;
   const mcpUrl = typeof p.mcpUrl === 'string' ? p.mcpUrl : null;
-  return { workspaceId, tabs, activeTabId, lockOwner, mcpUrl };
+  // BSP-B2 — carry through the detached flag emitted by the main process.
+  const detached = p.detached === true;
+  return { workspaceId, tabs, activeTabId, lockOwner, mcpUrl, detached };
 }

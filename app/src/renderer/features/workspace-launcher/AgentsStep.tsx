@@ -20,7 +20,12 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { AGENT_PROVIDERS, type AgentProviderDefinition } from '@/shared/providers';
 import type { ProviderProbe } from '@/shared/types';
-import { listModelsFor, providerAcceptsModelFlag } from '@/shared/model-catalog';
+import {
+  listModelsFor,
+  providerAcceptsModelFlag,
+  PRESET_TO_MODEL_ID,
+  type DispatchPreset,
+} from '@/shared/model-catalog';
 import { ProviderInstallModal } from './ProviderInstallModal';
 
 // v1.2.4 matrix order. `custom` is a renderer-only "Custom Command" row that
@@ -143,6 +148,17 @@ export function AgentsStep({
     onModelsChange(next);
   }
 
+  // BSP-V2 — apply a dispatch preset to the claude row's modelId. The preset is
+  // a UI shorthand; it calls setRowModel('claude', ...) via the existing
+  // onModelsChange path. No new spawn flag — buildExtraArgs already injects
+  // `--model` from the modelId field.
+  function applyPreset(preset: DispatchPreset) {
+    if (!onModelsChange) return;
+    const modelId = PRESET_TO_MODEL_ID[preset];
+    const next = { ...models, claude: modelId };
+    onModelsChange(next);
+  }
+
   function fillEvenly() {
     const eligible = rows.filter((r) => !r.comingSoon);
     if (eligible.length === 0 || totalPanes === 0) return;
@@ -202,6 +218,18 @@ export function AgentsStep({
           Clear
         </Button>
       </div>
+
+      {/* BSP-V2 — dispatch preset control. Only visible when a model-capable
+          provider (claude) has at least one pane allocated and onModelsChange is
+          wired. Selecting a preset sets models.claude to the mapped model id
+          via the existing onModelsChange callback — no new spawn flag. */}
+      {onModelsChange ? (
+        <DispatchPresetControl
+          currentModelId={models['claude'] ?? ''}
+          disabled={skipAgents || !onModelsChange}
+          onApply={applyPreset}
+        />
+      ) : null}
 
       <ul className="flex flex-col gap-1.5">
         {rows.map((row) => {
@@ -323,6 +351,78 @@ function ModelSelect({ providerId, value, disabled, onChange }: ModelSelectProps
         </option>
       ))}
     </select>
+  );
+}
+
+// BSP-V2 — Dispatch preset segmented control (fast / balanced / deep).
+// Appears above the provider matrix when a model-capable provider is available.
+// Selecting a preset writes models.claude = mapped model id; the label reflects
+// which preset is currently active based on the claude modelId prop.
+
+interface DispatchPresetControlProps {
+  /** The currently selected claude model id ('' = no preset / provider default). */
+  currentModelId: string;
+  disabled: boolean;
+  onApply: (preset: DispatchPreset) => void;
+}
+
+const PRESET_LABELS: Array<{ preset: DispatchPreset; label: string; hint: string }> = [
+  { preset: 'fast', label: 'Fast', hint: 'Haiku 4.5 — quick iterations' },
+  { preset: 'balanced', label: 'Balanced', hint: 'Sonnet 4.6 — default quality' },
+  { preset: 'deep', label: 'Deep', hint: 'Opus 4.7 — max quality' },
+];
+
+function DispatchPresetControl({ currentModelId, disabled, onApply }: DispatchPresetControlProps) {
+  // Derive which preset (if any) is currently active from the model id.
+  const activePreset = (Object.entries(PRESET_TO_MODEL_ID) as Array<[DispatchPreset, string]>).find(
+    ([, id]) => id === currentModelId,
+  )?.[0] ?? null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Claude dispatch preset
+      </div>
+      <div
+        role="group"
+        aria-label="Claude dispatch preset"
+        className="flex items-center gap-1"
+        data-testid="dispatch-preset-control"
+      >
+        {PRESET_LABELS.map(({ preset, label, hint }) => {
+          const isActive = activePreset === preset;
+          return (
+            <button
+              key={preset}
+              type="button"
+              role="radio"
+              aria-checked={isActive}
+              aria-label={`${label}: ${hint}`}
+              data-testid={`preset-${preset}`}
+              disabled={disabled}
+              onClick={() => onApply(preset)}
+              className={cn(
+                'flex h-7 items-center rounded-md border px-3 text-xs font-medium transition-colors',
+                'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                'disabled:cursor-not-allowed disabled:opacity-40',
+                // Reduced-motion safe: only color transitions (no translate/scale)
+                'motion-reduce:transition-none',
+                isActive
+                  ? 'border-ring bg-accent text-accent-foreground'
+                  : 'border-border bg-card/60 text-foreground hover:border-ring/40 hover:bg-card',
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {activePreset ? (
+        <p className="text-[10px] text-muted-foreground" data-testid="preset-hint">
+          {PRESET_LABELS.find((p) => p.preset === activePreset)?.hint ?? ''}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

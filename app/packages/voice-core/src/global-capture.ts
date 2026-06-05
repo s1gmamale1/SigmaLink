@@ -23,6 +23,8 @@ import { globalShortcut } from 'electron';
 import { getWhisperEngine, resolveTranscriptionEngine } from './whisper-engine.js';
 import { buildCliTranscribeEngine } from './cli-transcribe-engine.js';
 import type { CliTranscribeEngineDeps } from './cli-transcribe-engine.js';
+import { buildOpenAiSttEngine, buildDeepgramSttEngine } from './cloud-stt-engine.js';
+import type { CloudSttEngineDeps } from './cloud-stt-engine.js';
 import { routeTranscript } from './output-router.js';
 import { computeSessionStats, appendSessionStat } from './voice-stats.js';
 import {
@@ -156,6 +158,15 @@ export interface GlobalCaptureDeps {
    * Only used when `kv.get('voice.transcriptionMode') === 'gemini-cli'`.
    */
   cliEngineDeps?: CliTranscribeEngineDeps;
+
+  // ── BSP-V1 — Cloud STT engines (optional; absent = feature unavailable) ──
+  /**
+   * Override deps for cloud STT engines (OpenAI / Deepgram).  When absent the
+   * engine is built with production defaults (reads keys from KV via `kv.get`).
+   * Only used when `kv.get('voice.transcriptionMode')` is `'openai-whisper-api'`
+   * or `'deepgram'`.
+   */
+  cloudSttEngineDeps?: Pick<CloudSttEngineDeps, 'fetchFn'>;
 
   // ── C-11 "Hey Jorvis" listening mode (all optional; absent = feature off) ──
   /** True when `voice.listeningMode` is enabled. */
@@ -478,12 +489,25 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
     let finalText = capturedTranscript.trim();
 
-    // C-10c — resolve the engine from KV; fall back to local on CLI failure.
+    // C-10c / BSP-V1 — resolve the engine from KV; fall back to local on failure.
     const transcriptionMode = kvGet('voice.transcriptionMode');
     const cliEngine = transcriptionMode === 'gemini-cli'
       ? buildCliTranscribeEngine(deps.cliEngineDeps ?? {})
       : null;
-    const engine = resolveTranscriptionEngine(transcriptionMode, cliEngine);
+    // BSP-V1 — build cloud engines only when the mode requires them. The
+    // getApiKey helper reads straight from deps.kv so no extra KV import is needed.
+    const cloudDepsBase: Pick<CloudSttEngineDeps, 'fetchFn'> = deps.cloudSttEngineDeps ?? {};
+    const makeCloudDeps = (provider: 'openai-whisper-api' | 'deepgram'): CloudSttEngineDeps => ({
+      ...cloudDepsBase,
+      getApiKey: () => kvGet(`voice.stt.${provider}.apiKey`),
+    });
+    const openaiEngine = transcriptionMode === 'openai-whisper-api'
+      ? buildOpenAiSttEngine(makeCloudDeps('openai-whisper-api'))
+      : null;
+    const deepgramEngine = transcriptionMode === 'deepgram'
+      ? buildDeepgramSttEngine(makeCloudDeps('deepgram'))
+      : null;
+    const engine = resolveTranscriptionEngine(transcriptionMode, cliEngine, openaiEngine, deepgramEngine);
 
     if (engine && pcm.samples > 0) {
       // A1 — use the hardware rate reported by the accumulator (from onPcm payload)
@@ -492,10 +516,18 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
       const modelsDir = deps.getModelsDir();
       const modelPath = getDownloadedModelPath(model, modelsDir);
 
-      if (modelPath) {
+      // BSP-V1 — cloud engines (openai-whisper-api, deepgram) do not need a local
+      // model file; they POST audio to a remote endpoint. Skip the "model not
+      // downloaded" guard for cloud modes.
+      const isCloudMode =
+        transcriptionMode === 'openai-whisper-api' || transcriptionMode === 'deepgram';
+
+      if (modelPath || isCloudMode) {
         try {
           const audio16k = resampleTo16k(audio, hwRate);
-          const result = await engine.transcribe(audio16k, modelPath, { language: 'en', threads: 4 });
+          // Cloud engines ignore modelPath; pass '' so the WhisperEngine interface is satisfied.
+          const effectiveModelPath = modelPath ?? '';
+          const result = await engine.transcribe(audio16k, effectiveModelPath, { language: 'en', threads: 4 });
           if (result.text.trim()) {
             finalText = result.text.trim();
           }
@@ -503,8 +535,12 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
           // so the VoiceTab dashboard's `voice.stats` store actually accrues.
           appendSessionStat(deps.kv, computeSessionStats(result.segments ?? []));
         } catch (err) {
-          // C-10c — CLI engine failure: log and fall back to local Whisper.
-          if (transcriptionMode === 'gemini-cli') {
+          // BSP-V1 — surface a helpful toast for missing cloud API keys.
+          const { SttKeyMissingError } = await import('./cloud-stt-engine.js');
+          if (err instanceof SttKeyMissingError) {
+            toast(err.message, 'warn');
+          } else if (transcriptionMode === 'gemini-cli') {
+            // C-10c — CLI engine failure: log and fall back to local Whisper.
             console.warn('[global-capture] Gemini-CLI transcription failed, falling back to local:', err);
             const localEngine = getWhisperEngine();
             if (localEngine && modelPath) {

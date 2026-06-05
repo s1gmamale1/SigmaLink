@@ -292,6 +292,14 @@ export interface AddAgentToSwarmInput {
    * branch as the parent.
    */
   branch?: string | null;
+  /**
+   * BSP-V2 — per-pane model override for the `+Pane` flow. Mirrors
+   * `PaneAssignment.modelId` (launcher path) so both spawn sites are consistent
+   * (sibling-site rule). The main-process factory appends `--model <id>` for
+   * providers whose CLI accepts the flag; ignored for providers without it.
+   * Undefined = provider default.
+   */
+  modelId?: string;
 }
 
 export interface AddAgentToSwarmResult {
@@ -336,6 +344,12 @@ export interface BrowserState {
   activeTabId: TabId | null;
   lockOwner: LockOwner | null;
   mcpUrl: string | null;
+  /**
+   * BSP-B2 — true while the browser WebContentsView is detached to a second
+   * BrowserWindow. When detached, the in-app BrowserViewMount placeholder is
+   * hidden and a "Reattach" banner is shown instead.
+   */
+  detached: boolean;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

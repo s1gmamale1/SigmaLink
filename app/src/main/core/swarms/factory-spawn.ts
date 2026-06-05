@@ -23,6 +23,7 @@ import {
   workspaces as workspacesTable,
 } from '../db/schema';
 import { findProvider } from '../../../shared/providers';
+import { providerAcceptsModelFlag } from '../../../shared/model-catalog';
 import type { AgentSession, Role, Swarm, SwarmAgent } from '../../../shared/types';
 import { agentKey as makeAgentKey } from './types';
 import { envelopeToInsert, parseProtocolLine, ProtocolLineBuffer } from './protocol';
@@ -120,16 +121,29 @@ export function pickCoordinatorId(
  * or a single `initialPromptFlag`. Providers that support neither fall back to
  * a delayed stdin write inside `spawnAgentSession`.
  */
-export function buildExtraArgs(providerId: string, initialPrompt?: string): string[] {
+export function buildExtraArgs(
+  providerId: string,
+  initialPrompt?: string,
+  modelId?: string,
+): string[] {
   const provider = findProvider(providerId);
-  if (!provider || !initialPrompt) return [];
+  if (!provider) return [];
+  // BSP-V2 — inject `--model <id>` for providers whose CLI accepts the flag
+  // (claude / cursor / gemini per MODEL_FLAG_PROVIDERS). Mirrors the launcher
+  // path (launcher.ts:buildExtraArgs) so both spawn sites are consistent.
+  const modelArgs: string[] =
+    modelId && providerAcceptsModelFlag(providerId) ? ['--model', modelId] : [];
+  if (!initialPrompt) return modelArgs;
   if (provider.oneshotArgs && provider.oneshotArgs.length) {
-    return provider.oneshotArgs.map((tok) => tok.replace('{prompt}', initialPrompt));
+    return [
+      ...modelArgs,
+      ...provider.oneshotArgs.map((tok) => tok.replace('{prompt}', initialPrompt)),
+    ];
   }
   if (provider.initialPromptFlag) {
-    return [provider.initialPromptFlag, initialPrompt];
+    return [...modelArgs, provider.initialPromptFlag, initialPrompt];
   }
-  return [];
+  return modelArgs;
 }
 
 /**
@@ -178,6 +192,12 @@ export interface SpawnAgentSessionArgs {
   initialPrompt?: string;
   /** SF-8 — Yolo/Bypass: append the provider's autoApproveFlag at spawn. */
   autoApprove?: boolean;
+  /**
+   * BSP-V2 — per-spawn model id for the `+Pane` flow. Mirrors
+   * `PaneAssignment.modelId` (launcher path). `buildExtraArgs` appends
+   * `--model <id>` for providers that accept the flag. Undefined = provider default.
+   */
+  modelId?: string;
   /**
    * DEV-W5 — per-spawn worktree override. When `true`, skip worktree creation
    * regardless of the workspace's `worktreeMode` KV setting (in-place). When
@@ -298,7 +318,8 @@ export async function spawnAgentSession(
   } catch {
     /* ignore — default to false */
   }
-  const extraArgs = buildExtraArgs(provider.id, args.initialPrompt);
+  // BSP-V2 — thread modelId so `+Pane` can dispatch with a preset model.
+  const extraArgs = buildExtraArgs(provider.id, args.initialPrompt, args.modelId);
   if (provider.id === 'claude') {
     await prepareClaudeWorkspaceContext(args.wsRow.rootPath, cwd);
     await ensureClaudeProjectDir(cwd);

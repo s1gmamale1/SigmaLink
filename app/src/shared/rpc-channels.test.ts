@@ -151,6 +151,10 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'browser.getState',
   'browser.claimDriver',
   'browser.releaseDriver',
+  'browser.listRecents',
+  'browser.focusView',
+  'browser.detachToWindow',
+  'browser.reattach',
   'browser.teardown',
   // skills (skillsCtl — from buildSkillsController)
   'skills.list',

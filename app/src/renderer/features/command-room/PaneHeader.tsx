@@ -17,6 +17,7 @@ import {
   SplitSquareVertical,
   X,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import {
   Popover,
   PopoverContent,
@@ -42,6 +43,7 @@ import { agentColor } from '@/renderer/lib/workspace-color';
 import { derivePaneIdentity } from './pane-identity';
 import { PaneGearPopoverBody } from './PaneGearPopover';
 import { useCoachmark } from './use-coachmark';
+import { usePaneLiveStats } from './usePaneLiveStats';
 import type { AgentSession } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
@@ -97,6 +99,10 @@ export function PaneHeader({
   const errored = session.status === 'error';
   const exited = session.status === 'exited';
   const dotColor = errored ? '#ef4444' : exited ? '#9ca3af' : '#22c55e';
+
+  // BSP-V2 — live cost + tok/s estimate badge. Status-gated (PERF-5): only poll
+  // running panes — exited/error panes have a frozen ledger.
+  const liveStats = usePaneLiveStats(session.id, session.status === 'running');
 
   // FEAT-12 — coachmark: first-use tooltip on the title pill (was on grip).
   const coachmark = useCoachmark('coachmark.dragGrip.seen');
@@ -171,6 +177,17 @@ export function PaneHeader({
 
         {/* Spacer */}
         <span className="flex-1" />
+
+        {/* BSP-V2 — live cost + tok/s estimate badge.
+            Hidden when no usage recorded yet (hasData=false). Reduced-motion
+            safe: only color/opacity, no transforms/animations. Truncate-safe:
+            max-w-[120px] + truncate so the badge never pushes the icon cluster
+            off-screen on narrow panes. */}
+        <PaneLiveStatsBadge
+          totalCostUsd={liveStats.totalCostUsd}
+          estTokPerSec={liveStats.estTokPerSec}
+          hasData={liveStats.hasData}
+        />
 
         {/* ── Icon cluster ────────────────────────────────────────────────── */}
         {/* Stop accidental drags from the cluster triggering a context drag. */}
@@ -317,6 +334,55 @@ export function PaneHeader({
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BSP-V2 — Live stats badge (cost $ + tok/s estimate)
+// ---------------------------------------------------------------------------
+
+interface PaneLiveStatsBadgeProps {
+  totalCostUsd: number | null;
+  estTokPerSec: number | null;
+  hasData: boolean;
+}
+
+/**
+ * Compact badge showing `~N tok/s · $X.XXXX` in the pane header.
+ * Hidden when hasData=false (no usage recorded yet). Always prefixes tok/s
+ * with "~" to make the estimate nature explicit.
+ *
+ * Truncate-safe: max-w-[120px] + text-ellipsis so narrow panes don't overflow.
+ * Reduced-motion safe: only opacity transition, no transforms.
+ */
+function PaneLiveStatsBadge({ totalCostUsd, estTokPerSec, hasData }: PaneLiveStatsBadgeProps) {
+  if (!hasData) return null;
+
+  const parts: string[] = [];
+  if (estTokPerSec !== null) {
+    parts.push(`~${estTokPerSec} tok/s`);
+  }
+  if (totalCostUsd !== null) {
+    // Show 4 decimal places for sub-cent precision (e.g. $0.0042).
+    parts.push(`$${totalCostUsd.toFixed(4)}`);
+  }
+  if (parts.length === 0) return null;
+
+  return (
+    <span
+      data-testid="pane-live-stats-badge"
+      className={cn(
+        'max-w-[120px] truncate',
+        'rounded-sm px-1.5 py-0.5',
+        'text-[9px] font-mono tabular-nums text-muted-foreground',
+        'border border-border/40 bg-card/30',
+        // Reduced-motion safe: only opacity transition
+        'transition-opacity motion-reduce:transition-none',
+      )}
+      aria-label={`Live stats: ${parts.join(', ')}`}
+    >
+      {parts.join(' · ')}
+    </span>
   );
 }
 

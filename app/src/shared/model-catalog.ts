@@ -77,3 +77,37 @@ export const MODEL_FLAG_PROVIDERS: ReadonlySet<string> = new Set(['claude', 'cur
 export function providerAcceptsModelFlag(providerId: string): boolean {
   return MODEL_FLAG_PROVIDERS.has(providerId);
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// BSP-V2 — fast/balanced/deep dispatch preset (Lane M).
+//
+// A UI shorthand that maps a 3-tier intent to a concrete claude model id. Only
+// meaningful for claude panes; the preset control in AgentsStep sets the claude
+// row's modelId via the existing onModelsChange callback — no new spawn flag.
+//
+// Locked mapping (operator decision):
+//   fast     → claude-haiku-4-5
+//   balanced → claude-sonnet-4-6
+//   deep     → claude-opus-4-7
+// ──────────────────────────────────────────────────────────────────────────────
+
+export type DispatchPreset = 'fast' | 'balanced' | 'deep';
+
+/**
+ * Map a dispatch preset to the concrete claude model id. The ids are read from
+ * MODEL_OPTIONS above so there is exactly one source of truth.
+ */
+export const PRESET_TO_MODEL_ID: Record<DispatchPreset, string> = {
+  fast: 'claude-haiku-4-5',
+  balanced: 'claude-sonnet-4-6',
+  deep: 'claude-opus-4-7',
+};
+
+/**
+ * Resolve a dispatch preset to a model id. Returns the mapped id for
+ * 'fast'/'balanced'/'deep'; returns undefined for unknown values so callers can
+ * distinguish "no preset" from a bad string.
+ */
+export function presetToModelId(preset: DispatchPreset): string {
+  return PRESET_TO_MODEL_ID[preset];
+}

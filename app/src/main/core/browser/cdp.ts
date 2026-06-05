@@ -38,3 +38,19 @@ export function attachDebugger(view: WebContentsView): boolean {
     return false;
   }
 }
+
+// BSP-B3 — restored for the agent-drivable browser tools (`assistant/tools.ts`).
+// Performs a single CDP round-trip; protocol errors surface verbatim so the
+// caller can decide whether to retry or give up.
+export async function runCDP<T = unknown>(
+  view: WebContentsView,
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<T> {
+  if (!attachDebugger(view)) {
+    throw new Error(`CDP not attached for ${method}`);
+  }
+  const wc = view.webContents;
+  const out = (await wc.debugger.sendCommand(method, params ?? {})) as T;
+  return out;
+}
