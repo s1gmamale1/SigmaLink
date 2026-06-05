@@ -14,7 +14,11 @@
 //   6. The 7-day uncommitted-work window from worktree-cleanup.ts is respected:
 //      recently-exited sessions (exited_at > now - 7d) are kept UNLESS the
 //      session has an explicit decision = 'failed' (operator-confirmed failure).
-//   7. All removes are best-effort (try/catch per session); never throw out of
+//   7. CO-TENANT fence: split-pane children share their parent's worktree_path.
+//      A worktree is removed ONLY when EVERY session referencing it (across all
+//      swarms) is itself teardown-eligible — one failed co-tenant must never
+//      orphan a sibling that should be kept (→ black panes on resume).
+//   8. All removes are best-effort (try/catch per path); never throw out of
 //      applyTeardownPolicy — it must never propagate into the onExit handler.
 
 import { getRawDb } from '../db/client';
@@ -100,51 +104,76 @@ export async function applyTeardownPolicy(args: ApplyTeardownPolicyArgs): Promis
     return;
   }
 
+  // Phase 1 — collect the UNIQUE worktree paths whose THIS-swarm session is
+  // itself teardown-eligible (terminal, not crash-eligible, decision='failed').
+  // NOTE: the 7-day uncommitted-work window is intentionally NOT applied to
+  // 'failed' sessions — 'failed' is an operator-confirmed mark, so the user has
+  // already signalled the worktree can be discarded.
+  const candidatePaths = new Set<string>();
   for (const row of candidates) {
-    const {
-      session_id: sessionId,
-      worktree_path: worktreePath,
-      status,
-      exit_code: exitCode,
-      decision,
-    } = row;
+    if (!row.worktree_path) continue;
+    if (row.status === 'starting' || row.status === 'running') continue; // Fence 1
+    if (row.exit_code === -1) continue; // Fence 2 (crash-recovery eligible)
+    if (row.decision !== 'failed') continue; // Fence 3 (unknown/passed → keep)
+    candidatePaths.add(row.worktree_path);
+  }
 
-    if (!worktreePath) continue;
+  // Phase 2 — CO-TENANT FENCE (keep⊇use). A split-pane child shares its parent's
+  // `worktree_path`; one failed co-tenant must NOT take down the shared worktree
+  // of a sibling that should be kept (live / crash-eligible / unknown / passed),
+  // or that sibling resumes into a missing cwd → black panes. A worktree is
+  // removed ONLY when EVERY session referencing it (across ALL swarms, not just
+  // this one) is itself teardown-eligible.
+  type TenantRow = { status: string; exit_code: number | null; decision: string | null };
+  for (const worktreePath of candidatePaths) {
+    let tenants: TenantRow[];
+    try {
+      tenants = rawDb
+        .prepare(
+          `SELECT ases.status, ases.exit_code, sr.decision
+             FROM agent_sessions ases
+             LEFT JOIN session_review sr ON sr.session_id = ases.id
+            WHERE ases.worktree_path = ?`,
+        )
+        .all(worktreePath) as TenantRow[];
+    } catch (err) {
+      console.warn('[swarm-teardown] failed to query co-tenants path=%s:', worktreePath, err);
+      continue;
+    }
 
-    // Fence 1: never touch live sessions.
-    if (status === 'starting' || status === 'running') continue;
+    const everyTenantEligible =
+      tenants.length > 0 &&
+      tenants.every(
+        (t) =>
+          t.status !== 'starting' &&
+          t.status !== 'running' &&
+          t.exit_code !== -1 &&
+          t.decision === 'failed',
+      );
+    if (!everyTenantEligible) {
+      console.info(
+        '[swarm-teardown] kept shared worktree=%s (a co-tenant session is not teardown-eligible)',
+        worktreePath,
+      );
+      continue;
+    }
 
-    // Fence 2: never destroy crash-eligible (exit_code = -1) sessions.
-    if (exitCode === -1) continue;
-
-    // Fence 3: only sessions with explicit decision = 'failed' are eligible.
-    // NULL / 'passed' → keep (safe default).
-    if (decision !== 'failed') continue;
-
-    // NOTE: the 7-day uncommitted-work window is intentionally NOT applied to
-    // 'failed' sessions. 'failed' is an operator-confirmed mark, so the user
-    // has already signalled that this worktree can be discarded. If the
-    // per-session window is desired for failed sessions in a future policy, add
-    // exited_at to the SELECT above and re-introduce the guard here.
-
-    // All fences passed — remove this worktree.
+    // All fences passed for every tenant — remove the worktree.
     try {
       await worktreePool.removeAndPrune(repoRoot, worktreePath);
       console.info(
-        '[swarm-teardown] removed session=%s policy=%s swarm=%s',
-        sessionId,
+        '[swarm-teardown] removed worktree=%s policy=%s swarm=%s',
+        worktreePath,
         policy,
         swarmId,
       );
     } catch (err) {
-      // Best-effort per session; log + continue.
       console.warn(
-        '[swarm-teardown] removeAndPrune failed session=%s swarm=%s:',
-        sessionId,
+        '[swarm-teardown] removeAndPrune failed worktree=%s swarm=%s:',
+        worktreePath,
         swarmId,
         err,
       );
     }
   }
-
 }

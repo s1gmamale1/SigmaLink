@@ -27,10 +27,18 @@ function makeRawDb(kvValue: string | undefined, rows: CandidateRow[]) {
     prepare: (sql: string) => ({
       get: () =>
         kvValue === undefined ? undefined : { value: kvValue },
-      all: () => {
-        // The SQL in swarm-teardown.ts always mentions swarm_agents — use that
-        // as the discriminant to serve candidate rows.
+      all: (...params: unknown[]) => {
+        // Candidate query (this swarm's sessions) — discriminated by swarm_agents.
         if (sql.includes('swarm_agents')) return rows;
+        // Co-tenant query: SELECT … FROM agent_sessions WHERE worktree_path = ?
+        // Serve every row in the dataset that shares the bound worktree_path,
+        // projected to the tenant shape the helper reads.
+        if (sql.includes('worktree_path = ?')) {
+          const path = params[0];
+          return rows
+            .filter((r) => r.worktree_path === path)
+            .map((r) => ({ status: r.status, exit_code: r.exit_code, decision: r.decision }));
+        }
         return [];
       },
     }),
@@ -223,6 +231,68 @@ describe.each(['destroy-failing', 'keep-passing'] as const)(
     });
   },
 );
+
+// ---------------------------------------------------------------------------
+// CO-TENANT fence (split-pane shared worktree) — [HIGH] regression
+// A split-pane child shares its parent's worktree_path. A failed co-tenant must
+// NOT take down the shared worktree of a sibling that should be kept.
+// ---------------------------------------------------------------------------
+
+describe('applyTeardownPolicy — co-tenant fence (shared worktree)', () => {
+  const SHARED = '/wt/shared';
+
+  it('keeps a shared worktree when a co-tenant is PASSED', async () => {
+    const pool = makePool();
+    const rows: CandidateRow[] = [
+      session({ session_id: 'sess-fail', worktree_path: SHARED, decision: 'failed' }),
+      session({ session_id: 'sess-pass', worktree_path: SHARED, decision: 'passed' }),
+    ];
+    await applyTeardownPolicy(makeArgs('destroy-failing', rows, pool));
+    expect(pool.removeAndPrune).not.toHaveBeenCalled();
+  });
+
+  it('keeps a shared worktree when a co-tenant is UNKNOWN (decision=null)', async () => {
+    const pool = makePool();
+    const rows: CandidateRow[] = [
+      session({ session_id: 'sess-fail', worktree_path: SHARED, decision: 'failed' }),
+      session({ session_id: 'sess-unk', worktree_path: SHARED, decision: null }),
+    ];
+    await applyTeardownPolicy(makeArgs('keep-passing', rows, pool));
+    expect(pool.removeAndPrune).not.toHaveBeenCalled();
+  });
+
+  it('keeps a shared worktree when a co-tenant is crash-eligible (exit_code=-1)', async () => {
+    const pool = makePool();
+    const rows: CandidateRow[] = [
+      session({ session_id: 'sess-fail', worktree_path: SHARED, decision: 'failed' }),
+      session({ session_id: 'sess-crash', worktree_path: SHARED, exit_code: -1, decision: 'failed' }),
+    ];
+    await applyTeardownPolicy(makeArgs('destroy-failing', rows, pool));
+    expect(pool.removeAndPrune).not.toHaveBeenCalled();
+  });
+
+  it('keeps a shared worktree when a co-tenant is still RUNNING', async () => {
+    const pool = makePool();
+    const rows: CandidateRow[] = [
+      session({ session_id: 'sess-fail', worktree_path: SHARED, decision: 'failed' }),
+      session({ session_id: 'sess-run', worktree_path: SHARED, status: 'running', decision: 'failed' }),
+    ];
+    await applyTeardownPolicy(makeArgs('destroy-failing', rows, pool));
+    expect(pool.removeAndPrune).not.toHaveBeenCalled();
+  });
+
+  it('removes a shared worktree ONLY when EVERY co-tenant is failed-eligible', async () => {
+    const pool = makePool();
+    const rows: CandidateRow[] = [
+      session({ session_id: 'sess-a', worktree_path: SHARED, decision: 'failed' }),
+      session({ session_id: 'sess-b', worktree_path: SHARED, decision: 'failed' }),
+    ];
+    await applyTeardownPolicy(makeArgs('destroy-failing', rows, pool));
+    // De-duped by path → removed exactly once (not once per session).
+    expect(pool.removeAndPrune).toHaveBeenCalledOnce();
+    expect(pool.removeAndPrune).toHaveBeenCalledWith(REPO_ROOT, SHARED);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // DB query failure → no-op (never throws)
