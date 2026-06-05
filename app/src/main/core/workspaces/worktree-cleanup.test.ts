@@ -11,13 +11,12 @@ import { cleanupOrphanWorktrees, sweepAllReposOnBoot } from './worktree-cleanup'
 // ---------------------------------------------------------------------------
 
 const readdirMock = vi.fn<(...args: unknown[]) => Promise<unknown>>();
-const rmMock = vi.fn<() => Promise<void>>();
+const rmMock = vi.fn<(...args: unknown[]) => Promise<void>>();
 
 vi.mock('node:fs', () => ({
   promises: {
     readdir: (...args: unknown[]) => readdirMock(...args),
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    rm: (..._args: unknown[]) => rmMock(),
+    rm: (...args: unknown[]) => rmMock(...args),
   },
 }));
 
@@ -28,13 +27,16 @@ vi.mock('node:fs', () => ({
 interface SessionRow {
   worktree_path: string;
   status: string;
+  exit_code?: number | null;
   exited_at: number | null;
 }
 
 function makeDb(sessions: SessionRow[]) {
   const db = {
     prepare(sql: string) {
-      const isLive = sql.includes("status = 'running' OR exited_at");
+      const isLive =
+        sql.includes('SELECT DISTINCT worktree_path') &&
+        sql.includes('FROM agent_sessions');
       const isAny = sql.includes('SELECT COUNT(*)');
 
       if (isLive) {
@@ -42,9 +44,19 @@ function makeDb(sessions: SessionRow[]) {
           all(pattern: string, cutoff: number) {
             // Strip trailing glob % and sep for path prefix matching.
             const prefix = pattern.slice(0, -1); // remove trailing %
+            const keepsResumeEligibleCrashes = sql.includes('exit_code = -1');
+            const keepsStarting = sql.includes("status = 'starting'");
             const results = sessions.filter((s) => {
               if (!s.worktree_path.startsWith(prefix)) return false;
               if (s.status === 'running') return true;
+              if (keepsStarting && s.status === 'starting') return true;
+              if (
+                keepsResumeEligibleCrashes &&
+                s.status === 'exited' &&
+                s.exit_code === -1
+              ) {
+                return true;
+              }
               if (s.exited_at !== null && s.exited_at > cutoff) return true;
               return false;
             });
@@ -185,6 +197,51 @@ describe('cleanupOrphanWorktrees', () => {
     expect(result.removed).toBe(1);
   });
 
+  it('keeps exited/-1 worktrees because resume still treats those panes as eligible', async () => {
+    readdirMock.mockResolvedValue(['crashed-pane', 'old-clean-pane']);
+    const db = makeDb([
+      {
+        worktree_path: path.join(REPO_DIR, 'crashed-pane'),
+        status: 'exited',
+        exit_code: -1,
+        exited_at: oldExited(),
+      },
+      {
+        worktree_path: path.join(REPO_DIR, 'old-clean-pane'),
+        status: 'exited',
+        exit_code: 0,
+        exited_at: oldExited(),
+      },
+    ]);
+
+    const result = await cleanupOrphanWorktrees(BASE, HASH, db);
+
+    expect(result.kept).toBe(1);
+    expect(result.removed).toBe(1);
+    expect(rmMock).toHaveBeenCalledTimes(1);
+    expect(rmMock).toHaveBeenCalledWith(
+      path.join(REPO_DIR, 'old-clean-pane'),
+      expect.objectContaining({ recursive: true, force: true }),
+    );
+  });
+
+  it('keeps starting worktrees if cleanup runs after a janitor miss', async () => {
+    readdirMock.mockResolvedValue(['starting-pane', 'orphan-pane']);
+    const db = makeDb([
+      {
+        worktree_path: path.join(REPO_DIR, 'starting-pane'),
+        status: 'starting',
+        exit_code: null,
+        exited_at: null,
+      },
+    ]);
+
+    const result = await cleanupOrphanWorktrees(BASE, HASH, db);
+
+    expect(result.kept).toBe(1);
+    expect(result.removed).toBe(1);
+  });
+
   it('8. LIKE pattern matches subdirs but not unrelated repos — SQL safety', async () => {
     const hashA = 'aaaaaa000000';
     const hashB = 'bbbbbb000000';
@@ -281,6 +338,35 @@ describe('sweepAllReposOnBoot', () => {
     expect(result.kept).toBe(2); // live-a + live-b
     expect(result.errors).toBe(0);
     expect(rmMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps resume-eligible crashed panes during boot sweep even after the 7-day window', async () => {
+    const hashA = 'aaaaaa000000';
+    wireReaddir(BASE, [dirent(hashA, true)], {
+      [hashA]: ['crashed-pane', 'old-clean-pane'],
+    });
+    const db = makeDb([
+      {
+        worktree_path: path.join(BASE, hashA, 'crashed-pane'),
+        status: 'exited',
+        exit_code: -1,
+        exited_at: oldExited(),
+      },
+      {
+        worktree_path: path.join(BASE, hashA, 'old-clean-pane'),
+        status: 'exited',
+        exit_code: 0,
+        exited_at: oldExited(),
+      },
+    ]);
+
+    const result = await sweepAllReposOnBoot(BASE, db);
+
+    expect(result).toEqual({ repos: 1, removed: 1, kept: 1, errors: 0 });
+    expect(rmMock).toHaveBeenCalledWith(
+      path.join(BASE, hashA, 'old-clean-pane'),
+      expect.objectContaining({ recursive: true, force: true }),
+    );
   });
 
   it('skips non-directory entries under the base', async () => {

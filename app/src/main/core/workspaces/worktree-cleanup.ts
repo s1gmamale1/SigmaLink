@@ -15,10 +15,10 @@ export interface CleanupResult {
  * v1.4.3 worktree dedupe — orphan cleanup on workspace open.
  *
  * Lists dirs under `<worktreeBase>/<repoHash>/*`. For each dir, checks if
- * its absolute path is referenced by any agent_sessions row where the
- * session is `status='running'` OR exited within the last 7 days (to protect
- * users with uncommitted work in recently-exited sessions). If not referenced,
- * removes the dir.
+ * its absolute path is referenced by any agent_sessions row where the session
+ * is live, resume-eligible after a crash, or exited within the last 7 days
+ * (to protect users with uncommitted work in recently-exited sessions). If
+ * not referenced, removes the dir.
  *
  * Skips cleanup entirely if no agent_sessions rows reference any dir under
  * `<worktreeBase>/<repoHash>/` (cold install / first-ever workspace open).
@@ -51,16 +51,24 @@ export async function cleanupOrphanWorktrees(
     return { removed: 0, kept: 0, errors: 0 };
   }
 
-  // Fetch all worktree_paths referenced by live/recent agent_sessions for this repo.
-  // R-04-2: keep BOTH running sessions AND recently-exited ones (within 7 days)
-  // to avoid deleting worktrees that may have uncommitted work.
+  // Fetch all worktree_paths referenced by sessions the app may still need.
+  // This must stay at least as broad as resume-launcher's eligibility:
+  //   - running/starting rows are live or boot-janitor candidates
+  //   - exited/-1 rows are crash/failed-resume panes that resumeWorkspacePanes
+  //     will re-spawn
+  //   - other recently-exited rows keep the original 7-day uncommitted-work guard
   const sevenDaysMs = 7 * 86400 * 1000;
   const liveRows = db
     .prepare(
       `SELECT DISTINCT worktree_path FROM agent_sessions
        WHERE worktree_path IS NOT NULL
          AND worktree_path LIKE ?
-         AND (status = 'running' OR exited_at > ?)`,
+         AND (
+           status = 'running'
+           OR status = 'starting'
+           OR (status = 'exited' AND exit_code = -1)
+           OR exited_at > ?
+         )`,
     )
     .all(`${repoDir}${path.sep}%`, Date.now() - sevenDaysMs) as Array<{ worktree_path: string }>;
 
