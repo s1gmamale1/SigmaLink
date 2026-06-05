@@ -96,8 +96,21 @@ export class WorktreePool {
     // Lane A — defense-in-depth guards. Both run BEFORE the retry loop (i.e.
     // before any mkdir / `git worktree add`), so a refused create leaves
     // NOTHING on disk. The disk physically cannot fill via a spawn-retry loop.
-    await this.assertUnderCap(input.repoRoot);
-    await this.assertAboveDiskFloor();
+    const count = await this.assertUnderCap(input.repoRoot);
+    const freeBytes = await this.assertAboveDiskFloor();
+    const GiB = 1024 ** 3;
+    const repoHashStr = repoHash(input.repoRoot);
+    // C5 obs — always log the guard decision state (count/cap/free/floor) at the
+    // create site so a future disk runaway leaves a clear breadcrumb.
+    console.info(
+      '[worktree] create ws=%s repo=%s count=%d cap=%d freeGiB=%.2f floorGiB=%.2f',
+      input.sessionId ?? '?',
+      repoHashStr,
+      count,
+      this.maxWorktreesPerRepo,
+      freeBytes !== null ? freeBytes / GiB : NaN,
+      this.minFreeDiskBytes / GiB,
+    );
 
     // Retry up to 3 times in the (extremely unlikely) event of a directory
     // collision. With 8 random UUID hex chars per branch this should never
@@ -142,8 +155,9 @@ export class WorktreePool {
    * Lane A — count cap. Counts entries currently in the repo's pool dir. A
    * missing dir counts as 0 (nothing created yet). Throws
    * WorktreeDiskGuardError('WORKTREE_CAP') when the count is at/over the cap.
+   * Returns the current count (for observability logging).
    */
-  private async assertUnderCap(repoRoot: string): Promise<void> {
+  private async assertUnderCap(repoRoot: string): Promise<number> {
     const poolDir = this.poolPathForRepo(repoRoot);
     let count = 0;
     try {
@@ -160,6 +174,7 @@ export class WorktreePool {
           `(in ${poolDir}). Refusing to create another to prevent disk exhaustion.`,
       );
     }
+    return count;
   }
 
   /**
@@ -168,10 +183,11 @@ export class WorktreePool {
    * Throws WorktreeDiskGuardError('DISK_FLOOR') when free bytes < the floor. If
    * the probe cannot run at all (no statfs / no resolvable ancestor), the check
    * is skipped gracefully — we never block a create on an un-probable volume.
+   * Returns the free bytes (or null when unable to probe).
    */
-  private async assertAboveDiskFloor(): Promise<void> {
+  private async assertAboveDiskFloor(): Promise<number | null> {
     const free = await this.freeBytesForBase();
-    if (free === null) return; // could not probe → skip gracefully
+    if (free === null) return null; // could not probe → skip gracefully
     if (free < this.minFreeDiskBytes) {
       const freeGb = (free / 1024 ** 3).toFixed(2);
       const floorGb = (this.minFreeDiskBytes / 1024 ** 3).toFixed(2);
@@ -181,6 +197,7 @@ export class WorktreePool {
           `backing ${this.opts.baseDir}. Refusing to create a worktree to prevent disk exhaustion.`,
       );
     }
+    return free;
   }
 
   /**

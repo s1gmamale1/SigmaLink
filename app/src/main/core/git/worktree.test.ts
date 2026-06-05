@@ -253,4 +253,27 @@ describe('WorktreePool.create — Lane A disk-pressure + count guard', () => {
       pool.create({ repoRoot: REPO_ROOT, role: 'claude' }),
     ).rejects.toMatchObject({ code: 'WORKTREE_CAP' });
   });
+
+  // C5 obs — create logs count/cap/free/floor on every successful create.
+  it('C5: emits console.info with count/cap/freeGiB/floorGiB on a successful create', async () => {
+    mockReaddirEntries(3); // under cap
+    mockStatfs(50 * GiB); // above floor
+    const pool = new WorktreePool({ baseDir: BASE_DIR, maxWorktreesPerRepo: 40 });
+
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    await pool.create({ repoRoot: REPO_ROOT, role: 'claude', hint: 'pane-0' });
+
+    // console.info is called with a format string + variadic args.
+    // Match by looking at the raw call arguments.
+    const createCall = infoSpy.mock.calls.find(
+      (args) => typeof args[0] === 'string' && args[0].includes('[worktree]') && args[0].includes('create'),
+    );
+    expect(createCall).toBeDefined();
+    // The format args: [fmt, sessionId, repoHash, count=3, cap=40, freeGiB, floorGiB]
+    // count is index 3, cap is index 4.
+    expect(createCall![3]).toBe(3);  // count
+    expect(createCall![4]).toBe(40); // cap
+
+    infoSpy.mockRestore();
+  });
 });
