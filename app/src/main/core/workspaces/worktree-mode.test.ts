@@ -25,7 +25,7 @@ describe('readWorktreeMode', () => {
   it('uses workspaceId in the KV key', () => {
     let capturedKey: string | undefined;
     const stubCapture = {
-      prepare: (sql: string) => ({
+      prepare: (_sql: string) => ({
         get: (key: string) => {
           capturedKey = key;
           return undefined;

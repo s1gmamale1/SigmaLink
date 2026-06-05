@@ -186,6 +186,72 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DEV-W3b — Gate A: in-place mode skips worktree creation (launcher.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('executeLaunchPlan — DEV-W3b: in-place mode skips worktree creation', () => {
+  it('in-place mode: worktreePool.create is NOT called; agent runs in workspace root', async () => {
+    const { deps } = makeTestDeps();
+
+    // Stub rawDb so worktreeMode key returns 'in-place' for this workspace.
+    vi.mocked(getRawDb).mockReturnValue({
+      prepare: vi.fn((_sql: string) => ({
+        get: vi.fn((key?: string) => {
+          if (typeof key === 'string' && key.startsWith('workspace.worktreeMode.')) {
+            return { value: 'in-place' };
+          }
+          return undefined;
+        }),
+        all: vi.fn(() => []),
+        run: vi.fn(() => undefined),
+      })),
+      transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+    } as unknown as ReturnType<typeof getRawDb>);
+
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const { sessions } = await executeLaunchPlan(makeGitPlan(), deps);
+
+    // Gate A must NOT call worktreePool.create in in-place mode.
+    expect(deps.worktreePool.create).not.toHaveBeenCalled();
+
+    // The session should succeed and use the workspace rootPath as cwd.
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.status).toBe('running');
+    expect(sessions[0]!.worktreePath).toBeNull();
+    expect(sessions[0]!.cwd).toBe(GIT_WS_ROW.rootPath);
+  });
+
+  it('worktree mode (default): worktreePool.create IS called', async () => {
+    const { deps } = makeTestDeps();
+
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const { sessions } = await executeLaunchPlan(makeGitPlan(), deps);
+
+    // Default mode: create IS called.
+    expect(deps.worktreePool.create).toHaveBeenCalledOnce();
+    expect(sessions[0]!.status).toBe('running');
+  });
+});
+
 describe('executeLaunchPlan — CRIT-1/CRIT-2 twin-B: worktree cleanup on UNIQUE violation', () => {
   it('removeAndPrune is called when a git-repo launch hits a UNIQUE violation', async () => {
     const { deps, pty, removeAndPrune } = makeTestDeps();

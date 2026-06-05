@@ -27,6 +27,7 @@ import {
   prepareGeminiResume,
 } from '../pty/gemini-resume-sigma';
 import { workspaceCwdInWorktree } from './worktree-cwd';
+import { readWorktreeMode } from './worktree-mode';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, effectivePaneSpawnMode } from '../pty/local-pty';
 import { writeGuardrailBlock } from './guardrail-block';
 import { writeRufloMcpIntoCwd } from './ruflo-worktree-mcp';
@@ -221,7 +222,10 @@ export async function executeLaunchPlan(
     const preallocSessionId = randomUUID();
     let finalPreallocSessionId: string = preallocSessionId;
     try {
-      if (wsRow.repoMode === 'git' && wsRow.repoRoot) {
+      // DEV-W3b (ADR-007) — skip worktree allocation when in-place mode is active.
+      // worktreePath stays null → workspaceCwdInWorktree returns wsRow.rootPath.
+      const inPlace = readWorktreeMode(getRawDb(), wsRow.id) === 'in-place';
+      if (!inPlace && wsRow.repoMode === 'git' && wsRow.repoRoot) {
         const r = await deps.worktreePool.create({
           repoRoot: wsRow.repoRoot,
           role: provider.id,
