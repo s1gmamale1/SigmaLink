@@ -46,6 +46,12 @@ import { WorktreeDiskGuardError } from '../git/worktree';
 import type { AddInput } from '../notifications/manager';
 import { KV_PTY_SPAWN_MODE, effectivePaneSpawnMode, parseSpawnMode } from '../pty/local-pty';
 import { applyTeardownPolicy } from './swarm-teardown';
+import {
+  normalizeAgentRuntimeProfileId,
+  profileAllowsMcp,
+  type AgentRuntimeProfileId,
+} from '../../../shared/runtime-profiles';
+import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
 
 /**
  * SF-15 — write the bundled `ruflo` MCP entry (+ claude trust) into a swarm
@@ -55,8 +61,13 @@ import { applyTeardownPolicy } from './swarm-teardown';
  * accessor, or a write failure can only degrade to stdio or no-op — it never
  * throws into the spawn path.
  */
-function ensureRufloInWorktreeCwd(cwd: string, workspaceId: string): void {
+function ensureRufloInWorktreeCwd(
+  cwd: string,
+  workspaceId: string,
+  runtimeProfileId: AgentRuntimeProfileId,
+): void {
   try {
+    if (!profileAllowsMcp(runtimeProfileId, 'ruflo')) return;
     let autowrite = true;
     let autotrust = true;
     try {
@@ -190,6 +201,8 @@ export interface SpawnAgentSessionArgs {
   baseRef?: string;
   agentKey: string;
   initialPrompt?: string;
+  /** RAM Brake — per-agent MCP/tool profile. Defaults to `ruflo-core`. */
+  runtimeProfileId?: AgentRuntimeProfileId;
   /** SF-8 — Yolo/Bypass: append the provider's autoApproveFlag at spawn. */
   autoApprove?: boolean;
   /**
@@ -231,6 +244,7 @@ export interface SpawnAgentSessionArgs {
 export async function spawnAgentSession(
   args: SpawnAgentSessionArgs,
 ): Promise<{ sessionId: string; paneIndex: number }> {
+  const runtimeProfileId = normalizeAgentRuntimeProfileId(args.runtimeProfileId);
   const provider = findProvider(args.providerId);
   if (!provider) {
     throw new Error(`Unknown provider: ${args.providerId}`);
@@ -304,7 +318,29 @@ export async function spawnAgentSession(
   // open. Write a managed `ruflo` entry (+ claude trust) into this pane's cwd
   // BEFORE the CLI spawns. HTTP mode when the per-workspace daemon has a live
   // port; stdio otherwise. Fail-open + opt-out aware — never blocks the spawn.
-  ensureRufloInWorktreeCwd(cwd, args.wsRow.id);
+  try {
+    const shared = getSharedDeps();
+    if (shared && (profileAllowsMcp(runtimeProfileId, 'browser') || profileAllowsMcp(runtimeProfileId, 'sigmamemory'))) {
+      const memRoot = args.wsRow.repoRoot ?? args.wsRow.rootPath;
+      let memCmd: ReturnType<typeof shared.memorySupervisor.getCommandFor> | null = null;
+      if (profileAllowsMcp(runtimeProfileId, 'sigmamemory')) {
+        try {
+          await shared.memorySupervisor.start(args.wsRow.id, memRoot);
+        } catch {
+          /* memory supervisor is non-fatal */
+        }
+        memCmd = shared.memorySupervisor.getCommandFor(args.wsRow.id);
+      }
+      writeMcpConfigForAgent({
+        worktree: cwd,
+        runtimeProfileId,
+        memory: memCmd ?? undefined,
+      });
+    }
+  } catch {
+    /* Browser/SigmaMemory MCP wiring is non-fatal */
+  }
+  ensureRufloInWorktreeCwd(cwd, args.wsRow.id, runtimeProfileId);
   // V1.1: route swarm-agent spawns through the provider launcher façade so
   // SigmaCode→Claude fallback, altCommands ENOENT walk, and the legacy gate
   // all apply uniformly. Read `kv['providers.showLegacy']` defensively — if
@@ -549,7 +585,15 @@ export async function spawnAgentSession(
 export interface MaterializeRosterAgentArgs {
   swarmId: string;
   wsRow: typeof workspacesTable.$inferSelect;
-  assignment: { role: Role; roleIndex: number; providerId: string; initialPrompt?: string };
+  assignment: {
+    role: Role;
+    roleIndex: number;
+    providerId: string;
+    initialPrompt?: string;
+    runtimeProfileId?: AgentRuntimeProfileId;
+    autoApprove?: boolean;
+    modelId?: string;
+  };
   coordinatorId: string | null;
   baseRef?: string;
   now: number;
@@ -604,6 +648,9 @@ export async function materializeRosterAgent(
       baseRef,
       agentKey: aKey,
       initialPrompt: assignment.initialPrompt,
+      runtimeProfileId: assignment.runtimeProfileId,
+      autoApprove: assignment.autoApprove,
+      modelId: assignment.modelId,
       deps,
     });
     sessionId = spawn.sessionId;

@@ -155,6 +155,7 @@ const CLEANUP_INPUT_SCHEMA: ChannelSchema = {
     .object({
       workspaceId: z.string().min(1).max(200),
       dryRun: z.boolean().optional(),
+      stopLiveSessions: z.boolean().optional(),
     })
     .passthrough(),
   output: any,
@@ -479,6 +480,9 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       swarmId: z.string().min(1),
       providerId: z.string().min(1),
       role: z.enum(['coordinator', 'builder', 'scout', 'reviewer']).optional(),
+      runtimeProfileId: z
+        .enum(['ruflo-core', 'browser-tools', 'security-tools', 'full-tools'])
+        .optional(),
       initialPrompt: z.string().max(8_000).optional(),
       // SF-8 — Yolo/Bypass: when true, the spawn appends the provider's
       // autoApproveFlag (no-op for providers without one).

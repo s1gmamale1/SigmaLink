@@ -30,6 +30,20 @@ This ROADMAP is the single source of truth for what to build next.
 ## 🔓 Release carry-over (operator-owned)
 **v2.0.0 is on `main` (untagged).** Phase 0 (crisis) + Phase 1 (SMK/DEV bugfix batch) are both ✅ shipped and CI-green (e2e-matrix on Node 20). The tag now only awaits the owed operator VISUAL smokes: N1 wizard across themes · N2 browser drag/no-reload · Jorvis live reply. Tag via `/sigmalink-release`.
 
+## 🚨 P0 — RAM Brake: MCP/process fan-out control · ACTIVE
+
+**Goal.** Keep 15-20 concurrent terminal agents usable by making heavy MCP/plugin stacks opt-in per lane, and by giving Maintenance enough process-tree visibility to stop leaked live panes deliberately.
+
+**Shipped in this slice.**
+- Runtime profiles now default agent panes to `ruflo-core` only. Browser/SigmaMemory MCP config is written only when the operator enables **Browser tools** for a launch or `+Pane`.
+- `browser-tools` remains a one-toggle lane profile for work that truly needs Browser/SigmaMemory; security/SaaS stacks stay reserved for explicit future profiles.
+- Workspace launch and swarm `+Pane` both carry the selected profile into the main process, so profile behavior is consistent across the two spawn paths.
+- Maintenance dry-runs now report live pane process-tree telemetry and RSS. Confirming cleanup can intentionally stop live pane trees before deleting pane rows, while live worktrees remain fenced.
+
+**Still P0 next.** Add per-profile process budgets in the UI, profile badges on pane headers, and a lightweight memory dashboard that surfaces per-pane RSS without entering Settings.
+
+Full implementation note: `docs/superpowers/plans/2026-06-06-p0-ram-brake.md`.
+
 ## 🐞 Confirmed bugs — Phase 0 + Phase 1 hotlist ✅ SHIPPED (full record → `CHANGELOG.md`)
 
 CRIT-1/2/3 (Phase 0) + **SMK-2/3/3b + DEV-1/2/3/4** (Phase 1) all shipped to `main` 2026-06-05, each with the regression test whose absence had hidden it. **DEV-5 was refuted** — it is SMK-2 observed across multiple panes (fixed by the SMK-2 memoization), not a separate code path. **SMK-1**'s `scoped` guard already landed (B2 fix); only the benign opencode same-cwd residual remains (deferred). Remaining unshipped items:

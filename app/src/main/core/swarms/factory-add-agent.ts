@@ -123,6 +123,7 @@ export async function addAgentToSwarm(
       providerId: input.providerId,
       agentKey: aKey,
       initialPrompt: input.initialPrompt,
+      runtimeProfileId: input.runtimeProfileId,
       autoApprove: input.autoApprove,
       // BSP-V2 — thread the per-spawn model id (mirrors autoApprove pattern).
       modelId: input.modelId,

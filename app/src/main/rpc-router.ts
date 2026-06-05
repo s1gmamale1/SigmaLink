@@ -2290,7 +2290,7 @@ export async function registerRouter(): Promise<void> {
   };
   const cleanupHandlers: Record<string, (...args: unknown[]) => unknown> = {
     removeWorkspace: async (input: unknown) => {
-      const a = (input as { workspaceId?: string; dryRun?: boolean }) ?? {};
+      const a = (input as { workspaceId?: string; dryRun?: boolean; stopLiveSessions?: boolean }) ?? {};
       if (typeof a.workspaceId !== 'string' || !a.workspaceId) {
         throw new Error('cleanup.removeWorkspace: workspaceId required');
       }
@@ -2308,10 +2308,12 @@ export async function registerRouter(): Promise<void> {
         repoHash: cleanupRepoHash(a.workspaceId),
         db: getRawDb(),
         dryRun,
+        pty: getSharedDeps()?.pty,
+        stopLiveSessions: a.stopLiveSessions === true,
       });
     },
     clearPanes: async (input: unknown) => {
-      const a = (input as { workspaceId?: string; dryRun?: boolean }) ?? {};
+      const a = (input as { workspaceId?: string; dryRun?: boolean; stopLiveSessions?: boolean }) ?? {};
       if (typeof a.workspaceId !== 'string' || !a.workspaceId) {
         throw new Error('cleanup.clearPanes: workspaceId required');
       }
@@ -2319,6 +2321,8 @@ export async function registerRouter(): Promise<void> {
         workspaceId: a.workspaceId,
         db: getRawDb(),
         dryRun: a.dryRun !== false,
+        pty: getSharedDeps()?.pty,
+        stopLiveSessions: a.stopLiveSessions === true,
       });
     },
     pruneWorktrees: async (input: unknown) => {

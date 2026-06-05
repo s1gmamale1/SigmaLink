@@ -38,6 +38,7 @@ import { AGENT_PROVIDERS } from '@/shared/providers';
 // DEV-W3b — single source of truth for the worktree-mode KV key, shared with
 // the main-side reader (core/workspaces/worktree-mode.ts). No hand-rolled copy.
 import { worktreeModeKey as worktreeModeKvKey } from '@/shared/worktree-mode';
+import type { AgentRuntimeProfileId } from '@/shared/runtime-profiles';
 
 /** KV key for the per-workspace Yolo/Bypass default. */
 function yoloKvKey(workspaceId: string): string {
@@ -150,6 +151,7 @@ export function WorkspaceLauncher() {
    * Default = false (worktree mode, the safe default).
    */
   const [inPlaceMode, setInPlaceMode] = useState(false);
+  const [browserTools, setBrowserTools] = useState(false);
 
   // Probe providers on mount so the matrix can render PATH-status badges.
   useEffect(() => {
@@ -226,6 +228,10 @@ export function WorkspaceLauncher() {
     if (selectedWorkspace) {
       void rpc.kv?.set?.(yoloKvKey(selectedWorkspace.id), next ? '1' : '0')?.catch(() => undefined);
     }
+  }
+
+  function runtimeProfileForLaunch(): AgentRuntimeProfileId {
+    return browserTools ? 'browser-tools' : 'ruflo-core';
   }
 
   // Step navigation + preset clamping run inside the event handlers below
@@ -508,6 +514,7 @@ export function WorkspaceLauncher() {
       // pane spawned fresh. Build the top-level array via the exported helper
       // (covered by Launcher.test.tsx) so the contract stays testable.
       const resumeArray = buildPaneResumePlanArray(paneProviders.length, paneResumePlan);
+      const runtimeProfileId = runtimeProfileForLaunch();
       const plan: LaunchPlan = {
         workspaceRoot: selectedWorkspace.rootPath,
         // DEV-W3a — pass the workspace id so executeLaunchPlan binds panes to
@@ -518,6 +525,7 @@ export function WorkspaceLauncher() {
         panes: paneProviders.map(({ providerId, modelId }, paneIndex) => ({
           paneIndex,
           providerId,
+          runtimeProfileId,
           // SF-8 B2: thread yolo into every pane so the main process appends
           // the provider's autoApproveFlag when opts.autoApprove is true.
           autoApprove: yolo,
@@ -649,6 +657,30 @@ export function WorkspaceLauncher() {
               <p className="text-[10px] text-muted-foreground">
                 Starts agents with their bypass flag — disables the agent's own approval prompts.
                 Use only in trusted workspaces.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {mode === 'space' || mode === 'single' ? (
+          <div className="flex items-start gap-3 rounded-md border border-sky-500/40 bg-sky-500/5 px-3 py-2">
+            <Switch
+              id="browser-tools-toggle"
+              data-testid="browser-tools-toggle"
+              checked={browserTools}
+              onCheckedChange={setBrowserTools}
+              aria-label="Browser tools — attach Browser MCP and SigmaMemory to this launch"
+              aria-checked={browserTools}
+            />
+            <div className="flex flex-col gap-0.5">
+              <label
+                htmlFor="browser-tools-toggle"
+                className="cursor-pointer text-xs font-semibold text-sky-700 dark:text-sky-300"
+              >
+                Browser tools
+              </label>
+              <p className="text-[10px] text-muted-foreground">
+                Attach Browser MCP and SigmaMemory only when this launch needs those tools.
               </p>
             </div>
           </div>

@@ -20,6 +20,7 @@ import { spawnLocalPty, resolveEffectiveSpawnMode, type PtyHandle, type SpawnInp
 import { RingBuffer } from './ring-buffer';
 import { detectLinks, type LinkHit } from './link-detector';
 import { extractSentinel } from './sentinel';
+import { inspectProcessTree, stopProcessTree, type ProcessTreeSnapshot } from '../process/process-tree';
 
 /** Milliseconds between SIGTERM and the fallback SIGKILL on lingering PTYs. */
 const PTY_KILL_FALLBACK_MS = 5_000;
@@ -400,6 +401,29 @@ export class PtyRegistry {
     } catch {
       /* ignore */
     }
+  }
+
+  processSnapshot(id: string): ProcessTreeSnapshot | null {
+    const rec = this.sessions.get(id);
+    if (!rec) return null;
+    return inspectProcessTree(rec.pid);
+  }
+
+  stop(id: string, opts: { tree?: boolean; forget?: boolean } = {}): ProcessTreeSnapshot | null {
+    const rec = this.sessions.get(id);
+    if (!rec) return null;
+    let snapshot: ProcessTreeSnapshot | null = null;
+    if (opts.tree !== false) {
+      snapshot = stopProcessTree(rec.pid, PTY_KILL_FALLBACK_MS);
+    } else {
+      try {
+        rec.pty.kill();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (opts.forget) this.forget(id);
+    return snapshot;
   }
 
   forget(id: string): void {
