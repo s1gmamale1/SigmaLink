@@ -43,6 +43,7 @@ import { maybeAutoCheckpoint } from '../git/auto-checkpoint';
 import { readWorktreeMode } from '../workspaces/worktree-mode';
 import { WorktreeDiskGuardError } from '../git/worktree';
 import type { AddInput } from '../notifications/manager';
+import { KV_PTY_SPAWN_MODE, effectivePaneSpawnMode, parseSpawnMode } from '../pty/local-pty';
 
 /**
  * SF-15 — write the bundled `ruflo` MCP entry (+ claude trust) into a swarm
@@ -79,6 +80,17 @@ function ensureRufloInWorktreeCwd(cwd: string, workspaceId: string): void {
     writeRufloMcpIntoCwd(cwd, { port, trust: autotrust });
   } catch {
     /* MCP wiring is non-fatal — never block the spawn */
+  }
+}
+
+function readSpawnMode(): 'direct' | 'shell-first' {
+  try {
+    const row = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(KV_PTY_SPAWN_MODE) as { value?: string } | undefined;
+    return parseSpawnMode(row?.value ?? null);
+  } catch {
+    return 'direct';
   }
 }
 
@@ -290,6 +302,12 @@ export async function spawnAgentSession(
     await prepareClaudeWorkspaceContext(args.wsRow.rootPath, cwd);
     await ensureClaudeProjectDir(cwd);
   }
+  const spawnMode = effectivePaneSpawnMode(
+    readSpawnMode(),
+    !!args.initialPrompt,
+    !!(provider.oneshotArgs?.length),
+    !!provider.initialPromptFlag,
+  );
   const spawnResult = resolveAndSpawn(
     { ptyRegistry: args.deps.pty },
     {
@@ -308,6 +326,7 @@ export async function spawnAgentSession(
       preassignedSessionId: spawnSessionId,
       // v1.5.5 — explicit: swarm agent spawns are always fresh (no sessionId).
       isResume: false,
+      spawnMode,
     },
   );
   const rec = spawnResult.ptySession;

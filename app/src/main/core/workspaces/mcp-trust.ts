@@ -25,7 +25,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 const RUFLO_SERVER_NAME = 'ruflo';
 const CURSOR_AGENT_BIN = 'cursor-agent';
@@ -152,6 +152,8 @@ function trustClaude(root: string, logger: Pick<Console, 'warn'>): TrustOutcome 
  * or throw.
  */
 function trustCursor(root: string, opts: EnsureTrustOpts): TrustOutcome {
+  const hasInjectedCursorSeam = Boolean(opts.detectCli || opts.runCli);
+  if (!hasInjectedCursorSeam && isUnitTestProcess()) return 'noop';
   const detect = opts.detectCli ?? defaultDetectCli;
   if (!detect(CURSOR_AGENT_BIN)) return 'noop';
   const run = opts.runCli ?? defaultRunCli;
@@ -166,6 +168,12 @@ function trustCursor(root: string, opts: EnsureTrustOpts): TrustOutcome {
   }
 }
 
+function isUnitTestProcess(): boolean {
+  return process.env.VITEST === 'true'
+    || process.env.VITEST_WORKER_ID !== undefined
+    || process.env.NODE_ENV === 'test';
+}
+
 /** Detect a CLI on PATH without spawning it (used to gate the cursor call). */
 function defaultDetectCli(name: string): boolean {
   const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
@@ -178,8 +186,19 @@ function defaultDetectCli(name: string): boolean {
   });
 }
 
-/** Run the cursor enable with an args array (no shell string → no injection). */
+/** Start the cursor enable with an args array (no shell string -> no injection).
+ *
+ * This is intentionally fire-and-forget. Cursor trust is best-effort plumbing;
+ * it must never add seconds of synchronous latency to workspace or pane launch
+ * when the external CLI is slow or waiting on its own first-run setup.
+ */
 function defaultRunCli(cmd: string, args: string[], cwd: string): void {
-  const r = spawnSync(cmd, args, { cwd, timeout: CURSOR_ENABLE_TIMEOUT_MS, stdio: 'ignore' });
-  if (r.error) throw r.error;
+  const child = spawn(cmd, args, { cwd, stdio: 'ignore' });
+  const timer = setTimeout(() => {
+    child.kill('SIGTERM');
+  }, CURSOR_ENABLE_TIMEOUT_MS);
+  timer.unref?.();
+  child.once('exit', () => clearTimeout(timer));
+  child.once('error', () => clearTimeout(timer));
+  child.unref();
 }

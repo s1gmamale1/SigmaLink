@@ -38,6 +38,8 @@ export interface PruneWorktreeResult {
 export interface ClearPanesResult {
   /** Session ids that were (or would be) deleted. */
   sessionIds: string[];
+  /** Live session ids that were preserved because their PTY may still be running. */
+  liveBlockedSessionIds: string[];
   /** Number of session rows actually deleted (0 on dryRun). */
   deleted: number;
 }
@@ -45,6 +47,8 @@ export interface ClearPanesResult {
 export interface RemoveWorkspaceAndGcResult {
   /** Number of agent_sessions rows deleted (0 on dryRun). */
   sessionCount: number;
+  /** Live session ids that blocked workspace-row deletion. */
+  liveBlockedSessionIds: string[];
   /** Number of orphan worktree dirs deleted (0 on dryRun). */
   worktreeCount: number;
   /** Worktree paths that were spared because of live sessions. */
@@ -174,11 +178,9 @@ export interface ClearPanesInput {
 }
 
 /**
- * Clears all agent_sessions rows for a workspace (closes/clears all panes).
- * Live sessions (status IN ('starting','running')) are INCLUDED in the list
- * so the operator can see them — the renderer should confirm before calling
- * with `dryRun:false`.  We trust the operator; the confirm dialog is the
- * UI-level gate.
+ * Clears non-live agent_sessions rows for a workspace. Live sessions
+ * (status IN ('starting','running')) are reported but preserved — deleting
+ * their DB rows without killing their PTYs would orphan running processes.
  */
 export async function clearPanesForWorkspace(
   input: ClearPanesInput,
@@ -186,17 +188,27 @@ export async function clearPanesForWorkspace(
   const { workspaceId, db, dryRun } = input;
 
   const rows = db
-    .prepare('SELECT id FROM agent_sessions WHERE workspace_id = ?')
-    .all(workspaceId) as Array<{ id: string }>;
+    .prepare('SELECT id, status FROM agent_sessions WHERE workspace_id = ?')
+    .all(workspaceId) as Array<{ id: string; status: string }>;
 
-  const sessionIds = rows.map((r) => r.id);
+  const liveBlockedSessionIds = rows
+    .filter((r) => r.status === 'starting' || r.status === 'running')
+    .map((r) => r.id);
+  const sessionIds = rows
+    .filter((r) => r.status !== 'starting' && r.status !== 'running')
+    .map((r) => r.id);
 
   if (!dryRun && sessionIds.length > 0) {
-    db.prepare('DELETE FROM agent_sessions WHERE workspace_id = ?').run(workspaceId);
+    db.prepare(
+      `DELETE FROM agent_sessions
+       WHERE workspace_id = ?
+         AND status NOT IN ('starting','running')`,
+    ).run(workspaceId);
   }
 
   return {
     sessionIds,
+    liveBlockedSessionIds,
     deleted: dryRun ? 0 : sessionIds.length,
   };
 }
@@ -244,10 +256,16 @@ export async function removeWorkspaceAndGc(
     throw new Error(`[cleanup] Workspace not found: ${workspaceId}`);
   }
 
-  // Step 1: count sessions.
+  // Step 1: count sessions and split live rows from rows that can be deleted.
   const sessionRows = db
-    .prepare('SELECT id FROM agent_sessions WHERE workspace_id = ?')
-    .all(workspaceId) as Array<{ id: string }>;
+    .prepare('SELECT id, status FROM agent_sessions WHERE workspace_id = ?')
+    .all(workspaceId) as Array<{ id: string; status: string }>;
+  const liveBlockedSessionIds = sessionRows
+    .filter((r) => r.status === 'starting' || r.status === 'running')
+    .map((r) => r.id);
+  const nonLiveSessionRows = sessionRows.filter(
+    (r) => r.status !== 'starting' && r.status !== 'running',
+  );
 
   // Step 2: GC orphan worktrees (only when we have a repoHash to key on).
   const effectiveHash = repoHash ?? null;
@@ -265,14 +283,21 @@ export async function removeWorkspaceAndGc(
 
   // Step 3+4: Mutate DB (skipped in dry-run).
   if (!dryRun) {
-    if (sessionRows.length > 0) {
-      db.prepare('DELETE FROM agent_sessions WHERE workspace_id = ?').run(workspaceId);
+    if (nonLiveSessionRows.length > 0) {
+      db.prepare(
+        `DELETE FROM agent_sessions
+         WHERE workspace_id = ?
+           AND status NOT IN ('starting','running')`,
+      ).run(workspaceId);
     }
-    db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
+    if (liveBlockedSessionIds.length === 0) {
+      db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
+    }
   }
 
   return {
-    sessionCount: sessionRows.length,
+    sessionCount: nonLiveSessionRows.length,
+    liveBlockedSessionIds,
     worktreeCount,
     liveBlockedWorktrees,
     worktreeErrors,

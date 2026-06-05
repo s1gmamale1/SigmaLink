@@ -11,6 +11,8 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 // We DON'T mock node-pty here: the ENOENT check fires before node-pty is
 // touched, so the native module is never loaded during these tests.
@@ -68,6 +70,21 @@ describe('resolvePosixCommand', () => {
 
   it('returns null for an empty command', () => {
     expect(resolvePosixCommand('')).toBeNull();
+  });
+
+  it('uses supplied env.PATH instead of process.env.PATH', () => {
+    if (process.platform === 'win32') return;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'posix-path-env-'));
+    try {
+      const tool = path.join(dir, 'env-only-tool');
+      fs.writeFileSync(tool, '#!/bin/sh\n');
+      fs.chmodSync(tool, 0o755);
+      process.env.PATH = '/does/not/exist';
+
+      expect(resolvePosixCommand('env-only-tool', { PATH: dir })).toBe(tool);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

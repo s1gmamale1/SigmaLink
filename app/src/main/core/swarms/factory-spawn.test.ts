@@ -32,6 +32,7 @@ import { resolveAndSpawn } from '../providers/launcher';
 import { buildExtraArgs, spawnAgentSession, materializeRosterAgent, type SpawnAgentSessionArgs } from './factory-spawn';
 import { WorktreeDiskGuardError } from '../git/worktree';
 import type { SwarmFactoryDeps } from './factory';
+import { KV_PTY_SPAWN_MODE } from '../pty/local-pty';
 
 const SPAWNED_PTY_ID = 'sess-spawned-leaky';
 
@@ -132,10 +133,13 @@ function stubSpawn(): void {
  * hermetic (no `.mcp.json` written into the stub cwd); everything else is a
  * benign no-op shim.
  */
-function makeRawStub() {
+function makeRawStub(kv: Record<string, string> = {}) {
   return {
     prepare: vi.fn((sql: string) => ({
       get: vi.fn((key?: string) => {
+        if (/FROM kv/i.test(sql) && typeof key === 'string' && key in kv) {
+          return { value: kv[key] };
+        }
         // SF-15 — opt the per-worktree ruflo write OUT in this suite.
         if (/FROM kv/i.test(sql) && key === 'ruflo.autowriteMcp') return { value: '0' };
         return undefined;
@@ -173,6 +177,47 @@ describe('buildExtraArgs — provider oneshot substitution', () => {
   it('substitutes {prompt} for claude/codex the same way (parity check)', () => {
     expect(buildExtraArgs('claude', 'hi')).toEqual(['-p', 'hi']);
     expect(buildExtraArgs('codex', 'hi')).toEqual(['-q', 'hi']);
+  });
+});
+
+describe('spawnAgentSession — PTY spawn mode', () => {
+  function stubInsert(): void {
+    vi.mocked(getDb).mockReturnValue({
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+  }
+
+  it('threads shell-first into swarm spawns when the provider can receive prompt args', async () => {
+    vi.mocked(getRawDb).mockReturnValue(
+      makeRawStub({ [KV_PTY_SPAWN_MODE]: 'shell-first' }) as unknown as ReturnType<typeof getRawDb>,
+    );
+    stubInsert();
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+    const args = makeArgs(deps);
+    args.providerId = 'cursor';
+    args.initialPrompt = 'summarize the branch';
+
+    await spawnAgentSession(args);
+
+    expect(vi.mocked(resolveAndSpawn).mock.calls[0]?.[1].spawnMode).toBe('shell-first');
+  });
+
+  it('overrides shell-first to direct for prompt-via-stdin swarm providers', async () => {
+    vi.mocked(getRawDb).mockReturnValue(
+      makeRawStub({ [KV_PTY_SPAWN_MODE]: 'shell-first' }) as unknown as ReturnType<typeof getRawDb>,
+    );
+    stubInsert();
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+    const args = makeArgs(deps);
+    args.providerId = 'opencode';
+    args.initialPrompt = 'summarize the branch';
+
+    await spawnAgentSession(args);
+
+    expect(vi.mocked(resolveAndSpawn).mock.calls[0]?.[1].spawnMode).toBe('direct');
   });
 });
 

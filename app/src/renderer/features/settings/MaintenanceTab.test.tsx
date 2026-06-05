@@ -113,15 +113,15 @@ beforeEach(() => {
   rpcMocks['cleanup.removeWorkspace'].mockImplementation(
     async (args: { workspaceId: string; dryRun: boolean }) => {
       if (args.dryRun) {
-        return { sessionCount: 2, worktreeCount: 1, liveBlockedWorktrees: [] };
+        return { sessionCount: 2, liveBlockedSessionIds: [], worktreeCount: 1, liveBlockedWorktrees: [] };
       }
-      return { sessionCount: 2, worktreeCount: 1, liveBlockedWorktrees: [] };
+      return { sessionCount: 2, liveBlockedSessionIds: [], worktreeCount: 1, liveBlockedWorktrees: [] };
     },
   );
   rpcMocks['cleanup.clearPanes'].mockImplementation(
     async (args: { workspaceId: string; dryRun: boolean }) => {
-      if (args.dryRun) return { sessionIds: ['s1', 's2'], deleted: 0 };
-      return { sessionIds: [], deleted: 2 };
+      if (args.dryRun) return { sessionIds: ['s1', 's2'], liveBlockedSessionIds: [], deleted: 0 };
+      return { sessionIds: [], liveBlockedSessionIds: [], deleted: 2 };
     },
   );
   rpcMocks['cleanup.pruneWorktrees'].mockImplementation(
@@ -221,6 +221,24 @@ describe('MaintenanceTab — remove workspace', () => {
       });
     });
   });
+
+  it('warns when live panes block full workspace removal', async () => {
+    rpcMocks['cleanup.removeWorkspace'].mockResolvedValueOnce({
+      sessionCount: 1,
+      liveBlockedSessionIds: ['live-1'],
+      worktreeCount: 1,
+      liveBlockedWorktrees: ['/wt/live-1'],
+    });
+    await renderTab();
+
+    await waitFor(() => screen.getAllByText('Remove workspace'));
+    const [removeBtn] = screen.getAllByTestId(/maintenance-remove-ws-ws-1/);
+    fireEvent.click(removeBtn);
+
+    const dialog = await confirmDialogShown();
+    expect(dialog.textContent).toContain('1 live pane(s)');
+    expect(dialog.textContent).toContain('will be KEPT');
+  });
 });
 
 describe('MaintenanceTab — clear panes', () => {
@@ -240,6 +258,7 @@ describe('MaintenanceTab — clear panes', () => {
     // Dry-run session count surfaced in the themed dialog body.
     const dialog = await confirmDialogShown();
     expect(dialog.textContent).toContain('2 session record(s)');
+    expect(dialog.textContent).not.toContain('will stop appearing');
     expect(confirmMock).not.toHaveBeenCalled();
 
     // Cancel → no live delete.
@@ -268,8 +287,26 @@ describe('MaintenanceTab — clear panes', () => {
     });
   });
 
+  it('shows live pane count in clear-panes confirm', async () => {
+    rpcMocks['cleanup.clearPanes'].mockResolvedValueOnce({
+      sessionIds: ['dead-1'],
+      liveBlockedSessionIds: ['live-1', 'live-2'],
+      deleted: 0,
+    });
+    await renderTab();
+
+    await waitFor(() => screen.getAllByText('Clear panes'));
+    const [clearBtn] = screen.getAllByTestId(/maintenance-clear-panes-ws-1/);
+    fireEvent.click(clearBtn);
+
+    const dialog = await confirmDialogShown();
+    expect(dialog.textContent).toContain('1 session record(s)');
+    expect(dialog.textContent).toContain('2 active');
+    expect(dialog.textContent).toContain('will be kept');
+  });
+
   it('shows a success toast (not confirm) when no sessions found', async () => {
-    rpcMocks['cleanup.clearPanes'].mockResolvedValueOnce({ sessionIds: [], deleted: 0 });
+    rpcMocks['cleanup.clearPanes'].mockResolvedValueOnce({ sessionIds: [], liveBlockedSessionIds: [], deleted: 0 });
     const { toast } = await import('sonner');
     await renderTab();
 

@@ -13,6 +13,7 @@ import {
   prepareGeminiResume,
 } from './gemini-resume-sigma';
 import { workspaceCwdInWorktree } from '../workspaces/worktree-cwd';
+import { KV_PTY_SPAWN_MODE, parseSpawnMode } from './local-pty';
 
 export interface PaneResumeSuccess {
   sessionId: string;
@@ -178,6 +179,17 @@ function readShowLegacy(db: Database.Database): boolean {
   }
 }
 
+function readSpawnMode(db: Database.Database): 'direct' | 'shell-first' {
+  try {
+    const row = db
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(KV_PTY_SPAWN_MODE) as { value?: string } | undefined;
+    return parseSpawnMode(row?.value ?? null);
+  } catch {
+    return 'direct';
+  }
+}
+
 function writeProviderEffective(
   db: Database.Database,
   sessionId: string,
@@ -340,6 +352,7 @@ export async function respawnFailedWorkspacePanes(
   const db = deps.db ?? (await getDefaultRawDb());
   const now = deps.now ?? Date.now;
   const resolve = deps.resolve ?? (await getDefaultResolve());
+  const spawnMode = readSpawnMode(db);
 
   const rows = listRespawnableRows(db, workspaceId);
   let spawned = 0;
@@ -381,6 +394,7 @@ export async function respawnFailedWorkspacePanes(
           // row, so this IS a resume even though no --resume/--continue arg
           // is passed. Suppresses the redundant onPostSpawnCapture disk-scan.
           isResume: true,
+          spawnMode,
         },
       );
       const rec = result.ptySession;
@@ -416,6 +430,7 @@ export async function resumeWorkspacePanes(
   const now = deps.now ?? Date.now;
   const resolve = deps.resolve ?? await getDefaultResolve();
   const getProvider = deps.getProvider ?? getDefaultProvider;
+  const spawnMode = readSpawnMode(db);
   const result: PaneResumeResult = {
     workspaceId,
     resumed: [],
@@ -541,6 +556,7 @@ export async function resumeWorkspacePanes(
           // SF-8 Yolo/Bypass — re-apply the persisted bypass flag so the
           // provider's autoApproveFlag is appended to argv on every resume.
           autoApprove: row.autoApprove === 1,
+          spawnMode,
         },
       );
       const rec = spawned.ptySession;

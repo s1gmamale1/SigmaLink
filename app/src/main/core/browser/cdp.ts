@@ -7,9 +7,7 @@
 // browser-process listener — by the time `BrowserManager` is constructed,
 // that ship has sailed.
 //
-// `attachDebugger` is idempotent and safe to call repeatedly. `runCDP`
-// performs a single CDP round-trip and surfaces protocol errors verbatim so
-// the BrowserManager can decide whether to retry or give up.
+// `attachDebugger` is idempotent and safe to call repeatedly.
 
 import type { WebContentsView } from 'electron';
 
@@ -39,30 +37,4 @@ export function attachDebugger(view: WebContentsView): boolean {
     void err;
     return false;
   }
-}
-
-export async function runCDP<T = unknown>(
-  view: WebContentsView,
-  method: string,
-  params?: Record<string, unknown>,
-): Promise<T> {
-  if (!attachDebugger(view)) {
-    throw new Error(`CDP not attached for ${method}`);
-  }
-  const wc = view.webContents;
-  // `sendCommand` resolves with the protocol response or rejects with the
-  // protocol error message string.
-  const out = (await wc.debugger.sendCommand(method, params ?? {})) as T;
-  return out;
-}
-
-export function detachDebugger(view: WebContentsView): void {
-  const wc = view.webContents;
-  if (!ATTACHED.has(wc)) return;
-  try {
-    if (wc.debugger.isAttached()) wc.debugger.detach();
-  } catch {
-    /* ignore */
-  }
-  ATTACHED.delete(wc);
 }
