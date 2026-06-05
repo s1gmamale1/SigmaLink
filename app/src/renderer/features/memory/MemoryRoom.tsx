@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Sparkles, List as ListIcon, Network as NetworkIcon, CalendarDays } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { cn } from '@/lib/utils';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { useBelowBreakpoint } from '@/renderer/lib/use-breakpoint';
 import { readWorkspaceUi, writeWorkspaceUi } from '@/renderer/lib/workspace-ui-kv';
 import {
@@ -62,13 +62,16 @@ function parseCols(raw: string | null): [number, number, number] {
   return DEFAULT_COLS;
 }
 
+const EMPTY_MEMORIES: never[] = [];
+
 export function MemoryRoom() {
-  const { state, dispatch } = useAppState();
-  const ws = state.activeWorkspace;
+  const dispatch = useAppDispatch();
+  const ws = useAppStateSelector((s) => s.activeWorkspace);
   const wsId = ws?.id ?? null;
-  const memories = useMemo(() => (wsId ? state.memories[wsId] ?? [] : []), [state.memories, wsId]);
-  const activeName = wsId ? state.activeMemoryName[wsId] ?? null : null;
-  const graph = wsId ? state.memoryGraph[wsId] ?? null : null;
+  const memories = useAppStateSelector((s) => (wsId ? s.memories[wsId] : undefined) ?? EMPTY_MEMORIES);
+  const activeName = useAppStateSelector((s) => (wsId ? s.activeMemoryName[wsId] ?? null : null));
+  const graph = useAppStateSelector((s) => (wsId ? s.memoryGraph[wsId] ?? null : null));
+  const pendingRufloView = useAppStateSelector((s) => s.pendingRufloView);
 
   const [tab, setTab] = useState<Tab>('list');
   const [graphLoading, setGraphLoading] = useState(false);
@@ -246,7 +249,6 @@ export function MemoryRoom() {
   // render a Ruflo read-only view, so consume it on mount: open the virtual
   // note on the List tab, then clear the pending slot so a later remount doesn't
   // re-open a stale entry.
-  const pendingRufloView = state.pendingRufloView;
   useEffect(() => {
     if (!pendingRufloView) return;
     queueMicrotask(() => {

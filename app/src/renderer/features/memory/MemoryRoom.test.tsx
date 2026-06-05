@@ -84,16 +84,21 @@ const mockWorkspace = {
   lastOpenedAt: 0,
 };
 
+const mockState = {
+  activeWorkspace: mockWorkspace,
+  activeWorkspaceId: mockWorkspace.id,
+  memories: { 'ws-test': [] as never[] },
+  activeMemoryName: { 'ws-test': null as string | null },
+  memoryGraph: { 'ws-test': null as null },
+  pendingRufloView: null as null,
+};
+
 vi.mock('@/renderer/app/state', () => ({
-  useAppState: vi.fn(() => ({
-    state: {
-      activeWorkspace: mockWorkspace,
-      memories: { 'ws-test': [] },
-      activeMemoryName: { 'ws-test': null },
-      memoryGraph: { 'ws-test': null },
-    },
-    dispatch: mockDispatch,
-  })),
+  useAppState: vi.fn(() => ({ state: mockState, dispatch: mockDispatch })),
+  useAppDispatch: vi.fn(() => mockDispatch),
+  useAppStateSelector: vi.fn((selector: (s: typeof mockState) => unknown) =>
+    selector(mockState),
+  ),
 }));
 
 /** Force a viewport width for the `useBelowBreakpoint('narrow')` hook (<900px). */
