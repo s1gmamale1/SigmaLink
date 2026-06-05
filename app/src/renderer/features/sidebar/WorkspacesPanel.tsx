@@ -11,12 +11,12 @@
 //   • pane-count pill counts *running* sessions only
 //   • close × surfaces on hover for every row
 //
-// The colour dot itself is derived from the workspace id via
-// `workspaceColor()` so users get a stable visual cue per project without us
-// needing to add a `color` column to the Workspace record.
+// The colour dot is driven by `useWorkspaceColors` — a KV-persisted per-workspace
+// hex chosen from a 15-slot palette. Users can right-click to change their workspace
+// colour via a swatch picker (context menu). No `color` column needed in the DB.
 
 import { useMemo, useRef, useState } from 'react';
-import { ChevronDown, Folder, FolderPlus, Plus, X } from 'lucide-react';
+import { Check, ChevronDown, Folder, FolderPlus, Plus, RotateCcw, X } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,10 +25,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
-import { workspaceColor } from '@/renderer/lib/workspace-color';
+import {
+  defaultWorkspaceColor,
+  WORKSPACE_DOT_HEX_PALETTE,
+} from '@/renderer/lib/workspace-color';
 import type { AgentSession, Workspace } from '@/shared/types';
 import { summarizeWorkspaces, type WorkspaceStatusKind } from './workspaces-summary';
+import { useWorkspaceColors } from './use-workspace-colors';
 
 export interface WorkspacesPanelProps {
   workspaces: Workspace[];
@@ -98,6 +110,10 @@ export function WorkspacesPanel({
   function cancelEdit() {
     setEditingId(null);
   }
+
+  // Per-workspace hex colours (KV-persisted, user-overridable).
+  const openWorkspaceIds = useMemo(() => workspaces.map((w) => w.id), [workspaces]);
+  const { colorFor, setColor } = useWorkspaceColors(openWorkspaceIds);
 
   // O(N) projection of sessions onto their workspace. Memoised because the
   // sidebar re-renders on every dispatch and we'd otherwise rebucket a few
@@ -213,7 +229,8 @@ export function WorkspacesPanel({
               kind: 'idle' as WorkspaceStatusKind,
             };
             const isActive = ws.id === activeId;
-            const colour = workspaceColor(ws.id);
+            const wsColor = colorFor(ws.id);
+            const isDefault = wsColor === defaultWorkspaceColor(ws.id);
             // Fall back to a deterministic placeholder when the workspace
             // record has no name set — without this, rows can render as a
             // single dot + count badge with no readable label, which looks
@@ -221,114 +238,164 @@ export function WorkspacesPanel({
             const displayName = ws.name?.trim() ? ws.name : 'Untitled workspace';
             // Subtitle = basename of the root path. Tolerates trailing slash.
             const subtitle = basenameOf(ws.rootPath);
+
+            // Subtle left-border row accent: full alpha on active, ~33% on inactive.
+            const borderColor = isActive ? wsColor : `${wsColor}55`;
+
             return (
-              <div
-                key={ws.id}
-                data-testid="workspace-row"
-                data-workspace-id={ws.id}
-                data-active={isActive ? 'true' : undefined}
-                className={cn(
-                  'group flex min-h-9 items-center rounded-md text-sm transition',
-                  isActive
-                    ? 'sl-nav-active bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
-                )}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    // Don't trigger onPick while the rename input is active.
-                    if (editingId !== ws.id) onPick(ws);
-                  }}
-                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5"
-                  title={ws.rootPath}
-                >
-                  <span
-                    aria-hidden
-                    data-testid="workspace-dot"
-                    data-status={status.kind}
+              <ContextMenu key={ws.id}>
+                <ContextMenuTrigger asChild>
+                  <div
+                    data-testid="workspace-row"
+                    data-workspace-id={ws.id}
+                    data-active={isActive ? 'true' : undefined}
+                    style={{ borderLeft: `2px solid ${borderColor}` }}
                     className={cn(
-                      'inline-block h-2 w-2 shrink-0 rounded-full ring-1',
-                      colour,
-                      STATUS_RING[status.kind],
+                      'group flex min-h-9 items-center rounded-md text-sm transition',
+                      isActive
+                        ? 'sl-nav-active bg-sidebar-accent text-sidebar-accent-foreground'
+                        : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
                     )}
-                  />
-                  <span className="flex min-w-0 flex-1 flex-col text-left">
-                    {editingId === ws.id ? (
-                      <input
-                        ref={inputRef}
-                        data-testid="workspace-rename-input"
-                        className="w-full truncate rounded bg-background px-1 text-[13px] leading-tight text-foreground ring-1 ring-accent outline-none"
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            commitEdit(ws.id);
-                          } else if (e.key === 'Escape') {
-                            e.preventDefault();
-                            cancelEdit();
-                          }
-                          // Prevent keyboard events from bubbling to the row's
-                          // click/key handler while the input is active.
-                          e.stopPropagation();
-                        }}
-                        onBlur={() => commitEdit(ws.id)}
-                        // Stop click inside the input from bubbling up to the
-                        // outer button (which would call onPick or close the editor).
-                        onClick={(e) => e.stopPropagation()}
-                        aria-label={`Rename workspace ${displayName}`}
-                      />
-                    ) : (
-                      <span
-                        data-testid="workspace-name"
-                        className="truncate text-[13px] leading-tight"
-                        onDoubleClick={(e) => {
-                          if (!onRename) return;
-                          e.stopPropagation();
-                          startEdit(ws);
-                        }}
-                        title="Double-click to rename"
-                      >
-                        {displayName}
-                      </span>
-                    )}
-                    {subtitle && subtitle !== displayName ? (
-                      <span
-                        data-testid="workspace-subtitle"
-                        className="truncate text-[10px] leading-tight text-muted-foreground/80"
-                      >
-                        {subtitle}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span
-                    data-testid="workspace-pane-count"
-                    className={cn(
-                      'rounded-full px-1.5 py-0 text-[10px] font-mono tabular-nums',
-                      status.running > 0
-                        ? 'bg-emerald-500/20 text-emerald-400'
-                        : 'bg-muted/50 text-muted-foreground',
-                    )}
-                    aria-label={`${status.running} running ${status.running === 1 ? 'agent' : 'agents'}`}
                   >
-                    {status.running}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onClose(ws.id);
-                  }}
-                  className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus:opacity-100"
-                  aria-label={`Close ${displayName}`}
-                  title="Close workspace"
-                  data-testid="workspace-close"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Don't trigger onPick while the rename input is active.
+                        if (editingId !== ws.id) onPick(ws);
+                      }}
+                      className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5"
+                      title={ws.rootPath}
+                    >
+                      <span
+                        aria-hidden
+                        data-testid="workspace-dot"
+                        data-status={status.kind}
+                        style={{ backgroundColor: wsColor }}
+                        className={cn(
+                          'inline-block h-2 w-2 shrink-0 rounded-full ring-1',
+                          STATUS_RING[status.kind],
+                        )}
+                      />
+                      <span className="flex min-w-0 flex-1 flex-col text-left">
+                        {editingId === ws.id ? (
+                          <input
+                            ref={inputRef}
+                            data-testid="workspace-rename-input"
+                            className="w-full truncate rounded bg-background px-1 text-[13px] leading-tight text-foreground ring-1 ring-accent outline-none"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                commitEdit(ws.id);
+                              } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                cancelEdit();
+                              }
+                              // Prevent keyboard events from bubbling to the row's
+                              // click/key handler while the input is active.
+                              e.stopPropagation();
+                            }}
+                            onBlur={() => commitEdit(ws.id)}
+                            // Stop click inside the input from bubbling up to the
+                            // outer button (which would call onPick or close the editor).
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label={`Rename workspace ${displayName}`}
+                          />
+                        ) : (
+                          <span
+                            data-testid="workspace-name"
+                            className="truncate text-[13px] leading-tight"
+                            onDoubleClick={(e) => {
+                              if (!onRename) return;
+                              e.stopPropagation();
+                              startEdit(ws);
+                            }}
+                            title="Double-click to rename"
+                          >
+                            {displayName}
+                          </span>
+                        )}
+                        {subtitle && subtitle !== displayName ? (
+                          <span
+                            data-testid="workspace-subtitle"
+                            className="truncate text-[10px] leading-tight text-muted-foreground/80"
+                          >
+                            {subtitle}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span
+                        data-testid="workspace-pane-count"
+                        className={cn(
+                          'rounded-full px-1.5 py-0 text-[10px] font-mono tabular-nums',
+                          status.running > 0
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : 'bg-muted/50 text-muted-foreground',
+                        )}
+                        aria-label={`${status.running} running ${status.running === 1 ? 'agent' : 'agents'}`}
+                      >
+                        {status.running}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onClose(ws.id);
+                      }}
+                      className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus:opacity-100"
+                      aria-label={`Close ${displayName}`}
+                      title="Close workspace"
+                      data-testid="workspace-close"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </ContextMenuTrigger>
+
+                {/* Right-click swatch picker — 15 palette colours + reset */}
+                <ContextMenuContent
+                  className="w-auto min-w-[9rem]"
+                  data-testid="workspace-color-menu"
                 >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
+                  <ContextMenuLabel className="text-xs">Workspace colour</ContextMenuLabel>
+                  <div className="grid grid-cols-5 gap-1 px-2 py-1.5">
+                    {WORKSPACE_DOT_HEX_PALETTE.map((hex) => (
+                      <button
+                        key={hex}
+                        type="button"
+                        aria-label={hex}
+                        data-testid={`color-swatch-${hex}`}
+                        onClick={() => setColor(ws.id, hex)}
+                        style={{ backgroundColor: hex }}
+                        className={cn(
+                          'h-5 w-5 rounded-full transition hover:scale-110',
+                          wsColor === hex
+                            ? 'ring-2 ring-white ring-offset-1 ring-offset-popover'
+                            : '',
+                        )}
+                      >
+                        {wsColor === hex ? (
+                          <Check className="h-3 w-3 text-white/80 mx-auto" aria-hidden />
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                  {!isDefault && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        onClick={() => setColor(ws.id, null)}
+                        data-testid="color-reset"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Reset to default colour
+                      </ContextMenuItem>
+                    </>
+                  )}
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })
         )}
