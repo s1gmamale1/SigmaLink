@@ -232,6 +232,15 @@ export interface AddAgentToSwarmInput {
    */
   autoApprove?: boolean;
   /**
+   * DEV-W5 — per-spawn worktree override for the `+Pane` flow.
+   * When `true`, forces in-place mode (no git worktree allocated) regardless
+   * of the workspace's `worktreeMode` KV setting.
+   * When `false`, forces a worktree even when the workspace is in in-place mode.
+   * When `undefined` (the default), falls back to the workspace `worktreeMode`.
+   * Mirrors how `autoApprove` is threaded through the spawn pipeline.
+   */
+  skipWorktree?: boolean;
+  /**
    * v1.4.3 #06 — Pane Split. When set, the new pane shares the parent's
    * worktree (no new git worktree is allocated) and inherits the parent's
    * `cwd`. All standalone `addAgent` callers leave this undefined so the

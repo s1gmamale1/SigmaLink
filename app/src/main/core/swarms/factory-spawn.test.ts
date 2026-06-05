@@ -734,3 +734,131 @@ describe('spawnAgentSession — DEV-W3b: in-place mode skips worktree creation',
     expect(deps.worktreePool.create).toHaveBeenCalledOnce();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEV-W5 — per-spawn `skipWorktree` override
+//
+// TDD cases:
+//   W5-1: skipWorktree=true skips worktree.create even when workspace mode is 'worktree'
+//   W5-2: skipWorktree=false forces a worktree even when workspace mode is 'in-place'
+//   W5-3: skipWorktree=undefined falls back to the workspace worktreeMode (legacy behavior)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Helper: stub rawDb to return a specific worktreeMode value (or none). */
+function makeRawStubWithWorktreeMode(mode: 'in-place' | 'worktree' | null) {
+  return {
+    prepare: vi.fn((sql: string) => ({
+      get: vi.fn((key?: string) => {
+        if (typeof key === 'string' && key.startsWith('workspace.worktreeMode.')) {
+          return mode !== null ? { value: mode } : undefined;
+        }
+        if (typeof key === 'string' && key === 'ruflo.autowriteMcp') return { value: '0' };
+        if (/FROM kv/i.test(sql)) return undefined;
+        return undefined;
+      }),
+      all: vi.fn(() => []),
+      run: vi.fn(() => undefined),
+    })),
+    transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+  };
+}
+
+describe('spawnAgentSession — DEV-W5: per-spawn skipWorktree override', () => {
+  function makeGitArgs(deps: SwarmFactoryDeps): SpawnAgentSessionArgs {
+    return {
+      ...makeArgs(deps),
+      wsRow: {
+        id: 'ws-1',
+        name: 'ws-1',
+        rootPath: '/tmp/ws-1',
+        repoRoot: '/tmp/repo',
+        repoMode: 'git',
+        createdAt: Date.now(),
+        lastOpenedAt: Date.now(),
+      } as unknown as SpawnAgentSessionArgs['wsRow'],
+    };
+  }
+
+  it('W5-1: skipWorktree=true skips worktree.create even when workspace mode is "worktree"', async () => {
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    // Workspace is in 'worktree' mode → would normally create a worktree.
+    vi.mocked(getRawDb).mockReturnValue(
+      makeRawStubWithWorktreeMode('worktree') as unknown as ReturnType<typeof getRawDb>,
+    );
+
+    const insertRun = vi.fn(() => undefined);
+    vi.mocked(getDb).mockReturnValue({
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: insertRun })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const args = makeGitArgs(deps);
+    // Per-spawn override: skip the worktree regardless of workspace mode.
+    args.skipWorktree = true;
+
+    const result = await spawnAgentSession(args);
+
+    // skipWorktree=true must suppress worktreePool.create even in 'worktree' mode.
+    expect(deps.worktreePool.create).not.toHaveBeenCalled();
+    expect(result.sessionId).toBe(SPAWNED_PTY_ID);
+  });
+
+  it('W5-2: skipWorktree=false forces a worktree even when workspace mode is "in-place"', async () => {
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    // Workspace is 'in-place' → would normally skip worktree creation.
+    vi.mocked(getRawDb).mockReturnValue(
+      makeRawStubWithWorktreeMode('in-place') as unknown as ReturnType<typeof getRawDb>,
+    );
+
+    vi.mocked(deps.worktreePool.create).mockResolvedValue({
+      worktreePath: '/tmp/repo/wt-w5',
+      branch: 'sigmalink/builder-1-w5',
+      sessionId: SPAWNED_PTY_ID,
+    });
+
+    const insertRun = vi.fn(() => undefined);
+    vi.mocked(getDb).mockReturnValue({
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: insertRun })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const args = makeGitArgs(deps);
+    // Per-spawn override: force a worktree regardless of in-place mode.
+    args.skipWorktree = false;
+
+    await spawnAgentSession(args);
+
+    // skipWorktree=false must force worktreePool.create even in 'in-place' mode.
+    expect(deps.worktreePool.create).toHaveBeenCalledOnce();
+  });
+
+  it('W5-3: skipWorktree=undefined falls back to workspace worktreeMode (legacy behavior)', async () => {
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    // Workspace is in-place → legacy path skips worktree.
+    vi.mocked(getRawDb).mockReturnValue(
+      makeRawStubWithWorktreeMode('in-place') as unknown as ReturnType<typeof getRawDb>,
+    );
+
+    const insertRun = vi.fn(() => undefined);
+    vi.mocked(getDb).mockReturnValue({
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: insertRun })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const args = makeGitArgs(deps);
+    // No skipWorktree passed → should respect workspace mode.
+    args.skipWorktree = undefined;
+
+    const result = await spawnAgentSession(args);
+
+    // Legacy fallback: in-place mode must NOT create a worktree.
+    expect(deps.worktreePool.create).not.toHaveBeenCalled();
+    expect(result.sessionId).toBe(SPAWNED_PTY_ID);
+  });
+});

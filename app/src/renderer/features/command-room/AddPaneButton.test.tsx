@@ -616,3 +616,131 @@ describe('AddPaneButton — Yolo/Bypass toggle (SF-8 B3)', () => {
     expect(kvSetMock).toHaveBeenCalledWith('pane.autoApprove.default.ws-1', '0');
   });
 });
+
+// ---- DEV-W5 — Plain terminal + per-add worktree toggle ----------------------
+
+describe('AddPaneButton — DEV-W5: plain terminal + worktree toggle', () => {
+  it('W5-UI-1: "Plain terminal" menu item is rendered', async () => {
+    await renderAddPaneButton();
+    // The DropdownMenuItem mock renders children as a div[role=menuitem]; match
+    // by the visible text since the mock does not forward data-testid.
+    expect(screen.getByText('Plain terminal')).toBeTruthy();
+  });
+
+  it('W5-UI-2: clicking "Plain terminal" calls addAgent with providerId:"shell"', async () => {
+    addAgentMock.mockResolvedValue({
+      sessionId: 's-shell',
+      paneIndex: 0,
+      agentKey: 'builder-1',
+      session: { id: 's-shell', workspaceId: 'ws-1' },
+      swarm: makeSwarm(),
+    });
+
+    await renderAddPaneButton();
+    // The mock does not forward data-testid, so find by text.
+    const termItem = screen.getByText('Plain terminal');
+    fireEvent.click(termItem);
+
+    await waitFor(() => {
+      expect(addAgentMock).toHaveBeenCalledWith(
+        expect.objectContaining({ providerId: 'shell' }),
+      );
+    });
+  });
+
+  it('W5-UI-3: "Create in worktree" toggle is rendered', async () => {
+    await renderAddPaneButton();
+    expect(screen.getByTestId('worktree-toggle')).toBeTruthy();
+    expect(screen.getByText('Create in worktree')).toBeTruthy();
+  });
+
+  it('W5-UI-4: worktree-toggle defaults ON when worktreeMode kv is absent (default=worktree)', async () => {
+    kvGetMock.mockResolvedValue(null); // no kv → default ON (create worktree)
+    await renderAddPaneButton();
+    await waitFor(() => {
+      const toggle = screen.getByTestId('worktree-toggle');
+      const isOn =
+        toggle.getAttribute('data-state') === 'checked' ||
+        toggle.getAttribute('aria-checked') === 'true';
+      expect(isOn).toBe(true);
+    });
+  });
+
+  it('W5-UI-5: worktree-toggle defaults OFF when worktreeMode kv is "in-place"', async () => {
+    kvGetMock.mockImplementation(async (key: string) => {
+      if (key === 'workspace.worktreeMode.ws-1') return 'in-place';
+      return null;
+    });
+    await renderAddPaneButton();
+    await waitFor(() => {
+      const toggle = screen.getByTestId('worktree-toggle');
+      const isOff =
+        toggle.getAttribute('data-state') !== 'checked' &&
+        toggle.getAttribute('aria-checked') !== 'true';
+      expect(isOff).toBe(true);
+    });
+  });
+
+  it('W5-UI-6: addAgent is called with skipWorktree=false when worktree-toggle is ON', async () => {
+    kvGetMock.mockResolvedValue(null); // toggle defaults ON
+    addAgentMock.mockResolvedValue({
+      sessionId: 's-wt',
+      paneIndex: 0,
+      agentKey: 'builder-1',
+      session: { id: 's-wt', workspaceId: 'ws-1' },
+      swarm: makeSwarm(),
+    });
+
+    await renderAddPaneButton();
+    // Wait for hydration (toggle defaults ON).
+    await waitFor(() => {
+      const toggle = screen.getByTestId('worktree-toggle');
+      const isOn =
+        toggle.getAttribute('data-state') === 'checked' ||
+        toggle.getAttribute('aria-checked') === 'true';
+      expect(isOn).toBe(true);
+    });
+
+    clickProvider('Claude');
+
+    await waitFor(() => {
+      // createWorktree=true → skipWorktree=false
+      expect(addAgentMock).toHaveBeenCalledWith(
+        expect.objectContaining({ skipWorktree: false }),
+      );
+    });
+  });
+
+  it('W5-UI-7: addAgent is called with skipWorktree=true when worktree-toggle is OFF', async () => {
+    kvGetMock.mockImplementation(async (key: string) => {
+      if (key === 'workspace.worktreeMode.ws-1') return 'in-place';
+      return null;
+    });
+    addAgentMock.mockResolvedValue({
+      sessionId: 's-ip',
+      paneIndex: 0,
+      agentKey: 'builder-1',
+      session: { id: 's-ip', workspaceId: 'ws-1' },
+      swarm: makeSwarm(),
+    });
+
+    await renderAddPaneButton();
+    // Wait for hydration (toggle defaults OFF because kv='in-place').
+    await waitFor(() => {
+      const toggle = screen.getByTestId('worktree-toggle');
+      const isOff =
+        toggle.getAttribute('data-state') !== 'checked' &&
+        toggle.getAttribute('aria-checked') !== 'true';
+      expect(isOff).toBe(true);
+    });
+
+    clickProvider('Claude');
+
+    await waitFor(() => {
+      // createWorktree=false → skipWorktree=true
+      expect(addAgentMock).toHaveBeenCalledWith(
+        expect.objectContaining({ skipWorktree: true }),
+      );
+    });
+  });
+});

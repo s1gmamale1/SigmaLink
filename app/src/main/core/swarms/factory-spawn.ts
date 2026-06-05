@@ -165,6 +165,16 @@ export interface SpawnAgentSessionArgs {
   initialPrompt?: string;
   /** SF-8 — Yolo/Bypass: append the provider's autoApproveFlag at spawn. */
   autoApprove?: boolean;
+  /**
+   * DEV-W5 — per-spawn worktree override. When `true`, skip worktree creation
+   * regardless of the workspace's `worktreeMode` KV setting (in-place). When
+   * `false`, force a worktree even if the workspace is in in-place mode. When
+   * `undefined`, fall back to the workspace `worktreeMode` (legacy behavior).
+   * The `worktreePathOverride` (splitPane) short-circuit takes precedence over
+   * this flag — both skip the WorktreePool.create() call but for different
+   * reasons (splitPane re-uses a parent worktree; skipWorktree=true skips it).
+   */
+  skipWorktree?: boolean;
   deps: SwarmFactoryDeps;
   /**
    * v1.4.3 #06 — when provided, skip the WorktreePool.create() call and use
@@ -206,9 +216,16 @@ export async function spawnAgentSession(
   // path means the two sub-panes are co-tenants on one git branch (intentional
   // design — see splitPane RPC handler for the worktree-share rationale).
   // DEV-W3b (ADR-007) — skip worktree allocation when in-place mode is active.
+  // DEV-W5 — per-spawn `skipWorktree` override wins over the workspace default:
+  //   skipWorktree=true  → in-place (no worktree) regardless of workspace mode
+  //   skipWorktree=false → force worktree even when workspace is in in-place mode
+  //   skipWorktree=undefined → fall back to workspace worktreeMode KV (legacy)
   // worktreePath stays null → workspaceCwdInWorktree returns wsRow.rootPath.
   // Preserve the worktreePathOverride short-circuit (splitPane) unchanged.
-  const inPlace = readWorktreeMode(getRawDb(), args.wsRow.id) === 'in-place';
+  const inPlace =
+    args.skipWorktree !== undefined
+      ? args.skipWorktree
+      : readWorktreeMode(getRawDb(), args.wsRow.id) === 'in-place';
   if (args.worktreePathOverride !== undefined) {
     worktreePath = args.worktreePathOverride;
     branch = args.branchOverride ?? null;
