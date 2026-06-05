@@ -1,6 +1,6 @@
 # Bug: panes don't resume (black / crashing) after a force-quit + relaunch
 
-**Status:** OPEN — release-blocker-adjacent. Confirmed reproducible by the operator on the real Electron app.
+**Status:** PART A FIXED + operator-GUI-confirmed (2026-06-05) — panes recovered live after force-quit→relaunch. Part B (resume self-heal of a missing worktree) DEFERRED — see §12 Resolution.
 **Filed:** 2026-06-05
 **Repo:** `/Users/aisigma/projects/SigmaLink/app` (branch `main`, current HEAD `f4e6f02`)
 **Owner of fix:** Codex (investigate → confirm root cause → fix → test). **Do NOT merge/push/tag.**
@@ -178,3 +178,13 @@ Benign `ResizeObserver loop completed with undelivered notifications` is surface
 - The post-crash lockout does NOT return (fresh spawns into swept slots still work).
 - New automated regression test(s) fail before / pass after.
 - All gates green. Not merged.
+
+---
+
+## 12. Resolution (2026-06-05)
+
+**Part A — SHIPPED + operator-GUI-confirmed.** Root cause confirmed (Codex): the reaper's keep-set (`running OR exited_at>7d`) was narrower than resume-launcher's eligibility (`running OR (exited AND exit_code=-1)`), so boot/open cleanup could delete worktrees that resume would later spawn into. Fix: `cleanupOrphanWorktrees` keep-set now also preserves `starting` and `exited/-1` rows (`worktree-cleanup.ts:54`). Regression test added. Gates green (tsc · 2740 vitest · lint · build). Branch `fix/pane-resume-crash` (commit `93fbca6`), merged to local `main` (untagged, unpushed). Operator force-quit→relaunch test: **panes recovered live.**
+
+**Part B — DEFERRED (latent robustness gap, not blocking).** A controlled snapshot during the retest revealed that a `running` pane can reference a `worktree_path` whose directory is **already missing on disk** (reaped during an earlier session). The resume path (`resume-launcher.ts` `resumeWorkspacePanes` / `respawnFailedWorkspacePanes`) re-spawns into the stored `worktree_path` **without verifying it exists or recreating it** — so once a worktree is gone for any reason, future resumes of that pane spawn into a missing cwd → early-death → black. Part A stops the *over-reaping* that creates this state going forward; it does not make resume **self-heal** an already-missing worktree. **Proposed Part B:** in the resume path, if `worktree_path` is non-null but the dir is missing, recreate it via `worktreePool.create(...)` before spawning (or fall back to the workspace root). Did not reproduce as fatal in the operator retest (panes recovered), so deferred.
+
+**Also deferred:** the benign ResizeObserver toast (§10) — not implemented.
