@@ -331,6 +331,48 @@ describe('Sidebar — Stage 4 a11y: aside aria-label', () => {
   });
 });
 
+describe('Sidebar — DEV-W1: logo toggles sidebar collapse', () => {
+  beforeEach(() => {
+    kvGetMock.mockResolvedValue(null);
+    kvSetMock.mockResolvedValue(undefined);
+    dispatchMock.mockReset();
+    mockState = {
+      activeWorkspace: null,
+      sidebarCollapsed: false,
+      openWorkspaces: [],
+      workspaces: [],
+      sessions: [],
+    };
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(
+      (cb: FrameRequestCallback) => {
+        cb(performance.now());
+        return 1 as unknown as number;
+      },
+    );
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('clicking the logo button dispatches sidebarCollapsed toggle', async () => {
+    const { getByLabelText } = renderSidebar();
+    await act(async () => {});
+
+    const logoBtn = getByLabelText('Toggle sidebar');
+    expect(logoBtn.tagName).toBe('BUTTON');
+
+    fireEvent.click(logoBtn);
+
+    // setCollapsed(true) calls dispatch with SET_SIDEBAR_COLLAPSED action.
+    expect(dispatchMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_SIDEBAR_COLLAPSED' }),
+    );
+  });
+});
+
 describe('Sidebar — v1.4.8 resize handle (collapsed state)', () => {
   beforeEach(() => {
     kvGetMock.mockResolvedValue(null);

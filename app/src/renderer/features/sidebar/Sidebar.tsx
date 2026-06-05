@@ -239,9 +239,16 @@ export function Sidebar() {
         )}
         style={dragStyle()}
       >
-        <span className="text-primary">
+        <button
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          className="text-primary rounded transition hover:opacity-80"
+          aria-label="Toggle sidebar"
+          title="Toggle sidebar"
+          style={noDragStyle()}
+        >
           <Monogram size={collapsed ? 22 : 24} />
-        </span>
+        </button>
         {collapsed ? null : (
           <div className="flex-1 text-[13px] font-semibold uppercase tracking-[0.18em]">
             SigmaLink
