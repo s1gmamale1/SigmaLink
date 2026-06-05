@@ -35,6 +35,7 @@ import type {
   SwarmFactoryDeps,
 } from './factory';
 import { addAgentToSwarm, createSwarm } from './factory';
+import { WorktreeDiskGuardError } from '../git/worktree';
 
 // ── Fakes wired in beforeEach ──────────────────────────────────────────────
 
@@ -354,5 +355,91 @@ describe('createSwarm — empty custom roster (v1.13.2 P0)', () => {
     expect(swarm.agents).toEqual([]);
     // No agents materialised → no PTY spawn from the bare-container create.
     expect(resolveAndSpawn).not.toHaveBeenCalled();
+  });
+});
+
+// ── C6 obs — +Pane disk-guard sibling twin ─────────────────────────────────
+//
+// addAgentToSwarm is the THIRD spawn site (alongside launcher.executeLaunchPlan
+// and factory-spawn.materializeRosterAgent). A disk-floor/cap refusal on the
+// +Pane path must fire the SAME critical notification so the operator gets the
+// bell in a packaged app instead of an invisible console.warn.
+describe('addAgentToSwarm — C6: WorktreeDiskGuardError fires a critical notification', () => {
+  function seedGitSwarm(): void {
+    seedWorkspace(fake, {
+      id: 'ws-1',
+      name: 'ws-1',
+      rootPath: '/tmp/ws-1',
+      repoMode: 'git',
+      repoRoot: '/tmp/repo-1',
+    });
+    seedSwarm(fake, {
+      id: 'swarm-1',
+      workspaceId: 'ws-1',
+      name: 'Build',
+      mission: 'test',
+      preset: 'custom',
+      status: 'running',
+    });
+  }
+
+  it('notifications.add called with severity:critical + dedupKey on disk-guard', async () => {
+    seedGitSwarm();
+
+    const deps = makeDeps();
+    // The git gate reaches worktreePool.create; make it refuse on the disk floor.
+    vi.mocked(deps.worktreePool.create).mockRejectedValue(
+      new WorktreeDiskGuardError('DISK_FLOOR', 'disk floor reached: 0.5 GB free < 2 GB'),
+    );
+    const notificationsAdd = vi.fn();
+    const depsWithNotifications: SwarmFactoryDeps = {
+      ...deps,
+      notifications: { add: notificationsAdd },
+    };
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    // addAgentToSwarm re-throws the spawn error after annotating the row.
+    await expect(addAgentToSwarm(input, depsWithNotifications)).rejects.toThrow(
+      /disk floor/,
+    );
+
+    // Structured warn for the dev log.
+    const warnCalls = warnSpy.mock.calls.map((c) => c.join(' '));
+    expect(
+      warnCalls.find((s) => s.includes('[factory-add-agent]') && s.includes('disk-guard')),
+    ).toBeDefined();
+
+    // Critical notification for the operator.
+    expect(notificationsAdd).toHaveBeenCalledOnce();
+    const addArg = notificationsAdd.mock.calls[0]![0] as {
+      severity: string;
+      dedupKey: string;
+      kind: string;
+    };
+    expect(addArg.severity).toBe('critical');
+    expect(addArg.kind).toBe('disk-guard');
+    expect(addArg.dedupKey).toBe('disk-guard:DISK_FLOOR');
+
+    warnSpy.mockRestore();
+  });
+
+  it('non-disk-guard spawn errors do NOT fire a notification', async () => {
+    seedGitSwarm();
+
+    const deps = makeDeps();
+    // A generic worktree failure (not a disk-guard) must not trip the bell.
+    vi.mocked(deps.worktreePool.create).mockRejectedValue(new Error('git worktree add failed'));
+    const notificationsAdd = vi.fn();
+    const depsWithNotifications: SwarmFactoryDeps = {
+      ...deps,
+      notifications: { add: notificationsAdd },
+    };
+
+    await expect(addAgentToSwarm(input, depsWithNotifications)).rejects.toThrow(
+      /git worktree add failed/,
+    );
+
+    expect(notificationsAdd).not.toHaveBeenCalled();
   });
 });

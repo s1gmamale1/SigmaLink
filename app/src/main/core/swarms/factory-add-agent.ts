@@ -17,6 +17,8 @@ import {
 import type { AgentSession, Swarm } from '../../../shared/types';
 import { agentKey as makeAgentKey } from './types';
 import { loadAgentSession, loadSwarm, pickCoordinatorId, spawnAgentSession } from './factory-spawn';
+import { WorktreeDiskGuardError } from '../git/worktree';
+import type { AddInput } from '../notifications/manager';
 import type {
   AddAgentToSwarmInput,
   AddAgentToSwarmResult,
@@ -138,6 +140,27 @@ export async function addAgentToSwarm(
       .where(eq(swarmAgents.id, agentId))
       .run();
     const message = err instanceof Error ? err.message : String(err);
+    // C6 obs (sibling twin of factory-spawn.ts:521 / launcher.ts) — the +Pane
+    // spawn path must surface a disk-floor/cap refusal the same way: a critical
+    // notification (the only operator-visible channel in a packaged app) plus a
+    // structured console.warn for the dev log.
+    if (err instanceof WorktreeDiskGuardError) {
+      console.warn(
+        '[factory-add-agent] disk-guard refused spawn code=%s ws=%s: %s',
+        err.code,
+        wsRow.id,
+        err.message,
+      );
+      deps.notifications?.add({
+        workspaceId: wsRow.id,
+        kind: 'disk-guard',
+        severity: 'critical',
+        title: 'Disk guard triggered',
+        body: err.message,
+        dedupKey: `disk-guard:${err.code}`,
+        payload: { code: err.code },
+      } as AddInput);
+    }
     void deps.mailbox.append({
       swarmId: input.swarmId,
       fromAgent: 'operator',
