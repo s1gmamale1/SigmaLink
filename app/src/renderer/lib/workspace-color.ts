@@ -127,6 +127,12 @@ export const WORKSPACE_DOT_HEX_PALETTE: readonly string[] = [
   '#e879f9', // fuchsia-400
 ];
 
+/** Human-readable names for WORKSPACE_DOT_HEX_PALETTE (same order) — for a11y labels. */
+export const WORKSPACE_DOT_COLOR_NAMES: readonly string[] = [
+  'pink', 'rose', 'orange', 'amber', 'yellow', 'lime', 'emerald', 'teal',
+  'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia',
+];
+
 /**
  * Deterministic hex colour for a workspace dot. UUID-safe (uses FNV-1a so
  * long ids never overflow). Returns a member of WORKSPACE_DOT_HEX_PALETTE.

@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils';
 import {
   defaultWorkspaceColor,
   WORKSPACE_DOT_HEX_PALETTE,
+  WORKSPACE_DOT_COLOR_NAMES,
 } from '@/renderer/lib/workspace-color';
 import type { AgentSession, Workspace } from '@/shared/types';
 import { summarizeWorkspaces, type WorkspaceStatusKind } from './workspaces-summary';
@@ -361,11 +362,12 @@ export function WorkspacesPanel({
                 >
                   <ContextMenuLabel className="text-xs">Workspace colour</ContextMenuLabel>
                   <div className="grid grid-cols-5 gap-1 px-2 py-1.5">
-                    {WORKSPACE_DOT_HEX_PALETTE.map((hex) => (
+                    {WORKSPACE_DOT_HEX_PALETTE.map((hex, i) => (
                       <button
                         key={hex}
                         type="button"
-                        aria-label={hex}
+                        aria-label={`Set colour ${WORKSPACE_DOT_COLOR_NAMES[i] ?? hex}`}
+                        aria-pressed={wsColor === hex}
                         data-testid={`color-swatch-${hex}`}
                         onClick={() => setColor(ws.id, hex)}
                         style={{ backgroundColor: hex }}
