@@ -7,6 +7,7 @@
 //   - Persistent error chip (data-testid="add-pane-error-chip", 10s timer, dismiss ×, unmount cleanup)
 //   - addPane() → rpc.swarms.addAgent (creates a default swarm first if none exists)
 //   - SF-8 B3: Yolo/Bypass toggle with per-workspace kv default
+//   - DEV-W5: "Plain terminal" entry (providerId:'shell') + per-add "Create in worktree" toggle
 //
 // Layout note: this component renders a `relative` wrapper so the error chip
 // can be positioned absolutely below the toolbar bar without disturbing the
@@ -33,6 +34,7 @@ import {
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch } from '@/renderer/app/state';
 import type { Swarm, Workspace } from '@/shared/types';
+import { worktreeModeKey } from '@/shared/worktree-mode';
 
 /** SF-8 B3 — Per-workspace Yolo default kv key (mirrors Launcher.tsx). */
 function yoloKvKey(workspaceId: string): string {
@@ -102,6 +104,15 @@ export function AddPaneButton({
    */
   const [yolo, setYolo] = useState(false);
 
+  /**
+   * DEV-W5 — "Create in worktree" toggle. Defaults to the workspace's
+   * `worktreeMode` KV setting ('worktree' → true, 'in-place' → false).
+   * When true, `skipWorktree=false` is sent to addAgent (force a worktree);
+   * when false, `skipWorktree=true` is sent (skip worktree, i.e. in-place).
+   * Default = true (create a worktree) when no KV is set.
+   */
+  const [createWorktree, setCreateWorktree] = useState(true);
+
   // DOGFOOD-V1.4.2-01 — clear the error-chip timer on unmount.
   useEffect(() => {
     return () => {
@@ -130,6 +141,29 @@ export function AddPaneButton({
         raw = null;
       }
       if (alive) setYolo(raw === '1');
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [activeWorkspace?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // DEV-W5 — Hydrate createWorktree from the workspace's worktreeMode KV on
+  // mount / workspace change. 'worktree' (or absent) → true; 'in-place' → false.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      if (!activeWorkspace) {
+        if (alive) setCreateWorktree(true);
+        return;
+      }
+      let raw: string | null = null;
+      try {
+        raw = await rpc.kv.get(worktreeModeKey(activeWorkspace.id));
+      } catch {
+        raw = null;
+      }
+      // 'in-place' → don't create a worktree; anything else → do create one.
+      if (alive) setCreateWorktree(raw !== 'in-place');
     })();
     return () => {
       alive = false;
@@ -176,7 +210,14 @@ export function AddPaneButton({
       }
       // SF-8 B3: pass autoApprove so the swarm spawn appends the provider's
       // bypass flag when true (AddAgentToSwarmInput now carries autoApprove).
-      const result = await rpc.swarms.addAgent({ swarmId: targetSwarmId, providerId, autoApprove: yolo });
+      // DEV-W5: pass skipWorktree — createWorktree=true → skipWorktree=false
+      // (create a worktree); createWorktree=false → skipWorktree=true (in-place).
+      const result = await rpc.swarms.addAgent({
+        swarmId: targetSwarmId,
+        providerId,
+        autoApprove: yolo,
+        skipWorktree: !createWorktree,
+      });
       dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
       dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
       dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
@@ -254,10 +295,40 @@ export function AddPaneButton({
               {provider.name}
             </DropdownMenuItem>
           ))}
+          {/* DEV-W5 — Plain terminal entry: agent-less shell pane via providerId:'shell'. */}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            data-testid="plain-terminal-item"
+            onClick={() => void addPane('shell')}
+            disabled={adding}
+          >
+            Plain terminal
+          </DropdownMenuItem>
           {/* SF-8 B3 / SF-9 — Yolo/Bypass toggle lives in the dropdown footer
               (not a permanent toolbar card). onSelect preventDefault so toggling
               it doesn't close the menu. */}
           <DropdownMenuSeparator />
+          {/* DEV-W5 — "Create in worktree" toggle. Default = workspace worktreeMode. */}
+          <div
+            className="flex items-start gap-2 px-2 py-1.5 text-[11px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Switch
+              id="worktree-toggle"
+              data-testid="worktree-toggle"
+              checked={createWorktree}
+              onCheckedChange={setCreateWorktree}
+              aria-label="Create in worktree — allocates a fresh git worktree for this pane"
+              aria-checked={createWorktree}
+              className="mt-0.5 h-3.5 w-6 shrink-0"
+            />
+            <label htmlFor="worktree-toggle" className="max-w-[200px] cursor-pointer">
+              <span className="font-semibold">Create in worktree</span>
+              <span className="block text-muted-foreground">
+                Allocates a fresh git worktree for this pane. Toggle off for in-place mode.
+              </span>
+            </label>
+          </div>
           <div
             className="flex items-start gap-2 px-2 py-1.5 text-[11px]"
             onClick={(e) => e.stopPropagation()}
@@ -272,7 +343,7 @@ export function AddPaneButton({
               className="mt-0.5 h-3.5 w-6 shrink-0"
             />
             <label htmlFor="yolo-toggle" className="max-w-[200px] cursor-pointer">
-              <span className="font-semibold text-amber-600 dark:text-amber-400">⚠️ Yolo / Bypass</span>
+              <span className="font-semibold text-amber-600 dark:text-amber-400">Yolo / Bypass</span>
               <span className="block text-muted-foreground">
                 Starts agents with their bypass flag — skips the agent's own approval
                 prompts. Trusted workspaces only.

@@ -124,6 +124,8 @@ export async function addAgentToSwarm(
       agentKey: aKey,
       initialPrompt: input.initialPrompt,
       autoApprove: input.autoApprove,
+      // DEV-W5 — thread the per-spawn worktree override (mirrors autoApprove).
+      skipWorktree: input.skipWorktree,
       deps,
       // v1.4.3 #06 — propagate the worktree-share override when the caller
       // (splitPane RPC) provides one. All other callers leave these undefined

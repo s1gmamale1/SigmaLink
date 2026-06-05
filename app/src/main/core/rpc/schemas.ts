@@ -451,6 +451,9 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       // SF-8 — Yolo/Bypass: when true, the spawn appends the provider's
       // autoApproveFlag (no-op for providers without one).
       autoApprove: z.boolean().optional(),
+      // DEV-W5 — per-spawn worktree override. When true → in-place (no worktree);
+      // when false → force worktree; when absent → use workspace worktreeMode.
+      skipWorktree: z.boolean().optional(),
     }),
     output: z.object({
       sessionId: z.string(),
