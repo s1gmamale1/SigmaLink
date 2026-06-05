@@ -23,7 +23,6 @@ export function SwarmRailTab() {
   const dispatch = useAppDispatch();
   const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspaceId);
   const activeSwarmId = useAppStateSelector((s) => s.activeSwarmId);
-  const swarmMessages = useAppStateSelector((s) => s.swarmMessages);
   // FEAT-6 — cross-ref PTY session status for phase-tree status derivation.
   const sessions = useAppStateSelector((s) => s.sessions ?? EMPTY_SESSIONS);
   const workspaceSwarms = useAppStateSelector((s) =>
@@ -41,15 +40,18 @@ export function SwarmRailTab() {
     return selected ?? workspaceSwarms.find((s) => s.status === 'running') ?? null;
   }, [activeSwarmId, workspaceSwarms]);
 
-  const messages = activeSwarm
-    ? swarmMessages[activeSwarm.id] ?? EMPTY_MESSAGES
-    : EMPTY_MESSAGES;
+  // Per-thread messages — only re-renders when the thread for THIS swarm changes.
+  // Returns undefined when not yet loaded (key absent) vs [] (loaded but empty).
+  const activeSwarmMessages = useAppStateSelector((s) =>
+    activeSwarm ? s.swarmMessages[activeSwarm.id] : undefined,
+  );
+  const messages = activeSwarmMessages ?? EMPTY_MESSAGES;
 
   // Tail hydration — mirror SwarmRoom.tsx pattern exactly.
   useEffect(() => {
     let alive = true;
     if (!activeSwarm) return;
-    if (swarmMessages[activeSwarm.id]) return;
+    if (activeSwarmMessages !== undefined) return;
     void (async () => {
       try {
         const tail = await rpc.swarms.tail(activeSwarm.id, { limit: 200 });
@@ -62,7 +64,7 @@ export function SwarmRailTab() {
     return () => {
       alive = false;
     };
-  }, [activeSwarm, dispatch, swarmMessages]);
+  }, [activeSwarm, activeSwarmMessages, dispatch]);
 
   // Derive lastActivity: latest non-SYSTEM body per fromAgent.
   const lastActivity = useMemo(() => {

@@ -18,12 +18,12 @@ import { RoleRoster } from './RoleRoster';
 import { SideChat } from './SideChat';
 
 const EMPTY_SWARMS: Swarm[] = [];
+const EMPTY_MSGS: import('@/shared/types').SwarmMessage[] = [];
 
 export function SwarmRoom() {
   const dispatch = useAppDispatch();
   const activeWorkspace = useAppStateSelector((state) => state.activeWorkspace);
   const activeSwarmId = useAppStateSelector((state) => state.activeSwarmId);
-  const swarmMessages = useAppStateSelector((state) => state.swarmMessages);
   const swarms = useAppStateSelector((state) =>
     activeWorkspace ? state.swarmsByWorkspace[activeWorkspace.id] ?? EMPTY_SWARMS : EMPTY_SWARMS,
   );
@@ -36,16 +36,21 @@ export function SwarmRoom() {
     () => swarms.find((s) => s.id === activeSwarmId) ?? swarms[0] ?? null,
     [swarms, activeSwarmId],
   );
-  const messages = useMemo(
-    () => (activeSwarm ? swarmMessages[activeSwarm.id] ?? [] : []),
-    [activeSwarm, swarmMessages],
+
+  // Per-thread messages — only re-renders when the thread for THIS swarm changes.
+  // Returns undefined when not yet loaded (key absent from map) vs [] (loaded but empty).
+  const activeSwarmMessages = useAppStateSelector((state) =>
+    activeSwarm ? state.swarmMessages[activeSwarm.id] : undefined,
   );
+  const messages = activeSwarmMessages ?? EMPTY_MSGS;
 
   // Initial tail when active swarm changes.
+  // `activeSwarmMessages === undefined` means the thread is not yet in the map → fetch.
+  // `activeSwarmMessages !== undefined` (even []) means already loaded → skip.
   useEffect(() => {
     let alive = true;
     if (!activeSwarm) return;
-    if (swarmMessages[activeSwarm.id]) return;
+    if (activeSwarmMessages !== undefined) return;
     void (async () => {
       try {
         const tail = await rpc.swarms.tail(activeSwarm.id, { limit: 200 });
@@ -58,7 +63,7 @@ export function SwarmRoom() {
     return () => {
       alive = false;
     };
-  }, [activeSwarm, dispatch, swarmMessages]);
+  }, [activeSwarm, activeSwarmMessages, dispatch]);
 
   // Provider list for the roster card.
   useEffect(() => {

@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from 'react';
 import { MessageCircle } from 'lucide-react';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch } from '@/renderer/app/state';
 
 interface SwarmOriginPayload {
   swarmId: string;
@@ -38,7 +38,7 @@ async function fetchOrigin(swarmId: string): Promise<SwarmOriginPayload | null> 
 }
 
 export function OriginLink({ swarmId }: Props) {
-  const { dispatch } = useAppState();
+  const dispatch = useAppDispatch();
   const [origin, setOrigin] = useState<SwarmOriginPayload | null>(null);
 
   useEffect(() => {

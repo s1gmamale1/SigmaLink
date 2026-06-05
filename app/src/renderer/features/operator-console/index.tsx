@@ -32,6 +32,7 @@ interface LedgerPayload {
 }
 
 const EMPTY_SWARMS: Swarm[] = [];
+const EMPTY_MSGS: import('@/shared/types').SwarmMessage[] = [];
 
 /** Side-band invoke for the `swarm.<method>` namespace. The typed `rpc` proxy
  *  only knows about controllers in `AppRouter`; the operator console channels
@@ -58,7 +59,6 @@ export function OperatorConsole() {
   const dispatch = useAppDispatch();
   const activeWorkspace = useAppStateSelector((state) => state.activeWorkspace);
   const activeSwarmId = useAppStateSelector((state) => state.activeSwarmId);
-  const swarmMessages = useAppStateSelector((state) => state.swarmMessages);
   const swarms = useAppStateSelector((state) =>
     activeWorkspace ? state.swarmsByWorkspace[activeWorkspace.id] ?? EMPTY_SWARMS : EMPTY_SWARMS,
   );
@@ -76,10 +76,11 @@ export function OperatorConsole() {
     [swarms, activeSwarmId],
   );
 
-  const messages = useMemo(
-    () => (activeSwarm ? swarmMessages[activeSwarm.id] ?? [] : []),
-    [activeSwarm, swarmMessages],
+  // Per-thread messages — only re-renders when THIS swarm's thread changes.
+  const activeSwarmMessages = useAppStateSelector((state) =>
+    activeSwarm ? state.swarmMessages[activeSwarm.id] : undefined,
   );
+  const messages = activeSwarmMessages ?? EMPTY_MSGS;
 
   // Subscribe to counter + ledger events for the active swarm.
   useEffect(() => {
