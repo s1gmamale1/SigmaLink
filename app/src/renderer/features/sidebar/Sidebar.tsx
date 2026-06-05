@@ -320,7 +320,14 @@ export function Sidebar() {
             <ChevronRight className="h-4 w-4" />
           </button>
         ) : activeWorkspace ? (
-          <div className="sl-nav-active">
+          // Footer "active workspace" readout. The bare `.sl-nav-active` fill was
+          // a hard-edged, edge-to-edge square — on glass themes its translucent
+          // `--primary` wash read as an oversaturated rectangle butting the rounded
+          // sidebar wall (looked unnatural). Round + pad it into a real card; a
+          // faint neutral `bg-sidebar-accent` gives flat themes (where
+          // `.sl-nav-active` paints nothing) the same inset card, and on glass the
+          // themed `.sl-nav-active` rule overrides the fill with its accent wash.
+          <div className="sl-nav-active rounded-lg bg-sidebar-accent/40 px-2.5 py-2">
             <div className="font-medium text-sidebar-foreground">{activeWorkspace.name}</div>
             <div className="truncate text-muted-foreground" title={activeWorkspace.rootPath}>
               {activeWorkspace.rootPath}
