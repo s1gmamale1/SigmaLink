@@ -4,14 +4,16 @@
 > derived from `WISHLIST.md`. A whiteboard — refreshed each cycle, **not permanent
 > documentation**. Permanent record → `CHANGELOG.md` + master memory + Ruflo AgentDB.
 >
-> **This cycle (re-sequenced 2026-06-05) is crisis-driven.** A local `electron:dev` run filled the
-> system disk (49 GB) and left the app unable to launch any pane after a force-quit. A 6-agent
-> read-only fleet root-caused it. **▶ Phase 0 = the disk-leak + DB-infra/persistence fix (RELEASE-BLOCKER)**
-> — split into two lanes the operator assigned: **Lane A (disk/worktree leak = LEAD)** + **Lane B (DB infra +
-> persistence = agent)**. Then: Phase 1 bugfix batch (SMK + DEV) · Phase 2 OPT perf/resource + in-place
-> worktree mode · Phase 3 workspace/panel UX · Phase 4 pane chrome+grid · then the carried feature phases
-> (theme gallery · Jorvis FE · worktree GUI · git diff · orchestration · voice). The 2026-06-04 themes work
-> already **✅ shipped** (PR #104). v2.0.0 stays UNTAGGED until Phase 0 lands.
+> **Phase 0 ✅ SHIPPED to `main` (untagged) — 2026-06-05.** The disk-fill + post-crash launch-lockout +
+> workspace-loss crisis is fixed: **Lane A** (disk-safety net — worktree cap + `statfs` floor + boot sweep,
+> `8e203b2`) + **Lane B** (status-aware pane-slot index migration 0032 + awaited janitor + adopt/replace +
+> throttled snapshot flush) + the **pane-resume regression fix** (`93fbca6`) + an automated **crash-recovery
+> smoke** (`d9f3ba4`, red→green). Verified 3 ways: operator GUI force-quit→relaunch, Lane B's gate, and the
+> smoke. Full record → `CHANGELOG.md` + master memory. **▶ NEXT = Phase 1 bugfix batch (SMK + DEV).** Then:
+> Phase 2 OPT perf/resource + in-place worktree mode · 3 workspace/panel UX · 4 pane chrome+grid · then the
+> carried feature phases (theme gallery · Jorvis FE · worktree GUI · git diff · orchestration · voice). The
+> 2026-06-04 themes work also **✅ shipped** (PR #104). **v2.0.0 tag** now only awaits the remaining operator
+> visual smokes (N1 wizard · N2 browser-resize · Jorvis live-reply) → `/sigmalink-release`.
 
 This ROADMAP is the single source of truth for what to build next.
 
@@ -53,7 +55,9 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## Phase 0 — CRIT: disk-leak + DB-infra/persistence (RELEASE-BLOCKER) · ▶ **NEXT — DO FIRST**
+## Phase 0 — CRIT: disk-leak + DB-infra/persistence  ·  ✅ **SHIPPED** (main, untagged, 2026-06-05)
+
+**✅ Shipped.** Lane A disk-safety (`8e203b2` — worktree cap + `fs.statfs` floor + boot all-repo sweep + `removeAndPrune` on suppressed spawn) · Lane B DB infra/persistence (`d384b0e`/`42ee75f`/`f1b7ac8`/`b0c7725` + migration `0032` status-aware pane-slot unique index + awaited `runBootJanitor` + adopt/replace dead rows + throttled `app.lastSession` flush) · pane-resume regression fix (`93fbca6` — reaper keep-set widened to the resume-eligible set) · automated **crash-recovery smoke** (`d9f3ba4`, `npm run test:smoke:crash`, **red→green**). **Verified 3 ways:** operator GUI force-quit→relaunch, Lane B's gate, the smoke. **Deferred (non-fatal → WISHLIST):** resume self-heal Part B (recreate-if-missing worktree before spawn) · ResizeObserver-toast filter. Full record → `CHANGELOG.md` + master memory. The 7-part plan below is retained as this cycle's history.
 
 **Goal.** The app can never fill the disk, always launches after a crash/force-quit, and never silently loses which workspaces were open.
 
