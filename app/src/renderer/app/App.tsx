@@ -26,7 +26,7 @@ import { RightRail } from '@/renderer/features/right-rail/RightRail';
 import { RightRailProvider } from '@/renderer/features/right-rail/RightRailContext';
 import { useRightRailEnabled } from '@/renderer/features/right-rail/use-right-rail-enabled';
 import { ThemeProvider } from '@/renderer/app/ThemeProvider';
-import { AppStateProvider, useAppState, useAppStateSelector } from '@/renderer/app/state';
+import { AppStateProvider, useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { ROOM_LOADERS, prefetchRooms } from '@/renderer/app/room-loaders';
 // ERR-1 — app-resilience layer: a root boundary so a render throw anywhere
 // no longer blanks the window, plus per-room boundaries so one crashing room
@@ -197,11 +197,13 @@ function MainBody() {
  * so there's no need for a dedicated fetch here. When no workspace is active
  * the binding is inert (nothing to switch to).
  */
+const EMPTY_MEMORIES: never[] = [];
+
 function GlobalMemorySwitcher() {
-  const { state, dispatch } = useAppState();
+  const dispatch = useAppDispatch();
+  const wsId = useAppStateSelector((s) => s.activeWorkspaceId);
+  const memories = useAppStateSelector((s) => (wsId ? s.memories[wsId] : undefined) ?? EMPTY_MEMORIES);
   const [open, setOpen] = useState(false);
-  const wsId = state.activeWorkspaceId;
-  const memories = wsId ? state.memories[wsId] ?? [] : [];
 
   useEffect(
     () =>

@@ -54,6 +54,13 @@ afterEach(() => {
   appStateStore.setState(initialAppState);
 });
 
+// Minimal probe mirroring GlobalMemorySwitcher's subscription contract.
+function WsIdProbe({ onRender }: { onRender: () => void }) {
+  const wsId = useAppStateSelector((s) => s.activeWorkspaceId);
+  onRender();
+  return <span data-testid="wsid">{wsId ?? 'none'}</span>;
+}
+
 describe('PERF-3: room-slice selector isolation', () => {
   it('a room-only consumer does NOT re-render on an unrelated notificationsUnreadCount change', () => {
     const spy = vi.fn();
@@ -83,6 +90,41 @@ describe('PERF-3: room-slice selector isolation', () => {
     const before = spy.mock.calls.length;
     act(() => {
       appStateStore.setState({ ...appStateStore.getSnapshot(), room: 'swarm' });
+    });
+    expect(spy.mock.calls.length).toBeGreaterThan(before);
+  });
+});
+
+describe('PERF-3 A2: GlobalMemorySwitcher wsId+memories slice isolation', () => {
+  it('a wsId-only consumer does NOT re-render on APPEND_SWARM_MESSAGE (unrelated)', () => {
+    const spy = vi.fn();
+    render(
+      <AppStateProvider>
+        <WsIdProbe onRender={spy} />
+      </AppStateProvider>,
+    );
+    const before = spy.mock.calls.length;
+    act(() => {
+      // Simulate appending a swarm message — new map reference, same wsId.
+      const snap = appStateStore.getSnapshot();
+      appStateStore.setState({
+        ...snap,
+        swarmMessages: { ...snap.swarmMessages, 'swarm-x': [] },
+      });
+    });
+    expect(spy.mock.calls.length).toBe(before);
+  });
+
+  it('a wsId-only consumer DOES re-render when activeWorkspaceId changes', () => {
+    const spy = vi.fn();
+    render(
+      <AppStateProvider>
+        <WsIdProbe onRender={spy} />
+      </AppStateProvider>,
+    );
+    const before = spy.mock.calls.length;
+    act(() => {
+      appStateStore.setState({ ...appStateStore.getSnapshot(), activeWorkspaceId: 'ws-new' });
     });
     expect(spy.mock.calls.length).toBeGreaterThan(before);
   });
