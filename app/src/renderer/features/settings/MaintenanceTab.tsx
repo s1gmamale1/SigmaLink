@@ -696,7 +696,7 @@ function SwarmTeardownRow({ workspace, policy, onChange }: SwarmTeardownRowProps
         {isDestructive && (
           <span className="flex items-center gap-1 text-[11px] text-amber-400">
             <ShieldAlert className="h-3 w-3" aria-hidden />
-            Removes failed-session worktrees after swarm completes
+            Force-discards failed-session worktrees (incl. uncommitted changes) after a swarm completes
           </span>
         )}
       </div>

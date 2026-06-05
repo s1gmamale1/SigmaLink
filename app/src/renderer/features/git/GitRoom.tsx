@@ -19,7 +19,7 @@ import { DiffView } from '@/renderer/features/review/DiffView';
 import { ChangesPanel } from './ChangesPanel';
 import { HistoryPanel } from './HistoryPanel';
 import { BranchSelector } from './BranchSelector';
-import type { GitDiff, GitStatus, ReviewDiff } from '@/shared/types';
+import type { DiffFileSummary, GitDiff, GitStatus, ReviewDiff } from '@/shared/types';
 
 // KV key for the split-panel size (per workspace).
 const GIT_SPLIT_PANEL = 'git.split';
@@ -29,12 +29,42 @@ const DEFAULT_SPLIT: [number, number] = [35, 65];
 
 type Tab = 'changes' | 'history' | 'branches';
 
+/**
+ * Derive a per-file summary from concatenated unified-diff text. DiffView's
+ * left file-switcher iterates `ReviewDiff.files`; without this it would be empty
+ * and a multi-file diff would only ever show the first file's hunks. The path is
+ * extracted with the SAME `diff --git a/… b/…` regex DiffView's own patch parser
+ * uses, so `files[].path` aligns with the parsed hunks (selection works).
+ */
+function filesFromPatches(patches: string): DiffFileSummary[] {
+  if (!patches) return [];
+  const files: DiffFileSummary[] = [];
+  let cur: DiffFileSummary | null = null;
+  for (const line of patches.split('\n')) {
+    const m = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+    if (m) {
+      cur = { path: m[2], status: 'M', additions: 0, deletions: 0 };
+      files.push(cur);
+      continue;
+    }
+    if (!cur) continue;
+    if (line.startsWith('new file mode')) cur.status = 'A';
+    else if (line.startsWith('deleted file mode')) cur.status = 'D';
+    else if (line.startsWith('rename from ')) cur.oldPath = line.slice('rename from '.length).trim();
+    else if (line.startsWith('rename to ')) cur.status = 'R';
+    else if (line.startsWith('Binary files ')) cur.binary = true;
+    else if (line.startsWith('+') && !line.startsWith('+++')) cur.additions += 1;
+    else if (line.startsWith('-') && !line.startsWith('---')) cur.deletions += 1;
+  }
+  return files;
+}
+
 /** Convert a raw GitDiff into the ReviewDiff shape DiffView expects. */
 function gitDiffToReviewDiff(diff: GitDiff, repoRoot: string, branch: string): ReviewDiff {
   return {
     repoRoot,
     branch,
-    files: [],        // DiffView parses patches directly; files array is optional enrichment
+    files: filesFromPatches(diff.patches), // populate so DiffView's file-switcher lists every file
     patches: diff.patches,
     stat: diff.stat,
     truncated: diff.truncated,
