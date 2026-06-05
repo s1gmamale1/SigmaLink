@@ -6,7 +6,7 @@
 //   • AgentDrivingIndicator (overlay when an agent has the driver lock)
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Globe, Plus } from 'lucide-react';
+import { Globe, Plus, ExternalLink, Monitor } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppState } from '@/renderer/app/state';
 import { readWorkspaceUi, writeWorkspaceUi } from '@/renderer/lib/workspace-ui-kv';
@@ -89,6 +89,8 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
   const tabs = useMemo(() => slice?.tabs ?? [], [slice]);
   const activeTabId = slice?.activeTabId ?? null;
   const lockOwner = slice?.lockOwner ?? null;
+  /** BSP-B2 — true while the active tab's view lives in a detached window. */
+  const isDetached = slice?.detached ?? false;
   const activeTab = useMemo(
     () => tabs.find((t) => t.id === activeTabId) ?? null,
     [tabs, activeTabId],
@@ -243,6 +245,26 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
     void rpc.browser.releaseDriver({ workspaceId: ws.id });
   }, [ws]);
 
+  // BSP-B2 — detach/reattach the browser to a second window.
+  const handleDetach = useCallback(() => {
+    if (!ws) return;
+    void rpc.browser.detachToWindow({ workspaceId: ws.id }).catch(console.error);
+  }, [ws]);
+
+  const handleReattach = useCallback(() => {
+    if (!ws) return;
+    void rpc.browser.reattach({ workspaceId: ws.id }).catch(console.error);
+  }, [ws]);
+
+  // BSP-B4 — forward focus to the embedded WebContentsView on any pointer
+  // interaction with the viewport area. Defined here (before the early return)
+  // to satisfy the rules-of-hooks — hooks must be called unconditionally.
+  // The callback guards on `ws` internally and is a no-op when not attached.
+  const handleViewportPointerDown = useCallback(() => {
+    if (!ws || isDetached) return;
+    void rpc.browser.focusView({ workspaceId: ws.id }).catch(() => undefined);
+  }, [ws, isDetached]);
+
   // DEV-2 — refresh closed-tab recents whenever the tab list changes (a close
   // shrinks the list, which is the trigger to refetch Recents).
   useEffect(() => {
@@ -282,30 +304,57 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
   );
 
   const viewportRegion = (
-    <div className="relative flex min-h-0 w-full flex-1">
-      {/* v1.5.1-A caveat 6: keep BrowserViewMount mounted; hide via visible
-          prop instead of unmounting on zero tabs to avoid WebContentsView
-          lifecycle churn. N2 — `boundsNonce` forces one authoritative
-          recompute after a sidebar-resize drag ends. */}
-      <BrowserViewMount
-        workspaceId={ws.id}
-        visible={visible && tabs.length > 0}
-        boundsNonce={boundsNonce}
-      />
-      {tabs.length === 0 ? (
+    <div
+      className="relative flex min-h-0 w-full flex-1"
+      onPointerDown={handleViewportPointerDown}
+    >
+      {/* BSP-B2 — when the view is detached to a second window, hide the
+          in-app mount placeholder and show a reattach banner instead. The
+          BrowserViewMount is unmounted entirely (not just hidden) to avoid
+          sending setBounds updates to a view that has moved to another window. */}
+      {isDetached ? (
         <EmptyState
-          title="No tabs open"
-          description="Open a new tab to start browsing"
+          icon={Monitor}
+          title="Browser detached"
+          description="The browser is open in a separate window."
           action={
-            <Button size="sm" onClick={handleNewTab}>
-              <Plus className="h-3.5 w-3.5" /> New tab
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleReattach}
+              aria-label="Reattach browser to this window"
+            >
+              Reattach
             </Button>
           }
         />
       ) : (
         <>
-          <AgentDrivingIndicator lockOwner={lockOwner} onTakeOver={handleTakeOver} />
-          <DesignOverlayBanner active={designActive} />
+          {/* v1.5.1-A caveat 6: keep BrowserViewMount mounted; hide via visible
+              prop instead of unmounting on zero tabs to avoid WebContentsView
+              lifecycle churn. N2 — `boundsNonce` forces one authoritative
+              recompute after a sidebar-resize drag ends. */}
+          <BrowserViewMount
+            workspaceId={ws.id}
+            visible={visible && tabs.length > 0}
+            boundsNonce={boundsNonce}
+          />
+          {tabs.length === 0 ? (
+            <EmptyState
+              title="No tabs open"
+              description="Open a new tab to start browsing"
+              action={
+                <Button size="sm" onClick={handleNewTab}>
+                  <Plus className="h-3.5 w-3.5" /> New tab
+                </Button>
+              }
+            />
+          ) : (
+            <>
+              <AgentDrivingIndicator lockOwner={lockOwner} onTakeOver={handleTakeOver} />
+              <DesignOverlayBanner active={designActive} />
+            </>
+          )}
         </>
       )}
     </div>
@@ -375,19 +424,38 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
         onClose={handleClose}
         onNewTab={handleNewTab}
       />
-      <AddressBar
-        url={activeTab?.url ?? ''}
-        disabled={!activeTab}
-        onNavigate={handleNavigate}
-        onBack={handleBack}
-        onForward={handleForward}
-        onReload={handleReload}
-        onStop={handleStop}
-        onHome={handleHome}
-        workspaceId={ws.id}
-        activeTabId={activeTabId}
-        onDesignActiveChange={setDesignActive}
-      />
+      {/* BSP-B2 — address bar + detach button in a row. The detach button is
+          a low-weight ghost icon aligned to the right end of the toolbar. */}
+      <div className="flex items-center">
+        <AddressBar
+          url={activeTab?.url ?? ''}
+          disabled={!activeTab}
+          onNavigate={handleNavigate}
+          onBack={handleBack}
+          onForward={handleForward}
+          onReload={handleReload}
+          onStop={handleStop}
+          onHome={handleHome}
+          workspaceId={ws.id}
+          activeTabId={activeTabId}
+          onDesignActiveChange={setDesignActive}
+        />
+        {/* BSP-B2 — only show detach when there is an active tab and the view
+            is not already detached (the toolbar hides when detached since the
+            window chrome does the job). */}
+        {activeTab && !isDetached ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleDetach}
+            aria-label="Detach browser to a new window"
+            title="Detach browser to a new window"
+            className="mr-1 h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
+      </div>
       {bodyRow}
       {slice ? (
         <div className="border-t border-border bg-sidebar px-3 py-1 text-[11px] text-muted-foreground">

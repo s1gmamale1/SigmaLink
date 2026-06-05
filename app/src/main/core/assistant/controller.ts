@@ -18,7 +18,7 @@ import type { MemoryManager } from '../memory/manager';
 import type { TasksManager } from '../tasks/manager';
 import type { BrowserManagerRegistry } from '../browser/manager';
 import type { AgentSession, LaunchPlan } from '../../../shared/types';
-import { getDb } from '../db/client';
+import { getDb, getRawDb } from '../db/client';
 import { workspaces as workspacesTable } from '../db/schema';
 import { executeLaunchPlan } from '../workspaces/launcher';
 import {
@@ -166,6 +166,8 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
     args: Record<string, unknown>;
     origin?: ToolOrigin;
     confirmDangerous?: ConfirmDangerous;
+    /** BSP-B3 — shared per-turn CDP call counter (passed from the send closure). */
+    cdpCallCounter?: { count: number };
   }): Promise<{ ok: boolean; result: unknown; error?: string }> => {
     const tool = findTool(input?.name ?? '');
     const conv = input?.conversationId ? getConversation(input.conversationId) : null;
@@ -232,6 +234,22 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         scanIngested: aidefence
           ? (t: string, l: string) => aidefence.scanIngested(t, l)
           : undefined,
+        // BSP-B3 — KV read accessor for the browser.agentDriving gate.
+        // Never throws: the `?? null` fallback degrades to OFF safely.
+        kvGet: (key: string): string | null => {
+          try {
+            const row = getRawDb()
+              .prepare('SELECT value FROM kv WHERE key = ?')
+              .get(key) as { value?: string } | undefined;
+            return row?.value ?? null;
+          } catch {
+            return null;
+          }
+        },
+        // BSP-B3 — per-turn CDP call counter shared across all tool calls in
+        // this assistant turn. The send-level closure allocates once per turn;
+        // the direct invokeTool RPC path passes the counter from its input.
+        cdpCallCounter: input.cdpCallCounter,
       });
       // P3-S7 — single persistence path: the tracer writes the `messages`
       // row with role='tool' and `toolCallId` set to the trace id; the
@@ -317,6 +335,10 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       const turnId = randomUUID();
       const turn: ActiveTurn = { conversationId, turnId, cancelled: false };
       activeTurns.set(turnId, turn);
+      // BSP-B3 — allocate a fresh CDP call counter for this turn. It is shared
+      // (by reference) across all tool calls dispatched within the same turn so
+      // the cumulative rate limit is enforced globally, not per-call.
+      const turnCdpCallCounter: { count: number } = { count: 0 };
       // V3-W14-002 — try the local Claude CLI first; fall back to the stub
       // when the binary is missing on disk. The stub keeps the demo path
       // alive so a fresh DMG without `claude` installed still feels alive.
@@ -348,12 +370,14 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
               // R-1 — carry the turn's origin + confirm hook onto every tool
               // call the CLI emits, so the authorization gate fires for
               // telegram-origin DANGEROUS_REMOTE tools.
+              // BSP-B3 — also carry the per-turn CDP counter.
               const result = await invokeAssistantTool({
                 conversationId,
                 name,
                 args,
                 origin,
                 confirmDangerous,
+                cdpCallCounter: turnCdpCallCounter,
               });
               if (!result.ok) throw new Error(result.error ?? `Tool failed: ${name}`);
               return result.result;

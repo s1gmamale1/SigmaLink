@@ -31,6 +31,10 @@ const mockOpenTab = vi.fn().mockResolvedValue({
 const mockGetState = vi.fn();
 const mockSetActiveTab = vi.fn().mockResolvedValue(undefined);
 
+const mockFocusView = vi.fn().mockResolvedValue(undefined);
+const mockDetachToWindow = vi.fn().mockResolvedValue(undefined);
+const mockReattach = vi.fn().mockResolvedValue(undefined);
+
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     browser: {
@@ -45,6 +49,9 @@ vi.mock('@/renderer/lib/rpc', () => ({
       stop: vi.fn().mockResolvedValue(undefined),
       releaseDriver: vi.fn().mockResolvedValue(undefined),
       listRecents: vi.fn().mockResolvedValue([]),
+      focusView: (...args: unknown[]) => mockFocusView(...args),
+      detachToWindow: (...args: unknown[]) => mockDetachToWindow(...args),
+      reattach: (...args: unknown[]) => mockReattach(...args),
     },
   },
 }));
@@ -138,6 +145,7 @@ function makeBrowserSlice(overrides: Partial<BrowserState> = {}): BrowserState {
     activeTabId: null,
     lockOwner: null,
     mcpUrl: null,
+    detached: false,
     ...overrides,
   };
 }
@@ -327,5 +335,130 @@ describe('<BrowserRoom /> — DEV-3: URL input bootstraps first tab', () => {
         expect.objectContaining({ url: expect.stringContaining('example.com') }),
       );
     });
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// BSP-B4: pointerdown on the viewport mount calls rpc.browser.focusView
+// ──────────────────────────────────────────────────────────────────────────
+
+describe('<BrowserRoom /> — BSP-B4: focusView on viewport pointerdown', () => {
+  it('clicking the viewport area calls rpc.browser.focusView with the workspaceId', async () => {
+    mockActiveWorkspace = makeWorkspace();
+    mockBrowserSlice = makeBrowserSlice({
+      tabs: [
+        {
+          id: 'tab-1',
+          workspaceId: 'ws-1',
+          url: 'https://example.com',
+          title: 'Example',
+          active: true,
+          createdAt: 1,
+          lastVisitedAt: 1,
+        },
+      ],
+      activeTabId: 'tab-1',
+    });
+
+    render(<BrowserRoom />);
+
+    const mount = await screen.findByTestId('browser-view-mount');
+    fireEvent.pointerDown(mount);
+
+    await vi.waitFor(() => {
+      expect(mockFocusView).toHaveBeenCalledWith({ workspaceId: 'ws-1' });
+    });
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// BSP-B2: detach button calls rpc.browser.detachToWindow; reattach button
+// visible when detached=true and calls rpc.browser.reattach
+// ──────────────────────────────────────────────────────────────────────────
+
+describe('<BrowserRoom /> — BSP-B2: detach/reattach browser window', () => {
+  it('detach button calls rpc.browser.detachToWindow', async () => {
+    mockActiveWorkspace = makeWorkspace();
+    mockBrowserSlice = makeBrowserSlice({
+      tabs: [
+        {
+          id: 'tab-1',
+          workspaceId: 'ws-1',
+          url: 'https://example.com',
+          title: 'Example',
+          active: true,
+          createdAt: 1,
+          lastVisitedAt: 1,
+        },
+      ],
+      activeTabId: 'tab-1',
+      detached: false,
+    });
+
+    render(<BrowserRoom />);
+
+    const detachBtn = await screen.findByRole('button', { name: /detach/i });
+    fireEvent.click(detachBtn);
+
+    await vi.waitFor(() => {
+      expect(mockDetachToWindow).toHaveBeenCalledWith({ workspaceId: 'ws-1' });
+    });
+  });
+
+  it('when detached=true, shows "Reattach" banner and reattach button calls rpc.browser.reattach', async () => {
+    mockActiveWorkspace = makeWorkspace();
+    mockBrowserSlice = makeBrowserSlice({
+      tabs: [
+        {
+          id: 'tab-1',
+          workspaceId: 'ws-1',
+          url: 'https://example.com',
+          title: 'Example',
+          active: true,
+          createdAt: 1,
+          lastVisitedAt: 1,
+        },
+      ],
+      activeTabId: 'tab-1',
+      detached: true,
+    });
+
+    render(<BrowserRoom />);
+
+    // Should show a reattach banner
+    const reattachBtn = await screen.findByRole('button', { name: /reattach/i });
+    expect(reattachBtn).toBeTruthy();
+
+    fireEvent.click(reattachBtn);
+
+    await vi.waitFor(() => {
+      expect(mockReattach).toHaveBeenCalledWith({ workspaceId: 'ws-1' });
+    });
+  });
+
+  it('BrowserViewMount is not rendered when detached=true', async () => {
+    mockActiveWorkspace = makeWorkspace();
+    mockBrowserSlice = makeBrowserSlice({
+      tabs: [
+        {
+          id: 'tab-1',
+          workspaceId: 'ws-1',
+          url: 'https://example.com',
+          title: 'Example',
+          active: true,
+          createdAt: 1,
+          lastVisitedAt: 1,
+        },
+      ],
+      activeTabId: 'tab-1',
+      detached: true,
+    });
+
+    render(<BrowserRoom />);
+
+    // Wait for async hydration to settle
+    await screen.findByRole('button', { name: /reattach/i });
+    // The mount placeholder must not be visible (it's inside the window that moved away).
+    expect(screen.queryByTestId('browser-view-mount')).toBeNull();
   });
 });

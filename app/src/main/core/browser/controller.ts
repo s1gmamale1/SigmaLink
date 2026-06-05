@@ -77,6 +77,27 @@ export function buildBrowserController(deps: BrowserControllerDeps) {
       return reg.get(input.workspaceId).listRecents(input.limit);
     },
 
+    /**
+     * BSP-B4 — Forward pointer/keyboard focus to the active tab's embedded
+     * WebContentsView so web form fields receive input.
+     */
+    focusView: async (input: { workspaceId: string }): Promise<void> => {
+      reg.get(input.workspaceId).focusView();
+    },
+
+    /**
+     * BSP-B2 — Detach the active tab's WebContentsView to a second
+     * BrowserWindow with a minimal toolbar.
+     */
+    detachToWindow: async (input: { workspaceId: string }): Promise<void> => {
+      await reg.get(input.workspaceId).detachToWindow();
+    },
+
+    /** BSP-B2 — Move the detached view back to the main window. */
+    reattach: async (input: { workspaceId: string }): Promise<void> => {
+      await reg.get(input.workspaceId).reattach();
+    },
+
     teardown: async (workspaceId: string): Promise<void> => {
       reg.teardown(workspaceId);
     },

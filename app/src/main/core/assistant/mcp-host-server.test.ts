@@ -79,8 +79,8 @@ describe('mcp-host-server / handleMcpLine', () => {
     const out = h.responses();
     expect(out).toHaveLength(1);
     const tools = (out[0].result as { tools: unknown[] }).tools;
-    // The 13 canonical Jorvis tools (see PRODUCT_SPEC §3.10).
-    expect(tools.length).toBe(13);
+    // BSP-B3 adds browser_navigate + browser_snapshot → 15 tools total.
+    expect(tools.length).toBe(15);
     for (const t of tools as Array<{
       name: string;
       description: string;
@@ -96,6 +96,9 @@ describe('mcp-host-server / handleMcpLine', () => {
     expect(names).toContain('list_active_sessions');
     expect(names).toContain('launch_pane');
     expect(names).toContain('list_workspaces');
+    // BSP-B3 browser agent tools.
+    expect(names).toContain('browser_navigate');
+    expect(names).toContain('browser_snapshot');
   });
 
   it('returns ping as an empty object result', async () => {

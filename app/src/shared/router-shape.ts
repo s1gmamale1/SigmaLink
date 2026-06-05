@@ -390,6 +390,19 @@ export interface AppRouter {
     releaseDriver: (input: { workspaceId: string }) => Promise<void>;
     /** DEV-2 — recently-closed tab entries (soft-deleted) for the Recents panel. */
     listRecents: (input: { workspaceId: string; limit?: number }) => Promise<Array<{ url: string; title: string; lastVisitedAt: number }>>;
+    /**
+     * BSP-B4 — forward keyboard/pointer focus to the active tab's
+     * WebContentsView so web form fields receive input. Call on pointerdown
+     * over the mount placeholder and after setBounds on initial activate.
+     */
+    focusView: (input: { workspaceId: string }) => Promise<void>;
+    /**
+     * BSP-B2 — detach the active tab's WebContentsView to a second
+     * BrowserWindow with a minimal toolbar (URL display + back/forward/reattach).
+     */
+    detachToWindow: (input: { workspaceId: string }) => Promise<void>;
+    /** BSP-B2 — move the detached WebContentsView back to the main window. */
+    reattach: (input: { workspaceId: string }) => Promise<void>;
 
     teardown: (workspaceId: string) => Promise<void>;
   };

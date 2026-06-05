@@ -124,6 +124,8 @@ export async function addAgentToSwarm(
       agentKey: aKey,
       initialPrompt: input.initialPrompt,
       autoApprove: input.autoApprove,
+      // BSP-V2 — thread the per-spawn model id (mirrors autoApprove pattern).
+      modelId: input.modelId,
       // DEV-W5 — thread the per-spawn worktree override (mirrors autoApprove).
       skipWorktree: input.skipWorktree,
       deps,

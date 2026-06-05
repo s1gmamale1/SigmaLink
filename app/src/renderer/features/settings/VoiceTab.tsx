@@ -94,9 +94,21 @@ const KV_LISTENING_MODE = 'voice.listeningMode';
 // C-10c — transcription engine and dispatch provider KV keys.
 const KV_TRANSCRIPTION_MODE = 'voice.transcriptionMode';
 const KV_DISPATCH_PROVIDER = 'voice.dispatchProvider';
+// BSP-V1 — cloud STT provider API key KV keys.
+const KV_OPENAI_STT_KEY = 'voice.stt.openai-whisper-api.apiKey';
+const KV_DEEPGRAM_STT_KEY = 'voice.stt.deepgram.apiKey';
 
-type TranscriptionMode = 'local' | 'gemini-cli';
+/** BSP-V1: all four transcription modes. */
+type TranscriptionMode = 'local' | 'gemini-cli' | 'openai-whisper-api' | 'deepgram';
 type DispatchProvider = 'claude' | 'codex' | 'gemini';
+
+/** BSP-V1: human-readable labels + hint text for each transcription mode. */
+const TRANSCRIPTION_MODE_LABELS: Record<TranscriptionMode, { label: string; shortLabel: string }> = {
+  'local':              { label: 'Local Whisper', shortLabel: 'Local' },
+  'gemini-cli':         { label: 'Gemini CLI',    shortLabel: 'Gemini' },
+  'openai-whisper-api': { label: 'OpenAI Whisper API', shortLabel: 'OpenAI' },
+  'deepgram':           { label: 'Deepgram',      shortLabel: 'Deepgram' },
+};
 
 function GlobalCaptureSection() {
   const [status, setStatus] = useState<GlobalCaptureStatus | null>(null);
@@ -109,6 +121,9 @@ function GlobalCaptureSection() {
   // C-10c — transcription engine + dispatch-provider selectors.
   const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode>('local');
   const [dispatchProvider, setDispatchProvider] = useState<DispatchProvider>('claude');
+  // BSP-V1 — cloud STT API keys (stored in KV; never exposed in plain state after blur).
+  const [openaiSttKey, setOpenaiSttKey] = useState('');
+  const [deepgramSttKey, setDeepgramSttKey] = useState('');
   const hotkeyInputRef = useRef<HTMLButtonElement>(null);
 
   // Load status on mount
@@ -133,13 +148,24 @@ function GlobalCaptureSection() {
       // C-10c — load transcription engine + dispatch provider from KV
       try {
         const rawMode = await rpc.kv.get(KV_TRANSCRIPTION_MODE);
-        if (rawMode === 'gemini-cli') setTranscriptionMode('gemini-cli');
+        if (rawMode === 'gemini-cli' || rawMode === 'openai-whisper-api' || rawMode === 'deepgram') {
+          setTranscriptionMode(rawMode as TranscriptionMode);
+        }
       } catch { /* best-effort */ }
       try {
         const rawProvider = await rpc.kv.get(KV_DISPATCH_PROVIDER);
         if (rawProvider === 'codex' || rawProvider === 'gemini') {
           setDispatchProvider(rawProvider);
         }
+      } catch { /* best-effort */ }
+      // BSP-V1 — load cloud API keys (redacted placeholder if set; empty if not).
+      try {
+        const rawOpenai = await rpc.kv.get(KV_OPENAI_STT_KEY);
+        if (rawOpenai) setOpenaiSttKey(rawOpenai);
+      } catch { /* best-effort */ }
+      try {
+        const rawDg = await rpc.kv.get(KV_DEEPGRAM_STT_KEY);
+        if (rawDg) setDeepgramSttKey(rawDg);
       } catch { /* best-effort */ }
     })();
   }, []);
@@ -233,6 +259,28 @@ function GlobalCaptureSection() {
     setDispatchProvider(next);
     try {
       await rpc.kv.set(KV_DISPATCH_PROVIDER, next);
+    } catch { /* best-effort */ }
+  }, []);
+
+  // BSP-V1 — save the OpenAI STT API key to KV on blur/enter.
+  const onSaveOpenaiSttKey = useCallback(async (key: string) => {
+    const trimmed = key.trim();
+    setOpenaiSttKey(trimmed);
+    try {
+      if (trimmed) {
+        await rpc.kv.set(KV_OPENAI_STT_KEY, trimmed);
+      }
+    } catch { /* best-effort */ }
+  }, []);
+
+  // BSP-V1 — save the Deepgram STT API key to KV on blur/enter.
+  const onSaveDeepgramSttKey = useCallback(async (key: string) => {
+    const trimmed = key.trim();
+    setDeepgramSttKey(trimmed);
+    try {
+      if (trimmed) {
+        await rpc.kv.set(KV_DEEPGRAM_STT_KEY, trimmed);
+      }
     } catch { /* best-effort */ }
   }, []);
 
@@ -503,32 +551,45 @@ function GlobalCaptureSection() {
           )}
         </div>
 
-        {/* C-10c — Transcription engine segmented control */}
+        {/* BSP-V1 — Transcription engine segmented control (4 providers) */}
         <div className="rounded-md border border-border bg-card/40 px-3 py-2">
           <div className="mb-1.5 flex items-center gap-2">
             <Settings2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
             <span className="text-xs font-medium">Transcription engine</span>
           </div>
-          <div className="flex gap-1" role="group" aria-label="Transcription engine">
-            {(['local', 'gemini-cli'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                role="radio"
-                aria-checked={transcriptionMode === m}
-                onClick={() => void onSetTranscriptionMode(m)}
-                data-testid={`voice-transcription-mode-${m}`}
-                className={cn(
-                  'flex-1 rounded border px-2 py-1 text-xs transition',
-                  transcriptionMode === m
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border bg-background hover:bg-card',
-                )}
-              >
-                {m === 'local' ? 'Local Whisper' : 'Gemini CLI'}
-              </button>
-            ))}
+          {/* 4-button picker — cloud options are disabled until a key is entered */}
+          <div className="grid grid-cols-2 gap-1" role="group" aria-label="Transcription engine">
+            {(Object.entries(TRANSCRIPTION_MODE_LABELS) as Array<[TranscriptionMode, { label: string; shortLabel: string }]>).map(([m, { label }]) => {
+              // BSP-V1: cloud options require an API key to be active.
+              const isCloud = m === 'openai-whisper-api' || m === 'deepgram';
+              const hasKey = m === 'openai-whisper-api' ? Boolean(openaiSttKey) : m === 'deepgram' ? Boolean(deepgramSttKey) : true;
+              const disabled = isCloud && !hasKey;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={transcriptionMode === m}
+                  aria-disabled={disabled}
+                  disabled={disabled}
+                  onClick={() => !disabled && void onSetTranscriptionMode(m)}
+                  data-testid={`voice-transcription-mode-${m}`}
+                  title={disabled ? `Enter an API key below to enable ${label}` : label}
+                  className={cn(
+                    'rounded border px-2 py-1 text-xs transition',
+                    transcriptionMode === m
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : disabled
+                        ? 'cursor-not-allowed border-border bg-background text-muted-foreground opacity-50'
+                        : 'border-border bg-background hover:bg-card',
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
+          {/* Mode-specific hints */}
           {transcriptionMode === 'gemini-cli' && (
             <div className="mt-1.5 text-[10px] text-muted-foreground">
               Gemini CLI transcribes via your installed{' '}
@@ -536,6 +597,69 @@ function GlobalCaptureSection() {
               {' '}(Claude Code &amp; Codex can&apos;t process audio).
             </div>
           )}
+          {/* BSP-V1 — per-cloud API key fields */}
+          <div className="mt-2 flex flex-col gap-2">
+            {/* OpenAI Whisper API key */}
+            <div>
+              <label
+                htmlFor="voice-openai-stt-key"
+                className="mb-0.5 block text-[10px] font-medium text-muted-foreground"
+              >
+                OpenAI API key
+                {openaiSttKey && (
+                  <span className="ml-1.5 text-[9px] text-green-500">set</span>
+                )}
+              </label>
+              <input
+                id="voice-openai-stt-key"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="sk-…"
+                value={openaiSttKey}
+                data-testid="voice-openai-stt-key"
+                onChange={(e) => setOpenaiSttKey(e.target.value)}
+                onBlur={(e) => void onSaveOpenaiSttKey(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur();
+                  }
+                }}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                aria-label="OpenAI STT API key"
+              />
+            </div>
+            {/* Deepgram API key */}
+            <div>
+              <label
+                htmlFor="voice-deepgram-stt-key"
+                className="mb-0.5 block text-[10px] font-medium text-muted-foreground"
+              >
+                Deepgram API key
+                {deepgramSttKey && (
+                  <span className="ml-1.5 text-[9px] text-green-500">set</span>
+                )}
+              </label>
+              <input
+                id="voice-deepgram-stt-key"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Token …"
+                value={deepgramSttKey}
+                data-testid="voice-deepgram-stt-key"
+                onChange={(e) => setDeepgramSttKey(e.target.value)}
+                onBlur={(e) => void onSaveDeepgramSttKey(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur();
+                  }
+                }}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                aria-label="Deepgram STT API key"
+              />
+            </div>
+          </div>
         </div>
 
         {/* C-10c — Send commands to (dispatch provider) selector */}

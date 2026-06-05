@@ -88,29 +88,43 @@ export function _resetWhisperEngineCache(): void {
 /**
  * Transcription mode.
  *
- * - `'local'`      → use the on-device Whisper N-API engine (default).
- * - `'gemini-cli'` → use the injected CLI engine (never falls back to Whisper
- *                    internally; the CALLER wraps in try/catch → local).
+ * - `'local'`               → use the on-device Whisper N-API engine (default).
+ * - `'gemini-cli'`          → use the injected CLI engine (never falls back to
+ *                             Whisper internally; the CALLER wraps in try/catch → local).
+ * - `'openai-whisper-api'`  → POST audio to OpenAI /v1/audio/transcriptions (BSP-V1).
+ * - `'deepgram'`            → POST audio to Deepgram /v1/listen (BSP-V1).
  */
-export type TranscriptionMode = 'local' | 'gemini-cli';
+export type TranscriptionMode = 'local' | 'gemini-cli' | 'openai-whisper-api' | 'deepgram';
 
 /**
  * Resolve the appropriate `WhisperEngine` implementation for the given mode.
  *
- * @param mode         From `kv.get('voice.transcriptionMode')`.  Defaults to
- *                     `'local'` for any unrecognised or null value.
- * @param cliEngine    A pre-built CLI engine to use when mode is
- *                     `'gemini-cli'`.  Optional so callers that don't supply
- *                     it gracefully fall through to local.
- * @param getNativePath  Optional path resolver forwarded to `getWhisperEngine`.
+ * @param mode              From `kv.get('voice.transcriptionMode')`.  Defaults
+ *                          to `'local'` for any unrecognised or null value.
+ * @param cliEngine         A pre-built CLI engine to use when mode is
+ *                          `'gemini-cli'`.  Optional so callers that don't
+ *                          supply it gracefully fall through to local.
+ * @param openaiEngine      A pre-built cloud engine to use when mode is
+ *                          `'openai-whisper-api'` (BSP-V1).
+ * @param deepgramEngine    A pre-built cloud engine to use when mode is
+ *                          `'deepgram'` (BSP-V1).
+ * @param getNativePath     Optional path resolver forwarded to `getWhisperEngine`.
  */
 export function resolveTranscriptionEngine(
   mode: string | null | undefined,
   cliEngine?: WhisperEngine | null,
+  openaiEngine?: WhisperEngine | null,
+  deepgramEngine?: WhisperEngine | null,
   getNativePath?: () => string,
 ): WhisperEngine | null {
   if (mode === 'gemini-cli' && cliEngine) {
     return cliEngine;
+  }
+  if (mode === 'openai-whisper-api' && openaiEngine) {
+    return openaiEngine;
+  }
+  if (mode === 'deepgram' && deepgramEngine) {
+    return deepgramEngine;
   }
   // Default / 'local' / anything else → native whisper
   return getWhisperEngine(getNativePath);

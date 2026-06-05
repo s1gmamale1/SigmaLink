@@ -123,6 +123,13 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'browser.getState',
   'browser.claimDriver',
   'browser.releaseDriver',
+  // DEV-2 — recently-closed tabs (was absent from the allowlist; recon found gap).
+  'browser.listRecents',
+  // BSP-B4 — forward focus to the embedded WebContentsView.
+  'browser.focusView',
+  // BSP-B2 — detach/reattach the browser to a second window.
+  'browser.detachToWindow',
+  'browser.reattach',
 
   'browser.teardown',
   // skills

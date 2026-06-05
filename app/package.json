@@ -53,6 +53,7 @@
     "drizzle-orm": "^0.45.2",
     "electron-updater": "^6.8.3",
     "gray-matter": "^4.0.3",
+    "ipaddr.js": "^2.4.0",
     "isomorphic-git": "^1.38.1",
     "libsodium-wrappers-sumo": "^0.8.4",
     "lucide-react": "^0.562.0",

@@ -54,6 +54,19 @@ export class BrowserManager extends EventEmitter {
   private activeTabId: string | null = null;
   private lockOwner: LockOwner | null = null;
   private bounds: Bounds | null = null;
+  /** BSP-B2 — true while the active tab's view lives in a detached window. */
+  private detachedState = false;
+  /** BSP-B2 — the secondary BrowserWindow that hosts the detached view. */
+  private detachedWindow: BrowserWindow | null = null;
+  /**
+   * BSP-B2 — the ORIGINAL main window captured at detach time. We must reattach
+   * the view to THIS window, not `this.window` — the registry calls
+   * `setWindow(getFocusedWindow())` on every RPC, so while detached + the
+   * detached window is focused, `this.window` is stomped to the detached
+   * window. Reattaching into `this.window` would put the view back into the
+   * closing/wrong window. Captured on detach, cleared on reattach + teardown.
+   */
+  private mainWindow: BrowserWindow | null = null;
 
   constructor(deps: ManagerDeps) {
     super();
@@ -65,6 +78,11 @@ export class BrowserManager extends EventEmitter {
   // ─────────────────────────────────────────── lifecycle ──
 
   setWindow(win: BrowserWindow): void {
+    // BSP-B2 belt-and-suspenders: the registry calls this with
+    // `getFocusedWindow()` on every RPC. While detached, the detached window
+    // may be the focused one — never let it overwrite `this.window`, or the
+    // main-window reference (and `applyBounds`) would target the wrong window.
+    if (this.detachedWindow && win === this.detachedWindow) return;
     this.window = win;
   }
 
@@ -331,6 +349,184 @@ export class BrowserManager extends EventEmitter {
     this.emit('lockReleased');
   }
 
+  // ─────────────────────────────────────────── focus (BSP-B4) ──
+
+  /**
+   * BSP-B4 — Forward keyboard/pointer focus to the active tab's embedded
+   * WebContentsView so web form fields (input, textarea, etc.) receive input.
+   *
+   * Root cause: `ensureView` mounts the view and calls `setBounds`, but never
+   * calls `webContents.focus()`. The renderer's React SPA therefore keeps focus,
+   * and key/pointer events are eaten before they reach the web page.
+   */
+  focusView(): void {
+    if (!this.activeTabId) return;
+    const rec = this.tabs.get(this.activeTabId);
+    if (!rec || !rec.view) return;
+    try {
+      rec.view.webContents.focus();
+    } catch {
+      /* view may have been destroyed; ignore */
+    }
+  }
+
+  // ─────────────────────────────────────────── detach (BSP-B2) ──
+
+  /**
+   * BSP-B2 — Low-level helper used by tests to drive the detached/attached
+   * state flag without creating real Electron windows. The public `detachToWindow`
+   * and `reattach` methods manage the real window lifecycle; this drives the
+   * shared state + broadcast so tests can assert cleanly.
+   */
+  setDetached(value: boolean): void {
+    this.detachedState = value;
+    this.broadcast();
+  }
+
+  /**
+   * BSP-B2 — Move the active tab's WebContentsView from the main window to a
+   * new minimal BrowserWindow so it can live on a second monitor while the
+   * user continues working in SigmaLink.
+   *
+   * The detached window shows a lightweight toolbar HTML (URL display + Back /
+   * Forward / Reattach buttons) in a thin top strip. Closing the window
+   * automatically reattaches, preserving session continuity.
+   */
+  async detachToWindow(): Promise<void> {
+    if (this.detachedState) return; // already detached
+    if (!this.activeTabId) return;
+    const rec = this.tabs.get(this.activeTabId);
+    if (!rec) return;
+    await this.ensureView(rec);
+
+    // BSP-B2 — capture the ORIGINAL main window NOW, before the registry can
+    // stomp `this.window` to the detached window (it calls
+    // `setWindow(getFocusedWindow())` on every RPC). Reattach targets THIS.
+    this.mainWindow = this.window;
+
+    // Lazy-import Electron so unit tests (which stub the module) can run
+    // without a real Electron process.
+    const { BrowserWindow: ElectronBrowserWindow } = (
+      await import('electron')
+    ) as typeof import('electron');
+
+    // Build a minimal detached window — frameless with a small top bar for
+    // the toolbar HTML, then the WebContentsView fills the rest.
+    const detWin = new ElectronBrowserWindow({
+      width: 1200,
+      height: 800,
+      minWidth: 400,
+      minHeight: 300,
+      title: rec.url || 'SigmaLink Browser',
+      // Show native titlebar so the user has OS chrome to drag/resize/close.
+      frame: true,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+
+    // Remove view from the main window's contentView.
+    try {
+      this.window.contentView.removeChildView(rec.view);
+    } catch {
+      /* ignore if already removed */
+    }
+
+    // Attach the view to the detached window. Reserve 40px at top for the
+    // toolbar; the rest of the window is the page.
+    const TOOLBAR_H = 40;
+    try {
+      detWin.contentView.addChildView(rec.view);
+      const [w, h] = detWin.getContentSize();
+      rec.view.setBounds({ x: 0, y: TOOLBAR_H, width: w, height: Math.max(1, h - TOOLBAR_H) });
+    } catch {
+      /* ignore layout errors */
+    }
+
+    // Load a minimal toolbar HTML into the window's webContents.
+    // The toolbar posts messages back via contextBridge/IPC for back/fwd/reattach.
+    const toolbarHtml = buildDetachedToolbarHtml(rec.url || '');
+    try {
+      await detWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(toolbarHtml)}`);
+    } catch {
+      /* non-fatal — the page is still usable without the toolbar overlay */
+    }
+
+    // Keep the toolbar pinned at the top when the user resizes the window.
+    detWin.on('resize', () => {
+      try {
+        const [w, h] = detWin.getContentSize();
+        rec.view.setBounds({ x: 0, y: TOOLBAR_H, width: w, height: Math.max(1, h - TOOLBAR_H) });
+      } catch {
+        /* ignore */
+      }
+    });
+
+    // Reattach automatically when the user closes the detached window. We do
+    // NOT null `this.detachedWindow` here — `_reattachView` reads it (and skips
+    // closing it since the window is already gone), then clears it itself.
+    detWin.on('closed', () => {
+      if (this.detachedState) {
+        void this._reattachView(rec);
+      }
+    });
+
+    // Update the window title whenever the page navigates.
+    rec.view.webContents.on('page-title-updated', (_e, title) => {
+      try { detWin.setTitle(title || 'SigmaLink Browser'); } catch { /* ignore */ }
+    });
+
+    this.detachedWindow = detWin;
+    this.setDetached(true);
+  }
+
+  /**
+   * BSP-B2 — Move the detached WebContentsView back to the main window and
+   * close the secondary BrowserWindow.
+   */
+  async reattach(): Promise<void> {
+    if (!this.detachedState) return;
+    if (!this.activeTabId) return;
+    const rec = this.tabs.get(this.activeTabId);
+    if (!rec) return;
+    await this._reattachView(rec);
+  }
+
+  /** Shared logic for both explicit reattach and close-window auto-reattach. */
+  private async _reattachView(rec: { view: TWebContentsView }): Promise<void> {
+    const detWin = this.detachedWindow;
+    // BSP-B2 — resolve the ORIGINAL main window. NEVER use `this.window`: the
+    // registry stomps it to the focused window (possibly the detached one) on
+    // every RPC. `this.mainWindow` was captured at detach time. If it's gone
+    // (closed/destroyed), fall back to `this.window` only when that isn't the
+    // detached window.
+    let target: BrowserWindow | null = null;
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      target = this.mainWindow;
+    } else if (this.window !== detWin) {
+      target = this.window;
+    }
+
+    if (rec.view) {
+      try { detWin?.contentView.removeChildView(rec.view); } catch { /* ignore */ }
+      try { target?.contentView.addChildView(rec.view); } catch { /* ignore */ }
+    }
+    if (detWin && !detWin.isDestroyed()) {
+      try { detWin.close(); } catch { /* ignore */ }
+    }
+    // Restore the main window as the manager's active window so subsequent
+    // `applyBounds()` targets it (the registry may have left `this.window`
+    // pointing at the now-closed detached window).
+    if (target) this.window = target;
+    this.detachedWindow = null;
+    this.mainWindow = null;
+    this.setDetached(false);
+    // Re-apply the last known bounds so the view re-appears in the right place.
+    this.applyBounds();
+  }
+
   // ─────────────────────────────────────────── state ──
 
   getState(): BrowserState {
@@ -340,10 +536,18 @@ export class BrowserManager extends EventEmitter {
       activeTabId: this.activeTabId,
       lockOwner: this.lockOwner,
       mcpUrl: null,
+      detached: this.detachedState,
     };
   }
 
   teardown(): void {
+    // Close any detached window before tearing down.
+    if (this.detachedWindow && !this.detachedWindow.isDestroyed()) {
+      try { this.detachedWindow.close(); } catch { /* ignore */ }
+    }
+    this.detachedWindow = null;
+    this.mainWindow = null;
+    this.detachedState = false;
     for (const rec of this.tabs.values()) this.detachView(rec);
     this.tabs.clear();
     this.activeTabId = null;
@@ -467,6 +671,81 @@ export class BrowserManager extends EventEmitter {
   private broadcast(): void {
     this.emit('state', this.getState());
   }
+}
+
+// ─────────────────────────────────────────── detached toolbar ──
+
+/**
+ * BSP-B2 — Build the minimal toolbar HTML that loads into the detached
+ * window's main webContents (the top 40px strip). The toolbar shows the
+ * current URL and a working Reattach button.
+ *
+ * NOTE: No back/forward buttons. `history.back()/forward()` here would run in
+ * THIS toolbar's webContents (the data-URL strip) — which has no navigation
+ * history — not the page's WebContentsView, so they'd be silent no-ops. Wiring
+ * real back/forward needs a preload + IPC bridge on the detached window (out of
+ * scope for B2). Page navigation is via the page's own UI / keyboard shortcuts.
+ *
+ * Design: apple-design, frontend-design — translucent dark bar on a near-black
+ * background matching SigmaLink's glass aesthetic. The "Reattach" button calls
+ * `window.close()`, which triggers the `closed` event on the BrowserWindow →
+ * automatic reattach in `BrowserManager`.
+ */
+function buildDetachedToolbarHtml(currentUrl: string): string {
+  const safeUrl = currentUrl
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 40px; overflow: hidden;
+    background: rgba(12,12,14,0.92);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+  .bar {
+    display: flex; align-items: center;
+    gap: 6px; padding: 0 12px; height: 40px;
+  }
+  button {
+    -webkit-app-region: no-drag;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    color: rgba(255,255,255,0.85);
+    font-size: 11px; line-height: 1;
+    padding: 4px 8px; cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: rgba(255,255,255,0.15); }
+  .url {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11px; color: rgba(255,255,255,0.5);
+    padding: 0 6px;
+  }
+  .reattach {
+    background: rgba(185,102,245,0.2);
+    border-color: rgba(185,102,245,0.3);
+    color: rgba(185,102,245,1);
+  }
+  .reattach:hover { background: rgba(185,102,245,0.35); }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="url" title="${safeUrl}">${safeUrl}</span>
+  <button class="reattach" onclick="window.close()" title="Reattach to SigmaLink">Reattach</button>
+</div>
+</body>
+</html>`;
 }
 
 // ─────────────────────────────────────────── registry ──

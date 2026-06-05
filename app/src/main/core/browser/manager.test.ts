@@ -144,6 +144,182 @@ beforeEach(() => {
   dbRows = [];
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// B4 — focusView: forward focus to the embedded WebContentsView
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('BrowserManager — focusView (BSP-B4)', () => {
+  it('focusView calls webContents.focus() on the active tab view', async () => {
+    const focusMock = vi.fn();
+    const now = Date.now();
+    dbRows.push({
+      id: 'tab-focus',
+      workspace_id: 'ws-test',
+      url: 'https://example.com',
+      title: 'Test',
+      active: 1,
+      created_at: now,
+      last_visited_at: now,
+      closed_at: null,
+    });
+
+    const manager = makeManager();
+
+    // Manually inject a fake view so we don't need Electron.
+    const fakeView = {
+      webContents: { focus: focusMock },
+      setBounds: vi.fn(),
+    } as unknown as import('electron').WebContentsView;
+
+    // Access the internal tab map via cast to any to inject the fake view.
+    const tabsMap = (manager as unknown as { tabs: Map<string, { view: unknown }> }).tabs;
+    const tabRec = tabsMap.get('tab-focus');
+    if (tabRec) tabRec.view = fakeView;
+
+    manager.focusView();
+
+    expect(focusMock).toHaveBeenCalledOnce();
+  });
+
+  it('focusView does nothing (no throw) when there is no active tab', () => {
+    const manager = makeManager();
+    // No tabs loaded — should not throw.
+    expect(() => manager.focusView()).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B2 — detachToWindow / reattach: state transitions (no real Electron windows)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('BrowserManager — detachToWindow / reattach state (BSP-B2)', () => {
+  it('getState().detached is false initially', () => {
+    const manager = makeManager();
+    expect(manager.getState().detached).toBe(false);
+  });
+
+  it('setDetached(true) emits state with detached=true', () => {
+    const manager = makeManager();
+    const states: import('../../../shared/types').BrowserState[] = [];
+    manager.on('state', (s) => states.push(s));
+
+    manager.setDetached(true);
+
+    expect(manager.getState().detached).toBe(true);
+    expect(states.length).toBeGreaterThan(0);
+    expect(states[states.length - 1].detached).toBe(true);
+  });
+
+  it('setDetached(false) reverts state to not detached', () => {
+    const manager = makeManager();
+    manager.setDetached(true);
+    manager.setDetached(false);
+    expect(manager.getState().detached).toBe(false);
+  });
+
+  // HIGH-bug regression: reattach must target the ORIGINAL main window, NOT
+  // `this.window`. The registry calls `setWindow(getFocusedWindow())` on every
+  // RPC, so while detached + the detached window focused, `this.window` is
+  // stomped to the detached window. Reattaching into `this.window` would put
+  // the page back into the closing/wrong window. We assert the view is added
+  // back to the main window even after `setWindow(detachedWindow)`.
+  it('reattach() adds the view back to the ORIGINAL main window, not the focused detached window', async () => {
+    // Fake windows whose contentView records add/removeChildView targets.
+    const makeFakeWindow = (label: string) => {
+      const added: unknown[] = [];
+      const removed: unknown[] = [];
+      const win = {
+        label,
+        isDestroyed: () => false,
+        close: vi.fn(),
+        contentView: {
+          addChildView: (v: unknown) => added.push(v),
+          removeChildView: (v: unknown) => removed.push(v),
+        },
+      };
+      return { win, added, removed };
+    };
+
+    const mainWin = makeFakeWindow('main');
+    const detachedWin = makeFakeWindow('detached');
+
+    // Seed an active tab so reattach() finds a record + view.
+    const now = Date.now();
+    dbRows.push({
+      id: 'tab-reattach',
+      workspace_id: 'ws-test',
+      url: 'https://example.com',
+      title: 'Test',
+      active: 1,
+      created_at: now,
+      last_visited_at: now,
+      closed_at: null,
+    });
+
+    const manager = new BrowserManager({
+      workspaceId: 'ws-test',
+      window: mainWin.win as unknown as import('electron').BrowserWindow,
+    });
+
+    const fakeView = {
+      webContents: { focus: vi.fn() },
+      setBounds: vi.fn(),
+    } as unknown as import('electron').WebContentsView;
+
+    // Inject the fake view into the active tab record.
+    const tabsMap = (manager as unknown as { tabs: Map<string, { view: unknown }> }).tabs;
+    const rec = tabsMap.get('tab-reattach');
+    if (rec) rec.view = fakeView;
+
+    // Simulate a completed detach WITHOUT running the real `detachToWindow`
+    // (which needs a live Electron BrowserWindow). Set the internal fields the
+    // way detachToWindow would: capture the main window, set the detached one,
+    // and flip the detached flag.
+    const internals = manager as unknown as {
+      mainWindow: unknown;
+      detachedWindow: unknown;
+      detachedState: boolean;
+    };
+    internals.mainWindow = mainWin.win;
+    internals.detachedWindow = detachedWin.win;
+    internals.detachedState = true;
+
+    // This is the exact path that broke: registry.get() calls
+    // setWindow(getFocusedWindow()) and the detached window is focused →
+    // `this.window` gets stomped to the detached window. Belt-and-suspenders
+    // setWindow() should IGNORE the detached window, but even if it didn't,
+    // reattach must still use the captured mainWindow.
+    manager.setWindow(detachedWin.win as unknown as import('electron').BrowserWindow);
+
+    await manager.reattach();
+
+    // The view must have been added back to the MAIN window, never the detached.
+    expect(mainWin.added).toContain(fakeView);
+    expect(detachedWin.added).not.toContain(fakeView);
+    // And the detached window must have been closed.
+    expect(detachedWin.win.close).toHaveBeenCalled();
+    // State flips back to attached.
+    expect(manager.getState().detached).toBe(false);
+  });
+
+  it('setWindow() ignores the detached window (does not stomp this.window)', () => {
+    const manager = makeManager();
+    const detachedWin = { isDestroyed: () => false } as unknown as import('electron').BrowserWindow;
+    const otherWin = { isDestroyed: () => false } as unknown as import('electron').BrowserWindow;
+
+    // Mark the detached window on the manager.
+    (manager as unknown as { detachedWindow: unknown }).detachedWindow = detachedWin;
+
+    // setWindow(detachedWindow) must be a no-op.
+    manager.setWindow(detachedWin);
+    expect((manager as unknown as { window: unknown }).window).not.toBe(detachedWin);
+
+    // setWindow(otherWindow) still works normally.
+    manager.setWindow(otherWin);
+    expect((manager as unknown as { window: unknown }).window).toBe(otherWin);
+  });
+});
+
 describe('BrowserManager — closeTab soft-delete (DEV-2)', () => {
   it('closeTab soft-deletes (sets closed_at) instead of hard-deleting', async () => {
     // Seed a row directly so hydrateFromDb picks it up.

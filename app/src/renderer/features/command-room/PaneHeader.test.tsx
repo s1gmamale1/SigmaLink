@@ -4,8 +4,10 @@
 // pane header: title pill (drag handle, status glyph, alias·effort) + icon
 // cluster (gear, fullscreen, split, minimise, close). All metadata is relocated
 // to the gear popover (PaneGearPopoverBody).
+//
+// BSP-V2 — also covers the live cost + tok/s estimate badge.
 
-import { describe, expect, it, vi, afterEach, beforeAll } from 'vitest';
+import { describe, expect, it, vi, afterEach, beforeAll, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('@/renderer/lib/rpc', () => ({
@@ -16,6 +18,16 @@ vi.mock('@/renderer/lib/rpc', () => ({
     },
     kv: {
       set: vi.fn().mockResolvedValue(undefined),
+    },
+    usage: {
+      sessionSummary: vi.fn().mockResolvedValue({
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        totalCostUsd: null,
+        turnCount: 0,
+      }),
     },
   },
   rpcSilent: {
@@ -28,6 +40,16 @@ vi.mock('@/renderer/lib/rpc', () => ({
   onEvent: vi.fn(() => () => undefined),
 }));
 
+// BSP-V2 — mock usePaneLiveStats so PaneHeader badge tests are isolated from
+// the hook's polling logic. Individual tests override via mockReturnValue.
+vi.mock('./usePaneLiveStats', () => ({
+  usePaneLiveStats: vi.fn(() => ({
+    totalCostUsd: null,
+    estTokPerSec: null,
+    hasData: false,
+  })),
+}));
+
 // Mock useRufloDaemonHealth so PaneHeader tests are isolated from the hook's
 // polling logic. Default to 'running' state; individual tests override.
 vi.mock('./useRufloDaemonHealth', () => ({
@@ -38,6 +60,8 @@ import { PaneHeader } from './PaneHeader';
 import type { AgentSession } from '@/shared/types';
 import type { RufloDaemonHealth } from './useRufloDaemonHealth';
 import { useRufloDaemonHealth } from './useRufloDaemonHealth';
+import { usePaneLiveStats } from './usePaneLiveStats';
+import type { PaneLiveStats } from './usePaneLiveStats';
 
 // Radix tooltip/popover uses ResizeObserver under the hood, which jsdom doesn't
 // ship. A no-op polyfill is enough for our assertions.
@@ -379,5 +403,103 @@ describe('PaneHeader (Phase 4 BridgeSpace strip)', () => {
     fireEvent.click(screen.getByTestId('pane-gear'));
     await screen.findByTestId('pane-gear-popover');
     expect(screen.getByTestId('pane-gear-ruflo')).toBeTruthy();
+  });
+});
+
+// ── BSP-V2 — live stats badge tests ──────────────────────────────────────────
+
+describe('PaneHeader — BSP-V2 live stats badge', () => {
+  const mockStats = usePaneLiveStats as ReturnType<
+    typeof vi.fn<(sessionId: string, enabled: boolean) => PaneLiveStats>
+  >;
+
+  beforeEach(() => {
+    mockStats.mockClear();
+  });
+
+  it('does NOT render the badge when hasData=false (no usage yet)', () => {
+    mockStats.mockReturnValue({ totalCostUsd: null, estTokPerSec: null, hasData: false });
+    render(<PaneHeader {...baseProps()} />);
+    expect(screen.queryByTestId('pane-live-stats-badge')).toBeNull();
+  });
+
+  it('renders the badge when hasData=true with cost and tok/s', () => {
+    mockStats.mockReturnValue({
+      totalCostUsd: 0.0042,
+      estTokPerSec: 45.3,
+      hasData: true,
+    });
+    render(<PaneHeader {...baseProps()} />);
+    const badge = screen.getByTestId('pane-live-stats-badge');
+    expect(badge).toBeTruthy();
+    // Badge must contain both the estimate (with ~) and the cost ($).
+    expect(badge.textContent ?? '').toContain('~45.3 tok/s');
+    expect(badge.textContent ?? '').toContain('$0.0042');
+  });
+
+  it('renders only cost when estTokPerSec is null', () => {
+    mockStats.mockReturnValue({
+      totalCostUsd: 0.001,
+      estTokPerSec: null,
+      hasData: true,
+    });
+    render(<PaneHeader {...baseProps()} />);
+    const badge = screen.getByTestId('pane-live-stats-badge');
+    expect(badge.textContent ?? '').not.toContain('tok/s');
+    expect(badge.textContent ?? '').toContain('$0.0010');
+  });
+
+  it('renders only tok/s estimate when totalCostUsd is null', () => {
+    mockStats.mockReturnValue({
+      totalCostUsd: null,
+      estTokPerSec: 30,
+      hasData: true,
+    });
+    render(<PaneHeader {...baseProps()} />);
+    const badge = screen.getByTestId('pane-live-stats-badge');
+    expect(badge.textContent ?? '').toContain('~30 tok/s');
+    expect(badge.textContent ?? '').not.toContain('$');
+  });
+
+  it('hides badge when hasData=true but both values are null', () => {
+    mockStats.mockReturnValue({
+      totalCostUsd: null,
+      estTokPerSec: null,
+      hasData: true,
+    });
+    render(<PaneHeader {...baseProps()} />);
+    // When both are null the badge renders nothing (no parts) and returns null.
+    expect(screen.queryByTestId('pane-live-stats-badge')).toBeNull();
+  });
+
+  it('badge has aria-label for accessibility', () => {
+    mockStats.mockReturnValue({
+      totalCostUsd: 0.005,
+      estTokPerSec: 10,
+      hasData: true,
+    });
+    render(<PaneHeader {...baseProps()} />);
+    const badge = screen.getByTestId('pane-live-stats-badge');
+    expect(badge.getAttribute('aria-label')).toMatch(/live stats/i);
+  });
+
+  // ── PERF-5 status gate: PaneHeader must pass enabled = (status === 'running') ──
+
+  it('calls usePaneLiveStats with enabled=true for a running pane', () => {
+    mockStats.mockReturnValue({ totalCostUsd: null, estTokPerSec: null, hasData: false });
+    render(<PaneHeader {...baseProps()} session={makeSession({ status: 'running' })} />);
+    expect(mockStats).toHaveBeenCalledWith(expect.any(String), true);
+  });
+
+  it('calls usePaneLiveStats with enabled=false for an exited pane (no poll-storm)', () => {
+    mockStats.mockReturnValue({ totalCostUsd: null, estTokPerSec: null, hasData: false });
+    render(<PaneHeader {...baseProps()} session={makeSession({ status: 'exited' })} />);
+    expect(mockStats).toHaveBeenCalledWith(expect.any(String), false);
+  });
+
+  it('calls usePaneLiveStats with enabled=false for an error pane', () => {
+    mockStats.mockReturnValue({ totalCostUsd: null, estTokPerSec: null, hasData: false });
+    render(<PaneHeader {...baseProps()} session={makeSession({ status: 'error' })} />);
+    expect(mockStats).toHaveBeenCalledWith(expect.any(String), false);
   });
 });

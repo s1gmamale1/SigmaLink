@@ -57,6 +57,24 @@ vi.mock('./cli-transcribe-engine.js', () => ({
   })),
 }));
 
+// Mock cloud-stt-engine (BSP-V1)
+vi.mock('./cloud-stt-engine.js', () => ({
+  buildOpenAiSttEngine: vi.fn(() => ({
+    transcribe: vi.fn(() => Promise.resolve({ text: 'openai transcript', segments: [] })),
+  })),
+  buildDeepgramSttEngine: vi.fn(() => ({
+    transcribe: vi.fn(() => Promise.resolve({ text: 'deepgram transcript', segments: [] })),
+  })),
+  SttKeyMissingError: class SttKeyMissingError extends Error {
+    provider: string;
+    constructor(provider: string) {
+      super(`API key missing for STT provider "${provider}".`);
+      this.name = 'SttKeyMissingError';
+      this.provider = provider;
+    }
+  },
+}));
+
 // Mock output-router
 vi.mock('./output-router.js', () => ({
   routeTranscript: vi.fn(() => ({ target: 'clipboard', toast: '' })),

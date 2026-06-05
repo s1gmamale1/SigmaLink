@@ -73,6 +73,10 @@ export { encodeWav } from './wav-encode.js';
 export { buildCliTranscribeEngine } from './cli-transcribe-engine.js';
 export type { CliTranscribeEngineDeps } from './cli-transcribe-engine.js';
 
+// ── Cloud STT engines (BSP-V1) ─────────────────────────────────────────────
+export { buildOpenAiSttEngine, buildDeepgramSttEngine, SttKeyMissingError } from './cloud-stt-engine.js';
+export type { CloudSttEngineDeps } from './cloud-stt-engine.js';
+
 // ── Native mac loader ──────────────────────────────────────────────────────
 export {
   loadNative,
