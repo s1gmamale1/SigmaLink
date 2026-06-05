@@ -589,3 +589,82 @@ describe('spawnAgentSession — BUG-1 PTY-exit crash classification (swarm path)
     expect(agentUpdate?.set.status).toBe('done');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEV-W3b — Gate B: in-place mode skips worktree creation (factory-spawn.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('spawnAgentSession — DEV-W3b: in-place mode skips worktree creation', () => {
+  it('in-place mode: worktreePool.create is NOT called even for git+repoRoot workspaces', async () => {
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    // Override the default 'plain' fixture to be a git workspace.
+    const args = makeArgs(deps);
+    args.wsRow = {
+      ...args.wsRow,
+      repoMode: 'git',
+      repoRoot: '/tmp/repo',
+    };
+
+    // Stub rawDb so worktreeMode key returns 'in-place' for this workspace.
+    vi.mocked(getRawDb).mockReturnValue({
+      prepare: vi.fn((_sql: string) => ({
+        get: vi.fn((key?: string) => {
+          if (typeof key === 'string' && key.startsWith('workspace.worktreeMode.')) {
+            return { value: 'in-place' };
+          }
+          // Return '0' for ruflo autowrite so no .mcp.json is written.
+          if (typeof key === 'string' && key === 'ruflo.autowriteMcp') return { value: '0' };
+          return undefined;
+        }),
+        all: vi.fn(() => []),
+        run: vi.fn(() => undefined),
+      })),
+      transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+    } as unknown as ReturnType<typeof getRawDb>);
+
+    const insertRun = vi.fn(() => undefined);
+    vi.mocked(getDb).mockReturnValue({
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: insertRun })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const result = await spawnAgentSession(args);
+
+    // Gate B must NOT call worktreePool.create in in-place mode.
+    expect(deps.worktreePool.create).not.toHaveBeenCalled();
+    expect(result.sessionId).toBe(SPAWNED_PTY_ID);
+  });
+
+  it('worktree mode (default git): worktreePool.create IS called', async () => {
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    // Stub the worktreePool.create to return a result.
+    vi.mocked(deps.worktreePool.create).mockResolvedValue({
+      worktreePath: '/tmp/repo/wt-1',
+      branch: 'sigmalink/builder-1-aabbccdd',
+      sessionId: SPAWNED_PTY_ID,
+    });
+
+    // Override the default 'plain' fixture to be a git workspace.
+    const args = makeArgs(deps);
+    args.wsRow = {
+      ...args.wsRow,
+      repoMode: 'git',
+      repoRoot: '/tmp/repo',
+    };
+
+    const insertRun = vi.fn(() => undefined);
+    vi.mocked(getDb).mockReturnValue({
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: insertRun })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    await spawnAgentSession(args);
+
+    // Default mode (no worktreeMode KV): create IS called.
+    expect(deps.worktreePool.create).toHaveBeenCalledOnce();
+  });
+});

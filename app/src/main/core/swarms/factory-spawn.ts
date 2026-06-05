@@ -40,6 +40,7 @@ import { getSharedDeps } from '../../rpc-router';
 import { allocateLowestFreeLivePaneIndex } from '../workspaces/pane-slots';
 import { isPtyCrash } from '../pty/crash';
 import { maybeAutoCheckpoint } from '../git/auto-checkpoint';
+import { readWorktreeMode } from '../workspaces/worktree-mode';
 
 /**
  * SF-15 — write the bundled `ruflo` MCP entry (+ claude trust) into a swarm
@@ -202,10 +203,14 @@ export async function spawnAgentSession(
   // git worktree is materialised; skipping it when the caller already has a
   // path means the two sub-panes are co-tenants on one git branch (intentional
   // design — see splitPane RPC handler for the worktree-share rationale).
+  // DEV-W3b (ADR-007) — skip worktree allocation when in-place mode is active.
+  // worktreePath stays null → workspaceCwdInWorktree returns wsRow.rootPath.
+  // Preserve the worktreePathOverride short-circuit (splitPane) unchanged.
+  const inPlace = readWorktreeMode(getRawDb(), args.wsRow.id) === 'in-place';
   if (args.worktreePathOverride !== undefined) {
     worktreePath = args.worktreePathOverride;
     branch = args.branchOverride ?? null;
-  } else if (args.wsRow.repoMode === 'git' && args.wsRow.repoRoot) {
+  } else if (!inPlace && args.wsRow.repoMode === 'git' && args.wsRow.repoRoot) {
     const r = await args.deps.worktreePool.create({
       repoRoot: args.wsRow.repoRoot,
       role: args.role,
