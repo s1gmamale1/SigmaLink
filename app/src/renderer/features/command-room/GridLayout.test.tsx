@@ -17,10 +17,20 @@
 //   - `document.body.dataset.dragging` flips to 'true' on pointerdown and
 //     is removed on pointerup so Terminal.tsx's ResizeObserver can relax
 //     its fit() debounce.
+//
+// DEV-L2 (grid stickiness):
+//   - reshapeFracs: pure helper preserving proportions across pane add/remove.
+//   - workspaceId prop triggers KV persistence (rpc.kv.get/set).
+//   - Transition class applied when not dragging; suppressed while dragging.
+
+vi.mock('@/renderer/lib/rpc', () => ({
+  rpc: { kv: { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue(undefined) } },
+  rpcSilent: { kv: { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue(undefined) } },
+}));
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
-import { GridLayout } from './GridLayout';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { GridLayout, reshapeFracs } from './GridLayout';
 
 interface Item {
   id: string;
@@ -211,11 +221,12 @@ describe('GridLayout — v1.4.2 packet-07 rAF coalescing on divider drag', () =>
     const divider = container.querySelector('[aria-label="Resize column 1"]') as HTMLElement;
     expect(divider).toBeTruthy();
 
-    const baselineRenders = renderCount;
-    // Start drag.
+    // Start drag. Note: setIsDragging(true) fires synchronously on pointerdown
+    // causing one React commit — capture baseline AFTER pointerdown.
     fireEvent.pointerDown(divider, { clientX: 400, clientY: 300 });
     expect(document.body.dataset.dragging).toBe('true');
     expect(rafSpy).not.toHaveBeenCalled();
+    const baselineRenders = renderCount;
 
     // Fire 5 pointermoves before the rAF fires. The handler is bound on
     // window — dispatch to window so the listener receives them.
@@ -224,7 +235,8 @@ describe('GridLayout — v1.4.2 packet-07 rAF coalescing on divider drag', () =>
     }
     // Exactly one rAF is queued no matter how many pointermoves arrived.
     expect(rafSpy).toHaveBeenCalledTimes(1);
-    // No React commits yet — the setter only fires when the rAF callback runs.
+    // No React commits yet from pointermove — the fracs setter only fires when
+    // the rAF callback runs. (The setIsDragging commit already happened above.)
     expect(renderCount).toBe(baselineRenders);
 
     // Flush the rAF — single setState batch, single re-render.
@@ -321,6 +333,126 @@ describe('GridLayout — B3 density tiers', () => {
     expect(c12.dataset.gridDensity).toBe('dense');
     expect(c12.className).toMatch(/\bgap-1\b/);
     expect(c12.className).toMatch(/\bp-1\b/);
+  });
+});
+
+// DEV-L2 — reshapeFracs unit tests
+describe('reshapeFracs (proportion-preserving reflow)', () => {
+  it('returns prev unchanged when length matches', () => {
+    expect(reshapeFracs([2, 1], 2)).toEqual([2, 1]);
+  });
+  it('keeps surviving proportions when shrinking', () => {
+    expect(reshapeFracs([2, 1, 1], 2)).toEqual([2, 1]); // not reset to [1,1]
+  });
+  it('seeds new tracks at the current average when growing', () => {
+    expect(reshapeFracs([3, 1], 3)).toEqual([3, 1, 2]); // avg of [3,1] = 2
+  });
+  it('falls back to equal split from empty', () => {
+    expect(reshapeFracs([], 3)).toEqual([1, 1, 1]);
+  });
+  it('returns empty array when next <= 0', () => {
+    expect(reshapeFracs([1, 2], 0)).toEqual([]);
+  });
+});
+
+// DEV-L2 — KV persistence when workspaceId is set
+describe('GridLayout — DEV-L2 KV persistence', () => {
+  it('calls rpc.kv.set with a grid.fracs key after a divider mutation', async () => {
+    // Import the mock to assert on it
+    const { rpc } = await import('@/renderer/lib/rpc');
+    const kvSet = vi.mocked(rpc.kv.set);
+    kvSet.mockClear();
+
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      cb(performance.now());
+      return 1 as unknown as number;
+    });
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => undefined);
+
+    try {
+      const items: Item[] = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+      const { container } = render(
+        <GridLayout<Item>
+          items={items}
+          getKey={(item) => item.id}
+          renderCell={renderCell}
+          activeIndex={0}
+          onActiveChange={() => undefined}
+          focusedKey={null}
+          workspaceId="ws-test-123"
+        />,
+      );
+      const grid = container.firstChild as HTMLElement;
+      grid.getBoundingClientRect = () =>
+        ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+      const divider = container.querySelector('[aria-label="Resize column 1"]') as HTMLElement;
+      expect(divider).toBeTruthy();
+
+      // Drag the column divider to mutate fracs.
+      fireEvent.pointerDown(divider, { clientX: 400, clientY: 300 });
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 430, clientY: 300 }));
+      window.dispatchEvent(new PointerEvent('pointerup'));
+
+      // After drag ends (isDragging=false), the debounced save runs.
+      await waitFor(() => {
+        expect(kvSet).toHaveBeenCalledWith(
+          expect.stringMatching(/^grid\.fracs\.ws-test-123\./),
+          expect.any(String),
+        );
+      }, { timeout: 1000 });
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+});
+
+// DEV-L2 — transition class toggling
+describe('GridLayout — DEV-L2 reflow transition', () => {
+  it('applies transition class on the grid container when not dragging', () => {
+    const items: Item[] = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+    const { container } = render(
+      <GridLayout<Item>
+        items={items}
+        getKey={(item) => item.id}
+        renderCell={renderCell}
+        activeIndex={0}
+        onActiveChange={() => undefined}
+        focusedKey={null}
+      />,
+    );
+    const grid = container.firstChild as HTMLElement;
+    expect(grid.className).toMatch(/transition-\[grid-template-columns,grid-template-rows\]/);
+    expect(grid.className).toMatch(/motion-reduce:transition-none/);
+  });
+
+  it('suppresses transition class while a drag is active', () => {
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(() => 1 as unknown as number);
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    try {
+      const items: Item[] = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+      const { container } = render(
+        <GridLayout<Item>
+          items={items}
+          getKey={(item) => item.id}
+          renderCell={renderCell}
+          activeIndex={0}
+          onActiveChange={() => undefined}
+          focusedKey={null}
+        />,
+      );
+      const grid = container.firstChild as HTMLElement;
+      grid.getBoundingClientRect = () =>
+        ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+      const divider = container.querySelector('[aria-label="Resize column 1"]') as HTMLElement;
+      fireEvent.pointerDown(divider, { clientX: 400, clientY: 300 });
+
+      // During drag, transition classes should be absent.
+      expect(grid.className).not.toMatch(/transition-\[grid-template-columns,grid-template-rows\]/);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });
 

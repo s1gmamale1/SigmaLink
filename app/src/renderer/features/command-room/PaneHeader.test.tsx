@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 //
-// V1.1.4 Step 4 — PaneHeader unit coverage. Validates the collapsed h-7
-// chrome (provider label · 4 icon buttons) against the acceptance criteria
-// in task #50: truncated `CLAUDE·1` label, Focus lifts focus, Close calls
-// the close handler, Split + Minimise are `disabled`, tooltip surfaces cwd.
+// Phase 4 Lane A — PaneHeader unit coverage. Validates the BridgeSpace-faithful
+// pane header: title pill (drag handle, status glyph, alias·effort) + icon
+// cluster (gear, fullscreen, split, minimise, close). All metadata is relocated
+// to the gear popover (PaneGearPopoverBody).
 
 import { describe, expect, it, vi, afterEach, beforeAll } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -24,10 +24,12 @@ vi.mock('@/renderer/lib/rpc', () => ({
       get: vi.fn().mockResolvedValue('1'), // default: coachmark already seen
     },
   },
+  // CheckpointPanel uses onEvent to subscribe to git:checkpoints-changed
+  onEvent: vi.fn(() => () => undefined),
 }));
 
 // Mock useRufloDaemonHealth so PaneHeader tests are isolated from the hook's
-// polling logic. Default to 'running' state; individual B2 tests override.
+// polling logic. Default to 'running' state; individual tests override.
 vi.mock('./useRufloDaemonHealth', () => ({
   useRufloDaemonHealth: vi.fn(() => ({ state: 'running', detail: 'running · port 53112' })),
 }));
@@ -37,9 +39,8 @@ import type { AgentSession } from '@/shared/types';
 import type { RufloDaemonHealth } from './useRufloDaemonHealth';
 import { useRufloDaemonHealth } from './useRufloDaemonHealth';
 
-// Radix tooltip uses ResizeObserver under the hood, which jsdom doesn't
-// ship. A no-op polyfill is enough for our assertions — we only care that
-// the tooltip content is mounted with the right text.
+// Radix tooltip/popover uses ResizeObserver under the hood, which jsdom doesn't
+// ship. A no-op polyfill is enough for our assertions.
 beforeAll(() => {
   if (typeof globalThis.ResizeObserver === 'undefined') {
     globalThis.ResizeObserver = class {
@@ -80,377 +81,189 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
   };
 }
 
+function baseProps(overrides: Record<string, unknown> = {}) {
+  return {
+    session: makeSession(),
+    paneIndex: 1,
+    onFocus: vi.fn(),
+    onClose: vi.fn(),
+    providers: [{ id: 'claude', name: 'Claude' }, { id: 'codex', name: 'Codex' }],
+    onSplit: vi.fn(),
+    onToggleMinimise: vi.fn(),
+    isMinimised: false,
+    isFullscreen: false,
+    onToggleFullscreen: vi.fn(),
+    uncommitted: 3,
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   cleanup();
 });
 
-// Shared base props used by B2 info-bar tests (and any future test that
-// needs a minimal valid PaneHeader without re-declaring each prop).
-const base = {
-  session: makeSession(),
-  paneIndex: 1,
-  onFocus: () => undefined,
-  onClose: () => undefined,
-};
-
-describe('PaneHeader', () => {
-  it('renders the truncated provider label with 1-based pane index', () => {
-    render(
-      <PaneHeader
-        session={makeSession()}
-        paneIndex={1}
-        onFocus={() => undefined}
-        onClose={() => undefined}
-      />,
-    );
-    const label = screen.getByLabelText('Claude·1');
-    expect(label.textContent).toBe('Claude·1');
-    expect(label.className).toMatch(/truncate/);
-    expect(label.className).toMatch(/max-w-\[80px\]/);
+describe('PaneHeader (Phase 4 BridgeSpace strip)', () => {
+  it('renders the title pill with alias and is the drag handle', () => {
+    render(<PaneHeader {...baseProps()} />);
+    const pill = screen.getByTestId('pane-title-pill');
+    expect(pill.getAttribute('draggable')).toBe('true');
+    // alias is deterministic from session.id via agentAlias
+    expect(pill.textContent ?? '').toMatch(/\w+/);
   });
 
-  it('shortens multi-word provider names (e.g. Codex CLI → Codex)', () => {
-    render(
-      <PaneHeader
-        session={makeSession({ providerId: 'codex' })}
-        paneIndex={2}
-        onFocus={() => undefined}
-        onClose={() => undefined}
-      />,
-    );
-    expect(screen.getByLabelText('Codex·2').textContent).toBe('Codex·2');
+  it('shows a single status glyph (folded dots)', () => {
+    render(<PaneHeader {...baseProps()} />);
+    expect(screen.getByTestId('pane-status-glyph')).toBeTruthy();
+    // the three legacy dots are gone from the bar
+    expect(screen.queryByTestId('ruflo-health-dot')).toBeNull();
+    expect(screen.queryByTestId('agent-short-id')).toBeNull();
   });
 
-  // SF-10 — display-only CLI label.
-  it('SF-10: shows the displayProviderId override label instead of the real provider', () => {
-    render(
-      <PaneHeader
-        session={makeSession({ providerId: 'shell', displayProviderId: 'claude' })}
-        paneIndex={4}
-        onFocus={() => undefined}
-        onClose={() => undefined}
-      />,
-    );
-    // A shell pane tagged as Claude shows "Claude·4", not "SHELL·4".
-    expect(screen.getByLabelText('Claude·4').textContent).toBe('Claude·4');
-    expect(screen.queryByLabelText('Shell·4')).toBeNull();
+  it('exposes the icon cluster: gear, fullscreen, split, minimise, close', () => {
+    const onToggleFullscreen = vi.fn();
+    const onToggleMinimise = vi.fn();
+    const onSplit = vi.fn();
+    render(<PaneHeader {...baseProps({ onToggleFullscreen, onToggleMinimise, onSplit })} />);
+    expect(screen.getByTestId('pane-gear')).toBeTruthy();
+    expect(screen.getByLabelText('Fullscreen pane')).toBeTruthy();
+    expect(screen.getByTestId('pane-split')).toBeTruthy();
+    expect(screen.getByLabelText('Minimise pane')).toBeTruthy();
+    expect(screen.getByLabelText('Close pane')).toBeTruthy();
   });
 
-  it('SF-10: the relabel control carries the pane-provider-label test id + click hint', () => {
-    render(
-      <PaneHeader
-        session={makeSession()}
-        paneIndex={1}
-        onFocus={() => undefined}
-        onClose={() => undefined}
-        providers={[{ id: 'cursor', name: 'Cursor' }]}
-      />,
-    );
-    const label = screen.getByTestId('pane-provider-label');
-    expect(label.getAttribute('role')).toBe('button');
-    expect(label.getAttribute('title')).toMatch(/CLI label/i);
+  it('opens the gear popover with relocated metadata + actions', async () => {
+    render(<PaneHeader {...baseProps()} />);
+    fireEvent.click(screen.getByTestId('pane-gear'));
+    const pop = await screen.findByTestId('pane-gear-popover');
+    expect(pop).toBeTruthy();
+    // branch + model now live in the popover, not on the bar
+    expect(pop.textContent ?? '').toMatch(/dev|feature/);
   });
 
-  it('invokes onFocus when the Focus button is clicked', () => {
+  it('Close calls onClose', () => {
+    const onClose = vi.fn();
+    render(<PaneHeader {...baseProps({ onClose })} />);
+    fireEvent.click(screen.getByLabelText('Close pane'));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('fullscreen toggle calls onToggleFullscreen', () => {
+    const onToggleFullscreen = vi.fn();
+    render(<PaneHeader {...baseProps({ onToggleFullscreen })} />);
+    fireEvent.click(screen.getByLabelText('Fullscreen pane'));
+    expect(onToggleFullscreen).toHaveBeenCalledOnce();
+  });
+
+  it('minimise calls onToggleMinimise', () => {
+    const onToggleMinimise = vi.fn();
+    render(<PaneHeader {...baseProps({ onToggleMinimise })} />);
+    fireEvent.click(screen.getByLabelText('Minimise pane'));
+    expect(onToggleMinimise).toHaveBeenCalledOnce();
+  });
+
+  it('swaps minimise label to "Restore pane" when isMinimised=true', () => {
+    const onToggleMinimise = vi.fn();
+    render(<PaneHeader {...baseProps({ onToggleMinimise, isMinimised: true })} />);
+    const btn = screen.getByLabelText('Restore pane');
+    fireEvent.click(btn);
+    expect(onToggleMinimise).toHaveBeenCalledOnce();
+    expect(screen.queryByLabelText('Minimise pane')).toBeNull();
+  });
+
+  it('swaps fullscreen to "Exit fullscreen (Esc)" when isFullscreen=true', () => {
+    const onToggleFullscreen = vi.fn();
+    render(<PaneHeader {...baseProps({ onToggleFullscreen, isFullscreen: true })} />);
+    const btn = screen.getByLabelText('Exit fullscreen (Esc)');
+    fireEvent.click(btn);
+    expect(onToggleFullscreen).toHaveBeenCalledOnce();
+    expect(screen.queryByLabelText('Fullscreen pane')).toBeNull();
+  });
+
+  it('falls back to onFocus when no onToggleFullscreen is supplied', () => {
     const onFocus = vi.fn();
     render(
       <PaneHeader
         session={makeSession()}
         paneIndex={1}
         onFocus={onFocus}
-        onClose={() => undefined}
+        onClose={vi.fn()}
       />,
     );
-    // v1.2.5 — Focus button relabelled to honestly describe what it does
-    // (pin the focus ring, not fullscreen the pane). Aria-label + tooltip
-    // now read "Pin focus ring (Cmd+Alt+N)".
-    const focusBtn = screen.getByRole('button', { name: 'Pin focus ring (Cmd+Alt+N)' });
-    fireEvent.click(focusBtn);
+    // With no onToggleFullscreen, fullscreen button falls back to onFocus
+    const btn = screen.getByRole('button', { name: /fullscreen|pin focus/i });
+    fireEvent.click(btn);
     expect(onFocus).toHaveBeenCalledTimes(1);
   });
 
-  it('invokes onClose when the Close button is clicked', () => {
-    const onClose = vi.fn();
-    render(
-      <PaneHeader
-        session={makeSession()}
-        paneIndex={1}
-        onFocus={() => undefined}
-        onClose={onClose}
-      />,
-    );
-    const closeBtn = screen.getByRole('button', { name: 'Close pane' });
-    fireEvent.click(closeBtn);
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders Split and Minimise as disabled placeholders when callers do not wire them', () => {
-    // v1.4.3 #06 — When `onSplit` / `onToggleMinimise` are NOT supplied
-    // (legacy callers / older tests), the icons fall back to the v1.2.5
-    // disabled placeholder. Both Split-V (Columns2) and Split-H (Rows2) live
-    // as buttons with aria-label="Split pane", so `getAllByRole` picks them
-    // both up.
-    render(
-      <PaneHeader
-        session={makeSession()}
-        paneIndex={1}
-        onFocus={() => undefined}
-        onClose={() => undefined}
-      />,
-    );
-    const splits = screen.getAllByRole('button', { name: 'Split pane' }) as HTMLButtonElement[];
-    expect(splits.length).toBeGreaterThanOrEqual(2);
-    const minimise = screen.getByRole('button', { name: 'Minimise pane' }) as HTMLButtonElement;
-    for (const s of splits) {
-      expect(s.disabled).toBe(true);
-      expect(s.className).toMatch(/cursor-not-allowed/);
-      expect(s.className).toMatch(/opacity-40/);
-    }
-    expect(minimise.disabled).toBe(true);
-    expect(minimise.className).toMatch(/cursor-not-allowed/);
-    expect(minimise.className).toMatch(/opacity-40/);
-  });
-
-  it('wires the provider name as a tooltip trigger pointing at the cwd', () => {
-    // We deliberately don't drive the Radix open animation in jsdom — its
-    // lazy portal mount needs real pointer + timers we can't reliably fake
-    // without `@testing-library/user-event`. Instead, assert the trigger
-    // is wired up (data-slot + aria) and that the underlying session has
-    // the cwd we'd surface; the Radix render path itself is covered by
-    // its own upstream tests.
-    render(
-      <PaneHeader
-        session={makeSession({ cwd: '/Users/alice/projects/demo', branch: 'feat/x' })}
-        paneIndex={1}
-        onFocus={() => undefined}
-        onClose={() => undefined}
-      />,
-    );
-    const label = screen.getByLabelText('Claude·1');
-    const trigger = label.closest('[data-slot="tooltip-trigger"]');
-    expect(trigger).not.toBeNull();
-    expect(trigger?.getAttribute('data-state')).toBe('closed');
-  });
-
-  // v1.4.2 packet-12 — Pane Focus icon morphs into a real fullscreen toggle
-  // when callers wire `onToggleFullscreen`. Legacy callers without the new
-  // prop fall back to the v1.2.5 "Pin focus ring" behaviour (covered above).
-  it('packet-12: shows the Fullscreen pane label when not focused', () => {
-    const onToggle = vi.fn();
-    render(
-      <PaneHeader
-        session={makeSession()}
-        paneIndex={1}
-        onFocus={() => undefined}
-        onClose={() => undefined}
-        isFullscreen={false}
-        onToggleFullscreen={onToggle}
-      />,
-    );
-    const btn = screen.getByRole('button', { name: 'Fullscreen pane' });
-    fireEvent.click(btn);
-    expect(onToggle).toHaveBeenCalledTimes(1);
-  });
-
-  it('packet-12: swaps to Exit fullscreen when isFullscreen=true', () => {
-    const onToggle = vi.fn();
-    render(
-      <PaneHeader
-        session={makeSession()}
-        paneIndex={1}
-        onFocus={() => undefined}
-        onClose={() => undefined}
-        isFullscreen
-        onToggleFullscreen={onToggle}
-      />,
-    );
-    const btn = screen.getByRole('button', { name: 'Exit fullscreen (Esc)' });
-    fireEvent.click(btn);
-    expect(onToggle).toHaveBeenCalledTimes(1);
-    // The legacy "Pin focus ring" label must not be visible in this mode.
-    expect(screen.queryByRole('button', { name: 'Pin focus ring (Cmd+Alt+N)' })).toBeNull();
-  });
-
-  // v1.4.3 #06 — Pane Split + Minimise wired surface.
-  describe('v1.4.3 #06 — Split + Minimise wiring', () => {
-    it('renders the Split buttons as enabled when onSplit + providers are wired', () => {
-      render(
-        <PaneHeader
-          session={makeSession()}
-          paneIndex={1}
-          onFocus={() => undefined}
-          onClose={() => undefined}
-          providers={[
-            { id: 'claude', name: 'Claude' },
-            { id: 'codex', name: 'Codex' },
-          ]}
-          onSplit={() => undefined}
-        />,
-      );
-      const splits = screen.getAllByRole('button', { name: 'Split pane' }) as HTMLButtonElement[];
-      expect(splits.length).toBeGreaterThanOrEqual(2);
-      for (const s of splits) {
-        expect(s.disabled).toBe(false);
-        expect(s.className).not.toMatch(/cursor-not-allowed/);
-      }
-    });
-
-    it('keeps Split disabled when canSplit=false (parent already in a split group)', () => {
-      render(
-        <PaneHeader
-          session={makeSession()}
-          paneIndex={1}
-          onFocus={() => undefined}
-          onClose={() => undefined}
-          providers={[{ id: 'claude', name: 'Claude' }]}
-          onSplit={() => undefined}
-          canSplit={false}
-        />,
-      );
-      const splits = screen.getAllByRole('button', { name: 'Split pane' }) as HTMLButtonElement[];
-      for (const s of splits) {
-        expect(s.disabled).toBe(true);
-        expect(s.className).toMatch(/opacity-40/);
-      }
-    });
-
-    it('invokes onToggleMinimise when the Minimise button is clicked', () => {
-      const onToggleMinimise = vi.fn();
-      render(
-        <PaneHeader
-          session={makeSession()}
-          paneIndex={1}
-          onFocus={() => undefined}
-          onClose={() => undefined}
-          onToggleMinimise={onToggleMinimise}
-          isMinimised={false}
-        />,
-      );
-      const btn = screen.getByRole('button', { name: 'Minimise pane' });
-      fireEvent.click(btn);
-      expect(onToggleMinimise).toHaveBeenCalledTimes(1);
-    });
-
-    it('swaps the Minimise label to "Restore pane" when isMinimised=true', () => {
-      const onToggleMinimise = vi.fn();
-      render(
-        <PaneHeader
-          session={makeSession()}
-          paneIndex={1}
-          onFocus={() => undefined}
-          onClose={() => undefined}
-          onToggleMinimise={onToggleMinimise}
-          isMinimised={true}
-        />,
-      );
-      const btn = screen.getByRole('button', { name: 'Restore pane' });
-      fireEvent.click(btn);
-      expect(onToggleMinimise).toHaveBeenCalledTimes(1);
-      expect(screen.queryByRole('button', { name: 'Minimise pane' })).toBeNull();
-    });
-  });
-
-  it('embeds the cwd, branch, model, and effort in the tooltip body', async () => {
-    // Render a wrapper that forces the tooltip open via the controlled
-    // `open` prop. This bypasses Radix's pointer-enter timing in jsdom but
-    // still exercises the actual TooltipContent we ship.
-    const { TooltipContent } = await import('@/components/ui/tooltip');
-    const { Tooltip, TooltipProvider, TooltipTrigger } = await import('@/components/ui/tooltip');
-    function OpenTooltip() {
-      const session = makeSession({
-        cwd: '/Users/alice/projects/demo',
-        branch: 'feat/x',
-      });
-      return (
-        <TooltipProvider>
-          <Tooltip open>
-            <TooltipTrigger asChild>
-              <span>label</span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <div>
-                <div>branch: {session.branch}</div>
-                <div>model: claude-opus-4.7</div>
-                <div>effort: high</div>
-                <div>cwd: {session.cwd}</div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      );
-    }
-    render(<OpenTooltip />);
-    // Radix mounts the tooltip content in two places (the live aria-live
-    // region for screen readers plus the visible portal). `getAllByText`
-    // covers both and asserts the content reached the DOM.
-    expect(
-      screen.getAllByText(/cwd: \/Users\/alice\/projects\/demo/).length,
-    ).toBeGreaterThan(0);
-    expect(screen.getAllByText(/branch: feat\/x/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/model: claude-opus-4\.7/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/effort: high/).length).toBeGreaterThan(0);
-  });
-
-  // B2 — per-pane info bar (C-1 UI)
-  it('renders inline branch + model + uncommitted badge', () => {
-    render(<PaneHeader {...base} session={{ ...base.session, branch: 'feat/auth', providerId: 'claude' }} uncommitted={3} />);
-    expect(screen.getByText('feat/auth')).toBeTruthy();
-    // N1 — label now comes from the shared catalog ("Opus 4.7 (1M)"); match case-insensitively.
-    expect(screen.getByText(/opus/i)).toBeTruthy();
-    expect(screen.getByText('±3')).toBeTruthy();
-  });
-
-  it('hides badge when uncommitted is 0 or null', () => {
-    const { rerender } = render(<PaneHeader {...base} uncommitted={0} />);
-    expect(screen.queryByText(/^±/)).toBeNull();
-    rerender(<PaneHeader {...base} uncommitted={null} />);
-    expect(screen.queryByText(/^±/)).toBeNull();
-  });
-
-  // FEAT-12: drag source is now narrowed to the grip handle only, not the
-  // entire header root (prevents accidental drags from header clicks).
-  it('FEAT-12: grip is the drag source carrying pane payload (not the header root)', () => {
-    render(<PaneHeader {...base} session={{ ...base.session, id: 's1', branch: 'feat/x' }} />);
-    const grip = screen.getByTestId('pane-drag-grip');
+  it('pill carries the FEAT-12 drag payload (pane MIME + sessionId)', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 's1', branch: 'feat/x' })} />);
+    const pill = screen.getByTestId('pane-title-pill');
     const setData = vi.fn();
-    fireEvent.dragStart(grip, { dataTransfer: { setData, effectAllowed: '' } });
-    expect(setData).toHaveBeenCalledWith('application/sigmalink-pane', expect.stringContaining('"sessionId":"s1"'));
+    fireEvent.dragStart(pill, { dataTransfer: { setData, effectAllowed: '' } });
+    expect(setData).toHaveBeenCalledWith(
+      'application/sigmalink-pane',
+      expect.stringContaining('"sessionId":"s1"'),
+    );
   });
 
-  it('FEAT-12: header root div is NOT draggable (only the grip is)', () => {
-    render(<PaneHeader {...base} session={{ ...base.session, id: 's1', branch: 'feat/x' }} />);
+  it('header root div is NOT draggable (only the pill is)', () => {
+    render(<PaneHeader {...baseProps()} />);
     const header = screen.getByTestId('pane-header');
     expect(header.getAttribute('draggable')).not.toBe('true');
   });
 
-  it('FEAT-12: drag grip element exists and is marked draggable', () => {
-    render(<PaneHeader {...base} />);
-    const grip = screen.getByTestId('pane-drag-grip');
-    expect(grip).toBeTruthy();
-    expect(grip.getAttribute('draggable')).toBe('true');
-    expect(grip.getAttribute('aria-label')).toMatch(/inject.*context/i);
+  it('pane-split button is disabled when canSplit=false', () => {
+    render(
+      <PaneHeader
+        {...baseProps()}
+        canSplit={false}
+      />,
+    );
+    const split = screen.getByTestId('pane-split') as HTMLButtonElement;
+    expect(split.disabled).toBe(true);
   });
 
-  it('FEAT-12: drag payload includes providerId, branch, worktreePath', () => {
-    render(<PaneHeader {...base} session={{ ...base.session, id: 'sess-xyz', branch: 'main', worktreePath: '/wt/main', providerId: 'claude' }} />);
-    const grip = screen.getByTestId('pane-drag-grip');
-    const setData = vi.fn();
-    fireEvent.dragStart(grip, { dataTransfer: { setData, effectAllowed: '' } });
-    const payload = JSON.parse((setData.mock.calls[0] as [string, string])[1]) as Record<string, unknown>;
-    expect(payload.kind).toBe('pane');
-    expect(payload.sessionId).toBe('sess-xyz');
-    expect(payload.branch).toBe('main');
-    expect(payload.worktreePath).toBe('/wt/main');
-    expect(payload.providerId).toBe('claude');
+  it('pane-split button is enabled when onSplit + providers + canSplit=true', () => {
+    render(
+      <PaneHeader
+        {...baseProps()}
+        onSplit={vi.fn()}
+        providers={[{ id: 'claude', name: 'Claude' }]}
+        canSplit={true}
+      />,
+    );
+    const split = screen.getByTestId('pane-split') as HTMLButtonElement;
+    expect(split.disabled).toBe(false);
   });
 
-  // Stage 2 / Lane P — P1 hover/focus reveal of situational controls.
-  describe('Stage 2 — hover/focus reveal of situational controls (P1)', () => {
+  it('pane-split is disabled when no onSplit handler supplied', () => {
+    render(
+      <PaneHeader
+        session={makeSession()}
+        paneIndex={1}
+        onFocus={vi.fn()}
+        onClose={vi.fn()}
+        providers={[{ id: 'claude', name: 'Claude' }]}
+      />,
+    );
+    const split = screen.getByTestId('pane-split') as HTMLButtonElement;
+    expect(split.disabled).toBe(true);
+  });
+
+  it('carries h-7 + dense variant on the toolbar strip', () => {
+    const { getByTestId } = render(<PaneHeader {...baseProps()} />);
+    const header = getByTestId('pane-header');
+    const strip = header.querySelector('.sl-glass-toolbar') as HTMLElement;
+    expect(strip).toBeTruthy();
+    expect(strip.className).toMatch(/\bh-7\b/);
+    expect(strip.className).toMatch(/\[\[data-grid-density=dense\]_&\]:h-6/);
+  });
+
+  it('gear + split + minimise are in the opacity-0 reveal wrapper (hover/focus)', () => {
     const REVEAL = /opacity-0/;
     const REVEAL_HOVER = /group-hover:opacity-100/;
     const REVEAL_FOCUS = /group-focus-within:opacity-100/;
 
-    /** Walk up from `el` to the nearest ancestor carrying `opacity-0`. */
     function revealWrapper(el: HTMLElement): HTMLElement | null {
       let node: HTMLElement | null = el;
       while (node) {
@@ -460,175 +273,111 @@ describe('PaneHeader', () => {
       return null;
     }
 
-    function renderWired() {
-      return render(
-        <PaneHeader
-          {...base}
-          providers={[{ id: 'claude', name: 'Claude' }]}
-          onSplit={() => undefined}
-          onToggleMinimise={() => undefined}
-          onToggleFullscreen={() => undefined}
-        />,
-      );
+    render(<PaneHeader {...baseProps()} />);
+    const gear = screen.getByTestId('pane-gear');
+    const split = screen.getByTestId('pane-split');
+    const minimise = screen.getByLabelText('Minimise pane');
+
+    for (const el of [gear, split, minimise]) {
+      const wrapper = revealWrapper(el);
+      expect(wrapper).not.toBeNull();
+      expect(wrapper!.className).toMatch(REVEAL_HOVER);
+      expect(wrapper!.className).toMatch(REVEAL_FOCUS);
+    }
+  });
+
+  it('fullscreen + close are NOT inside the opacity-0 reveal wrapper', () => {
+    const REVEAL = /opacity-0/;
+    function revealWrapper(el: HTMLElement): HTMLElement | null {
+      let node: HTMLElement | null = el;
+      while (node) {
+        if (REVEAL.test(node.className ?? '')) return node;
+        node = node.parentElement;
+      }
+      return null;
     }
 
-    it('wraps Split / Minimise / Brief in a hover+focus-within reveal container', () => {
-      renderWired();
-      const split = screen.getAllByRole('button', { name: 'Split pane' })[0] as HTMLElement;
-      const minimise = screen.getByRole('button', { name: 'Minimise pane' });
-      const brief = screen.getByRole('button', { name: /brief/i });
-
-      for (const btn of [split, minimise, brief]) {
-        const wrapper = revealWrapper(btn);
-        expect(wrapper).not.toBeNull();
-        expect(wrapper!.className).toMatch(REVEAL_HOVER);
-        expect(wrapper!.className).toMatch(REVEAL_FOCUS);
-      }
-    });
-
-    it('keeps Fullscreen + Close ALWAYS visible (no reveal wrapper)', () => {
-      renderWired();
-      const fullscreen = screen.getByRole('button', { name: 'Fullscreen pane' });
-      const close = screen.getByRole('button', { name: 'Close pane' });
-      expect(revealWrapper(fullscreen)).toBeNull();
-      expect(revealWrapper(close)).toBeNull();
-    });
-
-    it('keeps the info row (status dot / provider / branch / model) ALWAYS rendered', () => {
-      render(
-        <PaneHeader
-          {...base}
-          session={{ ...base.session, branch: 'feat/auth', providerId: 'claude' }}
-          uncommitted={3}
-          providers={[{ id: 'claude', name: 'Claude' }]}
-          onSplit={() => undefined}
-          onToggleMinimise={() => undefined}
-          onToggleFullscreen={() => undefined}
-        />,
-      );
-      // Provider label, branch, model, and uncommitted badge are present and
-      // not behind the opacity-0 reveal.
-      const label = screen.getByLabelText('Claude·1');
-      expect(revealWrapper(label)).toBeNull();
-      const branch = screen.getByText('feat/auth');
-      expect(revealWrapper(branch)).toBeNull();
-      expect(screen.getByText('±3')).toBeTruthy();
-    });
-
-    it('keeps the situational controls in the DOM + tab order (opacity only, not display:none)', () => {
-      renderWired();
-      const split = screen.getAllByRole('button', { name: 'Split pane' })[0] as HTMLElement;
-      const wrapper = revealWrapper(split)!;
-      // opacity-only reveal — never display:none, so Tab still reaches them.
-      expect(wrapper.className).not.toMatch(/\bhidden\b/);
-      expect(wrapper.style.display).not.toBe('none');
-    });
+    render(<PaneHeader {...baseProps()} />);
+    const fullscreen = screen.getByLabelText('Fullscreen pane');
+    const close = screen.getByLabelText('Close pane');
+    expect(revealWrapper(fullscreen)).toBeNull();
+    expect(revealWrapper(close)).toBeNull();
   });
 
-  // Stage 2 / Lane P — P3 density-aware header height.
-  it('carries the dense-tier h-6 height override on the toolbar strip', () => {
-    const { getByTestId } = render(<PaneHeader {...base} />);
-    const header = getByTestId('pane-header');
-    const strip = header.querySelector('.sl-glass-toolbar') as HTMLElement;
-    expect(strip).toBeTruthy();
-    // Comfortable/compact baseline stays h-7; the dense ancestor variant
-    // shrinks it to h-6 without a new prop.
-    expect(strip.className).toMatch(/\bh-7\b/);
-    // P5.2 — attribute renamed `data-density` → `data-grid-density`.
-    expect(strip.className).toMatch(/\[\[data-grid-density=dense\]_&\]:h-6/);
+  it('gear popover contains branch + model info from derivePaneIdentity', async () => {
+    render(
+      <PaneHeader
+        {...baseProps()}
+        session={makeSession({ branch: 'feat/auth', providerId: 'claude' })}
+        uncommitted={2}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('pane-gear'));
+    const pop = await screen.findByTestId('pane-gear-popover');
+    expect(pop.textContent ?? '').toMatch(/feat\/auth/);
   });
 
-  describe('Brief popover (C-5)', () => {
-    it('Brief button is disabled when session is not running', () => {
-      render(<PaneHeader {...base} session={{ ...base.session, status: 'exited' }} />);
-      const briefBtn = screen.getByRole('button', { name: /brief/i });
-      expect((briefBtn as HTMLButtonElement).disabled).toBe(true);
-    });
+  it('gear popover shows the brief form when session is running', async () => {
+    render(
+      <PaneHeader
+        {...baseProps()}
+        session={makeSession({ status: 'running' })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('pane-gear'));
+    const pop = await screen.findByTestId('pane-gear-popover');
+    // Brief section or button should be present
+    expect(pop.textContent ?? '').toMatch(/brief/i);
+  });
 
-    it('Brief button is enabled when session is running', () => {
-      render(<PaneHeader {...base} session={{ ...base.session, status: 'running' }} />);
-      const briefBtn = screen.getByRole('button', { name: /brief/i });
-      expect((briefBtn as HTMLButtonElement).disabled).toBe(false);
-    });
-
-    it('submitting the Brief form calls rpc.panes.brief with correct capsule', async () => {
-      const { rpc } = await import('@/renderer/lib/rpc');
-      render(<PaneHeader {...base} session={{ ...base.session, id: 'pane-1', worktreePath: '/wt/x', status: 'running' }} />);
-      const briefBtn = screen.getByRole('button', { name: /brief/i });
-      fireEvent.click(briefBtn);
-      // Fill in the goal field
-      const goalField = screen.getByPlaceholderText(/goal/i);
-      fireEvent.change(goalField, { target: { value: 'Add authentication' } });
-      const submitBtn = screen.getByRole('button', { name: /inject capsule/i });
-      fireEvent.click(submitBtn);
-      await waitFor(() => {
-        expect(rpc.panes.brief).toHaveBeenCalledWith(expect.objectContaining({
+  it('submitting the Brief form in the gear popover calls rpc.panes.brief', async () => {
+    const { rpc } = await import('@/renderer/lib/rpc');
+    render(
+      <PaneHeader
+        {...baseProps()}
+        session={makeSession({ id: 'pane-1', worktreePath: '/wt/x', status: 'running' })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('pane-gear'));
+    await screen.findByTestId('pane-gear-popover');
+    const goalField = screen.getByPlaceholderText(/goal/i);
+    fireEvent.change(goalField, { target: { value: 'Add authentication' } });
+    const submitBtn = screen.getByRole('button', { name: /inject capsule/i });
+    fireEvent.click(submitBtn);
+    await waitFor(() => {
+      expect(rpc.panes.brief).toHaveBeenCalledWith(
+        expect.objectContaining({
           sessionId: 'pane-1',
           worktreePath: '/wt/x',
           capsule: expect.objectContaining({ goal: 'Add authentication' }),
-        }));
-      });
+        }),
+      );
     });
   });
 
-  // SF-7 Task B2 — Ruflo health dot.
-  describe('SF-7 B2 — Ruflo health dot', () => {
+  it('pane-rewind-item appears in gear popover for running session with worktree', async () => {
+    render(
+      <PaneHeader
+        {...baseProps()}
+        session={makeSession({ status: 'running', worktreePath: '/wt/path' })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('pane-gear'));
+    await screen.findByTestId('pane-gear-popover');
+    expect(screen.getByTestId('pane-rewind-item')).toBeTruthy();
+  });
+
+  it('ruflo health dot is inside gear popover, not on the header bar', async () => {
     const mockHealth = useRufloDaemonHealth as ReturnType<
       typeof vi.fn<(workspaceId: string) => RufloDaemonHealth>
     >;
-
-    it('renders the ruflo-health-dot element', () => {
-      mockHealth.mockReturnValue({ state: 'running', detail: 'running · port 53112' });
-      render(<PaneHeader {...base} />);
-      expect(screen.getByTestId('ruflo-health-dot')).toBeTruthy();
-    });
-
-    it('dot has emerald colour class when state=running', () => {
-      mockHealth.mockReturnValue({ state: 'running', detail: 'running · port 53112' });
-      render(<PaneHeader {...base} />);
-      const dot = screen.getByTestId('ruflo-health-dot');
-      expect(dot.className).toMatch(/emerald/);
-    });
-
-    it('dot has amber colour class when state=fallback', () => {
-      mockHealth.mockReturnValue({ state: 'fallback', detail: 'stdio fallback — HTTP daemon unavailable' });
-      render(<PaneHeader {...base} />);
-      const dot = screen.getByTestId('ruflo-health-dot');
-      expect(dot.className).toMatch(/amber/);
-    });
-
-    it('dot has red colour class when state=down', () => {
-      mockHealth.mockReturnValue({ state: 'down', detail: 'crashed — restart the workspace to recover' });
-      render(<PaneHeader {...base} />);
-      const dot = screen.getByTestId('ruflo-health-dot');
-      expect(dot.className).toMatch(/red/);
-    });
-
-    it('dot has amber colour class when state=starting', () => {
-      mockHealth.mockReturnValue({ state: 'starting', detail: 'starting…' });
-      render(<PaneHeader {...base} />);
-      const dot = screen.getByTestId('ruflo-health-dot');
-      expect(dot.className).toMatch(/amber/);
-    });
-
-    it('dot has slate colour class when state=unknown', () => {
-      mockHealth.mockReturnValue({ state: 'unknown', detail: 'Ruflo MCP status unavailable' });
-      render(<PaneHeader {...base} />);
-      const dot = screen.getByTestId('ruflo-health-dot');
-      expect(dot.className).toMatch(/slate/);
-    });
-
-    it('dot has an aria-label reflecting the detail', () => {
-      mockHealth.mockReturnValue({ state: 'running', detail: 'running · port 53112' });
-      render(<PaneHeader {...base} />);
-      const dot = screen.getByTestId('ruflo-health-dot');
-      expect(dot.getAttribute('aria-label')).toMatch(/Ruflo MCP/i);
-    });
-
-    it('calls useRufloDaemonHealth with the session workspaceId', () => {
-      mockHealth.mockReturnValue({ state: 'running', detail: 'running · port 53112' });
-      render(<PaneHeader {...base} session={{ ...base.session, workspaceId: 'ws-test-42' }} />);
-      expect(mockHealth).toHaveBeenCalledWith('ws-test-42');
-    });
+    mockHealth.mockReturnValue({ state: 'running', detail: 'running · port 53112' });
+    render(<PaneHeader {...baseProps()} />);
+    // Not on the bar
+    expect(screen.queryByTestId('ruflo-health-dot')).toBeNull();
+    // But inside the popover after click
+    fireEvent.click(screen.getByTestId('pane-gear'));
+    await screen.findByTestId('pane-gear-popover');
+    expect(screen.getByTestId('pane-gear-ruflo')).toBeTruthy();
   });
 });

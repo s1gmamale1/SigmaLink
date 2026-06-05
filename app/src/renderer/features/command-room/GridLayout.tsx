@@ -31,6 +31,20 @@ import {
   type ReactNode,
 } from 'react';
 import { cn } from '@/lib/utils';
+import { rpc } from '@/renderer/lib/rpc';
+
+/** DEV-L2 — preserve proportions across a pane add/remove instead of resetting.
+ *  Shrink: slice (surviving tracks keep their fr). Grow: append the current
+ *  average so a new track is "average width". fr units are relative — no
+ *  renormalisation needed. */
+export function reshapeFracs(prev: number[], next: number): number[] {
+  if (next <= 0) return [];
+  if (prev.length === next) return prev;
+  if (prev.length === 0) return Array(next).fill(1);
+  if (next < prev.length) return prev.slice(0, next);
+  const avg = prev.reduce((a, b) => a + b, 0) / prev.length;
+  return [...prev, ...Array(next - prev.length).fill(avg)];
+}
 
 interface GridShape {
   cols: number;
@@ -69,6 +83,8 @@ interface Props<T> {
    * id that doesn't match any item is treated as if no item is focused.
    */
   focusedKey?: string | null;
+  /** DEV-L2 — when set, col/row fractions persist per (workspace,count) in KV. */
+  workspaceId?: string | null;
 }
 
 const MIN_FRAC = 0.15;
@@ -80,17 +96,66 @@ export function GridLayout<T>({
   activeIndex,
   onActiveChange,
   focusedKey = null,
+  workspaceId = null,
 }: Props<T>) {
   const { cols, rows } = useMemo(() => shapeFor(items.length), [items.length]);
   const [colFracs, setColFracs] = useState<number[]>(() => Array(cols).fill(1));
   const [rowFracs, setRowFracs] = useState<number[]>(() => Array(rows).fill(1));
+  const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Reset fracs synchronously when the grid shape changes. Comparing during
-  // render and calling setState avoids the react-hooks/set-state-in-effect
-  // anti-pattern; React will discard the just-set state and rerun render.
-  if (colFracs.length !== cols) setColFracs(Array(cols).fill(1));
-  if (rowFracs.length !== rows) setRowFracs(Array(rows).fill(1));
+  // DEV-L2 — preserve user proportions across shape change (was Array(n).fill(1)).
+  if (colFracs.length !== cols) setColFracs((prev) => reshapeFracs(prev, cols));
+  if (rowFracs.length !== rows) setRowFracs((prev) => reshapeFracs(prev, rows));
+
+  // DEV-L2 — KV keys (null when workspaceId is absent — sub-grids / tests).
+  const colKey = workspaceId ? `grid.fracs.${workspaceId}.${cols}.col` : null;
+  const rowKey = workspaceId ? `grid.fracs.${workspaceId}.${rows}.row` : null;
+
+  // DEV-L2 — load persisted fracs when (workspace, count) changes.
+  // setState from async (external source) — allowed; length-guarded.
+  useEffect(() => {
+    if (!colKey) return;
+    let alive = true;
+    void rpc.kv.get(colKey).then((raw: unknown) => {
+      if (!alive || !raw) return;
+      try {
+        const arr = JSON.parse(raw as string) as number[];
+        if (Array.isArray(arr) && arr.length === cols) setColFracs(arr);
+      } catch { /* ignore malformed */ }
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [colKey, cols]);
+
+  useEffect(() => {
+    if (!rowKey) return;
+    let alive = true;
+    void rpc.kv.get(rowKey).then((raw: unknown) => {
+      if (!alive || !raw) return;
+      try {
+        const arr = JSON.parse(raw as string) as number[];
+        if (Array.isArray(arr) && arr.length === rows) setRowFracs(arr);
+      } catch { /* ignore malformed */ }
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [rowKey, rows]);
+
+  // DEV-L2 — debounced persist on change (skips while dragging to avoid mid-drag churn).
+  useEffect(() => {
+    if (!colKey || isDragging) return;
+    const t = setTimeout(() => {
+      void rpc.kv.set(colKey, JSON.stringify(colFracs)).catch(() => undefined);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [colKey, colFracs, isDragging]);
+
+  useEffect(() => {
+    if (!rowKey || isDragging) return;
+    const t = setTimeout(() => {
+      void rpc.kv.set(rowKey, JSON.stringify(rowFracs)).catch(() => undefined);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [rowKey, rowFracs, isDragging]);
 
   // v1.4.2 packet-12 — derive the fullscreen state. We only "go fullscreen"
   // when the requested key matches one of the visible items; otherwise we
@@ -166,6 +231,8 @@ export function GridLayout<T>({
       // Signal Terminal.tsx to relax its ResizeObserver debounce while the
       // user is actively dragging. Cleared on pointerup below.
       document.body.dataset.dragging = 'true';
+      // DEV-L2 — suppress transition + KV save mid-drag.
+      setIsDragging(true);
 
       const move = (e: PointerEvent) => {
         const delta = (axis === 'x' ? e.clientX : e.clientY) - start;
@@ -197,6 +264,8 @@ export function GridLayout<T>({
           latest = null;
         }
         delete document.body.dataset.dragging;
+        // DEV-L2 — re-enable transition + allow KV save after drag ends.
+        setIsDragging(false);
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
@@ -239,7 +308,13 @@ export function GridLayout<T>({
   return (
     <div
       ref={containerRef}
-      className={cn('relative grid h-full w-full', densitySpacing)}
+      className={cn(
+        'relative grid h-full w-full',
+        densitySpacing,
+        // DEV-L2 — animate reflow when pane count changes; suppress during drag
+        // (keeps divider 1:1) and on reduced-motion devices.
+        !isDragging && 'transition-[grid-template-columns,grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
+      )}
       style={gridStyle}
       // P5.2 — RENAMED from `data-density` → `data-grid-density` so the new
       // user-controlled GLOBAL density (on <html data-density>) doesn't collide

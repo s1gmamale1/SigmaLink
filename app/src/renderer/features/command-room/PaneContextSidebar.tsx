@@ -30,6 +30,7 @@ import {
   useRufloDaemonHealth,
   type RufloDaemonState,
 } from './useRufloDaemonHealth';
+import { derivePaneIdentity } from './pane-identity';
 import type { AgentSession, UsageSummary } from '@/shared/types';
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -105,6 +106,37 @@ function formatCost(usd: number | null): string {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+// C1 — Identity section: agent alias, provider, model+effort, branch.
+// Mounted first in the sidebar so it is the primary metadata surface when
+// the pane is fullscreen. Fed by derivePaneIdentity (anti-drift shared source).
+function IdentitySection({ session }: { session: AgentSession }) {
+  const id = derivePaneIdentity(session);
+  const headingId = useId();
+  return (
+    <section aria-labelledby={headingId} data-testid="pane-context-identity-section">
+      <h3
+        id={headingId}
+        className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70"
+      >
+        Identity
+      </h3>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+        <dt className="text-muted-foreground/70">agent</dt>
+        <dd className="font-medium">
+          {id.alias}{' '}
+          <span className="opacity-60">{id.agentId}</span>
+        </dd>
+        <dt className="text-muted-foreground/70">provider</dt>
+        <dd>{id.providerName}</dd>
+        <dt className="text-muted-foreground/70">model</dt>
+        <dd className="truncate">{id.modelLabel} · {id.effortLabel}</dd>
+        <dt className="text-muted-foreground/70">branch</dt>
+        <dd className="truncate">{id.branch}</dd>
+      </dl>
+    </section>
+  );
+}
 
 function McpSection({ workspaceId }: { workspaceId: string }) {
   const health = useRufloDaemonHealth(workspaceId);
@@ -255,6 +287,9 @@ export function PaneContextSidebar({ session, open }: PaneContextSidebarProps) {
         .filter(Boolean)
         .join(' ')}
     >
+      <IdentitySection session={session} />
+      {/* Divider */}
+      <div className="h-px bg-border/40" aria-hidden="true" />
       <McpSection workspaceId={session.workspaceId} />
       {/* Divider */}
       <div className="h-px bg-border/40" aria-hidden="true" />

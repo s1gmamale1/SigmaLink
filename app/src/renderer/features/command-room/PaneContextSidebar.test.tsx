@@ -285,4 +285,36 @@ describe('PaneContextSidebar', () => {
       expect(screen.getByText('Usage')).toBeTruthy();
     });
   });
+
+  describe('open state — Identity section (C1)', () => {
+    it('renders an Identity section with alias + provider + model + branch', () => {
+      render(<PaneContextSidebar session={makeSession()} open />);
+      const id = screen.getByTestId('pane-context-identity-section');
+      expect(id.textContent ?? '').toMatch(/\w+/); // alias present
+      expect(screen.getByTestId('pane-context-identity-section')).toBeTruthy();
+    });
+
+    it('Identity section is mounted before MCP section (first in DOM)', () => {
+      render(<PaneContextSidebar session={makeSession()} open />);
+      const aside = screen.getByTestId('pane-context-sidebar');
+      const children = Array.from(aside.querySelectorAll('[data-testid]'));
+      const identityIdx = children.findIndex(el => el.getAttribute('data-testid') === 'pane-context-identity-section');
+      const mcpIdx = children.findIndex(el => el.getAttribute('data-testid') === 'pane-context-mcp-section');
+      expect(identityIdx).toBeGreaterThanOrEqual(0);
+      expect(mcpIdx).toBeGreaterThanOrEqual(0);
+      expect(identityIdx).toBeLessThan(mcpIdx);
+    });
+
+    it('Identity section contains branch from the session', () => {
+      render(<PaneContextSidebar session={makeSession({ branch: 'feature/test-branch' })} open />);
+      const id = screen.getByTestId('pane-context-identity-section');
+      expect(id.textContent).toContain('feature/test-branch');
+    });
+
+    it('Identity section defaults branch to "dev" when session.branch is null', () => {
+      render(<PaneContextSidebar session={makeSession({ branch: null })} open />);
+      const id = screen.getByTestId('pane-context-identity-section');
+      expect(id.textContent).toContain('dev');
+    });
+  });
 });

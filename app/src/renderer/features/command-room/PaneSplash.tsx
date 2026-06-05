@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import { findProvider } from '@/shared/providers';
 import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
+import { derivePaneIdentity } from './pane-identity';
 import type { AgentSession } from '@/shared/types';
 
 // Inline default-model labels per provider. Mirrors `MODEL_OPTIONS` in
@@ -60,9 +61,19 @@ export function PaneSplash({ session }: Props) {
   const modelLabel = DEFAULT_MODEL_LABEL[session.providerId];
   const cwd = session.cwd;
 
+  // C2 — derive identity for the idle meta line (BSP body-at-idle).
+  const identity = derivePaneIdentity(session);
+
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-start overflow-hidden bg-card/95 px-4 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+    <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-start justify-start overflow-hidden bg-card/95 px-4 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
       {renderSplash(session.providerId, provider?.name ?? session.providerId, modelLabel, cwd, provider?.color)}
+      {/* C2 — quiet idle meta line: model · effort · cwd (BridgeSpace body-at-idle) */}
+      <div
+        data-testid="pane-splash-meta"
+        className="mt-3 text-[11px] text-muted-foreground/60"
+      >
+        {identity.modelLabel} · {identity.effortLabel} · {identity.cwd}
+      </div>
     </div>
   );
 }
