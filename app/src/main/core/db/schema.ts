@@ -27,7 +27,10 @@ export const workspaces = sqliteTable(
       .default(sql`(unixepoch() * 1000)`),
   },
   (t) => ({
-    rootIdx: uniqueIndex('workspaces_root_idx').on(t.rootPath),
+    // DEV-W3a (migration 0034): unique constraint dropped so >1 workspace can
+    // share a directory (disambiguated by custom name — DEV-W2). A non-unique
+    // index keeps rootPath lookups fast.
+    rootLookupIdx: index('workspaces_root_lookup_idx').on(t.rootPath),
   }),
 );
 

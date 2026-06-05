@@ -346,6 +346,9 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   // H-8 — handler is `remove(id: string)`; first arg is the workspace id
   // (matches the 200-char bound used by OpenWorkspacesChangedEventSchema).
   'workspaces.remove': { input: z.string().min(1).max(200), output: any },
+  // DEV-W3a — force-open a DISTINCT workspace on a dir (never reuses existing).
+  // Input shape mirrors workspaces.open (a bare path string).
+  'workspaces.openNew': { input: PATH_STR, output: any },
   // H-8 — handler is `launch(plan: LaunchPlan)`. LaunchPlan is a deeply nested
   // shape (`panes: PaneAssignment[]`, optional resume plan); modelling it here
   // risks rejecting valid payloads, so it intentionally stays `stub`. See the
@@ -373,6 +376,23 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   },
   // H-8 — handler is `worktreeRemove(worktreePath: string)`; first arg is the path.
   'git.worktreeRemove': { input: PATH_STR, output: any },
+  // BSP-G1 — create a new worktree from a repo root with an optional branch hint and base ref.
+  'git.worktreeCreate': {
+    input: z.object({
+      repoRoot: PATH_STR,
+      hint: z.string().min(1).max(256).optional(),
+      base: z.string().min(1).max(512).optional(),
+    }),
+    output: any,
+  },
+  // BSP-G3 — CWD-swap an IDLE pane to an existing worktree.
+  'git.openInPane': {
+    input: z.object({
+      sessionId: z.string().min(1).max(200),
+      worktreePath: PATH_STR,
+    }),
+    output: any,
+  },
   // P6 FEAT-11 — agent undo/rewind. The renderer passes a sessionId (NOT a
   // path); the controller resolves the worktree server-side. `sha` is a git
   // object id — bound to a generous max so a malformed payload can't smuggle an

@@ -270,6 +270,8 @@ export interface AppRouter {
     rename: (input: { id: string; name: string }) => Promise<Workspace>;
     remove: (id: string) => Promise<void>;
     launch: (plan: LaunchPlan) => Promise<{ sessions: AgentSession[] }>;
+    /** DEV-W3a — force-open a DISTINCT workspace on a dir (never reuses an existing one). */
+    openNew: (root: string) => Promise<Workspace>;
   };
   git: {
     status: (cwd: string) => Promise<GitStatus | null>;
@@ -282,6 +284,10 @@ export interface AppRouter {
       message: string;
     }) => Promise<{ stdout: string; stderr: string; code: number }>;
     worktreeRemove: (worktreePath: string) => Promise<void>;
+    /** BSP-G1 — create a new worktree from a repo root with an optional branch hint and base ref. */
+    worktreeCreate: (input: { repoRoot: string; hint?: string; base?: string }) => Promise<{ worktreePath: string; branch: string }>;
+    /** BSP-G3 — CWD-swap an IDLE pane to an existing worktree (disabled when session is running). */
+    openInPane: (input: { sessionId: string; worktreePath: string }) => Promise<{ ok: boolean }>;
     // P6 FEAT-11 — agent undo/rewind via per-pane worktree git checkpoints.
     // The controller resolves sessionId→worktreePath server-side; the renderer
     // never passes a filesystem path.
