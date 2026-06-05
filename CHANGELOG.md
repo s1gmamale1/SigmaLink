@@ -21,6 +21,10 @@ The Jorvis assistant feels premium: a live reply reveals smoothly with a caret, 
 
 **Follow-up → `WISHLIST.md`:** add a `turnId` to the `ToolTrace` payload to make per-turn chip scoping airtight against a late/out-of-order trace.
 
+### Fixed — benign ResizeObserver warning shown as a fatal error toast (ERR-1 / CRIT-fU-B, 2026-06-05, `6782992`)
+
+The global renderer error sink surfaced Chromium's harmless `ResizeObserver loop completed with undelivered notifications` warning (which the browser dispatches as a `window` `error` event) as a red "Unexpected error: …" toast. Extracted the inline sink from `main.tsx` to a testable `app/src/global-error-sink.ts` that filters the ResizeObserver loop warnings to `console.debug` (never toast); genuine errors, unhandled promise rejections, and the burst-dedup window are unchanged. 14-test regression suite. Closes the long-deferred Phase-0 "ResizeObserver-toast filter" item.
+
 ### Added / Changed — Phase 2: OPT perf pass + in-place worktree mode + observability (2026-06-05, `e11b1f2`…`4d00d92`)
 
 The steady-state CPU/disk-footprint pass plus an opt-out of worktrees. Shipped across **three file-disjoint worktree lanes** (TDD per item, Opus adversarial review on the correctness-critical lane), cherry-picked onto `main` and re-gated there (`tsc -b` · vitest **2803** · build · full `tests/e2e/`). A read-only recon fleet first found that **PERF-1 (`pty:data` coalescing), PERF-5 (refcounted Ruflo-health poller), and PERF-6/16 (refcounted + visibility-gated git-status polling) were already shipped** — verified in code and excluded, not rebuilt (the same "recon-first reveals already-built" pattern as the v2.0.0 cycle). Plan: `docs/superpowers/plans/2026-06-05-phase2-opt-perf-inplace-observability.md`.
