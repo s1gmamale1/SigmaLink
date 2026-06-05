@@ -185,16 +185,25 @@ export async function sweepAllReposOnBoot(
     }
   }
 
-  if (total.removed > 0 || total.errors > 0) {
-    // Constant format string + numeric args → no externally-controlled values.
-    console.info(
-      '[worktree-cleanup] boot-sweep repos=%d removed=%d kept=%d errors=%d',
-      total.repos,
-      total.removed,
-      total.kept,
-      total.errors,
-    );
+  // C7 obs — always emit a boot-sweep log with free-disk baseline so a future
+  // disk runaway leaves a clear breadcrumb even on clean (0-removed) boots.
+  let freeGiB = NaN;
+  try {
+    if (typeof fs.statfs === 'function') {
+      const s = await fs.statfs(worktreeBase);
+      freeGiB = (s.bavail * s.bsize) / (1024 ** 3);
+    }
+  } catch {
+    /* non-fatal — freeGiB stays NaN */
   }
+  console.info(
+    '[worktree-cleanup] boot-sweep repos=%d removed=%d kept=%d errors=%d freeGiB=%.2f',
+    total.repos,
+    total.removed,
+    total.kept,
+    total.errors,
+    freeGiB,
+  );
 
   return total;
 }

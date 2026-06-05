@@ -12,11 +12,13 @@ import { cleanupOrphanWorktrees, sweepAllReposOnBoot } from './worktree-cleanup'
 
 const readdirMock = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 const rmMock = vi.fn<(...args: unknown[]) => Promise<void>>();
+const statfsMock = vi.fn<(...args: unknown[]) => Promise<{ bavail: number; bsize: number }>>();
 
 vi.mock('node:fs', () => ({
   promises: {
     readdir: (...args: unknown[]) => readdirMock(...args),
     rm: (...args: unknown[]) => rmMock(...args),
+    statfs: (...args: unknown[]) => statfsMock(...args),
   },
 }));
 
@@ -109,6 +111,8 @@ afterEach(() => {
 
 beforeEach(() => {
   rmMock.mockResolvedValue(undefined);
+  // C7: default statfs returns a non-NaN free-disk value (100 GiB).
+  statfsMock.mockResolvedValue({ bavail: 100 * 1024, bsize: 1024 * 1024 });
 });
 
 describe('cleanupOrphanWorktrees', () => {
@@ -428,5 +432,30 @@ describe('sweepAllReposOnBoot', () => {
     const db = makeDb([]);
     const result = await sweepAllReposOnBoot(BASE, db);
     expect(result).toEqual({ repos: 0, removed: 0, kept: 0, errors: 0 });
+  });
+
+  // C7 obs — boot-sweep must emit the structured log even on a clean (0-removed) sweep
+  it('C7: always emits console.info with [worktree-cleanup] boot-sweep prefix even on clean sweep', async () => {
+    wireReaddir(BASE, [], {});
+    const db = makeDb([]);
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      await sweepAllReposOnBoot(BASE, db);
+      const bootCalls = infoSpy.mock.calls.filter(
+        (c) => typeof c[0] === 'string' && c[0].includes('[worktree-cleanup] boot-sweep'),
+      );
+      expect(bootCalls.length).toBeGreaterThanOrEqual(1);
+      // repos=0, removed=0, kept=0, errors=0 on an empty base
+      const call = bootCalls[0]!;
+      expect(call[1]).toBe(0); // repos
+      expect(call[2]).toBe(0); // removed
+      expect(call[3]).toBe(0); // kept
+      expect(call[4]).toBe(0); // errors
+      // freeGiB should be numeric (statfsMock returns 100 * 1024 * 1024 * 1024 bytes free)
+      expect(typeof call[5]).toBe('number');
+      expect(isNaN(call[5] as number)).toBe(false);
+    } finally {
+      infoSpy.mockRestore();
+    }
   });
 });
