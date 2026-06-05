@@ -14,6 +14,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:perf": "PERF=1 playwright test --project=perf",
+    "test:smoke:crash": "SMOKE_CRASH=1 playwright test tests/e2e/crash-recovery.smoke.spec.ts",
     "coverage": "vitest run --coverage",
     "preview": "vite preview",
     "electron:dev": "npm run build && npm run electron:compile && electron electron-dist/main.js",
