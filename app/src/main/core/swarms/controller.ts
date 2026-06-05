@@ -46,6 +46,14 @@ export interface SwarmControllerDeps {
   worktreePool: WorktreePool;
   mailbox: SwarmMailbox;
   userDataDir: string;
+  /**
+   * C6 obs — optional notifications sink for disk-guard alerts. Threaded into
+   * every SwarmFactoryDeps the controller rebuilds (create / addAgent /
+   * splitPane) so a WorktreeDiskGuardError fires a critical operator
+   * notification instead of an invisible console.warn. Optional so unit tests
+   * that don't care about alerting can omit it.
+   */
+  notifications?: { add: (input: import('../notifications/manager').AddInput) => unknown };
 }
 
 export function buildSwarmController(deps: SwarmControllerDeps) {
@@ -56,6 +64,7 @@ export function buildSwarmController(deps: SwarmControllerDeps) {
         worktreePool: deps.worktreePool,
         mailbox: deps.mailbox,
         userDataDir: deps.userDataDir,
+        notifications: deps.notifications,
       });
     },
     addAgent: async (input: AddAgentToSwarmInput): Promise<AddAgentToSwarmResult> => {
@@ -64,6 +73,7 @@ export function buildSwarmController(deps: SwarmControllerDeps) {
         worktreePool: deps.worktreePool,
         mailbox: deps.mailbox,
         userDataDir: deps.userDataDir,
+        notifications: deps.notifications,
       });
     },
     list: async (workspaceId: string): Promise<Swarm[]> => {
@@ -228,6 +238,7 @@ export function buildSwarmController(deps: SwarmControllerDeps) {
           worktreePool: deps.worktreePool,
           mailbox: deps.mailbox,
           userDataDir: deps.userDataDir,
+          notifications: deps.notifications,
         },
       );
 

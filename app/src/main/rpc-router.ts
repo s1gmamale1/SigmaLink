@@ -1383,6 +1383,11 @@ async function buildRouter() {
       const out = await executeLaunchPlan(plan, {
         pty,
         worktreePool,
+        // C6 obs (HIGH fix) — supply the live notifications sink so a
+        // disk-floor/cap refusal during launch fires a CRITICAL alert the
+        // operator can actually see in a packaged app (console.warn is invisible
+        // there). Without this thread, the disk-guard notification is a no-op.
+        notifications: notificationsManager,
         // crash-classification IPC — fan out pty:error to all renderer windows
         // when an exit is classified as a crash (earlyDeath OR non-zero exitCode/signal).
         broadcastPtyError: (payload) => broadcast('pty:error', payload),
@@ -1495,6 +1500,11 @@ async function buildRouter() {
     worktreePool,
     mailbox,
     userDataDir: userData,
+    // C6 obs (HIGH fix) — the swarm spawn paths (createSwarm /
+    // materializeRosterAgent / addAgentToSwarm / splitPane) all surface a
+    // disk-guard refusal as a CRITICAL notification; thread the live sink so
+    // that alert reaches the operator instead of being a console-only no-op.
+    notifications: notificationsManager,
   });
 
   // C-12 SigmaBench — conflict benchmark side-band. Reuses the SAME swarm

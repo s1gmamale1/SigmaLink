@@ -28,6 +28,7 @@ import {
 } from '@/test-utils/db-fake';
 import { buildSwarmController } from './controller';
 import { findPaneById, getPaneSplitGroup } from './split-dao';
+import { WorktreeDiskGuardError } from '../git/worktree';
 
 let fake: DbFake;
 let spawnCallSeq = 0;
@@ -284,5 +285,97 @@ describe('split group integration', () => {
     expect(group.map((p) => p.id).sort()).toEqual(
       [parentSessionId, session.id].sort(),
     );
+  });
+});
+
+// ── C6 obs (HIGH fix) — controller threads the notifications sink end-to-end ──
+//
+// The disk-guard catch in the spawn paths is only useful if the PROD wiring
+// actually supplies a `notifications` sink. The existing factory/spawn tests
+// inject the sink DIRECTLY, so they can't catch a regression where the
+// controller (or the router) stops threading it. These tests build the
+// controller exactly as rpc-router does — `buildSwarmController({ ...,
+// notifications })` — and prove the sink reaches the disk-guard catch through
+// the controller → SwarmFactoryDeps → addAgentToSwarm chain. If the
+// `notifications: deps.notifications` thread in controller.ts is removed, these
+// go red.
+describe('controller notifications threading — C6 disk-guard reaches the sink', () => {
+  function seedGitSwarmForAddAgent(): void {
+    seedWorkspace(fake, {
+      id: 'ws-1',
+      name: 'ws-1',
+      rootPath: '/tmp/ws-1',
+      repoMode: 'git',
+      repoRoot: '/tmp/repo-1',
+    });
+    seedSwarm(fake, {
+      id: 'swarm-1',
+      workspaceId: 'ws-1',
+      name: 'Build',
+      mission: 'test',
+      preset: 'custom',
+      status: 'running',
+    });
+  }
+
+  it('addAgent: a disk-guard refusal fires the threaded notifications.add (critical)', async () => {
+    seedGitSwarmForAddAgent();
+
+    const deps = makeDeps();
+    // Git gate reaches worktreePool.create; refuse on the disk floor.
+    (deps.worktreePool.create as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new WorktreeDiskGuardError('DISK_FLOOR', 'disk floor reached: 0.5 GB free < 2 GB'),
+    );
+
+    const notificationsAdd = vi.fn();
+    // Build the controller the SAME way rpc-router does: with a notifications sink.
+    const ctl = buildSwarmController({
+      ...deps,
+      notifications: { add: notificationsAdd },
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(
+      ctl.addAgent({ swarmId: 'swarm-1', providerId: 'shell' }),
+    ).rejects.toThrow(/disk floor/);
+
+    // The sink supplied to the controller reached the spawn-path catch.
+    expect(notificationsAdd).toHaveBeenCalledOnce();
+    const addArg = notificationsAdd.mock.calls[0]![0] as {
+      severity: string;
+      kind: string;
+      dedupKey: string;
+    };
+    expect(addArg.severity).toBe('critical');
+    expect(addArg.kind).toBe('disk-guard');
+    expect(addArg.dedupKey).toBe('disk-guard:DISK_FLOOR');
+
+    warnSpy.mockRestore();
+  });
+
+  it('addAgent: omitting the sink is safe (no throw beyond the spawn error)', async () => {
+    seedGitSwarmForAddAgent();
+
+    const deps = makeDeps();
+    (deps.worktreePool.create as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new WorktreeDiskGuardError('WORKTREE_CAP', 'worktree cap reached: 40/40'),
+    );
+
+    // No notifications sink — the catch must guard the optional call (`?.`).
+    const ctl = buildSwarmController(deps);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(
+      ctl.addAgent({ swarmId: 'swarm-1', providerId: 'shell' }),
+    ).rejects.toThrow(/worktree cap/);
+
+    // Still logged for the dev console even without a sink.
+    const warnCalls = warnSpy.mock.calls.map((c) => c.join(' '));
+    expect(
+      warnCalls.find((s) => s.includes('disk-guard')),
+    ).toBeDefined();
+
+    warnSpy.mockRestore();
   });
 });
