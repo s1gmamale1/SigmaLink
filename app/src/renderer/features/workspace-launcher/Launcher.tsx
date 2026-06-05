@@ -265,6 +265,15 @@ export function WorkspaceLauncher() {
   // N1 — the mode-filtered, ordered step list the Stepper + StepNav navigate.
   const visibleSteps = useMemo(() => stepsForMode(mode), [mode]);
 
+  // SMK-2 — stable array identity so SessionStep's [rows]-dep effect only fires
+  // when the pane layout actually changes, not on every unrelated re-render.
+  // Without this, the effect calls setPaneResumePlan → parent re-renders →
+  // new rows identity → effect refires → "Maximum update depth exceeded".
+  const paneRows = useMemo(
+    () => buildPaneRows(counts, skipAgents, preset),
+    [counts, skipAgents, preset],
+  );
+
   async function pickFolder(): Promise<void> {
     const r = await rpc.workspaces.pickFolder();
     if (!r) return;
@@ -561,7 +570,7 @@ export function WorkspaceLauncher() {
           ) : null}
           {step === 'sessions' ? (
             <SessionStep
-              rows={buildPaneRows(counts, skipAgents, preset)}
+              rows={paneRows}
               cwd={selectedWorkspace?.rootPath ?? ''}
               workspaceId={selectedWorkspace?.id}
               selections={paneResumePlan}

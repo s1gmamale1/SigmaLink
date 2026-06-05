@@ -287,7 +287,7 @@ export function buildDesignController(deps: DesignControllerDeps) {
           pageUrl: input.capture?.pageUrl,
         });
         const writeFn = deps.ptyWrite ?? ((sid, data) => deps.pty.write(sid, data));
-        await writeFn(input.targetSessionId, text + '\r');
+        await writeFn(input.targetSessionId, text + '\n'); // was '\r' — '\r' auto-submits (DEV-1)
         return { routedTo: input.targetSessionId };
       }
 

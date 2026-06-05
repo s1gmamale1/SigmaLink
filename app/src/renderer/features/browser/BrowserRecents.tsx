@@ -20,6 +20,8 @@ interface Props {
   workspaceId: string;
   tabs: BrowserTab[];
   activeTabId: string | null;
+  /** DEV-2 — recently-closed tabs from the server (soft-deleted rows). */
+  closedRecents?: Array<{ url: string; title: string; lastVisitedAt: number }>;
   /** When `false` we render a disabled-looking strip but still draw the chrome. */
   disabled?: boolean;
   /**
@@ -49,11 +51,19 @@ function originOf(url: string): string | null {
   }
 }
 
-function buildRecents(tabs: BrowserTab[]): OriginEntry[] {
+function buildRecents(
+  tabs: BrowserTab[],
+  closedRecents: Array<{ url: string; title: string; lastVisitedAt: number }> = [],
+): OriginEntry[] {
   const byOrigin = new Map<string, OriginEntry>();
-  // Most-recent-first traversal so the first sighting of an origin wins.
-  const sorted = [...tabs].sort((a, b) => b.lastVisitedAt - a.lastVisitedAt);
-  for (const t of sorted) {
+
+  // Merge open tabs + closed recents, most-recent first, deduped by origin.
+  const allEntries: Array<{ url: string; lastVisitedAt: number }> = [
+    ...tabs,
+    ...closedRecents,
+  ].sort((a, b) => b.lastVisitedAt - a.lastVisitedAt);
+
+  for (const t of allEntries) {
     const origin = originOf(t.url);
     if (!origin) continue;
     if (byOrigin.has(origin)) continue;
@@ -76,8 +86,8 @@ function shortLabel(origin: string): string {
   }
 }
 
-function BrowserRecentsInner({ workspaceId, tabs, activeTabId, disabled, compact }: Props) {
-  const recents = useMemo(() => buildRecents(tabs), [tabs]);
+function BrowserRecentsInner({ workspaceId, tabs, closedRecents, activeTabId, disabled, compact }: Props) {
+  const recents = useMemo(() => buildRecents(tabs, closedRecents), [tabs, closedRecents]);
 
   const onClick = (entry: OriginEntry) => {
     if (disabled || !activeTabId) return;
@@ -142,11 +152,13 @@ function recentsInputsEqual(a: BrowserTab[], b: BrowserTab[]): boolean {
 }
 
 export const BrowserRecents = memo(BrowserRecentsInner, (prev, next) => {
+  // DEV-2: also check closedRecents reference for memo correctness.
   return (
     prev.workspaceId === next.workspaceId &&
     prev.activeTabId === next.activeTabId &&
     prev.disabled === next.disabled &&
     prev.compact === next.compact &&
+    prev.closedRecents === next.closedRecents &&
     recentsInputsEqual(prev.tabs, next.tabs)
   );
 });

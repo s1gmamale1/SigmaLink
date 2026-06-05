@@ -44,6 +44,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
       reload: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined),
       releaseDriver: vi.fn().mockResolvedValue(undefined),
+      listRecents: vi.fn().mockResolvedValue([]),
     },
   },
 }));
@@ -284,5 +285,47 @@ describe('<BrowserRoom /> — EmptyState (v1.4.8 sub-task A)', () => {
 
     // openTab should NOT have been called automatically — only the user CTA triggers it.
     expect(mockOpenTab).not.toHaveBeenCalled();
+  });
+});
+
+describe('<BrowserRoom /> — DEV-3: URL input bootstraps first tab', () => {
+  // Re-mock AddressBar in this suite so it exposes onNavigate via a testable button
+  // that is NEVER disabled (the URL input must always be enabled — DEV-3).
+  beforeEach(() => {
+    vi.doMock('./AddressBar', () => ({
+      AddressBar: ({ onNavigate }: { onNavigate: (url: string) => void; disabled?: boolean }) => (
+        <div data-testid="address-bar">
+          {/* URL input is always enabled — nav buttons gate on disabled, not this */}
+          <button
+            data-testid="addr-go"
+            onClick={() => onNavigate('https://example.com')}
+          >
+            Go
+          </button>
+        </div>
+      ),
+    }));
+  });
+
+  it('typing a URL with no open tab calls rpc.browser.openTab (DEV-3)', async () => {
+    mockActiveWorkspace = makeWorkspace();
+    // No tabs open — no activeTabId.
+    mockBrowserSlice = makeBrowserSlice({ tabs: [], activeTabId: null });
+
+    // Re-import after doMock so the fresh module picks up the new AddressBar mock.
+    vi.resetModules();
+    const { BrowserRoom: Room } = await import('./BrowserRoom');
+
+    render(<Room />);
+
+    // The address-bar go button must be visible (address bar always rendered when ws is set).
+    const goBtn = await screen.findByTestId('addr-go');
+    fireEvent.click(goBtn);
+
+    await vi.waitFor(() => {
+      expect(mockOpenTab).toHaveBeenCalledWith(
+        expect.objectContaining({ url: expect.stringContaining('example.com') }),
+      );
+    });
   });
 });

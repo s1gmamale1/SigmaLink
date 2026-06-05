@@ -37,10 +37,13 @@ import { cn } from '@/lib/utils';
 import type { SkillProviderId, SkillProviderState } from '@/shared/types';
 import { GUARDRAILS } from '@/shared/guardrails';
 
+// SMK-3: widened to match discovery.ts InstalledSkillEntry (all providers).
 interface InstalledSkillEntry {
   name: string;
   description: string;
-  source: 'superpowers' | 'ruflo' | 'custom';
+  source: 'superpowers' | 'ruflo' | 'claude-plugin' | 'claude' | 'claude-cmd' | 'codex' | 'gemini' | 'custom';
+  provider: 'claude' | 'codex' | 'gemini' | 'unknown';
+  prefix: '/' | '$';
 }
 
 /** W-5 Phase 3 — display labels for each slash-capable provider. */
@@ -67,9 +70,15 @@ export interface SkillDragPayload {
 /** MIME type used for skill drag-drop. Matches the check in SkillDropTarget. */
 export const SKILL_DRAG_MIME = 'application/sigmalink-skill';
 
+// SMK-3: extended to cover all provider sources returned by discovery.ts.
 const SOURCE_BADGE: Record<InstalledSkillEntry['source'], string> = {
   superpowers: 'bg-violet-500/15 text-violet-300 border border-violet-500/30',
   ruflo: 'bg-sky-500/15 text-sky-300 border border-sky-500/30',
+  'claude-plugin': 'bg-orange-500/15 text-orange-300 border border-orange-500/30',
+  claude: 'bg-orange-500/15 text-orange-300 border border-orange-500/30',
+  'claude-cmd': 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
+  codex: 'bg-green-500/15 text-green-300 border border-green-500/30',
+  gemini: 'bg-blue-500/15 text-blue-300 border border-blue-500/30',
   custom: 'bg-muted text-muted-foreground border border-border',
 };
 

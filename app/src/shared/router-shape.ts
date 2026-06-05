@@ -380,6 +380,8 @@ export interface AppRouter {
     getState: (workspaceId: string) => Promise<BrowserState>;
     claimDriver: (input: { workspaceId: string; agentKey: string; label?: string }) => Promise<void>;
     releaseDriver: (input: { workspaceId: string }) => Promise<void>;
+    /** DEV-2 — recently-closed tab entries (soft-deleted) for the Recents panel. */
+    listRecents: (input: { workspaceId: string; limit?: number }) => Promise<Array<{ url: string; title: string; lastVisitedAt: number }>>;
 
     teardown: (workspaceId: string) => Promise<void>;
   };
@@ -437,12 +439,15 @@ export interface AppRouter {
         message: string;
       }>;
     }>;
-    /** v1.6.1 B3 — Discover superpowers + Ruflo skills from the on-disk plugin
-     *  cache. Returns an empty array if no cache directories are present. */
+    /** SMK-3 — Discover skills from ALL providers (claude plugins manifest,
+     *  claude user skills, codex, gemini, claude commands). Returns an empty
+     *  array if nothing is installed. */
     listInstalled: () => Promise<Array<{
       name: string;
       description: string;
-      source: 'superpowers' | 'ruflo' | 'custom';
+      source: 'superpowers' | 'ruflo' | 'claude-plugin' | 'claude' | 'claude-cmd' | 'codex' | 'gemini' | 'custom';
+      provider: 'claude' | 'codex' | 'gemini' | 'unknown';
+      prefix: '/' | '$';
     }>>;
     /**
      * v1.7.1 W-5 Skills Phase 2 — Attach a skill to a workspace or pane

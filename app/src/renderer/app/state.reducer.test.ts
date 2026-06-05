@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest';
 
 import { appStateReducer } from './state.reducer';
 import { initialAppState, type AppState } from './state.types';
-import type { AgentSession, Memory, Notification, Task } from '../../shared/types';
+import type { AgentSession, Memory, Notification, Task, Workspace } from '../../shared/types';
 
 // ─── factories ──────────────────────────────────────────────────────────────
 
@@ -368,5 +368,60 @@ describe('ONB-1 — SET_SETTINGS_TAB stages a Settings tab', () => {
     const staged: AppState = { ...initialAppState, pendingSettingsTab: 'voice' };
     const after = appStateReducer(staged, { type: 'SET_SETTINGS_TAB', tab: 'voice' });
     expect(after).toBe(staged);
+  });
+});
+
+// ─── DEV-4 — SET_ACTIVE_WORKSPACE_ID must not reorder the rail ───────────────
+
+function makeWorkspace(id: string): Workspace {
+  return {
+    id,
+    name: `Workspace ${id}`,
+    rootPath: `/tmp/${id}`,
+    repoRoot: null,
+    repoMode: 'plain',
+    createdAt: 0,
+    lastOpenedAt: 0,
+  };
+}
+
+function makeStateWithOpen(ids: string[], activeId: string): AppState {
+  const workspaces = ids.map(makeWorkspace);
+  return {
+    ...initialAppState,
+    workspaces,
+    openWorkspaces: workspaces,
+    activeWorkspaceId: activeId,
+    activeWorkspace: workspaces.find((w) => w.id === activeId) ?? null,
+  };
+}
+
+describe('SET_ACTIVE_WORKSPACE_ID (DEV-4)', () => {
+  it('activates a workspace without moving it to the front of the rail', () => {
+    const before = makeStateWithOpen(['wsA', 'wsB', 'wsC'], 'wsA');
+    const after = appStateReducer(before, { type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: 'wsC' });
+    expect(after.activeWorkspaceId).toBe('wsC');
+    // Order MUST be unchanged — wsC stays in position 2, not hoisted to 0.
+    expect(after.openWorkspaces.map((w) => w.id)).toEqual(['wsA', 'wsB', 'wsC']);
+  });
+
+  it('keeps position when activating the currently active workspace (idempotent)', () => {
+    const before = makeStateWithOpen(['wsA', 'wsB', 'wsC'], 'wsB');
+    const after = appStateReducer(before, { type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: 'wsB' });
+    expect(after.activeWorkspaceId).toBe('wsB');
+    expect(after.openWorkspaces.map((w) => w.id)).toEqual(['wsA', 'wsB', 'wsC']);
+  });
+
+  it('still updates activeWorkspaceId when activating the first workspace', () => {
+    const before = makeStateWithOpen(['wsA', 'wsB', 'wsC'], 'wsC');
+    const after = appStateReducer(before, { type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: 'wsA' });
+    expect(after.activeWorkspaceId).toBe('wsA');
+    expect(after.openWorkspaces.map((w) => w.id)).toEqual(['wsA', 'wsB', 'wsC']);
+  });
+
+  it('returns unchanged state when workspaceId is not in openWorkspaces', () => {
+    const before = makeStateWithOpen(['wsA', 'wsB'], 'wsA');
+    const after = appStateReducer(before, { type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: 'wsUnknown' });
+    expect(after).toBe(before);
   });
 });

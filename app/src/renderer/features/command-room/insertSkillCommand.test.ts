@@ -49,64 +49,84 @@ describe('insertSkillCommand', () => {
   });
 
   it('writes "/<name> " (trailing space, no newline) when session is running', async () => {
-    await insertSkillCommand('session-abc', 'code-review', 'running');
+    await insertSkillCommand('session-abc', 'code-review', 'running', 'claude');
 
     expect(ptyWriteMock).toHaveBeenCalledOnce();
     expect(ptyWriteMock).toHaveBeenCalledWith('session-abc', '/code-review ');
   });
 
+  it('writes a /name for claude', async () => {
+    await insertSkillCommand('s1', 'code-review', 'running', 'claude');
+    expect(ptyWriteMock).toHaveBeenCalledWith('s1', '/code-review ');
+  });
+
+  it('writes a $name for codex (SMK-3b)', async () => {
+    await insertSkillCommand('s1', 'code-review', 'running', 'codex');
+    expect(ptyWriteMock).toHaveBeenCalledWith('s1', '$code-review ');
+  });
+
+  it('defaults to / for gemini', async () => {
+    await insertSkillCommand('s1', 'code-review', 'running', 'gemini');
+    expect(ptyWriteMock).toHaveBeenCalledWith('s1', '/code-review ');
+  });
+
   it('includes the trailing space even for single-word skill names', async () => {
-    await insertSkillCommand('s1', 'debug', 'running');
+    await insertSkillCommand('s1', 'debug', 'running', 'claude');
     const [, data] = ptyWriteMock.mock.calls[0] as [string, string];
     expect(data.endsWith(' ')).toBe(true);
   });
 
   it('does NOT include a newline after the skill name', async () => {
-    await insertSkillCommand('s1', 'optimize', 'running');
+    await insertSkillCommand('s1', 'optimize', 'running', 'claude');
     const [, data] = ptyWriteMock.mock.calls[0] as [string, string];
     expect(data).not.toContain('\n');
     expect(data).not.toContain('\r');
   });
 
   it('writes the correct session ID', async () => {
-    await insertSkillCommand('target-session', 'brainstorm', 'running');
+    await insertSkillCommand('target-session', 'brainstorm', 'running', 'claude');
     const [sessionId] = ptyWriteMock.mock.calls[0] as [string, string];
     expect(sessionId).toBe('target-session');
   });
 
   it('does NOT write to the PTY when session status is "exited"', async () => {
-    await insertSkillCommand('s1', 'review', 'exited');
+    await insertSkillCommand('s1', 'review', 'exited', 'claude');
     expect(ptyWriteMock).not.toHaveBeenCalled();
   });
 
   it('shows a warning toast when session status is "exited"', async () => {
-    await insertSkillCommand('s1', 'review', 'exited');
+    await insertSkillCommand('s1', 'review', 'exited', 'claude');
     expect(toastWarningMock).toHaveBeenCalledOnce();
   });
 
   it('does NOT write to the PTY when session status is "error"', async () => {
-    await insertSkillCommand('s1', 'review', 'error');
+    await insertSkillCommand('s1', 'review', 'error', 'claude');
     expect(ptyWriteMock).not.toHaveBeenCalled();
   });
 
   it('shows a warning toast when session status is "error"', async () => {
-    await insertSkillCommand('s1', 'review', 'error');
+    await insertSkillCommand('s1', 'review', 'error', 'claude');
     expect(toastWarningMock).toHaveBeenCalledOnce();
   });
 
   it('does NOT write to the PTY when session status is "starting"', async () => {
-    await insertSkillCommand('s1', 'review', 'starting');
+    await insertSkillCommand('s1', 'review', 'starting', 'claude');
     expect(ptyWriteMock).not.toHaveBeenCalled();
   });
 
   it('shows a warning toast when session status is "starting"', async () => {
-    await insertSkillCommand('s1', 'review', 'starting');
+    await insertSkillCommand('s1', 'review', 'starting', 'claude');
     expect(toastWarningMock).toHaveBeenCalledOnce();
   });
 
-  it('correctly prefixes with "/" regardless of skill name content', async () => {
-    await insertSkillCommand('s1', 'sparc:code', 'running');
+  it('correctly prefixes with "/" for claude regardless of skill name content', async () => {
+    await insertSkillCommand('s1', 'sparc:code', 'running', 'claude');
     expect(ptyWriteMock).toHaveBeenCalledWith('s1', '/sparc:code ');
+  });
+
+  it('defaults to "/" prefix for unknown providers', async () => {
+    await insertSkillCommand('s1', 'my-skill', 'running', 'unknown-provider');
+    expect(ptyWriteMock).toHaveBeenCalledWith('s1', '/my-skill ');
   });
 });
 

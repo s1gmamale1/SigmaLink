@@ -16,7 +16,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, desc } from 'drizzle-orm';
 import {
   type BrowserWindow,
   type WebContentsView as TWebContentsView,
@@ -76,10 +76,11 @@ export class BrowserManager extends EventEmitter {
   private hydrateFromDb(): void {
     try {
       const db = getDb();
+      // DEV-2: exclude soft-deleted (closed) tabs from the active tab set.
       const rows = db
         .select()
         .from(browserTabs)
-        .where(eq(browserTabs.workspaceId, this.workspaceId))
+        .where(and(eq(browserTabs.workspaceId, this.workspaceId), isNull(browserTabs.closedAt)))
         .all();
       for (const r of rows) {
         // Defer view creation until activate.
@@ -131,7 +132,11 @@ export class BrowserManager extends EventEmitter {
     this.tabs.delete(tabId);
     try {
       const db = getDb();
-      db.delete(browserTabs).where(eq(browserTabs.id, tabId)).run();
+      // DEV-2: soft-delete — keep the row for Recents; mark with epoch-ms.
+      db.update(browserTabs)
+        .set({ closedAt: Date.now(), active: 0 })
+        .where(eq(browserTabs.id, tabId))
+        .run();
     } catch {
       /* ignore */
     }
@@ -235,6 +240,28 @@ export class BrowserManager extends EventEmitter {
 
   listTabs(): BrowserTab[] {
     return Array.from(this.tabs.values()).map((r) => this.toBrowserTab(r));
+  }
+
+  /** Most-recent closed tabs for the Recents panel, newest first (DEV-2). */
+  listRecents(limit = 30): Array<{ url: string; title: string; lastVisitedAt: number }> {
+    try {
+      const db = getDb();
+      const rows = db
+        .select()
+        .from(browserTabs)
+        .where(
+          and(
+            eq(browserTabs.workspaceId, this.workspaceId),
+            isNotNull(browserTabs.closedAt),
+          ),
+        )
+        .orderBy(desc(browserTabs.lastVisitedAt))
+        .limit(limit)
+        .all();
+      return rows.map((r) => ({ url: r.url, title: r.title, lastVisitedAt: r.lastVisitedAt }));
+    } catch {
+      return [];
+    }
   }
 
   getActiveTab(): BrowserTab | null {

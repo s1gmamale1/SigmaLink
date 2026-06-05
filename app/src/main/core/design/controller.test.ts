@@ -116,8 +116,9 @@ describe('buildDesignController — dispatch', () => {
     expect(ptyWriteSpy).toHaveBeenCalledOnce();
     const [sessionId, text] = ptyWriteSpy.mock.calls[0] as [string, string];
     expect(sessionId).toBe('S1');
-    // Text must end with '\r'
-    expect(text.endsWith('\r')).toBe(true);
+    // Text must end with '\n' (not '\r' — '\r' auto-submits in a PTY, DEV-1)
+    expect(text.endsWith('\n')).toBe(true);
+    expect(text.endsWith('\r')).toBe(false);
     // Text must contain the prompt
     expect(text).toContain('fix');
     // Result must be the routedTo shape

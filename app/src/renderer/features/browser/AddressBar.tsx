@@ -15,6 +15,7 @@ import { normalizeUrl } from './normalizeUrl';
 
 export interface AddressBarProps {
   url: string;
+  /** Gates back/forward/reload/stop/home nav buttons. URL input is always enabled (DEV-3). */
   disabled?: boolean;
   onNavigate: (url: string) => void;
   onBack: () => void;
@@ -101,7 +102,6 @@ export function AddressBar({
       <input
         type="text"
         spellCheck={false}
-        disabled={disabled}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {

@@ -97,6 +97,8 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
   const [hydrationError, setHydrationError] = useState<string | null>(null);
   // V3-W14-001 — design picker state, surfaced from the AddressBar toggle.
   const [designActive, setDesignActive] = useState(false);
+  // DEV-2 — closed-tab recents fetched from the main process.
+  const [closedRecents, setClosedRecents] = useState<Array<{ url: string; title: string; lastVisitedAt: number }>>([]);
 
   // N2 — per-workspace resizable column sizes [sidebar, viewport]. `null` until
   // hydrated; we render a neutral full-bleed placeholder (NOT the real viewport)
@@ -176,7 +178,12 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
 
   const handleNavigate = useCallback(
     (url: string) => {
-      if (!ws || !activeTabId) return;
+      if (!ws) return;
+      if (!activeTabId) {
+        // DEV-3: no tab yet — bootstrap the first tab with the typed URL.
+        void rpc.browser.openTab({ workspaceId: ws.id, url }).catch(console.error);
+        return;
+      }
       void rpc.browser.navigate({ workspaceId: ws.id, tabId: activeTabId, url });
     },
     [ws, activeTabId],
@@ -236,6 +243,18 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
     void rpc.browser.releaseDriver({ workspaceId: ws.id });
   }, [ws]);
 
+  // DEV-2 — refresh closed-tab recents whenever the tab list changes (a close
+  // shrinks the list, which is the trigger to refetch Recents).
+  useEffect(() => {
+    if (!ws) return;
+    let alive = true;
+    void rpc.browser
+      .listRecents({ workspaceId: ws.id })
+      .then((r) => { if (alive) setClosedRecents(r); })
+      .catch(() => { /* non-fatal */ });
+    return () => { alive = false; };
+  }, [ws, tabs.length]);
+
   if (!ws) {
     return (
       <EmptyState
@@ -255,6 +274,7 @@ export function BrowserRoom({ visible = true, canvasId }: BrowserRoomProps = {})
     <BrowserRecents
       workspaceId={ws.id}
       tabs={tabs}
+      closedRecents={closedRecents}
       activeTabId={activeTabId}
       disabled={!visible}
       compact

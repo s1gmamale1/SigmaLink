@@ -72,14 +72,16 @@ describe('appStateReducer multi-workspace state', () => {
     expect(openedB.activeWorkspace).toEqual(wsB);
   });
 
-  it('sets active workspace by id without dropping other open workspaces', () => {
+  it('sets active workspace by id without dropping other open workspaces (DEV-4: does not reorder)', () => {
     const wsA = workspace('a');
     const wsB = workspace('b');
+    // After opening wsA then wsB, the order is ['b','a'] (newest-first via WORKSPACE_OPEN).
     const state = [wsA, wsB].reduce(
       (next, ws) => appStateReducer(next, { type: 'WORKSPACE_OPEN', workspace: ws }),
       readyState([wsA, wsB]),
     );
-
+    // DEV-4 fix: clicking an existing workspace (SET_ACTIVE_WORKSPACE_ID) must
+    // activate it in place — NOT hoist it to the front of the rail.
     const selected = appStateReducer(state, {
       type: 'SET_ACTIVE_WORKSPACE_ID',
       workspaceId: 'a',
@@ -87,7 +89,8 @@ describe('appStateReducer multi-workspace state', () => {
 
     expect(selected.activeWorkspaceId).toBe('a');
     expect(selected.activeWorkspace).toEqual(wsA);
-    expect(selected.openWorkspaces.map((w) => w.id)).toEqual(['a', 'b']);
+    // Order UNCHANGED: wsA stays at position 1, not hoisted to 0.
+    expect(selected.openWorkspaces.map((w) => w.id)).toEqual(['b', 'a']);
   });
 
   it('switches active workspace without mutating session state', () => {

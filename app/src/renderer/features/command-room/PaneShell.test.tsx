@@ -453,7 +453,7 @@ describe('PaneShell — W-5 Phase 3 skill-drop injection', () => {
     expect(onSkillDrop).toHaveBeenCalledWith('code-review', 'superpowers');
   });
 
-  it('writes "/<skillName> " to PTY when provider is codex', async () => {
+  it('writes "$<skillName> " to PTY when provider is codex (SMK-3b)', async () => {
     const { PaneShell } = await import('./PaneShell');
     render(
       <PaneShell
@@ -477,7 +477,7 @@ describe('PaneShell — W-5 Phase 3 skill-drop injection', () => {
       await Promise.resolve();
     });
 
-    expect(ptyWriteMock).toHaveBeenCalledWith('main-session', '/debug-mode ');
+    expect(ptyWriteMock).toHaveBeenCalledWith('main-session', '$debug-mode '); // SMK-3b: codex uses $ prefix
   });
 
   it('writes "/<skillName> " to PTY when provider is gemini', async () => {

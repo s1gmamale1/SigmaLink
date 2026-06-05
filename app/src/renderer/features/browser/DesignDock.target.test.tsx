@@ -182,3 +182,78 @@ describe('DesignDock — target pane mode (C-13)', () => {
     expect(callArg).not.toHaveProperty('targetSessionId');
   });
 });
+
+describe('DesignDock — element capture prompt seeding (DEV-1)', () => {
+  it('seeds an editable prompt when an element is captured so Dispatch enables (DEV-1)', async () => {
+    const { onEvent } = await import('@/renderer/lib/rpc');
+    const onEventMock = onEvent as ReturnType<typeof vi.fn>;
+
+    // Capture the 'design:capture' callback before render.
+    let captureHandler: ((p: unknown) => void) | null = null;
+    onEventMock.mockImplementation((eventName: string, cb: (p: unknown) => void) => {
+      if (eventName === 'design:capture') captureHandler = cb;
+      return () => {};
+    });
+
+    render(<DesignDock workspaceId="ws-1" />);
+
+    // Emit a capture event.
+    const capturePayload = {
+      pickerToken: 'tok',
+      workspaceId: 'ws-1',
+      tabId: 'tab-1',
+      selector: 'button.cta',
+      outerHTML: '<button class="cta">Buy</button>',
+      computedStyles: {},
+      screenshotPng: '',
+      pageUrl: 'http://localhost/',
+    };
+    expect(captureHandler).not.toBeNull();
+    captureHandler!(capturePayload);
+
+    // Prompt textarea should now contain the selector.
+    await waitFor(() => {
+      const textarea = screen.getByPlaceholderText('Describe the change…') as HTMLTextAreaElement;
+      expect(textarea.value).toMatch(/button\.cta/);
+    });
+
+    // Dispatch button should now be enabled (prompt is non-empty).
+    // In agents mode (default) the button label is "Dispatch · N".
+    const dispatchBtn = screen.getByRole('button', { name: /Dispatch/i }) as HTMLButtonElement;
+    expect(dispatchBtn.disabled).toBe(false);
+  });
+
+  it('does not clobber existing user text when element is captured', async () => {
+    const { onEvent } = await import('@/renderer/lib/rpc');
+    const onEventMock = onEvent as ReturnType<typeof vi.fn>;
+
+    let captureHandler: ((p: unknown) => void) | null = null;
+    onEventMock.mockImplementation((eventName: string, cb: (p: unknown) => void) => {
+      if (eventName === 'design:capture') captureHandler = cb;
+      return () => {};
+    });
+
+    render(<DesignDock workspaceId="ws-1" />);
+
+    // User types something first.
+    const textarea = screen.getByPlaceholderText('Describe the change…') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'my own prompt' } });
+
+    // Then a capture event fires.
+    captureHandler!({
+      pickerToken: 'tok',
+      workspaceId: 'ws-1',
+      tabId: 'tab-1',
+      selector: 'button.cta',
+      outerHTML: '<button class="cta">Buy</button>',
+      computedStyles: {},
+      screenshotPng: '',
+      pageUrl: 'http://localhost/',
+    });
+
+    // User's text must be preserved.
+    await waitFor(() => {
+      expect((screen.getByPlaceholderText('Describe the change…') as HTMLTextAreaElement).value).toBe('my own prompt');
+    });
+  });
+});

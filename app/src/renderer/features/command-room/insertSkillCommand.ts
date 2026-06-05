@@ -18,6 +18,16 @@ import type { AgentSession } from '@/shared/types';
 export const SLASH_CAPABLE_PROVIDERS = new Set<string>(['claude', 'codex', 'gemini']);
 
 /**
+ * Per-provider prefix for skill injection (SMK-3b).
+ * '/' for claude/gemini; '$' for codex.
+ */
+const SKILL_COMMAND_PREFIX: Record<string, '/' | '$'> = {
+  claude: '/',
+  codex: '$',
+  gemini: '/',
+};
+
+/**
  * Returns true when `providerId` supports slash-command injection.
  * Exported so callers can gate toasts without calling the async function first.
  */
@@ -26,23 +36,27 @@ export function isSlashCapableProvider(providerId: string): boolean {
 }
 
 /**
- * Writes `/<skillName> ` (with a trailing space, no newline) to the PTY for
- * `sessionId`. The trailing space makes it easy to append arguments before
+ * Writes `<prefix><skillName> ` (with a trailing space, no newline) to the
+ * PTY for `sessionId`.  The prefix is `'/'` for claude/gemini and `'$'` for
+ * codex (SMK-3b). The trailing space makes it easy to append arguments before
  * pressing Enter.
  *
- * @param sessionId  - The PTY session to write to.
- * @param skillName  - The skill's slash-command name (no leading slash).
+ * @param sessionId     - The PTY session to write to.
+ * @param skillName     - The skill's command name (no leading prefix).
  * @param sessionStatus - The current `AgentSession['status']`. Must be
  *                        `'running'` for injection to proceed.
+ * @param providerId    - The provider owning this pane (selects the prefix).
  */
 export async function insertSkillCommand(
   sessionId: string,
   skillName: string,
   sessionStatus: AgentSession['status'],
+  providerId: string,
 ): Promise<void> {
   if (sessionStatus !== 'running') {
     toast.warning('Pane is not running', { description: 'Start the pane before dropping skills.' });
     return;
   }
-  await rpc.pty.write(sessionId, `/${skillName} `);
+  const prefix = SKILL_COMMAND_PREFIX[providerId] ?? '/';
+  await rpc.pty.write(sessionId, `${prefix}${skillName} `);
 }

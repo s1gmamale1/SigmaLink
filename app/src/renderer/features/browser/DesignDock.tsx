@@ -112,6 +112,13 @@ export function DesignDock({ workspaceId, canvasId, compact }: DesignDockProps) 
       if (!p || p.workspaceId !== workspaceId) return;
       setCapture(p);
       setHtmlOpen(true);
+      // DEV-1: auto-seed an editable prompt template only when the prompt is
+      // empty — never clobber the user's existing text.
+      setPrompt((curr) => {
+        if (curr.trim()) return curr;
+        const sel = p.selector || p.pageUrl || 'the selected element';
+        return `Update ${sel}:\n\n${p.outerHTML}\n\n`;
+      });
     });
     return () => off();
   }, [workspaceId]);

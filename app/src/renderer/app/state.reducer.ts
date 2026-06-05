@@ -326,7 +326,10 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         state.activeWorkspaceId === action.workspaceId ? state.focusedPaneId : null;
       return deriveActiveWorkspace({
         ...state,
-        openWorkspaces: upsertOpenWorkspace(state.openWorkspaces, workspace),
+        // DEV-4: activate in place — do NOT reorder the rail. upsertOpenWorkspace
+        // always prepends, which caused the rail to jump on every workspace click.
+        // SET_ACTIVE_WORKSPACE (open-new) still legitimately prepends via its own
+        // path; CLOSE_WORKSPACE is unaffected.
         activeWorkspaceId: action.workspaceId,
         room,
         focusedPaneId,

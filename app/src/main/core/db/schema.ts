@@ -243,6 +243,8 @@ export const browserTabs = sqliteTable(
     lastVisitedAt: integer('last_visited_at')
       .notNull()
       .default(sql`(unixepoch() * 1000)`),
+    // DEV-2 (migration 0033): null = open; epoch-ms = closed (soft-delete for Recents).
+    closedAt: integer('closed_at'),
   },
   (t) => ({
     browserTabsWsIdx: index('browser_tabs_ws_idx').on(t.workspaceId),

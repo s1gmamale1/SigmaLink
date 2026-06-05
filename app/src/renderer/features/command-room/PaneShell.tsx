@@ -265,9 +265,10 @@ export function PaneShell({
         const payload = JSON.parse(skillRaw) as SkillDragPayload;
         if (payload.kind === 'skill' && payload.name) {
           if (isSlashCapableProvider(session.providerId)) {
-            // Inject "/<skillName> " into the pane's input line. The user presses
-            // Enter to invoke. Also create the chip binding as before.
-            void insertSkillCommand(session.id, payload.name, session.status);
+            // Inject "<prefix><skillName> " into the pane's input line. The user
+            // presses Enter to invoke. Also create the chip binding as before.
+            // SMK-3b: pass providerId so codex gets '$' prefix instead of '/'.
+            void insertSkillCommand(session.id, payload.name, session.status, session.providerId);
             if (onSkillDrop) onSkillDrop(payload.name, payload.source);
           } else {
             // Provider does not support slash-command injection — chip-only + toast.

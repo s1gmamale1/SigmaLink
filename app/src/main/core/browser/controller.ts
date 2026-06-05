@@ -69,6 +69,14 @@ export function buildBrowserController(deps: BrowserControllerDeps) {
       reg.get(input.workspaceId).releaseDriver();
     },
 
+    /** DEV-2 — returns recently-closed tab entries for the Recents panel. */
+    listRecents: async (input: {
+      workspaceId: string;
+      limit?: number;
+    }): Promise<Array<{ url: string; title: string; lastVisitedAt: number }>> => {
+      return reg.get(input.workspaceId).listRecents(input.limit);
+    },
+
     teardown: async (workspaceId: string): Promise<void> => {
       reg.teardown(workspaceId);
     },
