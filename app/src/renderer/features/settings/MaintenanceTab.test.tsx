@@ -441,8 +441,7 @@ describe('MaintenanceTab — swarm teardown policy (BSP-G5)', () => {
     await renderTab();
     await waitFor(() => {
       const select = screen.getByTestId('swarm-teardown-select-ws-1');
-      // The select trigger renders the current value text
-      expect(select.textContent).toContain('Keep all');
+      expect((select as HTMLSelectElement).value).toBe('keep-all');
     });
   });
 
@@ -452,7 +451,7 @@ describe('MaintenanceTab — swarm teardown policy (BSP-G5)', () => {
     await renderTab();
     await waitFor(() => {
       const select = screen.getByTestId('swarm-teardown-select-ws-1');
-      expect(select.textContent).toContain('Destroy failing');
+      expect((select as HTMLSelectElement).value).toBe('destroy-failing');
     });
   });
 

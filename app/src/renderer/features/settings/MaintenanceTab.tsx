@@ -18,13 +18,6 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -677,22 +670,17 @@ function SwarmTeardownRow({ workspace, policy, onChange }: SwarmTeardownRowProps
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <Select
+        <select
           value={policy}
-          onValueChange={(v) => onChange(v as SwarmTeardownPolicy)}
+          onChange={(e) => onChange(e.target.value as SwarmTeardownPolicy)}
+          className="h-7 w-[220px] rounded border border-border bg-background px-2 text-[11px]"
+          data-testid={`swarm-teardown-select-${workspace.id}`}
+          aria-label={`Swarm worktree cleanup policy for ${workspace.name}`}
         >
-          <SelectTrigger
-            className="h-7 w-[220px] text-[11px]"
-            data-testid={`swarm-teardown-select-${workspace.id}`}
-          >
-            <SelectValue placeholder="Keep all (default)" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="keep-all">Keep all (default)</SelectItem>
-            <SelectItem value="keep-passing">Keep passing — remove failed</SelectItem>
-            <SelectItem value="destroy-failing">Destroy failing</SelectItem>
-          </SelectContent>
-        </Select>
+          <option value="keep-all">Keep all (default)</option>
+          <option value="keep-passing">Keep passing — remove failed</option>
+          <option value="destroy-failing">Destroy failing</option>
+        </select>
         {isDestructive && (
           <span className="flex items-center gap-1 text-[11px] text-amber-400">
             <ShieldAlert className="h-3 w-3" aria-hidden />
