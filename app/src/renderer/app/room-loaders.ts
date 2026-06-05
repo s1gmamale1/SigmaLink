@@ -68,6 +68,11 @@ export const ROOM_LOADERS: Partial<Record<RoomId, RoomImport>> = {
     import('@/renderer/features/sigmabench-room/SigmaBenchRoom').then((m) => ({
       default: m.SigmaBenchRoom,
     })),
+  // BSP-G2 — repo-level Git panel (Changes, History, Branches).
+  git: () =>
+    import('@/renderer/features/git/GitRoom').then((m) => ({
+      default: m.GitRoom,
+    })),
 };
 
 /**

@@ -7,7 +7,7 @@
 // repo they're operating on.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, GitBranch } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Monogram } from '@/renderer/components/Monogram';
 import { rpc } from '@/renderer/lib/rpc';
@@ -325,8 +325,22 @@ export function Sidebar() {
             <div className="truncate text-muted-foreground" title={activeWorkspace.rootPath}>
               {activeWorkspace.rootPath}
             </div>
-            <div className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-              {activeWorkspace.repoMode === 'git' ? 'Git repo' : 'Plain folder'}
+            <div className="mt-1 flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                {activeWorkspace.repoMode === 'git' ? 'Git repo' : 'Plain folder'}
+              </div>
+              {activeWorkspace.repoMode === 'git' ? (
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'SET_ROOM', room: 'git' })}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  title="Open Git panel"
+                  data-testid="sidebar-git-button"
+                >
+                  <GitBranch className="h-3 w-3" />
+                  Git
+                </button>
+              ) : null}
             </div>
           </div>
         ) : (

@@ -42,7 +42,9 @@ export type RoomId =
   // when the right-rail is gated off; otherwise the Jorvis tab inside the
   // rail hosts the same surface.
   | 'jorvis'
-  | 'settings';
+  | 'settings'
+  // BSP-G2 — repo-level Git panel (Changes, History, Branches).
+  | 'git';
 
 export interface AppState {
   ready: boolean;

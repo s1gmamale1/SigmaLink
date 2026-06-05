@@ -56,6 +56,8 @@ const SettingsRoom = lazy(ROOM_LOADERS.settings!);
 const JorvisRoom = lazy(ROOM_LOADERS.jorvis!);
 // C-12 SigmaBench — multi-agent conflict benchmark room.
 const SigmaBenchRoom = lazy(ROOM_LOADERS.sigmabench!);
+// BSP-G2 — repo-level Git panel.
+const GitRoom = lazy(ROOM_LOADERS.git!);
 
 // Lightweight placeholder rendered while a lazy room module is downloading.
 // A calm centered spinner on the theme surface — NOT a full-bleed `bg-accent`
@@ -132,6 +134,9 @@ function RoomSwitch() {
       break;
     case 'settings':
       body = <SettingsRoom />;
+      break;
+    case 'git':
+      body = <GitRoom />;
       break;
     default:
       body = null;
