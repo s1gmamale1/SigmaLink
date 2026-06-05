@@ -95,10 +95,13 @@ export const agentSessions = sqliteTable(
       t.workspaceId,
       t.splitGroupId,
     ),
-    // v1.5.5 Cluster A — uniqueness constraint on (workspace_id, pane_index).
-    // Partial: only applies when pane_index IS NOT NULL so legacy rows (pre-v1.3.1)
-    // and swarm sessions (no pane slot) do not collide. Migration 0020 creates
-    // the corresponding index and dedupes any existing duplicate rows.
+    // v1.5.5 Cluster A + ADR-005 — uniqueness on (workspace_id, pane_index).
+    // The LIVE index is STATUS-AWARE: it only enforces uniqueness for
+    // pane_index IS NOT NULL AND status IN ('running','starting') so that an
+    // exited/error row keeps its pane_index (for resume) without blocking a
+    // fresh spawn into that slot (CRIT-2 post-crash lockout). Drizzle's
+    // uniqueIndex().on() cannot express the partial WHERE, so the real DDL is
+    // owned by migration 0032; this declaration is intentionally a superset.
     wsPaneUq: uniqueIndex('agent_sessions_ws_pane_uq').on(
       t.workspaceId,
       t.paneIndex,
