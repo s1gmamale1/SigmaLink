@@ -26,7 +26,7 @@ import { RightRail } from '@/renderer/features/right-rail/RightRail';
 import { RightRailProvider } from '@/renderer/features/right-rail/RightRailContext';
 import { useRightRailEnabled } from '@/renderer/features/right-rail/use-right-rail-enabled';
 import { ThemeProvider } from '@/renderer/app/ThemeProvider';
-import { AppStateProvider, useAppState } from '@/renderer/app/state';
+import { AppStateProvider, useAppState, useAppStateSelector } from '@/renderer/app/state';
 import { ROOM_LOADERS, prefetchRooms } from '@/renderer/app/room-loaders';
 // ERR-1 — app-resilience layer: a root boundary so a render throw anywhere
 // no longer blanks the window, plus per-room boundaries so one crashing room
@@ -73,14 +73,14 @@ function RoomSkeleton() {
 }
 
 function RoomSwitch() {
-  const { state } = useAppState();
+  const room = useAppStateSelector((s) => s.room);
   // BUG-W7-014: expose the active room id on `<body>` so end-to-end tests can
   // verify which room actually rendered (rather than relying on screenshot
   // filenames that lie when sidebar gating routes the click elsewhere).
   useEffect(() => {
-    document.body.setAttribute('data-room', state.room);
+    document.body.setAttribute('data-room', room);
     return () => document.body.removeAttribute('data-room');
-  }, [state.room]);
+  }, [room]);
   // CommandRoom stays eager (default landing room → no Suspense flash on
   // cold boot). Every other room is lazy-mounted, so wrap them in a single
   // Suspense boundary keyed by room id — that way re-entering the same room
@@ -93,7 +93,7 @@ function RoomSwitch() {
   // away then back to a crashed room remounts the boundary with a clean slate.
   let body: ReactElement | null;
   let eager = false;
-  switch (state.room) {
+  switch (room) {
     case 'command':
       body = <CommandRoom />;
       eager = true;
@@ -148,8 +148,8 @@ function RoomSwitch() {
   // active room — its terminal grid is mounted once on entry and is never
   // remounted by unrelated re-renders.
   return (
-    <RoomErrorBoundary key={state.room}>
-      <div key={state.room} className="sl-fade-in flex min-h-0 flex-1 flex-col">
+    <RoomErrorBoundary key={room}>
+      <div key={room} className="sl-fade-in flex min-h-0 flex-1 flex-col">
         {inner}
       </div>
     </RoomErrorBoundary>
@@ -168,13 +168,13 @@ function RoomSwitch() {
  * mounting it twice would fight over the WebContentsView bounds.
  */
 function MainBody() {
-  const { state } = useAppState();
+  const room = useAppStateSelector((s) => s.room);
   const { enabled, ready } = useRightRailEnabled();
   // Hide the rail when the user is in a room whose body already lives in the
   // rail (Browser tab → 'browser', Jorvis tab → 'jorvis') so we don't double-
   // mount the WebContentsView (browser) or the chat surface (bridge).
   const showRail =
-    ready && enabled && state.room !== 'browser' && state.room !== 'jorvis';
+    ready && enabled && room !== 'browser' && room !== 'jorvis';
   const body = (
     <div className="flex min-h-0 flex-1 flex-col">
       <RoomSwitch />
