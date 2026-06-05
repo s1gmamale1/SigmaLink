@@ -82,4 +82,19 @@ export function agentShortId(id: string): string {
   return (fnv1a32(id) & 0xffff).toString(16).padStart(4, '0');
 }
 
+/**
+ * BSP-P3 — deterministic human-name alias for an agent session id. Same id →
+ * same name across reloads / panes. 16 short, distinct, gender-neutral names so
+ * collisions across a single grid are rare. Uses the existing FNV-1a hash so
+ * long ids (UUIDs) work without float-mantissa overflow.
+ */
+export const AGENT_ALIAS_PALETTE: readonly string[] = [
+  'Ava', 'Thea', 'Nia', 'Iris', 'Juno', 'Wren', 'Cleo', 'Vera',
+  'Nova', 'Lyra', 'Echo', 'Sage', 'Rhea', 'Mira', 'Faye', 'Zara',
+];
+
+export function agentAlias(id: string): string {
+  return AGENT_ALIAS_PALETTE[fnv1a32(id) % AGENT_ALIAS_PALETTE.length]!;
+}
+
 export const WORKSPACE_COLOR_PALETTE = PALETTE;

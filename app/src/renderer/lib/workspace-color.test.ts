@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AGENT_ALIAS_PALETTE,
   AGENT_COLOR_PALETTE,
   WORKSPACE_COLOR_PALETTE,
+  agentAlias,
   agentColor,
   agentShortId,
   workspaceColor,
@@ -100,5 +102,38 @@ describe('agentShortId', () => {
     expect(agentShortId('')).toBe('9dc5'); // FNV offset basis low 16 bits
     expect(agentColor('session-abc-123')).toBe('#fb923c');
     expect(agentColor('session-1')).toBe('#2dd4bf');
+  });
+});
+
+describe('agentAlias (BSP-P3)', () => {
+  it('is deterministic for the same id', () => {
+    expect(agentAlias('sess-abc')).toBe(agentAlias('sess-abc'));
+  });
+
+  it('returns a name from the published palette', () => {
+    expect(AGENT_ALIAS_PALETTE).toContain(agentAlias('any-uuid-1234'));
+  });
+
+  it('handles long UUID ids without throwing', () => {
+    const uuid = '7f3c1e2a-9b4d-4c8e-a1f2-3d4e5f6a7b8c';
+    expect(typeof agentAlias(uuid)).toBe('string');
+    expect(AGENT_ALIAS_PALETTE).toContain(agentAlias(uuid));
+  });
+
+  it('distributes across the palette for distinct ids', () => {
+    const names = new Set(
+      Array.from({ length: 64 }, (_, i) => agentAlias(`sess-${i}`)),
+    );
+    // 16 slots over 64 ids — expect a healthy spread, not a single name.
+    expect(names.size).toBeGreaterThan(4);
+  });
+
+  it('matches FROZEN snapshots (FNV-1a — a hash change must fail this)', () => {
+    // Palette length 16 is a power of two, so the index == the low 4 bits of
+    // the FNV-1a hash == the low 4 bits of the agentShortId snapshots above:
+    //   agentShortId('session-abc-123') = '837b' → 0xb = 11 → AGENT_ALIAS_PALETTE[11]
+    //   agentShortId('session-1')       = '51cd' → 0xd = 13 → AGENT_ALIAS_PALETTE[13]
+    expect(agentAlias('session-abc-123')).toBe('Sage');
+    expect(agentAlias('session-1')).toBe('Mira');
   });
 });

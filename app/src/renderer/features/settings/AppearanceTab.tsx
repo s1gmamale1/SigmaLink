@@ -3,21 +3,23 @@
 // so the xterm renderer can read it on the next resize tick.
 
 import { useEffect, useState } from 'react';
-import { Check, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import {
   applyFontSize,
   DEFAULT_THEME,
   DENSITIES,
   setRootCssVar,
-  THEMES,
   type DensityId,
   type ThemeId,
 } from '@/renderer/lib/themes';
 import { useTheme } from '@/renderer/app/ThemeProvider';
+import { useAppStateSelector } from '@/renderer/app/state';
 import { refreshTier, useTier } from '@/renderer/lib/canDo';
 import { cn } from '@/lib/utils';
 import { KV_PLAN_TIER, type Tier } from '@/main/core/plan/capabilities';
+import { ThemeGallery } from './ThemeGallery';
+import { WorkspaceTintSection } from './WorkspaceTintSection';
 
 const FONT_SIZES = [12, 13, 14, 16] as const;
 const TERMINAL_FONTS = [
@@ -45,6 +47,9 @@ export function AppearanceTab() {
   const [terminalFont, setTerminalFont] = useState<string>(TERMINAL_FONTS[0]);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const tier = useTier();
+  // BSP-T4 — source the active workspace id so the tint section can read/write
+  // its per-workspace `ui.<wsId>.tint` value.
+  const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspaceId);
 
   useEffect(() => {
     void (async () => {
@@ -105,37 +110,12 @@ export function AppearanceTab() {
             Reset to default
           </button>
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {THEMES.map((t) => {
-            const selected = theme === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTheme(t.id as ThemeId)}
-                className={cn(
-                  'flex items-center gap-3 rounded-md border px-3 py-2 text-left transition',
-                  selected
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border bg-card/40 hover:bg-card',
-                )}
-              >
-                <ThemeSwatch
-                  bg={t.swatch.bg}
-                  fg={t.swatch.fg}
-                  primary={t.swatch.primary}
-                  accent={t.swatch.accent}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium">{t.label}</div>
-                  <div className="truncate text-[11px] text-muted-foreground">{t.description}</div>
-                </div>
-                {selected ? <Check className="h-4 w-4 text-primary" /> : null}
-              </button>
-            );
-          })}
-        </div>
+        {/* BSP-T3 — card gallery replaces the old flat button grid */}
+        <ThemeGallery current={theme} onSelect={(id) => setTheme(id as ThemeId)} />
       </section>
+
+      {/* BSP-T4 — per-workspace tint section. Only rendered when a workspace is active. */}
+      <WorkspaceTintSection activeWorkspaceId={activeWorkspaceId} />
 
       <section>
         <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -269,27 +249,6 @@ export function AppearanceTab() {
           ) : null}
         </section>
       ) : null}
-    </div>
-  );
-}
-
-function ThemeSwatch({
-  bg,
-  fg,
-  primary,
-  accent,
-}: {
-  bg: string;
-  fg: string;
-  primary: string;
-  accent: string;
-}) {
-  return (
-    <div className="flex shrink-0 overflow-hidden rounded-md border border-border" style={{ background: bg }}>
-      <div className="h-9 w-2.5" style={{ background: fg }} />
-      <div className="h-9 w-2.5" style={{ background: primary }} />
-      <div className="h-9 w-2.5" style={{ background: accent }} />
-      <div className="h-9 w-2.5" style={{ background: bg }} />
     </div>
   );
 }
