@@ -57,6 +57,9 @@ vi.mock('./RightRailContext.data', async (importOriginal) => {
     useRightRail: () => ({
       activeTab: 'editor' as const,
       setActiveTab: vi.fn(),
+      railOpen: true,
+      setRailOpen: vi.fn(),
+      toggleRail: vi.fn(),
     }),
   };
 });

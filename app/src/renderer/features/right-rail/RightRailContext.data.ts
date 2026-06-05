@@ -8,6 +8,8 @@ import { createContext, useContext } from 'react';
 export type RightRailTabId = 'browser' | 'editor' | 'jorvis' | 'skills' | 'swarm';
 
 export const KV_TAB = 'rightRail.tab';
+// Per-workspace panel id for the open/closed state.
+export const KV_OPEN = 'rightRail.open';
 export const DEFAULT_TAB: RightRailTabId = 'browser';
 export const VALID_TABS: ReadonlySet<RightRailTabId> = new Set([
   'browser',
@@ -29,6 +31,12 @@ export function normalizeTabId(value: string): string {
 export interface RightRailContextValue {
   activeTab: RightRailTabId;
   setActiveTab: (tab: RightRailTabId) => void;
+  /** Whether the right-rail panel is currently open. Defaults to true. */
+  railOpen: boolean;
+  /** Explicitly set the rail open/closed state. Persists per-workspace. */
+  setRailOpen: (open: boolean) => void;
+  /** Toggle rail open↔closed. Persists per-workspace. */
+  toggleRail: () => void;
 }
 
 export const RightRailCtx = createContext<RightRailContextValue | null>(null);

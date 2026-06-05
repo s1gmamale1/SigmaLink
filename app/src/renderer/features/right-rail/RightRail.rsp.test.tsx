@@ -70,7 +70,13 @@ vi.mock('./RightRailContext.data', async (importOriginal) => {
   const orig = await importOriginal<typeof import('./RightRailContext.data')>();
   return {
     ...orig,
-    useRightRail: () => ({ activeTab: 'editor' as const, setActiveTab: setActiveTabMock }),
+    useRightRail: () => ({
+      activeTab: 'editor' as const,
+      setActiveTab: setActiveTabMock,
+      railOpen: true,
+      setRailOpen: vi.fn(),
+      toggleRail: vi.fn(),
+    }),
   };
 });
 vi.mock('@/renderer/features/browser/BrowserRoom', () => ({

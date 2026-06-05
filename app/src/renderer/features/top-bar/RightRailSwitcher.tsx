@@ -33,7 +33,7 @@ const SEGMENTS: readonly SegmentDef[] = [
 ] as const;
 
 export function RightRailSwitcher() {
-  const { activeTab, setActiveTab } = useRightRail();
+  const { activeTab, setActiveTab, railOpen, setRailOpen, toggleRail } = useRightRail();
   // PERF-3 — dispatch-only consumer. useAppDispatch is stable and never
   // re-renders, so the switcher no longer wakes on every unrelated dispatch.
   const dispatch = useAppDispatch();
@@ -56,12 +56,23 @@ export function RightRailSwitcher() {
               aria-label={seg.label}
               title={seg.label}
               data-segment-id={seg.id}
-              onClick={() => setActiveTab(seg.id)}
+              onClick={() => {
+                if (isActive) {
+                  // DEV-W4: re-clicking the active tab toggles the rail open/closed.
+                  toggleRail();
+                } else {
+                  // Switching to a different tab always opens the rail.
+                  setActiveTab(seg.id);
+                  setRailOpen(true);
+                }
+              }}
               className={cn(
                 'flex h-7 w-7 items-center justify-center rounded transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                isActive
+                isActive && railOpen
                   ? 'border border-primary bg-primary/15 text-primary'
-                  : 'border border-transparent bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+                  : isActive && !railOpen
+                    ? 'border border-primary/40 bg-primary/5 text-primary/60'
+                    : 'border border-transparent bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground',
               )}
               style={noDragStyle()}
             >
