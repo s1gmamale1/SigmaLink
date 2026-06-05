@@ -9,31 +9,50 @@ export interface StreamReveal { revealed: string; caret: boolean; }
 
 export function useJorvisStreamReveal(fullText: string, active: boolean): StreamReveal {
   const reduced = prefersReducedMotion();
-  const [count, setCount] = useState(reduced || !active ? fullText.length : 0);
+  // For reduced-motion or inactive rows, start fully revealed — no rAF needed.
+  const [count, setCount] = useState(() => (reduced || !active ? fullText.length : 0));
   const rafRef = useRef<number | null>(null);
-  // Track count on a ref so the rAF tick can read current value synchronously
-  const countRef = useRef(count);
-  countRef.current = count;
+  // countRef / targetRef: only written inside effects/callbacks — never during render.
+  const countRef = useRef(reduced || !active ? fullText.length : 0);
+  const targetRef = useRef(fullText.length);
 
   useEffect(() => {
-    if (reduced || !active) {
-      setCount(fullText.length);
-      return;
+    // Keep targetRef in sync with the latest fullText inside the effect (not render).
+    targetRef.current = fullText.length;
+
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     }
-    // Reset count when text changes while active (new delta arrived)
-    // Only reset downward if new text is shorter (shouldn't happen) or advance forward
+
+    // Reduced-motion or inactive: no rAF needed — initial state already has
+    // fullText.length. If fullText changed, schedule a quick sync via setTimeout
+    // so setState never fires synchronously in the effect body.
+    if (reduced || !active) {
+      const id = window.setTimeout(() => {
+        countRef.current = targetRef.current;
+        setCount(targetRef.current);
+      }, 0);
+      return () => {
+        window.clearTimeout(id);
+        if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      };
+    }
+
     const tick = () => {
       const current = countRef.current;
-      if (current >= fullText.length) {
+      const target = targetRef.current;
+      if (current >= target) {
         rafRef.current = null;
         return;
       }
-      const gap = fullText.length - current;
+      const gap = target - current;
       const step = Math.max(MIN_PER_FRAME, Math.ceil(gap * CATCHUP_FRACTION));
-      const next = Math.min(fullText.length, current + step);
+      const next = Math.min(target, current + step);
       countRef.current = next;
       setCount(next);
-      if (next < fullText.length) {
+      if (next < target) {
         rafRef.current = requestAnimationFrame(tick);
       } else {
         rafRef.current = null;

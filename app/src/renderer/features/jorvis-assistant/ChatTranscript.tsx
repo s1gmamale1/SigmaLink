@@ -3,7 +3,7 @@
 // Auto-sticks to bottom unless the user has scrolled away.
 // Phase 6 — stream-reveal (rAF catch-up), spring bubble-enter, inline tool chips.
 
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useJorvisStreamReveal } from './use-jorvis-stream-reveal';
 import { InlineToolChips } from './InlineToolChips';
@@ -41,9 +41,17 @@ const STREAMING_ROW_ID = '__streaming__';
 export function ChatTranscript({ messages, streaming, streamingDelta, conversationId, className }: Props) {
   // Resolve the effective streaming object: prefer the new `streaming` prop,
   // fall back to the legacy `streamingDelta` string for backward-compat.
-  const effectiveStreaming = streaming !== undefined
-    ? streaming
-    : (streamingDelta != null ? { turnId: '', delta: streamingDelta } : null);
+  // Memoized so it has a stable identity and doesn't cause useEffect to re-run
+  // on every render when both `streaming` and `streamingDelta` are undefined.
+  const effectiveStreaming = useMemo(
+    () =>
+      streaming !== undefined
+        ? streaming
+        : streamingDelta != null
+          ? { turnId: '', delta: streamingDelta }
+          : null,
+    [streaming, streamingDelta],
+  );
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
@@ -57,8 +65,10 @@ export function ChatTranscript({ messages, streaming, streamingDelta, conversati
   // The in-flight row is SEPARATE from the stored messages — it's a virtual
   // bubble that disappears once the turn commits and the final message is added.
   const hasInFlight = effectiveStreaming != null;
+  // createdAt 0 for the sentinel row — formatTime returns '' for 0, which is
+  // acceptable: a streaming row has no committed timestamp yet.
   const inFlightMsg: ChatMessageView | null = hasInFlight
-    ? { id: STREAMING_ROW_ID, role: 'assistant', content: '', createdAt: Date.now() }
+    ? { id: STREAMING_ROW_ID, role: 'assistant', content: '', createdAt: 0 }
     : null;
 
   const allRows: ChatMessageView[] = inFlightMsg
@@ -119,7 +129,7 @@ function ChatRow({ message, isStreaming, streamingDelta, conversationId, streami
     played.current = true;
     el.classList.add('sl-slide-up');
     el.dataset.entered = '1';
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Stream reveal hook — called unconditionally (stable hook order).
   // For non-streaming rows: active=false → instant full text, no rAF.
