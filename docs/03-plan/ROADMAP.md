@@ -178,15 +178,9 @@ CRIT-1/2/3 (Phase 0) + **SMK-2/3/3b + DEV-1/2/3/4** (Phase 1) all shipped to `ma
 
 ---
 
-## Phase 6 — Premium Jorvis FE (N3, B3-unblocked) · ⏳ **IN PROGRESS** (claimed 2026-06-05)
-> **Claimed — do not double-assign.** Pipeline: backend incremental-delta emit (the prerequisite contract) → renderer stream-reveal + first-mount spring bubbles + inline tool-chip rail. Plan: `docs/superpowers/plans/2026-06-05-phase6-premium-jorvis-fe.md`.
-**Goal.** The Jorvis assistant feels premium: streamed reveal, animated bubbles, inline tool chips.
-**Deliverables.** rAF catch-up token reveal + in-flight `ChatMessageView`; first-mount-only spring bubble-enter; reduce-motion-gated typewriter+caret; per-turn tool-chip rail; the backend incremental-delta emit (today whole blocks).
-**Why now.** B3 is fixed (v2.0.0) unblocking N3; FE quality is the cycle through-line.
-**Scope.** Backend `core/assistant/cli-envelope.ts`/`emit.ts` (incremental deltas first) → renderer `jorvis-assistant/use-jorvis-stream-reveal.ts` + `InlineToolChips.tsx` + `ChatTranscript.tsx`.
-**Findings + recommendation.** Streaming is fake today (whole-block emit) — the backend delta is the prerequisite. First-mount-only spring (React-19 lesson).
-**Risks.** Per-token re-render storms → rAF-batch + reduce-motion gate + cap rate.
-**Definition of done.** A live reply streams token-by-token with a caret, bubbles spring once, tool calls render as chips; reduce-motion shows instant text; a hung turn still clears via the watchdog; gates green.
+## Phase 6 — Premium Jorvis FE (N3) · ✅ **SHIPPED** (PR #109 `8cd9ff6`, 2026-06-05, see `CHANGELOG.md`)
+
+**✅ Shipped to `origin/main`** — renderer-only premium motion over the EXISTING IPC contract (isolated-worktree + PR flow; CI green; opus review). **Recon corrected the prereq:** the "backend incremental-delta emit" was already in place (`assistant:state`/`kind:'delta'` emits; the `claude` CLI only yields whole blocks — token deltas aren't a CLI capability), so the streaming feel is a **renderer rAF job**, not a backend rewrite. **Delivered:** `use-jorvis-stream-reveal.ts` rAF catch-up reveal + caret (reduce-motion→instant) · first-mount-only spring bubble-enter (React-19 ref-as-prop; **no re-spring on stream→commit** — sentinel row keyed by the eventual `messageId` so React reuses the DOM node) · `InlineToolChips.tsx` per-turn rail (`assistant:tool-trace`). Reuses the CSS spring system (no animation lib). Opus caught + we fixed the double-spring-on-commit (H1); also fixed a pre-existing `main` lint-red (Phase-4 `GridLayout` `reshapeFracs` export → extracted to `grid-fracs.ts`). **Follow-up → `WISHLIST.md`:** add `turnId` to the `ToolTrace` payload for airtight per-turn chip scoping.
 
 ---
 
@@ -299,7 +293,7 @@ Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per
 | DEV-W1/W2/W4/W5 workspace+panel UX | 3 | M | High | Logo toggle, rename, rail toggle, +Pane |
 | DEV-L1/L2 + BSP-F1/F2/P2/P3 pane chrome+grid | 4 | M–L | High | Mirror BridgeSpace; needs ref frames |
 | BSP-T3/T4 theme gallery | 5 | M | High | Live preview cards |
-| Premium Jorvis FE (N3) | 6 | L | High | Needs backend token-stream |
+| Premium Jorvis FE (N3) | 6 | L | High | ✅ SHIPPED PR #109 — renderer rAF (backend delta already existed) |
 | Worktree GUI (G1/G3/P1) + DEV-W3a | 7 | M–L | High | Engine exists; UI gap |
 | Git diff/Review panel (G2/G4/G5) | 8 | L | High | Biggest feature gap; spec first |
 | Orchestration+memory (O1–O5) | 9 | L | Med-High | Relocate C-7 + surface graph |
