@@ -654,3 +654,29 @@ describe('buildExtraArgs — FEAT-14 per-pane model flag', () => {
     expect(out).toContain('hello world');
   });
 });
+
+// DEV-W3a (Phase 7, review H1) — once migration 0034 drops the unique
+// workspaces_root_idx, two workspaces can share a rootPath. executeLaunchPlan
+// MUST resolve the workspace by id (not by the now-ambiguous rootPath) so panes
+// bind to the correct workspace. Guards against re-introducing the by-path lookup.
+describe('executeLaunchPlan — DEV-W3a: resolves the workspace by id', () => {
+  it('prefers plan.workspaceId — a miss names the id (proves the by-id lookup branch)', async () => {
+    const { deps } = makeTestDeps();
+    vi.mocked(getDb).mockReturnValue({
+      select: () => ({ from: () => ({ where: () => ({ get: () => undefined }) }) }),
+    } as unknown as ReturnType<typeof getDb>);
+    const plan = { ...makeGitPlan(), workspaceId: 'ws-XYZ' } as unknown as LaunchPlan;
+    // If the by-path lookup were used instead, the message would name '/tmp/ws'.
+    await expect(executeLaunchPlan(plan, deps)).rejects.toThrow('ws-XYZ');
+  });
+
+  it('binds spawned sessions to the id-resolved workspace row', async () => {
+    const { deps } = makeTestDeps();
+    vi.mocked(getDb).mockReturnValue({
+      select: () => ({ from: () => ({ where: () => ({ get: () => GIT_WS_ROW }) }) }),
+    } as unknown as ReturnType<typeof getDb>);
+    const plan = { ...makeGitPlan(), workspaceId: GIT_WS_ROW.id } as unknown as LaunchPlan;
+    const { sessions } = await executeLaunchPlan(plan, deps);
+    expect(sessions[0]!.workspaceId).toBe(GIT_WS_ROW.id);
+  });
+});

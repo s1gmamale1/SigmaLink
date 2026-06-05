@@ -13,14 +13,16 @@
 // Extracted to keep CommandRoom.tsx under 500 LOC (v1.5.1-A caveat 1).
 
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
-import { FolderOpen, RotateCw, Square, Terminal as TerminalIcon } from 'lucide-react';
+import { FolderOpen, GitBranch, RotateCw, Square, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { CreateWorktreeModal } from './CreateWorktreeModal';
 import { rpc } from '@/renderer/lib/rpc';
 import { SessionTerminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
@@ -319,6 +321,47 @@ export function PaneShell({
     void insertMention(session.id, mention, session.status);
   }
 
+  // BSP-G1 — Create Worktree modal state.
+  const [createWorktreeOpen, setCreateWorktreeOpen] = useState(false);
+
+  // BSP-G3 — "Open worktree in this pane" — only enabled on idle panes.
+  const isRunning = session.status === 'running';
+
+  function handleCreateWorktree() {
+    setCreateWorktreeOpen(true);
+  }
+
+  function handleOpenInPane() {
+    // Minimal implementation: prompt for a worktree path. A richer file-picker
+    // can be wired in a follow-up. The gate (disabled when running) is the
+    // primary safety invariant; the prompt satisfies the BSP-G3 affordance.
+    const worktreePath = window.prompt('Worktree path to open in this pane:');
+    if (!worktreePath) return;
+    void rpc.git
+      .openInPane({ sessionId: session.id, worktreePath })
+      .then((result) => {
+        if (result.ok) {
+          toast.success('Worktree opened in pane', { description: worktreePath });
+        }
+      })
+      .catch((err) =>
+        toast.error('Failed to open worktree in pane', {
+          description: err instanceof Error ? err.message : String(err),
+        }),
+      );
+  }
+
+  function handleOpenNewWorkspace() {
+    void rpc.workspaces
+      .openNew(workspaceRootPath)
+      .then(() => toast.success('New workspace opened', { description: workspaceRootPath }))
+      .catch((err) =>
+        toast.error('Failed to open workspace', {
+          description: err instanceof Error ? err.message : String(err),
+        }),
+      );
+  }
+
   function handleReveal() {
     if (!session.worktreePath) return;
     void rpc.app.revealInFolder(session.worktreePath).catch(() => undefined);
@@ -345,6 +388,10 @@ export function PaneShell({
   // the terminal-cache (v1.4.2 #03) preserves scrollback and the PTY keeps
   // emitting bytes — clicking the header restores the body view.
   const minimised = !!session.minimised;
+  // Repo root for the CreateWorktreeModal = the workspace root (the repo a new
+  // worktree is cut from). The session's own worktreePath is a CHILD worktree,
+  // not the repo, so it is deliberately NOT used here.
+  const repoRoot = workspaceRootPath;
   return (
     <div
       ref={paneContainerRef}
@@ -493,6 +540,33 @@ export function PaneShell({
             <TerminalIcon className="h-3.5 w-3.5" />
             <span>Open shell here</span>
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* BSP-G1 — Create worktree from this pane's repo root. */}
+          <ContextMenuItem
+            data-testid="ctx-create-worktree"
+            onSelect={handleCreateWorktree}
+          >
+            <GitBranch className="h-3.5 w-3.5" />
+            <span>Create worktree…</span>
+          </ContextMenuItem>
+          {/* BSP-G3 — Swap this IDLE pane to an existing worktree. */}
+          <ContextMenuItem
+            data-testid="ctx-open-in-pane"
+            onSelect={handleOpenInPane}
+            disabled={isRunning}
+          >
+            <FolderGit2 className="h-3.5 w-3.5" />
+            <span>Open worktree in this pane…</span>
+          </ContextMenuItem>
+          {/* DEV-W3a — Force-open a distinct workspace on the same dir. */}
+          <ContextMenuItem
+            data-testid="ctx-open-new-workspace"
+            onSelect={handleOpenNewWorkspace}
+          >
+            <LayoutPanelLeft className="h-3.5 w-3.5" />
+            <span>Open another workspace here</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem
             onSelect={onStop}
             disabled={exited || errored}
@@ -506,6 +580,13 @@ export function PaneShell({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+      {/* BSP-G1 — Modal rendered outside the ContextMenu so it is not
+          unmounted when the context menu closes. */}
+      <CreateWorktreeModal
+        open={createWorktreeOpen}
+        onOpenChange={setCreateWorktreeOpen}
+        repoRoot={repoRoot}
+      />
     </div>
   );
 }

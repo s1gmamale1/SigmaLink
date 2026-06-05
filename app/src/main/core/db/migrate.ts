@@ -39,6 +39,7 @@ import * as mig0030 from './migrations/0030_memory_aliases';
 import * as mig0031 from './migrations/0031_memory_fts5';
 import * as mig0032 from './migrations/0032_agent_session_pane_uq_status_aware';
 import * as mig0033 from './migrations/0033_browser_tabs_closed_at';
+import * as mig0034 from './migrations/0034_drop_workspaces_root_idx';
 
 export interface Migration {
   name: string;
@@ -88,6 +89,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   mig0031,
   mig0032,
   mig0033,
+  mig0034,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `

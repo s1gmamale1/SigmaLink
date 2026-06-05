@@ -69,6 +69,110 @@ function rowToWorkspace(row: typeof workspaces.$inferSelect): Workspace {
   };
 }
 
+/**
+ * DEV-W3a — Open a BRAND-NEW workspace for `rootPath` even if a workspace with
+ * the same rootPath already exists. Always inserts a fresh row with a new UUID;
+ * the dedup-reuse branch of `openWorkspace` is intentionally skipped. Two
+ * workspaces sharing one directory are disambiguated by their custom name
+ * (DEV-W2 `workspaces.rename`).
+ *
+ * Side-effects (MCP autowrite, preflight, etc.) are identical to `openWorkspace`
+ * — the new workspace receives its own per-directory MCP config entry and is
+ * fully initialised before being returned.
+ */
+export async function openWorkspaceNew(
+  rootPath: string,
+  deps: OpenWorkspaceDeps = {},
+): Promise<Workspace> {
+  const abs = path.resolve(rootPath);
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
+    throw new Error(`Not a directory: ${abs}`);
+  }
+  const repoRoot = await getRepoRoot(abs);
+  const repoMode: 'git' | 'plain' = repoRoot ? 'git' : 'plain';
+  const name = path.basename(abs) || abs;
+  const db = getDb();
+  const now = Date.now();
+  // Always insert — never reuse an existing row (DEV-W3a).
+  const resultId = randomUUID();
+  db.insert(workspaces)
+    .values({
+      id: resultId,
+      name,
+      rootPath: abs,
+      repoRoot,
+      repoMode,
+      createdAt: now,
+      lastOpenedAt: now,
+    })
+    .run();
+
+  // Force WAL checkpoint so a subsequent list sees the new row immediately.
+  try {
+    getRawDb().pragma('wal_checkpoint(PASSIVE)');
+  } catch {
+    /* best-effort */
+  }
+
+  const row = db.select().from(workspaces).where(eq(workspaces.id, resultId)).get();
+  const workspace = rowToWorkspace(row!);
+  try {
+    const autowrite = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(KV_RUFLO_AUTOWRITE_MCP) as { value?: string } | undefined;
+    if (autowrite?.value !== '0') {
+      let port: number | undefined;
+      if (ENABLE_RUFLO_HTTP_DAEMON && deps.rufloHttpDaemonSupervisor) {
+        try {
+          const handle = await deps.rufloHttpDaemonSupervisor.spawn(resultId, abs);
+          if (handle) port = handle.port;
+        } catch (err) {
+          console.warn(
+            `[ruflo-http] daemon spawn failed for ${abs}; falling back to stdio: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+      writeWorkspaceMcpConfig(abs, port !== undefined ? { port } : undefined);
+      const autotrust = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get(KV_RUFLO_AUTOTRUST_MCP) as { value?: string } | undefined;
+      if (autotrust?.value !== '0') {
+        try {
+          ensureRufloTrusted(abs);
+        } catch (err) {
+          console.warn(
+            `[ruflo-trust] ensureRufloTrusted threw for ${abs}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+      if (deps.notifications) {
+        maybeNotifyStdioFallback({ notifications: deps.notifications }, resultId, port !== undefined);
+      }
+      void seedWorkspaceMemory({ workspaceRoot: abs }).catch(() => {});
+    }
+  } catch (err) {
+    console.warn(
+      `[ruflo] MCP autowrite failed for ${abs}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  if (deps.rufloSupervisor || deps.skillsManager) {
+    void runWorkspacePreflight(workspace, abs, deps).catch((err) => {
+      console.warn(
+        `[workspace] preflight failed for ${abs}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    });
+  }
+  return workspace;
+}
+
 export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = {}): Promise<Workspace> {
   const abs = path.resolve(rootPath);
   if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {

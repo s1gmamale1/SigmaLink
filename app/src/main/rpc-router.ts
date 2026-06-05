@@ -35,7 +35,9 @@ import { buildGitCheckpointController } from './core/git/checkpoint-controller';
 import { buildUsageController } from './core/usage/controller';
 import { buildMcpDiagnosticController } from './core/workspaces/mcp-diagnostic';
 import { WorktreePool } from './core/git/worktree';
-import { listWorkspaces, openWorkspace, removeWorkspace, renameWorkspace } from './core/workspaces/factory';
+import { worktreeCreate } from './core/git/worktree-gui';
+import { openInPane } from './core/workspaces/open-in-pane';
+import { listWorkspaces, openWorkspace, openWorkspaceNew, removeWorkspace, renameWorkspace } from './core/workspaces/factory';
 import { cleanupOrphanWorktrees, sweepAllReposOnBoot } from './core/workspaces/worktree-cleanup';
 import {
   pruneOrphanWorktreesForWorkspace,
@@ -1375,6 +1377,22 @@ async function buildRouter() {
       }
       return workspace;
     },
+    // DEV-W3a — force a DISTINCT workspace on a directory (bypasses the
+    // dedup-by-rootPath reuse in `open`). Disambiguated by the user's custom
+    // name (DEV-W2). Migration 0034 (drop workspaces_root_idx) is what lets the
+    // second row insert. MCP autowrite is path-scoped, so two same-dir
+    // workspaces intentionally share one `.mcp.json` (documented trade-off).
+    openNew: async (root: string) => {
+      const workspace = await openWorkspaceNew(root, {
+        rufloSupervisor,
+        rufloHttpDaemonSupervisor,
+        skillsManager,
+        emit: (event, payload) => broadcast(event, payload),
+        notifications: notificationsManager,
+      });
+      markWorkspaceOpened(workspace.id);
+      return workspace;
+    },
     list: async () => listWorkspaces(),
     rename: async (input: { id: string; name: string }) => {
       return renameWorkspace(input.id, input.name);
@@ -1441,6 +1459,60 @@ async function buildRouter() {
       })();
       if (!root) return;
       await worktreeRemove(root, worktreePath);
+    },
+
+    // BSP-G1 — GUI "Create Git Worktree". Over WorktreePool.create (which owns
+    // the disk cap + statfs floor guards). The renderer supplies the repo root.
+    worktreeCreate: async (input: { repoRoot: string; hint?: string; base?: string }) => {
+      assertAllowedPath(input.repoRoot, fsAllowedRoots());
+      return worktreeCreate(worktreePool, input);
+    },
+
+    // BSP-G3 — "open worktree in this (idle) pane". The openInPane controller
+    // refuses a running pane (idle-only — never swap a live turn). Conservative
+    // re-home: the pane's cwd/worktree is repointed in the DB (effective on the
+    // next (re)spawn) and, for a plain SHELL pane, the live shell is nudged with
+    // a `cd`. Agent CLIs ignore stdin `cd`, so their live PTY is intentionally
+    // NOT mutated here (full live agent re-home is deferred — the documented
+    // pane-state-corruption risk). idle-gate enforced by the controller.
+    openInPane: async (input: { sessionId: string; worktreePath: string }) => {
+      assertAllowedPath(input.worktreePath, fsAllowedRoots());
+      return openInPane(
+        {
+          getSession: (id) => {
+            const row = getRawDb()
+              .prepare(
+                'SELECT id, status, cwd, worktree_path AS worktreePath FROM agent_sessions WHERE id = ?',
+              )
+              .get(id) as
+              | { id: string; status: string; cwd: string; worktreePath: string | null }
+              | undefined;
+            return row ?? null;
+          },
+          updateSessionCwd: (sessionId, cwd, worktreePath) => {
+            getRawDb()
+              .prepare('UPDATE agent_sessions SET cwd = ?, worktree_path = ? WHERE id = ?')
+              .run(cwd, worktreePath, sessionId);
+          },
+          respawnInCwd: async (sessionId, cwd) => {
+            const prov = (
+              getRawDb()
+                .prepare('SELECT provider_id AS p FROM agent_sessions WHERE id = ?')
+                .get(sessionId) as { p?: string } | undefined
+            )?.p;
+            // Shell panes can be live-moved safely; agent panes pick up the new
+            // cwd from the DB on their next spawn (no live stdin mutation).
+            if (prov === 'shell') {
+              try {
+                pty.write(sessionId, ` cd ${JSON.stringify(cwd)}\n`);
+              } catch {
+                /* pane may already be gone */
+              }
+            }
+          },
+        },
+        input,
+      );
     },
 
     // ── P6 FEAT-11 — agent undo/rewind via worktree git checkpoints ──────

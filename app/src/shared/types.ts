@@ -114,6 +114,14 @@ export interface PaneAssignment {
 
 export interface LaunchPlan {
   workspaceRoot: string;
+  /**
+   * DEV-W3a — the workspace's UUID. Preferred over `workspaceRoot` to resolve
+   * the workspace row, because once migration 0034 drops the unique
+   * `workspaces_root_idx` two workspaces can share a `rootPath`, making a
+   * by-path lookup ambiguous. Optional for back-compat: legacy callers that
+   * omit it fall back to the (now non-unique) rootPath lookup.
+   */
+  workspaceId?: WorkspaceId;
   preset: GridPreset;
   baseRef?: string;
   panes: PaneAssignment[];

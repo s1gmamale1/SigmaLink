@@ -21,6 +21,9 @@ const revealInFolderMock = vi.fn();
 const openShellMock = vi.fn();
 const ptyWriteMock = vi.fn().mockResolvedValue(undefined);
 const toastWarningMock = vi.fn();
+const worktreeCreateMock = vi.fn();
+const openInPaneMock = vi.fn();
+const openNewWorkspaceMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -32,6 +35,13 @@ vi.mock('@/renderer/lib/rpc', () => ({
     app: {
       revealInFolder: (...args: unknown[]) => revealInFolderMock(...args),
       openShell: (...args: unknown[]) => openShellMock(...args),
+    },
+    git: {
+      worktreeCreate: (...args: unknown[]) => worktreeCreateMock(...args),
+      openInPane: (...args: unknown[]) => openInPaneMock(...args),
+    },
+    workspaces: {
+      openNew: (...args: unknown[]) => openNewWorkspaceMock(...args),
     },
     // FEAT-4 — PaneShell reads the pty.promptCards gate on mount. Default OFF
     // (null) so the prompt-card feature stays inert in these scratch-tab tests.
@@ -50,6 +60,17 @@ vi.mock('./use-prompt-card', () => ({
 
 vi.mock('./PromptCard', () => ({
   PromptCard: () => null,
+}));
+
+// BSP-G1 — Stub CreateWorktreeModal so PaneShell tests don't depend on Dialog.
+const createWorktreeModalOpenChangeMock = vi.fn();
+let capturedCreateWorktreeModalProps: { open: boolean; repoRoot: string } | null = null;
+vi.mock('./CreateWorktreeModal', () => ({
+  CreateWorktreeModal: (props: { open: boolean; onOpenChange: (v: boolean) => void; repoRoot: string }) => {
+    capturedCreateWorktreeModalProps = { open: props.open, repoRoot: props.repoRoot };
+    createWorktreeModalOpenChangeMock.mockImplementation(props.onOpenChange);
+    return props.open ? <div data-testid="create-worktree-modal-stub">modal</div> : null;
+  },
 }));
 
 vi.mock('sonner', () => ({
@@ -98,6 +119,11 @@ beforeEach(() => {
   killScratchMock.mockReset();
   ptyWriteMock.mockReset();
   toastWarningMock.mockReset();
+  worktreeCreateMock.mockReset();
+  openInPaneMock.mockReset();
+  openNewWorkspaceMock.mockReset();
+  createWorktreeModalOpenChangeMock.mockReset();
+  capturedCreateWorktreeModalProps = null;
   // Default: spawnScratch resolves with a fresh id each time.
   let counter = 0;
   spawnScratchMock.mockImplementation(() =>
@@ -597,5 +623,74 @@ describe('PaneShell — W-5 Phase 3 skill-drop injection', () => {
 
     expect(ptyWriteMock).not.toHaveBeenCalled();
     expect(toastWarningMock).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. BSP-G1/P1/G3 + DEV-W3a — new context menu items
+// ---------------------------------------------------------------------------
+
+// Helper: open the context menu on the pane body by firing a contextmenu event,
+// then wait for Radix to mount the portal content.
+async function openContextMenu() {
+  const paneBody = screen.getByTestId('pane-body');
+  await act(async () => {
+    fireEvent.contextMenu(paneBody);
+    await Promise.resolve();
+  });
+}
+
+describe('PaneShell — BSP-G1/P1/G3/W3a context menu items', () => {
+  it('renders ctx-create-worktree, ctx-open-in-pane, and ctx-open-new-workspace items after right-click', async () => {
+    await renderPaneShell();
+    await openContextMenu();
+    // Radix portals attach to document.body.
+    expect(document.querySelector('[data-testid="ctx-create-worktree"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="ctx-open-in-pane"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="ctx-open-new-workspace"]')).toBeTruthy();
+  });
+
+  it('ctx-open-in-pane is disabled when session.status === "running"', async () => {
+    await renderPaneShell(makeSession({ status: 'running' }));
+    await openContextMenu();
+    const item = document.querySelector('[data-testid="ctx-open-in-pane"]') as HTMLElement | null;
+    expect(item).toBeTruthy();
+    // Radix ContextMenuItem sets data-disabled="true" or aria-disabled="true" when disabled.
+    const isDisabled =
+      item!.getAttribute('data-disabled') === 'true' ||
+      item!.getAttribute('aria-disabled') === 'true' ||
+      (item as HTMLButtonElement).disabled === true;
+    expect(isDisabled).toBe(true);
+  });
+
+  it('ctx-open-in-pane is enabled when session.status === "exited"', async () => {
+    await renderPaneShell(makeSession({ status: 'exited' }));
+    await openContextMenu();
+    const item = document.querySelector('[data-testid="ctx-open-in-pane"]') as HTMLElement | null;
+    expect(item).toBeTruthy();
+    const isDisabled =
+      item!.getAttribute('data-disabled') === 'true' ||
+      item!.getAttribute('aria-disabled') === 'true';
+    expect(isDisabled).toBe(false);
+  });
+
+  it('clicking ctx-create-worktree opens the CreateWorktreeModal', async () => {
+    await renderPaneShell();
+    await openContextMenu();
+    const item = document.querySelector('[data-testid="ctx-create-worktree"]') as HTMLElement;
+    expect(item).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(item);
+      await Promise.resolve();
+    });
+    // The stub modal should now be rendered with open=true.
+    expect(screen.queryByTestId('create-worktree-modal-stub')).toBeTruthy();
+  });
+
+  it('CreateWorktreeModal receives the workspaceRootPath as repoRoot', async () => {
+    await renderPaneShell();
+    // The CreateWorktreeModal stub captures props on every render.
+    // Even when closed (open=false), the component is mounted and props are captured.
+    expect(capturedCreateWorktreeModalProps?.repoRoot).toBe('/tmp/ws-1');
   });
 });
