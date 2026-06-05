@@ -1,9 +1,12 @@
 // V3-W13-012 — Sigma Assistant transcript. Role-tagged messages stream
-// char-by-char (assistant rows pick up the parent's `streamingDelta`).
+// char-by-char (assistant rows pick up the parent's `streaming` object).
 // Auto-sticks to bottom unless the user has scrolled away.
+// Phase 6 — stream-reveal (rAF catch-up), spring bubble-enter, inline tool chips.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { useJorvisStreamReveal } from './use-jorvis-stream-reveal';
+import { InlineToolChips } from './InlineToolChips';
 
 export type ChatRole = 'user' | 'assistant' | 'tool' | 'system';
 
@@ -17,7 +20,11 @@ export interface ChatMessageView {
 
 interface Props {
   messages: ChatMessageView[];
+  /** Phase 6: pass the full streaming object (turnId+delta) instead of bare string. */
+  streaming?: { turnId: string; delta: string } | null;
+  /** Legacy prop kept for backward-compat — ignored when `streaming` is provided. */
   streamingDelta?: string;
+  conversationId?: string | null;
   className?: string;
 }
 
@@ -28,14 +35,35 @@ const ROLE_LABEL: Record<ChatRole, string> = {
   system: 'SYSTEM',
 };
 
-export function ChatTranscript({ messages, streamingDelta, className }: Props) {
+// Sentinel: the in-flight streaming row uses this id so ChatRow can identify it.
+const STREAMING_ROW_ID = '__streaming__';
+
+export function ChatTranscript({ messages, streaming, streamingDelta, conversationId, className }: Props) {
+  // Resolve the effective streaming object: prefer the new `streaming` prop,
+  // fall back to the legacy `streamingDelta` string for backward-compat.
+  const effectiveStreaming = streaming !== undefined
+    ? streaming
+    : (streamingDelta != null ? { turnId: '', delta: streamingDelta } : null);
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [messages, streamingDelta]);
+  }, [messages, effectiveStreaming]);
+
+  // Build the rows: all stored messages + an in-flight row when streaming.
+  // The in-flight row is SEPARATE from the stored messages — it's a virtual
+  // bubble that disappears once the turn commits and the final message is added.
+  const hasInFlight = effectiveStreaming != null;
+  const inFlightMsg: ChatMessageView | null = hasInFlight
+    ? { id: STREAMING_ROW_ID, role: 'assistant', content: '', createdAt: Date.now() }
+    : null;
+
+  const allRows: ChatMessageView[] = inFlightMsg
+    ? [...messages, inFlightMsg]
+    : messages;
 
   return (
     <div
@@ -47,7 +75,7 @@ export function ChatTranscript({ messages, streamingDelta, className }: Props) {
       }}
       className={cn('flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-4 py-3', className)}
     >
-      {messages.length === 0 ? (
+      {messages.length === 0 && !hasInFlight ? (
         <div className="m-auto max-w-sm text-center text-xs text-muted-foreground">
           Ask Jorvis to launch panes, search memory, or open a URL. Press
           <kbd className="mx-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
@@ -56,24 +84,63 @@ export function ChatTranscript({ messages, streamingDelta, className }: Props) {
           to send.
         </div>
       ) : null}
-      {messages.map((m) => (
-        <ChatRow key={m.id} message={m} streamingDelta={streamingDelta} />
-      ))}
+      {allRows.map((m) => {
+        const isStreaming = m.id === STREAMING_ROW_ID && effectiveStreaming != null;
+        return (
+          <ChatRow
+            key={m.id}
+            message={m}
+            isStreaming={isStreaming}
+            streamingDelta={isStreaming ? effectiveStreaming!.delta : undefined}
+            conversationId={conversationId}
+            streamingTurnId={isStreaming ? effectiveStreaming!.turnId : undefined}
+          />
+        );
+      })}
     </div>
   );
 }
 
-function ChatRow({ message, streamingDelta }: { message: ChatMessageView; streamingDelta?: string }) {
+interface ChatRowProps {
+  message: ChatMessageView;
+  isStreaming: boolean;
+  streamingDelta?: string;
+  conversationId?: string | null;
+  streamingTurnId?: string;
+}
+
+function ChatRow({ message, isStreaming, streamingDelta, conversationId, streamingTurnId }: ChatRowProps) {
+  // Spring bubble-enter: React-19 ref-as-prop, applied exactly once via useLayoutEffect([]).
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const played = useRef(false);
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el || played.current) return;
+    played.current = true;
+    el.classList.add('sl-slide-up');
+    el.dataset.entered = '1';
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stream reveal hook — called unconditionally (stable hook order).
+  // For non-streaming rows: active=false → instant full text, no rAF.
+  const delta = isStreaming ? (streamingDelta ?? '') : '';
+  const { revealed, caret } = useJorvisStreamReveal(delta, isStreaming);
+
   const r = message.role;
   const label = ROLE_LABEL[r];
-  const body = r === 'assistant' && streamingDelta
-    ? message.content + streamingDelta
+
+  // Body: for the in-flight streaming row, show the reveal-accumulated text.
+  // For completed rows, show their stored content.
+  const body = isStreaming
+    ? message.content + revealed
     : message.content;
 
   return (
     <div
+      ref={rootRef}
       data-role={r}
       data-message-id={message.id}
+      data-testid={`chat-row-${message.id}`}
       className="flex flex-col gap-1 rounded transition-shadow"
       role="group"
       aria-label={label}
@@ -106,8 +173,17 @@ function ChatRow({ message, streamingDelta }: { message: ChatMessageView; stream
           r === 'system' && 'text-amber-500/90',
         )}
       >
-        {r === 'tool' ? <ToolBody content={message.content} /> : body}
+        {r === 'tool' ? <ToolBody content={message.content} /> : (
+          <>
+            {body}
+            {caret ? <span data-caret className="sl-caret">&#x2588;</span> : null}
+          </>
+        )}
       </div>
+      {/* Inline tool chips — only for the active in-flight assistant row */}
+      {isStreaming && conversationId && streamingTurnId ? (
+        <InlineToolChips conversationId={conversationId} turnId={streamingTurnId} />
+      ) : null}
     </div>
   );
 }

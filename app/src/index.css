@@ -684,6 +684,18 @@
   50% { opacity: 0.4; }
 }
 
+/* Phase 6 — streaming caret blink. Collapses under reduced-motion via the
+   global safety-net (animation-duration→0.01ms) and the explicit motion-safe
+   guard. Hidden entirely under reduced-motion so there's no static cursor. */
+@keyframes sl-caret-blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+.sl-caret {
+  display: inline-block;
+  width: 0.5ch;
+  animation: sl-caret-blink 1s steps(1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sl-caret { display: none; }
+}
 
 @layer base {
   * {
