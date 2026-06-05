@@ -26,9 +26,14 @@ import {
   createCheckpoint,
   gitActivityLog,
   gitDiff,
+  gitDiffStaged,
+  gitDiffUnstaged,
+  gitLog,
   gitStatus,
+  listBranches,
   restoreCheckpoint,
   runShellLine,
+  switchBranch,
   worktreeRemove,
 } from './core/git/git-ops';
 import { buildGitCheckpointController } from './core/git/checkpoint-controller';
@@ -1528,6 +1533,28 @@ async function buildRouter() {
     activityLog: async (cwd: string, days?: number) => {
       assertAllowedPath(cwd, fsAllowedRoots());
       return gitActivityLog(cwd, days);
+    },
+
+    // ── BSP-G2 — Git panel channels ───────────────────────────────────────
+    diffStaged: async (cwd: string) => {
+      assertAllowedPath(cwd, fsAllowedRoots());
+      return gitDiffStaged(cwd);
+    },
+    diffUnstaged: async (cwd: string) => {
+      assertAllowedPath(cwd, fsAllowedRoots());
+      return gitDiffUnstaged(cwd);
+    },
+    log: async (cwd: string, limit?: number) => {
+      assertAllowedPath(cwd, fsAllowedRoots());
+      return gitLog(cwd, limit);
+    },
+    listBranches: async (cwd: string) => {
+      assertAllowedPath(cwd, fsAllowedRoots());
+      return listBranches(cwd);
+    },
+    switchBranch: async (input: { cwd: string; branch: string }) => {
+      assertAllowedPath(input.cwd, fsAllowedRoots());
+      return switchBranch(input.cwd, input.branch);
     },
   });
 
