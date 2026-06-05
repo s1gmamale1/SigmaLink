@@ -388,8 +388,9 @@ export function PaneShell({
   // the terminal-cache (v1.4.2 #03) preserves scrollback and the PTY keeps
   // emitting bytes — clicking the header restores the body view.
   const minimised = !!session.minimised;
-  // Resolve the repo root for the CreateWorktreeModal.
-  // Prefer the session's own worktreePath parent; fall back to workspaceRootPath.
+  // Repo root for the CreateWorktreeModal = the workspace root (the repo a new
+  // worktree is cut from). The session's own worktreePath is a CHILD worktree,
+  // not the repo, so it is deliberately NOT used here.
   const repoRoot = workspaceRootPath;
   return (
     <div

@@ -195,12 +195,14 @@ export async function executeLaunchPlan(
   deps: LauncherDeps,
 ): Promise<{ workspace: Workspace; sessions: AgentSession[] }> {
   const db = getDb();
-  const wsRow = db
-    .select()
-    .from(workspacesTable)
-    .where(eq(workspacesTable.rootPath, plan.workspaceRoot))
-    .get();
-  if (!wsRow) throw new Error(`Workspace not opened: ${plan.workspaceRoot}`);
+  // DEV-W3a — prefer the explicit workspace id. After migration 0034 drops the
+  // unique workspaces_root_idx, two workspaces can share a rootPath, so a
+  // by-path `.get()` would bind panes to an ARBITRARY duplicate row. Fall back
+  // to the rootPath lookup only for legacy callers that omit workspaceId.
+  const wsRow = plan.workspaceId
+    ? db.select().from(workspacesTable).where(eq(workspacesTable.id, plan.workspaceId)).get()
+    : db.select().from(workspacesTable).where(eq(workspacesTable.rootPath, plan.workspaceRoot)).get();
+  if (!wsRow) throw new Error(`Workspace not opened: ${plan.workspaceId ?? plan.workspaceRoot}`);
 
   const sessions: AgentSession[] = [];
   for (const pane of plan.panes) {

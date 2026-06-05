@@ -510,6 +510,10 @@ export function WorkspaceLauncher() {
       const resumeArray = buildPaneResumePlanArray(paneProviders.length, paneResumePlan);
       const plan: LaunchPlan = {
         workspaceRoot: selectedWorkspace.rootPath,
+        // DEV-W3a — pass the workspace id so executeLaunchPlan binds panes to
+        // THIS workspace, not an arbitrary same-rootPath duplicate (0034 drops
+        // the unique root index).
+        workspaceId: selectedWorkspace.id,
         preset: effectivePreset,
         panes: paneProviders.map(({ providerId, modelId }, paneIndex) => ({
           paneIndex,
