@@ -8,6 +8,12 @@
 // `before-quit` handler (renderer may already be torn down at that point, so
 // query-on-quit is not reliable).
 //
+// CRIT-3: `before-quit` is never called on a SIGKILL force-quit, so workspaces
+// are lost on a crash. A trailing-edge throttled flush (~2 s) is scheduled from
+// `rememberSessionSnapshot` so a crash loses at most a few seconds of state.
+// The timer is unref'd so it never keeps the process alive by itself. The
+// `before-quit` flush remains as the final, immediate write.
+//
 // Storage key: kv['app.lastSession'] — a JSON-encoded session envelope. v1.1.3
 // stores `{ activeWorkspaceId, openWorkspaces: [{ workspaceId, room }] }`;
 // v1.1.2's legacy `{ workspaceId, room }` remains readable as a fallback.
@@ -44,6 +50,10 @@ export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 
 const KV_KEY = 'app.lastSession';
 
+// CRIT-3: trailing-edge throttle for opportunistic kv flush.
+const FLUSH_THROTTLE_MS = 2000;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
 let cached: SessionSnapshot | null = null;
 
 function normalizeSessionSnapshot(snapshot: unknown): SessionSnapshot | null {
@@ -67,9 +77,32 @@ function normalizeSessionSnapshot(snapshot: unknown): SessionSnapshot | null {
 }
 
 /**
+ * Schedule a trailing-edge opportunistic kv flush ~2 s after the first call
+ * in a burst. Coalesces multiple rapid snapshot updates into a single write.
+ * The timer is unref'd so it never keeps the event loop alive solely for
+ * this purpose — before-quit (or the next snapshot event) will flush instead.
+ */
+function scheduleOpportunisticFlush(): void {
+  if (flushTimer) return; // already scheduled — trailing-edge coalesces the burst
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    try {
+      persistCachedSnapshot();
+    } catch (err) {
+      /* a failed opportunistic write is non-fatal — before-quit retries */
+      console.warn('[session] opportunistic snapshot flush failed:', err);
+    }
+  }, FLUSH_THROTTLE_MS);
+  // Don't keep the event loop alive solely for this timer.
+  if (typeof flushTimer.unref === 'function') flushTimer.unref();
+}
+
+/**
  * Cache a snapshot from the renderer. Called from the IPC handler bound to
- * `app:session-snapshot`. Does NOT write to kv on every call — the kv write
- * happens once at quit so we don't thrash the WAL during a normal session.
+ * `app:session-snapshot`. Does NOT write to kv on every call — the quit-time
+ * flush in `before-quit` is the final write. However, an opportunistic
+ * trailing-edge throttled flush is also scheduled (~2 s) so a SIGKILL
+ * force-quit loses at most a few seconds of session state (CRIT-3).
  *
  * Returns `true` when the payload validated and was cached, `false`
  * otherwise. Callers can ignore the return value — it exists to make the
@@ -79,6 +112,7 @@ export function rememberSessionSnapshot(snapshot: unknown): boolean {
   const parsed = normalizeSessionSnapshot(snapshot);
   if (!parsed) return false;
   cached = parsed;
+  scheduleOpportunisticFlush();
   return true;
 }
 
@@ -154,12 +188,16 @@ export function readSessionSnapshot(): SessionSnapshot | null {
 }
 
 /**
- * Test-only: clear the in-memory cache between tests so module state doesn't
- * leak across cases. Not exposed in the production export path; the test
- * suite imports the module directly.
+ * Test-only: clear the in-memory cache and any pending throttle timer between
+ * tests so module state doesn't leak across cases. Not exposed in the
+ * production export path; the test suite imports the module directly.
  */
 export function __resetForTests(): void {
   cached = null;
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
 }
 
 export const SESSION_KV_KEY = KV_KEY;

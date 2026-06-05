@@ -5,6 +5,8 @@
 // runs purely inside the main process: validation rejects bad payloads,
 // reads of malformed/absent rows return null, and the in-memory cache
 // behaves as expected (idempotent flush, missing-snapshot is a no-op).
+// CRIT-3 tests verify the trailing-edge throttled opportunistic flush so a
+// force-quit (SIGKILL) loses at most a few seconds of session state.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,6 +32,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   __resetForTests();
 });
 
@@ -209,5 +212,52 @@ describe('session-restore: persistCachedSnapshot', () => {
       openWorkspaces: [{ workspaceId: 'ws-1', room: 'command' }],
     });
     expect(() => persistCachedSnapshot()).not.toThrow();
+  });
+});
+
+// A minimal valid snapshot that passes the module's zod normalizer.
+const VALID_SNAP = {
+  activeWorkspaceId: 'ws-1',
+  openWorkspaces: [{ workspaceId: 'ws-1', room: 'command' }],
+};
+
+describe('session-restore: opportunistic throttled flush (CRIT-3)', () => {
+  // Each test in this block wires its own runSpy so timer-driven writes
+  // are counted independently.  vi.useFakeTimers() is set up per-test so
+  // the timer is always advanced by an explicit call, never by wall-clock.
+
+  it('flushes to kv shortly after a snapshot (not only at quit)', () => {
+    const runSpy = vi.fn();
+    vi.mocked(getRawDb).mockReturnValue({
+      prepare: () => ({ run: runSpy, get: () => undefined }),
+    } as unknown as ReturnType<typeof getRawDb>);
+
+    vi.useFakeTimers();
+    rememberSessionSnapshot(VALID_SNAP);
+
+    // Before the throttle window: no write yet.
+    expect(runSpy).not.toHaveBeenCalled();
+
+    // Advance past the 2 s throttle threshold.
+    vi.advanceTimersByTime(5000);
+
+    expect(runSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces a rapid burst into a single throttled write', () => {
+    const runSpy = vi.fn();
+    vi.mocked(getRawDb).mockReturnValue({
+      prepare: () => ({ run: runSpy, get: () => undefined }),
+    } as unknown as ReturnType<typeof getRawDb>);
+
+    vi.useFakeTimers();
+    rememberSessionSnapshot(VALID_SNAP);
+    rememberSessionSnapshot(VALID_SNAP);
+    rememberSessionSnapshot(VALID_SNAP);
+
+    vi.advanceTimersByTime(5000);
+
+    // All three calls share one trailing-edge timer → exactly one write.
+    expect(runSpy).toHaveBeenCalledTimes(1);
   });
 });
