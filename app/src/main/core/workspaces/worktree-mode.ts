@@ -12,13 +12,14 @@
 // safe default, keeping the worktree isolation invariant unless explicitly opted out).
 
 import { getRawDb } from '../db/client';
+import { worktreeModeKey, type WorktreeMode } from '@/shared/worktree-mode';
 
-export type WorktreeMode = 'worktree' | 'in-place';
-
-/** KV key convention — exported so the Settings UI can write the same key. */
-export function worktreeModeKey(workspaceId: string): string {
-  return `workspace.worktreeMode.${workspaceId}`;
-}
+// NIT fix — the KV key builder + mode type now live in `@/shared/worktree-mode`
+// so the renderer Settings UI imports the SAME key string instead of
+// hand-rolling its own copy. Re-export here so existing main-side consumers
+// (launcher.ts, factory-spawn.ts) keep their import path unchanged.
+export { worktreeModeKey };
+export type { WorktreeMode };
 
 /**
  * Read the per-workspace worktree mode from the KV store.

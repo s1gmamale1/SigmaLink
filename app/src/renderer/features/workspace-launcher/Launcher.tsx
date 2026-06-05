@@ -35,15 +35,13 @@ import { SessionStep, fetchLastResumePlan } from './SessionStep';
 import type { PaneRow } from './SessionStep';
 import { gridLabel } from './grid';
 import { AGENT_PROVIDERS } from '@/shared/providers';
+// DEV-W3b — single source of truth for the worktree-mode KV key, shared with
+// the main-side reader (core/workspaces/worktree-mode.ts). No hand-rolled copy.
+import { worktreeModeKey as worktreeModeKvKey } from '@/shared/worktree-mode';
 
 /** KV key for the per-workspace Yolo/Bypass default. */
 function yoloKvKey(workspaceId: string): string {
   return `pane.autoApprove.default.${workspaceId}`;
-}
-
-/** DEV-W3b — KV key for the per-workspace worktree mode. */
-function worktreeModeKvKey(workspaceId: string): string {
-  return `workspace.worktreeMode.${workspaceId}`;
 }
 
 /**
