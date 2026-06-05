@@ -252,6 +252,18 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         roomByWorkspace: pruneRoomByWorkspace(state.roomByWorkspace, openWorkspaces),
       });
     }
+    case 'RENAME_WORKSPACE': {
+      // DEV-W2 — optimistic rename: patch the name in both the persisted list
+      // and the open list, then re-derive activeWorkspace so the sidebar footer
+      // name updates without a round-trip list reload.
+      const patch = (ws: Workspace): Workspace =>
+        ws.id === action.id ? { ...ws, name: action.name } : ws;
+      return deriveActiveWorkspace({
+        ...state,
+        workspaces: state.workspaces.map(patch),
+        openWorkspaces: state.openWorkspaces.map(patch),
+      });
+    }
     case 'WORKSPACE_OPEN': {
       const openWorkspaces = upsertOpenWorkspace(state.openWorkspaces, action.workspace);
       // Seed the per-workspace room entry if we don't have one yet — keeps

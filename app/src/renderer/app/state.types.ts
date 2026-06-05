@@ -136,6 +136,8 @@ export type Action =
    */
   | { type: 'SET_ROOM_FOR_WORKSPACE'; workspaceId: string; room: RoomId }
   | { type: 'SET_WORKSPACES'; workspaces: Workspace[] }
+  /** DEV-W2 — optimistic rename: updates the name in both workspaces + openWorkspaces lists. */
+  | { type: 'RENAME_WORKSPACE'; id: string; name: string }
   | { type: 'WORKSPACE_OPEN'; workspace: Workspace }
   | { type: 'WORKSPACE_CLOSE'; workspaceId: string }
   | { type: 'SET_ACTIVE_WORKSPACE_ID'; workspaceId: string | null }
