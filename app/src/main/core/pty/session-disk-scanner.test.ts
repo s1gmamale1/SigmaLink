@@ -746,6 +746,42 @@ describe('listSessionExternalIdsForWorkspace', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// PERF-8 — characterization guard: async entrypoint must resolve correctly
+// both before (sync internals) and after (async internals) the migration.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('PERF-8 — listSessionsInCwd(claude) async entrypoint characterization', () => {
+  it('resolves over async fs without changing results', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-disk-'));
+    try {
+      // Seed a claude project dir + one session jsonl (mirror existing claude fixture)
+      const proj = path.join(home, '.claude', 'projects', '-tmp-repo');
+      fs.mkdirSync(proj, { recursive: true });
+      const sess = path.join(proj, 'sess-1.jsonl');
+      fs.writeFileSync(sess, JSON.stringify({ cwd: '/tmp/repo', sessionId: 'sess-1' }) + '\n');
+      fs.utimesSync(sess, new Date(), new Date());
+
+      const out = await listSessionsInCwd('claude', '/tmp/repo', { homeDir: home });
+      // The file is named 'sess-1.jsonl' but the scanner expects a UUID-shaped name —
+      // assert the directory was accessed (no throw) and the call resolves as an array.
+      expect(Array.isArray(out)).toBe(true);
+
+      // Now seed a properly-named UUID session to confirm sessionId capture.
+      const uuid = makeUuid('perf8test');
+      const uuidFile = path.join(proj, `${uuid}.jsonl`);
+      fs.writeFileSync(uuidFile, JSON.stringify({ type: 'system', created_at: Date.now() }) + '\n' +
+        JSON.stringify({ type: 'user', message: 'perf-8 guard' }) + '\n');
+      fs.utimesSync(uuidFile, new Date(), new Date());
+
+      const out2 = await listSessionsInCwd('claude', '/tmp/repo', { homeDir: home });
+      expect(out2.map((s) => s.id)).toContain(uuid);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('findWorkspaceForExternalId', () => {
   it('returns the workspace_id that claimed the external id', async () => {
     const fakeDb = {
