@@ -15,16 +15,8 @@
 // IMPORTANT: resolveWindowsCommand() does NOT gate on process.platform, so
 // this module must branch on process.platform === 'win32' itself.
 
-import path from 'node:path';
 import { spawn, type SpawnOptions, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { resolveWindowsCommand } from '../pty/local-pty';
-
-function windowsExtensionKind(resolved: string): 'cmd' | 'ps1' | null {
-  const ext = path.extname(resolved).toLowerCase();
-  if (ext === '.cmd' || ext === '.bat') return 'cmd';
-  if (ext === '.ps1') return 'ps1';
-  return null;
-}
+import { buildWindowsSpawnArgs } from './windows-spawn';
 
 /**
  * Build the effective [bin, args] pair for spawning `cmd` with `args` on the
@@ -44,26 +36,8 @@ export function buildSpawnArgs(
     return { bin: cmd, argv: args };
   }
 
-  // Resolve bare command (e.g. 'claude') or absolute path possibly lacking
-  // extension against PATH + PATHEXT. Fall back to the literal cmd so the
-  // caller's existing error reporting handles it.
-  const resolved = resolveWindowsCommand(cmd) ?? cmd;
-  const kind = windowsExtensionKind(resolved);
-
-  if (kind === 'cmd') {
-    return {
-      bin: 'cmd.exe',
-      argv: ['/d', '/s', '/c', resolved, ...args],
-    };
-  }
-  if (kind === 'ps1') {
-    return {
-      bin: 'powershell.exe',
-      argv: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolved, ...args],
-    };
-  }
-  // .exe or already-resolved bare command — spawn directly.
-  return { bin: resolved, argv: args };
+  const resolved = buildWindowsSpawnArgs(cmd, args);
+  return { bin: resolved.command, argv: resolved.args };
 }
 
 /**

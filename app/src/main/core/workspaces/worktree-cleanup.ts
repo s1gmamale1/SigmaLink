@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
+import { canonicalPathKey, pathKeyIsWithin } from '../util/path-key';
 
 export interface CleanupResult {
   /** dirs deleted */
@@ -37,8 +38,7 @@ export async function cleanupOrphanWorktrees(
   const repoDir = path.join(normalBase, repoHash);
 
   // R-04-3: sanity check — repoDir must be a direct child of worktreeBase.
-  const normalRepo = path.normalize(repoDir);
-  if (!normalRepo.startsWith(normalBase + path.sep) && normalRepo !== normalBase) {
+  if (!/^[a-f0-9]{12}$/i.test(repoHash) || !pathKeyIsWithin(repoDir, normalBase)) {
     console.warn(`[worktree-cleanup] repoDir ${repoDir} is not under worktreeBase ${worktreeBase}; skipping`);
     return { removed: 0, kept: 0, errors: 0 };
   }
@@ -62,7 +62,6 @@ export async function cleanupOrphanWorktrees(
     .prepare(
       `SELECT DISTINCT worktree_path FROM agent_sessions
        WHERE worktree_path IS NOT NULL
-         AND worktree_path LIKE ?
          AND (
            status = 'running'
            OR status = 'starting'
@@ -70,9 +69,13 @@ export async function cleanupOrphanWorktrees(
            OR exited_at > ?
          )`,
     )
-    .all(`${repoDir}${path.sep}%`, Date.now() - sevenDaysMs) as Array<{ worktree_path: string }>;
+    .all(Date.now() - sevenDaysMs) as Array<{ worktree_path: string }>;
 
-  const liveSet = new Set(liveRows.map((r) => r.worktree_path));
+  const liveSet = new Set(
+    liveRows
+      .filter((r) => pathKeyIsWithin(r.worktree_path, repoDir))
+      .map((r) => canonicalPathKey(r.worktree_path)),
+  );
 
   // Cold-install guard: if no rows reference any path in this repoDir, skip.
   // This avoids deleting dirs from a fresh install where DB hasn't caught up.
@@ -80,12 +83,13 @@ export async function cleanupOrphanWorktrees(
     // Check whether ANY rows at all reference this repoDir (not just live ones).
     const anyRows = db
       .prepare(
-        `SELECT COUNT(*) as cnt FROM agent_sessions
-         WHERE worktree_path IS NOT NULL AND worktree_path LIKE ?`,
+        `SELECT worktree_path FROM agent_sessions
+         WHERE worktree_path IS NOT NULL`,
       )
-      .get(`${repoDir}${path.sep}%`) as { cnt: number };
+      .all() as Array<{ worktree_path: string }>;
 
-    if (anyRows.cnt === 0) {
+    const anyUnderRepo = anyRows.some((r) => pathKeyIsWithin(r.worktree_path, repoDir));
+    if (!anyUnderRepo) {
       // Genuinely cold install — skip cleanup.
       return { removed: 0, kept: entries.length, errors: 0 };
     }
@@ -97,7 +101,7 @@ export async function cleanupOrphanWorktrees(
 
   for (const entry of entries) {
     const full = path.join(repoDir, entry);
-    if (liveSet.has(full)) {
+    if (liveSet.has(canonicalPathKey(full))) {
       kept++;
       continue;
     }

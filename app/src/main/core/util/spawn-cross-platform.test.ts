@@ -31,11 +31,16 @@ describe('buildSpawnArgs — Windows', () => {
     vi.resetModules();
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
 
-    // Mock local-pty so resolveWindowsCommand returns a fixed .cmd path without
-    // needing the real filesystem.
-    vi.doMock('../pty/local-pty', () => ({
-      resolveWindowsCommand: () =>
-        'C:\\Users\\user\\AppData\\Roaming\\npm\\claude.cmd',
+    vi.doMock('./windows-spawn', () => ({
+      buildWindowsSpawnArgs: () => ({
+        command: 'cmd.exe',
+        args: [
+          '/d',
+          '/s',
+          '/c',
+          '"C:\\Users\\user\\AppData\\Roaming\\npm\\claude.cmd" "-p" "hello world" "--output-format" "stream-json"',
+        ],
+      }),
     }));
 
     const { buildSpawnArgs } = await import('./spawn-cross-platform');
@@ -46,32 +51,38 @@ describe('buildSpawnArgs — Windows', () => {
     expect(argv[0]).toBe('/d');
     expect(argv[1]).toBe('/s');
     expect(argv[2]).toBe('/c');
-    expect(argv[3]).toBe('C:\\Users\\user\\AppData\\Roaming\\npm\\claude.cmd');
-    // Original args follow the resolved shim path verbatim.
-    expect(argv.slice(4)).toEqual(originalArgs);
+    expect(argv[3]).toBe(
+      '"C:\\Users\\user\\AppData\\Roaming\\npm\\claude.cmd" "-p" "hello world" "--output-format" "stream-json"',
+    );
   });
 
   it('wraps a .bat file through cmd.exe /d /s /c', async () => {
     vi.resetModules();
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
 
-    vi.doMock('../pty/local-pty', () => ({
-      resolveWindowsCommand: () => 'C:\\tools\\run.bat',
+    vi.doMock('./windows-spawn', () => ({
+      buildWindowsSpawnArgs: () => ({
+        command: 'cmd.exe',
+        args: ['/d', '/s', '/c', '"C:\\tools\\run.bat" "--flag"'],
+      }),
     }));
 
     const { buildSpawnArgs } = await import('./spawn-cross-platform');
     const { bin, argv } = buildSpawnArgs('run', ['--flag']);
 
     expect(bin).toBe('cmd.exe');
-    expect(argv).toEqual(['/d', '/s', '/c', 'C:\\tools\\run.bat', '--flag']);
+    expect(argv).toEqual(['/d', '/s', '/c', '"C:\\tools\\run.bat" "--flag"']);
   });
 
   it('wraps a .ps1 file through powershell.exe -NoProfile -ExecutionPolicy Bypass -File', async () => {
     vi.resetModules();
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
 
-    vi.doMock('../pty/local-pty', () => ({
-      resolveWindowsCommand: () => 'C:\\scripts\\tool.ps1',
+    vi.doMock('./windows-spawn', () => ({
+      buildWindowsSpawnArgs: () => ({
+        command: 'powershell.exe',
+        args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\\scripts\\tool.ps1', 'arg1'],
+      }),
     }));
 
     const { buildSpawnArgs } = await import('./spawn-cross-platform');
@@ -92,8 +103,11 @@ describe('buildSpawnArgs — Windows', () => {
     vi.resetModules();
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
 
-    vi.doMock('../pty/local-pty', () => ({
-      resolveWindowsCommand: () => 'C:\\Program Files\\Git\\cmd\\git.exe',
+    vi.doMock('./windows-spawn', () => ({
+      buildWindowsSpawnArgs: () => ({
+        command: 'C:\\Program Files\\Git\\cmd\\git.exe',
+        args: ['status'],
+      }),
     }));
 
     const { buildSpawnArgs } = await import('./spawn-cross-platform');
@@ -107,8 +121,11 @@ describe('buildSpawnArgs — Windows', () => {
     vi.resetModules();
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
 
-    vi.doMock('../pty/local-pty', () => ({
-      resolveWindowsCommand: () => null,
+    vi.doMock('./windows-spawn', () => ({
+      buildWindowsSpawnArgs: () => ({
+        command: 'unknown-tool',
+        args: ['--help'],
+      }),
     }));
 
     const { buildSpawnArgs } = await import('./spawn-cross-platform');

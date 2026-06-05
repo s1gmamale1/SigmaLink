@@ -16,6 +16,7 @@
 
 import { loadNative } from './native-mac';
 import type { NativeAuthStatus } from './native-mac';
+import { loadNativeWin } from './native-win';
 import { getRawDb } from '../db/client';
 
 export type VoiceDiagnosticsPermission =
@@ -60,11 +61,11 @@ async function probeNative(): Promise<{
   authStatus: VoiceDiagnosticsPermission;
   error: string | null;
 }> {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' && process.platform !== 'win32') {
     return { loaded: false, authStatus: 'unsupported', error: null };
   }
   try {
-    const native = loadNative();
+    const native = process.platform === 'win32' ? loadNativeWin() : loadNative();
     if (!native) {
       return {
         loaded: false,
@@ -79,7 +80,7 @@ async function probeNative(): Promise<{
         return false;
       }
     })();
-    if (!isAvail) {
+    if (!await Promise.resolve(isAvail as boolean | Promise<boolean>)) {
       return {
         loaded: false,
         authStatus: 'unsupported',

@@ -11,7 +11,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { execCmd } from '../../lib/exec';
-import { resolveWindowsCommand } from '../pty/local-pty';
+import { canonicalPathKey } from '../util/path-key';
+import { buildWindowsSpawnArgs } from '../util/windows-spawn';
 import type { GitActivityBucket, GitDiff, GitStatus } from '../../../shared/types';
 
 export async function getRepoRoot(cwd: string): Promise<string | null> {
@@ -29,7 +30,7 @@ export async function getRepoRoot(cwd: string): Promise<string | null> {
 }
 
 export function repoHash(repoRoot: string): string {
-  return createHash('sha1').update(path.normalize(repoRoot)).digest('hex').slice(0, 12);
+  return createHash('sha1').update(canonicalPathKey(repoRoot)).digest('hex').slice(0, 12);
 }
 
 export function sanitizeBranchSegment(input: string): string {
@@ -243,17 +244,9 @@ export async function runShellLine(
   // CLIs (`.cmd` shims) can be found by the argument-array spawn (which does
   // NOT honour PATHEXT). `.cmd`/`.bat` shims are routed through `cmd.exe`.
   if (process.platform === 'win32') {
-    const resolved = resolveWindowsCommand(cmd) ?? cmd;
-    const ext = path.extname(resolved).toLowerCase();
-    if (ext === '.cmd' || ext === '.bat') {
-      args = ['/d', '/s', '/c', resolved, ...args];
-      cmd = 'cmd.exe';
-    } else if (ext === '.ps1') {
-      args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolved, ...args];
-      cmd = 'powershell.exe';
-    } else {
-      cmd = resolved;
-    }
+    const resolved = buildWindowsSpawnArgs(cmd, args);
+    cmd = resolved.command;
+    args = resolved.args;
   }
   const res = await execCmd(cmd, args, { cwd, timeoutMs });
   return { stdout: res.stdout, stderr: res.stderr, code: res.code };
@@ -335,11 +328,17 @@ export async function worktreeAdd(args: {
 }
 
 export async function worktreeRemove(repoRoot: string, worktreePath: string): Promise<void> {
-  await execCmd('git', ['worktree', 'remove', '--force', worktreePath], {
+  const remove = await execCmd('git', ['worktree', 'remove', '--force', worktreePath], {
     cwd: repoRoot,
     timeoutMs: 30_000,
   });
-  await execCmd('git', ['worktree', 'prune'], { cwd: repoRoot, timeoutMs: 10_000 });
+  if (remove.code !== 0) {
+    throw new Error(`git worktree remove failed: ${remove.stderr || remove.stdout}`);
+  }
+  const prune = await execCmd('git', ['worktree', 'prune'], { cwd: repoRoot, timeoutMs: 10_000 });
+  if (prune.code !== 0) {
+    throw new Error(`git worktree prune failed: ${prune.stderr || prune.stdout}`);
+  }
 }
 
 export async function worktreePruneRepo(repoRoot: string): Promise<void> {

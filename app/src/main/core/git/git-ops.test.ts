@@ -6,7 +6,7 @@
 //  3. sessionId with dashes — verify dash-stripping so output is purely hex.
 
 import { describe, it, expect } from 'vitest';
-import { generateBranchName } from './git-ops';
+import { generateBranchName, repoHash } from './git-ops';
 
 describe('generateBranchName — v1.5.5-A sessionId parameter', () => {
   it('derives suffix from sessionId when provided', () => {
@@ -36,5 +36,11 @@ describe('generateBranchName — v1.5.5-A sessionId parameter', () => {
     expect(branch2.startsWith('sigmalink/')).toBe(true);
     // Random fallback produces different suffixes (astronomically unlikely to collide).
     expect(branch1).not.toBe(branch2);
+  });
+});
+
+describe('repoHash — Windows canonical identity', () => {
+  it('treats Windows drive-letter case and separator variants as the same repo', () => {
+    expect(repoHash('C:\\Users\\Ada\\Project')).toBe(repoHash('c:/users/ada/project'));
   });
 });

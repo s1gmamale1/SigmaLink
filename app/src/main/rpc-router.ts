@@ -135,6 +135,7 @@ import { checkForUpdates as checkForUpdatesImpl } from '../../electron/auto-upda
 import { KV_PLAN_TIER, parseTier } from './core/plan/capabilities';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, KV_PTY_SCROLLBACK_PERSISTENCE, parseScrollbackPersistence } from './core/pty/local-pty';
 import { persistScrollback, loadScrollback, gcScrollback } from './core/pty/scrollback-store';
+import { cmdQuoteArg } from './core/util/windows-spawn';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -903,7 +904,7 @@ async function buildRouter() {
       if (plat === 'darwin') {
         spawn('open', ['-a', 'Terminal', resolved], { detached: true, stdio: 'ignore' }).unref();
       } else if (plat === 'win32') {
-        spawn('cmd', ['/c', 'start', 'cmd', '/k', 'cd', '/d', resolved], {
+        spawn('cmd.exe', ['/d', '/s', '/k', `cd /d ${cmdQuoteArg(resolved)}`], {
           detached: true,
           stdio: 'ignore',
         }).unref();

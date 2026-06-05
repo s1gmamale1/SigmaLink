@@ -137,6 +137,16 @@ describe('resolveWindowsCommand (smoke test on non-Windows host)', () => {
   it('returns null for empty input regardless of platform', () => {
     expect(resolveWindowsCommand('')).toBeNull();
   });
+
+  it('uses the supplied env rather than process.env for PATH/PATHEXT resolution', () => {
+    vi.spyOn(fs, 'existsSync').mockImplementation((candidate) =>
+      candidate === 'C:\\tools\\agent.CMD',
+    );
+
+    expect(resolveWindowsCommand('agent', { Path: 'C:\\tools', Pathext: '.CMD' })).toBe(
+      'C:\\tools\\agent.CMD',
+    );
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -796,8 +806,9 @@ describe('buildWin32CmdCommandLine (Phase 5)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 — win32 shell-first: spawnLocalPty uses shell-first on win32
-// when spawnMode='shell-first'.
+// v1.6.0 Phase 5 / H-6 — win32 shell-first helpers exist, but runtime currently
+// coerces win32 shell-first requests back to direct mode until Windows dogfood
+// validates the wrapped-shell sentinel path.
 //
 // NOTE: This test uses vi.doMock + dynamic import to mock node-pty on win32.
 // On the macOS test host, we simulate the win32 platform via process.platform.
@@ -840,10 +851,10 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     };
   }
 
-  it('on simulated win32 with shell-first: spawns a shell (not the CLI command)', async () => {
+  it('on simulated win32 with shell-first: stays direct until Windows dogfood clears shell-first', async () => {
     if (process.platform !== 'win32') {
       // Simulate win32 platform on macOS by temporarily overriding process.platform.
-      // We verify the 3-condition guard allows shell-first on win32 after Phase 5.
+      // H-6 restored direct mode on win32 so spawn/watch logic cannot drift.
       vi.useFakeTimers();
 
       const { freshSpawn, nodePty } = await setupWin32();
@@ -865,17 +876,17 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
         });
       } catch {
         // Spawn may fail in test env on a simulated win32 platform — that's expected.
-        // What we verify is that the mode gate was passed (no ENOENT from the
-        // direct-mode POSIX resolver path).
+        // What we verify below is that shell-first wrapping did not happen.
       } finally {
         Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
       }
 
-      // The spawn call, if it happened, should NOT have been called with 'claude'
-      // as the first argument (shell-first uses defaultShell() instead).
+      // The spawn call, if it happened, should NOT be a shell-first wrapped
+      // PowerShell/cmd launch. In most simulated environments direct-mode
+      // preflight throws ENOENT before node-pty is reached.
       const spawnCalls = vi.mocked(nodePty.spawn).mock.calls;
       for (const call of spawnCalls) {
-        expect(call[0]).not.toBe('claude');
+        expect(String(call[0]).toLowerCase()).not.toMatch(/powershell|pwsh|cmd\.exe/);
       }
     }
   });

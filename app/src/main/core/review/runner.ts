@@ -3,11 +3,10 @@
 // renderer through `review:run-output`, and persists the exit code on the
 // `session_review` row when the process closes.
 
-import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { eq } from 'drizzle-orm';
 import { tokenizeShellLine } from '../git/git-ops';
-import { resolveWindowsCommand } from '../pty/local-pty';
+import { buildWindowsSpawnArgs } from '../util/windows-spawn';
 import { getDb } from '../db/client';
 import { sessionReview } from '../db/schema';
 
@@ -69,17 +68,9 @@ export class ReviewRunner {
 
     let [cmd, ...args] = tokens;
     if (process.platform === 'win32') {
-      const resolved = resolveWindowsCommand(cmd) ?? cmd;
-      const ext = path.extname(resolved).toLowerCase();
-      if (ext === '.cmd' || ext === '.bat') {
-        args = ['/d', '/s', '/c', resolved, ...args];
-        cmd = 'cmd.exe';
-      } else if (ext === '.ps1') {
-        args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolved, ...args];
-        cmd = 'powershell.exe';
-      } else {
-        cmd = resolved;
-      }
+      const resolved = buildWindowsSpawnArgs(cmd, args);
+      cmd = resolved.command;
+      args = resolved.args;
     }
 
     const runId = crypto.randomUUID();

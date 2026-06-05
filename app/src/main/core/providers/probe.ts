@@ -4,10 +4,10 @@
 // extension). We forward that path to the version probe so child_process's
 // argument-array spawn (which does NOT honour PATHEXT) can find the binary.
 
-import path from 'node:path';
 import { execCmd } from '../../lib/exec';
 import { AGENT_PROVIDERS, type AgentProviderDefinition } from '../../../shared/providers';
 import type { ProviderProbe } from '../../../shared/types';
+import { buildWindowsSpawnArgs } from '../util/windows-spawn';
 
 const VERSION_RE = /(\d+\.\d+(?:\.\d+)*(?:[\w.+-]*)?)/;
 
@@ -27,25 +27,10 @@ async function execVersion(
   resolved: string,
   versionArgs: string[],
 ): Promise<{ stdout: string; stderr: string }> {
-  // On Windows, the resolved path may be a .cmd shim; argv-array spawn cannot
-  // execute it directly, so we route through cmd.exe. .ps1 routes through
-  // powershell.exe. .exe is run directly so we don't pay an extra process.
   if (process.platform === 'win32') {
-    const ext = path.extname(resolved).toLowerCase();
-    if (ext === '.cmd' || ext === '.bat') {
-      const r = await execCmd('cmd.exe', ['/d', '/s', '/c', resolved, ...versionArgs], {
-        timeoutMs: 8_000,
-      });
-      return { stdout: r.stdout, stderr: r.stderr };
-    }
-    if (ext === '.ps1') {
-      const r = await execCmd(
-        'powershell.exe',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolved, ...versionArgs],
-        { timeoutMs: 8_000 },
-      );
-      return { stdout: r.stdout, stderr: r.stderr };
-    }
+    const { command, args } = buildWindowsSpawnArgs(resolved, versionArgs);
+    const r = await execCmd(command, args, { timeoutMs: 8_000 });
+    return { stdout: r.stdout, stderr: r.stderr };
   }
   const r = await execCmd(resolved, versionArgs, { timeoutMs: 8_000 });
   return { stdout: r.stdout, stderr: r.stderr };

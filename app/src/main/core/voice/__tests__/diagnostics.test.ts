@@ -14,11 +14,17 @@ vi.mock('../native-mac', () => ({
   isNativeMacVoiceAvailable: vi.fn(),
 }));
 
+vi.mock('../native-win', () => ({
+  loadNativeWin: vi.fn(),
+  isNativeWinVoiceAvailable: vi.fn(),
+}));
+
 vi.mock('../../db/client', () => ({
   getRawDb: vi.fn(),
 }));
 
 import { loadNative } from '../native-mac';
+import { loadNativeWin } from '../native-win';
 import { getRawDb } from '../../db/client';
 import { runVoiceDiagnostics } from '../diagnostics';
 
@@ -107,6 +113,7 @@ describe('runVoiceDiagnostics', () => {
   it('reports unsupported permission on non-darwin', async () => {
     setPlatform('linux');
     vi.mocked(loadNative).mockReturnValue(null);
+    vi.mocked(loadNativeWin).mockReturnValue(null);
     vi.mocked(getRawDb).mockReturnValue(
       fakeDb({ value: 'off' }) as unknown as ReturnType<typeof getRawDb>,
     );
@@ -118,6 +125,35 @@ describe('runVoiceDiagnostics', () => {
     expect(out.dispatcherReachable).toBe(true);
     expect(out.mode).toBe('off');
     expect(out.lastError).toBeNull();
+  });
+
+  it('probes native Windows voice on win32 instead of reporting platform unsupported', async () => {
+    setPlatform('win32');
+    vi.mocked(loadNativeWin).mockReturnValue(fakeNative());
+    vi.mocked(getRawDb).mockReturnValue(
+      fakeDb({ value: 'native-win' }) as unknown as ReturnType<typeof getRawDb>,
+    );
+
+    const out = await runVoiceDiagnostics();
+
+    expect(out.nativeLoaded).toBe(true);
+    expect(out.permissionStatus).toBe('granted');
+    expect(out.mode).toBe('auto');
+    expect(out.lastError).toBeNull();
+  });
+
+  it('surfaces missing Windows native module as no-native on win32', async () => {
+    setPlatform('win32');
+    vi.mocked(loadNativeWin).mockReturnValue(null);
+    vi.mocked(getRawDb).mockReturnValue(
+      fakeDb({ value: 'auto' }) as unknown as ReturnType<typeof getRawDb>,
+    );
+
+    const out = await runVoiceDiagnostics();
+
+    expect(out.nativeLoaded).toBe(false);
+    expect(out.permissionStatus).toBe('unsupported');
+    expect(out.lastError).toBe('native module not loaded');
   });
 
   it('flags denied permission as the lastError when native is loaded', async () => {
