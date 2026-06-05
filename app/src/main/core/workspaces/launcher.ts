@@ -12,6 +12,8 @@ import { findProvider } from '../../../shared/providers';
 import type { AgentSession, LaunchPlan, Workspace } from '../../../shared/types';
 import type { PtyRegistry } from '../pty/registry';
 import type { WorktreePool } from '../git/worktree';
+import { WorktreeDiskGuardError } from '../git/worktree';
+import type { AddInput } from '../notifications/manager';
 import { getSharedDeps } from '../../rpc-router';
 import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
 import { resolveAndSpawn, ProviderLaunchError } from '../providers/launcher';
@@ -112,6 +114,13 @@ interface LauncherDeps {
    * controller) do not need to provide it; missing means no broadcast.
    */
   broadcastPtyError?: (payload: { sessionId: string; exitCode: number | null; signal?: string | null }) => void;
+  /**
+   * C6 obs — optional notifications sink for disk-guard alerts. When provided,
+   * a WorktreeDiskGuardError triggers a critical notification so the operator
+   * sees the disk-guard hit in the bell. Callers that don't thread notifications
+   * still get the console.warn; only the bell is silent.
+   */
+  notifications?: { add: (input: AddInput) => unknown };
 }
 
 /**
@@ -664,6 +673,24 @@ export async function executeLaunchPlan(
           : err instanceof Error
             ? err.message
             : String(err);
+      // C6 obs — discriminated disk-guard catch: log + notify before generic handling.
+      if (err instanceof WorktreeDiskGuardError) {
+        console.warn(
+          '[launcher] disk-guard refused spawn code=%s ws=%s: %s',
+          err.code,
+          wsRow.id,
+          err.message,
+        );
+        deps.notifications?.add({
+          workspaceId: wsRow.id,
+          kind: 'disk-guard',
+          severity: 'critical',
+          title: 'Disk guard triggered',
+          body: err.message,
+          dedupKey: `disk-guard:${err.code}`,
+          payload: { code: err.code },
+        });
+      }
       // Roll back the worktree if we created one before the failure.
       if (worktreePath && wsRow.repoRoot) {
         try {

@@ -85,6 +85,7 @@ vi.mock('../git/auto-checkpoint', () => ({
 import { getDb, getRawDb } from '../db/client';
 import { resolveAndSpawn } from '../providers/launcher';
 import { executeLaunchPlan } from './launcher';
+import { WorktreeDiskGuardError } from '../git/worktree';
 import type { LaunchPlan } from '../../../shared/types';
 
 const WS_ID = 'ws-launcher-test';
@@ -249,6 +250,85 @@ describe('executeLaunchPlan — DEV-W3b: in-place mode skips worktree creation',
     // Default mode: create IS called.
     expect(deps.worktreePool.create).toHaveBeenCalledOnce();
     expect(sessions[0]!.status).toBe('running');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C6 obs — WorktreeDiskGuardError catch: log + notify
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('executeLaunchPlan — C6: WorktreeDiskGuardError triggers console.warn + notification', () => {
+  it('notifications.add called with severity:critical + dedupKey when disk-guard fires', async () => {
+    const { deps } = makeTestDeps();
+
+    // Make worktreePool.create throw a WorktreeDiskGuardError.
+    vi.mocked(deps.worktreePool.create).mockRejectedValue(
+      new WorktreeDiskGuardError('DISK_FLOOR', 'disk floor reached: 0.5 GB free < 2 GB'),
+    );
+
+    const notificationsAdd = vi.fn();
+    const depsWithNotifications = {
+      ...deps,
+      notifications: { add: notificationsAdd },
+    };
+
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const { sessions } = await executeLaunchPlan(makeGitPlan(), depsWithNotifications);
+
+    // Should have logged a warning.
+    const warnCalls = warnSpy.mock.calls.map((c) => c.join(' '));
+    const diskGuardWarn = warnCalls.find((s) => s.includes('[launcher]') && s.includes('disk-guard'));
+    expect(diskGuardWarn).toBeDefined();
+
+    // Should have called notifications.add with critical severity.
+    expect(notificationsAdd).toHaveBeenCalledOnce();
+    const addArg = notificationsAdd.mock.calls[0]![0] as { severity: string; dedupKey: string };
+    expect(addArg.severity).toBe('critical');
+    expect(addArg.dedupKey).toBe('disk-guard:DISK_FLOOR');
+
+    // Error session returned.
+    expect(sessions[0]!.status).toBe('error');
+
+    warnSpy.mockRestore();
+  });
+
+  it('console.warn fires even when notifications dep is absent', async () => {
+    const { deps } = makeTestDeps();
+
+    vi.mocked(deps.worktreePool.create).mockRejectedValue(
+      new WorktreeDiskGuardError('WORKTREE_CAP', 'cap reached: 40 >= 40'),
+    );
+
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const { sessions } = await executeLaunchPlan(makeGitPlan(), deps);
+
+    const warnCalls = warnSpy.mock.calls.map((c) => c.join(' '));
+    expect(warnCalls.some((s) => s.includes('[launcher]') && s.includes('disk-guard'))).toBe(true);
+    expect(sessions[0]!.status).toBe('error');
+
+    warnSpy.mockRestore();
   });
 });
 

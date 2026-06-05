@@ -46,6 +46,12 @@ export interface SwarmFactoryDeps {
   defaultRows?: number;
   /** Overrideable for tests; production passes app.getPath('userData'). */
   userDataDir: string;
+  /**
+   * C6 obs — optional notifications sink for disk-guard alerts. When provided,
+   * a WorktreeDiskGuardError in materializeRosterAgent triggers a critical
+   * notification. Callers that don't thread notifications still get console.warn.
+   */
+  notifications?: { add: (input: import('../notifications/manager').AddInput) => unknown };
 }
 
 // BUG-13 — `AddAgentToSwarmInput` was defined twice (here + `shared/types.ts`).

@@ -41,6 +41,8 @@ import { allocateLowestFreeLivePaneIndex } from '../workspaces/pane-slots';
 import { isPtyCrash } from '../pty/crash';
 import { maybeAutoCheckpoint } from '../git/auto-checkpoint';
 import { readWorktreeMode } from '../workspaces/worktree-mode';
+import { WorktreeDiskGuardError } from '../git/worktree';
+import type { AddInput } from '../notifications/manager';
 
 /**
  * SF-15 — write the bundled `ruflo` MCP entry (+ claude trust) into a swarm
@@ -515,6 +517,24 @@ export async function materializeRosterAgent(
     // side-chat shows what failed. We never throw — `createSwarm` keeps going
     // with the rest of the roster; the operator can kill+retry from the UI.
     const message = err instanceof Error ? err.message : String(err);
+    // C6 obs — discriminated disk-guard catch: log + notify before generic handling.
+    if (err instanceof WorktreeDiskGuardError) {
+      console.warn(
+        '[factory-spawn] disk-guard refused spawn code=%s ws=%s: %s',
+        err.code,
+        wsRow.id,
+        err.message,
+      );
+      args.deps.notifications?.add({
+        workspaceId: wsRow.id,
+        kind: 'disk-guard',
+        severity: 'critical',
+        title: 'Disk guard triggered',
+        body: err.message,
+        dedupKey: `disk-guard:${err.code}`,
+        payload: { code: err.code },
+      } as AddInput);
+    }
     void deps.mailbox.append({
       swarmId,
       fromAgent: 'operator',

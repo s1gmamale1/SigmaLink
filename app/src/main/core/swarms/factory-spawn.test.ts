@@ -29,7 +29,8 @@ vi.mock('../providers/launcher', () => ({
 import { getDb, getRawDb } from '../db/client';
 import { agentSessions, swarmAgents } from '../db/schema';
 import { resolveAndSpawn } from '../providers/launcher';
-import { buildExtraArgs, spawnAgentSession, type SpawnAgentSessionArgs } from './factory-spawn';
+import { buildExtraArgs, spawnAgentSession, materializeRosterAgent, type SpawnAgentSessionArgs } from './factory-spawn';
+import { WorktreeDiskGuardError } from '../git/worktree';
 import type { SwarmFactoryDeps } from './factory';
 
 const SPAWNED_PTY_ID = 'sess-spawned-leaky';
@@ -587,6 +588,71 @@ describe('spawnAgentSession — BUG-1 PTY-exit crash classification (swarm path)
     expect(sessionUpdate?.set.status).toBe('exited');
     expect(sessionUpdate?.set.exitCode).toBe(0);
     expect(agentUpdate?.set.status).toBe('done');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C6 obs — WorktreeDiskGuardError catch in materializeRosterAgent
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('materializeRosterAgent — C6: WorktreeDiskGuardError triggers console.warn + notification', () => {
+  it('notifications.add called with severity:critical when disk-guard fires', async () => {
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    // Make worktreePool.create throw a WorktreeDiskGuardError.
+    vi.mocked(deps.worktreePool.create).mockRejectedValue(
+      new WorktreeDiskGuardError('DISK_FLOOR', 'disk floor reached: 0.5 GB free < 2 GB'),
+    );
+
+    const notificationsAdd = vi.fn();
+    const depsWithNotifications = {
+      ...deps,
+      notifications: { add: notificationsAdd },
+    } as SwarmFactoryDeps;
+
+    vi.mocked(getDb).mockReturnValue({
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    // Build a git-mode wsRow so the gate tries to create a worktree.
+    const wsRow = {
+      id: 'ws-c6',
+      name: 'ws-c6',
+      rootPath: '/tmp/ws-c6',
+      repoRoot: '/tmp/repo-c6',
+      repoMode: 'git',
+      createdAt: Date.now(),
+      lastOpenedAt: Date.now(),
+    } as unknown as SpawnAgentSessionArgs['wsRow'];
+
+    const { agent } = await materializeRosterAgent({
+      swarmId: 'swarm-c6',
+      wsRow,
+      assignment: { role: 'builder', roleIndex: 1, providerId: 'shell' },
+      coordinatorId: null,
+      now: Date.now(),
+      deps: depsWithNotifications,
+    });
+
+    // Agent should have error status.
+    expect(agent.sessionId).toBeNull();
+
+    // Should have logged a warning.
+    const warnCalls = warnSpy.mock.calls.map((c) => c.join(' '));
+    const diskGuardWarn = warnCalls.find((s) => s.includes('[factory-spawn]') && s.includes('disk-guard'));
+    expect(diskGuardWarn).toBeDefined();
+
+    // Should have called notifications.add with critical severity.
+    expect(notificationsAdd).toHaveBeenCalledOnce();
+    const addArg = notificationsAdd.mock.calls[0]![0] as { severity: string; dedupKey: string };
+    expect(addArg.severity).toBe('critical');
+    expect(addArg.dedupKey).toBe('disk-guard:DISK_FLOOR');
+
+    warnSpy.mockRestore();
   });
 });
 
