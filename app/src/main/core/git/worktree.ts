@@ -19,12 +19,53 @@ import {
 
 export interface WorktreePoolOptions {
   baseDir: string; // e.g. <userData>/worktrees
+  /**
+   * Lane A — hard cap on the number of worktree dirs allowed per repo. When the
+   * pool dir already holds this many entries, `create` refuses with a
+   * WorktreeDiskGuardError('WORKTREE_CAP') BEFORE touching disk. Defaults to 40
+   * (≈ 2× the 20 max-swarm-agents) so a spawn-retry loop physically cannot
+   * fan out into thousands of worktrees.
+   */
+  maxWorktreesPerRepo?: number;
+  /**
+   * Lane A — minimum free bytes that must remain on the volume backing
+   * `baseDir` for a `create` to proceed. When free space drops below this floor
+   * `create` refuses with a WorktreeDiskGuardError('DISK_FLOOR') BEFORE touching
+   * disk. Defaults to 2 GiB.
+   */
+  minFreeDiskBytes?: number;
+}
+
+/** Default per-repo worktree cap (≈ 2× the 20 max-swarm-agents). */
+export const DEFAULT_MAX_WORKTREES_PER_REPO = 40;
+/** Default free-disk floor below which new worktrees are refused (2 GiB). */
+export const DEFAULT_MIN_FREE_DISK_BYTES = 2 * 1024 ** 3;
+
+export type WorktreeDiskGuardCode = 'WORKTREE_CAP' | 'DISK_FLOOR';
+
+/**
+ * Lane A — typed error thrown by WorktreePool.create when a defense-in-depth
+ * guard refuses a create. Distinguishable from real git/fs failures by its
+ * `code` so callers can surface a clear "disk guard" message rather than a
+ * confusing low-level error. Refused creates leave NOTHING on disk.
+ */
+export class WorktreeDiskGuardError extends Error {
+  readonly code: WorktreeDiskGuardCode;
+  constructor(code: WorktreeDiskGuardCode, message: string) {
+    super(message);
+    this.name = 'WorktreeDiskGuardError';
+    this.code = code;
+  }
 }
 
 export class WorktreePool {
   private readonly opts: WorktreePoolOptions;
+  private readonly maxWorktreesPerRepo: number;
+  private readonly minFreeDiskBytes: number;
   constructor(opts: WorktreePoolOptions) {
     this.opts = opts;
+    this.maxWorktreesPerRepo = opts.maxWorktreesPerRepo ?? DEFAULT_MAX_WORKTREES_PER_REPO;
+    this.minFreeDiskBytes = opts.minFreeDiskBytes ?? DEFAULT_MIN_FREE_DISK_BYTES;
   }
 
   poolPathForRepo(repoRoot: string): string {
@@ -52,6 +93,12 @@ export class WorktreePool {
      */
     sessionId?: string;
   }): Promise<{ worktreePath: string; branch: string; sessionId: string }> {
+    // Lane A — defense-in-depth guards. Both run BEFORE the retry loop (i.e.
+    // before any mkdir / `git worktree add`), so a refused create leaves
+    // NOTHING on disk. The disk physically cannot fill via a spawn-retry loop.
+    await this.assertUnderCap(input.repoRoot);
+    await this.assertAboveDiskFloor();
+
     // Retry up to 3 times in the (extremely unlikely) event of a directory
     // collision. With 8 random UUID hex chars per branch this should never
     // actually trigger but the guard makes the failure mode loud rather than
@@ -89,6 +136,73 @@ export class WorktreePool {
     throw lastErr instanceof Error
       ? lastErr
       : new Error(`worktree create failed: ${String(lastErr ?? 'unknown')}`);
+  }
+
+  /**
+   * Lane A — count cap. Counts entries currently in the repo's pool dir. A
+   * missing dir counts as 0 (nothing created yet). Throws
+   * WorktreeDiskGuardError('WORKTREE_CAP') when the count is at/over the cap.
+   */
+  private async assertUnderCap(repoRoot: string): Promise<void> {
+    const poolDir = this.poolPathForRepo(repoRoot);
+    let count = 0;
+    try {
+      const entries = await fs.promises.readdir(poolDir);
+      count = entries.length;
+    } catch {
+      // Pool dir doesn't exist yet (or is unreadable) → count is 0.
+      count = 0;
+    }
+    if (count >= this.maxWorktreesPerRepo) {
+      throw new WorktreeDiskGuardError(
+        'WORKTREE_CAP',
+        `worktree cap reached for repo: ${count} existing worktrees >= cap ${this.maxWorktreesPerRepo} ` +
+          `(in ${poolDir}). Refusing to create another to prevent disk exhaustion.`,
+      );
+    }
+  }
+
+  /**
+   * Lane A — disk floor. Probes free space on the volume backing `baseDir`
+   * (or its nearest existing ancestor when baseDir itself does not yet exist).
+   * Throws WorktreeDiskGuardError('DISK_FLOOR') when free bytes < the floor. If
+   * the probe cannot run at all (no statfs / no resolvable ancestor), the check
+   * is skipped gracefully — we never block a create on an un-probable volume.
+   */
+  private async assertAboveDiskFloor(): Promise<void> {
+    const free = await this.freeBytesForBase();
+    if (free === null) return; // could not probe → skip gracefully
+    if (free < this.minFreeDiskBytes) {
+      const freeGb = (free / 1024 ** 3).toFixed(2);
+      const floorGb = (this.minFreeDiskBytes / 1024 ** 3).toFixed(2);
+      throw new WorktreeDiskGuardError(
+        'DISK_FLOOR',
+        `disk floor reached: ${freeGb} GB free < ${floorGb} GB required on the volume ` +
+          `backing ${this.opts.baseDir}. Refusing to create a worktree to prevent disk exhaustion.`,
+      );
+    }
+  }
+
+  /**
+   * Free bytes (bavail * bsize) on the volume backing `baseDir`. When `baseDir`
+   * does not exist yet, walks up to the nearest existing ancestor and probes
+   * that (same volume in practice). Returns null when no probe is possible.
+   */
+  private async freeBytesForBase(): Promise<number | null> {
+    if (typeof fs.promises.statfs !== 'function') return null;
+    let dir = path.resolve(this.opts.baseDir);
+    // Walk up at most a bounded number of levels to find an existing dir.
+    for (let i = 0; i < 64; i++) {
+      try {
+        const s = await fs.promises.statfs(dir);
+        return s.bavail * s.bsize;
+      } catch {
+        const parent = path.dirname(dir);
+        if (parent === dir) return null; // reached filesystem root, give up
+        dir = parent;
+      }
+    }
+    return null;
   }
 
   async remove(repoRoot: string, worktreePath: string): Promise<void> {

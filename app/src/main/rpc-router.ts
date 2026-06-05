@@ -36,7 +36,7 @@ import { buildUsageController } from './core/usage/controller';
 import { buildMcpDiagnosticController } from './core/workspaces/mcp-diagnostic';
 import { WorktreePool } from './core/git/worktree';
 import { listWorkspaces, openWorkspace, removeWorkspace } from './core/workspaces/factory';
-import { cleanupOrphanWorktrees } from './core/workspaces/worktree-cleanup';
+import { cleanupOrphanWorktrees, sweepAllReposOnBoot } from './core/workspaces/worktree-cleanup';
 import {
   pruneOrphanWorktreesForWorkspace,
   clearPanesForWorkspace,
@@ -274,6 +274,14 @@ function buildRouter() {
 
   // Boot janitor: clean up zombie running sessions and prune dead worktrees.
   void runBootJanitor().catch(() => {
+    /* non-fatal */
+  });
+
+  // Lane A — boot-time all-repo worktree sweep. The per-open cleanup only reaps
+  // the repo being opened; this reaps leaked worktrees (e.g. from a spawn-retry
+  // loop that left a worktree on disk with no surviving agent_sessions row)
+  // across EVERY repo at startup. Best-effort; never blocks boot.
+  void sweepAllReposOnBoot(path.join(userData, 'worktrees'), getRawDb()).catch(() => {
     /* non-fatal */
   });
 

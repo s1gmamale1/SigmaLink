@@ -97,7 +97,7 @@ export async function cleanupOrphanWorktrees(
       await fs.rm(full, { recursive: true, force: true });
       removed++;
     } catch (err) {
-      console.warn(`[worktree-cleanup] Failed to remove ${full}:`, err);
+      console.warn('[worktree-cleanup] Failed to remove %s:', full, err);
       errors++;
     }
   }
@@ -109,4 +109,84 @@ export async function cleanupOrphanWorktrees(
   }
 
   return { removed, kept, errors };
+}
+
+export interface BootSweepResult {
+  /** number of repoHash dirs swept */
+  repos: number;
+  /** total dirs deleted across all repos */
+  removed: number;
+  /** total dirs kept (referenced / cold-install) across all repos */
+  kept: number;
+  /** total errored dirs across all repos */
+  errors: number;
+}
+
+/**
+ * Lane A — boot-time all-repo sweep.
+ *
+ * Orphan cleanup historically ran only once per workspace-open, against the
+ * single repo being opened. Leaked worktrees in OTHER repos (e.g. a spawn-retry
+ * loop that created worktrees with no surviving `agent_sessions` row) were never
+ * reaped until that specific repo happened to be opened again. This sweep runs
+ * the existing per-repo keep/reap logic against EVERY repoHash dir under
+ * `worktreeBase` at boot, so leaked worktrees get reaped across all repos.
+ *
+ * Reuses `cleanupOrphanWorktrees`, so the 7-day uncommitted-work protection and
+ * the cold-install short-circuit apply unchanged per repo. Removal via
+ * `fs.rm(..., {recursive:true})` already takes any untracked `node_modules`
+ * down with the dir — no special handling needed.
+ *
+ * Best-effort: a readdir/cleanup failure on one repo increments `errors` and
+ * the sweep continues. It NEVER throws — boot must not be blocked. A missing
+ * `worktreeBase` (or any failure reading it) returns all-zeros.
+ */
+export async function sweepAllReposOnBoot(
+  worktreeBase: string,
+  db: Database.Database,
+): Promise<BootSweepResult> {
+  const total: BootSweepResult = { repos: 0, removed: 0, kept: 0, errors: 0 };
+
+  let baseEntries: Array<{ name: string; isDirectory: () => boolean }>;
+  try {
+    baseEntries = (await fs.readdir(worktreeBase, { withFileTypes: true })) as Array<{
+      name: string;
+      isDirectory: () => boolean;
+    }>;
+  } catch {
+    // worktreeBase doesn't exist or is unreadable — nothing to sweep.
+    return total;
+  }
+
+  for (const entry of baseEntries) {
+    // Only descend into directories — a repoHash dir. Skip stray files.
+    if (!entry.isDirectory()) continue;
+    total.repos++;
+    try {
+      const res = await cleanupOrphanWorktrees(worktreeBase, entry.name, db);
+      total.removed += res.removed;
+      total.kept += res.kept;
+      total.errors += res.errors;
+    } catch (err) {
+      // cleanupOrphanWorktrees is already best-effort, but guard anyway so one
+      // repo's failure can never abort the boot sweep. Constant format string;
+      // the repoHash and error are passed as args (not concatenated) to avoid
+      // any format-string injection from a dir name (CWE-134).
+      console.warn('[worktree-cleanup] boot-sweep failed for repo %s:', entry.name, err);
+      total.errors++;
+    }
+  }
+
+  if (total.removed > 0 || total.errors > 0) {
+    // Constant format string + numeric args → no externally-controlled values.
+    console.info(
+      '[worktree-cleanup] boot-sweep repos=%d removed=%d kept=%d errors=%d',
+      total.repos,
+      total.removed,
+      total.kept,
+      total.errors,
+    );
+  }
+
+  return total;
 }

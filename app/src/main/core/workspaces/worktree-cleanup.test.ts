@@ -1,18 +1,21 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import path from 'node:path';
-import { cleanupOrphanWorktrees } from './worktree-cleanup';
+import { cleanupOrphanWorktrees, sweepAllReposOnBoot } from './worktree-cleanup';
 
 // ---------------------------------------------------------------------------
 // Mock node:fs/promises so we don't touch the real filesystem.
+//
+// readdirMock receives the real args so path-aware tests (the boot-sweep)
+// can return different entries per path. The existing cleanup tests use
+// `mockResolvedValue`, which ignores args, so they are unaffected.
 // ---------------------------------------------------------------------------
 
-const readdirMock = vi.fn<() => Promise<string[]>>();
+const readdirMock = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 const rmMock = vi.fn<() => Promise<void>>();
 
 vi.mock('node:fs', () => ({
   promises: {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    readdir: (..._args: unknown[]) => readdirMock(),
+    readdir: (...args: unknown[]) => readdirMock(...args),
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     rm: (..._args: unknown[]) => rmMock(),
   },
@@ -200,5 +203,144 @@ describe('cleanupOrphanWorktrees', () => {
     // No sessions for hashA → cold install guard fires → kept=1, removed=0
     expect(result.removed).toBe(0);
     expect(result.kept).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lane A — boot-time all-repo sweep.
+//
+// sweepAllReposOnBoot reads <worktreeBase> for repoHash dirs, then runs the
+// existing per-repo cleanup against EACH, aggregating totals. This is what
+// reaps leaked worktrees across every repo at boot (not just the one being
+// opened).
+//
+// We drive a PATH-AWARE readdir mock:
+//   - readdir(<base>, {withFileTypes}) → Dirent[] (the repoHash dirs)
+//   - readdir(<base>/<hash>)           → string[] (worktree entries)
+// ---------------------------------------------------------------------------
+
+function dirent(name: string, isDir: boolean) {
+  return { name, isDirectory: () => isDir };
+}
+
+/**
+ * Wire up a path-aware readdir:
+ *  - baseEntries: Dirent-ish list returned for readdir(BASE, {withFileTypes})
+ *  - perRepo: map of repoHash → string[] worktree entries for readdir(repoDir)
+ */
+function wireReaddir(
+  base: string,
+  baseEntries: ReturnType<typeof dirent>[],
+  perRepo: Record<string, string[]>,
+) {
+  readdirMock.mockImplementation(async (target: unknown, opts?: unknown) => {
+    const p = path.normalize(String(target));
+    if (p === path.normalize(base)) {
+      // withFileTypes path → Dirents
+      if (opts && typeof opts === 'object' && (opts as { withFileTypes?: boolean }).withFileTypes) {
+        return baseEntries;
+      }
+      return baseEntries.map((e) => e.name);
+    }
+    // per-repo readdir → worktree entry names
+    const hash = path.basename(p);
+    return perRepo[hash] ?? [];
+  });
+}
+
+describe('sweepAllReposOnBoot', () => {
+  it('returns all-zeros when worktreeBase does not exist; never throws', async () => {
+    readdirMock.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    const db = makeDb([]);
+    const result = await sweepAllReposOnBoot(BASE, db);
+    expect(result).toEqual({ repos: 0, removed: 0, kept: 0, errors: 0 });
+    expect(rmMock).not.toHaveBeenCalled();
+  });
+
+  it('iterates multiple repoHash dirs and aggregates removed/kept', async () => {
+    const hashA = 'aaaaaa000000';
+    const hashB = 'bbbbbb000000';
+    // repoA: 1 live pane + 2 orphans → removed=2, kept=1
+    // repoB: 1 live pane              → removed=0, kept=1
+    wireReaddir(
+      BASE,
+      [dirent(hashA, true), dirent(hashB, true)],
+      {
+        [hashA]: ['live-a', 'orphan-1', 'orphan-2'],
+        [hashB]: ['live-b'],
+      },
+    );
+    const db = makeDb([
+      { worktree_path: path.join(BASE, hashA, 'live-a'), status: 'running', exited_at: null },
+      { worktree_path: path.join(BASE, hashB, 'live-b'), status: 'running', exited_at: null },
+    ]);
+
+    const result = await sweepAllReposOnBoot(BASE, db);
+    expect(result.repos).toBe(2);
+    expect(result.removed).toBe(2); // both orphans in repoA
+    expect(result.kept).toBe(2); // live-a + live-b
+    expect(result.errors).toBe(0);
+    expect(rmMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips non-directory entries under the base', async () => {
+    const hashA = 'aaaaaa000000';
+    wireReaddir(
+      BASE,
+      [dirent(hashA, true), dirent('stray-file.txt', false)],
+      { [hashA]: ['live-a', 'orphan-1'] },
+    );
+    const db = makeDb([
+      { worktree_path: path.join(BASE, hashA, 'live-a'), status: 'running', exited_at: null },
+    ]);
+
+    const result = await sweepAllReposOnBoot(BASE, db);
+    expect(result.repos).toBe(1); // only the dir counted
+    expect(result.removed).toBe(1);
+    expect(result.kept).toBe(1);
+  });
+
+  it('an rm error in one repo does not abort the others; counts errors', async () => {
+    const hashA = 'aaaaaa000000';
+    const hashB = 'bbbbbb000000';
+    wireReaddir(
+      BASE,
+      [dirent(hashA, true), dirent(hashB, true)],
+      {
+        [hashA]: ['live-a', 'orphan-a'],
+        [hashB]: ['live-b', 'orphan-b'],
+      },
+    );
+    // First rm (repoA orphan) fails; second (repoB orphan) succeeds.
+    rmMock
+      .mockRejectedValueOnce(new Error('EACCES'))
+      .mockResolvedValueOnce(undefined);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const db = makeDb([
+      { worktree_path: path.join(BASE, hashA, 'live-a'), status: 'running', exited_at: null },
+      { worktree_path: path.join(BASE, hashB, 'live-b'), status: 'running', exited_at: null },
+    ]);
+
+    const result = await sweepAllReposOnBoot(BASE, db);
+    expect(result.repos).toBe(2);
+    // repoB orphan removed, repoA orphan errored.
+    expect(result.removed).toBe(1);
+    expect(result.errors).toBe(1);
+    expect(result.kept).toBe(2);
+    warnSpy.mockRestore();
+  });
+
+  it('aggregates kept across repos and returns zeros for an empty base', async () => {
+    wireReaddir(BASE, [], {});
+    const db = makeDb([]);
+    const result = await sweepAllReposOnBoot(BASE, db);
+    expect(result).toEqual({ repos: 0, removed: 0, kept: 0, errors: 0 });
+  });
+
+  it('does not throw if reading the base itself fails for non-ENOENT reasons', async () => {
+    readdirMock.mockRejectedValue(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
+    const db = makeDb([]);
+    const result = await sweepAllReposOnBoot(BASE, db);
+    expect(result).toEqual({ repos: 0, removed: 0, kept: 0, errors: 0 });
   });
 });
