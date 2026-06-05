@@ -27,6 +27,7 @@ import { RightRailProvider } from '@/renderer/features/right-rail/RightRailConte
 import { useRightRailEnabled } from '@/renderer/features/right-rail/use-right-rail-enabled';
 import { ThemeProvider } from '@/renderer/app/ThemeProvider';
 import { AppStateProvider, useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
+import { useWorkspaceTint } from '@/renderer/app/useWorkspaceTint';
 import { ROOM_LOADERS, prefetchRooms } from '@/renderer/app/room-loaders';
 // ERR-1 — app-resilience layer: a root boundary so a render throw anywhere
 // no longer blanks the window, plus per-room boundaries so one crashing room
@@ -255,6 +256,17 @@ function WhatsNewMount() {
   return null;
 }
 
+/**
+ * BSP-T4 — mounts the per-workspace tint hook inside the full provider tree
+ * (needs AppStateProvider + ThemeProvider). Subscribes only to
+ * `activeWorkspaceId` via a selector (PERF-3 granularity). Renders nothing.
+ */
+function WorkspaceTintMount() {
+  const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspaceId);
+  useWorkspaceTint(activeWorkspaceId);
+  return null;
+}
+
 export default function App() {
   // FE-4 — prefetch every lazy room chunk during idle time after mount, so the
   // first navigation to a not-yet-visited room skips even the Suspense spinner.
@@ -316,6 +328,10 @@ export default function App() {
         <FeatureSpotlightModal />
         {/* ONB-1 — "What's new" upgrade toast (effect-only; renders null). */}
         <WhatsNewMount />
+        {/* BSP-T4 — per-workspace tint (effect-only; renders null). Reads the
+            active workspace's persisted `ui.<wsId>.tint` and applies the inline
+            --accent + --surface-tint overrides; clears on switch. */}
+        <WorkspaceTintMount />
         <NativeRebuildModal />
         {/* UX-1 — themed toast surface (see import above). Stays OUTSIDE the
             RootErrorBoundary (ERR-1) so toasts survive a shell-body crash.
