@@ -543,6 +543,16 @@ export async function executeLaunchPlan(
             initialPrompt: pane.initialPrompt,
             error: `Pane slot ${allocatedPaneIndex} is already occupied.`,
           });
+          // CRIT-1/CRIT-2: the UNIQUE branch `continue`s and never reaches the
+          // outer catch's worktreePool.remove, so it leaks the worktree created
+          // for this pane. Remove + prune it here (best-effort).
+          if (worktreePath && wsRow.repoRoot) {
+            try {
+              await deps.worktreePool.removeAndPrune(wsRow.repoRoot, worktreePath);
+            } catch {
+              /* best-effort — boot sweep is the backstop */
+            }
+          }
           continue;
         } else {
           throw insertErr;

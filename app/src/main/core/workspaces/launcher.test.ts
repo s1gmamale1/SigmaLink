@@ -18,10 +18,258 @@
 //
 // v1.6.0 Phase 3 — also covers `effectivePaneSpawnMode` (pure helper, no deps).
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as bridge from '../pty/claude-resume-sigma.ts';
 import { effectivePaneSpawnMode } from '../pty/local-pty';
 import { isPtyCrash, buildExtraArgs } from './launcher';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CRIT-1/CRIT-2 twin-B — UNIQUE-violation path leaks the git worktree.
+//
+// The launcher's UNIQUE catch `continue`s before reaching the outer catch that
+// holds the only `worktreePool.remove`. Adding `removeAndPrune` in the
+// suppress branch is the fix. These tests verify the contract:
+//   • removeAndPrune IS called on a git-repo pane that hits UNIQUE
+//   • the returned session carries status:'error'
+//   • removeAndPrune is NOT called when the INSERT succeeds (no spurious pruning)
+//   • removeAndPrune is NOT called for plain-mode (no worktree was created)
+//
+// Mocking approach: mirrors factory-spawn.test.ts — vi.mock the DB client,
+// the provider launcher façade, and all other I/O-touching side-effects so
+// the test runs purely in-process (no better-sqlite3 Electron ABI, no PTY).
+// ─────────────────────────────────────────────────────────────────────────────
+
+vi.mock('../db/client', () => ({
+  getDb: vi.fn(),
+  getRawDb: vi.fn(),
+  initializeDatabase: vi.fn(),
+  closeDatabase: vi.fn(),
+}));
+
+vi.mock('../providers/launcher', () => ({
+  resolveAndSpawn: vi.fn(),
+  ProviderLaunchError: class ProviderLaunchError extends Error {},
+}));
+
+vi.mock('../../rpc-router', () => ({
+  getSharedDeps: vi.fn(() => null),
+}));
+
+vi.mock('../browser/mcp-config-writer', () => ({
+  writeMcpConfigForAgent: vi.fn(),
+}));
+
+vi.mock('./guardrail-block', () => ({
+  writeGuardrailBlock: vi.fn(async () => undefined),
+}));
+
+vi.mock('./ruflo-worktree-mcp', () => ({
+  writeRufloMcpIntoCwd: vi.fn(),
+}));
+
+// Note: '../pty/claude-resume-sigma' is intentionally NOT mocked here.
+// The CRIT tests use providerId:'shell', which never triggers the claude/gemini
+// branches in executeLaunchPlan, so the real bridge module is never called.
+// Mocking it would conflict with the existing `bridge` import tests above that
+// assert the module is NOT mocked (vi.isMockFunction === false).
+
+vi.mock('../pty/gemini-resume-sigma', () => ({
+  prepareGeminiResume: vi.fn(async () => 'skipped'),
+  ensureGeminiProjectDir: vi.fn(async () => undefined),
+}));
+
+vi.mock('../git/auto-checkpoint', () => ({
+  maybeAutoCheckpoint: vi.fn(async () => undefined),
+}));
+
+import { getDb, getRawDb } from '../db/client';
+import { resolveAndSpawn } from '../providers/launcher';
+import { executeLaunchPlan } from './launcher';
+import type { LaunchPlan } from '../../../shared/types';
+
+const WS_ID = 'ws-launcher-test';
+const REPO_ROOT = '/tmp/repo-root';
+const WT_PATH = '/tmp/wt/pane-0';
+const SESSION_ID = 'sess-launcher-twin-b';
+
+/** A minimal wsRow shaped like a git-mode workspace DB row. */
+const GIT_WS_ROW = {
+  id: WS_ID,
+  name: 'test-ws',
+  rootPath: '/tmp/ws',
+  repoRoot: REPO_ROOT,
+  repoMode: 'git',
+  createdAt: Date.now(),
+  lastOpenedAt: Date.now(),
+};
+
+/** A minimal raw-db stub that satisfies the KV-reads inside launcher.ts. */
+function makeRawStub() {
+  return {
+    prepare: vi.fn((_sql: string) => ({
+      get: vi.fn((_key?: unknown) => undefined),
+      all: vi.fn(() => []),
+      run: vi.fn(() => undefined),
+    })),
+    // transaction(fn) just invokes fn — mirrors makeRawStub in factory-spawn.test.ts
+    transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+  };
+}
+
+/** Stubs resolveAndSpawn to return a minimal ptySession with id SESSION_ID. */
+function stubSpawnForLauncher(): void {
+  vi.mocked(resolveAndSpawn).mockImplementation(
+    () =>
+      ({
+        ptySession: {
+          id: SESSION_ID,
+          providerId: 'shell',
+          cwd: '/tmp/ws',
+          pid: 9999,
+          alive: true,
+          startedAt: Date.now(),
+          externalSessionId: null,
+          pty: {
+            pid: 9999,
+            write: vi.fn(),
+            resize: vi.fn(),
+            kill: vi.fn(),
+            onData: vi.fn(() => () => undefined),
+            onExit: vi.fn(() => () => undefined),
+          },
+        },
+        providerRequested: 'shell',
+        providerEffective: 'shell',
+        commandUsed: '',
+        argsUsed: [],
+        fallbackOccurred: false,
+      }) as unknown as ReturnType<typeof resolveAndSpawn>,
+  );
+}
+
+/** Builds a LauncherDeps-compatible test object with spied worktreePool. */
+function makeTestDeps(worktreeCreateResult?: { worktreePath: string; branch: string; sessionId: string }) {
+  const pty = {
+    kill: vi.fn(),
+    forget: vi.fn(),
+    write: vi.fn(),
+  };
+  const removeAndPrune = vi.fn().mockResolvedValue(undefined);
+  const worktreePool = {
+    create: vi.fn().mockResolvedValue(
+      worktreeCreateResult ?? { worktreePath: WT_PATH, branch: 'branch-pane-0', sessionId: SESSION_ID },
+    ),
+    remove: vi.fn().mockResolvedValue(undefined),
+    removeAndPrune,
+  };
+  const deps = { pty, worktreePool } as unknown as Parameters<typeof executeLaunchPlan>[1];
+  return { deps, pty, removeAndPrune };
+}
+
+/** A minimal git-repo LaunchPlan with one 'shell' pane (no claude/gemini branches). */
+function makeGitPlan(): LaunchPlan {
+  return {
+    workspaceRoot: '/tmp/ws',
+    panes: [{ paneIndex: 0, providerId: 'shell' }],
+  } as unknown as LaunchPlan;
+}
+
+beforeEach(() => {
+  stubSpawnForLauncher();
+  vi.mocked(getRawDb).mockReturnValue(makeRawStub() as unknown as ReturnType<typeof getRawDb>);
+});
+
+afterEach(() => {
+  vi.mocked(getDb).mockReset();
+  vi.mocked(getRawDb).mockReset();
+  vi.mocked(resolveAndSpawn).mockReset();
+  vi.restoreAllMocks();
+});
+
+describe('executeLaunchPlan — CRIT-1/CRIT-2 twin-B: worktree cleanup on UNIQUE violation', () => {
+  it('removeAndPrune is called when a git-repo launch hits a UNIQUE violation', async () => {
+    const { deps, pty, removeAndPrune } = makeTestDeps();
+
+    const insertRun = vi.fn(() => {
+      throw new Error(
+        'UNIQUE constraint failed: agent_sessions.workspace_id, agent_sessions.pane_index',
+      );
+    });
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: insertRun })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const { sessions } = await executeLaunchPlan(makeGitPlan(), deps);
+
+    // SF-12 contract preserved: PTY is killed + forgotten.
+    expect(pty.kill).toHaveBeenCalled();
+    expect(pty.forget).toHaveBeenCalled();
+
+    // CRIT-1/CRIT-2: worktree created before the INSERT must be cleaned up.
+    expect(removeAndPrune).toHaveBeenCalledWith(REPO_ROOT, WT_PATH);
+
+    // An error session is pushed for the suppressed pane.
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.status).toBe('error');
+  });
+
+  it('removeAndPrune is NOT called when the INSERT succeeds (no spurious pruning)', async () => {
+    const { deps, removeAndPrune } = makeTestDeps();
+
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const { sessions } = await executeLaunchPlan(makeGitPlan(), deps);
+
+    expect(removeAndPrune).not.toHaveBeenCalled();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.status).toBe('running');
+  });
+
+  it('removeAndPrune is NOT called for a plain-mode workspace on UNIQUE violation', async () => {
+    const { deps, removeAndPrune } = makeTestDeps();
+
+    const insertRun = vi.fn(() => {
+      throw new Error(
+        'UNIQUE constraint failed: agent_sessions.workspace_id, agent_sessions.pane_index',
+      );
+    });
+    const PLAIN_WS_ROW = { ...GIT_WS_ROW, repoMode: 'plain', repoRoot: null };
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => PLAIN_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: insertRun })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const plan: LaunchPlan = {
+      workspaceRoot: '/tmp/ws',
+      panes: [{ paneIndex: 0, providerId: 'shell' }],
+    } as unknown as LaunchPlan;
+
+    const { sessions } = await executeLaunchPlan(plan, deps);
+
+    // No worktree was created (plain mode), so removeAndPrune must not be called.
+    expect(removeAndPrune).not.toHaveBeenCalled();
+    expect(sessions[0]!.status).toBe('error');
+  });
+});
 
 describe('Claude resume bridge — provider gate semantics', () => {
   it('exports both helpers as async functions', () => {
