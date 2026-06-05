@@ -13,7 +13,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execCmd } from '../../lib/exec';
 import { canonicalPathKey } from '../util/path-key';
 import { buildWindowsSpawnArgs } from '../util/windows-spawn';
-import type { GitActivityBucket, GitDiff, GitStatus } from '../../../shared/types';
+import type {
+  GitActivityBucket,
+  GitBranchList,
+  GitDiff,
+  GitLogEntry,
+  GitStatus,
+} from '../../../shared/types';
 
 export async function getRepoRoot(cwd: string): Promise<string | null> {
   try {
@@ -130,6 +136,171 @@ export async function gitDiff(cwd: string): Promise<GitDiff | null> {
     untrackedFiles: untrackedRes.stdout.split(/\r?\n/).filter(Boolean),
     truncated,
   };
+}
+
+/**
+ * BSP-G2 — staged-only diff (`git diff --cached --no-color`).
+ * Returns the same `GitDiff` shape as `gitDiff`; only the patches source changes.
+ */
+export async function gitDiffStaged(cwd: string): Promise<GitDiff | null> {
+  if (!fs.existsSync(cwd)) return null;
+  const root = await getRepoRoot(cwd);
+  if (!root) return null;
+  const DIFF_MAX_BUFFER = 16 * 1024 * 1024;
+  const [statRes, patchesRes] = await Promise.all([
+    execCmd('git', ['diff', '--cached', '--stat'], { cwd, timeoutMs: 8_000 }),
+    execCmd('git', ['diff', '--cached', '--no-color'], {
+      cwd,
+      timeoutMs: 15_000,
+      maxBuffer: DIFF_MAX_BUFFER,
+    }),
+  ]);
+  const truncated =
+    patchesRes.maxBufferExceeded ||
+    Buffer.byteLength(patchesRes.stdout, 'utf8') >= DIFF_MAX_BUFFER - 1;
+  return {
+    stat: statRes.stdout,
+    patches: patchesRes.stdout,
+    untrackedFiles: [],
+    truncated,
+  };
+}
+
+/**
+ * BSP-G2 — unstaged diff (`git diff --no-color`, excludes staged hunks).
+ * Returns the same `GitDiff` shape as `gitDiff`.
+ */
+export async function gitDiffUnstaged(cwd: string): Promise<GitDiff | null> {
+  if (!fs.existsSync(cwd)) return null;
+  const root = await getRepoRoot(cwd);
+  if (!root) return null;
+  const DIFF_MAX_BUFFER = 16 * 1024 * 1024;
+  const [statRes, patchesRes] = await Promise.all([
+    execCmd('git', ['diff', '--stat'], { cwd, timeoutMs: 8_000 }),
+    execCmd('git', ['diff', '--no-color'], {
+      cwd,
+      timeoutMs: 15_000,
+      maxBuffer: DIFF_MAX_BUFFER,
+    }),
+  ]);
+  const truncated =
+    patchesRes.maxBufferExceeded ||
+    Buffer.byteLength(patchesRes.stdout, 'utf8') >= DIFF_MAX_BUFFER - 1;
+  return {
+    stat: statRes.stdout,
+    patches: patchesRes.stdout,
+    untrackedFiles: [],
+    truncated,
+  };
+}
+
+const GIT_LOG_LIMIT_MAX = 500;
+
+/**
+ * BSP-G2 — commit log for the Git History panel.
+ * Returns up to `limit` entries (capped at 500) via NUL-delimited `--pretty=format`.
+ */
+export async function gitLog(cwd: string, limit = 100): Promise<GitLogEntry[]> {
+  if (!fs.existsSync(cwd)) return [];
+  const root = await getRepoRoot(cwd);
+  if (!root) return [];
+  const bounded = Math.min(Math.max(1, Math.floor(limit)), GIT_LOG_LIMIT_MAX);
+  // NUL (0x00) as field delimiter so subjects with unusual chars parse safely.
+  const fmt = '%H%x00%h%x00%s%x00%an%x00%ar%x00%D';
+  const res = await execCmd(
+    'git',
+    ['log', `--pretty=format:${fmt}`, `-n`, String(bounded)],
+    { cwd, timeoutMs: 10_000 },
+  );
+  if (res.code !== 0 || !res.stdout.trim()) return [];
+  const entries: GitLogEntry[] = [];
+  for (const line of res.stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split('\x00');
+    if (parts.length < 6) continue;
+    entries.push({
+      sha: parts[0],
+      shortSha: parts[1],
+      subject: parts[2],
+      author: parts[3],
+      relDate: parts[4],
+      refs: parts[5],
+    });
+  }
+  return entries;
+}
+
+/**
+ * BSP-G2 — branch list for the Git Branches panel.
+ * Uses `git branch --list --format=...` with NUL delimiters to enumerate all local branches.
+ */
+export async function listBranches(cwd: string): Promise<GitBranchList> {
+  const empty: GitBranchList = { current: '', branches: [] };
+  if (!fs.existsSync(cwd)) return empty;
+  const root = await getRepoRoot(cwd);
+  if (!root) return empty;
+
+  // Format: `*<current>` flag + branch name + optional upstream ref.
+  // %(HEAD) = '*' if current, ' ' otherwise. %(upstream:short) may be empty.
+  const fmt = '%(HEAD)%x00%(refname:short)%x00%(upstream:short)';
+  const res = await execCmd(
+    'git',
+    ['branch', '--list', `--format=${fmt}`],
+    { cwd, timeoutMs: 8_000 },
+  );
+  if (res.code !== 0) return empty;
+
+  let current = '';
+  const branches: GitBranchList['branches'] = [];
+
+  for (const line of res.stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split('\x00');
+    if (parts.length < 2) continue;
+    const isCurrent = parts[0] === '*';
+    const name = parts[1].trim();
+    const upstream = parts[2]?.trim() || undefined;
+    if (!name) continue;
+    if (isCurrent) current = name;
+    branches.push({ name, current: isCurrent, upstream });
+  }
+
+  return { current, branches };
+}
+
+/** Validate a branch name for `switchBranch`: no leading `-`, no shell metachars. */
+function isValidBranchName(branch: string): boolean {
+  if (!branch || branch.startsWith('-')) return false;
+  // Disallow shell metacharacters and path-traversal sequences.
+  if (/[\s;&|<>()$`\\'"!{}[\]*?#~^]/.test(branch)) return false;
+  if (branch.includes('..')) return false;
+  return true;
+}
+
+/**
+ * BSP-G2 — switch to a local branch.
+ * Refuses when the working tree is dirty (staged, unstaged, or untracked files).
+ * Validates the branch name to prevent argument injection.
+ */
+export async function switchBranch(
+  cwd: string,
+  branch: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isValidBranchName(branch)) {
+    return { ok: false, error: 'invalid branch name' };
+  }
+  if (!fs.existsSync(cwd)) return { ok: false, error: 'path not found' };
+  const status = await gitStatus(cwd);
+  if (!status) return { ok: false, error: 'not a git repository' };
+  if (!status.clean) return { ok: false, error: 'working tree dirty' };
+
+  const res = await execCmd('git', ['switch', branch], { cwd, timeoutMs: 15_000 });
+  if (res.code !== 0) {
+    return { ok: false, error: res.stderr.trim() || res.stdout.trim() || 'git switch failed' };
+  }
+  return { ok: true };
 }
 
 /**

@@ -87,6 +87,31 @@ export interface GitDiff {
   truncated: boolean;
 }
 
+// ── BSP-G2 / BSP-G4 — Git panel types ────────────────────────────────────
+
+/** One entry in `git log` for the Git History panel. */
+export interface GitLogEntry {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  author: string;
+  relDate: string;
+  /** Comma-separated refs string from `%D` (e.g. `HEAD -> main, origin/main`). */
+  refs: string;
+}
+
+/** Result of `git.listBranches`. */
+export interface GitBranchList {
+  current: string;
+  branches: Array<{
+    name: string;
+    current: boolean;
+    upstream?: string;
+  }>;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+
 export type GridPreset = 1 | 2 | 4 | 6 | 8 | 10 | 12 | 14 | 16 | 18 | 20;
 
 export interface PaneAssignment {
