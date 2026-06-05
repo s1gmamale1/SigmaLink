@@ -17,7 +17,9 @@ export interface UseJorvisAssistantStateArgs {
   setMessages: React.Dispatch<React.SetStateAction<ChatMessageView[]>>;
   setOrbState: React.Dispatch<React.SetStateAction<OrbState>>;
   setBusy: React.Dispatch<React.SetStateAction<boolean>>;
-  setStreaming: React.Dispatch<React.SetStateAction<{ turnId: string; delta: string } | null>>;
+  setStreaming: React.Dispatch<
+    React.SetStateAction<{ turnId: string; delta: string; messageId: string | null } | null>
+  >;
   lastSentPromptRef: React.MutableRefObject<string | null>;
   rufloReadyRef: React.MutableRefObject<boolean>;
   /**
@@ -164,10 +166,19 @@ export function useJorvisAssistantState({
           });
         }
       } else if (e.kind === 'delta' && e.delta) {
+        // Phase 6 — capture the (stable) messageId carried on the delta. It's
+        // the SAME id the standby-commit will assign to the committed row, so
+        // ChatTranscript can key the in-flight sentinel by it → React reuses
+        // the DOM node across the commit → the bubble doesn't re-spring.
+        const messageId = typeof e.messageId === 'string' ? e.messageId : null;
         p.setStreaming((prev) =>
           !prev || prev.turnId !== e.turnId
-            ? { turnId: e.turnId, delta: e.delta ?? '' }
-            : { turnId: prev.turnId, delta: prev.delta + e.delta },
+            ? { turnId: e.turnId, delta: e.delta ?? '', messageId }
+            : {
+                turnId: prev.turnId,
+                delta: prev.delta + e.delta,
+                messageId: prev.messageId ?? messageId,
+              },
         );
       }
     });

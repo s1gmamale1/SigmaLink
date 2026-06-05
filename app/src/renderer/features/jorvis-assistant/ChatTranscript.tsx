@@ -1,9 +1,12 @@
 // V3-W13-012 — Sigma Assistant transcript. Role-tagged messages stream
-// char-by-char (assistant rows pick up the parent's `streamingDelta`).
+// char-by-char (assistant rows pick up the parent's `streaming` object).
 // Auto-sticks to bottom unless the user has scrolled away.
+// Phase 6 — stream-reveal (rAF catch-up), spring bubble-enter, inline tool chips.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { useJorvisStreamReveal } from './use-jorvis-stream-reveal';
+import { InlineToolChips } from './InlineToolChips';
 
 export type ChatRole = 'user' | 'assistant' | 'tool' | 'system';
 
@@ -17,7 +20,16 @@ export interface ChatMessageView {
 
 interface Props {
   messages: ChatMessageView[];
+  /**
+   * Phase 6: pass the full streaming object (turnId+delta+messageId) instead of
+   * a bare string. `messageId` is the id the committed row will eventually take
+   * — used to key the in-flight sentinel so React reuses the DOM node across the
+   * commit (no remount → no re-spring).
+   */
+  streaming?: { turnId: string; delta: string; messageId?: string | null } | null;
+  /** Legacy prop kept for backward-compat — ignored when `streaming` is provided. */
   streamingDelta?: string;
+  conversationId?: string | null;
   className?: string;
 }
 
@@ -28,14 +40,64 @@ const ROLE_LABEL: Record<ChatRole, string> = {
   system: 'SYSTEM',
 };
 
-export function ChatTranscript({ messages, streamingDelta, className }: Props) {
+// Sentinel: the in-flight streaming row uses this id so ChatRow can identify it.
+const STREAMING_ROW_ID = '__streaming__';
+
+export function ChatTranscript({ messages, streaming, streamingDelta, conversationId, className }: Props) {
+  // Resolve the effective streaming object: prefer the new `streaming` prop,
+  // fall back to the legacy `streamingDelta` string for backward-compat.
+  // Memoized so it has a stable identity and doesn't cause useEffect to re-run
+  // on every render when both `streaming` and `streamingDelta` are undefined.
+  const effectiveStreaming = useMemo(
+    () =>
+      streaming !== undefined
+        ? streaming
+        : streamingDelta != null
+          ? { turnId: '', delta: streamingDelta, messageId: null }
+          : null,
+    [streaming, streamingDelta],
+  );
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [messages, streamingDelta]);
+  }, [messages, effectiveStreaming]);
+
+  // Build the rows: all stored messages + an in-flight row when streaming.
+  // The in-flight row is SEPARATE from the stored messages — it's a virtual
+  // bubble that disappears once the turn commits and the final message is added.
+  const hasInFlight = effectiveStreaming != null;
+  // Phase 6 — key the sentinel row by the turn's EVENTUAL committed messageId
+  // when it's known (it rides along on the delta events). When the turn commits,
+  // the standby handler appends a message with this exact id, so React keeps the
+  // same key → reuses the same DOM node → no remount → the bubble does NOT
+  // re-spring. Falls back to a constant sentinel id when the messageId is not yet
+  // known (persistence failed / pre-first-delta); in that case the row simply
+  // disappears on commit without a committed twin, so there's no double-spring.
+  const inFlightRowId =
+    (effectiveStreaming?.messageId && effectiveStreaming.messageId.length > 0)
+      ? effectiveStreaming.messageId
+      : STREAMING_ROW_ID;
+  // Guard against a duplicate React key: if the committed row already landed in
+  // `messages` (event-ordering edge where the standby-commit appended the message
+  // before `streaming` cleared), the committed row wins and we skip the sentinel.
+  const committedAlreadyPresent =
+    hasInFlight && inFlightRowId !== STREAMING_ROW_ID
+      ? messages.some((m) => m.id === inFlightRowId)
+      : false;
+  // createdAt 0 for the sentinel row — formatTime returns '' for 0, which is
+  // acceptable: a streaming row has no committed timestamp yet.
+  const inFlightMsg: ChatMessageView | null =
+    hasInFlight && !committedAlreadyPresent
+      ? { id: inFlightRowId, role: 'assistant', content: '', createdAt: 0 }
+      : null;
+
+  const allRows: ChatMessageView[] = inFlightMsg
+    ? [...messages, inFlightMsg]
+    : messages;
 
   return (
     <div
@@ -47,7 +109,7 @@ export function ChatTranscript({ messages, streamingDelta, className }: Props) {
       }}
       className={cn('flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-4 py-3', className)}
     >
-      {messages.length === 0 ? (
+      {messages.length === 0 && !hasInFlight ? (
         <div className="m-auto max-w-sm text-center text-xs text-muted-foreground">
           Ask Jorvis to launch panes, search memory, or open a URL. Press
           <kbd className="mx-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
@@ -56,24 +118,68 @@ export function ChatTranscript({ messages, streamingDelta, className }: Props) {
           to send.
         </div>
       ) : null}
-      {messages.map((m) => (
-        <ChatRow key={m.id} message={m} streamingDelta={streamingDelta} />
-      ))}
+      {allRows.map((m) => {
+        // The in-flight row is the sentinel we appended above (identified by the
+        // resolved `inFlightRowId`, which is either the eventual messageId or the
+        // constant sentinel). `inFlightMsg` is only non-null while streaming, and
+        // a stored message never shares the sentinel's identity until AFTER the
+        // turn commits (at which point `effectiveStreaming` is null again).
+        const isStreaming = inFlightMsg != null && m === inFlightMsg;
+        return (
+          <ChatRow
+            key={m.id}
+            message={m}
+            isStreaming={isStreaming}
+            streamingDelta={isStreaming ? effectiveStreaming!.delta : undefined}
+            conversationId={conversationId}
+            streamingTurnId={isStreaming ? effectiveStreaming!.turnId : undefined}
+          />
+        );
+      })}
     </div>
   );
 }
 
-function ChatRow({ message, streamingDelta }: { message: ChatMessageView; streamingDelta?: string }) {
+interface ChatRowProps {
+  message: ChatMessageView;
+  isStreaming: boolean;
+  streamingDelta?: string;
+  conversationId?: string | null;
+  streamingTurnId?: string;
+}
+
+function ChatRow({ message, isStreaming, streamingDelta, conversationId, streamingTurnId }: ChatRowProps) {
+  // Spring bubble-enter: React-19 ref-as-prop, applied exactly once via useLayoutEffect([]).
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const played = useRef(false);
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el || played.current) return;
+    played.current = true;
+    el.classList.add('sl-slide-up');
+    el.dataset.entered = '1';
+  }, []);
+
+  // Stream reveal hook — called unconditionally (stable hook order).
+  // For non-streaming rows: active=false → instant full text, no rAF.
+  const delta = isStreaming ? (streamingDelta ?? '') : '';
+  const { revealed, caret } = useJorvisStreamReveal(delta, isStreaming);
+
   const r = message.role;
   const label = ROLE_LABEL[r];
-  const body = r === 'assistant' && streamingDelta
-    ? message.content + streamingDelta
+
+  // Body: for the in-flight streaming row, show the reveal-accumulated text.
+  // For completed rows, show their stored content.
+  const body = isStreaming
+    ? message.content + revealed
     : message.content;
 
   return (
     <div
+      ref={rootRef}
       data-role={r}
       data-message-id={message.id}
+      data-testid={`chat-row-${message.id}`}
       className="flex flex-col gap-1 rounded transition-shadow"
       role="group"
       aria-label={label}
@@ -106,8 +212,17 @@ function ChatRow({ message, streamingDelta }: { message: ChatMessageView; stream
           r === 'system' && 'text-amber-500/90',
         )}
       >
-        {r === 'tool' ? <ToolBody content={message.content} /> : body}
+        {r === 'tool' ? <ToolBody content={message.content} /> : (
+          <>
+            {body}
+            {caret ? <span data-caret className="sl-caret">&#x2588;</span> : null}
+          </>
+        )}
       </div>
+      {/* Inline tool chips — only for the active in-flight assistant row */}
+      {isStreaming && conversationId && streamingTurnId ? (
+        <InlineToolChips conversationId={conversationId} turnId={streamingTurnId} />
+      ) : null}
     </div>
   );
 }

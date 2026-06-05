@@ -77,7 +77,9 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
 
   const { interruptedTurn, dismissInterrupted, resetDismissed } = useJorvisResumeFlow(messages);
 
-  const [streaming, setStreaming] = useState<{ turnId: string; delta: string } | null>(null);
+  const [streaming, setStreaming] = useState<
+    { turnId: string; delta: string; messageId: string | null } | null
+  >(null);
   const [orbState, setOrbState] = useState<OrbState>('standby');
   const [busy, setBusy] = useState(false);
   const [composerText, setComposerText] = useState('');
@@ -347,7 +349,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
               ))}
             </div>
           ) : null}
-          <ChatTranscript messages={messages} streamingDelta={streaming?.delta} />
+          <ChatTranscript messages={messages} streaming={streaming} conversationId={conversationId} />
         </div>
         <ToolCallInspector />
         {patternHit && !ribbonHidden && rufloReady ? (
