@@ -36,8 +36,17 @@ This ROADMAP is the single source of truth for what to build next.
 | SMK-3 | high | Skills tab Superpowers-only. ✅ root-caused: `discoverInstalledSkills` hard-codes 2 cache paths + the ruflo branch is dir-depth-broken; must scan all providers (~580+ on disk) + carry provider/prefix | `core/skills/controller.ts:276-357` (+ new `discovery.ts`), `SkillsTab.tsx`, `shared/providers.ts` | M |
 | SMK-3b | medium | Codex skill injection writes `/foo` not `$foo` (hardcoded `/` for all providers) | `renderer/command-room/insertSkillCommand.ts:38` | S |
 | BSP-B4 | medium | Embedded-browser input/focus reliability — audit `WebContentsView` focus forwarding to form fields (BridgeSpace still fights this in v3.1 → differentiation chance) | `core/browser/{manager,controller}.ts`, `renderer/browser/BrowserViewMount.tsx` | M |
+| DEV-5 | high | Multiple providers selected → all panes launch the SAME session (EXTENDS SMK-1/2) | `SessionStep.tsx`/`Launcher.tsx`/`session-disk-scanner.ts` | fold into Phase 2 |
+| DEV-1 | medium | Browser "Design" element-pick extracts CSS but spawn-new/select-existing is a no-op; should create+prompt a new agent OR paste into an existing pane composer WITHOUT Enter (C-13 regression) | `renderer/browser/*` + pane-composer paste seam | M |
+| DEV-2 | medium | Browser recently-closed tabs not persisted (vanish on close) | `browser/BrowserRecents.tsx` + tab KV | S |
+| DEV-3 | low | Browser URL/search box inert until a tab exists — can't open the first tab from it | `browser/BrowserRoom.tsx` | S |
+| DEV-4 | low | Workspace rail reorders on click (active jumps up) — remove reorder-on-activate | `renderer/sidebar/Sidebar.tsx` | S |
+| DEV-6 | low | 46 RPC channels have no zod schema (IPC input-validation hole; extends BUG-4/ARCH-9) | `core/rpc/schemas.ts` | M |
+| DEV-7 | low | `electron:dev` main loads dead dev URL → 7× ERR_CONNECTION_REFUSED before dist fallback | dev load-URL resolution | S |
+| DEV-8 | low | Bundle hygiene: vendor chunks >500kB + SkillsTab dual static/dynamic import + tailwind ambiguous-class warn | vite `manualChunks` / SkillsTab import | S |
 
 *(SMK-1/2/3 + SMK-3b root-caused by 2 opus debug agents 2026-06-04 — full evidence/fix-plans in `WISHLIST.md`. Test-blindness: `Launcher.test` stubs `SessionStep`; fixes must add an un-stubbed integration test. The v2.0.0 owed smokes are operator QA, not code bugs.)*
+*(**DEV-\*** = 2026-06-05 operator dev-run smoke — see `WISHLIST.md` "Operator dev-run smoke — 2026-06-05". File:line UNVERIFIED — areas only, no investigation per operator. **DEV-5 folds into Phase 2**; DEV-1/2/3 are browser bugs (land with Phase 9 browser work or as a quick batch); DEV-4/6/7/8 are S-effort quick wins. Feature asks **DEV-L1/L2** (mirror BridgeSpace pane header + grid feel) slot into **Phase 4** (FE polish, extending BSP-F1/P2) / pane-grid work; **DEV-W1/W2/W3/W4/W5** (logo-toggle rail · editable workspace names · multi-workspace-same-dir + worktree-mode toggle · click-active-tab-to-close right panel · `+Pane` plain-terminal + worktree toggle) are net-new workspace/panel UX — triage into a Phase 4/6 packet when scoped.)*
 
 ---
 

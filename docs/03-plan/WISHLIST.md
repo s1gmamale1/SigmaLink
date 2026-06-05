@@ -10,6 +10,39 @@
 
 ---
 
+## 🔬 Operator dev-run smoke — 2026-06-05 (electron:dev, more app usage)
+
+Operator running the app via local `pnpm electron:dev` (not a release build) surfaced more bugs +
+UX asks + dev-log noise. **Capture-only per operator ("do not investigate, just document; check if
+already planned").** Cross-refs to existing items noted; un-cross-reffed items are NEW. File:line
+NOT verified this round (no investigation) — areas cited from the existing docs/memory.
+
+### 🐞 Bugs (new)
+- 🐞 **DEV-1 [medium] — browser "Design" element-pick extracts CSS but spawn-new / select-existing does nothing.** Selecting an element/div in the embedded browser copies the CSS codeblock + a prompt, but neither "spawn new agent" nor "select existing agent" actually does anything. **Wanted behavior:** create a new agent and prompt it with the codeblock, OR paste the codeblock into the chosen existing agent's composer **WITHOUT pressing Enter** (just paste — don't auto-start the turn). Regression/gap in the shipped **C-13** (element→existing-pane+diff, v1.20.0). Target: `renderer/browser/*` (design/element-extract path) + the pane-composer paste seam. Effort: M.
+- 🐞 **DEV-2 [medium] — browser "recently closed tabs" not persisted.** Once a tab is closed it disappears entirely — no recently-closed list survives. Pairs with **BSP-F3** (recents empty-state) + **N2** (resizable browser); this is the persistence gap. Target: `browser/BrowserRecents.tsx` + browser-tab KV. Effort: S.
+- 🐞 **DEV-3 [low] — browser URL/search box only works AFTER a tab is added.** The "Enter URL or search" field is inert until a tab exists — you can't type a URL to OPEN the first tab. Should accept input on the empty state and open a tab from it. Overlaps **BSP-B1** (URL bar in chrome). Target: `browser/BrowserRoom.tsx`. Effort: S.
+- 🐞 **DEV-4 [low] — workspace rail reorders on click (active workspace jumps up).** Selecting/switching a workspace moves it up the rail → positions shift under you, disorienting. **Remove the reorder-on-activate** — workspaces hold their position. Target: `renderer/sidebar/Sidebar.tsx` (workspace list ordering). Effort: S.
+- 🐞 **DEV-5 [high] — multiple providers selected → all panes try to launch the SAME session.** When the wizard has multiple providers selected, they all attempt to resume/launch one shared session instead of one-each. Reinforces + EXTENDS **SMK-1/SMK-2** (Phase 2) — fold this multi-provider symptom into that fix + its integration test. Target: `SessionStep.tsx` / `Launcher.tsx` / `session-disk-scanner.ts`. → **already planned (Phase 2)**.
+- ~~Resume-session can't create a brand-new session / choose another session~~ → **already SMK-1/SMK-2 (Phase 2)**; DEV-5 adds the multi-provider-same-session detail.
+
+### 🛠 Dev-log noise (from `pnpm electron:dev`)
+- 🐞 **DEV-6 [low] — 46 RPC channels have no zod schema in `core/rpc/schemas.ts`.** Router logs `46 channel(s) have no zod schema entry` (`app.*`, `pty.spawnScratch/killScratch`, `panes.*`, `providers.*`, `skills.*`, `memory.*`, `ruflo.*`, `sync.*`, `telegram.*`, `assistant.dispatchBulk/refResolve`…). These bypass input validation at the IPC boundary → security + drift hole. Directly extends **BUG-4** (side-band validation) + **ARCH-9** (output validation). Add zod entries (input + output) per channel. Effort: M.
+- 🐞 **DEV-7 [low] — `electron:dev` main loads dev URL then ERR_CONNECTION_REFUSED.** The `electron:dev` script builds the prod renderer but `electron-dist/main.js` first tries `http://localhost:8081/` then `:8080` (dev server, not running) → 7× `ERR_CONNECTION_REFUSED` before falling back to the built `dist/`. Dev papercut (works, just noisy/slow). Fix the dev-vs-prod load-URL resolution or document the real `electron:dev` flow (start the vite dev server first). Effort: S.
+- 🐞 **DEV-8 [low] — bundle hygiene: vendor chunks >500kB + SkillsTab dual import.** vite warns `vendor-react` 636kB / `vendor-xterm` 332kB > 500kB, and `SkillsTab.tsx` is imported BOTH statically (`CommandRoom`/`PaneShell`) and dynamically (`RightRail`) → dynamic import can't split it into its own chunk. Pick one import style for SkillsTab; consider `manualChunks` for the big vendors. Also: `ease-[var(--ease-smooth)]` ambiguous-class tailwind warning — wrap/escape or move to a token. Cosmetic perf/build hygiene. Effort: S.
+
+### 🎨 Pane layout / chrome — mirror BridgeSpace EXACTLY (operator headline)
+- ✨ **DEV-L1 — pane titles look ugly; copy BridgeSpace pane-header layout EXACTLY.** Current pane title row (provider chip + path + branch + button cluster) reads cluttered vs BridgeSpace's clean flat pill+glyph header. EXTENDS **BSP-F1** (header-as-pill, single accent ring) + **BSP-P2** (branch pill) but operator wants a faithful BridgeSpace copy, not just a pill. **Re-capture BridgeSpace header screenshots at build time** (the operator's screenshots are OUR app; the BridgeSpace reference must be pulled fresh). Target: `command-room/{PaneHeader,PaneShell}.tsx`. Effort: M.
+- ✨ **DEV-L2 — pane grid stickiness / responsiveness / flexibility to mirror BridgeSpace.** Pane sizing, snap/stick behavior, and responsive reflow should match BridgeSpace's feel (smooth resize, panes hold proportion, flexible add/remove). Distinct from the deferred Canvas mode (**BSP-P4**, freeform) — this is the FIXED-grid feel. Target: `command-room/GridLayout.tsx`. Effort: M.
+
+### 🧩 Workspace + panel UX (new asks)
+- ✨ **DEV-W1 — toggle the workspace rail by clicking the SigmaLink logo (1 click expand / 1 click collapse).** Make the SigmaLink logo the toggle affordance for the left workspace panel (collapse state already exists via `app.sidebar.collapsed`). Target: `sidebar/Sidebar.tsx` header. Effort: S.
+- ✨ **DEV-W2 — editable workspace names (decouple from folder name).** Workspace names are fixed to the folder name; let the user rename a workspace (display label only; cwd unchanged). Target: workspace KV (`ui.<ws>.name`) + rename UI in `Sidebar.tsx`. Effort: S.
+- ✨ **DEV-W3 — open multiple workspaces on the SAME directory + a per-workspace "worktree mode" toggle.** Allow >1 workspace pointing at one dir, and a per-workspace choice: **spawn all agents in separate worktrees** (current default) **vs all in the same repo with NO worktree**. Target: workspace creation + `workspaces.launch` (global worktree flag) + the launcher. Effort: M. Note: confirm the workspace-keyed-by-path constraint at scope time.
+- ✨ **DEV-W4 — right-panel toggle by clicking the active tab icon again.** Clicking the already-active right-rail tab closes/collapses the right panel (browser active → click Browser → whole panel + browser close; IDE → close; Jorvis → minimize; Settings → return to last open workspace). Today the active tab is a no-op. Target: `right-rail/RightRailSwitcher.tsx` / `RightRail.tsx` toggle logic. Effort: S.
+- ✨ **DEV-W5 — `+Pane` can add a plain terminal + a per-add "create in worktree" on/off toggle.** `+Pane` should offer a normal terminal (no agent — `pty.spawnScratch` exists) and a toggle to create the pane in a worktree or directly in the repo. Overlaps **BSP-G3** (worktree-create in current pane) + the SF-8 per-launch-toggle pattern. Target: `command-room/` +Pane flow + `swarms.addAgent`/`workspaces.launch`. Effort: M.
+
+---
+
 ## 🔬 Phase-1 theme smoke — 2026-06-04 (themes ✅ shipped; 3 new bugs ROOT-CAUSED)
 
 Operator visual smoke of the Phase-1 theme library (PR #104, `f78c6e0`). **✅ Themes confirmed
