@@ -378,6 +378,93 @@ describe('spawnAgentSession — SF-15 ruflo MCP written into worktree cwd', () =
   });
 });
 
+// ─── CRIT-1/CRIT-2: worktree must be cleaned up on a suppressed git-mode spawn ─
+//
+// When repoMode='git', factory-spawn creates a worktree BEFORE the INSERT.
+// If the INSERT trips a UNIQUE violation the spawn is suppressed (PTY killed +
+// forgotten, paneIndex:-1 returned). Previously the worktree was left on disk —
+// the 49 GB disk-fill class (CRIT-1). The fix calls
+// worktreePool.removeAndPrune(repoRoot, worktreePath) inside the suppress branch.
+
+describe('spawnAgentSession — CRIT-1/CRIT-2 worktree cleanup on suppressed git spawn', () => {
+  it('removeAndPrune is called when a git-repo spawn hits a UNIQUE violation', async () => {
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    // Inject a worktreePool that returns a synthetic worktree path and also
+    // exposes removeAndPrune so we can assert it is called.
+    const removeAndPrune = vi.fn().mockResolvedValue(undefined);
+    deps.worktreePool = {
+      create: vi.fn().mockResolvedValue({
+        worktreePath: '/tmp/wt/pane-0',
+        branch: 'agent-builder-1',
+        sessionId: SPAWNED_PTY_ID,
+      }),
+      removeAndPrune,
+    } as unknown as SwarmFactoryDeps['worktreePool'];
+
+    // Force the INSERT (inside the raw.transaction wrapper) to throw a UNIQUE
+    // violation. The transaction wrapper in makeRawStub() returns fn unchanged
+    // (i.e. `transaction(fn)` returns `fn`), so insertSession() calls fn() which
+    // runs db.insert(...).values(...).run(). We make that .run() throw here.
+    const insertRun = vi.fn(() => {
+      throw new Error(
+        'UNIQUE constraint failed: agent_sessions.workspace_id, agent_sessions.pane_index',
+      );
+    });
+    const dbStub = {
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: insertRun })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    };
+    vi.mocked(getDb).mockReturnValue(dbStub as unknown as ReturnType<typeof getDb>);
+
+    // Build args in git mode with a repoRoot so worktreePath is populated before
+    // the INSERT.
+    const args = makeArgs(deps);
+    (args.wsRow as { repoMode: string; repoRoot: string }).repoMode = 'git';
+    (args.wsRow as { repoMode: string; repoRoot: string }).repoRoot = '/tmp/repo';
+
+    const res = await spawnAgentSession(args);
+
+    // Suppression contract: still returns paneIndex:-1 (not a throw).
+    expect(res.paneIndex).toBe(-1);
+    // PTY still torn down (H-10 contract preserved).
+    expect(registry.kill).toHaveBeenCalledWith(SPAWNED_PTY_ID);
+    expect(registry.forget).toHaveBeenCalledWith(SPAWNED_PTY_ID);
+    // CRIT-1 fix: the leaked worktree is removed + pruned.
+    expect(removeAndPrune).toHaveBeenCalledTimes(1);
+    expect(removeAndPrune).toHaveBeenCalledWith('/tmp/repo', '/tmp/wt/pane-0');
+  });
+
+  it('does NOT call removeAndPrune when repoMode=plain (no worktree to clean)', async () => {
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    const removeAndPrune = vi.fn().mockResolvedValue(undefined);
+    deps.worktreePool = {
+      create: vi.fn(),
+      removeAndPrune,
+    } as unknown as SwarmFactoryDeps['worktreePool'];
+
+    const insertRun = vi.fn(() => {
+      throw new Error(
+        'UNIQUE constraint failed: agent_sessions.workspace_id, agent_sessions.pane_index',
+      );
+    });
+    const dbStub = {
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: insertRun })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    };
+    vi.mocked(getDb).mockReturnValue(dbStub as unknown as ReturnType<typeof getDb>);
+
+    // repoMode='plain' — no worktree is ever created.
+    const res = await spawnAgentSession(makeArgs(deps));
+    expect(res.paneIndex).toBe(-1);
+    // Plain mode: no worktreePath to clean up.
+    expect(removeAndPrune).not.toHaveBeenCalled();
+  });
+});
+
 // ─── BUG-1: swarm-agent PTY exit must be classified with isPtyCrash ───────────
 //
 // The swarm onExit handler used to destructure only `{ exitCode }`, drop the

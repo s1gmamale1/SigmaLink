@@ -341,6 +341,16 @@ export async function spawnAgentSession(
       } catch {
         /* never let cleanup throw out of the suppression branch */
       }
+      // CRIT-1/CRIT-2: the worktree was created before this INSERT. A suppressed
+      // spawn must not leak it (the 49 GB disk-fill class). Best-effort remove
+      // + prune; never let cleanup throw out of the suppression branch.
+      if (worktreePath && args.wsRow.repoRoot) {
+        try {
+          await args.deps.worktreePool.removeAndPrune(args.wsRow.repoRoot, worktreePath);
+        } catch {
+          /* best-effort — the boot sweep is the backstop */
+        }
+      }
       // The attempted slot did not persist. Keep the existing suppression
       // contract for session id, but do not report the rejected pane slot to
       // renderer toasts.
