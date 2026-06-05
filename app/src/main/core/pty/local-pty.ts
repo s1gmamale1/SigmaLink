@@ -83,14 +83,17 @@ export function resolveWindowsCommand(
  * the existence check here is the smallest change that restores that contract
  * on POSIX without altering the registry's caller contract.
  */
-export function resolvePosixCommand(cmd: string): string | null {
+export function resolvePosixCommand(
+  cmd: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
   if (!cmd) return null;
   if (path.isAbsolute(cmd) || cmd.includes('/')) {
     // Absolute path or a path-relative command (e.g. "./tool"). Caller is
     // explicit about which file they want — only succeed if it exists.
     return fs.existsSync(cmd) ? cmd : null;
   }
-  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const dirs = (env.PATH ?? '').split(path.delimiter).filter(Boolean);
   for (const dir of dirs) {
     const candidate = path.join(dir, cmd);
     try {
@@ -493,7 +496,7 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
     const resolved =
       process.platform === 'win32'
         ? resolveWindowsCommand(input.command, baseEnv)
-        : resolvePosixCommand(input.command);
+        : resolvePosixCommand(input.command, baseEnv);
     if (!resolved) {
       const err = new Error(
         `spawn ${input.command} ENOENT`,
@@ -681,7 +684,7 @@ function spawnShellFirstPty(input: SpawnInput): PtyHandle {
   const resolvedCommand =
     process.platform === 'win32'
       ? resolveWindowsCommand(input.command, baseEnv)
-      : resolvePosixCommand(input.command);
+      : resolvePosixCommand(input.command, baseEnv);
   if (!resolvedCommand) {
     const err = new Error(
       `spawn ${input.command} ENOENT`,

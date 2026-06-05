@@ -18,6 +18,7 @@ type RejectionHandler = (event: PromiseRejectionEvent) => void;
 function captureListeners(): {
   errorHandler: ErrorHandler;
   rejectionHandler: RejectionHandler;
+  cleanupSink: () => void;
 } {
   let errorHandler!: ErrorHandler;
   let rejectionHandler!: RejectionHandler;
@@ -32,10 +33,10 @@ function captureListeners(): {
       origAdd(type, listener);
     });
 
-  installGlobalErrorSink();
+  const cleanupSink = installGlobalErrorSink();
   spy.mockRestore();
 
-  return { errorHandler, rejectionHandler };
+  return { errorHandler, rejectionHandler, cleanupSink };
 }
 
 function makeErrorEvent(message: string, error?: Error): ErrorEvent {
@@ -59,6 +60,7 @@ describe('installGlobalErrorSink', () => {
   let debugSpy: ReturnType<typeof vi.spyOn>;
   let errorSpy: ReturnType<typeof vi.spyOn>;
   let toastError: ReturnType<typeof vi.fn>;
+  let cleanupSink: () => void;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -66,10 +68,11 @@ describe('installGlobalErrorSink', () => {
     toastError = toast.error as ReturnType<typeof vi.fn>;
     debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    ({ errorHandler, rejectionHandler } = captureListeners());
+    ({ errorHandler, rejectionHandler, cleanupSink } = captureListeners());
   });
 
   afterEach(() => {
+    cleanupSink();
     vi.useRealTimers();
     debugSpy.mockRestore();
     errorSpy.mockRestore();
@@ -183,5 +186,19 @@ describe('installGlobalErrorSink', () => {
     expect(toastError).toHaveBeenCalledTimes(2);
     expect(toastError).toHaveBeenNthCalledWith(1, 'Unexpected error: alpha');
     expect(toastError).toHaveBeenNthCalledWith(2, 'Unexpected error: beta');
+  });
+
+  it('is idempotent — installing twice registers one listener pair', () => {
+    cleanupSink();
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const firstCleanup = installGlobalErrorSink();
+    const secondCleanup = installGlobalErrorSink();
+    cleanupSink = firstCleanup;
+
+    expect(secondCleanup).toBe(firstCleanup);
+    expect(addSpy.mock.calls.filter(([type]) => type === 'error')).toHaveLength(1);
+    expect(addSpy.mock.calls.filter(([type]) => type === 'unhandledrejection')).toHaveLength(1);
+
+    addSpy.mockRestore();
   });
 });

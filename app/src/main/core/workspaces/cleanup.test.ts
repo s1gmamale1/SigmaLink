@@ -80,12 +80,17 @@ function makeDb(
       }
 
       // SELECT all sessions for workspace (list pane sessions to clear)
-      if (s.includes('select id from agent_sessions') && s.includes('where workspace_id')) {
+      if (
+        s.includes('select') &&
+        s.includes('from agent_sessions') &&
+        s.includes('where workspace_id') &&
+        s.includes('id')
+      ) {
         return {
           all(workspaceId: string) {
             return sessions
               .filter((r) => r.workspace_id === workspaceId)
-              .map((r) => ({ id: r.id }));
+              .map((r) => ({ id: r.id, status: r.status }));
           },
         };
       }
@@ -119,7 +124,13 @@ function makeDb(
         return {
           run(workspaceId: string) {
             const ids = sessions
-              .filter((r) => r.workspace_id === workspaceId)
+              .filter((r) => {
+                if (r.workspace_id !== workspaceId) return false;
+                if (s.includes("status not in ('starting','running')")) {
+                  return r.status !== 'starting' && r.status !== 'running';
+                }
+                return true;
+              })
               .map((r) => r.id);
             deletedSessionIds.push(...ids);
             // Remove from in-memory array
@@ -379,6 +390,7 @@ describe('clearPanesForWorkspace', () => {
     });
 
     expect(result.sessionIds).toEqual(expect.arrayContaining(['sess-1', 'sess-2']));
+    expect(result.liveBlockedSessionIds).toEqual([]);
     expect(result.deleted).toBe(0);
     expect(db._deletedSessionIds).toHaveLength(0);
   });
@@ -396,6 +408,24 @@ describe('clearPanesForWorkspace', () => {
 
     expect(result.deleted).toBe(2);
     expect(db._deletedSessionIds).toEqual(expect.arrayContaining(['sess-1', 'sess-2']));
+  });
+
+  it('live-run preserves starting/running sessions and reports them as blocked', async () => {
+    const exited = makeSession({ id: 'sess-exited', status: 'exited' });
+    const running = makeSession({ id: 'sess-running', status: 'running' });
+    const starting = makeSession({ id: 'sess-starting', status: 'starting' });
+    const db = makeDb([exited, running, starting]);
+
+    const result = await cleanupModule.clearPanesForWorkspace({
+      workspaceId: WS_ID,
+      db,
+      dryRun: false,
+    });
+
+    expect(result.sessionIds).toEqual(['sess-exited']);
+    expect(result.liveBlockedSessionIds.sort()).toEqual(['sess-running', 'sess-starting'].sort());
+    expect(result.deleted).toBe(1);
+    expect(db._deletedSessionIds).toEqual(['sess-exited']);
   });
 
   it('live-run with no sessions returns deleted=0', async () => {
@@ -434,7 +464,8 @@ describe('removeWorkspaceAndGc', () => {
       dryRun: true,
     });
 
-    expect(result.sessionCount).toBe(2);
+    expect(result.sessionCount).toBe(1);
+    expect(result.liveBlockedSessionIds).toEqual(['live-s']);
     expect(result.worktreeCount).toBeGreaterThanOrEqual(0);
     expect(db._deletedWorkspaceIds).toHaveLength(0);
     expect(db._deletedSessionIds).toHaveLength(0);
@@ -462,7 +493,7 @@ describe('removeWorkspaceAndGc', () => {
     expect(db._deletedWorkspaceIds).toContain(WS_ID);
   });
 
-  it('live-run: spares worktrees still referenced by live sessions', async () => {
+  it('live-run: spares live sessions/worktrees and blocks workspace row deletion', async () => {
     const liveWorktree = path.join(REPO_DIR, 'live-pane');
     const liveSession = makeSession({ id: 'live-s', worktree_path: liveWorktree, status: 'running' });
     const wsRow: WorkspaceRow = { id: WS_ID, name: 'test-ws', root_path: '/some/path', repo_root: '/some/path' };
@@ -488,8 +519,10 @@ describe('removeWorkspaceAndGc', () => {
       path.join(REPO_DIR, 'orphan-pane'),
       expect.anything(),
     );
-    // Workspace row and session rows are still removed (the workspace cleanup)
-    expect(db._deletedWorkspaceIds).toContain(WS_ID);
+    // The workspace row is preserved while a live PTY-backed session remains.
+    expect(db._deletedWorkspaceIds).not.toContain(WS_ID);
+    expect(db._deletedSessionIds).not.toContain('live-s');
+    expect(result.liveBlockedSessionIds).toEqual(['live-s']);
     expect(result.liveBlockedWorktrees).toContain(liveWorktree);
   });
 

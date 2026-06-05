@@ -1,7 +1,7 @@
 /**
  * MOT-1 — Apple-grade motion vocabulary for overlay primitives.
  *
- * ONE source of truth for how every Radix/cmdk/vaul overlay enters and
+ * ONE source of truth for how every Radix/cmdk overlay enters and
  * exits. Consumers (the `components/ui/*` overlays) compose these constants
  * into their `className` so the whole app speaks a single motion language —
  * spring-driven, GPU-composited (transform + opacity only), Reduce-Motion
@@ -53,14 +53,12 @@ export const popoverContentMotion =
 export const tooltipContentMotion = popoverContentMotion;
 
 /**
- * Edge sheets / drawers — full-surface directional slide keyed off the
+ * Edge sheets — full-surface directional slide keyed off the
  * resolved side. Enter rides the snappy spring at the slow budget (350ms)
  * so a large surface settles with weight; exit is quicker + smooth.
  *
  * Radix `react-dialog` (Sheet) exposes the side via our own conditional
- * classes, so we key on `data-[state]`. vaul (Drawer) drives its own
- * drag-physics slide internally, so the Drawer only adopts our scrim
- * (overlayScrimMotion) — we do NOT override vaul's content transform.
+ * classes, so we key on `data-[state]`.
  */
 const SHEET_SLIDE: Record<"top" | "right" | "bottom" | "left", string> = {
   right:

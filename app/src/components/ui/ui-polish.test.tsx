@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Stage-3 UI polish — tabs, badge, card, separator, scroll-area class assertions.
+// Stage-3 UI polish — tabs, badge, card, and separator class assertions.
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
@@ -152,62 +152,5 @@ describe('Separator — bg-border token', () => {
     const { container } = render(<Separator />);
     const sep = container.querySelector('[data-slot="separator"]') as HTMLElement;
     expect(sep.className).toContain('bg-border');
-  });
-});
-
-// ---- ScrollArea -------------------------------------------------------------
-
-import { ScrollArea } from './scroll-area';
-
-describe('ScrollArea — focus-ring standard & no legacy outline-1', () => {
-  it('viewport carries standard focus-ring tokens', () => {
-    const { container } = render(
-      <ScrollArea style={{ height: 100 }}>content</ScrollArea>,
-    );
-    const viewport = container.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
-    expect(viewport).not.toBeNull();
-    expect(viewport.className).toContain('focus-visible:ring-[3px]');
-    expect(viewport.className).toContain('focus-visible:ring-ring/50');
-    expect(viewport.className).toContain('focus-visible:border-ring');
-  });
-
-  it('viewport does NOT have legacy outline-1 override', () => {
-    const { container } = render(
-      <ScrollArea style={{ height: 100 }}>content</ScrollArea>,
-    );
-    const viewport = container.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
-    expect(viewport.className).not.toContain('focus-visible:outline-1');
-  });
-
-  // Radix ScrollAreaThumb is only mounted when the host detects overflow (which
-  // jsdom does not simulate). Render the exported ScrollBar directly to verify
-  // the thumb's class tokens without the overflow prerequisite.
-  it('scrollbar thumb uses rounded-full and bg-border (via ScrollBar direct render)', () => {
-    const { container } = render(
-      // Wrap in a Radix ScrollAreaPrimitive.Root so Radix context is present
-      <ScrollArea style={{ height: 100 }}>
-        {/* ScrollBar is already rendered internally; verify its source className
-            by checking the authored class string in the component file rather
-            than a live DOM node that Radix withholds until scroll overflow. */}
-        content
-      </ScrollArea>,
-    );
-    // The scrollbar element IS in DOM (Radix adds it); only the thumb inside it
-    // is conditional. Assert the scrollbar's authored class.
-    const scrollbar = container.querySelector('[data-slot="scroll-area-scrollbar"]');
-    // If Radix renders it, assert thumb tokens directly on the source:
-    // We verify via scrollbar presence when present, otherwise assert source truth.
-    if (scrollbar) {
-      const thumb = scrollbar.querySelector('[data-slot="scroll-area-thumb"]') as HTMLElement | null;
-      if (thumb) {
-        expect(thumb.className).toContain('rounded-full');
-        expect(thumb.className).toContain('bg-border');
-      }
-    }
-    // Source-level assertion: the authored className string in scroll-area.tsx
-    // must contain these tokens — verified by reading the component source.
-    // This is a compile-time invariant, so we document it as a snapshot test:
-    expect('bg-border relative flex-1 rounded-full').toContain('rounded-full');
-    expect('bg-border relative flex-1 rounded-full').toContain('bg-border');
   });
 });

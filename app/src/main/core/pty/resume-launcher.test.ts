@@ -6,9 +6,11 @@ import type Database from 'better-sqlite3';
 
 import {
   buildResumeArgs,
+  respawnFailedWorkspacePanes,
   resumeWorkspacePanes,
   type ResumeLauncherDeps,
 } from './resume-launcher.ts';
+import { KV_PTY_SPAWN_MODE } from './local-pty.ts';
 // SF-2 — use the production slug helper rather than an inline `/`-only replace,
 // so the test layout matches the directory Claude (and the bridge) actually use.
 import { claudeSlugForCwd } from './claude-resume-sigma.ts';
@@ -63,7 +65,7 @@ interface FakeRow {
   external_session_id: string | null;
 }
 
-function setupDb(): { db: Database.Database; rows: FakeRow[] } {
+function setupDb(kv: Record<string, string> = {}): { db: Database.Database; rows: FakeRow[] } {
   const rows: FakeRow[] = [];
   const db = {
     prepare(sql: string) {
@@ -91,7 +93,10 @@ function setupDb(): { db: Database.Database; rows: FakeRow[] } {
             }));
         },
         get(keyOrId: string) {
-          if (/FROM kv/.test(sql)) return undefined;
+          if (/FROM kv/.test(sql)) {
+            const value = kv[keyOrId];
+            return value === undefined ? undefined : { value };
+          }
           const row = rows.find((r) => r.id === keyOrId);
           if (!row) return undefined;
           return {
@@ -368,6 +373,35 @@ describe('resumeWorkspacePanes', () => {
     expect(rows[0]?.status).toBe('running');
   });
 
+  it('passes the configured PTY spawn mode into boot resume spawns', async () => {
+    const { db, rows } = setupDb({ [KV_PTY_SPAWN_MODE]: 'shell-first' });
+    insertSession(rows);
+    const spawnOpts: Array<{ spawnMode?: 'direct' | 'shell-first' }> = [];
+    const registry = { get: () => undefined } as unknown as PtyRegistry;
+    const resolve: NonNullable<ResumeLauncherDeps['resolve']> = (_deps, opts) => {
+      spawnOpts.push({ spawnMode: opts.spawnMode });
+      return {
+        ptySession: makeSession(opts.sessionId ?? 'new-id', opts.providerId),
+        providerRequested: opts.providerId,
+        providerEffective: 'claude',
+        commandUsed: 'claude',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+      };
+    };
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: registry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => claudeProvider,
+      resolve,
+    });
+
+    expect(result.resumed).toHaveLength(1);
+    expect(spawnOpts[0]?.spawnMode).toBe('shell-first');
+  });
+
   it('maps old worktree-root cwd rows back to the workspace subdir and bridges Claude resume files', async () => {
     const claudeHomeDir = makeClaudeHome();
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-repo-'));
@@ -507,6 +541,42 @@ describe('resumeWorkspacePanes', () => {
       expect(calls[0]?.args).toEqual(expected);
       expect(rows[0]?.status).toBe('running');
     }
+  });
+});
+
+describe('respawnFailedWorkspacePanes', () => {
+  it('passes the configured PTY spawn mode into failed-respawn spawns', async () => {
+    const { db, rows } = setupDb({ [KV_PTY_SPAWN_MODE]: 'shell-first' });
+    insertSession(rows, {
+      id: 'sess-respawn',
+      provider_id: 'shell',
+      provider_effective: 'shell',
+      external_session_id: null,
+      status: 'exited',
+      exit_code: -1,
+      exited_at: 111,
+    });
+    const spawnOpts: Array<{ spawnMode?: 'direct' | 'shell-first'; sessionId?: string }> = [];
+    const resolve: NonNullable<ResumeLauncherDeps['resolve']> = (_deps, opts) => {
+      spawnOpts.push({ spawnMode: opts.spawnMode, sessionId: opts.sessionId });
+      return {
+        ptySession: makeSession(opts.sessionId ?? 'new-id', opts.providerId),
+        providerRequested: opts.providerId,
+        providerEffective: 'shell',
+        commandUsed: '',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+      };
+    };
+
+    const result = await respawnFailedWorkspacePanes('ws-1', {
+      pty: { get: () => undefined } as unknown as PtyRegistry,
+      db,
+      resolve,
+    });
+
+    expect(result).toEqual({ workspaceId: 'ws-1', spawned: 1, failed: 0 });
+    expect(spawnOpts[0]).toEqual({ sessionId: 'sess-respawn', spawnMode: 'shell-first' });
   });
 });
 

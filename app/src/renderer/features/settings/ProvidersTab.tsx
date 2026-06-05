@@ -3,10 +3,9 @@
 // green dot + version (when known); missing ones show the install hint
 // inline so the user can copy-paste it into their shell.
 //
-// V3-W12-003: legacy providers (Aider, Continue) and the SigmaCode "Coming
-// Soon" stub are gated. The "Show legacy providers" switch persists to
-// kv['providers.showLegacy'] (default '0'). comingSoon rows render with a
-// chip and the install hint as their badge.
+// V3-W12-003: legacy providers are gated when present. The "Show legacy
+// providers" switch persists to kv['providers.showLegacy'] (default '0').
+// Coming-soon rows render with a chip and the install hint as their badge.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Loader2, RefreshCcw, RotateCcw, X } from 'lucide-react';
@@ -124,6 +123,7 @@ export function ProvidersTab() {
     () => rows.filter((r) => (r.legacy ? showLegacy : true)),
     [rows, showLegacy],
   );
+  const hasLegacyRows = useMemo(() => rows.some((r) => r.legacy), [rows]);
   const foundCount = visibleRows.filter((r) => r.probe?.found).length;
 
   return (
@@ -168,14 +168,16 @@ export function ProvidersTab() {
           {visibleRows.length} provider{visibleRows.length === 1 ? '' : 's'} · {foundCount} found
         </div>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Switch
-              checked={showLegacy}
-              onCheckedChange={onToggleLegacy}
-              aria-label="Show legacy providers"
-            />
-            <span>Show legacy providers</span>
-          </label>
+          {hasLegacyRows ? (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Switch
+                checked={showLegacy}
+                onCheckedChange={onToggleLegacy}
+                aria-label="Show legacy providers"
+              />
+              <span>Show legacy providers</span>
+            </label>
+          ) : null}
           <Button
             type="button"
             size="sm"

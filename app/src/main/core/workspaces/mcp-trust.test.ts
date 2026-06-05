@@ -94,6 +94,11 @@ describe('ensureRufloTrusted — cursor + no-ops', () => {
     expect(res.cursor).toBe('noop');
   });
 
+  it('cursor: default runner is disabled in unit tests unless a seam is injected', () => {
+    const res = ensureRufloTrusted(root, { homeDir: root });
+    expect(res.cursor).toBe('noop');
+  });
+
   it('cursor: fail-open when enable throws', () => {
     const res = ensureRufloTrusted(root, {
       homeDir: root,

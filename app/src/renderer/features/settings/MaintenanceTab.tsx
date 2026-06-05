@@ -74,6 +74,7 @@ interface Workspace {
 
 interface DryRunPreview {
   sessionCount: number;
+  liveBlockedSessionIds?: string[];
   worktreeCount: number;
   liveBlockedWorktrees: string[];
 }
@@ -183,8 +184,8 @@ export function MaintenanceTab() {
       setBusy(null);
 
       const liveWarn =
-        preview.liveBlockedWorktrees.length > 0
-          ? `\n\n⚠ ${preview.liveBlockedWorktrees.length} worktree(s) with live sessions will be KEPT.`
+        (preview.liveBlockedSessionIds?.length ?? 0) > 0 || preview.liveBlockedWorktrees.length > 0
+          ? `\n\n⚠ ${preview.liveBlockedSessionIds?.length ?? 0} live pane(s) and ${preview.liveBlockedWorktrees.length} worktree(s) will be KEPT.`
           : '';
       // UX-3 — stage the themed confirm. The live mutation runs in `run`.
       setConfirm({
@@ -192,7 +193,7 @@ export function MaintenanceTab() {
         confirmLabel: 'Remove workspace',
         message:
           `This will permanently delete:\n` +
-          `  • ${preview.sessionCount} session record(s)\n` +
+          `  • ${preview.sessionCount} non-live session record(s)\n` +
           `  • ${preview.worktreeCount} orphan worktree dir(s)` +
           liveWarn +
           `\n\nThis action cannot be undone.`,
@@ -224,9 +225,12 @@ export function MaintenanceTab() {
     async (ws: Workspace) => {
       setBusy({ type: 'clear-dry', workspaceId: ws.id });
       let sessionCount = 0;
+      let liveBlockedCount = 0;
       try {
-        const res = await invokeCleanup<{ sessionIds: string[]; deleted: number }>('cleanup.clearPanes', { workspaceId: ws.id, dryRun: true });
-        sessionCount = (res as { sessionIds: string[]; deleted: number }).sessionIds.length;
+        const res = await invokeCleanup<{ sessionIds: string[]; liveBlockedSessionIds?: string[]; deleted: number }>('cleanup.clearPanes', { workspaceId: ws.id, dryRun: true });
+        const preview = res as { sessionIds: string[]; liveBlockedSessionIds?: string[]; deleted: number };
+        sessionCount = preview.sessionIds.length;
+        liveBlockedCount = preview.liveBlockedSessionIds?.length ?? 0;
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err));
         setBusy(null);
@@ -235,7 +239,8 @@ export function MaintenanceTab() {
       setBusy(null);
 
       if (sessionCount === 0) {
-        toast.success(`No pane sessions found for "${ws.name}"`);
+        const suffix = liveBlockedCount > 0 ? ` (${liveBlockedCount} live pane(s) kept)` : '';
+        toast.success(`No non-live pane sessions found for "${ws.name}"${suffix}`);
         return;
       }
 
@@ -245,16 +250,23 @@ export function MaintenanceTab() {
         confirmLabel: 'Clear panes',
         message:
           `This will delete ${sessionCount} session record(s) from the database.\n` +
-          `Active (running/starting) panes will stop appearing in the UI.\n\n` +
+          (liveBlockedCount > 0
+            ? `${liveBlockedCount} active (running/starting) pane(s) will be kept.\n\n`
+            : '') +
           `This action cannot be undone.`,
         run: () => {
           setConfirm(null);
           void (async () => {
             setBusy({ type: 'clear', workspaceId: ws.id });
             try {
-              const res = await invokeCleanup<{ sessionIds: string[]; deleted: number }>('cleanup.clearPanes', { workspaceId: ws.id, dryRun: false });
-              const deleted = (res as { deleted: number }).deleted;
-              toast.success(`Cleared ${deleted} pane session(s) for "${ws.name}"`);
+              const res = await invokeCleanup<{ sessionIds: string[]; liveBlockedSessionIds?: string[]; deleted: number }>('cleanup.clearPanes', { workspaceId: ws.id, dryRun: false });
+              const result = res as { deleted: number; liveBlockedSessionIds?: string[] };
+              const kept = result.liveBlockedSessionIds?.length ?? 0;
+              toast.success(
+                `Cleared ${result.deleted} pane session(s) for "${ws.name}"${
+                  kept > 0 ? ` — kept ${kept} live pane(s)` : ''
+                }`,
+              );
             } catch (err) {
               toast.error(err instanceof Error ? err.message : String(err));
             } finally {
