@@ -10,6 +10,41 @@
 
 ---
 
+## 🚨 CRITICAL — disk-fill + post-crash launch lockout — 2026-06-05 (RELEASE-BLOCKER)
+
+Operator's local `electron:dev` run **ballooned to 49 GB and filled the entire system disk** → had
+to force-quit. **After relaunch: no workspaces saved, nothing launches, even a new empty pane won't
+spawn.** Log shows a spawn↔cleanup thrash + `agent_sessions` UNIQUE-violation lockout:
+```
+[factory-spawn] UNIQUE violation on agent_sessions (ws=10d111a6-…, agent=builder-1) — duplicate spawn suppressed
+[worktree-cleanup] repo=e991ecfde062 removed=1 kept=1 errors=0
+[factory-spawn] UNIQUE violation on agent_sessions (ws=…, agent=builder-2) — duplicate spawn suppressed
+[worktree-cleanup] repo=e991ecfde062 removed=1 kept=1 errors=0
+[launcher] UNIQUE violation on agent_sessions (ws=…, pane=0) — duplicate spawn suppressed
+[launcher] UNIQUE violation on agent_sessions (ws=…, pane=1) — duplicate spawn suppressed
+```
+**✅ ROOT-CAUSED — 6-agent read-only fleet, 2026-06-05 (`/systematic-debugging`, lead-verified disk forensics).**
+The CRIT-1/2/3 bullet hypotheses below are now **CONFIRMED** with file:line; the full two-lane fix plan is
+**ROADMAP Phase 0** (Lane A disk/worktree = lead · Lane B DB-infra/persistence = agent). Blocks the v2.0.0 tag,
+supersedes the SMK/DEV batch. **Key confirmed facts:** the disk hog is leaked git worktrees (`worktrees/` = the whole
+footprint; `sigmalink.db` 768K), each a full HEAD checkout (~82M) and ballooned to 100s-of-MB when an agent runs
+`npm/bun install` inside it (untracked node_modules; observed 292M); leaked because the UNIQUE-suppression catch
+branches (`factory-spawn.ts:334-347`, `launcher.ts:516-546`) never remove the worktree they just created. The loop's
+trigger is the DB defect: the boot janitor (`janitor.ts:40-43`) flips force-quit zombies `running→exited` but leaves
+`pane_index` set, while the partial unique index `agent_sessions_ws_pane_uq` (`migration 0020`) is **status-agnostic**
+and the allocator (`pane-slots.ts`) only counts `running/starting` → allocator hands back a slot the index still
+considers occupied → every fresh INSERT collides → suppressed (presence-of-row, no liveness/adopt) → permanent
+launch lockout (resume escapes because it UPDATEs the existing id). Workspaces-not-saved = `app.lastSession` is written
+ONLY in `before-quit` (`electron/main.ts:820`), which a SIGKILL force-quit never runs → genuine data loss, independent
+of the lockout. **NOT a memory (RAM) leak; NOT a reason to migrate to Tauri** (identical bug under any host language — see ROADMAP ADR-006).
+
+- 🐞 **CRIT-1 [critical] — runaway disk consumption (49 GB) fills the system.** Hypothesis (UNVERIFIED — du forensics in progress): a spawn→fail→worktree-cleanup→respawn loop churns git worktrees (each is a full repo checkout under `~/Library/Application Support/Electron/worktrees/<repo>/`; if `node_modules`/build output/native `.node`/whisper models live inside each, that's 1–3 GB × N), and/or unbounded file growth (session JSONL snapshots, PTY recordings, logs, the Ruflo `.db`/HNSW store). The `worktree-cleanup removed=1 kept=1` line firing next to EVERY UNIQUE violation is the tight create/destroy loop signature. MUST: bound the spawn-retry loop, guarantee worktrees never carry `node_modules`/build artifacts, add a disk-pressure guard + a worktree-count cap, sweep on boot. Effort: L. **Blocks the tag.**
+- 🐞 **CRIT-2 [critical] — `agent_sessions` UNIQUE violations permanently lock out launching after a crash.** Post force-quit, every spawn (`factory-spawn` builder-N, `launcher` pane-N) hits `UNIQUE violation on agent_sessions (ws,agent)/(ws,pane)` → "duplicate spawn suppressed" → no pane appears, no workspace restores. The pre-crash rows survive in the DB but their live PTYs are dead, so the dedup guard suppresses every legitimate respawn → permanent lockout. MUST: on boot/crash-recovery, reconcile `agent_sessions` (zombie-sweep rows with no live pty before spawn) so the dedup guard can't block recovery; make "duplicate spawn suppressed" **adopt/replace** a dead row rather than no-op. Same `agent_sessions` registry surface as SF-12 (`migration 0026` dormant). Effort: M. **Blocks the tag.**
+- 🐞 **CRIT-3 [high] — workspaces not persisted across the crash.** No workspaces after relaunch — persistence either failed silently on the full disk (cf. **BUG-8** before-quit snapshot swallow) or the DB write was lost/rolled back. Confirm: disk-full-induced data loss vs a genuine persistence regression vs the same dead-row state hiding workspaces. Effort: M.
+- ✨ **OPT-1 — "huge optimization" umbrella (operator ask).** Disk + memory + CPU pass. Folds the existing **PERF-1..16** backlog (esp. PERF-1 pty:data coalescing, PERF-3 context-rerender, PERF-6/16 git-poll subprocess storms, PERF-8 sync disk-scan) + the new CRIT-1 disk-guard/worktree-hygiene + a startup/idle resource budget. Sequence the high-ROI subset right after the CRIT fixes. Effort: L (phased).
+
+---
+
 ## 🔬 Operator dev-run smoke — 2026-06-05 (electron:dev, more app usage)
 
 Operator running the app via local `pnpm electron:dev` (not a release build) surfaced more bugs +

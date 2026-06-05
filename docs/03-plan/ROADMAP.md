@@ -4,13 +4,14 @@
 > derived from `WISHLIST.md`. A whiteboard — refreshed each cycle, **not permanent
 > documentation**. Permanent record → `CHANGELOG.md` + master memory + Ruflo AgentDB.
 >
-> **This cycle (set 2026-06-04)** is driven by the **BridgeSpace competitor teardown** (6-agent
-> `video-lens-review` of BridgeMind Day 187 + Day 188 streams — see `WISHLIST.md` "BridgeSpace
-> competitor teardown — 2026-06-04"). **Operator headline: ship a flat "Clean/Clear" theme + more Glass variations FIRST** — ✅ **Phase 1
-> shipped** (PR #104). **▶ NEXT = Phase 2: operator-smoke bugfix batch (SMK-1/2/3/3b) — confirmed bugs,
-> fixed before features.** Then the feature phases: theme gallery (3) · FE polish (4) · premium Jorvis FE (5) ·
-> worktree/git UI (6) · git diff panel (7) · orchestration (8) · browser/voice depth (9).
-> *(Paused 2026-06-04 by operator — resume at Phase 2.)*
+> **This cycle (re-sequenced 2026-06-05) is crisis-driven.** A local `electron:dev` run filled the
+> system disk (49 GB) and left the app unable to launch any pane after a force-quit. A 6-agent
+> read-only fleet root-caused it. **▶ Phase 0 = the disk-leak + DB-infra/persistence fix (RELEASE-BLOCKER)**
+> — split into two lanes the operator assigned: **Lane A (disk/worktree leak = LEAD)** + **Lane B (DB infra +
+> persistence = agent)**. Then: Phase 1 bugfix batch (SMK + DEV) · Phase 2 OPT perf/resource + in-place
+> worktree mode · Phase 3 workspace/panel UX · Phase 4 pane chrome+grid · then the carried feature phases
+> (theme gallery · Jorvis FE · worktree GUI · git diff · orchestration · voice). The 2026-06-04 themes work
+> already **✅ shipped** (PR #104). v2.0.0 stays UNTAGGED until Phase 0 lands.
 
 This ROADMAP is the single source of truth for what to build next.
 
@@ -19,251 +20,275 @@ This ROADMAP is the single source of truth for what to build next.
 ## How to read this
 - **Phases are ordered by value/effort**, with cross-phase prerequisites called out.
 - **Effort:** S (≤½ day), M (1–2 days), L (3–5 days), XL (>1 week).
-- Item codes (`BSP-*`, `FEAT-*`) trace back to `WISHLIST.md`. Confirmed bugs are fixed before new feature phases.
+- Item codes (`CRIT-*`, `SMK-*`, `DEV-*`, `BSP-*`, `PERF-*`, `FEAT-*`) trace back to `WISHLIST.md`. Confirmed bugs are fixed before new feature phases.
 - **Already-shipped competitor parity is NOT re-built** — see "Skip / market better" at the tail.
 
 ---
 
-## 🔓 Release carry-over (operator-owned — blocks nothing below)
-**v2.0.0 is shipped to `main` (untagged).** The tag is a separate operator-authorized step via `/sigmalink-release`. Owed operator VISUAL smokes before/at the tag: N1 wizard across themes (esp. Glass/Parchment) · N2 browser drag + bounds-sync + no-reload-on-reopen · Jorvis live reply (run `claude` once for trust). These are operator-owned; new cycle work below proceeds in parallel.
+## 🔓 Release carry-over (operator-owned)
+**v2.0.0 is on `main` (untagged) — and the tag is now GATED on Phase 0.** The disk-fill + launch-lockout are release-blockers; do not tag until Phase 0 ships + an operator smoke confirms a clean relaunch survives a force-quit. Owed operator VISUAL smokes still stand: N1 wizard across themes · N2 browser drag/no-reload · Jorvis live reply. Tag via `/sigmalink-release`.
 
 ## 🐞 Confirmed bugs to fix first (hotlist)
 
-| # | Sev | Bug | Where | Effort |
-|---|-----|-----|-------|--------|
-| SMK-1 | high | Wizard auto-resumes a stale CROSS-PROJECT session onto fresh worktrees. ✅ root-caused: opencode never cwd-scoped (`session-disk-scanner.ts:848` drops `opts`; `:696` keeps no-`directory` rows) + `scoped=!!workspaceId` always-true → auto-resume newest (`SessionStep.tsx:251,259,269`) | `core/pty/session-disk-scanner.ts:642/696/848`, `SessionStep.tsx:259` | M |
-| SMK-2 | high | Sessions-step buttons revert instantly. ✅ root-caused: smart-default `useEffect` re-fires every render b/c `rows=buildPaneRows(...)` is inline (new array) → clobbers the pick | `Launcher.tsx:564` (memoize) + `SessionStep.tsx:248-276` (init-once ref) | S |
-| SMK-3 | high | Skills tab Superpowers-only. ✅ root-caused: `discoverInstalledSkills` hard-codes 2 cache paths + the ruflo branch is dir-depth-broken; must scan all providers (~580+ on disk) + carry provider/prefix | `core/skills/controller.ts:276-357` (+ new `discovery.ts`), `SkillsTab.tsx`, `shared/providers.ts` | M |
-| SMK-3b | medium | Codex skill injection writes `/foo` not `$foo` (hardcoded `/` for all providers) | `renderer/command-room/insertSkillCommand.ts:38` | S |
-| BSP-B4 | medium | Embedded-browser input/focus reliability — audit `WebContentsView` focus forwarding to form fields (BridgeSpace still fights this in v3.1 → differentiation chance) | `core/browser/{manager,controller}.ts`, `renderer/browser/BrowserViewMount.tsx` | M |
-| DEV-5 | high | Multiple providers selected → all panes launch the SAME session (EXTENDS SMK-1/2) | `SessionStep.tsx`/`Launcher.tsx`/`session-disk-scanner.ts` | fold into Phase 2 |
-| DEV-1 | medium | Browser "Design" element-pick extracts CSS but spawn-new/select-existing is a no-op; should create+prompt a new agent OR paste into an existing pane composer WITHOUT Enter (C-13 regression) | `renderer/browser/*` + pane-composer paste seam | M |
-| DEV-2 | medium | Browser recently-closed tabs not persisted (vanish on close) | `browser/BrowserRecents.tsx` + tab KV | S |
-| DEV-3 | low | Browser URL/search box inert until a tab exists — can't open the first tab from it | `browser/BrowserRoom.tsx` | S |
-| DEV-4 | low | Workspace rail reorders on click (active jumps up) — remove reorder-on-activate | `renderer/sidebar/Sidebar.tsx` | S |
-| DEV-6 | low | 46 RPC channels have no zod schema (IPC input-validation hole; extends BUG-4/ARCH-9) | `core/rpc/schemas.ts` | M |
-| DEV-7 | low | `electron:dev` main loads dead dev URL → 7× ERR_CONNECTION_REFUSED before dist fallback | dev load-URL resolution | S |
-| DEV-8 | low | Bundle hygiene: vendor chunks >500kB + SkillsTab dual static/dynamic import + tailwind ambiguous-class warn | vite `manualChunks` / SkillsTab import | S |
+| # | Sev | Bug | Where (file:line) | Phase | Effort |
+|---|-----|-----|-------------------|-------|--------|
+| **CRIT-1** | **critical** | Runaway disk fill (49 GB) — leaked git worktrees from a UNIQUE-collision spawn loop; catch branches never remove the worktree they created; amplified by agent `node_modules` installs; no cap/guard/sweep | `factory-spawn.ts:334-347`, `launcher.ts:516-546`, `worktree.ts:39-115`, `worktree-cleanup.ts:31-112` | **0** | L |
+| **CRIT-2** | **critical** | Post-crash launch lockout — janitor flips zombies `running→exited` but leaves `pane_index`; partial unique index `agent_sessions_ws_pane_uq` is status-agnostic; allocator counts only live → every fresh INSERT collides → suppressed (no liveness/adopt) | `janitor.ts:40-43`, `migration 0020:62-67`, `pane-slots.ts:22-42`, `factory-spawn.ts:298-350`, `launcher.ts:478-550` | **0** | M |
+| **CRIT-3** | **high** | Workspaces not saved across a crash — `app.lastSession` is written only in `before-quit`, which a SIGKILL force-quit never runs (data loss, independent of the lockout) | `electron/main.ts:820,841-843`, `session-restore.ts:78-122` | **0** | M |
+| SMK-1 | high | Wizard auto-resumes a stale CROSS-PROJECT session onto fresh worktrees (opencode never cwd-scoped; `scoped=!!workspaceId` always-true → auto-resume newest) | `session-disk-scanner.ts:642/696/848`, `SessionStep.tsx:259` | 1 | M |
+| SMK-2 | high | Sessions-step buttons revert instantly (smart-default `useEffect` re-fires every render b/c `rows=buildPaneRows(...)` is inline) | `Launcher.tsx:564`, `SessionStep.tsx:248-276` | 1 | S |
+| SMK-3 | high | Skills tab Superpowers-only (`discoverInstalledSkills` hard-codes 2 cache paths + ruflo branch dir-depth-broken; must scan all providers + carry prefix) | `core/skills/controller.ts:276-357` (+ new `discovery.ts`), `SkillsTab.tsx` | 1 | M |
+| SMK-3b | medium | Codex skill injection writes `/foo` not `$foo` | `insertSkillCommand.ts:38` | 1 | S |
+| DEV-5 | high | Multiple providers selected → all panes launch the SAME session (extends SMK-1/2) | `SessionStep.tsx`/`Launcher.tsx`/`session-disk-scanner.ts` | 1 | M |
+| DEV-1 | medium | Browser "Design" element-pick → spawn-new/select-existing no-op: capture never seeds the prompt → Dispatch stays `disabled`; existing-pane path appends `\r` (auto-submits) | `DesignDock.tsx:110-117,475-480`, `core/design/controller.ts:290` | 1 | M |
+| DEV-2 | medium | Browser recently-closed tabs not persisted — `closeTab` hard-deletes; "Recents" is derived from OPEN tabs | `core/browser/manager.ts:127-143`, `BrowserRecents.tsx:52-68`, `db/schema.ts:229-247` | 1 | S |
+| DEV-3 | low | Browser URL box inert until a tab exists — `disabled={!activeTab}` + `handleNavigate` early-returns with no tab | `BrowserRoom.tsx:177-183,358-361`, `AddressBar.tsx:101-115` | 1 | S |
+| DEV-4 | low | Workspace rail reorders on click — `SET_ACTIVE_WORKSPACE_ID` calls `upsertOpenWorkspace` which prepends | `state.reducer.ts:29-32,327-333` | 1 | S |
+| DEV-6 | low | 46 RPC channels have no zod schema (IPC input-validation hole; extends BUG-4/ARCH-9) | `core/rpc/schemas.ts`, `rpc-router.ts:2102` | 1 | M |
+| DEV-7 | low | `electron:dev` runs a PROD build but never sets `VITE_DEV_SERVER_URL`; the ERR_CONNECTION_REFUSED noise is the Ruflo daemon health-probe (verify the renderer 8080/8081 port too) | `package.json:19`, `electron/main.ts:33,622-625`, `ruflo/http-daemon-supervisor.ts:29` | 1 | S |
+| DEV-8 | low | Bundle hygiene: `SkillsTab` static+dynamic import (extract `SKILL_DRAG_MIME`/types to a leaf file) + split `vendor-react`/`vendor-xterm` + `ease-[var(--ease-smooth)]` warn | `vite.config.ts:24-36`, `CommandRoom.tsx:25`/`PaneShell.tsx:33`/`RightRail.tsx:33-35`, `IntentCards.tsx:111` | 1 | S |
+| BSP-B4 | medium | Embedded-browser input/focus reliability — audit `WebContentsView` focus forwarding to form fields | `core/browser/{manager,controller}.ts`, `BrowserViewMount.tsx` | 10 | M |
 
-*(SMK-1/2/3 + SMK-3b root-caused by 2 opus debug agents 2026-06-04 — full evidence/fix-plans in `WISHLIST.md`. Test-blindness: `Launcher.test` stubs `SessionStep`; fixes must add an un-stubbed integration test. The v2.0.0 owed smokes are operator QA, not code bugs.)*
-*(**DEV-\*** = 2026-06-05 operator dev-run smoke — see `WISHLIST.md` "Operator dev-run smoke — 2026-06-05". File:line UNVERIFIED — areas only, no investigation per operator. **DEV-5 folds into Phase 2**; DEV-1/2/3 are browser bugs (land with Phase 9 browser work or as a quick batch); DEV-4/6/7/8 are S-effort quick wins. Feature asks **DEV-L1/L2** (mirror BridgeSpace pane header + grid feel) slot into **Phase 4** (FE polish, extending BSP-F1/P2) / pane-grid work; **DEV-W1/W2/W3/W4/W5** (logo-toggle rail · editable workspace names · multi-workspace-same-dir + worktree-mode toggle · click-active-tab-to-close right panel · `+Pane` plain-terminal + worktree toggle) are net-new workspace/panel UX — triage into a Phase 4/6 packet when scoped.)*
+*(CRIT-1/2/3 root-caused by the 6-agent fleet 2026-06-05; SMK-1/2/3/3b by 2 opus agents 2026-06-04; DEV-* by the same 2026-06-05 fleet — full evidence + fix sketches in `WISHLIST.md`. Test-blindness threads through all of them: `factory-spawn.test.ts` only runs `repoMode:'plain'` so the worktree leak was invisible; no test asserts allocator-vs-unique-index agreement; `Launcher.test` stubs `SessionStep`. Every Phase 0/1 fix MUST add the missing test.)*
 
 ---
 
-## Phase 1 — "Clean/Clear" theme + Glass variations  ·  ✅ **SHIPPED** (PR #104 · `f78c6e0`, 2026-06-04)
+## Phase 0 — CRIT: disk-leak + DB-infra/persistence (RELEASE-BLOCKER) · ▶ **NEXT — DO FIRST**
 
-**Shipped:** 15 themes (was 5) — Clean family (`clean`/`clean-light`/`clean-violet`/`clean-blue`/`clean-rose`/`clean-emerald`, flat-opaque, zero-blur, single accent ring) + Glass Spectrum (`glass-teal`/`glass-violet`/`glass-slate`/`glass-frost`). `glass-material.css` parameterized to hue tokens + selectors broadened to `[data-theme^='glass']` (ADR-001); base `glass` byte-identical; drift-guard test. Opus-reviewed (H1 EditorTab Monaco, M1 clean-light contrast, M2 byte-identical, M3 drift-guard all folded). CI 4/4 green incl. both smoke e2e. **Operator visual smoke ✅ — confirmed working/liked.** Gallery card-picker = Phase 3. → promote to CHANGELOG/memory on wrap-up.
-
-**Goal.** SigmaLink offers a flat, opaque "Clean/Clear" theme alongside Glass, plus a family of Glass variations, all selectable like the existing themes.
+**Goal.** The app can never fill the disk, always launches after a crash/force-quit, and never silently loses which workspaces were open.
 
 **Deliverables.**
-- **BSP-T1** new `clean` theme (dark) + a `clean-light` variant — `ThemeDefinition` entries + `[data-theme="clean"]` / `[data-theme="clean-light"]` CSS-var blocks.
-- **BSP-T2** Glass-variation tier: a `--surface-tint` + `--glass-image-opacity` layer over the glass base + 3–4 presets (`glass-teal` / `glass-violet` / `glass-slate` / `glass-frost`).
+- **Lane A (disk/worktree — LEAD):**
+  - Worktree-count cap + `fs.statfs` free-disk floor in `WorktreePool.create` (refuse + loud error session, never silently loop).
+  - Boot-time **+ periodic** all-repo worktree sweep + `git worktree prune`; **reap worktrees that have NO `agent_sessions` row** (the actual leak shape) + treat `node_modules`/`dist`/`electron-dist` as **disposable** (don't let them pin a dir for the 7-day window).
+  - A hardened, exported `worktreePool.removeAndPrune()` + `sweepAllReposOnBoot()` for Lane B to call.
+- **Lane B (DB infra + persistence — AGENT):**
+  - New migration `00NN_agent_session_pane_unique_status.ts`: drop `agent_sessions_ws_pane_uq`, recreate **status-aware** (`… WHERE pane_index IS NOT NULL AND status IN ('running','starting')`) so the allocator and the index agree.
+  - `runBootJanitor` frees slots (clears the lockout) and is **awaited** before any window/auto-resume/launch.
+  - Both UNIQUE-suppression guards **adopt/replace** a dead row (PTY-liveness check) instead of no-op'ing; pre-flight the pane slot **before** worktree creation.
+  - Opportunistic throttled `app.lastSession` flush (not quit-only) so a crash loses ≤ a few seconds.
+- **Shared:** the immediate one-time DB repair to unblock the operator's currently-broken install (see "0-now" below); the missing tests (worktree-leak-on-UNIQUE, allocator/index agreement, crash-snapshot survival).
 
-**Why now.** The user's explicit #1 ask. Cohesive, self-contained (theme layer only), and unblocks the gallery (Phase 3) having real content to show.
+**Why now.** It filled the operator's disk and bricked launching — nothing else matters until this is fixed, and it blocks the v2.0.0 tag. The two root causes are intertwined (the DB collision drives the worktree leak loop) but cleave into **file-disjoint lanes** so they parallelize safely.
 
-**Scope.**
-- `src/renderer/lib/themes.ts:6` — extend `ThemeId` union (`'clean' | 'clean-light' | 'glass-teal' | …`); add `THEMES[]` entries with swatches. Keep `DEFAULT_THEME='glass'`.
-- `src/index.css` — add the Clean palette as flat-opaque tokens (bg `#0c0d0f` / pane `#15171a` / raised `#1c1f23` / divider `#23262b` / text `#e6e8ea` / muted `#8a9099` / **accent/focus amber `#e8833a`**; light variant mirrors it); add a `--surface-tint`/`--glass-image-opacity` layer the glass blocks read so a tint preset = a few overrides, NOT a copied block (see ADR-001).
-- Verify token consumers still resolve: `app/App.tsx`, `sidebar/Sidebar.tsx`, `command-room/PaneHeader.tsx`, the `.sl-glass` utility — Clean must set `--blur: 0` and flat surfaces (no translucency).
+**Scope (two lanes — file-disjoint by design).**
 
-**Findings + recommendation.** themes.ts is a thin metadata layer (id/label/swatch/appearance); real tokens live per-`data-theme` in `src/index.css`. BridgeSpace ships 23 themes cheaply by varying *backdrop + accent* over one base (D187 00:33:08) — so model variations as a **tint/opacity layer**, not N hand-authored themes. Clean is the *opposite* of Glass depth (flat, zero-shadow, hairline dividers, single amber focus-ring) → it's a distinct family, not a glass tint.
+- **Lane A — disk/worktree (LEAD). Files: `core/git/worktree.ts`, `core/workspaces/worktree-cleanup.ts` only.**
+  1. `worktree.ts:39` `WorktreePool.create` — before checkout: count existing dirs under `poolPathForRepo(repoRoot)`, refuse above a cap (≈ 2× `MAX_SWARM_AGENTS`); `fs.statfs` the volume, refuse below a free-disk floor (≈ 2 GB) → throw a typed `WorktreeDiskGuardError`. Harden/confirm `removeAndPrune` (removes dir + `git worktree prune`).
+  2. `worktree-cleanup.ts:31-112` — add `sweepAllReposOnBoot()` iterating **all** `<base>/<repoHash>/*` (not just the opened repo); reap dirs with **no** `agent_sessions` row; exclude untracked-ignored `node_modules`/`dist` from the 7-day uncommitted-work protection (they hold no user work); run `git worktree prune` per repo. Keep the existing per-open cleanup but stop it protecting disposable bloat.
+  3. Export `removeAndPrune` + `sweepAllReposOnBoot` with signatures agreed with Lane B up front.
+- **Lane B — DB infra + persistence (AGENT). Files: `core/db/schema.ts`, new `core/db/migrations/00NN_*.ts`, `core/db/janitor.ts`, `core/workspaces/pane-slots.ts`, `core/swarms/factory-spawn.ts`, `core/workspaces/launcher.ts`, `core/session/session-restore.ts`, `electron/main.ts`, `rpc-router.ts`.**
+  1. **Status-aware unique index** (ADR-005): new migration after the latest registered one; mirror `migration 0020:62-67` but add `AND status IN ('running','starting')`. Register in `ALL_MIGRATIONS` (`migrate.ts:80`).
+  2. `janitor.ts:40-43` — when marking a zombie `exited`, also reconcile the slot (the status-aware index makes the exited row stop occupying it; keep `pane_index` for resume). `rpc-router.ts:276` — **await** `runBootJanitor()` (+ call Lane A's `sweepAllReposOnBoot()`) before `createWindow`/auto-resume.
+  3. `factory-spawn.ts:298-350` + `launcher.ts:478-550` — move `allocateLowestFreeLivePaneIndex` **before** `worktreePool.create`; in the UNIQUE `catch`, `SELECT` the occupying row and if terminal/`!pty.alive` → **adopt** (null/delete old `pane_index` in-txn, retry INSERT) instead of killing the new PTY; on a genuine live race keep the hard-suppress. Add the `worktreePool.removeAndPrune` belt-and-suspenders call here (uses Lane A's primitive). **Sibling twins — change BOTH.**
+  4. `pane-slots.ts:22-42` — confirm allocator "live" set == the new index predicate (the invariant).
+  5. **Persistence (Fix D):** flush `app.lastSession` on the throttled `app:session-snapshot` IPC (`main.ts:720-723` / `session-restore.ts:78-83`), not only `before-quit`.
+- **0-now (immediate operator unblock, lead, optional):** with the app quit, back up `sigmalink.db`, then `UPDATE agent_sessions SET pane_index=NULL WHERE status NOT IN ('running','starting')` (what dormant `migration 0026` does) → relaunch works again before any code ships. Reversible (backup). Operator-authorized.
 
-**Risks.** Token drift — a variant that overrides too little looks identical, too much diverges. Mitigation: a small Vitest snapshot asserting each new `data-theme` sets `--background`/`--accent`/`--blur`. Glass `backdrop-filter` perf on tinted variants — reuse the existing glass blur budget.
+**Findings + recommendation.** Six read-only agents converged: the disk hog is leaked worktrees (`sigmalink.db` is 768K — never the cause), each ~82M + up to 100s-of-MB of agent-installed `node_modules`; leaked because the UNIQUE catch branches return/`continue` without removing the worktree; the loop's *trigger* is the allocator-vs-status-agnostic-index mismatch. The cleanest root fix is the **status-aware index** (aligns both notions of "occupied") + **await the janitor** + **adopt dead rows**; the disk **safety net** (cap + `statfs` guard + boot sweep + no-row reap + node_modules disposability) makes a 49 GB fill impossible even if a new loop ever appears. Dormant `migration 0026` would repair *this* crash's rows but is a one-shot, not the recurring guard — implement the index instead and let 0026 stay the historical data-backfill. **No Tauri migration** (ADR-006): identical bug under any host language; the fix is ~7–10 h, a rewrite is months.
 
-**Definition of done.** Each new theme is selectable; Clean renders fully flat (no blur/shadow) with the amber focus-ring; a Glass tint preset changes hue via one `--surface-tint` swap; `tsc -b` + vitest green.
+**Risks.**
+- *Lane collision* — both root causes touch `factory-spawn.ts`/`launcher.ts`, so **Lane B owns those files exclusively**; Lane A stays in `worktree.ts`/`worktree-cleanup.ts` and exposes primitives. Worktree-isolated agent for Lane B; FF-align to a shared foundation SHA.
+- *Migration safety* — status-aware index is a drop+recreate; H-7 transactional-migration discipline + a MockDb test (vitest can't load better-sqlite3). Don't register 0026 and the new index both as live without deciding which backfills.
+- *`statfs` availability* — Node ≥18.15; the app's Node is fine. Guard must fail loud (error session), never silently block a legitimate spawn.
+- *Awaiting the janitor* — verify nothing depends on its current un-awaited timing.
+
+**Definition of done.** A scripted N-rapid-relaunch-against-an-occupied-slot test keeps the on-disk worktree count flat (no leak) and a fresh INSTALL into a janitor-swept slot succeeds (no UNIQUE lockout); `WorktreePool.create` refuses past the cap / under the disk floor with a loud error; a force-quit then relaunch restores the open workspaces and spawns new panes; the new tests (worktree-leak-on-UNIQUE in `repoMode:'git'`, allocator/index agreement, crash-snapshot survival) fail before / pass after; `tsc -b` · vitest · lint · build · full `tests/e2e/` green; an **operator smoke confirms a force-quit→relaunch is clean**.
 
 ---
 
-## Phase 2 — Operator-smoke bugfix batch (SMK-1/2/3/3b)  ·  ▶ **NEXT UP** (paused 2026-06-04)
+## Phase 1 — Bugfix batch (SMK + DEV) · after Phase 0
 
-**Goal.** New-workspace creation never silently resumes a stale cross-project session, the Sessions-step controls work, and the Skills tab shows every provider's installed skills with the right invocation prefix.
+**Goal.** The two most-used entry surfaces (workspace creation, the skills rail) and the browser work correctly; the dev-log is clean.
 
 **Deliverables.**
-- **SMK-1** opencode session listing cwd-scoped + the wizard defaults to **New session** for a fresh workspace.
-- **SMK-2** Sessions-step controls (Resume newest / All new / Reset / per-pane Change…) actually stick.
-- **SMK-3** per-provider skill discovery (`core/skills/discovery.ts`) feeding a provider-grouped Skills tab with the correct prefix.
-- **SMK-3b** Codex skill injection uses `$` not `/`.
-- An **un-stubbed Launcher↔SessionStep integration test** + an opencode-scoping unit test (closes the test-blindness).
+- **SMK-1/2/3/3b + DEV-5** sessions+skills fixes (per the prior root-cause; DEV-5 multi-provider-same-session folds into the SMK-1/2 sessions packet).
+- **DEV-1/2/3** browser fixes (design-pick prompt-seed + drop the `\r`; recents soft-delete + `listRecents`; URL box opens the first tab).
+- **DEV-4** workspace-rail order stability (1-line: stop `upsertOpenWorkspace` on `SET_ACTIVE_WORKSPACE_ID`).
+- **DEV-6/7/8** dev-infra (zod schema coverage starting with telegram/sync/providers/memory; a real `dev:electron` script + quieter daemon probe; SkillsTab import unification + `manualChunks`).
+- The missing tests (un-stubbed Launcher↔SessionStep integration, opencode-scoping unit, browser manager soft-delete).
 
-**Why now.** Confirmed, root-caused bugs in the two most-used entry surfaces (workspace creation + the skills rail) — bugs before features, and before the Phase-3 gallery touches the same Appearance/launcher area. Full evidence + fix plans in `WISHLIST.md` "Phase-1 theme smoke — 2026-06-04".
+**Why now.** Confirmed, root-caused bugs; ship right after the crisis, before any feature work touches the same launcher/browser surfaces.
 
-**Scope.**
-- *Sessions packet (SMK-1+2):* `core/pty/session-disk-scanner.ts:642/696/848` — pass `opts` to `listOpencodeSessions` + `workspaceAllowedIds`-filter + skip no-`directory` rows under an enforced cwd; `SessionStep.tsx:259` — default the smart-selection to `null` for a fresh workspace; `Launcher.tsx:564` — `useMemo` the `buildPaneRows(...)` so the smart-default `useEffect` (`SessionStep.tsx:248-276`) stops re-firing + an init-once `useRef` guard so an explicit pick is never clobbered. Sibling: `findOpencodeSession:288` fail-open.
-- *Skills packet (SMK-3+3b):* new `core/skills/discovery.ts` (per-provider scanners — claude user/project/commands + manifest-resolved plugin skills excluding `temp_git_*`/`*.clone` + version-dir; codex `~/.codex/{skills,prompts}`; cursor; opencode; gemini) replacing the 2 hardcoded paths at `controller.ts:276-357`; widen `InstalledSkillEntry` (`controller.ts:24-28` + the duplicate in `SkillsTab.tsx:40-44` + the test mocks — all 3) to carry `provider/prefix/source/kind/sourcePath`; a central `INVOCATION_PREFIX` keyed on `shared/providers.ts`; group/filter `SkillsTab.tsx` by provider + show the prefix; fix `insertSkillCommand.ts:38` to inject `entry.prefix + name` keyed on the pane's providerId.
+**Scope.** Three file-disjoint lanes: **(a) sessions** (`session-disk-scanner.ts`, `SessionStep.tsx`, `Launcher.tsx`) — SMK-1/2 + DEV-5; **(b) skills** (`core/skills/discovery.ts` new, `controller.ts`, `SkillsTab.tsx`, `insertSkillCommand.ts`) — SMK-3/3b; **(c) browser** (`DesignDock.tsx`, `core/design/controller.ts`, `core/browser/manager.ts`, `db/schema.ts`, `BrowserRoom.tsx`, `AddressBar.tsx`, `BrowserRecents.tsx`) — DEV-1/2/3. DEV-4/6/7/8 are small disjoint extras the lead folds in. Full file:line in the hotlist + `WISHLIST.md`.
 
-**Findings + recommendation.** Two opus debug agents (2026-06-04, `/systematic-debugging`) statically confirmed each root cause + adversarially disproved the obvious theories (it is NOT a missing `workspaceId`; the buttons DO fire but get clobbered by a re-firing effect; the skills tab is hardcoded-2-paths + a latent ruflo dir-depth bug). Lead spot-checked the load-bearing lines. Ship as **two file-disjoint lanes** (sessions vs skills) → integrate → gate → Opus review.
+**Findings + recommendation.** All statically root-caused with adversarial disproof of the obvious theories. The 3 mirrored `InstalledSkillEntry` sites (SMK-3) and the `\r`-auto-submit (DEV-1) are the subtle ones. Lane (a) and (c) both touch `BrowserRoom`/launcher families lightly — keep them disjoint by file.
 
-**Risks.** SMK-3's plugin-manifest walk + version-dir resolution is the only non-trivial part (cache pollution + multi-version) — read the installed-plugin manifest, never blind-glob. The 3 mirrored `InstalledSkillEntry` sites are the classic SigmaLink miss — change together. Do NOT widen the *fanout* target set (separate, larger change).
+**Risks.** SMK-3's plugin-manifest walk (cache pollution + version-dir) is the only non-trivial part — read the manifest, never blind-glob. DEV-2 needs a schema migration (soft-delete column) — H-7 discipline.
 
-**Definition of done.** Creating a fresh workspace shows "New session" for every pane by default (no cross-project resume) and the Sessions-step buttons change + persist the selection; the Skills tab lists skills from ≥2 providers grouped with their prefix, and dropping a skill on a Codex pane types `$name`; the new integration + opencode-scoping tests fail before / pass after; `tsc -b` · vitest · lint · build green.
+**Definition of done.** Fresh workspace defaults to "New session" per pane (no cross-project resume), multi-provider launches one-each; the Skills tab lists ≥2 providers with prefixes, Codex gets `$name`; element-pick dispatches/pastes-without-Enter; closed tabs reopen from recents; the URL box opens the first tab; the rail holds position; `tsc -b` · vitest · lint · build · full e2e green.
 
 ---
 
-## Phase 3 — Appearance theme-gallery picker + per-workspace tint
+## Phase 2 — OPT: perf/resource pass + in-place worktree mode · after Phase 1
 
-**Goal.** Themes are chosen from a live card-gallery (like BridgeSpace's), and each workspace can carry its own tint.
+**Goal.** The app's steady-state CPU/memory/disk footprint drops sharply, and users who don't need isolation can run with zero worktrees.
 
 **Deliverables.**
-- **BSP-T3** `AppearanceTab` rebuilt as a card grid: each card = a live scaled-down pane preview (that theme's CSS vars) + label + muted taxonomy sub-label + accent bar; `All / Dark / Light` count-segmented filter; search; `✓ ACTIVE + accent-border` selected state; hero header with a one-line value-prop.
-- **BSP-T4** per-workspace accent/tint (workspace KV → `--surface-tint`/`--accent`).
+- **OPT-1** high-ROI perf subset: **PERF-1** `pty:data` IPC coalescing · **PERF-3** `useAppState` selector granularity (25-consumer re-render storm) · **PERF-6/16** batch/visibility-gate the per-pane `git status` subprocess polling · **PERF-8** async disk-scan · **PERF-5** refcounted Ruflo-health poller.
+- **DEV-W3b** per-workspace **in-place / no-worktree mode** (spawn agents in the repo, zero worktrees) — directly removes the Phase-0 disk class for non-isolated use.
+- **ruflo-observability** structured logging/metrics for spawn + worktree + disk events (so a future runaway is *caught*, not discovered at 49 GB).
 
-**Why now.** Makes Phase 1's new themes discoverable and sells breadth; reuses the selectable-preview-card pattern we'll want elsewhere.
+**Why now.** "Huge optimization" was the operator's explicit follow-on ask, and the perf backlog (PERF-1..16) compounds the resource pressure that made the crisis worse. In-place mode is the structural disk win and rides Phase 0's worktree work.
 
-**Scope.**
-- `src/renderer/features/settings/AppearanceTab.tsx` (295 lines) — replace the current list with a responsive card grid; render each preview by scoping a mini-DOM under `data-theme={id}`; derive `All/Dark/Light` counts from `THEMES[].appearance`; wire search over label/description; mirror the pattern for the density control.
-- Per-workspace tint: store `ui.<ws>.theme.tint` in workspace KV; apply on workspace open alongside the global theme (respect the GLOBAL boot reader — cf. the per-workspace-key migration lesson).
+**Scope.** `rpc-router.ts:375` (PERF-1 coalesce) · `state.tsx:137`/`state.reducer.ts` selectors (PERF-3) · `PaneShell.tsx:101`/`git-ops.ts` + `use-git-activity-poll.ts:45` (PERF-6/16) · `session-disk-scanner.ts` async (PERF-8) · `useRufloDaemonHealth.ts:53` (PERF-5). DEV-W3b: a per-workspace `worktreeMode` (`'worktree'|'in-place'`, KV or column) short-circuiting **both** worktree gates (`launcher.ts:224` + `factory-spawn.ts:208` — sibling twins) to the existing no-worktree path (`worktree-cwd.ts:25`).
 
-**Findings + recommendation.** AppearanceTab is already controlled-tab + search-aware (ONB-1). Live preview cards (not static swatches) are the high-value detail (D187 00:32:58); the `image @ N%` opacity tag (D187 00:33:08) is exactly our `--glass-image-opacity` token surfaced as UI.
+**Findings + recommendation.** PERF-1/3 are the hottest paths (one IPC per PTY chunk; whole-context re-render per dispatch). In-place mode reuses the already-existing `repoMode!=='git'` no-worktree branch — it's a gate flip + a toggle, not new infra. Surface the "agents share one tree → edits collide" trade in the UI.
 
-**Risks.** N live previews = N themed sub-trees → render cost. Mitigation: render previews as lightweight static mock markup (titlebar + 3 lines + accent bar), not real panes; lazy-mount offscreen cards.
+**Risks.** Selector migration (PERF-3) is broad — start with the 5 worst consumers. In-place mode's two gates are mirror-drift twins — change both. Measure before/after with `npm run test:perf`.
 
-**Definition of done.** Gallery shows every theme as a live-ish preview card; filter + search narrow it; selecting sets the theme + `✓ ACTIVE`; a per-workspace tint persists across restart and doesn't leak across workspaces.
-
----
-
-## Phase 4 — FE polish sweep (quick wins)
-
-**Goal.** Land the cheap, high-visibility BridgeSpace UI steals in one coherent pass.
-
-**Deliverables.** **BSP-F1** single-accent active-pane focus ring + header-as-pill · **BSP-F2** dim per-pane footer status line · **BSP-F3** benefit-led empty states + recents (browser + fresh-agent) · **BSP-F4** side-docked onboarding/promo · **BSP-F5** memory KPI big-number tiles · **BSP-F6** semantic action colors (git=green/review=amber) · **BSP-F7** detached-pane placeholder + re-dock · **BSP-F8** orchestrator orb idle "Standby/Tap to activate" · **BSP-F9** permission-chip onboarding card · **BSP-B1** browser URL bar · **BSP-V3** `/skills` + `@context` in the launch composer · **BSP-P2** branch pill on pane title · **BSP-P3** human-name alias + effort tier on header chip.
-
-**Why now.** All S-effort, individually shippable, collectively a big perceived-quality jump; no architectural risk; good momentum after the theme work.
-
-**Scope.**
-- Panes: `command-room/{PaneHeader,PaneShell,PaneFooter}.tsx` — focus ring (F1), footer line (F2), branch pill (P2), alias/effort chip (P3 — extends FEAT-7/FEAT-14, surfacing only).
-- Browser: `renderer/browser/BrowserRoom.tsx` — URL bar (B1), empty state + recents (F3).
-- Launcher: `workspace-launcher/Launcher.tsx` — `/skills`+`@context` discovery (V3).
-- Memory: `features/memory/*` — KPI tile row (F5). Orb: command-room/orchestrator orb idle (F8). Onboarding card (F9): `features/onboarding/*`.
-
-**Findings + recommendation.** These map cleanly onto existing components; P2/P3 ride already-shipped identity/effort data. Batch as one PR with per-item commits.
-
-**Risks.** Scope creep into Phase 1's theme tokens. Mitigation: this phase consumes tokens, never defines them; hard stop at behavior/markup.
-
-**Definition of done.** Each item visible + reduced-motion-safe; `tsc -b` + vitest + lint green; no regression in pane grid e2e.
+**Definition of done.** `npm run test:perf` shows a measurable jank/IPC-rate drop; idle CPU with N panes is materially lower; selecting in-place mode spawns agents in the repo root with zero worktree dirs created; spawn/worktree/disk events are logged; gates green.
 
 ---
 
-## Phase 5 — Premium Jorvis FE (N3, carry-over — now B3-unblocked)
+## Phase 3 — Workspace & panel UX quick wins · after Phase 2
 
+**Goal.** The workspace rail and right panel behave the way the operator expects — toggleable, renamable, predictable.
+
+**Deliverables.** **DEV-W1** SigmaLink-logo toggles the workspace rail · **DEV-W2** editable workspace names (the `name` column already exists + is decoupled — add a `workspaces.rename` RPC + inline edit) · **DEV-W4** clicking the already-active right-rail tab closes/collapses the panel (add a persisted `railOpen` state + toggle-on-active) · **DEV-W5** `+Pane` offers a plain terminal + a per-add "create in worktree" toggle.
+
+**Why now.** All small, high-frequency UX papercuts in the chrome the operator uses constantly; cheap after the launcher/worktree work settles.
+
+**Scope.** `sidebar/Sidebar.tsx:242-244` (logo button → existing `setCollapsed`) · `core/workspaces/factory.ts` + `rpc-router.ts:1317` + `WorkspacesPanel.tsx:223` (rename) · `right-rail/RightRailContext.{tsx,data.ts}` + `RightRailSwitcher.tsx:59` + `RightRail.tsx:180` (railOpen) · `AddPaneButton.tsx:247-282` + `factory-spawn.ts` `skipWorktree` (plain terminal via `pty.spawnScratch` + worktree toggle).
+
+**Findings + recommendation.** DEV-W1/W2/W4 are near-trivial and isolated (state machinery already exists). DEV-W4 has two operator-decision sub-asks — **decision (revisit if wrong): Jorvis "minimize" = collapse-to-strip (same close mechanic); Settings tab returns to the last non-settings room** (recoverable from `roomByWorkspace`). DEV-W5's "agent-less pane" reuses the `providerId:'shell'` sentinel.
+
+**Risks.** `railOpen` touches shared right-rail context + persistence — net-new tests. The DEV-W5 worktree toggle + DEV-W3b in-place mode overlap — share the `skipWorktree` plumbing (do W3b first in Phase 2).
+
+**Definition of done.** Logo click toggles the rail; a renamed workspace persists (folder unchanged); re-clicking the active right-tab closes the panel and any tab re-opens it; `+Pane` can add a plain terminal and choose worktree on/off; gates green.
+
+---
+
+## Phase 4 — Pane chrome + grid (mirror BridgeSpace) · after Phase 3
+
+**Goal.** Pane headers look clean (a faithful BridgeSpace copy) and the pane grid resizes/reflows smoothly without resetting.
+
+**Deliverables.** **DEV-L1** pane-header redesign → `[identity pill][branch pill] … [glyph cluster]` (collapses today's ~9-13 affordances / dot-soup) · **DEV-L2** grid stickiness — preserve pane fractions across add/remove + persist per-workspace + animated reflow · **BSP-F1** single-accent active-pane focus ring · **BSP-F2** dim per-pane footer status line · **BSP-P2** branch pill · **BSP-P3** human-name alias + effort tier on the header chip.
+
+**Why now.** The operator's explicit "pane titles are ugly / mirror BridgeSpace" ask; rides the same files as the other FE polish steals.
+
+**Scope.** `command-room/PaneHeader.tsx` + `PaneShell.tsx` (header → pill+glyph; fold the 3 dots into one status glyph) · `command-room/GridLayout.tsx:92-93` (stop the hard fraction reset; proportion-preserving reflow) + per-workspace fraction persistence (reuse the rail-width KV pattern) + a reduced-motion-gated grid-template transition · `PaneFooter.tsx` (F2). **Prerequisite: capture fresh BridgeSpace reference frames at build time** (D187 00:33:20 / D188 00:03:00) — do NOT guess pixel/timing values.
+
+**Findings + recommendation.** Header handlers/dropdowns/popovers stay; this is markup/Tailwind restructuring (preserve `data-testid`/`aria-label` selectors or update tests in lockstep). Grid rigidity is one root cause (`:92-93` resets all fractions) — fix within CSS-grid, NOT a Canvas rewrite (BSP-P4 stays deferred).
+
+**Risks.** `PaneHeader.test.tsx` + `GridLayout.test.tsx` assert current behavior — update in lockstep. Don't redefine theme tokens here (Phase 5's job).
+
+**Definition of done.** Pane header matches the BridgeSpace reference (pill + glyph cluster, no dot-soup); adding/removing a pane preserves proportions and persists across re-entry; reflow animates (reduced-motion-safe); gates green.
+
+---
+
+## Phase 5 — Appearance theme-gallery + per-workspace tint
+**Goal.** Themes are chosen from a live card-gallery; each workspace can carry its own tint.
+**Deliverables.** **BSP-T3** `AppearanceTab` card grid (live preview cards + All/Dark/Light filter + search + `✓ ACTIVE`) · **BSP-T4** per-workspace tint (KV → `--surface-tint`/`--accent`).
+**Why now.** Surfaces Phase-1's 15 themes; reuses the selectable-preview-card pattern.
+**Scope.** `features/settings/AppearanceTab.tsx` (list → responsive card grid; previews as lightweight static mock markup, lazy-mount); per-workspace tint in workspace KV applied on open (respect the GLOBAL boot reader).
+**Findings + recommendation.** AppearanceTab is already controlled+search-aware (ONB-1); live-ish cards are the high-value detail.
+**Risks.** N themed sub-trees = render cost → static mock previews, not real panes.
+**Definition of done.** Gallery shows every theme as a preview card; filter+search narrow; selecting sets theme; per-workspace tint persists + doesn't leak across workspaces; gates green.
+
+---
+
+## Phase 6 — Premium Jorvis FE (N3, B3-unblocked)
 **Goal.** The Jorvis assistant feels premium: streamed reveal, animated bubbles, inline tool chips.
-
-**Deliverables.** rAF catch-up token reveal + in-flight `ChatMessageView`; spring bubble-enter (first-mount only); gated typewriter + caret (bypassed under reduce-motion); per-turn tool-chip rail; the backend token-stream change so text arrives incrementally (not whole blocks).
-
-**Why now.** B3 (composer silent-latch) is fixed in v2.0.0, unblocking N3; FE quality is this cycle's through-line and the user re-flagged "improve the frontend of Jorvis".
-
-**Scope.** Backend: `core/assistant/cli-envelope.ts` / `emit.ts` — emit incremental deltas (today whole blocks). Renderer: new `jorvis-assistant/use-jorvis-stream-reveal.ts` + `InlineToolChips.tsx`; `ChatTranscript.tsx` for spring enter. Apply `/apple-design` family.
-
-**Findings + recommendation.** Today streaming is fake (whole-block emit) — the backend delta change is the prerequisite; do it first, then the reveal hook. First-mount-only spring (don't re-animate on every render — cf. the managed-focus React-19 lesson).
-
-**Risks.** Re-render storms from per-token state. Mitigation: rAF-batch the reveal; gate under reduced-motion; cap typewriter rate.
-
-**Definition of done.** A live Jorvis reply streams token-by-token with a caret, bubbles spring in once, tool calls render as chips; reduce-motion shows instant text; a B3-style hung turn still clears via the watchdog.
+**Deliverables.** rAF catch-up token reveal + in-flight `ChatMessageView`; first-mount-only spring bubble-enter; reduce-motion-gated typewriter+caret; per-turn tool-chip rail; the backend incremental-delta emit (today whole blocks).
+**Why now.** B3 is fixed (v2.0.0) unblocking N3; FE quality is the cycle through-line.
+**Scope.** Backend `core/assistant/cli-envelope.ts`/`emit.ts` (incremental deltas first) → renderer `jorvis-assistant/use-jorvis-stream-reveal.ts` + `InlineToolChips.tsx` + `ChatTranscript.tsx`.
+**Findings + recommendation.** Streaming is fake today (whole-block emit) — the backend delta is the prerequisite. First-mount-only spring (React-19 lesson).
+**Risks.** Per-token re-render storms → rAF-batch + reduce-motion gate + cap rate.
+**Definition of done.** A live reply streams token-by-token with a caret, bubbles spring once, tool calls render as chips; reduce-motion shows instant text; a hung turn still clears via the watchdog; gates green.
 
 ---
 
-## Phase 6 — Worktree GUI (our moat, made one-click)
-
-**Goal.** Creating/working in worktrees is GUI-driven, not CLI-only.
-
-**Deliverables.** **BSP-G1** "Create Git Worktree" modal (source repo auto, branch name, path + browse, preview command, confirm) · **BSP-G3** "open in current pane" option (switch cwd vs spawn) · **BSP-P1** pane right-click context menu (Generate handoff / Create worktree / Open Git panel / Copy path / Copy output / Open dir).
-
-**Why now.** We already own the worktree *engine*; the missing piece is UI. Highest-leverage gap on our differentiator (D187 00:04:45–00:05:26). The context menu (P1) is the natural host for these actions.
-
-**Scope.** `core/git/worktree.ts` (engine — reuse) + a new modal in `renderer/command-room/*`; `workspaces.launch`/`+Pane` flow for the in-current-pane option; `command-room/PaneHeader.tsx`/PaneShell for the context menu. New RPC for modal-driven create if not already exposed.
-
-**Findings + recommendation.** Worktree creation is CLI-only today; a thin modal over the existing engine + a context menu is mostly renderer + one RPC. "Open in current pane" needs a cwd-swap path distinct from spawn.
-
-**Risks.** cwd-swap mid-session corrupting pane state. Mitigation: only offer it for idle panes; otherwise spawn. Validate branch/path at the boundary.
-
-**Definition of done.** Right-click a pane → Create worktree → modal → new worktree+branch created (or current pane re-homed); context-menu actions all work; no base-branch mutation.
+## Phase 7 — Worktree GUI + multi-workspace-same-dir
+**Goal.** Creating/working in worktrees is GUI-driven; you can open >1 workspace on one directory.
+**Deliverables.** **BSP-G1** "Create Git Worktree" modal · **BSP-G3** "open in current pane" (cwd-swap vs spawn) · **BSP-P1** pane right-click context menu · **DEV-W3a** multiple workspaces on the same dir (drop `workspaces_root_idx` + fork the open-dedup; depends on DEV-W2 names for disambiguation).
+**Why now.** We own the worktree engine; the gap is UI. W3a rides the same workspace-identity surface.
+**Scope.** New modal in `renderer/command-room/*` over `core/git/worktree.ts`; context menu in `PaneHeader`/`PaneShell`; W3a = migration to drop the unique index + `factory.ts:81-89` open-flow rework (keep UUID identity).
+**Findings + recommendation.** Mostly renderer + 1 RPC; "open in current pane" needs a cwd-swap distinct from spawn. W3a is the heavier half — sequence after W2.
+**Risks.** cwd-swap mid-session corrupting pane state → only for idle panes. W3a: MCP autowrite writes per-path (two same-dir workspaces share config — harmless, document).
+**Definition of done.** Right-click → Create worktree modal works; "open in current pane" re-homes an idle pane; two workspaces on one dir coexist (distinguishable via custom names); gates green.
 
 ---
 
-## Phase 7 — In-app Git diff / Review panel
-
-**Goal.** Browse diffs and review changes inside SigmaLink without dropping to a CLI.
-
-**Deliverables.** **BSP-G2** a first-class Git panel (Changes/History tabs, staged/unstaged, file list, inline diff, branch selector, pop-out window) · **BSP-G4** local-vs-remote ahead/behind · **BSP-G5** post-swarm auto-teardown policy (keep-all / keep-passing / destroy-failing).
-
-**Why now.** We're worktree-native yet have no in-app diff viewer — the single biggest feature gap the teardown surfaced (D187 00:05:33–00:11:40). Spec-before-build (this is the cycle's one L feature).
-
-**Scope.** Backend already has `core/git/git-ops.ts` (`gitStatus`/`gitDiff`/`mergePreview`) + `core/review/*` — surface them in a new `renderer/features/review/*` panel; ahead/behind via `git rev-list --count`; teardown policy hooks into the C-7 orchestrator post-gate. Reuse RSP-1 Resizable for the panel; pop-out reuses the (Phase 9) detach plumbing or a simple BrowserWindow.
-
-**Findings + recommendation.** The data layer exists; this is mostly a renderer surface + 2 small RPCs. Write a short spec first (panel layout, diff virtualization for big files).
-
-**Risks.** Large-diff render cost. Mitigation: virtualized file list + lazy per-file diff; cap inline hunks with "show more".
-
-**Definition of done.** Open the panel for a worktree → see staged/unstaged + inline diff + ahead/behind; auto-teardown destroys only failing worktrees on a gate run; pop-out works.
+## Phase 8 — In-app Git diff / Review panel
+**Goal.** Browse diffs and review changes inside SigmaLink.
+**Deliverables.** **BSP-G2** Git panel (Changes/History, staged/unstaged, inline diff, branch selector, pop-out) · **BSP-G4** ahead/behind · **BSP-G5** post-swarm auto-teardown policy (keep-all / keep-passing / destroy-failing).
+**Why now.** Worktree-native yet no in-app diff viewer — the biggest feature gap the teardown surfaced.
+**Scope.** New `renderer/features/review/*` over existing `core/git/git-ops.ts` + `core/review/*`; ahead/behind via `git rev-list --count`; teardown hooks C-7 post-gate; reuse Resizable + Phase-7/10 pop-out plumbing.
+**Findings + recommendation.** Data layer exists; mostly a renderer surface + 2 small RPCs. Spec the layout + big-diff virtualization first.
+**Risks.** Large-diff render cost → virtualized list + lazy per-file diff + "show more".
+**Definition of done.** Panel shows staged/unstaged + inline diff + ahead/behind; auto-teardown destroys only failing worktrees; pop-out works; gates green.
 
 ---
 
-## Phase 8 — Orchestration & memory surfacing
-
-**Goal.** The Sigma orchestrator and Ruflo memory are first-class, persistent surfaces — not buried in a pane.
-
-**Deliverables.** **BSP-O1** persistent chrome-level "Sigma" rail panel with a Canvas (numbered structured to-dos + live token delta `+509/-44`) + Review tab (extends C-7 from in-pane → right-rail) · **BSP-O2** live routing/orchestrator trace · **BSP-O3** "Automations" (scheduling/macros) nav · **BSP-O4** "Artifacts" memory type + per-conversation named-session history · **BSP-O5** make the Ruflo memory graph more prominent (BridgeBoard is announced-not-shipped — we lead).
-
-**Why now.** BridgeSpace's "Bridge" panel + announced BridgeBoard target exactly our shipped strengths (Sigma-Agent C-7, MEM-1 graph). Surfacing them defends the lead before they ship.
-
-**Scope.** `operator-console/OrchestratorPanel.tsx` → extract into `right-rail/*` as a persistent tab; Canvas from `shared/orchestrator-tasks.ts`/`plan-capsule.ts`; routing trace from Ruflo `hooks_route`/agentdb; Artifacts + named sessions in `core/memory/*` + `features/memory/*`; graph prominence in `features/memory/MemoryGraph.tsx`.
-
-**Findings + recommendation.** C-7 + the merge-order/plan-capsule machinery already exist in-pane; O1 is a relocation + persistence packet, not a rebuild. O3/O4 are net-new but medium.
-
-**Risks.** Right-rail real-estate contention with existing Swarm/Skills tabs. Mitigation: tabbed rail; collapse when narrow (RSP-1).
-
-**Definition of done.** Sigma panel persists across pane layouts showing live to-dos + token delta; a routing decision is visible; the graph is reachable in ≤1 click from any room.
+## Phase 9 — Orchestration & memory surfacing
+**Goal.** The Sigma orchestrator + Ruflo memory are first-class persistent surfaces.
+**Deliverables.** **BSP-O1** persistent chrome-level "Sigma" rail panel (Canvas: numbered to-dos + live token delta + Review tab) · **BSP-O2** live routing trace · **BSP-O3** "Automations" nav · **BSP-O4** "Artifacts" + per-conversation named sessions · **BSP-O5** surface the Ruflo graph prominently.
+**Why now.** Defends our shipped strengths (C-7, MEM-1 graph) before BridgeBoard ships.
+**Scope.** Extract `operator-console/OrchestratorPanel.tsx` → `right-rail/*` persistent tab; Canvas from `shared/orchestrator-tasks.ts`/`plan-capsule.ts`; routing trace from Ruflo `hooks_route`; Artifacts in `core/memory/*`.
+**Findings + recommendation.** O1 is a relocation+persistence packet, not a rebuild; O3/O4 net-new medium.
+**Risks.** Right-rail real-estate contention → tabbed rail + collapse when narrow.
+**Definition of done.** Sigma panel persists across layouts with live to-dos + token delta; a routing decision is visible; the graph is ≤1 click from any room; gates green.
 
 ---
 
-## Phase 9 — Voice / model & browser depth
-
-**Goal.** Cloud STT choice, live cost/speed visibility, and a more capable embedded browser.
-
-**Deliverables.** **BSP-V1** multi-provider STT picker (local / Fireworks / Groq) · **BSP-V2** live per-pane tok/s + cost in the header + a fast/balanced/deep dispatch preset (Haiku/Sonnet/Opus) · **BSP-B2** browser detach-to-monitor / reattach · **BSP-B3** agent-drivable headless-browser skill (`browser.navigate`/`browser.evaluate`) for self-testing · (BSP-B4 from the hotlist lands here if not already fixed).
-
-**Why now.** Rounds out parity on voice/model transparency and opens the "agent-native testing" story (B3 — a gap for both products).
-
-**Scope.** `resolveTranscriptionEngine` + voice settings (V1); pane header tok/s+cost off the SigmaBench foundation + `+Pane` preset (V2, extends FEAT-3/14); `core/browser/*` detach + a skill exposing browser RPCs to panes (B2/B3).
-
-**Findings + recommendation.** V2 builds on the existing usage ledger + SigmaBench; B3 reuses the embedded browser + skills system. B2 detach overlaps Phase 7 pop-out plumbing — share it.
-
-**Risks.** B3 gives agents a controllable browser → SSRF/abuse surface. Mitigation: route through the H-19 aidefence gate + same-origin/https allowlist; gate behind a setting.
-
-**Definition of done.** STT provider switch works; a running pane shows live tok/s + $; an agent can navigate+evaluate the embedded browser under the security gate; browser detaches to a 2nd monitor and re-docks.
+## Phase 10 — Voice / model & browser depth
+**Goal.** Cloud STT choice, live cost/speed visibility, a more capable embedded browser.
+**Deliverables.** **BSP-V1** multi-provider STT picker · **BSP-V2** live per-pane tok/s + cost + fast/balanced/deep dispatch preset · **BSP-B2** browser detach-to-monitor / reattach · **BSP-B3** agent-drivable headless-browser skill · **BSP-B4** the embedded-browser focus audit (from the hotlist).
+**Why now.** Rounds out voice/model transparency + opens "agent-native testing".
+**Scope.** `resolveTranscriptionEngine` + voice settings (V1); pane-header tok/s+cost off SigmaBench + `+Pane` preset (V2); `core/browser/*` detach + a skill exposing browser RPCs (B2/B3); `WebContentsView` focus-forwarding audit (B4).
+**Findings + recommendation.** V2 builds on the usage ledger + SigmaBench; B3 reuses the embedded browser + skills system; B2 shares Phase-8 pop-out plumbing.
+**Risks.** B3 = SSRF/abuse surface → H-19 aidefence gate + https/same-origin allowlist + setting-gated.
+**Definition of done.** STT switch works; a running pane shows live tok/s + $; an agent can navigate+evaluate the browser under the gate; browser detaches to a 2nd monitor; gates green.
 
 ---
 
-## 🧊 Deferred this cycle (XL / big-bang — held per the DDD small-per-packet rule)
-- **BSP-P4 — Canvas mode** (freeform draggable/resizable panes + bottom voice bar; their BridgeCanvas direction). XL — pane layout-engine rewrite. Revisit as its own cycle; leapfrog if shipped before BridgeCanvas.
-- **BSP-P6 — multi-window / dual-window** (detach a workspace/panel into its own OS window, multi-monitor). L–XL — multi-`BrowserWindow` architecture. (Phase 9 B2 delivers the browser-only slice.)
+## 🧊 Deferred (XL / big-bang — held per the DDD small-per-packet rule)
+- **BSP-P4 — Canvas mode** (freeform draggable panes). XL — layout-engine rewrite. Leapfrog if shipped before BridgeCanvas.
+- **BSP-P6 — multi-window / dual-window**. L–XL — multi-`BrowserWindow`. (Phase 10 B2 delivers the browser-only slice.)
 - **BSP-P5 — workspaces-as-tabs** top strip. S, but a layout-shell change — fold into a future shell pass.
+- **Tauri/Rust platform migration.** Evaluated + rejected for now (ADR-006) — the disk leak is a logic bug, not a platform limit; a rewrite is months for zero benefit on it. Revisit only if idle-RAM/binary-size become a strategic priority, as its own cycle.
 
 ## ✅ Skip / market better (already shipped — do NOT rebuild)
-Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per-agent identity ≈ **FEAT-7** · effort control ≈ **FEAT-14** · browser-in-separate-window ≈ **C-8** · 30-sub-agent plan→review→build ≈ **C-7** (add a prominent named one-click mode = discoverability, not a rebuild) · MCP autowrite per-CLI = **SF-7** (answers their community's #1 swarm pain — *market it*). **WE LEAD & they lack:** worktree isolation, 6 providers, SigmaBench, Obsidian memory graph, voice **dispatch** (BridgeVoice = dictation-only), Telegram remote, agent rewind, sub-agent depth control. Positioning to adopt: **"ADE — Agent Development Environment"** + **"Context layer"**.
+Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per-agent identity ≈ **FEAT-7** · effort control ≈ **FEAT-14** · browser-in-separate-window ≈ **C-8** · 30-sub-agent plan→review→build ≈ **C-7** · MCP autowrite per-CLI = **SF-7**. **WE LEAD & they lack:** worktree isolation, 6 providers, SigmaBench, Obsidian memory graph, voice **dispatch**, Telegram remote, agent rewind, sub-agent depth control. Positioning: **"ADE — Agent Development Environment"** + **"Context layer"**.
 
-## 🚧 Blocked / operator-owned (parked — not actionable unblocked)
+## ✅ Shipped this cycle (do NOT rebuild)
+- **Phase-1 themes (BSP-T1/T2)** — 15 themes (Clean family + Glass Spectrum), PR #104 `f78c6e0`, CI green, operator-confirmed. → promote to CHANGELOG/memory on wrap-up.
+
+## 🚧 Blocked / operator-owned (parked)
 
 | # | Item | Status |
 |---|------|--------|
-| **rel** | v2.0.0 tag (`/sigmalink-release`) + 3 operator visual smokes | operator-owned — see Release carry-over above |
-| **B1** | W-4 P8–P9 + win32 shell-first dogfood | 🚧 needs an operator Windows device (revert path `pty.spawnMode='direct'`). *SSH/RDP to a Windows box would unblock the headless half — build/ConPTY/native-link — but not the visual/audio smokes.* |
-| **B2** | FE-4 voice items (PCM rate, whisper v1.7.x port, prebuildify, win `IsAvailable()` race) | 🚧 behind unshipped native voice builds |
-| **op** | SF-12 migration `0026` register + ship | dormant — needs diagnostic-SQL sign-off on a real `agent_sessions` dump |
-| **op** | FE-4 device a11y QA (VoiceOver/Switch-Control) | needs the device |
+| **rel** | v2.0.0 tag — now gated on Phase 0 + a force-quit smoke | operator-owned |
+| **B1** | W-4 P8–P9 + win32 shell-first dogfood | 🚧 needs an operator Windows device |
+| **B2** | FE-4 voice items | 🚧 behind unshipped native voice builds |
+| **op** | SF-12 migration `0026` register | folds into Phase 0 (historical backfill companion to the status-aware index) |
+| **op** | FE-4 device a11y QA | needs the device |
 
 ---
 
 ## Architecture decisions (ADRs)
 
 ### ADR-001 — Theme variations are a tint/opacity layer, not N hand-authored themes
-**Decision.** Model Glass variations (and future families) as a small set of override tokens (`--surface-tint`, `--accent`, `--glass-image-opacity`) layered over a base `data-theme`, rather than copying a full CSS block per variant. **Context.** BridgeSpace ships 23 themes by varying backdrop+accent over one base (D187 00:33:08); `src/index.css` currently declares full token blocks per `data-theme`. **Consequences.** (+) one variable → N looks; cheap per-workspace tint; less drift. (−) the base theme's structure constrains variants; a radically different look (e.g. Clean) must still be its own family/block, not a tint.
+**Decision.** Model Glass variations as override tokens (`--surface-tint`, `--accent`, `--glass-image-opacity`) over a base `data-theme`. **Context.** BridgeSpace ships 23 themes by varying backdrop+accent over one base. **Consequences.** (+) one var → N looks; cheap per-workspace tint. (−) a radically different look (Clean) must be its own family.
 
 ### ADR-002 — "Clean/Clear" is its own flat-opaque family, separate from Glass
-**Decision.** Clean is a distinct theme family (flat, opaque, zero-shadow, hairline dividers, single amber focus-ring), NOT a Glass tint. **Context.** It is the visual opposite of Glass's translucent-depth model. **Consequences.** (+) honest token semantics (`--blur:0`, opaque surfaces); a clean baseline for future flat themes. (−) two families to maintain; components must not assume translucency (audit `.sl-glass` consumers).
+**Decision.** Clean is a distinct family (flat, opaque, zero-shadow, single amber ring), not a Glass tint. **Context.** Visual opposite of Glass depth. **Consequences.** (+) honest token semantics. (−) two families to maintain; audit `.sl-glass` consumers.
 
 ### ADR-003 — Defer Canvas mode + multi-window (XL) per the small-per-packet rule
-**Decision.** Park BSP-P4 (Canvas) and BSP-P6 (multi-window) out of this cycle; ship the browser-detach slice (B2) only. **Context.** Both are layout-engine / multi-`BrowserWindow` rewrites; the DDD rule favors small per-packet wins at release cadence. **Consequences.** (+) cycle stays shippable in small increments. (−) BridgeCanvas could ship first — accept the risk; re-evaluate next cycle.
+**Decision.** Park BSP-P4 (Canvas) + BSP-P6 (multi-window); ship the browser-detach slice (B2) only. **Consequences.** (+) shippable increments. (−) BridgeCanvas could ship first — accepted.
+
+### ADR-004 — Disk safety is a defense-in-depth net, independent of the spawn-loop fix
+**Decision.** Even after the DB collision loop is fixed (Phase 0 Lane B), keep a hard worktree-count cap + `fs.statfs` free-disk floor + boot/periodic all-repo sweep + no-`agent_sessions`-row reaper + node_modules-as-disposable (Lane A). **Context.** The 49 GB fill had two multipliers (full checkout + agent installs) and no ceiling anywhere. **Consequences.** (+) a single guarantee the disk can never fill regardless of future loops. (−) a cap/floor can refuse a legitimate spawn under genuine disk pressure — must fail loud, not silent.
+
+### ADR-005 — `agent_sessions` pane-slot uniqueness is status-aware
+**Decision.** The partial unique index `agent_sessions_ws_pane_uq` includes `AND status IN ('running','starting')`, so the index's notion of "slot occupied" matches the allocator's. **Context.** The status-agnostic index (`migration 0020`) + a live-only allocator disagreed → permanent post-crash lockout. **Consequences.** (+) fresh spawns into a janitor-swept slot succeed; exited rows keep `pane_index` for resume. (−) a new migration (drop+recreate); dormant `0026` becomes the one-shot data backfill, not the recurring guard.
+
+### ADR-006 — Stay on Electron; do NOT migrate to Tauri/Rust for this
+**Decision.** Fix the disk leak in-codebase; do not migrate to Tauri/Rust. **Context.** The "memory leak" was a **disk** leak from a logic bug (missing worktree cleanup + allocator/index mismatch) — reproducible identically under any host language; `git worktree`/SQLite behave the same. **Consequences.** (+) ~7–10 h fix vs a multi-month rewrite of the entire main process (better-sqlite3, node-pty, RPC router, voice natives). (−) we keep Electron's ~150–250 MB idle-RAM baseline; a Tauri eval stays a deferred, separate-cycle option if binary-size/idle-RAM become strategic.
+
+### ADR-007 — Optional per-workspace in-place (no-worktree) mode
+**Decision.** Offer a per-workspace `worktreeMode: 'worktree' | 'in-place'`; in-place reuses the existing `repoMode!=='git'` no-worktree path so agents run in the repo root. **Context.** Worktrees are the disk-cost + the leak surface; not every workflow needs isolation. **Consequences.** (+) zero worktrees for users who opt in (disk win). (−) agents share one tree → concurrent-edit collisions; surface the trade in the UI; both worktree gates must honor it (sibling twins).
 
 ---
 
@@ -271,20 +296,23 @@ Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per
 
 | Item | Phase | Effort | Impact | Notes |
 |------|-------|--------|--------|-------|
-| BSP-T1 Clean theme | 1 | M | High | ✅ shipped (PR #104) |
-| BSP-T2 Glass variations | 1 | M | High | ✅ shipped (ADR-001) |
-| **Operator-smoke bugfix batch (SMK-1/2/3/3b)** | **2** | **M–L** | **High** | **Confirmed bugs — ▶ NEXT (resume here)** |
-| BSP-T3 theme gallery | 3 | M | High | Live preview cards |
-| BSP-T4 per-workspace tint | 3 | S | Med | Workspace KV |
-| FE polish sweep (F1–F9,B1,V3,P2,P3) | 4 | M | High | Batch of S quick-wins |
-| Premium Jorvis FE (N3) | 5 | L | High | Needs backend token-stream |
-| Worktree GUI (G1,G3,P1) | 6 | M | High | Engine exists; UI gap |
-| Git diff/Review panel (G2,G4,G5) | 7 | L | High | Biggest feature gap; spec first |
-| Orchestration+memory (O1–O5) | 8 | L | Med-High | Relocate C-7 + surface graph |
-| Voice/model+browser (V1,V2,B2,B3) | 9 | M-L | Med | B3 needs security gate |
-| BSP-B4 browser focus | 9/hotlist | M | Med | Reliability audit |
-| Canvas mode (P4) | deferred | XL | High | Layout rewrite |
-| Multi-window (P6) | deferred | L-XL | Med | Multi-BrowserWindow |
+| **CRIT-1 disk-leak (Lane A)** | **0** | **L** | **Critical** | **Worktree cap + statfs guard + boot sweep + no-row reaper — LEAD** |
+| **CRIT-2 launch-lockout (Lane B)** | **0** | **M** | **Critical** | **Status-aware index + await janitor + adopt dead rows — agent** |
+| **CRIT-3 persistence (Lane B)** | **0** | **M** | **High** | **Opportunistic snapshot flush — agent** |
+| SMK-1/2/3/3b + DEV-5 | 1 | M–L | High | Sessions + skills bugfix |
+| DEV-1/2/3 browser | 1 | M | Med | Design-pick, recents, URL box |
+| DEV-4/6/7/8 | 1 | S | Med | Rail order, zod, dev-URL, bundle |
+| OPT-1 perf subset | 2 | L | High | PERF-1/3/5/6/8/16 |
+| DEV-W3b in-place worktree mode | 2 | M | High | Structural disk win |
+| DEV-W1/W2/W4/W5 workspace+panel UX | 3 | M | High | Logo toggle, rename, rail toggle, +Pane |
+| DEV-L1/L2 + BSP-F1/F2/P2/P3 pane chrome+grid | 4 | M–L | High | Mirror BridgeSpace; needs ref frames |
+| BSP-T3/T4 theme gallery | 5 | M | High | Live preview cards |
+| Premium Jorvis FE (N3) | 6 | L | High | Needs backend token-stream |
+| Worktree GUI (G1/G3/P1) + DEV-W3a | 7 | M–L | High | Engine exists; UI gap |
+| Git diff/Review panel (G2/G4/G5) | 8 | L | High | Biggest feature gap; spec first |
+| Orchestration+memory (O1–O5) | 9 | L | Med-High | Relocate C-7 + surface graph |
+| Voice/model+browser (V1/V2/B2/B3/B4) | 10 | M-L | Med | B3 needs security gate |
+| Canvas mode (P4) / Multi-window (P6) / Tauri eval | deferred | XL | — | Big-bang, separate cycles |
 
 ## When an item ships
 → move its one-line note to `CHANGELOG.md` + the master-memory project entry + (reusable lessons) Ruflo AgentDB; mark it promoted/struck in `WISHLIST.md`; delete it from this whiteboard. Keep `WISHLIST.md` for new raw findings.
