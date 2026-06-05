@@ -30,7 +30,8 @@ vi.mock('@/renderer/lib/rpc', () => ({
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
-import { GridLayout, reshapeFracs } from './GridLayout';
+import { GridLayout } from './GridLayout';
+import { reshapeFracs } from './grid-fracs';
 
 interface Item {
   id: string;
