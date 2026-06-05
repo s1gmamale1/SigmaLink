@@ -230,6 +230,7 @@ describe('MaintenanceTab — remove workspace', () => {
       expect(rpcMocks['cleanup.removeWorkspace']).toHaveBeenCalledWith({
         workspaceId: 'ws-1',
         dryRun: false,
+        stopLiveSessions: false,
       });
     });
   });
@@ -249,7 +250,7 @@ describe('MaintenanceTab — remove workspace', () => {
 
     const dialog = await confirmDialogShown();
     expect(dialog.textContent).toContain('1 live pane(s)');
-    expect(dialog.textContent).toContain('will be KEPT');
+    expect(dialog.textContent).toContain('will be stopped first');
   });
 });
 
@@ -295,6 +296,7 @@ describe('MaintenanceTab — clear panes', () => {
       expect(rpcMocks['cleanup.clearPanes']).toHaveBeenCalledWith({
         workspaceId: 'ws-1',
         dryRun: false,
+        stopLiveSessions: false,
       });
     });
   });
@@ -314,7 +316,7 @@ describe('MaintenanceTab — clear panes', () => {
     const dialog = await confirmDialogShown();
     expect(dialog.textContent).toContain('1 session record(s)');
     expect(dialog.textContent).toContain('2 active');
-    expect(dialog.textContent).toContain('will be kept');
+    expect(dialog.textContent).toContain('will stop');
   });
 
   it('shows a success toast (not confirm) when no sessions found', async () => {

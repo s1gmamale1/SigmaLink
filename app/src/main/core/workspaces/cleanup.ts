@@ -18,6 +18,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { canonicalPathKey, pathKeyIsWithin } from '../util/path-key';
+import type { PtyRegistry } from '../pty/registry';
+import type { ProcessTreeSnapshot } from '../process/process-tree';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,6 +42,10 @@ export interface ClearPanesResult {
   sessionIds: string[];
   /** Live session ids that were preserved because their PTY may still be running. */
   liveBlockedSessionIds: string[];
+  /** Best-effort process-tree telemetry for live sessions. */
+  liveProcessSnapshots: ProcessTreeSnapshot[];
+  /** Sum of live process-tree RSS in bytes when telemetry is supported. */
+  liveRssBytes: number;
   /** Number of session rows actually deleted (0 on dryRun). */
   deleted: number;
 }
@@ -49,6 +55,10 @@ export interface RemoveWorkspaceAndGcResult {
   sessionCount: number;
   /** Live session ids that blocked workspace-row deletion. */
   liveBlockedSessionIds: string[];
+  /** Best-effort process-tree telemetry for live sessions. */
+  liveProcessSnapshots: ProcessTreeSnapshot[];
+  /** Sum of live process-tree RSS in bytes when telemetry is supported. */
+  liveRssBytes: number;
   /** Number of orphan worktree dirs deleted (0 on dryRun). */
   worktreeCount: number;
   /** Worktree paths that were spared because of live sessions. */
@@ -175,17 +185,19 @@ export interface ClearPanesInput {
   workspaceId: string;
   db: Database.Database;
   dryRun: boolean;
+  pty?: PtyRegistry;
+  stopLiveSessions?: boolean;
 }
 
 /**
- * Clears non-live agent_sessions rows for a workspace. Live sessions
- * (status IN ('starting','running')) are reported but preserved — deleting
- * their DB rows without killing their PTYs would orphan running processes.
+ * Clears agent_sessions rows for a workspace. Live sessions are reported and
+ * preserved by default; callers must pass stopLiveSessions to terminate their
+ * process tree before deleting live rows.
  */
 export async function clearPanesForWorkspace(
   input: ClearPanesInput,
 ): Promise<ClearPanesResult> {
-  const { workspaceId, db, dryRun } = input;
+  const { workspaceId, db, dryRun, pty, stopLiveSessions } = input;
 
   const rows = db
     .prepare('SELECT id, status FROM agent_sessions WHERE workspace_id = ?')
@@ -194,22 +206,45 @@ export async function clearPanesForWorkspace(
   const liveBlockedSessionIds = rows
     .filter((r) => r.status === 'starting' || r.status === 'running')
     .map((r) => r.id);
-  const sessionIds = rows
+  const liveProcessSnapshots = liveBlockedSessionIds
+    .map((id) => pty?.processSnapshot(id) ?? null)
+    .filter((snapshot): snapshot is ProcessTreeSnapshot => snapshot !== null);
+  const liveRssBytes = liveProcessSnapshots.reduce((sum, snapshot) => sum + snapshot.rssBytes, 0);
+  const nonLiveSessionIds = rows
     .filter((r) => r.status !== 'starting' && r.status !== 'running')
     .map((r) => r.id);
+  const sessionIds = stopLiveSessions ? rows.map((r) => r.id) : nonLiveSessionIds;
 
-  if (!dryRun && sessionIds.length > 0) {
-    db.prepare(
-      `DELETE FROM agent_sessions
-       WHERE workspace_id = ?
-         AND status NOT IN ('starting','running')`,
-    ).run(workspaceId);
+  if (!dryRun && stopLiveSessions) {
+    for (const id of liveBlockedSessionIds) {
+      pty?.stop(id, { tree: true, forget: true });
+    }
+  }
+
+  if (!dryRun) {
+    if (stopLiveSessions) {
+      if (sessionIds.length > 0) {
+        db.prepare('DELETE FROM agent_sessions WHERE workspace_id = ?').run(workspaceId);
+      }
+    } else if (nonLiveSessionIds.length > 0) {
+      db.prepare(
+        `DELETE FROM agent_sessions
+         WHERE workspace_id = ?
+           AND status NOT IN ('starting','running')`,
+      ).run(workspaceId);
+    }
   }
 
   return {
     sessionIds,
     liveBlockedSessionIds,
-    deleted: dryRun ? 0 : sessionIds.length,
+    liveProcessSnapshots,
+    liveRssBytes,
+    deleted: dryRun
+      ? 0
+      : stopLiveSessions
+        ? sessionIds.length
+        : nonLiveSessionIds.length,
   };
 }
 
@@ -226,6 +261,8 @@ export interface RemoveWorkspaceAndGcInput {
    *  via `computeRepoHash(repoRoot)` since that function lives in git-ops.ts.
    */
   repoHash?: string;
+  pty?: PtyRegistry;
+  stopLiveSessions?: boolean;
 }
 
 /**
@@ -243,7 +280,7 @@ export interface RemoveWorkspaceAndGcInput {
 export async function removeWorkspaceAndGc(
   input: RemoveWorkspaceAndGcInput,
 ): Promise<RemoveWorkspaceAndGcResult> {
-  const { workspaceId, worktreeBase, db, dryRun, repoHash } = input;
+  const { workspaceId, worktreeBase, db, dryRun, repoHash, pty, stopLiveSessions } = input;
 
   // Step 0: resolve workspace row.
   const wsRow = db
@@ -263,6 +300,10 @@ export async function removeWorkspaceAndGc(
   const liveBlockedSessionIds = sessionRows
     .filter((r) => r.status === 'starting' || r.status === 'running')
     .map((r) => r.id);
+  const liveProcessSnapshots = liveBlockedSessionIds
+    .map((id) => pty?.processSnapshot(id) ?? null)
+    .filter((snapshot): snapshot is ProcessTreeSnapshot => snapshot !== null);
+  const liveRssBytes = liveProcessSnapshots.reduce((sum, snapshot) => sum + snapshot.rssBytes, 0);
   const nonLiveSessionRows = sessionRows.filter(
     (r) => r.status !== 'starting' && r.status !== 'running',
   );
@@ -283,21 +324,33 @@ export async function removeWorkspaceAndGc(
 
   // Step 3+4: Mutate DB (skipped in dry-run).
   if (!dryRun) {
-    if (nonLiveSessionRows.length > 0) {
-      db.prepare(
-        `DELETE FROM agent_sessions
-         WHERE workspace_id = ?
-           AND status NOT IN ('starting','running')`,
-      ).run(workspaceId);
-    }
-    if (liveBlockedSessionIds.length === 0) {
+    if (stopLiveSessions) {
+      for (const id of liveBlockedSessionIds) {
+        pty?.stop(id, { tree: true, forget: true });
+      }
+      if (sessionRows.length > 0) {
+        db.prepare('DELETE FROM agent_sessions WHERE workspace_id = ?').run(workspaceId);
+      }
       db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
+    } else {
+      if (nonLiveSessionRows.length > 0) {
+        db.prepare(
+          `DELETE FROM agent_sessions
+           WHERE workspace_id = ?
+             AND status NOT IN ('starting','running')`,
+        ).run(workspaceId);
+      }
+      if (liveBlockedSessionIds.length === 0) {
+        db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
+      }
     }
   }
 
   return {
-    sessionCount: nonLiveSessionRows.length,
+    sessionCount: stopLiveSessions ? sessionRows.length : nonLiveSessionRows.length,
     liveBlockedSessionIds,
+    liveProcessSnapshots,
+    liveRssBytes,
     worktreeCount,
     liveBlockedWorktrees,
     worktreeErrors,

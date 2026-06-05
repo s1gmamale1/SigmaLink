@@ -1,4 +1,5 @@
 // Cross-process domain types.
+import type { AgentRuntimeProfileId } from './runtime-profiles';
 
 export type WorkspaceId = string;
 export type ProjectId = string;
@@ -117,6 +118,11 @@ export type GridPreset = 1 | 2 | 4 | 6 | 8 | 10 | 12 | 14 | 16 | 18 | 20;
 export interface PaneAssignment {
   paneIndex: number;
   providerId: string;
+  /**
+   * RAM Brake — per-pane tool profile. Undefined intentionally normalizes to
+   * `ruflo-core`, so Browser/SigmaMemory MCP do not attach to ordinary panes.
+   */
+  runtimeProfileId?: AgentRuntimeProfileId;
   initialPrompt?: string;
   /**
    * SF-8 — Yolo/Bypass launch mode. When true, the launcher appends the
@@ -191,6 +197,8 @@ export interface RoleAssignment {
   role: Role;
   roleIndex: number; // 1-based
   providerId: string;
+  /** RAM Brake — per-agent MCP/tool profile. Defaults to `ruflo-core`. */
+  runtimeProfileId?: AgentRuntimeProfileId;
   /** V3-W12-018: optional model id (resolves via models.ts). */
   modelId?: string;
   /** V3-W12-018: per-row auto-approve toggle. Defaults to false. */
@@ -256,6 +264,8 @@ export interface AddAgentToSwarmInput {
   swarmId: SwarmId;
   providerId: string;
   role?: Role;
+  /** RAM Brake — per-agent MCP/tool profile. Defaults to `ruflo-core`. */
+  runtimeProfileId?: AgentRuntimeProfileId;
   initialPrompt?: string;
   /**
    * SF-8 — Yolo/Bypass launch mode for the `+Pane` flow. When true, the swarm

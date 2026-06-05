@@ -48,7 +48,7 @@ const KV_AUTO_CHECKPOINT = 'git.autoCheckpointOnDispatch';
  */
 async function invokeCleanup<T>(
   channel: string,
-  arg: { workspaceId: string; dryRun: boolean },
+  arg: { workspaceId: string; dryRun: boolean; stopLiveSessions?: boolean },
 ): Promise<T> {
   if (!('sigma' in window)) {
     throw new Error('Preload bridge missing — restart the app.');
@@ -79,8 +79,16 @@ interface Workspace {
 interface DryRunPreview {
   sessionCount: number;
   liveBlockedSessionIds?: string[];
+  liveRssBytes?: number;
   worktreeCount: number;
   liveBlockedWorktrees: string[];
+}
+
+interface ClearPanesPreview {
+  sessionIds: string[];
+  liveBlockedSessionIds?: string[];
+  liveRssBytes?: number;
+  deleted: number;
 }
 
 interface PruneDryRunPreview {
@@ -219,18 +227,24 @@ export function MaintenanceTab() {
       }
       setBusy(null);
 
+      const livePaneCount = preview.liveBlockedSessionIds?.length ?? 0;
       const liveWarn =
-        (preview.liveBlockedSessionIds?.length ?? 0) > 0 || preview.liveBlockedWorktrees.length > 0
-          ? `\n\n⚠ ${preview.liveBlockedSessionIds?.length ?? 0} live pane(s) and ${preview.liveBlockedWorktrees.length} worktree(s) will be KEPT.`
+        livePaneCount > 0 || preview.liveBlockedWorktrees.length > 0
+          ? `\n\n⚠ ${livePaneCount} live pane(s) will be stopped first; ${preview.liveBlockedWorktrees.length} live worktree(s) will be kept.`
+          : '';
+      const liveMemoryWarn =
+        preview.liveRssBytes && preview.liveRssBytes > 0
+          ? `\n  • live process RSS: ${(preview.liveRssBytes / 1024 / 1024 / 1024).toFixed(1)} GB`
           : '';
       // UX-3 — stage the themed confirm. The live mutation runs in `run`.
       setConfirm({
         title: `Remove workspace "${ws.name}"?`,
-        confirmLabel: 'Remove workspace',
+        confirmLabel: livePaneCount > 0 ? 'Stop panes and remove' : 'Remove workspace',
         message:
           `This will permanently delete:\n` +
           `  • ${preview.sessionCount} non-live session record(s)\n` +
           `  • ${preview.worktreeCount} orphan worktree dir(s)` +
+          liveMemoryWarn +
           liveWarn +
           `\n\nThis action cannot be undone.`,
         run: () => {
@@ -238,7 +252,11 @@ export function MaintenanceTab() {
           void (async () => {
             setBusy({ type: 'remove', workspaceId: ws.id });
             try {
-              await invokeCleanup<unknown>('cleanup.removeWorkspace', { workspaceId: ws.id, dryRun: false });
+              await invokeCleanup<unknown>('cleanup.removeWorkspace', {
+                workspaceId: ws.id,
+                dryRun: false,
+                stopLiveSessions: livePaneCount > 0,
+              });
               toast.success(`Workspace "${ws.name}" removed`);
               await refresh();
             } catch (err) {
@@ -262,11 +280,13 @@ export function MaintenanceTab() {
       setBusy({ type: 'clear-dry', workspaceId: ws.id });
       let sessionCount = 0;
       let liveBlockedCount = 0;
+      let liveRssBytes = 0;
       try {
-        const res = await invokeCleanup<{ sessionIds: string[]; liveBlockedSessionIds?: string[]; deleted: number }>('cleanup.clearPanes', { workspaceId: ws.id, dryRun: true });
-        const preview = res as { sessionIds: string[]; liveBlockedSessionIds?: string[]; deleted: number };
+        const res = await invokeCleanup<ClearPanesPreview>('cleanup.clearPanes', { workspaceId: ws.id, dryRun: true });
+        const preview = res as ClearPanesPreview;
         sessionCount = preview.sessionIds.length;
         liveBlockedCount = preview.liveBlockedSessionIds?.length ?? 0;
+        liveRssBytes = preview.liveRssBytes ?? 0;
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err));
         setBusy(null);
@@ -287,7 +307,10 @@ export function MaintenanceTab() {
         message:
           `This will delete ${sessionCount} session record(s) from the database.\n` +
           (liveBlockedCount > 0
-            ? `${liveBlockedCount} active (running/starting) pane(s) will be kept.\n\n`
+            ? `It will stop ${liveBlockedCount} active pane process tree(s) first.\n`
+            : '') +
+          (liveRssBytes > 0
+            ? `Live process RSS: ${(liveRssBytes / 1024 / 1024 / 1024).toFixed(1)} GB.\n`
             : '') +
           `This action cannot be undone.`,
         run: () => {
@@ -295,12 +318,15 @@ export function MaintenanceTab() {
           void (async () => {
             setBusy({ type: 'clear', workspaceId: ws.id });
             try {
-              const res = await invokeCleanup<{ sessionIds: string[]; liveBlockedSessionIds?: string[]; deleted: number }>('cleanup.clearPanes', { workspaceId: ws.id, dryRun: false });
-              const result = res as { deleted: number; liveBlockedSessionIds?: string[] };
-              const kept = result.liveBlockedSessionIds?.length ?? 0;
+              const res = await invokeCleanup<ClearPanesPreview>('cleanup.clearPanes', {
+                workspaceId: ws.id,
+                dryRun: false,
+                stopLiveSessions: liveBlockedCount > 0,
+              });
+              const result = res as { deleted: number };
               toast.success(
                 `Cleared ${result.deleted} pane session(s) for "${ws.name}"${
-                  kept > 0 ? ` — kept ${kept} live pane(s)` : ''
+                  liveBlockedCount > 0 ? ` — stopped ${liveBlockedCount} live pane(s)` : ''
                 }`,
               );
             } catch (err) {

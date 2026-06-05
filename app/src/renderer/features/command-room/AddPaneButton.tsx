@@ -35,6 +35,7 @@ import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch } from '@/renderer/app/state';
 import type { Swarm, Workspace } from '@/shared/types';
 import { worktreeModeKey } from '@/shared/worktree-mode';
+import type { AgentRuntimeProfileId } from '@/shared/runtime-profiles';
 
 /** SF-8 B3 — Per-workspace Yolo default kv key (mirrors Launcher.tsx). */
 function yoloKvKey(workspaceId: string): string {
@@ -112,6 +113,7 @@ export function AddPaneButton({
    * Default = true (create a worktree) when no KV is set.
    */
   const [createWorktree, setCreateWorktree] = useState(true);
+  const [browserTools, setBrowserTools] = useState(false);
 
   // DOGFOOD-V1.4.2-01 — clear the error-chip timer on unmount.
   useEffect(() => {
@@ -179,6 +181,10 @@ export function AddPaneButton({
     }
   }
 
+  function runtimeProfileForAdd(): AgentRuntimeProfileId {
+    return browserTools ? 'browser-tools' : 'ruflo-core';
+  }
+
   const disabledReason = getAddPaneDisabledReason(activeWorkspace, activeSwarm, swarmsLoading, adding);
 
   async function addPane(providerId: string): Promise<void> {
@@ -215,6 +221,7 @@ export function AddPaneButton({
       const result = await rpc.swarms.addAgent({
         swarmId: targetSwarmId,
         providerId,
+        runtimeProfileId: runtimeProfileForAdd(),
         autoApprove: yolo,
         skipWorktree: !createWorktree,
       });
@@ -308,6 +315,26 @@ export function AddPaneButton({
               (not a permanent toolbar card). onSelect preventDefault so toggling
               it doesn't close the menu. */}
           <DropdownMenuSeparator />
+          <div
+            className="flex items-start gap-2 px-2 py-1.5 text-[11px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Switch
+              id="browser-tools-toggle"
+              data-testid="browser-tools-toggle"
+              checked={browserTools}
+              onCheckedChange={setBrowserTools}
+              aria-label="Browser tools — attach Browser MCP and SigmaMemory to this pane"
+              aria-checked={browserTools}
+              className="mt-0.5 h-3.5 w-6 shrink-0"
+            />
+            <label htmlFor="browser-tools-toggle" className="max-w-[200px] cursor-pointer">
+              <span className="font-semibold text-sky-700 dark:text-sky-300">Browser tools</span>
+              <span className="block text-muted-foreground">
+                Attaches Browser MCP and SigmaMemory for this pane only.
+              </span>
+            </label>
+          </div>
           {/* DEV-W5 — "Create in worktree" toggle. Default = workspace worktreeMode. */}
           <div
             className="flex items-start gap-2 px-2 py-1.5 text-[11px]"

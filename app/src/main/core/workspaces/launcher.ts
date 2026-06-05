@@ -38,6 +38,10 @@ import { allocateLowestFreeLivePaneIndex } from './pane-slots';
 import { isPtyCrash } from '../pty/crash';
 import { maybeAutoCheckpoint } from '../git/auto-checkpoint';
 import { providerAcceptsModelFlag, listModelsFor } from '../providers/models';
+import {
+  normalizeAgentRuntimeProfileId,
+  profileAllowsMcp,
+} from '../../../shared/runtime-profiles';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -206,6 +210,7 @@ export async function executeLaunchPlan(
 
   const sessions: AgentSession[] = [];
   for (const pane of plan.panes) {
+    const runtimeProfileId = normalizeAgentRuntimeProfileId(pane.runtimeProfileId);
     const provider = findProvider(pane.providerId);
     if (!provider) {
       sessions.push({
@@ -273,22 +278,25 @@ export async function executeLaunchPlan(
         worktreePath,
       });
 
-      // v1.2.6 — Browser MCP is now stdio (npx-on-demand). We only need to
-      // wire the SigmaMemory stdio supervisor; the browser config is a static
-      // stdio command written into .mcp.json / config.toml / gemini-extension.
+      // RAM Brake — Browser/SigmaMemory are heavy MCPs and must be explicitly
+      // opted into per pane. Ruflo remains the default lightweight profile.
       // Best-effort — never block PTY spawn.
       try {
         const shared = getSharedDeps();
         if (shared) {
           const memRoot = wsRow.repoRoot ?? wsRow.rootPath;
-          try {
-            await shared.memorySupervisor.start(wsRow.id, memRoot);
-          } catch {
-            /* memory supervisor is non-fatal */
+          let memCmd: ReturnType<typeof shared.memorySupervisor.getCommandFor> | null = null;
+          if (profileAllowsMcp(runtimeProfileId, 'sigmamemory')) {
+            try {
+              await shared.memorySupervisor.start(wsRow.id, memRoot);
+            } catch {
+              /* memory supervisor is non-fatal */
+            }
+            memCmd = shared.memorySupervisor.getCommandFor(wsRow.id);
           }
-          const memCmd = shared.memorySupervisor.getCommandFor(wsRow.id);
           writeMcpConfigForAgent({
             worktree: cwd,
+            runtimeProfileId,
             memory: memCmd ?? undefined,
           });
           // SF-15 — the pane CLI reads `.mcp.json` + `.claude/settings.local.json`
@@ -297,7 +305,7 @@ export async function executeLaunchPlan(
           // (+ claude trust) into this pane's cwd BEFORE the CLI spawns so Ruflo
           // MCP actually attaches to the pane. HTTP mode when the per-workspace
           // daemon has a live port; stdio otherwise. Fail-open + opt-out aware.
-          if (readRufloAutowrite()) {
+          if (profileAllowsMcp(runtimeProfileId, 'ruflo') && readRufloAutowrite()) {
             const port = shared.rufloHttpDaemonSupervisor.port(wsRow.id) ?? undefined;
             writeRufloMcpIntoCwd(cwd, {
               port: port ?? undefined,

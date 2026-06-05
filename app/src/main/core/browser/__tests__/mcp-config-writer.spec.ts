@@ -47,10 +47,98 @@ test.after(() => {
   }
 });
 
-test('Gemini extension uses stdio command for browser MCP server', () => {
+test('default runtime profile does not write Browser/SigmaMemory MCP config', () => {
   withFakeHome((home) => {
     const worktree = makeTmpDir('sigmalink-mcp-test-');
     const out = writeMcpConfigForAgent({ worktree });
+    assert.deepEqual(out, { claude: null, codex: null, gemini: null });
+    assert.equal(fs.existsSync(path.join(worktree, '.mcp.json')), false);
+    assert.equal(fs.existsSync(path.join(home, '.codex', 'config.toml')), false);
+    assert.equal(
+      fs.existsSync(
+        path.join(home, '.gemini', 'extensions', 'sigmalink-browser', 'gemini-extension.json'),
+      ),
+      false,
+    );
+  });
+});
+
+test('default runtime profile prunes stale Browser/SigmaMemory MCP config', () => {
+  withFakeHome((home) => {
+    const worktree = makeTmpDir('sigmalink-mcp-test-');
+    fs.writeFileSync(
+      path.join(worktree, '.mcp.json'),
+      JSON.stringify(
+        {
+          mcpServers: {
+            browser: { command: 'npx' },
+            sigmamemory: { command: 'node' },
+            custom: { command: 'keep-me' },
+          },
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+
+    const codexDir = path.join(home, '.codex');
+    fs.mkdirSync(codexDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(codexDir, 'config.toml'),
+      [
+        '[mcp_servers.browser]',
+        'command = "npx"',
+        '',
+        '[mcp_servers.custom]',
+        'command = "keep-me"',
+        '',
+        '[mcp_servers.sigmamemory]',
+        'command = "node"',
+        '',
+        '[mcp_servers.sigmamemory.env]',
+        'A = "b"',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const geminiDir = path.join(home, '.gemini', 'extensions', 'sigmalink-browser');
+    fs.mkdirSync(geminiDir, { recursive: true });
+    const geminiManifestPath = path.join(geminiDir, 'gemini-extension.json');
+    fs.writeFileSync(
+      geminiManifestPath,
+      JSON.stringify({
+        mcpServers: {
+          browser: { command: 'npx' },
+          sigmamemory: { command: 'node' },
+        },
+      }),
+      'utf8',
+    );
+
+    const out = writeMcpConfigForAgent({ worktree });
+    assert.ok(out.claude, 'expected claude stale config to be rewritten');
+    assert.ok(out.codex, 'expected codex stale config to be rewritten');
+    assert.ok(out.gemini, 'expected gemini stale config to be removed');
+
+    const claudeJson = JSON.parse(fs.readFileSync(path.join(worktree, '.mcp.json'), 'utf8'));
+    assert.equal('browser' in claudeJson.mcpServers, false);
+    assert.equal('sigmamemory' in claudeJson.mcpServers, false);
+    assert.deepEqual(claudeJson.mcpServers.custom, { command: 'keep-me' });
+
+    const codexToml = fs.readFileSync(path.join(codexDir, 'config.toml'), 'utf8');
+    assert.doesNotMatch(codexToml, /\[mcp_servers\.browser\]/);
+    assert.doesNotMatch(codexToml, /\[mcp_servers\.sigmamemory\]/);
+    assert.match(codexToml, /\[mcp_servers\.custom\]/);
+
+    assert.equal(fs.existsSync(geminiManifestPath), false);
+  });
+});
+
+test('Gemini extension uses stdio command for browser MCP server', () => {
+  withFakeHome((home) => {
+    const worktree = makeTmpDir('sigmalink-mcp-test-');
+    const out = writeMcpConfigForAgent({ worktree, runtimeProfileId: 'browser-tools' });
     assert.ok(out.gemini, 'expected gemini path');
     const geminiManifestPath = path.join(
       home,
@@ -75,7 +163,7 @@ test('Gemini extension uses stdio command for browser MCP server', () => {
 test('Codex TOML uses stdio for browser MCP server', () => {
   withFakeHome((home) => {
     const worktree = makeTmpDir('sigmalink-mcp-test-');
-    const out = writeMcpConfigForAgent({ worktree });
+    const out = writeMcpConfigForAgent({ worktree, runtimeProfileId: 'browser-tools' });
     assert.ok(out.codex, 'expected codex path');
     const codexPath = path.join(home, '.codex', 'config.toml');
     assert.equal(out.codex, codexPath);
@@ -91,7 +179,7 @@ test('Codex TOML uses stdio for browser MCP server', () => {
 test('Claude .mcp.json uses stdio for browser MCP server', () => {
   withFakeHome(() => {
     const worktree = makeTmpDir('sigmalink-mcp-test-');
-    const out = writeMcpConfigForAgent({ worktree });
+    const out = writeMcpConfigForAgent({ worktree, runtimeProfileId: 'browser-tools' });
     assert.ok(out.claude, 'expected claude path');
     assert.equal(out.claude, path.join(worktree, '.mcp.json'));
     const json = JSON.parse(fs.readFileSync(out.claude!, 'utf8'));
