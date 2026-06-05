@@ -246,6 +246,29 @@ describe('pruneOrphanWorktreesForWorkspace — dry-run', () => {
     expect(rmMock).not.toHaveBeenCalled();
   });
 
+  it('win32: excludes live dirs when path case and separators differ', async () => {
+    const worktreeBase = 'C:\\Users\\Me\\AppData\\Roaming\\SigmaLink\\worktrees';
+    const repoHash = 'abc123def456';
+    const liveSession = makeSession({
+      worktree_path: 'c:/users/me/appdata/roaming/sigmalink/worktrees/ABC123DEF456/live-pane',
+      status: 'running',
+    });
+    const db = makeDb([liveSession]);
+
+    readdirMock.mockResolvedValue(['Live-Pane', 'orphan-pane']);
+
+    const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
+      worktreeBase,
+      repoHash,
+      workspaceId: WS_ID,
+      db,
+      dryRun: true,
+    });
+
+    expect(result.wouldRemove.map((p) => path.win32.basename(p))).toEqual(['orphan-pane']);
+    expect(result.liveBlocked.map((p) => path.win32.basename(p).toLowerCase())).toEqual(['live-pane']);
+  });
+
   it('returns empty when worktree dir does not exist', async () => {
     readdirMock.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     const db = makeDb([]);

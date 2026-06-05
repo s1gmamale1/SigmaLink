@@ -17,6 +17,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
+import { canonicalPathKey, pathKeyIsWithin } from '../util/path-key';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,7 +72,7 @@ function liveWorktreePaths(db: Database.Database, workspaceId: string): Set<stri
          AND status IN ('starting','running')`,
     )
     .all(workspaceId) as Array<{ worktree_path: string }>;
-  return new Set(rows.map((r) => r.worktree_path));
+  return new Set(rows.map((r) => canonicalPathKey(r.worktree_path)));
 }
 
 /**
@@ -91,8 +92,7 @@ async function pruneRepoDir(
   const repoDir = path.join(normalBase, repoHash);
 
   // Path-traversal guard: repoDir must be a direct child of worktreeBase.
-  const normalRepo = path.normalize(repoDir);
-  if (!normalRepo.startsWith(normalBase + path.sep) && normalRepo !== normalBase) {
+  if (!/^[a-f0-9]{12}$/i.test(repoHash) || !pathKeyIsWithin(repoDir, normalBase)) {
     console.warn(`[cleanup] repoDir ${repoDir} escapes worktreeBase — skipping`);
     return { wouldRemove: [], liveBlocked: [], removed: 0, errors: 0 };
   }
@@ -109,7 +109,7 @@ async function pruneRepoDir(
 
   for (const entry of entries) {
     const full = path.join(repoDir, entry);
-    if (livePaths.has(full)) {
+    if (livePaths.has(canonicalPathKey(full))) {
       liveBlocked.push(full);
     } else {
       wouldRemove.push(full);

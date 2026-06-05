@@ -39,17 +39,15 @@ function makeDb(sessions: SessionRow[]) {
       const isLive =
         sql.includes('SELECT DISTINCT worktree_path') &&
         sql.includes('FROM agent_sessions');
-      const isAny = sql.includes('SELECT COUNT(*)');
+      const isAny = sql.includes('SELECT worktree_path') && sql.includes('FROM agent_sessions');
 
       if (isLive) {
         return {
-          all(pattern: string, cutoff: number) {
-            // Strip trailing glob % and sep for path prefix matching.
-            const prefix = pattern.slice(0, -1); // remove trailing %
+          all(...args: unknown[]) {
+            const cutoff = Number(args.at(-1));
             const keepsResumeEligibleCrashes = sql.includes('exit_code = -1');
             const keepsStarting = sql.includes("status = 'starting'");
             const results = sessions.filter((s) => {
-              if (!s.worktree_path.startsWith(prefix)) return false;
               if (s.status === 'running') return true;
               if (keepsStarting && s.status === 'starting') return true;
               if (
@@ -69,10 +67,8 @@ function makeDb(sessions: SessionRow[]) {
 
       if (isAny) {
         return {
-          get(pattern: string) {
-            const prefix = pattern.slice(0, -1);
-            const cnt = sessions.filter((s) => s.worktree_path?.startsWith(prefix)).length;
-            return { cnt };
+          all() {
+            return sessions.map((s) => ({ worktree_path: s.worktree_path }));
           },
         };
       }
@@ -244,6 +240,26 @@ describe('cleanupOrphanWorktrees', () => {
 
     expect(result.kept).toBe(1);
     expect(result.removed).toBe(1);
+  });
+
+  it('win32: keeps a live worktree when DB path case/separators differ from fs path', async () => {
+    const base = 'C:\\Users\\Me\\AppData\\Roaming\\SigmaLink\\worktrees';
+    const hash = 'abc123def456';
+    readdirMock.mockResolvedValue(['Pane-0', 'orphan-pane']);
+    const db = makeDb([
+      {
+        worktree_path: 'c:/users/me/appdata/roaming/sigmalink/worktrees/ABC123DEF456/pane-0',
+        status: 'running',
+        exited_at: null,
+      },
+    ]);
+
+    const result = await cleanupOrphanWorktrees(base, hash, db);
+
+    expect(result.kept).toBe(1);
+    expect(result.removed).toBe(1);
+    expect(rmMock).toHaveBeenCalledTimes(1);
+    expect(String(rmMock.mock.calls[0]![0])).toContain('orphan-pane');
   });
 
   it('8. LIKE pattern matches subdirs but not unrelated repos — SQL safety', async () => {

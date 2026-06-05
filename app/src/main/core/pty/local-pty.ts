@@ -14,6 +14,10 @@ import path from 'node:path';
 import fs from 'node:fs';
 import * as nodePty from 'node-pty';
 import { buildSentinelSnippet, buildPowerShellSentinelSnippet, buildCmdSentinelSnippet } from './sentinel';
+import {
+  buildWindowsSpawnArgs,
+  resolveWindowsCommand as resolveWindowsCommandForEnv,
+} from '../util/windows-spawn';
 
 export interface SpawnInput {
   command: string;          // empty string means: open user's default shell
@@ -48,8 +52,6 @@ export interface PtyHandle {
   onExit(cb: (info: { exitCode: number; signal?: number }) => void): () => void;
 }
 
-const WINDOWS_DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
-
 /**
  * Resolve a bare command against PATH + PATHEXT on Windows.
  * Returns the absolute path of the first match, or null if not found.
@@ -60,44 +62,11 @@ const WINDOWS_DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
  *   resolveWindowsCommand('pwsh')     ->  '...pwsh.exe' or null
  *   resolveWindowsCommand('claude.cmd') -> resolves only against the literal extension
  */
-export function resolveWindowsCommand(cmd: string): string | null {
-  if (!cmd) return null;
-  // Already absolute? Trust the caller, but only if it actually exists.
-  if (path.isAbsolute(cmd)) {
-    if (fs.existsSync(cmd)) return cmd;
-    // Maybe missing extension on an absolute path.
-    if (path.extname(cmd) === '') {
-      const exts = (process.env.PATHEXT ?? WINDOWS_DEFAULT_PATHEXT).split(';').filter(Boolean);
-      for (const ext of exts) {
-        const candidate = cmd + ext;
-        if (fs.existsSync(candidate)) return candidate;
-      }
-    }
-    return null;
-  }
-  const exts = (process.env.PATHEXT ?? WINDOWS_DEFAULT_PATHEXT).split(';').filter(Boolean);
-  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
-  const hasExt = path.extname(cmd).length > 0;
-  for (const dir of dirs) {
-    const base = path.join(dir, cmd);
-    if (hasExt) {
-      try {
-        if (fs.existsSync(base)) return base;
-      } catch {
-        /* skip unreadable dir */
-      }
-    } else {
-      for (const ext of exts) {
-        const candidate = base + ext;
-        try {
-          if (fs.existsSync(candidate)) return candidate;
-        } catch {
-          /* skip unreadable dir */
-        }
-      }
-    }
-  }
-  return null;
+export function resolveWindowsCommand(
+  cmd: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  return resolveWindowsCommandForEnv(cmd, env);
 }
 
 /**
@@ -133,18 +102,18 @@ export function resolvePosixCommand(cmd: string): string | null {
   return null;
 }
 
-function defaultShell(): { command: string; args: string[] } {
+function defaultShell(env: NodeJS.ProcessEnv = process.env): { command: string; args: string[] } {
   if (process.platform === 'win32') {
     // Prefer pwsh (PowerShell 7+) when available, then powershell.exe (Windows
     // PowerShell 5), then cmd.exe. BUG-W7-007: pass `-NoLogo` so the upgrade
     // banner does not clutter every fresh pane. The matching env var
     // `POWERSHELL_UPDATECHECK=Off` is set in `spawnLocalPty` below.
-    const pwsh = resolveWindowsCommand('pwsh.exe') ?? resolveWindowsCommand('pwsh');
+    const pwsh = resolveWindowsCommand('pwsh.exe', env) ?? resolveWindowsCommand('pwsh', env);
     if (pwsh) return { command: pwsh, args: ['-NoLogo'] };
     const powershell =
-      resolveWindowsCommand('powershell.exe') ?? resolveWindowsCommand('powershell');
+      resolveWindowsCommand('powershell.exe', env) ?? resolveWindowsCommand('powershell', env);
     if (powershell) return { command: powershell, args: ['-NoLogo'] };
-    const cmdExe = resolveWindowsCommand('cmd.exe') ?? 'cmd.exe';
+    const cmdExe = resolveWindowsCommand('cmd.exe', env) ?? 'cmd.exe';
     return { command: cmdExe, args: [] };
   }
   if (process.platform === 'darwin') {
@@ -171,13 +140,6 @@ function isPowerShell(command: string): boolean {
     base === 'powershell' ||
     base === 'powershell.exe'
   );
-}
-
-function windowsExtensionFor(cmd: string): 'cmd' | 'ps1' | null {
-  const ext = path.extname(cmd).toLowerCase();
-  if (ext === '.cmd' || ext === '.bat') return 'cmd';
-  if (ext === '.ps1') return 'ps1';
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -454,27 +416,14 @@ export function effectivePaneSpawnMode(
  *    `.exe` is spawned directly so no extra shell process is allocated.
  */
 function platformAwareSpawnArgs(input: SpawnInput): { command: string; args: string[] } {
-  if (!input.command) return defaultShell();
+  const env = input.env ?? process.env;
+  if (!input.command) return defaultShell(env);
   if (process.platform !== 'win32') return { command: input.command, args: input.args };
 
-  // Windows: try to resolve the command against PATH+PATHEXT first. If we
-  // cannot resolve we still try to spawn the literal command; node-pty's
-  // failure surface is the same and the caller's error reporting handles it.
-  const resolved = resolveWindowsCommand(input.command) ?? input.command;
-  const kind = windowsExtensionFor(resolved);
-  if (kind === 'cmd') {
-    return {
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', resolved, ...input.args],
-    };
-  }
-  if (kind === 'ps1') {
-    return {
-      command: 'powershell.exe',
-      args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolved, ...input.args],
-    };
-  }
-  return { command: resolved, args: input.args };
+  // Windows: try to resolve the command against the same PATH/PATHEXT env that
+  // will be passed to the child. This covers packaged/Electron launches where
+  // the runtime PATH differs from the parent process PATH.
+  return buildWindowsSpawnArgs(input.command, input.args, env);
 }
 
 export function spawnLocalPty(input: SpawnInput): PtyHandle {
@@ -523,6 +472,7 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
   // ---------------------------------------------------------------------------
   // DIRECT MODE — original implementation, untouched.
   // ---------------------------------------------------------------------------
+  const baseEnv = input.env ?? process.env;
 
   // Validate cwd up-front; ConPTY also fails with code 2 when the directory
   // does not exist, and the failure mode is indistinguishable from a missing
@@ -542,7 +492,7 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
   if (input.command) {
     const resolved =
       process.platform === 'win32'
-        ? resolveWindowsCommand(input.command)
+        ? resolveWindowsCommand(input.command, baseEnv)
         : resolvePosixCommand(input.command);
     if (!resolved) {
       const err = new Error(
@@ -558,7 +508,7 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
 
   const { command, args } = platformAwareSpawnArgs(input);
   const env: NodeJS.ProcessEnv = {
-    ...(input.env ?? process.env),
+    ...baseEnv,
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     FORCE_COLOR: '1',
@@ -727,9 +677,10 @@ function spawnShellFirstPty(input: SpawnInput): PtyHandle {
   //
   // (win32 always degrades to direct after H-6, so this path is POSIX-only in
   // practice; the resolver stays platform-aware for symmetry.)
+  const baseEnv = input.env ?? process.env;
   const resolvedCommand =
     process.platform === 'win32'
-      ? resolveWindowsCommand(input.command)
+      ? resolveWindowsCommand(input.command, baseEnv)
       : resolvePosixCommand(input.command);
   if (!resolvedCommand) {
     const err = new Error(
@@ -745,10 +696,10 @@ function spawnShellFirstPty(input: SpawnInput): PtyHandle {
   const resolvedCwd =
     input.cwd && fs.existsSync(input.cwd) ? input.cwd : os.homedir();
 
-  const shell = defaultShell();
+  const shell = defaultShell(baseEnv);
 
   const env: NodeJS.ProcessEnv = {
-    ...(input.env ?? process.env),
+    ...baseEnv,
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     FORCE_COLOR: '1',
