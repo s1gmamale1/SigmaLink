@@ -9,7 +9,7 @@
 > `8e203b2`) + **Lane B** (status-aware pane-slot index migration 0032 + awaited janitor + adopt/replace +
 > throttled snapshot flush) + the **pane-resume regression fix** (`93fbca6`) + an automated **crash-recovery
 > smoke** (`d9f3ba4`, red→green). Verified 3 ways: operator GUI force-quit→relaunch, Lane B's gate, and the
-> smoke. Full record → `CHANGELOG.md` + master memory. **Phase 1 ✅ SHIPPED (`cca05ad`, 2026-06-05)** — the SMK + DEV bugfix batch (sessions/skills/browser), re-gated on `main` + CI-green (the Phase-0 crash-recovery smoke's `node:sqlite` import made lazy so it no longer crashes e2e collection on CI's Node 20). **▶ NEXT = Phase 2.** Then:
+> smoke. Full record → `CHANGELOG.md` + master memory. **Phase 1 ✅ SHIPPED (`cca05ad`, 2026-06-05)** — the SMK + DEV bugfix batch (sessions/skills/browser), re-gated on `main` + CI-green (the Phase-0 crash-recovery smoke's `node:sqlite` import made lazy so it no longer crashes e2e collection on CI's Node 20). **Phase 2 ✅ SHIPPED (2026-06-05)** — OPT perf (PERF-3 selectors + PERF-8 async disk-scan; PERF-1/5/6/16 were already-built) + DEV-W3b in-place mode + ruflo-observability. **▶ NEXT = Phase 3.** Then:
 > Phase 2 OPT perf/resource + in-place worktree mode · 3 workspace/panel UX · 4 pane chrome+grid · then the
 > carried feature phases (theme gallery · Jorvis FE · worktree GUI · git diff · orchestration · voice). The
 > 2026-06-04 themes work also **✅ shipped** (PR #104). **v2.0.0 tag** now only awaits the remaining operator
@@ -115,24 +115,17 @@ CRIT-1/2/3 (Phase 0) + **SMK-2/3/3b + DEV-1/2/3/4** (Phase 1) all shipped to `ma
 
 ---
 
-## Phase 2 — OPT: perf/resource pass + in-place worktree mode · ▶ **NEXT**
+## Phase 2 — OPT: perf/resource pass + in-place worktree mode · ✅ **SHIPPED** (2026-06-05, see `CHANGELOG.md`)
 
-**Goal.** The app's steady-state CPU/memory/disk footprint drops sharply, and users who don't need isolation can run with zero worktrees.
+**✅ Shipped to `main` (untagged) — 3 parallel worktree lanes + Opus review + full gate green (`tsc -b` · vitest **2803 pass** · build · full `tests/e2e/`).**
+- **PERF-3** — 5 hottest `useAppState` consumers (RoomSwitch/MainBody/GlobalMemorySwitcher/TasksRoom/MemoryRoom) + leaky whole-map `swarmMessages` migrated to `useAppStateSelector` slice subscriptions, dispatch-only sites → `useAppDispatch` (`e11b1f2`…`8c98b69`).
+- **PERF-8** — `session-disk-scanner.ts` fully non-blocking (`fs/promises`; public Promise API unchanged) (`13bf944`/`95208a8`).
+- **DEV-W3b** — per-workspace in-place/no-worktree mode (ADR-007): `shared/worktree-mode.ts` KV flag short-circuits **both** sibling gates (`launcher.ts` + `factory-spawn.ts`) to the no-worktree path + Settings toggle w/ collision warning (`937224c`…`f098ea1`, `4d00d92`).
+- **observability** — structured worktree-create/guard/boot-sweep logs + a **real** critical disk-guard notification. Opus review caught a silent-no-op (the `notifications` sink was never threaded into the prod callers — `rpc-router`/`controller`) → fixed `ad3fa28`; the +Pane path got the missing `WorktreeDiskGuardError` catch (`b46c959`), completing the 3-way spawn-sibling set.
 
-**Deliverables.**
-- **OPT-1** high-ROI perf subset: **PERF-1** `pty:data` IPC coalescing · **PERF-3** `useAppState` selector granularity (25-consumer re-render storm) · **PERF-6/16** batch/visibility-gate the per-pane `git status` subprocess polling · **PERF-8** async disk-scan · **PERF-5** refcounted Ruflo-health poller.
-- **DEV-W3b** per-workspace **in-place / no-worktree mode** (spawn agents in the repo, zero worktrees) — directly removes the Phase-0 disk class for non-isolated use.
-- **ruflo-observability** structured logging/metrics for spawn + worktree + disk events (so a future runaway is *caught*, not discovered at 49 GB).
+**Recon-corrected scope — ALREADY SHIPPED, not rebuilt (verified in code):** **PERF-1** `pty:data` coalescing (`pty-data-coalescer.ts`), **PERF-5** refcounted Ruflo-health poller, **PERF-6/16** refcounted + visibility-gated git-status polling. (Same "recon-first reveals already-built" pattern as the v2.0.0 cycle.)
 
-**Why now.** "Huge optimization" was the operator's explicit follow-on ask, and the perf backlog (PERF-1..16) compounds the resource pressure that made the crisis worse. In-place mode is the structural disk win and rides Phase 0's worktree work.
-
-**Scope.** `rpc-router.ts:375` (PERF-1 coalesce) · `state.tsx:137`/`state.reducer.ts` selectors (PERF-3) · `PaneShell.tsx:101`/`git-ops.ts` + `use-git-activity-poll.ts:45` (PERF-6/16) · `session-disk-scanner.ts` async (PERF-8) · `useRufloDaemonHealth.ts:53` (PERF-5). DEV-W3b: a per-workspace `worktreeMode` (`'worktree'|'in-place'`, KV or column) short-circuiting **both** worktree gates (`launcher.ts:224` + `factory-spawn.ts:208` — sibling twins) to the existing no-worktree path (`worktree-cwd.ts:25`).
-
-**Findings + recommendation.** PERF-1/3 are the hottest paths (one IPC per PTY chunk; whole-context re-render per dispatch). In-place mode reuses the already-existing `repoMode!=='git'` no-worktree branch — it's a gate flip + a toggle, not new infra. Surface the "agents share one tree → edits collide" trade in the UI.
-
-**Risks.** Selector migration (PERF-3) is broad — start with the 5 worst consumers. In-place mode's two gates are mirror-drift twins — change both. Measure before/after with `npm run test:perf`.
-
-**Definition of done.** `npm run test:perf` shows a measurable jank/IPC-rate drop; idle CPU with N panes is materially lower; selecting in-place mode spawns agents in the repo root with zero worktree dirs created; spawn/worktree/disk events are logged; gates green.
+**Deferred → `WISHLIST.md`:** swarm-mode UI in-place toggle (backend honors it; launcher only exposes it for space/single mode) · **C8** queryable `worktree_events` table · `npm run test:perf` before/after jank measurement (operator smoke).
 
 ---
 
@@ -154,7 +147,9 @@ CRIT-1/2/3 (Phase 0) + **SMK-2/3/3b + DEV-1/2/3/4** (Phase 1) all shipped to `ma
 
 ---
 
-## Phase 4 — Pane chrome + grid (mirror BridgeSpace) · after Phase 3
+## Phase 4 — Pane chrome + grid (mirror BridgeSpace) · 🔨 **IN PROGRESS** (started 2026-06-05, pulled ahead of Phase 2/3 per operator)
+
+> **In progress.** Design approved + spec written → `docs/superpowers/specs/2026-06-05-phase-4-pane-chrome-grid-design.md`. Operator decisions: (1) reference = existing day-185 review/screenshots (no fresh D187/D188 capture); (2) **Full BridgeSpace strip** header — truncated title pill + icon-only cluster (gear·focus·split·minimise·close), ALL metadata off-bar → gear popover + focus sidebar + idle splash, one status glyph retained; (3) grid = preserve + persist (per-workspace KV) + reduced-motion-gated reflow animation. 3 file-disjoint worktree lanes (A header · B grid · C footer+sweep) + lead seam.
 
 **Goal.** Pane headers look clean (a faithful BridgeSpace copy) and the pane grid resizes/reflows smoothly without resetting.
 
@@ -249,6 +244,7 @@ Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per
 
 ## ✅ Shipped this cycle (do NOT rebuild)
 - **Phase-1 themes (BSP-T1/T2)** — 15 themes (Clean family + Glass Spectrum), PR #104 `f78c6e0`, CI green, operator-confirmed. → promote to CHANGELOG/memory on wrap-up.
+- **Phase 2 OPT (PERF-3 + PERF-8 + DEV-W3b + observability)** — `e11b1f2`…`4d00d92`, full gate green. PERF-1/5/6/16 were already-shipped (recon-excluded). → see `CHANGELOG.md`.
 
 ## 🚧 Blocked / operator-owned (parked)
 
@@ -297,8 +293,8 @@ Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per
 | SMK-1/2/3/3b + DEV-5 | 1 | M–L | High | Sessions + skills bugfix |
 | DEV-1/2/3 browser | 1 | M | Med | Design-pick, recents, URL box |
 | DEV-4/6/7/8 | 1 | S | Med | Rail order, zod, dev-URL, bundle |
-| OPT-1 perf subset | 2 | L | High | PERF-1/3/5/6/8/16 |
-| DEV-W3b in-place worktree mode | 2 | M | High | Structural disk win |
+| OPT-1 perf subset | 2 | L | High | ✅ SHIPPED — PERF-3/8 done; PERF-1/5/6/16 already-built |
+| DEV-W3b in-place worktree mode | 2 | M | High | ✅ SHIPPED — ADR-007, both gates + Settings toggle |
 | DEV-W1/W2/W4/W5 workspace+panel UX | 3 | M | High | Logo toggle, rename, rail toggle, +Pane |
 | DEV-L1/L2 + BSP-F1/F2/P2/P3 pane chrome+grid | 4 | M–L | High | Mirror BridgeSpace; needs ref frames |
 | BSP-T3/T4 theme gallery | 5 | M | High | Live preview cards |
