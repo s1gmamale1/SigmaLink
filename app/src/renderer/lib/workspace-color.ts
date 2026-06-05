@@ -98,3 +98,40 @@ export function agentAlias(id: string): string {
 }
 
 export const WORKSPACE_COLOR_PALETTE = PALETTE;
+
+// ---------------------------------------------------------------------------
+// Per-workspace hex dot colours — distinct-by-default, user-overridable.
+// ---------------------------------------------------------------------------
+
+/**
+ * 15 mid-saturation hues that read well on dark glass surfaces. Wider than the
+ * 8-slot Tailwind palette so adjacent workspaces are less likely to collide.
+ * Deliberately overlaps some AGENT_COLOR_PALETTE hues — workspace dots and
+ * agent dots are visually distinct (size + ring), so the same hex is fine.
+ */
+export const WORKSPACE_DOT_HEX_PALETTE: readonly string[] = [
+  '#f472b6', // pink-400
+  '#fb7185', // rose-400
+  '#fb923c', // orange-400
+  '#fbbf24', // amber-400
+  '#facc15', // yellow-400
+  '#a3e635', // lime-400
+  '#34d399', // emerald-400
+  '#2dd4bf', // teal-400
+  '#22d3ee', // cyan-400
+  '#38bdf8', // sky-400
+  '#60a5fa', // blue-400
+  '#818cf8', // indigo-400
+  '#a78bfa', // violet-400
+  '#c084fc', // purple-400
+  '#e879f9', // fuchsia-400
+];
+
+/**
+ * Deterministic hex colour for a workspace dot. UUID-safe (uses FNV-1a so
+ * long ids never overflow). Returns a member of WORKSPACE_DOT_HEX_PALETTE.
+ * Same id → same colour across reloads and panes.
+ */
+export function defaultWorkspaceColor(id: string): string {
+  return WORKSPACE_DOT_HEX_PALETTE[fnv1a32(id) % WORKSPACE_DOT_HEX_PALETTE.length]!;
+}
