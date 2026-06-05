@@ -21,12 +21,12 @@ import {
 } from '@dnd-kit/core';
 import { ListChecks, Plus, Users } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
-import type { Task, TaskStatus } from '@/shared/types';
+import type { Swarm, Task, TaskStatus } from '@/shared/types';
 import { Card } from './Card';
 import { Column } from './Column';
 import { NewTaskDrawer } from './NewTaskDrawer';
@@ -41,6 +41,7 @@ const COLUMN_DEFS: Array<{ id: TaskStatus; label: string; hint: string }> = [
 ];
 
 const EMPTY_TASKS: never[] = [];
+const EMPTY_SWARMS: never[] = [];
 
 /**
  * Apple-grade spring settle: cubic-bezier approximation of a spring curve
@@ -60,9 +61,13 @@ const DROP_ANIMATION: DropAnimation = reducedMotion
     };
 
 export function TasksRoom() {
-  const { state, dispatch } = useAppState();
-  const wsId = state.activeWorkspace?.id ?? '';
-  const tasks = state.tasks[wsId] ?? EMPTY_TASKS;
+  const dispatch = useAppDispatch();
+  const activeWorkspace = useAppStateSelector((s) => s.activeWorkspace);
+  const wsId = activeWorkspace?.id ?? '';
+  const tasks = useAppStateSelector((s) => (wsId ? s.tasks[wsId] : undefined) ?? EMPTY_TASKS);
+  const room = useAppStateSelector((s) => s.room);
+  const activeSwarmId = useAppStateSelector((s) => s.activeSwarmId);
+  const wsSwarms = useAppStateSelector((s) => (wsId ? s.swarmsByWorkspace[wsId] : undefined) ?? EMPTY_SWARMS);
   const [newOpen, setNewOpen] = useState(false);
   const [newColumn, setNewColumn] = useState<TaskStatus>('backlog');
   const [detail, setDetail] = useState<Task | null>(null);
@@ -75,7 +80,7 @@ export function TasksRoom() {
   // is not 'tasks', the drawer must not render even if the local `newOpen` /
   // `detail` slice still says otherwise. This mirrors the pattern recommended
   // by the bug ticket: tie `open` to a state slice keyed by room.
-  const onTasksRoom = state.room === 'tasks';
+  const onTasksRoom = room === 'tasks';
   const drawerNewOpen = onTasksRoom && newOpen;
   const drawerDetail = onTasksRoom ? detail : null;
 
@@ -95,7 +100,10 @@ export function TasksRoom() {
     return map;
   }, [tasks]);
 
-  const activeSwarm = state.swarms.find((s) => s.id === state.activeSwarmId) ?? null;
+  const activeSwarm = useMemo(
+    () => wsSwarms.find((s) => s.id === activeSwarmId) ?? null,
+    [wsSwarms, activeSwarmId],
+  );
 
   const handleDragStart = (event: DragStartEvent) => {
     const activeId = String(event.active.id ?? '');
@@ -141,7 +149,7 @@ export function TasksRoom() {
     }
   };
 
-  if (!state.activeWorkspace) {
+  if (!activeWorkspace) {
     return (
       <EmptyState
         icon={ListChecks}
@@ -219,7 +227,7 @@ export function TasksRoom() {
   );
 }
 
-function SwarmRosterRail({ swarm }: { swarm: ReturnType<typeof useAppState>['state']['swarms'][number] | null }) {
+function SwarmRosterRail({ swarm }: { swarm: Swarm | null }) {
   if (!swarm) {
     return (
       <aside className="flex w-64 shrink-0 flex-col border-l border-border bg-muted/10 p-3 text-xs">
