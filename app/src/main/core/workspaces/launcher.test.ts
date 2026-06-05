@@ -106,8 +106,8 @@ const GIT_WS_ROW = {
 /** A minimal raw-db stub that satisfies the KV-reads inside launcher.ts. */
 function makeRawStub() {
   return {
-    prepare: vi.fn((_sql: string) => ({
-      get: vi.fn((_key?: unknown) => undefined),
+    prepare: vi.fn(() => ({
+      get: vi.fn(() => undefined),
       all: vi.fn(() => []),
       run: vi.fn(() => undefined),
     })),
