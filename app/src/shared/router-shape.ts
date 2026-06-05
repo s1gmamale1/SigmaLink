@@ -266,6 +266,8 @@ export interface AppRouter {
     pickFolder: () => Promise<{ path: string } | null>;
     open: (root: string) => Promise<Workspace>;
     list: () => Promise<Workspace[]>;
+    /** DEV-W2 — rename a workspace's display label (trims, rejects empty/over-120). */
+    rename: (input: { id: string; name: string }) => Promise<Workspace>;
     remove: (id: string) => Promise<void>;
     launch: (plan: LaunchPlan) => Promise<{ sessions: AgentSession[] }>;
   };

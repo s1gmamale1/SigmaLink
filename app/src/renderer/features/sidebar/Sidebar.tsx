@@ -284,6 +284,22 @@ export function Sidebar() {
           onClose={(workspaceId) => dispatch({ type: 'WORKSPACE_CLOSE', workspaceId })}
           onOpenPersisted={openPersistedWorkspace}
           onBrowseWorkspaces={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}
+          onRename={async (workspaceId, newName) => {
+            // DEV-W2 — optimistic update first so the UI is instant.
+            dispatch({ type: 'RENAME_WORKSPACE', id: workspaceId, name: newName });
+            try {
+              await rpc.workspaces.rename({ id: workspaceId, name: newName });
+            } catch (err) {
+              // On failure, reload the full list so the UI reverts to the DB
+              // value rather than keeping a stale optimistic name.
+              console.error('[WorkspacesPanel] rename failed:', err);
+              try {
+                dispatch({ type: 'SET_WORKSPACES', workspaces: await rpc.workspaces.list() });
+              } catch {
+                /* best-effort */
+              }
+            }
+          }}
         />
       ) : (
         // Collapsed rail leaves a flex spacer so the footer expand button

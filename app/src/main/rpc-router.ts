@@ -35,7 +35,7 @@ import { buildGitCheckpointController } from './core/git/checkpoint-controller';
 import { buildUsageController } from './core/usage/controller';
 import { buildMcpDiagnosticController } from './core/workspaces/mcp-diagnostic';
 import { WorktreePool } from './core/git/worktree';
-import { listWorkspaces, openWorkspace, removeWorkspace } from './core/workspaces/factory';
+import { listWorkspaces, openWorkspace, removeWorkspace, renameWorkspace } from './core/workspaces/factory';
 import { cleanupOrphanWorktrees, sweepAllReposOnBoot } from './core/workspaces/worktree-cleanup';
 import {
   pruneOrphanWorktreesForWorkspace,
@@ -1375,6 +1375,9 @@ async function buildRouter() {
       return workspace;
     },
     list: async () => listWorkspaces(),
+    rename: async (input: { id: string; name: string }) => {
+      return renameWorkspace(input.id, input.name);
+    },
     remove: async (id: string) => {
       await removeWorkspace(id, { rufloHttpDaemonSupervisor });
       markWorkspaceClosed(id);

@@ -223,6 +223,35 @@ export function listWorkspaces(): Workspace[] {
     .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
 }
 
+/** DEV-W2 — rename a workspace's display label.
+ *
+ * Only the `name` column is touched; `rootPath` and all other fields are
+ * left unchanged. The name is trimmed; empty or over-long (>120 chars)
+ * names are rejected. Returns the updated `Workspace` row.
+ */
+export function renameWorkspace(id: string, name: string): Workspace {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error('renameWorkspace: name must not be empty');
+  }
+  if (trimmed.length > 120) {
+    throw new Error('renameWorkspace: name must be 120 characters or fewer');
+  }
+  if (!id || typeof id !== 'string') {
+    throw new Error('renameWorkspace: id must be a non-empty string');
+  }
+  const db = getDb();
+  db.update(workspaces)
+    .set({ name: trimmed })
+    .where(eq(workspaces.id, id))
+    .run();
+  const row = db.select().from(workspaces).where(eq(workspaces.id, id)).get();
+  if (!row) {
+    throw new Error(`renameWorkspace: workspace not found: ${id}`);
+  }
+  return rowToWorkspace(row);
+}
+
 export async function removeWorkspace(id: string, deps: RemoveWorkspaceDeps = {}): Promise<void> {
   // v1.6.0-A — stop the per-workspace Ruflo HTTP daemon BEFORE deleting the
   // DB row so the supervisor's map entry is cleared on the same operation.

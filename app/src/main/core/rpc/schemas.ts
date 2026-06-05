@@ -338,6 +338,11 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   // H-8 — handler is `open(root: string)`; first arg is the absolute repo path.
   'workspaces.open': { input: PATH_STR, output: any },
   'workspaces.list': stub,
+  // DEV-W2 — inline rename: { id, name } both bounded.
+  'workspaces.rename': {
+    input: z.object({ id: z.string().min(1).max(200), name: z.string().min(1).max(120) }),
+    output: any,
+  },
   // H-8 — handler is `remove(id: string)`; first arg is the workspace id
   // (matches the 200-char bound used by OpenWorkspacesChangedEventSchema).
   'workspaces.remove': { input: z.string().min(1).max(200), output: any },

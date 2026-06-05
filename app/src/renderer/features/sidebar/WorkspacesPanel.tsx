@@ -15,7 +15,7 @@
 // `workspaceColor()` so users get a stable visual cue per project without us
 // needing to add a `color` column to the Workspace record.
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ChevronDown, Folder, FolderPlus, Plus, X } from 'lucide-react';
 import {
   DropdownMenu,
@@ -39,6 +39,8 @@ export interface WorkspacesPanelProps {
   onClose: (workspaceId: string) => void;
   onOpenPersisted: (ws: Workspace) => void;
   onBrowseWorkspaces: () => void;
+  /** DEV-W2 — called when the user commits an inline rename. */
+  onRename?: (workspaceId: string, newName: string) => Promise<void>;
 }
 
 const STATUS_RING: Record<WorkspaceStatusKind, string> = {
@@ -66,7 +68,37 @@ export function WorkspacesPanel({
   onClose,
   onOpenPersisted,
   onBrowseWorkspaces,
+  onRename,
 }: WorkspacesPanelProps) {
+  // DEV-W2 — inline rename state. `editingId` is the workspace being renamed;
+  // `editValue` mirrors the input value.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  // DEV-W2 — start editing a workspace name.
+  function startEdit(ws: Workspace) {
+    setEditingId(ws.id);
+    setEditValue(ws.name?.trim() || '');
+    // Focus runs after React flushes the render that shows the input.
+    setTimeout(() => inputRef.current?.select(), 0);
+  }
+
+  // Commit the rename; cancel silently on empty input (don't submit garbage).
+  function commitEdit(wsId: string) {
+    const trimmed = editValue.trim();
+    if (trimmed && onRename) {
+      void onRename(wsId, trimmed).catch(() => {
+        // Revert optimistic update on error — the parent is responsible for
+        // rolling back (or the user will see the DB name on next list refresh).
+      });
+    }
+    setEditingId(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+  }
+
   // O(N) projection of sessions onto their workspace. Memoised because the
   // sidebar re-renders on every dispatch and we'd otherwise rebucket a few
   // dozen sessions × every render.
@@ -204,7 +236,10 @@ export function WorkspacesPanel({
               >
                 <button
                   type="button"
-                  onClick={() => onPick(ws)}
+                  onClick={() => {
+                    // Don't trigger onPick while the rename input is active.
+                    if (editingId !== ws.id) onPick(ws);
+                  }}
                   className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5"
                   title={ws.rootPath}
                 >
@@ -219,12 +254,45 @@ export function WorkspacesPanel({
                     )}
                   />
                   <span className="flex min-w-0 flex-1 flex-col text-left">
-                    <span
-                      data-testid="workspace-name"
-                      className="truncate text-[13px] leading-tight"
-                    >
-                      {displayName}
-                    </span>
+                    {editingId === ws.id ? (
+                      <input
+                        ref={inputRef}
+                        data-testid="workspace-rename-input"
+                        className="w-full truncate rounded bg-background px-1 text-[13px] leading-tight text-foreground ring-1 ring-accent outline-none"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            commitEdit(ws.id);
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            cancelEdit();
+                          }
+                          // Prevent keyboard events from bubbling to the row's
+                          // click/key handler while the input is active.
+                          e.stopPropagation();
+                        }}
+                        onBlur={() => commitEdit(ws.id)}
+                        // Stop click inside the input from bubbling up to the
+                        // outer button (which would call onPick or close the editor).
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Rename workspace ${displayName}`}
+                      />
+                    ) : (
+                      <span
+                        data-testid="workspace-name"
+                        className="truncate text-[13px] leading-tight"
+                        onDoubleClick={(e) => {
+                          if (!onRename) return;
+                          e.stopPropagation();
+                          startEdit(ws);
+                        }}
+                        title="Double-click to rename"
+                      >
+                        {displayName}
+                      </span>
+                    )}
                     {subtitle && subtitle !== displayName ? (
                       <span
                         data-testid="workspace-subtitle"

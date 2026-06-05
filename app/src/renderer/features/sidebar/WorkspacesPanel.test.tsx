@@ -219,3 +219,124 @@ describe('<WorkspacesPanel />', () => {
     expect(getByTestId('workspace-subtitle').textContent).toBe('sigmalink');
   });
 });
+
+// DEV-W2 — inline rename tests.
+describe('<WorkspacesPanel /> — inline rename', () => {
+  const ws = workspace('a', { name: 'My Workspace' });
+
+  function renderWithRename(onRename: (workspaceId: string, newName: string) => Promise<void>) {
+    const onPick = vi.fn();
+    const utils = render(
+      <WorkspacesPanel
+        workspaces={[ws]}
+        persistedWorkspaces={[]}
+        sessions={[]}
+        activeId="a"
+        onPick={onPick}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+        onRename={onRename}
+      />,
+    );
+    return { ...utils, onPick };
+  }
+
+  it('shows an input after double-clicking the workspace name', async () => {
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    const { getByTestId, findByTestId } = renderWithRename(onRename);
+
+    const nameEl = getByTestId('workspace-name');
+    fireEvent.doubleClick(nameEl);
+
+    const input = await findByTestId('workspace-rename-input');
+    expect(input).toBeTruthy();
+    expect((input as HTMLInputElement).value).toBe('My Workspace');
+  });
+
+  it('commits rename via Enter key and calls onRename', async () => {
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    const { getByTestId, findByTestId } = renderWithRename(onRename);
+
+    fireEvent.doubleClick(getByTestId('workspace-name'));
+    const input = (await findByTestId('workspace-rename-input')) as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'Renamed WS' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onRename).toHaveBeenCalledWith('a', 'Renamed WS');
+  });
+
+  it('cancels rename via Escape without calling onRename', async () => {
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    const { getByTestId, findByTestId, queryByTestId } = renderWithRename(onRename);
+
+    fireEvent.doubleClick(getByTestId('workspace-name'));
+    const input = (await findByTestId('workspace-rename-input')) as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'Changed' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    // Input should be gone and onRename must NOT have been called.
+    expect(queryByTestId('workspace-rename-input')).toBeNull();
+    expect(onRename).not.toHaveBeenCalled();
+  });
+
+  it('commits rename on blur', async () => {
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    const { getByTestId, findByTestId } = renderWithRename(onRename);
+
+    fireEvent.doubleClick(getByTestId('workspace-name'));
+    const input = (await findByTestId('workspace-rename-input')) as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'BlurName' } });
+    fireEvent.blur(input);
+
+    expect(onRename).toHaveBeenCalledWith('a', 'BlurName');
+  });
+
+  it('does not call onRename when the trimmed value is empty on commit', async () => {
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    const { getByTestId, findByTestId } = renderWithRename(onRename);
+
+    fireEvent.doubleClick(getByTestId('workspace-name'));
+    const input = (await findByTestId('workspace-rename-input')) as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onRename).not.toHaveBeenCalled();
+  });
+
+  it('does not show rename input when onRename prop is absent', () => {
+    const { getByTestId, queryByTestId } = render(
+      <WorkspacesPanel
+        workspaces={[ws]}
+        persistedWorkspaces={[]}
+        sessions={[]}
+        activeId="a"
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+        // no onRename prop
+      />,
+    );
+    fireEvent.doubleClick(getByTestId('workspace-name'));
+    expect(queryByTestId('workspace-rename-input')).toBeNull();
+  });
+
+  it('does not call onPick when rename input is active', async () => {
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    const { getByTestId, findByTestId, onPick } = renderWithRename(onRename);
+
+    fireEvent.doubleClick(getByTestId('workspace-name'));
+    await findByTestId('workspace-rename-input');
+
+    // Clicking the outer row button while the input is active must NOT call onPick.
+    const rowButton = getByTestId('workspace-row').querySelector('button[title]');
+    if (rowButton) fireEvent.click(rowButton);
+
+    expect(onPick).not.toHaveBeenCalled();
+  });
+});
