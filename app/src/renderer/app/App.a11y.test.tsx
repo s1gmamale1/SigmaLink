@@ -84,6 +84,19 @@ vi.mock('@/renderer/features/right-rail/RightRail', () => ({
 vi.mock('@/renderer/features/right-rail/RightRailContext', () => ({
   RightRailProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
+// DEV-W4 — MainBody now reads `railOpen` via useRightRail() (from the `.data`
+// module) UNCONDITIONALLY, before the rail-enabled check. The provider above is
+// a pass-through stub that supplies no context, so the real hook would throw
+// "must be used within a RightRailProvider". Stub the hook directly.
+vi.mock('@/renderer/features/right-rail/RightRailContext.data', () => ({
+  useRightRail: () => ({
+    activeTab: 'browser',
+    setActiveTab: vi.fn(),
+    railOpen: true,
+    setRailOpen: vi.fn(),
+    toggleRail: vi.fn(),
+  }),
+}));
 vi.mock('@/renderer/features/right-rail/use-right-rail-enabled', () => ({
   useRightRailEnabled: () => ({ enabled: false, ready: true }),
 }));

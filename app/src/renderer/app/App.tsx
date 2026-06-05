@@ -25,6 +25,7 @@ import { NativeRebuildModal } from '@/renderer/components/NativeRebuildModal';
 import { RightRail } from '@/renderer/features/right-rail/RightRail';
 import { RightRailProvider } from '@/renderer/features/right-rail/RightRailContext';
 import { useRightRailEnabled } from '@/renderer/features/right-rail/use-right-rail-enabled';
+import { useRightRail } from '@/renderer/features/right-rail/RightRailContext.data';
 import { ThemeProvider } from '@/renderer/app/ThemeProvider';
 import { AppStateProvider, useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { useWorkspaceTint } from '@/renderer/app/useWorkspaceTint';
@@ -171,11 +172,14 @@ function RoomSwitch() {
 function MainBody() {
   const room = useAppStateSelector((s) => s.room);
   const { enabled, ready } = useRightRailEnabled();
+  // DEV-W4 — also gate on railOpen so the body renders full-width when the
+  // user collapses the rail by re-clicking the active tab.
+  const { railOpen } = useRightRail();
   // Hide the rail when the user is in a room whose body already lives in the
   // rail (Browser tab → 'browser', Jorvis tab → 'jorvis') so we don't double-
   // mount the WebContentsView (browser) or the chat surface (bridge).
   const showRail =
-    ready && enabled && room !== 'browser' && room !== 'jorvis';
+    ready && enabled && railOpen && room !== 'browser' && room !== 'jorvis';
   const body = (
     <div className="flex min-h-0 flex-1 flex-col">
       <RoomSwitch />
