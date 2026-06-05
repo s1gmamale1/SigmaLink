@@ -418,6 +418,18 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   // guard is assertAllowedPath in the rpc-router handler (the positional `days`
   // arg is clamped in git-ops.ts and is not args[0], so not validated here).
   'git.activityLog': { input: PATH_STR, output: any },
+  // BSP-G2 — Git panel: staged diff, unstaged diff, log, branch list, branch switch.
+  'git.diffStaged': { input: PATH_STR, output: GIT_DIFF_OUTPUT },
+  'git.diffUnstaged': { input: PATH_STR, output: GIT_DIFF_OUTPUT },
+  'git.log': { input: PATH_STR, output: any },
+  'git.listBranches': { input: PATH_STR, output: any },
+  'git.switchBranch': {
+    input: z.object({
+      cwd: PATH_STR,
+      branch: z.string().min(1).max(512),
+    }),
+    output: any,
+  },
   // ── usage (P6 FEAT-3) ──────────────────────────────────────────────────
   'usage.sessionSummary': {
     input: z.object({ sessionId: z.string().min(1).max(200) }),

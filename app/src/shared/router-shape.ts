@@ -40,6 +40,8 @@ import type {
   SyncStatus,
   SyncConflict,
   GitActivityBucket,
+  GitLogEntry,
+  GitBranchList,
   UsageSummary,
   UsageWeekSummary,
   McpDiagnostic,
@@ -304,6 +306,16 @@ export interface AppRouter {
     // git.status (the renderer poller passes the worktree path); contained
     // server-side via assertAllowedPath.
     activityLog: (cwd: string, days?: number) => Promise<GitActivityBucket[]>;
+    // BSP-G2 — staged-only diff (git diff --cached) for the Git panel.
+    diffStaged: (cwd: string) => Promise<GitDiff | null>;
+    // BSP-G2 — unstaged diff (git diff, no --cached) for the Git panel.
+    diffUnstaged: (cwd: string) => Promise<GitDiff | null>;
+    // BSP-G2 — commit log for the Git History panel.
+    log: (cwd: string, limit?: number) => Promise<GitLogEntry[]>;
+    // BSP-G2 — branch list for the Git Branches panel.
+    listBranches: (cwd: string) => Promise<GitBranchList>;
+    // BSP-G2 — switch to a branch (only allowed when working tree is clean).
+    switchBranch: (input: { cwd: string; branch: string }) => Promise<{ ok: boolean; error?: string }>;
   };
   fs: {
     exists: (path: string) => Promise<boolean>;
