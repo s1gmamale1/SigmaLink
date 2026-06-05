@@ -733,7 +733,7 @@ ipcMain.on('voice:focused-session', (_event, payload: unknown) => {
   focusedSessionId = typeof p?.sessionId === 'string' ? p.sessionId : null;
 });
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   // BUG-V1.1-03-PROV — pull the user's interactive-shell PATH into the main
   // process before any provider PTY spawns, so DMG-launched apps can find
   // /opt/homebrew/bin/claude etc. No-op on Win/Linux + dev server.
@@ -750,7 +750,7 @@ void app.whenReady().then(() => {
     showDiagnosticWindow(checks);
     return;
   }
-  registerRouter();
+  await registerRouter();
   createWindow();
   // V3-W14-008 — kick off auto-update check on boot when the user has opted
   // in. The kv flag is checked inside `maybeCheckOnBoot()` so the call is

@@ -174,7 +174,7 @@ interface SharedDeps {
   rearmDailySummary?: () => void;
 }
 
-let router: ReturnType<typeof buildRouter> | null = null;
+let router: Awaited<ReturnType<typeof buildRouter>> | null = null;
 let sharedDeps: SharedDeps | null = null;
 /** Side-band controller handlers registered outside `defineRouter` so
  *  foundations can grow the AppRouter shape independently. */
@@ -268,21 +268,21 @@ async function dirSize(dir: string): Promise<number> {
   return total;
 }
 
-function buildRouter() {
+async function buildRouter() {
   const userData = app.getPath('userData');
   initializeDatabase(userData);
 
-  // Boot janitor: clean up zombie running sessions and prune dead worktrees.
-  void runBootJanitor().catch(() => {
-    /* non-fatal */
-  });
+  const worktreeBase = path.join(userData, 'worktrees');
 
-  // Lane A — boot-time all-repo worktree sweep. The per-open cleanup only reaps
-  // the repo being opened; this reaps leaked worktrees (e.g. from a spawn-retry
-  // loop that left a worktree on disk with no surviving agent_sessions row)
-  // across EVERY repo at startup. Best-effort; never blocks boot.
-  void sweepAllReposOnBoot(path.join(userData, 'worktrees'), getRawDb()).catch(() => {
-    /* non-fatal */
+  // Boot recovery (CRIT-2/CRIT-1): clear zombie pane-slots and reap leaked
+  // worktrees BEFORE any window/auto-resume so fresh spawns aren't locked out
+  // and the disk can't carry orphaned checkouts. Both are best-effort and must
+  // never block startup.
+  await runBootJanitor().catch((err) => {
+    console.warn('[boot] janitor failed (non-fatal):', err);
+  });
+  await sweepAllReposOnBoot(worktreeBase, getRawDb()).catch((err) => {
+    console.warn('[boot] worktree sweep failed (non-fatal):', err);
   });
 
   // v1.9-scrollback — boot GC. Best-effort: remove stale .log files for
@@ -300,7 +300,7 @@ function buildRouter() {
     /* never block startup */
   }
 
-  const worktreePool = new WorktreePool({ baseDir: path.join(userData, 'worktrees') });
+  const worktreePool = new WorktreePool({ baseDir: worktreeBase });
 
   // Wave-1 H-5 — authoritative allowed-roots for the renderer-facing fs/git/pty
   // path sandbox. Re-derived per call so freshly-opened workspaces are picked up;
@@ -2098,9 +2098,9 @@ function registerIpcHandler(
   });
 }
 
-export function registerRouter(): void {
+export async function registerRouter(): Promise<void> {
   if (router) return;
-  router = buildRouter();
+  router = await buildRouter();
   installWorkspaceLifecycleIpc();
   const isDev = !app.isPackaged;
   // V3-W12-017 — soft-launch per-channel zod validation. In dev, warn once
