@@ -3,9 +3,11 @@ import {
   AGENT_ALIAS_PALETTE,
   AGENT_COLOR_PALETTE,
   WORKSPACE_COLOR_PALETTE,
+  WORKSPACE_DOT_HEX_PALETTE,
   agentAlias,
   agentColor,
   agentShortId,
+  defaultWorkspaceColor,
   workspaceColor,
 } from './workspace-color';
 
@@ -38,6 +40,38 @@ describe('workspaceColor', () => {
     expect(workspaceColor('workspace-1')).toBe('bg-pink-400');
     expect(workspaceColor('sigmalink')).toBe('bg-indigo-400');
     expect(workspaceColor('ws-005')).toBe('bg-emerald-400');
+  });
+});
+
+describe('defaultWorkspaceColor', () => {
+  it('is deterministic — same id always returns the same hex', () => {
+    expect(defaultWorkspaceColor('ws-alpha')).toBe(defaultWorkspaceColor('ws-alpha'));
+    expect(defaultWorkspaceColor('7f3c1e2a-9b4d-4c8e-a1f2-3d4e5f6a7b8c')).toBe(
+      defaultWorkspaceColor('7f3c1e2a-9b4d-4c8e-a1f2-3d4e5f6a7b8c'),
+    );
+  });
+
+  it('returns a member of WORKSPACE_DOT_HEX_PALETTE', () => {
+    for (const id of ['a', 'ws-1', 'deadbeef', 'long-workspace-id-string', 'Σ-link']) {
+      expect(WORKSPACE_DOT_HEX_PALETTE).toContain(defaultWorkspaceColor(id));
+    }
+  });
+
+  it('returns a valid hex colour string', () => {
+    expect(defaultWorkspaceColor('test')).toMatch(/^#[0-9a-f]{6}$/i);
+  });
+
+  it('distributes across distinct palette slots for different ids (no single monopoly)', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 100; i++) seen.add(defaultWorkspaceColor(`ws-${i}`));
+    // 15-slot palette over 100 ids — should hit all 15 slots.
+    expect(seen.size).toBe(WORKSPACE_DOT_HEX_PALETTE.length);
+  });
+
+  it('produces reasonably distinct colours for a few well-known ids', () => {
+    // At minimum the first N ids should not ALL map to the same colour.
+    const colours = ['a', 'b', 'c', 'd', 'e'].map(defaultWorkspaceColor);
+    expect(new Set(colours).size).toBeGreaterThan(1);
   });
 });
 

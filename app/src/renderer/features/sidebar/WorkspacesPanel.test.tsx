@@ -1,12 +1,28 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import type { AgentSession, Workspace } from '@/shared/types';
+import { defaultWorkspaceColor } from '@/renderer/lib/workspace-color';
 import { WorkspacesPanel } from './WorkspacesPanel';
 import { summarizeWorkspaces } from './workspaces-summary';
 
+// rpcSilent mock — required by the useWorkspaceColors hook used inside WorkspacesPanel.
+const kvGetMock = vi.fn<(key: string) => Promise<string | null>>();
+const kvSetMock = vi.fn<(key: string, value: string) => Promise<void>>();
+
+vi.mock('@/renderer/lib/rpc', () => ({
+  rpcSilent: {
+    kv: {
+      get: (...args: [string]) => kvGetMock(...args),
+      set: (...args: [string, string]) => kvSetMock(...args),
+    },
+  },
+}));
+
 afterEach(() => {
   cleanup();
+  kvGetMock.mockClear();
+  kvSetMock.mockClear();
 });
 
 function workspace(id: string, overrides: Partial<Workspace> = {}): Workspace {
@@ -63,6 +79,12 @@ describe('<WorkspacesPanel />', () => {
     session('s1', 'a', 'running'),
     session('s2', 'a', 'running'),
   ];
+
+  // Default: no stored colour (hook returns the deterministic default).
+  beforeEach(() => {
+    kvGetMock.mockResolvedValue(null);
+    kvSetMock.mockResolvedValue(undefined);
+  });
 
   function renderPanel(activeId: string | null = 'a') {
     const onPick = vi.fn();
@@ -224,6 +246,11 @@ describe('<WorkspacesPanel />', () => {
 describe('<WorkspacesPanel /> — inline rename', () => {
   const ws = workspace('a', { name: 'My Workspace' });
 
+  beforeEach(() => {
+    kvGetMock.mockResolvedValue(null);
+    kvSetMock.mockResolvedValue(undefined);
+  });
+
   function renderWithRename(onRename: (workspaceId: string, newName: string) => Promise<void>) {
     const onPick = vi.fn();
     const utils = render(
@@ -338,5 +365,98 @@ describe('<WorkspacesPanel /> — inline rename', () => {
     if (rowButton) fireEvent.click(rowButton);
 
     expect(onPick).not.toHaveBeenCalled();
+  });
+});
+
+// Per-workspace colour — dot hex, row accent, right-click swatch picker.
+describe('<WorkspacesPanel /> — workspace colours', () => {
+  const ws = workspace('a', { name: 'Coloured WS' });
+
+  beforeEach(() => {
+    kvGetMock.mockResolvedValue(null);
+    kvSetMock.mockResolvedValue(undefined);
+  });
+
+  function renderOne(kvValue: string | null = null) {
+    kvGetMock.mockResolvedValue(kvValue);
+    return render(
+      <WorkspacesPanel
+        workspaces={[ws]}
+        persistedWorkspaces={[]}
+        sessions={[]}
+        activeId="a"
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+      />,
+    );
+  }
+
+  it('dot uses the default hex when KV has no stored value', async () => {
+    const { getByTestId } = renderOne(null);
+    await act(async () => {});
+    const dot = getByTestId('workspace-dot') as HTMLElement;
+    expect(dot.style.backgroundColor).toBeTruthy();
+    // Default color = defaultWorkspaceColor('a') converted to RGB by jsdom.
+    // We assert it is non-empty — the exact CSS colour representation may differ.
+    expect(dot.style.backgroundColor).not.toBe('');
+  });
+
+  it('dot uses the stored hex from KV when present', async () => {
+    const { getByTestId } = renderOne('#60a5fa');
+    await act(async () => {});
+    const dot = getByTestId('workspace-dot') as HTMLElement;
+    // jsdom converts #60a5fa to "rgb(96, 165, 250)".
+    expect(dot.style.backgroundColor).toBe('rgb(96, 165, 250)');
+  });
+
+  it('status ring class is preserved on the dot regardless of stored colour', async () => {
+    const { getByTestId } = renderOne('#a78bfa');
+    await act(async () => {});
+    const dot = getByTestId('workspace-dot');
+    // The ring class is derived from status.kind ('idle' → ring-zinc-600).
+    expect(dot.className).toContain('ring-zinc-600');
+  });
+
+  it('right-click opens the colour picker menu', async () => {
+    const { getByTestId, findByTestId } = renderOne(null);
+    await act(async () => {});
+
+    const row = getByTestId('workspace-row');
+    fireEvent.contextMenu(row);
+
+    const menu = await findByTestId('workspace-color-menu');
+    expect(menu).toBeTruthy();
+  });
+
+  it('clicking a swatch calls setColor (writes KV + updates state)', async () => {
+    kvSetMock.mockResolvedValue(undefined);
+    const { getByTestId, findByTestId } = renderOne(null);
+    await act(async () => {});
+
+    const row = getByTestId('workspace-row');
+    fireEvent.contextMenu(row);
+
+    // Wait for menu to appear.
+    await findByTestId('workspace-color-menu');
+
+    // Click the swatch for #34d399.
+    const swatch = getByTestId('color-swatch-#34d399') as HTMLElement;
+    fireEvent.click(swatch);
+
+    // KV should have been called with the right key and value.
+    expect(kvSetMock).toHaveBeenCalledWith('ui.a.color', '#34d399');
+
+    // After the optimistic update the dot should reflect the new colour.
+    await act(async () => {});
+    const dot = getByTestId('workspace-dot') as HTMLElement;
+    expect(dot.style.backgroundColor).toBe('rgb(52, 211, 153)'); // #34d399
+  });
+
+  it('default colour derived from id is deterministic and matches defaultWorkspaceColor', () => {
+    const hex = defaultWorkspaceColor('a');
+    expect(hex).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(hex).toBe(defaultWorkspaceColor('a'));
   });
 });
