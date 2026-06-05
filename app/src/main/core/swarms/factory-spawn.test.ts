@@ -675,7 +675,7 @@ describe('spawnAgentSession — DEV-W3b: in-place mode skips worktree creation',
 
     // Stub rawDb so worktreeMode key returns 'in-place' for this workspace.
     vi.mocked(getRawDb).mockReturnValue({
-      prepare: vi.fn((_sql: string) => ({
+      prepare: vi.fn(() => ({
         get: vi.fn((key?: string) => {
           if (typeof key === 'string' && key.startsWith('workspace.worktreeMode.')) {
             return { value: 'in-place' };
