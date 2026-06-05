@@ -41,6 +41,11 @@ function yoloKvKey(workspaceId: string): string {
   return `pane.autoApprove.default.${workspaceId}`;
 }
 
+/** DEV-W3b — KV key for the per-workspace worktree mode. */
+function worktreeModeKvKey(workspaceId: string): string {
+  return `workspace.worktreeMode.${workspaceId}`;
+}
+
 /**
  * v1.3.1 — Build the top-level `paneResumePlan` array that the backend
  * (`executeLaunchPlan`) reads. Bug B fix: v1.3.0 emitted `sessionId` per-pane
@@ -141,6 +146,12 @@ export function WorkspaceLauncher() {
    * Default = false (OFF) when the kv key is absent.
    */
   const [yolo, setYolo] = useState(false);
+  /**
+   * DEV-W3b (ADR-007) — per-workspace worktree mode toggle. When true (in-place),
+   * agents run directly in the repo root instead of an isolated git worktree.
+   * Default = false (worktree mode, the safe default).
+   */
+  const [inPlaceMode, setInPlaceMode] = useState(false);
 
   // Probe providers on mount so the matrix can render PATH-status badges.
   useEffect(() => {
@@ -177,6 +188,38 @@ export function WorkspaceLauncher() {
       alive = false;
     };
   }, [selectedWorkspace?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // DEV-W3b — Hydrate the in-place mode toggle from the per-workspace kv default.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      if (!selectedWorkspace) {
+        if (alive) setInPlaceMode(false);
+        return;
+      }
+      let raw: string | null = null;
+      try {
+        raw = await rpc.kv.get(worktreeModeKvKey(selectedWorkspace.id));
+      } catch {
+        raw = null;
+      }
+      if (alive) setInPlaceMode(raw === 'in-place');
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [selectedWorkspace?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** DEV-W3b — Toggle in-place mode and persist the per-workspace default. */
+  function toggleInPlaceMode(): void {
+    const next = !inPlaceMode;
+    setInPlaceMode(next);
+    if (selectedWorkspace) {
+      void rpc.kv
+        ?.set?.(worktreeModeKvKey(selectedWorkspace.id), next ? 'in-place' : 'worktree')
+        ?.catch(() => undefined);
+    }
+  }
 
   /** SF-8 B2 — Toggle yolo and persist the per-workspace default. */
   function toggleYolo(): void {
@@ -599,11 +642,39 @@ export function WorkspaceLauncher() {
                 htmlFor="yolo-toggle"
                 className="cursor-pointer text-xs font-semibold text-amber-600 dark:text-amber-400"
               >
-                ⚠️ Yolo / Bypass mode
+                Yolo / Bypass mode
               </label>
               <p className="text-[10px] text-muted-foreground">
                 Starts agents with their bypass flag — disables the agent's own approval prompts.
                 Use only in trusted workspaces.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {/* DEV-W3b — In-place worktree mode row. Only shown for modes that
+            actually spawn git-repo panes; the toggle writes the KV that both
+            Gate A (launcher.ts) and Gate B (factory-spawn.ts) read at spawn time. */}
+        {mode === 'space' || mode === 'single' ? (
+          <div className="flex items-start gap-3 rounded-md border border-orange-500/40 bg-orange-500/5 px-3 py-2">
+            <Switch
+              id="inplace-toggle"
+              data-testid="inplace-toggle"
+              checked={inPlaceMode}
+              onCheckedChange={toggleInPlaceMode}
+              aria-label="In-place mode — agents run directly in the repo root"
+              aria-checked={inPlaceMode}
+            />
+            <div className="flex flex-col gap-0.5">
+              <label
+                htmlFor="inplace-toggle"
+                className="cursor-pointer text-xs font-semibold text-orange-600 dark:text-orange-400"
+              >
+                In-place mode (no worktrees)
+              </label>
+              <p className="text-[10px] text-muted-foreground">
+                In-place mode runs agents directly in the repo — concurrent agents share one working
+                tree and their edits can collide. Applies to the next launch.
               </p>
             </div>
           </div>

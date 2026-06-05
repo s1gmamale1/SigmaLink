@@ -500,3 +500,90 @@ describe('buildPaneResumePlanArray — Bug B regression guard', () => {
     expect(result.find((r) => r.paneIndex === 3)?.sessionId).toBe('kimi-uuid');
   });
 });
+
+// ---------------------------------------------------------------------------
+// DEV-W3b — In-place worktree mode toggle
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceLauncher — in-place worktree mode toggle (DEV-W3b)', () => {
+  it('W3b-1: inplace-toggle renders with collision warning text', async () => {
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    const toggle = screen.getByTestId('inplace-toggle');
+    expect(toggle).toBeTruthy();
+    const inPlaceTexts = screen.getAllByText(/in-place/i);
+    expect(inPlaceTexts.length).toBeGreaterThan(0);
+    const collisionWarning = screen.queryByText(/collide/i) ?? screen.queryByText(/working tree/i);
+    expect(collisionWarning).toBeTruthy();
+  });
+
+  it('W3b-2: toggle defaults ON when kv returns "in-place" for workspace', async () => {
+    kvGetMock.mockImplementation(async (key: string) => {
+      if (key === 'workspace.worktreeMode.ws-42') return 'in-place';
+      return null;
+    });
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    await waitFor(() => {
+      const toggle = screen.getByTestId('inplace-toggle');
+      expect(
+        toggle.getAttribute('data-state') === 'checked' ||
+        toggle.getAttribute('aria-checked') === 'true',
+      ).toBe(true);
+    });
+  });
+
+  it('W3b-3: toggle defaults OFF when kv returns null', async () => {
+    kvGetMock.mockResolvedValue(null);
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    await waitFor(() => {
+      const toggle = screen.getByTestId('inplace-toggle');
+      const isOff =
+        toggle.getAttribute('data-state') === 'unchecked' ||
+        toggle.getAttribute('aria-checked') === 'false' ||
+        (toggle.getAttribute('data-state') !== 'checked' &&
+          toggle.getAttribute('aria-checked') !== 'true');
+      expect(isOff).toBe(true);
+    });
+  });
+
+  it('W3b-4: toggling ON persists kv.set with "in-place"', async () => {
+    kvGetMock.mockResolvedValue(null);
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    // Toggle it on.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('inplace-toggle'));
+    });
+    expect(kvSetMock).toHaveBeenCalledWith('workspace.worktreeMode.ws-42', 'in-place');
+  });
+
+  it('W3b-5: toggling OFF persists kv.set with "worktree"', async () => {
+    kvGetMock.mockImplementation(async (key: string) => {
+      if (key === 'workspace.worktreeMode.ws-42') return 'in-place';
+      return null;
+    });
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    // Wait for the kv hydration to set toggle ON.
+    await waitFor(() => {
+      const toggle = screen.getByTestId('inplace-toggle');
+      expect(
+        toggle.getAttribute('data-state') === 'checked' ||
+        toggle.getAttribute('aria-checked') === 'true',
+      ).toBe(true);
+    });
+    kvSetMock.mockClear();
+    // Toggle it off.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('inplace-toggle'));
+    });
+    expect(kvSetMock).toHaveBeenCalledWith('workspace.worktreeMode.ws-42', 'worktree');
+  });
+});
