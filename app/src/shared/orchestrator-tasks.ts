@@ -13,6 +13,9 @@ export interface OrchestratorTask {
   targetFiles: string[];
   successCriteria: string[];
   outOfScope: string[];
+  /** BSP-O1 — live status for the Sigma rail Canvas sub-tab. Optional so
+   *  existing task literals (no status field) compile without changes. */
+  status?: 'pending' | 'running' | 'done' | 'error';
 }
 
 /**

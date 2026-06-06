@@ -18,6 +18,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppDispatch } from '@/renderer/app/state';
 import type { AgentSession, Swarm, SwarmAgent } from '@/shared/types';
+import { deriveStatus, type SessionStatus } from './swarm-status';
 
 // ─── Phase synthesis ──────────────────────────────────────────────────────────
 
@@ -49,36 +50,8 @@ function phaseSort(a: string, b: string): number {
 }
 
 // ─── Status derivation ────────────────────────────────────────────────────────
-// Mirrors the color map in RoleRoster.tsx (~line 273–282).
-
-type AgentStatus = SwarmAgent['status'];
-type SessionStatus = AgentSession['status'];
-
-/** Combine swarm-agent status + PTY session status into a display status. */
-function deriveStatus(
-  agentStatus: AgentStatus,
-  sessionStatus?: SessionStatus,
-): { label: string; color: string; glyph: string } {
-  // PTY error / exit takes precedence over agent-level status for display.
-  if (sessionStatus === 'error') {
-    return { label: 'error', color: '#ef4444', glyph: '✕' };
-  }
-  if (sessionStatus === 'exited') {
-    return { label: 'exited', color: '#0ea5e9', glyph: '■' };
-  }
-  switch (agentStatus) {
-    case 'error':
-      return { label: 'error', color: '#ef4444', glyph: '✕' };
-    case 'busy':
-      return { label: 'busy', color: '#22c55e', glyph: '▶' };
-    case 'blocked':
-      return { label: 'blocked', color: '#f59e0b', glyph: '⏸' };
-    case 'done':
-      return { label: 'done', color: '#0ea5e9', glyph: '■' };
-    default:
-      return { label: 'idle', color: '#71717a', glyph: '○' };
-  }
-}
+// `deriveStatus` lives in ./swarm-status so the Sigma rail Canvas can reuse it
+// without tripping react-refresh/only-export-components on this component file.
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

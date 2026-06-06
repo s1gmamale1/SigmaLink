@@ -12,10 +12,11 @@
 > fallback, found during operator testing. Per this doc's convention, shipped work is deleted from the
 > whiteboard (full record → `CHANGELOG.md`).
 >
-> **What's left (this file):** ① the low-sev hotlist — **DEV-6 + DEV-8 IN PROGRESS** (unblocked now that
-> the RAM PR landed), DEV-7 log-noise residual, PERF-RAM-2 verify · ② the one remaining feature phase,
-> **Phase 9 — Orchestration & memory surfacing** · ③ the **deferred XL** big-bangs (Canvas, multi-window,
-> Tauri eval). **v2.0.0 tag** awaits only the operator visual smokes (N1 · N2 · N3).
+> **What's left (this file):** ① **Phase 9 Packet 9B** — the net-new remainder of the orchestration phase
+> (**BSP-O3** Automations nav + **BSP-O4** Artifacts / named sessions; needs a migration `0036` + an
+> "Automations" scope decision) · ② the **deferred XL** big-bangs (Canvas, multi-window, Tauri eval).
+> **v2.0.0 tag** awaits only the operator visual smokes (N1 · N2 · N3). The low-sev hotlist is CLEARED
+> and **Phase 9 Packet 9A** (BSP-O1/O2/O5 — the phase DoD core) has shipped (see below).
 
 This ROADMAP is the single source of truth for what to build next.
 
@@ -34,6 +35,7 @@ This ROADMAP is the single source of truth for what to build next.
 - **#119 — SMK-1 + DEV-7 (HMR).** opencode session scoping joins the Option-B whitelist; opt-in `pnpm electron:dev:hmr` real dev-server/HMR launcher (the known-good `electron:dev` left intact).
 - **#121 — boot-restore reliability hotfix.** Black-panes **race** (restore IPC arriving after `state.ready`; a `restoreTick` nonce re-runs the drain) + in-place **stale-session** fallback (`prepareClaudeResume` now stats the JSONL even in-place → falls back to `--continue` instead of `claude --resume <ghost-id>`). +2 regression tests. Latent race exposed by Phase-0's awaited boot-sweep — affected every install.
 - **#123 — DEV-6 + DEV-8.** zod input schemas for all 49 un-schemed IPC channels (boot "no zod schema entry" warning → 0; conservative, so live `enforce` mode never rejects valid IPC; +2 coverage tests) + bundle hygiene (static `SkillsTab` import, `ease-smooth` token, chunk-limit → **warning-free build**).
+- **Phase 9 Packet 9A — Sigma panel + routing trace + 1-click graph (BSP-O1/O2/O5).** The phase DoD core: a persistent `'sigma'` right-rail tab → `SigmaPanel` (Canvas = numbered swarm-agent to-dos with shared `deriveStatus` glyphs + a swarm-aggregated live token delta; Review = the live routing/tool trace, reusing `ToolCallInspector` on the `assistant:tool-trace` broadcast); plus the memory graph made ≤1 click via a ⌘K "Open memory graph" command, a persistent breadcrumb button, and a `pendingMemoryGraphView` nonce. 2 disjoint worktree lanes + Opus integration review (6 fixes: shared `swarm-status.ts` extraction, first-poll token-spike seed, off-tab poll gate, Review caption/sizing, baseline pruning, switcher test). Renderer-only; no migration.
 
 ---
 
@@ -52,14 +54,17 @@ All four items resolved. **DEV-6** + **DEV-8** shipped (#123); the remaining two
 
 ---
 
-## Phase 9 — Orchestration & memory surfacing
-**Goal.** The Sigma orchestrator + Ruflo memory are first-class persistent surfaces.
-**Deliverables.** **BSP-O1** persistent chrome-level "Sigma" rail panel (Canvas: numbered to-dos + live token delta + Review tab) · **BSP-O2** live routing trace · **BSP-O3** "Automations" nav · **BSP-O4** "Artifacts" + per-conversation named sessions · **BSP-O5** surface the Ruflo graph prominently.
-**Why now.** The sole remaining feature phase; defends our shipped strengths (C-7, MEM-1 graph) before competitors ship the equivalent.
-**Scope.** Extract `operator-console/OrchestratorPanel.tsx` → `right-rail/*` persistent tab; Canvas from `shared/orchestrator-tasks.ts`/`plan-capsule.ts`; routing trace from Ruflo `hooks_route`; Artifacts in `core/memory/*`.
-**Findings + recommendation.** O1 is a relocation+persistence packet, not a rebuild; O3/O4 net-new medium.
-**Risks.** Right-rail real-estate contention → tabbed rail + collapse when narrow.
-**Definition of done.** Sigma panel persists across layouts with live to-dos + token delta; a routing decision is visible; the graph is ≤1 click from any room; `tsc -b` · vitest · lint · build green.
+## Phase 9 Packet 9B — Automations & Artifacts (net-new remainder)
+> Packet 9A (BSP-O1/O2/O5 — the DoD core) **shipped** (see "Shipped since last refresh"). 9B is the
+> net-new tail, split out per the DDD small-per-packet rule: it needs a DB migration and a product fork.
+
+**Goal.** Sigma's automations and a conversation's outputs are first-class, named, browsable surfaces.
+**Deliverables.** **BSP-O3** an "Automations" nav surface · **BSP-O4** an "Artifacts" surface + per-conversation/-session **named** sessions.
+**Why now.** Rounds out the orchestration phase; the only feature work left after 9A.
+**Scope.** O3 is **greenfield** (recon: no automations registry exists — only `DailyScheduler` (internal), the Telegram bridge (Settings-only), and Ruflo daemon `workflow_*`/`cron_*` MCP tools with no renderer surface) → add a nav room via the 5-file pattern (`state.types.ts` → `room-loaders.ts` → `App.tsx` → `rooms-menu-items.ts` → feature dir). O4 named sessions = migration **`0036`** adding `name TEXT` to `agent_sessions` (latest migration is `0035`) + an RPC to set/clear + a pane-header/ctx-menu input; Artifacts = a new index over worktree fs / `sessionCheckpoints.label` / `boards`.
+**Findings + recommendation.** Both net-new. **OPEN DECISION (disambiguate with operator before coding O3):** what "Automations" *is* — (a) surface the existing Telegram bridge + DailyScheduler as a read/manage list, (b) expose Ruflo's `workflow_*`/`cron_*` MCP tools through a new RPC controller + room, or (c) a brand-new user-composed "recipe" concept. Pick before building.
+**Risks.** Scope creep on a greenfield O3 → bind to one of (a)/(b)/(c) first. Migration `0036` follows the H-7 transactional-runner + status-aware-index precedents.
+**Definition of done.** An "Automations" destination is reachable from the rooms nav and lists real automations; a session/conversation can be given a persistent name that survives resume; an Artifacts surface lists a conversation's outputs; `tsc -b` · vitest · lint · build green.
 
 ---
 
@@ -108,10 +113,11 @@ Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per
 
 | Item | Phase | Effort | Impact | Notes |
 |------|-------|--------|--------|-------|
-| Orchestration + memory (O1–O5) | 9 | L | Med-High | Relocate C-7 + surface graph; **sole remaining feature work** |
+| ~~Sigma panel + routing trace + 1-click graph (O1/O2/O5)~~ | 9A | ~~M~~ | Med-High | ✅ SHIPPED — Sigma rail tab + live trace + graph ≤1 click |
+| Automations + Artifacts/named sessions (O3/O4) | 9B | M | Med | Net-new; migration `0036` + an "Automations" scope decision first; **only feature work left** |
 | Canvas mode (P4) / Multi-window (P6) / Tauri eval | deferred | XL | — | Big-bang, separate cycles |
 
-*(Hotlist cleared: DEV-6/DEV-8 shipped #123; PERF-RAM-2 + DEV-7-residual verified no-op.)*
+*(Hotlist cleared: DEV-6/DEV-8 shipped #123; PERF-RAM-2 + DEV-7-residual verified no-op. Phase 9A shipped O1/O2/O5.)*
 
 ## When an item ships
 → move its one-line note to `CHANGELOG.md` + the master-memory project entry + (reusable lessons) Ruflo AgentDB; mark it promoted/struck in `WISHLIST.md`; delete it from this whiteboard. Keep `WISHLIST.md` for new raw findings.

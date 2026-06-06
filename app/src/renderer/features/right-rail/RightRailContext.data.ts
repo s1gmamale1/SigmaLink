@@ -5,7 +5,7 @@
 
 import { createContext, useContext } from 'react';
 
-export type RightRailTabId = 'browser' | 'editor' | 'jorvis' | 'skills' | 'swarm';
+export type RightRailTabId = 'browser' | 'editor' | 'jorvis' | 'skills' | 'swarm' | 'sigma';
 
 export const KV_TAB = 'rightRail.tab';
 // Per-workspace panel id for the open/closed state.
@@ -17,14 +17,16 @@ export const VALID_TABS: ReadonlySet<RightRailTabId> = new Set([
   'jorvis',
   'skills',
   'swarm',
+  'sigma',
 ]);
 
 /**
- * Backward-compat: persisted KV may hold `'sigma'` from before the v1.8.x
- * Jorvis rename. Map it to the current tab id so the rail opens correctly.
+ * Backward-compat normalizer for persisted KV tab ids. Pre-v1.8.x stored
+ * `'sigma'` for the assistant tab (now called 'jorvis'). BSP-O1 introduces a
+ * NEW `'sigma'` tab, so the old redirect is removed — persisted `'sigma'`
+ * values now correctly resolve to the new Sigma panel.
  */
 export function normalizeTabId(value: string): string {
-  if (value === 'sigma') return 'jorvis';
   return value;
 }
 

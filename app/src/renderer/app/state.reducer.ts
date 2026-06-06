@@ -586,6 +586,11 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       };
     case 'SET_PENDING_RUFLO_VIEW':
       return { ...state, pendingRufloView: action.entry };
+    case 'SET_PENDING_MEMORY_GRAPH_VIEW':
+      // BSP-O5 — set or clear the one-shot graph-tab signal. No-op when the
+      // value is already identical, mirroring the SET_SETTINGS_TAB guard.
+      if (state.pendingMemoryGraphView === action.pending) return state;
+      return { ...state, pendingMemoryGraphView: action.pending };
     case 'SET_SETTINGS_TAB':
       // ONB-1 — stage a Settings tab requested from outside the room (the
       // Voice spotlight deep-link). SettingsRoom consumes + clears it on mount.
