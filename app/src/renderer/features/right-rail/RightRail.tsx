@@ -44,6 +44,14 @@ const SwarmRailTab = lazy(() =>
   })),
 );
 
+// BSP-O1 — Sigma orchestrator panel (Canvas + Review sub-tabs). Lazy-loaded;
+// kept alive once activated using the same latch pattern as SwarmRailTab.
+const SigmaPanel = lazy(() =>
+  import('./SigmaPanel').then((m) => ({
+    default: m.SigmaPanel,
+  })),
+);
+
 // Bundle-lazy: BrowserRoom (TabStrip, BrowserViewMount, BrowserRecents,
 // DesignOverlay, plus the `browser:state` listener subscription) is loaded
 // on-demand. The wrapping Suspense fallback paints a neutral placeholder
@@ -116,6 +124,11 @@ export function RightRail({ children }: Props) {
   const [swarmActivated, setSwarmActivated] = useState(activeTab === 'swarm');
   if (activeTab === 'swarm' && !swarmActivated) {
     setSwarmActivated(true);
+  }
+  // BSP-O1 — Same lazy-mount keep-alive latch for the Sigma panel.
+  const [sigmaActivated, setSigmaActivated] = useState(activeTab === 'sigma');
+  if (activeTab === 'sigma' && !sigmaActivated) {
+    setSigmaActivated(true);
   }
 
   // RSP-1 — hydrate persisted width from the per-workspace key
@@ -228,6 +241,19 @@ export function RightRail({ children }: Props) {
                 }
               >
                 <SwarmRailTab />
+              </Suspense>
+            ) : null,
+            sigma: sigmaActivated ? (
+              <Suspense
+                fallback={
+                  <div
+                    role="status"
+                    aria-label="Loading Sigma panel"
+                    className="h-full min-h-0 flex-1 animate-pulse bg-muted/30"
+                  />
+                }
+              >
+                <SigmaPanel />
               </Suspense>
             ) : null,
           }}

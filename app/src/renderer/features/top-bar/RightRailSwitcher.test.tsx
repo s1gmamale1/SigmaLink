@@ -83,7 +83,7 @@ describe('RightRailSwitcher', () => {
     cleanup();
   });
 
-  it('renders segment buttons (Browser / Editor / Jorvis / Skills / Swarm) + a settings gear', () => {
+  it('renders segment buttons (Browser / Editor / Jorvis / Skills / Swarm / Sigma) + a settings gear', () => {
     renderSwitcher();
 
     expect(screen.getByRole('tab', { name: 'Browser' })).toBeTruthy();
@@ -92,6 +92,8 @@ describe('RightRailSwitcher', () => {
     expect(screen.getByRole('tab', { name: 'Skills' })).toBeTruthy();
     // C-2/C-4 — Swarm tab registered in top-bar switcher.
     expect(screen.getByRole('tab', { name: 'Swarm' })).toBeTruthy();
+    // BSP-O1 — Sigma orchestrator panel tab registered in top-bar switcher.
+    expect(screen.getByRole('tab', { name: 'Sigma' })).toBeTruthy();
     expect(screen.getByLabelText('Settings')).toBeTruthy();
   });
 

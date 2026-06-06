@@ -94,6 +94,12 @@ export interface AppState {
   // on mount to open the read-only virtual note (the room is the only place
   // that can render a Ruflo view). `null` when nothing is pending.
   pendingRufloView: RufloEntry | null;
+  // BSP-O5 — a one-shot signal to open the Memory room directly on the graph
+  // tab. Set by the Breadcrumb "Open memory graph" button and the command
+  // palette "memory:graph" item; consumed + cleared by MemoryRoom on mount.
+  // `true` when pending, `undefined` (absent) otherwise — mirrors the
+  // `pendingSettingsTab` nonce pattern.
+  pendingMemoryGraphView?: true;
   // ONB-1 — a Settings tab requested from OUTSIDE the Settings room (e.g. the
   // Feature Spotlight "Voice" deep-link). SettingsRoom reads this on mount and
   // selects the tab, then clears it. Mirrors the `pendingRufloView` pattern.
@@ -181,6 +187,9 @@ export type Action =
   // global-⌘O — stage (or clear) a Ruflo agent-memory entry for the Memory
   // room to open as a read-only virtual note. `entry: null` clears it.
   | { type: 'SET_PENDING_RUFLO_VIEW'; entry: RufloEntry | null }
+  // BSP-O5 — stage (or clear) the one-shot graph-tab signal for MemoryRoom.
+  // `pending: true` sets it; `pending: undefined` clears it after consume.
+  | { type: 'SET_PENDING_MEMORY_GRAPH_VIEW'; pending: true | undefined }
   // ONB-1 — stage (or clear) a Settings tab to open. `tab: undefined` clears
   // it; SettingsRoom consumes it on mount and clears it after selecting.
   | { type: 'SET_SETTINGS_TAB'; tab: string | undefined }
@@ -247,6 +256,7 @@ export const initialAppState: AppState = {
   memoryGraph: {},
   activeMemoryName: {},
   pendingRufloView: null,
+  pendingMemoryGraphView: undefined,
   pendingSettingsTab: undefined,
   review: {},
   activeReviewSessionId: null,

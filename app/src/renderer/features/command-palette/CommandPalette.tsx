@@ -425,6 +425,21 @@ export function CommandPalette() {
       },
     });
 
+    // BSP-O5 — open the memory graph with 0 clicks (keyboard shortcut via
+    // palette). Disabled when no active workspace (graph requires one).
+    list.push({
+      id: 'memory:graph',
+      label: 'Open memory graph',
+      group: 'Navigate',
+      icon: Network,
+      disabled: !ws,
+      run: () => {
+        dispatch({ type: 'SET_ROOM', room: 'memory' });
+        dispatch({ type: 'SET_PENDING_MEMORY_GRAPH_VIEW', pending: true });
+        setOpen(false);
+      },
+    });
+
     // P6 FEAT-1 — on-demand subset relaunch of the active workspace's agents.
     // Disabled when no workspace is active; opening the modal lists the panes.
     list.push({

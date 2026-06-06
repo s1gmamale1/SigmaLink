@@ -13,9 +13,10 @@
 // Workspace number = 1-based index in `state.workspaces`. We deliberately
 // match V3 by counting from 1 on display ("Workspace 10").
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Network } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
-import { useAppStateSelector } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { dragStyle } from '@/renderer/lib/drag-region';
 import { IS_WIN32 } from '@/renderer/lib/platform';
 import { RufloReadinessPill } from '@/renderer/components/RufloReadinessPill';
@@ -34,9 +35,16 @@ export function Breadcrumb() {
   // PERF-3 — granular selectors: re-render only when the active workspace or
   // the persisted workspace list changes. Both are referentially-stable slices
   // (the reducer replaces them by reference), so Object.is bail-out holds.
+  const dispatch = useAppDispatch();
   const active = useAppStateSelector((s) => s.activeWorkspace);
   const workspaces = useAppStateSelector((s) => s.workspaces);
   const [userName, setUserName] = useState<string>('');
+
+  // BSP-O5 — persistent 1-click shortcut to the memory graph from any room.
+  const openMemoryGraph = useCallback(() => {
+    dispatch({ type: 'SET_ROOM', room: 'memory' });
+    dispatch({ type: 'SET_PENDING_MEMORY_GRAPH_VIEW', pending: true });
+  }, [dispatch]);
 
   // Hydrate kv on mount; if unset, peek at the path on the active workspace.
   useEffect(() => {
@@ -117,6 +125,16 @@ export function Breadcrumb() {
         — {active.name}
       </span>
       <NotificationBell />
+      {/* BSP-O5 — 1-click shortcut to the memory graph from any room. */}
+      <button
+        type="button"
+        onClick={openMemoryGraph}
+        aria-label="Open memory graph"
+        data-testid="breadcrumb-memory-graph"
+        className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+      >
+        <Network className="h-3.5 w-3.5" />
+      </button>
       <RightRailSwitcher />
       <RufloReadinessPill />
     </div>

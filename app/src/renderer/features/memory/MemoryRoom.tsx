@@ -72,6 +72,9 @@ export function MemoryRoom() {
   const activeName = useAppStateSelector((s) => (wsId ? s.activeMemoryName[wsId] ?? null : null));
   const graph = useAppStateSelector((s) => (wsId ? s.memoryGraph[wsId] ?? null : null));
   const pendingRufloView = useAppStateSelector((s) => s.pendingRufloView);
+  // BSP-O5 — one-shot signal to open on the graph tab (set by Breadcrumb button
+  // or command palette "memory:graph"; consumed + cleared here on mount).
+  const pendingMemoryGraphView = useAppStateSelector((s) => s.pendingMemoryGraphView);
 
   const [tab, setTab] = useState<Tab>('list');
   const [graphLoading, setGraphLoading] = useState(false);
@@ -257,6 +260,17 @@ export function MemoryRoom() {
       dispatch({ type: 'SET_PENDING_RUFLO_VIEW', entry: null });
     });
   }, [pendingRufloView, dispatch]);
+
+  // BSP-O5 — when the Breadcrumb button or command palette "memory:graph" item
+  // routes here, flip directly to the graph tab and clear the signal so a later
+  // remount doesn't replay it. Mirror the pendingRufloView pattern above.
+  useEffect(() => {
+    if (!pendingMemoryGraphView) return;
+    queueMicrotask(() => {
+      setTab('graph');
+      dispatch({ type: 'SET_PENDING_MEMORY_GRAPH_VIEW', pending: undefined });
+    });
+  }, [pendingMemoryGraphView, dispatch]);
 
   // Refresh graph whenever memories change AND the user is on the graph tab.
   useEffect(() => {
