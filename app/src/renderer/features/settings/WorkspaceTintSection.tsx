@@ -107,7 +107,7 @@ export function WorkspaceTintSection({ activeWorkspaceId }: WorkspaceTintSection
             aria-label={label}
             onClick={() => handleChange(hex)}
             className={cn(
-              'h-6 w-6 rounded-full border-2 transition-[transform,border-color] duration-150 ease-[var(--ease-smooth)]',
+              'h-6 w-6 rounded-full border-2 transition-[transform,border-color] duration-150 ease-smooth',
               'hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               current === hex ? 'border-ring scale-110' : 'border-transparent',
             )}
@@ -127,7 +127,7 @@ export function WorkspaceTintSection({ activeWorkspaceId }: WorkspaceTintSection
           {/* Visible swatch that opens the native color picker on click */}
           <div
             className={cn(
-              'h-6 w-6 cursor-pointer rounded-full border-2 transition-[transform,border-color] duration-150 ease-[var(--ease-smooth)]',
+              'h-6 w-6 cursor-pointer rounded-full border-2 transition-[transform,border-color] duration-150 ease-smooth',
               'hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               !PRESETS.some((p) => p.hex === current) ? 'border-ring scale-110' : 'border-dashed border-border',
             )}
