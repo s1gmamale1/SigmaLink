@@ -282,6 +282,18 @@ describe('prepareClaudeResume — failure & fallback paths', () => {
     expect(outcome).toBe('skipped');
   });
 
+  it('returns "missing" for an in-place workspace when the conversation JSONL is absent', async () => {
+    // Issue A regression: an in-place workspace (workspaceCwd === worktreeCwd)
+    // whose conversation was deleted/aged out must report 'missing' so the
+    // caller falls back to `--continue` instead of `claude --resume <ghost-id>`
+    // (which prints "No conversation found with session ID …" and drops to a
+    // shell). Previously this returned 'skipped' unconditionally → ghost resume.
+    const cwd = '/tmp/ws-inplace-missing';
+    // NOTE: no seedSourceJsonl — the JSONL does not exist on disk.
+    const outcome = await prepareClaudeResume(cwd, cwd, VALID_UUID, { homeDir });
+    expect(outcome).toBe('missing');
+  });
+
   it('returns "skipped" when the session id is not UUID-shaped', async () => {
     const outcome = await prepareClaudeResume(
       '/tmp/ws',

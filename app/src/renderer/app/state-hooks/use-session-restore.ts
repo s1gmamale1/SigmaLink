@@ -10,7 +10,7 @@
 //   4. `app:session-snapshot` emitter: debounced 250ms snapshot writer that
 //      fires whenever the active workspace or room actually changes.
 
-import { useEffect, useMemo, useRef, type Dispatch } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
 import { toast } from 'sonner';
 import { rpc } from '../../lib/rpc';
 import type { Workspace } from '../../../shared/types';
@@ -56,10 +56,22 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
   // the listener can attach immediately (don't miss the event if main
   // pushes before our effect runs).
   const pendingRestoreRef = useRef<PendingRestore | null>(null);
+  // The ref above buffers an EARLY-arriving payload (event fires before the
+  // drain effect first runs). But a ref update does NOT re-run the drain
+  // effect, so a LATE-arriving payload (event fires AFTER the drain already ran
+  // with `state.ready === true`) would never be processed — resume never fires,
+  // panes stay black. (Phase-0 `d384b0e` awaits the boot worktree-sweep before
+  // opening the window, which delays this IPC past workspaces-ready, making the
+  // late case the common one on any install with worktrees.) Bump this nonce
+  // when the payload lands so the drain effect re-runs in BOTH orderings.
+  const [restoreTick, setRestoreTick] = useState(0);
   useEffect(() => {
     const off = window.sigma.eventOn('app:session-restore', (raw: unknown) => {
       const parsed = parseSessionRestore(raw);
-      if (parsed) pendingRestoreRef.current = parsed;
+      if (parsed) {
+        pendingRestoreRef.current = parsed;
+        setRestoreTick((t) => t + 1);
+      }
     });
     return off;
   }, []);
@@ -225,7 +237,7 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
       });
     });
     pendingRestoreRef.current = null;
-  }, [state.ready, state.workspaces, dispatch]);
+  }, [state.ready, state.workspaces, dispatch, restoreTick]);
 
   // BUG-V1.1.2-02 — Persist on change. Every time the active workspace or
   // room actually changes, fire-and-forget `app:session-snapshot` so the

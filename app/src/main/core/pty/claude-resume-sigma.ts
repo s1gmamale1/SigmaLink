@@ -287,13 +287,29 @@ export async function prepareClaudeResume(
   if (!isSafeAbsolutePath(workspaceCwd)) return 'skipped';
   if (!isSafeAbsolutePath(worktreeCwd)) return 'skipped';
   if (!isClaudeSessionId(sessionId)) return 'skipped';
-  if (workspaceCwd === worktreeCwd) return 'skipped';
 
   const homeDir = deps.homeDir ?? os.homedir();
   const platform = deps.platform ?? process.platform;
   const workspaceSlug = claudeSlugForCwd(workspaceCwd);
-  const worktreeSlug = claudeSlugForCwd(worktreeCwd);
   const sourcePath = jsonlPathFor(homeDir, workspaceSlug, sessionId);
+
+  // In-place workspace (slugs identical, e.g. no-worktree mode): there is
+  // nothing to bridge, BUT the conversation JSONL must still exist in that slug.
+  // If it was deleted / aged out, `claude --resume <id>` prints "No conversation
+  // found with session ID: <id>" and drops to a bare shell. Treat an absent
+  // JSONL as 'missing' so the caller falls back to `--continue` instead of
+  // resuming a ghost id. (Surfaced once the boot-restore race fix made in-place
+  // panes actually resume — previously this returned 'skipped' unconditionally.)
+  if (workspaceCwd === worktreeCwd) {
+    try {
+      await fs.promises.stat(sourcePath);
+      return 'skipped';
+    } catch {
+      return 'missing';
+    }
+  }
+
+  const worktreeSlug = claudeSlugForCwd(worktreeCwd);
   const targetPath = jsonlPathFor(homeDir, worktreeSlug, sessionId);
 
   // Step 2 — source must exist; otherwise caller falls back to --continue.
