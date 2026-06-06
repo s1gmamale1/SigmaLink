@@ -44,7 +44,10 @@ export type RoomId =
   | 'jorvis'
   | 'settings'
   // BSP-G2 — repo-level Git panel (Changes, History, Branches).
-  | 'git';
+  | 'git'
+  // BSP-O3 — Automations dashboard (Telegram remote + nightly digest).
+  // Global room: reachable without an active workspace.
+  | 'automations';
 
 export interface AppState {
   ready: boolean;

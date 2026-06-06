@@ -58,6 +58,8 @@ const JorvisRoom = lazy(ROOM_LOADERS.jorvis!);
 const SigmaBenchRoom = lazy(ROOM_LOADERS.sigmabench!);
 // BSP-G2 — repo-level Git panel.
 const GitRoom = lazy(ROOM_LOADERS.git!);
+// BSP-O3 — Automations dashboard (Telegram remote + nightly digest).
+const AutomationsRoom = lazy(ROOM_LOADERS.automations!);
 
 // Lightweight placeholder rendered while a lazy room module is downloading.
 // A calm centered spinner on the theme surface — NOT a full-bleed `bg-accent`
@@ -137,6 +139,9 @@ function RoomSwitch() {
       break;
     case 'git':
       body = <GitRoom />;
+      break;
+    case 'automations':
+      body = <AutomationsRoom />;
       break;
     default:
       body = null;

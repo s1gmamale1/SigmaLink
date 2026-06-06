@@ -15,7 +15,9 @@ import { selectActiveWorkspace, type Action, type AppState, type RoomId } from '
  * v1.4.2 — added 'settings' to fix the "click workspace after visiting
  * Settings stays on Settings" bug.
  */
-const GLOBAL_ROOMS: readonly RoomId[] = ['workspaces', 'settings'] as const;
+// BSP-O3 — 'automations' is a global surface (Telegram + digest are
+// workspace-independent), so it must NOT be remembered per-workspace.
+const GLOBAL_ROOMS: readonly RoomId[] = ['workspaces', 'settings', 'automations'] as const;
 
 function isGlobalRoom(room: RoomId): boolean {
   return (GLOBAL_ROOMS as readonly string[]).includes(room);

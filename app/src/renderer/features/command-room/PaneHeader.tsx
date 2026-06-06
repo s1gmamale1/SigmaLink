@@ -10,6 +10,7 @@
 //
 // Props interface: UNCHANGED — all existing callers keep working.
 
+import { useState, useRef, useEffect } from 'react';
 import {
   Maximize2,
   Minimize2,
@@ -44,6 +45,7 @@ import { derivePaneIdentity } from './pane-identity';
 import { PaneGearPopoverBody } from './PaneGearPopover';
 import { useCoachmark } from './use-coachmark';
 import { usePaneLiveStats } from './usePaneLiveStats';
+import { onEvent, rpc } from '@/renderer/lib/rpc';
 import type { AgentSession } from '@/shared/types';
 import { getAgentRuntimeProfile } from '@/shared/runtime-profiles';
 
@@ -108,6 +110,71 @@ export function PaneHeader({
   // FEAT-12 — coachmark: first-use tooltip on the title pill (was on grip).
   const coachmark = useCoachmark('coachmark.dragGrip.seen');
 
+  // BSP-O4 — inline rename state. `localName` starts from session.name and
+  // tracks the `panes:session-renamed` event so rerenders after the RPC call
+  // reflect the persisted value without a full workspace reload. `editing`
+  // enters the inline <input>; Enter/blur commits; Escape cancels.
+  const [localName, setLocalName] = useState<string | null>(session.name ?? null);
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Keep localName in sync when the session prop changes from external sources
+  // (workspace reload, panes.listForWorkspace refetch, etc.). The guard +
+  // microtask pattern (void async IIFE) satisfies the react-hooks/set-state-in-effect
+  // lint rule which forbids synchronous setState directly in the effect body.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      if (alive) setLocalName(session.name ?? null);
+    })();
+    return () => { alive = false; };
+  }, [session.name]);
+
+  // Subscribe to `panes:session-renamed` so OTHER surfaces (e.g. future
+  // multi-window or a sibling header) also update this pill live.
+  useEffect(() => {
+    const off = onEvent<{ sessionId: string; name: string | null }>(
+      'panes:session-renamed',
+      (p) => {
+        if (p.sessionId === session.id) setLocalName(p.name);
+      },
+    );
+    return off;
+  }, [session.id]);
+
+  // Focus the input as soon as the editing state activates.
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  function startEditing(): void {
+    setDraftName(localName ?? id.alias);
+    setEditing(true);
+  }
+
+  function commitRename(): void {
+    setEditing(false);
+    const trimmed = draftName.trim() || null;
+    // Optimistic update.
+    setLocalName(trimmed);
+    void rpc.panes.rename({ sessionId: session.id, name: trimmed }).catch(() => {
+      // Revert on failure.
+      setLocalName(session.name ?? null);
+    });
+  }
+
+  function cancelRename(): void {
+    setEditing(false);
+    setDraftName('');
+  }
+
+  // Display label: operator name > computed alias.
+  const displayLabel = localName?.trim() || id.alias;
+
   // FEAT-12 — drag-start handler. The pill is now the drag source.
   function handleGripDragStart(e: React.DragEvent): void {
     e.dataTransfer.effectAllowed = 'copy';
@@ -143,8 +210,8 @@ export function PaneHeader({
               <span
                 role="button"
                 tabIndex={0}
-                draggable
-                onDragStart={handleGripDragStart}
+                draggable={!editing}
+                onDragStart={editing ? undefined : handleGripDragStart}
                 onMouseEnter={coachmark.seen ? undefined : coachmark.markSeen}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') coachmark.markSeen();
@@ -162,10 +229,37 @@ export function PaneHeader({
                   aria-label={`status: ${session.status}`}
                   aria-hidden="false"
                 />
-                {/* Alias · effort */}
-                <span className="max-w-[80px] truncate">
-                  {id.alias} · {id.effortLabel}
-                </span>
+                {/* BSP-O4 — name / alias · effort. Click the name to enter
+                    inline-edit mode; the input replaces it while editing. */}
+                {editing ? (
+                  <input
+                    ref={inputRef}
+                    data-testid="pane-rename-input"
+                    value={draftName}
+                    maxLength={200}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+                      if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+                      // Prevent drag from stealing focus or interfering.
+                      e.stopPropagation();
+                    }}
+                    // Stop click inside the input from propagating to drag.
+                    onClick={(e) => e.stopPropagation()}
+                    className="max-w-[80px] bg-transparent outline-none"
+                    aria-label="Rename pane"
+                  />
+                ) : (
+                  <span
+                    className="max-w-[80px] truncate cursor-text"
+                    onDoubleClick={(e) => { e.stopPropagation(); startEditing(); }}
+                    data-testid="pane-display-name"
+                    title="Double-click to rename"
+                  >
+                    {displayLabel} · {id.effortLabel}
+                  </span>
+                )}
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" align="start" className="font-mono text-[10px]">

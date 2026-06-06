@@ -34,10 +34,11 @@ import {
 } from '@/renderer/app/state';
 
 describe('ROOMS_MENU_ITEMS', () => {
-  it('exposes the 12-room sidebar inventory verbatim', () => {
+  it('exposes the 13-room sidebar inventory verbatim', () => {
     const ids: RoomId[] = ROOMS_MENU_ITEMS.map((item) => item.id);
     // ROOMS_MENU_ITEMS is the single source of truth for the room menu.
     // C-12 added the SigmaBench room after Skills.
+    // BSP-O3 added the Automations room after Settings.
     expect(ids).toEqual([
       'workspaces',
       'command',
@@ -51,6 +52,7 @@ describe('ROOMS_MENU_ITEMS', () => {
       'sigmabench',
       'jorvis',
       'settings',
+      'automations',
     ]);
   });
 
@@ -84,15 +86,17 @@ describe('isRoomDisabled', () => {
 
   // Mirror of Sidebar.tsx line ~186: Workspaces / Settings / Skills / Jorvis
   // remain reachable so the user can recover from a "no workspace" state.
-  it('keeps Workspaces / Settings / Skills / Jorvis enabled with no workspace', () => {
-    const alwaysEnabled: RoomId[] = ['workspaces', 'settings', 'skills', 'jorvis'];
+  // BSP-O3: Automations is also global (no workspace required).
+  it('keeps Workspaces / Settings / Skills / Jorvis / Automations enabled with no workspace', () => {
+    const alwaysEnabled: RoomId[] = ['workspaces', 'settings', 'skills', 'jorvis', 'automations'];
     for (const id of alwaysEnabled) {
       expect(isRoomDisabled(id, false)).toBe(false);
     }
   });
 
   it('disables every other room when no workspace is active', () => {
-    const alwaysEnabled = new Set<RoomId>(['workspaces', 'settings', 'skills', 'jorvis']);
+    // BSP-O3: Automations added to the always-enabled set (global room).
+    const alwaysEnabled = new Set<RoomId>(['workspaces', 'settings', 'skills', 'jorvis', 'automations']);
     for (const item of ROOMS_MENU_ITEMS) {
       if (alwaysEnabled.has(item.id)) continue;
       expect(isRoomDisabled(item.id, false)).toBe(true);

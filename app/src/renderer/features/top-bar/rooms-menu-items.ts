@@ -14,6 +14,7 @@ import {
   Sparkles,
   Terminal,
   Wand2,
+  Zap,
 } from 'lucide-react';
 import type { RoomId } from '@/renderer/app/state';
 
@@ -38,6 +39,8 @@ export const ROOMS_MENU_ITEMS: readonly RoomMenuItem[] = [
   { id: 'sigmabench', label: 'SigmaBench', icon: Gauge },
   { id: 'jorvis', label: 'Jorvis', icon: Bot },
   { id: 'settings', label: 'Settings', icon: Settings },
+  // BSP-O3 — Automations dashboard. Global (no workspace required).
+  { id: 'automations', label: 'Automations', icon: Zap },
 ];
 
 // Mirror of Sidebar.tsx line ~186: Workspaces / Settings / Skills / Jorvis
@@ -49,6 +52,8 @@ export function isRoomDisabled(roomId: RoomId, hasActiveWorkspace: boolean): boo
     roomId !== 'workspaces' &&
     roomId !== 'settings' &&
     roomId !== 'skills' &&
-    roomId !== 'jorvis'
+    roomId !== 'jorvis' &&
+    // BSP-O3 — Automations is global (Telegram + digest are workspace-independent).
+    roomId !== 'automations'
   );
 }

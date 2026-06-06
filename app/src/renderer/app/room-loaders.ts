@@ -73,6 +73,11 @@ export const ROOM_LOADERS: Partial<Record<RoomId, RoomImport>> = {
     import('@/renderer/features/git/GitRoom').then((m) => ({
       default: m.GitRoom,
     })),
+  // BSP-O3 — Automations dashboard (Telegram remote bridge + nightly digest).
+  automations: () =>
+    import('@/renderer/features/automations/AutomationsRoom').then((m) => ({
+      default: m.AutomationsRoom,
+    })),
 };
 
 /**

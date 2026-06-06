@@ -86,6 +86,8 @@ export const agentSessions = sqliteTable(
     splitDirection: text('split_direction', { enum: ['horizontal', 'vertical'] }),
     splitIndex: integer('split_index'),
     minimised: integer('minimised').notNull().default(0),
+    // BSP-O4 — operator-supplied display name. NULL = use computed alias.
+    name: text('name'),
   },
   (t) => ({
     wsIdx: index('agent_sessions_ws_idx').on(t.workspaceId),

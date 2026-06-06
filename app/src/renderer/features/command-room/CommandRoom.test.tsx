@@ -63,6 +63,17 @@ vi.mock('@/renderer/lib/rpc', () => ({
       kill: (...args: unknown[]) => ptyKillMock(...args),
       write: (...args: unknown[]) => ptyWriteMock(...args),
     },
+    panes: {
+      rename: vi.fn(() => Promise.resolve({ ok: true })),
+      setDisplayProvider: vi.fn(() => Promise.resolve({ ok: true })),
+      brief: vi.fn(() => Promise.resolve()),
+    },
+    git: {
+      listCheckpoints: vi.fn(() => Promise.resolve([])),
+    },
+    usage: {
+      sessionSummary: vi.fn(() => Promise.resolve({ inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, totalCostUsd: null, turnCount: 0 })),
+    },
     app: {
       revealInFolder: vi.fn(),
       openShell: vi.fn(),
@@ -78,7 +89,10 @@ vi.mock('@/renderer/lib/rpc', () => ({
     // PaneHeader drag-grip coachmark (FEAT-12) + git-activity strip (FEAT-8) read via rpcSilent.
     kv: { get: vi.fn(() => Promise.resolve(null)), set: vi.fn(() => Promise.resolve()) },
     git: { activityLog: vi.fn(() => Promise.resolve([])) },
+    ruflo: { daemonStatus: vi.fn(() => Promise.resolve([]) ) },
   },
+  // BSP-O4: PaneHeader + CheckpointPanel subscribe via onEvent.
+  onEvent: vi.fn(() => () => undefined),
 }));
 
 // Minimal app-state mock. Each test seeds the slice it cares about via

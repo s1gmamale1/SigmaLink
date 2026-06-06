@@ -9,6 +9,7 @@ import {
   Bot,
   Command as CommandIcon,
   Folder,
+  Gauge,
   GitBranch,
   Globe,
   ListChecks,
@@ -117,6 +118,11 @@ const ROOM_DEFS: Array<{ id: RoomId; label: string; icon: PaletteCommand['icon']
   // V3-W13-012 — Jorvis Assistant standalone room shortcut.
   { id: 'jorvis', label: 'Jorvis', icon: Bot },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
+  // BSP-G2 / SigmaBench / BSP-O3 — were missing from the palette's nav list
+  // (subset-of-RoomId is type-legal, so the gate never caught it).
+  { id: 'git', label: 'Git', icon: GitBranch },
+  { id: 'sigmabench', label: 'SigmaBench', icon: Gauge },
+  { id: 'automations', label: 'Automations', icon: Zap },
 ];
 
 export function CommandPalette() {

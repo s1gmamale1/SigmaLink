@@ -189,6 +189,10 @@ export function loadAgentSession(sessionId: string): AgentSession | null {
     splitDirection: (row.splitDirection as AgentSession['splitDirection']) ?? null,
     splitIndex: row.splitIndex ?? null,
     minimised: !!row.minimised,
+    // BSP-O4 — operator-supplied display name (migration 0036). Drizzle maps
+    // the nullable TEXT column to `string | null`; both null and undefined are
+    // normalised to null so the renderer receives a consistent shape.
+    name: row.name ?? null,
   };
 }
 
