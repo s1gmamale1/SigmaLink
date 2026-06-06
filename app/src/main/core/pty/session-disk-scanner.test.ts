@@ -580,6 +580,42 @@ describe('listSessionsInCwd — OpenCode', () => {
   });
 });
 
+// SMK-1 residual — OpenCode partitions by cwd, but two workspaces sharing one
+// cwd (in-place / DEV-W3a same-dir mode) can't be told apart by cwd alone.
+// `workspaceId` now applies the Option-B whitelist (shared with codex/kimi/
+// gemini); without it every same-cwd session is returned (backward compat).
+describe('listSessionsInCwd — OpenCode workspace scoping (SMK-1)', () => {
+  it('scopes to the workspace whitelist when workspaceId is provided', async () => {
+    const now = 1_700_000_000_000;
+    const rows = [
+      { id: 'oc-mine', directory: '/tmp/proj', updated: now - 60_000, title: 'Mine' },
+      { id: 'oc-foreign', directory: '/tmp/proj', updated: now - 1_000, title: 'Foreign' },
+    ];
+    const sessions = await listSessionsInCwd('opencode', '/tmp/proj', {
+      homeDir: tmpHome,
+      workspaceId: 'ws-current',
+      db: whitelistDb(['oc-mine']),
+      runOpencodeList: async () => JSON.stringify(rows),
+    });
+    // Foreign shares the cwd and is newer (would be items[0] unscoped) but the
+    // whitelist filters it out — the SMK-1 fix.
+    expect(sessions.map((s) => s.id)).toEqual(['oc-mine']);
+  });
+
+  it('returns every same-cwd session when no workspaceId is provided (backward compat)', async () => {
+    const now = 1_700_000_000_000;
+    const rows = [
+      { id: 'oc-a', directory: '/tmp/proj', updated: now - 60_000 },
+      { id: 'oc-b', directory: '/tmp/proj', updated: now - 1_000 },
+    ];
+    const sessions = await listSessionsInCwd('opencode', '/tmp/proj', {
+      homeDir: tmpHome,
+      runOpencodeList: async () => JSON.stringify(rows),
+    });
+    expect(sessions.map((s) => s.id).sort()).toEqual(['oc-a', 'oc-b'].sort());
+  });
+});
+
 describe('listSessionsInCwd — provider scope', () => {
   it('returns [] for gemini (deferred to v1.3.1)', async () => {
     const sessions = await listSessionsInCwd('gemini', '/tmp/proj', { homeDir: tmpHome });
