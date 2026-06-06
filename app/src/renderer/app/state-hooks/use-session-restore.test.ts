@@ -520,3 +520,36 @@ describe('useSessionRestore — v1.4.3 ADD_SESSIONS rehydration on boot', () => 
     expect(listForWorkspaceMock).toHaveBeenCalledWith('b');
   });
 });
+
+describe('useSessionRestore — boot-restore race (late-arriving app:session-restore)', () => {
+  // Regression for the latent race exposed by Phase-0 `d384b0e`: the restore IPC
+  // can arrive AFTER the drain effect already ran with `state.ready === true`
+  // (awaiting the boot worktree-sweep delays the IPC past workspaces-ready). A
+  // ref update alone does NOT re-run the drain effect, so resume never fired →
+  // black panes. The `restoreTick` nonce must re-run the drain in this ordering.
+  // NOTE: unlike the sibling tests, this deliberately does NOT re-dispatch READY
+  // after emit — that extra dispatch was masking the very race this guards.
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('resumes when the restore payload arrives AFTER state.ready (a ref alone would not re-drain)', async () => {
+    const wsA = workspace('a');
+    // Workspaces become READY first; the drain runs once now with pending=null
+    // and returns (the early-return that used to strand the late payload).
+    await renderRestore([{ type: 'READY', workspaces: [wsA] }]);
+    expect(resumeMock).not.toHaveBeenCalled();
+
+    // IPC arrives LATE — only the nonce bump can re-trigger the drain effect.
+    act(() => {
+      sigma.emit('app:session-restore', {
+        activeWorkspaceId: 'a',
+        openWorkspaces: [{ workspaceId: 'a', room: 'command' }],
+      });
+    });
+
+    await vi.waitFor(() => {
+      expect(resumeMock).toHaveBeenCalledWith('a');
+    });
+  });
+});
