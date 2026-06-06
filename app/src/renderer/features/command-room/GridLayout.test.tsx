@@ -457,6 +457,68 @@ describe('GridLayout — DEV-L2 reflow transition', () => {
   });
 });
 
+// pane-switch jank — snap the grid (no grid-template transition) on a workspace
+// switch so the layout appears at the new workspace's proportions instantly
+// instead of animating from the previous workspace's fracs over 200ms (which
+// drove the xterm ResizeObserver to refit against every intermediate cell size
+// → "stuck for a sec" on every switch). The transition is restored after a
+// short settle so an in-workspace pane add/remove still animates.
+describe('GridLayout — pane-switch snap (no transition on workspace change)', () => {
+  const TRANSITION_RE = /transition-\[grid-template-columns,grid-template-rows\]/;
+
+  function gridFor(workspaceId: string, n = 4) {
+    const items: Item[] = Array.from({ length: n }, (_, i) => ({ id: String(i) }));
+    return (
+      <GridLayout<Item>
+        items={items}
+        getKey={(item) => item.id}
+        renderCell={renderCell}
+        activeIndex={0}
+        onActiveChange={() => undefined}
+        focusedKey={null}
+        workspaceId={workspaceId}
+      />
+    );
+  }
+
+  it('suppresses the transition on a workspace switch, then restores it after the settle', () => {
+    vi.useFakeTimers();
+    try {
+      const { container, rerender } = render(gridFor('ws-A'));
+      const grid = () => container.firstChild as HTMLElement;
+      // Fresh mount of a workspace keeps the transition (no prior workspace).
+      expect(grid().className).toMatch(TRANSITION_RE);
+
+      // Switch to a different workspace → snap (transition removed) so the
+      // grid does not animate from ws-A's proportions to ws-B's.
+      act(() => {
+        rerender(gridFor('ws-B'));
+      });
+      expect(grid().className).not.toMatch(TRANSITION_RE);
+
+      // After the settle window the transition is restored for future
+      // in-workspace reflows.
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(grid().className).toMatch(TRANSITION_RE);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the transition on an in-workspace pane add (count change still animates)', () => {
+    const { container, rerender } = render(gridFor('ws-A', 4));
+    const grid = () => container.firstChild as HTMLElement;
+    expect(grid().className).toMatch(TRANSITION_RE);
+    // Same workspace, pane count 4 → 5: this is a reflow we WANT to animate.
+    act(() => {
+      rerender(gridFor('ws-A', 5));
+    });
+    expect(grid().className).toMatch(TRANSITION_RE);
+  });
+});
+
 // Stage 2 / Lane P — P1 hover-reveal scaffolding + P2 Apple-grade active ring.
 describe('GridLayout — Stage 2 active-pane chrome (P1/P2)', () => {
   it('marks the active cell with `group` so chrome can reveal on hover/focus', () => {
