@@ -638,18 +638,28 @@ async function listKimiSessions(
  * (subprocess) to <100ms and tolerates missing CLI binaries. The subprocess
  * path is retained as a fallback in case OpenCode moves its DB or the user
  * has a non-default storage backend.
+ *
+ * SMK-1 residual — OpenCode partitions by `cwd` (the DB query + the subprocess
+ * `directory` filter), so a raw scan is already cwd-scoped. But when TWO
+ * workspaces share an identical cwd (in-place / DEV-W3a same-dir mode), cwd
+ * alone can't tell them apart. Thread `opts` so we can apply the same Option-B
+ * `workspaceAllowedIds` whitelist gemini/codex/kimi use — dropping any session
+ * not recorded in `agent_sessions` for the asking workspace. Without a
+ * `workspaceId` the scan is unchanged (whitelist is `null` → no filtering).
  */
 async function listOpencodeSessions(
   cwd: string,
   maxCount: number,
   sinceMs: number | undefined,
-  runner?: (cwd: string) => Promise<string>,
+  opts: ListSessionsOptions,
 ): Promise<SessionListItem[]> {
+  const allowedIds = await workspaceAllowedIds(opts);
   // Primary path: direct SQLite read.
   const dbRows = listOpencodeSessionsFromDb(cwd, maxCount);
   if (dbRows.length > 0) {
     const items: SessionListItem[] = [];
     for (const r of dbRows) {
+      if (allowedIds !== null && !allowedIds.has(r.id)) continue;
       // time_created/time_updated are already ms epoch in the OpenCode schema.
       if (sinceMs !== undefined && sinceMs > 0 && Date.now() - r.timeUpdated > sinceMs) {
         continue;
@@ -672,7 +682,7 @@ async function listOpencodeSessions(
   // Fallback path: legacy subprocess. Used when (a) DB read returned nothing
   // (could be schema drift, locked DB, or genuinely empty), AND (b) a runner
   // is available. Tests inject a fake runner; production uses the default.
-  const runOnce = runner ?? defaultOpencodeListRunner;
+  const runOnce = opts.runOpencodeList ?? defaultOpencodeListRunner;
   let json: string;
   try {
     json = await runOnce(cwd);
@@ -692,6 +702,7 @@ async function listOpencodeSessions(
     const r = row as Record<string, unknown>;
     const id = typeof r.id === 'string' ? r.id : null;
     if (!id) continue;
+    if (allowedIds !== null && !allowedIds.has(id)) continue;
     const directory = typeof r.directory === 'string' ? r.directory : null;
     if (directory && directory !== cwd) continue;
     const updatedRaw = r.updated;
@@ -845,7 +856,7 @@ export async function listSessionsInCwd(
     case 'kimi':
       return await listKimiSessions(homeDir, cwd, maxCount, sinceMs, opts);
     case 'opencode':
-      return await listOpencodeSessions(cwd, maxCount, sinceMs, opts.runOpencodeList);
+      return await listOpencodeSessions(cwd, maxCount, sinceMs, opts);
     case 'gemini':
       // v1.4.3-01 — disk layout now known. Sessions live at:
       //   ~/.gemini/tmp/<slug>/chats/session-YYYY-MM-DDThh-mm-<short>.jsonl

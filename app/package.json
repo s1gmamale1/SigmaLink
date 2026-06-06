@@ -18,6 +18,7 @@
     "coverage": "vitest run --coverage",
     "preview": "vite preview",
     "electron:dev": "npm run build && npm run electron:compile && electron electron-dist/main.js",
+    "electron:dev:hmr": "node scripts/dev-electron.cjs",
     "electron:build": "npm run build && npm run electron:compile && electron-builder",
     "electron:compile": "node scripts/build-electron.cjs",
     "electron:pack:win": "npm run build && npm run electron:compile && electron-builder --win",
