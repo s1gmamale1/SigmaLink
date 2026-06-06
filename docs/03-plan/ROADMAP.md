@@ -33,6 +33,7 @@ This ROADMAP is the single source of truth for what to build next.
 - **#117 + #120 — P0 RAM Brake (complete).** Lean `ruflo-core` default profile + opt-in Browser tools; admission control (total / per-workspace / MCP-heavy caps) at the spawn siblings; per-pane runtime-profile badge + live RSS readout; lane allowlists; cleanup process-tree telemetry/stop. The 69–70 GB fill class is now capped — the RAM hard-cap is no longer a tag blocker.
 - **#119 — SMK-1 + DEV-7 (HMR).** opencode session scoping joins the Option-B whitelist; opt-in `pnpm electron:dev:hmr` real dev-server/HMR launcher (the known-good `electron:dev` left intact).
 - **#121 — boot-restore reliability hotfix.** Black-panes **race** (restore IPC arriving after `state.ready`; a `restoreTick` nonce re-runs the drain) + in-place **stale-session** fallback (`prepareClaudeResume` now stats the JSONL even in-place → falls back to `--continue` instead of `claude --resume <ghost-id>`). +2 regression tests. Latent race exposed by Phase-0's awaited boot-sweep — affected every install.
+- **#123 — DEV-6 + DEV-8.** zod input schemas for all 49 un-schemed IPC channels (boot "no zod schema entry" warning → 0; conservative, so live `enforce` mode never rejects valid IPC; +2 coverage tests) + bundle hygiene (static `SkillsTab` import, `ease-smooth` token, chunk-limit → **warning-free build**).
 
 ---
 
@@ -41,16 +42,11 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## 🐞 Leftover low-sev bug hotlist (full record → `CHANGELOG.md`)
+## 🐞 Leftover low-sev bug hotlist — ✅ CLEARED
 
-| # | Sev | Bug | Where | Effort | Status |
-|---|-----|-----|-------|--------|--------|
-| DEV-6 | low | 46–50 RPC channels have no zod schema (IPC input-validation hole; extends ARCH-9) | `core/rpc/schemas.ts`, `rpc-router.ts` | M | 🔨 IN PROGRESS |
-| DEV-8 | low | Bundle hygiene: `SkillsTab` static+dynamic import; split `vendor-react`/`vendor-xterm`; `ease-[var()]` warn | `vite.config.ts`, `CommandRoom/PaneShell/RightRail.tsx` | S | 🔨 IN PROGRESS |
-| DEV-7 (residual) | low | daemon health-probe **log noise** in dev (the `electron:dev` prod-build half is ✅ done — `electron:dev:hmr` shipped #119) | `ruflo/http-daemon-supervisor.ts` | S | pending |
-| PERF-RAM-2 | needs-verify | Possible pane-close / swarm-stop reap gap — if closing a pane leaves the agent's MCP daemon alive past its pane, daemons accumulate → real leak | `core/pty/*`, `core/swarms/*` | S (verify) | pending |
-
-> **DEV-6 + DEV-8 are now unblocked** — they overlapped codex's RAM-brake files (`schemas.ts`/`rpc-router.ts`, `PaneShell.tsx`), which merged via #120. File-disjoint (DEV-6 = main/rpc · DEV-8 = renderer/vite), so they run as parallel lanes → one batch PR.
+All four items resolved. **DEV-6** + **DEV-8** shipped (#123); the remaining two were investigated and need **no code change**:
+- **PERF-RAM-2 — ✅ verified no-op.** `pty.kill()` → `stop({tree:true})` → `stopProcessTree`, which walks the **full descendant tree** (recursive `ppid→children` DFS), so the agent's MCP-server children are killed on **both** pane-close (`rpc-router` `pty.kill`) and swarm-stop (`factory-spawn` `pty.kill`). The ruflo HTTP daemon is per-workspace (stopped on workspace close / `stopAll`), not a per-pane leak. No accumulation.
+- **DEV-7 (residual) — ✅ verified no console noise.** `probeHealth` recurses **silently** while `status==='starting'` and stops once `running`; logs are once-each ("daemon ready" / a single round-trip-fail warn / the not-installed notice). Boot logs confirm zero ruflo-http spam. Re-open only if live noise is observed.
 
 *(Non-blocking follow-ups parked in `WISHLIST.md`: closed-tabs table has no GC (`listRecents` bounded but rows accumulate); the SMK-2 loop test fails via a 5s timeout rather than a fast message assertion; add `turnId` to the `ToolTrace` payload for airtight per-turn chip scoping.)*
 
@@ -112,12 +108,10 @@ Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per
 
 | Item | Phase | Effort | Impact | Notes |
 |------|-------|--------|--------|-------|
-| DEV-6 zod schema coverage (IPC hardening) | hotlist | M | Med | 🔨 in progress — 46–50 un-schemed channels |
-| DEV-8 bundle hygiene | hotlist | S | Low | 🔨 in progress — manualChunks + import unification |
-| DEV-7 residual (daemon log noise) | hotlist | S | Low | HMR script already shipped (#119) |
-| PERF-RAM-2 pane-close/swarm-stop reap gap | hotlist | S | Med-High | **Verify first** |
-| Orchestration + memory (O1–O5) | 9 | L | Med-High | Relocate C-7 + surface graph; sole remaining feature phase |
+| Orchestration + memory (O1–O5) | 9 | L | Med-High | Relocate C-7 + surface graph; **sole remaining feature work** |
 | Canvas mode (P4) / Multi-window (P6) / Tauri eval | deferred | XL | — | Big-bang, separate cycles |
+
+*(Hotlist cleared: DEV-6/DEV-8 shipped #123; PERF-RAM-2 + DEV-7-residual verified no-op.)*
 
 ## When an item ships
 → move its one-line note to `CHANGELOG.md` + the master-memory project entry + (reusable lessons) Ruflo AgentDB; mark it promoted/struck in `WISHLIST.md`; delete it from this whiteboard. Keep `WISHLIST.md` for new raw findings.
