@@ -265,6 +265,17 @@ describe('resumeWorkspacePanes', () => {
   it('appends provider resumeArgs and external session id', async () => {
     const { db, rows } = setupDb();
     insertSession(rows);
+    // Seed the conversation JSONL so the in-place resume bridge finds it and
+    // keeps `--resume <id>`. (An absent/stale JSONL now correctly falls back to
+    // --continue — that path is covered in claude-resume-sigma.test.ts.)
+    const claudeHome = makeClaudeHome();
+    const seedDir = path.join(claudeHome, '.claude', 'projects', claudeSlugForCwd('/tmp/project'));
+    fs.mkdirSync(seedDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(seedDir, `${VALID_CLAUDE_SESSION_ID}.jsonl`),
+      '{"type":"system"}\n',
+      'utf8',
+    );
     const calls: Array<{ sessionId?: string; providerId: string; command: string; args: string[] }> = [];
     const registry = {
       get: () => undefined,
@@ -289,7 +300,7 @@ describe('resumeWorkspacePanes', () => {
     const result = await resumeWorkspacePanes('ws-1', {
       pty: registry,
       db,
-      claudeHomeDir: makeClaudeHome(),
+      claudeHomeDir: claudeHome,
       getProvider: () => claudeProvider,
       resolve,
     });
