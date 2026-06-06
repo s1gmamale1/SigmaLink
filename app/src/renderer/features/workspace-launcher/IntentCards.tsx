@@ -108,7 +108,7 @@ export function IntentCards({ mode, onChange }: IntentCardsProps) {
                 // GPU-only hover lift (transform/opacity) on the smooth curve;
                 // no layout animation. focus-visible ring for keyboard users.
                 'group relative flex flex-col gap-3 rounded-xl border p-5 text-left',
-                'transition-[transform,border-color,background-color,box-shadow] duration-200 ease-[var(--ease-smooth)]',
+                'transition-[transform,border-color,background-color,box-shadow] duration-200 ease-smooth',
                 'hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 active
                   ? 'border-ring bg-accent/10 shadow-sm'

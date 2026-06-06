@@ -19,6 +19,11 @@ export default defineConfig({
     },
   },
   build: {
+    // Raise the size-warning threshold to 1 MB. The vendor-react and
+    // vendor-xterm chunks legitimately sit above the 500 kB default; they are
+    // already split via manualChunks so further sub-splitting yields no
+    // practical benefit and risks breaking code-splitting invariants.
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks(id) {

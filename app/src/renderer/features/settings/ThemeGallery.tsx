@@ -60,7 +60,7 @@ export function ThemeGallery({ current, onSelect }: ThemeGalleryProps) {
                 aria-pressed={active}
                 onClick={() => setFilter(value)}
                 className={cn(
-                  'rounded px-3 py-1 text-[12px] font-medium transition-[background-color,color,box-shadow] duration-150 ease-[var(--ease-smooth)]',
+                  'rounded px-3 py-1 text-[12px] font-medium transition-[background-color,color,box-shadow] duration-150 ease-smooth',
                   active
                     ? 'bg-accent/15 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--ring))]'
                     : 'text-muted-foreground hover:text-foreground',

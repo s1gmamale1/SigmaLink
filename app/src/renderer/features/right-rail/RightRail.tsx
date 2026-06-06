@@ -28,13 +28,13 @@ import { JorvisTabPlaceholder } from './JorvisTabPlaceholder';
 import { EditorTabPlaceholder } from './EditorTabPlaceholder';
 import { useRightRail } from './RightRailContext.data';
 
-// v1.6.1 B3 — Skills discovery tab. Lazy-loaded like BrowserRoom so its
-// import chain (rpc call + list rendering) doesn't bloat the initial bundle.
-const SkillsTab = lazy(() =>
-  import('@/renderer/features/skills/SkillsTab').then((m) => ({
-    default: m.SkillsTab,
-  })),
-);
+// v1.6.1 B3 — Skills discovery tab. Statically imported so the module is not
+// split into a separate chunk — CommandRoom.tsx and PaneShell.tsx already pull
+// in the same module synchronously (for SKILL_DRAG_MIME / SkillDragPayload),
+// which would defeat the dynamic split regardless. Keeping it static removes
+// the Rollup "dynamic import will not move module into another chunk" warning
+// while matching the actual runtime behaviour.
+import { SkillsTab } from '@/renderer/features/skills/SkillsTab';
 
 // C-2/C-4 — Swarm tab: roster + side-chat in the rail. Lazy-loaded to keep
 // the initial bundle lean; mounted once activated and kept alive.
@@ -216,19 +216,7 @@ export function RightRail({ children }: Props) {
             ) : null,
             editor: <EditorTabPlaceholder />,
             jorvis: <JorvisTabPlaceholder />,
-            skills: skillsActivated ? (
-              <Suspense
-                fallback={
-                  <div
-                    role="status"
-                    aria-label="Loading skills"
-                    className="h-full min-h-0 flex-1 animate-pulse bg-muted/30"
-                  />
-                }
-              >
-                <SkillsTab />
-              </Suspense>
-            ) : null,
+            skills: skillsActivated ? <SkillsTab /> : null,
             swarm: swarmActivated ? (
               <Suspense
                 fallback={

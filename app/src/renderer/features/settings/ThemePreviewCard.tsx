@@ -4,7 +4,7 @@
 // painted from `theme.swatch` hexes via inline style — no real `data-theme`
 // subtree (render-cost). Follows the IntentCards.tsx selectable-card idiom:
 // `<button aria-pressed>`, `border-ring bg-accent/10` selected,
-// `hover:-translate-y-0.5 transition ease-[var(--ease-smooth)]`.
+// `hover:-translate-y-0.5 transition ease-smooth`.
 //
 // Apple-design-foundations guidance applied:
 //   - Semantic card chrome tokens (border-ring, bg-accent/10, bg-card/40)
@@ -34,7 +34,7 @@ export function ThemePreviewCard({ theme, active, onSelect }: ThemePreviewCardPr
       onClick={() => onSelect(theme.id)}
       className={cn(
         'group relative flex flex-col rounded-xl border p-2.5 text-left',
-        'transition-[transform,border-color,background-color,box-shadow] duration-200 ease-[var(--ease-smooth)]',
+        'transition-[transform,border-color,background-color,box-shadow] duration-200 ease-smooth',
         'hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         active
           ? 'border-ring bg-accent/10 shadow-sm'

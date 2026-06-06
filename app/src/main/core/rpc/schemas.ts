@@ -2,10 +2,13 @@
 //
 // Goal: every IPC channel listed in `app/src/shared/rpc-channels.ts` declares
 // at minimum a placeholder zod schema here so future waves can tighten payload
-// validation without a coordination round. In dev mode the rpc-router warns
-// (console.warn) when a registered controller method has no entry in this map;
-// in production we stay silent — enforcement (reject on validation fail) is a
-// separate W13 ticket [V3-W13-XX] and **MUST NOT** flip on yet.
+// validation without a coordination round. The rpc-router warns (console.warn)
+// when a registered controller method has no entry in this map. NOTE:
+// enforcement is now LIVE — `VALIDATION_MODE = 'enforce'` (below) makes
+// `validateChannelInput` REJECT on a failed parse, so every schema here is a
+// hard runtime gate. Keep `input` permissive against the channel's real first
+// arg (mirror `router-shape.ts`; no `.strict()` unless intentional) — an
+// over-strict schema rejects valid IPC at runtime.
 //
 // Schema convention:
 //   - `input`  — parsed against the first IPC arg (most controllers take a
@@ -176,6 +179,17 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'app.checkForUpdates': stub,
   // V3-W15-005 — read the current plan tier (default 'ultra' on SigmaLink).
   'app.tier': APP_TIER_SCHEMA,
+  // DEV-6 — no-arg app channels (quit, reveal, shell, userData, banner).
+  // v1.2.4 — quitAndInstall: no renderer input (triggers auto-update install).
+  'app.quitAndInstall': { input: z.undefined().optional(), output: any },
+  // v1.4.2-06 — revealInFolder: first arg is an absolute path string.
+  'app.revealInFolder': { input: PATH_STR, output: z.object({ ok: z.boolean() }) },
+  // v1.4.2-06 — openShell: first arg is an absolute cwd string.
+  'app.openShell': { input: PATH_STR, output: z.object({ ok: z.boolean() }) },
+  // v1.4.2-06 — getUserDataPath: no input, returns the userData path string.
+  'app.getUserDataPath': { input: z.undefined().optional(), output: any },
+  // v1.4.2-06 — dismissedWorktreeBanner: no input, reads/writes a kv flag.
+  'app.dismissedWorktreeBanner': { input: z.undefined().optional(), output: any },
   // ── pty ──────────────────────────────────────────────────────────────
   // H-8 — handler is `create(input: { providerId, cwd, cols, rows, args?, env?,
   // initialPrompt? })`; first arg is the object. `env` is an opaque string map
@@ -205,6 +219,17 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
     output: z.object({ buffer: z.string() }),
   },
   'pty.subscribe': stub,
+  // DEV-6 — W-4 Phase 4 ephemeral scratch-shell channels.
+  // spawnScratch(input: { cwd: string }) — first arg is the input object.
+  'pty.spawnScratch': {
+    input: z.object({ cwd: PATH_STR }),
+    output: z.object({ scratchId: z.string() }),
+  },
+  // killScratch(input: { scratchId: string }) — first arg is the input object.
+  'pty.killScratch': {
+    input: z.object({ scratchId: z.string().min(1).max(512) }),
+    output: z.undefined().optional(),
+  },
   'pty.processStats': {
     input: z.string().min(1).max(512),
     output: z.object({
@@ -339,10 +364,45 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       }),
     ),
   },
+  // DEV-6 — panes channels missing schemas.
+  // listForWorkspace(workspaceId: string) — returns one AgentSession row per slot.
+  'panes.listForWorkspace': { input: z.string().min(1), output: any },
+  // setDisplayProvider({ sessionId, displayProviderId }) — cosmetic label override.
+  'panes.setDisplayProvider': {
+    input: z.object({
+      sessionId: z.string().min(1).max(200),
+      displayProviderId: z.string().max(120).nullable(),
+    }),
+    output: z.object({ ok: z.boolean() }),
+  },
+  // brief({ sessionId, worktreePath, capsule }) — inject a plan capsule into PTY.
+  'panes.brief': {
+    input: z.object({
+      sessionId: z.string().min(1).max(200),
+      worktreePath: z.string().max(4096).nullable(),
+      capsule: z.object({
+        goal: z.string().max(8192),
+        targetFiles: z.array(z.string().max(4096)),
+        successCriteria: z.array(z.string().max(2048)),
+        outOfScope: z.array(z.string().max(2048)),
+      }),
+    }),
+    output: any,
+  },
   // ── providers ────────────────────────────────────────────────────────
   'providers.list': stub,
   'providers.probeAll': stub,
   'providers.probe': stub,
+  // DEV-6 — v1.4.9-06 install-consent channels.
+  // spawnInstall(providerId: string) — first arg is the provider id string.
+  'providers.spawnInstall': {
+    input: z.string().min(1).max(120),
+    output: z.object({ paneId: z.string() }),
+  },
+  // setInstallConsent(providerId, decision) — validator sees first arg (providerId).
+  'providers.setInstallConsent': { input: z.string().min(1).max(120), output: any },
+  // getInstallConsent(providerId) — first arg is the provider id string.
+  'providers.getInstallConsent': { input: z.string().min(1).max(120), output: any },
   // ── workspaces ───────────────────────────────────────────────────────
   'workspaces.pickFolder': stub,
   // H-8 — handler is `open(root: string)`; first arg is the absolute repo path.
@@ -540,6 +600,9 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
     }),
     output: z.void(),
   },
+  // DEV-6 — fs channels missing schemas.
+  // getWorktreeSizes() — no input; lists worktree disk usage.
+  'fs.getWorktreeSizes': { input: z.undefined().optional(), output: any },
   // ── browser ──────────────────────────────────────────────────────────
   'browser.openTab': stub,
   'browser.closeTab': stub,
@@ -557,6 +620,30 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'browser.releaseDriver': stub,
 
   'browser.teardown': stub,
+  // DEV-6 — browser channels missing schemas (DEV-2/BSP-B4/BSP-B2).
+  // listRecents({ workspaceId, limit? }) — recently-closed tab entries.
+  'browser.listRecents': {
+    input: z.object({
+      workspaceId: z.string().min(1).max(200),
+      limit: z.number().int().positive().max(200).optional(),
+    }),
+    output: any,
+  },
+  // focusView({ workspaceId }) — forward pointer focus to the active tab.
+  'browser.focusView': {
+    input: z.object({ workspaceId: z.string().min(1).max(200) }),
+    output: any,
+  },
+  // detachToWindow({ workspaceId }) — detach active tab to a second window.
+  'browser.detachToWindow': {
+    input: z.object({ workspaceId: z.string().min(1).max(200) }),
+    output: any,
+  },
+  // reattach({ workspaceId }) — move detached view back to the main window.
+  'browser.reattach': {
+    input: z.object({ workspaceId: z.string().min(1).max(200) }),
+    output: any,
+  },
   // ── skills ───────────────────────────────────────────────────────────
   'skills.list': stub,
   'skills.ingestFolder': stub,
@@ -612,6 +699,29 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
         .optional(),
     }),
   },
+  // DEV-6 — SMK-3 / v1.7.1 W-5 skills channels missing schemas.
+  // listInstalled() — discover skills from all providers (no input).
+  'skills.listInstalled': { input: z.undefined().optional(), output: any },
+  // attach({ workspaceId, paneSessionId?, skillName, skillSource }) — INFORMATIONAL binding.
+  'skills.attach': {
+    input: z.object({
+      workspaceId: z.string().min(1).max(200),
+      paneSessionId: z.string().min(1).max(200).nullable().optional(),
+      skillName: z.string().min(1).max(512),
+      skillSource: z.string().min(1).max(512),
+    }),
+    output: any,
+  },
+  // detach({ bindingId }) — remove a skill binding by id.
+  'skills.detach': {
+    input: z.object({ bindingId: z.string().min(1).max(200) }),
+    output: any,
+  },
+  // listBindings({ workspaceId }) — all bindings for a workspace.
+  'skills.listBindings': {
+    input: z.object({ workspaceId: z.string().min(1).max(200) }),
+    output: any,
+  },
   'skills.enableForProvider': stub,
   'skills.disableForProvider': stub,
   'skills.uninstall': stub,
@@ -644,12 +754,39 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'memory.delete_memory': stub,
   'memory.search_memories': stub,
   'memory.find_backlinks': stub,
+  // DEV-6 — P4.2 MEM-7 / MEM-3 / DB-2 memory channels missing schemas.
+  // find_unlinked_mentions({ workspaceId, name }) — notes mentioning this name as plain text.
+  'memory.find_unlinked_mentions': {
+    input: z.object({
+      workspaceId: z.string().min(1).max(200),
+      name: z.string().min(1).max(512),
+    }),
+    output: any,
+  },
   'memory.list_orphans': stub,
   'memory.suggest_connections': stub,
   'memory.init_hub': stub,
   'memory.hub_status': stub,
   'memory.getGraph': stub,
   'memory.getMcpCommand': stub,
+  // DEV-6 — P4 MEM-3 tag channels and DB-2 import/export channels.
+  // list_tags({ workspaceId }) — distinct tags + note counts.
+  'memory.list_tags': {
+    input: z.object({ workspaceId: z.string().min(1).max(200) }),
+    output: any,
+  },
+  // list_by_tag({ workspaceId, tag }) — notes carrying a tag.
+  'memory.list_by_tag': {
+    input: z.object({
+      workspaceId: z.string().min(1).max(200),
+      tag: z.string().min(1).max(512),
+    }),
+    output: any,
+  },
+  // export_db() — no input; main shows save dialog and writes a DB snapshot.
+  'memory.export_db': { input: z.undefined().optional(), output: any },
+  // import_db() — no input; main shows open dialog and replaces the live DB.
+  'memory.import_db': { input: z.undefined().optional(), output: any },
   // ── review ───────────────────────────────────────────────────────────
   'review.list': stub,
   'review.getDiff': stub,
@@ -697,6 +834,32 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'assistant.dispatchPane': stub,
   'assistant.tools': stub,
   'assistant.invokeTool': stub,
+  // DEV-6 — V3-W13-013 assistant channels missing schemas.
+  // dispatchBulk(items: Array<{...}>) — first arg is the items array.
+  // Kept permissive to match the controller's self-clamping contract: it clamps
+  // count to 1–8 (`Math.max(1, Math.min(8, …))`) and returns per-item error rows
+  // for malformed entries rather than throwing. Enforcement is LIVE, so an
+  // over-strict bound here would hard-reject inputs the controller absorbs.
+  'assistant.dispatchBulk': {
+    input: z.array(
+      z.object({
+        workspaceId: z.string().min(1).max(200),
+        provider: z.string().min(1).max(120),
+        count: z.number().optional(),
+        initialPrompt: z.string().max(8000).optional(),
+        conversationId: z.string().max(200).optional(),
+      }),
+    ).max(200),
+    output: any,
+  },
+  // refResolve({ workspaceId, atRef }) — resolve an @filename ref.
+  'assistant.refResolve': {
+    input: z.object({
+      workspaceId: z.string().min(1).max(200),
+      atRef: z.string().min(1).max(512),
+    }),
+    output: any,
+  },
   // P3-S7 — Sigma Assistant cross-session persistence + origin back-link.
   'assistant.conversations.list': stub,
   'assistant.conversations.get': stub,
@@ -919,6 +1082,87 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       ),
     }),
   },
+  // DEV-6 — v1.6.1 B2 / P4 MEM-1 ruflo channels missing schemas.
+  // entries.list({ query?, limit? }) — sweep Ruflo AgentDB entries as graph nodes.
+  'ruflo.entries.list': {
+    input: z.object({
+      query: z.string().max(2000).optional(),
+      limit: z.number().int().min(1).max(500).optional(),
+    }).optional(),
+    output: any,
+  },
+  // entries.neighbors({ id, text, topK? }) — semantic neighbors of one entry.
+  'ruflo.entries.neighbors': {
+    input: z.object({
+      id: z.string().min(1).max(512),
+      text: z.string().min(1).max(8000),
+      topK: z.number().int().min(1).max(50).optional(),
+    }),
+    output: any,
+  },
+  // daemonStatus(workspaceId?) — list per-workspace HTTP daemon handles.
+  // First arg is an optional workspaceId string; when omitted lists all daemons.
+  'ruflo.daemonStatus': { input: z.string().min(1).max(200).optional(), output: any },
+  // restartDaemon(workspaceId) — stop + re-spawn one workspace's HTTP daemon.
+  'ruflo.restartDaemon': {
+    input: z.string().min(1).max(200),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  // ── sync (v1.5.0 packet 09) ───────────────────────────────────────────────
+  // DEV-6 — all sync.* channels were missing schemas.
+  // enable(config: SyncConfig) — first arg is the config object.
+  'sync.enable': {
+    input: z.object({
+      remoteUrl: z.string().min(1).max(2048),
+      username: z.string().max(512).optional(),
+      password: z.string().max(512).optional(),
+    }),
+    output: any,
+  },
+  // disable() — no input; disables sync on this device.
+  'sync.disable': { input: z.undefined().optional(), output: any },
+  // status() — no input; reads current sync status.
+  'sync.status': { input: z.undefined().optional(), output: any },
+  // listConflicts() — no input; lists unresolved LWW conflicts.
+  'sync.listConflicts': { input: z.undefined().optional(), output: any },
+  // resolveConflict({ conflictId, resolution }) — resolve a conflict.
+  'sync.resolveConflict': {
+    input: z.object({
+      conflictId: z.string().min(1).max(200),
+      resolution: z.enum(['keep_local', 'keep_remote']),
+    }),
+    output: any,
+  },
+  // exportMnemonic() — no input; returns one-shot mnemonic for current device key.
+  'sync.exportMnemonic': { input: z.undefined().optional(), output: any },
+  // isConfigured() — no input; checks whether sync is configured.
+  'sync.isConfigured': { input: z.undefined().optional(), output: any },
+  // recoverFromMnemonic(mnemonic) — first arg is the mnemonic string.
+  'sync.recoverFromMnemonic': { input: z.string().min(1).max(2048), output: any },
+  // ── telegram (R-1) ────────────────────────────────────────────────────────
+  // DEV-6 — all telegram.* channels were missing schemas. SECURITY-CRITICAL:
+  // token is write-only; getStatus never includes the token value.
+  // getStatus() — no input; returns operator-safe status snapshot.
+  'telegram.getStatus': { input: z.undefined().optional(), output: any },
+  // setToken(token) — first arg is the bot token string (write-only, persisted encrypted).
+  'telegram.setToken': { input: z.string().min(1).max(512), output: any },
+  // clearToken() — no input; removes the stored token and stops the bridge.
+  'telegram.clearToken': { input: z.undefined().optional(), output: any },
+  // setEnabled(enabled) — first arg is a boolean.
+  'telegram.setEnabled': { input: z.boolean(), output: any },
+  // setAllowlist(ids) — first arg is an array of numeric chat ids.
+  'telegram.setAllowlist': {
+    input: z.array(z.number().int()).max(1000),
+    output: any,
+  },
+  // setIdleLockMinutes(minutes) — first arg is a number (<=0 disables).
+  'telegram.setIdleLockMinutes': { input: z.number(), output: any },
+  // lock() — no input; manually locks the remote.
+  'telegram.lock': { input: z.undefined().optional(), output: any },
+  // unlock() — no input; manually unlocks the remote.
+  'telegram.unlock': { input: z.undefined().optional(), output: any },
+  // auditTail(n) — first arg is a number (tail n most-recent entries).
+  'telegram.auditTail': { input: z.number().int().min(1).max(500), output: any },
   // ── sigmabench (C-12) ──────────────────────────────────────────────────
   // Side-band registered in rpc-router.ts under `sigmabench.<method>`.
   'sigmabench.run': stub,

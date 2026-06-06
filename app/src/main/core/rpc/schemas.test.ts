@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { getChannelSchema } from './schemas';
+import { getChannelSchema, CHANNEL_SCHEMAS } from './schemas';
 import { validateChannelInput } from './validate';
 
 const CLEANUP_CHANNELS = [
@@ -76,5 +76,99 @@ describe('cleanup.* side-band channels (BUG-4 — destructive, must be validated
       futureFlag: 'ignored',
     });
     expect(out).toMatchObject({ workspaceId: 'ws-1', dryRun: false, futureFlag: 'ignored' });
+  });
+});
+
+// DEV-6 — every channel that was missing a schema entry before this ticket
+// must now have an entry in CHANNEL_SCHEMAS. This is a pure registry test
+// (no Electron/DB/native modules); adding a channel here without a
+// CHANNEL_SCHEMAS entry will make this suite fail at import time.
+describe('DEV-6 — previously-missing channel schemas are now registered', () => {
+  const DEV6_CHANNELS = [
+    // app.*
+    'app.quitAndInstall',
+    'app.revealInFolder',
+    'app.openShell',
+    'app.getUserDataPath',
+    'app.dismissedWorktreeBanner',
+    // pty.*
+    'pty.spawnScratch',
+    'pty.killScratch',
+    // panes.*
+    'panes.listForWorkspace',
+    'panes.setDisplayProvider',
+    'panes.brief',
+    // providers.*
+    'providers.spawnInstall',
+    'providers.setInstallConsent',
+    'providers.getInstallConsent',
+    // fs.*
+    'fs.getWorktreeSizes',
+    // browser.*
+    'browser.listRecents',
+    'browser.focusView',
+    'browser.detachToWindow',
+    'browser.reattach',
+    // skills.*
+    'skills.listInstalled',
+    'skills.attach',
+    'skills.detach',
+    'skills.listBindings',
+    // memory.*
+    'memory.find_unlinked_mentions',
+    'memory.list_tags',
+    'memory.list_by_tag',
+    'memory.export_db',
+    'memory.import_db',
+    // assistant.*
+    'assistant.dispatchBulk',
+    'assistant.refResolve',
+    // ruflo.*
+    'ruflo.entries.list',
+    'ruflo.entries.neighbors',
+    'ruflo.daemonStatus',
+    'ruflo.restartDaemon',
+    // sync.*
+    'sync.enable',
+    'sync.disable',
+    'sync.status',
+    'sync.listConflicts',
+    'sync.resolveConflict',
+    'sync.exportMnemonic',
+    'sync.isConfigured',
+    'sync.recoverFromMnemonic',
+    // telegram.*
+    'telegram.getStatus',
+    'telegram.setToken',
+    'telegram.clearToken',
+    'telegram.setEnabled',
+    'telegram.setAllowlist',
+    'telegram.setIdleLockMinutes',
+    'telegram.lock',
+    'telegram.unlock',
+    'telegram.auditTail',
+  ] as const;
+
+  it('every DEV-6 channel has an entry in CHANNEL_SCHEMAS', () => {
+    const missing: string[] = [];
+    for (const ch of DEV6_CHANNELS) {
+      if (!(ch in CHANNEL_SCHEMAS)) missing.push(ch);
+    }
+    expect(
+      missing,
+      `These channels still have no schema entry: ${missing.join(', ')}`,
+    ).toHaveLength(0);
+  });
+
+  it('every DEV-6 channel schema has at least an input field declared', () => {
+    for (const ch of DEV6_CHANNELS) {
+      const schema = getChannelSchema(ch);
+      expect(schema, `${ch} must have a schema entry`).toBeDefined();
+      // input field must be present (even if z.undefined/z.any — the key matters)
+      expect(
+        'input' in schema!,
+        `${ch} must declare an input field in its schema`,
+      ).toBe(true);
+    }
   });
 });

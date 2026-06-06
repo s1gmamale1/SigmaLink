@@ -153,6 +153,13 @@ module.exports = {
           to: { transform: "translateY(100%)" },
         },
       },
+      // Named easing token that resolves the `--ease-smooth` CSS variable.
+      // Use `ease-smooth` in className strings instead of the ambiguous
+      // `ease-[var(--ease-smooth)]` arbitrary-value form (which Tailwind 3.x
+      // warns about as matching multiple utilities).
+      transitionTimingFunction: {
+        smooth: 'var(--ease-smooth)',
+      },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
