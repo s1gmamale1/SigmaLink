@@ -375,6 +375,15 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
     }),
     output: z.object({ ok: z.boolean() }),
   },
+  // BSP-O4 — rename({ sessionId, name }) — operator-supplied display name.
+  // name: null clears the override (reverts to computed alias).
+  'panes.rename': {
+    input: z.object({
+      sessionId: z.string().min(1).max(200),
+      name: z.string().max(200).nullable(),
+    }),
+    output: z.object({ ok: z.boolean() }),
+  },
   // brief({ sessionId, worktreePath, capsule }) — inject a plan capsule into PTY.
   'panes.brief': {
     input: z.object({

@@ -59,6 +59,9 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // C-5 — inject a structured plan capsule into a pane's PTY + write a
   // per-worktree CLAUDE.md scope guidance block (idempotent marker-delimited).
   'panes.brief',
+  // BSP-O4 — operator-supplied display name for a pane session. Pass
+  // name: null to clear the override (reverts to computed alias).
+  'panes.rename',
   // providers
   'providers.list',
   'providers.probeAll',
@@ -475,6 +478,9 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // hook pushes the currently active PTY session id whenever it changes so the
   // global-capture pipeline can pty.write() into the focused pane.
   'voice:focused-session',
+  // BSP-O4 — emitted after a pane is renamed so PaneHeader title pills
+  // refresh without a full rehydration. Payload: { sessionId, name }.
+  'panes:session-renamed',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {

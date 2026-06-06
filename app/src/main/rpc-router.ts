@@ -1189,6 +1189,8 @@ async function buildRouter() {
           started_at: number;
           exited_at: number | null;
           display_provider_id: string | null;
+          // BSP-O4 — operator-supplied display name (migration 0036).
+          name: string | null;
         }
         const rows = getRawDb()
           .prepare(
@@ -1225,6 +1227,7 @@ async function buildRouter() {
           initialPrompt: r.initial_prompt ?? undefined,
           runtimeProfileId: r.runtime_profile_id ?? 'ruflo-core',
           displayProviderId: r.display_provider_id ?? null,
+          name: r.name ?? null,
         }));
       } catch {
         return [];
@@ -1254,6 +1257,32 @@ async function buildRouter() {
           .prepare(`UPDATE agent_sessions SET display_provider_id = ? WHERE id = ?`)
           .run(value, sessionId);
         broadcast('panes:display-provider-changed', { sessionId, displayProviderId: value });
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
+    },
+    // BSP-O4 — set an operator-supplied display name on a pane. Cosmetic:
+    // agent_sessions.name is shown instead of the computed alias when set.
+    // Broadcasts `panes:session-renamed` so live title pills refresh instantly.
+    rename: async ({
+      sessionId,
+      name,
+    }: {
+      sessionId: string;
+      name: string | null;
+    }): Promise<{ ok: boolean }> => {
+      if (typeof sessionId !== 'string' || !sessionId.trim()) {
+        return { ok: false };
+      }
+      // Trim whitespace; treat empty string as a clear (→ null).
+      const value =
+        typeof name === 'string' && name.trim() ? name.trim() : null;
+      try {
+        getRawDb()
+          .prepare(`UPDATE agent_sessions SET name = ? WHERE id = ?`)
+          .run(value, sessionId);
+        broadcast('panes:session-renamed', { sessionId, name: value });
         return { ok: true };
       } catch {
         return { ok: false };

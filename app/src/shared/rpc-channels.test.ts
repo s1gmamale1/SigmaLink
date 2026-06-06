@@ -96,6 +96,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'panes.lastResumePlan',
   'panes.listForWorkspace',
   'panes.brief',            // C-5 — inject plan capsule + write scope block
+  'panes.rename',           // BSP-O4 — operator-supplied display name
   // providers (providersCtl)
   'providers.list',
   'providers.probeAll',

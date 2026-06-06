@@ -12,11 +12,10 @@
 > fallback, found during operator testing. Per this doc's convention, shipped work is deleted from the
 > whiteboard (full record → `CHANGELOG.md`).
 >
-> **What's left (this file):** ① **Phase 9 Packet 9B** — the net-new remainder of the orchestration phase
-> (**BSP-O3** Automations nav + **BSP-O4** Artifacts / named sessions; needs a migration `0036` + an
-> "Automations" scope decision) · ② the **deferred XL** big-bangs (Canvas, multi-window, Tauri eval).
-> **v2.0.0 tag** awaits only the operator visual smokes (N1 · N2 · N3). The low-sev hotlist is CLEARED
-> and **Phase 9 Packet 9A** (BSP-O1/O2/O5 — the phase DoD core) has shipped (see below).
+> **What's left (this file):** ① the **deferred XL** big-bangs (Canvas, multi-window, Tauri eval) ·
+> ② operator-owned items. **Phase 9 is COMPLETE** (9A: BSP-O1/O2/O5 #125; 9B: BSP-O3/O4 this cycle) —
+> **there is no remaining feature work on the roadmap.** **v2.0.0 tag** awaits only the operator visual
+> smokes (N1 · N2 · N3).
 
 This ROADMAP is the single source of truth for what to build next.
 
@@ -36,6 +35,7 @@ This ROADMAP is the single source of truth for what to build next.
 - **#121 — boot-restore reliability hotfix.** Black-panes **race** (restore IPC arriving after `state.ready`; a `restoreTick` nonce re-runs the drain) + in-place **stale-session** fallback (`prepareClaudeResume` now stats the JSONL even in-place → falls back to `--continue` instead of `claude --resume <ghost-id>`). +2 regression tests. Latent race exposed by Phase-0's awaited boot-sweep — affected every install.
 - **#123 — DEV-6 + DEV-8.** zod input schemas for all 49 un-schemed IPC channels (boot "no zod schema entry" warning → 0; conservative, so live `enforce` mode never rejects valid IPC; +2 coverage tests) + bundle hygiene (static `SkillsTab` import, `ease-smooth` token, chunk-limit → **warning-free build**).
 - **Phase 9 Packet 9A — Sigma panel + routing trace + 1-click graph (BSP-O1/O2/O5).** The phase DoD core: a persistent `'sigma'` right-rail tab → `SigmaPanel` (Canvas = numbered swarm-agent to-dos with shared `deriveStatus` glyphs + a swarm-aggregated live token delta; Review = the live routing/tool trace, reusing `ToolCallInspector` on the `assistant:tool-trace` broadcast); plus the memory graph made ≤1 click via a ⌘K "Open memory graph" command, a persistent breadcrumb button, and a `pendingMemoryGraphView` nonce. 2 disjoint worktree lanes + Opus integration review (6 fixes: shared `swarm-status.ts` extraction, first-poll token-spike seed, off-tab poll gate, Review caption/sizing, baseline pruning, switcher test). Renderer-only; no migration.
+- **Phase 9 Packet 9B — Automations room + named sessions + Artifacts (BSP-O3/O4) — completes Phase 9.** **O3:** a new "Automations" nav room (global, no-workspace-required) surfacing the existing Telegram remote bridge + nightly-digest scheduler as a dashboard with live status, inline toggles, and deep-links to Settings — reusing existing RPC/KV, zero new channels. **O4:** migration `0036` adds a nullable `name` to `agent_sessions` + a `panes.rename` RPC (mirrors `setDisplayProvider`) + inline title-pill rename (name surfaced via shared `derivePaneIdentity` so the gear popover/sidebar/splash reflect it) + a per-session **Artifacts** view (changed files via `git.status` + checkpoint timeline via `git.listCheckpoints`, no new table). 2 disjoint worktree lanes + Opus integration review (sibling-class fixes: `VALID_ROOMS`/`ROOM_DEFS`/`GLOBAL_ROOMS` were missing `automations` — and pre-existingly `git`/`sigmabench` — now backfilled; `derivePaneIdentity` name surfacing; bounded artifacts list; rename `maxLength`). Sibling-mapping audit added `name` at 5 `AgentSession` construction sites.
 
 ---
 
@@ -54,17 +54,10 @@ All four items resolved. **DEV-6** + **DEV-8** shipped (#123); the remaining two
 
 ---
 
-## Phase 9 Packet 9B — Automations & Artifacts (net-new remainder)
-> Packet 9A (BSP-O1/O2/O5 — the DoD core) **shipped** (see "Shipped since last refresh"). 9B is the
-> net-new tail, split out per the DDD small-per-packet rule: it needs a DB migration and a product fork.
-
-**Goal.** Sigma's automations and a conversation's outputs are first-class, named, browsable surfaces.
-**Deliverables.** **BSP-O3** an "Automations" nav surface · **BSP-O4** an "Artifacts" surface + per-conversation/-session **named** sessions.
-**Why now.** Rounds out the orchestration phase; the only feature work left after 9A.
-**Scope.** O3 is **greenfield** (recon: no automations registry exists — only `DailyScheduler` (internal), the Telegram bridge (Settings-only), and Ruflo daemon `workflow_*`/`cron_*` MCP tools with no renderer surface) → add a nav room via the 5-file pattern (`state.types.ts` → `room-loaders.ts` → `App.tsx` → `rooms-menu-items.ts` → feature dir). O4 named sessions = migration **`0036`** adding `name TEXT` to `agent_sessions` (latest migration is `0035`) + an RPC to set/clear + a pane-header/ctx-menu input; Artifacts = a new index over worktree fs / `sessionCheckpoints.label` / `boards`.
-**Findings + recommendation.** Both net-new. **OPEN DECISION (disambiguate with operator before coding O3):** what "Automations" *is* — (a) surface the existing Telegram bridge + DailyScheduler as a read/manage list, (b) expose Ruflo's `workflow_*`/`cron_*` MCP tools through a new RPC controller + room, or (c) a brand-new user-composed "recipe" concept. Pick before building.
-**Risks.** Scope creep on a greenfield O3 → bind to one of (a)/(b)/(c) first. Migration `0036` follows the H-7 transactional-runner + status-aware-index precedents.
-**Definition of done.** An "Automations" destination is reachable from the rooms nav and lists real automations; a session/conversation can be given a persistent name that survives resume; an Artifacts surface lists a conversation's outputs; `tsc -b` · vitest · lint · build green.
+## Phase 9 — Orchestration & memory surfacing — ✅ COMPLETE
+Both packets shipped (9A: BSP-O1/O2/O5 #125; 9B: BSP-O3/O4 this cycle, "Automations" scoped to surface
+existing infra per operator decision). Full record → "Shipped since last refresh" + `CHANGELOG.md`.
+**No remaining feature work on the roadmap** — only the deferred XL big-bangs + operator-owned items below.
 
 ---
 
@@ -113,11 +106,11 @@ Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per
 
 | Item | Phase | Effort | Impact | Notes |
 |------|-------|--------|--------|-------|
-| ~~Sigma panel + routing trace + 1-click graph (O1/O2/O5)~~ | 9A | ~~M~~ | Med-High | ✅ SHIPPED — Sigma rail tab + live trace + graph ≤1 click |
-| Automations + Artifacts/named sessions (O3/O4) | 9B | M | Med | Net-new; migration `0036` + an "Automations" scope decision first; **only feature work left** |
-| Canvas mode (P4) / Multi-window (P6) / Tauri eval | deferred | XL | — | Big-bang, separate cycles |
+| ~~Sigma panel + routing trace + 1-click graph (O1/O2/O5)~~ | 9A | ~~M~~ | Med-High | ✅ SHIPPED #125 — Sigma rail tab + live trace + graph ≤1 click |
+| ~~Automations + Artifacts/named sessions (O3/O4)~~ | 9B | ~~M~~ | Med | ✅ SHIPPED — Automations room + named sessions (mig 0036) + Artifacts. **Phase 9 complete.** |
+| Canvas mode (P4) / Multi-window (P6) / Tauri eval | deferred | XL | — | Big-bang, separate cycles — **the only items left** |
 
-*(Hotlist cleared: DEV-6/DEV-8 shipped #123; PERF-RAM-2 + DEV-7-residual verified no-op. Phase 9A shipped O1/O2/O5.)*
+*(Hotlist cleared; **Phase 9 COMPLETE** (9A #125 + 9B). No remaining feature work — only deferred XL big-bangs + operator-owned items.)*
 
 ## When an item ships
 → move its one-line note to `CHANGELOG.md` + the master-memory project entry + (reusable lessons) Ruflo AgentDB; mark it promoted/struck in `WISHLIST.md`; delete it from this whiteboard. Keep `WISHLIST.md` for new raw findings.

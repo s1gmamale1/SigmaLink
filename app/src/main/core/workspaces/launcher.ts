@@ -232,6 +232,7 @@ export async function executeLaunchPlan(
         initialPrompt: pane.initialPrompt,
         runtimeProfileId,
         error: `Unknown provider: ${pane.providerId}`,
+        name: null,
       });
       continue;
     }
@@ -575,6 +576,7 @@ export async function executeLaunchPlan(
             initialPrompt: pane.initialPrompt,
             runtimeProfileId,
             error: `Pane slot ${allocatedPaneIndex} is already occupied.`,
+            name: null,
           });
           // CRIT-1/CRIT-2: the UNIQUE branch `continue`s and never reaches the
           // outer catch's worktreePool.remove, so it leaks the worktree created
@@ -640,6 +642,8 @@ export async function executeLaunchPlan(
         // SF-8 Yolo/Bypass — surface the persisted flag so the renderer
         // knows whether this pane was launched in bypass mode.
         autoApprove: pane.autoApprove ?? false,
+        // BSP-O4 — fresh spawns always start without an operator-supplied name.
+        name: null,
       });
 
       // When the PTY exits, mark the session row. If the exit happens within

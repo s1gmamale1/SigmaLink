@@ -15,6 +15,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
     panes: {
       brief: vi.fn().mockResolvedValue(undefined),
       setDisplayProvider: vi.fn().mockResolvedValue({ ok: true }),
+      rename: vi.fn().mockResolvedValue({ ok: true }),
     },
     kv: {
       set: vi.fn().mockResolvedValue(undefined),
@@ -36,7 +37,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
       get: vi.fn().mockResolvedValue('1'), // default: coachmark already seen
     },
   },
-  // CheckpointPanel uses onEvent to subscribe to git:checkpoints-changed
+  // CheckpointPanel + PaneHeader BSP-O4 use onEvent for event subscriptions.
   onEvent: vi.fn(() => () => undefined),
 }));
 
@@ -509,5 +510,106 @@ describe('PaneHeader — BSP-V2 live stats badge', () => {
     mockStats.mockReturnValue(liveStats({ hasData: false }));
     render(<PaneHeader {...baseProps()} session={makeSession({ status: 'error' })} />);
     expect(mockStats).toHaveBeenCalledWith(expect.any(String), false);
+  });
+});
+
+// ── BSP-O4 — inline rename tests ─────────────────────────────────────────────
+
+describe('PaneHeader — BSP-O4 inline rename', () => {
+  it('shows session.name when set, falling back to alias when null', () => {
+    // session.name set → custom name shown
+    render(
+      <PaneHeader
+        {...baseProps()}
+        session={makeSession({ name: 'My custom pane' })}
+      />,
+    );
+    const pill = screen.getByTestId('pane-display-name');
+    expect(pill.textContent ?? '').toContain('My custom pane');
+    cleanup();
+
+    // session.name null → alias shown (deterministic from session.id)
+    render(
+      <PaneHeader
+        {...baseProps()}
+        session={makeSession({ name: null })}
+      />,
+    );
+    const pillFallback = screen.getByTestId('pane-display-name');
+    // alias is not "My custom pane" and is non-empty
+    expect(pillFallback.textContent ?? '').not.toContain('My custom pane');
+    expect(pillFallback.textContent?.trim().length ?? 0).toBeGreaterThan(0);
+  });
+
+  it('entering edit mode on double-click shows the rename input', async () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ name: 'Original' })} />);
+    const nameSpan = screen.getByTestId('pane-display-name');
+    fireEvent.doubleClick(nameSpan);
+    await waitFor(() => expect(screen.getByTestId('pane-rename-input')).toBeTruthy());
+    const input = screen.getByTestId('pane-rename-input') as HTMLInputElement;
+    // The input should be pre-filled with the current name.
+    expect(input.value).toBe('Original');
+  });
+
+  it('pressing Enter commits the rename and calls rpc.panes.rename', async () => {
+    const { rpc: mockRpc } = await import('@/renderer/lib/rpc');
+    render(
+      <PaneHeader
+        {...baseProps()}
+        session={makeSession({ id: 'sess-rename', name: 'Old' })}
+      />,
+    );
+    fireEvent.doubleClick(screen.getByTestId('pane-display-name'));
+    await waitFor(() => expect(screen.getByTestId('pane-rename-input')).toBeTruthy());
+    const input = screen.getByTestId('pane-rename-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'New name' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() =>
+      expect(mockRpc.panes.rename).toHaveBeenCalledWith({
+        sessionId: 'sess-rename',
+        name: 'New name',
+      }),
+    );
+  });
+
+  it('pressing Escape cancels the rename without calling rpc.panes.rename', async () => {
+    const { rpc: mockRpc } = await import('@/renderer/lib/rpc');
+    (mockRpc.panes.rename as ReturnType<typeof vi.fn>).mockClear();
+    render(
+      <PaneHeader
+        {...baseProps()}
+        session={makeSession({ name: 'Keep me' })}
+      />,
+    );
+    fireEvent.doubleClick(screen.getByTestId('pane-display-name'));
+    await waitFor(() => expect(screen.getByTestId('pane-rename-input')).toBeTruthy());
+    const input = screen.getByTestId('pane-rename-input');
+    fireEvent.change(input, { target: { value: 'Discard this' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('pane-rename-input')).toBeNull());
+    expect(mockRpc.panes.rename).not.toHaveBeenCalled();
+    // The display name should revert to the original.
+    expect(screen.getByTestId('pane-display-name').textContent ?? '').toContain('Keep me');
+  });
+
+  it('blurring the input commits the rename', async () => {
+    const { rpc: mockRpc } = await import('@/renderer/lib/rpc');
+    render(
+      <PaneHeader
+        {...baseProps()}
+        session={makeSession({ id: 'sess-blur', name: null })}
+      />,
+    );
+    fireEvent.doubleClick(screen.getByTestId('pane-display-name'));
+    await waitFor(() => expect(screen.getByTestId('pane-rename-input')).toBeTruthy());
+    const input = screen.getByTestId('pane-rename-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Blur name' } });
+    fireEvent.blur(input);
+    await waitFor(() =>
+      expect(mockRpc.panes.rename).toHaveBeenCalledWith({
+        sessionId: 'sess-blur',
+        name: 'Blur name',
+      }),
+    );
   });
 });

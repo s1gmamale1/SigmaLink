@@ -51,7 +51,12 @@ export function derivePaneIdentity(session: AgentSession): PaneIdentity {
   const providerName = provider?.name ?? effectiveProviderId.toUpperCase();
   const meta = defaultModelFor(session.providerId);
   return {
-    alias: agentAlias(session.id),
+    // BSP-O4 — prefer the operator-supplied name over the computed alias so
+    // EVERY surface that renders `id.alias` (gear popover, context sidebar,
+    // splash, header) reflects the rename, not just the title pill. Falls back
+    // to the deterministic alias when unnamed. (Updates on the next session
+    // prop refresh; the title pill also tracks the live rename broadcast.)
+    alias: session.name?.trim() || agentAlias(session.id),
     agentId: agentShortId(session.id),
     agentAccent: agentColor(session.id),
     providerName,

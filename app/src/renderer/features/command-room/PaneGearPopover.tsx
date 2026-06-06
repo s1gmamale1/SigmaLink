@@ -4,7 +4,7 @@
 // relabel, rewind, and the brief form. NOT a 4-tab inspector — a single scrollable
 // vertical panel.
 import { useState } from 'react';
-import { History, ClipboardList } from 'lucide-react';
+import { Archive, History, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { rpc } from '@/renderer/lib/rpc';
 import { derivePaneIdentity } from './pane-identity';
@@ -12,6 +12,7 @@ import { useRufloDaemonHealth } from './useRufloDaemonHealth';
 import { UsagePopover } from './UsagePopover';
 import { GitActivityStrip } from './GitActivityStrip';
 import { CheckpointPanel } from './CheckpointPanel';
+import { ArtifactsPanel } from './ArtifactsPanel';
 import type { AgentSession } from '@/shared/types';
 
 // SF-7 — colour mapping for the Ruflo daemon health dot.
@@ -182,6 +183,23 @@ export function PaneGearPopoverBody({
             </div>
           </details>
         ) : null}
+
+        {/* BSP-O4 — Artifacts: changed files + checkpoint timeline for this pane. */}
+        <details>
+          <summary
+            data-testid="pane-artifacts-item"
+            className="flex cursor-pointer select-none items-center gap-1 rounded px-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <Archive className="h-3 w-3" aria-hidden />
+            Artifacts
+          </summary>
+          <div className="mt-1">
+            <ArtifactsPanel
+              sessionId={session.id}
+              worktreePath={session.worktreePath ?? null}
+            />
+          </div>
+        </details>
 
         {/* Brief form */}
         <details>

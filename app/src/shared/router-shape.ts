@@ -245,6 +245,12 @@ export interface AppRouter {
      * spawn/resume/MCP). Pass `displayProviderId: null` to clear the override.
      */
     setDisplayProvider: (a: { sessionId: string; displayProviderId: string | null }) => Promise<{ ok: boolean }>;
+    /**
+     * BSP-O4 — set an operator-supplied display name for a pane. Persisted on
+     * agent_sessions.name. Pass `name: null` to clear and revert to the
+     * computed alias. Broadcasts `panes:session-renamed` so title pills refresh.
+     */
+    rename: (a: { sessionId: string; name: string | null }) => Promise<{ ok: boolean }>;
   };
   providers: {
     list: () => Promise<

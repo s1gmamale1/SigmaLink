@@ -58,6 +58,12 @@ export interface AgentSession {
    * Cosmetic only — spawn/resume/MCP still use the real `providerId`.
    */
   displayProviderId?: string | null;
+  /**
+   * BSP-O4 — operator-supplied display name for the pane (persisted on
+   * agent_sessions.name). NULL / absent = fall back to computed alias.
+   * Cosmetic only — does not affect spawn/resume/MCP behaviour.
+   */
+  name?: string | null;
 }
 
 export interface ProviderProbe {

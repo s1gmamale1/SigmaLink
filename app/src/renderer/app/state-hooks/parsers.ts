@@ -75,6 +75,12 @@ const VALID_ROOMS: ReadonlySet<RoomId> = new Set<RoomId>([
   'skills',
   'jorvis',
   'settings',
+  // BSP-O3 — Automations room. Also backfilling 'git' + 'sigmabench', which
+  // were missing from this runtime mirror and silently fell back to
+  // 'workspaces' on session-restore (same one-line-edit bug class).
+  'git',
+  'sigmabench',
+  'automations',
 ]);
 
 export function isRoomId(value: unknown): value is RoomId {
