@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
   status TEXT NOT NULL,
   exit_code INTEGER,
   initial_prompt TEXT,
+  runtime_profile_id TEXT NOT NULL DEFAULT 'ruflo-core',
   started_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   exited_at INTEGER
 );

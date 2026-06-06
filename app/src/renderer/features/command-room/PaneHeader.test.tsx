@@ -412,23 +412,31 @@ describe('PaneHeader — BSP-V2 live stats badge', () => {
   const mockStats = usePaneLiveStats as ReturnType<
     typeof vi.fn<(sessionId: string, enabled: boolean) => PaneLiveStats>
   >;
+  const liveStats = (input: Partial<PaneLiveStats>): PaneLiveStats => ({
+    totalCostUsd: null,
+    estTokPerSec: null,
+    rssBytes: null,
+    processCount: null,
+    hasData: false,
+    ...input,
+  });
 
   beforeEach(() => {
     mockStats.mockClear();
   });
 
   it('does NOT render the badge when hasData=false (no usage yet)', () => {
-    mockStats.mockReturnValue({ totalCostUsd: null, estTokPerSec: null, hasData: false });
+    mockStats.mockReturnValue(liveStats({ hasData: false }));
     render(<PaneHeader {...baseProps()} />);
     expect(screen.queryByTestId('pane-live-stats-badge')).toBeNull();
   });
 
   it('renders the badge when hasData=true with cost and tok/s', () => {
-    mockStats.mockReturnValue({
+    mockStats.mockReturnValue(liveStats({
       totalCostUsd: 0.0042,
       estTokPerSec: 45.3,
       hasData: true,
-    });
+    }));
     render(<PaneHeader {...baseProps()} />);
     const badge = screen.getByTestId('pane-live-stats-badge');
     expect(badge).toBeTruthy();
@@ -438,11 +446,11 @@ describe('PaneHeader — BSP-V2 live stats badge', () => {
   });
 
   it('renders only cost when estTokPerSec is null', () => {
-    mockStats.mockReturnValue({
+    mockStats.mockReturnValue(liveStats({
       totalCostUsd: 0.001,
       estTokPerSec: null,
       hasData: true,
-    });
+    }));
     render(<PaneHeader {...baseProps()} />);
     const badge = screen.getByTestId('pane-live-stats-badge');
     expect(badge.textContent ?? '').not.toContain('tok/s');
@@ -450,11 +458,11 @@ describe('PaneHeader — BSP-V2 live stats badge', () => {
   });
 
   it('renders only tok/s estimate when totalCostUsd is null', () => {
-    mockStats.mockReturnValue({
+    mockStats.mockReturnValue(liveStats({
       totalCostUsd: null,
       estTokPerSec: 30,
       hasData: true,
-    });
+    }));
     render(<PaneHeader {...baseProps()} />);
     const badge = screen.getByTestId('pane-live-stats-badge');
     expect(badge.textContent ?? '').toContain('~30 tok/s');
@@ -462,22 +470,22 @@ describe('PaneHeader — BSP-V2 live stats badge', () => {
   });
 
   it('hides badge when hasData=true but both values are null', () => {
-    mockStats.mockReturnValue({
+    mockStats.mockReturnValue(liveStats({
       totalCostUsd: null,
       estTokPerSec: null,
       hasData: true,
-    });
+    }));
     render(<PaneHeader {...baseProps()} />);
     // When both are null the badge renders nothing (no parts) and returns null.
     expect(screen.queryByTestId('pane-live-stats-badge')).toBeNull();
   });
 
   it('badge has aria-label for accessibility', () => {
-    mockStats.mockReturnValue({
+    mockStats.mockReturnValue(liveStats({
       totalCostUsd: 0.005,
       estTokPerSec: 10,
       hasData: true,
-    });
+    }));
     render(<PaneHeader {...baseProps()} />);
     const badge = screen.getByTestId('pane-live-stats-badge');
     expect(badge.getAttribute('aria-label')).toMatch(/live stats/i);
@@ -486,19 +494,19 @@ describe('PaneHeader — BSP-V2 live stats badge', () => {
   // ── PERF-5 status gate: PaneHeader must pass enabled = (status === 'running') ──
 
   it('calls usePaneLiveStats with enabled=true for a running pane', () => {
-    mockStats.mockReturnValue({ totalCostUsd: null, estTokPerSec: null, hasData: false });
+    mockStats.mockReturnValue(liveStats({ hasData: false }));
     render(<PaneHeader {...baseProps()} session={makeSession({ status: 'running' })} />);
     expect(mockStats).toHaveBeenCalledWith(expect.any(String), true);
   });
 
   it('calls usePaneLiveStats with enabled=false for an exited pane (no poll-storm)', () => {
-    mockStats.mockReturnValue({ totalCostUsd: null, estTokPerSec: null, hasData: false });
+    mockStats.mockReturnValue(liveStats({ hasData: false }));
     render(<PaneHeader {...baseProps()} session={makeSession({ status: 'exited' })} />);
     expect(mockStats).toHaveBeenCalledWith(expect.any(String), false);
   });
 
   it('calls usePaneLiveStats with enabled=false for an error pane', () => {
-    mockStats.mockReturnValue({ totalCostUsd: null, estTokPerSec: null, hasData: false });
+    mockStats.mockReturnValue(liveStats({ hasData: false }));
     render(<PaneHeader {...baseProps()} session={makeSession({ status: 'error' })} />);
     expect(mockStats).toHaveBeenCalledWith(expect.any(String), false);
   });

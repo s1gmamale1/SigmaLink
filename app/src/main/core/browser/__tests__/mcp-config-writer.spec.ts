@@ -73,6 +73,7 @@ test('default runtime profile prunes stale Browser/SigmaMemory MCP config', () =
           mcpServers: {
             browser: { command: 'npx' },
             sigmamemory: { command: 'node' },
+            security: { command: 'semgrep' },
             custom: { command: 'keep-me' },
           },
         },
@@ -98,6 +99,9 @@ test('default runtime profile prunes stale Browser/SigmaMemory MCP config', () =
         '',
         '[mcp_servers.sigmamemory.env]',
         'A = "b"',
+        '',
+        '[mcp_servers.security]',
+        'command = "semgrep"',
       ].join('\n'),
       'utf8',
     );
@@ -111,6 +115,7 @@ test('default runtime profile prunes stale Browser/SigmaMemory MCP config', () =
         mcpServers: {
           browser: { command: 'npx' },
           sigmamemory: { command: 'node' },
+          security: { command: 'semgrep' },
         },
       }),
       'utf8',
@@ -124,14 +129,68 @@ test('default runtime profile prunes stale Browser/SigmaMemory MCP config', () =
     const claudeJson = JSON.parse(fs.readFileSync(path.join(worktree, '.mcp.json'), 'utf8'));
     assert.equal('browser' in claudeJson.mcpServers, false);
     assert.equal('sigmamemory' in claudeJson.mcpServers, false);
+    assert.equal('security' in claudeJson.mcpServers, false);
     assert.deepEqual(claudeJson.mcpServers.custom, { command: 'keep-me' });
 
     const codexToml = fs.readFileSync(path.join(codexDir, 'config.toml'), 'utf8');
     assert.doesNotMatch(codexToml, /\[mcp_servers\.browser\]/);
     assert.doesNotMatch(codexToml, /\[mcp_servers\.sigmamemory\]/);
+    assert.doesNotMatch(codexToml, /\[mcp_servers\.security\]/);
     assert.match(codexToml, /\[mcp_servers\.custom\]/);
 
     assert.equal(fs.existsSync(geminiManifestPath), false);
+  });
+});
+
+test('security-tools profile writes only the security MCP server', () => {
+  withFakeHome((home) => {
+    const worktree = makeTmpDir('sigmalink-mcp-test-');
+    const out = writeMcpConfigForAgent({ worktree, runtimeProfileId: 'security-tools' });
+    assert.ok(out.claude, 'expected claude path');
+    assert.ok(out.codex, 'expected codex path');
+    assert.ok(out.gemini, 'expected gemini path');
+
+    const claudeJson = JSON.parse(fs.readFileSync(path.join(worktree, '.mcp.json'), 'utf8'));
+    assert.deepEqual(claudeJson.mcpServers.security, {
+      type: 'stdio',
+      command: 'semgrep',
+      args: ['mcp'],
+      env: {},
+    });
+    assert.equal('browser' in claudeJson.mcpServers, false);
+    assert.equal('sigmamemory' in claudeJson.mcpServers, false);
+
+    const codexToml = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
+    assert.match(codexToml, /\[mcp_servers\.security\]/);
+    assert.match(codexToml, /command = "semgrep"/);
+    assert.doesNotMatch(codexToml, /\[mcp_servers\.browser\]/);
+  });
+});
+
+test('full-tools profile writes browser, memory, and security when memory is available', () => {
+  withFakeHome(() => {
+    const worktree = makeTmpDir('sigmalink-mcp-test-');
+    const out = writeMcpConfigForAgent({
+      worktree,
+      runtimeProfileId: 'full-tools',
+      memory: { command: 'node', args: ['memory.cjs'], env: { A: 'b' } },
+    });
+    assert.ok(out.claude, 'expected claude path');
+
+    const claudeJson = JSON.parse(fs.readFileSync(path.join(worktree, '.mcp.json'), 'utf8'));
+    assert.ok(claudeJson.mcpServers.browser);
+    assert.deepEqual(claudeJson.mcpServers.sigmamemory, {
+      type: 'stdio',
+      command: 'node',
+      args: ['memory.cjs'],
+      env: { A: 'b' },
+    });
+    assert.deepEqual(claudeJson.mcpServers.security, {
+      type: 'stdio',
+      command: 'semgrep',
+      args: ['mcp'],
+      env: {},
+    });
   });
 });
 

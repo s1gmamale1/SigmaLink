@@ -37,17 +37,17 @@ export const AGENT_RUNTIME_PROFILES: readonly AgentRuntimeProfile[] = [
   {
     id: 'security-tools',
     label: 'Security Tools',
-    description: 'Reserved for Semgrep/security SaaS lanes. Disabled until per-lane controls are ready.',
+    description: 'Ruflo plus the security MCP lane. Use only for scans or security review panes.',
     mcpAllowlist: ['ruflo', 'security'],
-    enabled: false,
+    enabled: true,
     mcpHeavy: true,
   },
   {
     id: 'full-tools',
     label: 'Full Tools',
-    description: 'Reserved escape hatch for all MCP tools. Disabled by default.',
+    description: 'Explicit escape hatch for Browser, SigmaMemory, and security MCP together.',
     mcpAllowlist: ['ruflo', 'browser', 'sigmamemory', 'security'],
-    enabled: false,
+    enabled: true,
     mcpHeavy: true,
   },
 ] as const;

@@ -64,6 +64,15 @@ interface WriteOptions {
     args: string[];
     env: Record<string, string>;
   };
+  /**
+   * Optional security MCP stdio server. When omitted and the runtime profile
+   * allows `security`, SigmaLink writes a conservative Semgrep stdio default.
+   */
+  security?: {
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+  };
 }
 
 // v1.2.6 — pinned version for reproducibility. Update when testing a new
@@ -78,10 +87,12 @@ export function writeMcpConfigForAgent(opts: WriteOptions): {
   const runtimeProfileId = normalizeAgentRuntimeProfileId(opts.runtimeProfileId);
   const allowBrowser = profileAllowsMcp(runtimeProfileId, 'browser');
   const allowMemory = profileAllowsMcp(runtimeProfileId, 'sigmamemory');
+  const allowSecurity = profileAllowsMcp(runtimeProfileId, 'security');
   const effectiveOpts: WriteOptions = {
     ...opts,
     runtimeProfileId,
     memory: allowMemory ? opts.memory : undefined,
+    security: allowSecurity ? (opts.security ?? defaultSecurityMcp()) : undefined,
   };
 
   return {
@@ -91,12 +102,31 @@ export function writeMcpConfigForAgent(opts: WriteOptions): {
   };
 }
 
+function defaultSecurityMcp(): NonNullable<WriteOptions['security']> {
+  const command = process.env.SIGMALINK_SECURITY_MCP_COMMAND?.trim() || 'semgrep';
+  const argsRaw = process.env.SIGMALINK_SECURITY_MCP_ARGS?.trim();
+  const args = argsRaw ? parseArgsEnv(argsRaw) : ['mcp'];
+  return { command, args, env: {} };
+}
+
+function parseArgsEnv(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')) {
+      return parsed;
+    }
+  } catch {
+    /* fall through to whitespace split */
+  }
+  return raw.split(/\s+/).filter(Boolean);
+}
+
 // ─────────────────────────────────────────── Claude Code ──
 
 function writeClaudeMcpJson(opts: WriteOptions, allowBrowser: boolean): string | null {
   try {
     const target = path.join(opts.worktree, '.mcp.json');
-    if (!allowBrowser && !opts.memory && !fs.existsSync(target)) return null;
+    if (!allowBrowser && !opts.memory && !opts.security && !fs.existsSync(target)) return null;
     let existing: { mcpServers?: Record<string, unknown> } = {};
     if (fs.existsSync(target)) {
       try {
@@ -110,6 +140,7 @@ function writeClaudeMcpJson(opts: WriteOptions, allowBrowser: boolean): string |
     }
     delete (existing.mcpServers as Record<string, unknown>).browser;
     delete (existing.mcpServers as Record<string, unknown>).sigmamemory;
+    delete (existing.mcpServers as Record<string, unknown>).security;
     if (allowBrowser) {
       (existing.mcpServers as Record<string, unknown>).browser = {
         command: 'npx',
@@ -122,6 +153,14 @@ function writeClaudeMcpJson(opts: WriteOptions, allowBrowser: boolean): string |
         command: opts.memory.command,
         args: opts.memory.args,
         env: opts.memory.env,
+      };
+    }
+    if (opts.security) {
+      (existing.mcpServers as Record<string, unknown>).security = {
+        type: 'stdio',
+        command: opts.security.command,
+        args: opts.security.args,
+        env: opts.security.env,
       };
     }
     fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -147,7 +186,7 @@ function writeCodexConfigToml(opts: WriteOptions, allowBrowser: boolean): string
     const home = os.homedir();
     const dir = path.join(home, '.codex');
     const target = path.join(dir, 'config.toml');
-    if (!allowBrowser && !opts.memory && !fs.existsSync(target)) return null;
+    if (!allowBrowser && !opts.memory && !opts.security && !fs.existsSync(target)) return null;
     fs.mkdirSync(dir, { recursive: true });
     const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
 
@@ -195,6 +234,26 @@ function writeCodexConfigToml(opts: WriteOptions, allowBrowser: boolean): string
       next = removeTomlTables(next, findTomlTableRanges(next, 'mcp_servers.sigmamemory'));
     }
 
+    if (opts.security) {
+      const envLines = Object.entries(opts.security.env).map(
+        ([k, v]) => `${k} = ${JSON.stringify(v)}`,
+      );
+      const securityBlock = [
+        '[mcp_servers.security]',
+        'transport = "stdio"',
+        `command = ${JSON.stringify(opts.security.command)}`,
+        `args = ${JSON.stringify(opts.security.args)}`,
+        ...(envLines.length > 0 ? ['[mcp_servers.security.env]', ...envLines] : []),
+      ].join('\n');
+      next = replaceTomlTables(
+        next,
+        findTomlTableRanges(next, 'mcp_servers.security'),
+        securityBlock,
+      );
+    } else {
+      next = removeTomlTables(next, findTomlTableRanges(next, 'mcp_servers.security'));
+    }
+
     fs.writeFileSync(target, next.endsWith('\n') ? next : `${next}\n`, 'utf8');
     return target;
   } catch {
@@ -209,7 +268,7 @@ function writeGeminiExtension(opts: WriteOptions, allowBrowser: boolean): string
     const home = os.homedir();
     const dir = path.join(home, '.gemini', 'extensions', 'sigmalink-browser');
     const target = path.join(dir, 'gemini-extension.json');
-    if (!allowBrowser && !opts.memory && !fs.existsSync(target)) return null;
+    if (!allowBrowser && !opts.memory && !opts.security && !fs.existsSync(target)) return null;
     let existing: { mcpServers?: Record<string, unknown> } = {};
     if (fs.existsSync(target)) {
       try {
@@ -224,6 +283,7 @@ function writeGeminiExtension(opts: WriteOptions, allowBrowser: boolean): string
         : {};
     delete mcpServers.browser;
     delete mcpServers.sigmamemory;
+    delete mcpServers.security;
     if (allowBrowser) {
       mcpServers.browser = {
         command: 'npx',
@@ -235,6 +295,13 @@ function writeGeminiExtension(opts: WriteOptions, allowBrowser: boolean): string
         command: opts.memory.command,
         args: opts.memory.args,
         env: opts.memory.env,
+      };
+    }
+    if (opts.security) {
+      mcpServers.security = {
+        command: opts.security.command,
+        args: opts.security.args,
+        env: opts.security.env,
       };
     }
     if (Object.keys(mcpServers).length === 0) {

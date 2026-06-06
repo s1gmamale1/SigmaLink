@@ -24,6 +24,7 @@ import type {
   AddAgentToSwarmResult,
   SwarmFactoryDeps,
 } from './factory';
+import { checkRamBrakeAdmission } from '../ram-brake/admission';
 
 const MAX_SWARM_AGENTS = 20;
 
@@ -52,6 +53,12 @@ export async function addAgentToSwarm(
   const role = input.role ?? 'builder';
   const agentId = randomUUID();
   const now = Date.now();
+
+  checkRamBrakeAdmission(getRawDb(), {
+    workspaceId: wsRow.id,
+    requestedProfiles: [input.runtimeProfileId],
+    force: input.forceRamBrake === true,
+  });
 
   // BUG-V1.1.3-ORCH-02 (audit fix): the prior implementation computed
   // `maxRoleIndex` from a `SELECT … FROM swarm_agents WHERE swarm_id = ?`

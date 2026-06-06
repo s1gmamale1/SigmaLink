@@ -21,11 +21,15 @@ import { renderHook, act, cleanup } from '@testing-library/react';
 // ── mock rpc ──────────────────────────────────────────────────────────────────
 
 const sessionSummaryMock = vi.fn();
+const processStatsMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     usage: {
       sessionSummary: (...args: unknown[]) => sessionSummaryMock(...args),
+    },
+    pty: {
+      processStats: (...args: unknown[]) => processStatsMock(...args),
     },
   },
 }));
@@ -59,6 +63,12 @@ async function tickMs(ms: number): Promise<void> {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  processStatsMock.mockResolvedValue({
+    supported: true,
+    rssBytes: 0,
+    descendantPids: [],
+    processCount: 0,
+  });
 });
 
 afterEach(() => {
@@ -79,6 +89,7 @@ describe('usePaneLiveStats', () => {
     expect(result.current.hasData).toBe(false);
     expect(result.current.totalCostUsd).toBeNull();
     expect(result.current.estTokPerSec).toBeNull();
+    expect(result.current.rssBytes).toBeNull();
   });
 
   it('returns hasData:true and the real totalCostUsd when turns are recorded', async () => {
@@ -167,6 +178,7 @@ describe('usePaneLiveStats', () => {
     await tickMs(12_000);
 
     expect(sessionSummaryMock).not.toHaveBeenCalled();
+    expect(processStatsMock).not.toHaveBeenCalled();
     expect(result.current.hasData).toBe(false);
     expect(result.current.totalCostUsd).toBeNull();
     expect(result.current.estTokPerSec).toBeNull();
@@ -195,5 +207,22 @@ describe('usePaneLiveStats', () => {
     // Advancing time must NOT produce any further polls — the ledger is frozen.
     await tickMs(12_000);
     expect(sessionSummaryMock.mock.calls.length).toBe(callsWhileRunning);
+  });
+
+  it('returns process RSS while running even before usage turns exist', async () => {
+    sessionSummaryMock.mockResolvedValue(makeSummary({ turnCount: 0 }));
+    processStatsMock.mockResolvedValue({
+      supported: true,
+      rssBytes: 512 * 1024 * 1024,
+      descendantPids: [123],
+      processCount: 2,
+    });
+    const { result } = renderHook(() => usePaneLiveStats('sess-rss', true));
+
+    await tickMs(0);
+
+    expect(result.current.hasData).toBe(false);
+    expect(result.current.rssBytes).toBe(512 * 1024 * 1024);
+    expect(result.current.processCount).toBe(2);
   });
 });

@@ -394,13 +394,7 @@ export class PtyRegistry {
   }
 
   kill(id: string): void {
-    const rec = this.sessions.get(id);
-    if (!rec) return;
-    try {
-      rec.pty.kill();
-    } catch {
-      /* ignore */
-    }
+    this.stop(id, { tree: true });
   }
 
   processSnapshot(id: string): ProcessTreeSnapshot | null {
@@ -415,6 +409,13 @@ export class PtyRegistry {
     let snapshot: ProcessTreeSnapshot | null = null;
     if (opts.tree !== false) {
       snapshot = stopProcessTree(rec.pid, PTY_KILL_FALLBACK_MS);
+      if (!snapshot.supported || snapshot.nodes.length === 0) {
+        try {
+          rec.pty.kill();
+        } catch {
+          /* ignore */
+        }
+      }
     } else {
       try {
         rec.pty.kill();

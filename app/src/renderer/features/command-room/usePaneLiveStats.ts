@@ -38,12 +38,18 @@ export interface PaneLiveStats {
   estTokPerSec: number | null;
   /** True when at least one usage turn has been recorded (turnCount > 0). */
   hasData: boolean;
+  /** Process-tree RSS in bytes; null when unsupported or unavailable. */
+  rssBytes: number | null;
+  /** Number of processes in the pane tree; null when unsupported or unavailable. */
+  processCount: number | null;
 }
 
 const EMPTY_STATS: PaneLiveStats = {
   totalCostUsd: null,
   estTokPerSec: null,
   hasData: false,
+  rssBytes: null,
+  processCount: null,
 };
 
 /**
@@ -87,21 +93,36 @@ export function usePaneLiveStats(sessionId: string, enabled: boolean): PaneLiveS
     prevPollTimeRef.current = Date.now();
 
     async function poll(): Promise<void> {
-      let summary: UsageSummary;
+      let summary: UsageSummary | null = null;
+      let processStats: { supported: boolean; rssBytes: number; processCount: number } | null = null;
       try {
         summary = await rpc.usage.sessionSummary({ sessionId });
       } catch {
-        // RPC failure: leave existing stats unchanged.
-        return;
+        // Usage RPC failure: keep RSS polling alive.
+      }
+      try {
+        processStats = await rpc.pty.processStats(sessionId);
+      } catch {
+        processStats = null;
       }
       if (!alive) return;
+
+      const rssBytes =
+        processStats?.supported && processStats.rssBytes > 0 ? processStats.rssBytes : null;
+      const processCount =
+        processStats?.supported && processStats.processCount > 0 ? processStats.processCount : null;
+
+      if (!summary) {
+        setStats((prev) => ({ ...prev, rssBytes, processCount }));
+        return;
+      }
 
       const hasData = summary.turnCount > 0;
       if (!hasData) {
         // No turns recorded yet — emit empty state, reset baselines.
         prevOutputTokensRef.current = 0;
         prevPollTimeRef.current = Date.now();
-        setStats(EMPTY_STATS);
+        setStats({ ...EMPTY_STATS, rssBytes, processCount });
         return;
       }
 
@@ -122,6 +143,8 @@ export function usePaneLiveStats(sessionId: string, enabled: boolean): PaneLiveS
         totalCostUsd: summary.totalCostUsd,
         estTokPerSec,
         hasData: true,
+        rssBytes,
+        processCount,
       });
     }
 

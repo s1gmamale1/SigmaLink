@@ -45,6 +45,7 @@ import { PaneGearPopoverBody } from './PaneGearPopover';
 import { useCoachmark } from './use-coachmark';
 import { usePaneLiveStats } from './usePaneLiveStats';
 import type { AgentSession } from '@/shared/types';
+import { getAgentRuntimeProfile } from '@/shared/runtime-profiles';
 
 // ---------------------------------------------------------------------------
 // Props — identical to the previous PaneHeader so callers need no changes.
@@ -188,6 +189,8 @@ export function PaneHeader({
           estTokPerSec={liveStats.estTokPerSec}
           hasData={liveStats.hasData}
         />
+        <PaneRuntimeProfileBadge runtimeProfileId={session.runtimeProfileId} />
+        <PaneRssBadge rssBytes={liveStats.rssBytes} processCount={liveStats.processCount} />
 
         {/* ── Icon cluster ────────────────────────────────────────────────── */}
         {/* Stop accidental drags from the cluster triggering a context drag. */}
@@ -334,6 +337,62 @@ export function PaneHeader({
         </div>
       </div>
     </div>
+  );
+}
+
+function compactProfileLabel(runtimeProfileId: unknown): string {
+  const profile = getAgentRuntimeProfile(runtimeProfileId);
+  if (profile.id === 'ruflo-core') return 'Ruflo';
+  if (profile.id === 'browser-tools') return 'Browser';
+  if (profile.id === 'security-tools') return 'Security';
+  return 'Full';
+}
+
+function PaneRuntimeProfileBadge({ runtimeProfileId }: { runtimeProfileId: unknown }) {
+  const profile = getAgentRuntimeProfile(runtimeProfileId);
+  return (
+    <span
+      data-testid="pane-runtime-profile-badge"
+      className={cn(
+        'max-w-[72px] truncate rounded-sm border border-border/40 bg-card/30 px-1.5 py-0.5',
+        'text-[9px] font-mono tabular-nums text-muted-foreground',
+        profile.mcpHeavy ? 'border-amber-400/40 text-amber-300' : '',
+      )}
+      aria-label={`Runtime profile: ${profile.label}`}
+      title={profile.label}
+    >
+      {compactProfileLabel(runtimeProfileId)}
+    </span>
+  );
+}
+
+function formatRss(bytes: number): string {
+  const mb = bytes / 1024 / 1024;
+  if (mb < 1024) return `${Math.round(mb)} MB`;
+  return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+function PaneRssBadge({
+  rssBytes,
+  processCount,
+}: {
+  rssBytes: number | null;
+  processCount: number | null;
+}) {
+  if (!rssBytes || rssBytes <= 0) return null;
+  const label = `RSS ${formatRss(rssBytes)}`;
+  return (
+    <span
+      data-testid="pane-rss-badge"
+      className={cn(
+        'max-w-[88px] truncate rounded-sm border border-border/40 bg-card/30 px-1.5 py-0.5',
+        'text-[9px] font-mono tabular-nums text-muted-foreground',
+      )}
+      aria-label={`${label}${processCount ? ` across ${processCount} processes` : ''}`}
+      title={`${label}${processCount ? ` · ${processCount} processes` : ''}`}
+    >
+      {label}
+    </span>
   );
 }
 
