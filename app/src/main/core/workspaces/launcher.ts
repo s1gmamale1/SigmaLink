@@ -42,6 +42,7 @@ import {
   normalizeAgentRuntimeProfileId,
   profileAllowsMcp,
 } from '../../../shared/runtime-profiles';
+import { checkRamBrakeAdmission } from '../ram-brake/admission';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -208,6 +209,12 @@ export async function executeLaunchPlan(
     : db.select().from(workspacesTable).where(eq(workspacesTable.rootPath, plan.workspaceRoot)).get();
   if (!wsRow) throw new Error(`Workspace not opened: ${plan.workspaceId ?? plan.workspaceRoot}`);
 
+  checkRamBrakeAdmission(getRawDb(), {
+    workspaceId: wsRow.id,
+    requestedProfiles: plan.panes.map((pane) => pane.runtimeProfileId),
+    force: plan.forceRamBrake === true,
+  });
+
   const sessions: AgentSession[] = [];
   for (const pane of plan.panes) {
     const runtimeProfileId = normalizeAgentRuntimeProfileId(pane.runtimeProfileId);
@@ -223,6 +230,7 @@ export async function executeLaunchPlan(
         status: 'error',
         startedAt: Date.now(),
         initialPrompt: pane.initialPrompt,
+        runtimeProfileId,
         error: `Unknown provider: ${pane.providerId}`,
       });
       continue;
@@ -515,6 +523,7 @@ export async function executeLaunchPlan(
               worktreePath,
               status: 'running',
               initialPrompt: pane.initialPrompt,
+              runtimeProfileId,
               startedAt: rec.startedAt,
               externalSessionId: insertExternalSessionId,
               // v1.3.1: persist the launcher-issued pane slot so
@@ -564,6 +573,7 @@ export async function executeLaunchPlan(
             status: 'error',
             startedAt: Date.now(),
             initialPrompt: pane.initialPrompt,
+            runtimeProfileId,
             error: `Pane slot ${allocatedPaneIndex} is already occupied.`,
           });
           // CRIT-1/CRIT-2: the UNIQUE branch `continue`s and never reaches the
@@ -626,6 +636,7 @@ export async function executeLaunchPlan(
         status: 'running',
         startedAt: rec.startedAt,
         initialPrompt: pane.initialPrompt,
+        runtimeProfileId,
         // SF-8 Yolo/Bypass — surface the persisted flag so the renderer
         // knows whether this pane was launched in bypass mode.
         autoApprove: pane.autoApprove ?? false,
@@ -719,6 +730,7 @@ export async function executeLaunchPlan(
         status: 'error',
         startedAt: Date.now(),
         initialPrompt: pane.initialPrompt,
+        runtimeProfileId,
         error: message,
       });
     }

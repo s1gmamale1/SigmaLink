@@ -32,6 +32,8 @@ export interface AgentSession {
   exitedAt?: number;
   worktreePath: string | null;
   initialPrompt?: string;
+  /** RAM Brake — persisted per-pane MCP/tool profile. */
+  runtimeProfileId?: AgentRuntimeProfileId;
   /**
    * Populated when the launcher could not bring the pane up (e.g. worktree
    * creation failed, PTY spawn failed). Renderer surfaces it inline.
@@ -153,6 +155,8 @@ export interface LaunchPlan {
    * omit it fall back to the (now non-unique) rootPath lookup.
    */
   workspaceId?: WorkspaceId;
+  /** RAM Brake — explicit operator override for over-budget launches. */
+  forceRamBrake?: boolean;
   preset: GridPreset;
   baseRef?: string;
   panes: PaneAssignment[];
@@ -256,6 +260,8 @@ export interface CreateSwarmInput {
   preset: SwarmPreset;
   name?: string;
   baseRef?: string;
+  /** RAM Brake — explicit operator override for over-budget swarm creation. */
+  forceRamBrake?: boolean;
   // Provider assignment per role; one entry per agent in the roster.
   roster: RoleAssignment[];
 }
@@ -266,6 +272,8 @@ export interface AddAgentToSwarmInput {
   role?: Role;
   /** RAM Brake — per-agent MCP/tool profile. Defaults to `ruflo-core`. */
   runtimeProfileId?: AgentRuntimeProfileId;
+  /** RAM Brake — explicit operator override for over-budget +Pane launches. */
+  forceRamBrake?: boolean;
   initialPrompt?: string;
   /**
    * SF-8 — Yolo/Bypass launch mode for the `+Pane` flow. When true, the swarm
@@ -788,6 +796,8 @@ export interface McpIssue {
 /** Structured MCP diagnostics for one workspace (FEAT-5 server manager). */
 export interface McpDiagnostic {
   workspaceId: string;
+  runtimeProfileId?: AgentRuntimeProfileId;
+  expectedServers?: string[];
   servers: McpServerEntry[];
   issues: McpIssue[];
   /** Epoch ms the scan ran. */

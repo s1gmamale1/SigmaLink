@@ -160,6 +160,45 @@ describe('PtyRegistry.forget()', () => {
   });
 });
 
+describe('PtyRegistry.kill()/stop() tree-aware teardown', () => {
+  it('kill() falls back to pty.kill() when the process tree is unsupported or empty', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined);
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    registry.kill(sess.id);
+
+    expect(pty.killCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  it('stop(tree:false) keeps the explicit root-only kill path available', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined);
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    const snapshot = registry.stop(sess.id, { tree: false });
+
+    expect(snapshot).toBeNull();
+    expect(pty.killCalls).toBe(1);
+  });
+});
+
 describe('PtyRegistry.resize()', () => {
   // v1.2.5 — fast-exit panes (e.g. Kimi spawn → ENOENT → exit within the
   // 200ms graceful-exit window) used to surface "ioctl(2) failed, EBADF" as

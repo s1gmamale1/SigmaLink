@@ -46,6 +46,7 @@ import type {
   UsageWeekSummary,
   McpDiagnostic,
 } from './types';
+import type { AgentRuntimeProfileId } from './runtime-profiles';
 import type { PlanCapsule } from './plan-capsule';
 
 export interface DiagnosticsReport {
@@ -148,6 +149,12 @@ export interface AppRouter {
     snapshot: (sessionId: string) => Promise<{ buffer: string }>; // returns current ring buffer
     subscribe: (sessionId: string) => Promise<{ history: string }>; // legacy alias for ring buffer
     list: () => Promise<Array<{ sessionId: string; providerId: string; cwd: string; alive: boolean; pid: number }>>;
+    processStats: (sessionId: string) => Promise<{
+      supported: boolean;
+      rssBytes: number;
+      descendantPids: number[];
+      processCount: number;
+    }>;
     forget: (sessionId: string) => Promise<void>;
     /**
      * W-4 Phase 4 — Spawn an ephemeral scratch-shell PTY in the given cwd.
@@ -1222,7 +1229,10 @@ export interface AppRouter {
   // P6 FEAT-5 — MCP config diagnostics / server manager.
   mcp: {
     /** Read+parse each provider's MCP config for a workspace and flag issues. */
-    diagnoseWorkspace: (input: { workspaceId: string }) => Promise<McpDiagnostic>;
+    diagnoseWorkspace: (input: {
+      workspaceId: string;
+      runtimeProfileId?: AgentRuntimeProfileId;
+    }) => Promise<McpDiagnostic>;
   };
 }
 

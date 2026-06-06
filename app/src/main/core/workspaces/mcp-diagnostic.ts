@@ -23,6 +23,10 @@ import { eq } from 'drizzle-orm';
 import type { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import type { McpDiagnostic, McpIssue, McpServerEntry } from '../../../shared/types';
+import {
+  getAgentRuntimeProfile,
+  normalizeAgentRuntimeProfileId,
+} from '../../../shared/runtime-profiles';
 import { isManagedRufloEntry } from './mcp-autowrite';
 
 export type McpDiagDb = ReturnType<typeof getDb>;
@@ -65,14 +69,27 @@ const RUFLO_EXPECTED_ENV = 'CLAUDE_FLOW_DIR';
 
 export function buildMcpDiagnosticController(deps: McpDiagnosticDeps) {
   return {
-    diagnoseWorkspace: async (input: { workspaceId: string }): Promise<McpDiagnostic> => {
+    diagnoseWorkspace: async (input: {
+      workspaceId: string;
+      runtimeProfileId?: unknown;
+    }): Promise<McpDiagnostic> => {
       const scannedAt = Date.now();
       const root = resolveWorkspaceRoot(deps.getDb(), input.workspaceId);
+      const runtimeProfileId = normalizeAgentRuntimeProfileId(input.runtimeProfileId);
+      const profile = getAgentRuntimeProfile(runtimeProfileId);
+      const expectedServers = [...profile.mcpAllowlist];
 
       // A workspace we can't resolve yields an empty-but-valid diagnostic rather
       // than throwing — the renderer renders the "no servers" empty state.
       if (root === null) {
-        return { workspaceId: input.workspaceId, servers: [], issues: [], scannedAt };
+        return {
+          workspaceId: input.workspaceId,
+          runtimeProfileId,
+          expectedServers,
+          servers: [],
+          issues: [],
+          scannedAt,
+        };
       }
 
       const home = deps.homeDir ?? os.homedir();
@@ -87,6 +104,7 @@ export function buildMcpDiagnosticController(deps: McpDiagnosticDeps) {
 
       // Cross-file duplicate detection: a server NAME present in >1 file.
       flagDuplicates(servers, issues);
+      flagProfileUnexpectedServers(runtimeProfileId, expectedServers, servers, issues);
 
       // Raise one notification per warn/error issue (info issues stay in-UI only).
       for (const issue of issues) {
@@ -95,7 +113,14 @@ export function buildMcpDiagnosticController(deps: McpDiagnosticDeps) {
         }
       }
 
-      return { workspaceId: input.workspaceId, servers, issues, scannedAt };
+      return {
+        workspaceId: input.workspaceId,
+        runtimeProfileId,
+        expectedServers,
+        servers,
+        issues,
+        scannedAt,
+      };
     },
   };
 }
@@ -188,7 +213,7 @@ function parseJsonConfig(
   }
 
   for (const [name, entry] of Object.entries(serverMap)) {
-    const managed = isManagedRufloEntry(entry);
+    const managed = name === 'ruflo' && isManagedRufloEntry(entry);
     servers.push({ name, provider: target.provider, scope: target.scope, file: target.file, managed });
     if (managed) flagMissingEnv(target, name, entry, issues);
   }
@@ -326,6 +351,31 @@ function flagDuplicates(servers: McpServerEntry[], issues: McpIssue[]): void {
       detail: `"${name}" is defined in ${files.length} config files (${files
         .map((f) => path.basename(f))
         .join(', ')}). Each provider dials its own definition; reconcile or remove the extras.`,
+    });
+  }
+}
+
+function flagProfileUnexpectedServers(
+  runtimeProfileId: string,
+  expectedServers: string[],
+  servers: McpServerEntry[],
+  issues: McpIssue[],
+): void {
+  const expected = new Set(expectedServers);
+  const profileOwnedServers = new Set(['browser', 'sigmamemory', 'security']);
+  const unexpected = servers.filter(
+    (server) => profileOwnedServers.has(server.name) && !expected.has(server.name),
+  );
+  if (unexpected.length === 0) return;
+  for (const server of unexpected) {
+    issues.push({
+      severity: 'info',
+      kind: 'profile-unexpected',
+      title: `MCP server "${server.name}" is not in ${runtimeProfileId}`,
+      detail:
+        `"${server.name}" is present in ${server.provider}'s config but is not expected for ` +
+        `${runtimeProfileId}. Re-open the workspace or launch a default-profile pane to prune SigmaLink-owned heavy tools.`,
+      file: server.file,
     });
   }
 }

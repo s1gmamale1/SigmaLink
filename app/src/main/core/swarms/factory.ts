@@ -13,7 +13,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { getDb } from '../db/client';
+import { getDb, getRawDb } from '../db/client';
 import {
   swarms,
   swarmAgents,
@@ -30,6 +30,7 @@ import type { WorktreePool } from '../git/worktree';
 import type { SwarmMailbox } from './mailbox';
 import { defaultRoster, totalForPreset } from './types';
 import { loadSwarm, materializeRosterAgent } from './factory-spawn';
+import { checkRamBrakeAdmission } from '../ram-brake/admission';
 
 // Re-export loadSwarm so existing callers (controller.ts, tools.ts) are unaffected.
 export { loadSwarm } from './factory-spawn';
@@ -92,7 +93,7 @@ export async function createSwarm(
 
   // Resolve the roster — the operator may have customised per-row providers,
   // otherwise we use the default roster for the preset.
-  const roster =
+  const roster: CreateSwarmInput['roster'] =
     input.roster && input.roster.length > 0 ? input.roster : defaultRoster(input.preset);
   // v1.13.2 — a `custom`-preset swarm is a valid empty container: the renderer
   // create-then-addAgent flow provisions a bare swarm row, then attaches the
@@ -107,6 +108,12 @@ export async function createSwarm(
   // even if its length disagrees with `totalForPreset` — matches the spec's
   // "operator override" intent.
   if (input.preset !== 'custom') void totalForPreset(input.preset);
+
+  checkRamBrakeAdmission(getRawDb(), {
+    workspaceId: wsRow.id,
+    requestedProfiles: roster.map((assignment) => assignment.runtimeProfileId),
+    force: input.forceRamBrake === true,
+  });
 
   const swarmId = randomUUID();
   const now = Date.now();

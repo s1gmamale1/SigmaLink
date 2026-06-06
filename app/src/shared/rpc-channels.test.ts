@@ -83,6 +83,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'pty.kill',
   'pty.snapshot',
   'pty.subscribe',
+  'pty.processStats',
   'pty.list',
   'pty.forget',
   'pty.spawnScratch',   // W-4 Phase 4 — ephemeral scratch-shell sub-tabs

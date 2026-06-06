@@ -1005,6 +1005,15 @@ async function buildRouter() {
         alive: s.alive,
         pid: s.pid,
       })),
+    processStats: async (sessionId: string) => {
+      const snapshot = pty.processSnapshot(sessionId);
+      return {
+        supported: snapshot?.supported ?? false,
+        rssBytes: snapshot?.rssBytes ?? 0,
+        descendantPids: snapshot?.descendantPids ?? [],
+        processCount: snapshot?.nodes.length ?? 0,
+      };
+    },
     forget: async (sessionId: string) => {
       pty.forget(sessionId);
     },
@@ -1176,6 +1185,7 @@ async function buildRouter() {
           status: string;
           exit_code: number | null;
           initial_prompt: string | null;
+          runtime_profile_id: string | null;
           started_at: number;
           exited_at: number | null;
           display_provider_id: string | null;
@@ -1213,6 +1223,7 @@ async function buildRouter() {
           startedAt: r.started_at,
           exitedAt: r.exited_at ?? undefined,
           initialPrompt: r.initial_prompt ?? undefined,
+          runtimeProfileId: r.runtime_profile_id ?? 'ruflo-core',
           displayProviderId: r.display_provider_id ?? null,
         }));
       } catch {

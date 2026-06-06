@@ -30,6 +30,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'pty.kill',
   'pty.snapshot',
   'pty.subscribe',
+  'pty.processStats',
   'pty.list',
   'pty.forget',
   // W-4 Phase 4 — Ephemeral scratch-shell sub-tabs. No DB row; kills on close.

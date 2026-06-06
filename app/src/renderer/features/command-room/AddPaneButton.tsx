@@ -36,6 +36,11 @@ import { useAppDispatch } from '@/renderer/app/state';
 import type { Swarm, Workspace } from '@/shared/types';
 import { worktreeModeKey } from '@/shared/worktree-mode';
 import type { AgentRuntimeProfileId } from '@/shared/runtime-profiles';
+import {
+  parseRamBrakeAdmissionError,
+  summarizeRamBrakeAdmission,
+  type RamBrakeAdmissionDetails,
+} from '@/shared/ram-brake';
 
 /** SF-8 B3 — Per-workspace Yolo default kv key (mirrors Launcher.tsx). */
 function yoloKvKey(workspaceId: string): string {
@@ -92,6 +97,12 @@ export function AddPaneButton({
 }: AddPaneButtonProps) {
   const dispatch = useAppDispatch();
   const [adding, setAdding] = useState(false);
+  const [ramBrakePrompt, setRamBrakePrompt] = useState<{
+    providerId: string;
+    targetSwarmId: string;
+    details: RamBrakeAdmissionDetails;
+    queued: boolean;
+  } | null>(null);
   // DOGFOOD-V1.4.2-01 hypothesis 3 — persistent error chip for ~10s after
   // addAgentToSwarm rejects.
   const [lastAddError, setLastAddError] = useState<string | null>(null);
@@ -187,9 +198,14 @@ export function AddPaneButton({
 
   const disabledReason = getAddPaneDisabledReason(activeWorkspace, activeSwarm, swarmsLoading, adding);
 
-  async function addPane(providerId: string): Promise<void> {
+  async function addPane(
+    providerId: string,
+    forceRamBrake = false,
+    targetSwarmIdOverride?: string,
+  ): Promise<void> {
     if (!activeWorkspace || adding) return;
     setAdding(true);
+    let targetSwarmIdForPrompt: string | null = targetSwarmIdOverride ?? null;
     try {
       // v1.13.1 — when a workspace is active but no swarm exists yet (e.g. the
       // user opened the workspace before the swarm wizard ran), create a minimal
@@ -203,7 +219,9 @@ export function AddPaneButton({
       // the slice. A single UPSERT of the populated `result.swarm` after the
       // await covers both the create-then-add and the existing-swarm cases.
       let targetSwarmId: string;
-      if (activeSwarm) {
+      if (targetSwarmIdOverride) {
+        targetSwarmId = targetSwarmIdOverride;
+      } else if (activeSwarm) {
         targetSwarmId = activeSwarm.id;
       } else {
         const newSwarm = await rpc.swarms.create({
@@ -214,6 +232,7 @@ export function AddPaneButton({
         });
         targetSwarmId = newSwarm.id;
       }
+      targetSwarmIdForPrompt = targetSwarmId;
       // SF-8 B3: pass autoApprove so the swarm spawn appends the provider's
       // bypass flag when true (AddAgentToSwarmInput now carries autoApprove).
       // DEV-W5: pass skipWorktree — createWorktree=true → skipWorktree=false
@@ -222,6 +241,7 @@ export function AddPaneButton({
         swarmId: targetSwarmId,
         providerId,
         runtimeProfileId: runtimeProfileForAdd(),
+        ...(forceRamBrake ? { forceRamBrake: true } : {}),
         autoApprove: yolo,
         skipWorktree: !createWorktree,
       });
@@ -231,8 +251,24 @@ export function AddPaneButton({
       toast.success(`Added ${result.agentKey}`, {
         description: result.paneIndex >= 0 ? `Pane ${result.paneIndex + 1}` : 'Pane added',
       });
+      setRamBrakePrompt(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const details = parseRamBrakeAdmissionError(err);
+      if (details && !forceRamBrake) {
+        if (targetSwarmIdForPrompt) {
+          setRamBrakePrompt({
+            providerId,
+            targetSwarmId: targetSwarmIdForPrompt,
+            details,
+            queued: false,
+          });
+          setLastAddError(null);
+          return;
+        }
+        setLastAddError(`RAM Brake held pane: ${summarizeRamBrakeAdmission(details)}`);
+        return;
+      }
       toast.error('Could not add pane', { description: msg });
       // DOGFOOD-V1.4.2-01 hypothesis 3 — persist the error inline for ~10s
       // so users on a busy screen have a non-transient record of the failure.
@@ -247,6 +283,11 @@ export function AddPaneButton({
     } finally {
       setAdding(false);
     }
+  }
+
+  async function forceQueuedAdd(): Promise<void> {
+    if (!ramBrakePrompt) return;
+    await addPane(ramBrakePrompt.providerId, true, ramBrakePrompt.targetSwarmId);
   }
 
   return (
@@ -379,6 +420,57 @@ export function AddPaneButton({
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
+      {ramBrakePrompt ? (
+        <div
+          data-testid="add-pane-ram-brake-prompt"
+          role="status"
+          aria-live="polite"
+          className="absolute left-0 top-full z-20 mt-1 flex w-[320px] max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-md border border-amber-500/40 bg-popover px-3 py-2 text-[11px] shadow-md"
+        >
+          <div>
+            <div className="font-semibold text-amber-700 dark:text-amber-300">
+              {ramBrakePrompt.queued ? 'Pane queued by RAM Brake' : 'Pane held by RAM Brake'}
+            </div>
+            <div className="text-muted-foreground">
+              {summarizeRamBrakeAdmission(ramBrakePrompt.details)}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {!ramBrakePrompt.queued ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => setRamBrakePrompt((prev) => (prev ? { ...prev, queued: true } : prev))}
+              >
+                Queue
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-[11px]"
+              onClick={() => {
+                setRamBrakePrompt(null);
+                setLastAddError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 bg-amber-600 px-2 text-[11px] text-white hover:bg-amber-700"
+              disabled={adding}
+              onClick={() => void forceQueuedAdd()}
+            >
+              Force pane
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {/* DOGFOOD-V1.4.2-01 hypothesis 1 — always-visible inline reason pill.
           aria-live="polite" + role="status": SR announces the reason when
           it changes (no-workspace → paused → cap) without interrupting

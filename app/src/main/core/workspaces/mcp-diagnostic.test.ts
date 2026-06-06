@@ -251,6 +251,38 @@ describe('mcp-diagnostic diagnoseWorkspace', () => {
     expect(out.servers.length).toBeGreaterThan(0);
   });
 
+  it('adds profile-specific info issues for heavy MCP servers outside the default profile without notifying', async () => {
+    const root = makeTmpRoot();
+    writeClaude(root, { browser: { command: 'npx', args: ['-y', '@playwright/mcp@0.0.75'] } });
+
+    const notify = spyNotify();
+    const out = await buildController(root, notify).diagnoseWorkspace({ workspaceId: WS_ID });
+
+    expect(out.runtimeProfileId).toBe('ruflo-core');
+    expect(out.expectedServers).toEqual(['ruflo']);
+    const issue = out.issues.find((i) => i.kind === 'profile-unexpected');
+    expect(issue?.severity).toBe('info');
+    expect(issue?.title).toContain('browser');
+    expect(notify.calls).toEqual([]);
+  });
+
+  it('does not flag Browser/SigmaMemory as unexpected for browser-tools diagnostics', async () => {
+    const root = makeTmpRoot();
+    writeClaude(root, {
+      browser: { command: 'npx', args: ['-y', '@playwright/mcp@0.0.75'] },
+      sigmamemory: { command: 'node', args: ['memory.cjs'] },
+    });
+
+    const out = await buildController(root).diagnoseWorkspace({
+      workspaceId: WS_ID,
+      runtimeProfileId: 'browser-tools',
+    });
+
+    expect(out.runtimeProfileId).toBe('browser-tools');
+    expect(out.expectedServers).toEqual(['ruflo', 'browser', 'sigmamemory']);
+    expect(out.issues.find((i) => i.kind === 'profile-unexpected')).toBeUndefined();
+  });
+
   it('is fail-open: a throwing notify sink does not break the diagnostics pass', async () => {
     const root = makeTmpRoot();
     writeClaude(root, { ruflo: { command: 'npx', args: [] } }); // missing-env → error → notify

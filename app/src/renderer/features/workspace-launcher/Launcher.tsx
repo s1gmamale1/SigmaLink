@@ -39,6 +39,11 @@ import { AGENT_PROVIDERS } from '@/shared/providers';
 // the main-side reader (core/workspaces/worktree-mode.ts). No hand-rolled copy.
 import { worktreeModeKey as worktreeModeKvKey } from '@/shared/worktree-mode';
 import type { AgentRuntimeProfileId } from '@/shared/runtime-profiles';
+import {
+  parseRamBrakeAdmissionError,
+  summarizeRamBrakeAdmission,
+  type RamBrakeAdmissionDetails,
+} from '@/shared/ram-brake';
 
 /** KV key for the per-workspace Yolo/Bypass default. */
 function yoloKvKey(workspaceId: string): string {
@@ -133,6 +138,12 @@ export function WorkspaceLauncher() {
   const [probes, setProbes] = useState<ProviderProbe[]>([]);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ramBrakePrompt, setRamBrakePrompt] = useState<{
+    plan: LaunchPlan;
+    workspace: Workspace;
+    details: RamBrakeAdmissionDetails;
+    queued: boolean;
+  } | null>(null);
   /**
    * v1.3.0 — per-pane session selection. Key = paneIndex, value = sessionId
    * (string) or null meaning "New session". Populated from lastResumePlan on
@@ -501,50 +512,74 @@ export function WorkspaceLauncher() {
     // not on empty-counts.
     const singleShell = mode === 'single';
 
+    const paneProviders: Array<{ providerId: string; modelId?: string }> =
+      skipAgents || singleShell
+        ? Array.from({ length: effectivePreset }, () => ({ providerId: 'shell' }))
+        : expandCountsToPanes();
+    // v1.3.1 fix (Bug B): the launcher backend reads `plan.paneResumePlan`
+    // (a top-level array), not `panes[i].sessionId`. v1.3.0 emitted the
+    // sessionId per-pane only, so `paneResumePlan` was undefined and every
+    // pane spawned fresh. Build the top-level array via the exported helper
+    // (covered by Launcher.test.tsx) so the contract stays testable.
+    const resumeArray = buildPaneResumePlanArray(paneProviders.length, paneResumePlan);
+    const runtimeProfileId = runtimeProfileForLaunch();
+    const plan: LaunchPlan = {
+      workspaceRoot: selectedWorkspace.rootPath,
+      // DEV-W3a — pass the workspace id so executeLaunchPlan binds panes to
+      // THIS workspace, not an arbitrary same-rootPath duplicate (0034 drops
+      // the unique root index).
+      workspaceId: selectedWorkspace.id,
+      preset: effectivePreset,
+      panes: paneProviders.map(({ providerId, modelId }, paneIndex) => ({
+        paneIndex,
+        providerId,
+        runtimeProfileId,
+        // SF-8 B2: thread yolo into every pane so the main process appends
+        // the provider's autoApproveFlag when opts.autoApprove is true.
+        autoApprove: yolo,
+        // FEAT-14: per-pane model → launcher appends `--model <id>` for
+        // providers that accept the flag. Omitted when no model was picked.
+        ...(modelId ? { modelId } : {}),
+      })),
+      ...(resumeArray.length > 0 ? { paneResumePlan: resumeArray } : {}),
+    };
+    await submitLaunchPlan(plan, selectedWorkspace, false);
+  }
+
+  async function submitLaunchPlan(
+    plan: LaunchPlan,
+    workspace: Workspace,
+    forceRamBrake: boolean,
+  ): Promise<void> {
     setLaunching(true);
     setError(null);
     try {
-      const paneProviders: Array<{ providerId: string; modelId?: string }> =
-        skipAgents || singleShell
-          ? Array.from({ length: effectivePreset }, () => ({ providerId: 'shell' }))
-          : expandCountsToPanes();
-      // v1.3.1 fix (Bug B): the launcher backend reads `plan.paneResumePlan`
-      // (a top-level array), not `panes[i].sessionId`. v1.3.0 emitted the
-      // sessionId per-pane only, so `paneResumePlan` was undefined and every
-      // pane spawned fresh. Build the top-level array via the exported helper
-      // (covered by Launcher.test.tsx) so the contract stays testable.
-      const resumeArray = buildPaneResumePlanArray(paneProviders.length, paneResumePlan);
-      const runtimeProfileId = runtimeProfileForLaunch();
-      const plan: LaunchPlan = {
-        workspaceRoot: selectedWorkspace.rootPath,
-        // DEV-W3a — pass the workspace id so executeLaunchPlan binds panes to
-        // THIS workspace, not an arbitrary same-rootPath duplicate (0034 drops
-        // the unique root index).
-        workspaceId: selectedWorkspace.id,
-        preset: effectivePreset,
-        panes: paneProviders.map(({ providerId, modelId }, paneIndex) => ({
-          paneIndex,
-          providerId,
-          runtimeProfileId,
-          // SF-8 B2: thread yolo into every pane so the main process appends
-          // the provider's autoApproveFlag when opts.autoApprove is true.
-          autoApprove: yolo,
-          // FEAT-14: per-pane model → launcher appends `--model <id>` for
-          // providers that accept the flag. Omitted when no model was picked.
-          ...(modelId ? { modelId } : {}),
-        })),
-        ...(resumeArray.length > 0 ? { paneResumePlan: resumeArray } : {}),
-      };
       const out = await rpc.workspaces.launch(plan);
-      dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace: selectedWorkspace });
+      dispatch({ type: 'SET_ACTIVE_WORKSPACE', workspace });
       dispatch({ type: 'ADD_SESSIONS', sessions: out.sessions });
       dispatch({ type: 'SET_ROOM', room: 'command' });
+      setRamBrakePrompt(null);
     } catch (err) {
+      const details = parseRamBrakeAdmissionError(err);
+      if (details && !forceRamBrake) {
+        setRamBrakePrompt({ plan, workspace, details, queued: false });
+        setError(`RAM Brake held this launch: ${summarizeRamBrakeAdmission(details)}`);
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
     } finally {
       setLaunching(false);
     }
+  }
+
+  async function forceQueuedLaunch(): Promise<void> {
+    if (!ramBrakePrompt) return;
+    await submitLaunchPlan(
+      { ...ramBrakePrompt.plan, forceRamBrake: true },
+      ramBrakePrompt.workspace,
+      true,
+    );
   }
 
   const launchEnabled =
@@ -573,6 +608,55 @@ export function WorkspaceLauncher() {
     <div className="sl-fade-in flex h-full flex-col gap-4 overflow-y-auto p-6">
       {error ? (
         <ErrorBanner message={error} onDismiss={() => setError(null)} />
+      ) : null}
+      {ramBrakePrompt ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-col gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm"
+          data-testid="ram-brake-launch-prompt"
+        >
+          <div>
+            <div className="font-semibold text-amber-700 dark:text-amber-300">
+              {ramBrakePrompt.queued ? 'Launch queued by RAM Brake' : 'Launch held by RAM Brake'}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {summarizeRamBrakeAdmission(ramBrakePrompt.details)}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {!ramBrakePrompt.queued ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setRamBrakePrompt((prev) => (prev ? { ...prev, queued: true } : prev))}
+              >
+                Queue
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setRamBrakePrompt(null);
+                setError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="bg-amber-600 text-white hover:bg-amber-700"
+              disabled={launching}
+              onClick={() => void forceQueuedLaunch()}
+            >
+              Force launch
+            </Button>
+          </div>
+        </div>
       ) : null}
       <header className="flex flex-col gap-1">
         <div className="text-2xl font-semibold tracking-tight">Build the future.</div>

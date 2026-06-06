@@ -205,6 +205,15 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
     output: z.object({ buffer: z.string() }),
   },
   'pty.subscribe': stub,
+  'pty.processStats': {
+    input: z.string().min(1).max(512),
+    output: z.object({
+      supported: z.boolean(),
+      rssBytes: z.number().nonnegative(),
+      descendantPids: z.array(z.number().int()),
+      processCount: z.number().int().nonnegative(),
+    }),
+  },
   'pty.list': stub,
   'pty.forget': stub,
   // ── panes ───────────────────────────────────────────────────────────────
@@ -442,7 +451,12 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   },
   // ── mcp diagnostics (P6 FEAT-5) ────────────────────────────────────────
   'mcp.diagnoseWorkspace': {
-    input: z.object({ workspaceId: z.string().min(1).max(200) }),
+    input: z.object({
+      workspaceId: z.string().min(1).max(200),
+      runtimeProfileId: z
+        .enum(['ruflo-core', 'browser-tools', 'security-tools', 'full-tools'])
+        .optional(),
+    }),
     output: any,
   },
   // ── fs ───────────────────────────────────────────────────────────────
@@ -483,6 +497,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       runtimeProfileId: z
         .enum(['ruflo-core', 'browser-tools', 'security-tools', 'full-tools'])
         .optional(),
+      forceRamBrake: z.boolean().optional(),
       initialPrompt: z.string().max(8_000).optional(),
       // SF-8 — Yolo/Bypass: when true, the spawn appends the provider's
       // autoApproveFlag (no-op for providers without one).

@@ -16,6 +16,7 @@ interface RawSessionRow {
   id: string;
   workspace_id: string;
   provider_id: string;
+  runtime_profile_id: string | null;
   cwd: string;
   branch: string | null;
   worktree_path: string | null;
@@ -80,6 +81,7 @@ function listForWorkspace(
       id: r.id,
       workspaceId: r.workspace_id,
       providerId: r.provider_id,
+      runtimeProfileId: r.runtime_profile_id ?? 'ruflo-core',
       cwd: r.cwd,
       branch: r.branch ?? null,
       worktreePath: r.worktree_path ?? null,
@@ -109,6 +111,7 @@ function row(
     id: `sess-${counter.toString().padStart(4, '0')}`,
     workspace_id: workspaceId,
     provider_id: providerId,
+    runtime_profile_id: providerId === 'claude' ? 'browser-tools' : null,
     cwd: `/tmp/${workspaceId}`,
     branch: null,
     worktree_path: null,
@@ -207,6 +210,7 @@ describe('panes.listForWorkspace — full AgentSession rehydration', () => {
         id: 'explicit-id',
         workspace_id: 'ws-F',
         provider_id: 'claude',
+        runtime_profile_id: 'security-tools',
         cwd: '/tmp/ws-F',
         branch: 'sigmalink/claude/pane-0',
         worktree_path: '/worktrees/abc/claude-pane-0-x1y2z3',
@@ -224,6 +228,7 @@ describe('panes.listForWorkspace — full AgentSession rehydration', () => {
     expect(s.id).toBe('explicit-id');
     expect(s.workspaceId).toBe('ws-F');
     expect(s.providerId).toBe('claude');
+    expect(s.runtimeProfileId).toBe('security-tools');
     expect(s.cwd).toBe('/tmp/ws-F');
     expect(s.branch).toBe('sigmalink/claude/pane-0');
     expect(s.worktreePath).toBe('/worktrees/abc/claude-pane-0-x1y2z3');

@@ -46,6 +46,9 @@ export const agentSessions = sqliteTable(
     status: text('status', { enum: ['starting', 'running', 'exited', 'error'] }).notNull(),
     exitCode: integer('exit_code'),
     initialPrompt: text('initial_prompt'),
+    // RAM Brake — persisted per-pane MCP/tool profile. Existing rows default
+    // to the lightweight profile via migration 0035.
+    runtimeProfileId: text('runtime_profile_id').notNull().default('ruflo-core'),
     startedAt: integer('started_at')
       .notNull()
       .default(sql`(unixepoch() * 1000)`),

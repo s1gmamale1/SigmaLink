@@ -180,6 +180,7 @@ export function loadAgentSession(sessionId: string): AgentSession | null {
     exitedAt: row.exitedAt ?? undefined,
     worktreePath: row.worktreePath ?? null,
     initialPrompt: row.initialPrompt ?? undefined,
+    runtimeProfileId: normalizeAgentRuntimeProfileId(row.runtimeProfileId),
     // v1.4.3 #06 — surface split/minimised fields so the renderer can group
     // sub-panes into split cells and collapse minimised panes. Drizzle types
     // these as `string | null` / `number | null` / `number`; map nulls to
@@ -320,7 +321,12 @@ export async function spawnAgentSession(
   // port; stdio otherwise. Fail-open + opt-out aware — never blocks the spawn.
   try {
     const shared = getSharedDeps();
-    if (shared && (profileAllowsMcp(runtimeProfileId, 'browser') || profileAllowsMcp(runtimeProfileId, 'sigmamemory'))) {
+    if (
+      shared &&
+      (profileAllowsMcp(runtimeProfileId, 'browser') ||
+        profileAllowsMcp(runtimeProfileId, 'sigmamemory') ||
+        profileAllowsMcp(runtimeProfileId, 'security'))
+    ) {
       const memRoot = args.wsRow.repoRoot ?? args.wsRow.rootPath;
       let memCmd: ReturnType<typeof shared.memorySupervisor.getCommandFor> | null = null;
       if (profileAllowsMcp(runtimeProfileId, 'sigmamemory')) {
@@ -410,6 +416,7 @@ export async function spawnAgentSession(
           worktreePath,
           status: 'running',
           initialPrompt: args.initialPrompt,
+          runtimeProfileId,
           startedAt: rec.startedAt,
           externalSessionId: rec.externalSessionId,
           paneIndex,
