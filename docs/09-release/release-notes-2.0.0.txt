@@ -1,0 +1,85 @@
+SigmaLink v2.0.0 — 2026-06-07
+=============================
+
+The first tagged major release. v2.0.0 bundles the entire 6-phase
+next-phase ROADMAP plus its full long-tail, the Phase 0 release-blocker
+crisis fix, Phases 7-10, the Phase 9 orchestration/memory-surfacing arc,
+and two operator-found in-place resume fixes — all staged on `main`
+(untagged) since 2026-06-03 and finalized after live operator
+verification on 2026-06-07.
+
+See CHANGELOG.md [2.0.0] for the complete, itemized record.
+
+
+Headline themes
+---------------
+
+- Reliability spine (P1) + the Phase 0 crisis fix — disk-fill cap,
+  post-crash launch lockout, and workspace-loss all resolved.
+- One Apple motion language (P2) + the notification & soundscape
+  system (P3).
+- HEADLINE: obsidian-grade memory — the Ruflo AgentDB surfaced as a
+  first-class graph node class, daily digest, tags, ⌘O quick-open (P4).
+- Responsiveness + performance pass (P5).
+- Full competitive-parity surface + both worktree leapfrogs (P6 +
+  long-tail): per-agent identity, per-pane usage/cost, effort control,
+  agent rewind, sub-agent depth, browser detach, and more.
+- Phases 7-10: worktree GUI + multi-workspace-same-dir, premium Jorvis
+  FE, theme gallery + per-workspace tint, Windows hardening, voice/model
+  depth + read-only agent browser, and the P0 RAM brake.
+
+
+Final cycle (2026-06-06/07) — folded into this tag
+--------------------------------------------------
+
+- Phase 9 — Orchestration & memory surfacing (#125 9A, #126 9B):
+  a persistent "Sigma" right-rail panel (Canvas to-dos + live swarm
+  token delta · Review/routing trace), the memory graph made <=1 click
+  from any room, a global "Automations" room (Telegram + nightly digest),
+  per-conversation NAMED sessions (migration 0036 + panes.rename), and a
+  per-session Artifacts view. The roadmap's feature work is now complete.
+
+- Fixed — in-place pane session resume (#127, #128), found in live
+  operator testing and invisible to the e2e smoke:
+  * #127 stopped panes in an in-place (shared-cwd) workspace from
+    collapsing onto one session — the operator's own running CLI session
+    or a sibling pane's — by never falling back to a "continue-latest"
+    flag on a null/ghost id (start fresh instead; the policy gemini
+    already used).
+  * #128 stopped the "starts a new session each reopen" loop by
+    capturing + persisting each claude pane's real --session-id on the
+    fresh-fallback, so the next reopen resumes by a real id.
+  Both Opus-reviewed; operator-confirmed live before tagging. codex
+  panes deliberately stay fresh-each-reopen (safe; their disk-scan
+  capture races in a shared cwd) — deterministic codex resume via its
+  stdout banner is a noted follow-up.
+
+
+Release gate (in main)
+----------------------
+
+- tsc -b clean
+- eslint . --max-warnings 0 clean
+- vitest 308 files / 3231 pass / 1 skip
+- product:check (vite build + electron compile) clean
+- CI e2e-matrix (full tests/e2e/) green on main 24f462d
+
+
+Schema
+------
+
+- Latest migration: 0036 (agent_sessions.name). Migration 0026 remains
+  dormant/unregistered pending operator sign-off on a historical
+  agent_sessions backfill (the status-aware index from Phase 0 is the
+  recurring guard).
+
+
+Noted follow-ups (not blocking)
+-------------------------------
+
+- Deterministic codex session capture via its "Session: <uuid>" stdout
+  banner (so codex panes resume their own session too).
+- Deferred XL: Canvas mode (BSP-P4), multi-window (BSP-P6), Tauri eval.
+- Soft operator eyeballs: PERF-15 swarm-rail under live multi-agent
+  streaming; the N1/N2/N3 visual smokes (wizard themes, browser drag,
+  Jorvis live reply).
