@@ -4,18 +4,15 @@
 > derived from `WISHLIST.md`. A whiteboard — refreshed each cycle, **not permanent documentation**.
 > Permanent record → `CHANGELOG.md` + master memory + Ruflo AgentDB.
 >
-> **State as of 2026-06-07.** The entire v2.0.0 feature arc is **✅ SHIPPED to `main` (untagged)**:
-> Phases 0–8 + 10, the 15-theme gallery (#104), per-workspace colors (#113), Windows hardening (#110),
-> pane-switch-jank (#118). **Shipped since the last refresh:** RAM-brake slice 1 (#117) + **remainder
-> (#120)** — admission control, per-pane RSS badge, lane allowlists; **SMK-1 + DEV-7 HMR script (#119)**;
-> and a **boot-restore reliability hotfix (#121)** — the black-panes race + in-place stale-session
-> fallback, found during operator testing. Per this doc's convention, shipped work is deleted from the
-> whiteboard (full record → `CHANGELOG.md`).
+> **State as of 2026-06-07. 🏷️ v2.0.0 is RELEASED — tag `v2.0.0` pushed (commit `4c11fc8`), the
+> macOS/Windows release workflows build the artifacts.** The first tagged major release bundles the
+> entire 6-phase ROADMAP + long-tail + the Phase 0 crisis fix + Phases 7–10 + Phase 9 (orchestration &
+> memory surfacing) + the operator-found in-place resume fixes (#125–#128). Full record → `CHANGELOG.md`
+> [2.0.0] + `docs/09-release/release-notes-2.0.0.txt`.
 >
 > **What's left (this file):** ① the **deferred XL** big-bangs (Canvas, multi-window, Tauri eval) ·
-> ② operator-owned items. **Phase 9 is COMPLETE** (9A: BSP-O1/O2/O5 #125; 9B: BSP-O3/O4 this cycle) —
-> **there is no remaining feature work on the roadmap.** **v2.0.0 tag** awaits only the operator visual
-> smokes (N1 · N2 · N3).
+> ② operator-owned items. **There is no remaining feature work on the roadmap** — Phase 9 (the last
+> feature arc) is complete and v2.0.0 is tagged.
 
 This ROADMAP is the single source of truth for what to build next.
 
@@ -39,8 +36,8 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## 🔓 Release carry-over (operator-owned)
-**v2.0.0 is on `main` (untagged)** and CI-green. The tag awaits **only the owed operator VISUAL smokes**: **N1** wizard across themes · **N2** browser drag / no-reload-on-reopen · **N3** Jorvis live reply (run `claude` once for trust). Soft-owed eyeballs: PERF-15 swarm-rail under live multi-agent streaming · DB-2 backup→restore round-trip · FEAT-11 rewind on a real worktree · `npm run test:perf` jank/IPC-rate delta. *(The P0 RAM hard-cap is no longer an open tag decision — shipped via #120.)* Tag via `/sigmalink-release`.
+## ✅ Release — v2.0.0 TAGGED 2026-06-07
+**`v2.0.0` is tagged and pushed** (commit `4c11fc8`); the `release-macos` / `release-windows` workflows build the artifacts → confirm `gh release view v2.0.0` when they finish. The operator confirmed the headline live verification (in-place resume round-trip, #127/#128) before tagging. **Soft-owed post-release eyeballs (non-blocking):** the N1/N2/N3 visual smokes (wizard themes · browser drag/no-reload · Jorvis live reply) · PERF-15 swarm-rail under live multi-agent streaming · `npm run test:perf` jank/IPC-rate delta. Follow-up: deterministic codex session capture via its `Session: <uuid>` stdout banner (codex panes currently start fresh each reopen — safe).
 
 ---
 
@@ -74,7 +71,7 @@ Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per
 
 | # | Item | Status |
 |---|------|--------|
-| **rel** | v2.0.0 tag — gated on the N1/N2/N3 visual smokes | operator-owned |
+| **rel** | v2.0.0 tag | ✅ TAGGED 2026-06-07 (`4c11fc8`) — N1/N2/N3 now non-blocking post-release eyeballs |
 | **B1** | W-4 P8–P9 + win32 shell-first dogfood | 🚧 needs an operator Windows device |
 | **B2** | FE-4 voice items | 🚧 behind unshipped native voice builds |
 | **op** | SF-12 migration `0026` register | operator sign-off — run diagnostic SQL on a real `agent_sessions` dump first (historical data backfill; the status-aware index from Phase 0 is the recurring guard) |
