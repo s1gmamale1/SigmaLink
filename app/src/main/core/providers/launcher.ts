@@ -47,6 +47,17 @@ import {
  */
 const PRE_ASSIGN_PROVIDERS: ReadonlySet<string> = new Set(['claude']);
 
+/**
+ * Whether a provider mints a DETERMINISTIC `--session-id <uuid>` at spawn (so
+ * the caller knows the session id synchronously and can persist it). Only such
+ * providers can be safely "ghost-healed" on the boot-resume fresh-fallback —
+ * others rely on a cwd disk-scan which, in the shared in-place cwd, races
+ * siblings / the operator's CLI. Exported for resume-launcher's heal gate.
+ */
+export function providerPreAssignsSession(providerId: string): boolean {
+  return PRE_ASSIGN_PROVIDERS.has(providerId.toLowerCase());
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Public types
 // ──────────────────────────────────────────────────────────────────────────

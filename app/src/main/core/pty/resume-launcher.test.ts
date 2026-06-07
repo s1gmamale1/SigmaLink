@@ -149,6 +149,13 @@ function setupDb(kv: Record<string, string> = {}): { db: Database.Database; rows
             }
             return { changes: row ? 1 : 0 };
           }
+          if (/SET external_session_id = \?/.test(sql)) {
+            // GHOST-HEAL — clear (null) or stamp the new pre-assigned id.
+            const [value, sessionId] = args as [string | null, string];
+            const row = rows.find((r) => r.id === sessionId);
+            if (row) row.external_session_id = value;
+            return { changes: row ? 1 : 0 };
+          }
           throw new Error(`unexpected SQL: ${sql}`);
         },
       };
@@ -398,6 +405,126 @@ describe('resumeWorkspacePanes', () => {
     expect(rows[0]?.status).toBe('running');
   });
 
+  it('GHOST-HEAL: a ghost claude id resumes FRESH with fresh semantics and PERSISTS the new pre-assigned id', async () => {
+    // The reported bug: a pane whose stored id has no JSONL on disk (ghost)
+    // spawned fresh on EVERY reopen because the new session's real id was never
+    // captured (the resume path used sessionId + isResume:true → no pre-assign,
+    // no capture). Boot-resume's fresh-fallback must now use FRESH semantics
+    // (preassignedSessionId + isResume:false) AND stamp the pre-assigned id back
+    // so the NEXT reopen resumes by a real id.
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'sess-ghost',
+      // valid UUID shape (passes isClaudeSessionId) but no JSONL in the empty
+      // tmp claude home → prepareClaudeResume returns 'missing' → fresh fallback.
+      external_session_id: VALID_CLAUDE_SESSION_ID,
+    });
+    const NEW_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const calls: Array<{
+      preassignedSessionId?: string;
+      sessionId?: string;
+      isResume?: boolean;
+      args: string[];
+    }> = [];
+    const registry = { get: () => undefined } as unknown as PtyRegistry;
+    const resolve: NonNullable<ResumeLauncherDeps['resolve']> = (_deps, opts) => {
+      calls.push({
+        preassignedSessionId: opts.preassignedSessionId,
+        sessionId: opts.sessionId,
+        isResume: opts.isResume,
+        args: opts.extraArgs ?? [],
+      });
+      return {
+        ptySession: makeSession(
+          opts.preassignedSessionId ?? opts.sessionId ?? 'new',
+          opts.providerId,
+        ),
+        providerRequested: opts.providerId,
+        providerEffective: 'claude',
+        commandUsed: 'claude',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+        preassignedExternalSessionId: NEW_ID, // claude --session-id mint
+      };
+    };
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: registry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => claudeProvider,
+      resolve,
+    });
+
+    // FRESH semantics — NOT resume-by-id.
+    expect(calls[0]?.preassignedSessionId).toBe('sess-ghost');
+    expect(calls[0]?.sessionId).toBeUndefined();
+    expect(calls[0]?.isResume).toBe(false);
+    expect(calls[0]?.args).toEqual([]);
+    // The new real id is persisted → the next reopen resumes by it (no re-ghost).
+    expect(rows[0]?.external_session_id).toBe(NEW_ID);
+    expect(result.resumed[0]?.externalSessionId).toBe(NEW_ID);
+    expect(rows[0]?.status).toBe('running');
+  });
+
+  it('GHOST-HEAL is claude-only: a ghost codex id stays fresh-no-capture (no disk-scan re-collapse)', async () => {
+    // codex has no deterministic --session-id; its only capture is a cwd
+    // disk-scan that races siblings/the operator in the shared in-place cwd
+    // (the collapse we fixed: pane-4 ← pane-5). So codex ghosts must NOT be
+    // healed — they spawn fresh via the resume path (sessionId + isResume:true,
+    // no capture), leaving the row untouched.
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'sess-codex-ghost',
+      provider_id: 'codex',
+      provider_effective: 'codex',
+      external_session_id: null,
+    });
+    const calls: Array<{
+      preassignedSessionId?: string;
+      sessionId?: string;
+      isResume?: boolean;
+      args: string[];
+    }> = [];
+    const resolve: NonNullable<ResumeLauncherDeps['resolve']> = (_deps, opts) => {
+      calls.push({
+        preassignedSessionId: opts.preassignedSessionId,
+        sessionId: opts.sessionId,
+        isResume: opts.isResume,
+        args: opts.extraArgs ?? [],
+      });
+      return {
+        ptySession: makeSession(
+          opts.sessionId ?? opts.preassignedSessionId ?? 'new',
+          opts.providerId,
+        ),
+        providerRequested: opts.providerId,
+        providerEffective: 'codex',
+        commandUsed: 'codex',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+      };
+    };
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: { get: () => undefined } as unknown as PtyRegistry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => codexProvider,
+      resolve,
+    });
+
+    // Resume-path semantics (NOT pre-assign): sessionId set, no preassign,
+    // isResume:true → no capture sink fires.
+    expect(calls[0]?.sessionId).toBe('sess-codex-ghost');
+    expect(calls[0]?.preassignedSessionId).toBeUndefined();
+    expect(calls[0]?.isResume).toBe(true);
+    expect(calls[0]?.args).toEqual([]); // fresh (no `resume --last`)
+    // The row is NOT overwritten by a heal — stays as-is (fresh-no-capture).
+    expect(rows[0]?.external_session_id).toBeNull();
+    expect(result.resumed).toHaveLength(1);
+  });
+
   it('passes the configured PTY spawn mode into boot resume spawns', async () => {
     const { db, rows } = setupDb({ [KV_PTY_SPAWN_MODE]: 'shell-first' });
     insertSession(rows);
@@ -615,7 +742,13 @@ describe('resumeWorkspacePanes — P6 FEAT-1 subset allowlist', () => {
     calls: Array<{ sessionId?: string; args: string[] }>,
   ): NonNullable<ResumeLauncherDeps['resolve']> {
     return (_deps, opts) => {
-      calls.push({ sessionId: opts.sessionId, args: opts.extraArgs ?? [] });
+      // GHOST-HEAL — the fresh-fallback spawns via preassignedSessionId (not
+      // sessionId); capture the EFFECTIVE row id either way so the "which rows
+      // resumed" assertions hold regardless of resume-by-id vs fresh semantics.
+      calls.push({
+        sessionId: opts.sessionId ?? opts.preassignedSessionId,
+        args: opts.extraArgs ?? [],
+      });
       return {
         ptySession: makeSession(opts.sessionId ?? 'new-id', opts.providerId),
         providerRequested: opts.providerId,
@@ -810,6 +943,13 @@ function setupDbWithAutoApprove(): {
               row.exit_code = exitCode;
               row.exited_at = exitedAt;
             }
+            return { changes: row ? 1 : 0 };
+          }
+          if (/SET external_session_id = \?/.test(sql)) {
+            // GHOST-HEAL — clear (null) or stamp the new pre-assigned id.
+            const [value, sessionId] = args as [string | null, string];
+            const row = rows.find((r) => r.id === sessionId);
+            if (row) row.external_session_id = value;
             return { changes: row ? 1 : 0 };
           }
           throw new Error(`unexpected SQL: ${sql}`);
