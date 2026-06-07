@@ -2,19 +2,17 @@
 
 > **Ephemeral working doc.** The priority-ordered execution sequence for what is **still pending**,
 > derived from `WISHLIST.md`. A whiteboard — refreshed each cycle, **not permanent documentation**.
-> Permanent record → `CHANGELOG.md` + master memory + Ruflo AgentDB.
+> Permanent record → `CHANGELOG.md` + `docs/09-release/` + master memory + Ruflo AgentDB.
 >
-> **State as of 2026-06-07. 🏷️ v2.0.0 is RELEASED — tag `v2.0.0` pushed (commit `4c11fc8`), the
-> macOS/Windows release workflows build the artifacts.** The first tagged major release bundles the
-> entire 6-phase ROADMAP + long-tail + the Phase 0 crisis fix + Phases 7–10 + Phase 9 (orchestration &
-> memory surfacing) + the operator-found in-place resume fixes (#125–#128). Full record → `CHANGELOG.md`
-> [2.0.0] + `docs/09-release/release-notes-2.0.0.txt`.
+> **State as of 2026-06-08. 🏷️ v2.0.0 is RELEASED** — tag `v2.0.0` (commit `4c11fc8`); `release-macos` /
+> `release-windows` built the artifacts, GH release published. The first tagged major bundled the entire
+> 6-phase roadmap + long-tail + the Phase 0 crisis fix + Phases 7–10 + Phase 9 (orchestration & memory
+> surfacing) + the operator-found in-place resume fixes (#125–#128). **Full record → `CHANGELOG.md`
+> [2.0.0] + `docs/09-release/release-notes-2.0.0.txt`.**
 >
-> **What's left (this file):** ① the **deferred XL** big-bangs (Canvas, multi-window, Tauri eval) ·
-> ② operator-owned items. **There is no remaining feature work on the roadmap** — Phase 9 (the last
-> feature arc) is complete and v2.0.0 is tagged.
-
-This ROADMAP is the single source of truth for what to build next.
+> **There is no remaining feature work on the roadmap.** This file is now a thin holder for the
+> **deferred-XL big-bangs**, the **operator-owned** items, and the durable **ADRs** — until the next
+> cycle builds a fresh phase plan from `WISHLIST.md`.
 
 ---
 
@@ -26,56 +24,25 @@ This ROADMAP is the single source of truth for what to build next.
 
 ---
 
-## ✅ Shipped since last refresh (full record → `CHANGELOG.md`)
-- **#117 + #120 — P0 RAM Brake (complete).** Lean `ruflo-core` default profile + opt-in Browser tools; admission control (total / per-workspace / MCP-heavy caps) at the spawn siblings; per-pane runtime-profile badge + live RSS readout; lane allowlists; cleanup process-tree telemetry/stop. The 69–70 GB fill class is now capped — the RAM hard-cap is no longer a tag blocker.
-- **#119 — SMK-1 + DEV-7 (HMR).** opencode session scoping joins the Option-B whitelist; opt-in `pnpm electron:dev:hmr` real dev-server/HMR launcher (the known-good `electron:dev` left intact).
-- **#121 — boot-restore reliability hotfix.** Black-panes **race** (restore IPC arriving after `state.ready`; a `restoreTick` nonce re-runs the drain) + in-place **stale-session** fallback (`prepareClaudeResume` now stats the JSONL even in-place → falls back to `--continue` instead of `claude --resume <ghost-id>`). +2 regression tests. Latent race exposed by Phase-0's awaited boot-sweep — affected every install.
-- **#123 — DEV-6 + DEV-8.** zod input schemas for all 49 un-schemed IPC channels (boot "no zod schema entry" warning → 0; conservative, so live `enforce` mode never rejects valid IPC; +2 coverage tests) + bundle hygiene (static `SkillsTab` import, `ease-smooth` token, chunk-limit → **warning-free build**).
-- **Phase 9 Packet 9A — Sigma panel + routing trace + 1-click graph (BSP-O1/O2/O5).** The phase DoD core: a persistent `'sigma'` right-rail tab → `SigmaPanel` (Canvas = numbered swarm-agent to-dos with shared `deriveStatus` glyphs + a swarm-aggregated live token delta; Review = the live routing/tool trace, reusing `ToolCallInspector` on the `assistant:tool-trace` broadcast); plus the memory graph made ≤1 click via a ⌘K "Open memory graph" command, a persistent breadcrumb button, and a `pendingMemoryGraphView` nonce. 2 disjoint worktree lanes + Opus integration review (6 fixes: shared `swarm-status.ts` extraction, first-poll token-spike seed, off-tab poll gate, Review caption/sizing, baseline pruning, switcher test). Renderer-only; no migration.
-- **Phase 9 Packet 9B — Automations room + named sessions + Artifacts (BSP-O3/O4) — completes Phase 9.** **O3:** a new "Automations" nav room (global, no-workspace-required) surfacing the existing Telegram remote bridge + nightly-digest scheduler as a dashboard with live status, inline toggles, and deep-links to Settings — reusing existing RPC/KV, zero new channels. **O4:** migration `0036` adds a nullable `name` to `agent_sessions` + a `panes.rename` RPC (mirrors `setDisplayProvider`) + inline title-pill rename (name surfaced via shared `derivePaneIdentity` so the gear popover/sidebar/splash reflect it) + a per-session **Artifacts** view (changed files via `git.status` + checkpoint timeline via `git.listCheckpoints`, no new table). 2 disjoint worktree lanes + Opus integration review (sibling-class fixes: `VALID_ROOMS`/`ROOM_DEFS`/`GLOBAL_ROOMS` were missing `automations` — and pre-existingly `git`/`sigmabench` — now backfilled; `derivePaneIdentity` name surfacing; bounded artifacts list; rename `maxLength`). Sibling-mapping audit added `name` at 5 `AgentSession` construction sites.
-
----
-
-## ✅ Release — v2.0.0 TAGGED 2026-06-07
-**`v2.0.0` is tagged and pushed** (commit `4c11fc8`); the `release-macos` / `release-windows` workflows build the artifacts → confirm `gh release view v2.0.0` when they finish. The operator confirmed the headline live verification (in-place resume round-trip, #127/#128) before tagging. **Soft-owed post-release eyeballs (non-blocking):** the N1/N2/N3 visual smokes (wizard themes · browser drag/no-reload · Jorvis live reply) · PERF-15 swarm-rail under live multi-agent streaming · `npm run test:perf` jank/IPC-rate delta. Follow-up: deterministic codex session capture via its `Session: <uuid>` stdout banner (codex panes currently start fresh each reopen — safe).
-
----
-
-## 🐞 Leftover low-sev bug hotlist — ✅ CLEARED
-
-All four items resolved. **DEV-6** + **DEV-8** shipped (#123); the remaining two were investigated and need **no code change**:
-- **PERF-RAM-2 — ✅ verified no-op.** `pty.kill()` → `stop({tree:true})` → `stopProcessTree`, which walks the **full descendant tree** (recursive `ppid→children` DFS), so the agent's MCP-server children are killed on **both** pane-close (`rpc-router` `pty.kill`) and swarm-stop (`factory-spawn` `pty.kill`). The ruflo HTTP daemon is per-workspace (stopped on workspace close / `stopAll`), not a per-pane leak. No accumulation.
-- **DEV-7 (residual) — ✅ verified no console noise.** `probeHealth` recurses **silently** while `status==='starting'` and stops once `running`; logs are once-each ("daemon ready" / a single round-trip-fail warn / the not-installed notice). Boot logs confirm zero ruflo-http spam. Re-open only if live noise is observed.
-
-*(Non-blocking follow-ups parked in `WISHLIST.md`: closed-tabs table has no GC (`listRecents` bounded but rows accumulate); the SMK-2 loop test fails via a 5s timeout rather than a fast message assertion; add `turnId` to the `ToolTrace` payload for airtight per-turn chip scoping.)*
-
----
-
-## Phase 9 — Orchestration & memory surfacing — ✅ COMPLETE
-Both packets shipped (9A: BSP-O1/O2/O5 #125; 9B: BSP-O3/O4 this cycle, "Automations" scoped to surface
-existing infra per operator decision). Full record → "Shipped since last refresh" + `CHANGELOG.md`.
-**No remaining feature work on the roadmap** — only the deferred XL big-bangs + operator-owned items below.
-
----
-
 ## 🧊 Deferred (XL / big-bang — held per the DDD small-per-packet rule)
-- **BSP-P4 — Canvas mode** (freeform draggable panes). XL — layout-engine rewrite. Leapfrog if shipped before BridgeCanvas.
+Each is its own future cycle; none is started.
+- **BSP-P4 — Canvas mode** (freeform draggable panes). XL — pane layout-engine rewrite. Leapfrog if shipped before BridgeCanvas.
 - **BSP-P6 — multi-window / dual-window**. L–XL — multi-`BrowserWindow`. (Phase 10's B2 already delivered the browser-only detach slice.)
 - **BSP-P5 — workspaces-as-tabs** top strip. S, but a layout-shell change — fold into a future shell pass.
 - **Tauri/Rust platform migration.** Evaluated + rejected for now (ADR-006) — the disk leak was a logic bug, not a platform limit; a rewrite is months for zero benefit on it. Revisit only if idle-RAM/binary-size become a strategic priority, as its own cycle.
 
-## ✅ Skip / market better (already shipped — do NOT rebuild)
-Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per-agent identity ≈ **FEAT-7** · effort control ≈ **FEAT-14** · browser-in-separate-window ≈ **C-8** · 30-sub-agent plan→review→build ≈ **C-7** · MCP autowrite per-CLI = **SF-7**. **WE LEAD & they lack:** worktree isolation, 6 providers, SigmaBench, Obsidian memory graph, voice **dispatch**, Telegram remote, agent rewind, sub-agent depth control. Positioning: **"ADE — Agent Development Environment"** + **"Context layer"**.
-
-## 🚧 Blocked / operator-owned (parked)
+## 🚧 Blocked / operator-owned (parked — non-blocking for the shipped tag)
 
 | # | Item | Status |
 |---|------|--------|
-| **rel** | v2.0.0 tag | ✅ TAGGED 2026-06-07 (`4c11fc8`) — N1/N2/N3 now non-blocking post-release eyeballs |
+| **rel** | v2.0.0 tag | ✅ TAGGED + RELEASED 2026-06-07 (`4c11fc8`) |
+| **smk** | Post-release VISUAL eyeballs — N1 wizard across themes · N2 browser drag/no-reload · N3 Jorvis live reply · PERF-15 swarm-rail under live streaming · `npm run test:perf` | non-blocking; operator at leisure |
 | **B1** | W-4 P8–P9 + win32 shell-first dogfood | 🚧 needs an operator Windows device |
-| **B2** | FE-4 voice items | 🚧 behind unshipped native voice builds |
-| **op** | SF-12 migration `0026` register | operator sign-off — run diagnostic SQL on a real `agent_sessions` dump first (historical data backfill; the status-aware index from Phase 0 is the recurring guard) |
-| **op** | FE-4 device a11y QA | needs the device |
+| **B2** | FE-4 voice items + device a11y QA | 🚧 behind unshipped native voice builds / needs the device |
+| **op** | SF-12 migration `0026` register | operator sign-off — run diagnostic SQL on a real `agent_sessions` dump first (historical backfill; the status-aware index from Phase 0 is the recurring guard) |
+
+## ✅ Skip / market better (already shipped — do NOT rebuild)
+Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per-agent identity ≈ **FEAT-7** · effort control ≈ **FEAT-14** · browser-in-separate-window ≈ **C-8** · 30-sub-agent plan→review→build ≈ **C-7** · MCP autowrite per-CLI = **SF-7** · orchestrator panel + memory-graph surfacing = **Phase 9**. **WE LEAD & they lack:** worktree isolation, 6 providers, SigmaBench, Obsidian memory graph, voice **dispatch**, Telegram remote, agent rewind, sub-agent depth control. Positioning: **"ADE — Agent Development Environment"** + **"Context layer"**.
 
 ---
 
@@ -93,21 +60,11 @@ Session-resume modal ≈ **FEAT-1** · per-pane usage/cost ≈ **FEAT-3** · per
 **Decision.** Fix resource issues in-codebase; do not migrate to Tauri/Rust. **Context.** The "memory leak" was a **disk** leak from a logic bug — reproducible identically under any host language. **Consequences.** (+) hours-scale fixes vs a multi-month rewrite of the entire main process (better-sqlite3, node-pty, RPC router, voice natives). (−) we keep Electron's ~150–250 MB idle-RAM baseline; a Tauri eval stays a deferred, separate-cycle option if binary-size/idle-RAM become strategic.
 
 ### ADR-007 — Optional per-workspace in-place (no-worktree) mode
-**Decision.** Offer a per-workspace `worktreeMode: 'worktree' | 'in-place'`; in-place reuses the existing `repoMode!=='git'` no-worktree path so agents run in the repo root. **Consequences.** (+) zero worktrees for users who opt in (disk win). (−) agents share one tree → concurrent-edit collisions; surfaced in the UI; both worktree gates honor it (sibling twins). Resume must validate the conversation JSONL exists even in-place (#121).
+**Decision.** Offer a per-workspace `worktreeMode: 'worktree' | 'in-place'`; in-place reuses the existing `repoMode!=='git'` no-worktree path so agents run in the repo root. **Consequences.** (+) zero worktrees for users who opt in (disk win). (−) agents share one tree → concurrent-edit collisions AND a shared session-resolution cwd. Resume must validate the conversation JSONL exists even in-place and resume by an explicit id (never a continue-latest guess) or start fresh + capture the new id (#121 · #127 · #128).
 
 *(ADR-001/002 theme-token decisions + ADR-004 disk-safety net are shipped and recorded in `CHANGELOG.md`.)*
 
 ---
 
-## Effort / impact table
-
-| Item | Phase | Effort | Impact | Notes |
-|------|-------|--------|--------|-------|
-| ~~Sigma panel + routing trace + 1-click graph (O1/O2/O5)~~ | 9A | ~~M~~ | Med-High | ✅ SHIPPED #125 — Sigma rail tab + live trace + graph ≤1 click |
-| ~~Automations + Artifacts/named sessions (O3/O4)~~ | 9B | ~~M~~ | Med | ✅ SHIPPED — Automations room + named sessions (mig 0036) + Artifacts. **Phase 9 complete.** |
-| Canvas mode (P4) / Multi-window (P6) / Tauri eval | deferred | XL | — | Big-bang, separate cycles — **the only items left** |
-
-*(Hotlist cleared; **Phase 9 COMPLETE** (9A #125 + 9B). No remaining feature work — only deferred XL big-bangs + operator-owned items.)*
-
-## When an item ships
-→ move its one-line note to `CHANGELOG.md` + the master-memory project entry + (reusable lessons) Ruflo AgentDB; mark it promoted/struck in `WISHLIST.md`; delete it from this whiteboard. Keep `WISHLIST.md` for new raw findings.
+## When the next cycle starts
+Build a fresh phase plan here from `WISHLIST.md` (the lean inbox) — promote scoped items into `## Phase N` blocks (Goal · Deliverables · Why now · Scope · Findings · Risks · Definition of done), ordered by value/effort. On ship → move each to `CHANGELOG.md` + the master-memory project entry + (reusable lessons) Ruflo AgentDB, and delete it from this whiteboard.
