@@ -205,32 +205,45 @@ function makeSession(id: string, providerId: string, startedAt = 1234): SessionR
 
 describe('buildResumeArgs', () => {
   // v1.2.8 — the new per-provider matrix. Each provider has two flavours:
-  // by captured id (use the native flag) and the universal --continue fallback.
-  // B2 — gemini's CLI only accepts 'latest'/index (not a filename stem), so a
-  // PRESENT id still maps to '--resume latest' (against the bridge-aliased
-  // workspace slug). But a NULL id now emits NO --resume — a fresh spawn —
-  // instead of latching onto gemini's GLOBAL newest session (a different
-  // project). See gemini-resume-sigma.ts + the launcher gemini branch.
+  // by captured id (use the native flag) and, on a NULL id, a FRESH spawn.
+  // SESSION-COLLAPSE FIX — a null id no longer emits a "continue-latest"
+  // fallback (`claude --continue` / `codex resume --last` / etc.). Those
+  // resumed the cwd's (or globally) newest session, which in in-place mode
+  // (shared cwd) collapsed every pane onto the operator's own / a sibling's
+  // session. A null id now emits EMPTY args → a fresh spawn, matching the
+  // policy gemini already adopted in B2.
   it.each([
     ['claude', 'ext-id', ['--resume', 'ext-id'], 'id'],
-    ['claude', null, ['--continue'], 'continue'],
+    ['claude', null, [], 'continue'],
     ['codex', 'ext-id', ['resume', 'ext-id'], 'id'],
-    ['codex', null, ['resume', '--last'], 'continue'],
+    ['codex', null, [], 'continue'],
     // gemini with id → '--resume latest' (G-2 flag fix); null → fresh (B2)
     ['gemini', 'ext-id', ['--resume', 'latest'], 'continue'],
     ['gemini', null, [], 'continue'],
     ['kimi', 'ext-id', ['--session', 'ext-id'], 'id'],
-    ['kimi', null, ['--continue'], 'continue'],
+    ['kimi', null, [], 'continue'],
     ['opencode', 'ext-id', ['--session', 'ext-id'], 'id'],
-    ['opencode', null, ['--continue'], 'continue'],
-    // R-2 — cursor mirrors claude's flag shape: --resume <id> / --continue
+    ['opencode', null, [], 'continue'],
+    // R-2 — cursor mirrors claude's flag shape: --resume <id>, else fresh
     ['cursor', 'ext-id', ['--resume', 'ext-id'], 'id'],
-    ['cursor', null, ['--continue'], 'continue'],
+    ['cursor', null, [], 'continue'],
   ] as const)('%s + %s → %j (%s)', (provider, externalId, expected, mode) => {
     const result = buildResumeArgs(provider, externalId);
     expect(result).not.toBeNull();
     expect(result!.args).toEqual(expected);
     expect(result!.mode).toBe(mode);
+  });
+
+  // SESSION-COLLAPSE regression — a null/ghost id must NEVER produce a
+  // continue-latest flag (the in-place pane-collapse bug). Every provider's
+  // null branch is a fresh spawn (empty args).
+  it('null id never emits a continue-latest flag for any provider', () => {
+    for (const provider of ['claude', 'codex', 'gemini', 'kimi', 'opencode', 'cursor']) {
+      const args = buildResumeArgs(provider, null)?.args ?? [];
+      expect(args).not.toContain('--continue');
+      expect(args).not.toContain('--last');
+      expect(args).toEqual([]);
+    }
   });
 
   it('returns null for providers without a known resume strategy', () => {
@@ -239,9 +252,9 @@ describe('buildResumeArgs', () => {
     expect(buildResumeArgs('unknown-provider', 'ext-id')).toBeNull();
   });
 
-  it('treats empty + whitespace external ids as the continue fallback', () => {
-    expect(buildResumeArgs('claude', '')?.args).toEqual(['--continue']);
-    expect(buildResumeArgs('claude', '   ')?.args).toEqual(['--continue']);
+  it('treats empty + whitespace external ids as a fresh spawn (no continue-latest)', () => {
+    expect(buildResumeArgs('claude', '')?.args).toEqual([]);
+    expect(buildResumeArgs('claude', '   ')?.args).toEqual([]);
   });
 
   // G-2 + B2: gemini --resume never passes a filename stem. With a picked id
@@ -343,11 +356,12 @@ describe('resumeWorkspacePanes', () => {
     expect(rows[0]?.exited_at).toBe(2222);
   });
 
-  it('routes missing external_session_id to --continue (no longer a failure)', async () => {
+  it('routes missing external_session_id to a FRESH spawn (no longer a failure, no continue-latest)', async () => {
     // v1.2.8 — the v1.2.7 behaviour was: missing id ⇒ mark exited+failed and
-    // surface "missing external_session_id" in the toast. The new contract is
-    // success-via-fallback: the resume launcher builds `['--continue']` args
-    // and spawns normally; only the spawn itself can fail now.
+    // surface "missing external_session_id" in the toast. SESSION-COLLAPSE FIX —
+    // a missing id now spawns FRESH (empty args), NOT `['--continue']`: in
+    // in-place mode --continue resumed the cwd's latest session (the operator's
+    // own / a sibling pane's), collapsing every pane onto one conversation.
     const { db, rows } = setupDb();
     insertSession(rows, {
       id: 'sess-missing-external',
@@ -379,7 +393,7 @@ describe('resumeWorkspacePanes', () => {
 
     expect(result.failed).toHaveLength(0);
     expect(result.resumed).toHaveLength(1);
-    expect(calls[0]?.args).toEqual(['--continue']);
+    expect(calls[0]?.args).toEqual([]); // FRESH spawn — never --continue
     expect(result.resumed[0]?.externalSessionId).toBe('');
     expect(rows[0]?.status).toBe('running');
   });
@@ -502,22 +516,22 @@ describe('resumeWorkspacePanes', () => {
     });
 
     expect(result.resumed).toHaveLength(1);
-    expect(calls[0]?.args).toEqual(['--continue']);
+    expect(calls[0]?.args).toEqual([]); // invalid id → FRESH spawn, never --continue
   });
 
-  it('routes missing external id to --continue for every shipped provider', async () => {
-    // v1.2.8 — exhaustive per-provider matrix verifying the universal fallback
-    // wires the right args for each CLI. One row per provider, no external id.
+  it('routes missing external id to a FRESH spawn for every shipped provider', async () => {
+    // SESSION-COLLAPSE FIX — exhaustive per-provider matrix. A missing external
+    // id now spawns FRESH (empty args) for EVERY provider, never a
+    // continue-latest flag: in in-place mode the shared cwd made --continue /
+    // resume --last collapse every pane onto the operator's own / a sibling's
+    // session. (gemini already did this in B2; the rest now match.)
     const providers = [
-      { def: claudeProvider, expected: ['--continue'] },
-      { def: codexProvider, expected: ['resume', '--last'] },
-      // B2 — gemini with NO external id now spawns FRESH (empty args) rather
-      // than '--resume latest' (which resumed a foreign global session).
+      { def: claudeProvider, expected: [] },
+      { def: codexProvider, expected: [] },
       { def: geminiProvider, expected: [] },
-      { def: kimiProvider, expected: ['--continue'] },
-      { def: opencodeProvider, expected: ['--continue'] },
-      // R-2 — cursor falls back to --continue when no external id was captured
-      { def: cursorProvider, expected: ['--continue'] },
+      { def: kimiProvider, expected: [] },
+      { def: opencodeProvider, expected: [] },
+      { def: cursorProvider, expected: [] },
     ];
     for (const { def, expected } of providers) {
       const { db, rows } = setupDb();

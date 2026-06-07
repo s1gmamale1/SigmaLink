@@ -61,15 +61,27 @@ export function buildResumeArgs(
   externalSessionId: string | null,
 ): { args: string[]; mode: 'id' | 'continue' } | null {
   const id = externalSessionId?.trim();
+  // SESSION-COLLAPSE FIX — a null/absent external_session_id means we do NOT
+  // know this pane's specific session (fresh agent that never wrote a turn, a
+  // ghost id whose JSONL is gone, or a failed disk-scan capture). The old
+  // "continue-latest" fallbacks below GUESS at a session: `claude --continue`
+  // resumes the most-recent session in the cwd, `codex resume --last` resumes
+  // the GLOBALLY newest session. In in-place mode EVERY pane shares the
+  // workspace cwd, so that guess resolves to the cwd's latest conversation —
+  // the operator's OWN active CLI session or a sibling pane's — and every pane
+  // collapses onto one session (codex `--last` collapses even across worktrees).
+  // So on a null id we now start a FRESH session: empty args → no resume flag →
+  // the spawner pre-assigns a new id. Precise resume (by a real stored id) is
+  // unaffected. This matches the policy gemini already adopted in B2 (below).
   switch (providerId.toLowerCase()) {
     case 'claude':
       return id
         ? { args: ['--resume', id], mode: 'id' }
-        : { args: ['--continue'], mode: 'continue' };
+        : { args: [], mode: 'continue' };
     case 'codex':
       return id
         ? { args: ['resume', id], mode: 'id' }
-        : { args: ['resume', '--last'], mode: 'continue' };
+        : { args: [], mode: 'continue' };
     case 'gemini':
       // Gemini's --resume flag only accepts 'latest' or an index number, NOT a
       // filename stem. The session-disk-scanner stores the JSONL filename stem as
@@ -97,11 +109,11 @@ export function buildResumeArgs(
     case 'kimi':
       return id
         ? { args: ['--session', id], mode: 'id' }
-        : { args: ['--continue'], mode: 'continue' };
+        : { args: [], mode: 'continue' }; // null id → FRESH, never continue-latest (session-collapse fix)
     case 'opencode':
       return id
         ? { args: ['--session', id], mode: 'id' }
-        : { args: ['--continue'], mode: 'continue' };
+        : { args: [], mode: 'continue' }; // null id → FRESH, never continue-latest (session-collapse fix)
     case 'cursor':
       // R-2 — cursor-agent supports `--resume [chatId]` (select a session by id)
       // and `--continue` (resume latest in cwd). Cursor sessions are not scanned
@@ -110,7 +122,7 @@ export function buildResumeArgs(
       // `--continue` fallback is the live path. Mirrors claude's flag shape.
       return id
         ? { args: ['--resume', id], mode: 'id' }
-        : { args: ['--continue'], mode: 'continue' };
+        : { args: [], mode: 'continue' }; // null id → FRESH, never continue-latest (session-collapse fix)
     default:
       return null;
   }
