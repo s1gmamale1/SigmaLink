@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { PtyRegistry, SessionRecord } from './registry';
 import type { AgentProviderDefinition } from '../../../shared/providers';
 import type { resolveAndSpawn, ResolveAndSpawnResult } from '../providers/launcher';
+import { providerPreAssignsSession } from '../providers/launcher';
 import {
   ensureClaudeProjectDir,
   isClaudeSessionId,
@@ -212,6 +213,29 @@ function writeProviderEffective(
       .run(providerEffective, sessionId);
   } catch {
     /* column may not exist on a pre-0010 DB; ignore */
+  }
+}
+
+/**
+ * GHOST-HEAL — overwrite (or clear) a pane row's external_session_id.
+ *
+ * Used by the fresh-fallback branch in resumeWorkspacePanes: when a stored id
+ * is a ghost (no JSONL on disk), boot-resume now spawns FRESH and must (a)
+ * clear the stale ghost so the post-spawn capture sink can write, then (b)
+ * stamp the NEW pre-assigned id (claude) so the NEXT reopen resumes by a REAL
+ * id instead of re-ghosting forever. Unlike the router's persistExternalSessionId
+ * (which only writes into a NULL/empty column), this is unconditional.
+ */
+function setExternalSessionId(
+  db: Database.Database,
+  sessionId: string,
+  value: string | null,
+): void {
+  try {
+    db.prepare('UPDATE agent_sessions SET external_session_id = ? WHERE id = ?')
+      .run(value, sessionId);
+  } catch {
+    /* never block resume on a bookkeeping write */
   }
 }
 
@@ -548,21 +572,43 @@ export async function resumeWorkspacePanes(
       continue;
     }
 
+    // GHOST-HEAL — buildResumeArgs returns EMPTY args when the stored id was
+    // null/ghost (#127: no specific session to resume → fresh, never a
+    // continue-latest guess). A fresh spawn down the RESUME path (sessionId +
+    // isResume:true) pins the existing row, SUPPRESSES capture, and never
+    // pre-assigns a --session-id — so the new session's real id is never
+    // persisted and the pane re-ghosts on EVERY reopen (the reported "starts a
+    // new session each time" bug).
+    //
+    // Only providers that mint a DETERMINISTIC --session-id (claude) can be
+    // safely healed: we spawn with FRESH semantics (preassignedSessionId so
+    // shouldPreAssign injects --session-id + isResume:false so the id is
+    // returned synchronously), then stamp it back so the NEXT reopen resumes by
+    // a real id. Other providers (codex/gemini/…) are NOT healed here: their
+    // only capture is a cwd disk-scan which, in the shared in-place cwd, races
+    // siblings / the operator's CLI — the very collapse we just fixed (codex
+    // pane-4 ← pane-5). They stay on the safe fresh-no-capture path (fresh each
+    // reopen; deterministic codex capture via its stdout banner is a follow-up).
+    const freshFallback = resume.args.length === 0;
+    const healViaPreAssign =
+      freshFallback && providerPreAssignsSession(resumeProviderId);
+    if (healViaPreAssign) {
+      // Clear the stale ghost so the post-spawn capture sink can write too.
+      setExternalSessionId(db, row.id, null);
+    }
     try {
       const spawned: ResolveAndSpawnResult = resolve(
         { ptyRegistry: deps.pty },
         {
           providerId: resumeProviderId,
-          sessionId: row.id,
+          ...(healViaPreAssign
+            ? { preassignedSessionId: row.id, isResume: false as const }
+            : { sessionId: row.id, isResume: true as const }),
           cwd,
           cols: deps.cols ?? 120,
           rows: deps.rows ?? 32,
           showLegacy: deps.showLegacy ?? readShowLegacy(db),
           extraArgs: resume.args,
-          // v1.5.5 — explicit resume flag. Suppresses the redundant
-          // onPostSpawnCapture disk-scan; the DB row already carries the
-          // external_session_id from the original spawn.
-          isResume: true,
           // v1.9-scrollback — load persisted scrollback when the flag is on.
           resumeScrollback: deps.loadScrollbackForSession?.(row.id),
           // SF-8 Yolo/Bypass — re-apply the persisted bypass flag so the
@@ -575,11 +621,18 @@ export async function resumeWorkspacePanes(
       markResumeRunning(db, row.id, rec.startedAt);
       writeProviderEffective(db, row.id, spawned.providerEffective);
       attachExitPersistence(db, row.id, rec);
+      // GHOST-HEAL — persist the freshly pre-assigned id so the NEXT reopen
+      // resumes by a real id instead of re-ghosting.
+      let healedExternalId = externalSessionId ?? '';
+      if (healViaPreAssign && spawned.preassignedExternalSessionId) {
+        setExternalSessionId(db, row.id, spawned.preassignedExternalSessionId);
+        healedExternalId = spawned.preassignedExternalSessionId;
+      }
       result.resumed.push({
         sessionId: row.id,
         providerId: row.providerId,
         providerEffective: spawned.providerEffective,
-        externalSessionId: externalSessionId ?? '',
+        externalSessionId: healedExternalId,
         pid: rec.pid,
       });
     } catch (err) {
