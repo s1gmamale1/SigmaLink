@@ -121,29 +121,32 @@ export function SessionTerminal({ sessionId, className }: Props) {
     attachToHost(entry, container);
     const { terminal: term, fitAddon: fit } = entry;
 
-    // Resize observer: keep PTY in sync with the visible cell grid.
-    // Gate fit() on non-zero dimensions so we don't run while GridLayout
-    // is still flex-shrinking on first mount (the previous rAF workaround
-    // could fire mid-resize and produced misaligned cells). Debounce to
-    // 25ms so a window-edge drag doesn't fire dozens of IPC calls per
-    // second; first fit at non-zero size runs synchronously.
-    let lastCols = term.cols;
-    let lastRows = term.rows;
-    let rafId: number | null = null;
+    // Resize observer: keep the PTY in sync with the visible cell grid.
+    // Gate on non-zero dimensions so we don't run while the layout is still
+    // settling on first mount. The first fit at a non-zero size runs
+    // synchronously; subsequent changes (e.g. a divider drag) are debounced.
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let didFirstFit = false;
+    // Apply the container's proposed cols/rows to the terminal. Uses
+    // proposeDimensions()+resize() instead of fit() to skip fit()'s redundant
+    // getBoundingClientRect, and only resizes (the expensive buffer reflow +
+    // pty IPC) when the char grid actually changed.
     const runFit = () => {
       if (entry.ptyExited) return;
+      let dims: { cols: number; rows: number } | undefined;
       try {
-        fit.fit();
+        dims = fit.proposeDimensions();
       } catch {
         return;
       }
-      const { cols, rows } = term;
-      if (cols !== lastCols || rows !== lastRows) {
-        lastCols = cols;
-        lastRows = rows;
-        void rpc.pty.resize(sessionId, cols, rows).catch(() => undefined);
+      if (!dims || !dims.cols || !dims.rows) return;
+      if (dims.cols === term.cols && dims.rows === term.rows) return;
+      try {
+        term.resize(dims.cols, dims.rows);
+      } catch {
+        return;
       }
+      void rpc.pty.resize(sessionId, dims.cols, dims.rows).catch(() => undefined);
     };
     const ro = new ResizeObserver((entries) => {
       if (entry.ptyExited) return;
@@ -156,17 +159,13 @@ export function SessionTerminal({ sessionId, className }: Props) {
         runFit();
         return;
       }
-      // Coalesce to one fit per animation frame. This tracks the pane smoothly
-      // during a divider drag (≈60fps) and ALWAYS runs — no global "dragging"
-      // flag that could get stuck true (e.g. a missed pointerup) and freeze
-      // every terminal's refit, which left panes mis-sized / overflowing. fit()
-      // early-returns when cols/rows are unchanged, so the pty.resize IPC still
-      // only fires on a real grid change, not every pixel.
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        runFit();
-      });
+      // Trailing debounce (VS Code uses 50ms). During a continuous divider drag
+      // the timer keeps resetting, so the expensive buffer reflow does NOT run
+      // per-frame — it fires once ~60ms after movement settles / on release. The
+      // pane box still resizes smoothly via flex throughout. Self-clearing, so it
+      // can never get stuck the way a global drag flag could.
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(runFit, 60);
     });
     ro.observe(container);
 
@@ -194,7 +193,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
     window.addEventListener('sigma:pty-focus', onFocusReq);
 
     return () => {
-      if (rafId !== null) cancelAnimationFrame(rafId);
+      if (debounceTimer) clearTimeout(debounceTimer);
       try {
         ro.disconnect();
       } catch {
