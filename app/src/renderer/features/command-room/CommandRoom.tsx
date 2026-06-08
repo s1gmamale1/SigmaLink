@@ -422,6 +422,7 @@ export function CommandRoom() {
           sessionIds={sessions.map((s) => s.id)}
           activeSessionId={activeSessionId}
           focusedPaneId={focusedPaneId}
+          workspaceId={activeWorkspaceId}
           onActivate={(id) => {
             if (activeSessionId !== id) dispatch({ type: 'SET_ACTIVE_SESSION', id });
           }}

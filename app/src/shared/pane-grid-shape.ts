@@ -1,32 +1,13 @@
-// Pure layout math for the Command Room uniform fill-grid.
+// Pure layout math for the Command Room fill-grid.
 //
-// Panes tile into a clean grid that fills ALL space with no dead cell: rows are
-// distributed as evenly as possible (≈ round(sqrt(n)) rows), and the last/short
-// rows widen their cells to span the full width. The column count is the LCM of
-// the per-row counts so every row's cells sum to exactly `cols` (a perfect fill).
+// Panes tile into rows that fill ALL space with no dead cell: rows are
+// distributed as evenly as possible (≈ round(sqrt(n)) rows), earlier rows
+// fuller. Within a row the panes share the width; the short last row's panes
+// simply take a larger share — so every row fills edge-to-edge. Row heights and
+// per-row column widths are independently resizable in the renderer (this module
+// only decides which session goes in which row).
 //
-// No React/DOM/IPC — fully unit-testable. The grid is a pure function of the
-// session list; there is no persisted layout state.
-
-export interface GridCell {
-  sessionId: string;
-  /** Number of grid columns this cell spans. */
-  colSpan: number;
-}
-
-export interface GridShape {
-  cols: number;
-  rows: number;
-  cells: GridCell[];
-}
-
-function gcd(a: number, b: number): number {
-  return b === 0 ? a : gcd(b, a % b);
-}
-
-function lcm(a: number, b: number): number {
-  return (a * b) / gcd(a, b);
-}
+// No React/DOM/IPC — fully unit-testable.
 
 /** Panes-per-row for `n` panes: ≈round(sqrt(n)) rows, earlier rows get the extra. */
 export function rowCounts(n: number): number[] {
@@ -37,21 +18,20 @@ export function rowCounts(n: number): number[] {
   return Array.from({ length: rows }, (_, i) => base + (i < extra ? 1 : 0));
 }
 
-/** Build the fill-grid for an ordered session list. */
-export function gridShape(sessionIds: string[]): GridShape {
-  const n = sessionIds.length;
-  if (n === 0) return { cols: 1, rows: 1, cells: [] };
-  const counts = rowCounts(n);
-  const cols = counts.reduce((acc, c) => lcm(acc, c), 1);
-  const rows = counts.length;
-  const cells: GridCell[] = [];
+/** Group an ordered session list into rows per `rowCounts`. */
+export function paneRows(sessionIds: string[]): string[][] {
+  const counts = rowCounts(sessionIds.length);
+  const rows: string[][] = [];
   let idx = 0;
   for (const count of counts) {
-    const colSpan = cols / count; // integer: cols is a multiple of every count
-    for (let i = 0; i < count; i++) {
-      cells.push({ sessionId: sessionIds[idx]!, colSpan });
-      idx += 1;
-    }
+    rows.push(sessionIds.slice(idx, idx + count));
+    idx += count;
   }
-  return { cols, rows, cells };
+  return rows;
+}
+
+/** Stable signature of a layout's shape (row × column counts). Used to decide
+ *  whether persisted resize fractions still apply after a pane is added/removed. */
+export function shapeSignature(sessionIds: string[]): string {
+  return rowCounts(sessionIds.length).join('x');
 }
