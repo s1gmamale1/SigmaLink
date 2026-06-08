@@ -284,6 +284,9 @@ export function Sidebar() {
           onClose={(workspaceId) => dispatch({ type: 'WORKSPACE_CLOSE', workspaceId })}
           onOpenPersisted={openPersistedWorkspace}
           onBrowseWorkspaces={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}
+          onReorder={(orderedIds) =>
+            dispatch({ type: 'REORDER_OPEN_WORKSPACES', orderedIds })
+          }
           onRename={async (workspaceId, newName) => {
             // DEV-W2 — optimistic update first so the UI is instant.
             dispatch({ type: 'RENAME_WORKSPACE', id: workspaceId, name: newName });

@@ -368,6 +368,32 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         roomByWorkspace: pruneRoomByWorkspace(state.roomByWorkspace, openWorkspaces),
       });
     }
+    case 'REORDER_OPEN_WORKSPACES': {
+      // Drag-to-reorder the rail. Rebuild openWorkspaces in `orderedIds` order,
+      // reusing existing object identities (so only moved rows lose memo
+      // stability). Unknown ids are skipped; any open workspace missing from
+      // orderedIds is appended (defensive against a stale caller list — never
+      // drop an open workspace). No-op when the resulting order is unchanged.
+      const byId = new Map(state.openWorkspaces.map((w) => [w.id, w]));
+      const seen = new Set<string>();
+      const reordered: Workspace[] = [];
+      for (const id of action.orderedIds) {
+        const ws = byId.get(id);
+        if (ws && !seen.has(id)) {
+          reordered.push(ws);
+          seen.add(id);
+        }
+      }
+      for (const ws of state.openWorkspaces) {
+        if (!seen.has(ws.id)) reordered.push(ws);
+      }
+      if (workspaceIdsEqual(reordered, state.openWorkspaces.map((w) => w.id))) {
+        return state;
+      }
+      // activeWorkspaceId is untouched; deriveActiveWorkspace keeps the same
+      // active object identity (reused above), so only the rail order changes.
+      return deriveActiveWorkspace({ ...state, openWorkspaces: reordered });
+    }
     case 'SET_ACTIVE_WORKSPACE':
       // BUG-W7-001: activating a workspace no longer auto-switches rooms.
       // Some entry points (Launcher pickFolder, command palette "Open recent")

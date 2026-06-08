@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, createEvent, fireEvent, render } from '@testing-library/react';
 import type { AgentSession, Workspace } from '@/shared/types';
 import { defaultWorkspaceColor } from '@/renderer/lib/workspace-color';
 import { WorkspacesPanel } from './WorkspacesPanel';
@@ -91,6 +91,7 @@ describe('<WorkspacesPanel />', () => {
     const onClose = vi.fn();
     const onOpenPersisted = vi.fn();
     const onBrowseWorkspaces = vi.fn();
+    const onReorder = vi.fn();
     const utils = render(
       <WorkspacesPanel
         workspaces={[wsA, wsB, wsC]}
@@ -101,14 +102,121 @@ describe('<WorkspacesPanel />', () => {
         onClose={onClose}
         onOpenPersisted={onOpenPersisted}
         onBrowseWorkspaces={onBrowseWorkspaces}
+        onReorder={onReorder}
       />,
     );
-    return { ...utils, onPick, onClose, onOpenPersisted, onBrowseWorkspaces };
+    return { ...utils, onPick, onClose, onOpenPersisted, onBrowseWorkspaces, onReorder };
+  }
+
+  function rowFor(rows: HTMLElement[], id: string): HTMLElement {
+    const r = rows.find((n) => n.getAttribute('data-workspace-id') === id);
+    if (!r) throw new Error(`row ${id} not found`);
+    return r;
+  }
+  function makeDataTransfer() {
+    return { setData: vi.fn(), getData: vi.fn(), effectAllowed: '', dropEffect: '' };
+  }
+  // Stack the three rows at distinct vertical bands so the container's
+  // pointer→insertion-index math is deterministic in jsdom (which otherwise
+  // returns all-zero rects). Row i spans [i*20, i*20+20], midpoint i*20+10.
+  function stackRowRects(getAllByTestId: (id: string) => HTMLElement[]) {
+    getAllByTestId('workspace-row').forEach((row, i) => {
+      const top = i * 20;
+      row.getBoundingClientRect = () =>
+        ({ top, height: 20, bottom: top + 20, left: 0, right: 0, width: 0, x: 0, y: top, toJSON() {} }) as DOMRect;
+    });
+  }
+  // jsdom drag events don't propagate clientY through fireEvent's init, so we
+  // build the event and define clientY explicitly.
+  function fireDrag(
+    type: 'dragOver' | 'drop',
+    el: HTMLElement,
+    clientY: number,
+    dataTransfer: ReturnType<typeof makeDataTransfer>,
+  ) {
+    const ev = createEvent[type](el, { dataTransfer });
+    Object.defineProperty(ev, 'clientY', { value: clientY });
+    fireEvent(el, ev);
   }
 
   it('renders a colour dot for every open workspace', () => {
     const { getAllByTestId } = renderPanel();
     expect(getAllByTestId('workspace-dot')).toHaveLength(3);
+  });
+
+  describe('drag-to-reorder', () => {
+    // Midpoints with stackRowRects: A=10, B=30, C=50. Insertion index = first
+    // row whose midpoint is below clientY, else append (= length).
+    it('marks rows draggable when onReorder is provided', () => {
+      const { getAllByTestId } = renderPanel();
+      for (const row of getAllByTestId('workspace-row')) {
+        expect(row.getAttribute('draggable')).toBe('true');
+      }
+    });
+
+    it('dragging A into the middle gap (between B and C) sticks there → [b, a, c]', () => {
+      const { getAllByTestId, getByTestId, onReorder } = renderPanel();
+      stackRowRects(getAllByTestId);
+      const list = getByTestId('workspaces-list');
+      const dt = makeDataTransfer();
+      fireEvent.dragStart(rowFor(getAllByTestId('workspace-row'), 'a'), { dataTransfer: dt });
+      fireDrag('dragOver', list, 35, dt); // 35 → before C (idx 2)
+      fireDrag('drop', list, 35, dt);
+      expect(onReorder).toHaveBeenCalledWith(['b', 'a', 'c']);
+    });
+
+    it('dragging A to the end sticks at the bottom → [b, c, a]', () => {
+      const { getAllByTestId, getByTestId, onReorder } = renderPanel();
+      stackRowRects(getAllByTestId);
+      const list = getByTestId('workspaces-list');
+      const dt = makeDataTransfer();
+      fireEvent.dragStart(rowFor(getAllByTestId('workspace-row'), 'a'), { dataTransfer: dt });
+      fireDrag('dragOver', list, 100, dt); // past all midpoints → append
+      fireDrag('drop', list, 100, dt);
+      expect(onReorder).toHaveBeenCalledWith(['b', 'c', 'a']);
+    });
+
+    it('dragging C to the top sticks at the top → [c, a, b]', () => {
+      const { getAllByTestId, getByTestId, onReorder } = renderPanel();
+      stackRowRects(getAllByTestId);
+      const list = getByTestId('workspaces-list');
+      const dt = makeDataTransfer();
+      fireEvent.dragStart(rowFor(getAllByTestId('workspace-row'), 'c'), { dataTransfer: dt });
+      fireDrag('dragOver', list, 5, dt); // above A's midpoint → idx 0
+      fireDrag('drop', list, 5, dt);
+      expect(onReorder).toHaveBeenCalledWith(['c', 'a', 'b']);
+    });
+
+    it('dropping back into its own slot does not call onReorder', () => {
+      const { getAllByTestId, getByTestId, onReorder } = renderPanel();
+      stackRowRects(getAllByTestId);
+      const list = getByTestId('workspaces-list');
+      const dt = makeDataTransfer();
+      fireEvent.dragStart(rowFor(getAllByTestId('workspace-row'), 'a'), { dataTransfer: dt });
+      fireDrag('dragOver', list, 5, dt); // idx 0 == A's current slot
+      fireDrag('drop', list, 5, dt);
+      expect(onReorder).not.toHaveBeenCalled();
+    });
+
+    it('shows a drop indicator at the hovered gap while dragging', () => {
+      const { getAllByTestId, getByTestId } = renderPanel();
+      stackRowRects(getAllByTestId);
+      const list = getByTestId('workspaces-list');
+      const dt = makeDataTransfer();
+      fireEvent.dragStart(rowFor(getAllByTestId('workspace-row'), 'a'), { dataTransfer: dt });
+      fireDrag('dragOver', list, 35, dt); // gap before C → top-inset line on C
+      expect(rowFor(getAllByTestId('workspace-row'), 'c').className).toMatch(/shadow-\[inset_0_2px/);
+    });
+
+    it('Move down context-menu item shifts the workspace one slot', async () => {
+      const { getAllByTestId, findByTestId, onReorder } = renderPanel();
+      await act(async () => {});
+      const rowA = rowFor(getAllByTestId('workspace-row'), 'a');
+      fireEvent.contextMenu(rowA);
+      await findByTestId('workspace-color-menu');
+      fireEvent.click(getAllByTestId('workspace-move-down')[0]!);
+      expect(onReorder).toHaveBeenCalledWith(['b', 'a', 'c']);
+    });
   });
 
   it('shows the pane-count badge with 2 for the workspace that owns two running sessions', () => {
