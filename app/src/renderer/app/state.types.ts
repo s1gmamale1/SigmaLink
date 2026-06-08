@@ -153,6 +153,13 @@ export type Action =
   | { type: 'WORKSPACE_CLOSE'; workspaceId: string }
   | { type: 'SET_ACTIVE_WORKSPACE_ID'; workspaceId: string | null }
   | { type: 'SYNC_OPEN_WORKSPACES'; workspaceIds: string[]; workspaces: Workspace[] }
+  /**
+   * Reorder the open-workspaces rail to match `orderedIds` (drag-to-reorder).
+   * Existing Workspace object identities are reused; any open workspace not
+   * named in `orderedIds` is preserved at the end. The renderer↔main mirror
+   * (use-workspace-mirror) persists the new order automatically.
+   */
+  | { type: 'REORDER_OPEN_WORKSPACES'; orderedIds: string[] }
   /** Compatibility shim for pre-v1.1.3 call sites. Prefer WORKSPACE_OPEN + SET_ACTIVE_WORKSPACE_ID. */
   | { type: 'SET_ACTIVE_WORKSPACE'; workspace: Workspace | null }
   | { type: 'ADD_SESSIONS'; sessions: AgentSession[] }

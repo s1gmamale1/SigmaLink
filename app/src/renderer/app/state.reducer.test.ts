@@ -425,3 +425,65 @@ describe('SET_ACTIVE_WORKSPACE_ID (DEV-4)', () => {
     expect(after).toBe(before);
   });
 });
+
+// ─── REORDER_OPEN_WORKSPACES — drag-to-reorder the rail ──────────────────────
+
+describe('REORDER_OPEN_WORKSPACES', () => {
+  it('reorders openWorkspaces to match the given id list', () => {
+    const before = makeStateWithOpen(['wsA', 'wsB', 'wsC'], 'wsA');
+    const after = appStateReducer(before, {
+      type: 'REORDER_OPEN_WORKSPACES',
+      orderedIds: ['wsC', 'wsA', 'wsB'],
+    });
+    expect(after.openWorkspaces.map((w) => w.id)).toEqual(['wsC', 'wsA', 'wsB']);
+  });
+
+  it('does not change which workspace is active', () => {
+    const before = makeStateWithOpen(['wsA', 'wsB', 'wsC'], 'wsB');
+    const after = appStateReducer(before, {
+      type: 'REORDER_OPEN_WORKSPACES',
+      orderedIds: ['wsC', 'wsB', 'wsA'],
+    });
+    expect(after.activeWorkspaceId).toBe('wsB');
+    expect(after.activeWorkspace?.id).toBe('wsB');
+  });
+
+  it('reuses existing workspace object identities (only order changes)', () => {
+    const before = makeStateWithOpen(['wsA', 'wsB', 'wsC'], 'wsA');
+    const after = appStateReducer(before, {
+      type: 'REORDER_OPEN_WORKSPACES',
+      orderedIds: ['wsB', 'wsA', 'wsC'],
+    });
+    const findBefore = (id: string) => before.openWorkspaces.find((w) => w.id === id);
+    const findAfter = (id: string) => after.openWorkspaces.find((w) => w.id === id);
+    expect(findAfter('wsA')).toBe(findBefore('wsA'));
+    expect(findAfter('wsB')).toBe(findBefore('wsB'));
+  });
+
+  it('appends open workspaces missing from orderedIds (never drops one)', () => {
+    const before = makeStateWithOpen(['wsA', 'wsB', 'wsC'], 'wsA');
+    const after = appStateReducer(before, {
+      type: 'REORDER_OPEN_WORKSPACES',
+      orderedIds: ['wsC', 'wsA'], // wsB omitted
+    });
+    expect(after.openWorkspaces.map((w) => w.id)).toEqual(['wsC', 'wsA', 'wsB']);
+  });
+
+  it('ignores unknown ids in orderedIds', () => {
+    const before = makeStateWithOpen(['wsA', 'wsB'], 'wsA');
+    const after = appStateReducer(before, {
+      type: 'REORDER_OPEN_WORKSPACES',
+      orderedIds: ['wsGhost', 'wsB', 'wsA'],
+    });
+    expect(after.openWorkspaces.map((w) => w.id)).toEqual(['wsB', 'wsA']);
+  });
+
+  it('returns the same state reference when the order is unchanged', () => {
+    const before = makeStateWithOpen(['wsA', 'wsB', 'wsC'], 'wsA');
+    const after = appStateReducer(before, {
+      type: 'REORDER_OPEN_WORKSPACES',
+      orderedIds: ['wsA', 'wsB', 'wsC'],
+    });
+    expect(after).toBe(before);
+  });
+});
