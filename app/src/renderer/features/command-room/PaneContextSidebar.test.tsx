@@ -12,7 +12,7 @@
 //  7. Usage section: graceful empty-state when rpc rejects.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AgentSession, UsageSummary } from '@/shared/types';
 
 // ── Mock: prefersReducedMotion ────────────────────────────────────────────────
@@ -37,12 +37,24 @@ const mockSessionSummary = vi.fn<() => Promise<UsageSummary>>();
 // Records the raw args passed from the component so we can assert on sessionId.
 const sessionSummaryArgs: unknown[][] = [];
 
+// KV store mock backs the persisted collapse preference. Defaults to
+// "no stored value" (expanded). `kvSet` records writes for assertions.
+const mockKvGet = vi.fn<() => Promise<string | null>>().mockResolvedValue(null);
+const mockKvSet = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     usage: { sessionSummary: vi.fn() },
   },
   rpcSilent: {
     ruflo: { daemonStatus: vi.fn().mockResolvedValue([]) },
+    kv: {
+      get: () => mockKvGet(),
+      set: (...args: unknown[]) => {
+        mockKvSet(...(args as []));
+        return Promise.resolve();
+      },
+    },
     usage: {
       sessionSummary: (...args: unknown[]) => {
         sessionSummaryArgs.push(args);
@@ -99,6 +111,11 @@ beforeEach(() => {
   });
   // Clear captured args before each test.
   sessionSummaryArgs.length = 0;
+  // Default KV: no stored preference → sidebar starts expanded.
+  mockKvGet.mockReset();
+  mockKvGet.mockResolvedValue(null);
+  mockKvSet.mockReset();
+  mockKvSet.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -264,6 +281,70 @@ describe('PaneContextSidebar', () => {
       // The first positional argument to rpcSilent.usage.sessionSummary
       // must be the input object containing the session id.
       expect(sessionSummaryArgs[0][0]).toEqual({ sessionId: 'sess-xyz' });
+    });
+  });
+
+  describe('collapse / expand', () => {
+    it('renders the full panel with a collapse control by default', async () => {
+      render(<PaneContextSidebar session={makeSession()} open />);
+      await waitFor(() => {
+        expect(screen.getByTestId('pane-context-sidebar')).toBeTruthy();
+      });
+      expect(screen.getByTestId('pane-context-collapse')).toBeTruthy();
+      expect(screen.queryByTestId('pane-context-sidebar-collapsed')).toBeNull();
+    });
+
+    it('collapses to a rail when the collapse control is clicked', async () => {
+      render(<PaneContextSidebar session={makeSession()} open />);
+      await waitFor(() => {
+        expect(screen.getByTestId('pane-context-collapse')).toBeTruthy();
+      });
+      fireEvent.click(screen.getByTestId('pane-context-collapse'));
+
+      // Full panel sections are gone; only the rail + expand control remain.
+      expect(screen.queryByTestId('pane-context-sidebar')).toBeNull();
+      expect(screen.getByTestId('pane-context-sidebar-collapsed')).toBeTruthy();
+      expect(screen.getByTestId('pane-context-expand')).toBeTruthy();
+      expect(screen.queryByTestId('pane-context-identity-section')).toBeNull();
+    });
+
+    it('persists the collapsed preference to the KV store', async () => {
+      render(<PaneContextSidebar session={makeSession()} open />);
+      await waitFor(() => {
+        expect(screen.getByTestId('pane-context-collapse')).toBeTruthy();
+      });
+      fireEvent.click(screen.getByTestId('pane-context-collapse'));
+      expect(mockKvSet).toHaveBeenCalledWith('ui.paneContextSidebar.collapsed', '1');
+    });
+
+    it('re-expands when the rail control is clicked', async () => {
+      render(<PaneContextSidebar session={makeSession()} open />);
+      await waitFor(() => {
+        expect(screen.getByTestId('pane-context-collapse')).toBeTruthy();
+      });
+      fireEvent.click(screen.getByTestId('pane-context-collapse'));
+      fireEvent.click(screen.getByTestId('pane-context-expand'));
+
+      expect(screen.getByTestId('pane-context-sidebar')).toBeTruthy();
+      expect(screen.queryByTestId('pane-context-sidebar-collapsed')).toBeNull();
+      expect(mockKvSet).toHaveBeenCalledWith('ui.paneContextSidebar.collapsed', '0');
+    });
+
+    it('starts collapsed when KV has a stored collapsed preference', async () => {
+      mockKvGet.mockResolvedValue('1');
+      render(<PaneContextSidebar session={makeSession()} open />);
+      await waitFor(() => {
+        expect(screen.getByTestId('pane-context-sidebar-collapsed')).toBeTruthy();
+      });
+      expect(screen.queryByTestId('pane-context-sidebar')).toBeNull();
+    });
+
+    it('renders nothing when closed even if a collapse pref is stored', () => {
+      mockKvGet.mockResolvedValue('1');
+      const { container } = render(
+        <PaneContextSidebar session={makeSession()} open={false} />,
+      );
+      expect(container.firstChild).toBeNull();
     });
   });
 

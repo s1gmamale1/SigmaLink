@@ -20,10 +20,16 @@
 // Motion: the sidebar slides in/out via a CSS transition. The transition is
 // suppressed when `prefers-reduced-motion: reduce` is set (inline style).
 //
+// Collapse: a toggle hides the panel down to a thin rail to reclaim monitor
+// space. The choice is persisted globally in the KV store
+// (`ui.paneContextSidebar.collapsed`) so it sticks across panes and reopens.
+// Collapsed, the metadata sections unmount entirely → their pollers stop.
+//
 // LSP: there is NO LSP integration anywhere in this codebase. LSP state is
 // intentionally omitted (N/A).
 
-import { useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
+import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { rpcSilent } from '@/renderer/lib/rpc';
 import { prefersReducedMotion } from '@/renderer/lib/motion';
 import {
@@ -255,6 +261,44 @@ function UsageSection({ sessionId }: { sessionId: string }) {
   );
 }
 
+// ── Collapse preference ───────────────────────────────────────────────────────
+
+// Persisted globally (one key, not per-pane) so the operator's choice to reclaim
+// screen space sticks across panes and reopens. Mirrors the KV pattern used by
+// use-workspace-colors. Best-effort: a missing/failed KV store falls back to the
+// default expanded state and never throws into the render tree.
+const COLLAPSED_KV_KEY = 'ui.paneContextSidebar.collapsed';
+
+function useSidebarCollapsed(): [boolean, (next: boolean) => void] {
+  const [collapsed, setCollapsedState] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const stored = await rpcSilent.kv.get(COLLAPSED_KV_KEY);
+        if (alive && stored === '1') setCollapsedState(true);
+      } catch {
+        /* default expanded */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const setCollapsed = useCallback((next: boolean) => {
+    setCollapsedState(next);
+    try {
+      void rpcSilent.kv.set(COLLAPSED_KV_KEY, next ? '1' : '0')?.catch?.(() => {});
+    } catch {
+      /* persistence is best-effort */
+    }
+  }, []);
+
+  return [collapsed, setCollapsed];
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 /**
@@ -270,8 +314,34 @@ function UsageSection({ sessionId }: { sessionId: string }) {
 export function PaneContextSidebar({ session, open }: PaneContextSidebarProps) {
   // Honor prefers-reduced-motion for the slide-in transition.
   const reducedMotion = prefersReducedMotion();
+  const [collapsed, setCollapsed] = useSidebarCollapsed();
 
   if (!open) return null;
+
+  // Collapsed: a thin rail (w-7 ≈ 28px vs the full w-52 ≈ 208px) that reclaims
+  // the monitor space while keeping a discoverable affordance to bring the
+  // panel back. The metadata sections unmount entirely → their pollers stop.
+  if (collapsed) {
+    return (
+      <aside
+        aria-label="Pane context (collapsed)"
+        data-testid="pane-context-sidebar-collapsed"
+        className="flex w-7 shrink-0 flex-col items-center border-l border-border/60 bg-card/80 py-2 backdrop-blur-md"
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          title="Show pane context"
+          aria-label="Show pane context"
+          aria-expanded={false}
+          data-testid="pane-context-expand"
+          className="rounded p-1 text-muted-foreground/70 transition-colors hover:bg-muted/40 hover:text-foreground"
+        >
+          <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </aside>
+    );
+  }
 
   return (
     <aside
@@ -287,6 +357,21 @@ export function PaneContextSidebar({ session, open }: PaneContextSidebarProps) {
         .filter(Boolean)
         .join(' ')}
     >
+      {/* Collapse control — aligned to the panel's leading edge so it sits
+          nearest the terminal it hides. */}
+      <div className="-mb-2 -mt-1 flex items-center">
+        <button
+          type="button"
+          onClick={() => setCollapsed(true)}
+          title="Hide pane context"
+          aria-label="Hide pane context"
+          aria-expanded={true}
+          data-testid="pane-context-collapse"
+          className="rounded p-1 text-muted-foreground/70 transition-colors hover:bg-muted/40 hover:text-foreground"
+        >
+          <PanelRightClose className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
       <IdentitySection session={session} />
       {/* Divider */}
       <div className="h-px bg-border/40" aria-hidden="true" />
