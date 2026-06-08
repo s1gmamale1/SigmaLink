@@ -85,15 +85,21 @@ export function PaneGrid({
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rowRefs = useRef<Map<number, HTMLElement>>(new Map());
-  const dragRef = useRef<{ kind: 'row' | 'col'; row: number; index: number; snap: number[] } | null>(null);
+  const cellRefs = useRef<Map<string, HTMLElement>>(new Map());
+  // Active drag: the two neighbour elements + their starting fractions. During
+  // the drag we mutate ONLY these two elements' flex imperatively (no setState,
+  // so the heavy PaneShell/terminal tree never re-renders per frame); state is
+  // committed once on release.
+  const dragRef = useRef<{
+    kind: 'row' | 'col';
+    row: number;
+    index: number;
+    snap: number[];
+    els: [HTMLElement | undefined, HTMLElement | undefined];
+    last: number[];
+  } | null>(null);
   const loadedForRef = useRef<string | null>(null);
   const lastSavedRef = useRef<string>('');
-  // Mirror of the latest stored fractions so endDrag can persist without a
-  // side-effect inside the state updater.
-  const latestRef = useRef<Fracs | null>(null);
-  useEffect(() => {
-    latestRef.current = stored;
-  }, [stored]);
 
   // Load persisted fractions for this workspace (setState only after await).
   useEffect(() => {
@@ -134,25 +140,39 @@ export function PaneGrid({
   const beginDrag = (kind: 'row' | 'col', row: number, index: number) => {
     const base = stored && stored.sig === sig ? stored : evenFracs(rows);
     const snap = kind === 'row' ? [...base.rows] : [...base.cols[row]!];
-    dragRef.current = { kind, row, index, snap };
+    const els: [HTMLElement | undefined, HTMLElement | undefined] =
+      kind === 'row'
+        ? [rowRefs.current.get(index), rowRefs.current.get(index + 1)]
+        : [
+            cellRefs.current.get(rows[row]![index]!),
+            cellRefs.current.get(rows[row]![index + 1]!),
+          ];
+    dragRef.current = { kind, row, index, snap, els, last: snap };
   };
 
+  // Per-frame: mutate ONLY the two neighbours' flex directly on the DOM — no
+  // React render, so the drag stays smooth regardless of how heavy the panes are.
   const applyDrag = (delta: number) => {
     const d = dragRef.current;
     if (!d) return;
-    setStored((prev) => {
-      const base = prev && prev.sig === sig ? prev : evenFracs(rows);
-      if (d.kind === 'row') {
-        return { ...base, sig, rows: shiftPair(d.snap, d.index, delta) };
-      }
-      const cols = base.cols.map((c, r) => (r === d.row ? shiftPair(d.snap, d.index, delta) : c));
-      return { ...base, sig, cols };
-    });
+    const next = shiftPair(d.snap, d.index, delta);
+    d.last = next;
+    if (d.els[0]) d.els[0].style.flex = String(next[d.index]);
+    if (d.els[1]) d.els[1].style.flex = String(next[d.index + 1]);
   };
 
+  // On release: commit the final fractions to React state once, then persist.
   const endDrag = () => {
+    const d = dragRef.current;
     dragRef.current = null;
-    if (latestRef.current) persist(latestRef.current);
+    if (!d) return;
+    const base = stored && stored.sig === sig ? stored : evenFracs(rows);
+    const next: Fracs =
+      d.kind === 'row'
+        ? { ...base, sig, rows: d.last }
+        : { ...base, sig, cols: base.cols.map((c, r) => (r === d.row ? d.last : c)) };
+    setStored(next);
+    persist(next);
   };
 
   if (rows.length === 0) return <div className="h-full w-full" data-testid="pane-grid-empty" />;
@@ -198,6 +218,10 @@ export function PaneGrid({
                     />
                   ) : null}
                   <div
+                    ref={(el) => {
+                      if (el) cellRefs.current.set(sid, el);
+                      else cellRefs.current.delete(sid);
+                    }}
                     data-testid="pane-cell"
                     data-session-id={sid}
                     data-active={isActive ? 'true' : undefined}
