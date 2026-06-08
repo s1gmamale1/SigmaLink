@@ -15,7 +15,7 @@ import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { WorktreeInfoBanner } from '@/renderer/components/WorktreeInfoBanner';
-import { BspLayout } from './BspLayout';
+import { PaneGrid } from './PaneGrid';
 import { PaneShell } from './PaneShell';
 import { AddPaneButton } from './AddPaneButton';
 import type { AgentSession, Swarm } from '@/shared/types';
@@ -26,10 +26,11 @@ import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skil
 const EMPTY_SESSIONS: AgentSession[] = [];
 const EMPTY_SWARMS: Swarm[] = [];
 
-// BSP tiling: the layout is a per-workspace split tree owned by <BspLayout>,
-// keyed by sessionId. Sessions are the authoritative set; BspLayout reconciles
-// the tree against them. (The old flat grid-cell grouping + 1-level split-group
-// model was retired with GridLayout/SplitGroupCell.)
+// Pane layout: <PaneGrid> tiles the sessions into a uniform fill-grid (cells
+// keyed by sessionId; rows ≈ √n, the last/short rows widen to fill so there is
+// no dead space). Sessions are the authoritative set and the grid is a pure
+// function of them — no layout state, no persistence. (The old flat grid-cell
+// grouping + 1-level split-group model was retired with GridLayout/SplitGroupCell.)
 
 export function CommandRoom() {
   const dispatch = useAppDispatch();
@@ -417,11 +418,10 @@ export function CommandRoom() {
         <WorktreeInfoBanner onDismiss={() => setShowWorktreeBanner(false)} />
       )}
       <div className="min-h-0 flex-1 overflow-hidden">
-        <BspLayout
+        <PaneGrid
           sessionIds={sessions.map((s) => s.id)}
           activeSessionId={activeSessionId}
           focusedPaneId={focusedPaneId}
-          workspaceId={activeWorkspaceId}
           onActivate={(id) => {
             if (activeSessionId !== id) dispatch({ type: 'SET_ACTIVE_SESSION', id });
           }}

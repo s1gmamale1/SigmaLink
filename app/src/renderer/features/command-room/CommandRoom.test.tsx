@@ -343,37 +343,26 @@ describe('CommandRoom — v1.13.2 hardened pane-add', () => {
   });
 });
 
-describe('CommandRoom — v1.4.3 #06 cell grouping', () => {
-  it('renders ONE cell containing two SessionTerminals when both sessions share a split_group_id', async () => {
+describe('CommandRoom — uniform fill-grid', () => {
+  it('renders every session as its own grid cell, even when they share a split_group_id', async () => {
+    // The split-group model is retired: in the fill-grid, two sessions sharing a
+    // split_group_id are just two independent cells (no nested sub-grid).
     mockState.sessionsByWorkspace = {
       'ws-1': [
-        makeSession({
-          id: 'half-a',
-          splitGroupId: 'g-1',
-          splitDirection: 'vertical',
-          splitIndex: 0,
-        }),
-        makeSession({
-          id: 'half-b',
-          splitGroupId: 'g-1',
-          splitDirection: 'vertical',
-          splitIndex: 1,
-        }),
+        makeSession({ id: 'half-a', splitGroupId: 'g-1', splitDirection: 'vertical', splitIndex: 0 }),
+        makeSession({ id: 'half-b', splitGroupId: 'g-1', splitDirection: 'vertical', splitIndex: 1 }),
       ],
     };
     mockState.swarmsByWorkspace = { 'ws-1': [makeSwarm('running')] };
     await renderCommandRoom();
 
-    // Both terminals mount inside the split cell.
     await waitFor(() => screen.getByTestId('terminal-half-a'));
     expect(screen.getByTestId('terminal-half-b')).toBeTruthy();
-
-    // A sub-divider with role="separator" sits between the two halves.
-    const sep = screen.getAllByRole('separator');
-    expect(sep.length).toBeGreaterThanOrEqual(1);
+    // Two distinct grid cells (one per session) — no special grouping.
+    expect(screen.getAllByTestId('pane-cell')).toHaveLength(2);
   });
 
-  it('renders standalone sessions as their own cells when no split_group_id is set', async () => {
+  it('renders standalone sessions as their own cells', async () => {
     mockState.sessionsByWorkspace = {
       'ws-1': [makeSession({ id: 's1' }), makeSession({ id: 's2' })],
     };
@@ -381,6 +370,7 @@ describe('CommandRoom — v1.4.3 #06 cell grouping', () => {
 
     await waitFor(() => screen.getByTestId('terminal-s1'));
     expect(screen.getByTestId('terminal-s2')).toBeTruthy();
+    expect(screen.getAllByTestId('pane-cell')).toHaveLength(2);
   });
 });
 
