@@ -28,6 +28,7 @@
 - **[orch] B3 review nits** — SIGKILL escalation, sub-second adopt window, conversation-switch busy-clear. Effort: S.
 - **[arch] N1 — `Launcher.tsx` > 500 lines → extract `launch-plan.ts`.** Effort: S.
 - **[browser] BSP-B4 — `WebContentsView` input/focus reliability audit** (esp. form fields). Effort: M.
+- 🐞 **[low] closing a pane raises a "Pane exited (code 0)" toast for a normal/user-initiated close** — the `pty-exit` notification source fires on EVERY exit, including a deliberate close (`handleRemove` → `rpc.pty.kill` produces a clean `code 0` exit). It can't distinguish "user closed this" from "it exited on its own", so a routine close looks like an error/warning toast (operator screenshot 2026-06-09: "Pane exited (code 0) ×2"). `src/main/core/notifications/sources/pty-exit.ts:47-73` (severity map L58-59; title L68). Fix: thread a "user-initiated" flag through the kill/close path (e.g. mark the session id as intentionally-closing before `rpc.pty.kill`, or pass a reason on the `pty:exit` event) and **suppress the notification for intentional closes**; keep notifications for spontaneous/non-zero exits. Severity: low (cosmetic noise). Effort: S–M.
 - *(capture new findings here)*
 
 ## 🚧 Operator-owned (blocked on a human / device — non-blocking for the shipped tag)
