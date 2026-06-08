@@ -129,7 +129,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
     // second; first fit at non-zero size runs synchronously.
     let lastCols = term.cols;
     let lastRows = term.rows;
-    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    let rafId: number | null = null;
     let didFirstFit = false;
     const runFit = () => {
       if (entry.ptyExited) return;
@@ -156,24 +156,19 @@ export function SessionTerminal({ sessionId, className }: Props) {
         runFit();
         return;
       }
-      if (resizeTimer) clearTimeout(resizeTimer);
-      // While the user is dragging a pane divider, DON'T refit: xterm's fit()
-      // re-wraps the whole buffer, which looks slow/glitchy when it runs every
-      // frame under the drag. PaneDivider sets `document.body.dataset.dragging`
-      // for the drag's lifetime and dispatches `sigma:pane-resized` on release,
-      // which triggers exactly one fit (see onResizeEnd below) — so the terminal
-      // snaps to the final size once, smoothly.
-      if (document.body.dataset.dragging === 'true') return;
-      resizeTimer = setTimeout(runFit, 25);
+      // Coalesce to one fit per animation frame. This tracks the pane smoothly
+      // during a divider drag (≈60fps) and ALWAYS runs — no global "dragging"
+      // flag that could get stuck true (e.g. a missed pointerup) and freeze
+      // every terminal's refit, which left panes mis-sized / overflowing. fit()
+      // early-returns when cols/rows are unchanged, so the pty.resize IPC still
+      // only fires on a real grid change, not every pixel.
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        runFit();
+      });
     });
     ro.observe(container);
-
-    // One fit after a divider drag ends (the RO is suppressed during the drag).
-    const onResizeEnd = () => {
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(runFit, 0);
-    };
-    window.addEventListener('sigma:pane-resized', onResizeEnd);
 
     // V3-W13-015 — listen for cross-workspace jump-to-pane events the
     // JorvisRoom dispatches when a Jorvis-spawned pane finishes. Only the
@@ -199,14 +194,13 @@ export function SessionTerminal({ sessionId, className }: Props) {
     window.addEventListener('sigma:pty-focus', onFocusReq);
 
     return () => {
-      if (resizeTimer) clearTimeout(resizeTimer);
+      if (rafId !== null) cancelAnimationFrame(rafId);
       try {
         ro.disconnect();
       } catch {
         /* observer may already be disconnected — ignore */
       }
       window.removeEventListener('sigma:pty-focus', onFocusReq);
-      window.removeEventListener('sigma:pane-resized', onResizeEnd);
       // V1.4.2 packet-03 (Layer 2) — DO NOT dispose the cached terminal.
       // Park its DOM in the cache's offscreen container so the next mount
       // (room switch, workspace switch, or grid reshuffle) finds an intact

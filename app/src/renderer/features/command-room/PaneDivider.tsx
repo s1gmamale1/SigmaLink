@@ -1,8 +1,9 @@
 // A 1px hairline splitter between two panes (vertical) or two rows (horizontal).
 // Reports the cumulative drag as a FRACTION of the container along the axis, so
 // the parent (PaneGrid) can shift the two adjacent flex fractions by that amount.
-// rAF-coalesced; sets `document.body.dataset.dragging` so Terminal.tsx relaxes
-// its refit debounce during the drag.
+// rAF-coalesced. (Terminals refit on their own ResizeObserver, coalesced per
+// animation frame — no global drag flag, so a missed pointerup can't freeze
+// refits.)
 
 import { useRef } from 'react';
 
@@ -36,8 +37,11 @@ export function PaneDivider({ orientation, getSize, onResizeStart, onResize, onR
     e.preventDefault();
     e.stopPropagation();
     const el = e.currentTarget;
-    el.setPointerCapture(e.pointerId);
-    document.body.dataset.dragging = 'true';
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch {
+      /* capture is best-effort; the window listeners below drive the drag */
+    }
     const size = getSize();
     const startPos = vertical ? e.clientX : e.clientY;
     onResizeStart();
@@ -49,15 +53,16 @@ export function PaneDivider({ orientation, getSize, onResizeStart, onResize, onR
       if (rafRef.current === null) rafRef.current = requestAnimationFrame(flush);
     };
     const up = (ev: PointerEvent) => {
-      el.releasePointerCapture(ev.pointerId);
+      try {
+        el.releasePointerCapture(ev.pointerId);
+      } catch {
+        /* may already be released / detached — ignore */
+      }
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       flush();
-      delete document.body.dataset.dragging;
       onResizeEnd();
-      // Terminals suppress refit during the drag; tell them to fit once now.
-      window.dispatchEvent(new CustomEvent('sigma:pane-resized'));
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
