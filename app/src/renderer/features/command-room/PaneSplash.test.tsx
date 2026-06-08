@@ -12,9 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import type { AgentSession } from '@/shared/types';
 
-// ── Mock: subscribePtyData — returns a no-op unsubscribe so no real bus ──────
+// ── Mock: pty-data-bus — no-op subscribe + controllable "ever streamed" flag ──
+const mockHasPtyDataArrived = vi.fn<(id: string) => boolean>(() => false);
 vi.mock('@/renderer/lib/pty-data-bus', () => ({
   subscribePtyData: vi.fn(() => () => undefined),
+  hasPtyDataArrived: (id: string) => mockHasPtyDataArrived(id),
 }));
 
 // ── Mock: findProvider — returns a stable provider shape ──────────────────────
@@ -70,6 +72,8 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // Default: session has NOT streamed yet → splash shows (existing behaviour).
+  mockHasPtyDataArrived.mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -130,6 +134,24 @@ describe('PaneSplash', () => {
         vi.advanceTimersByTime(4000);
       });
       // after timeout the component re-renders to null
+      expect(container.firstChild).toBeNull();
+    });
+
+    it('renders nothing when the session already streamed (workspace re-switch)', () => {
+      // The whiteout-flash fix: a session that has produced PTY output before
+      // must not re-show the boot overlay over its live terminal.
+      mockHasPtyDataArrived.mockReturnValue(true);
+      const { container } = render(<PaneSplash session={makeSession()} />);
+      expect(container.firstChild).toBeNull();
+    });
+
+    it('does not arm the safety timeout for an already-streamed session', () => {
+      mockHasPtyDataArrived.mockReturnValue(true);
+      const { container } = render(<PaneSplash session={makeSession()} />);
+      // No pending splash to hide; advancing time must not throw or surface it.
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
       expect(container.firstChild).toBeNull();
     });
   });

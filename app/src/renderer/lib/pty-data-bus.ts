@@ -23,6 +23,12 @@ interface PtyDataPayload {
 type Listener = (payload: PtyDataPayload) => void;
 
 const listeners = new Map<string, Set<Listener>>();
+// Sessions that have emitted ≥1 PTY byte at any point this app session.
+// Module-level so it survives React remounts (workspace/room switches). Lets
+// PaneSplash skip the boot overlay for a session that has already streamed —
+// otherwise switching back to a workspace re-shows "starting session…" over an
+// already-populated terminal for up to the safety timeout (the "whiteout flash").
+const everProduced = new Set<string>();
 let installed = false;
 let off: (() => void) | null = null;
 
@@ -46,6 +52,10 @@ function installOnce(): void {
   // on page unload.
   off = window.sigma.eventOn('pty:data', (raw: unknown) => {
     if (!isPtyDataPayload(raw)) return;
+    // Record "this session has streamed" BEFORE the subscriber lookup so the
+    // flag is set even when no component is currently mounted for the session
+    // (e.g. it lives in a non-active workspace whose panes are unmounted).
+    everProduced.add(raw.sessionId);
     const set = listeners.get(raw.sessionId);
     if (!set) return;
     // Snapshot before dispatch so a subscriber that synchronously
@@ -80,12 +90,23 @@ export function subscribePtyData(sessionId: string, fn: Listener): () => void {
 }
 
 /**
+ * Whether the given session has emitted at least one PTY byte during this app
+ * session. Survives React remounts (the backing Set is module-level). Used by
+ * PaneSplash to suppress the boot overlay for an already-streamed session so a
+ * workspace switch doesn't flash "starting session…" over a live terminal.
+ */
+export function hasPtyDataArrived(sessionId: string): boolean {
+  return everProduced.has(sessionId);
+}
+
+/**
  * Test-only helper. Resets the module-level singleton state between tests
  * so each `describe` block starts from a clean slate. Not exported through
  * any production code path.
  */
 export function __resetPtyDataBus(): void {
   listeners.clear();
+  everProduced.clear();
   off?.();
   off = null;
   installed = false;

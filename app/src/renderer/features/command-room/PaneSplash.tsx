@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { findProvider } from '@/shared/providers';
-import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
+import { hasPtyDataArrived, subscribePtyData } from '@/renderer/lib/pty-data-bus';
 import { derivePaneIdentity } from './pane-identity';
 import type { AgentSession } from '@/shared/types';
 
@@ -34,9 +34,20 @@ interface Props {
 }
 
 export function PaneSplash({ session }: Props) {
-  const [firstByteSeen, setFirstByteSeen] = useState(false);
+  // Initialise from the module-level "ever streamed" flag so a session that
+  // already produced output (e.g. re-displayed on a workspace switch) never
+  // shows the boot overlay again — the terminal-cache keeps its scrollback, so
+  // re-flashing "starting session…" over a live terminal is the whiteout bug.
+  const [firstByteSeen, setFirstByteSeen] = useState(() =>
+    hasPtyDataArrived(session.id),
+  );
 
   useEffect(() => {
+    // Already streamed at mount → no overlay to show, so don't bother
+    // subscribing or arming the safety timeout. (Reads the persisted flag
+    // rather than `firstByteSeen` to keep this effect off React state and
+    // its dep list at just [session.id].)
+    if (hasPtyDataArrived(session.id)) return;
     // V1.1.8 perf-ptybus — route through the renderer-side bus so the
     // process pays one `eventOn('pty:data', …)` listener regardless of pane
     // count. The bus already routes by sessionId, so the callback no longer
