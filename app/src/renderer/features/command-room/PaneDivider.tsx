@@ -56,6 +56,8 @@ export function PaneDivider({ orientation, getSize, onResizeStart, onResize, onR
       flush();
       delete document.body.dataset.dragging;
       onResizeEnd();
+      // Terminals suppress refit during the drag; tell them to fit once now.
+      window.dispatchEvent(new CustomEvent('sigma:pane-resized'));
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);

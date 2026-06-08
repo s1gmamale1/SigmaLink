@@ -157,16 +157,23 @@ export function SessionTerminal({ sessionId, className }: Props) {
         return;
       }
       if (resizeTimer) clearTimeout(resizeTimer);
-      // v1.4.2 packet-07 — while the user is dragging a divider, relax the
-      // fit() debounce so 20 simultaneous ResizeObserver callbacks don't
-      // each refit + IPC a pty.resize every 25ms. GridLayout.startDrag sets
-      // `document.body.dataset.dragging` for the lifetime of the drag and
-      // clears it on pointerup, at which point the final fit fires within
-      // the standard 25ms window.
-      const debounceMs = document.body.dataset.dragging === 'true' ? 100 : 25;
-      resizeTimer = setTimeout(runFit, debounceMs);
+      // While the user is dragging a pane divider, DON'T refit: xterm's fit()
+      // re-wraps the whole buffer, which looks slow/glitchy when it runs every
+      // frame under the drag. PaneDivider sets `document.body.dataset.dragging`
+      // for the drag's lifetime and dispatches `sigma:pane-resized` on release,
+      // which triggers exactly one fit (see onResizeEnd below) — so the terminal
+      // snaps to the final size once, smoothly.
+      if (document.body.dataset.dragging === 'true') return;
+      resizeTimer = setTimeout(runFit, 25);
     });
     ro.observe(container);
+
+    // One fit after a divider drag ends (the RO is suppressed during the drag).
+    const onResizeEnd = () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(runFit, 0);
+    };
+    window.addEventListener('sigma:pane-resized', onResizeEnd);
 
     // V3-W13-015 — listen for cross-workspace jump-to-pane events the
     // JorvisRoom dispatches when a Jorvis-spawned pane finishes. Only the
@@ -199,6 +206,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
         /* observer may already be disconnected — ignore */
       }
       window.removeEventListener('sigma:pty-focus', onFocusReq);
+      window.removeEventListener('sigma:pane-resized', onResizeEnd);
       // V1.4.2 packet-03 (Layer 2) — DO NOT dispose the cached terminal.
       // Park its DOM in the cache's offscreen container so the next mount
       // (room switch, workspace switch, or grid reshuffle) finds an intact
