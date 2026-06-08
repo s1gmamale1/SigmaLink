@@ -176,6 +176,46 @@ describe('ptyDataBus', () => {
     expect(calls).toEqual(['a', 'b', 'b']);
   });
 
+  describe('hasPtyDataArrived', () => {
+    it('reports false before any byte and true after the session streams', async () => {
+      const { subscribePtyData, hasPtyDataArrived } = await import('./pty-data-bus');
+      subscribePtyData('sess-A', () => undefined);
+
+      expect(hasPtyDataArrived('sess-A')).toBe(false);
+      stub.emit('pty:data', { sessionId: 'sess-A', data: 'hi' });
+      expect(hasPtyDataArrived('sess-A')).toBe(true);
+    });
+
+    it('records the flag even when no subscriber is registered for the session', async () => {
+      const { subscribePtyData, hasPtyDataArrived } = await import('./pty-data-bus');
+      // Install the global listener via an unrelated subscription; sess-Z has none.
+      subscribePtyData('sess-A', () => undefined);
+
+      stub.emit('pty:data', { sessionId: 'sess-Z', data: 'orphan' });
+      expect(hasPtyDataArrived('sess-Z')).toBe(true);
+    });
+
+    it('does not set the flag for malformed payloads', async () => {
+      const { subscribePtyData, hasPtyDataArrived } = await import('./pty-data-bus');
+      subscribePtyData('sess-A', () => undefined);
+
+      stub.emit('pty:data', { sessionId: 'sess-A' }); // missing data
+      expect(hasPtyDataArrived('sess-A')).toBe(false);
+    });
+
+    it('is cleared by __resetPtyDataBus', async () => {
+      const { subscribePtyData, hasPtyDataArrived, __resetPtyDataBus } = await import(
+        './pty-data-bus'
+      );
+      subscribePtyData('sess-A', () => undefined);
+      stub.emit('pty:data', { sessionId: 'sess-A', data: 'x' });
+      expect(hasPtyDataArrived('sess-A')).toBe(true);
+
+      __resetPtyDataBus();
+      expect(hasPtyDataArrived('sess-A')).toBe(false);
+    });
+  });
+
   it('__resetPtyDataBus clears state and disposes the global listener', async () => {
     const { subscribePtyData, __resetPtyDataBus } = await import('./pty-data-bus');
     const fn = vi.fn();
