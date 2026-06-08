@@ -15,9 +15,8 @@ import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { WorktreeInfoBanner } from '@/renderer/components/WorktreeInfoBanner';
-import { GridLayout } from './GridLayout';
+import { BspLayout } from './BspLayout';
 import { PaneShell } from './PaneShell';
-import { SplitGroupCell } from './SplitGroupCell';
 import { AddPaneButton } from './AddPaneButton';
 import type { AgentSession, Swarm } from '@/shared/types';
 import { useSkillBindings } from '@/renderer/features/skills/useSkillBindings';
@@ -27,31 +26,10 @@ import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skil
 const EMPTY_SESSIONS: AgentSession[] = [];
 const EMPTY_SWARMS: Swarm[] = [];
 
-// v1.4.3 #06 — Pane Split. Each entry in the GridLayout corresponds to ONE
-// grid cell. A standalone pane occupies its own cell; the two halves of a
-// split share a cell and render as a sub-grid. We pre-group sessions into
-// these cells so GridLayout itself stays generic and unaware of the split
-// model — `renderCell` knows how to lay out either case.
-type SessionCell = AgentSession[];
-
-function groupSessionsIntoCells(sessions: AgentSession[]): SessionCell[] {
-  const cells: SessionCell[] = [];
-  const seen = new Set<string>();
-  for (const s of sessions) {
-    if (seen.has(s.id)) continue;
-    if (s.splitGroupId) {
-      const group = sessions
-        .filter((other) => other.splitGroupId === s.splitGroupId)
-        .sort((a, b) => (a.splitIndex ?? 0) - (b.splitIndex ?? 0));
-      for (const g of group) seen.add(g.id);
-      cells.push(group);
-    } else {
-      seen.add(s.id);
-      cells.push([s]);
-    }
-  }
-  return cells;
-}
+// BSP tiling: the layout is a per-workspace split tree owned by <BspLayout>,
+// keyed by sessionId. Sessions are the authoritative set; BspLayout reconciles
+// the tree against them. (The old flat grid-cell grouping + 1-level split-group
+// model was retired with GridLayout/SplitGroupCell.)
 
 export function CommandRoom() {
   const dispatch = useAppDispatch();
@@ -113,22 +91,6 @@ export function CommandRoom() {
   // re-sort/overwrite the swarms slice (and flip activeSwarmId). The canonical
   // loader now also owns the `swarmsLoading` flag, which we read from state.
 
-  // v1.4.3 #06 — Group sessions into grid cells. Standalone panes get one
-  // cell each; the two halves of a split share a cell (rendered as a
-  // sub-grid). Computed off the raw sessions list so we always reflect the
-  // latest state.sessionsByWorkspace projection.
-  const cells = useMemo(() => groupSessionsIntoCells(sessions), [sessions]);
-
-  // BUG-V1.1-04-IPC / v1.4.3 #06 — activeIndex indexes into `cells`, not raw
-  // sessions. Falls back to 0 when activeSessionId isn't in this workspace.
-  const activeIndex = useMemo(() => {
-    if (cells.length === 0) return 0;
-    if (!activeSessionId) return 0;
-    const idx = cells.findIndex((cell) =>
-      cell.some((s) => s.id === activeSessionId),
-    );
-    return idx >= 0 ? idx : 0;
-  }, [cells, activeSessionId]);
 
   // Reconcile the global active session with the local pane list. If the
   // current activeSessionId is missing from this workspace's sessions, point
@@ -455,91 +417,47 @@ export function CommandRoom() {
         <WorktreeInfoBanner onDismiss={() => setShowWorktreeBanner(false)} />
       )}
       <div className="min-h-0 flex-1 overflow-hidden">
-        <GridLayout<SessionCell>
-          items={cells}
-          getKey={(cell) => cell[0]!.id}
-          activeIndex={activeIndex}
-          onActiveChange={(i) => {
-            const cell = cells[i];
-            if (!cell) return;
-            // v1.4.3 #06 — When the active cell is a split group, pick the
-            // sub-pane the user already had focused (so a click on the cell
-            // background doesn't yank focus between the two halves). Falls
-            // back to the first sub-pane if neither is currently active.
-            const inCell = cell.find((s) => s.id === activeSessionId);
-            const target = inCell ?? cell[0]!;
-            if (activeSessionId !== target.id) {
-              dispatch({ type: 'SET_ACTIVE_SESSION', id: target.id });
-            }
+        <BspLayout
+          sessionIds={sessions.map((s) => s.id)}
+          activeSessionId={activeSessionId}
+          focusedPaneId={focusedPaneId}
+          workspaceId={activeWorkspaceId}
+          onActivate={(id) => {
+            if (activeSessionId !== id) dispatch({ type: 'SET_ACTIVE_SESSION', id });
           }}
-          focusedKey={focusedPaneId}
-          renderCell={(cell, ctx) => {
-            // v1.4.3 #06 — A "cell" is either a single standalone pane or
-            // the two halves of a split group. The split sub-grid is
-            // rendered inline here so it stays scoped to one grid cell;
-            // GridLayout's outer divider math is unaffected.
-            if (cell.length === 1) {
-              const session = cell[0]!;
-              // v1.7.1 W-5 Phase 2 — filter to pane-scoped bindings for this session.
-              const paneBindings = skillBindings.filter(
-                (b) => b.paneSessionId === session.id,
-              );
-              return (
-                <PaneShell
-                  session={session}
-                  paneIndex={ctx.index + 1}
-                  providers={providers}
-                  workspaceRootPath={activeWorkspace.rootPath}
-                  onFocus={() => ctx.activate()}
-                  onRemove={() => handleRemove(session)}
-                  onStop={() => handleStop(session)}
-                  onRelaunch={() => void handleRelaunch(session)}
-                  onSplit={(dir, providerId) =>
-                    void handleSplitPane(session, dir, providerId)
-                  }
-                  onToggleMinimise={() => handleToggleMinimise(session)}
-                  isFullscreen={focusedPaneId === session.id}
-                  onToggleFullscreen={() =>
-                    dispatch(
-                      focusedPaneId === session.id
-                        ? { type: 'UNFOCUS_PANE' }
-                        : { type: 'FOCUS_PANE', paneId: session.id },
-                    )
-                  }
-                  skillBindings={paneBindings}
-                  onSkillDrop={(name, source) =>
-                    void attachSkill({
-                      paneSessionId: session.id,
-                      skillName: name,
-                      skillSource: source,
-                    })
-                  }
-                  onSkillDetach={(bindingId) => void detachSkill(bindingId)}
-                />
-              );
-            }
+          renderLeaf={(sessionId) => {
+            const session = sessions.find((s) => s.id === sessionId);
+            if (!session) return null;
+            // v1.7.1 W-5 Phase 2 — filter to pane-scoped bindings for this session.
+            const paneBindings = skillBindings.filter((b) => b.paneSessionId === session.id);
+            const paneIndex = sessions.findIndex((s) => s.id === sessionId) + 1;
             return (
-              <SplitGroupCell
-                panes={cell}
-                paneIndex={ctx.index + 1}
+              <PaneShell
+                session={session}
+                paneIndex={paneIndex}
                 providers={providers}
-                focusedPaneId={focusedPaneId}
                 workspaceRootPath={activeWorkspace.rootPath}
-                onActivate={(id) => {
-                  if (activeSessionId !== id) {
-                    dispatch({ type: 'SET_ACTIVE_SESSION', id });
-                  }
+                onFocus={() => {
+                  if (activeSessionId !== session.id) dispatch({ type: 'SET_ACTIVE_SESSION', id: session.id });
                 }}
-                onRemove={handleRemove}
-                onStop={handleStop}
-                onToggleMinimise={handleToggleMinimise}
-                onToggleFullscreen={(id) =>
+                onRemove={() => handleRemove(session)}
+                onStop={() => handleStop(session)}
+                onRelaunch={() => void handleRelaunch(session)}
+                onSplit={(dir, providerId) => void handleSplitPane(session, dir, providerId)}
+                onToggleMinimise={() => handleToggleMinimise(session)}
+                isFullscreen={focusedPaneId === session.id}
+                onToggleFullscreen={() =>
                   dispatch(
-                    focusedPaneId === id
+                    focusedPaneId === session.id
                       ? { type: 'UNFOCUS_PANE' }
-                      : { type: 'FOCUS_PANE', paneId: id },
+                      : { type: 'FOCUS_PANE', paneId: session.id },
                   )
                 }
+                skillBindings={paneBindings}
+                onSkillDrop={(name, source) =>
+                  void attachSkill({ paneSessionId: session.id, skillName: name, skillSource: source })
+                }
+                onSkillDetach={(bindingId) => void detachSkill(bindingId)}
               />
             );
           }}
