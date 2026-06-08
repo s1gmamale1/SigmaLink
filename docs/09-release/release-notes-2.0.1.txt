@@ -1,0 +1,37 @@
+SigmaLink v2.0.1 — 2026-06-08
+=============================
+
+A small post-v2.0.0 batch of operator-reported UX fixes. Each shipped as
+its own PR with CI e2e-matrix green on `main` before the tag.
+
+See CHANGELOG.md [2.0.1] for the itemized record.
+
+
+What's new
+----------
+
+- Collapsible pane context sidebar (#130). The Identity/MCP/Usage panel on
+  a fullscreen-focused pane collapses to a thin rail to reclaim screen
+  space; the choice persists across panes and restarts.
+
+- Drag-to-reorder workspaces (#132). Drag a workspace row up/down in the
+  sidebar to reorder the rail; right-click for Move up/down. The order
+  persists across restarts, and a drop sticks to any slot — not just the
+  end.
+
+
+Fixed
+-----
+
+- Whiteout flash on workspace switch (#131). Switching workspaces no longer
+  briefly re-paints the "starting session…" boot splash over an
+  already-running terminal.
+
+
+Verification
+------------
+
+Gated in main before tagging: tsc -b (clean), eslint --max-warnings 0
+(clean), vitest (311 files, 3284 pass / 1 skip), product:check (build +
+electron compile, clean). End-to-end coverage ran green via the CI
+e2e-matrix on each PR and on the main merge.

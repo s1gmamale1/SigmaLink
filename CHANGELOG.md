@@ -2,6 +2,17 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.0.1] — 2026-06-08
+
+A small post-v2.0.0 batch of operator-reported UX fixes, each shipped as its own PR with CI `e2e-matrix` green on `main`.
+
+### Added
+- **Collapsible pane context sidebar (#130 `8432a37`).** The Identity/MCP/Usage panel that appears on a fullscreen-focused pane (`PaneContextSidebar`, ~208px) can now be collapsed to a ~28px rail to reclaim monitor space. The choice persists globally via KV `ui.paneContextSidebar.collapsed`; collapsed unmounts the metadata sections so their pollers stop.
+- **Drag-to-reorder workspaces (#132 `63cfe22`).** Drag a workspace row up/down in the sidebar to reorder the rail (whole-row drag, insertion-line indicator); right-click → Move up / Move down as a keyboard-accessible fallback. The new order persists across restarts via the existing renderer↔main mirror. The drop position is a single insertion gap computed across the whole list, so a drop sticks to any slot — not just the end.
+
+### Fixed
+- **PaneSplash whiteout flash on workspace switch (#131 `9cf0024`).** Switching workspaces remounts panes, so the boot splash re-painted "starting session…" over an already-running terminal until a new PTY byte or the 4s timeout. The pty-data-bus now tracks (module-scope) whether a session has streamed, and the splash starts hidden for already-streamed sessions — no more flash.
+
 ## [2.0.0] — 2026-06-07
 
 **v2.0.0 bundles the entire 6-phase next-phase ROADMAP _and_ its full long-tail into one major release.** Everything below this header is on `main`, untagged. The major bump reflects the scope: a reliability spine (P1), one Apple motion language (P2), the notification + soundscape system (P3), the **headline obsidian-grade memory with Ruflo AgentDB surfaced as a graph node class** (P4), the responsiveness/perf pass (P5), and the **complete competitive-parity surface + both worktree leapfrogs** (P6 + long-tail) — plus the ARCH-1 main-process type-check seam and the ARCH-6/9 decompositions, and the **Phase 0 release-blocker crisis fix** (disk-fill + post-crash launch lockout + workspace loss, landed 2026-06-05 — see *Fixed* below).
