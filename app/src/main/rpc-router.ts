@@ -143,6 +143,7 @@ import { KV_PLAN_TIER, parseTier } from './core/plan/capabilities';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, KV_PTY_SCROLLBACK_PERSISTENCE, parseScrollbackPersistence } from './core/pty/local-pty';
 import { persistScrollback, loadScrollback, gcScrollback } from './core/pty/scrollback-store';
 import { cmdQuoteArg } from './core/util/windows-spawn';
+import { analyzeSessionRisk } from './core/ram-brake/session-risk';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -1012,6 +1013,7 @@ async function buildRouter() {
         rssBytes: snapshot?.rssBytes ?? 0,
         descendantPids: snapshot?.descendantPids ?? [],
         processCount: snapshot?.nodes.length ?? 0,
+        nodes: snapshot?.nodes ?? [],
       };
     },
     forget: async (sessionId: string) => {
@@ -1368,6 +1370,14 @@ async function buildRouter() {
       if (val === 'declined') return 'declined';
       return null;
     },
+  });
+
+  const ramBrakeCtl = defineController({
+    sessionRisk: async (input: {
+      providerId: string;
+      cwd: string;
+      externalSessionId?: string | null;
+    }) => analyzeSessionRisk(input),
   });
 
   const workspacesCtl = defineController({
@@ -2190,6 +2200,7 @@ async function buildRouter() {
     app: appCtl,
     pty: ptyCtl,
     panes: panesCtl,
+    ramBrake: ramBrakeCtl,
     providers: providersCtl,
     workspaces: workspacesCtl,
     git: gitCtl,

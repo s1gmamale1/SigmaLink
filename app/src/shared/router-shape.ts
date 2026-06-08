@@ -93,6 +93,22 @@ export interface PaneResumeResult {
   }>;
 }
 
+export type SessionRiskLevel = 'unknown' | 'low' | 'medium' | 'high' | 'critical';
+
+export interface SessionRiskReport {
+  providerId: string;
+  cwd: string;
+  externalSessionId: string | null;
+  sessionFilePath: string | null;
+  sessionBytes: number;
+  lineCount: number;
+  ageMs: number | null;
+  estimatedTextBytes: number;
+  estimatedTokens: number | null;
+  riskLevel: SessionRiskLevel;
+  reasons: string[];
+}
+
 /**
  * V3-W15-005 — Plan tier surfaced over RPC. Mirrors the `Tier` literal in
  * `app/src/main/core/plan/capabilities.ts` (kept as a string union here so
@@ -154,6 +170,13 @@ export interface AppRouter {
       rssBytes: number;
       descendantPids: number[];
       processCount: number;
+      nodes: Array<{
+        pid: number;
+        ppid: number;
+        rssBytes: number;
+        command: string;
+        args: string;
+      }>;
     }>;
     forget: (sessionId: string) => Promise<void>;
     /**
@@ -251,6 +274,13 @@ export interface AppRouter {
      * computed alias. Broadcasts `panes:session-renamed` so title pills refresh.
      */
     rename: (a: { sessionId: string; name: string | null }) => Promise<{ ok: boolean }>;
+  };
+  ramBrake: {
+    sessionRisk: (input: {
+      providerId: string;
+      cwd: string;
+      externalSessionId?: string | null;
+    }) => Promise<SessionRiskReport>;
   };
   providers: {
     list: () => Promise<

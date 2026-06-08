@@ -172,3 +172,18 @@ describe('DEV-6 — previously-missing channel schemas are now registered', () =
     }
   });
 });
+
+describe('Phase 2 RAM Brake — session risk schema', () => {
+  it('registers a concrete schema for ramBrake.sessionRisk', () => {
+    const schema = getChannelSchema('ramBrake.sessionRisk');
+    expect(schema, 'ramBrake.sessionRisk must have a schema entry').toBeDefined();
+    expect(schema?.input?.safeParse({ providerId: 42, cwd: '/tmp/ws' }).success).toBe(false);
+    expect(
+      schema?.input?.safeParse({
+        providerId: 'claude',
+        cwd: '/tmp/ws',
+        externalSessionId: '37846eca-4143-4f3b-a1b5-5fe919ddf2b3',
+      }).success,
+    ).toBe(true);
+  });
+});

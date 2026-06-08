@@ -42,6 +42,12 @@ export interface PaneLiveStats {
   rssBytes: number | null;
   /** Number of processes in the pane tree; null when unsupported or unavailable. */
   processCount: number | null;
+  /** RSS for the root CLI process in bytes; null when unavailable. */
+  rootRssBytes: number | null;
+  /** RSS for MCP-like child processes in bytes; null when unavailable. */
+  mcpRssBytes: number | null;
+  /** Highest-RSS child command, useful for spotting MCP/npm/node inflation. */
+  topChildCommand: string | null;
 }
 
 const EMPTY_STATS: PaneLiveStats = {
@@ -50,7 +56,25 @@ const EMPTY_STATS: PaneLiveStats = {
   hasData: false,
   rssBytes: null,
   processCount: null,
+  rootRssBytes: null,
+  mcpRssBytes: null,
+  topChildCommand: null,
 };
+
+interface ProcessStatsNode {
+  pid: number;
+  ppid: number;
+  rssBytes: number;
+  command: string;
+  args: string;
+}
+
+interface ProcessStatsResponse {
+  supported: boolean;
+  rssBytes: number;
+  processCount: number;
+  nodes?: ProcessStatsNode[];
+}
 
 /**
  * Poll `rpc.usage.sessionSummary` every ~3 s for a pane's live cost + tok/s
@@ -94,7 +118,7 @@ export function usePaneLiveStats(sessionId: string, enabled: boolean): PaneLiveS
 
     async function poll(): Promise<void> {
       let summary: UsageSummary | null = null;
-      let processStats: { supported: boolean; rssBytes: number; processCount: number } | null = null;
+      let processStats: ProcessStatsResponse | null = null;
       try {
         summary = await rpc.usage.sessionSummary({ sessionId });
       } catch {
@@ -111,9 +135,10 @@ export function usePaneLiveStats(sessionId: string, enabled: boolean): PaneLiveS
         processStats?.supported && processStats.rssBytes > 0 ? processStats.rssBytes : null;
       const processCount =
         processStats?.supported && processStats.processCount > 0 ? processStats.processCount : null;
+      const rssBreakdown = computeRssBreakdown(processStats);
 
       if (!summary) {
-        setStats((prev) => ({ ...prev, rssBytes, processCount }));
+        setStats((prev) => ({ ...prev, rssBytes, processCount, ...rssBreakdown }));
         return;
       }
 
@@ -122,7 +147,7 @@ export function usePaneLiveStats(sessionId: string, enabled: boolean): PaneLiveS
         // No turns recorded yet — emit empty state, reset baselines.
         prevOutputTokensRef.current = 0;
         prevPollTimeRef.current = Date.now();
-        setStats({ ...EMPTY_STATS, rssBytes, processCount });
+        setStats({ ...EMPTY_STATS, rssBytes, processCount, ...rssBreakdown });
         return;
       }
 
@@ -145,6 +170,7 @@ export function usePaneLiveStats(sessionId: string, enabled: boolean): PaneLiveS
         hasData: true,
         rssBytes,
         processCount,
+        ...rssBreakdown,
       });
     }
 
@@ -163,4 +189,27 @@ export function usePaneLiveStats(sessionId: string, enabled: boolean): PaneLiveS
   // polled values from when the pane was running; gating the return here is the
   // single source of truth for "should this pane show live stats".
   return enabled ? stats : EMPTY_STATS;
+}
+
+function computeRssBreakdown(processStats: ProcessStatsResponse | null): Pick<
+  PaneLiveStats,
+  'rootRssBytes' | 'mcpRssBytes' | 'topChildCommand'
+> {
+  if (!processStats?.supported || !processStats.nodes?.length) {
+    return { rootRssBytes: null, mcpRssBytes: null, topChildCommand: null };
+  }
+  const root = processStats.nodes[0];
+  const children = processStats.nodes.filter((node) => node.pid !== root.pid);
+  const mcpRssBytes = children
+    .filter((node) => /mcp|ruflo|claude-flow|context7/i.test(`${node.command} ${node.args}`))
+    .reduce((sum, node) => sum + node.rssBytes, 0);
+  const topChild = children.reduce<ProcessStatsNode | null>(
+    (top, node) => (!top || node.rssBytes > top.rssBytes ? node : top),
+    null,
+  );
+  return {
+    rootRssBytes: root.rssBytes > 0 ? root.rssBytes : null,
+    mcpRssBytes: mcpRssBytes > 0 ? mcpRssBytes : null,
+    topChildCommand: topChild?.command || null,
+  };
 }

@@ -24,7 +24,8 @@
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-library/react';
-import { buildPaneResumePlanArray } from './Launcher';
+import { buildPaneResumePlanArray, buildSafeRamBrakePlan } from './Launcher';
+import type { SessionRiskReport } from '@/shared/router-shape';
 
 // ---------------------------------------------------------------------------
 // Mocks for WorkspaceLauncher integration tests
@@ -39,6 +40,26 @@ const workspacesLaunchMock = vi.fn<(plan: unknown) => Promise<{ sessions: unknow
 const workspacesPickFolderMock = vi.fn(async () => null);
 const workspacesOpenMock = vi.fn<(path: string) => Promise<Workspace>>(async () => makeWorkspace());
 const workspacesListMock = vi.fn(async () => []);
+function makeLowRiskReport(): SessionRiskReport {
+  return {
+  providerId: 'claude',
+  cwd: '/tmp/test-ws',
+  externalSessionId: null,
+  sessionFilePath: null,
+  sessionBytes: 0,
+  lineCount: 0,
+  ageMs: null,
+  estimatedTextBytes: 0,
+  estimatedTokens: null,
+  riskLevel: 'low',
+  reasons: [],
+  };
+}
+const ramBrakeSessionRiskMock = vi.fn<(input: unknown) => Promise<SessionRiskReport>>(
+  async () => makeLowRiskReport(),
+);
+let agentsStepBehavior: 'skip' | 'claude-grid' = 'skip';
+let sessionSelectionsSeed: Record<number, string | null> = {};
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -51,6 +72,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
       list: () => workspacesListMock(),
     },
     panes: { listForWorkspace: async () => [] },
+    ramBrake: { sessionRisk: (input: unknown) => ramBrakeSessionRiskMock(input) },
     swarms: { list: async () => [] },
     design: { createCanvas: async () => ({}) },
     browser: { getState: async () => ({ tabs: [] }) },
@@ -90,6 +112,7 @@ vi.mock('./Stepper', () => ({
   Stepper: ({ steps, onJump }: { steps: string[]; onJump: (s: string) => void }) => (
     <div data-testid="stepper" data-steps={steps.join(',')}>
       <button data-testid="jump-agents" onClick={() => onJump('agents')}>agents</button>
+      <button data-testid="jump-sessions" onClick={() => onJump('sessions')}>sessions</button>
     </div>
   ),
 }));
@@ -104,16 +127,37 @@ vi.mock('./AgentsStep', async () => {
   return {
     // The mock calls onSkipChange(true) on mount so the launch button is
     // enabled without having to fill the agents matrix.
-    AgentsStep: ({ onSkipChange }: { onSkipChange: (v: boolean) => void }) => {
-      useEffect(() => { onSkipChange(true); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+    AgentsStep: ({
+      onCountsChange,
+      onSkipChange,
+    }: {
+      onCountsChange: (v: Record<string, number>) => void;
+      onSkipChange: (v: boolean) => void;
+    }) => {
+      useEffect(() => {
+        if (agentsStepBehavior === 'claude-grid') {
+          onSkipChange(false);
+          onCountsChange({ claude: 4 });
+        } else {
+          onSkipChange(true);
+        }
+      }, [onCountsChange, onSkipChange]);
       return <div data-testid="agents-step" />;
     },
   };
 });
-vi.mock('./SessionStep', () => ({
-  SessionStep: () => <div data-testid="session-step" />,
+vi.mock('./SessionStep', async () => {
+  const { useEffect } = await import('react');
+  return {
+  SessionStep: ({ onSelectionsChange }: { onSelectionsChange: (v: Record<number, string | null>) => void }) => {
+    useEffect(() => {
+      onSelectionsChange(sessionSelectionsSeed);
+    }, [onSelectionsChange]);
+    return <div data-testid="session-step" />;
+  },
   fetchLastResumePlan: async () => [],
-}));
+};
+});
 
 // Stub UI primitives that use Radix (may not render in jsdom).
 vi.mock('@/components/ui/card', () => ({
@@ -135,7 +179,7 @@ vi.mock('@/renderer/components/ErrorBanner', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-import type { Workspace } from '@/shared/types';
+import type { LaunchPlan, Workspace } from '@/shared/types';
 
 function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -167,9 +211,95 @@ beforeEach(() => {
   kvGetMock.mockReset().mockResolvedValue(null);
   kvSetMock.mockReset().mockResolvedValue(undefined);
   workspacesLaunchMock.mockReset().mockResolvedValue({ sessions: [] });
+  ramBrakeSessionRiskMock.mockReset().mockResolvedValue(makeLowRiskReport());
+  agentsStepBehavior = 'skip';
+  sessionSelectionsSeed = {};
   dispatchMock.mockReset();
   // Use real timers for async kv reads in tests; individual tests that need
   // fake timers will call vi.useFakeTimers() themselves.
+});
+
+describe('WorkspaceLauncher — Phase 2 RAM Brake resume risk', () => {
+  it('buildSafeRamBrakePlan drops risky resume ids and launches that pane with no MCP', () => {
+    const plan = {
+      workspaceRoot: '/tmp/test-ws',
+      panes: [
+        { paneIndex: 0, providerId: 'claude' },
+        { paneIndex: 1, providerId: 'codex' },
+      ],
+      paneResumePlan: [
+        { paneIndex: 0, sessionId: '37846eca-4143-4f3b-a1b5-5fe919ddf2b3' },
+        { paneIndex: 1, sessionId: 'codex-session' },
+      ],
+    } as LaunchPlan;
+
+    const safe = buildSafeRamBrakePlan(plan, [0]);
+
+    expect(safe.paneResumePlan).toEqual([{ paneIndex: 1, sessionId: 'codex-session' }]);
+    expect(safe.panes[0]).toMatchObject({
+      paneIndex: 0,
+      providerId: 'claude',
+      launchMode: 'fresh',
+      mcpLaunchMode: 'none',
+    });
+    expect(safe.panes[1]).toEqual(plan.panes[1]);
+  });
+
+  it('shows a high-risk resume prompt before launching risky Claude sessions', async () => {
+    agentsStepBehavior = 'claude-grid';
+    sessionSelectionsSeed = {
+      0: '37846eca-4143-4f3b-a1b5-5fe919ddf2b3',
+    };
+    ramBrakeSessionRiskMock.mockResolvedValue({
+      providerId: 'claude',
+      cwd: '/tmp/test-ws',
+      externalSessionId: '37846eca-4143-4f3b-a1b5-5fe919ddf2b3',
+      sessionFilePath: '/tmp/session.jsonl',
+      sessionBytes: 5 * 1024 * 1024,
+      lineCount: 1400,
+      ageMs: 0,
+      estimatedTextBytes: 4_500_000,
+      estimatedTokens: 1_125_000,
+      riskLevel: 'high',
+      reasons: ['large-jsonl'],
+    });
+
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('jump-agents'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('jump-sessions'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const launchBtn = screen.getByRole('button', { name: /launch|open.*shell/i });
+    await act(async () => {
+      fireEvent.click(launchBtn);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(workspacesLaunchMock).not.toHaveBeenCalled();
+    expect(await screen.findByTestId('session-risk-launch-prompt')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /start fresh.*no mcp/i }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(workspacesLaunchMock).toHaveBeenCalledOnce();
+    const safePlan = workspacesLaunchMock.mock.calls[0][0] as LaunchPlan;
+    expect(safePlan.paneResumePlan).toEqual(undefined);
+    expect(safePlan.panes[0]).toMatchObject({ launchMode: 'fresh', mcpLaunchMode: 'none' });
+  });
 });
 
 afterEach(() => {

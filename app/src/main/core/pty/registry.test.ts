@@ -27,6 +27,14 @@ vi.mock('./local-pty', () => {
   };
 });
 
+const processTreeMock = vi.hoisted(() => ({
+  inspectProcessTree: vi.fn(),
+  stopProcessTree: vi.fn(),
+  stopProcessTrees: vi.fn(),
+}));
+
+vi.mock('../process/process-tree', () => processTreeMock);
+
 import { spawnLocalPty } from './local-pty';
 import { PtyRegistry } from './registry';
 import type { PtyHandle } from './local-pty';
@@ -49,6 +57,30 @@ const realKill = process.kill.bind(process);
 
 beforeEach(() => {
   killCalls.length = 0;
+  processTreeMock.inspectProcessTree.mockImplementation((rootPid: number) => ({
+    rootPid,
+    supported: false,
+    nodes: [],
+    descendantPids: [],
+    rssBytes: 0,
+  }));
+  processTreeMock.stopProcessTree.mockImplementation((rootPid: number) => ({
+    rootPid,
+    supported: false,
+    nodes: [],
+    descendantPids: [],
+    rssBytes: 0,
+  }));
+  processTreeMock.stopProcessTrees.mockImplementation((rootPids: number[]) => ({
+    snapshots: rootPids.map((rootPid) => ({
+      rootPid,
+      supported: false,
+      nodes: [],
+      descendantPids: [],
+      rssBytes: 0,
+    })),
+    stoppedPids: [],
+  }));
   process.kill = ((pid: number, signal?: number | string) => {
     killCalls.push({ pid, signal: signal ?? 0 });
     if (pid === FAKE_PID) return true; // fake "process exists"
@@ -631,6 +663,64 @@ describe('PtyRegistry.killAll()', () => {
       expect(pty.killCalls).toBe(1);
     }
     vi.advanceTimersByTime(6_000);
+  });
+
+  it('uses process-tree stop and skips pty.kill() for supported roots', () => {
+    const ptys = [makeFakePty(101), makeFakePty(202)];
+    let i = 0;
+    vi.mocked(spawnLocalPty).mockImplementation(() => ptys[i++]!);
+    processTreeMock.stopProcessTrees.mockReturnValue({
+      snapshots: [
+        {
+          rootPid: 101,
+          supported: true,
+          nodes: [
+            { pid: 101, ppid: 1, rssBytes: 1024, command: 'zsh', args: 'zsh' },
+            { pid: 111, ppid: 101, rssBytes: 2048, command: 'node', args: 'ruflo mcp' },
+          ],
+          descendantPids: [111],
+          rssBytes: 3072,
+        },
+        {
+          rootPid: 202,
+          supported: true,
+          nodes: [
+            { pid: 202, ppid: 1, rssBytes: 1024, command: 'zsh', args: 'zsh' },
+          ],
+          descendantPids: [],
+          rssBytes: 1024,
+        },
+      ],
+      stoppedPids: [111, 101, 202],
+    });
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      sessionId: 's1',
+    });
+    registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+      sessionId: 's2',
+    });
+
+    registry.killAll();
+
+    expect(processTreeMock.stopProcessTrees).toHaveBeenCalledWith([101, 202], 5_000);
+    expect(ptys[0]?.killCalls).toBe(0);
+    expect(ptys[1]?.killCalls).toBe(0);
   });
 
   it('arms NO timer when there are no alive sessions', () => {

@@ -32,8 +32,7 @@ import { workspaceCwdInWorktree } from './worktree-cwd';
 import { readWorktreeMode } from './worktree-mode';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, effectivePaneSpawnMode } from '../pty/local-pty';
 import { writeGuardrailBlock } from './guardrail-block';
-import { writeRufloMcpIntoCwd } from './ruflo-worktree-mcp';
-import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from './mcp-autowrite';
+import { ensureRufloMcpForPane } from './ruflo-mcp-policy';
 import { allocateLowestFreeLivePaneIndex } from './pane-slots';
 import { isPtyCrash } from '../pty/crash';
 import { maybeAutoCheckpoint } from '../git/auto-checkpoint';
@@ -41,8 +40,10 @@ import { providerAcceptsModelFlag, listModelsFor } from '../providers/models';
 import {
   normalizeAgentRuntimeProfileId,
   profileAllowsMcp,
+  profileIsMcpHeavy,
 } from '../../../shared/runtime-profiles';
 import { checkRamBrakeAdmission } from '../ram-brake/admission';
+import { buildClaudeMcpLaunchArgs } from '../ram-brake/mcp-launch-mode';
 
 /**
  * Read `kv['providers.showLegacy']` (default '0'). Falsey when the user has
@@ -73,37 +74,6 @@ function readSpawnMode(): 'direct' | 'shell-first' {
     return parseSpawnMode(row?.value ?? null);
   } catch {
     return 'direct';
-  }
-}
-
-/**
- * SF-15 — `kv['ruflo.autowriteMcp']` (default ON). '0' = opt-out. Mirrors the
- * gate in `openWorkspace`; read defensively so a missing/locked DB never blocks
- * a pane launch.
- */
-function readRufloAutowrite(): boolean {
-  try {
-    const row = getRawDb()
-      .prepare('SELECT value FROM kv WHERE key = ?')
-      .get(KV_RUFLO_AUTOWRITE_MCP) as { value?: string } | undefined;
-    return row?.value !== '0';
-  } catch {
-    return true;
-  }
-}
-
-/**
- * SF-15 — `kv['ruflo.autoTrustMcp']` (default ON). '0' = opt-out. Mirrors the
- * SF-7 gate in `openWorkspace`.
- */
-function readRufloAutotrust(): boolean {
-  try {
-    const row = getRawDb()
-      .prepare('SELECT value FROM kv WHERE key = ?')
-      .get(KV_RUFLO_AUTOTRUST_MCP) as { value?: string } | undefined;
-    return row?.value !== '0';
-  } catch {
-    return true;
   }
 }
 
@@ -218,6 +188,7 @@ export async function executeLaunchPlan(
   const sessions: AgentSession[] = [];
   for (const pane of plan.panes) {
     const runtimeProfileId = normalizeAgentRuntimeProfileId(pane.runtimeProfileId);
+    let rufloMcpPort: number | undefined;
     const provider = findProvider(pane.providerId);
     if (!provider) {
       sessions.push({
@@ -314,12 +285,16 @@ export async function executeLaunchPlan(
           // (+ claude trust) into this pane's cwd BEFORE the CLI spawns so Ruflo
           // MCP actually attaches to the pane. HTTP mode when the per-workspace
           // daemon has a live port; stdio otherwise. Fail-open + opt-out aware.
-          if (profileAllowsMcp(runtimeProfileId, 'ruflo') && readRufloAutowrite()) {
-            const port = shared.rufloHttpDaemonSupervisor.port(wsRow.id) ?? undefined;
-            writeRufloMcpIntoCwd(cwd, {
-              port: port ?? undefined,
-              trust: readRufloAutotrust(),
-            });
+          const rufloResult = await ensureRufloMcpForPane({
+            cwd,
+            workspaceId: wsRow.id,
+            workspaceRoot: wsRow.repoRoot ?? wsRow.rootPath,
+            runtimeProfileId,
+            rawDb: getRawDb(),
+            daemon: shared.rufloHttpDaemonSupervisor,
+          });
+          if (rufloResult.transport === 'http') {
+            rufloMcpPort = rufloResult.port;
           }
         }
       } catch {
@@ -407,6 +382,16 @@ export async function executeLaunchPlan(
         // FEAT-14 — fresh spawn: thread the per-pane modelId so buildExtraArgs
         // can prepend `--model <id>` for providers that accept the flag.
         extraArgs = buildExtraArgs(provider.id, pane.initialPrompt, pane.modelId);
+      }
+      if (provider.id === 'claude') {
+        const mcpArgs = buildClaudeMcpLaunchArgs({
+          mode: pane.mcpLaunchMode ?? (profileIsMcpHeavy(runtimeProfileId) ? 'inherit' : 'strict-core'),
+          rufloHttpUrl:
+            rufloMcpPort !== undefined
+              ? `http://127.0.0.1:${rufloMcpPort}/mcp`
+              : undefined,
+        });
+        if (mcpArgs.length > 0) extraArgs = [...extraArgs, ...mcpArgs];
       }
       if (provider.id === 'claude') {
         await prepareClaudeWorkspaceContext(wsRow.rootPath, cwd);

@@ -35,8 +35,7 @@ import {
   prepareClaudeWorkspaceContext,
 } from '../pty/claude-resume-sigma';
 import { writeGuardrailBlock } from '../workspaces/guardrail-block';
-import { writeRufloMcpIntoCwd } from '../workspaces/ruflo-worktree-mcp';
-import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP } from '../workspaces/mcp-autowrite';
+import { ensureRufloMcpForPane } from '../workspaces/ruflo-mcp-policy';
 import { getSharedDeps } from '../../rpc-router';
 import { allocateLowestFreeLivePaneIndex } from '../workspaces/pane-slots';
 import { isPtyCrash } from '../pty/crash';
@@ -49,9 +48,11 @@ import { applyTeardownPolicy } from './swarm-teardown';
 import {
   normalizeAgentRuntimeProfileId,
   profileAllowsMcp,
+  profileIsMcpHeavy,
   type AgentRuntimeProfileId,
 } from '../../../shared/runtime-profiles';
 import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
+import { buildClaudeMcpLaunchArgs } from '../ram-brake/mcp-launch-mode';
 
 /**
  * SF-15 — write the bundled `ruflo` MCP entry (+ claude trust) into a swarm
@@ -61,38 +62,28 @@ import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
  * accessor, or a write failure can only degrade to stdio or no-op — it never
  * throws into the spawn path.
  */
-function ensureRufloInWorktreeCwd(
+async function ensureRufloInWorktreeCwd(
   cwd: string,
-  workspaceId: string,
+  wsRow: typeof workspacesTable.$inferSelect,
   runtimeProfileId: AgentRuntimeProfileId,
-): void {
+): Promise<number | undefined> {
   try {
-    if (!profileAllowsMcp(runtimeProfileId, 'ruflo')) return;
-    let autowrite = true;
-    let autotrust = true;
-    try {
-      const raw = getRawDb();
-      const aw = raw.prepare('SELECT value FROM kv WHERE key = ?').get(KV_RUFLO_AUTOWRITE_MCP) as
-        | { value?: string }
-        | undefined;
-      autowrite = aw?.value !== '0';
-      const at = raw.prepare('SELECT value FROM kv WHERE key = ?').get(KV_RUFLO_AUTOTRUST_MCP) as
-        | { value?: string }
-        | undefined;
-      autotrust = at?.value !== '0';
-    } catch {
-      /* default both ON */
-    }
-    if (!autowrite) return;
-    let port: number | undefined;
-    try {
-      port = getSharedDeps()?.rufloHttpDaemonSupervisor.port(workspaceId) ?? undefined;
-    } catch {
-      /* no live daemon port — stdio fallback */
-    }
-    writeRufloMcpIntoCwd(cwd, { port, trust: autotrust });
+    const shared = getSharedDeps();
+    const result = await ensureRufloMcpForPane({
+      cwd,
+      workspaceId: wsRow.id,
+      workspaceRoot: wsRow.repoRoot ?? wsRow.rootPath,
+      runtimeProfileId,
+      rawDb: getRawDb(),
+      daemon: shared?.rufloHttpDaemonSupervisor ?? {
+        port: () => null,
+        spawn: async () => null,
+      },
+    });
+    return result.transport === 'http' ? result.port : undefined;
   } catch {
     /* MCP wiring is non-fatal — never block the spawn */
+    return undefined;
   }
 }
 
@@ -350,7 +341,7 @@ export async function spawnAgentSession(
   } catch {
     /* Browser/SigmaMemory MCP wiring is non-fatal */
   }
-  ensureRufloInWorktreeCwd(cwd, args.wsRow.id, runtimeProfileId);
+  const rufloMcpPort = await ensureRufloInWorktreeCwd(cwd, args.wsRow, runtimeProfileId);
   // V1.1: route swarm-agent spawns through the provider launcher façade so
   // SigmaCode→Claude fallback, altCommands ENOENT walk, and the legacy gate
   // all apply uniformly. Read `kv['providers.showLegacy']` defensively — if
@@ -365,7 +356,15 @@ export async function spawnAgentSession(
     /* ignore — default to false */
   }
   // BSP-V2 — thread modelId so `+Pane` can dispatch with a preset model.
-  const extraArgs = buildExtraArgs(provider.id, args.initialPrompt, args.modelId);
+  let extraArgs = buildExtraArgs(provider.id, args.initialPrompt, args.modelId);
+  if (provider.id === 'claude') {
+    const mcpArgs = buildClaudeMcpLaunchArgs({
+      mode: profileIsMcpHeavy(runtimeProfileId) ? 'inherit' : 'strict-core',
+      rufloHttpUrl:
+        rufloMcpPort !== undefined ? `http://127.0.0.1:${rufloMcpPort}/mcp` : undefined,
+    });
+    if (mcpArgs.length > 0) extraArgs = [...extraArgs, ...mcpArgs];
+  }
   if (provider.id === 'claude') {
     await prepareClaudeWorkspaceContext(args.wsRow.rootPath, cwd);
     await ensureClaudeProjectDir(cwd);

@@ -74,6 +74,9 @@ export interface ProviderProbe {
   error?: string;
 }
 
+export type PaneLaunchMode = 'fresh' | 'resume-full' | 'resume-summary';
+export type McpLaunchMode = 'inherit' | 'strict-core' | 'none';
+
 export interface GitStatus {
   branch: string;
   ahead: number;
@@ -149,6 +152,10 @@ export interface PaneAssignment {
    * flag, so this is launch-only. Undefined = provider default.
    */
   modelId?: string;
+  /** Phase 2 RAM Brake — explicit resume/fresh behavior for high-risk launches. */
+  launchMode?: PaneLaunchMode;
+  /** Phase 2 RAM Brake — per-launch MCP inheritance policy. */
+  mcpLaunchMode?: McpLaunchMode;
 }
 
 export interface LaunchPlan {

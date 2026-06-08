@@ -18,6 +18,7 @@ import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { GridPreset, LaunchPlan, ProviderProbe, Workspace } from '@/shared/types';
+import type { SessionRiskReport } from '@/shared/router-shape';
 import { IntentCards } from './IntentCards';
 import {
   type LauncherMode,
@@ -79,6 +80,33 @@ export function buildPaneResumePlanArray(
     }
   }
   return out;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function buildSafeRamBrakePlan(
+  plan: LaunchPlan,
+  riskyPaneIndices: number[],
+): LaunchPlan {
+  const risky = new Set(riskyPaneIndices);
+  const paneResumePlan = plan.paneResumePlan?.filter((entry) => !risky.has(entry.paneIndex));
+  const next: LaunchPlan = {
+    ...plan,
+    panes: plan.panes.map((pane) =>
+      risky.has(pane.paneIndex)
+        ? {
+            ...pane,
+            launchMode: 'fresh',
+            mcpLaunchMode: 'none',
+          }
+        : pane,
+    ),
+  };
+  if (paneResumePlan && paneResumePlan.length > 0) {
+    next.paneResumePlan = paneResumePlan;
+  } else {
+    delete next.paneResumePlan;
+  }
+  return next;
 }
 
 /**
@@ -143,6 +171,12 @@ export function WorkspaceLauncher() {
     workspace: Workspace;
     details: RamBrakeAdmissionDetails;
     queued: boolean;
+  } | null>(null);
+  const [sessionRiskPrompt, setSessionRiskPrompt] = useState<{
+    originalPlan: LaunchPlan;
+    safePlan: LaunchPlan;
+    workspace: Workspace;
+    risks: Array<{ paneIndex: number; report: SessionRiskReport }>;
   } | null>(null);
   /**
    * v1.3.0 — per-pane session selection. Key = paneIndex, value = sessionId
@@ -543,6 +577,22 @@ export function WorkspaceLauncher() {
       })),
       ...(resumeArray.length > 0 ? { paneResumePlan: resumeArray } : {}),
     };
+    const risks = await previewHighRiskResumes(plan, selectedWorkspace);
+    if (risks.length > 0) {
+      setSessionRiskPrompt({
+        originalPlan: plan,
+        safePlan: buildSafeRamBrakePlan(
+          plan,
+          risks.map((risk) => risk.paneIndex),
+        ),
+        workspace: selectedWorkspace,
+        risks,
+      });
+      setError(
+        `High-memory Claude resume risk detected: ${summarizeSessionRisks(risks)}`,
+      );
+      return;
+    }
     await submitLaunchPlan(plan, selectedWorkspace, false);
   }
 
@@ -559,6 +609,7 @@ export function WorkspaceLauncher() {
       dispatch({ type: 'ADD_SESSIONS', sessions: out.sessions });
       dispatch({ type: 'SET_ROOM', room: 'command' });
       setRamBrakePrompt(null);
+      setSessionRiskPrompt(null);
     } catch (err) {
       const details = parseRamBrakeAdmissionError(err);
       if (details && !forceRamBrake) {
@@ -580,6 +631,40 @@ export function WorkspaceLauncher() {
       ramBrakePrompt.workspace,
       true,
     );
+  }
+
+  async function previewHighRiskResumes(
+    plan: LaunchPlan,
+    workspace: Workspace,
+  ): Promise<Array<{ paneIndex: number; report: SessionRiskReport }>> {
+    const resumeByPane = new Map(
+      (plan.paneResumePlan ?? [])
+        .filter((entry): entry is { paneIndex: number; sessionId: string } =>
+          typeof entry.sessionId === 'string' && entry.sessionId.length > 0,
+        )
+        .map((entry) => [entry.paneIndex, entry.sessionId]),
+    );
+    const risks: Array<{ paneIndex: number; report: SessionRiskReport }> = [];
+    await Promise.all(
+      plan.panes.map(async (pane) => {
+        const externalSessionId = resumeByPane.get(pane.paneIndex);
+        if (pane.providerId !== 'claude' || !externalSessionId) return;
+        try {
+          const report = await rpc.ramBrake.sessionRisk({
+            providerId: pane.providerId,
+            cwd: workspace.rootPath,
+            externalSessionId,
+          });
+          if (report.riskLevel === 'high' || report.riskLevel === 'critical') {
+            risks.push({ paneIndex: pane.paneIndex, report });
+          }
+        } catch {
+          /* Risk preview is advisory; launch remains available. */
+        }
+      }),
+    );
+    risks.sort((a, b) => a.paneIndex - b.paneIndex);
+    return risks;
   }
 
   const launchEnabled =
@@ -654,6 +739,66 @@ export function WorkspaceLauncher() {
               onClick={() => void forceQueuedLaunch()}
             >
               Force launch
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {sessionRiskPrompt ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-col gap-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-3 text-sm"
+          data-testid="session-risk-launch-prompt"
+        >
+          <div>
+            <div className="font-semibold text-rose-700 dark:text-rose-300">
+              Claude resume may use high memory
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {summarizeSessionRisks(sessionRiskPrompt.risks)}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              className="bg-rose-600 text-white hover:bg-rose-700"
+              disabled={launching}
+              onClick={() =>
+                void submitLaunchPlan(
+                  sessionRiskPrompt.safePlan,
+                  sessionRiskPrompt.workspace,
+                  false,
+                )
+              }
+            >
+              Start fresh / no MCP
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={launching}
+              onClick={() =>
+                void submitLaunchPlan(
+                  sessionRiskPrompt.originalPlan,
+                  sessionRiskPrompt.workspace,
+                  false,
+                )
+              }
+            >
+              Resume anyway
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setSessionRiskPrompt(null);
+                setError(null);
+              }}
+            >
+              Cancel
             </Button>
           </div>
         </div>
@@ -842,6 +987,34 @@ function headerSubtitle(mode: LauncherMode): string {
     default:
       return 'Pick a workspace shape, choose a layout, then assign agents.';
   }
+}
+
+function summarizeSessionRisks(
+  risks: Array<{ paneIndex: number; report: SessionRiskReport }>,
+): string {
+  const first = risks[0];
+  if (!first) return 'No risky sessions detected.';
+  const more =
+    risks.length > 1 ? `, plus ${risks.length - 1} more pane${risks.length === 2 ? '' : 's'}` : '';
+  const tokens =
+    first.report.estimatedTokens !== null
+      ? `, about ${formatCompactNumber(first.report.estimatedTokens)} tokens`
+      : '';
+  return `Pane ${first.paneIndex + 1}: ${first.report.riskLevel} risk, ${formatBytes(
+    first.report.sessionBytes,
+  )}, ${first.report.lineCount} lines${tokens}${more}.`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
+function formatCompactNumber(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(value);
 }
 
 interface StepNavProps {
