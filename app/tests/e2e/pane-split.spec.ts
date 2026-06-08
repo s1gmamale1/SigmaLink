@@ -1,8 +1,9 @@
-// v1.4.3 #06 — End-to-end smoke for Pane Split + Minimise.
+// End-to-end smoke for BSP pane tiling: Split + Minimise.
 //
-// Drives a real Electron app: opens a workspace, launches a small grid, then
-// splits one pane and asserts the sub-grid renders with both sub-panes live.
-// Minimise / Restore is exercised on the second sub-pane.
+// Drives a real Electron app: opens a workspace, launches a 4-pane tiling, then
+// splits one pane (adds a leaf) and asserts the BSP layout tiles the body with
+// no dead space and square corners. Minimise / Restore is exercised on the new
+// leaf. (Geometry/reconcile internals are covered by the bsp-layout unit tests.)
 //
 // Skipped by default — this suite needs an Electron build (`build-electron.cjs`)
 // and a writable workspace dir on disk. Enable in CI by setting
@@ -85,9 +86,33 @@ const E2E_ENABLED = process.env.SIGMALINK_E2E_PANE_SPLIT === '1';
       expect(splitResult).toBeTruthy();
       await win.waitForTimeout(800);
 
-      // Assert both halves render (data-split-group attribute).
-      const groups = await win.locator('[data-split-group]').count();
-      expect(groups).toBeGreaterThanOrEqual(1);
+      // BSP tiling: the split added a new leaf (4 → ≥5). Assert the visible
+      // leaves tile the body with square corners and ~no dead space.
+      const leaves = win.locator('[data-testid="bsp-leaf"]:not([data-bsp-hidden="true"])');
+      expect(await leaves.count()).toBeGreaterThanOrEqual(5);
+
+      // Square corners (BridgeSpace match — no rounded tiles).
+      const radius = await leaves.first().evaluate((el) => getComputedStyle(el).borderRadius);
+      expect(radius).toBe('0px');
+
+      // No dead space: the union of visible leaf areas covers ~the container
+      // (dividers eat a few px, so ≥90%).
+      const fillRatio = await win.evaluate(() => {
+        const root = document.querySelector('[data-testid="bsp-layout"]') as HTMLElement | null;
+        if (!root) return 0;
+        const host = root.getBoundingClientRect();
+        const hostArea = host.width * host.height;
+        if (hostArea <= 0) return 0;
+        const els = Array.from(root.querySelectorAll('[data-testid="bsp-leaf"]')) as HTMLElement[];
+        const area = els
+          .filter((e) => e.getAttribute('data-bsp-hidden') !== 'true')
+          .reduce((sum, e) => {
+            const r = e.getBoundingClientRect();
+            return sum + r.width * r.height;
+          }, 0);
+        return area / hostArea;
+      });
+      expect(fillRatio).toBeGreaterThan(0.9);
 
       // Minimise sub-pane (toggle minimised=true; verify the body container
       // collapses to display:none while the terminal stays mounted).
