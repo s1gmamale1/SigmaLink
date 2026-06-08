@@ -20,7 +20,12 @@ import { spawnLocalPty, resolveEffectiveSpawnMode, type PtyHandle, type SpawnInp
 import { RingBuffer } from './ring-buffer';
 import { detectLinks, type LinkHit } from './link-detector';
 import { extractSentinel } from './sentinel';
-import { inspectProcessTree, stopProcessTree, type ProcessTreeSnapshot } from '../process/process-tree';
+import {
+  inspectProcessTree,
+  stopProcessTree,
+  stopProcessTrees,
+  type ProcessTreeSnapshot,
+} from '../process/process-tree';
 
 /** Milliseconds between SIGTERM and the fallback SIGKILL on lingering PTYs. */
 const PTY_KILL_FALLBACK_MS = 5_000;
@@ -478,27 +483,36 @@ export class PtyRegistry {
    * timers — N timers become 1, which matters when an app has many panes.
    */
   killAll(): void {
-    const survivorPids: number[] = [];
-    for (const rec of this.sessions.values()) {
-      if (rec.alive) {
+    const liveRecords = Array.from(this.sessions.values()).filter((rec) => rec.alive);
+    const rootPids = liveRecords.map((rec) => rec.pid).filter((pid) => pid > 0);
+    const stopped = stopProcessTrees(rootPids, PTY_KILL_FALLBACK_MS);
+    const treeStoppedRoots = new Set(
+      stopped.snapshots
+        .filter((snapshot) => snapshot.supported && snapshot.nodes.length > 0)
+        .map((snapshot) => snapshot.rootPid),
+    );
+    const fallbackPids: number[] = [];
+    for (const rec of liveRecords) {
+      if (!treeStoppedRoots.has(rec.pid)) {
         try {
           rec.pty.kill();
         } catch {
           /* ignore */
         }
-        if (rec.pid > 0) survivorPids.push(rec.pid);
+        if (rec.pid > 0) fallbackPids.push(rec.pid);
       }
     }
-    if (survivorPids.length === 0) return;
-    setTimeout(() => {
-      for (const pid of survivorPids) {
-        try {
-          if (isProcessAlive(pid)) process.kill(pid, 'SIGKILL');
-        } catch {
-          /* ignore — already gone */
+    if (fallbackPids.length > 0) {
+      setTimeout(() => {
+        for (const pid of fallbackPids) {
+          try {
+            if (isProcessAlive(pid)) process.kill(pid, 'SIGKILL');
+          } catch {
+            /* ignore — already gone */
+          }
         }
-      }
-    }, PTY_KILL_FALLBACK_MS).unref();
+      }, PTY_KILL_FALLBACK_MS).unref();
+    }
   }
 
   // Returns the historical buffer atomically; the caller is responsible for

@@ -225,4 +225,40 @@ describe('usePaneLiveStats', () => {
     expect(result.current.rssBytes).toBe(512 * 1024 * 1024);
     expect(result.current.processCount).toBe(2);
   });
+
+  it('breaks process RSS into root CLI and MCP child memory', async () => {
+    sessionSummaryMock.mockResolvedValue(makeSummary({ turnCount: 0 }));
+    processStatsMock.mockResolvedValue({
+      supported: true,
+      rssBytes: 800 * 1024 * 1024,
+      descendantPids: [2],
+      processCount: 2,
+      nodes: [
+        {
+          pid: 1,
+          ppid: 0,
+          rssBytes: 500 * 1024 * 1024,
+          command: 'claude',
+          args: 'claude --resume x',
+        },
+        {
+          pid: 2,
+          ppid: 1,
+          rssBytes: 300 * 1024 * 1024,
+          command: 'node',
+          args: 'ruflo mcp start',
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => usePaneLiveStats('sess-rss-breakdown', true));
+
+    await tickMs(0);
+
+    expect(result.current.rssBytes).toBe(800 * 1024 * 1024);
+    expect(result.current.rootRssBytes).toBe(500 * 1024 * 1024);
+    expect(result.current.mcpRssBytes).toBe(300 * 1024 * 1024);
+    expect(result.current.processCount).toBe(2);
+    expect(result.current.topChildCommand).toBe('node');
+  });
 });

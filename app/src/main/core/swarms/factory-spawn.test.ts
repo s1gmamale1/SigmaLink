@@ -33,6 +33,8 @@ import { buildExtraArgs, spawnAgentSession, materializeRosterAgent, type SpawnAg
 import { WorktreeDiskGuardError } from '../git/worktree';
 import type { SwarmFactoryDeps } from './factory';
 import { KV_PTY_SPAWN_MODE } from '../pty/local-pty';
+import * as bridge from '../pty/claude-resume-sigma';
+import * as rpcRouter from '../../rpc-router';
 
 const SPAWNED_PTY_ID = 'sess-spawned-leaky';
 
@@ -421,6 +423,97 @@ describe('spawnAgentSession — SF-15 ruflo MCP written into worktree cwd', () =
     expect(doc.mcpServers?.ruflo?.command).toBe('npx');
     // Trust file also landed in the cwd.
     expect(fs.existsSync(path.join(cwd, '.claude', 'settings.local.json'))).toBe(true);
+  });
+
+  it('defaults swarm-added Claude panes to strict core MCP using shared Ruflo HTTP', async () => {
+    const cwd = tmpCwd();
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+    vi.spyOn(bridge, 'prepareClaudeWorkspaceContext').mockResolvedValue({
+      linked: [],
+      existing: [],
+      missing: [],
+      skipped: [],
+    });
+    vi.spyOn(bridge, 'ensureClaudeProjectDir').mockResolvedValue('/tmp/claude-project');
+    vi.spyOn(rpcRouter, 'getSharedDeps').mockReturnValue({
+      rufloHttpDaemonSupervisor: {
+        port: vi.fn(() => 4567),
+        spawn: vi.fn(),
+      },
+    } as unknown as ReturnType<typeof rpcRouter.getSharedDeps>);
+    vi.mocked(getRawDb).mockReturnValue(
+      {
+        prepare: vi.fn(() => ({
+          get: vi.fn(() => undefined),
+          all: vi.fn(() => []),
+          run: vi.fn(() => undefined),
+        })),
+        transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+      } as unknown as ReturnType<typeof getRawDb>,
+    );
+    vi.mocked(getDb).mockReturnValue({
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const args = makeArgs(deps);
+    args.cwdOverride = cwd;
+    args.providerId = 'claude';
+    await spawnAgentSession(args);
+
+    const spawnArgs = vi.mocked(resolveAndSpawn).mock.calls[0]![1] as {
+      extraArgs?: string[];
+    };
+    expect(spawnArgs.extraArgs).toEqual([
+      '--strict-mcp-config',
+      '--mcp-config',
+      '{"mcpServers":{"ruflo":{"type":"http","url":"http://127.0.0.1:4567/mcp"}}}',
+    ]);
+  });
+
+  it('preserves inherited MCP for swarm-added Claude panes with explicit heavy profiles', async () => {
+    const cwd = tmpCwd();
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+    vi.spyOn(bridge, 'prepareClaudeWorkspaceContext').mockResolvedValue({
+      linked: [],
+      existing: [],
+      missing: [],
+      skipped: [],
+    });
+    vi.spyOn(bridge, 'ensureClaudeProjectDir').mockResolvedValue('/tmp/claude-project');
+    vi.spyOn(rpcRouter, 'getSharedDeps').mockReturnValue({
+      rufloHttpDaemonSupervisor: {
+        port: vi.fn(() => 4567),
+        spawn: vi.fn(),
+      },
+    } as unknown as ReturnType<typeof rpcRouter.getSharedDeps>);
+    vi.mocked(getRawDb).mockReturnValue(
+      {
+        prepare: vi.fn(() => ({
+          get: vi.fn(() => undefined),
+          all: vi.fn(() => []),
+          run: vi.fn(() => undefined),
+        })),
+        transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+      } as unknown as ReturnType<typeof getRawDb>,
+    );
+    vi.mocked(getDb).mockReturnValue({
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const args = makeArgs(deps);
+    args.cwdOverride = cwd;
+    args.providerId = 'claude';
+    args.runtimeProfileId = 'browser-tools';
+    await spawnAgentSession(args);
+
+    const spawnArgs = vi.mocked(resolveAndSpawn).mock.calls[0]![1] as {
+      extraArgs?: string[];
+    };
+    expect(spawnArgs.extraArgs).toEqual([]);
   });
 });
 

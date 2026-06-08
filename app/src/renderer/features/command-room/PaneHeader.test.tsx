@@ -418,6 +418,9 @@ describe('PaneHeader — BSP-V2 live stats badge', () => {
     estTokPerSec: null,
     rssBytes: null,
     processCount: null,
+    rootRssBytes: null,
+    mcpRssBytes: null,
+    topChildCommand: null,
     hasData: false,
     ...input,
   });
@@ -510,6 +513,23 @@ describe('PaneHeader — BSP-V2 live stats badge', () => {
     mockStats.mockReturnValue(liveStats({ hasData: false }));
     render(<PaneHeader {...baseProps()} session={makeSession({ status: 'error' })} />);
     expect(mockStats).toHaveBeenCalledWith(expect.any(String), false);
+  });
+
+  it('renders RSS badge detail with root and MCP memory breakdown', () => {
+    mockStats.mockReturnValue(liveStats({
+      hasData: false,
+      rssBytes: 800 * 1024 * 1024,
+      rootRssBytes: 500 * 1024 * 1024,
+      mcpRssBytes: 300 * 1024 * 1024,
+      processCount: 2,
+      topChildCommand: 'node',
+    }));
+    render(<PaneHeader {...baseProps()} />);
+    const badge = screen.getByTestId('pane-rss-badge');
+    expect(badge.textContent ?? '').toContain('RSS 800 MB');
+    expect(badge.getAttribute('title')).toContain('root 500 MB');
+    expect(badge.getAttribute('title')).toContain('MCP 300 MB');
+    expect(badge.getAttribute('title')).toContain('top child node');
   });
 });
 

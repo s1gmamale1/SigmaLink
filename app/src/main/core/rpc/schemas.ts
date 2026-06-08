@@ -113,6 +113,23 @@ const USAGE_SUMMARY_OUTPUT = z
   })
   .passthrough();
 
+const SESSION_RISK_LEVEL = z.enum(['unknown', 'low', 'medium', 'high', 'critical']);
+const SESSION_RISK_OUTPUT = z
+  .object({
+    providerId: z.string(),
+    cwd: z.string(),
+    externalSessionId: z.string().nullable(),
+    sessionFilePath: z.string().nullable(),
+    sessionBytes: z.number().int().nonnegative(),
+    lineCount: z.number().int().nonnegative(),
+    ageMs: z.number().nonnegative().nullable(),
+    estimatedTextBytes: z.number().int().nonnegative(),
+    estimatedTokens: z.number().int().nonnegative().nullable(),
+    riskLevel: SESSION_RISK_LEVEL,
+    reasons: z.array(z.string()),
+  })
+  .passthrough();
+
 /**
  * Validation mode for the rpc-router.
  *
@@ -232,13 +249,20 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   },
   'pty.processStats': {
     input: z.string().min(1).max(512),
-    output: z.object({
-      supported: z.boolean(),
-      rssBytes: z.number().nonnegative(),
-      descendantPids: z.array(z.number().int()),
-      processCount: z.number().int().nonnegative(),
-    }),
-  },
+      output: z.object({
+        supported: z.boolean(),
+        rssBytes: z.number().nonnegative(),
+        descendantPids: z.array(z.number().int()),
+        processCount: z.number().int().nonnegative(),
+        nodes: z.array(z.object({
+          pid: z.number().int(),
+          ppid: z.number().int(),
+          rssBytes: z.number().nonnegative(),
+          command: z.string(),
+          args: z.string(),
+        })),
+      }),
+    },
   'pty.list': stub,
   'pty.forget': stub,
   // ── panes ───────────────────────────────────────────────────────────────
@@ -397,6 +421,17 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       }),
     }),
     output: any,
+  },
+  // ── RAM Brake ────────────────────────────────────────────────────────
+  'ramBrake.sessionRisk': {
+    input: z
+      .object({
+        providerId: z.string().min(1).max(120),
+        cwd: PATH_STR,
+        externalSessionId: z.string().min(1).max(200).nullable().optional(),
+      })
+      .passthrough(),
+    output: SESSION_RISK_OUTPUT,
   },
   // ── providers ────────────────────────────────────────────────────────
   'providers.list': stub,

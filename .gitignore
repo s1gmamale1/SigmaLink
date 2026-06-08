@@ -86,6 +86,12 @@ docs/06-test/
 /.cursor/
 /CLAUDE.md
 
+# App-local runtime artifacts created when `app/` itself is opened/launched as
+# a workspace during local Electron/manual testing.
+/app/.mcp.json
+/app/.cursor/
+/app/.playwright-mcp/
+
 # Third-party media kept locally for research only — not redistributed
 docs/02-research/thumbnails/
 docs/02-research/web-images/

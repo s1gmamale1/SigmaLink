@@ -284,7 +284,13 @@ export function PaneHeader({
           hasData={liveStats.hasData}
         />
         <PaneRuntimeProfileBadge runtimeProfileId={session.runtimeProfileId} />
-        <PaneRssBadge rssBytes={liveStats.rssBytes} processCount={liveStats.processCount} />
+        <PaneRssBadge
+          rssBytes={liveStats.rssBytes}
+          processCount={liveStats.processCount}
+          rootRssBytes={liveStats.rootRssBytes}
+          mcpRssBytes={liveStats.mcpRssBytes}
+          topChildCommand={liveStats.topChildCommand}
+        />
 
         {/* ── Icon cluster ────────────────────────────────────────────────── */}
         {/* Stop accidental drags from the cluster triggering a context drag. */}
@@ -469,12 +475,25 @@ function formatRss(bytes: number): string {
 function PaneRssBadge({
   rssBytes,
   processCount,
+  rootRssBytes,
+  mcpRssBytes,
+  topChildCommand,
 }: {
   rssBytes: number | null;
   processCount: number | null;
+  rootRssBytes: number | null;
+  mcpRssBytes: number | null;
+  topChildCommand: string | null;
 }) {
   if (!rssBytes || rssBytes <= 0) return null;
   const label = `RSS ${formatRss(rssBytes)}`;
+  const detailParts = [
+    rootRssBytes ? `root ${formatRss(rootRssBytes)}` : null,
+    mcpRssBytes ? `MCP ${formatRss(mcpRssBytes)}` : null,
+    topChildCommand ? `top child ${topChildCommand}` : null,
+    processCount ? `${processCount} processes` : null,
+  ].filter((part): part is string => Boolean(part));
+  const detail = detailParts.length > 0 ? `${label} · ${detailParts.join(' · ')}` : label;
   return (
     <span
       data-testid="pane-rss-badge"
@@ -482,8 +501,8 @@ function PaneRssBadge({
         'max-w-[88px] truncate rounded-sm border border-border/40 bg-card/30 px-1.5 py-0.5',
         'text-[9px] font-mono tabular-nums text-muted-foreground',
       )}
-      aria-label={`${label}${processCount ? ` across ${processCount} processes` : ''}`}
-      title={`${label}${processCount ? ` · ${processCount} processes` : ''}`}
+      aria-label={detail}
+      title={detail}
     >
       {label}
     </span>

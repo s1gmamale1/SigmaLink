@@ -101,10 +101,24 @@ function pidAlive(pid: number): boolean {
 }
 
 export function stopProcessTree(rootPid: number, fallbackMs = 5_000): ProcessTreeSnapshot {
-  const snapshot = inspectProcessTree(rootPid);
-  if (!snapshot.supported || snapshot.nodes.length === 0) return snapshot;
+  return stopProcessTrees([rootPid], fallbackMs).snapshots[0] ?? emptySnapshot(rootPid, process.platform === 'darwin');
+}
 
-  const ordered = [...snapshot.nodes].reverse();
+export function stopProcessTrees(
+  rootPids: number[],
+  fallbackMs = 5_000,
+): { snapshots: ProcessTreeSnapshot[]; stoppedPids: number[] } {
+  const snapshots = rootPids.map((pid) => inspectProcessTree(pid));
+  const nodesByPid = new Map<number, ProcessTreeNode>();
+  for (const snapshot of snapshots) {
+    if (!snapshot.supported || snapshot.nodes.length === 0) continue;
+    for (const node of snapshot.nodes) {
+      nodesByPid.set(node.pid, node);
+    }
+  }
+  const ordered = Array.from(nodesByPid.values()).reverse();
+  const stoppedPids = ordered.map((node) => node.pid);
+
   for (const node of ordered) {
     try {
       process.kill(node.pid, 'SIGTERM');
@@ -113,15 +127,17 @@ export function stopProcessTree(rootPid: number, fallbackMs = 5_000): ProcessTre
     }
   }
 
-  setTimeout(() => {
-    for (const node of ordered) {
-      try {
-        if (pidAlive(node.pid)) process.kill(node.pid, 'SIGKILL');
-      } catch {
-        /* already gone */
+  if (ordered.length > 0) {
+    setTimeout(() => {
+      for (const node of ordered) {
+        try {
+          if (pidAlive(node.pid)) process.kill(node.pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
       }
-    }
-  }, fallbackMs).unref();
+    }, fallbackMs).unref();
+  }
 
-  return snapshot;
+  return { snapshots, stoppedPids };
 }

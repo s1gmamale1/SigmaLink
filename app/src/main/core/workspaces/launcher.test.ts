@@ -83,6 +83,7 @@ vi.mock('../git/auto-checkpoint', () => ({
 }));
 
 import { getDb, getRawDb } from '../db/client';
+import { getSharedDeps } from '../../rpc-router';
 import { resolveAndSpawn } from '../providers/launcher';
 import { executeLaunchPlan } from './launcher';
 import { WorktreeDiskGuardError } from '../git/worktree';
@@ -178,6 +179,7 @@ function makeGitPlan(): LaunchPlan {
 beforeEach(() => {
   stubSpawnForLauncher();
   vi.mocked(getRawDb).mockReturnValue(makeRawStub() as unknown as ReturnType<typeof getRawDb>);
+  vi.mocked(getSharedDeps).mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -414,6 +416,135 @@ describe('executeLaunchPlan — CRIT-1/CRIT-2 twin-B: worktree cleanup on UNIQUE
     // No worktree was created (plain mode), so removeAndPrune must not be called.
     expect(removeAndPrune).not.toHaveBeenCalled();
     expect(sessions[0]!.status).toBe('error');
+  });
+});
+
+describe('executeLaunchPlan — Phase 2 RAM Brake MCP launch modes', () => {
+  it('defaults Claude panes to strict core MCP using the shared Ruflo HTTP daemon', async () => {
+    const { deps } = makeTestDeps();
+    vi.spyOn(bridge, 'prepareClaudeWorkspaceContext').mockResolvedValue({
+      linked: [],
+      existing: [],
+      missing: [],
+      skipped: [],
+    });
+    vi.spyOn(bridge, 'ensureClaudeProjectDir').mockResolvedValue('/tmp/claude-project');
+    vi.mocked(getSharedDeps).mockReturnValue({
+      memorySupervisor: {
+        start: vi.fn(),
+        getCommandFor: vi.fn(() => null),
+      },
+      rufloHttpDaemonSupervisor: {
+        port: vi.fn(() => 4567),
+        spawn: vi.fn(),
+      },
+    } as unknown as ReturnType<typeof getSharedDeps>);
+
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const plan: LaunchPlan = {
+      workspaceRoot: '/tmp/ws',
+      panes: [{ paneIndex: 0, providerId: 'claude' }],
+    } as unknown as LaunchPlan;
+
+    await executeLaunchPlan(plan, deps);
+
+    const spawnArgs = vi.mocked(resolveAndSpawn).mock.calls[0]![1] as {
+      extraArgs?: string[];
+    };
+    expect(spawnArgs.extraArgs?.slice(-3)).toEqual([
+      '--strict-mcp-config',
+      '--mcp-config',
+      '{"mcpServers":{"ruflo":{"type":"http","url":"http://127.0.0.1:4567/mcp"}}}',
+    ]);
+  });
+
+  it('preserves inherited MCP for explicit heavy Claude tool profiles', async () => {
+    const { deps } = makeTestDeps();
+    vi.spyOn(bridge, 'prepareClaudeWorkspaceContext').mockResolvedValue({
+      linked: [],
+      existing: [],
+      missing: [],
+      skipped: [],
+    });
+    vi.spyOn(bridge, 'ensureClaudeProjectDir').mockResolvedValue('/tmp/claude-project');
+    vi.mocked(getSharedDeps).mockReturnValue({
+      memorySupervisor: {
+        start: vi.fn(),
+        getCommandFor: vi.fn(() => null),
+      },
+      rufloHttpDaemonSupervisor: {
+        port: vi.fn(() => 4567),
+        spawn: vi.fn(),
+      },
+    } as unknown as ReturnType<typeof getSharedDeps>);
+
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const plan: LaunchPlan = {
+      workspaceRoot: '/tmp/ws',
+      panes: [{ paneIndex: 0, providerId: 'claude', runtimeProfileId: 'browser-tools' }],
+    } as unknown as LaunchPlan;
+
+    await executeLaunchPlan(plan, deps);
+
+    const spawnArgs = vi.mocked(resolveAndSpawn).mock.calls[0]![1] as {
+      extraArgs?: string[];
+    };
+    expect(spawnArgs.extraArgs).toEqual([]);
+  });
+
+  it('passes strict no-MCP Claude args when a pane requests mcpLaunchMode:none', async () => {
+    const { deps } = makeTestDeps();
+    vi.spyOn(bridge, 'prepareClaudeWorkspaceContext').mockResolvedValue({
+      linked: [],
+      existing: [],
+      missing: [],
+      skipped: [],
+    });
+    vi.spyOn(bridge, 'ensureClaudeProjectDir').mockResolvedValue('/tmp/claude-project');
+
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const plan: LaunchPlan = {
+      workspaceRoot: '/tmp/ws',
+      panes: [{ paneIndex: 0, providerId: 'claude', mcpLaunchMode: 'none' }],
+    } as unknown as LaunchPlan;
+
+    await executeLaunchPlan(plan, deps);
+
+    const spawnArgs = vi.mocked(resolveAndSpawn).mock.calls[0]![1] as {
+      extraArgs?: string[];
+    };
+    expect(spawnArgs.extraArgs).toEqual([
+      '--strict-mcp-config',
+      '--mcp-config',
+      '{"mcpServers":{}}',
+    ]);
   });
 });
 
