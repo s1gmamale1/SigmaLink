@@ -414,12 +414,14 @@ export async function runShellLine(
   // On Windows, resolve PATH+PATHEXT for extensionless commands so npm-installed
   // CLIs (`.cmd` shims) can be found by the argument-array spawn (which does
   // NOT honour PATHEXT). `.cmd`/`.bat` shims are routed through `cmd.exe`.
+  let windowsVerbatimArguments = false;
   if (process.platform === 'win32') {
     const resolved = buildWindowsSpawnArgs(cmd, args);
     cmd = resolved.command;
     args = resolved.args;
+    windowsVerbatimArguments = resolved.windowsVerbatimArguments ?? false;
   }
-  const res = await execCmd(cmd, args, { cwd, timeoutMs });
+  const res = await execCmd(cmd, args, { cwd, timeoutMs, windowsVerbatimArguments });
   return { stdout: res.stdout, stderr: res.stderr, code: res.code };
 }
 

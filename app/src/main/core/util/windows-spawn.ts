@@ -78,19 +78,46 @@ export function cmdQuoteArg(arg: string): string {
   return `"${escaped}"`;
 }
 
+export interface BuiltWindowsSpawn {
+  command: string;
+  args: string[];
+  /**
+   * When `true`, the caller MUST hand `args` to its spawn layer VERBATIM — i.e.
+   * the spawn layer must NOT apply its own Win32 argument quoting:
+   *   • child_process.spawn → pass `windowsVerbatimArguments: true` in options
+   *     (and forward it through wrappers such as `execCmd`).
+   *   • node-pty.spawn      → pass `args.join(' ')` as a single command-line
+   *     string (node-pty treats a string as a pre-escaped command line).
+   *
+   * The `cmd.exe` branch below pre-quotes every token via `cmdQuoteArg` and then
+   * wraps the whole inner line in an OUTER pair of quotes that `cmd /d /s /c`
+   * strips verbatim. If the spawn layer re-quotes instead, it escapes the inner
+   * quotes (`"` → `\"`); cmd.exe cannot parse `\"`, so it treats the program
+   * path as garbage and reports `'…' is not recognized as an internal or
+   * external command` and exits 1. That regression broke 100% of agent panes
+   * on Windows (every CLI is installed as a `.cmd` shim). See windows-spawn.test.ts.
+   */
+  windowsVerbatimArguments?: boolean;
+}
+
 export function buildWindowsSpawnArgs(
   cmd: string,
   args: string[],
   env: NodeJS.ProcessEnv = process.env,
-): { command: string; args: string[] } {
+): BuiltWindowsSpawn {
   const resolved = resolveWindowsCommand(cmd, env) ?? cmd;
   const kind = windowsExtensionKind(resolved);
 
   if (kind === 'cmd') {
-    const commandLine = [resolved, ...args].map(cmdQuoteArg).join(' ');
+    // Each token is individually cmd-quoted; the whole line is then wrapped in
+    // an OUTER pair of quotes so `cmd /d /s /c "<inner>"` strips exactly that
+    // pair and runs the inner line verbatim. The result MUST be passed to the
+    // spawn layer without re-quoting — see `windowsVerbatimArguments`.
+    const inner = [resolved, ...args].map(cmdQuoteArg).join(' ');
     return {
       command: 'cmd.exe',
-      args: ['/d', '/s', '/c', commandLine],
+      args: ['/d', '/s', '/c', `"${inner}"`],
+      windowsVerbatimArguments: true,
     };
   }
   if (kind === 'ps1') {

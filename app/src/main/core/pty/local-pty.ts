@@ -418,7 +418,11 @@ export function effectivePaneSpawnMode(
  *    through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ...`.
  *    `.exe` is spawned directly so no extra shell process is allocated.
  */
-function platformAwareSpawnArgs(input: SpawnInput): { command: string; args: string[] } {
+function platformAwareSpawnArgs(input: SpawnInput): {
+  command: string;
+  args: string[];
+  windowsVerbatimArguments?: boolean;
+} {
   const env = input.env ?? process.env;
   if (!input.command) return defaultShell(env);
   if (process.platform !== 'win32') return { command: input.command, args: input.args };
@@ -509,7 +513,12 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
     }
   }
 
-  const { command, args } = platformAwareSpawnArgs(input);
+  const { command, args, windowsVerbatimArguments } = platformAwareSpawnArgs(input);
+  // When `buildWindowsSpawnArgs` produced a verbatim `cmd.exe /d /s /c "<inner>"`
+  // wrap, node-pty must NOT re-quote it. node-pty treats a STRING `args` as a
+  // pre-escaped command line and concatenates it without escaping, so join the
+  // argv. Array form (POSIX, .exe, .ps1) is unchanged.
+  const spawnArgs: string | string[] = windowsVerbatimArguments ? args.join(' ') : args;
   const env: NodeJS.ProcessEnv = {
     ...baseEnv,
     TERM: 'xterm-256color',
@@ -529,7 +538,7 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
 
   let proc: nodePty.IPty;
   try {
-    proc = nodePty.spawn(command, args, {
+    proc = nodePty.spawn(command, spawnArgs, {
       name: 'xterm-256color',
       cwd: resolvedCwd,
       cols: Math.max(20, input.cols | 0),

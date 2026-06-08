@@ -28,8 +28,8 @@ async function execVersion(
   versionArgs: string[],
 ): Promise<{ stdout: string; stderr: string }> {
   if (process.platform === 'win32') {
-    const { command, args } = buildWindowsSpawnArgs(resolved, versionArgs);
-    const r = await execCmd(command, args, { timeoutMs: 8_000 });
+    const { command, args, windowsVerbatimArguments } = buildWindowsSpawnArgs(resolved, versionArgs);
+    const r = await execCmd(command, args, { timeoutMs: 8_000, windowsVerbatimArguments });
     return { stdout: r.stdout, stderr: r.stderr };
   }
   const r = await execCmd(resolved, versionArgs, { timeoutMs: 8_000 });
