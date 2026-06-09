@@ -195,7 +195,7 @@ async function linkOrCopyContextPath(
  */
 function endOfFirstJsonValue(raw: string): number | null {
   let i = 0;
-  while (i < raw.length && /[\s﻿]/.test(raw[i]!)) i++;
+  while (i < raw.length && /[\s\uFEFF]/.test(raw[i]!)) i++;
   const open = raw[i];
   if (open !== '{' && open !== '[') return null;
   let depth = 0;
@@ -250,7 +250,7 @@ export async function repairClaudeGlobalConfig(
     return 'missing';
   }
   try {
-    JSON.parse(raw.replace(/^﻿/, ''));
+    JSON.parse(raw.replace(/^\uFEFF/, ''));
     return 'ok';
   } catch {
     /* corrupt — try the trailing-garbage repair below */
@@ -259,7 +259,7 @@ export async function repairClaudeGlobalConfig(
   if (end === null) return 'unrepairable';
   const prefix = raw.slice(0, end);
   try {
-    JSON.parse(prefix.replace(/^﻿/, ''));
+    JSON.parse(prefix.replace(/^\uFEFF/, ''));
   } catch {
     return 'unrepairable';
   }
