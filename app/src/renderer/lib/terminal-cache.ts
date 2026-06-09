@@ -45,6 +45,7 @@
 import { Terminal as XTerm, type ITerminalOptions } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { rpc } from '@/renderer/lib/rpc';
 import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
 import { subscribeExit } from '@/renderer/lib/pty-exit-bus';
@@ -245,6 +246,34 @@ export function getOrCreateTerminal(
   // with a real DOM parent; we satisfy that here.
   const parking = ensureParkingLot();
   term.open(parking);
+
+  // Renderer: load the WebGL renderer (must come AFTER open()). xterm 6's
+  // DEFAULT renderer is the DOM renderer, which rebuilds per-row <div>/<span>
+  // elements + injects a <style> block + does inline-block reflow on EVERY
+  // resize repaint — so resizing a pane made the terminal content visibly
+  // "glitch its way" to the new size. WebGL repaints on the GPU in one pass,
+  // so a resize reflow is near-instant.
+  //
+  // Best-effort + self-healing: if WebGL is unavailable (jsdom unit tests, a
+  // GPU blocklist) the load throws and we silently keep the DOM renderer; if
+  // Chromium later evicts this context (its ~16-WebGL-context-per-process cap,
+  // reachable with many panes) `onContextLoss` fires and we dispose the addon,
+  // at which point xterm automatically reverts to the DOM renderer — never a
+  // blank pane. The canvas lives inside `term.element`, so it survives the
+  // park/reattach DOM moves, and `term.dispose()` cascades to dispose it.
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => {
+      try {
+        webgl.dispose();
+      } catch {
+        /* already disposed — ignore */
+      }
+    });
+    term.loadAddon(webgl);
+  } catch {
+    /* WebGL unavailable — xterm's default DOM renderer remains active */
+  }
 
   // Wire keystrokes back to the PTY. This listener lives for the entry's
   // entire cache lifetime — only `destroy()` disposes it.

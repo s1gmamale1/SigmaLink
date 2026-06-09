@@ -121,16 +121,34 @@ export function SessionTerminal({ sessionId, className }: Props) {
     attachToHost(entry, container);
     const { terminal: term, fitAddon: fit } = entry;
 
-    // Resize observer: keep PTY in sync with the visible cell grid.
-    // Gate fit() on non-zero dimensions so we don't run while GridLayout
-    // is still flex-shrinking on first mount (the previous rAF workaround
-    // could fire mid-resize and produced misaligned cells). Debounce to
-    // 25ms so a window-edge drag doesn't fire dozens of IPC calls per
-    // second; first fit at non-zero size runs synchronously.
-    let lastCols = term.cols;
-    let lastRows = term.rows;
-    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    // Resize observer: keep the PTY in sync with the visible cell grid.
+    // Gate on non-zero dimensions so we don't run while the layout is still
+    // settling on first mount. The first fit at a non-zero size runs
+    // synchronously; subsequent changes (e.g. a divider drag) are debounced.
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let didFirstFit = false;
+    // While a divider drag is in flight (between sigma:pane-resize-start and
+    // -end) we SKIP the per-frame ResizeObserver refit. The box moves smoothly
+    // via PaneGrid's CSS var, but refitting mid-drag fires a storm of
+    // term.resize()+SIGWINCH at the sizes being dragged THROUGH, which a
+    // full-screen TUI (Claude Code) repaints over and over — the shrinking pane
+    // "glitches until it adjusts / breaks". We refit exactly ONCE on release.
+    // A failsafe timer self-clears the flag so a missed pointerup (release
+    // outside the window) can't freeze refits.
+    let inDividerDrag = false;
+    let dragFailsafe: ReturnType<typeof setTimeout> | null = null;
+    // PTY-IPC dedup: only forward a resize to the PTY when the cell grid
+    // actually changed. -1 sentinels guarantee the first fit propagates.
+    let lastCols = -1;
+    let lastRows = -1;
+    // Refit via xterm's ATOMIC fit.fit(): it calls _renderService.clear()
+    // BEFORE term.resize(), so the (WebGL) renderer drops the old-geometry
+    // glyph cells instead of leaving them painted under the new frame. The
+    // earlier proposeDimensions()+resize() split dropped that clear (commit
+    // 0805a6b) and caused the resize "ghost / duplicated text" bug — worst
+    // with full-screen TUIs like Claude Code that only repaint changed cells.
+    // (The split's claimed win — "skip fit()'s redundant getBoundingClientRect"
+    // — was false: proposeDimensions() uses getComputedStyle, same as fit().)
     const runFit = () => {
       if (entry.ptyExited) return;
       try {
@@ -156,17 +174,51 @@ export function SessionTerminal({ sessionId, className }: Props) {
         runFit();
         return;
       }
-      if (resizeTimer) clearTimeout(resizeTimer);
-      // v1.4.2 packet-07 — while the user is dragging a divider, relax the
-      // fit() debounce so 20 simultaneous ResizeObserver callbacks don't
-      // each refit + IPC a pty.resize every 25ms. GridLayout.startDrag sets
-      // `document.body.dataset.dragging` for the lifetime of the drag and
-      // clears it on pointerup, at which point the final fit fires within
-      // the standard 25ms window.
-      const debounceMs = document.body.dataset.dragging === 'true' ? 100 : 25;
-      resizeTimer = setTimeout(runFit, debounceMs);
+      // During a divider drag, skip the per-frame refit entirely — the single
+      // refit on `sigma:pane-resize-end` covers it (one clean SIGWINCH at the
+      // final size, no mid-drag storm).
+      if (inDividerDrag) return;
+      // Trailing debounce (VS Code uses 50ms). Covers NON-drag resizes (window
+      // resize, sidebar toggle, split add/remove) which have no explicit end
+      // signal. Self-clearing, so it can never get stuck.
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(runFit, 60);
     });
     ro.observe(container);
+
+    // PaneGrid fires `sigma:pane-resize-start` on divider grab and
+    // `sigma:pane-resize-end` on release (or keyboard nudge). Between them the
+    // RO refit is suppressed (see inDividerDrag above); on release we refit ONCE,
+    // immediately — instead of waiting out the 60ms debounce, which would snap
+    // the content ~60ms after the drop and read as a jolt.
+    const onResizeStart = () => {
+      inDividerDrag = true;
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      // Failsafe: if the matching -end is ever missed (pointerup outside the
+      // window), auto-clear so refits can't freeze. Longer than any real drag.
+      if (dragFailsafe) clearTimeout(dragFailsafe);
+      dragFailsafe = setTimeout(() => {
+        inDividerDrag = false;
+        dragFailsafe = null;
+      }, 4000);
+    };
+    const onResizeEndRefit = () => {
+      inDividerDrag = false;
+      if (dragFailsafe) {
+        clearTimeout(dragFailsafe);
+        dragFailsafe = null;
+      }
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      runFit();
+    };
+    window.addEventListener('sigma:pane-resize-start', onResizeStart);
+    window.addEventListener('sigma:pane-resize-end', onResizeEndRefit);
 
     // V3-W13-015 — listen for cross-workspace jump-to-pane events the
     // JorvisRoom dispatches when a Jorvis-spawned pane finishes. Only the
@@ -192,12 +244,15 @@ export function SessionTerminal({ sessionId, className }: Props) {
     window.addEventListener('sigma:pty-focus', onFocusReq);
 
     return () => {
-      if (resizeTimer) clearTimeout(resizeTimer);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (dragFailsafe) clearTimeout(dragFailsafe);
       try {
         ro.disconnect();
       } catch {
         /* observer may already be disconnected — ignore */
       }
+      window.removeEventListener('sigma:pane-resize-start', onResizeStart);
+      window.removeEventListener('sigma:pane-resize-end', onResizeEndRefit);
       window.removeEventListener('sigma:pty-focus', onFocusReq);
       // V1.4.2 packet-03 (Layer 2) — DO NOT dispose the cached terminal.
       // Park its DOM in the cache's offscreen container so the next mount
