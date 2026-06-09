@@ -326,6 +326,39 @@ function errorMessage(err: unknown): string {
 }
 
 /**
+ * Un-fail zombie-marked swarms once a workspace's panes are alive again.
+ *
+ * The boot janitor (db/janitor.ts) marks every swarm still `status='running'`
+ * as `'failed'` because its PTYs died with the previous process. The resume /
+ * respawn paths then revive the workspace's SESSIONS back to 'running', but
+ * nothing ever flipped the swarm row back — so the renderer's
+ * `activeSwarm.status !== 'running'` gate left "+ Pane" permanently locked
+ * ("Swarm is paused — resume it to add panes") on a workspace full of healthy
+ * panes, with no swarms.resume RPC to escape. (Hit constantly on Windows after
+ * the pane-crash era filled the DB with janitor-failed swarms; macOS rarely
+ * surfaced it because the app usually stayed open.)
+ *
+ * Heals ONLY `'failed'` swarms — an operator stop writes `'completed'`, which
+ * is a deliberate end state and stays ended. Exported for unit tests.
+ */
+export function unfailZombieSwarms(
+  db: Pick<Database.Database, 'prepare'>,
+  workspaceId: string,
+): number {
+  try {
+    const res = db
+      .prepare(
+        "UPDATE swarms SET status = 'running', ended_at = NULL WHERE workspace_id = ? AND status = 'failed'",
+      )
+      .run(workspaceId);
+    return Number(res.changes ?? 0);
+  } catch {
+    /* best-effort — a heal failure must never block the resume itself */
+    return 0;
+  }
+}
+
+/**
  * Resolve the cwd for a resume/respawn spawn, recreating the git worktree when
  * its directory has gone missing on disk (Part B of the force-quit resume bug:
  * docs/08-bugs/2026-06-05-pane-resume-crash-after-forcequit.md).
@@ -487,6 +520,10 @@ export async function respawnFailedWorkspacePanes(
       failed += 1;
     }
   }
+
+  // Panes are alive again — clear the boot janitor's zombie 'failed' mark so
+  // the "+ Pane" gate unlocks (see unfailZombieSwarms).
+  if (spawned > 0) unfailZombieSwarms(db, workspaceId);
 
   return { workspaceId, spawned, failed };
 }
@@ -685,6 +722,10 @@ export async function resumeWorkspacePanes(
       });
     }
   }
+
+  // Panes are alive again — clear the boot janitor's zombie 'failed' mark so
+  // the "+ Pane" gate unlocks (see unfailZombieSwarms).
+  if (result.resumed.length > 0) unfailZombieSwarms(db, workspaceId);
 
   return result;
 }

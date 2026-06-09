@@ -8,6 +8,7 @@ import {
   buildResumeArgs,
   respawnFailedWorkspacePanes,
   resumeWorkspacePanes,
+  unfailZombieSwarms,
   type ResumeLauncherDeps,
 } from './resume-launcher.ts';
 import { KV_PTY_SPAWN_MODE } from './local-pty.ts';
@@ -1051,5 +1052,58 @@ describe('resumeWorkspacePanes — SF-8 auto_approve persistence (A3)', () => {
     expect(result.resumed).toHaveLength(1);
     expect(result.failed).toHaveLength(0);
     expect(spawnOpts[0]?.autoApprove).toBe(false);
+  });
+});
+
+describe('unfailZombieSwarms', () => {
+  function fakeSwarmDb(swarms: Array<{ id: string; workspace_id: string; status: string; ended_at: number | null }>) {
+    const db = {
+      prepare(sql: string) {
+        return {
+          run(workspaceId: string) {
+            expect(sql).toMatch(/UPDATE swarms/);
+            expect(sql).toMatch(/status = 'failed'/); // heals ONLY zombie-marked swarms
+            let changes = 0;
+            for (const s of swarms) {
+              if (s.workspace_id === workspaceId && s.status === 'failed') {
+                s.status = 'running';
+                s.ended_at = null;
+                changes += 1;
+              }
+            }
+            return { changes };
+          },
+        };
+      },
+    } as unknown as Database.Database;
+    return { db, swarms };
+  }
+
+  it("flips janitor-failed swarms back to running (unlocks '+ Pane' after resume)", () => {
+    const { db, swarms } = fakeSwarmDb([
+      { id: 'sw-1', workspace_id: 'ws-1', status: 'failed', ended_at: 123 },
+      { id: 'sw-2', workspace_id: 'ws-2', status: 'failed', ended_at: 456 },
+    ]);
+    expect(unfailZombieSwarms(db, 'ws-1')).toBe(1);
+    expect(swarms[0]).toMatchObject({ status: 'running', ended_at: null });
+    // Other workspaces are untouched.
+    expect(swarms[1]).toMatchObject({ status: 'failed', ended_at: 456 });
+  });
+
+  it("leaves operator-stopped ('completed') swarms ended", () => {
+    const { db, swarms } = fakeSwarmDb([
+      { id: 'sw-1', workspace_id: 'ws-1', status: 'completed', ended_at: 123 },
+    ]);
+    expect(unfailZombieSwarms(db, 'ws-1')).toBe(0);
+    expect(swarms[0]).toMatchObject({ status: 'completed', ended_at: 123 });
+  });
+
+  it('never throws when the DB write fails (best-effort heal)', () => {
+    const db = {
+      prepare() {
+        throw new Error('db is closing');
+      },
+    } as unknown as Database.Database;
+    expect(unfailZombieSwarms(db, 'ws-1')).toBe(0);
   });
 });
