@@ -279,3 +279,33 @@ describe('C-8 — routeLinkClick → surfaceBrowser', () => {
     openSpy.mockRestore();
   });
 });
+
+// Keystone regression guard (2026-06-09): the resize refit MUST go through
+// xterm's atomic fit.fit(), which calls _renderService.clear() before resizing.
+// A regression back to proposeDimensions()+term.resize() (no clear) re-introduces
+// the resize "ghost / duplicated text" bug. See docs/superpowers/plans/
+// 2026-06-09-pane-content-reflow-keystone.md.
+describe('resize refit — renderer-clear regression guard', () => {
+  it('refits via the atomic fit.fit() on sigma:pane-resize-end', async () => {
+    const entry = fakeEntry('sess-R');
+    getOrCreateTerminalMock.mockReturnValue(entry);
+
+    const { rpc } = await import('@/renderer/lib/rpc');
+    vi.mocked(rpc.pty.resize).mockClear();
+
+    const { SessionTerminal } = await import('./Terminal');
+    render(<SessionTerminal sessionId="sess-R" />);
+
+    // jsdom's ResizeObserver polyfill is a no-op, so no fit fires on mount.
+    expect(entry.fitAddon.fit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(new Event('sigma:pane-resize-end'));
+    });
+
+    // The release refit MUST call fit.fit() (clears the renderer, then resizes).
+    expect(entry.fitAddon.fit).toHaveBeenCalledTimes(1);
+    // First fit propagates the real grid to the PTY (lastCols/lastRows start -1).
+    expect(rpc.pty.resize).toHaveBeenCalledWith('sess-R', 80, 24);
+  });
+});

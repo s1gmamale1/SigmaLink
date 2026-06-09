@@ -127,26 +127,31 @@ export function SessionTerminal({ sessionId, className }: Props) {
     // synchronously; subsequent changes (e.g. a divider drag) are debounced.
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let didFirstFit = false;
-    // Apply the container's proposed cols/rows to the terminal. Uses
-    // proposeDimensions()+resize() instead of fit() to skip fit()'s redundant
-    // getBoundingClientRect, and only resizes (the expensive buffer reflow +
-    // pty IPC) when the char grid actually changed.
+    // PTY-IPC dedup: only forward a resize to the PTY when the cell grid
+    // actually changed. -1 sentinels guarantee the first fit propagates.
+    let lastCols = -1;
+    let lastRows = -1;
+    // Refit via xterm's ATOMIC fit.fit(): it calls _renderService.clear()
+    // BEFORE term.resize(), so the (WebGL) renderer drops the old-geometry
+    // glyph cells instead of leaving them painted under the new frame. The
+    // earlier proposeDimensions()+resize() split dropped that clear (commit
+    // 0805a6b) and caused the resize "ghost / duplicated text" bug — worst
+    // with full-screen TUIs like Claude Code that only repaint changed cells.
+    // (The split's claimed win — "skip fit()'s redundant getBoundingClientRect"
+    // — was false: proposeDimensions() uses getComputedStyle, same as fit().)
     const runFit = () => {
       if (entry.ptyExited) return;
-      let dims: { cols: number; rows: number } | undefined;
       try {
-        dims = fit.proposeDimensions();
+        fit.fit();
       } catch {
         return;
       }
-      if (!dims || !dims.cols || !dims.rows) return;
-      if (dims.cols === term.cols && dims.rows === term.rows) return;
-      try {
-        term.resize(dims.cols, dims.rows);
-      } catch {
-        return;
+      const { cols, rows } = term;
+      if (cols !== lastCols || rows !== lastRows) {
+        lastCols = cols;
+        lastRows = rows;
+        void rpc.pty.resize(sessionId, cols, rows).catch(() => undefined);
       }
-      void rpc.pty.resize(sessionId, dims.cols, dims.rows).catch(() => undefined);
     };
     const ro = new ResizeObserver((entries) => {
       if (entry.ptyExited) return;
