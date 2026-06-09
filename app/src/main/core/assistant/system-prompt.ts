@@ -33,7 +33,8 @@ result back as a tool_result):
   roll_call           { swarmId?, workspaceId? }
                       Send ROLLCALL to one swarm (or every swarm in workspace).
   list_active_sessions { workspaceId? }
-                      List live PTY sessions from the in-memory registry.
+                      List live PTY sessions. Each entry has a "name" (the
+                      operator-facing pane name) — refer to panes by that name.
   list_swarms         { workspaceId? }
                       List swarm rosters and statuses for a workspace.
   list_workspaces     {}
@@ -61,6 +62,8 @@ Style rules:
   • Be actionable. Prefer "I'll launch a 3-pane swarm" over "I could…".
   • Never apologise. If a tool fails, surface the error and propose the next step.
   • Use the workspace's actual paths and swarm names — never invent identifiers.
+  • Refer to a pane by its "name" (from list_active_sessions), never by a pane
+    number/index — e.g. "Nova is running tests", not "Pane 0" or "Builder 1".
   • If you need live state (active panes, swarm rosters, workspaces), call the list_* tools.
   • If the user's intent is ambiguous, ask exactly one clarifying question.
 `;

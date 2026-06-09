@@ -26,6 +26,7 @@ import {
 } from '../db/client';
 import { findTool } from './tools';
 import type { ToolContext } from './tools';
+import { agentAlias } from '../../../shared/agent-identity';
 import { runCDP } from '../browser/cdp';
 import {
   createDbFake,
@@ -137,6 +138,8 @@ describe('assistant list_* tools', () => {
       sessions: [
         {
           sessionId: 'sess-1',
+          // unnamed session → deterministic alias (matches the UI label).
+          name: agentAlias('sess-1'),
           provider: 'codex',
           status: 'running',
           agentKey: 'coordinator-1',
@@ -144,6 +147,29 @@ describe('assistant list_* tools', () => {
           paneIndex: 0,
         },
       ],
+    });
+  });
+
+  it('list_active_sessions surfaces the operator-supplied pane name', async () => {
+    const root = '/tmp/ws-1';
+    seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: root });
+    getRawDb()
+      .prepare(
+        `INSERT INTO agent_sessions
+         (id, workspace_id, provider_id, cwd, status, started_at, name)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run('sess-named', 'ws-1', 'codex', root, 'running', 101, 'Telegram Monitor');
+
+    const out = (await findTool('list_active_sessions')!.handler(
+      { workspaceId: 'ws-1' },
+      makeCtx([{ id: 'sess-named', providerId: 'codex', cwd: root, alive: true }]),
+    )) as { sessions: Array<{ sessionId: string; name: string }> };
+
+    expect(out.sessions).toHaveLength(1);
+    expect(out.sessions[0]).toMatchObject({
+      sessionId: 'sess-named',
+      name: 'Telegram Monitor',
     });
   });
 

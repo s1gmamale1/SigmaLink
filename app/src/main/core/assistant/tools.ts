@@ -18,6 +18,7 @@ import type { MemoryManager } from '../memory/manager';
 import type { TasksManager } from '../tasks/manager';
 import type { BrowserManagerRegistry } from '../browser/manager';
 import type { LaunchPlan, Role, RoleAssignment, SwarmPreset } from '../../../shared/types';
+import { derivePaneName } from '../../../shared/agent-identity';
 import { executeLaunchPlan } from '../workspaces/launcher';
 // v1.5.4-rollup-fold — reuse the v1.5.4-C-fixed pickPreset from controller.ts
 // instead of maintaining a duplicate-and-buggy copy. The duplicate at line 46-47
@@ -671,6 +672,10 @@ export const TOOLS: ToolDefinition[] = [
           const agent = agentBySessionId.get(rec.id);
           return {
             sessionId: rec.id,
+            // The operator-facing pane NAME (operator-supplied name, else the
+            // deterministic alias) — the SAME label `derivePaneIdentity` shows
+            // in the UI. Jorvis should refer to panes by this, not `paneIndex`.
+            name: derivePaneName({ id: rec.id, name: row?.name }),
             provider: row?.providerEffective ?? row?.providerId ?? rec.providerId,
             status: rec.alive ? 'running' : row?.status ?? 'exited',
             agentKey: agent?.agentKey ?? null,
