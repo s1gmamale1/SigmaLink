@@ -16,6 +16,7 @@ import {
   ensureClaudeProjectDir,
   prepareClaudeResume,
   prepareClaudeWorkspaceContext,
+  repairClaudeGlobalConfig,
 } from './claude-resume-sigma.ts';
 
 const VALID_UUID = '01234567-89ab-4cde-9f01-23456789abcd';
@@ -45,6 +46,70 @@ function seedSourceJsonl(
   fs.writeFileSync(filePath, payload, 'utf8');
   return filePath;
 }
+
+describe('repairClaudeGlobalConfig', () => {
+  let home: string;
+  const cfg = () => path.join(home, '.claude.json');
+
+  beforeEach(() => {
+    home = makeTmpHome();
+  });
+  afterEach(() => rmRf(home));
+
+  it('returns missing when ~/.claude.json does not exist', async () => {
+    expect(await repairClaudeGlobalConfig({ homeDir: home })).toBe('missing');
+  });
+
+  it('returns ok and leaves a valid file byte-for-byte untouched', async () => {
+    const body = '{\n  "numStartups": 7,\n  "projects": {}\n}\n';
+    fs.writeFileSync(cfg(), body, 'utf8');
+    expect(await repairClaudeGlobalConfig({ homeDir: home })).toBe('ok');
+    expect(fs.readFileSync(cfg(), 'utf8')).toBe(body);
+  });
+
+  it('repairs trailing garbage (hard-kill mid-rewrite) and keeps a forensic copy', async () => {
+    // The exact production shape: a complete shorter JSON document followed by
+    // the un-truncated tail of the previous longer version.
+    const valid = '{\n  "numStartups": 8,\n  "tipsHistory": { "color-when-multi-clauding": 1 }\n}';
+    const tail = '-workflows@ruflo": {\n  "usageCount": 0,\n  "lastUsedAt": 1781034447565\n},';
+    fs.writeFileSync(cfg(), valid + tail, 'utf8');
+
+    expect(await repairClaudeGlobalConfig({ homeDir: home })).toBe('repaired');
+
+    const repaired = fs.readFileSync(cfg(), 'utf8');
+    expect(repaired).toBe(valid);
+    expect(() => JSON.parse(repaired)).not.toThrow();
+    const corruptCopies = fs
+      .readdirSync(home)
+      .filter((n) => n.startsWith('.claude.json.corrupt-'));
+    expect(corruptCopies).toHaveLength(1);
+  });
+
+  it('does not respect braces inside JSON strings as structure', async () => {
+    const valid = '{ "a": "br{ace}s \\" in } strings" }';
+    fs.writeFileSync(cfg(), `${valid}GARBAGE}}`, 'utf8');
+    expect(await repairClaudeGlobalConfig({ homeDir: home })).toBe('repaired');
+    expect(fs.readFileSync(cfg(), 'utf8')).toBe(valid);
+  });
+
+  it('leaves a truly truncated file untouched (unrepairable)', async () => {
+    const truncated = '{ "numStartups": 8, "projects": { "c--users"';
+    fs.writeFileSync(cfg(), truncated, 'utf8');
+    expect(await repairClaudeGlobalConfig({ homeDir: home })).toBe('unrepairable');
+    expect(fs.readFileSync(cfg(), 'utf8')).toBe(truncated);
+  });
+
+  it('runs from prepareClaudeWorkspaceContext even for in-place workspaces', async () => {
+    const valid = '{ "numStartups": 1 }';
+    fs.writeFileSync(cfg(), `${valid}LEFTOVER`, 'utf8');
+    const cwd = path.join(home, 'ws');
+    fs.mkdirSync(cwd, { recursive: true });
+    // workspaceCwd === worktreeCwd → the context-linking work early-returns,
+    // but the config self-heal must still have happened.
+    await prepareClaudeWorkspaceContext(cwd, cwd, { homeDir: home });
+    expect(fs.readFileSync(cfg(), 'utf8')).toBe(valid);
+  });
+});
 
 describe('claudeSlugForCwd', () => {
   it('mirrors the Claude CLI convention of replacing path separators', () => {

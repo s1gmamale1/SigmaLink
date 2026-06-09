@@ -113,7 +113,10 @@ function isSafeAbsolutePath(p: string): boolean {
   if (!path.isAbsolute(p)) return false;
   // Disallow `..` segments anywhere in the path — defence in depth even though
   // both callers pass cwds we control (workspace root or worktree path).
-  const parts = p.split(path.sep);
+  // Split on BOTH separators: on win32 `path.sep` is `\`, but Node accepts
+  // `/`-separated paths there too, so a POSIX-style `/tmp/../etc` previously
+  // sailed straight through this guard on Windows.
+  const parts = p.split(/[\\/]/);
   if (parts.some((seg) => seg === '..')) return false;
   return true;
 }
@@ -185,6 +188,99 @@ async function linkOrCopyContextPath(
   }
 }
 
+/**
+ * Find the index just past the end of the first complete top-level JSON value
+ * in `raw` (string-aware brace/bracket depth scan). Returns null when the text
+ * never closes the first value (a true mid-write truncation).
+ */
+function endOfFirstJsonValue(raw: string): number | null {
+  let i = 0;
+  while (i < raw.length && /[\s﻿]/.test(raw[i]!)) i++;
+  const open = raw[i];
+  if (open !== '{' && open !== '[') return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (; i < raw.length; i++) {
+    const ch = raw[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return null;
+}
+
+export type ClaudeConfigRepairOutcome = 'ok' | 'repaired' | 'unrepairable' | 'missing';
+
+/**
+ * Self-heal `~/.claude.json` (Claude Code's global config) before a pane spawns.
+ *
+ * Windows pane teardown is a hard TerminateProcess (ConPTY close) — unlike the
+ * catchable SIGTERM on macOS — so a Claude CLI killed mid-rewrite can leave the
+ * file as a complete, shorter JSON document followed by the un-truncated tail
+ * of the previous, longer version ("Extra data" / "Invalid number" parse
+ * errors). Claude then blocks EVERY new pane with its interactive
+ * "Configuration error … contains invalid JSON" prompt, which inside SigmaLink
+ * strands all Claude panes at once.
+ *
+ * Repair is deliberately conservative: only the trailing-garbage shape is
+ * fixed (valid first JSON value + leftover tail → atomically rewrite just the
+ * valid value, keeping a `.corrupt-<ts>` forensic copy). A file that never
+ * closes its first value (true truncation) is left untouched for Claude's own
+ * recovery prompt. Never throws.
+ */
+export async function repairClaudeGlobalConfig(
+  deps: ClaudeBridgeDeps = {},
+): Promise<ClaudeConfigRepairOutcome> {
+  const homeDir = deps.homeDir ?? os.homedir();
+  const file = path.join(homeDir, '.claude.json');
+  let raw: string;
+  try {
+    raw = await fs.promises.readFile(file, 'utf8');
+  } catch {
+    return 'missing';
+  }
+  try {
+    JSON.parse(raw.replace(/^﻿/, ''));
+    return 'ok';
+  } catch {
+    /* corrupt — try the trailing-garbage repair below */
+  }
+  const end = endOfFirstJsonValue(raw);
+  if (end === null) return 'unrepairable';
+  const prefix = raw.slice(0, end);
+  try {
+    JSON.parse(prefix.replace(/^﻿/, ''));
+  } catch {
+    return 'unrepairable';
+  }
+  try {
+    // Forensic copy first, then atomic temp+rename so a crash mid-repair can
+    // never make things worse than they already are.
+    try {
+      await fs.promises.copyFile(file, `${file}.corrupt-${Date.now()}`);
+    } catch {
+      /* best-effort */
+    }
+    const tmp = `${file}.${process.pid}.${Date.now()}.repair.tmp`;
+    await fs.promises.writeFile(tmp, prefix);
+    await fs.promises.rename(tmp, file);
+  } catch {
+    return 'unrepairable';
+  }
+  console.warn(`[claude-config] repaired trailing-garbage corruption in ${file}`);
+  return 'repaired';
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
@@ -231,6 +327,11 @@ export async function prepareClaudeWorkspaceContext(
   worktreeCwd: string,
   deps: ClaudeBridgeDeps = {},
 ): Promise<ClaudeWorkspaceContextOutcome> {
+  // Every Claude spawn path (launch / resume / respawn / swarm) calls this
+  // first, so self-heal the global config HERE — before the early returns, so
+  // in-place workspaces (workspaceCwd === worktreeCwd) are covered too.
+  await repairClaudeGlobalConfig(deps);
+
   const outcome: ClaudeWorkspaceContextOutcome = {
     linked: [],
     existing: [],
