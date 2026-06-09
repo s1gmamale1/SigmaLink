@@ -209,6 +209,10 @@ export function PaneGrid({
     const el = kind === 'row' ? containerRef.current : rowRefs.current.get(row) ?? null;
     const prop: '--pg-rows' | '--pg-cols' = kind === 'row' ? '--pg-rows' : '--pg-cols';
     dragRef.current = { kind, row, index, snap, el, prop, last: snap };
+    // Tell terminals a divider drag started so they suppress their per-frame RO
+    // refit until `sigma:pane-resize-end` (one clean refit on release, no SIGWINCH
+    // storm). Paired with the dispatch in endDrag below.
+    window.dispatchEvent(new CustomEvent('sigma:pane-resize-start'));
   };
 
   // Per-frame: mutate ONLY the dragged container's CSS var — no React render,
