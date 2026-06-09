@@ -29,6 +29,13 @@ interface Props {
   streaming?: { turnId: string; delta: string; messageId?: string | null } | null;
   /** Legacy prop kept for backward-compat — ignored when `streaming` is provided. */
   streamingDelta?: string;
+  /**
+   * True while a turn is in-flight but no text has streamed in yet (the
+   * "thinking" gap between send and the first token). Drives the typing-dots
+   * bubble. The backend only sets `streaming` once the first delta arrives, so
+   * the dots cannot ride on the streaming sentinel — they ride on this flag.
+   */
+  pending?: boolean;
   conversationId?: string | null;
   className?: string;
 }
@@ -43,7 +50,7 @@ const ROLE_LABEL: Record<ChatRole, string> = {
 // Sentinel: the in-flight streaming row uses this id so ChatRow can identify it.
 const STREAMING_ROW_ID = '__streaming__';
 
-export function ChatTranscript({ messages, streaming, streamingDelta, conversationId, className }: Props) {
+export function ChatTranscript({ messages, streaming, streamingDelta, pending, conversationId, className }: Props) {
   // Resolve the effective streaming object: prefer the new `streaming` prop,
   // fall back to the legacy `streamingDelta` string for backward-compat.
   // Memoized so it has a stable identity and doesn't cause useEffect to re-run
@@ -95,9 +102,20 @@ export function ChatTranscript({ messages, streaming, streamingDelta, conversati
       ? { id: inFlightRowId, role: 'assistant', content: '', createdAt: 0 }
       : null;
 
+  // Pre-first-token "thinking" gap: a turn is in-flight (`pending`) but no
+  // stream has started yet, so there's no in-flight sentinel. Render a typing
+  // bubble so the user sees Jorvis is replying. It's swapped for the streaming
+  // row (or its committed twin) the moment the first delta lands.
+  const showPending = pending === true && !hasInFlight;
+  const pendingMsg: ChatMessageView | null = showPending
+    ? { id: STREAMING_ROW_ID, role: 'assistant', content: '', createdAt: 0 }
+    : null;
+
   const allRows: ChatMessageView[] = inFlightMsg
     ? [...messages, inFlightMsg]
-    : messages;
+    : pendingMsg
+      ? [...messages, pendingMsg]
+      : messages;
 
   return (
     <div
@@ -109,7 +127,7 @@ export function ChatTranscript({ messages, streaming, streamingDelta, conversati
       }}
       className={cn('flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-4 py-3', className)}
     >
-      {messages.length === 0 && !hasInFlight ? (
+      {messages.length === 0 && !hasInFlight && !showPending ? (
         <div className="m-auto max-w-sm text-center text-xs text-muted-foreground">
           Ask Jorvis to launch panes, search memory, or open a URL. Press
           <kbd className="mx-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
@@ -125,11 +143,13 @@ export function ChatTranscript({ messages, streaming, streamingDelta, conversati
         // a stored message never shares the sentinel's identity until AFTER the
         // turn commits (at which point `effectiveStreaming` is null again).
         const isStreaming = inFlightMsg != null && m === inFlightMsg;
+        const isPending = pendingMsg != null && m === pendingMsg;
         return (
           <ChatRow
             key={m.id}
             message={m}
             isStreaming={isStreaming}
+            isPending={isPending}
             streamingDelta={isStreaming ? effectiveStreaming!.delta : undefined}
             conversationId={conversationId}
             streamingTurnId={isStreaming ? effectiveStreaming!.turnId : undefined}
@@ -143,12 +163,14 @@ export function ChatTranscript({ messages, streaming, streamingDelta, conversati
 interface ChatRowProps {
   message: ChatMessageView;
   isStreaming: boolean;
+  /** True for the typing-dots placeholder shown during the pre-token gap. */
+  isPending?: boolean;
   streamingDelta?: string;
   conversationId?: string | null;
   streamingTurnId?: string;
 }
 
-function ChatRow({ message, isStreaming, streamingDelta, conversationId, streamingTurnId }: ChatRowProps) {
+function ChatRow({ message, isStreaming, isPending, streamingDelta, conversationId, streamingTurnId }: ChatRowProps) {
   // Spring bubble-enter: React-19 ref-as-prop, applied exactly once via useLayoutEffect([]).
   const rootRef = useRef<HTMLDivElement | null>(null);
   const played = useRef(false);
@@ -212,7 +234,15 @@ function ChatRow({ message, isStreaming, streamingDelta, conversationId, streami
           r === 'system' && 'text-amber-500/90',
         )}
       >
-        {r === 'tool' ? <ToolBody content={message.content} /> : (
+        {r === 'tool' ? (
+          <ToolBody content={message.content} />
+        ) : isPending || (isStreaming && body.length === 0) ? (
+          // Pre-first-token: Jorvis is replying but no text has streamed in yet
+          // (`isPending` = the think gap before streaming; the `isStreaming`
+          // branch covers an in-flight row that's momentarily empty). Show the
+          // animated typing-dots bubble instead of a lone caret.
+          <TypingDots />
+        ) : (
           <>
             {body}
             {caret ? <span data-caret className="sl-caret">&#x2588;</span> : null}
@@ -224,6 +254,28 @@ function ChatRow({ message, isStreaming, streamingDelta, conversationId, streami
         <InlineToolChips conversationId={conversationId} turnId={streamingTurnId} />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Three staggered dots shown while Jorvis is composing a reply but before the
+ * first tokens stream in — the classic "is typing…" affordance. Tinted with the
+ * assistant accent (text-primary → currentColor). Reduced-motion safe (the
+ * bounce is dropped in CSS; the dots stay visible). role="status" announces
+ * "Jorvis is typing" to assistive tech.
+ */
+function TypingDots() {
+  return (
+    <span
+      className="sl-typing text-primary"
+      role="status"
+      aria-label="Jorvis is typing"
+      data-testid="jorvis-typing"
+    >
+      <span className="sl-typing-dot" />
+      <span className="sl-typing-dot" />
+      <span className="sl-typing-dot" />
+    </span>
   );
 }
 
