@@ -214,6 +214,14 @@ CREATE TABLE IF NOT EXISTS session_review (
 function openAndCheck(filePath: string): Database.Database {
   const sqlite = new Database(filePath);
   sqlite.pragma('journal_mode = WAL');
+  // WAL + synchronous=NORMAL is the SQLite-recommended durable+fast pairing for
+  // app databases. The previous default (synchronous=FULL) fsynced on EVERY
+  // commit — on Windows that's a FlushFileBuffers per write, which stalled the
+  // synchronous better-sqlite3 main-process writes (swarm mailbox, sessions,
+  // checkpoints) and contributed to the laggy multi-pane workspace launch.
+  // Under WAL, NORMAL only fsyncs at checkpoints: a crash can lose the last few
+  // committed transactions but the database can NEVER corrupt. (Worth it.)
+  sqlite.pragma('synchronous = NORMAL');
   sqlite.pragma('foreign_keys = ON');
   // H-7: wait up to 5s for a lock instead of throwing SQLITE_BUSY immediately.
   // With WAL + multiple connections (HTTP daemon, sync engine) a migration's
