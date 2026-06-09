@@ -34,6 +34,8 @@
 
 ## 🔬 Deep-dive audit — 2026-06-10 (5 read-only agents: main bugs · renderer bugs · perf · win32 · dead code; all evidence-verified at HEAD, WIP excluded)
 
+> ✅ **PROMOTED 2026-06-10 → root `ROADMAP.md` Phases 4–12** (hotlist #7–12, ADR-004/005/006), backed by 12 implementation plans in `docs/superpowers/plans/2026-06-10-*.md`. Plan-time recon refinements (verbatim-spawn half-shipped in #134 → residual = `cmdQuoteArg`; `types.ts` removals downgraded to 2; runGroups already memoized; +4 extra sibling call sites found) live in the plans. Entries below are retained as the evidence record until ship.
+
 ### Main process — bugs
 - 🔴 **CRIT [db] bootstrap resurrects the UNIQUE `workspaces_root_idx` that mig 0034 dropped** — `client.ts:28` BOOTSTRAP_SQL runs every boot (0034 drops once, recorded in schema_migrations) → multi-ws-same-dir re-breaks after one restart; once dup `root_path` rows exist, `CREATE UNIQUE INDEX` throws → **boot fails** (initializeDatabase unwrapped). Fix: non-unique in bootstrap + defensive drop of the unique twin. S
 - 🔴 **CRIT [reaper] SF-13 prune fence violates keep⊇use AND cross-workspace isolation** — `workspaces/cleanup.ts:79-90` keeps only `starting|running` of ONE workspace, then rm-rf's everything under the REPO-scoped `worktrees/<repoHash>/` → deletes exited(-1) resume-eligible worktrees + OTHER workspaces' LIVE worktrees (repoHash shared across ws since 0034). Boot sibling `worktree-cleanup.ts:54-72` has the broad fence with the "stay as broad as resume-launcher" comment — this is the drifted twin. Fix: widen to that predicate, drop the ws filter. M
