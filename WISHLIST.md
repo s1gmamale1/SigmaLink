@@ -30,6 +30,12 @@ _(real upgrades to build once the current system is production-grade)_
   Safety policy: manual "Sleep pane" first; later auto-sleep only when there is a clear finished/idle signal, no active prompt, no recent output, low CPU, and the pane is not pinned keep-alive. Never auto-sleep remote/autopilot/Telegram or explicitly pinned panes. On wake failure, keep the frozen pane and show a resumable error rather than deleting the session.
   Trigger: build after the current RAM brake and strict MCP launch defaults have been dogfooded, and after we can reliably persist/restore scrollback for sleeping panes. Effort: L.
 
+- **[pane-rendering] pane terminal text-reflow on resize — still not fully finished** — PR #133 (`66ffce4` restored `_renderService.clear()` via `fit.fit()`; `45a558e` suppressed the ResizeObserver refit during a divider drag) killed the ghosting + the mid-drag SIGWINCH storm, and the operator confirmed it "working fine for now" — but it is NOT fully polished. Residuals, each with a cited deferred fix from the 4-agent root-cause sweep (plan: `app/docs/superpowers/plans/2026-06-09-pane-content-reflow-keystone.md`):
+  - 🐞 **[low] coalescer mixes old/new-width bytes around a resize + double-writes the snapshot on first mount.** `app/src/main/rpc-router.ts:989` (resize handler) and the `pty.snapshot` handler never call `ptyDataCoalescer.flush(sessionId)` (`app/src/main/core/pty/pty-data-coalescer.ts:66`). Fix: flush before `pty.resize` and before `pty.snapshot`. Effort: S.
+  - 🐞 **[low] `reflowCursorLine` defaults false** → the cursor line is skipped during a column-shrink reflow → cursor desync/overlap while a TUI streams. `app/src/renderer/lib/terminal-cache.ts` `buildTerminalOptions`: set `reflowCursorLine: true` — but it has side-effects on cursor-redraw programs, so test against Claude Code's prompt first. Effort: S, risk: M.
+  - **1-frame repaint flicker at release for a full-screen TUI** — the CLI's own redraw after SIGWINCH; likely NOT fixable our side (accept as inherent unless a paint-coalescing trick is found).
+  Trigger: build when resize text-rendering roughness is reported again, or before claiming the pane terminal "fully polished." Severity: low. Effort: S–M.
+
 ---
 
 ## 🆕 New ideas (untriaged)
