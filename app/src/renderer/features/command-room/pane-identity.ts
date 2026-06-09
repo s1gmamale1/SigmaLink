@@ -8,7 +8,8 @@
 
 import { findProvider } from '@/shared/providers';
 import { defaultModelFor } from '@/shared/model-catalog';
-import { agentAlias, agentColor, agentShortId } from '@/renderer/lib/workspace-color';
+import { agentColor, agentShortId } from '@/renderer/lib/workspace-color';
+import { derivePaneName } from '@/shared/agent-identity';
 import type { AgentSession } from '@/shared/types';
 
 export interface PaneIdentity {
@@ -54,9 +55,11 @@ export function derivePaneIdentity(session: AgentSession): PaneIdentity {
     // BSP-O4 — prefer the operator-supplied name over the computed alias so
     // EVERY surface that renders `id.alias` (gear popover, context sidebar,
     // splash, header) reflects the rename, not just the title pill. Falls back
-    // to the deterministic alias when unnamed. (Updates on the next session
-    // prop refresh; the title pill also tracks the live rename broadcast.)
-    alias: session.name?.trim() || agentAlias(session.id),
+    // to the deterministic alias when unnamed. Shared `derivePaneName` keeps
+    // this identical to the name Jorvis sees via list_active_sessions. (Updates
+    // on the next session prop refresh; the title pill also tracks the live
+    // rename broadcast.)
+    alias: derivePaneName(session),
     agentId: agentShortId(session.id),
     agentAccent: agentColor(session.id),
     providerName,

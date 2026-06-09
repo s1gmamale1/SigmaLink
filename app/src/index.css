@@ -697,6 +697,36 @@
   .sl-caret { display: none; }
 }
 
+/* Jorvis "is replying" typing indicator — three staggered dots shown in the
+   in-flight assistant bubble during the pre-first-token "thinking" gap. As soon
+   as the first characters stream in, the row swaps to the text + caret. Dots
+   use `currentColor` so the assistant accent (text-primary) tints them. Under
+   reduced-motion the bounce is dropped but the dots stay visible (they still
+   communicate "thinking" without the vestibular-trigger transform). */
+.sl-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-block: 3px;
+}
+.sl-typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.35;
+  animation: sl-typing-bounce 1.2s var(--ease-smooth) infinite;
+}
+.sl-typing-dot:nth-child(2) { animation-delay: 0.16s; }
+.sl-typing-dot:nth-child(3) { animation-delay: 0.32s; }
+@keyframes sl-typing-bounce {
+  0%, 70%, 100% { opacity: 0.35; transform: translateY(0); }
+  35% { opacity: 1; transform: translateY(-3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sl-typing-dot { animation: none; opacity: 0.55; transform: none; }
+}
+
 @layer base {
   * {
     @apply border-border;

@@ -349,7 +349,12 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
               ))}
             </div>
           ) : null}
-          <ChatTranscript messages={messages} streaming={streaming} conversationId={conversationId} />
+          <ChatTranscript
+            messages={messages}
+            streaming={streaming}
+            pending={busy && streaming == null}
+            conversationId={conversationId}
+          />
         </div>
         <ToolCallInspector />
         {patternHit && !ribbonHidden && rufloReady ? (

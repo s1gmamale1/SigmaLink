@@ -74,6 +74,64 @@ describe('ChatTranscript stream-reveal', () => {
   });
 });
 
+describe('ChatTranscript typing indicator', () => {
+  it('shows typing dots during the pending "thinking" gap (busy, no stream yet)', () => {
+    // Real flow: on send the room sets busy=true but `streaming` stays null
+    // until the first delta. `pending` drives the dots through that gap.
+    const userMsg: ChatMessageView = { id: 'u1', role: 'user', content: 'hi', createdAt: 1 };
+    const { queryByTestId, rerender } = render(
+      <ChatTranscript messages={[userMsg]} streaming={null} pending />,
+    );
+    expect(queryByTestId('jorvis-typing')).toBeTruthy();
+    expect(document.querySelectorAll('[data-caret]').length).toBe(0);
+
+    // First delta arrives → streaming becomes non-null, pending clears → the
+    // typing bubble gives way to the streaming text + caret.
+    rerender(
+      <ChatTranscript
+        messages={[userMsg]}
+        streaming={{ turnId: 't1', delta: 'hello', messageId: 'msg-1' }}
+        pending={false}
+      />,
+    );
+    act(() => flush(2));
+    expect(queryByTestId('jorvis-typing')).toBeNull();
+    expect(document.querySelectorAll('[data-caret]').length).toBeGreaterThan(0);
+  });
+
+  it('shows typing dots for an in-flight row that has no text yet, then swaps to text + caret', () => {
+    const { queryByTestId, rerender } = render(
+      <ChatTranscript
+        messages={[]}
+        streaming={{ turnId: 't1', delta: '', messageId: 'msg-1' }}
+      />,
+    );
+
+    // Pre-first-token: the in-flight reply has no text yet → typing dots show,
+    // and there is no caret (the dots replace it during the "thinking" gap).
+    expect(queryByTestId('jorvis-typing')).toBeTruthy();
+    expect(document.querySelectorAll('[data-caret]').length).toBe(0);
+
+    // First tokens arrive → reveal kicks in → dots disappear, caret appears.
+    rerender(
+      <ChatTranscript
+        messages={[]}
+        streaming={{ turnId: 't1', delta: 'hello', messageId: 'msg-1' }}
+      />,
+    );
+    act(() => flush(2));
+    expect(queryByTestId('jorvis-typing')).toBeNull();
+    expect(document.querySelectorAll('[data-caret]').length).toBeGreaterThan(0);
+  });
+
+  it('does not show typing dots for completed (non-streaming) rows', () => {
+    const { queryByTestId } = render(
+      <ChatTranscript messages={[olderMsg]} streaming={null} />,
+    );
+    expect(queryByTestId('jorvis-typing')).toBeNull();
+  });
+});
+
 describe('ChatTranscript spring bubble-enter', () => {
   it('springs a bubble in on first mount only', () => {
     const msg: ChatMessageView = { id: 'm1', role: 'assistant', content: 'hello', createdAt: 1000 };
