@@ -88,17 +88,18 @@ describe('PaneGrid', () => {
     kvGet.mockResolvedValue(JSON.stringify({ sig: '2', rows: [1], cols: [[0.7, 0.3]] }));
     renderGrid(['a', 'b']);
     await act(async () => {});
-    const a = screen.getByTestId('leaf-a').closest('[data-testid="pane-cell"]') as HTMLElement;
-    // flex shorthand resolves to "0.7 1 0%"; assert the grow factor stuck.
-    expect(a.style.flexGrow === '0.7' || a.style.flex.startsWith('0.7')).toBe(true);
+    // The live track sizes live in the row's `--pg-cols` custom property; the
+    // grid template carries the persisted fraction as a `minmax(0,Nfr)` track.
+    const row = screen.getByTestId('pane-row');
+    expect(row.style.getPropertyValue('--pg-cols')).toContain('0.7fr');
   });
 
   it('ignores persisted fractions whose shape signature no longer matches', async () => {
     kvGet.mockResolvedValue(JSON.stringify({ sig: '9x9', rows: [1], cols: [[0.7, 0.3]] }));
     renderGrid(['a', 'b']);
     await act(async () => {});
-    const a = screen.getByTestId('leaf-a').closest('[data-testid="pane-cell"]') as HTMLElement;
     // falls back to even split (0.5)
-    expect(a.style.flexGrow === '0.5' || a.style.flex.startsWith('0.5')).toBe(true);
+    const row = screen.getByTestId('pane-row');
+    expect(row.style.getPropertyValue('--pg-cols')).toContain('0.5fr');
   });
 });

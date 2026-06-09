@@ -161,13 +161,26 @@ export function SessionTerminal({ sessionId, className }: Props) {
       }
       // Trailing debounce (VS Code uses 50ms). During a continuous divider drag
       // the timer keeps resetting, so the expensive buffer reflow does NOT run
-      // per-frame — it fires once ~60ms after movement settles / on release. The
-      // pane box still resizes smoothly via flex throughout. Self-clearing, so it
-      // can never get stuck the way a global drag flag could.
+      // per-frame. It covers NON-drag resizes (window resize, sidebar toggle,
+      // split add/remove) which have no explicit end signal. Self-clearing, so
+      // it can never get stuck the way a global drag flag could.
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(runFit, 60);
     });
     ro.observe(container);
+
+    // PaneGrid fires `sigma:pane-resize-end` when the user releases a divider
+    // (or nudges it via the keyboard). Refit IMMEDIATELY on release instead of
+    // waiting out the 60ms RO debounce — that debounce would otherwise snap the
+    // terminal content ~60ms AFTER the handle is dropped, which reads as a jolt.
+    const onResizeEndRefit = () => {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      runFit();
+    };
+    window.addEventListener('sigma:pane-resize-end', onResizeEndRefit);
 
     // V3-W13-015 — listen for cross-workspace jump-to-pane events the
     // JorvisRoom dispatches when a Jorvis-spawned pane finishes. Only the
@@ -199,6 +212,7 @@ export function SessionTerminal({ sessionId, className }: Props) {
       } catch {
         /* observer may already be disconnected — ignore */
       }
+      window.removeEventListener('sigma:pane-resize-end', onResizeEndRefit);
       window.removeEventListener('sigma:pty-focus', onFocusReq);
       // V1.4.2 packet-03 (Layer 2) — DO NOT dispose the cached terminal.
       // Park its DOM in the cache's offscreen container so the next mount
