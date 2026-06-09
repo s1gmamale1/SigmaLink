@@ -22,6 +22,12 @@ export interface ExecOptions {
   timeoutMs?: number;
   input?: string;
   maxBuffer?: number; // hard cap on combined stdout/stderr in bytes
+  /**
+   * Win32 only: pass argv to CreateProcess verbatim (no re-quoting). Required
+   * when `args` is a pre-escaped `cmd.exe /d /s /c "<inner>"` command line
+   * produced by `buildWindowsSpawnArgs` — see its `windowsVerbatimArguments`.
+   */
+  windowsVerbatimArguments?: boolean;
 }
 
 /** Milliseconds between SIGTERM and SIGKILL when a child refuses to exit. */
@@ -32,13 +38,21 @@ export function execCmd(
   args: string[],
   opts: ExecOptions = {},
 ): Promise<ExecResult> {
-  const { cwd, env, timeoutMs = 60_000, input, maxBuffer = 8 * 1024 * 1024 } = opts;
+  const {
+    cwd,
+    env,
+    timeoutMs = 60_000,
+    input,
+    maxBuffer = 8 * 1024 * 1024,
+    windowsVerbatimArguments,
+  } = opts;
   return new Promise<ExecResult>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
       env: env ?? process.env,
       shell: false,
       windowsHide: true,
+      windowsVerbatimArguments,
     });
 
     let stdout = '';

@@ -131,7 +131,7 @@ export class SwarmMailbox {
     }
   }
 
-  private doAppend(input: MailboxAppend): SwarmMessage {
+  private async doAppend(input: MailboxAppend): Promise<SwarmMessage> {
     const db = getDb();
     const id = randomUUID();
     const ts = Date.now();
@@ -183,11 +183,15 @@ export class SwarmMailbox {
         `[mailbox] recipient expansion failed for swarm=${input.swarmId} to=${input.toAgent}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+    // PERF: the JSONL mirror is a best-effort DEBUG artifact (the DB row above is
+    // the durable system-of-record). Write it with async fs so the per-message
+    // file I/O does not block the main process — the single-writer `drain()`
+    // queue still awaits each `doAppend`, so per-recipient ordering is preserved.
     for (const key of recipients) {
       try {
         const p = this.inboxPathFor(input.swarmId, key);
-        fs.mkdirSync(path.dirname(p), { recursive: true });
-        fs.appendFileSync(p, line);
+        await fs.promises.mkdir(path.dirname(p), { recursive: true });
+        await fs.promises.appendFile(p, line);
       } catch (err) {
         console.warn(
           `[mailbox] JSONL mirror failed for swarm=${input.swarmId} agent=${key}: ${err instanceof Error ? err.message : String(err)}`,
@@ -196,8 +200,8 @@ export class SwarmMailbox {
     }
     try {
       const outboxPath = path.join(this.userDataDir, 'swarms', input.swarmId, 'outbox.jsonl');
-      fs.mkdirSync(path.dirname(outboxPath), { recursive: true });
-      fs.appendFileSync(outboxPath, line);
+      await fs.promises.mkdir(path.dirname(outboxPath), { recursive: true });
+      await fs.promises.appendFile(outboxPath, line);
     } catch (err) {
       console.warn(
         `[mailbox] outbox mirror failed for swarm=${input.swarmId}: ${err instanceof Error ? err.message : String(err)}`,

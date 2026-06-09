@@ -414,12 +414,14 @@ export async function runShellLine(
   // On Windows, resolve PATH+PATHEXT for extensionless commands so npm-installed
   // CLIs (`.cmd` shims) can be found by the argument-array spawn (which does
   // NOT honour PATHEXT). `.cmd`/`.bat` shims are routed through `cmd.exe`.
+  let windowsVerbatimArguments = false;
   if (process.platform === 'win32') {
     const resolved = buildWindowsSpawnArgs(cmd, args);
     cmd = resolved.command;
     args = resolved.args;
+    windowsVerbatimArguments = resolved.windowsVerbatimArguments ?? false;
   }
-  const res = await execCmd(cmd, args, { cwd, timeoutMs });
+  const res = await execCmd(cmd, args, { cwd, timeoutMs, windowsVerbatimArguments });
   return { stdout: res.stdout, stderr: res.stderr, code: res.code };
 }
 
@@ -496,6 +498,54 @@ export async function worktreeAdd(args: {
   if (res.code !== 0) {
     throw new Error(`git worktree add failed: ${res.stderr || res.stdout}`);
   }
+}
+
+/**
+ * Recreate a git worktree whose directory has gone missing on disk — e.g. it
+ * was deleted while the app was closed, removed with an external
+ * `git worktree remove`, or reaped by an older release's cleanup. Used by the
+ * resume path so a pane never spawns into a non-existent cwd (which silently
+ * lands the CLI in the user's home dir and resumes the wrong project context —
+ * the "black/error pane after force-quit" report).
+ *
+ * No-op when the directory already exists. Otherwise it prunes any stale
+ * worktree admin entry git still holds for the path, then re-attaches the
+ * EXISTING branch there (no `-b`). If the branch is gone (merged/deleted) it
+ * creates a fresh branch at HEAD as a last resort. Returns `{ ok: false }`
+ * (never throws) so the caller can fall back to a valid cwd.
+ */
+export async function ensureWorktree(args: {
+  repoRoot: string;
+  worktreePath: string;
+  branch: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  if (fs.existsSync(args.worktreePath)) return { ok: true };
+  if (!args.branch) return { ok: false, error: 'no branch recorded for worktree' };
+  // Clear any stale admin entry for the now-missing path so the re-add below
+  // does not fail with "already registered".
+  await worktreePruneRepo(args.repoRoot);
+  try {
+    fs.mkdirSync(path.dirname(args.worktreePath), { recursive: true });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  // Re-attach the EXISTING branch at the path (no `-b`).
+  let res = await execCmd(
+    'git',
+    ['worktree', 'add', args.worktreePath, args.branch],
+    { cwd: args.repoRoot, timeoutMs: 30_000 },
+  );
+  if (res.code !== 0) {
+    // Branch may have been deleted/merged away — recreate it fresh at HEAD.
+    res = await execCmd(
+      'git',
+      ['worktree', 'add', '-b', args.branch, args.worktreePath, 'HEAD'],
+      { cwd: args.repoRoot, timeoutMs: 30_000 },
+    );
+  }
+  return res.code === 0
+    ? { ok: true }
+    : { ok: false, error: res.stderr || res.stdout };
 }
 
 export async function worktreeRemove(repoRoot: string, worktreePath: string): Promise<void> {

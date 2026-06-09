@@ -12,13 +12,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// Capture the REAL host platform once. The afterEach must restore THIS, not a
+// hardcoded 'darwin' — otherwise the win32 integration test below runs with a
+// stale 'darwin' platform and takes the POSIX pass-through (never resolving the
+// .cmd shim), failing with `spawn echo-hello ENOENT`.
+const ORIGINAL_PLATFORM = process.platform;
+
 afterEach(() => {
-  // Restore the real platform so other test files are unaffected.
   Object.defineProperty(process, 'platform', {
-    value: 'darwin', // reset to host; actual value doesn't matter for unit tests
+    value: ORIGINAL_PLATFORM,
     configurable: true,
   });
   vi.unstubAllEnvs();
+  // Drop the per-test `vi.doMock('./windows-spawn', …)` factory. resetModules()
+  // alone clears the module cache but NOT the registered mock factory, so it
+  // would leak into the real-module integration test below (`spawn unknown-tool
+  // ENOENT`). doUnmock ensures the integration test imports the REAL module.
+  vi.doUnmock('./windows-spawn');
   vi.resetModules();
 });
 

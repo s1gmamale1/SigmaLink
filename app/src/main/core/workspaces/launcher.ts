@@ -33,6 +33,7 @@ import { readWorktreeMode } from './worktree-mode';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, effectivePaneSpawnMode } from '../pty/local-pty';
 import { writeGuardrailBlock } from './guardrail-block';
 import { ensureRufloMcpForPane } from './ruflo-mcp-policy';
+import { ENABLE_RUFLO_HTTP_DAEMON } from './factory';
 import { allocateLowestFreeLivePaneIndex } from './pane-slots';
 import { isPtyCrash } from '../pty/crash';
 import { maybeAutoCheckpoint } from '../git/auto-checkpoint';
@@ -292,6 +293,7 @@ export async function executeLaunchPlan(
             runtimeProfileId,
             rawDb: getRawDb(),
             daemon: shared.rufloHttpDaemonSupervisor,
+            httpDaemonEnabled: ENABLE_RUFLO_HTTP_DAEMON,
           });
           if (rufloResult.transport === 'http') {
             rufloMcpPort = rufloResult.port;

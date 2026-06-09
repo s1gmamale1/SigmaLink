@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import type Database from 'better-sqlite3';
 import type { PtyRegistry, SessionRecord } from './registry';
 import type { AgentProviderDefinition } from '../../../shared/providers';
@@ -14,6 +15,7 @@ import {
   prepareGeminiResume,
 } from './gemini-resume-sigma';
 import { workspaceCwdInWorktree } from '../workspaces/worktree-cwd';
+import { ensureWorktree } from '../git/git-ops';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode } from './local-pty';
 
 export interface PaneResumeSuccess {
@@ -174,6 +176,7 @@ interface ResumeRow {
   providerEffective: string | null;
   cwd: string;
   worktreePath: string | null;
+  branch: string | null;
   workspaceRoot: string;
   repoRoot: string | null;
   externalSessionId: string | null;
@@ -300,6 +303,7 @@ function listEligibleRows(db: Database.Database, workspaceId: string): ResumeRow
          s.provider_effective AS providerEffective,
          s.cwd,
          s.worktree_path AS worktreePath,
+         s.branch AS branch,
          w.root_path AS workspaceRoot,
          w.repo_root AS repoRoot,
          s.external_session_id AS externalSessionId,
@@ -319,6 +323,80 @@ function listEligibleRows(db: Database.Database, workspaceId: string): ResumeRow
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/**
+ * Un-fail zombie-marked swarms once a workspace's panes are alive again.
+ *
+ * The boot janitor (db/janitor.ts) marks every swarm still `status='running'`
+ * as `'failed'` because its PTYs died with the previous process. The resume /
+ * respawn paths then revive the workspace's SESSIONS back to 'running', but
+ * nothing ever flipped the swarm row back — so the renderer's
+ * `activeSwarm.status !== 'running'` gate left "+ Pane" permanently locked
+ * ("Swarm is paused — resume it to add panes") on a workspace full of healthy
+ * panes, with no swarms.resume RPC to escape. (Hit constantly on Windows after
+ * the pane-crash era filled the DB with janitor-failed swarms; macOS rarely
+ * surfaced it because the app usually stayed open.)
+ *
+ * Heals ONLY `'failed'` swarms — an operator stop writes `'completed'`, which
+ * is a deliberate end state and stays ended. Exported for unit tests.
+ */
+export function unfailZombieSwarms(
+  db: Pick<Database.Database, 'prepare'>,
+  workspaceId: string,
+): number {
+  try {
+    const res = db
+      .prepare(
+        "UPDATE swarms SET status = 'running', ended_at = NULL WHERE workspace_id = ? AND status = 'failed'",
+      )
+      .run(workspaceId);
+    return Number(res.changes ?? 0);
+  } catch {
+    /* best-effort — a heal failure must never block the resume itself */
+    return 0;
+  }
+}
+
+/**
+ * Resolve the cwd for a resume/respawn spawn, recreating the git worktree when
+ * its directory has gone missing on disk (Part B of the force-quit resume bug:
+ * docs/08-bugs/2026-06-05-pane-resume-crash-after-forcequit.md).
+ *
+ * A pane must never spawn into a non-existent cwd — node-pty silently falls back
+ * to the user's home dir (local-pty.ts), so the CLI resumes with the wrong
+ * project context and the pane comes back as a black/error pane. We recreate the
+ * worktree at its stored path+branch; if that cannot be done we fall back to a
+ * null worktree path so `workspaceCwdInWorktree` resolves to the workspace root
+ * (a valid project directory) instead of a missing path.
+ */
+async function resolveResumeCwd(row: {
+  workspaceRoot: string;
+  repoRoot: string | null;
+  worktreePath: string | null;
+  branch: string | null;
+}): Promise<string> {
+  let worktreePath = row.worktreePath;
+  if (worktreePath && row.repoRoot && !fs.existsSync(worktreePath)) {
+    const reattached = await ensureWorktree({
+      repoRoot: row.repoRoot,
+      worktreePath,
+      branch: row.branch ?? '',
+    });
+    if (!reattached.ok) {
+      console.warn(
+        '[resume] worktree missing and could not be recreated (%s) — falling back to workspace root: %s',
+        worktreePath,
+        reattached.error,
+      );
+      worktreePath = null;
+    }
+  }
+  return workspaceCwdInWorktree({
+    workspaceRoot: row.workspaceRoot,
+    repoRoot: row.repoRoot,
+    worktreePath,
+  });
 }
 
 // v1.2.8 — "Respawn fresh" recovery. When the resume flow marks rows as
@@ -341,6 +419,7 @@ interface RespawnRow {
   providerEffective: string | null;
   cwd: string;
   worktreePath: string | null;
+  branch: string | null;
   workspaceRoot: string;
   repoRoot: string | null;
 }
@@ -361,6 +440,7 @@ function listRespawnableRows(
          s.provider_effective AS providerEffective,
          s.cwd,
          s.worktree_path AS worktreePath,
+         s.branch AS branch,
          w.root_path AS workspaceRoot,
          w.repo_root AS repoRoot
        FROM agent_sessions s
@@ -396,11 +476,7 @@ export async function respawnFailedWorkspacePanes(
 
   for (const row of rows) {
     const providerId = row.providerEffective ?? row.providerId;
-    const cwd = workspaceCwdInWorktree({
-      workspaceRoot: row.workspaceRoot,
-      repoRoot: row.repoRoot,
-      worktreePath: row.worktreePath,
-    });
+    const cwd = await resolveResumeCwd(row);
     try {
       if (providerId === 'claude') {
         await prepareClaudeWorkspaceContext(row.workspaceRoot, cwd, {
@@ -444,6 +520,10 @@ export async function respawnFailedWorkspacePanes(
       failed += 1;
     }
   }
+
+  // Panes are alive again — clear the boot janitor's zombie 'failed' mark so
+  // the "+ Pane" gate unlocks (see unfailZombieSwarms).
+  if (spawned > 0) unfailZombieSwarms(db, workspaceId);
 
   return { workspaceId, spawned, failed };
 }
@@ -493,11 +573,7 @@ export async function resumeWorkspacePanes(
 
     const resumeProviderId = row.providerEffective ?? row.providerId;
     let externalSessionId = row.externalSessionId?.trim() ?? null;
-    const cwd = workspaceCwdInWorktree({
-      workspaceRoot: row.workspaceRoot,
-      repoRoot: row.repoRoot,
-      worktreePath: row.worktreePath,
-    });
+    const cwd = await resolveResumeCwd(row);
 
     // v1.2.8 — the provider definition is only consulted for the unknown-
     // provider skip path. Resume argv is built locally by `buildResumeArgs`
@@ -646,6 +722,10 @@ export async function resumeWorkspacePanes(
       });
     }
   }
+
+  // Panes are alive again — clear the boot janitor's zombie 'failed' mark so
+  // the "+ Pane" gate unlocks (see unfailZombieSwarms).
+  if (result.resumed.length > 0) unfailZombieSwarms(db, workspaceId);
 
   return result;
 }

@@ -22,11 +22,35 @@ describe('ensureRufloMcpForPane', () => {
       rawDb: rawDb({}),
       daemon: { spawn, port: vi.fn(() => null) },
       writeRuflo: write,
+      httpDaemonEnabled: true,
     });
 
     expect(spawn).toHaveBeenCalledWith('ws1', '/workspace');
     expect(write).toHaveBeenCalledWith('/cwd', { port: 4567, trust: true });
     expect(result.transport).toBe('http');
+  });
+
+  it('does NOT spawn the daemon when httpDaemonEnabled is false (default) — straight to stdio', async () => {
+    // B4 / Windows lag fix: with the HTTP daemon disabled, the per-pane policy
+    // must skip daemon.spawn() entirely (no ~10s health-wait stall) and write a
+    // stdio entry. This is the default when callers omit the flag.
+    const spawn = vi.fn();
+    const write = vi.fn().mockReturnValue({ claude: '/cwd/.mcp.json', trusted: true });
+
+    const result = await ensureRufloMcpForPane({
+      cwd: '/cwd',
+      workspaceId: 'ws1',
+      workspaceRoot: '/workspace',
+      runtimeProfileId: 'ruflo-core',
+      rawDb: rawDb({}),
+      daemon: { spawn, port: vi.fn(() => null) },
+      writeRuflo: write,
+      // httpDaemonEnabled omitted -> defaults to disabled
+    });
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(write).toHaveBeenCalledWith('/cwd', { port: undefined, trust: true });
+    expect(result.transport).toBe('stdio');
   });
 
   it('reuses an already running daemon port without spawning', async () => {
@@ -59,6 +83,7 @@ describe('ensureRufloMcpForPane', () => {
       rawDb: rawDb({}),
       daemon: { spawn: vi.fn().mockResolvedValue(null), port: vi.fn(() => null) },
       writeRuflo: write,
+      httpDaemonEnabled: true,
     });
 
     expect(write).toHaveBeenCalledWith('/cwd', { port: undefined, trust: true });

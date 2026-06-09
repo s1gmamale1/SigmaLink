@@ -55,7 +55,7 @@ export interface RemoveWorkspaceDeps {
  * (no port). Flip this to `true` ONLY once a `@claude-flow/cli` version is
  * verified to keep `mcp start -t http -p N` alive AND answer GET /health.
  */
-const ENABLE_RUFLO_HTTP_DAEMON = false;
+export const ENABLE_RUFLO_HTTP_DAEMON = false;
 
 function rowToWorkspace(row: typeof workspaces.$inferSelect): Workspace {
   return {

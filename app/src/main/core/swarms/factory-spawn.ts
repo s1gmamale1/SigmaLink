@@ -36,6 +36,7 @@ import {
 } from '../pty/claude-resume-sigma';
 import { writeGuardrailBlock } from '../workspaces/guardrail-block';
 import { ensureRufloMcpForPane } from '../workspaces/ruflo-mcp-policy';
+import { ENABLE_RUFLO_HTTP_DAEMON } from '../workspaces/factory';
 import { getSharedDeps } from '../../rpc-router';
 import { allocateLowestFreeLivePaneIndex } from '../workspaces/pane-slots';
 import { isPtyCrash } from '../pty/crash';
@@ -79,6 +80,7 @@ async function ensureRufloInWorktreeCwd(
         port: () => null,
         spawn: async () => null,
       },
+      httpDaemonEnabled: ENABLE_RUFLO_HTTP_DAEMON,
     });
     return result.transport === 'http' ? result.port : undefined;
   } catch {

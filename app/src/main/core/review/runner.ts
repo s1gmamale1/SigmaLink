@@ -67,10 +67,12 @@ export class ReviewRunner {
     }
 
     let [cmd, ...args] = tokens;
+    let windowsVerbatimArguments = false;
     if (process.platform === 'win32') {
       const resolved = buildWindowsSpawnArgs(cmd, args);
       cmd = resolved.command;
       args = resolved.args;
+      windowsVerbatimArguments = resolved.windowsVerbatimArguments ?? false;
     }
 
     const runId = crypto.randomUUID();
@@ -79,6 +81,7 @@ export class ReviewRunner {
       env: process.env,
       shell: false,
       windowsHide: true,
+      windowsVerbatimArguments,
     });
     this.active.set(input.sessionId, {
       child,

@@ -31,13 +31,20 @@ import { buildWindowsSpawnArgs } from './windows-spawn';
 export function buildSpawnArgs(
   cmd: string,
   args: string[],
-): { bin: string; argv: string[] } {
+  env: NodeJS.ProcessEnv = process.env,
+): { bin: string; argv: string[]; windowsVerbatimArguments?: boolean } {
   if (process.platform !== 'win32') {
     return { bin: cmd, argv: args };
   }
 
-  const resolved = buildWindowsSpawnArgs(cmd, args);
-  return { bin: resolved.command, argv: resolved.args };
+  // Resolve against the SAME env the child will run with (PATH/PATHEXT) so a
+  // command that lives only in the caller's custom PATH is still found.
+  const resolved = buildWindowsSpawnArgs(cmd, args, env);
+  return {
+    bin: resolved.command,
+    argv: resolved.args,
+    windowsVerbatimArguments: resolved.windowsVerbatimArguments,
+  };
 }
 
 /**
@@ -56,6 +63,11 @@ export function spawnExecutable(
   args: string[],
   opts: SpawnOptions,
 ): ChildProcessWithoutNullStreams {
-  const { bin, argv } = buildSpawnArgs(cmd, args);
-  return spawn(bin, argv, opts) as ChildProcessWithoutNullStreams;
+  const { bin, argv, windowsVerbatimArguments } = buildSpawnArgs(cmd, args, opts.env ?? process.env);
+  // A `cmd.exe /d /s /c "<inner>"` wrap must be passed verbatim so child_process
+  // does not re-quote (and thereby break) the pre-escaped inner command line.
+  const effectiveOpts: SpawnOptions = windowsVerbatimArguments
+    ? { ...opts, windowsVerbatimArguments: true }
+    : opts;
+  return spawn(bin, argv, effectiveOpts) as ChildProcessWithoutNullStreams;
 }

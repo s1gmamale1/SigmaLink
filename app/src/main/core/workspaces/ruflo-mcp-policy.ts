@@ -21,6 +21,15 @@ export interface EnsureRufloMcpForPaneInput {
     opts: { port?: number; trust?: boolean },
   ) => WriteRufloIntoCwdResult;
   logger?: Pick<Console, 'warn'>;
+  /**
+   * B4 — honor the same gate as workspaces/factory.ts (ENABLE_RUFLO_HTTP_DAEMON).
+   * The Ruflo HTTP daemon is upstream-broken; on Windows a bare `spawn('npx')`
+   * ENOENTs and the supervisor then BLOCKS ~10s PER PANE waiting for health
+   * before falling over to stdio. When false (the default) we skip the spawn
+   * entirely and write stdio entries — removing the per-pane stall that made
+   * a multi-pane workspace take minutes to open. Callers pass the gate value.
+   */
+  httpDaemonEnabled?: boolean;
 }
 
 export interface EnsureRufloMcpForPaneResult {
@@ -44,7 +53,12 @@ export async function ensureRufloMcpForPane(
   const logger = input.logger ?? console;
 
   let port = safePort(input.daemon.port(input.workspaceId));
-  if (port === undefined) {
+  // B4: only attempt to spawn the per-workspace HTTP daemon when it is enabled.
+  // While disabled (the default), spawning it per pane on Windows ENOENTs then
+  // blocks ~10s waiting for health before falling over to stdio — multiplied by
+  // every pane, that was the bulk of the multi-minute "workspace creation" lag.
+  // Skipping straight to stdio (the working transport) removes that stall.
+  if (port === undefined && input.httpDaemonEnabled) {
     try {
       const handle = await input.daemon.spawn(input.workspaceId, input.workspaceRoot);
       port = safePort(handle?.port ?? null);
