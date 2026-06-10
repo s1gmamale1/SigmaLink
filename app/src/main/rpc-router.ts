@@ -1067,14 +1067,23 @@ async function buildRouter() {
       } catch {
         /* flag read failed — default off */
       }
-      return resumeWorkspacePanes(workspaceId, { pty, loadScrollbackForSession });
+      return resumeWorkspacePanes(workspaceId, {
+        pty,
+        loadScrollbackForSession,
+        // finding 2 — resumed panes get the same crash-classification IPC as
+        // fresh launches (executeLaunchPlan already threads this below).
+        broadcastPtyError: (payload) => broadcast('pty:error', payload),
+      });
     },
     // v1.2.8 — "Respawn fresh" toast action. Re-spawns every pane the resume
     // flow marked as `status='exited' AND exit_code=-1` using the same
     // worktree + provider but with no resume args; returns counts so the
     // renderer can confirm via follow-up toast.
     respawnFailed: async (workspaceId: string) =>
-      respawnFailedWorkspacePanes(workspaceId, { pty }),
+      respawnFailedWorkspacePanes(workspaceId, {
+        pty,
+        broadcastPtyError: (payload) => broadcast('pty:error', payload),
+      }),
     // P6 FEAT-1 — on-demand subset relaunch from the "Resume agents…" command.
     // ADDITIVE: the boot auto-resume keeps calling `resume(workspaceId)` with no
     // subset (full behaviour). This passes the operator-chosen `sessionIds`
@@ -1097,7 +1106,15 @@ async function buildRouter() {
       const ids = Array.isArray(sessionIds)
         ? sessionIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
         : [];
-      return resumeWorkspacePanes(workspaceId, { pty, loadScrollbackForSession }, ids);
+      return resumeWorkspacePanes(
+        workspaceId,
+        {
+          pty,
+          loadScrollbackForSession,
+          broadcastPtyError: (payload) => broadcast('pty:error', payload),
+        },
+        ids,
+      );
     },
     // v1.3.0 — Session picker: list provider sessions for a cwd. Delegates
     // entirely to the disk-scanner; never throws (returns []).
