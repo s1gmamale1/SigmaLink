@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStateSelector } from '@/renderer/app/state';
 import { rpc } from '@/renderer/lib/rpc';
 import type { ChatMessageView, ChatRole } from './ChatTranscript';
@@ -69,6 +69,12 @@ export function useJorvisConversations(): UseJorvisConversationsReturn {
   const [messages, setMessages] = useState<ChatMessageView[]>([]);
   const [resumeNotice, setResumeNotice] = useState<ResumeNotice | null>(null);
 
+  // 2026-06-10 audit #2 — monotonic hydrate request token. Every entry point
+  // that starts (or invalidates) a hydration bumps it; hydrateConversation
+  // re-checks it after the await and discards superseded resolutions, so an
+  // out-of-order RPC can never paint a stale conversation/workspace.
+  const hydrateRequestTokenRef = useRef(0);
+
   /** P3-S7 — Refresh the Conversations panel from the side-band channel.
    *  Pulled into a callback so the panel can re-fetch after a delete or
    *  after a fresh `assistant.send` upgrades a transient client-side row
@@ -90,12 +96,17 @@ export function useJorvisConversations(): UseJorvisConversationsReturn {
   );
 
   /** Hydrate a specific conversation into the transcript. Falls back to a
-   *  blank slate when the row no longer exists (e.g. it was just deleted). */
+   *  blank slate when the row no longer exists (e.g. it was just deleted).
+   *  Token-guarded: a newer hydrate (or a workspace switch / clear) bumps
+   *  `hydrateRequestTokenRef`, and this resolution is discarded before ANY
+   *  setState if it has been superseded. */
   const hydrateConversation = useCallback(async (id: string): Promise<void> => {
+    const token = ++hydrateRequestTokenRef.current;
     try {
       const res = await invokeSideBand<ConvGet>('assistant.conversations.get', {
         conversationId: id,
       });
+      if (token !== hydrateRequestTokenRef.current) return; // superseded — drop
       if (!res.conversation) {
         setConversationId(null);
         setMessages([]);
@@ -163,6 +174,9 @@ export function useJorvisConversations(): UseJorvisConversationsReturn {
     })();
     return () => {
       alive = false;
+      // 2026-06-10 audit #2 — a hydrate started under the OLD workspace must
+      // not paint into the new one; bump the token so its resolution is dropped.
+      hydrateRequestTokenRef.current += 1;
     };
   }, [wsId, refreshConversations, hydrateConversation]);
 
@@ -203,6 +217,8 @@ export function useJorvisConversations(): UseJorvisConversationsReturn {
   );
 
   const clearConversation = useCallback(() => {
+    // A pending hydrate must not resurrect the cleared thread.
+    hydrateRequestTokenRef.current += 1;
     setConversationId(null);
     setMessages([]);
     setResumeNotice(null);

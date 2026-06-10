@@ -14,6 +14,15 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useCanDo } from '@/renderer/lib/canDo';
 
+/** 2026-06-10 audit #5 — a programmatic composer push. The `nonce` is a
+ *  monotonic token: bump it on EVERY push so consecutive pushes of the same
+ *  string (clearing to '' after each send) still apply — a bare string prop
+ *  dedups on Object.is and leaves typed-but-unsent text in the textarea. */
+export interface ComposerExternalValue {
+  value: string;
+  nonce: number;
+}
+
 interface Props {
   busy: boolean;
   onSend: (prompt: string) => void;
@@ -28,7 +37,7 @@ interface Props {
   /** Phase 4 Track C — externally-set value (e.g. when the pattern ribbon's
    *  "Apply" CTA fills the composer). When provided the composer becomes
    *  controlled until the user types again. */
-  externalValue?: string;
+  externalValue?: ComposerExternalValue;
 }
 
 export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer(
@@ -44,15 +53,16 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
     else if (externalRef) (externalRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = innerRef.current;
   }, [externalRef]);
 
-  // Phase 4 Track C — sync controlled value pushes (e.g. ribbon Apply).
-  // Microtask-deferred so the lint rule `react-hooks/set-state-in-effect`
-  // is satisfied; the parent only updates `externalValue` on user actions
-  // so the brief async hop is invisible.
+  // Phase 4 Track C — sync controlled value pushes (ribbon Apply, pane-context
+  // drop, post-send clear). Each push is a fresh `{value, nonce}` object so
+  // the dep changes — and the effect re-fires — even when `value` repeats.
+  // Timeout-deferred so the lint rule `react-hooks/set-state-in-effect` is
+  // satisfied; the parent only pushes on user actions so the hop is invisible.
   useEffect(() => {
-    if (typeof externalValue !== 'string') return;
+    if (!externalValue) return;
     let alive = true;
     const id = window.setTimeout(() => {
-      if (alive) setValue(externalValue);
+      if (alive) setValue(externalValue.value);
     }, 0);
     return () => {
       alive = false;

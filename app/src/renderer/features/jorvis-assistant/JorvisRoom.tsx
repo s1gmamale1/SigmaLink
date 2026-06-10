@@ -17,7 +17,7 @@ import { EmptyState } from '@/renderer/components/EmptyState';
 import { cn } from '@/lib/utils';
 import { Orb, type OrbState } from './Orb';
 import { ChatTranscript } from './ChatTranscript';
-import { Composer } from './Composer';
+import { Composer, type ComposerExternalValue } from './Composer';
 import { ToolCallInspector } from './ToolCallInspector';
 import { ConversationsPanel } from './ConversationsPanel';
 import { PaneEventCard, type PaneEvent } from './PaneEventCard';
@@ -88,7 +88,15 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
   const [busy, setBusy] = useState(false);
   const [composerText, setComposerText] = useState('');
   const [ribbonHidden, setRibbonHidden] = useState(false);
-  const [composerExternalValue, setComposerExternalValue] = useState<string | undefined>(undefined);
+  const [composerExternalValue, setComposerExternalValue] = useState<
+    ComposerExternalValue | undefined
+  >(undefined);
+  /** 2026-06-10 audit #5 — every programmatic composer push goes through
+   *  here. The nonce bump makes consecutive identical pushes (clearing to ''
+   *  after a banner-retry/voice send) distinct, so Composer always re-syncs. */
+  const pushComposerValue = useCallback((value: string) => {
+    setComposerExternalValue((prev) => ({ value, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
   const lastSentPromptRef = useRef<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -105,6 +113,16 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
+  // 2026-06-10 audit #4 — mirror of `streaming` for the assistant-state
+  // handler: the standby commit reads the buffered delta from this ref as a
+  // sibling setState instead of nesting setMessages inside the setStreaming
+  // updater. The handler writes it synchronously per delta; this effect
+  // re-syncs it when JorvisRoom clears `streaming` externally (watchdog
+  // timeout, onNewConversation reset).
+  const streamingRef = useRef(streaming);
+  useEffect(() => {
+    streamingRef.current = streaming;
+  }, [streaming]);
   // B3 — per-turn watchdog timer. If a turn never reaches 'standby' within
   // TURN_WATCHDOG_MS the composer would be permanently gated; the watchdog
   // resets busy + orb so a hung turn can't brick the room.
@@ -135,6 +153,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
     rufloReadyRef,
     activeTurnIdRef,
     busyRef,
+    streamingRef,
     clearWatchdog,
   });
   const { onOrbClick } = useJorvisVoice({ composerRef, sendPromptRef, setOrbState });
@@ -164,7 +183,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
       }
       lastSentPromptRef.current = prompt;
       setComposerText('');
-      setComposerExternalValue('');
+      pushComposerValue('');
       setMessages((rows) => [
         ...rows,
         {
@@ -221,6 +240,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
       setMessages,
       refreshConversations,
       clearWatchdog,
+      pushComposerValue,
     ],
   );
 
@@ -260,7 +280,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
     try {
       const payload = JSON.parse(raw) as PaneDragPayload;
       void buildPaneContext(payload).then((ctx) => {
-        setComposerExternalValue(ctx);
+        pushComposerValue(ctx);
       }).catch(() => undefined);
     } catch {
       /* malformed payload — ignore */
@@ -366,7 +386,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
             pattern={patternHit.pattern}
             confidence={patternHit.confidence}
             onApply={() => {
-              setComposerExternalValue(patternHit.pattern);
+              pushComposerValue(patternHit.pattern);
               setComposerText(patternHit.pattern);
               setRibbonHidden(true);
               composerRef.current?.focus();
