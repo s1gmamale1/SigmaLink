@@ -31,7 +31,7 @@ export function useTerminalCacheGc(state: AppState): void {
     const seenNow = new Set<string>();
     // Walk every per-workspace session list. The flat `state.sessions`
     // array exists too, but the per-workspace map is the source of truth
-    // GridLayout / SessionTerminal subscribe to.
+    // PaneGrid / SessionTerminal subscribe to.
     for (const list of Object.values(state.sessionsByWorkspace)) {
       for (const session of list) seenNow.add(session.id);
     }

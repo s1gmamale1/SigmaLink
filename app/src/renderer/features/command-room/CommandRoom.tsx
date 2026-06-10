@@ -1,6 +1,6 @@
 // V3-W13-003 / V3-W13-004 / v1.1.4 Step 4: Command Room — multi-pane grid.
 //
-// Renders the per-workspace agent sessions inside a generic <GridLayout>.
+// Renders the per-workspace agent sessions inside the <PaneGrid> fill-grid.
 // Each cell stacks: PaneHeader (single h-7 strip) · (PaneSplash overlay +
 // SessionTerminal) · PaneFooter. The grid honours the launcher's preset
 // shape (1/2/3×3/4/6/8/9/10/12) and supports per-cell drag resize plus
