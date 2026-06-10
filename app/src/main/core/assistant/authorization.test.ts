@@ -81,8 +81,12 @@ function makeToolCtx(overrides: Partial<ToolContext> = {}): ToolContext {
 // ── contract: DANGEROUS_REMOTE membership ───────────────────────────────────
 
 describe('DANGEROUS_REMOTE contract', () => {
-  it('contains exactly prompt_agent', () => {
-    expect([...DANGEROUS_REMOTE]).toEqual(['prompt_agent']);
+  it('contains exactly prompt_agent and close_pane', () => {
+    expect([...DANGEROUS_REMOTE].sort()).toEqual(['close_pane', 'prompt_agent']);
+  });
+
+  it('close_pane is gated (kills a pane — strictly more destructive than prompt_agent)', () => {
+    expect(DANGEROUS_REMOTE.has('close_pane')).toBe(true);
   });
 
   it('summarizeArgs renders a one-liner and truncates long values', () => {
@@ -91,6 +95,11 @@ describe('DANGEROUS_REMOTE contract', () => {
     expect(s).toContain('sessionId=sess-1');
     expect(s).toContain('…');
     expect(s.length).toBeLessThan(300);
+  });
+
+  it('summarizeArgs renders close_pane { sessionId } via the generic path', () => {
+    const s = summarizeArgs('close_pane', { sessionId: 'sess-1' });
+    expect(s).toBe('close_pane(sessionId=sess-1)');
   });
 });
 
@@ -211,6 +220,82 @@ describe('R-1 authorization gate — prompt_agent', () => {
     seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: '/tmp/ws-1' });
     const out = await invoke({ name: 'list_workspaces', args: {}, origin: 'telegram' });
     expect(out.ok).toBe(true);
+  });
+});
+
+// ── authorization gate — close_pane (kills a pane) ──────────────────────────
+
+describe('R-1 authorization gate — close_pane', () => {
+  type InvokeTool = (input: {
+    conversationId?: string;
+    name: string;
+    args: Record<string, unknown>;
+    origin?: 'local' | 'telegram';
+    confirmDangerous?: (toolName: string, summary: string) => Promise<boolean>;
+  }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
+
+  function makeInvoke(): { invoke: InvokeTool; ptyKill: ReturnType<typeof vi.fn> } {
+    const ptyKill = vi.fn();
+    const deps = makeDeps({
+      pty: { write: vi.fn(), kill: ptyKill } as unknown as AssistantControllerDeps['pty'],
+    });
+    const { controller } = buildAssistantController(deps);
+    const invoke = (controller as unknown as { invokeTool: InvokeTool }).invokeTool;
+    return { invoke, ptyKill };
+  }
+
+  it('telegram + no confirmDangerous → BLOCKED, pane not killed', async () => {
+    const { invoke, ptyKill } = makeInvoke();
+    const out = await invoke({
+      name: 'close_pane',
+      args: { sessionId: 'sess-1' },
+      origin: 'telegram',
+    });
+    expect(out.ok).toBe(false);
+    expect(out.error).toBe('This action needs confirmation and was not approved.');
+    expect(ptyKill).not.toHaveBeenCalled();
+  });
+
+  it('telegram + confirmDangerous resolves false → BLOCKED, pane not killed', async () => {
+    const { invoke, ptyKill } = makeInvoke();
+    const confirmDangerous = vi.fn(async () => false);
+    const out = await invoke({
+      name: 'close_pane',
+      args: { sessionId: 'sess-1' },
+      origin: 'telegram',
+      confirmDangerous,
+    });
+    expect(out.ok).toBe(false);
+    expect(out.error).toBe('This action needs confirmation and was not approved.');
+    expect(confirmDangerous).toHaveBeenCalledWith('close_pane', expect.stringContaining('close_pane('));
+    expect(ptyKill).not.toHaveBeenCalled();
+  });
+
+  it('telegram + confirmDangerous resolves true → ALLOWED, pane killed', async () => {
+    const { invoke, ptyKill } = makeInvoke();
+    const confirmDangerous = vi.fn(async () => true);
+    const out = await invoke({
+      name: 'close_pane',
+      args: { sessionId: 'sess-1' },
+      origin: 'telegram',
+      confirmDangerous,
+    });
+    expect(out.ok).toBe(true);
+    expect(ptyKill).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('local origin → NOT gated (confirmDangerous never consulted)', async () => {
+    const { invoke, ptyKill } = makeInvoke();
+    const confirmDangerous = vi.fn(async () => false);
+    const out = await invoke({
+      name: 'close_pane',
+      args: { sessionId: 'sess-1' },
+      origin: 'local',
+      confirmDangerous,
+    });
+    expect(out.ok).toBe(true);
+    expect(confirmDangerous).not.toHaveBeenCalled();
+    expect(ptyKill).toHaveBeenCalledWith('sess-1');
   });
 });
 

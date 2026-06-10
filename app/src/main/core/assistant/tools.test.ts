@@ -706,6 +706,70 @@ describe('BSP-B3 browser_snapshot — scanIngested integration', () => {
   });
 });
 
+describe('assistant close_pane tool', () => {
+  it('kills the PTY, marks DB row exited, emits assistant:pane-closed, returns ok', async () => {
+    // Seed a running session so the DB update has a row to mutate.
+    seedAgentSession(fake, {
+      id: 'sess-1',
+      workspaceId: 'ws-1',
+      providerId: 'codex',
+      status: 'running',
+    });
+
+    const kill = vi.fn();
+    const emit = vi.fn();
+    const ctx: ToolContext = {
+      ...makeCtx([], 'ws-1'),
+      pty: { ...makeCtx().pty, kill } as unknown as ToolContext['pty'],
+      emit,
+    };
+
+    const out = await findTool('close_pane')!.handler({ sessionId: 'sess-1' }, ctx);
+
+    // 1. PTY kill was called.
+    expect(kill).toHaveBeenCalledWith('sess-1');
+
+    // 2. DB row is now marked exited.
+    const rows = fake.store.tables.get('agent_sessions') ?? [];
+    const row = rows.find((r) => r['id'] === 'sess-1');
+    expect(row).toBeDefined();
+    expect(row!['status']).toBe('exited');
+    expect(row!['exitCode']).toBe(0);
+    expect(typeof row!['exitedAt']).toBe('number');
+
+    // 3. Renderer signal emitted.
+    expect(emit).toHaveBeenCalledWith('assistant:pane-closed', { sessionId: 'sess-1' });
+
+    // 4. Return value.
+    expect(out).toEqual({ ok: true, sessionId: 'sess-1' });
+  });
+
+  it('does not throw when ctx.emit is absent (back-compat)', async () => {
+    const kill = vi.fn();
+    const ctx: ToolContext = {
+      ...makeCtx([], 'ws-1'),
+      pty: { ...makeCtx().pty, kill } as unknown as ToolContext['pty'],
+    };
+    // No emit wired — must not throw.
+    const out = await findTool('close_pane')!.handler({ sessionId: 'sess-orphan' }, ctx);
+    expect(out).toMatchObject({ ok: true, sessionId: 'sess-orphan' });
+  });
+
+  it('does not throw when PTY kill throws (already-dead session is not an error)', async () => {
+    const kill = vi.fn(() => { throw new Error('unknown session'); });
+    const emit = vi.fn();
+    const ctx: ToolContext = {
+      ...makeCtx([], 'ws-1'),
+      pty: { ...makeCtx().pty, kill } as unknown as ToolContext['pty'],
+      emit,
+    };
+    const out = await findTool('close_pane')!.handler({ sessionId: 'dead-sess' }, ctx);
+    expect(out).toMatchObject({ ok: true, sessionId: 'dead-sess' });
+    // emit still fires even when kill throws.
+    expect(emit).toHaveBeenCalledWith('assistant:pane-closed', { sessionId: 'dead-sess' });
+  });
+});
+
 describe('assistant launch_pane echo (spec 2026-06-10 A)', () => {
   it('emits assistant:dispatch-echo once per spawned session', async () => {
     vi.mocked(executeLaunchPlan).mockResolvedValue({

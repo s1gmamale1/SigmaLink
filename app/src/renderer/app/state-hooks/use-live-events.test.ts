@@ -245,6 +245,50 @@ describe('useLiveEvents — v1.13.2 crash vs clean-exit subscribers', () => {
   });
 });
 
+describe('useLiveEvents — assistant:pane-closed → REMOVE_SESSION', () => {
+  it('dispatches REMOVE_SESSION when assistant:pane-closed fires with a valid sessionId', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('assistant:pane-closed', { sessionId: 's1' });
+      await Promise.resolve();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'REMOVE_SESSION', id: 's1' });
+  });
+
+  it('ignores assistant:pane-closed with no sessionId', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+    dispatch.mockClear();
+
+    await act(async () => {
+      sigma.emit('assistant:pane-closed', {});
+      await Promise.resolve();
+    });
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'REMOVE_SESSION' }),
+    );
+  });
+
+  it('ignores assistant:pane-closed with non-string sessionId', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+    dispatch.mockClear();
+
+    await act(async () => {
+      sigma.emit('assistant:pane-closed', { sessionId: 42 });
+      await Promise.resolve();
+    });
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'REMOVE_SESSION' }),
+    );
+  });
+});
+
 describe('useLiveEvents — v1.13.2 canonical swarm loader drives swarmsLoading', () => {
   it('dispatches SET_SWARMS_LOADING true then false around rpc.swarms.list', async () => {
     await renderLiveEvents(stateWith([session('s1')]));

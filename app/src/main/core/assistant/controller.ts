@@ -182,8 +182,9 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       return { ok: false, result: null, error: err };
     }
     // R-1 (Jorvis Telegram remote) — authorization gate. Remote-origin calls to
-    // DANGEROUS_REMOTE tools (currently `prompt_agent`, which writes raw bytes
-    // into a live PTY) require explicit human confirmation. Local-origin calls
+    // DANGEROUS_REMOTE tools (`prompt_agent`, which writes raw bytes into a live
+    // PTY; `close_pane`, which kills a pane) require explicit human
+    // confirmation. Local-origin calls
     // are NOT gated — in-app operator behaviour is unchanged. Free + contained
     // tools always pass through here (containment is enforced inside the tool
     // handlers themselves, for every origin).
