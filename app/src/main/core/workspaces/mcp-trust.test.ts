@@ -1,8 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ensureRufloTrusted } from './mcp-trust';
+import { ensureRufloTrusted, defaultRunCli } from './mcp-trust';
+
+const trustSpawnCalls: Array<{ cmd: string; args: string[] }> = [];
+vi.mock('../util/spawn-cross-platform', () => ({
+  spawnExecutable: (cmd: string, args: string[]) => {
+    trustSpawnCalls.push({ cmd, args });
+    return {
+      kill: () => {},
+      once: (event: string, cb: () => void) => {
+        if (event === 'exit') queueMicrotask(cb);
+      },
+      unref: () => {},
+    };
+  },
+}));
 
 let root: string;
 beforeEach(() => {
@@ -117,6 +131,16 @@ describe('ensureRufloTrusted — cursor + no-ops', () => {
       'noop',
       'noop',
       'noop',
+    ]);
+  });
+});
+
+describe('defaultRunCli', () => {
+  it('spawns cursor-agent via spawnExecutable so detect (.cmd-aware) and run agree', () => {
+    trustSpawnCalls.length = 0;
+    defaultRunCli('cursor-agent', ['mcp', 'enable', 'ruflo'], '/tmp');
+    expect(trustSpawnCalls).toEqual([
+      { cmd: 'cursor-agent', args: ['mcp', 'enable', 'ruflo'] },
     ]);
   });
 });
