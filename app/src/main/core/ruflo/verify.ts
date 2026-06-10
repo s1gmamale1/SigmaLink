@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawnExecutable } from '../util/spawn-cross-platform';
 
 export type RufloVerifyMode = 'fast' | 'strict';
 export type RufloVerifiedCli = 'claude' | 'codex' | 'gemini' | 'kimi' | 'opencode';
@@ -217,7 +217,8 @@ async function verifyStrict(
   return out;
 }
 
-function defaultProbeRunner(
+/** Exported for unit tests. */
+export function defaultProbeRunner(
   command: string,
   args: string[],
   opts: { cwd: string; timeoutMs: number },
@@ -226,7 +227,7 @@ function defaultProbeRunner(
     let stdout = '';
     let stderr = '';
     let settled = false;
-    const child = spawn(command, args, {
+    const child = spawnExecutable(command, args, {
       cwd: opts.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
