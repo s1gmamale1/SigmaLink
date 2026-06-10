@@ -334,20 +334,25 @@ describe('useLiveEvents — Fix 6: review refresh churn on session add/remove', 
     expect(reviewListMock).toHaveBeenCalledTimes(1);
   });
 
-  it('still refreshes review state when the review:changed event fires', async () => {
-    await renderLiveEvents(stateWith([session('s1')]));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(reviewListMock).toHaveBeenCalledTimes(1);
+  it('still refreshes review state when the review:changed event fires (after the 250 ms coalesce)', async () => {
+    vi.useFakeTimers();
+    try {
+      await renderLiveEvents(stateWith([session('s1')]));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(reviewListMock).toHaveBeenCalledTimes(1);
 
-    await act(async () => {
-      sigma.emit('review:changed', { workspaceId: 'a' });
-      await Promise.resolve();
-    });
+      await act(async () => {
+        sigma.emit('review:changed', { workspaceId: 'a' });
+        await vi.advanceTimersByTimeAsync(250); // trailing coalesce window
+      });
 
-    expect(reviewListMock).toHaveBeenCalledTimes(2);
+      expect(reviewListMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
