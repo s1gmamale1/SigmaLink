@@ -104,17 +104,13 @@ export function RightRailProvider({ children }: { children: ReactNode }) {
   );
 
   const toggleRail = useCallback(() => {
-    setRailOpenState((prev) => {
-      const next = !prev;
-      const str = String(next);
-      if (wsId) {
-        void writeWorkspaceUi(wsId, KV_OPEN, str);
-      } else {
-        void rpc.kv.set(KV_OPEN, str).catch(() => undefined);
-      }
-      return next;
-    });
-  }, [wsId]);
+    // 2026-06-10 — the KV write used to live INSIDE the setRailOpenState
+    // updater. Updaters must be pure: React may invoke them twice (StrictMode
+    // dev / render replay), double-firing the write. Compute the next value
+    // from the rendered state and delegate to setRailOpen, which owns the
+    // single state-set + KV-write path (DRY).
+    setRailOpen(!railOpen);
+  }, [railOpen, setRailOpen]);
 
   const value = useMemo<RightRailContextValue>(
     () => ({ activeTab, setActiveTab, railOpen, setRailOpen, toggleRail }),
