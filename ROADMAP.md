@@ -249,7 +249,9 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 **Definition of done.** Anti-drift matrix green at all 4 sites for every `GLOBAL_ROOMS` member; out-of-order hydrate test green; StrictMode double-invoke tests green; full gate + CI.
 
-## Phase 11 — Windows runtime readiness *(feeds the W-4 device dogfood)*
+## Phase 11 — Windows runtime readiness ⏸️ CODE-COMPLETE, HELD on Windows-device fix (branches `fix/win32-runtime` PR #146 + `fix/win32-platform`) *(feeds the W-4 device dogfood)*
+
+> **HOLD (2026-06-11):** both win32 plans are implemented + unit-green (the new windows-latest vitest leg passes), BUT PR #146's own new Windows CI caught a **real regression**: routing the best-effort `npx`/`ruflo` spawns through `spawnExecutable` makes them *actually run* `npx -y @claude-flow/cli@latest` on Windows (they ENOENT-no-op'd before), so during `workspaces.open` (which awaits the daemon spawn at `factory.ts:132`) the dogfood e2e hangs to the 180s timeout — `@claude-flow/cli` downloads + no tree-kill yet (taskkill `/T` is in the unmerged platform branch) → restart-loop download storm → runner saturation. **Main @ v2.1.0 is green on that test; #146 owns it.** Fix path (needs a Windows device/CI iteration — W-4): (1) make the daemon spawn non-blocking and/or availability-gate the `npx -y @latest` downloads so a no-ruflo machine keeps the old fast path; (2) land the platform branch's `taskkill /T /F` tree-kill so timed-out spawns are reaped; (3) re-run Windows smoke green, then merge both. Full root cause in PR #146's HOLD comment. Branches preserved on origin.
 
 **Goal.** Every CLI/daemon spawn works on stock Windows, process trees are killable and measurable, the resume bridge needs no privileges, and the whole `.cmd` class is CI-visible.
 
