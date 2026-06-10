@@ -30,6 +30,7 @@ import {
   gitDiffUnstaged,
   gitLog,
   gitStatus,
+  gitStatusSummary,
   listBranches,
   restoreCheckpoint,
   runShellLine,
@@ -1518,6 +1519,8 @@ async function buildRouter() {
 
   const gitCtl = defineController({
     status: async (cwd: string) => gitStatus(cwd),
+    // perf-hot-paths Task 3 — count-only summary for the pane-header poller.
+    statusSummary: async (cwd: string) => gitStatusSummary(cwd),
     diff: async (cwd: string) => gitDiff(cwd),
     runCommand: async (cwd: string, line: string, timeoutMs?: number) => {
       // H-4 — the renderer supplies cwd; contain it to a workspace/worktree

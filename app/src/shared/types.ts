@@ -87,6 +87,16 @@ export interface GitStatus {
   clean: boolean;
 }
 
+/** perf-hot-paths Task 3 — count-only mirror of GitStatus for the pane-header
+ *  15 s poll. One git proc + a 2-field payload instead of gitStatus's four
+ *  procs + full filename arrays. */
+export interface GitStatusSummary {
+  /** staged + unstaged + untracked entries, with gitStatus's exact
+   *  double-count semantics (an 'MM' file counts as staged AND unstaged). */
+  uncommitted: number;
+  clean: boolean;
+}
+
 export interface GitDiff {
   stat: string;
   patches: string;
