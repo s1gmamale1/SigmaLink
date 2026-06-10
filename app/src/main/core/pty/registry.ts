@@ -19,7 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { spawnLocalPty, resolveEffectiveSpawnMode, type PtyHandle, type SpawnInput } from './local-pty';
 import { RingBuffer } from './ring-buffer';
 import { detectLinks, type LinkHit } from './link-detector';
-import { extractSentinel } from './sentinel';
+import { extractSentinel, sliceSentinelCarry } from './sentinel';
 import {
   inspectProcessTree,
   stopProcessTree,
@@ -272,6 +272,12 @@ export class PtyRegistry {
     const linkSink = this.onLinkDetected;
     const shouldDetectLinks = this.shouldDetectLinks;
     const cliExitedSink = this.onCliExited;
+    // 2026-06-10 audit (finding 4) — per-session tail carried between PTY
+    // reads so a sentinel split across two (or more) chunks still matches.
+    // DETECTION-ONLY: bytes from a previous chunk were already forwarded to
+    // the renderer and can never be retracted, so the carry path never
+    // rewrites `data` — only whole-chunk matches keep the stripping behaviour.
+    let sentinelCarry = '';
     const unsubData = pty.onData((rawData) => {
       // v1.6.0 Phase 2 — sentinel detection (shell-first mode only).
       // In shell-first mode the injected command line ends with a `; printf …`
@@ -283,10 +289,28 @@ export class PtyRegistry {
         const match = extractSentinel(rawData);
         if (match !== null) {
           data = match.strippedData;
+          sentinelCarry = '';
           try {
             cliExitedSink({ sessionId: id, exitCode: match.exitCode });
           } catch {
             /* never let a cli-exited listener break the data stream */
+          }
+        } else {
+          // Cross-chunk: scan carry + chunk. A match here necessarily spans
+          // the chunk boundary (a whole-chunk match took the branch above),
+          // so the first half already rendered — fire the signal but forward
+          // the current chunk unchanged.
+          const combined = sentinelCarry + rawData;
+          const spanned = sentinelCarry.length > 0 ? extractSentinel(combined) : null;
+          if (spanned !== null) {
+            sentinelCarry = '';
+            try {
+              cliExitedSink({ sessionId: id, exitCode: spanned.exitCode });
+            } catch {
+              /* never let a cli-exited listener break the data stream */
+            }
+          } else {
+            sentinelCarry = sliceSentinelCarry(combined);
           }
         }
       }

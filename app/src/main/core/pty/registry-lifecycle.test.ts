@@ -44,6 +44,7 @@ vi.mock('../process/process-tree', () => processTreeMock);
 import { spawnLocalPty } from './local-pty';
 import { PtyRegistry } from './registry';
 import type { PtyHandle } from './local-pty';
+import { SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
 
 interface FakePty extends PtyHandle {
   killCalls: number;
@@ -226,5 +227,85 @@ describe('exit pane-event kind hardening (finding 5)', () => {
     const exitEvent = events.find((e) => e.kind === 'exited' || e.kind === 'error');
     expect(exitEvent?.kind).toBe('exited'); // a clean exit must not read as a crash
     expect(exitEvent?.exitCode).toBe(0);
+  });
+});
+
+describe('shell-first sentinel split across PTY reads (finding 4)', () => {
+  function createShellFirstSession(
+    cliExits: Array<{ sessionId: string; exitCode: number }>,
+    forwarded: string[],
+  ) {
+    const fake = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(fake.pty);
+    const registry = new PtyRegistry(
+      (_sid, data) => forwarded.push(data),
+      () => undefined,
+      { onCliExited: (info) => cliExits.push(info) },
+    );
+    const sess = registry.create({ ...baseInput, spawnMode: 'shell-first' });
+    return { fake, registry, sess };
+  }
+
+  it('fires onCliExited when the sentinel is split across two chunks', () => {
+    const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
+    const { fake, sess } = createShellFirstSession(cliExits, []);
+
+    fake.fireData(`CLI done\n${SENTINEL_PREFIX}`);
+    expect(cliExits).toHaveLength(0); // not complete yet
+    fake.fireData(`0${SENTINEL_SUFFIX}\n`);
+
+    expect(cliExits).toHaveLength(1);
+    expect(cliExits[0]).toEqual({ sessionId: sess.id, exitCode: 0 });
+  });
+
+  it('fires onCliExited when the sentinel is split across THREE chunks (multi-chunk carry)', () => {
+    const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
+    const { fake } = createShellFirstSession(cliExits, []);
+
+    fake.fireData('\n__SIGMALINK');
+    fake.fireData('_CLI_EXIT_4');
+    fake.fireData('2__\n');
+
+    expect(cliExits).toHaveLength(1);
+    expect(cliExits[0]?.exitCode).toBe(42);
+  });
+
+  it('forwards both raw halves unchanged (carry is detection-only, never retro-strips)', () => {
+    const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
+    const forwarded: string[] = [];
+    const { fake } = createShellFirstSession(cliExits, forwarded);
+
+    fake.fireData(`CLI done\n${SENTINEL_PREFIX}`);
+    fake.fireData(`0${SENTINEL_SUFFIX}\n`);
+
+    // Bytes already forwarded cannot be retracted; the carry must never
+    // rewrite the forwarded stream — only detect.
+    expect(forwarded).toEqual([`CLI done\n${SENTINEL_PREFIX}`, `0${SENTINEL_SUFFIX}\n`]);
+  });
+
+  it('does not false-positive on a partial prefix followed by unrelated text, and still catches a later real sentinel', () => {
+    const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
+    const { fake } = createShellFirstSession(cliExits, []);
+
+    fake.fireData(`\n${SENTINEL_PREFIX}`);
+    fake.fireData('… just ordinary CLI output flowing past the marker prefix, well over the carry cap …');
+    expect(cliExits).toHaveLength(0);
+
+    fake.fireData(`\n${SENTINEL_PREFIX}7${SENTINEL_SUFFIX}\n`);
+    expect(cliExits).toHaveLength(1);
+    expect(cliExits[0]?.exitCode).toBe(7);
+  });
+
+  it('whole-chunk sentinels still strip from the forwarded data (existing fast path unchanged)', () => {
+    const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
+    const forwarded: string[] = [];
+    const { fake } = createShellFirstSession(cliExits, forwarded);
+
+    fake.fireData(`visible\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\nprompt`);
+
+    expect(cliExits).toHaveLength(1);
+    expect(forwarded[0]).not.toContain(SENTINEL_PREFIX);
+    expect(forwarded[0]).toContain('visible');
+    expect(forwarded[0]).toContain('prompt');
   });
 });
