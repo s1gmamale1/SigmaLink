@@ -1,0 +1,60 @@
+SigmaLink v2.2.0 — Windows runtime readiness (2026-06-11)
+=========================================================
+
+v2.2.0 ships Phase 11 of the 2026-06-10 deep-dive audit — Windows runtime
+readiness — completing the audit's code work (Phases 3–11; Phase 12 dead-code
+is owned by a separate lane). macOS behavior is unchanged. Internal-use build;
+no signed-distribution changes.
+
+PR #148 (eb97a3a) — verified green on the new windows-latest CI smoke.
+
+Highlights
+----------
+- .cmd-shim CLI launch is correct on Windows. Replaced the broken cmdQuoteArg
+  escaping (carets literal inside cmd quotes; odd \" toggled quote state =
+  injection risk; %VAR% expanded through quotes) with cross-spawn's caret-escape
+  algorithm + npm-shim %* double-escape. Round-trip verified byte-for-byte across
+  hostile args.
+- Every npm .cmd-shim launch path routed through spawnExecutable (ruflo
+  http-daemon tiers incl. the launchChild crash-recovery twin, workspace-memory
+  seed, provider probes, cursor-agent trust) — no more ENOENT crash-loops.
+- Fixed a workspaces.open hang the spawn-routing introduced (and which the new
+  windows-latest CI leg caught): resolveLaunch() no longer auto-downloads
+  `npx -y @claude-flow/cli@latest` over the network during the awaited open —
+  it returns null when ruflo isn't installed (fast stdio fallback), and seeding
+  is gated on commandOnPath('ruflo'). ruflo-installed machines unchanged.
+- "Open in Terminal" + scratch shell fixed (verbatim cd line; ignore POSIX
+  $SHELL on win32 → pwsh > powershell > cmd).
+
+Windows platform services
+-------------------------
+- Process tree via CIM (Get-CimInstance Win32_Process) on the shared ps-snapshot
+  ProcessLister seam + taskkill /PID <root> /T /F tree-kill (reaps descendant
+  MCP/daemon children on pane close/timeout).
+- Janitor worktree rm gains bounded EBUSY/EPERM/ENOTEMPTY retry-with-backoff.
+- Resume bridge prefers hardlink (files) / junction (.claude dir) over copyFile
+  — unified session history without Developer Mode.
+- PTT default Ctrl+Shift+Space (avoids IME toggle collision) + persistent
+  hotkeyRegistered status; per-platform installCommandFor() (cursor PowerShell
+  installer; no POSIX fallback on win32).
+- revealFile/openShell containment via isInsideAnyRoot (drive-letter/sep safe);
+  core.longpaths=true scoped to worktree-add (MAX_PATH deep repos).
+
+CI
+--
+- Added a windows-latest vitest leg to e2e-matrix (vitest had run only on
+  macos-14) + a win32-gated stub-.cmd argv round-trip test — the .cmd-shim class
+  is CI-visible for the first time.
+
+Device-gated tail (W-4)
+-----------------------
+Code is in place but needs a real Windows box to verify: ConPTY pane feel,
+hardlink-resume without Developer Mode, kill/reap under EBUSY, MAX_PATH on a deep
+repo, packaged-NSIS voice natives, and the H-6 shell-first lift (pre-written,
+left unlifted). See docs/superpowers/plans/2026-06-10-win32-platform-services.md.
+
+Gate
+----
+tsc -b · eslint --max-warnings 0 · vitest run (3591 passed / 2 win32-gated
+skips) · product:check — all green in main. e2e via the CI e2e-matrix
+(windows-latest + macos-14).

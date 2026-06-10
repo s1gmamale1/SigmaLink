@@ -2,6 +2,31 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.2.0] — 2026-06-11
+
+**v2.2.0 ships Phase 11 — Windows runtime readiness — completing the 2026-06-10 deep-dive audit's code work (Phases 3–11; Phase 12 dead-code is owned by a separate lane).** It makes the npm-`.cmd`-shim CLI-launch path correct on Windows, adds a Windows process/kill/path/voice platform layer, and adds the missing CI signal that caught the whole class. A `windows-latest` vitest leg was added (vitest previously ran only on macOS) and it immediately caught — and gated the fix for — a `workspaces.open` hang the spawn-routing introduced.
+
+### Fixed — Phase 11: Windows runtime readiness (PR #148 `eb97a3a`, windows-latest CI verified)
+
+- **`.cmd`-shim launch escaping (CRIT).** Replaced the broken `cmdQuoteArg` (carets are literal inside cmd.exe quotes; an odd `\"` toggled quote state = injection risk; `%VAR%` expanded through quotes) with cross-spawn's caret-escape algorithm (`cmdEscapeArg`/`cmdEscapeCommandPath`, double-escape for the npm-shim `%*` re-parse). Verified byte-for-byte round-trip across hostile args (`a&b|c`, `%USERNAME%`, `caret^caret`, `C:\Users\First Last\…`, …).
+- **Raw-spawn ENOENT crash-loops.** Routed the ruflo HTTP-daemon tiers (incl. the `launchChild` crash-recovery twin), workspace-memory seed, provider probes (`verify.ts`), and cursor-agent trust through `spawnExecutable` so `.cmd` shims resolve instead of ENOENT-ing.
+- **`workspaces.open` hang (the regression the new CI leg caught).** `resolveLaunch()` no longer falls through to a `npx -y @claude-flow/cli@latest` **network auto-download during the awaited open** — it returns null when ruflo isn't installed (PATH/userData), restoring the fast stdio fallback; `seedWorkspaceMemory` is gated on `commandOnPath('ruflo')`. ruflo-installed (PATH / userData) behavior is unchanged.
+- **"Open in Terminal" + scratch shell.** `openShell` passes its `cd` line verbatim (no re-quoting of paths with spaces); the scratch shell ignores a POSIX `SHELL` env on win32 and uses `defaultShell()` (pwsh → powershell → cmd).
+
+### Added — Phase 11: Windows platform services
+
+- **Process tree on Windows.** A CIM (`Get-CimInstance Win32_Process`) enumeration backend plugged into the shared `ps-snapshot` `ProcessLister` seam, plus `taskkill /PID <root> /T /F` tree-kill so timed-out/closed panes reap their descendant MCP/daemon children.
+- **Worktree reaping under lock.** Bounded `EBUSY`/`EPERM`/`ENOTEMPTY` retry-with-backoff for the janitor `rm` (Windows can't delete a dir with open handles).
+- **Resume without Developer Mode.** The resume bridge tries hardlink (files) / junction (`.claude` dir) before `copyFile`, keeping session history unified without elevation.
+- **PTT + installers.** Win32 default push-to-talk `Ctrl+Shift+Space` (avoids the IME toggle collision) + a persistent `hotkeyRegistered` status; per-platform `installCommandFor()` (cursor PowerShell installer; never falls back to a POSIX command on win32).
+- **Path safety.** `revealFile`/`openShell` containment via `isInsideAnyRoot` (drive-letter casing + separator safe); `core.longpaths=true` scoped to worktree-add invocations (MAX_PATH deep repos).
+
+### CI
+
+- **`windows-latest` vitest leg** added to `e2e-matrix` (vitest had run only on `macos-14`), plus a win32-gated stub-`.cmd` argv round-trip integration test — making the entire `.cmd`-shim class CI-visible for the first time.
+
+> **Device-gated tail (W-4):** real-hardware verification of ConPTY feel, hardlink-resume without Developer Mode, kill/reap under EBUSY, MAX_PATH on a deep repo, packaged-NSIS voice natives, and the H-6 shell-first lift (pre-written, left unlifted) — code is in place; these need a Windows box.
+
 ## [2.1.0] — 2026-06-11
 
 **v2.1.0 rolls up the entire 2026-06-10 deep-dive audit remediation — Phases 3–10 — shipped as nine PRs (#136–#145), each gated and merged to `main` with CI `e2e-matrix` green.** The batch closes a CVE-class renderer write primitive, a boot-crash data-loss class, and a cluster of pane/PTY/Jorvis reliability bugs, and lands two perf passes (−450 KB boot JS, 4→1 git procs per poll). Phases 11 (Windows runtime readiness) and 12 (dead-code sweep) remain for a later release.
