@@ -865,3 +865,52 @@ describe('image drop staging (spec 2026-06-10 B)', () => {
     expect(stageImageMock).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 10. Spec 2026-06-10 (B) — image paste interception
+// ---------------------------------------------------------------------------
+
+describe('image paste interception (spec 2026-06-10 B)', () => {
+  function pasteEvent(items: Array<{ kind: string; type: string; file: File | null }>, target: Node) {
+    const e = new Event('paste', { bubbles: true }) as ClipboardEvent;
+    Object.defineProperty(e, 'clipboardData', {
+      value: { items: items.map((it) => ({ kind: it.kind, type: it.type, getAsFile: () => it.file })) },
+    });
+    Object.defineProperty(e, 'target', { value: target });
+    return e;
+  }
+
+  it('stages a pasted image on a running claude pane (and prevents default)', async () => {
+    stageImageMock.mockResolvedValue({ absPath: '/tmp/staged/clip.png' });
+
+    const { container } = await renderPaneShell();
+
+    const file = new File([new Uint8Array([9])], 'clip.png', { type: 'image/png' });
+    // jsdom may not implement arrayBuffer — stub it if missing
+    if (typeof file.arrayBuffer !== 'function') {
+      Object.defineProperty(file, 'arrayBuffer', {
+        value: () => Promise.resolve(new Uint8Array([9]).buffer),
+      });
+    }
+
+    // Target a node INSIDE the pane container (mirrors the Cmd+T test pattern)
+    const paneContainer = container.firstElementChild as HTMLElement;
+    const evt = pasteEvent([{ kind: 'file', type: 'image/png', file }], paneContainer);
+    const prevent = vi.spyOn(evt, 'preventDefault');
+    act(() => { window.dispatchEvent(evt); });
+    await vi.waitFor(() => expect(stageImageMock).toHaveBeenCalled());
+    expect(prevent).toHaveBeenCalled();
+  });
+
+  it('ignores a text-only paste (xterm keeps handling it)', async () => {
+    const { container } = await renderPaneShell();
+
+    const paneContainer = container.firstElementChild as HTMLElement;
+    const evt = pasteEvent([{ kind: 'string', type: 'text/plain', file: null }], paneContainer);
+    const prevent = vi.spyOn(evt, 'preventDefault');
+    act(() => { window.dispatchEvent(evt); });
+    await Promise.resolve();
+    expect(stageImageMock).not.toHaveBeenCalled();
+    expect(prevent).not.toHaveBeenCalled();
+  });
+});

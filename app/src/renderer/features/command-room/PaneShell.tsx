@@ -240,6 +240,33 @@ export function PaneShell({
     };
   }, [spawnScratch]);
 
+  // Spec 2026-06-10 (B) — intercept image PASTE before xterm. xterm's paste
+  // handler reads only text/plain, so an image clipboard (macOS screenshot)
+  // produced "" and was silently swallowed. Capture phase on window +
+  // containment check, mirroring the Cmd+T handler above. Text pastes fall
+  // through untouched (no preventDefault) so xterm still handles them.
+  useEffect(() => {
+    const container = paneContainerRef.current;
+    if (!container) return;
+
+    function handlePaste(e: ClipboardEvent): void {
+      if (!container!.contains(e.target as Node)) return;
+      if (!isImageCapableProvider(session.providerId)) return;
+      if (session.status !== 'running') return;
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const imageItem = items.find((it) => it.kind === 'file' && it.type.startsWith('image/'));
+      if (!imageItem) return; // text paste — let xterm handle it
+      const file = imageItem.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void stageAndInsertImages([file]);
+    }
+
+    window.addEventListener('paste', handlePaste, true);
+    return () => window.removeEventListener('paste', handlePaste, true);
+  }, [session.providerId, session.status, stageAndInsertImages]);
+
   const errored = session.status === 'error';
   // v1.13.2 — distinguish the TWO error shapes a pane can land in:
   //   • launch failure (ENOENT / pre-flight): `session.error` string set at
