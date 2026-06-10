@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useAppState } from '@/renderer/app/state';
+import { useAppStateSelector } from '@/renderer/app/state';
 import { rpc } from '@/renderer/lib/rpc';
 import type { ChatMessageView, ChatRole } from './ChatTranscript';
 import type { AppRouter } from '@/shared/router-shape';
@@ -60,8 +60,10 @@ export interface UseJorvisConversationsReturn {
 }
 
 export function useJorvisConversations(): UseJorvisConversationsReturn {
-  const { state } = useAppState();
-  const wsId = state.activeWorkspace?.id;
+  // Perf audit #5 — narrow selector. This hook runs inside JorvisRoom; a
+  // broad useAppState() here re-rendered the room per global dispatch even
+  // after the room itself was selectorized (sibling of the JorvisRoom fix).
+  const wsId = useAppStateSelector((s) => s.activeWorkspace?.id);
   const [conversations, setConversations] = useState<ConversationListRow[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessageView[]>([]);

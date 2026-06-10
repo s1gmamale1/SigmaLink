@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { rpc } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { Monogram } from '@/renderer/components/Monogram';
 import type { ProviderProbe } from '@/shared/types';
 
@@ -32,8 +32,11 @@ interface ProviderInfo {
 const KV_KEY = 'app.onboarded';
 
 export function OnboardingModal() {
-  const { state, dispatch } = useAppState();
-  const open = state.uiBoot && !state.onboarded;
+  // Perf audit 2026-06-10 #7 — narrow selectors (mounted at the App root).
+  const dispatch = useAppDispatch();
+  const uiBoot = useAppStateSelector((s) => s.uiBoot);
+  const onboarded = useAppStateSelector((s) => s.onboarded);
+  const open = uiBoot && !onboarded;
   const [step, setStep] = useState(0);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [probing, setProbing] = useState(false);
@@ -113,7 +116,7 @@ export function OnboardingModal() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => (!o && state.onboarded ? undefined : undefined)}>
+    <Dialog open={open} onOpenChange={(o) => (!o && onboarded ? undefined : undefined)}>
       <DialogContent
         className="sm:max-w-lg"
         onEscapeKeyDown={(e) => e.preventDefault()}

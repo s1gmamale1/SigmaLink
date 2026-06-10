@@ -6,9 +6,14 @@
 // ∝ relative heat (calm → hot). When there is no worktree or no recent
 // activity it renders nothing — the lead mounts it unconditionally in
 // PaneHeader and lets it self-suppress.
+//
+// Perf audit 2026-06-10 #1 — rendered with inline SVG. This used to be a
+// recharts <BarChart>; recharts (+ d3-* / react-smooth / react-transition-group
+// / victory-vendor) was ~450 kB of EAGER vendor JS for a 48×16 px strip with
+// no axes, tooltip, or animation. recharts' only consumer was this file, so
+// the dependency was removed outright.
 
 import { useMemo } from 'react';
-import { ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import { useGitActivityPoll } from '@/renderer/lib/use-git-activity-poll';
 import type { GitActivityBucket } from '@/shared/types';
 
@@ -42,11 +47,17 @@ function toRows(buckets: GitActivityBucket[]): { rows: Row[]; maxChurn: number }
   return { rows, maxChurn };
 }
 
+// SVG geometry in viewBox units; the svg stretches (preserveAspectRatio=none)
+// to fill the 48×16 px box, mirroring recharts' barCategoryGap={1} look.
+const BAR_W = 3;
+const BAR_GAP = 1;
+const STRIP_H = 16;
+
 export function GitActivityStrip({ worktreePath }: GitActivityStripProps) {
   const buckets = useGitActivityPoll(worktreePath);
 
-  const { rows, totals } = useMemo(() => {
-    const { rows } = toRows(buckets);
+  const { rows, totals, maxChurn } = useMemo(() => {
+    const { rows, maxChurn } = toRows(buckets);
     const totals = buckets.reduce(
       (acc, b) => {
         acc.commits += b.commitCount;
@@ -57,7 +68,7 @@ export function GitActivityStrip({ worktreePath }: GitActivityStripProps) {
       },
       { commits: 0, churn: 0, added: 0, deleted: 0 },
     );
-    return { rows, totals };
+    return { rows, totals, maxChurn };
   }, [buckets]);
 
   // No worktree, no data yet, or no recent activity → render nothing. The strip
@@ -69,6 +80,8 @@ export function GitActivityStrip({ worktreePath }: GitActivityStripProps) {
     `${totals.commits} ${totals.commits === 1 ? 'commit' : 'commits'}, ` +
     `${totals.churn} lines changed (+${totals.added} / -${totals.deleted}).`;
 
+  const viewW = rows.length * (BAR_W + BAR_GAP) - BAR_GAP;
+
   return (
     <div
       className="h-4 w-12 shrink-0"
@@ -77,15 +90,32 @@ export function GitActivityStrip({ worktreePath }: GitActivityStripProps) {
       title={label}
       data-testid="git-activity-strip"
     >
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows} margin={{ top: 1, right: 0, bottom: 0, left: 0 }} barCategoryGap={1}>
-          <Bar dataKey="churn" isAnimationActive={false} radius={[1, 1, 0, 0]}>
-            {rows.map((r) => (
-              <Cell key={r.date} fill={r.fill} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+      <svg
+        width="100%"
+        height="100%"
+        viewBox={`0 0 ${viewW} ${STRIP_H}`}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        {rows.map((r, i) => {
+          // Height ∝ churn relative to the hottest day, floored at 1 unit so a
+          // calm-but-active day still draws a faint tick (same floor recharts
+          // got via the churn:1 clamp in toRows).
+          const h = Math.max(1, Math.round((r.churn / Math.max(maxChurn, 1)) * (STRIP_H - 1)));
+          return (
+            <rect
+              key={r.date}
+              data-testid="git-activity-bar"
+              x={i * (BAR_W + BAR_GAP)}
+              y={STRIP_H - h}
+              width={BAR_W}
+              height={h}
+              rx={0.5}
+              fill={r.fill}
+            />
+          );
+        })}
+      </svg>
     </div>
   );
 }

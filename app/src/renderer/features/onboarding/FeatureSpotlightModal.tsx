@@ -26,7 +26,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { useCoachmark } from '@/renderer/features/command-room/use-coachmark';
 
 const COACHMARK_KEY = 'coachmark.featureSpotlight.seen';
@@ -78,7 +78,10 @@ export { COACHMARK_KEY };
  * (App.tsx) mounts it unconditionally next to <OnboardingModal/>.
  */
 export function FeatureSpotlightModal() {
-  const { state, dispatch } = useAppState();
+  // Perf audit 2026-06-10 #7 — narrow selectors (mounted at the App root).
+  const dispatch = useAppDispatch();
+  const uiBoot = useAppStateSelector((s) => s.uiBoot);
+  const onboarded = useAppStateSelector((s) => s.onboarded);
   const { loaded, seen, markSeen } = useCoachmark(COACHMARK_KEY);
 
   // Gate: boot settled (uiBoot) so we evaluate the REAL onboarded value, not the
@@ -88,7 +91,7 @@ export function FeatureSpotlightModal() {
   // alongside the real onboarded, making the onboarding→spotlight ordering
   // deterministic. Then: onboarding finished AND the coachmark lookup resolved AND
   // the user hasn't seen the spotlight yet.
-  const open = state.uiBoot && state.onboarded && loaded && !seen;
+  const open = uiBoot && onboarded && loaded && !seen;
 
   function dismiss(): void {
     markSeen();

@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { rpc } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppStateSelector } from '@/renderer/app/state';
 import type { SwarmMessage } from '@/shared/types';
 
 interface Props {
@@ -82,8 +82,12 @@ function asTaskBrief(payload: unknown): TaskBriefPayload | null {
   return { taskId, urgency, headings };
 }
 
-export function MailboxBubble({ message }: Props) {
-  const { state } = useAppState();
+// Perf audit 2026-06-10 #2 — memo + narrow selector. One bubble renders per
+// message in SideChat/ActivityFeed; the old broad useAppState() context read
+// re-rendered EVERY bubble (incl. task-brief payload hosts) on EVERY global
+// dispatch, just to read activeWorkspace?.id.
+export const MailboxBubble = memo(function MailboxBubble({ message }: Props) {
+  const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspace?.id ?? null);
   const isOperator = message.fromAgent === 'operator';
   const isBroadcast = message.toAgent === '*';
   // SwarmMessage.kind is the narrow legacy SIGMA::* enum; V3 envelopes ride
@@ -132,14 +136,14 @@ export function MailboxBubble({ message }: Props) {
         </div>
 
         {taskBrief ? (
-          <TaskBriefBody brief={taskBrief} workspaceId={state.activeWorkspace?.id ?? null} />
+          <TaskBriefBody brief={taskBrief} workspaceId={activeWorkspaceId} />
         ) : (
           <div className="whitespace-pre-wrap text-sm text-foreground">{message.body}</div>
         )}
       </div>
     </div>
   );
-}
+});
 
 function TaskBriefBody({
   brief,

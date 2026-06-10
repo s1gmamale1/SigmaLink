@@ -27,7 +27,7 @@ import {
 import { AlertTriangle, ChevronDown, FileCode2, Save } from 'lucide-react';
 import { useTheme } from '@/renderer/app/ThemeProvider';
 import { findTheme } from '@/renderer/lib/themes';
-import { useAppState } from '@/renderer/app/state';
+import { useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { rpc } from '@/renderer/lib/rpc';
 import type { AgentSession } from '@/shared/types';
@@ -85,7 +85,11 @@ const ROOT_SELECTION_KV_KEY = (workspaceId: string) =>
 type RootSelection = 'workspace' | 'follow' | string; // string = specific worktreePath
 
 export function EditorTab() {
-  const { state } = useAppState();
+  // Perf audit 2026-06-10 #5 — narrow selectors; the broad context read
+  // re-rendered the whole Monaco host tree on every global dispatch.
+  const ws = useAppStateSelector((s) => s.activeWorkspace);
+  const sessions = useAppStateSelector((s) => s.sessions);
+  const activeSessionId = useAppStateSelector((s) => s.activeSessionId);
   const { theme } = useTheme();
   const editor = useEditor();
   const [monacoBroken, setMonacoBroken] = useState(false);
@@ -106,8 +110,6 @@ export function EditorTab() {
       }
     });
   }, []);
-
-  const ws = state.activeWorkspace;
 
   // W-8 — Hydrate root selection from KV on workspace change.
   useEffect(() => {
@@ -135,7 +137,6 @@ export function EditorTab() {
   // W-8 — Sessions for the active workspace that carry a worktreePath.
   const paneWorktrees = useMemo(() => {
     if (!ws) return [];
-    const sessions = state.sessions;
     return sessions
       .filter((s) => s.workspaceId === ws.id && s.worktreePath)
       // Deduplicate by worktreePath so multiple panes on the same branch show once.
@@ -143,14 +144,14 @@ export function EditorTab() {
         if (!acc.some((a) => a.worktreePath === s.worktreePath)) acc.push(s);
         return acc;
       }, []);
-  }, [state.sessions, ws]);
+  }, [sessions, ws]);
 
   // W-8 — The session currently focused (by sigma:pty-focus / activeSessionId).
   const activeSession = useMemo(
-    () => (state.activeSessionId
-      ? state.sessions.find((s) => s.id === state.activeSessionId) ?? null
+    () => (activeSessionId
+      ? sessions.find((s) => s.id === activeSessionId) ?? null
       : null),
-    [state.sessions, state.activeSessionId],
+    [sessions, activeSessionId],
   );
 
   // W-8 — Resolve the actual tree root from the selection.

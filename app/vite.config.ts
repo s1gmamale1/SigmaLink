@@ -36,7 +36,15 @@ export default defineConfig({
             if (id.includes('sonner') || id.includes('cmdk')) return 'vendor-cmdk';
             if (id.includes('@xterm')) return 'vendor-xterm';
             if (id.includes('lucide-react')) return 'vendor-icons';
-            if (id.includes('react') || id.includes('scheduler')) return 'vendor-react';
+            // Perf audit 2026-06-10 #1 — match ONLY the React core packages
+            // by exact path segment. The old `id.includes('react')` substring
+            // matched ANY package with "react" in its name (react-smooth,
+            // react-transition-group — recharts deps; react-remove-scroll, …),
+            // dragging recharts' whole d3 subtree into this EAGER chunk
+            // (~450 kB excess parse/compile every boot).
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
+              return 'vendor-react';
+            }
           }
         },
       },

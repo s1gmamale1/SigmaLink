@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { onEvent, rpcSilent } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppStateSelector } from '@/renderer/app/state';
 
 type Cli = 'claude' | 'codex' | 'gemini' | 'kimi' | 'opencode';
 type Readiness = 'pending' | 'verified' | 'partial' | 'unavailable';
@@ -28,8 +28,8 @@ interface SkillsWorkspaceVerified {
 }
 
 export function RufloReadinessPill() {
-  const { state } = useAppState();
-  const active = state.activeWorkspace;
+  // Perf audit 2026-06-10 #6 — narrow selector; always-mounted breadcrumb.
+  const active = useAppStateSelector((s) => s.activeWorkspace);
   const [ruflo, setRuflo] = useState<Record<string, RufloWorkspaceVerified>>({});
   const [skills, setSkills] = useState<Record<string, SkillsWorkspaceVerified>>({});
 

@@ -12,7 +12,7 @@ import { Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { rpc } from '@/renderer/lib/rpc';
 import { PANE_DRAG_MIME, buildPaneContext, type PaneDragPayload } from '@/renderer/lib/pane-context-builder';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { cn } from '@/lib/utils';
 import { Orb, type OrbState } from './Orb';
@@ -56,8 +56,12 @@ interface Props {
 const TURN_WATCHDOG_MS = 120_000;
 
 export function JorvisRoom({ variant = 'standalone', className }: Props) {
-  const { state, dispatch } = useAppState();
-  const activeWorkspace = state.activeWorkspace;
+  // Perf audit 2026-06-10 #5 — narrow selectors (PERF-3 continuation). The
+  // broad useAppState() context read re-rendered the whole transcript subtree
+  // on every global dispatch.
+  const dispatch = useAppDispatch();
+  const activeWorkspace = useAppStateSelector((s) => s.activeWorkspace);
+  const workspaces = useAppStateSelector((s) => s.workspaces);
   const wsId = activeWorkspace?.id;
 
   const {
@@ -116,8 +120,8 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
   const { rufloReady, rufloReadyRef } = useJorvisRufloHealth();
   const { patternHit } = useJorvisPatternProbe({ composerText, rufloReady });
   useJorvisDispatchEcho({
-    workspaces: state.workspaces,
-    activeWorkspaceId: state.activeWorkspace?.id,
+    workspaces,
+    activeWorkspaceId: wsId,
     dispatch,
   });
   useJorvisJumpToMessage({ conversationId, hydrateConversation, transcriptRef });
