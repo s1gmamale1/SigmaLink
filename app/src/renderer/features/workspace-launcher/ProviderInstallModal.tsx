@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { AGENT_PROVIDERS } from '@/shared/providers';
+import { AGENT_PROVIDERS, installCommandFor } from '@/shared/providers';
 import { rpc, onEvent } from '@/renderer/lib/rpc';
 
 interface Props {
@@ -105,7 +105,7 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
         if (cancelled) return;
         setPlatform((pl === 'win32' ? 'win32' : pl === 'linux' ? 'linux' : 'darwin'));
         // Prereq check — only run for providers whose installCommand uses npm/pip.
-        const cmd = def?.installCommand?.[pl === 'win32' ? 'win32' : pl === 'linux' ? 'linux' : 'darwin'];
+        const cmd = def ? installCommandFor(def, pl) : null;
         if (cmd && cmd.length > 0) {
           const runtime = cmd[0]!; // 'npm' or 'pip'
           if (runtime === 'npm' || runtime === 'pip') {
@@ -182,7 +182,7 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
 
   const handleCopy = useCallback(() => {
     if (!def) return;
-    const cmd = def.installCommand?.[platform] ?? def.installCommand?.linux ?? [];
+    const cmd = installCommandFor(def, platform) ?? [];
     void navigator.clipboard.writeText(cmd.join(' ')).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -191,7 +191,7 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
 
   if (!def) return null;
 
-  const cmd = def.installCommand?.[platform] ?? def.installCommand?.linux ?? [];
+  const cmd = installCommandFor(def, platform) ?? [];
   const cmdStr = cmd.join(' ');
   const docsUrl = def.installDocsUrl;
 
@@ -212,7 +212,9 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
           {runtimeMissing || cmd.length === 0 ? (
             <div className="flex flex-col gap-1.5">
               <div className="text-sm text-muted-foreground">
-                The required runtime is not on PATH. Visit the docs to install manually:
+                {cmd.length === 0
+                  ? 'No automated installer is available on this platform. Install manually via the docs:'
+                  : 'The required runtime is not on PATH. Visit the docs to install manually:'}
               </div>
               {docsUrl ? (
                 <a

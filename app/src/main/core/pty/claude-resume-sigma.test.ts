@@ -496,3 +496,100 @@ describe('prepareClaudeWorkspaceContext', () => {
     expect(outcome.linked).toHaveLength(0);
   });
 });
+
+describe('win32 link-strategy ladder (hardlink/junction before copy)', () => {
+  let home: string;
+  let workspaceCwd: string;
+  let worktreeCwd: string;
+
+  beforeEach(() => {
+    home = makeTmpHome();
+    workspaceCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-ws-'));
+    worktreeCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-wt-'));
+  });
+  afterEach(() => {
+    rmRf(home);
+    rmRf(workspaceCwd);
+    rmRf(worktreeCwd);
+  });
+
+  const epermSymlink = () =>
+    Promise.reject(Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' }));
+
+  it('resume bridge: symlink EPERM on win32 → HARDLINK (same inode, history stays unified)', async () => {
+    const source = seedSourceJsonl(home, workspaceCwd, VALID_UUID);
+    const outcome = await prepareClaudeResume(workspaceCwd, worktreeCwd, VALID_UUID, {
+      homeDir: home,
+      platform: 'win32',
+      linkOps: { symlink: epermSymlink },
+    });
+    expect(outcome).toBe('linked');
+    const target = path.join(
+      home,
+      '.claude',
+      'projects',
+      claudeSlugForCwd(worktreeCwd),
+      `${VALID_UUID}.jsonl`,
+    );
+    const s = fs.statSync(source);
+    const t = fs.statSync(target);
+    expect(t.ino).toBe(s.ino); // hardlink, NOT a copy
+    expect(s.nlink).toBe(2);
+    // Append-through: a write via the target lands on the source inode.
+    fs.appendFileSync(target, '{"type":"assistant"}\n');
+    expect(fs.readFileSync(source, 'utf8')).toContain('"assistant"');
+  });
+
+  it('resume bridge: symlink EPERM + hardlink EXDEV → copyFile last resort', async () => {
+    seedSourceJsonl(home, workspaceCwd, VALID_UUID);
+    const outcome = await prepareClaudeResume(workspaceCwd, worktreeCwd, VALID_UUID, {
+      homeDir: home,
+      platform: 'win32',
+      linkOps: {
+        symlink: epermSymlink,
+        link: () =>
+          Promise.reject(Object.assign(new Error('EXDEV: cross-device link'), { code: 'EXDEV' })),
+      },
+    });
+    expect(outcome).toBe('linked');
+    const target = path.join(
+      home,
+      '.claude',
+      'projects',
+      claudeSlugForCwd(worktreeCwd),
+      `${VALID_UUID}.jsonl`,
+    );
+    expect(fs.existsSync(target)).toBe(true);
+    expect(fs.statSync(target).nlink).toBe(1); // independent copy
+  });
+
+  it('context dir (.claude): symlink(dir) EPERM on win32 → junction attempted (no privilege needed)', async () => {
+    fs.mkdirSync(path.join(workspaceCwd, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(workspaceCwd, '.claude', 'settings.json'), '{}');
+    const symlinkTypes: Array<string | undefined> = [];
+    const outcome = await prepareClaudeWorkspaceContext(workspaceCwd, worktreeCwd, {
+      homeDir: home,
+      platform: 'win32',
+      linkOps: {
+        symlink: (s: string, t: string, type?: 'file' | 'dir' | 'junction') => {
+          symlinkTypes.push(type);
+          if (type !== 'junction') return epermSymlink();
+          return fs.promises.symlink(s, t); // host stand-in for a real junction
+        },
+      },
+    });
+    expect(symlinkTypes).toContain('junction');
+    expect(outcome.linked).toContain('.claude');
+    expect(fs.lstatSync(path.join(worktreeCwd, '.claude')).isSymbolicLink()).toBe(true);
+  });
+
+  it('non-win32: a non-EEXIST symlink failure still skips (no ladder on posix)', async () => {
+    seedSourceJsonl(home, workspaceCwd, VALID_UUID);
+    const outcome = await prepareClaudeResume(workspaceCwd, worktreeCwd, VALID_UUID, {
+      homeDir: home,
+      platform: 'darwin',
+      linkOps: { symlink: epermSymlink },
+    });
+    expect(outcome).toBe('skipped');
+  });
+});

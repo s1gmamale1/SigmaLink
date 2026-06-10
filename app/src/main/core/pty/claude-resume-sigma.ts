@@ -31,11 +31,12 @@
 //     file, the workspace file becomes a stale snapshot.
 //   * Symlink keeps a single source of truth on the filesystem.
 //   * On macOS (the user's platform) and Linux, fs symlinks are first-class.
-//   * Windows: `fs.promises.symlink` requires either elevated privileges OR
-//     Developer Mode. The bridge falls back to a copy on Windows when the
-//     symlink call fails (see `prepareClaudeResume` below). v1.3.2 ships
-//     macOS-only auto-update lanes, so the Windows fallback is correctness
-//     insurance, not a tested path.
+//   * Windows: `fs.promises.symlink` requires elevation OR Developer Mode.
+//     The bridge now falls back symlink → HARDLINK (fs.link — no privilege on
+//     the same volume; appends share the inode so history stays unified) →
+//     copyFile as the true last resort (history diverges; logged). The
+//     `.claude` context DIRECTORY falls back symlink → JUNCTION (privilege-
+//     free on win32) → recursive copy. The winning strategy is logged.
 //
 // Pane 2 (fresh spawn, blank) — secondary fix
 // ───────────────────────────────────────────
@@ -78,8 +79,98 @@ export interface ClaudeWorkspaceContextOutcome {
 export interface ClaudeBridgeDeps {
   /** Override `os.homedir()` — tests inject a tmpdir. */
   homeDir?: string;
-  /** Override platform — tests force the Windows copy-fallback branch. */
+  /** Override platform — tests force the Windows fallback ladder. */
   platform?: NodeJS.Platform;
+  /** Override individual link syscalls — tests force EPERM/EXDEV branches. */
+  linkOps?: Partial<BridgeLinkOps>;
+}
+
+export type BridgeLinkStrategy = 'symlink' | 'hardlink' | 'junction' | 'copy';
+
+export interface BridgeLinkOps {
+  symlink: (source: string, target: string, type?: 'file' | 'dir' | 'junction') => Promise<void>;
+  link: (source: string, target: string) => Promise<void>;
+  copyFile: (source: string, target: string) => Promise<void>;
+  cp: (source: string, target: string, opts: { recursive: boolean }) => Promise<void>;
+}
+
+const defaultLinkOps: BridgeLinkOps = {
+  symlink: (s, t, type) => fs.promises.symlink(s, t, type),
+  link: (s, t) => fs.promises.link(s, t),
+  copyFile: (s, t) => fs.promises.copyFile(s, t),
+  cp: (s, t, o) => fs.promises.cp(s, t, o),
+};
+
+function errCode(err: unknown): string {
+  return (err as NodeJS.ErrnoException).code ?? '';
+}
+
+/**
+ * Create the best available bridge link at `targetPath` → `sourcePath`.
+ *
+ * Strategy ladder:
+ *  file: symlink → hardlink (`fs.link`; no privilege needed on the same
+ *        volume — both jsonl ends live under ~/.claude/projects/, and appends
+ *        hit the SAME inode so history stays unified, unlike a copy)
+ *        → copyFile (last resort; diverges history; logged).
+ *  dir:  symlink('dir') → junction (`fs.symlink` type 'junction'; no
+ *        privilege on win32, dirs only) → cp recursive (last resort).
+ *
+ * The ladder only runs on win32 (posix symlinks are first-class). EEXIST is
+ * rethrown so callers keep their existing exists handling. Returns the
+ * winning strategy, or null when every rung failed.
+ */
+async function createBridgeLink(
+  sourcePath: string,
+  targetPath: string,
+  kind: 'file' | 'dir',
+  platform: NodeJS.Platform,
+  ops: BridgeLinkOps,
+): Promise<BridgeLinkStrategy | null> {
+  try {
+    await ops.symlink(sourcePath, targetPath, kind);
+    return 'symlink';
+  } catch (err) {
+    if (errCode(err) === 'EEXIST') throw err;
+    // win32 symlinks need Dev Mode / elevation (EPERM, sometimes EACCES) —
+    // fall through to the privilege-free rungs. Posix: no ladder, fail here.
+    if (platform !== 'win32') return null;
+  }
+
+  if (kind === 'dir') {
+    try {
+      await ops.symlink(sourcePath, targetPath, 'junction');
+      console.warn(`[claude-bridge] symlink unavailable — junction created: ${targetPath}`);
+      return 'junction';
+    } catch (err) {
+      if (errCode(err) === 'EEXIST') throw err;
+    }
+    try {
+      await ops.cp(sourcePath, targetPath, { recursive: true });
+      console.warn(`[claude-bridge] junction unavailable — dir COPIED (may diverge): ${targetPath}`);
+      return 'copy';
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    await ops.link(sourcePath, targetPath);
+    console.warn(`[claude-bridge] symlink unavailable — hardlink created: ${targetPath}`);
+    return 'hardlink';
+  } catch (err) {
+    if (errCode(err) === 'EEXIST') throw err;
+    // EXDEV (cross-volume) or anything else → copy as the true last resort.
+  }
+  try {
+    await ops.copyFile(sourcePath, targetPath);
+    console.warn(
+      `[claude-bridge] hardlink unavailable — file COPIED (history may diverge): ${targetPath}`,
+    );
+    return 'copy';
+  } catch {
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +232,7 @@ async function linkOrCopyContextPath(
   sourcePath: string,
   targetPath: string,
   platform: NodeJS.Platform,
+  deps: ClaudeBridgeDeps = {},
 ): Promise<'linked' | 'existing' | 'missing' | 'skipped'> {
   let sourceStat: fs.Stats;
   try {
@@ -162,28 +254,18 @@ async function linkOrCopyContextPath(
     return 'skipped';
   }
 
+  const ops: BridgeLinkOps = { ...defaultLinkOps, ...deps.linkOps };
   try {
-    await fs.promises.symlink(
+    const strategy = await createBridgeLink(
       sourcePath,
       targetPath,
       sourceStat.isDirectory() ? 'dir' : 'file',
+      platform,
+      ops,
     );
-    return 'linked';
+    return strategy === null ? 'skipped' : 'linked';
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'EEXIST') return 'existing';
-    if (code === 'EPERM' && platform === 'win32') {
-      try {
-        if (sourceStat.isDirectory()) {
-          await fs.promises.cp(sourcePath, targetPath, { recursive: true });
-        } else {
-          await fs.promises.copyFile(sourcePath, targetPath);
-        }
-        return 'linked';
-      } catch {
-        return 'skipped';
-      }
-    }
+    if (errCode(err) === 'EEXIST') return 'existing';
     return 'skipped';
   }
 }
@@ -348,7 +430,7 @@ export async function prepareClaudeWorkspaceContext(
   for (const name of ['CLAUDE.md', '.claude']) {
     const sourcePath = path.join(workspaceCwd, name);
     const targetPath = path.join(worktreeCwd, name);
-    const result = await linkOrCopyContextPath(sourcePath, targetPath, platform);
+    const result = await linkOrCopyContextPath(sourcePath, targetPath, platform, deps);
     outcome[result].push(name);
   }
   return outcome;
@@ -436,27 +518,16 @@ export async function prepareClaudeResume(
     return 'skipped';
   }
 
+  const ops: BridgeLinkOps = { ...defaultLinkOps, ...deps.linkOps };
+  let strategy: BridgeLinkStrategy | null;
   try {
-    await fs.promises.symlink(sourcePath, targetPath);
-    return 'linked';
+    strategy = await createBridgeLink(sourcePath, targetPath, 'file', platform, ops);
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'EEXIST') {
-      // Raced with another pane in the same worktree (extremely unlikely —
-      // worktree paths are unique per pane). Treat as success.
+    if (errCode(err) === 'EEXIST') {
+      // Raced with another pane in the same worktree — treat as success.
       return 'exists';
-    }
-    // Windows EPERM fallback: copy the file once. Subsequent calls see the
-    // copy via the 'exists' branch above. Logged via the outcome value — the
-    // launcher does not currently surface a toast for this.
-    if (code === 'EPERM' && platform === 'win32') {
-      try {
-        await fs.promises.copyFile(sourcePath, targetPath);
-        return 'linked';
-      } catch {
-        return 'skipped';
-      }
     }
     return 'skipped';
   }
+  return strategy === null ? 'skipped' : 'linked';
 }

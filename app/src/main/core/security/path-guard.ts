@@ -46,6 +46,32 @@ export function isInsideRoot(resolvedTarget: string, resolvedRoot: string): bool
 }
 
 /**
+ * Lexical many-roots containment for the reveal/open-shell class of handlers
+ * (rpc-router `revealInFolder` / `openShell`). Unlike `assertAllowedPath`
+ * this does NOT realpath (those handlers are intentionally lexical); it fixes
+ * the raw-`startsWith` class of bugs: separator boundaries (`/a/bc` vs
+ * `/a/b`) and win32 drive-letter casing — `path.win32.relative` compares
+ * case-insensitively, which is exactly the Windows filesystem contract.
+ *
+ * `pathImpl` is injected so win32 semantics are unit-testable on any host
+ * (pass `path.win32`); production callers omit it and get the platform path.
+ */
+export function isInsideAnyRoot(
+  target: string,
+  roots: string[],
+  pathImpl: Pick<typeof path, 'resolve' | 'relative' | 'isAbsolute'> = path,
+): boolean {
+  const resolvedTarget = pathImpl.resolve(target);
+  for (const root of roots) {
+    if (!root) continue;
+    const resolvedRoot = pathImpl.resolve(root);
+    const rel = pathImpl.relative(resolvedRoot, resolvedTarget);
+    if (rel === '' || (!rel.startsWith('..') && !pathImpl.isAbsolute(rel))) return true;
+  }
+  return false;
+}
+
+/**
  * Resolve `target` (following symlinks) and return its absolute, realpath'd
  * form IFF it sits inside at least one realpath-resolved entry of `roots`.
  * Otherwise throw `Error('path outside workspace')`.

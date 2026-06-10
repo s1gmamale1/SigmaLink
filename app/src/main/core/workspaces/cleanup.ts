@@ -18,6 +18,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { canonicalPathKey, pathKeyIsWithin } from '../util/path-key';
+import { rmDirWithRetry } from '../util/rm-retry';
 import type { PtyRegistry } from '../pty/registry';
 import type { ProcessTreeSnapshot } from '../process/process-tree';
 import { collectKeptWorktreePaths } from './worktree-cleanup';
@@ -126,7 +127,7 @@ async function pruneRepoDir(
   if (!dryRun) {
     for (const p of wouldRemove) {
       try {
-        await fs.rm(p, { recursive: true, force: true });
+        await rmDirWithRetry(p);
         removed++;
       } catch (err) {
         console.warn('[cleanup] Failed to remove worktree dir:', p, err);
