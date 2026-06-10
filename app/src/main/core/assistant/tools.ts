@@ -89,6 +89,15 @@ export interface ToolContext {
    * don't exercise the browser path).
    */
   cdpCallCounter?: { count: number };
+  /**
+   * Spec 2026-06-10 (A) — renderer event broadcaster (the controller's
+   * `deps.emit`). Lets tool handlers that spawn panes echo
+   * `assistant:dispatch-echo` so the Command Room grid refetches and shows
+   * them (the bare launch_pane tool previously emitted nothing → panes
+   * spawned but never rendered). Optional: absent in tests/legacy callers
+   * ⇒ no echo, no throw (back-compat).
+   */
+  emit?: (event: string, payload: unknown) => void;
 }
 
 export interface ToolDefinition {
@@ -296,6 +305,27 @@ export const TOOLS: ToolDefinition[] = [
         pty: ctx.pty,
         worktreePool: ctx.worktreePool,
       });
+      // Spec 2026-06-10 (A) — echo each spawned session so the Command Room
+      // grid refetches (use-jorvis-dispatch-echo) and renders the new panes.
+      // Sibling of dispatchPane's loop (controller.ts) — same payload shape.
+      // workspaceId: the conversation's workspace (same source requireWs uses).
+      const workspaceId = ctx.defaultWorkspaceId;
+      if (ctx.emit && workspaceId) {
+        for (const session of out.sessions) {
+          try {
+            ctx.emit('assistant:dispatch-echo', {
+              workspaceId,
+              sessionId: session.id,
+              providerId: session.providerId,
+              ok: session.status !== 'error',
+              error: session.error ?? null,
+              conversationId: null,
+            });
+          } catch {
+            /* best-effort — an echo failure must not fail the launch */
+          }
+        }
+      }
       return { sessionIds: out.sessions.map((s) => s.id), sessions: out.sessions };
     },
   ),

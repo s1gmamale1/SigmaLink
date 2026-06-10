@@ -18,6 +18,12 @@ vi.mock('../browser/cdp', () => ({
   detachDebugger: vi.fn(),
 }));
 
+// Spec 2026-06-10 (A) — mock executeLaunchPlan so launch_pane tests control
+// the spawned-session shapes without real PTYs/worktrees.
+vi.mock('../workspaces/launcher', () => ({
+  executeLaunchPlan: vi.fn(async () => ({ sessions: [] })),
+}));
+
 import {
   closeDatabase,
   getDb,
@@ -28,6 +34,7 @@ import { findTool } from './tools';
 import type { ToolContext } from './tools';
 import { agentAlias } from '../../../shared/agent-identity';
 import { runCDP } from '../browser/cdp';
+import { executeLaunchPlan } from '../workspaces/launcher';
 import {
   createDbFake,
   seedAgent,
@@ -696,5 +703,53 @@ describe('BSP-B3 browser_snapshot — scanIngested integration', () => {
     expect(out.error).toMatch(/CDP snapshot failed/i);
     // scanIngested must NOT be called when CDP fails (no text to scan).
     expect(mockScanIngested).not.toHaveBeenCalled();
+  });
+});
+
+describe('assistant launch_pane echo (spec 2026-06-10 A)', () => {
+  it('emits assistant:dispatch-echo once per spawned session', async () => {
+    vi.mocked(executeLaunchPlan).mockResolvedValue({
+      sessions: [
+        { id: 'sess-a', providerId: 'codex', status: 'running', error: null },
+        { id: 'sess-b', providerId: 'codex', status: 'error', error: 'spawn failed' },
+      ],
+    } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>);
+    const emit = vi.fn();
+    const ctx = { ...makeCtx([], 'ws-1'), emit } as unknown as ToolContext;
+
+    await findTool('launch_pane')!.handler(
+      { workspaceRoot: '/tmp/ws-1', provider: 'codex', count: 2 },
+      ctx,
+    );
+
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit).toHaveBeenNthCalledWith(1, 'assistant:dispatch-echo', {
+      workspaceId: 'ws-1',
+      sessionId: 'sess-a',
+      providerId: 'codex',
+      ok: true,
+      error: null,
+      conversationId: null,
+    });
+    expect(emit).toHaveBeenNthCalledWith(2, 'assistant:dispatch-echo', {
+      workspaceId: 'ws-1',
+      sessionId: 'sess-b',
+      providerId: 'codex',
+      ok: false,
+      error: 'spawn failed',
+      conversationId: null,
+    });
+  });
+
+  it('does not throw when ctx.emit is absent (back-compat)', async () => {
+    vi.mocked(executeLaunchPlan).mockResolvedValue({
+      sessions: [{ id: 'sess-a', providerId: 'codex', status: 'running', error: null }],
+    } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>);
+
+    const out = await findTool('launch_pane')!.handler(
+      { workspaceRoot: '/tmp/ws-1', provider: 'codex' },
+      makeCtx([], 'ws-1'),
+    );
+    expect(out).toMatchObject({ sessionIds: ['sess-a'] });
   });
 });

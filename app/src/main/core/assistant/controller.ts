@@ -223,6 +223,8 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         browserRegistry: deps.browserRegistry,
         defaultWorkspaceId: conv?.workspaceId ?? null,
         userDataDir: deps.userDataDir,
+        // Spec 2026-06-10 (A) — let pane-spawning tools echo dispatch-echo.
+        emit: deps.emit,
         // R-1 — provenance + confirm hook also flow into the tool ctx so a
         // handler can apply origin-specific behaviour if it needs to. The gate
         // above is the primary enforcement point.
