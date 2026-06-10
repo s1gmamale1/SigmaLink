@@ -9,11 +9,10 @@
 //   - populated buckets → renders the strip with an accessible summary label
 //     (total commits + churn) so VoiceOver/screen-reader users get the number.
 //
-// recharts' ResponsiveContainer measures its parent; in jsdom that's 0×0 so the
-// SVG bars don't paint. We therefore assert on the labelled wrapper element
-// (the load-bearing accessibility contract), not on the chart internals.
+// The strip renders inline SVG (perf audit 2026-06-10 #1 — recharts removed),
+// so jsdom can assert the bars directly in addition to the a11y label.
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import type { GitActivityBucket } from '@/shared/types';
 
@@ -24,18 +23,6 @@ vi.mock('@/renderer/lib/use-git-activity-poll', () => ({
 }));
 
 import { GitActivityStrip } from './GitActivityStrip';
-
-// recharts' ResponsiveContainer instantiates a ResizeObserver, which jsdom
-// lacks. Stub minimally so the populated-render path doesn't crash.
-beforeAll(() => {
-  if (typeof globalThis.ResizeObserver === 'undefined') {
-    globalThis.ResizeObserver = class {
-      observe(): void {}
-      unobserve(): void {}
-      disconnect(): void {}
-    } as unknown as typeof ResizeObserver;
-  }
-});
 
 function bucket(over: Partial<GitActivityBucket> = {}): GitActivityBucket {
   return {
@@ -106,5 +93,20 @@ describe('GitActivityStrip', () => {
     pollMock.mockReturnValue([]);
     render(<GitActivityStrip worktreePath="/some/worktree" />);
     expect(pollMock).toHaveBeenCalledWith('/some/worktree');
+  });
+
+  it('renders one inline-SVG bar per active day, scaled by churn (no recharts)', () => {
+    pollMock.mockReturnValue([
+      bucket({ date: '2026-05-01', commitCount: 2, churn: 20 }),
+      bucket({ date: '2026-05-02', commitCount: 1, churn: 5 }),
+    ]);
+    render(<GitActivityStrip worktreePath="/wt" />);
+    const bars = screen.getAllByTestId('git-activity-bar');
+    expect(bars).toHaveLength(2);
+    const h0 = Number(bars[0].getAttribute('height'));
+    const h1 = Number(bars[1].getAttribute('height'));
+    expect(h0).toBeGreaterThan(h1);      // churn-20 day taller than churn-5 day
+    expect(h1).toBeGreaterThanOrEqual(1); // floor: faint tick for calm days
+    expect(bars[0].tagName.toLowerCase()).toBe('rect');
   });
 });
