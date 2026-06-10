@@ -17,6 +17,7 @@ import {
 import { workspaceCwdInWorktree } from '../workspaces/worktree-cwd';
 import { ensureWorktree } from '../git/git-ops';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode } from './local-pty';
+import { isPtyCrash } from './crash';
 
 export interface PaneResumeSuccess {
   sessionId: string;
@@ -150,6 +151,19 @@ export interface ResumeLauncherDeps {
    * Absent → no-op for every session.
    */
   loadScrollbackForSession?: (sessionId: string) => string;
+  /**
+   * crash-classification IPC (2026-06-10 audit, finding 2) — when provided, a
+   * crash exit (isPtyCrash: earlyDeath OR non-zero code OR non-zero signal) on
+   * a resumed/respawned pane broadcasts `pty:error` so the renderer keeps the
+   * pane visible with an error banner instead of GC-removing it. Mirrors
+   * LaunchDeps.broadcastPtyError in workspaces/launcher.ts. Optional: absent →
+   * DB status write only, no broadcast (existing tests unchanged).
+   */
+  broadcastPtyError?: (payload: {
+    sessionId: string;
+    exitCode: number | null;
+    signal?: string | null;
+  }) => void;
 }
 
 async function getDefaultRawDb(): Promise<Database.Database> {
@@ -274,21 +288,39 @@ function attachExitPersistence(
   db: Database.Database,
   sessionId: string,
   rec: SessionRecord,
+  broadcastPtyError?: ResumeLauncherDeps['broadcastPtyError'],
 ): void {
   const startedMs = rec.startedAt;
-  rec.pty.onExit(({ exitCode }) => {
-    // Treat any exit within 1.5s of spawn as a launch failure ('error').
-    // This catches both synthetic ENOENT failures (exitCode < 0) and real
-    // CLI crashes (e.g. Claude exiting with code 1 on bad resume).
+  rec.pty.onExit(({ exitCode, signal }) => {
+    // Treat any exit within 1.5s of spawn as a launch failure, and ALSO any
+    // non-zero exit code / signal as a crash — via the SHARED classifier so
+    // this third exit-classification site finally matches its two siblings
+    // (workspaces/launcher.ts, swarms/factory-spawn.ts). 2026-06-10 audit,
+    // finding 2: the previous time-only test recorded a post-1.5s non-zero /
+    // signal-killed exit as 'exited', so the exited-session GC reaped the
+    // crashed pane on restore and it never entered the exited/-1 respawn
+    // bucket.
     const earlyDeath = Date.now() - startedMs < 1500;
+    const isCrash = isPtyCrash(earlyDeath, exitCode, signal);
     try {
       db.prepare(
         `UPDATE agent_sessions
          SET status = ?, exit_code = ?, exited_at = ?
          WHERE id = ?`,
-      ).run(earlyDeath ? 'error' : 'exited', exitCode, Date.now(), sessionId);
+      ).run(isCrash ? 'error' : 'exited', exitCode, Date.now(), sessionId);
     } catch {
       /* db may be closing during shutdown */
+    }
+    if (isCrash) {
+      try {
+        broadcastPtyError?.({
+          sessionId,
+          exitCode: exitCode ?? null,
+          signal: signal != null ? String(signal) : null,
+        });
+      } catch {
+        /* broadcast is best-effort */
+      }
     }
   });
 }
@@ -477,6 +509,21 @@ export async function respawnFailedWorkspacePanes(
   for (const row of rows) {
     const providerId = row.providerEffective ?? row.providerId;
     const cwd = await resolveResumeCwd(row);
+    // GHOST-HEAL parity (2026-06-10 audit, finding 3) — this is a FRESH spawn
+    // (no resume args): the row's external_session_id points at the PRE-crash
+    // conversation, so leaving it in place made the NEXT reopen resume the
+    // pre-crash session even though the operator explicitly respawned fresh.
+    // Null it for EVERY provider BEFORE spawning (the router's
+    // persistExternalSessionId capture sink only writes into a NULL column).
+    // Providers that mint a deterministic --session-id (claude) additionally
+    // spawn with FRESH semantics (preassignedSessionId + isResume:false →
+    // shouldPreAssign injects --session-id, capture is not suppressed) and the
+    // new id is stamped back below — mirroring resumeWorkspacePanes' heal
+    // gate. Other providers keep sessionId + isResume:true so the cwd
+    // disk-scan stays suppressed (it races siblings/the operator in the
+    // shared in-place cwd — the session-collapse class of bug).
+    const healViaPreAssign = providerPreAssignsSession(providerId);
+    setExternalSessionId(db, row.id, null);
     try {
       if (providerId === 'claude') {
         await prepareClaudeWorkspaceContext(row.workspaceRoot, cwd, {
@@ -495,24 +542,27 @@ export async function respawnFailedWorkspacePanes(
         { ptyRegistry: deps.pty },
         {
           providerId,
-          sessionId: row.id,
+          ...(healViaPreAssign
+            ? { preassignedSessionId: row.id, isResume: false as const }
+            : { sessionId: row.id, isResume: true as const }),
           cwd,
           cols: deps.cols ?? 120,
           rows: deps.rows ?? 32,
           showLegacy: deps.showLegacy ?? readShowLegacy(db),
           // No resumeArgs — this is a fresh spawn in the same worktree.
           extraArgs: [],
-          // v1.5.5 — explicit resume flag: sessionId reuses the existing DB
-          // row, so this IS a resume even though no --resume/--continue arg
-          // is passed. Suppresses the redundant onPostSpawnCapture disk-scan.
-          isResume: true,
           spawnMode,
         },
       );
       const rec = result.ptySession;
       markResumeRunning(db, row.id, rec.startedAt);
       writeProviderEffective(db, row.id, result.providerEffective);
-      attachExitPersistence(db, row.id, rec);
+      attachExitPersistence(db, row.id, rec, deps.broadcastPtyError);
+      // GHOST-HEAL — persist the freshly pre-assigned id so the NEXT reopen
+      // resumes the post-respawn conversation by a REAL id.
+      if (healViaPreAssign && result.preassignedExternalSessionId) {
+        setExternalSessionId(db, row.id, result.preassignedExternalSessionId);
+      }
       spawned += 1;
     } catch {
       // Re-mark failure so the row stays in the bucket for a future retry.
@@ -696,7 +746,7 @@ export async function resumeWorkspacePanes(
       const rec = spawned.ptySession;
       markResumeRunning(db, row.id, rec.startedAt);
       writeProviderEffective(db, row.id, spawned.providerEffective);
-      attachExitPersistence(db, row.id, rec);
+      attachExitPersistence(db, row.id, rec, deps.broadcastPtyError);
       // GHOST-HEAL — persist the freshly pre-assigned id so the NEXT reopen
       // resumes by a real id instead of re-ghosting.
       let healedExternalId = externalSessionId ?? '';

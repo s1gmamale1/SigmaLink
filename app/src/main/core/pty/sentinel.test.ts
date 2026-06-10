@@ -12,6 +12,8 @@ import {
   buildSentinelSnippet,
   buildPowerShellSentinelSnippet,
   buildCmdSentinelSnippet,
+  sliceSentinelCarry,
+  SENTINEL_CARRY_MAX,
 } from './sentinel';
 
 describe('sentinel constants', () => {
@@ -280,5 +282,33 @@ describe('buildCmdSentinelSnippet round-trip (Phase 5)', () => {
     expect(SENTINEL_RE.test(simulatedOutput)).toBe(true);
     const result = extractSentinel(simulatedOutput);
     expect(result!.exitCode).toBe(42);
+  });
+});
+
+// ── 2026-06-10 audit finding 4: cross-chunk sentinel carry helper ──────────
+describe('sliceSentinelCarry', () => {
+  it('keeps the tail from the last newline when a partial sentinel may be in flight', () => {
+    expect(sliceSentinelCarry('CLI output\n__SIGMALINK_CLI_EX')).toBe('\n__SIGMALINK_CLI_EX');
+  });
+
+  it('keeps just the newline when the chunk ends at a line boundary', () => {
+    expect(sliceSentinelCarry('CLI output\n')).toBe('\n');
+  });
+
+  it('drops the carry when the in-flight line is longer than any sentinel (cap)', () => {
+    expect(sliceSentinelCarry('start\n' + 'x'.repeat(SENTINEL_CARRY_MAX + 16))).toBe('');
+  });
+
+  it('returns empty when there is no newline at all (no anchor → no fabricated line start)', () => {
+    expect(sliceSentinelCarry('x'.repeat(20))).toBe('');
+  });
+
+  it('never fabricates a line-start anchor: carry + next chunk only matches via a REAL stream newline', () => {
+    // The carry always begins with the stream's own '\n', so prepending it to
+    // the next chunk reproduces the genuine line boundary.
+    const carry = sliceSentinelCarry('output\n__SIGMALINK_CLI_EXIT_');
+    const match = extractSentinel(carry + '0__\n');
+    expect(match).not.toBeNull();
+    expect(match!.exitCode).toBe(0);
   });
 });

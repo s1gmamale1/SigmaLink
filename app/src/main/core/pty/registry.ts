@@ -19,7 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { spawnLocalPty, resolveEffectiveSpawnMode, type PtyHandle, type SpawnInput } from './local-pty';
 import { RingBuffer } from './ring-buffer';
 import { detectLinks, type LinkHit } from './link-detector';
-import { extractSentinel } from './sentinel';
+import { extractSentinel, sliceSentinelCarry } from './sentinel';
 import {
   inspectProcessTree,
   stopProcessTree,
@@ -230,6 +230,27 @@ export class PtyRegistry {
     } & SpawnInput,
   ): SessionRecord {
     const id = input.sessionId ?? input.preassignedSessionId ?? randomUUID();
+    // 2026-06-10 lifecycle audit (finding 1) — duplicate-id guard. Resume and
+    // respawn reuse DB row ids, and the resume already-running guard passes
+    // for EXITED-but-unforgotten records (alive=false inside the graceful-exit
+    // window). A blind sessions.set() overwrite leaked the old record's
+    // listeners and let its pending graceful-exit timer reap the NEW record
+    // (see the recAtExit guard in the onExit handler below).
+    //   - existing LIVE record → concurrent double-spawn (two overlapping
+    //     resumeWorkspacePanes calls yielding between alive-check and spawn):
+    //     throw BEFORE spawnLocalPty so no untracked zombie PTY is created;
+    //     the caller's catch marks the row failed and it stays respawnable.
+    //   - existing DEAD record → graceful-exit window: clean-replace via
+    //     forget() so the old listeners/buffer are torn down first.
+    const existing = this.sessions.get(id);
+    if (existing) {
+      if (existing.alive) {
+        throw new Error(
+          `PtyRegistry.create: session "${id}" already has a live PTY (pid ${existing.pid}) — refusing duplicate spawn`,
+        );
+      }
+      this.forget(id);
+    }
     const isResume = input.isResume ?? (input.sessionId !== undefined);
     // v1.6.0 Phase 2: resolve the effective spawn mode so the data handler knows
     // whether to watch for the CLI-exit sentinel.
@@ -251,6 +272,12 @@ export class PtyRegistry {
     const linkSink = this.onLinkDetected;
     const shouldDetectLinks = this.shouldDetectLinks;
     const cliExitedSink = this.onCliExited;
+    // 2026-06-10 audit (finding 4) — per-session tail carried between PTY
+    // reads so a sentinel split across two (or more) chunks still matches.
+    // DETECTION-ONLY: bytes from a previous chunk were already forwarded to
+    // the renderer and can never be retracted, so the carry path never
+    // rewrites `data` — only whole-chunk matches keep the stripping behaviour.
+    let sentinelCarry = '';
     const unsubData = pty.onData((rawData) => {
       // v1.6.0 Phase 2 — sentinel detection (shell-first mode only).
       // In shell-first mode the injected command line ends with a `; printf …`
@@ -262,10 +289,28 @@ export class PtyRegistry {
         const match = extractSentinel(rawData);
         if (match !== null) {
           data = match.strippedData;
+          sentinelCarry = '';
           try {
             cliExitedSink({ sessionId: id, exitCode: match.exitCode });
           } catch {
             /* never let a cli-exited listener break the data stream */
+          }
+        } else {
+          // Cross-chunk: scan carry + chunk. A match here necessarily spans
+          // the chunk boundary (a whole-chunk match took the branch above),
+          // so the first half already rendered — fire the signal but forward
+          // the current chunk unchanged.
+          const combined = sentinelCarry + rawData;
+          const spanned = sentinelCarry.length > 0 ? extractSentinel(combined) : null;
+          if (spanned !== null) {
+            sentinelCarry = '';
+            try {
+              cliExitedSink({ sessionId: id, exitCode: spanned.exitCode });
+            } catch {
+              /* never let a cli-exited listener break the data stream */
+            }
+          } else {
+            sentinelCarry = sliceSentinelCarry(combined);
           }
         }
       }
@@ -308,7 +353,12 @@ export class PtyRegistry {
       this.onExit(id, exitCode, signal);
       if (this.onPaneEvent) {
         try {
-          this.onPaneEvent({ sessionId: id, kind: rec?.exitCode === 0 ? 'exited' : 'error', exitCode: rec?.exitCode });
+          // Finding 5 — derive kind/exitCode from the exit callback args, not
+          // the map record: when the record was already forgotten (an exit
+          // event in flight while stop({forget:true}) ran) `rec` is undefined
+          // and the old `rec?.exitCode === 0` check mis-reported a clean exit
+          // as 'error' with exitCode undefined.
+          this.onPaneEvent({ sessionId: id, kind: exitCode === 0 ? 'exited' : 'error', exitCode });
         } catch { /* ignore */ }
       }
       // v1.9-scrollback — persist the buffer snapshot before the graceful-exit
@@ -323,7 +373,17 @@ export class PtyRegistry {
       }
       // Forget after a short grace period so the renderer's last data drain is
       // not lost and a late subscribe() can still pull the snapshot.
-      setTimeout(() => this.forget(id), this.gracefulExitDelayMs);
+      //
+      // 2026-06-10 lifecycle audit (finding 1) — capture the record THIS exit
+      // belongs to and bail if the map entry has been replaced by the time the
+      // timer fires (resume/respawn re-created the id inside the grace
+      // window). Without the guard the stale timer forgot the FRESH record:
+      // it unsubscribed the new listeners and killed the just-resumed pane.
+      const recAtExit = rec;
+      setTimeout(() => {
+        if (this.sessions.get(id) !== recAtExit) return;
+        this.forget(id);
+      }, this.gracefulExitDelayMs);
     });
     const rec: SessionRecord = {
       id,

@@ -75,6 +75,44 @@ export function extractSentinel(data: string): SentinelMatch | null {
   return { exitCode: firstCode, strippedData: stripped };
 }
 
+// ---------------------------------------------------------------------------
+// 2026-06-10 audit (finding 4) — cross-chunk sentinel carry.
+//
+// extractSentinel() is per-chunk. PTY reads can split the sentinel across two
+// (or more) chunks, in which case it NEVER matched and onCliExited never
+// fired (shell-first is the DEFAULT mode). The registry keeps a small
+// per-session tail and prepends it to the next chunk for SCANNING ONLY — the
+// data forwarded to the renderer is never rewritten (bytes from a previous
+// chunk already rendered and cannot be retracted).
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum carried tail length. The longest possible sentinel line is ~30
+ * chars (`\n` + prefix(21) + 3 exit-code digits + suffix(2) + `\r\n`); 64
+ * leaves comfortable headroom while bounding per-chunk concat cost.
+ */
+export const SENTINEL_CARRY_MAX = 64;
+
+/**
+ * Compute the tail of `combined` (= previous carry + current chunk) to carry
+ * into the NEXT chunk's sentinel scan when no sentinel matched.
+ *
+ * Anchor-safe: the carry always starts at a REAL `\n` from the stream, so
+ * prepending it to the next chunk can never fabricate the `(?:^|\r?\n)`
+ * line-start anchor (a naive `slice(-64)` could cut mid-line and turn
+ * `x__SIGMALINK…` into a string-start false positive).
+ *
+ * When the in-flight line is already longer than any sentinel can be, no
+ * partial sentinel can be pending → carry nothing. This also bounds memory on
+ * newline-free streams (progress bars, spinners).
+ */
+export function sliceSentinelCarry(combined: string): string {
+  const lastNl = combined.lastIndexOf('\n');
+  if (lastNl === -1) return '';
+  const tail = combined.slice(lastNl); // includes the '\n' anchor
+  return tail.length > SENTINEL_CARRY_MAX ? '' : tail;
+}
+
 /**
  * Build the POSIX `printf` snippet that emits the sentinel after the CLI exits.
  *
