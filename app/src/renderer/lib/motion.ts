@@ -53,30 +53,6 @@ export const popoverContentMotion =
 export const tooltipContentMotion = popoverContentMotion;
 
 /**
- * Edge sheets — full-surface directional slide keyed off the
- * resolved side. Enter rides the snappy spring at the slow budget (350ms)
- * so a large surface settles with weight; exit is quicker + smooth.
- *
- * Radix `react-dialog` (Sheet) exposes the side via our own conditional
- * classes, so we key on `data-[state]`.
- */
-const SHEET_SLIDE: Record<"top" | "right" | "bottom" | "left", string> = {
-  right:
-    "data-[state=open]:animate-sl-slide-in-right data-[state=closed]:animate-sl-slide-out-right",
-  left: "data-[state=open]:animate-sl-slide-in-left data-[state=closed]:animate-sl-slide-out-left",
-  top: "data-[state=open]:animate-sl-slide-in-top data-[state=closed]:animate-sl-slide-out-top",
-  bottom:
-    "data-[state=open]:animate-sl-slide-in-bottom data-[state=closed]:animate-sl-slide-out-bottom",
-};
-
-/** Slide animation for a Radix-dialog-backed Sheet on a given side. */
-export function sheetSideMotion(
-  side: "top" | "right" | "bottom" | "left"
-): string {
-  return SHEET_SLIDE[side];
-}
-
-/**
  * True at the moment of call when the OS requests reduced motion. Most
  * consumers should NOT need this — the CSS reset already neutralizes the
  * animations. Provided for JS that must branch (e.g. imperative spring

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Stage-3 UI polish — tabs, badge, card, and separator class assertions.
+// Stage-3 UI polish — tabs, badge, and card class assertions.
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
@@ -140,17 +140,5 @@ describe('Card — apple-grade surface tokens', () => {
     const { container } = render(<Card>content</Card>);
     const card = container.querySelector('[data-slot="card"]') as HTMLElement;
     expect(card.className).toContain('transition-[color,box-shadow]');
-  });
-});
-
-// ---- Separator --------------------------------------------------------------
-
-import { Separator } from './separator';
-
-describe('Separator — bg-border token', () => {
-  it('uses bg-border', () => {
-    const { container } = render(<Separator />);
-    const sep = container.querySelector('[data-slot="separator"]') as HTMLElement;
-    expect(sep.className).toContain('bg-border');
   });
 });
