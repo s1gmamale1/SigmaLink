@@ -1705,6 +1705,10 @@ async function buildRouter() {
     worktreePool,
     mailbox,
     userDataDir: userData,
+    // Audit 2026-06-10 — C6 parity: same notifications sink buildSwarmController
+    // gets above, so a disk-guard refusal in a sigmabench-driven spawn bells
+    // instead of being console-only. (SwarmFactoryDeps already declares it.)
+    notifications: notificationsManager,
   };
   const readSwarmStatuses = async (swarmId: string): Promise<SwarmStatusSnapshot[]> => {
     const db = getDb();
@@ -1968,6 +1972,11 @@ async function buildRouter() {
       serverEntry: jorvisHostServerEntry,
       socketPath: mcpHostSigma.getSocketPath(),
     },
+    // Audit 2026-06-10 — launch sinks: disk-guard CRITICAL bell + crash
+    // pty:error now fire on assistant-dispatched launches (parity with the
+    // workspaces.launch handler above).
+    notifications: notificationsManager,
+    broadcastPtyError: (payload) => broadcast('pty:error', payload),
   });
   const assistantCtl = assistantBundle.controller;
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the
@@ -2009,6 +2018,11 @@ async function buildRouter() {
     // C-13: delegate to the existing pty.write call so design.dispatch can
     // route element captures into live pane PTYs without re-opening IPC.
     ptyWrite: (sessionId, data) => pty.write(sessionId, data),
+    // Audit 2026-06-10 — launch sinks: disk-guard CRITICAL bell + crash
+    // pty:error now fire on design-dispatched launches (parity with the
+    // workspaces.launch handler above).
+    notifications: notificationsManager,
+    broadcastPtyError: (payload) => broadcast('pty:error', payload),
   });
   designShutdown = (designCtl as unknown as { shutdown: () => void }).shutdown;
   // V3-W15-001 / V1.1 — SigmaVoice. Renderer drives Web Speech capture on
