@@ -969,3 +969,32 @@ describe('image paste interception (spec 2026-06-10 B)', () => {
     expect(prevent).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 2026-06-10 audit, finding 6 — flash-drop timer hygiene
+// ---------------------------------------------------------------------------
+describe('PaneShell — flash-drop timer hygiene', () => {
+  it('clears the 200ms flash reset timer on unmount', async () => {
+    vi.useFakeTimers();
+    try {
+      // worktreePath:null keeps the git-status poller inert so the timer
+      // delta below isolates the flash timer.
+      const session = makeSession({ worktreePath: null });
+      const { unmount } = await renderPaneShell(session);
+      await act(async () => {}); // settle mount effects (kv gate read)
+
+      const body = screen.getByTestId('pane-body');
+      const before = vi.getTimerCount();
+      fireEvent.drop(body, {
+        dataTransfer: { types: ['Files'], getData: () => '', files: [] },
+      });
+      expect(vi.getTimerCount()).toBe(before + 1); // flash reset armed
+
+      unmount();
+      // Pre-fix: before + 1 — the 200ms timeout leaked past unmount.
+      expect(vi.getTimerCount()).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
