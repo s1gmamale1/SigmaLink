@@ -18,6 +18,15 @@ import * as terminalCache from '@/renderer/lib/terminal-cache';
 
 const spawnScratchMock = vi.fn();
 const killScratchMock = vi.fn();
+// 2026-06-10 finding 1 — the real scratch-tabs store runs in these tests; it
+// imports terminal-cache (destroy) which we stub so xterm never loads here.
+// getCached is kept (default undefined) so the existing context-menu Copy/Paste
+// tests can still vi.spyOn it.
+const destroyTerminalMock = vi.fn();
+vi.mock('@/renderer/lib/terminal-cache', () => ({
+  destroy: (...args: unknown[]) => destroyTerminalMock(...args),
+  getCached: vi.fn(),
+}));
 const revealInFolderMock = vi.fn();
 const openShellMock = vi.fn();
 const ptyWriteMock = vi.fn().mockResolvedValue(undefined);
@@ -119,9 +128,10 @@ vi.mock('@/renderer/features/skills/SkillBindingChip', () => ({
   SkillBindingChip: () => null,
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   spawnScratchMock.mockReset();
   killScratchMock.mockReset();
+  destroyTerminalMock.mockReset();
   ptyWriteMock.mockReset();
   toastWarningMock.mockReset();
   worktreeCreateMock.mockReset();
@@ -158,6 +168,11 @@ beforeEach(() => {
     writable: true,
     configurable: true,
   });
+
+  // 2026-06-10 finding 1 — the scratch store is a module singleton; reset it
+  // so tabs from a previous test never leak into the next one.
+  const scratchStore = await import('@/renderer/lib/scratch-tabs');
+  scratchStore.__resetScratchTabs();
 });
 
 afterEach(() => {
@@ -352,6 +367,46 @@ describe('PaneShell — tab switching', () => {
 
     // Scratch terminal should now be hidden.
     expect(scratchTerminal.classList.contains('hidden')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. 2026-06-10 finding 1 — scratch lifecycle: remount survival + cache destroy
+// ---------------------------------------------------------------------------
+describe('PaneShell — scratch tab lifecycle (2026-06-10 finding 1)', () => {
+  it('scratch tabs survive an unmount/remount cycle (room/workspace switch)', async () => {
+    const first = await renderPaneShell();
+    const paneContainer = first.container.firstElementChild as HTMLElement;
+    await act(async () => {
+      fireEvent.keyDown(paneContainer, { key: 't', metaKey: true, bubbles: true });
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('pane-tab-strip')).toBeTruthy();
+
+    // Simulate a room/workspace switch: full unmount, then a fresh mount.
+    first.unmount();
+    await renderPaneShell();
+
+    // The tab strip and the scratch terminal are back WITHOUT a new spawn.
+    expect(screen.queryByTestId('pane-tab-strip')).toBeTruthy();
+    expect(screen.queryByTestId('terminal-scratch-1')).toBeTruthy();
+    expect(spawnScratchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('closing a scratch tab destroys its cached terminal (finding 1c)', async () => {
+    const { container } = await renderPaneShell();
+    const paneContainer = container.firstElementChild as HTMLElement;
+    await act(async () => {
+      fireEvent.keyDown(paneContainer, { key: 't', metaKey: true, bubbles: true });
+      await Promise.resolve();
+    });
+    const closeBtn = screen.getByLabelText('Close scratch 1');
+    await act(async () => {
+      fireEvent.click(closeBtn);
+      await Promise.resolve();
+    });
+    expect(destroyTerminalMock).toHaveBeenCalledWith('scratch-1');
+    expect(killScratchMock).toHaveBeenCalledWith({ scratchId: 'scratch-1' });
   });
 });
 

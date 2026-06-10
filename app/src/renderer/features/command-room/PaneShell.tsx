@@ -12,7 +12,7 @@
 // Previously this was the inline `PaneCell` function in CommandRoom.tsx.
 // Extracted to keep CommandRoom.tsx under 500 LOC (v1.5.1-A caveat 1).
 
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
 import { ClipboardPaste, Copy, FolderOpen, GitBranch, RotateCw, Square, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -37,7 +37,13 @@ import type { AgentSession } from '@/shared/types';
 import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
 import { PANE_DRAG_MIME } from '@/renderer/lib/pane-context-builder';
 import { SkillBindingChip, type SkillBinding } from '@/renderer/features/skills/SkillBindingChip';
-import { PaneTabStrip, type ScratchTab } from './PaneTabStrip';
+import { PaneTabStrip } from './PaneTabStrip';
+import {
+  addScratchTab,
+  closeScratchTab,
+  getScratchTabs,
+  subscribeScratchTabs,
+} from '@/renderer/lib/scratch-tabs';
 import { PaneContextSidebar } from './PaneContextSidebar';
 import { useUncommittedCount } from '@/renderer/lib/use-git-status-poll';
 import { usePromptCard } from './use-prompt-card';
@@ -139,53 +145,55 @@ export function PaneShell({
     dismiss: dismissPrompt,
   } = usePromptCard(session.id, promptCardsEnabled);
 
-  // W-4 Phase 4 — Ephemeral scratch-shell sub-tabs.
-  // scratchTabs: ordered list of open scratch PTY ids.
-  // activeTabId: either session.id (main) or a scratchId.
+  // W-4 Phase 4 + 2026-06-10 finding 1 — scratch tabs live in a MODULE-SCOPE
+  // store keyed by this pane's sessionId, so they survive room/workspace
+  // switches exactly like the cached terminal does. Only the active-tab
+  // SELECTION is per-mount (a remount lands back on the main tab — fine).
   // INVARIANT: with zero scratch tabs, no tab-strip renders and the pane body
   // is byte-for-byte identical to the pre-Phase-4 render.
-  const [scratchTabs, setScratchTabs] = useState<ScratchTab[]>([]);
+  const scratchSubscribe = useCallback(
+    (cb: () => void) => subscribeScratchTabs(session.id, cb),
+    [session.id],
+  );
+  const scratchSnapshot = useCallback(() => getScratchTabs(session.id), [session.id]);
+  const scratchTabs = useSyncExternalStore(scratchSubscribe, scratchSnapshot);
   const [activeTabId, setActiveTabId] = useState<string>(session.id);
   // Ref used by the keydown handler to check if THIS pane container is focused.
   const paneContainerRef = useRef<HTMLDivElement>(null);
 
-  // Keep activeTabId in sync if the session id changes (shouldn't in normal
-  // use, but guard against stale closure).
+  // Keep activeTabId readable from stable callbacks without re-subscribing.
   const activeTabIdRef = useRef(activeTabId);
   useEffect(() => {
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
 
-  // Spawn a scratch shell PTY and add its tab.
+  // Spawn a scratch shell PTY and register its tab in the module store.
   const spawnScratch = useCallback(async () => {
     const cwd = session.worktreePath ?? '.';
     try {
       const result = await rpc.pty.spawnScratch({ cwd });
-      setScratchTabs((prev) => [...prev, { scratchId: result.scratchId }]);
+      addScratchTab(session.id, result.scratchId);
       setActiveTabId(result.scratchId);
     } catch {
       // Silent — toast from the rpc layer if applicable.
     }
-  }, [session.worktreePath]);
+  }, [session.id, session.worktreePath]);
 
-  // Close a scratch tab: kill the PTY and remove from state.
-  const closeScratch = useCallback(async (scratchId: string) => {
-    setScratchTabs((prev) => {
-      const remaining = prev.filter((t) => t.scratchId !== scratchId);
-      // Switch active tab if we're closing the active one.
+  // Close a scratch tab. The store kills the PTY AND destroys the cached
+  // xterm (finding 1c); we only manage the local active-tab selection here.
+  const closeScratch = useCallback(
+    (scratchId: string) => {
+      const tabs = getScratchTabs(session.id);
       if (activeTabIdRef.current === scratchId) {
-        const idx = prev.findIndex((t) => t.scratchId === scratchId);
+        const idx = tabs.findIndex((t) => t.scratchId === scratchId);
+        const remaining = tabs.filter((t) => t.scratchId !== scratchId);
         const next = remaining[idx] ?? remaining[idx - 1] ?? null;
         setActiveTabId(next ? next.scratchId : session.id);
       }
-      return remaining;
-    });
-    try {
-      await rpc.pty.killScratch({ scratchId });
-    } catch {
-      /* PTY may already be gone */
-    }
-  }, [session.id]);
+      closeScratchTab(session.id, scratchId);
+    },
+    [session.id],
+  );
 
   // Spec 2026-06-10 (B) — stage image bytes via panes.stageImage and inject the
   // ABSOLUTE @path (insertMention prefixes '@'). Absolute (not workspace-
