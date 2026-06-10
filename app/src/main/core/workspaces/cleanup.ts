@@ -111,9 +111,12 @@ async function pruneRepoDir(
     return { wouldRemove: [], liveBlocked: [], removed: 0, errors: 0 };
   }
 
-  let entries: string[];
+  let entries: Array<{ name: string; isDirectory: () => boolean }>;
   try {
-    entries = await fs.readdir(repoDir);
+    entries = (await fs.readdir(repoDir, { withFileTypes: true })) as Array<{
+      name: string;
+      isDirectory: () => boolean;
+    }>;
   } catch {
     return { wouldRemove: [], liveBlocked: [], removed: 0, errors: 0 };
   }
@@ -122,7 +125,10 @@ async function pruneRepoDir(
   const liveBlocked: string[] = [];
 
   for (const entry of entries) {
-    const full = path.join(repoDir, entry);
+    // 2026-06-10 audit (finding 3): dirs only. A stray FILE in the repoHash
+    // dir (.DS_Store, crash artifact, …) must never be rm-rf'd by the reaper.
+    if (!entry.isDirectory()) continue;
+    const full = path.join(repoDir, entry.name);
     if (livePaths.has(canonicalPathKey(full))) {
       liveBlocked.push(full);
     } else {

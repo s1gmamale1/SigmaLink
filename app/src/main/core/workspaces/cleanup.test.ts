@@ -11,7 +11,7 @@ import path from 'node:path';
 // Mock fs/promises — never touch the real filesystem.
 // ---------------------------------------------------------------------------
 
-const readdirMock = vi.fn<(...args: unknown[]) => Promise<string[]>>();
+const readdirMock = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 const rmMock = vi.fn<(...args: unknown[]) => Promise<void>>();
 
 vi.mock('node:fs', () => ({
@@ -22,6 +22,12 @@ vi.mock('node:fs', () => ({
   // existsSync used by removeWorkspace
   existsSync: vi.fn(() => false),
 }));
+
+// pruneRepoDir reads with { withFileTypes: true } — mocks return Dirent-ish objects.
+function dirent(name: string, isDir = true) {
+  return { name, isDirectory: () => isDir };
+}
+const dirents = (...names: string[]) => names.map((n) => dirent(n));
 
 // ---------------------------------------------------------------------------
 // Minimal MockDb — satisfies the better-sqlite3 interface subset we use.
@@ -218,7 +224,7 @@ describe('pruneOrphanWorktreesForWorkspace — dry-run', () => {
     const exitedSession = makeSession({ worktree_path: null });
     const db = makeDb([exitedSession]);
 
-    readdirMock.mockResolvedValue(['pane-a', 'pane-b']);
+    readdirMock.mockResolvedValue(dirents('pane-a', 'pane-b'));
 
     const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
       worktreeBase: WORKTREE_BASE,
@@ -242,7 +248,7 @@ describe('pruneOrphanWorktreesForWorkspace — dry-run', () => {
     });
     const db = makeDb([liveSession]);
 
-    readdirMock.mockResolvedValue(['live-pane', 'orphan-pane']);
+    readdirMock.mockResolvedValue(dirents('live-pane', 'orphan-pane'));
 
     const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
       worktreeBase: WORKTREE_BASE,
@@ -266,7 +272,7 @@ describe('pruneOrphanWorktreesForWorkspace — dry-run', () => {
     });
     const db = makeDb([liveSession]);
 
-    readdirMock.mockResolvedValue(['Live-Pane', 'orphan-pane']);
+    readdirMock.mockResolvedValue(dirents('Live-Pane', 'orphan-pane'));
 
     const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
       worktreeBase,
@@ -308,7 +314,7 @@ describe('pruneOrphanWorktreesForWorkspace — live', () => {
     const liveSession = makeSession({ worktree_path: liveWorktree, status: 'running' });
     const db = makeDb([liveSession]);
 
-    readdirMock.mockResolvedValue(['orphan', 'live']);
+    readdirMock.mockResolvedValue(dirents('orphan', 'live'));
 
     const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
       worktreeBase: WORKTREE_BASE,
@@ -330,7 +336,7 @@ describe('pruneOrphanWorktreesForWorkspace — live', () => {
       status: 'starting',
     });
     const db = makeDb([startingSession]);
-    readdirMock.mockResolvedValue(['starting-pane']);
+    readdirMock.mockResolvedValue(dirents('starting-pane'));
 
     const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
       worktreeBase: WORKTREE_BASE,
@@ -356,7 +362,7 @@ describe('pruneOrphanWorktreesForWorkspace — live', () => {
       makeSession({ worktree_path: null, status: 'exited' }),
     ]);
 
-    readdirMock.mockResolvedValue(['bad-perm-dir']);
+    readdirMock.mockResolvedValue(dirents('bad-perm-dir'));
 
     const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
       worktreeBase: WORKTREE_BASE,
@@ -370,6 +376,30 @@ describe('pruneOrphanWorktreesForWorkspace — live', () => {
     expect(result.removed).toBe(0);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it('never rm-rfs a stray FILE in the repoHash dir — dirs only (2026-06-10 audit, finding 3)', async () => {
+    const db = makeDb([]);
+    readdirMock.mockResolvedValue([dirent('stray-file.txt', false), dirent('orphan-dir', true)]);
+
+    const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
+      worktreeBase: WORKTREE_BASE,
+      repoHash: REPO_HASH,
+      workspaceId: WS_ID,
+      db,
+      dryRun: false,
+    });
+
+    expect(result.removed).toBe(1);
+    expect(rmMock).toHaveBeenCalledTimes(1);
+    expect(rmMock).toHaveBeenCalledWith(
+      path.join(REPO_DIR, 'orphan-dir'),
+      { recursive: true, force: true },
+    );
+    expect(rmMock).not.toHaveBeenCalledWith(
+      path.join(REPO_DIR, 'stray-file.txt'),
+      expect.anything(),
+    );
   });
 });
 
@@ -454,7 +484,7 @@ describe('removeWorkspaceAndGc', () => {
     const wsRow: WorkspaceRow = { id: WS_ID, name: 'test-ws', root_path: '/some/path', repo_root: '/some/path' };
     const db = makeDb([liveSession, exitedSession], [wsRow]);
 
-    readdirMock.mockResolvedValue(['live-pane', 'orphan-pane']);
+    readdirMock.mockResolvedValue(dirents('live-pane', 'orphan-pane'));
 
     const result = await cleanupModule.removeWorkspaceAndGc({
       workspaceId: WS_ID,
@@ -478,7 +508,7 @@ describe('removeWorkspaceAndGc', () => {
     const wsRow: WorkspaceRow = { id: WS_ID, name: 'test-ws', root_path: '/some/path', repo_root: '/some/path' };
     const db = makeDb([exitedSession], [wsRow]);
 
-    readdirMock.mockResolvedValue(['exited-pane']);
+    readdirMock.mockResolvedValue(dirents('exited-pane'));
 
     const result = await cleanupModule.removeWorkspaceAndGc({
       workspaceId: WS_ID,
@@ -499,7 +529,7 @@ describe('removeWorkspaceAndGc', () => {
     const wsRow: WorkspaceRow = { id: WS_ID, name: 'test-ws', root_path: '/some/path', repo_root: '/some/path' };
     const db = makeDb([liveSession], [wsRow]);
 
-    readdirMock.mockResolvedValue(['live-pane', 'orphan-pane']);
+    readdirMock.mockResolvedValue(dirents('live-pane', 'orphan-pane'));
 
     const result = await cleanupModule.removeWorkspaceAndGc({
       workspaceId: WS_ID,
