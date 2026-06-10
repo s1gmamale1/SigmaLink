@@ -5,7 +5,7 @@
 // animation frame — no global drag flag, so a missed pointerup can't freeze
 // refits.)
 
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface Props {
   /** 'vertical' = a vertical line that resizes widths; 'horizontal' = resizes heights. */
@@ -24,6 +24,22 @@ export function PaneDivider({ orientation, getSize, onResizeStart, onResize, onR
   const vertical = orientation === 'vertical';
   const rafRef = useRef<number | null>(null);
   const pendingRef = useRef<number | null>(null);
+
+  // 2026-06-10 — mid-drag unmount safety. The window pointermove/up listeners
+  // + pending rAF attached in onPointerDown normally detach in `up`. If the
+  // divider unmounts mid-drag (pane closed, grid reshape), they leak — and
+  // worse, the paired `sigma:pane-resize-end` (fired by the parent's
+  // onResizeEnd, see PaneGrid endDrag) never happens, leaving terminal refits
+  // suppressed forever. `dragAbortRef` holds a cancel closure for the ACTIVE
+  // drag only; the normal `up` path clears it first, so release behavior is
+  // identical to PR #133.
+  const dragAbortRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    return () => {
+      dragAbortRef.current?.();
+      dragAbortRef.current = null;
+    };
+  }, []);
 
   function flush() {
     rafRef.current = null;
@@ -53,6 +69,7 @@ export function PaneDivider({ orientation, getSize, onResizeStart, onResize, onR
       if (rafRef.current === null) rafRef.current = requestAnimationFrame(flush);
     };
     const up = (ev: PointerEvent) => {
+      dragAbortRef.current = null;
       try {
         el.releasePointerCapture(ev.pointerId);
       } catch {
@@ -66,6 +83,17 @@ export function PaneDivider({ orientation, getSize, onResizeStart, onResize, onR
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    dragAbortRef.current = () => {
+      // Unmount path only: detach listeners + cancel the rAF WITHOUT flushing
+      // a final onResize (the parent may be unmounting too); still fire
+      // onResizeEnd so the sigma:pane-resize-start suppression is released.
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      pendingRef.current = null;
+      onResizeEnd();
+    };
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {

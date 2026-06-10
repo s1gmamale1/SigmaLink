@@ -38,6 +38,22 @@ export function Splitter({
     lastWidthRef.current = width;
   }, [width]);
 
+  // 2026-06-10 — mid-drag unmount safety: pointerdown sets app-wide
+  // cursor/userSelect on document.body and only endDrag resets them. If the
+  // Splitter unmounts while a drag is in flight (rail toggled closed,
+  // workspace switch), `user-select: none` sticks app-wide. Reset on unmount,
+  // but ONLY when a drag is actually active so we never stomp styles another
+  // component owns.
+  useEffect(() => {
+    return () => {
+      if (draggingRef.current) {
+        draggingRef.current = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+  }, []);
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();

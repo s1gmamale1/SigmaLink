@@ -5,29 +5,28 @@
 // No React, no DOM, no IPC. The helpers below are intentionally module-local
 // (not exported) — they are reducer implementation detail and aren't part of
 // the public API.
+// (Exception: isGlobalRoom is imported from state.types — it is shared with the
+// session-snapshot writer.)
 
 import type { AgentSession, Notification, Swarm, Workspace } from '../../shared/types';
-import { selectActiveWorkspace, type Action, type AppState, type RoomId } from './state.types';
+import {
+  isGlobalRoom,
+  selectActiveWorkspace,
+  type Action,
+  type AppState,
+  type RoomId,
+} from './state.types';
 
-/**
- * Rooms that are NOT workspace-scoped. These must never be persisted into
- * `roomByWorkspace` because they are global surfaces (launcher, settings).
- * v1.4.2 — added 'settings' to fix the "click workspace after visiting
- * Settings stays on Settings" bug.
- */
-// BSP-O3 — 'automations' is a global surface (Telegram + digest are
-// workspace-independent), so it must NOT be remembered per-workspace.
-const GLOBAL_ROOMS: readonly RoomId[] = ['workspaces', 'settings', 'automations'] as const;
+// GLOBAL_ROOMS / isGlobalRoom moved to state.types.ts (2026-06-10) so the
+// snapshot writer in use-session-restore.ts shares the exact same guard —
+// the two files had drifted (the WORKSPACE_OPEN seed + snapshot fallbackRoom
+// only checked 'workspaces', leaking 'settings'/'automations').
 
 // Perf audit 2026-06-10 #4 — per-swarm message thread cap. Hydrate tails 200
 // (SwarmRoom / SwarmRailTab); live APPENDs previously grew the array without
 // bound. 500 keeps the full hydrated tail plus a generous live window while
 // bounding SideChat / MailboxBubble row counts on long-running swarms.
 const SWARM_MESSAGES_CAP = 500;
-
-function isGlobalRoom(room: RoomId): boolean {
-  return (GLOBAL_ROOMS as readonly string[]).includes(room);
-}
 
 function deriveActiveWorkspace(state: AppState): AppState {
   const activeWorkspace = selectActiveWorkspace(state);
@@ -279,7 +278,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       // makes restore round-trips lossless for the active workspace.
       const wsId = action.workspace.id;
       const roomByWorkspace =
-        state.roomByWorkspace[wsId] || state.room === 'workspaces'
+        state.roomByWorkspace[wsId] || isGlobalRoom(state.room)
           ? state.roomByWorkspace
           : { ...state.roomByWorkspace, [wsId]: state.room };
       return deriveActiveWorkspace({

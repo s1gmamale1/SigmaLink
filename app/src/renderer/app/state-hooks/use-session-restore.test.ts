@@ -40,10 +40,14 @@ function installSigmaStub(): SigmaStub {
   const emit = (event: string, payload: unknown) => {
     handlers.get(event)?.forEach((fn) => fn(payload));
   };
-  (globalThis as unknown as { window: { sigma: unknown } }).window = {
-    ...(globalThis.window ?? {}),
-    sigma: { eventOn, eventSend, invoke: vi.fn() },
-  };
+  // 2026-06-10 — defineProperty instead of window replacement: spreading the
+  // jsdom Window produced a prototype-less plain object, which broke once the
+  // hook started calling window.addEventListener (beforeunload flush).
+  Object.defineProperty(globalThis.window, 'sigma', {
+    configurable: true,
+    writable: true,
+    value: { eventOn, eventSend, invoke: vi.fn() },
+  });
   return { eventOn, eventSend, emit };
 }
 

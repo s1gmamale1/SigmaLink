@@ -49,6 +49,27 @@ export type RoomId =
   // Global room: reachable without an active workspace.
   | 'automations';
 
+/**
+ * Rooms that are NOT workspace-scoped. These must never be persisted into
+ * `roomByWorkspace` (or serialized as a workspace's room in the session
+ * snapshot) because they are global surfaces.
+ * v1.4.2 — added 'settings' to fix the "click workspace after visiting
+ * Settings stays on Settings" bug.
+ * BSP-O3 — 'automations' is a global surface (Telegram + digest are
+ * workspace-independent), so it must NOT be remembered per-workspace.
+ * 2026-06-10 audit — exported (with `isGlobalRoom`) as the SINGLE source of
+ * truth for all four guard sites: SET_ROOM, SET_ROOM_FOR_WORKSPACE,
+ * WORKSPACE_OPEN (state.reducer.ts) and the snapshot `fallbackRoom`
+ * (use-session-restore.ts). Add new global rooms HERE only —
+ * state.reducer.global-rooms.test.ts + use-session-restore.snapshot.test.ts
+ * enumerate this list at every site.
+ */
+export const GLOBAL_ROOMS: readonly RoomId[] = ['workspaces', 'settings', 'automations'] as const;
+
+export function isGlobalRoom(room: RoomId): boolean {
+  return (GLOBAL_ROOMS as readonly string[]).includes(room);
+}
+
 export interface AppState {
   ready: boolean;
   room: RoomId;

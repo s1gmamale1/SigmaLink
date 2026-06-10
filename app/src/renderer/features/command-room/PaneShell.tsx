@@ -115,6 +115,15 @@ export function PaneShell({
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [flashDrop, setFlashDrop] = useState(false);
+  // 2026-06-10 — the 200ms flash reset timer must not outlive the pane (drop
+  // → immediate pane close leaked the timeout). DELIBERATELY minimal: the
+  // terminal-cache-scratch plan does larger PaneShell surgery.
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    };
+  }, []);
   // C-1 data — git-status count for the pane's worktree. PERF-6: backed by a
   // shared refcounted per-repo poller so multiple panes on the same worktree
   // share ONE 15 s poll (and it pauses while the window is hidden). The
@@ -317,7 +326,8 @@ export function PaneShell({
     e.preventDefault();
     setIsDragOver(false);
     setFlashDrop(true);
-    setTimeout(() => setFlashDrop(false), 200);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashDrop(false), 200);
 
     // W-5 Phase 3 — skill drop: visual chip binding + slash-command injection.
     const skillRaw = e.dataTransfer.getData(SKILL_DRAG_MIME);
