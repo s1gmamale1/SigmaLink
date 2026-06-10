@@ -69,13 +69,6 @@ export function PaneShell({
   onToggleMinimise,
   isFullscreen,
   onToggleFullscreen,
-  /**
-   * v1.4.3 #06 — When the pane is in a split group, the Split-H/V icons are
-   * disabled (max 2-level deep in v1.4.x). The CommandRoom passes this true
-   * for sub-panes via `SplitGroupCell`. Defaults to false for the standalone
-   * pane case.
-   */
-  inSplitGroup = false,
   // v1.7.1 W-5 Phase 2 — INFORMATIONAL skill binding chips for this pane.
   skillBindings = [],
   onSkillDrop,
@@ -96,7 +89,6 @@ export function PaneShell({
   onToggleMinimise: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
-  inSplitGroup?: boolean;
   /**
    * v1.13.2 — Called when the user clicks "Relaunch" on a crashed pane. The
    * parent (CommandRoom) re-adds an agent of the same provider to the swarm
@@ -483,7 +475,6 @@ export function PaneShell({
         onClose={onRemove}
         onSplit={onSplit}
         onToggleMinimise={onToggleMinimise}
-        canSplit={!inSplitGroup}
         isMinimised={minimised}
         isFullscreen={isFullscreen}
         onToggleFullscreen={onToggleFullscreen}
