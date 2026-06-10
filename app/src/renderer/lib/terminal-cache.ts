@@ -133,6 +133,11 @@ export interface CacheEntry {
    *  (Chromium caps ~16 WebGL contexts per process; the cache holds 32).
    *  Null while parked (the DOM-renderer-free buffer still parses bytes). */
   webglAddon: WebglAddon | null;
+  /** 2026-06-10 finding 5a — mutable holder for the LATEST mount's context.
+   *  The linkHandler/WebLinks closures read through this ref, and the cache-
+   *  hit path refreshes it, so links always route via the current mount's
+   *  wsIdRef + surfaceBrowser instead of the first mount's dead refs. */
+  ctxRef: { current: TerminalCacheContext };
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -181,7 +186,7 @@ const THEME = {
   brightWhite: '#f8fafc',
 } as const;
 
-function buildTerminalOptions(ctx: TerminalCacheContext): ITerminalOptions {
+function buildTerminalOptions(ctxRef: { current: TerminalCacheContext }): ITerminalOptions {
   return {
     fontFamily:
       'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace',
@@ -195,10 +200,12 @@ function buildTerminalOptions(ctx: TerminalCacheContext): ITerminalOptions {
     convertEol: true,
     // V3-W13-002 — OSC8 hyperlink activation. Plain URLs go through the
     // WebLinksAddon below; this handles `\x1b]8;;…` sequences from CLIs
-    // like claude / gh / ripgrep --hyperlink.
+    // like claude / gh / ripgrep --hyperlink. Reads through ctxRef so a
+    // remount's fresh context takes effect (2026-06-10 finding 5a).
     linkHandler: {
       activate: (_event, text) => {
-        ctx.routeLinkClick(text, ctx.wsIdRef.current, ctx.surfaceBrowser);
+        const c = ctxRef.current;
+        c.routeLinkClick(text, c.wsIdRef.current, c.surfaceBrowser);
       },
     },
   };
@@ -263,17 +270,22 @@ export function getOrCreateTerminal(
 ): CacheEntry {
   const existing = cache.get(sessionId);
   if (existing) {
+    // 2026-06-10 finding 5a — accept the latest mount's context so the
+    // link-handler closures stop reading the first mount's dead refs.
+    existing.ctxRef.current = ctx;
     existing.lastAccessed = Date.now();
     return existing;
   }
   evictOldestIfFull();
 
-  const term = new XTerm(buildTerminalOptions(ctx));
+  const ctxRef = { current: ctx };
+  const term = new XTerm(buildTerminalOptions(ctxRef));
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.loadAddon(
     new WebLinksAddon((_event, uri) => {
-      ctx.routeLinkClick(uri, ctx.wsIdRef.current, ctx.surfaceBrowser);
+      const c = ctxRef.current;
+      c.routeLinkClick(uri, c.wsIdRef.current, c.surfaceBrowser);
     }),
   );
 
@@ -356,6 +368,7 @@ export function getOrCreateTerminal(
     ptyExited: false,
     snapshotReady: false,
     webglAddon: null,
+    ctxRef,
   };
   entryRef.current = entry;
   cache.set(sessionId, entry);

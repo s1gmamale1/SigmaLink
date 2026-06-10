@@ -532,6 +532,37 @@ describe('terminal-cache — eviction guard (2026-06-10 finding 2)', () => {
   });
 });
 
+// ── 2026-06-10 finding 5a — cache hit refreshes the link-routing context ────
+describe('terminal-cache — ctx refresh on cache hit (2026-06-10 finding 5a)', () => {
+  it('routes link clicks through the LATEST mount ctx, not the first', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+
+    const routeA = vi.fn();
+    const ctxA = { wsIdRef: { current: 'ws-A' as string | undefined }, routeLinkClick: routeA };
+    getOrCreateTerminal('ctx-1', ctxA);
+
+    // Remount with a FRESH ctx (new wsIdRef holder — exactly what a new
+    // SessionTerminal mount produces) pointing at a different workspace.
+    const routeB = vi.fn();
+    const surfaceB = vi.fn();
+    const ctxB = {
+      wsIdRef: { current: 'ws-B' as string | undefined },
+      routeLinkClick: routeB,
+      surfaceBrowser: surfaceB,
+    };
+    getOrCreateTerminal('ctx-1', ctxB);
+
+    // Drive the OSC8 linkHandler captured at construction.
+    const opts = createdTerms[0]!.__ctorArg as {
+      linkHandler: { activate: (e: unknown, text: string) => void };
+    };
+    opts.linkHandler.activate(null, 'https://example.com');
+
+    expect(routeB).toHaveBeenCalledWith('https://example.com', 'ws-B', surfaceB);
+    expect(routeA).not.toHaveBeenCalled();
+  });
+});
+
 // ── 2026-06-10 finding 3 — WebGL renderer only while attached to a host ─────
 describe('terminal-cache — WebGL attach/detach lifecycle (2026-06-10 finding 3)', () => {
   it('does NOT load the WebGL addon at creation (parked terminals parse buffers only)', async () => {
