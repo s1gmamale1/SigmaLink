@@ -121,6 +121,12 @@ export interface GlobalCaptureStatus {
   mode: CaptureMode;
   modelId: string;
   hotkey: string;
+  /**
+   * False when `globalShortcut.register` last failed (hotkey taken by another
+   * app / IME). Persistent — late subscribers (VoiceTab mounts long after
+   * boot; the boot-time toast is gone by then) can still render a warning.
+   */
+  hotkeyRegistered: boolean;
 }
 
 /**
@@ -144,6 +150,8 @@ export interface GlobalCaptureDeps {
   getModelsDir: () => string;
   /** Electron clipboard API — injected for portability. */
   clipboard: ClipboardApi;
+  /** Override platform — tests force the win32 accelerator default. */
+  platform?: NodeJS.Platform;
 
   // ── C-10b focused-pane routing (used by the package's routeTranscript when
   //    injectToPane() is true; wired by the SigmaLink main process). ──
@@ -196,7 +204,16 @@ const KV_HOTKEY   = 'voice.globalCapture.hotkey';
 const KV_MODE     = 'voice.globalCapture.mode';
 const KV_MODEL_ID = 'voice.globalCapture.modelId';
 
-const DEFAULT_HOTKEY = 'CommandOrControl+Alt+Space';
+/**
+ * Platform-aware default PTT accelerator. On win32, Ctrl+Alt+Space (what
+ * CommandOrControl+Alt+Space resolves to there) collides with the IME
+ * input-method toggle on several keyboard layouts, so the win32 default is
+ * Ctrl+Shift+Space. A user-chosen hotkey stored in KV always wins.
+ */
+export function defaultGlobalCaptureHotkey(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'Control+Shift+Space' : 'CommandOrControl+Alt+Space';
+}
+
 const DEFAULT_MODE: CaptureMode = 'toggle';
 const DEFAULT_MODEL  = getDefaultModel().id;
 
@@ -314,11 +331,12 @@ class PcmAccumulator {
 // ---------------------------------------------------------------------------
 
 export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
+  const platform = deps.platform ?? process.platform;
   let state: CaptureState = 'idle';
   let enabled = false;
   let mode: CaptureMode = DEFAULT_MODE;
   let modelId = DEFAULT_MODEL;
-  let hotkey = DEFAULT_HOTKEY;
+  let hotkey = defaultGlobalCaptureHotkey(platform);
   const pcm = new PcmAccumulator();
   let currentHotkeyRegistered = false;
   let unsubscribeOnFinal: (() => void) | null = null;
@@ -354,7 +372,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
   }
 
   function getStatus(): GlobalCaptureStatus {
-    return { state, enabled, mode, modelId, hotkey };
+    return { state, enabled, mode, modelId, hotkey, hotkeyRegistered: currentHotkeyRegistered };
   }
 
   function toast(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
@@ -368,7 +386,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     const rawModelId  = kvGet(KV_MODEL_ID);
 
     enabled = rawEnabled === '1';
-    hotkey  = rawHotkey ?? DEFAULT_HOTKEY;
+    hotkey  = rawHotkey ?? defaultGlobalCaptureHotkey(platform);
     mode    = (rawMode === 'push-to-talk' ? 'push-to-talk' : DEFAULT_MODE);
     modelId = MODEL_CATALOG.find((m) => m.id === rawModelId)?.id ?? DEFAULT_MODEL;
   }
@@ -384,6 +402,9 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     if (!ok) {
       console.warn(`[global-capture] Failed to register hotkey "${hotkey}" — it may be taken by another app.`);
       toast(`Could not register hotkey ${hotkey}. Try rebinding in Settings → Voice.`, 'warn');
+      // Persist the failure to status (the boot-time toast is gone by the time
+      // VoiceTab / the SigmaVoice HUD mounts — late subscribers need this).
+      broadcastStatus();
       return;
     }
     currentHotkeyRegistered = true;
