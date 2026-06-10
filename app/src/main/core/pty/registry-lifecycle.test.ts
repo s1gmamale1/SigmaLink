@@ -1,0 +1,230 @@
+// 2026-06-10 PTY lifecycle audit — registry lifecycle races (findings 1, 4, 5).
+//
+// Finding 1 (HIGH): the graceful-exit timer captured only the session ID. When
+// resume/respawn re-created the same DB row id inside the grace window
+// (rpc-router passes gracefulExitDelayMs: 3_000), the STALE timer's forget(id)
+// fetched the NEW record, unsubscribed its listeners, and killed the freshly
+// resumed pane ~3s in. create() also blindly overwrote an existing map entry,
+// which (a) enabled that race and (b) let concurrent resumeWorkspacePanes
+// calls double-spawn an untracked zombie PTY.
+//
+// Finding 4: extractSentinel() is per-chunk; a sentinel split across two PTY
+// reads never matched, so onCliExited never fired in shell-first mode (the
+// DEFAULT since Phase 7). The registry carries a small per-session tail —
+// scan-only; forwarded data is never rewritten (Task 4 adds those tests).
+//
+// Finding 5: the exit pane-event derived kind from `rec?.exitCode === 0`; a
+// forgotten-record race reported a clean exit as 'error' with exitCode
+// undefined.
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Mock node-pty entirely (mirrors registry.test.ts). resolveEffectiveSpawnMode
+// is reproduced as the real pure logic so shell-first resolution is genuine.
+vi.mock('./local-pty', () => {
+  return {
+    spawnLocalPty: vi.fn(),
+    resolveEffectiveSpawnMode: (
+      spawnMode: 'direct' | 'shell-first' | undefined,
+      command: string,
+    ): 'direct' | 'shell-first' =>
+      spawnMode === 'shell-first' && command !== '' && process.platform !== 'win32'
+        ? 'shell-first'
+        : 'direct',
+  };
+});
+
+const processTreeMock = vi.hoisted(() => ({
+  inspectProcessTree: vi.fn(),
+  stopProcessTree: vi.fn(),
+  stopProcessTrees: vi.fn(),
+}));
+vi.mock('../process/process-tree', () => processTreeMock);
+
+import { spawnLocalPty } from './local-pty';
+import { PtyRegistry } from './registry';
+import type { PtyHandle } from './local-pty';
+
+interface FakePty extends PtyHandle {
+  killCalls: number;
+}
+
+const FAKE_PID = 999_999_999; // way outside any real PID range
+const realKill = process.kill.bind(process);
+
+beforeEach(() => {
+  processTreeMock.stopProcessTree.mockImplementation((rootPid: number) => ({
+    rootPid,
+    supported: false,
+    nodes: [],
+    descendantPids: [],
+    rssBytes: 0,
+  }));
+  processTreeMock.stopProcessTrees.mockImplementation((rootPids: number[]) => ({
+    snapshots: rootPids.map((rootPid) => ({
+      rootPid,
+      supported: false,
+      nodes: [],
+      descendantPids: [],
+      rssBytes: 0,
+    })),
+    stoppedPids: [],
+  }));
+  // Intercept process.kill so isProcessAlive(FAKE_PID) reports "alive" and a
+  // fallback SIGKILL never escapes to a real process (mirrors registry.test.ts).
+  process.kill = ((pid: number, signal?: number | string) => {
+    if (pid === FAKE_PID) return true;
+    return realKill(pid, signal as NodeJS.Signals);
+  }) as typeof process.kill;
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  process.kill = realKill;
+  vi.clearAllMocks();
+});
+
+/**
+ * Fake PTY with manually-fireable data/exit events.
+ * `disconnectOnUnsub: true` (default) models a REAL unsubscribe (handler
+ * detached) — used to assert that forget()/clean-replace tears listeners down.
+ * `disconnectOnUnsub: false` models an event already in flight when the
+ * unsubscribe ran (node-pty exit callbacks can race forget()).
+ */
+function makeLifecyclePty(opts: { disconnectOnUnsub?: boolean } = {}) {
+  const disconnect = opts.disconnectOnUnsub ?? true;
+  let dataHandler: ((d: string) => void) | null = null;
+  let exitHandler: ((info: { exitCode: number; signal?: number }) => void) | null = null;
+  const pty: FakePty = {
+    pid: FAKE_PID,
+    killCalls: 0,
+    write: () => undefined,
+    resize: () => undefined,
+    kill: function (this: FakePty) {
+      this.killCalls += 1;
+    },
+    onData: (cb) => {
+      dataHandler = cb;
+      return () => {
+        if (disconnect) dataHandler = null;
+      };
+    },
+    onExit: (cb) => {
+      exitHandler = cb;
+      return () => {
+        if (disconnect) exitHandler = null;
+      };
+    },
+  } as FakePty;
+  return {
+    pty,
+    fireData: (d: string) => dataHandler?.(d),
+    fireExit: (code: number, signal?: number) => exitHandler?.({ exitCode: code, signal }),
+    hasDataHandler: () => dataHandler !== null,
+  };
+}
+
+const baseInput = {
+  providerId: 'claude',
+  command: 'claude',
+  args: [] as string[],
+  cwd: '/tmp',
+  cols: 80,
+  rows: 24,
+};
+
+describe('graceful-exit timer vs resume-overwrite race (finding 1)', () => {
+  it('a stale graceful-exit timer does NOT forget a record re-created inside the grace window', () => {
+    const first = makeLifecyclePty();
+    const second = makeLifecyclePty();
+    const handles = [first, second];
+    let i = 0;
+    vi.mocked(spawnLocalPty).mockImplementation(() => handles[i++]!.pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined, {
+      gracefulExitDelayMs: 3_000, // mirrors rpc-router.ts:491
+    });
+
+    registry.create({ ...baseInput, sessionId: 'pane-1', isResume: true });
+    // PTY exits → the 3s graceful-exit timer is armed for THIS record.
+    first.fireExit(0);
+    expect(registry.get('pane-1')?.alive).toBe(false);
+
+    // 1s later the resume path re-creates the SAME DB row id. The
+    // already-running guard (resume-launcher.ts `live?.alive`) passes for
+    // exited-but-unforgotten records, so this IS the live production path.
+    vi.advanceTimersByTime(1_000);
+    const resumed = registry.create({ ...baseInput, sessionId: 'pane-1', isResume: true });
+    expect(resumed.alive).toBe(true);
+
+    // t=3s: the STALE timer fires. It must bail — not unsubscribe listeners /
+    // kill the freshly resumed record.
+    vi.advanceTimersByTime(2_100);
+    expect(registry.get('pane-1')).toBe(resumed);
+    expect(registry.get('pane-1')?.alive).toBe(true);
+    expect(second.pty.killCalls).toBe(0);
+  });
+
+  it('create() throws on a duplicate id whose record is still ALIVE and does not spawn a second PTY', () => {
+    const first = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(first.pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined);
+    const original = registry.create({ ...baseInput, sessionId: 'pane-dup' });
+    expect(original.alive).toBe(true);
+
+    vi.mocked(spawnLocalPty).mockClear();
+    expect(() => registry.create({ ...baseInput, sessionId: 'pane-dup' })).toThrow(
+      /already has a live PTY/,
+    );
+    // The guard must run BEFORE spawnLocalPty — no orphan child process.
+    expect(spawnLocalPty).not.toHaveBeenCalled();
+    // The original record is untouched.
+    expect(registry.get('pane-dup')).toBe(original);
+  });
+
+  it('create() over an EXITED-but-unforgotten record clean-replaces it (old listeners detached)', () => {
+    const first = makeLifecyclePty();
+    const second = makeLifecyclePty();
+    const handles = [first, second];
+    let i = 0;
+    vi.mocked(spawnLocalPty).mockImplementation(() => handles[i++]!.pty);
+    const forwarded: string[] = [];
+    const registry = new PtyRegistry(
+      (_sid, data) => forwarded.push(data),
+      () => undefined,
+      { gracefulExitDelayMs: 3_000 },
+    );
+
+    registry.create({ ...baseInput, sessionId: 'pane-2', isResume: true });
+    first.fireExit(1); // dead, inside the grace window
+    const replacement = registry.create({ ...baseInput, sessionId: 'pane-2', isResume: true });
+
+    expect(registry.get('pane-2')).toBe(replacement);
+    // The OLD record's data listener was unsubscribed by the clean-replace.
+    expect(first.hasDataHandler()).toBe(false);
+    // Late data from the old PTY no longer reaches the data sink.
+    first.fireData('ghost bytes');
+    expect(forwarded).not.toContain('ghost bytes');
+  });
+});
+
+describe('exit pane-event kind hardening (finding 5)', () => {
+  it("reports kind 'exited' + exitCode 0 even when the record was already forgotten", () => {
+    // disconnectOnUnsub:false models node-pty's exit event already in flight
+    // when forget() unsubscribed (e.g. stop({forget:true}) racing the exit).
+    const fake = makeLifecyclePty({ disconnectOnUnsub: false });
+    vi.mocked(spawnLocalPty).mockReturnValue(fake.pty);
+    const events: Array<{ kind: string; exitCode?: number }> = [];
+    const registry = new PtyRegistry(() => undefined, () => undefined, {
+      onPaneEvent: (e) => events.push({ kind: e.kind, exitCode: e.exitCode }),
+    });
+    const sess = registry.create({ ...baseInput, sessionId: 'pane-evt' });
+    sess.alive = false; // keep forget() off the kill path — exit raced it
+    registry.forget('pane-evt');
+    fake.fireExit(0);
+
+    const exitEvent = events.find((e) => e.kind === 'exited' || e.kind === 'error');
+    expect(exitEvent?.kind).toBe('exited'); // a clean exit must not read as a crash
+    expect(exitEvent?.exitCode).toBe(0);
+  });
+});
