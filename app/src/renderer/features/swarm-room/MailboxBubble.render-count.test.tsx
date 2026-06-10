@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import { useState, type Dispatch } from 'react';
+import { useEffect, useState, type Dispatch } from 'react';
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -53,9 +53,15 @@ function msg(over: Partial<SwarmMessage> = {}): SwarmMessage {
   };
 }
 
-let dispatchRef: Dispatch<Action> | null = null;
+// Capture the live dispatch into a module ref. The write happens inside a
+// useEffect (not during render) so the react-hooks/globals lint rule — which
+// forbids writing module-scope values during render — is satisfied.
+const dispatchRef: { current: Dispatch<Action> | null } = { current: null };
 function DispatchGrabber() {
-  dispatchRef = useAppDispatch();
+  const dispatch = useAppDispatch();
+  useEffect(() => {
+    dispatchRef.current = dispatch;
+  }, [dispatch]);
   return null;
 }
 
@@ -84,16 +90,19 @@ describe('MailboxBubble render isolation (perf audit #2)', () => {
     );
     const before = cnSpy.count;
     act(() => {
-      dispatchRef!({ type: 'SET_ROOM', room: 'swarm' });
+      dispatchRef.current!({ type: 'SET_ROOM', room: 'swarm' });
     });
     expect(cnSpy.count).toBe(before);
   });
 
   it('memo: a parent re-render with the same message prop does not re-render the bubble', () => {
-    let bump: (() => void) | null = null;
+    const bump: { current: (() => void) | null } = { current: null };
     function Host({ message }: { message: SwarmMessage }) {
       const [, set] = useState(0);
-      bump = () => set((n) => n + 1);
+      // Expose the bump via an effect (not during render) for react-hooks/globals.
+      useEffect(() => {
+        bump.current = () => set((n) => n + 1);
+      });
       return <MailboxBubble message={message} />;
     }
     const stable = msg();
@@ -103,7 +112,7 @@ describe('MailboxBubble render isolation (perf audit #2)', () => {
       </AppStateProvider>,
     );
     const before = cnSpy.count;
-    act(() => bump!());
+    act(() => bump.current!());
     expect(cnSpy.count).toBe(before);
   });
 

@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import type { Dispatch } from 'react';
+import { useEffect, type Dispatch } from 'react';
 
 const cnSpy = vi.hoisted(() => ({ count: 0 }));
 vi.mock('@/lib/utils', async (importOriginal) => {
@@ -87,9 +87,15 @@ const workspace: Workspace = {
   lastOpenedAt: 1,
 };
 
-let dispatchRef: Dispatch<Action> | null = null;
+// Capture the live dispatch into a module ref. The write happens inside a
+// useEffect (not during render) so the react-hooks/globals lint rule — which
+// forbids writing module-scope values during render — is satisfied.
+const dispatchRef: { current: Dispatch<Action> | null } = { current: null };
 function DispatchGrabber() {
-  dispatchRef = useAppDispatch();
+  const dispatch = useAppDispatch();
+  useEffect(() => {
+    dispatchRef.current = dispatch;
+  }, [dispatch]);
   return null;
 }
 
@@ -118,12 +124,12 @@ describe('RufloReadinessPill render isolation (perf audit #6)', () => {
     );
     // Activate a workspace and let the verify round-trips settle.
     await act(async () => {
-      dispatchRef!({ type: 'WORKSPACE_OPEN', workspace });
+      dispatchRef.current!({ type: 'WORKSPACE_OPEN', workspace });
     });
     await act(async () => {});
     const before = cnSpy.count;
     await act(async () => {
-      dispatchRef!({ type: 'SET_ROOM', room: 'swarm' });
+      dispatchRef.current!({ type: 'SET_ROOM', room: 'swarm' });
     });
     expect(cnSpy.count).toBe(before);
   });

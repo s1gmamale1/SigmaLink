@@ -9,7 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import type { Dispatch } from 'react';
+import { useEffect, type Dispatch } from 'react';
 
 const paneEventsMock = vi.hoisted(() => vi.fn(() => []));
 vi.mock('./use-jorvis-pane-events', () => ({
@@ -57,9 +57,15 @@ const workspace: Workspace = {
   lastOpenedAt: 1,
 };
 
-let dispatchRef: Dispatch<Action> | null = null;
+// Capture the live dispatch into a module ref. The write happens inside a
+// useEffect (not during render) so the react-hooks/globals lint rule — which
+// forbids writing module-scope values during render — is satisfied.
+const dispatchRef: { current: Dispatch<Action> | null } = { current: null };
 function DispatchGrabber() {
-  dispatchRef = useAppDispatch();
+  const dispatch = useAppDispatch();
+  useEffect(() => {
+    dispatchRef.current = dispatch;
+  }, [dispatch]);
   return null;
 }
 
@@ -89,12 +95,12 @@ describe('JorvisRoom render isolation (perf audit #5)', () => {
     // Activate a workspace so the full (non-empty) branch renders, then let
     // the conversation-hydration microtasks settle.
     await act(async () => {
-      dispatchRef!({ type: 'WORKSPACE_OPEN', workspace });
+      dispatchRef.current!({ type: 'WORKSPACE_OPEN', workspace });
     });
     await act(async () => {});
     const before = paneEventsMock.mock.calls.length;
     await act(async () => {
-      dispatchRef!({ type: 'SET_ROOM', room: 'swarm' });
+      dispatchRef.current!({ type: 'SET_ROOM', room: 'swarm' });
     });
     // `room` is not part of JorvisRoom's (or useJorvisConversations')
     // subscription → no re-render.
@@ -109,12 +115,12 @@ describe('JorvisRoom render isolation (perf audit #5)', () => {
       </AppStateProvider>,
     );
     await act(async () => {
-      dispatchRef!({ type: 'WORKSPACE_OPEN', workspace });
+      dispatchRef.current!({ type: 'WORKSPACE_OPEN', workspace });
     });
     await act(async () => {});
     const before = paneEventsMock.mock.calls.length;
     await act(async () => {
-      dispatchRef!({
+      dispatchRef.current!({
         type: 'WORKSPACE_OPEN',
         workspace: { ...workspace, id: 'ws-2', name: 'Other' },
       });

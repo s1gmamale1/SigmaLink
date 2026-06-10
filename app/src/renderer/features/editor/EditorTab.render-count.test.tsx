@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import type { Dispatch } from 'react';
+import { useEffect, type Dispatch } from 'react';
 
 const useEditorMock = vi.hoisted(() =>
   vi.fn(() => ({
@@ -62,9 +62,15 @@ const workspace: Workspace = {
   lastOpenedAt: 0,
 };
 
-let dispatchRef: Dispatch<Action> | null = null;
+// Capture the live dispatch into a module ref. The write happens inside a
+// useEffect (not during render) so the react-hooks/globals lint rule — which
+// forbids writing module-scope values during render — is satisfied.
+const dispatchRef: { current: Dispatch<Action> | null } = { current: null };
 function DispatchGrabber() {
-  dispatchRef = useAppDispatch();
+  const dispatch = useAppDispatch();
+  useEffect(() => {
+    dispatchRef.current = dispatch;
+  }, [dispatch]);
   return null;
 }
 
@@ -92,12 +98,12 @@ describe('EditorTab render isolation (perf audit #5)', () => {
       </AppStateProvider>,
     );
     await act(async () => {
-      dispatchRef!({ type: 'WORKSPACE_OPEN', workspace });
+      dispatchRef.current!({ type: 'WORKSPACE_OPEN', workspace });
     });
     await act(async () => {}); // flush kv-hydration microtasks
     const before = useEditorMock.mock.calls.length;
     await act(async () => {
-      dispatchRef!({ type: 'SET_ROOM', room: 'swarm' });
+      dispatchRef.current!({ type: 'SET_ROOM', room: 'swarm' });
     });
     expect(useEditorMock.mock.calls.length).toBe(before);
   });
