@@ -18,6 +18,7 @@ import { useEffect, useRef } from 'react';
 import type { AppState } from '../state.types';
 import { destroy, hasCached } from '@/renderer/lib/terminal-cache';
 import { closeScratchForParent, getScratchParentIds } from '@/renderer/lib/scratch-tabs';
+import { disposePromptWatcher } from '@/renderer/lib/prompt-watcher';
 
 export function useTerminalCacheGc(state: AppState): void {
   // Track every sessionId we've seen so a one-shot vanishing (session was
@@ -46,6 +47,7 @@ export function useTerminalCacheGc(state: AppState): void {
       if (seenNow.has(id)) continue;
       if (hasCached(id)) destroy(id);
       closeScratchForParent(id);
+      disposePromptWatcher(id); // 2026-06-10 finding 4 — no-op if never watched
     }
     // Defence in depth: scratch parents the store knows about that are not
     // in state at all (e.g. state slices replaced wholesale) get swept too.

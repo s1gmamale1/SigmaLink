@@ -61,8 +61,12 @@ const VALID_SINGLE =
 const VALID_MULTI =
   'SIGMA::PROMPT {"question":"Pick many","type":"multi","choices":["a","b","c"]}\n';
 
-beforeEach(() => {
+beforeEach(async () => {
   ptyWriteMock.mockReset().mockResolvedValue(undefined);
+  // Dispose any persistent watcher from the previous test FIRST — its bus
+  // off() bumps unsubscribeSpy, so reset the spy + subscriber table AFTER.
+  const watcher = await import('@/renderer/lib/prompt-watcher');
+  watcher.__resetPromptWatchers();
   unsubscribeSpy.mockReset();
   subscribers.clear();
 });
@@ -157,17 +161,29 @@ describe('usePromptCard — answer & dismiss', () => {
   });
 });
 
-describe('usePromptCard — lifecycle', () => {
-  it('unsubscribes and clears the prompt on unmount', async () => {
+describe('usePromptCard — lifecycle (2026-06-10 finding 4: watcher persists)', () => {
+  it('surfaces a prompt that arrived while the pane was UNMOUNTED (the remount-gap bug)', async () => {
     const usePromptCard = await load();
-    const { result, unmount } = renderHook(() => usePromptCard('s1', true));
+    // First enabled mount installs the persistent watcher.
+    const first = renderHook(() => usePromptCard('s1', true));
+    expect(first.result.current.prompt).toBeNull();
+    first.unmount();
+    // Prompt arrives mid room/workspace switch — nobody is mounted.
     act(() => emit('s1', VALID_SINGLE));
-    expect(result.current.prompt).not.toBeNull();
-    unmount();
-    expect(unsubscribeSpy).toHaveBeenCalledWith('s1');
+    // Remount: the prompt is waiting.
+    const second = renderHook(() => usePromptCard('s1', true));
+    expect(second.result.current.prompt).toMatchObject({ question: 'Pick one' });
   });
 
-  it('clears the prompt when the feature is turned off', async () => {
+  it('keeps the bus subscription alive across unmount (no unsubscribe)', async () => {
+    const usePromptCard = await load();
+    const { unmount } = renderHook(() => usePromptCard('s1', true));
+    unmount();
+    expect(unsubscribeSpy).not.toHaveBeenCalled();
+    expect(subscribers.get('s1')?.size).toBe(1);
+  });
+
+  it('returns null when the feature is turned off, without killing the watcher', async () => {
     const usePromptCard = await load();
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) => usePromptCard('s1', enabled),
@@ -177,6 +193,15 @@ describe('usePromptCard — lifecycle', () => {
     expect(result.current.prompt).not.toBeNull();
     rerender({ enabled: false });
     expect(result.current.prompt).toBeNull();
-    expect(unsubscribeSpy).toHaveBeenCalledWith('s1');
+  });
+
+  it('answer() clears the prompt for EVERY consumer of the session (module state)', async () => {
+    const usePromptCard = await load();
+    const { result } = renderHook(() => usePromptCard('s1', true));
+    act(() => emit('s1', VALID_SINGLE));
+    act(() => result.current.answer(['red']));
+    // The module-level prompt is gone — a remounted pane shows no stale card.
+    const remounted = renderHook(() => usePromptCard('s1', true));
+    expect(remounted.result.current.prompt).toBeNull();
   });
 });

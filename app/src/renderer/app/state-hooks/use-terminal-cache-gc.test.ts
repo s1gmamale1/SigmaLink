@@ -27,6 +27,11 @@ vi.mock('@/renderer/lib/scratch-tabs', () => ({
   getScratchParentIds: () => scratchParentIds,
 }));
 
+const disposePromptWatcherMock = vi.fn();
+vi.mock('@/renderer/lib/prompt-watcher', () => ({
+  disposePromptWatcher: (...args: unknown[]) => disposePromptWatcherMock(...args),
+}));
+
 import type { AgentSession } from '@/shared/types';
 import type { AppState } from '../state.types';
 import { initialAppState } from '../state.types';
@@ -60,6 +65,7 @@ beforeEach(() => {
   hasCachedMock.mockReturnValue(true);
   closeScratchForParentMock.mockReset();
   scratchParentIds = [];
+  disposePromptWatcherMock.mockReset();
 });
 
 afterEach(() => {
@@ -123,5 +129,16 @@ describe('useTerminalCacheGc — scratch reaping (2026-06-10 finding 1)', () => 
     scratchParentIds = ['s1'];
     renderHook(() => useTerminalCacheGc(stateWith({ 'ws-1': [session('s1')] })));
     expect(closeScratchForParentMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useTerminalCacheGc — prompt-watcher reaping (2026-06-10 finding 4)', () => {
+  it('disposes the prompt watcher of a session that disappears from state', () => {
+    const { rerender } = renderHook(({ s }: { s: AppState }) => useTerminalCacheGc(s), {
+      initialProps: { s: stateWith({ 'ws-1': [session('s1'), session('s2')] }) },
+    });
+    rerender({ s: stateWith({ 'ws-1': [session('s1')] }) });
+    expect(disposePromptWatcherMock).toHaveBeenCalledWith('s2');
+    expect(disposePromptWatcherMock).not.toHaveBeenCalledWith('s1');
   });
 });
