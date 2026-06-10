@@ -20,6 +20,13 @@ vi.mock('@/renderer/lib/terminal-cache', () => ({
   hasCached: (...args: unknown[]) => hasCachedMock(...args),
 }));
 
+const closeScratchForParentMock = vi.fn();
+let scratchParentIds: string[] = [];
+vi.mock('@/renderer/lib/scratch-tabs', () => ({
+  closeScratchForParent: (...args: unknown[]) => closeScratchForParentMock(...args),
+  getScratchParentIds: () => scratchParentIds,
+}));
+
 import type { AgentSession } from '@/shared/types';
 import type { AppState } from '../state.types';
 import { initialAppState } from '../state.types';
@@ -51,6 +58,8 @@ beforeEach(() => {
   destroyMock.mockReset();
   hasCachedMock.mockReset();
   hasCachedMock.mockReturnValue(true);
+  closeScratchForParentMock.mockReset();
+  scratchParentIds = [];
 });
 
 afterEach(() => {
@@ -91,5 +100,28 @@ describe('useTerminalCacheGc', () => {
     });
     rerender({ s: stateWith({ 'ws-2': [session('shared')] }) });
     expect(destroyMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useTerminalCacheGc — scratch reaping (2026-06-10 finding 1)', () => {
+  it('closes scratch tabs of a session that disappears from state', () => {
+    const { rerender } = renderHook(({ s }: { s: AppState }) => useTerminalCacheGc(s), {
+      initialProps: { s: stateWith({ 'ws-1': [session('s1'), session('s2')] }) },
+    });
+    rerender({ s: stateWith({ 'ws-1': [session('s1')] }) });
+    expect(closeScratchForParentMock).toHaveBeenCalledWith('s2');
+    expect(closeScratchForParentMock).not.toHaveBeenCalledWith('s1');
+  });
+
+  it('sweeps scratch parents that never appeared in state (orphan defence)', () => {
+    scratchParentIds = ['ghost-parent'];
+    renderHook(() => useTerminalCacheGc(stateWith({ 'ws-1': [session('s1')] })));
+    expect(closeScratchForParentMock).toHaveBeenCalledWith('ghost-parent');
+  });
+
+  it('does not close scratch tabs for sessions still present in any workspace', () => {
+    scratchParentIds = ['s1'];
+    renderHook(() => useTerminalCacheGc(stateWith({ 'ws-1': [session('s1')] })));
+    expect(closeScratchForParentMock).not.toHaveBeenCalled();
   });
 });
