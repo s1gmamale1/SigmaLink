@@ -145,6 +145,7 @@ import { KV_PLAN_TIER, parseTier } from './core/plan/capabilities';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, KV_PTY_SCROLLBACK_PERSISTENCE, parseScrollbackPersistence } from './core/pty/local-pty';
 import { persistScrollback, loadScrollback, gcScrollback, makeScrollbackExitSink } from './core/pty/scrollback-store';
 import { cmdQuoteArg } from './core/util/windows-spawn';
+import { whenShellPathReady } from './core/util/shell-path';
 import { analyzeSessionRisk } from './core/ram-brake/session-risk';
 
 interface SharedDeps {
@@ -953,6 +954,9 @@ async function buildRouter() {
       const spawnModeRow = getRawDb()
         .prepare('SELECT value FROM kv WHERE key = ?')
         .get(KV_PTY_SPAWN_MODE) as { value?: string } | undefined;
+      // perf-hot-paths Task 4 — gate the spawn (not window creation) on the
+      // async login-shell PATH resolve (≤3.5 s cap; instant on warm boot).
+      await whenShellPathReady();
       const rec = pty.create({
         providerId,
         command,
@@ -1031,6 +1035,9 @@ async function buildRouter() {
       // H-4 — contain the renderer-supplied cwd to a workspace/worktree root
       // before spawning a shell there (throws 'path outside workspace' otherwise).
       assertAllowedPath(input.cwd, fsAllowedRoots());
+      // perf-hot-paths Task 4 — gate the spawn on the async login-shell PATH
+      // resolve (≤3.5 s cap; instant on warm boot).
+      await whenShellPathReady();
       const shell =
         process.env.SHELL ??
         (process.platform === 'win32' ? 'cmd.exe' : '/bin/sh');
@@ -1360,6 +1367,9 @@ async function buildRouter() {
         );
       }
       const [command, ...args] = cmd;
+      // perf-hot-paths Task 4 — gate the install spawn on the async login-shell
+      // PATH resolve (≤3.5 s cap; instant on warm boot).
+      await whenShellPathReady();
       const rec = pty.create({
         // Use a sentinel providerId so the PTY registry does not confuse
         // this with a real agent session; 'shell' is the closest sentinel.
