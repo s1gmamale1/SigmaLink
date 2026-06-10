@@ -26,6 +26,17 @@ vi.mock('node:child_process', () => ({
   execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }));
 
+// Routed-spawn assertion: the SUT must launch tiers through spawnExecutable
+// (which wraps .cmd shims on win32), not raw child_process.spawn. The mock
+// forwards to mockSpawn so every existing assertion keeps working.
+const spawnExecutableCalls: Array<{ cmd: string; args: string[] }> = [];
+vi.mock('../util/spawn-cross-platform', () => ({
+  spawnExecutable: (cmd: string, args: string[], opts: unknown) => {
+    spawnExecutableCalls.push({ cmd, args });
+    return mockSpawn(cmd, args, opts);
+  },
+}));
+
 // ── mock: node:net ─────────────────────────────────────────────────────────
 
 const NET_PORT = 54321;
@@ -236,6 +247,7 @@ describe('RufloHttpDaemonSupervisor', () => {
     vi.useFakeTimers();
     // Reset mocks fully (clears return values, call counts, and implementations).
     vi.resetAllMocks();
+    spawnExecutableCalls.length = 0;
     setupNetMock();
     // Binary available by default (PATH probe succeeds).
     mockExecFileSync.mockReturnValue(Buffer.from('/usr/local/bin/ruflo'));
@@ -279,6 +291,22 @@ describe('RufloHttpDaemonSupervisor', () => {
         stdio: ['ignore', 'pipe', 'pipe'],
       }),
     );
+  });
+
+  // ── win32 .cmd shim safety: tier launch routed through spawnExecutable ──
+
+  it('routes the tier launch through spawnExecutable (win32 .cmd shim safety)', async () => {
+    alwaysHealthOk();
+    const child = makeChild(4321);
+    mockSpawn.mockReturnValue(child);
+
+    const spawnPromise = supervisor.spawn('ws-route', '/home/user/project');
+    await vi.runAllTimersAsync();
+    await spawnPromise;
+
+    expect(spawnExecutableCalls.length).toBeGreaterThan(0);
+    expect(spawnExecutableCalls[0].cmd).toBe('ruflo');
+    expect(spawnExecutableCalls[0].args).toContain('mcp');
   });
 
   // ── SF-14 launcher resolution ──────────────────────────────────────────
