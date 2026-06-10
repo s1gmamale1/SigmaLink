@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execCmd } from '../../lib/exec';
-import { ensureWorktree } from './git-ops';
+import { ensureWorktree, gitArgsWithLongPaths } from './git-ops';
 
 describe('ensureWorktree (force-quit resume recovery)', () => {
   let repo: string;
@@ -55,5 +55,26 @@ describe('ensureWorktree (force-quit resume recovery)', () => {
     const r = await ensureWorktree({ repoRoot: repo, worktreePath: wt, branch: '' });
     expect(r.ok).toBe(false);
     expect(r.error).toBeTruthy();
+  });
+});
+
+describe('gitArgsWithLongPaths (win32 MAX_PATH)', () => {
+  it('win32: prepends -c core.longpaths=true before the subcommand', () => {
+    expect(gitArgsWithLongPaths(['worktree', 'add', '-b', 'b', '/p', 'HEAD'], 'win32')).toEqual([
+      '-c',
+      'core.longpaths=true',
+      'worktree',
+      'add',
+      '-b',
+      'b',
+      '/p',
+      'HEAD',
+    ]);
+  });
+
+  it('darwin/linux: returns the base argv unchanged (same reference — zero churn)', () => {
+    const base = ['worktree', 'add', '/p', 'branch'];
+    expect(gitArgsWithLongPaths(base, 'darwin')).toBe(base);
+    expect(gitArgsWithLongPaths(base, 'linux')).toBe(base);
   });
 });
