@@ -1453,7 +1453,11 @@ async function buildRouter() {
       return renameWorkspace(input.id, input.name);
     },
     remove: async (id: string) => {
-      await removeWorkspace(id, { rufloHttpDaemonSupervisor });
+      // 2026-06-10 audit — pass the live PTY registry so removeWorkspace can
+      // stop the workspace's running panes before deleting their rows (no
+      // headless PTYs, no orphaned agent_sessions). cleanup.removeWorkspace
+      // (removeWorkspaceAndGc) already threads its own `pty` input.
+      await removeWorkspace(id, { rufloHttpDaemonSupervisor, pty });
       markWorkspaceClosed(id);
     },
     launch: async (plan) => {
