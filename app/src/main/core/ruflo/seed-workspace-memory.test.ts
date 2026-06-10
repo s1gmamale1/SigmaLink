@@ -19,6 +19,15 @@ vi.mock('../util/spawn-cross-platform', () => ({
   },
 }));
 
+// The default availability gate calls commandOnPath('ruflo'), which shells out
+// to `where`/`command -v` on the host. Mock it so the seeding tests are
+// deterministic regardless of whether ruflo is on the CI runner's PATH. Tests
+// that pass an explicit `isRufloAvailable` override this default entirely.
+let rufloAvailableDefault = true;
+vi.mock('./http-daemon-supervisor', () => ({
+  commandOnPath: () => rufloAvailableDefault,
+}));
+
 const tmpDirs: string[] = [];
 
 function tmpDir(prefix: string): string {
@@ -37,6 +46,7 @@ function makeTmpWorkspaceWithClaudeMd(): string {
 beforeEach(() => {
   seedSpawnCalls.length = 0;
   seedSpawnMode = 'close';
+  rufloAvailableDefault = true;
 });
 
 afterEach(() => {
@@ -168,5 +178,56 @@ describe('seedWorkspaceMemory', () => {
 
     const { claudeFlowDir } = (runStore.mock.calls[0] as [{ claudeFlowDir: string }])[0];
     expect(claudeFlowDir).toBe(path.join(root, '.claude-flow'));
+  });
+
+  // ── win32 regression: never network-download during workspace open ──────
+  //
+  // defaultRunStore spawns `npx -y @claude-flow/cli@latest memory store`, which
+  // AUTO-DOWNLOADS the package on a machine that does not have ruflo installed.
+  // seedWorkspaceMemory is fired (best-effort) from factory.ts during the
+  // awaited workspaces.open, so on a no-ruflo CI runner this added concurrent
+  // network downloads → contention. Best-effort seeding must SKIP entirely when
+  // ruflo is not installed. The availability check is injectable so tests don't
+  // shell out; production defaults to commandOnPath('ruflo') (same probe as the
+  // daemon's tier-2 PATH resolution — platform-agnostic, no process.platform).
+  it('SKIPS seeding (no runStore call) when ruflo is NOT installed', async () => {
+    const root = makeTmpWorkspaceWithClaudeMd();
+    const runStore = vi.fn().mockResolvedValue(undefined);
+
+    await seedWorkspaceMemory({
+      workspaceRoot: root,
+      runStore,
+      isRufloAvailable: () => false, // ruflo not installed
+    });
+
+    // No store attempted at all → no network download.
+    expect(runStore).not.toHaveBeenCalled();
+    // And the default path never spawned either (belt-and-suspenders).
+    expect(seedSpawnCalls.length).toBe(0);
+  });
+
+  it('seeds (calls runStore once) when ruflo IS installed', async () => {
+    const root = makeTmpWorkspaceWithClaudeMd();
+    const runStore = vi.fn().mockResolvedValue(undefined);
+
+    await seedWorkspaceMemory({
+      workspaceRoot: root,
+      runStore,
+      isRufloAvailable: () => true, // ruflo installed
+    });
+
+    expect(runStore).toHaveBeenCalledTimes(1);
+    expect(runStore).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'project-context', namespace: 'patterns' }),
+    );
+  });
+
+  it('default availability gate skips the default npx spawn when ruflo is absent', async () => {
+    // No runStore override AND no isRufloAvailable override → exercises the
+    // real default gate. We stub the availability check to false to prove the
+    // default path is gated (the default itself = commandOnPath('ruflo')).
+    const root = makeTmpWorkspaceWithClaudeMd();
+    await seedWorkspaceMemory({ workspaceRoot: root, isRufloAvailable: () => false });
+    expect(seedSpawnCalls.length).toBe(0);
   });
 });

@@ -744,8 +744,13 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
  * on POSIX `name` is passed as a positional arg (`$1`) to a fixed script, so
  * there is no shell-injection surface (the names probed here are hardcoded
  * constants regardless). A non-zero exit (not found) throws → false.
+ *
+ * Exported as the single source of truth for "is this CLI installed?" — the
+ * seed-workspace-memory gate imports it so its availability check matches the
+ * daemon's tier-2 PATH probe exactly (platform-agnostic; no process.platform
+ * branches at the call sites).
  */
-function commandOnPath(name: string): boolean {
+export function commandOnPath(name: string): boolean {
   try {
     if (process.platform === 'win32') {
       execFileSync('where', [name], { stdio: 'pipe' });

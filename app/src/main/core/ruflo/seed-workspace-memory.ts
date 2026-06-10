@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnExecutable } from '../util/spawn-cross-platform';
+import { commandOnPath } from './http-daemon-supervisor';
 
 const MAX_VALUE_CHARS = 2000;
 
@@ -26,6 +27,20 @@ export interface SeedDeps {
    * of exit code (best-effort). Never rejects.
    */
   runStore?: (args: RunStoreArgs) => Promise<void>;
+  /**
+   * Injectable availability gate. When omitted, defaults to
+   * `commandOnPath('ruflo')` — the SAME PATH probe the HTTP daemon supervisor
+   * uses for its tier-2 resolution (platform-agnostic, no process.platform
+   * branches). When this returns false, seeding is SKIPPED entirely.
+   *
+   * Why: the default `runStore` spawns `npx -y @claude-flow/cli@latest …`,
+   * which AUTO-DOWNLOADS the package from the network on a machine that does
+   * not have ruflo installed. seedWorkspaceMemory is fired best-effort from
+   * factory.ts during the awaited `workspaces.open`, so on a no-ruflo CI runner
+   * that added concurrent network downloads → contention. Best-effort seeding
+   * must never trigger a network download during workspace open.
+   */
+  isRufloAvailable?: () => boolean;
 }
 
 /**
@@ -101,6 +116,9 @@ function defaultRunStore(args: RunStoreArgs): Promise<void> {
  * Seed the workspace-local .claude-flow store with one "project-context"
  * memory in the "patterns" namespace.
  *
+ * - SKIPS entirely (no spawn, no network) when ruflo is not installed — the
+ *   default `runStore` would otherwise `npx -y` auto-download the package
+ *   during the awaited workspace open (see SeedDeps.isRufloAvailable).
  * - Reads CLAUDE.md; falls back to README.md; no-ops if neither exists.
  * - Takes the first MAX_VALUE_CHARS characters as the value.
  * - Writes to <workspaceRoot>/.claude-flow (CLAUDE_FLOW_DIR), never to
@@ -110,8 +128,17 @@ function defaultRunStore(args: RunStoreArgs): Promise<void> {
 export async function seedWorkspaceMemory(
   input: { workspaceRoot: string } & SeedDeps,
 ): Promise<void> {
-  const { workspaceRoot, runStore = defaultRunStore } = input;
+  const {
+    workspaceRoot,
+    runStore = defaultRunStore,
+    isRufloAvailable = () => commandOnPath('ruflo'),
+  } = input;
   try {
+    // Best-effort seeding must never trigger a network download during open:
+    // when ruflo is not installed, skip without spawning anything.
+    if (!isRufloAvailable()) {
+      return;
+    }
     const raw = readContextFile(workspaceRoot);
     if (raw === null) {
       // No source file found — no-op.
