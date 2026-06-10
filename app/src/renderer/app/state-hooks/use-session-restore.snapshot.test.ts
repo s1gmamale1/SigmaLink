@@ -76,10 +76,10 @@ vi.mock('@/renderer/lib/rpc', () => ({
     panes: {
       resume: (id: string) => resumeMock(id),
       respawnFailed: vi.fn(async () => ({ spawned: 0, failed: 0 })),
-      listForWorkspace: (id: string) => listForWorkspaceMock(id),
+      listForWorkspace: () => listForWorkspaceMock(),
     },
-    swarms: { list: (id: string) => swarmsListMock(id) },
-    kv: { get: (k: string) => kvGetMock(k) },
+    swarms: { list: () => swarmsListMock() },
+    kv: { get: () => kvGetMock() },
   },
 }));
 vi.mock('../../lib/rpc', () => ({
@@ -87,10 +87,10 @@ vi.mock('../../lib/rpc', () => ({
     panes: {
       resume: (id: string) => resumeMock(id),
       respawnFailed: vi.fn(async () => ({ spawned: 0, failed: 0 })),
-      listForWorkspace: (id: string) => listForWorkspaceMock(id),
+      listForWorkspace: () => listForWorkspaceMock(),
     },
-    swarms: { list: (id: string) => swarmsListMock(id) },
-    kv: { get: (k: string) => kvGetMock(k) },
+    swarms: { list: () => swarmsListMock() },
+    kv: { get: () => kvGetMock() },
   },
 }));
 

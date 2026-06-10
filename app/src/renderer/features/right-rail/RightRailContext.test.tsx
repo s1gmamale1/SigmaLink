@@ -10,8 +10,12 @@ import { StrictMode, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 
-const writeWorkspaceUiMock = vi.fn(async (): Promise<undefined> => undefined);
-const readWorkspaceUiMock = vi.fn(async (): Promise<string | null> => null);
+const writeWorkspaceUiMock = vi.fn<(...args: unknown[]) => Promise<undefined>>(
+  async () => undefined,
+);
+const readWorkspaceUiMock = vi.fn<(...args: unknown[]) => Promise<string | null>>(
+  async () => null,
+);
 vi.mock('@/renderer/lib/workspace-ui-kv', () => ({
   readWorkspaceUi: (...args: unknown[]) => readWorkspaceUiMock(...args),
   writeWorkspaceUi: (...args: unknown[]) => writeWorkspaceUiMock(...args),
