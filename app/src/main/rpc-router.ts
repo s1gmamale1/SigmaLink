@@ -1008,7 +1008,7 @@ async function buildRouter() {
         pid: s.pid,
       })),
     processStats: async (sessionId: string) => {
-      const snapshot = pty.processSnapshot(sessionId);
+      const snapshot = await pty.processSnapshotCached(sessionId);
       return {
         supported: snapshot?.supported ?? false,
         rssBytes: snapshot?.rssBytes ?? 0,
