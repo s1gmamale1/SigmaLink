@@ -46,7 +46,7 @@ const MAX_ENTRIES_PER_DIR = 500;
  *  read blocked the main thread on multi-MB transcripts. */
 const MAX_PREVIEW_SCAN_BYTES = 32 * 1024;
 
-export interface DiskScanOptions {
+interface DiskScanOptions {
   /** Override the home dir (tests inject a tmpdir). */
   homeDir?: string;
   /** Override "now" (tests pin time). */
@@ -89,7 +89,7 @@ export interface SessionListItem {
 }
 
 /** Options for `listSessionsInCwd`. */
-export interface ListSessionsOptions extends DiskScanOptions {
+interface ListSessionsOptions extends DiskScanOptions {
   /** Maximum items returned (default 50). */
   maxCount?: number;
   /** Only include sessions updated within the last `sinceMs` ms. Pass 0 or
