@@ -210,14 +210,30 @@ export function copySelectionToClipboard(
   if (sel) void navigator.clipboard?.writeText(sel).catch(() => undefined);
 }
 
+/**
+ * 2026-06-10 finding 2 — an entry is "parked" when its xterm DOM root is in
+ * the offscreen parking lot (or was never attached anywhere). Entries whose
+ * root is parented by a REAL host are on-screen right now; destroying one
+ * blanks a visible pane (Terminal.tsx's runFit try/catch then swallows every
+ * subsequent fit). Only parked entries are eviction candidates.
+ */
+function isParked(entry: CacheEntry): boolean {
+  const root = entry.terminal.element;
+  if (!root || !root.parentNode) return true;
+  return parkingLot !== null && root.parentNode === parkingLot;
+}
+
 function evictOldestIfFull(): void {
   if (cache.size < TERMINAL_CACHE_LIMIT) return;
   // Prefer evicting entries whose PTY has already exited (they're effectively
   // read-only scrollback at this point); only then fall back to plain LRU
-  // among live sessions.
+  // among live sessions. 2026-06-10 finding 2: NEVER evict an entry attached
+  // to a real host — if every entry is attached (pathological: >cap mounted
+  // panes) we exceed the cap instead, which is bounded by mounted-pane count.
   let exitedVictim: CacheEntry | null = null;
   let liveVictim: CacheEntry | null = null;
   for (const entry of cache.values()) {
+    if (!isParked(entry)) continue;
     if (entry.ptyExited) {
       if (!exitedVictim || entry.lastAccessed < exitedVictim.lastAccessed) {
         exitedVictim = entry;

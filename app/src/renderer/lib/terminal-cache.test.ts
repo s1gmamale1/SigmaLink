@@ -463,6 +463,56 @@ describe('stripDeviceAttributesResponses (SF-3)', () => {
   });
 });
 
+// ── 2026-06-10 finding 2 — LRU eviction must skip host-attached terminals ───
+describe('terminal-cache — eviction guard (2026-06-10 finding 2)', () => {
+  it('never evicts an entry attached to a real host, even when it is the LRU', async () => {
+    const { getOrCreateTerminal, attachToHost, hasCached, TERMINAL_CACHE_LIMIT } =
+      await import('./terminal-cache');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    // Deterministic lastAccessed ordering: advance the clock 1ms per entry.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      const entries = [];
+      for (let i = 0; i < TERMINAL_CACHE_LIMIT; i++) {
+        entries.push(getOrCreateTerminal(`evict-${i}`, ctx));
+        vi.setSystemTime(1_000_000 + (i + 1) * 1000);
+      }
+      // evict-0 is the LRU — but it is ON-SCREEN (attached to a real host).
+      // attachToHost bumps lastAccessed, so re-pin it as oldest afterwards.
+      attachToHost(entries[0]!, host);
+      entries[0]!.lastAccessed = 0;
+
+      // 33rd entry forces an eviction.
+      getOrCreateTerminal('evict-overflow', ctx);
+
+      // The attached LRU survives; the oldest PARKED entry (evict-1) died.
+      expect(hasCached('evict-0')).toBe(true);
+      expect(hasCached('evict-1')).toBe(false);
+      expect(hasCached('evict-overflow')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('exceeds the cap rather than evict when every entry is attached', async () => {
+    const { getOrCreateTerminal, attachToHost, getCacheSize, TERMINAL_CACHE_LIMIT } =
+      await import('./terminal-cache');
+    for (let i = 0; i < TERMINAL_CACHE_LIMIT; i++) {
+      const entry = getOrCreateTerminal(`pin-${i}`, ctx);
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      attachToHost(entry, host);
+    }
+    getOrCreateTerminal('pin-overflow', ctx);
+    // Nothing was destroyable — the cache grows past the cap (bounded by
+    // the number of mounted panes), instead of blanking a visible pane.
+    expect(getCacheSize()).toBe(TERMINAL_CACHE_LIMIT + 1);
+  });
+});
+
 // Spec 2026-06-10 (C) — iTerm2-style select-to-copy. xterm 6 dropped the
 // built-in copyOnSelect option, so the cache wires onSelectionChange to this
 // pure helper. It pushes any non-empty selection to the system clipboard.
