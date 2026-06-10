@@ -392,17 +392,26 @@ export function WorkspaceLauncher() {
         rpc.panes.listForWorkspace(reopened.id),
         rpc.swarms.list(reopened.id),
       ]);
+      // ADD_SESSIONS dispatches first so terminal-cache GC doesn't dispose
+      // sessions that are about to become visible.
       if (sessions.length > 0) {
         dispatch({ type: 'ADD_SESSIONS', sessions });
-        if (swarms.length > 0) {
-          for (const swarm of swarms) {
-            dispatch({ type: 'UPSERT_SWARM', swarm });
-          }
-          const running = swarms.find((s) => s.status === 'running');
-          if (running) {
-            dispatch({ type: 'SET_ACTIVE_SWARM', id: running.id });
-          }
+      }
+      // 2026-06-10 sibling-drift fix (twin: Sidebar.openPersistedWorkspace,
+      // also use-session-restore) — swarm hydration must NOT be gated on
+      // sessions.length: a swarm-but-no-panes workspace previously skipped
+      // UPSERT_SWARM here. The twins hydrate sessions and swarms
+      // independently; keep all three read-paths aligned.
+      if (swarms.length > 0) {
+        for (const swarm of swarms) {
+          dispatch({ type: 'UPSERT_SWARM', swarm });
         }
+        const running = swarms.find((s) => s.status === 'running');
+        if (running) {
+          dispatch({ type: 'SET_ACTIVE_SWARM', id: running.id });
+        }
+      }
+      if (sessions.length > 0) {
         // Route to Command Room now that panes are hydrated.
         // v1.3.3 — route into the Command Room so the user sees panes instead
         // of staying on the Launcher's Start step after re-opening a workspace.
