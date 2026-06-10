@@ -142,7 +142,7 @@ import { checkForUpdates as checkForUpdatesImpl } from '../../electron/auto-upda
 // reads through `app.tier()` rather than touching kv directly.
 import { KV_PLAN_TIER, parseTier } from './core/plan/capabilities';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, KV_PTY_SCROLLBACK_PERSISTENCE, parseScrollbackPersistence } from './core/pty/local-pty';
-import { persistScrollback, loadScrollback, gcScrollback } from './core/pty/scrollback-store';
+import { persistScrollback, loadScrollback, gcScrollback, makeScrollbackExitSink } from './core/pty/scrollback-store';
 import { cmdQuoteArg } from './core/util/windows-spawn';
 import { analyzeSessionRisk } from './core/ram-brake/session-risk';
 
@@ -579,28 +579,21 @@ async function buildRouter() {
           /* notifications fan-out is best-effort */
         }
       },
-      // v1.9-scrollback — DEFAULT-OFF.  Only wired when the KV flag is 'on'.
-      // Re-reads the flag lazily on each exit so the user can toggle it at
-      // runtime without a restart (toggle-on starts persisting immediately;
-      // toggle-off stops after the next exit).
-      onSessionExit: (() => {
-        const scrollbackFlagRow = getRawDb()
-          .prepare('SELECT value FROM kv WHERE key = ?')
-          .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
-        if (!parseScrollbackPersistence(scrollbackFlagRow?.value ?? null)) return undefined;
-        return (sessionId: string, snapshot: string) => {
-          // Re-read the flag on each call so mid-session toggle-off takes effect.
-          try {
-            const row = getRawDb()
-              .prepare('SELECT value FROM kv WHERE key = ?')
-              .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
-            if (!parseScrollbackPersistence(row?.value ?? null)) return;
-          } catch {
-            return;
-          }
-          persistScrollback(userData, sessionId, snapshot);
-        };
-      })(),
+      // v1.9-scrollback — DEFAULT-OFF. The sink is ALWAYS wired; the KV flag
+      // is re-read inside on every exit, so BOTH runtime toggle-ON and
+      // toggle-OFF take effect without a restart. (The previous boot-time IIFE
+      // returned undefined when the flag was off at boot, so toggle-ON was a
+      // silent no-op until restart — audit 2026-06-10 finding 5. The load side
+      // (panes.resume) and shutdown persist already re-read live.)
+      onSessionExit: makeScrollbackExitSink({
+        isEnabled: () => {
+          const row = getRawDb()
+            .prepare('SELECT value FROM kv WHERE key = ?')
+            .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
+          return parseScrollbackPersistence(row?.value ?? null);
+        },
+        persist: (sessionId, snapshot) => persistScrollback(userData, sessionId, snapshot),
+      }),
     },
   );
   const mailbox = new SwarmMailbox(userData);

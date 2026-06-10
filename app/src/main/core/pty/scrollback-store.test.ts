@@ -19,7 +19,7 @@ vi.mock('node:fs', () => {
 });
 
 import fs from 'node:fs';
-import { persistScrollback, loadScrollback, gcScrollback, SCROLLBACK_MAX_BYTES } from './scrollback-store';
+import { persistScrollback, loadScrollback, gcScrollback, makeScrollbackExitSink, SCROLLBACK_MAX_BYTES } from './scrollback-store';
 
 // Typed spy helpers
 const mkdirSync = fs.mkdirSync as unknown as MockInstance;
@@ -166,5 +166,43 @@ describe('gcScrollback()', () => {
     expect(unlinkSync).toHaveBeenCalledWith(expect.stringMatching(/dead\.log\.tmp$/));
     expect(unlinkSync).toHaveBeenCalledWith(expect.stringMatching(/dead2\.log$/));
     expect(unlinkSync).not.toHaveBeenCalledWith(expect.stringMatching(/live\.log\.tmp$/));
+  });
+});
+
+// Audit 2026-06-10 finding 5 — the router's boot-time IIFE returned undefined
+// when the KV flag was off at boot, so runtime toggle-ON silently did nothing
+// until restart. The sink is now ALWAYS wired and gates per-call.
+describe('makeScrollbackExitSink — always-wired, gated per call', () => {
+  it('runtime toggle-ON takes effect without a restart', () => {
+    let enabled = false;
+    const persist = vi.fn();
+    const sink = makeScrollbackExitSink({ isEnabled: () => enabled, persist });
+    sink('sess-1', 'before-enable');
+    expect(persist).not.toHaveBeenCalled();
+    enabled = true; // operator flips the KV flag mid-session
+    sink('sess-1', 'after-enable');
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(persist).toHaveBeenCalledWith('sess-1', 'after-enable');
+  });
+
+  it('runtime toggle-OFF stops persisting (regression guard for the old inner re-read)', () => {
+    let enabled = true;
+    const persist = vi.fn();
+    const sink = makeScrollbackExitSink({ isEnabled: () => enabled, persist });
+    sink('sess-1', 'while-on');
+    expect(persist).toHaveBeenCalledTimes(1);
+    enabled = false;
+    sink('sess-1', 'while-off');
+    expect(persist).toHaveBeenCalledTimes(1); // unchanged
+  });
+
+  it('an isEnabled throw is swallowed and skips persist (never blocks the PTY exit path)', () => {
+    const persist = vi.fn();
+    const sink = makeScrollbackExitSink({
+      isEnabled: () => { throw new Error('kv read failed'); },
+      persist,
+    });
+    expect(() => sink('sess-1', 'snap')).not.toThrow();
+    expect(persist).not.toHaveBeenCalled();
   });
 });
