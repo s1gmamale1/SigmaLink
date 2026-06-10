@@ -40,6 +40,17 @@ export interface UseJorvisAssistantStateArgs {
    */
   busyRef: React.MutableRefObject<boolean>;
   /**
+   * 2026-06-10 audit #4 — mirror of the `streaming` state. The handler writes
+   * it SYNCHRONOUSLY on each delta and reads it at standby so the commit
+   * happens as a SIBLING setState, never inside the setStreaming updater
+   * (StrictMode/rebase re-invokes updaters; a nested setMessages re-fires —
+   * previously shielded only by the rows.some idempotency guard). JorvisRoom
+   * re-syncs the ref when it clears `streaming` externally (watchdog, reset).
+   */
+  streamingRef: React.MutableRefObject<
+    { turnId: string; delta: string; messageId: string | null } | null
+  >;
+  /**
    * B3 — per-turn watchdog. `clearWatchdog` cancels the pending timer when a
    * turn reaches standby/error (or is superseded). Owned by JorvisRoom so it
    * can also be invoked from `sendPrompt` (arm) and `onNewConversation`.
@@ -65,6 +76,7 @@ export function useJorvisAssistantState({
   rufloReadyRef,
   activeTurnIdRef,
   busyRef,
+  streamingRef,
   clearWatchdog,
 }: UseJorvisAssistantStateArgs): void {
   // Keep the latest props on a ref so the event subscription can stay stable
@@ -82,6 +94,7 @@ export function useJorvisAssistantState({
     rufloReadyRef,
     activeTurnIdRef,
     busyRef,
+    streamingRef,
     clearWatchdog,
   });
   useLayoutEffect(() => {
@@ -95,6 +108,7 @@ export function useJorvisAssistantState({
       rufloReadyRef,
       activeTurnIdRef,
       busyRef,
+      streamingRef,
       clearWatchdog,
     };
   });
@@ -146,8 +160,12 @@ export function useJorvisAssistantState({
               /* background telemetry — losing it is acceptable */
             });
           }
-          p.setStreaming((prev) => {
-            if (!prev || !e.messageId) return null;
+          // 2026-06-10 audit #4 — commit the streamed reply OUTSIDE any state
+          // updater. The buffer is read from streamingRef (written
+          // synchronously by the delta path below), so the commit is a plain
+          // sibling setState and every updater stays pure.
+          const buffered = p.streamingRef.current;
+          if (buffered && e.messageId) {
             const messageId = e.messageId;
             p.setMessages((rows) =>
               rows.some((r) => r.id === messageId)
@@ -157,13 +175,14 @@ export function useJorvisAssistantState({
                     {
                       id: messageId,
                       role: 'assistant',
-                      content: prev.delta,
+                      content: buffered.delta,
                       createdAt: Date.now(),
                     },
                   ],
             );
-            return null;
-          });
+          }
+          p.streamingRef.current = null;
+          p.setStreaming(null);
         }
       } else if (e.kind === 'delta' && e.delta) {
         // Phase 6 — capture the (stable) messageId carried on the delta. It's
@@ -171,15 +190,21 @@ export function useJorvisAssistantState({
         // ChatTranscript can key the in-flight sentinel by it → React reuses
         // the DOM node across the commit → the bubble doesn't re-spring.
         const messageId = typeof e.messageId === 'string' ? e.messageId : null;
-        p.setStreaming((prev) =>
+        // Accumulate against the ref (not a functional updater): the ref is
+        // the synchronous source of truth, so a standby — or a second delta —
+        // in the same tick sees the full buffer, and setStreaming receives a
+        // VALUE (pure under StrictMode re-invocation).
+        const prev = p.streamingRef.current;
+        const next =
           !prev || prev.turnId !== e.turnId
-            ? { turnId: e.turnId, delta: e.delta ?? '', messageId }
+            ? { turnId: e.turnId, delta: e.delta, messageId }
             : {
                 turnId: prev.turnId,
                 delta: prev.delta + e.delta,
                 messageId: prev.messageId ?? messageId,
-              },
-        );
+              };
+        p.streamingRef.current = next;
+        p.setStreaming(next);
       }
     });
     return off;

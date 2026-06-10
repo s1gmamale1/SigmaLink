@@ -105,6 +105,16 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
+  // 2026-06-10 audit #4 — mirror of `streaming` for the assistant-state
+  // handler: the standby commit reads the buffered delta from this ref as a
+  // sibling setState instead of nesting setMessages inside the setStreaming
+  // updater. The handler writes it synchronously per delta; this effect
+  // re-syncs it when JorvisRoom clears `streaming` externally (watchdog
+  // timeout, onNewConversation reset).
+  const streamingRef = useRef(streaming);
+  useEffect(() => {
+    streamingRef.current = streaming;
+  }, [streaming]);
   // B3 — per-turn watchdog timer. If a turn never reaches 'standby' within
   // TURN_WATCHDOG_MS the composer would be permanently gated; the watchdog
   // resets busy + orb so a hung turn can't brick the room.
@@ -135,6 +145,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
     rufloReadyRef,
     activeTurnIdRef,
     busyRef,
+    streamingRef,
     clearWatchdog,
   });
   const { onOrbClick } = useJorvisVoice({ composerRef, sendPromptRef, setOrbState });
