@@ -12,7 +12,7 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
-import { useAppState } from '@/renderer/app/state';
+import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 
 const LAST_SEEN_KEY = 'app.lastSeenVersion';
 
@@ -25,8 +25,10 @@ export { LAST_SEEN_KEY };
  * an unrelated re-render of the host component doesn't re-toast.
  */
 export function useWhatsNew(): void {
-  const { state, dispatch } = useAppState();
-  const { uiBoot, onboarded } = state;
+  // Perf audit 2026-06-10 #7 — narrow selectors (hook runs at the App root).
+  const dispatch = useAppDispatch();
+  const uiBoot = useAppStateSelector((s) => s.uiBoot);
+  const onboarded = useAppStateSelector((s) => s.onboarded);
   const ranRef = useRef(false);
 
   useEffect(() => {

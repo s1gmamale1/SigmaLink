@@ -18,6 +18,8 @@ const dispatch = vi.fn();
 let mockState: { onboarded: boolean; uiBoot: boolean } = { onboarded: true, uiBoot: true };
 vi.mock('@/renderer/app/state', () => ({
   useAppState: () => ({ state: mockState, dispatch }),
+  useAppDispatch: () => dispatch,
+  useAppStateSelector: (sel: (s: typeof mockState) => unknown) => sel(mockState),
 }));
 
 const markSeen = vi.fn();

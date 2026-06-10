@@ -33,6 +33,8 @@ const dispatch = vi.fn();
 let mockState: { uiBoot: boolean; onboarded: boolean } = { uiBoot: true, onboarded: true };
 vi.mock('@/renderer/app/state', () => ({
   useAppState: () => ({ state: mockState, dispatch }),
+  useAppDispatch: () => dispatch,
+  useAppStateSelector: (sel: (s: typeof mockState) => unknown) => sel(mockState),
 }));
 
 import { useWhatsNew, LAST_SEEN_KEY } from './use-whats-new';
