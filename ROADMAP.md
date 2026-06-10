@@ -148,7 +148,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 **Definition of done.** Re-create-within-grace test green; a respawned claude pane keeps its NEW conversation across reopen; 2- and 3-chunk sentinel splits detected with zero false positives; full gate + CI.
 
-## Phase 6 — RPC boundary & sink hardening
+## Phase 6 — RPC boundary & sink hardening ✅ SHIPPED (PR #140 `c8df2e2`, 2026-06-10)
 
 **Goal.** Every renderer-supplied path is contained, every launch path threads the notification/error sinks, and model args are allowlisted at both spawn sites.
 
