@@ -44,13 +44,7 @@ _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
 - **[mcp] detect repeated stdio MCP starts under one Codex/Claude pane** — a single pane can accumulate multiple `@claude-flow/cli mcp start` descendants. Investigate whether this is Codex plugin behavior, config reload behavior, or a leaked child cleanup issue once diagnostics can show child process history.
 
-- ~~🐞 **[medium] `+ Pane` dead on a resumed/restored workspace — swarm comes back `paused`**~~ → **promoted to ROADMAP Phase 3** (2026-06-10). Design fork settled: auto-resume on `+ Pane` click via new `swarms.resume` RPC (`completed` stays gated); PR #134's `unfailZombieSwarms` already covers the common zombie case. Spec: `app/docs/superpowers/specs/2026-06-10-command-room-interaction-reliability-design.md`.
-
-- ~~🐞 **[high] Jorvis `launch_pane` tool spawns panes that never appear in the Command Room**~~ → **promoted to ROADMAP Phase 3** (2026-06-10). Approach settled: thread `emit` into `ToolContext` and echo `assistant:dispatch-echo` per spawned session (option A — keeps the tool's workspaceRoot contract). Spec: `app/docs/superpowers/specs/2026-06-10-command-room-interaction-reliability-design.md`.
-
-- ~~🐞 **[medium] dropping/pasting a screenshot into a terminal pane never reaches the agent as an image**~~ → **promoted to ROADMAP Phase 3** (2026-06-10). Mechanism settled: stage-to-temp-file + absolute `@path` (clipboard-write is upstream-broken for Claude Code — `«class PNGf»` bug, see ROADMAP ADR-003). Full root cause + research citations preserved in the spec: `app/docs/superpowers/specs/2026-06-10-command-room-interaction-reliability-design.md`.
-
-- ~~🐞 **[medium] no Copy/Paste on right-click inside a terminal pane**~~ → **promoted to ROADMAP Phase 3** (2026-06-10). Settled: Copy/Paste menu items via new `getCached()` accessor + `copyOnSelect:true` (operator opted in). Full wiring plan in the spec: `app/docs/superpowers/specs/2026-06-10-command-room-interaction-reliability-design.md`.
+_(Phase 3 bugs `+ Pane`/`launch_pane`/screenshot/copy-paste shipped in #137 and RELEASED in v2.1.0 — see CHANGELOG `[2.1.0]`; removed from inbox.)_
 
 - **[refactor] extract `usePaneImageStaging` hook from `PaneShell.tsx`** — Phase 3 (#137) pushed `app/src/renderer/features/command-room/PaneShell.tsx` to ~732 lines (>500 guideline; pre-existing debt + ~80 new lines from copy/paste + image drop/paste). Extract the image-staging concern (`arrayBufferToBase64`, `stageAndInsertImages`, the drop image-branch, the capture-phase paste effect) into `usePaneImageStaging.ts` to shrink PaneShell + give the image feature its own testable unit. Pure mechanical move; no behavior change. Effort: S.
 

@@ -4,6 +4,8 @@ SigmaLink is an Electron desktop workspace for launching and coordinating live C
 
 This ROADMAP is the single source of truth for what to build next.
 
+> **Release status (2026-06-10):** the 2026-06-10 audit's **Phases 3–10 are SHIPPED and RELEASED in `v2.1.0`** (tag `340613c`; see CHANGELOG `[2.1.0]`). The remaining work is **Phase 11 (Windows runtime readiness, ADR-006)** and **Phase 12 (dead-code sweep)**. The shipped Phase 3–10 sections below are retained for reference until the cycle closes; treat Phases 11–12 as the live next-build list.
+
 ---
 
 ## How to read this
