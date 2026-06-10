@@ -17,6 +17,7 @@ import type { AddInput } from '../notifications/manager';
 import { getSharedDeps } from '../../rpc-router';
 import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
 import { resolveAndSpawn, ProviderLaunchError } from '../providers/launcher';
+import { whenShellPathReady } from '../util/shell-path';
 import { buildResumeArgs } from '../pty/resume-launcher';
 import {
   ensureClaudeProjectDir,
@@ -457,6 +458,12 @@ export async function executeLaunchPlan(
         !!provider.initialPromptFlag,
       );
 
+      // perf-hot-paths Task 4 — gate the spawn on the async login-shell PATH
+      // resolve (≤3.5 s cap; instant on warm boot). This single gate covers
+      // ALL executeLaunchPlan callers (panes resume/respawn, workspace open,
+      // assistant spawn) because providers/launcher.ts's resolveAndSpawn is a
+      // sync callee reached only through here or the gated rpc-router handlers.
+      await whenShellPathReady();
       const spawnResult = resolveAndSpawn(
         { ptyRegistry: deps.pty },
         {

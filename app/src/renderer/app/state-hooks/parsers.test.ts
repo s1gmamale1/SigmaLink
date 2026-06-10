@@ -6,8 +6,8 @@
 //   - parseSwarmMessage still accepts every documented kind and falls back
 //     to 'OPERATOR' when `kind` is absent (legacy main-process payloads).
 
-import { describe, expect, it } from 'vitest';
-import { parseSwarmMessage } from './parsers';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseSwarmMessage, runRefreshOnEvent } from './parsers';
 import type { SwarmMessageKind } from '../../../shared/types';
 
 const baseRaw = {
@@ -65,5 +65,72 @@ describe('parseSwarmMessage runtime kind validation', () => {
     expect(parseSwarmMessage({ kind: 'SAY' })).toBeNull();
     expect(parseSwarmMessage({ ...baseRaw, id: '' })).toBeNull();
     expect(parseSwarmMessage({ ...baseRaw, swarmId: '' })).toBeNull();
+  });
+});
+
+describe('runRefreshOnEvent — perf-hot-paths Task 5: 250 ms trailing coalesce', () => {
+  let eventHandler: (() => void) | null = null;
+  const offSpy = vi.fn();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    eventHandler = null;
+    offSpy.mockClear();
+    vi.stubGlobal('window', {
+      sigma: {
+        eventOn: vi.fn((_name: string, handler: () => void) => {
+          eventHandler = handler;
+          return offSpy;
+        }),
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('mount-time hydration fires immediately (no debounce on the first fetch)', () => {
+    const fetcher = vi.fn(async () => {});
+    const cleanup = runRefreshOnEvent(fetcher, 'memory:changed', 'memories');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
+  it('a burst of 5 events coalesces into ONE trailing refetch after 250 ms', () => {
+    const fetcher = vi.fn(async () => {});
+    const cleanup = runRefreshOnEvent(fetcher, 'memory:changed', 'memories');
+    expect(fetcher).toHaveBeenCalledTimes(1); // mount fetch
+
+    for (let i = 0; i < 5; i++) eventHandler!();
+    vi.advanceTimersByTime(249);
+    expect(fetcher).toHaveBeenCalledTimes(1); // still coalescing
+    vi.advanceTimersByTime(1);
+    expect(fetcher).toHaveBeenCalledTimes(2); // ONE trailing refetch
+    cleanup();
+  });
+
+  it('a later event re-arms the trailing window (true trailing debounce)', () => {
+    const fetcher = vi.fn(async () => {});
+    const cleanup = runRefreshOnEvent(fetcher, 'tasks:changed', 'tasks');
+    eventHandler!();
+    vi.advanceTimersByTime(200);
+    eventHandler!(); // re-arms at t=200
+    vi.advanceTimersByTime(200); // t=400, window ends at 450
+    expect(fetcher).toHaveBeenCalledTimes(1); // mount only
+    vi.advanceTimersByTime(50);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    cleanup();
+  });
+
+  it('cleanup cancels a pending debounced refetch and unsubscribes', () => {
+    const fetcher = vi.fn(async () => {});
+    const cleanup = runRefreshOnEvent(fetcher, 'skills:changed', 'skills');
+    eventHandler!();
+    cleanup();
+    vi.advanceTimersByTime(1_000);
+    expect(fetcher).toHaveBeenCalledTimes(1); // mount fetch only
+    expect(offSpy).toHaveBeenCalledTimes(1);
   });
 });

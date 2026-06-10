@@ -6,6 +6,7 @@ import type {
   ProviderProbe,
   AgentSession,
   GitStatus,
+  GitStatusSummary,
   GitDiff,
   LaunchPlan,
   AddAgentToSwarmInput,
@@ -327,6 +328,8 @@ export interface AppRouter {
   };
   git: {
     status: (cwd: string) => Promise<GitStatus | null>;
+    /** perf-hot-paths Task 3 — count-only status for the pane-header poll. */
+    statusSummary: (cwd: string) => Promise<GitStatusSummary | null>;
     diff: (cwd: string) => Promise<GitDiff | null>;
     runCommand: (cwd: string, line: string, timeoutMs?: number) => Promise<{ stdout: string; stderr: string; code: number }>;
     commitAndMerge: (input: {

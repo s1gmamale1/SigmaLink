@@ -16,7 +16,7 @@ export interface ProcessTreeSnapshot {
   rssBytes: number;
 }
 
-function emptySnapshot(rootPid: number, supported: boolean): ProcessTreeSnapshot {
+export function emptySnapshot(rootPid: number, supported: boolean): ProcessTreeSnapshot {
   return {
     rootPid,
     supported,
@@ -26,7 +26,7 @@ function emptySnapshot(rootPid: number, supported: boolean): ProcessTreeSnapshot
   };
 }
 
-function parsePsLine(line: string): ProcessTreeNode | null {
+export function parsePsLine(line: string): ProcessTreeNode | null {
   const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s*(.*)$/);
   if (!match) return null;
   return {
@@ -38,24 +38,11 @@ function parsePsLine(line: string): ProcessTreeNode | null {
   };
 }
 
-export function inspectProcessTree(rootPid: number): ProcessTreeSnapshot {
-  if (!rootPid || rootPid <= 0) return emptySnapshot(rootPid, process.platform === 'darwin');
-  if (process.platform !== 'darwin') return emptySnapshot(rootPid, false);
-
-  let rows: ProcessTreeNode[];
-  try {
-    const out = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,comm=,args='], {
-      encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    rows = out
-      .split('\n')
-      .map(parsePsLine)
-      .filter((row): row is ProcessTreeNode => row !== null);
-  } catch {
-    return emptySnapshot(rootPid, true);
-  }
-
+/**
+ * Pure subtree computation over a full process table. Shared by the sync
+ * kill-path inspector below and the async TTL-cached path in ps-snapshot.ts.
+ */
+export function buildSubtree(rows: ProcessTreeNode[], rootPid: number): ProcessTreeSnapshot {
   const byParent = new Map<number, ProcessTreeNode[]>();
   const byPid = new Map<number, ProcessTreeNode>();
   for (const row of rows) {
@@ -82,13 +69,28 @@ export function inspectProcessTree(rootPid: number): ProcessTreeSnapshot {
 
   const descendantPids = nodes.filter((node) => node.pid !== rootPid).map((node) => node.pid);
   const rssBytes = nodes.reduce((sum, node) => sum + node.rssBytes, 0);
-  return {
-    rootPid,
-    supported: true,
-    nodes,
-    descendantPids,
-    rssBytes,
-  };
+  return { rootPid, supported: true, nodes, descendantPids, rssBytes };
+}
+
+export function inspectProcessTree(rootPid: number): ProcessTreeSnapshot {
+  if (!rootPid || rootPid <= 0) return emptySnapshot(rootPid, process.platform === 'darwin');
+  if (process.platform !== 'darwin') return emptySnapshot(rootPid, false);
+
+  let rows: ProcessTreeNode[];
+  try {
+    const out = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,comm=,args='], {
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    rows = out
+      .split('\n')
+      .map(parsePsLine)
+      .filter((row): row is ProcessTreeNode => row !== null);
+  } catch {
+    return emptySnapshot(rootPid, true);
+  }
+
+  return buildSubtree(rows, rootPid);
 }
 
 function pidAlive(pid: number): boolean {

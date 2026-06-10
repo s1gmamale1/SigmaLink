@@ -83,6 +83,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'workspaces.launch',
   // git
   'git.status',
+  'git.statusSummary',
   'git.diff',
   'git.runCommand',
   'git.commitAndMerge',

@@ -24,7 +24,8 @@ const sessionSummaryMock = vi.fn();
 const processStatsMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
-  rpc: {
+  rpc: {},
+  rpcSilent: {
     usage: {
       sessionSummary: (...args: unknown[]) => sessionSummaryMock(...args),
     },
@@ -35,7 +36,12 @@ vi.mock('@/renderer/lib/rpc', () => ({
 }));
 
 import { usePaneLiveStats } from './usePaneLiveStats';
+import { __resetSessionStatsPoller } from '@/renderer/lib/use-session-stats-poll';
 import type { UsageSummary } from '@/shared/types';
+
+function setHidden(hidden: boolean): void {
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +69,8 @@ async function tickMs(ms: number): Promise<void> {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  __resetSessionStatsPoller();
+  setHidden(false);
   processStatsMock.mockResolvedValue({
     supported: true,
     rssBytes: 0,
@@ -72,8 +80,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.useRealTimers();
   cleanup();
+  __resetSessionStatsPoller();
+  setHidden(false);
+  vi.useRealTimers();
 });
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -260,5 +270,38 @@ describe('usePaneLiveStats', () => {
     expect(result.current.mcpRssBytes).toBe(300 * 1024 * 1024);
     expect(result.current.processCount).toBe(2);
     expect(result.current.topChildCommand).toBe('node');
+  });
+
+  // ── perf-hot-paths Task 2: shared poller ───────────────────────────────────
+
+  it('TWO components on the SAME session share ONE RPC pair per tick', async () => {
+    sessionSummaryMock.mockResolvedValue(makeSummary({ turnCount: 1, outputTokens: 10 }));
+    renderHook(() => usePaneLiveStats('sess-shared', true));
+    renderHook(() => usePaneLiveStats('sess-shared', true));
+
+    await tickMs(0);
+    expect(sessionSummaryMock).toHaveBeenCalledTimes(1);
+    expect(processStatsMock).toHaveBeenCalledTimes(1);
+
+    await tickMs(3_000);
+    expect(sessionSummaryMock).toHaveBeenCalledTimes(2);
+    expect(processStatsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('pauses polling while document.hidden and resumes on visibilitychange', async () => {
+    sessionSummaryMock.mockResolvedValue(makeSummary({ turnCount: 1, outputTokens: 5 }));
+    renderHook(() => usePaneLiveStats('sess-vis', true));
+    await tickMs(0);
+    const callsVisible = sessionSummaryMock.mock.calls.length;
+
+    setHidden(true);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await tickMs(12_000);
+    expect(sessionSummaryMock.mock.calls.length).toBe(callsVisible); // ZERO occluded polls
+
+    setHidden(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await tickMs(0);
+    expect(sessionSummaryMock.mock.calls.length).toBe(callsVisible + 1); // immediate refresh
   });
 });

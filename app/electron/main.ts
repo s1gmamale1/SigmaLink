@@ -6,7 +6,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { spawnSync } from 'node:child_process';
+import { startShellPathBootstrap } from '../src/main/core/util/shell-path';
 import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeImage, clipboard } from 'electron';
 import { buildGlobalCaptureController, getWhisperEngine, type GlobalCaptureController } from '@sigmalink/voice-core';
 import { registerRouter, shutdownRouter, getSharedDeps, setBroadcastTarget } from '../src/main/rpc-router';
@@ -353,43 +353,40 @@ function resolveTinyModelPath(): string | null {
 // Skipped when `VITE_DEV_SERVER_URL` is set (dev path already has full PATH).
 //
 // Source: provider-prober audit, BUG-V1.1-03-PROV (2026-05-10).
-function bootstrapShellPath(): void {
-  if (process.platform !== 'darwin') return;
-  if (devServerUrl) return;
-  const userShell = process.env.SHELL || '/bin/zsh';
+//
+// perf-hot-paths Task 4 — the synchronous spawnSync was moved into the
+// cached + ASYNC bootstrap in src/main/core/util/shell-path.ts. This file now
+// supplies only the userData JSON cache I/O ("KV" at a boot phase where the
+// SQLite kv table isn't open yet) and wires startShellPathBootstrap() inside
+// whenReady (see below). Window creation no longer waits on the login shell.
+function shellPathCacheFile(): string {
+  return path.join(app.getPath('userData'), 'shell-path-cache.json');
+}
+
+function readShellPathCache(): string | null {
   try {
-    // `-i` (interactive) so .zshrc / .bash_profile is sourced; `-l` (login)
-    // so /etc/profile + ~/.zprofile run too. `-c` to evaluate a single
-    // statement and exit. Quoting the SHELL to handle spaces in path.
-    const res = spawnSync(userShell, ['-ilc', 'printf %s "$PATH"'], {
-      timeout: 3000,
-      encoding: 'utf8',
-      env: { ...process.env, TERM: 'dumb' }, // prevent prompt theme work
-    });
-    if (res.status !== 0 || !res.stdout) return;
-    const shellPath = res.stdout.trim();
-    if (!shellPath) return;
-    const existing = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
-    const fromShell = shellPath.split(path.delimiter).filter(Boolean);
-    const seen = new Set<string>();
-    const merged: string[] = [];
-    // Prefer shell-resolved entries first so /opt/homebrew/bin wins over
-    // the truncated /usr/bin claude.shim that Finder might also expose.
-    for (const entry of [...fromShell, ...existing]) {
-      if (!seen.has(entry)) {
-        seen.add(entry);
-        merged.push(entry);
-      }
-    }
-    process.env.PATH = merged.join(path.delimiter);
+    const raw = JSON.parse(fs.readFileSync(shellPathCacheFile(), 'utf8')) as {
+      path?: unknown;
+    };
+    return typeof raw.path === 'string' && raw.path ? raw.path : null;
   } catch {
-    /* shell may be missing or hang — keep the truncated PATH so probe-vs-
-       launch parity remains predictable rather than silently degrade */
+    return null;
   }
 }
 
-// v1.2.5 — synchronous Node-tooling PATH bootstrap. Even after
-// `bootstrapShellPath()` succeeds we still see cases where the spawned
+function writeShellPathCache(shellPath: string): void {
+  try {
+    fs.writeFileSync(
+      shellPathCacheFile(),
+      JSON.stringify({ path: shellPath, savedAt: Date.now() }),
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
+// v1.2.5 — synchronous Node-tooling PATH bootstrap. Even after the
+// login-shell PATH bootstrap succeeds we still see cases where the spawned
 // shell did not expose the user's actual Node install dir (e.g. fresh
 // install with no `.zshrc`, Volta/nvm not auto-sourced). The Playwright
 // MCP supervisor's `npx` fallback at `playwright-supervisor.ts:167` then
@@ -734,13 +731,26 @@ ipcMain.on('voice:focused-session', (_event, payload: unknown) => {
 });
 
 void app.whenReady().then(async () => {
-  // BUG-V1.1-03-PROV — pull the user's interactive-shell PATH into the main
-  // process before any provider PTY spawns, so DMG-launched apps can find
-  // /opt/homebrew/bin/claude etc. No-op on Win/Linux + dev server.
-  bootstrapShellPath();
+  // BUG-V1.1-03-PROV + perf-hot-paths Task 4 — cached + ASYNC login-shell
+  // PATH bootstrap. Warm boots apply the cached merged PATH instantly and
+  // refresh in the background; window creation never waits. PTY-spawn paths
+  // gate on whenShellPathReady() (≤3.5 s) so a true first run still can't
+  // ENOENT the provider CLI. No-op on win/linux + dev.
+  void startShellPathBootstrap({
+    platform: process.platform,
+    isDev: Boolean(devServerUrl),
+    shell: process.env.SHELL || '/bin/zsh',
+    pathDelimiter: path.delimiter,
+    readCache: readShellPathCache,
+    writeCache: writeShellPathCache,
+    getEnvPath: () => process.env.PATH || '',
+    setEnvPath: (next) => {
+      process.env.PATH = next;
+    },
+  });
 
   // v1.2.5 — synchronous Node-tool PATH augmentation. Belt-and-braces to
-  // `bootstrapShellPath()`: makes sure `/opt/homebrew/bin`, Volta, and
+  // the shell-PATH bootstrap: makes sure `/opt/homebrew/bin`, Volta, and
   // every installed nvm Node bin dir are on PATH before the Playwright
   // MCP supervisor's `npx @playwright/mcp` fallback spawns.
   bootstrapNodeToolPath();

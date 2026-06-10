@@ -59,6 +59,13 @@ const GIT_STATUS_OUTPUT = z
   })
   .passthrough()
   .nullable();
+const GIT_STATUS_SUMMARY_OUTPUT = z
+  .object({
+    uncommitted: z.number().int().nonnegative(),
+    clean: z.boolean(),
+  })
+  .passthrough()
+  .nullable();
 const GIT_DIFF_OUTPUT = z
   .object({
     stat: z.string(),
@@ -482,6 +489,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   // ── git ──────────────────────────────────────────────────────────────
   // H-8 — `status(cwd)` / `diff(cwd)`: first (and only) arg is a bounded cwd.
   'git.status': { input: PATH_STR, output: GIT_STATUS_OUTPUT },
+  'git.statusSummary': { input: PATH_STR, output: GIT_STATUS_SUMMARY_OUTPUT },
   'git.diff': { input: PATH_STR, output: GIT_DIFF_OUTPUT },
   // H-8 — handler is `runCommand(cwd, line, timeoutMs?)`. The validator only
   // sees the FIRST positional arg, so we bound `cwd` here; `line` + `timeoutMs`

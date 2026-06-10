@@ -26,6 +26,7 @@ import {
   stopProcessTrees,
   type ProcessTreeSnapshot,
 } from '../process/process-tree';
+import { inspectProcessTreeCached } from '../process/ps-snapshot';
 
 /** Milliseconds between SIGTERM and the fallback SIGKILL on lingering PTYs. */
 const PTY_KILL_FALLBACK_MS = 5_000;
@@ -466,6 +467,17 @@ export class PtyRegistry {
     const rec = this.sessions.get(id);
     if (!rec) return null;
     return inspectProcessTree(rec.pid);
+  }
+
+  /**
+   * perf-hot-paths Task 1 — async TTL-cached variant for the hot per-pane
+   * `pty.processStats` RPC. The sync `processSnapshot` above stays for the
+   * infrequent cleanup sweeps (workspaces/cleanup.ts) and the kill path.
+   */
+  async processSnapshotCached(id: string): Promise<ProcessTreeSnapshot | null> {
+    const rec = this.sessions.get(id);
+    if (!rec) return null;
+    return inspectProcessTreeCached(rec.pid);
   }
 
   stop(id: string, opts: { tree?: boolean; forget?: boolean } = {}): ProcessTreeSnapshot | null {

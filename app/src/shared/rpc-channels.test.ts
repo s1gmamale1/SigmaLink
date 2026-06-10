@@ -113,6 +113,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'workspaces.launch',
   // git (gitCtl)
   'git.status',
+  'git.statusSummary',   // perf-hot-paths Task 3 — count-only pane-header poll
   'git.diff',
   'git.runCommand',
   'git.commitAndMerge',

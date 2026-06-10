@@ -19,6 +19,7 @@ import type {
   GitDiff,
   GitLogEntry,
   GitStatus,
+  GitStatusSummary,
 } from '../../../shared/types';
 
 export async function getRepoRoot(cwd: string): Promise<string | null> {
@@ -112,6 +113,39 @@ export async function gitStatus(cwd: string): Promise<GitStatus | null> {
     untracked,
     clean: !staged.length && !unstaged.length && !untracked.length,
   };
+}
+
+/**
+ * perf-hot-paths Task 3 — count-only status for the pane-header badge. ONE
+ * git proc (`status --porcelain`) instead of gitStatus's four (rev-parse
+ * --show-toplevel, rev-parse --abbrev-ref, status, rev-list), and a 2-field
+ * payload instead of full staged/unstaged/untracked filename arrays.
+ * `git status` exits non-zero outside a work tree, so the repo probe is
+ * folded in for free. Count parity with useUncommittedCount's historical
+ * `staged.length + unstaged.length + untracked.length` is preserved exactly
+ * (an 'MM' line increments both staged AND unstaged).
+ */
+export async function gitStatusSummary(cwd: string): Promise<GitStatusSummary | null> {
+  if (!fs.existsSync(cwd)) return null;
+  const res = await execCmd('git', ['status', '--porcelain=v1', '-uall'], {
+    cwd,
+    timeoutMs: 8_000,
+  });
+  if (res.code !== 0) return null; // not a git work tree (or git unavailable)
+
+  let uncommitted = 0;
+  for (const line of res.stdout.split(/\r?\n/)) {
+    if (line.length < 3) continue;
+    const x = line[0];
+    const y = line[1];
+    if (x === '?' && y === '?') {
+      uncommitted += 1;
+      continue;
+    }
+    if (x !== ' ' && x !== '?') uncommitted += 1;
+    if (y !== ' ' && y !== '?') uncommitted += 1;
+  }
+  return { uncommitted, clean: uncommitted === 0 };
 }
 
 export async function gitDiff(cwd: string): Promise<GitDiff | null> {

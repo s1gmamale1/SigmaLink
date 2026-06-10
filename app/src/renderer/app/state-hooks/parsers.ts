@@ -26,12 +26,21 @@ function isSwarmMessageKind(value: unknown): value is SwarmMessageKind {
   return typeof value === 'string' && VALID_SWARM_KINDS.has(value as SwarmMessageKind);
 }
 
+/** Trailing-coalesce window for event-driven refetches. A burst of
+ *  `memory:changed`/`tasks:changed`/`skills:changed`/`review:changed` events
+ *  (e.g. a batch write emitting N change notifications) collapses into ONE
+ *  full-list refetch + ONE state replace. */
+const EVENT_REFRESH_DEBOUNCE_MS = 250;
+
 /**
  * Shared shape for the per-workspace hydrate-on-mount-and-event pattern.
  * Mirrors the original `let alive = true / if (!alive) return / off()`
  * boilerplate so a stale fetch after unmount can't dispatch into a
  * torn-down provider. The fetcher receives an `isAlive()` getter that
  * must be re-checked after every `await` boundary.
+ *
+ * The MOUNT-time hydration fires immediately; EVENT-triggered refreshes are
+ * trailing-coalesced over `debounceMs` (perf-hot-paths Task 5).
  *
  * Returns the useEffect cleanup function — call it as
  * `return runRefreshOnEvent(...)` from inside a useEffect.
@@ -40,8 +49,10 @@ export function runRefreshOnEvent(
   fetcher: (isAlive: () => boolean) => Promise<void>,
   eventName: string,
   label: string,
+  debounceMs = EVENT_REFRESH_DEBOUNCE_MS,
 ): () => void {
   let alive = true;
+  let pending: ReturnType<typeof setTimeout> | null = null;
   const refresh = () => {
     void (async () => {
       try {
@@ -51,10 +62,22 @@ export function runRefreshOnEvent(
       }
     })();
   };
+  // Mount-time hydration stays immediate — rooms must not open 250 ms stale.
   refresh();
-  const off = window.sigma.eventOn(eventName, refresh);
+  const onEvent = () => {
+    if (pending) clearTimeout(pending);
+    pending = setTimeout(() => {
+      pending = null;
+      if (alive) refresh();
+    }, debounceMs);
+  };
+  const off = window.sigma.eventOn(eventName, onEvent);
   return () => {
     alive = false;
+    if (pending) {
+      clearTimeout(pending);
+      pending = null;
+    }
     off();
   };
 }
