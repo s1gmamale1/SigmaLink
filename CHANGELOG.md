@@ -2,6 +2,53 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.1.0] — 2026-06-11
+
+**v2.1.0 rolls up the entire 2026-06-10 deep-dive audit remediation — Phases 3–10 — shipped as nine PRs (#136–#145), each gated and merged to `main` with CI `e2e-matrix` green.** The batch closes a CVE-class renderer write primitive, a boot-crash data-loss class, and a cluster of pane/PTY/Jorvis reliability bugs, and lands two perf passes (−450 KB boot JS, 4→1 git procs per poll). Phases 11 (Windows runtime readiness) and 12 (dead-code sweep) remain for a later release.
+
+### Added — Phase 3: Command Room interaction reliability (PR #137 `b7fac3a`)
+
+Built subagent-driven (implementer → spec review → Opus code-quality review per task); the two-stage review caught four issues a green gate missed (xterm-6 `copyOnSelect` no-op → `onSelectionChange`; missing `panes.stageImage` zod schema; failed-resume optimistic-state divergence; `close_pane` missing from `DANGEROUS_REMOTE`).
+
+- **Jorvis-launched panes now appear in the grid.** The `launch_pane` tool emits `assistant:dispatch-echo` (threaded through `ToolContext`), so a pane Jorvis opens renders without a manual refresh.
+- **`close_pane` Jorvis tool.** Jorvis can close/kill a pane by session id (kill + mark `exited` + `assistant:pane-closed` → `REMOVE_SESSION`); destructive, so it is gated behind the `DANGEROUS_REMOTE` Telegram-origin confirmation set.
+- **Right-click Copy/Paste + copy-on-select** on terminal panes, plus a `getCached()` terminal-cache accessor.
+- **Screenshot staging.** A dropped or pasted image is staged to a validated temp file (`panes.stageImage` RPC + `stage-image.ts`) and injected as an absolute `@path` for image-capable providers (`IMAGE_CAPABLE_PROVIDERS`) — the only mechanism that reaches both Claude Code and Codex today (clipboard `«PNGf»` bug anthropics/claude-code#30936; ADR-003).
+- **`+ Pane` first-click after restart.** `swarms.resume` RPC + auto-resume inside `addPane()` heals a janitor-`failed` swarm (`completed` stays gated).
+- Jorvis refers to panes by **operator-facing name**, never by index (`list_active_sessions` returns the display name).
+
+### Fixed — Phase 4: Main-process data-integrity criticals (PRs #136 `81619e3`, #138 `e1d0968`)
+
+- **Boot no longer crashes on multi-workspace-same-dir.** `BOOTSTRAP_SQL` stopped resurrecting the UNIQUE `workspaces_root_idx` that migration 0034 dropped (non-unique lookup + self-heal for poisoned installs) — previously a hard boot crash once duplicate `root_path` rows existed, silently re-breaking the Phase-7 multi-ws feature every restart.
+- **The worktree reaper can no longer delete resume-eligible or sibling-workspace worktrees.** A shared keep-predicate (`isWorktreeKeepEligible`/`collectKeptWorktreePaths`, keep⊇use invariant + source tripwire) ends the twin drift; `removeWorkspace` now stops live PTYs and deletes `agent_sessions` rows in kill→delete→prune order. ADR-004.
+
+### Fixed — Phase 5: PTY lifecycle & resume correctness (PR #139 `c26695c`)
+
+- A **stale 3 s graceful-exit timer can no longer kill a freshly resumed/respawned pane** (record-identity guard + duplicate-id `create()` policy), closing a double-spawn zombie class.
+- **Uniform crash classification** at all three exit sites (`isPtyCrash` + `pty:error` broadcast).
+- **Respawn-fresh can't roll a pane back to its pre-crash conversation** (ghost-heal mirror; claude pre-assign + stamp-back; codex stays safe-fresh).
+- A CLI-exit **sentinel can't be missed on a chunk split** (anchor-safe `sliceSentinelCarry`).
+
+### Security — Phase 6: RPC boundary & sink hardening (PR #140 `c8df2e2`)
+
+- **Closed a CVE-class renderer write primitive:** `panes.brief` wrote a `CLAUDE.md` to any renderer-supplied path with no containment; it is now behind `assertAllowedPath` (fail-closed), with `fsExists` oracle-closed and model args allowlisted at both spawn sites.
+- **Disk-guard CRITICAL bells no longer silenced** on Jorvis-orchestrated launches — `notifications` + `broadcastPtyError` threaded through all four un-sinked `executeLaunchPlan` sites; the scrollback exit sink re-reads its KV gate per exit so a runtime toggle-on works.
+
+### Performance & lifecycle — Phases 7–9
+
+- **Phase 7 — terminal-cache & scratch-tab lifecycle (PR #141 `a387e1b`).** Scratch tabs no longer orphan a PTY + leak an xterm/WebGL cache entry on every open; `WebglAddon` attaches/detaches so GPU contexts track visible panes (no silent DOM-renderer downgrade past Chromium's ~16-context cap); module-scope scratch + prompt-card stores survive remounts. ADR-005.
+- **Phase 8 — main-loop hot paths (PR #142 `ec42de4`).** One async `ps` per 2.5 s behind a `ProcessLister` seam; a refcounted shared poller that pauses while the window is hidden; pane-header git status is one process and two fields (`git.statusSummary`, 4→1 procs/poll); cached boot PATH; 250 ms event coalesce. Removes ~280 ms of per-window main-loop blockage at 12 panes.
+- **Phase 9 — render & bundle (PR #143 `67b8f1b`).** `recharts` replaced by an inline-SVG strip and uninstalled (vendor-react 636 → 193 kB, ~−450 KB boot JS); `memo`/selector passes on mailbox/transcript/Jorvis rows; swarm-message cap (500, drop-head).
+
+### Fixed — Phase 10: Renderer state & Jorvis correctness (PRs #144 `54e08ad`, #145 `74fdfc4`)
+
+- **Room persistence can't be hijacked by a global room** (exported `GLOBAL_ROOMS`/`isGlobalRoom` single source + anti-drift tests at all four guard sites) — no more boot-into-Settings.
+- **Invisible pane-event cards fixed** (copy-on-add `PaneEventStore` — the `useSyncExternalStore` mutate-in-place bug), plus hydrate request-tokens, jump-to-message frame-retry, updater-side-effect fixes, composer `{value,nonce}` clear, snapshot flush-on-unload, and Splitter/PaneDivider unmount cleanup (the PR #133 refit-suppression flag can never wedge).
+
+### Verification
+
+Gated in `main` before tagging: `tsc -b` (clean), `eslint --max-warnings 0` (clean), `vitest` (342 files, 3515 pass / 1 skip), `npm run product:check` (vite build + electron compile, clean). End-to-end coverage ran green via the CI `e2e-matrix` on every constituent PR and on the `main` tip (`ce416ef`) being tagged.
+
 ## [2.0.1] — 2026-06-08
 
 A small post-v2.0.0 batch of operator-reported UX fixes, each shipped as its own PR with CI `e2e-matrix` green on `main`.

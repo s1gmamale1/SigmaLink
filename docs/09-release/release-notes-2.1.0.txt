@@ -1,0 +1,67 @@
+SigmaLink v2.1.0 — 2026-06-11
+=============================
+
+v2.1.0 rolls up the entire 2026-06-10 deep-dive audit remediation —
+Phases 3 through 10 — shipped as nine PRs (#136–#145), each gated and
+merged to `main` with CI e2e-matrix green. It closes a CVE-class
+renderer write primitive, a boot-crash data-loss class, and a cluster
+of pane / PTY / Jorvis reliability bugs, and lands two performance
+passes. Phases 11 (Windows runtime readiness) and 12 (dead-code sweep)
+remain for a later release.
+
+See CHANGELOG.md [2.1.0] for the itemized record.
+
+
+What's new
+----------
+
+- Jorvis Command Room reliability (Phase 3, #137). Jorvis-launched
+  panes now appear in the grid without a refresh; a new `close_pane`
+  tool lets Jorvis close panes (confirmation-gated when remote);
+  right-click Copy/Paste and copy-on-select on terminals; dropped or
+  pasted screenshots now reach Claude/Codex as a readable image via
+  staged temp-file + @path; `+ Pane` works first-click after a restart.
+
+- Faster boot and smoother multi-pane (Phases 8–9, #142 #143).
+  recharts removed for an inline-SVG strip (~−450 KB boot JS); one `ps`
+  per 2.5 s, polling pauses while the window is hidden, pane-header git
+  status is one process instead of four — removing ~280 ms of main-loop
+  blockage per window at 12 panes.
+
+
+Fixed
+-----
+
+- Boot no longer crashes on multiple workspaces sharing one directory,
+  and the worktree reaper can no longer delete worktrees that resume —
+  or a sibling workspace — still needs (Phase 4, #136 #138; ADR-004).
+
+- A stale graceful-exit timer can no longer kill a freshly resumed pane;
+  uniform crash classification; respawn-fresh keeps the new conversation
+  (Phase 5, #139).
+
+- Scratch tabs no longer leak a PTY + xterm/WebGL cache entry; GPU
+  contexts track visible panes (Phase 7, #141; ADR-005).
+
+- Room persistence can't be hijacked into booting the wrong room;
+  invisible pane-event cards, hydrate races, and a wedgeable resize flag
+  fixed (Phase 10, #144 #145).
+
+
+Security
+--------
+
+- Closed a CVE-class renderer write primitive: `panes.brief` no longer
+  writes to an arbitrary renderer-supplied path (now containment-gated,
+  fail-closed), and disk-guard CRITICAL alerts are no longer silenced on
+  Jorvis-orchestrated launches (Phase 6, #140).
+
+
+Verification
+------------
+
+Gated in main before tagging: tsc -b (clean), eslint --max-warnings 0
+(clean), vitest (342 files, 3515 pass / 1 skip), product:check (vite
+build + electron compile, clean). End-to-end coverage ran green via the
+CI e2e-matrix on every constituent PR and on the main tip (ce416ef)
+being tagged.
