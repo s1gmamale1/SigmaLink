@@ -167,6 +167,23 @@ describe('assistant.dispatchPane count=8 valid preset', () => {
     const callArg = vi.mocked(executeLaunchPlan).mock.calls[0][0];
     expect(callArg.preset).toBe(8);
   });
+
+  it('threads deps.notifications + deps.broadcastPtyError into executeLaunchPlan (audit 2026-06-10)', async () => {
+    const root = makeTmp();
+    seedWorkspace(fake, { id: 'ws-1', rootPath: root });
+    vi.mocked(executeLaunchPlan).mockClear();
+    vi.mocked(executeLaunchPlan).mockResolvedValue(makeLaunchResult([makeSession('pane-1', 'claude')]));
+    const notifications = { add: vi.fn() };
+    const broadcastPtyError = vi.fn();
+    const { controller } = buildAssistantController(makeDeps({ notifications, broadcastPtyError }));
+    const ctl = controller as unknown as {
+      dispatchPane: (input: { workspaceId: string; provider: string; count: number; initialPrompt: string }) => Promise<{ sessionIds: string[] }>;
+    };
+    await ctl.dispatchPane({ workspaceId: 'ws-1', provider: 'claude', count: 1, initialPrompt: 'hi' });
+    const deps = vi.mocked(executeLaunchPlan).mock.calls[0][1];
+    expect(deps.notifications).toBe(notifications);
+    expect(deps.broadcastPtyError).toBe(broadcastPtyError);
+  });
 });
 
 // ── dispatchBulk ─────────────────────────────────────────────────────────────

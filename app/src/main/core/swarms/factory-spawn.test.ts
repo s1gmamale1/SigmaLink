@@ -180,6 +180,19 @@ describe('buildExtraArgs — provider oneshot substitution', () => {
     expect(buildExtraArgs('claude', 'hi')).toEqual(['-p', 'hi']);
     expect(buildExtraArgs('codex', 'hi')).toEqual(['-q', 'hi']);
   });
+
+  // Audit 2026-06-10 finding 3 — M1 allowlist parity with the launcher twin
+  // (core/workspaces/launcher.ts buildExtraArgs): a modelId missing from the
+  // shared catalog must be DROPPED, never forwarded as a CLI arg.
+  it('drops a modelId not in the shared catalog (M1 allowlist parity)', () => {
+    expect(buildExtraArgs('claude', undefined, 'not-a-real-model')).toEqual([]);
+    expect(buildExtraArgs('claude', 'hi', '--dangerously-skip-permissions')).toEqual(['-p', 'hi']);
+  });
+
+  it('keeps a catalog-listed modelId (with and without a oneshot prompt)', () => {
+    expect(buildExtraArgs('claude', undefined, 'claude-sonnet-4-6')).toEqual(['--model', 'claude-sonnet-4-6']);
+    expect(buildExtraArgs('claude', 'hi', 'claude-sonnet-4-6')).toEqual(['--model', 'claude-sonnet-4-6', '-p', 'hi']);
+  });
 });
 
 describe('spawnAgentSession — PTY spawn mode', () => {

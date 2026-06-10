@@ -816,4 +816,22 @@ describe('assistant launch_pane echo (spec 2026-06-10 A)', () => {
     );
     expect(out).toMatchObject({ sessionIds: ['sess-a'] });
   });
+
+  // Audit 2026-06-10 finding 4 — assistant-dispatched launches must thread the
+  // notifications + broadcastPtyError sinks (disk-guard CRITICAL bell + crash
+  // pty:error were silent no-ops vs the rpc-router workspaces.launch sibling).
+  it('threads ctx.notifications + ctx.broadcastPtyError into executeLaunchPlan', async () => {
+    vi.mocked(executeLaunchPlan).mockClear();
+    vi.mocked(executeLaunchPlan).mockResolvedValue(
+      { workspace: {}, sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>,
+    );
+    const notifications = { add: vi.fn() };
+    const broadcastPtyError = vi.fn();
+    const ctx = { ...makeCtx(), notifications, broadcastPtyError } as unknown as ToolContext;
+    await findTool('launch_pane')!.handler({ workspaceRoot: '/tmp/ws', provider: 'claude' }, ctx);
+    expect(vi.mocked(executeLaunchPlan)).toHaveBeenCalledTimes(1);
+    const deps = vi.mocked(executeLaunchPlan).mock.calls[0][1];
+    expect(deps.notifications).toBe(notifications);
+    expect(deps.broadcastPtyError).toBe(broadcastPtyError);
+  });
 });

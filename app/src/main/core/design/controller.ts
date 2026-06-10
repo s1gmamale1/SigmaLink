@@ -28,6 +28,9 @@ export interface DesignControllerDeps {
   emit: (event: string, payload: unknown) => void;
   /** C-13: routes a PTY write to an existing session. */
   ptyWrite?: (sessionId: string, data: string) => Promise<void> | void;
+  /** Audit 2026-06-10 — optional launch sinks (parity with workspaces.launch). */
+  notifications?: { add: (input: import('../notifications/manager').AddInput) => unknown };
+  broadcastPtyError?: (payload: { sessionId: string; exitCode: number | null; signal?: string | null }) => void;
 }
 
 interface CanvasShape {
@@ -328,6 +331,8 @@ export function buildDesignController(deps: DesignControllerDeps) {
       const out = await executeLaunchPlan(plan, {
         pty: deps.pty,
         worktreePool: deps.worktreePool,
+        notifications: deps.notifications,
+        broadcastPtyError: deps.broadcastPtyError,
       });
       const sessionIds = out.sessions
         .filter((s) => s.status !== 'error')

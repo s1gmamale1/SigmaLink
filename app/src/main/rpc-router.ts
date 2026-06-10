@@ -121,7 +121,7 @@ import { TelegramBridge } from './core/remote/bridge';
 import { buildTelegramController } from './core/remote/controller';
 import { CredentialStore } from './core/credentials/storage';
 import { runVoiceDiagnostics } from './core/voice/diagnostics';
-import { fsReadDir, fsReadFile, fsWriteFile } from './core/fs/controller';
+import { fsReadDir, fsReadFile, fsWriteFile, fsExists } from './core/fs/controller';
 import { assertAllowedPath, type AllowedRootsSource } from './core/security/path-guard';
 import { validateChannelInput, validateChannelOutput } from './core/rpc/validate';
 import { getChannelSchema } from './core/rpc/schemas';
@@ -142,7 +142,7 @@ import { checkForUpdates as checkForUpdatesImpl } from '../../electron/auto-upda
 // reads through `app.tier()` rather than touching kv directly.
 import { KV_PLAN_TIER, parseTier } from './core/plan/capabilities';
 import { KV_PTY_SPAWN_MODE, parseSpawnMode, KV_PTY_SCROLLBACK_PERSISTENCE, parseScrollbackPersistence } from './core/pty/local-pty';
-import { persistScrollback, loadScrollback, gcScrollback } from './core/pty/scrollback-store';
+import { persistScrollback, loadScrollback, gcScrollback, makeScrollbackExitSink } from './core/pty/scrollback-store';
 import { cmdQuoteArg } from './core/util/windows-spawn';
 import { analyzeSessionRisk } from './core/ram-brake/session-risk';
 
@@ -579,28 +579,21 @@ async function buildRouter() {
           /* notifications fan-out is best-effort */
         }
       },
-      // v1.9-scrollback — DEFAULT-OFF.  Only wired when the KV flag is 'on'.
-      // Re-reads the flag lazily on each exit so the user can toggle it at
-      // runtime without a restart (toggle-on starts persisting immediately;
-      // toggle-off stops after the next exit).
-      onSessionExit: (() => {
-        const scrollbackFlagRow = getRawDb()
-          .prepare('SELECT value FROM kv WHERE key = ?')
-          .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
-        if (!parseScrollbackPersistence(scrollbackFlagRow?.value ?? null)) return undefined;
-        return (sessionId: string, snapshot: string) => {
-          // Re-read the flag on each call so mid-session toggle-off takes effect.
-          try {
-            const row = getRawDb()
-              .prepare('SELECT value FROM kv WHERE key = ?')
-              .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
-            if (!parseScrollbackPersistence(row?.value ?? null)) return;
-          } catch {
-            return;
-          }
-          persistScrollback(userData, sessionId, snapshot);
-        };
-      })(),
+      // v1.9-scrollback — DEFAULT-OFF. The sink is ALWAYS wired; the KV flag
+      // is re-read inside on every exit, so BOTH runtime toggle-ON and
+      // toggle-OFF take effect without a restart. (The previous boot-time IIFE
+      // returned undefined when the flag was off at boot, so toggle-ON was a
+      // silent no-op until restart — audit 2026-06-10 finding 5. The load side
+      // (panes.resume) and shutdown persist already re-read live.)
+      onSessionExit: makeScrollbackExitSink({
+        isEnabled: () => {
+          const row = getRawDb()
+            .prepare('SELECT value FROM kv WHERE key = ?')
+            .get(KV_PTY_SCROLLBACK_PERSISTENCE) as { value?: string } | undefined;
+          return parseScrollbackPersistence(row?.value ?? null);
+        },
+        persist: (sessionId, snapshot) => persistScrollback(userData, sessionId, snapshot),
+      }),
     },
   );
   const mailbox = new SwarmMailbox(userData);
@@ -1316,10 +1309,15 @@ async function buildRouter() {
     // C-5 — inject a structured plan capsule into the pane's PTY + write a
     // per-worktree CLAUDE.md scope guidance block.
     brief: async ({ sessionId, worktreePath, capsule }: { sessionId: string; worktreePath: string | null; capsule: import('@/shared/plan-capsule').PlanCapsule }) => {
-      const { writeScopeBlock } = await import('./core/workspaces/scope-block');
-      const { buildCapsuleText } = await import('@/shared/plan-capsule');
-      if (worktreePath) await writeScopeBlock(worktreePath, capsule);
-      pty.write(sessionId, buildCapsuleText(capsule) + '\n');
+      // Audit 2026-06-10 — contain the renderer-supplied worktreePath to the
+      // workspace/worktree allowed roots BEFORE the CLAUDE.md write (sibling
+      // parity with git.worktreeCreate/:openInPane). briefPane throws
+      // 'path outside workspace' and produces NO side effects out-of-roots.
+      const { briefPane } = await import('./core/workspaces/scope-block');
+      await briefPane(
+        { sessionId, worktreePath, capsule },
+        { allowedRoots: fsAllowedRoots, writePty: (id, data) => pty.write(id, data) },
+      );
     },
   });
 
@@ -1636,7 +1634,9 @@ async function buildRouter() {
   });
 
   const fsCtl = defineController({
-    exists: async (p: string) => fs.existsSync(p),
+    // Audit 2026-06-10 — fs.exists was the only fs.* channel skipping the
+    // allowedRoots sandbox (existence oracle). Out-of-roots now reads as false.
+    exists: async (p: string) => fsExists({ path: p, allowedRoots: fsAllowedRoots }),
     // V3-W14-007 — Editor tab. The controller bodies live in core/fs/controller.ts
     // so they can be unit-tested without spinning up the whole router.
     readDir: async (input: { path: string }) =>
@@ -1698,6 +1698,10 @@ async function buildRouter() {
     worktreePool,
     mailbox,
     userDataDir: userData,
+    // Audit 2026-06-10 — C6 parity: same notifications sink buildSwarmController
+    // gets above, so a disk-guard refusal in a sigmabench-driven spawn bells
+    // instead of being console-only. (SwarmFactoryDeps already declares it.)
+    notifications: notificationsManager,
   };
   const readSwarmStatuses = async (swarmId: string): Promise<SwarmStatusSnapshot[]> => {
     const db = getDb();
@@ -1961,6 +1965,11 @@ async function buildRouter() {
       serverEntry: jorvisHostServerEntry,
       socketPath: mcpHostSigma.getSocketPath(),
     },
+    // Audit 2026-06-10 — launch sinks: disk-guard CRITICAL bell + crash
+    // pty:error now fire on assistant-dispatched launches (parity with the
+    // workspaces.launch handler above).
+    notifications: notificationsManager,
+    broadcastPtyError: (payload) => broadcast('pty:error', payload),
   });
   const assistantCtl = assistantBundle.controller;
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the
@@ -2002,6 +2011,11 @@ async function buildRouter() {
     // C-13: delegate to the existing pty.write call so design.dispatch can
     // route element captures into live pane PTYs without re-opening IPC.
     ptyWrite: (sessionId, data) => pty.write(sessionId, data),
+    // Audit 2026-06-10 — launch sinks: disk-guard CRITICAL bell + crash
+    // pty:error now fire on design-dispatched launches (parity with the
+    // workspaces.launch handler above).
+    notifications: notificationsManager,
+    broadcastPtyError: (payload) => broadcast('pty:error', payload),
   });
   designShutdown = (designCtl as unknown as { shutdown: () => void }).shutdown;
   // V3-W15-001 / V1.1 — SigmaVoice. Renderer drives Web Speech capture on

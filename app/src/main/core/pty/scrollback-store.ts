@@ -5,9 +5,10 @@
 // Storage layout:  <userData>/scrollback/<sessionId>.log
 // Atomic write:    write to <sessionId>.log.tmp → rename to .log
 //
-// Callers must check the `pty.scrollbackPersistence` KV flag BEFORE invoking
-// any function here; this module is flag-unaware by design (single
-// responsibility, easy to unit-test without mocking KV).
+// Callers either check the `pty.scrollbackPersistence` KV flag BEFORE invoking
+// persist/load/gc, or use `makeScrollbackExitSink` with an injected gate; the
+// module itself stays flag-unaware by design (single responsibility, easy to
+// unit-test without mocking KV).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -112,4 +113,33 @@ export function gcScrollback(userDataDir: string, liveSessionIds: ReadonlySet<st
   } catch (err) {
     console.warn('[scrollback-store] gcScrollback failed:', err);
   }
+}
+
+/**
+ * Audit 2026-06-10 — PTY-exit persistence sink, ALWAYS wired by the router.
+ *
+ * The gate (`isEnabled` — re-reads the `pty.scrollbackPersistence` KV flag) is
+ * evaluated on EVERY call, so both runtime toggle-ON and toggle-OFF take
+ * effect without an app restart. (The previous rpc-router boot-time IIFE
+ * returned `undefined` when the flag was off at boot, making toggle-ON a
+ * silent no-op until restart.)
+ *
+ * Never throws: a failing `isEnabled` reads as OFF so the PTY exit path is
+ * never blocked. `persist` is already best-effort (persistScrollback swallows
+ * all I/O errors).
+ */
+export function makeScrollbackExitSink(deps: {
+  isEnabled: () => boolean;
+  persist: (sessionId: string, snapshot: string) => void;
+}): (sessionId: string, snapshot: string) => void {
+  return (sessionId, snapshot) => {
+    let enabled = false;
+    try {
+      enabled = deps.isEnabled();
+    } catch {
+      return; // KV read failed — treat as OFF, never block the exit path
+    }
+    if (!enabled) return;
+    deps.persist(sessionId, snapshot);
+  };
 }

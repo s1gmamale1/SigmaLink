@@ -23,7 +23,7 @@ import {
   workspaces as workspacesTable,
 } from '../db/schema';
 import { findProvider } from '../../../shared/providers';
-import { providerAcceptsModelFlag } from '../../../shared/model-catalog';
+import { providerAcceptsModelFlag, listModelsFor } from '../../../shared/model-catalog';
 import type { AgentSession, Role, Swarm, SwarmAgent } from '../../../shared/types';
 import { agentKey as makeAgentKey } from './types';
 import { envelopeToInsert, parseProtocolLine, ProtocolLineBuffer } from './protocol';
@@ -133,10 +133,18 @@ export function buildExtraArgs(
   const provider = findProvider(providerId);
   if (!provider) return [];
   // BSP-V2 — inject `--model <id>` for providers whose CLI accepts the flag
-  // (claude / cursor / gemini per MODEL_FLAG_PROVIDERS). Mirrors the launcher
-  // path (launcher.ts:buildExtraArgs) so both spawn sites are consistent.
+  // (claude / cursor / gemini per MODEL_FLAG_PROVIDERS). Audit 2026-06-10 —
+  // ALSO allowlist against the shared catalog, restoring true parity with the
+  // launcher twin (core/workspaces/launcher.ts buildExtraArgs, M1 review fix):
+  // an unknown modelId is dropped silently (the CLI default applies). Spawn is
+  // shell:false argv, but this is defense-in-depth at the renderer→spawn
+  // boundary.
   const modelArgs: string[] =
-    modelId && providerAcceptsModelFlag(providerId) ? ['--model', modelId] : [];
+    modelId &&
+    providerAcceptsModelFlag(providerId) &&
+    listModelsFor(providerId).some((m) => m.modelId === modelId)
+      ? ['--model', modelId]
+      : [];
   if (!initialPrompt) return modelArgs;
   if (provider.oneshotArgs && provider.oneshotArgs.length) {
     return [

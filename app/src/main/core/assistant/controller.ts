@@ -67,6 +67,13 @@ export interface AssistantControllerDeps {
     /** Unix socket path or `\\.\pipe\…` the bridge is listening on. */
     socketPath: string;
   };
+  /**
+   * Audit 2026-06-10 — optional launch sinks for every executeLaunchPlan call
+   * this controller makes (dispatchPane / dispatchPanes / the launch_pane tool
+   * via ToolContext). Wired live from rpc-router; absent ⇒ console-only.
+   */
+  notifications?: { add: (input: import('../notifications/manager').AddInput) => unknown };
+  broadcastPtyError?: (payload: { sessionId: string; exitCode: number | null; signal?: string | null }) => void;
 }
 
 interface ActiveTurn {
@@ -253,6 +260,10 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         // this assistant turn. The send-level closure allocates once per turn;
         // the direct invokeTool RPC path passes the counter from its input.
         cdpCallCounter: input.cdpCallCounter,
+        // Audit 2026-06-10 — launch sinks ride the tool ctx so launch_pane
+        // (including the MCP-host bridge path) gets them too.
+        notifications: deps.notifications,
+        broadcastPtyError: deps.broadcastPtyError,
       });
       // P3-S7 — single persistence path: the tracer writes the `messages`
       // row with role='tool' and `toolCallId` set to the trace id; the
@@ -460,6 +471,8 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       const out = await executeLaunchPlan(plan, {
         pty: deps.pty,
         worktreePool: deps.worktreePool,
+        notifications: deps.notifications,
+        broadcastPtyError: deps.broadcastPtyError,
       });
       const sessionIds = out.sessions
         .filter((s): s is AgentSession => s.status !== 'error')
@@ -601,6 +614,8 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
           out = await executeLaunchPlan(plan, {
             pty: deps.pty,
             worktreePool: deps.worktreePool,
+            notifications: deps.notifications,
+            broadcastPtyError: deps.broadcastPtyError,
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

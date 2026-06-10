@@ -90,6 +90,15 @@ export interface ToolContext {
    */
   cdpCallCounter?: { count: number };
   /**
+   * Audit 2026-06-10 — optional launch sinks, threaded into executeLaunchPlan
+   * by `launch_pane` so a WorktreeDiskGuardError CRITICAL bell and a crash
+   * `pty:error` broadcast fire on assistant-dispatched launches exactly like
+   * the rpc-router `workspaces.launch` sibling. Absent ⇒ console-only
+   * (back-compat for every existing caller/test).
+   */
+  notifications?: { add: (input: import('../notifications/manager').AddInput) => unknown };
+  broadcastPtyError?: (payload: { sessionId: string; exitCode: number | null; signal?: string | null }) => void;
+  /**
    * Spec 2026-06-10 (A) — renderer event broadcaster (the controller's
    * `deps.emit`). Lets tool handlers that spawn panes echo
    * `assistant:dispatch-echo` so the Command Room grid refetches and shows
@@ -305,6 +314,10 @@ export const TOOLS: ToolDefinition[] = [
       const out = await executeLaunchPlan(plan, {
         pty: ctx.pty,
         worktreePool: ctx.worktreePool,
+        // Audit 2026-06-10 — disk-guard bell + crash pty:error sinks (parity
+        // with rpc-router workspaces.launch).
+        notifications: ctx.notifications,
+        broadcastPtyError: ctx.broadcastPtyError,
       });
       // Spec 2026-06-10 (A) — echo each spawned session so the Command Room
       // grid refetches (use-jorvis-dispatch-echo) and renders the new panes.
