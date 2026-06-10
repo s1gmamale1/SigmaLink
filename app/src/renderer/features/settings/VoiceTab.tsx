@@ -20,7 +20,17 @@ import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import { IS_WIN32, getPlatform } from '@/renderer/lib/platform';
 import { cn } from '@/lib/utils';
 import type { DictionaryEntry } from '@/shared/voice-dictionary';
-import type { SessionStat } from '@/main/core/voice/voice-stats';
+// Voice usage-stats row shape — single home is @sigmalink/voice-core's
+// voice-stats.ts (re-exported from its index). Declared locally here (the
+// 4-field SessionStat shape) to keep the renderer bundle decoupled from the
+// voice-core package at the type layer; the old read-side duplicate in
+// `@/main/core/voice/voice-stats` was deleted (2026-06-10 dead-code sweep).
+interface SessionStat {
+  words: number;
+  durationMs: number;
+  wpm: number;
+  timestamp?: number;
+}
 
 // ---------------------------------------------------------------------------
 // v1.4.9 — Global capture types

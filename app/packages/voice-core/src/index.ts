@@ -66,6 +66,9 @@ export type {
   ProgressCallback,
 } from './model-registry.js';
 
+// ── Voice usage stats (C-10a) ──────────────────────────────────────────────
+export type { SessionStat } from './voice-stats.js';
+
 // ── WAV encoder (C-10c) ────────────────────────────────────────────────────
 export { encodeWav } from './wav-encode.js';
 

@@ -3,10 +3,10 @@
 // Pure helpers; no Electron or native deps. The KV accessor interface is the
 // same synchronous { get, set } shape used throughout global-capture.ts so
 // these functions can be called from the capture controller without any async
-// overhead. Mirrors the renderer-read counterpart in
-// `app/src/main/core/voice/voice-stats.ts` (same KV key + SessionStat shape);
-// voice-core is self-contained and cannot import from `app/src`, so the pure
-// logic is duplicated here for the WRITE side of the dashboard.
+// overhead. Single home for the SessionStat shape — the renderer (VoiceTab)
+// type-imports `SessionStat` from `@sigmalink/voice-core`; the old read-side
+// duplicate in `app/src/main/core/voice/voice-stats.ts` was deleted
+// (2026-06-10 dead-code sweep).
 
 export interface TranscriptSegment {
   t0: number; // segment start time, milliseconds
