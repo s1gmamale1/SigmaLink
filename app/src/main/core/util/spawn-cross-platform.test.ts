@@ -206,4 +206,53 @@ describe.skipIf(process.platform !== 'win32')('spawn-cross-platform Windows inte
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('round-trips hostile argv through a real npm-style .cmd shim (%* re-expansion)', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spawn-xp-shim-'));
+    const outFile = path.join(tmpDir, 'argv.json');
+    // Mirror npm's cmd-shim template: the .cmd re-expands %* into a node
+    // line — the exact second cmd parse the doubleEscape layer exists for.
+    fs.writeFileSync(
+      path.join(tmpDir, 'args.js'),
+      'require("fs").writeFileSync(process.env.ARGS_OUT, JSON.stringify(process.argv.slice(2)));',
+      'utf8',
+    );
+    // .cmd files need CRLF line endings.
+    fs.writeFileSync(
+      path.join(tmpDir, 'claude.cmd'),
+      '@ECHO off\r\nnode "%~dp0args.js" %*\r\n',
+      'utf8',
+    );
+    const hostile = [
+      'hello world',
+      'C:\\Users\\First Last\\project',
+      'say "hi"',
+      'a&b|c',
+      '%USERNAME%', // defined on every runner — must arrive UNexpanded
+      '50%',
+      'caret^caret',
+      'bang!bang',
+      '(parens) and, commas;semis',
+      'trailing\\',
+    ];
+    try {
+      const { spawnExecutable } = await import('./spawn-cross-platform');
+      const child = spawnExecutable('claude', hostile, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          PATH: `${tmpDir};${process.env.PATH ?? ''}`,
+          ARGS_OUT: outFile,
+        },
+      });
+      await new Promise<void>((resolve, reject) => {
+        child.on('close', () => resolve());
+        child.on('error', reject);
+      });
+      const roundTripped = JSON.parse(fs.readFileSync(outFile, 'utf8')) as string[];
+      expect(roundTripped).toEqual(hostile);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
