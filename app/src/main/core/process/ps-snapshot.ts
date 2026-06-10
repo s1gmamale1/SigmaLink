@@ -20,6 +20,7 @@ import {
   type ProcessTreeNode,
   type ProcessTreeSnapshot,
 } from './process-tree';
+import { buildCimPsArgs, parseCimProcessRows } from './process-list-win32';
 
 export type ProcessLister = () => Promise<ProcessTreeNode[]>;
 
@@ -46,9 +47,29 @@ const darwinLister: ProcessLister = () =>
     );
   });
 
-// Per-platform backends. win32-platform-services adds `win32:` here.
+// win32-platform-services: PowerShell CIM (Win32_Process) is the win32
+// equivalent of darwin's `ps`. ASYNC execFile (no shell) keeps the TTL/cache
+// layer non-blocking; the CIM argv + tolerant JSON parse are the same pure
+// primitives the sync kill path uses (process-list-win32.ts). wmic-free —
+// wmic is deprecated/removed on Win11. Real behavior is device-verified.
+const win32Lister: ProcessLister = () =>
+  new Promise((resolve, reject) => {
+    execFile(
+      'powershell.exe',
+      buildCimPsArgs(),
+      { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) return reject(err);
+        resolve(parseCimProcessRows(stdout));
+      },
+    );
+  });
+
+// Per-platform backends. The win32-platform-services plan added `win32:` here
+// WITHOUT touching the TTL/cache layer below.
 const LISTERS: Partial<Record<NodeJS.Platform, ProcessLister>> = {
   darwin: darwinLister,
+  win32: win32Lister,
 };
 
 let testLister: ProcessLister | null = null;
