@@ -1,8 +1,23 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { seedWorkspaceMemory } from './seed-workspace-memory';
+
+const seedSpawnCalls: Array<{ cmd: string; args: string[] }> = [];
+let seedSpawnMode: 'close' | 'error' = 'close';
+vi.mock('../util/spawn-cross-platform', () => ({
+  spawnExecutable: (cmd: string, args: string[]) => {
+    seedSpawnCalls.push({ cmd, args });
+    const child = new EventEmitter();
+    queueMicrotask(() => {
+      if (seedSpawnMode === 'error') child.emit('error', new Error('spawn npx ENOENT'));
+      else child.emit('close', 0);
+    });
+    return child;
+  },
+}));
 
 const tmpDirs: string[] = [];
 
@@ -11,6 +26,18 @@ function tmpDir(prefix: string): string {
   tmpDirs.push(dir);
   return dir;
 }
+
+/** Arrange a tmp workspace containing a CLAUDE.md (mirrors the file's idiom). */
+function makeTmpWorkspaceWithClaudeMd(): string {
+  const root = tmpDir('sigmalink-seed-mem-default-');
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), 'project context here', 'utf8');
+  return root;
+}
+
+beforeEach(() => {
+  seedSpawnCalls.length = 0;
+  seedSpawnMode = 'close';
+});
 
 afterEach(() => {
   while (tmpDirs.length > 0) {
@@ -111,6 +138,25 @@ describe('seedWorkspaceMemory', () => {
     const expectedDir = path.win32.join(win32Root, '.claude-flow');
     // Verify structural expectation: ends with .claude-flow
     expect(expectedDir).toBe('C:\\Users\\user\\project\\.claude-flow');
+  });
+
+  it('defaultRunStore spawns npx via spawnExecutable (win32 .cmd shim safety)', async () => {
+    const root = makeTmpWorkspaceWithClaudeMd();
+    await seedWorkspaceMemory({ workspaceRoot: root }); // NO runStore override → default path
+    expect(seedSpawnCalls.length).toBe(1);
+    expect(seedSpawnCalls[0].cmd).toBe('npx');
+    expect(seedSpawnCalls[0].args).toEqual(
+      expect.arrayContaining(['memory', 'store', '--namespace', 'patterns']),
+    );
+  });
+
+  it('logs (does not silently swallow) a spawn error, and still resolves', async () => {
+    const root = makeTmpWorkspaceWithClaudeMd();
+    seedSpawnMode = 'error';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(seedWorkspaceMemory({ workspaceRoot: root })).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[ruflo-seed]'));
+    warn.mockRestore();
   });
 
   it('passes correct claudeFlowDir for the seeded workspace (posix)', async () => {
