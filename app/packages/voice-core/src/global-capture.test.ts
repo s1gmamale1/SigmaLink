@@ -102,11 +102,13 @@ vi.mock('./model-registry.js', () => {
 
 import {
   buildGlobalCaptureController,
+  defaultGlobalCaptureHotkey,
   resampleTo16k,
   unpackPcmChunk,
   normalizeTranscript,
   NATIVE_PCM_SAMPLE_RATE,
   WHISPER_SAMPLE_RATE,
+  type GlobalCaptureDeps,
 } from './global-capture.js';
 import { globalShortcut } from 'electron';
 import { routeTranscript } from './output-router.js';
@@ -809,5 +811,77 @@ describe('GlobalCaptureController — C-10c engine selection', () => {
     await ctrl.startRecording();
     // Should not throw even though CLI fails
     await expect(ctrl.stopAndTranscribe()).resolves.not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// win32 PTT accelerator + persistent register status
+// ---------------------------------------------------------------------------
+
+function makePttKv(initial: Record<string, string> = {}) {
+  const store = new Map(Object.entries(initial));
+  return {
+    get: (k: string) => store.get(k) ?? null,
+    set: (k: string, v: string) => {
+      store.set(k, v);
+    },
+  };
+}
+
+function makePttDeps(overrides: Partial<GlobalCaptureDeps> = {}): GlobalCaptureDeps {
+  return {
+    emit: vi.fn(),
+    kv: makePttKv({ 'voice.globalCapture.enabled': '1' }),
+    getModelsDir: () => '/tmp/voice-core-test/models',
+    clipboard: { writeText: vi.fn(), readText: vi.fn(() => '') } as unknown as GlobalCaptureDeps['clipboard'],
+    ...overrides,
+  };
+}
+
+describe('defaultGlobalCaptureHotkey (win32 IME collision)', () => {
+  it('win32 default avoids Ctrl+Alt+Space (the IME input-method toggle)', () => {
+    expect(defaultGlobalCaptureHotkey('win32')).toBe('Control+Shift+Space');
+  });
+  it('darwin/linux keep CommandOrControl+Alt+Space', () => {
+    expect(defaultGlobalCaptureHotkey('darwin')).toBe('CommandOrControl+Alt+Space');
+    expect(defaultGlobalCaptureHotkey('linux')).toBe('CommandOrControl+Alt+Space');
+  });
+});
+
+describe('platform-aware hotkey + persistent register status', () => {
+  beforeEach(() => {
+    (globalShortcut.register as Mock).mockClear().mockReturnValue(true);
+    (globalShortcut.unregister as Mock).mockClear();
+  });
+
+  it('registers the win32 default when no KV hotkey is stored', () => {
+    buildGlobalCaptureController(makePttDeps({ platform: 'win32' }));
+    expect(globalShortcut.register).toHaveBeenCalledWith('Control+Shift+Space', expect.any(Function));
+  });
+
+  it('a KV-stored hotkey always wins over the platform default', () => {
+    buildGlobalCaptureController(
+      makePttDeps({
+        platform: 'win32',
+        kv: makePttKv({ 'voice.globalCapture.enabled': '1', 'voice.globalCapture.hotkey': 'F9' }),
+      }),
+    );
+    expect(globalShortcut.register).toHaveBeenCalledWith('F9', expect.any(Function));
+  });
+
+  it('register failure → hotkeyRegistered=false in status AND a state broadcast (not just a transient toast)', () => {
+    (globalShortcut.register as Mock).mockReturnValue(false);
+    const deps = makePttDeps({ platform: 'win32' });
+    const ctl = buildGlobalCaptureController(deps);
+    expect(ctl.getStatus().hotkeyRegistered).toBe(false);
+    expect(deps.emit).toHaveBeenCalledWith(
+      'voice:global-capture-state',
+      expect.objectContaining({ hotkeyRegistered: false }),
+    );
+  });
+
+  it('register success → hotkeyRegistered=true', () => {
+    const ctl = buildGlobalCaptureController(makePttDeps({ platform: 'darwin' }));
+    expect(ctl.getStatus().hotkeyRegistered).toBe(true);
   });
 });

@@ -518,6 +518,20 @@ export async function commitAndMerge(input: {
   return { stdout: log.join(''), stderr: stderr.join(''), code: merge.code };
 }
 
+/**
+ * Wrap a git argv with win32 long-path support. SigmaLink worktrees nest
+ * under <userData>/worktrees/<repo-hash>/<branch-seg>/… and deep repos exceed
+ * MAX_PATH (260) on Windows; checkout then fails unless `core.longpaths` is
+ * on. `-c` scopes the setting to THIS invocation — the user's git config is
+ * never mutated. No-op (same array reference) off win32.
+ */
+export function gitArgsWithLongPaths(
+  base: string[],
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  return platform === 'win32' ? ['-c', 'core.longpaths=true', ...base] : base;
+}
+
 export async function worktreeAdd(args: {
   repoRoot: string;
   worktreePath: string;
@@ -526,7 +540,7 @@ export async function worktreeAdd(args: {
 }): Promise<void> {
   const res = await execCmd(
     'git',
-    ['worktree', 'add', '-b', args.branch, args.worktreePath, args.base],
+    gitArgsWithLongPaths(['worktree', 'add', '-b', args.branch, args.worktreePath, args.base]),
     { cwd: args.repoRoot, timeoutMs: 30_000 },
   );
   if (res.code !== 0) {
@@ -566,14 +580,14 @@ export async function ensureWorktree(args: {
   // Re-attach the EXISTING branch at the path (no `-b`).
   let res = await execCmd(
     'git',
-    ['worktree', 'add', args.worktreePath, args.branch],
+    gitArgsWithLongPaths(['worktree', 'add', args.worktreePath, args.branch]),
     { cwd: args.repoRoot, timeoutMs: 30_000 },
   );
   if (res.code !== 0) {
     // Branch may have been deleted/merged away — recreate it fresh at HEAD.
     res = await execCmd(
       'git',
-      ['worktree', 'add', '-b', args.branch, args.worktreePath, 'HEAD'],
+      gitArgsWithLongPaths(['worktree', 'add', '-b', args.branch, args.worktreePath, 'HEAD']),
       { cwd: args.repoRoot, timeoutMs: 30_000 },
     );
   }

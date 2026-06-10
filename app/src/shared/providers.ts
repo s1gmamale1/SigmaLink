@@ -59,6 +59,26 @@ export interface AgentProviderDefinition {
   recommendedRoles?: string[];   // wizard hints (e.g. ['builder','coordinator'])
 }
 
+/**
+ * Resolve the install command for `platform`. win32 NEVER falls back to a
+ * POSIX (linux) command — `['bash','-c',…]` is unrunnable on stock Windows
+ * and silently spawning it produced a dead install pane. A null return means
+ * "no automated installer on this platform" → callers hide the Install
+ * button and surface `installDocsUrl` instead. darwin/linux keep the
+ * linux-as-fallback convenience (those commands are interchangeable here).
+ * Pure + platform-injected: safe in both main and renderer.
+ */
+export function installCommandFor(
+  def: AgentProviderDefinition,
+  platform: string,
+): string[] | null {
+  const ic = def.installCommand;
+  if (!ic) return null;
+  if (platform === 'win32') return ic.win32 ?? null;
+  if (platform === 'darwin') return ic.darwin ?? ic.linux ?? null;
+  return ic.linux ?? null;
+}
+
 export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
   {
     id: 'claude',
@@ -205,7 +225,18 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     installCommand: {
       darwin: ['bash', '-c', 'curl https://cursor.com/install -fsS | bash'],
       linux: ['bash', '-c', 'curl https://cursor.com/install -fsS | bash'],
-      win32: ['bash', '-c', 'curl https://cursor.com/install -fsS | bash'],
+      // Windows PowerShell installer per cursor.com/docs/cli/installation
+      // (`irm 'https://cursor.com/install?win32=true' | iex`). cursor-agent's
+      // first-class targets are macOS/Linux — treat win32 as best-effort and
+      // device-verify before relying on it (win32-platform-services plan).
+      win32: [
+        'powershell.exe',
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        "irm 'https://cursor.com/install?win32=true' | iex",
+      ],
     },
     installDocsUrl: 'https://docs.cursor.com/en/cli/overview',
   },

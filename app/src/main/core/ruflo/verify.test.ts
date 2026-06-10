@@ -1,8 +1,27 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { verifyForWorkspace, type ProbeRunner } from './verify';
+import { EventEmitter } from 'node:events';
+import { verifyForWorkspace, defaultProbeRunner, type ProbeRunner } from './verify';
+
+const probeSpawnCalls: Array<{ cmd: string; args: string[] }> = [];
+vi.mock('../util/spawn-cross-platform', () => ({
+  spawnExecutable: (cmd: string, args: string[]) => {
+    probeSpawnCalls.push({ cmd, args });
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+      kill: () => {},
+    });
+    queueMicrotask(() => {
+      child.stdout.emit('data', Buffer.from('ruflo: connected\n'));
+      // defaultProbeRunner settles on the 'exit' event (not 'close').
+      child.emit('exit', 0);
+    });
+    return child;
+  },
+}));
 
 const tmpDirs: string[] = [];
 
@@ -305,5 +324,18 @@ describe('verifyForWorkspace', () => {
 
     expect(probedCommands).not.toContain('kimi');
     expect(probedCommands).not.toContain('opencode');
+  });
+});
+
+describe('defaultProbeRunner', () => {
+  it('routes CLI probes through spawnExecutable (win32 .cmd shims)', async () => {
+    probeSpawnCalls.length = 0;
+    const result = await defaultProbeRunner('claude', ['mcp', 'list'], {
+      cwd: '/tmp',
+      timeoutMs: 1000,
+    });
+    expect(probeSpawnCalls).toEqual([{ cmd: 'claude', args: ['mcp', 'list'] }]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('ruflo');
   });
 });

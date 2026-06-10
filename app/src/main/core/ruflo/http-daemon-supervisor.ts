@@ -12,12 +12,13 @@
 //   • emits 'restarted' (workspaceId, success) after each recovery cycle
 
 import { EventEmitter } from 'node:events';
-import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync, type ChildProcess } from 'node:child_process';
 import net from 'node:net';
 import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
 import { defaultRufloRoot } from './installer';
+import { spawnExecutable } from '../util/spawn-cross-platform';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ export interface RufloHttpDaemonSupervisorOpts {
    * Force a specific launcher binary (for tests). When set, it is used verbatim
    * with NO `npx` package prefix and NO resolution — the supervisor trusts it.
    * When omitted, the supervisor resolves a launcher at spawn time (PATH `ruflo`
-   * → lazy-installed `<userData>/ruflo` CLI → PATH `npx`); see {@link resolveLaunch}.
+   * → lazy-installed `<userData>/ruflo` CLI); see {@link resolveLaunch}.
    */
   binary?: string;
   /**
@@ -64,8 +65,6 @@ export interface RufloHttpDaemonSupervisorOpts {
   rufloRoot?: string;
 }
 
-/** The package spec npx uses to run the Ruflo CLI when `ruflo` is not on PATH. */
-const RUFLO_NPM_SPEC = '@claude-flow/cli@latest';
 /** The daemon subcommand + flags appended after the launcher prefix. Port/host
  *  are filled in per-spawn. */
 const DAEMON_SUBCOMMAND = ['mcp', 'start', '-t', 'http'] as const;
@@ -73,12 +72,12 @@ const DAEMON_SUBCOMMAND = ['mcp', 'start', '-t', 'http'] as const;
 /**
  * A resolved way to launch the Ruflo daemon: a command plus any prefix args
  * that must precede the daemon subcommand. For PATH `ruflo` the prefix is empty;
- * for the `npx` fallback the prefix carries the package spec.
+ * for the userData-CLI tier the prefix carries the bundled `cli.js` entry.
  */
 interface LaunchSpec {
   command: string;
   prefixArgs: string[];
-  /** Human label for diagnostics ('ruflo (PATH)', 'npx @claude-flow/cli', …). */
+  /** Human label for diagnostics ('ruflo (PATH)', 'userData @claude-flow/cli', …). */
   label: string;
   /** Extra env merged into the daemon spawn — used by the userData-CLI tier to
    *  run via Electron's embedded node (ELECTRON_RUN_AS_NODE + NODE_PATH). */
@@ -185,19 +184,19 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
     }
 
     // Launcher resolution (SF-14). Prefer PATH `ruflo`; then the lazy-installed
-    // userData `@claude-flow/cli` (offline, no network); then `npx`. Only when
-    // ALL are missing is the daemon truly unavailable — and we say so LOUDLY
-    // (distinct message) so the operator understands why live cross-pane HTTP
-    // state is degraded. Panes still get a working stdio MCP via the
-    // per-worktree autowrite (SF-15).
+    // userData `@claude-flow/cli` (offline, no network). When NEITHER resolves
+    // the daemon is unavailable — and we say so LOUDLY (distinct message) so the
+    // operator understands why live cross-pane HTTP state is degraded. We do NOT
+    // fall through to `npx -y @claude-flow/cli@latest`: that auto-downloads from
+    // the network during the awaited workspace open (see resolveLaunch). Panes
+    // still get a working stdio MCP via the per-worktree autowrite (SF-15).
     const launch = this.resolveLaunch();
     if (!launch) {
       console.warn(
-        '[ruflo-http] DAEMON UNAVAILABLE: no `ruflo` on PATH, no lazy-installed ' +
-          '@claude-flow/cli under userData, and no `npx` — the per-workspace HTTP ' +
-          'daemon cannot start. Panes fall back to per-process stdio MCP (no live ' +
-          'daemon health, no shared HTTP state). Install Ruflo (Settings → Ruflo) ' +
-          'or ensure Node/npx is on PATH to enable the daemon.',
+        '[ruflo-http] DAEMON UNAVAILABLE: no `ruflo` on PATH and no lazy-installed ' +
+          '@claude-flow/cli under userData — the per-workspace HTTP daemon cannot ' +
+          'start. Panes fall back to per-process stdio MCP (no live daemon health, ' +
+          'no shared HTTP state). Install Ruflo (Settings → Ruflo) to enable the daemon.',
       );
       return null;
     }
@@ -292,11 +291,20 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
    *   2. PATH `ruflo`            → `ruflo mcp start -t http …`.
    *   3. userData `@claude-flow/cli` (lazy-installed) → Electron-node runs
    *      `<userData>/ruflo/.../bin/cli.js mcp start -t http …` offline.
-   *   4. PATH `npx`              → `npx -y @claude-flow/cli@latest mcp start …`.
    * Tier 3 closes the SF-14 first-run-network gap: once the CLI is installed
    * under userData, production (which has no PATH `ruflo`) runs the pinned
    * local copy instead of depending on npx/network — so claude/codex panes get
-   * a working Ruflo MCP daemon offline. Returns null only when none resolve.
+   * a working Ruflo MCP daemon offline. Returns null when none resolve.
+   *
+   * There is intentionally NO `npx -y @claude-flow/cli@latest` fall-through:
+   * `npx -y` AUTO-DOWNLOADS the package from the network, and `spawn()` is
+   * AWAITED during `workspaces.open` (factory.ts). With the crash-restart loop
+   * that meant several concurrent network downloads on every open of a no-ruflo
+   * machine → CI runner saturation → the dogfood e2e hung to its 180s timeout.
+   * Auto-downloading a package during workspace open was never acceptable; when
+   * ruflo is resolvable via neither PATH nor userData we return null so the
+   * existing stdio fallback in factory.ts takes over (panes still get a working
+   * per-CLI stdio MCP via the autowrite, SF-15).
    */
   private resolveLaunch(): LaunchSpec | null {
     if (this.forcedBinary) {
@@ -318,13 +326,6 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
           ELECTRON_RUN_AS_NODE: '1',
           NODE_PATH: cli.nodeModules,
         },
-      };
-    }
-    if (commandOnPath('npx')) {
-      return {
-        command: 'npx',
-        prefixArgs: ['-y', RUFLO_NPM_SPEC],
-        label: `npx ${RUFLO_NPM_SPEC}`,
       };
     }
     return null;
@@ -373,7 +374,7 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
 
       let child: ChildProcess;
       try {
-        child = spawn(entry.launch.command, this.daemonArgs(entry), {
+        child = spawnExecutable(entry.launch.command, this.daemonArgs(entry), {
           env: {
             ...process.env,
             CLAUDE_FLOW_CWD: entry.workspaceRoot,
@@ -601,7 +602,7 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
    */
   private launchChild(entry: DaemonEntry): ChildProcess | null {
     try {
-      return spawn(entry.launch.command, this.daemonArgs(entry), {
+      return spawnExecutable(entry.launch.command, this.daemonArgs(entry), {
         env: {
           ...process.env,
           CLAUDE_FLOW_CWD: entry.workspaceRoot,
@@ -743,8 +744,13 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
  * on POSIX `name` is passed as a positional arg (`$1`) to a fixed script, so
  * there is no shell-injection surface (the names probed here are hardcoded
  * constants regardless). A non-zero exit (not found) throws → false.
+ *
+ * Exported as the single source of truth for "is this CLI installed?" — the
+ * seed-workspace-memory gate imports it so its availability check matches the
+ * daemon's tier-2 PATH probe exactly (platform-agnostic; no process.platform
+ * branches at the call sites).
  */
-function commandOnPath(name: string): boolean {
+export function commandOnPath(name: string): boolean {
   try {
     if (process.platform === 'win32') {
       execFileSync('where', [name], { stdio: 'pipe' });

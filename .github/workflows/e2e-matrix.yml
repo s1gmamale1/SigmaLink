@@ -65,6 +65,10 @@ jobs:
         # causing a React boot crash that makes e2e tests false-green or all-fail.
         run: npx @electron/rebuild -f -w better-sqlite3 -w node-pty
 
+      - name: Win32 spawn correctness tests (unit + .cmd shim round-trip)
+        if: runner.os == 'Windows'
+        run: pnpm exec vitest run src/main/core/util
+
       - name: Build renderer + electron
         run: pnpm run build && node scripts/build-electron.cjs
 

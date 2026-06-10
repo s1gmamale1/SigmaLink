@@ -58,7 +58,7 @@ import {
   markWorkspaceOpened,
 } from './core/workspaces/lifecycle';
 import { executeLaunchPlan } from './core/workspaces/launcher';
-import { AGENT_PROVIDERS } from '../shared/providers';
+import { AGENT_PROVIDERS, installCommandFor } from '../shared/providers';
 import { SwarmMailbox } from './core/swarms/mailbox';
 import { BoardManager } from './core/swarms/boards';
 import { buildSwarmController } from './core/swarms/controller';
@@ -123,7 +123,7 @@ import { buildTelegramController } from './core/remote/controller';
 import { CredentialStore } from './core/credentials/storage';
 import { runVoiceDiagnostics } from './core/voice/diagnostics';
 import { fsReadDir, fsReadFile, fsWriteFile, fsExists } from './core/fs/controller';
-import { assertAllowedPath, type AllowedRootsSource } from './core/security/path-guard';
+import { assertAllowedPath, isInsideAnyRoot, type AllowedRootsSource } from './core/security/path-guard';
 import { validateChannelInput, validateChannelOutput } from './core/rpc/validate';
 import { getChannelSchema } from './core/rpc/schemas';
 // Phase 4 Track C — Ruflo MCP embed. Process-singleton supervisor + lazy
@@ -142,9 +142,9 @@ import { checkForUpdates as checkForUpdatesImpl } from '../../electron/auto-upda
 // of 'ultra'. The capability matrix lives next to this import; the renderer
 // reads through `app.tier()` rather than touching kv directly.
 import { KV_PLAN_TIER, parseTier } from './core/plan/capabilities';
-import { KV_PTY_SPAWN_MODE, parseSpawnMode, KV_PTY_SCROLLBACK_PERSISTENCE, parseScrollbackPersistence } from './core/pty/local-pty';
+import { KV_PTY_SPAWN_MODE, parseSpawnMode, KV_PTY_SCROLLBACK_PERSISTENCE, parseScrollbackPersistence, defaultShell } from './core/pty/local-pty';
 import { persistScrollback, loadScrollback, gcScrollback, makeScrollbackExitSink } from './core/pty/scrollback-store';
-import { cmdQuoteArg } from './core/util/windows-spawn';
+import { buildWindowsOpenShellArgs } from './core/util/windows-spawn';
 import { whenShellPathReady } from './core/util/shell-path';
 import { analyzeSessionRisk } from './core/ram-brake/session-risk';
 
@@ -878,14 +878,11 @@ async function buildRouter() {
     revealInFolder: async (p: string) => {
       const resolved = path.resolve(p);
       const userDataDir = app.getPath('userData');
-      if (!resolved.startsWith(userDataDir + path.sep) && resolved !== userDataDir) {
+      if (!isInsideAnyRoot(resolved, [userDataDir])) {
         const workspaces = getRawDb()
           .prepare('SELECT root_path FROM workspaces')
           .all() as { root_path: string }[];
-        const allowed = workspaces.some((w) => {
-          const root = path.resolve(w.root_path);
-          return resolved.startsWith(root + path.sep) || resolved === root;
-        });
+        const allowed = isInsideAnyRoot(resolved, workspaces.map((w) => w.root_path));
         if (!allowed) return { ok: false, error: 'path not in allowed root' };
       }
       shell.showItemInFolder(resolved);
@@ -894,23 +891,22 @@ async function buildRouter() {
     openShell: async (cwd: string) => {
       const resolved = path.resolve(cwd);
       const userDataDir = app.getPath('userData');
-      if (!resolved.startsWith(userDataDir + path.sep) && resolved !== userDataDir) {
+      if (!isInsideAnyRoot(resolved, [userDataDir])) {
         const workspaces = getRawDb()
           .prepare('SELECT root_path FROM workspaces')
           .all() as { root_path: string }[];
-        const allowed = workspaces.some((w) => {
-          const root = path.resolve(w.root_path);
-          return resolved.startsWith(root + path.sep) || resolved === root;
-        });
+        const allowed = isInsideAnyRoot(resolved, workspaces.map((w) => w.root_path));
         if (!allowed) return { ok: false, error: 'path not in allowed root' };
       }
       const plat = process.platform;
       if (plat === 'darwin') {
         spawn('open', ['-a', 'Terminal', resolved], { detached: true, stdio: 'ignore' }).unref();
       } else if (plat === 'win32') {
-        spawn('cmd.exe', ['/d', '/s', '/k', `cd /d ${cmdQuoteArg(resolved)}`], {
+        const winShell = buildWindowsOpenShellArgs(resolved);
+        spawn(winShell.command, winShell.args, {
           detached: true,
           stdio: 'ignore',
+          windowsVerbatimArguments: winShell.windowsVerbatimArguments,
         }).unref();
       } else {
         spawn('x-terminal-emulator', ['--working-directory', resolved], {
@@ -1038,13 +1034,17 @@ async function buildRouter() {
       // perf-hot-paths Task 4 — gate the spawn on the async login-shell PATH
       // resolve (≤3.5 s cap; instant on warm boot).
       await whenShellPathReady();
-      const shell =
-        process.env.SHELL ??
-        (process.platform === 'win32' ? 'cmd.exe' : '/bin/sh');
+      // win32: NEVER trust env.SHELL — git-bash users export SHELL=/usr/bin/bash
+      // (ENOENT as a Win32 path) and honouring it bypasses defaultShell()'s
+      // pwsh → powershell → cmd preference. POSIX behaviour unchanged.
+      const scratchShell =
+        process.platform === 'win32'
+          ? defaultShell()
+          : { command: process.env.SHELL ?? '/bin/sh', args: [] as string[] };
       const rec = pty.create({
         providerId: 'shell',
-        command: shell,
-        args: [],
+        command: scratchShell.command,
+        args: scratchShell.args,
         cwd: input.cwd,
         cols: 80,
         rows: 24,
@@ -1359,8 +1359,11 @@ async function buildRouter() {
     spawnInstall: async (providerId: string): Promise<{ paneId: string }> => {
       const def = AGENT_PROVIDERS.find((p) => p.id === providerId);
       if (!def) throw new Error(`providers.spawnInstall: unknown provider '${providerId}'`);
-      const platform = process.platform as 'darwin' | 'linux' | 'win32';
-      const cmd = def.installCommand?.[platform] ?? def.installCommand?.linux;
+      const platform = process.platform;
+      // installCommandFor never cross-falls-back onto a POSIX command on
+      // win32 — a missing win32 installer throws here and the renderer modal
+      // shows the manual-install docs link instead.
+      const cmd = installCommandFor(def, platform);
       if (!cmd || cmd.length === 0) {
         throw new Error(
           `providers.spawnInstall: no installCommand for provider '${providerId}' on ${platform}`,

@@ -76,8 +76,11 @@ describe('inspectProcessTreeCached', () => {
   });
 
   it('returns unsupported-empty when no lister exists for the platform', async () => {
+    // win32 now HAS a lister (win32-platform-services CIM backend), so the
+    // "no backend" case is exercised via linux, which is intentionally
+    // unsupported (win32-only scope).
     __setProcessListerForTests(null);
-    const snap = await inspectProcessTreeCached(100, 'win32');
+    const snap = await inspectProcessTreeCached(100, 'linux');
     expect(snap.supported).toBe(false);
     expect(snap.nodes).toEqual([]);
     expect(snap.rssBytes).toBe(0);

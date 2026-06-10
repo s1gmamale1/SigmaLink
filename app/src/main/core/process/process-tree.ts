@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { buildCimPsArgs, buildTaskkillArgs, parseCimProcessRows } from './process-list-win32';
 
 export interface ProcessTreeNode {
   pid: number;
@@ -14,6 +15,24 @@ export interface ProcessTreeSnapshot {
   nodes: ProcessTreeNode[];
   descendantPids: number[];
   rssBytes: number;
+}
+
+/**
+ * Injection seam. NEVER branch on raw process.platform inside the logic —
+ * platform flows in as a parameter (tests force 'win32' on the macOS host).
+ */
+export interface ProcessTreeDeps {
+  platform?: NodeJS.Platform;
+  /** Sync exec returning stdout. Tests fake this; prod uses execFileSync. */
+  exec?: (command: string, args: string[]) => string;
+}
+
+function defaultExec(command: string, args: string[]): string {
+  return execFileSync(command, args, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+}
+
+function platformSupported(platform: NodeJS.Platform): boolean {
+  return platform === 'darwin' || platform === 'win32';
 }
 
 export function emptySnapshot(rootPid: number, supported: boolean): ProcessTreeSnapshot {
@@ -72,25 +91,54 @@ export function buildSubtree(rows: ProcessTreeNode[], rootPid: number): ProcessT
   return { rootPid, supported: true, nodes, descendantPids, rssBytes };
 }
 
-export function inspectProcessTree(rootPid: number): ProcessTreeSnapshot {
-  if (!rootPid || rootPid <= 0) return emptySnapshot(rootPid, process.platform === 'darwin');
-  if (process.platform !== 'darwin') return emptySnapshot(rootPid, false);
+export interface ProcessListResult {
+  supported: boolean;
+  rows: ProcessTreeNode[];
+}
 
-  let rows: ProcessTreeNode[];
+/**
+ * Per-platform raw process listing (SYNC — the kill path needs it inline).
+ *
+ * COORDINATION (perf-hot-paths / ps-snapshot.ts): the ASYNC, TTL-cached stats
+ * path lives in ps-snapshot.ts and has its own per-platform `ProcessLister`
+ * registry (the win32 entry was added there too). This sync `listProcessRows`
+ * is the kill-path equivalent — keep the `(deps?) => ProcessListResult`
+ * signature and add NO caching here.
+ *
+ * darwin: `ps -axo` (kilobyte rss → bytes). win32: PowerShell CIM
+ * (`Get-CimInstance Win32_Process`, byte WorkingSetSize; wmic-free — wmic is
+ * deprecated/removed on Win11). Other platforms: unsupported (status quo).
+ * Exec failure ⇒ `{ supported: true, rows: [] }` so callers keep their
+ * existing pty.kill() fallback (registry.ts stop()).
+ */
+export function listProcessRows(deps: ProcessTreeDeps = {}): ProcessListResult {
+  const platform = deps.platform ?? process.platform;
+  const exec = deps.exec ?? defaultExec;
+  if (!platformSupported(platform)) return { supported: false, rows: [] };
   try {
-    const out = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,comm=,args='], {
-      encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    rows = out
-      .split('\n')
-      .map(parsePsLine)
-      .filter((row): row is ProcessTreeNode => row !== null);
+    if (platform === 'win32') {
+      return { supported: true, rows: parseCimProcessRows(exec('powershell.exe', buildCimPsArgs())) };
+    }
+    const out = exec('ps', ['-axo', 'pid=,ppid=,rss=,comm=,args=']);
+    return {
+      supported: true,
+      rows: out
+        .split('\n')
+        .map(parsePsLine)
+        .filter((row): row is ProcessTreeNode => row !== null),
+    };
   } catch {
-    return emptySnapshot(rootPid, true);
+    return { supported: true, rows: [] };
   }
+}
 
-  return buildSubtree(rows, rootPid);
+export function inspectProcessTree(rootPid: number, deps: ProcessTreeDeps = {}): ProcessTreeSnapshot {
+  const platform = deps.platform ?? process.platform;
+  if (!rootPid || rootPid <= 0) return emptySnapshot(rootPid, platformSupported(platform));
+
+  const listed = listProcessRows(deps);
+  if (!listed.supported) return emptySnapshot(rootPid, false);
+  return buildSubtree(listed.rows, rootPid);
 }
 
 function pidAlive(pid: number): boolean {
@@ -102,15 +150,55 @@ function pidAlive(pid: number): boolean {
   }
 }
 
-export function stopProcessTree(rootPid: number, fallbackMs = 5_000): ProcessTreeSnapshot {
-  return stopProcessTrees([rootPid], fallbackMs).snapshots[0] ?? emptySnapshot(rootPid, process.platform === 'darwin');
+export function stopProcessTree(
+  rootPid: number,
+  fallbackMs = 5_000,
+  deps: ProcessTreeDeps = {},
+): ProcessTreeSnapshot {
+  const platform = deps.platform ?? process.platform;
+  return (
+    stopProcessTrees([rootPid], fallbackMs, deps).snapshots[0] ??
+    emptySnapshot(rootPid, platformSupported(platform))
+  );
 }
 
 export function stopProcessTrees(
   rootPids: number[],
   fallbackMs = 5_000,
+  deps: ProcessTreeDeps = {},
 ): { snapshots: ProcessTreeSnapshot[]; stoppedPids: number[] } {
-  const snapshots = rootPids.map((pid) => inspectProcessTree(pid));
+  const platform = deps.platform ?? process.platform;
+  const exec = deps.exec ?? defaultExec;
+  const snapshots = rootPids.map((pid) => inspectProcessTree(pid, deps));
+
+  if (platform === 'win32') {
+    // `taskkill /T` walks the parent-child chain itself (takes the detached
+    // grandchildren — MCP servers, daemons — that ConPTY close leaves behind);
+    // /F is forceful, so no SIGTERM→SIGKILL escalation timer is needed.
+    // Already-gone pids make taskkill exit non-zero — swallowed, mirroring the
+    // darwin catch blocks.
+    const stoppedPids: number[] = [];
+    const seen = new Set<number>();
+    for (const snapshot of snapshots) {
+      for (const node of snapshot.nodes) {
+        if (!seen.has(node.pid)) {
+          seen.add(node.pid);
+          stoppedPids.push(node.pid);
+        }
+      }
+    }
+    for (const pid of rootPids) {
+      if (!pid || pid <= 0) continue;
+      try {
+        exec('taskkill', buildTaskkillArgs(pid));
+      } catch {
+        /* already gone */
+      }
+    }
+    return { snapshots, stoppedPids };
+  }
+
+  // darwin: SIGTERM the whole tree leaves-first, SIGKILL stragglers later.
   const nodesByPid = new Map<number, ProcessTreeNode>();
   for (const snapshot of snapshots) {
     if (!snapshot.supported || snapshot.nodes.length === 0) continue;
