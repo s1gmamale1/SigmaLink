@@ -48,7 +48,7 @@ describe('buildSpawnArgs — Windows', () => {
           '/d',
           '/s',
           '/c',
-          '"C:\\Users\\user\\AppData\\Roaming\\npm\\claude.cmd" "-p" "hello world" "--output-format" "stream-json"',
+          '"C:\\Users\\user\\AppData\\Roaming\\npm\\claude.cmd ^^^"-p^^^" ^^^"hello^^^ world^^^" ^^^"--output-format^^^" ^^^"stream-json^^^""',
         ],
       }),
     }));
@@ -62,7 +62,7 @@ describe('buildSpawnArgs — Windows', () => {
     expect(argv[1]).toBe('/s');
     expect(argv[2]).toBe('/c');
     expect(argv[3]).toBe(
-      '"C:\\Users\\user\\AppData\\Roaming\\npm\\claude.cmd" "-p" "hello world" "--output-format" "stream-json"',
+      '"C:\\Users\\user\\AppData\\Roaming\\npm\\claude.cmd ^^^"-p^^^" ^^^"hello^^^ world^^^" ^^^"--output-format^^^" ^^^"stream-json^^^""',
     );
   });
 
@@ -73,7 +73,7 @@ describe('buildSpawnArgs — Windows', () => {
     vi.doMock('./windows-spawn', () => ({
       buildWindowsSpawnArgs: () => ({
         command: 'cmd.exe',
-        args: ['/d', '/s', '/c', '"C:\\tools\\run.bat" "--flag"'],
+        args: ['/d', '/s', '/c', '"C:\\tools\\run.bat ^^^"--flag^^^""'],
       }),
     }));
 
@@ -81,7 +81,7 @@ describe('buildSpawnArgs — Windows', () => {
     const { bin, argv } = buildSpawnArgs('run', ['--flag']);
 
     expect(bin).toBe('cmd.exe');
-    expect(argv).toEqual(['/d', '/s', '/c', '"C:\\tools\\run.bat" "--flag"']);
+    expect(argv).toEqual(['/d', '/s', '/c', '"C:\\tools\\run.bat ^^^"--flag^^^""']);
   });
 
   it('wraps a .ps1 file through powershell.exe -NoProfile -ExecutionPolicy Bypass -File', async () => {

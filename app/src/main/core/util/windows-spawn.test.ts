@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import {
   buildWindowsSpawnArgs,
-  cmdQuoteArg,
+  cmdEscapeArg,
+  cmdEscapeCommandPath,
   resolveWindowsCommand,
 } from './windows-spawn';
 
@@ -25,16 +26,58 @@ describe('resolveWindowsCommand', () => {
   });
 });
 
-describe('cmdQuoteArg', () => {
-  it('quotes cmd.exe metacharacters and env expansion markers', () => {
-    expect(cmdQuoteArg('say "hi" & %USERNAME% !X! ^ caret')).toBe(
-      '"say \\"hi\\" & ^%USERNAME^% ^!X^! ^^ caret"',
-    );
+describe('cmdEscapeArg — single escape (one cmd parse)', () => {
+  // [input, expected] — expected strings per the cross-spawn/qntm.org/cmd
+  // algorithm: Win32-argv quote+backslash rules first, then caret-escape
+  // EVERY cmd metachar including the quotes themselves.
+  const cases: Array<[string, string]> = [
+    ['hello world', '^"hello^ world^"'],
+    ['a&b', '^"a^&b^"'],
+    ['p|q', '^"p^|q^"'],
+    ['x<y>z', '^"x^<y^>z^"'],
+    ['a^b', '^"a^^b^"'],
+    ['bang!', '^"bang^!^"'],
+    ['100%', '^"100^%^"'],
+    ['%USERNAME%', '^"^%USERNAME^%^"'],
+    ['say "hi"', '^"say^ \\^"hi\\^"^"'],
+    ['C:\\tmp\\', '^"C:\\tmp\\\\^"'],
+    ['', '^"^"'],
+    // cmd lines are single-line: raw newlines would TERMINATE the line and
+    // execute the remainder as a new command — replaced with one space.
+    ['one\ntwo', '^"one^ two^"'],
+    ['one\r\ntwo', '^"one^ two^"'],
+  ];
+  it.each(cases)('escapes %j', (input, expected) => {
+    expect(cmdEscapeArg(input)).toBe(expected);
+  });
+});
+
+describe('cmdEscapeArg — double escape (npm .cmd shims re-expand %*)', () => {
+  const cases: Array<[string, string]> = [
+    ['hello world', '^^^"hello^^^ world^^^"'],
+    ['a&b', '^^^"a^^^&b^^^"'],
+    ['%USERNAME%', '^^^"^^^%USERNAME^^^%^^^"'],
+    ['-p', '^^^"-p^^^"'],
+    ['say "hi"', '^^^"say^^^ \\^^^"hi\\^^^"^^^"'],
+  ];
+  it.each(cases)('double-escapes %j', (input, expected) => {
+    expect(cmdEscapeArg(input, true)).toBe(expected);
+  });
+});
+
+describe('cmdEscapeCommandPath', () => {
+  it('caret-escapes spaces in the resolved shim path (usernames with spaces)', () => {
+    expect(
+      cmdEscapeCommandPath('C:\\Users\\First Last\\AppData\\Roaming\\npm\\claude.cmd'),
+    ).toBe('C:\\Users\\First^ Last\\AppData\\Roaming\\npm\\claude.cmd');
+  });
+  it('leaves a metachar-free path untouched', () => {
+    expect(cmdEscapeCommandPath('C:\\npm\\tool.CMD')).toBe('C:\\npm\\tool.CMD');
   });
 });
 
 describe('buildWindowsSpawnArgs', () => {
-  it('wraps .cmd shims in an OUTER-quoted, verbatim cmd-safe command string', () => {
+  it('wraps .cmd shims: caret-escaped command + double-escaped args, OUTER-quoted, verbatim', () => {
     vi.spyOn(fs, 'existsSync').mockImplementation((candidate) =>
       candidate === 'C:\\npm\\tool.CMD',
     );
@@ -46,21 +89,19 @@ describe('buildWindowsSpawnArgs', () => {
     );
 
     expect(result.command).toBe('cmd.exe');
-    // The per-token inner quoting is unchanged, but the whole inner line is now
-    // wrapped in an OUTER pair of quotes that `cmd /d /s /c` strips verbatim.
-    // Regression guard: without the outer pair + verbatim flag, node-pty /
-    // child_process re-escape the inner quotes (" -> \") and cmd.exe reports
-    // the program path "is not recognized" and exits 1 (broke every Windows pane).
+    // /s strips the first+last quote; everything between is caret-escaped so
+    // cmd.exe NEVER enters in-quotes state on the first parse. Args carry a
+    // second escape layer because npm shims re-expand %* (second cmd parse).
     expect(result.args).toEqual([
       '/d',
       '/s',
       '/c',
-      '""C:\\npm\\tool.CMD" "hello world" "^%USERNAME^%" "a&b""',
+      '"C:\\npm\\tool.CMD ^^^"hello^^^ world^^^" ^^^"^^^%USERNAME^^^%^^^" ^^^"a^^^&b^^^""',
     ]);
     expect(result.windowsVerbatimArguments).toBe(true);
   });
 
-  it('outer-quotes a .cmd path that contains spaces (verbatim-safe)', () => {
+  it('caret-escapes spaces in a .cmd path instead of quoting it', () => {
     vi.spyOn(fs, 'existsSync').mockImplementation((candidate) =>
       candidate === 'C:\\Program Files\\npm\\tool.CMD',
     );
@@ -76,7 +117,7 @@ describe('buildWindowsSpawnArgs', () => {
       '/d',
       '/s',
       '/c',
-      '""C:\\Program Files\\npm\\tool.CMD" "arg with space" "plain""',
+      '"C:\\Program^ Files\\npm\\tool.CMD ^^^"arg^^^ with^^^ space^^^" ^^^"plain^^^""',
     ]);
     expect(result.windowsVerbatimArguments).toBe(true);
   });

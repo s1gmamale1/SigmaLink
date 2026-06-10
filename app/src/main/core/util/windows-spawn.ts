@@ -69,13 +69,57 @@ export function windowsExtensionKind(resolved: string): 'cmd' | 'ps1' | null {
   return null;
 }
 
-export function cmdQuoteArg(arg: string): string {
-  const escaped = arg
-    .replace(/\^/g, '^^')
-    .replace(/%/g, '^%')
-    .replace(/!/g, '^!')
-    .replace(/"/g, '\\"');
-  return `"${escaped}"`;
+// cmd.exe metacharacters that need caret-escaping when a token sits OUTSIDE
+// double quotes. This is cross-spawn's battle-tested set (the npm ecosystem
+// runs on it): parens, brackets, percent, bang, caret, quote, backtick,
+// angle brackets, ampersand, pipe, semicolon, comma, SPACE, star, question.
+const CMD_META_RE = /([()\][%!^"`<>&|;, *?])/g;
+
+/**
+ * Escape the resolved command path for the inner line of
+ * `cmd.exe /d /s /c "<inner>"`.
+ *
+ * The path is NOT quoted; every cmd metachar — including spaces — is
+ * caret-escaped (`C:\Users\First^ Last\npm\claude.cmd`). `^X` outside quotes
+ * makes X literal without splitting the command token. A quoted form cannot
+ * work here: carets inside quotes are LITERAL, so a quoted path could never
+ * protect `%` (phase-1 expansion ignores quotes) — see cmdEscapeArg.
+ */
+export function cmdEscapeCommandPath(resolvedPath: string): string {
+  return resolvedPath.replace(CMD_META_RE, '^$1');
+}
+
+/**
+ * Escape ONE argument for the inner line of `cmd.exe /d /s /c "<inner>"`.
+ * cross-spawn's algorithm, derived from https://qntm.org/cmd:
+ *
+ *  1. Win32-argv (MSVCRT) layer — what the TARGET re-parses: double every
+ *     backslash run before a `"` and emit `\"`; double a trailing backslash
+ *     run; wrap in `"…"`.
+ *  2. cmd.exe phase-2 layer — caret-escape EVERY metachar INCLUDING the
+ *     quotes from layer 1. cmd then never enters in-quotes state: `^&`/`^|`
+ *     can't act as operators, and `^%` interleaves carets into would-be
+ *     `%VAR%` names (phase 1 looks up the literal name `VAR^`, finds
+ *     nothing, leaves the text; phase 2 strips the carets). One cmd parse
+ *     collapses the token back to its plain layer-1 form.
+ *
+ * `doubleEscape` adds a second layer-2 pass: npm `.cmd` shims re-expand `%*`
+ * into a fresh `node "%~dp0…cli.js" %*` line — a SECOND full cmd parse.
+ * Without it, an arg with an odd embedded quote re-parses with `&` OUTSIDE
+ * quotes → live command separator (injection).
+ *
+ * cmd lines are single-line; a raw newline TERMINATES the line and the rest
+ * would execute as a separate command. No escape exists — newlines are
+ * replaced with one space (lossy, injection-proof).
+ */
+export function cmdEscapeArg(arg: string, doubleEscape = false): string {
+  let s = String(arg).replace(/[\r\n]+/g, ' ');
+  s = s.replace(/(\\*)"/g, '$1$1\\"');
+  s = s.replace(/(\\*)$/, '$1$1');
+  s = `"${s}"`;
+  s = s.replace(CMD_META_RE, '^$1');
+  if (doubleEscape) s = s.replace(CMD_META_RE, '^$1');
+  return s;
 }
 
 export interface BuiltWindowsSpawn {
@@ -89,8 +133,9 @@ export interface BuiltWindowsSpawn {
    *   • node-pty.spawn      → pass `args.join(' ')` as a single command-line
    *     string (node-pty treats a string as a pre-escaped command line).
    *
-   * The `cmd.exe` branch below pre-quotes every token via `cmdQuoteArg` and then
-   * wraps the whole inner line in an OUTER pair of quotes that `cmd /d /s /c`
+   * The `cmd.exe` branch below caret-escapes every token (command path via
+   * `cmdEscapeCommandPath`, args via `cmdEscapeArg`) and then wraps the whole
+   * inner line in an OUTER pair of quotes that `cmd /d /s /c`
    * strips verbatim. If the spawn layer re-quotes instead, it escapes the inner
    * quotes (`"` → `\"`); cmd.exe cannot parse `\"`, so it treats the program
    * path as garbage and reports `'…' is not recognized as an internal or
@@ -109,11 +154,15 @@ export function buildWindowsSpawnArgs(
   const kind = windowsExtensionKind(resolved);
 
   if (kind === 'cmd') {
-    // Each token is individually cmd-quoted; the whole line is then wrapped in
-    // an OUTER pair of quotes so `cmd /d /s /c "<inner>"` strips exactly that
-    // pair and runs the inner line verbatim. The result MUST be passed to the
+    // Command path caret-escaped (never quoted); args double-escaped because
+    // every .cmd this app launches is an npm shim that re-expands %* (a
+    // second cmd parse). The whole inner line is wrapped in ONE outer pair of
+    // quotes that `cmd /d /s /c` strips via /s. The result MUST reach the
     // spawn layer without re-quoting — see `windowsVerbatimArguments`.
-    const inner = [resolved, ...args].map(cmdQuoteArg).join(' ');
+    const inner = [
+      cmdEscapeCommandPath(resolved),
+      ...args.map((a) => cmdEscapeArg(a, true)),
+    ].join(' ');
     return {
       command: 'cmd.exe',
       args: ['/d', '/s', '/c', `"${inner}"`],
