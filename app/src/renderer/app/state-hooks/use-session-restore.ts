@@ -10,7 +10,7 @@
 //   4. `app:session-snapshot` emitter: debounced 250ms snapshot writer that
 //      fires whenever the active workspace or room actually changes.
 
-import { useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
 import { toast } from 'sonner';
 import { rpc } from '../../lib/rpc';
 import type { Workspace } from '../../../shared/types';
@@ -290,35 +290,85 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
     ? `${wsId}::${snapshotEntries.map((e) => `${e.workspaceId}=${e.room}`).join('|')}`
     : '';
 
-  const lastSnapshotKeyRef = useRef<string>('');
+  // 2026-06-10 finding 4 — mark-on-write + flush-on-teardown.
+  //
+  // The old shape marked `lastSnapshotKeyRef` BEFORE the 250ms debounce fired
+  // and the unmount cleanup cancelled the timer — an unmount/quit inside the
+  // window silently dropped the FINAL snapshot (the key was already "written"
+  // so it could never be retried). Now:
+  //   • `pendingSnapshotRef` holds the payload of the scheduled write;
+  //   • `lastSentKeyRef` is set only when the write actually EXECUTES;
+  //   • unmount and `beforeunload` FLUSH the pending write instead of
+  //     dropping it.
+  // The v1.3.3 no-op-re-render guarantee is preserved: a re-render with an
+  // unchanged key early-returns on the pending-key compare and never touches
+  // the timer.
+  const lastSentKeyRef = useRef<string>('');
   const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSnapshotRef = useRef<{
+    key: string;
+    activeWorkspaceId: string;
+    openWorkspaces: Array<{ workspaceId: string; room: string }>;
+  } | null>(null);
 
-  // Cancel timer on unmount only — not on every re-render. We handle
-  // in-effect cancellation below when the key actually changes.
-  useEffect(() => {
-    return () => {
-      if (snapshotTimerRef.current) {
-        clearTimeout(snapshotTimerRef.current);
-        snapshotTimerRef.current = null;
-      }
-    };
+  // Send the pending snapshot NOW (if any) and mark its key as written.
+  // Stable identity (no deps) so the teardown effect never re-subscribes.
+  const flushSnapshot = useCallback(() => {
+    const pending = pendingSnapshotRef.current;
+    if (!pending) return;
+    pendingSnapshotRef.current = null;
+    if (snapshotTimerRef.current) {
+      clearTimeout(snapshotTimerRef.current);
+      snapshotTimerRef.current = null;
+    }
+    lastSentKeyRef.current = pending.key;
+    try {
+      window.sigma.eventSend('app:session-snapshot', {
+        activeWorkspaceId: pending.activeWorkspaceId,
+        openWorkspaces: pending.openWorkspaces,
+      });
+    } catch {
+      /* preload bridge gone — nothing actionable on the renderer side */
+    }
   }, []);
+
+  // Flush (not drop) on unmount AND on window unload, so a quit/reload inside
+  // the debounce window still persists the final snapshot.
+  useEffect(() => {
+    window.addEventListener('beforeunload', flushSnapshot);
+    return () => {
+      window.removeEventListener('beforeunload', flushSnapshot);
+      flushSnapshot();
+    };
+  }, [flushSnapshot]);
 
   useEffect(() => {
     if (!state.ready) return;
     if (!snapshotKey) return;
-    if (snapshotKey === lastSnapshotKeyRef.current) return;
-    lastSnapshotKeyRef.current = snapshotKey;
+    const pending = pendingSnapshotRef.current;
+    // No-op when this exact content is already scheduled, or already written
+    // with nothing newer pending.
+    if (snapshotKey === (pending?.key ?? lastSentKeyRef.current)) return;
+    if (snapshotKey === lastSentKeyRef.current && pending) {
+      // State changed BACK to the last-written key while a DIFFERENT write
+      // was pending (A → B → A inside the window): cancel the stale B write
+      // instead of letting it persist over the already-correct A.
+      pendingSnapshotRef.current = null;
+      if (snapshotTimerRef.current) {
+        clearTimeout(snapshotTimerRef.current);
+        snapshotTimerRef.current = null;
+      }
+      return;
+    }
+    pendingSnapshotRef.current = {
+      key: snapshotKey,
+      activeWorkspaceId: wsId!,
+      openWorkspaces: snapshotEntries,
+    };
     if (snapshotTimerRef.current) clearTimeout(snapshotTimerRef.current);
     snapshotTimerRef.current = setTimeout(() => {
-      try {
-        window.sigma.eventSend('app:session-snapshot', {
-          activeWorkspaceId: wsId!,
-          openWorkspaces: snapshotEntries,
-        });
-      } catch {
-        /* preload bridge gone — nothing actionable on the renderer side */
-      }
+      snapshotTimerRef.current = null;
+      flushSnapshot();
     }, 250);
-  }, [state.ready, snapshotKey, snapshotEntries, wsId]);
+  }, [state.ready, snapshotKey, snapshotEntries, wsId, flushSnapshot]);
 }

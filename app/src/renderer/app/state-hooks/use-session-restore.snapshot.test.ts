@@ -176,3 +176,93 @@ describe('GLOBAL_ROOMS anti-drift — site 4: snapshot fallbackRoom', () => {
     },
   );
 });
+
+describe('snapshot debounce — flush instead of drop (2026-06-10 finding 4)', () => {
+  it('flushes the pending snapshot on unmount instead of dropping it', async () => {
+    const wsA = workspace('a');
+    const { r, getHarness } = await renderRestore([
+      { type: 'READY', workspaces: [wsA] },
+      { type: 'WORKSPACE_OPEN', workspace: wsA },
+    ]);
+    // Drain the initial debounce so the baseline snapshot is written.
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    sigma.eventSend.mockClear();
+
+    // Change the room → a NEW snapshot is pending inside the 250ms window.
+    act(() => {
+      getHarness().dispatch({ type: 'SET_ROOM', room: 'swarm' });
+    });
+    expect(snapshotCalls(sigma)).toHaveLength(0); // still debouncing
+
+    // Unmount INSIDE the window (hook teardown). Pre-fix: the cleanup
+    // cancelled the timer and the key was already marked written → the final
+    // snapshot was silently lost (0 calls).
+    r.unmount();
+
+    const calls = snapshotCalls(sigma);
+    expect(calls).toHaveLength(1);
+    const payload = calls[0]?.[1] as {
+      openWorkspaces: Array<{ workspaceId: string; room: string }>;
+    };
+    expect(payload.openWorkspaces).toEqual([{ workspaceId: 'a', room: 'swarm' }]);
+  });
+
+  it('flushes the pending snapshot on beforeunload (quit inside the debounce window)', async () => {
+    const wsA = workspace('a');
+    const { getHarness } = await renderRestore([
+      { type: 'READY', workspaces: [wsA] },
+      { type: 'WORKSPACE_OPEN', workspace: wsA },
+    ]);
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    sigma.eventSend.mockClear();
+
+    act(() => {
+      getHarness().dispatch({ type: 'SET_ROOM', room: 'memory' });
+    });
+    expect(snapshotCalls(sigma)).toHaveLength(0);
+
+    act(() => {
+      window.dispatchEvent(new Event('beforeunload'));
+    });
+
+    const calls = snapshotCalls(sigma);
+    expect(calls).toHaveLength(1);
+    const payload = calls[0]?.[1] as {
+      openWorkspaces: Array<{ workspaceId: string; room: string }>;
+    };
+    expect(payload.openWorkspaces).toEqual([{ workspaceId: 'a', room: 'memory' }]);
+  });
+
+  it('cancels a stale pending write when state returns to the last-written key (A→B→A)', async () => {
+    const wsA = workspace('a');
+    const { getHarness } = await renderRestore([
+      { type: 'READY', workspaces: [wsA] },
+      { type: 'WORKSPACE_OPEN', workspace: wsA },
+    ]);
+    act(() => {
+      getHarness().dispatch({ type: 'SET_ROOM', room: 'command' }); // A
+    });
+    act(() => {
+      vi.advanceTimersByTime(500); // A written
+    });
+    sigma.eventSend.mockClear();
+
+    act(() => {
+      getHarness().dispatch({ type: 'SET_ROOM', room: 'swarm' }); // B pending
+    });
+    act(() => {
+      getHarness().dispatch({ type: 'SET_ROOM', room: 'command' }); // back to A
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    // A is already persisted; the stale B write must have been cancelled —
+    // nothing (especially not 'swarm') may land.
+    expect(snapshotCalls(sigma)).toHaveLength(0);
+  });
+});
