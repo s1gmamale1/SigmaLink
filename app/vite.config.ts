@@ -28,8 +28,12 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            // Keep Monaco isolated and lazy: never route it into a vendor
-            // bucket — let Vite's dynamic-import code-splitting own it.
+            // Keep @monaco-editor/react (the CDN-loader shim) isolated and
+            // lazy: never route it into a vendor bucket — let Vite's
+            // dynamic-import code-splitting own it. NOTE: `monaco-editor`
+            // itself is NOT bundled — the editor core loads from the
+            // loader's CDN at runtime, so this matcher only ever sees the
+            // @monaco-editor/react shim.
             if (id.includes('monaco')) return undefined;
             if (id.includes('@radix-ui')) return 'vendor-radix';
             if (id.includes('@dnd-kit')) return 'vendor-dnd';
