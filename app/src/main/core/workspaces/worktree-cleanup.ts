@@ -12,14 +12,85 @@ export interface CleanupResult {
   errors: number;
 }
 
+// ---------------------------------------------------------------------------
+// Keep-predicate — SINGLE SOURCE OF TRUTH for the worktree reaper fence.
+//
+// INVARIANT (keep ⊇ use): this predicate MUST stay at least as broad as every
+// consumer of worktree dirs, or the reaper deletes what a consumer needs
+// (feedback_reaper_keep_superset_of_use; 93fbca6 regression class):
+//   - resume-launcher.listEligibleRows (resume-launcher.ts:296-321):
+//       running OR (exited AND exit_code=-1)
+//   - resume-launcher.listRespawnableRows (resume-launcher.ts:427-454):
+//       exited AND exit_code=-1
+//   - boot janitor candidates: starting/running rows
+//   - 7-day uncommitted-work guard for other recently-exited rows
+//
+// Implemented as a plain JS predicate over a single all-rows fetch (NOT a
+// second SQL copy) so the SQL and the predicate cannot drift apart. The
+// keep ⊇ use invariant test lives in worktree-cleanup.test.ts.
+// ---------------------------------------------------------------------------
+
+export const WORKTREE_KEEP_WINDOW_MS = 7 * 86400 * 1000;
+
+export interface WorktreeSessionRow {
+  id: string;
+  workspace_id: string;
+  status: string;
+  exit_code: number | null;
+  exited_at: number | null;
+  worktree_path: string;
+}
+
+export function isWorktreeKeepEligible(
+  row: Pick<WorktreeSessionRow, 'status' | 'exit_code' | 'exited_at'>,
+  now: number,
+): boolean {
+  if (row.status === 'running' || row.status === 'starting') return true;
+  if (row.status === 'exited' && row.exit_code === -1) return true;
+  if (row.exited_at !== null && row.exited_at > now - WORKTREE_KEEP_WINDOW_MS) return true;
+  return false;
+}
+
+/** All sessions that reference a worktree dir, across ALL workspaces. */
+export function listWorktreeSessionRows(db: Database.Database): WorktreeSessionRow[] {
+  return db
+    .prepare(
+      `SELECT id, workspace_id, status, exit_code, exited_at, worktree_path
+       FROM agent_sessions
+       WHERE worktree_path IS NOT NULL`,
+    )
+    .all() as WorktreeSessionRow[];
+}
+
+/**
+ * The reaper fence: canonical path keys of every worktree the app may still
+ * need, across ALL workspaces (repoHash dirs are shared per-repo since
+ * migration 0034 — a per-workspace fence stomps sibling workspaces).
+ *
+ * `excludeSessionIds` lets a caller that is about to delete specific rows
+ * (removeWorkspaceAndGc) drop exactly those rows from the fence so their
+ * dirs are reaped in the same pass.
+ */
+export function collectKeptWorktreePaths(
+  db: Database.Database,
+  opts: { now?: number; excludeSessionIds?: ReadonlySet<string> } = {},
+): Set<string> {
+  const now = opts.now ?? Date.now();
+  const keep = new Set<string>();
+  for (const row of listWorktreeSessionRows(db)) {
+    if (opts.excludeSessionIds?.has(row.id)) continue;
+    if (isWorktreeKeepEligible(row, now)) keep.add(canonicalPathKey(row.worktree_path));
+  }
+  return keep;
+}
+
 /**
  * v1.4.3 worktree dedupe — orphan cleanup on workspace open.
  *
  * Lists dirs under `<worktreeBase>/<repoHash>/*`. For each dir, checks if
- * its absolute path is referenced by any agent_sessions row where the session
- * is live, resume-eligible after a crash, or exited within the last 7 days
- * (to protect users with uncommitted work in recently-exited sessions). If
- * not referenced, removes the dir.
+ * its absolute path is referenced by any agent_sessions row the app may still
+ * need. Keep-fence = `isWorktreeKeepEligible` — the exported single source of
+ * truth shared with cleanup.ts (SF-13). If not referenced, removes the dir.
  *
  * Skips cleanup entirely if no agent_sessions rows reference any dir under
  * `<worktreeBase>/<repoHash>/` (cold install / first-ever workspace open).
@@ -54,28 +125,12 @@ export async function cleanupOrphanWorktrees(
     return { removed: 0, kept: 0, errors: 0 };
   }
 
-  // Fetch all worktree_paths referenced by sessions the app may still need.
-  // This must stay at least as broad as resume-launcher's eligibility:
-  //   - running/starting rows are live or boot-janitor candidates
-  //   - exited/-1 rows are crash/failed-resume panes that resumeWorkspacePanes
-  //     will re-spawn
-  //   - other recently-exited rows keep the original 7-day uncommitted-work guard
-  const sevenDaysMs = 7 * 86400 * 1000;
-  const liveRows = db
-    .prepare(
-      `SELECT DISTINCT worktree_path FROM agent_sessions
-       WHERE worktree_path IS NOT NULL
-         AND (
-           status = 'running'
-           OR status = 'starting'
-           OR (status = 'exited' AND exit_code = -1)
-           OR exited_at > ?
-         )`,
-    )
-    .all(Date.now() - sevenDaysMs) as Array<{ worktree_path: string }>;
-
+  // Fence = the shared keep-predicate (single source of truth above).
+  const allRows = listWorktreeSessionRows(db);
+  const now = Date.now();
   const liveSet = new Set(
-    liveRows
+    allRows
+      .filter((r) => isWorktreeKeepEligible(r, now))
       .filter((r) => pathKeyIsWithin(r.worktree_path, repoDir))
       .map((r) => canonicalPathKey(r.worktree_path)),
   );
@@ -83,15 +138,7 @@ export async function cleanupOrphanWorktrees(
   // Cold-install guard: if no rows reference any path in this repoDir, skip.
   // This avoids deleting dirs from a fresh install where DB hasn't caught up.
   if (liveSet.size === 0) {
-    // Check whether ANY rows at all reference this repoDir (not just live ones).
-    const anyRows = db
-      .prepare(
-        `SELECT worktree_path FROM agent_sessions
-         WHERE worktree_path IS NOT NULL`,
-      )
-      .all() as Array<{ worktree_path: string }>;
-
-    const anyUnderRepo = anyRows.some((r) => pathKeyIsWithin(r.worktree_path, repoDir));
+    const anyUnderRepo = allRows.some((r) => pathKeyIsWithin(r.worktree_path, repoDir));
     if (!anyUnderRepo) {
       // Genuinely cold install — skip cleanup.
       return { removed: 0, kept: entries.length, errors: 0 };

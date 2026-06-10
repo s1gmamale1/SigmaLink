@@ -1,6 +1,14 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import path from 'node:path';
-import { cleanupOrphanWorktrees, sweepAllReposOnBoot } from './worktree-cleanup';
+import { fileURLToPath } from 'node:url';
+import {
+  cleanupOrphanWorktrees,
+  sweepAllReposOnBoot,
+  isWorktreeKeepEligible,
+  collectKeptWorktreePaths,
+  WORKTREE_KEEP_WINDOW_MS,
+} from './worktree-cleanup';
+import { canonicalPathKey } from '../util/path-key';
 
 // ---------------------------------------------------------------------------
 // Mock node:fs/promises so we don't touch the real filesystem.
@@ -27,6 +35,8 @@ vi.mock('node:fs', () => ({
 // ---------------------------------------------------------------------------
 
 interface SessionRow {
+  id?: string;
+  workspace_id?: string;
   worktree_path: string;
   status: string;
   exit_code?: number | null;
@@ -36,43 +46,20 @@ interface SessionRow {
 function makeDb(sessions: SessionRow[]) {
   const db = {
     prepare(sql: string) {
-      const isLive =
-        sql.includes('SELECT DISTINCT worktree_path') &&
-        sql.includes('FROM agent_sessions');
-      const isAny = sql.includes('SELECT worktree_path') && sql.includes('FROM agent_sessions');
-
-      if (isLive) {
-        return {
-          all(...args: unknown[]) {
-            const cutoff = Number(args.at(-1));
-            const keepsResumeEligibleCrashes = sql.includes('exit_code = -1');
-            const keepsStarting = sql.includes("status = 'starting'");
-            const results = sessions.filter((s) => {
-              if (s.status === 'running') return true;
-              if (keepsStarting && s.status === 'starting') return true;
-              if (
-                keepsResumeEligibleCrashes &&
-                s.status === 'exited' &&
-                s.exit_code === -1
-              ) {
-                return true;
-              }
-              if (s.exited_at !== null && s.exited_at > cutoff) return true;
-              return false;
-            });
-            return results.map((s) => ({ worktree_path: s.worktree_path }));
-          },
-        };
-      }
-
-      if (isAny) {
+      if (sql.includes('FROM agent_sessions') && sql.includes('worktree_path IS NOT NULL')) {
         return {
           all() {
-            return sessions.map((s) => ({ worktree_path: s.worktree_path }));
+            return sessions.map((s, i) => ({
+              id: s.id ?? `sess-${i}`,
+              workspace_id: s.workspace_id ?? 'ws-test',
+              status: s.status,
+              exit_code: s.exit_code ?? null,
+              exited_at: s.exited_at,
+              worktree_path: s.worktree_path,
+            }));
           },
         };
       }
-
       throw new Error(`Unhandled SQL in test: ${sql}`);
     },
   };
@@ -491,5 +478,87 @@ describe('sweepAllReposOnBoot', () => {
     } finally {
       infoSpy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// keep ⊇ use invariant (2026-06-10 audit, finding 1).
+//
+// The reaper keep-set MUST be a superset of every consumer's use-set, or the
+// reaper deletes worktrees a consumer is about to spawn into (the 93fbca6
+// regression class; memory: feedback_reaper_keep_superset_of_use). The USE
+// predicates below are direct transcriptions of resume-launcher.ts:
+//   - listEligibleRows  (resume-launcher.ts:296-321):
+//       status='running' OR (status='exited' AND exit_code=-1)
+//   - listRespawnableRows (resume-launcher.ts:427-454):
+//       status='exited' AND exit_code=-1
+// The tripwire test below pins those source predicates: if resume-launcher
+// changes them, the tripwire fails and BOTH the transcriptions here AND
+// isWorktreeKeepEligible must be re-verified together.
+// ---------------------------------------------------------------------------
+
+describe('keep ⊇ use invariant — reaper keep-predicate covers every consumer', () => {
+  type PredicateRow = { status: string; exit_code: number | null; exited_at: number | null };
+
+  const resumeUses = (r: PredicateRow) =>
+    r.status === 'running' || (r.status === 'exited' && r.exit_code === -1);
+  const respawnUses = (r: PredicateRow) => r.status === 'exited' && r.exit_code === -1;
+
+  const T0 = Date.now();
+  const OLD = T0 - WORKTREE_KEEP_WINDOW_MS - 60_000;
+  const statuses = ['starting', 'running', 'exited', 'error'];
+  const exitCodes: Array<number | null> = [null, -1, 0, 1, 137];
+  const exitedAts: Array<number | null> = [null, T0 - 1000, OLD];
+
+  it('every row a resume/respawn consumer can use is keep-eligible (superset over the full matrix)', () => {
+    for (const status of statuses) {
+      for (const exit_code of exitCodes) {
+        for (const exited_at of exitedAts) {
+          const row: PredicateRow = { status, exit_code, exited_at };
+          if (resumeUses(row) || respawnUses(row)) {
+            expect(isWorktreeKeepEligible(row, T0), `use-eligible row must be kept: ${JSON.stringify(row)}`).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it('keep is strictly broader than use: starting and recent-exited rows are kept too', () => {
+    expect(isWorktreeKeepEligible({ status: 'starting', exit_code: null, exited_at: null }, T0)).toBe(true);
+    expect(isWorktreeKeepEligible({ status: 'exited', exit_code: 0, exited_at: T0 - 1000 }, T0)).toBe(true);
+    // …while a clean old exit is reapable:
+    expect(isWorktreeKeepEligible({ status: 'exited', exit_code: 0, exited_at: OLD }, T0)).toBe(false);
+  });
+
+  it('tripwire: resume-launcher.ts still uses exactly the transcribed use-predicates', async () => {
+    const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+    const src = realFs.readFileSync(
+      fileURLToPath(new URL('../pty/resume-launcher.ts', import.meta.url)),
+      'utf8',
+    );
+    // listEligibleRows + listRespawnableRows predicate fragments:
+    expect(src).toContain("s.status = 'running'");
+    expect(src).toContain("s.exit_code = -1");
+    // If this fails: resume-launcher's use-predicate changed. Update the
+    // transcriptions in this file AND verify isWorktreeKeepEligible still
+    // covers the new predicate before changing these assertions.
+  });
+
+  it('collectKeptWorktreePaths returns canonical keys and honors excludeSessionIds', () => {
+    const a = path.join(REPO_DIR, 'pane-a');
+    const b = path.join(REPO_DIR, 'pane-b');
+    const db = makeDb([
+      { id: 's-live', worktree_path: a, status: 'running', exited_at: null },
+      { id: 's-crash', worktree_path: b, status: 'exited', exit_code: -1, exited_at: oldExited() },
+    ]);
+
+    const keepAll = collectKeptWorktreePaths(db);
+    expect(keepAll.has(canonicalPathKey(a))).toBe(true);
+    expect(keepAll.has(canonicalPathKey(b))).toBe(true);
+
+    // Rows about to be deleted by a caller are excluded from the fence:
+    const keepMinus = collectKeptWorktreePaths(db, { excludeSessionIds: new Set(['s-crash']) });
+    expect(keepMinus.has(canonicalPathKey(a))).toBe(true);
+    expect(keepMinus.has(canonicalPathKey(b))).toBe(false);
   });
 });
