@@ -96,6 +96,24 @@ vi.mock('@xterm/addon-web-links', () => ({
   WebLinksAddon: class {},
 }));
 
+// 2026-06-10 finding 3 — observable WebGL addon lifecycle. The real addon
+// needs a GPU context; this mock records construction/dispose so tests can
+// assert "contexts ≈ visible panes".
+interface MockWebgl {
+  dispose: ReturnType<typeof vi.fn>;
+  onContextLoss: ReturnType<typeof vi.fn>;
+}
+const createdWebgls: MockWebgl[] = [];
+vi.mock('@xterm/addon-webgl', () => ({
+  WebglAddon: class {
+    dispose = vi.fn();
+    onContextLoss = vi.fn();
+    constructor() {
+      createdWebgls.push(this as unknown as MockWebgl);
+    }
+  },
+}));
+
 // `@xterm/xterm/css/xterm.css` import in terminal-cache.ts side-channel
 // (we don't import the .ts module's css — the cache module does NOT import
 // the css, only Terminal.tsx does — confirmed by reading the source).
@@ -170,6 +188,7 @@ let sigma: SigmaStub;
 beforeEach(async () => {
   nextTermId = 0;
   createdTerms.length = 0;
+  createdWebgls.length = 0;
   snapshotControllers = new Map();
   snapshotMock = vi.fn((sessionId: string) => {
     return new Promise<{ buffer: string }>((resolve, reject) => {
@@ -510,6 +529,45 @@ describe('terminal-cache — eviction guard (2026-06-10 finding 2)', () => {
     // Nothing was destroyable — the cache grows past the cap (bounded by
     // the number of mounted panes), instead of blanking a visible pane.
     expect(getCacheSize()).toBe(TERMINAL_CACHE_LIMIT + 1);
+  });
+});
+
+// ── 2026-06-10 finding 3 — WebGL renderer only while attached to a host ─────
+describe('terminal-cache — WebGL attach/detach lifecycle (2026-06-10 finding 3)', () => {
+  it('does NOT load the WebGL addon at creation (parked terminals parse buffers only)', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    getOrCreateTerminal('webgl-1', ctx);
+    expect(createdWebgls.length).toBe(0);
+  });
+
+  it('loads WebGL on attachToHost and disposes it on detachFromHost', async () => {
+    const { getOrCreateTerminal, attachToHost, detachFromHost } =
+      await import('./terminal-cache');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    const entry = getOrCreateTerminal('webgl-2', ctx);
+    attachToHost(entry, host);
+    expect(createdWebgls.length).toBe(1);
+    // Registered the context-loss self-heal before loading.
+    expect(createdWebgls[0]!.onContextLoss).toHaveBeenCalledTimes(1);
+
+    detachFromHost(entry);
+    expect(createdWebgls[0]!.dispose).toHaveBeenCalledTimes(1);
+
+    // Re-attach builds a FRESH addon (contexts track visible panes).
+    attachToHost(entry, host);
+    expect(createdWebgls.length).toBe(2);
+  });
+
+  it('attachToHost is idempotent — re-attaching to the same host loads no second addon', async () => {
+    const { getOrCreateTerminal, attachToHost } = await import('./terminal-cache');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const entry = getOrCreateTerminal('webgl-3', ctx);
+    attachToHost(entry, host);
+    attachToHost(entry, host);
+    expect(createdWebgls.length).toBe(1);
   });
 });
 

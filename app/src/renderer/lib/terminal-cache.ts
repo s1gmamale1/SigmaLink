@@ -128,6 +128,11 @@ export interface CacheEntry {
   /** True after the snapshot RPC has resolved and pending chunks drained
    *  (or after a remount, where snapshot is skipped entirely). */
   snapshotReady: boolean;
+  /** 2026-06-10 finding 3 — WebGL addon held ONLY while attached to a real
+   *  host, so live GPU contexts ≈ visible panes instead of ≈ cache size
+   *  (Chromium caps ~16 WebGL contexts per process; the cache holds 32).
+   *  Null while parked (the DOM-renderer-free buffer still parses bytes). */
+  webglAddon: WebglAddon | null;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -278,33 +283,11 @@ export function getOrCreateTerminal(
   const parking = ensureParkingLot();
   term.open(parking);
 
-  // Renderer: load the WebGL renderer (must come AFTER open()). xterm 6's
-  // DEFAULT renderer is the DOM renderer, which rebuilds per-row <div>/<span>
-  // elements + injects a <style> block + does inline-block reflow on EVERY
-  // resize repaint — so resizing a pane made the terminal content visibly
-  // "glitch its way" to the new size. WebGL repaints on the GPU in one pass,
-  // so a resize reflow is near-instant.
-  //
-  // Best-effort + self-healing: if WebGL is unavailable (jsdom unit tests, a
-  // GPU blocklist) the load throws and we silently keep the DOM renderer; if
-  // Chromium later evicts this context (its ~16-WebGL-context-per-process cap,
-  // reachable with many panes) `onContextLoss` fires and we dispose the addon,
-  // at which point xterm automatically reverts to the DOM renderer — never a
-  // blank pane. The canvas lives inside `term.element`, so it survives the
-  // park/reattach DOM moves, and `term.dispose()` cascades to dispose it.
-  try {
-    const webgl = new WebglAddon();
-    webgl.onContextLoss(() => {
-      try {
-        webgl.dispose();
-      } catch {
-        /* already disposed — ignore */
-      }
-    });
-    term.loadAddon(webgl);
-  } catch {
-    /* WebGL unavailable — xterm's default DOM renderer remains active */
-  }
+  // 2026-06-10 finding 3 — the WebGL renderer is NO LONGER loaded at creation.
+  // It is an ATTACHED-ONLY concern (loadWebglAddon in attachToHost / disposed
+  // in detachFromHost), so live GPU contexts ≈ visible panes rather than ≈
+  // cache size. A parked terminal only parses bytes into its buffer and needs
+  // no renderer.
 
   // Wire keystrokes back to the PTY. This listener lives for the entry's
   // entire cache lifetime — only `destroy()` disposes it.
@@ -372,6 +355,7 @@ export function getOrCreateTerminal(
     lastAccessed: Date.now(),
     ptyExited: false,
     snapshotReady: false,
+    webglAddon: null,
   };
   entryRef.current = entry;
   cache.set(sessionId, entry);
@@ -399,32 +383,72 @@ export function getOrCreateTerminal(
 }
 
 /**
+ * 2026-06-10 finding 3 — WebGL renderer is an ATTACHED-ONLY concern. xterm 6's
+ * default DOM renderer rebuilds per-row DOM on every resize repaint (the
+ * pane-resize "glitch"), so visible panes want WebGL; parked terminals only
+ * parse bytes into the buffer and need no renderer at all. Loading here (and
+ * disposing in detachFromHost) keeps live GPU contexts ≈ visible panes,
+ * under Chromium's ~16-context cap.
+ *
+ * Best-effort + self-healing (unchanged from the creation-time version): if
+ * WebGL is unavailable (jsdom, GPU blocklist) the load throws and the DOM
+ * renderer stays; if Chromium evicts the context, `onContextLoss` disposes
+ * the addon and xterm reverts to the DOM renderer — never a blank pane. Must
+ * run AFTER term.open(), which always happened at creation (parking-lot open).
+ */
+function loadWebglAddon(entry: CacheEntry): void {
+  if (entry.webglAddon) return;
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => {
+      try {
+        webgl.dispose();
+      } catch {
+        /* already disposed — ignore */
+      }
+      if (entry.webglAddon === webgl) entry.webglAddon = null;
+    });
+    entry.terminal.loadAddon(webgl);
+    entry.webglAddon = webgl;
+  } catch {
+    /* WebGL unavailable — xterm's default DOM renderer remains active */
+  }
+}
+
+/**
  * Move the xterm DOM root from wherever it currently lives (parking lot
- * or previous host) into the provided container. Idempotent — safe to
- * call when the terminal is already mounted in `host`.
+ * or previous host) into the provided container, and bring up the WebGL
+ * renderer for the now-visible terminal. Idempotent — safe to call when
+ * the terminal is already mounted in `host`.
  */
 export function attachToHost(entry: CacheEntry, host: HTMLElement): void {
   const root = entry.terminal.element;
   if (!root) return;
-  if (root.parentNode === host) {
-    entry.lastAccessed = Date.now();
-    return;
-  }
-  host.appendChild(root);
+  if (root.parentNode !== host) host.appendChild(root);
   entry.lastAccessed = Date.now();
+  loadWebglAddon(entry);
 }
 
 /**
  * Park the xterm DOM root in the offscreen container without disposing
- * the terminal. Resize observers / focus listeners that the host wired
- * are NOT removed here — they belong to the host's React mount and are
- * torn down by the host's cleanup.
+ * the terminal, and release the WebGL context (finding 3) — a parked
+ * terminal only needs buffer parsing. Resize observers / focus listeners
+ * that the host wired are NOT removed here — they belong to the host's
+ * React mount and are torn down by the host's cleanup.
  */
 export function detachFromHost(entry: CacheEntry): void {
   const root = entry.terminal.element;
   if (!root) return;
   const parking = ensureParkingLot();
   if (root.parentNode !== parking) parking.appendChild(root);
+  if (entry.webglAddon) {
+    try {
+      entry.webglAddon.dispose();
+    } catch {
+      /* already disposed (e.g. context loss raced) — ignore */
+    }
+    entry.webglAddon = null;
+  }
 }
 
 /**
