@@ -87,9 +87,7 @@ describe('removeWorkspace — session lifecycle (2026-06-10 audit MED [ws])', ()
   beforeEach(() => {
     _sessions = [];
     _deletedTables = [];
-    ptyStop = vi.fn(
-      (_id: string, _opts?: { tree?: boolean; forget?: boolean }) => null,
-    );
+    ptyStop = vi.fn(() => null);
   });
 
   it('stops live (starting|running) PTYs with {tree:true, forget:true} and skips dead ones', async () => {
@@ -142,7 +140,7 @@ describe('removeWorkspace — session lifecycle (2026-06-10 audit MED [ws])', ()
   });
 
   it('stops the ruflo HTTP daemon and its failure never blocks removal (pre-existing contract)', async () => {
-    const daemonStop = vi.fn(async (_workspaceId: string) => {
+    const daemonStop = vi.fn(async (): Promise<void> => {
       throw new Error('daemon stop failed');
     });
 
