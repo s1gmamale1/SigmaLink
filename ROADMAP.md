@@ -228,7 +228,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 **Definition of done.** vendor-react chunk ≈ react+react-dom only (~180–200 kB); render-count probes green; full gate + CI.
 
-## Phase 10 — Renderer state & Jorvis correctness
+## Phase 10 — Renderer state & Jorvis correctness ✅ SHIPPED (PR #144 `54e08ad` jorvis + PR #145 `74fdfc4` state, 2026-06-10)
 
 **Goal.** Room persistence can't be hijacked by global rooms, and Jorvis events/conversations render correctly under every race the audit reproduced.
 
