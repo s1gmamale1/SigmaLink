@@ -377,16 +377,51 @@ export function getOrCreateTerminal(
   // arrived between bus-subscribe and snapshot-resolve are in `pending`
   // and drain here. On hot-remount we never hit this path again because
   // the cache entry already exists.
+  //
+  // 2026-06-10 finding 5b — main appends to the ring buffer per raw chunk
+  // but coalesces the renderer broadcast (≤12ms, PERF-1), so a byte can be
+  // in BOTH the snapshot buffer and a pending live chunk. The pty.snapshot
+  // handler now flushes the coalescer before reading the ring (rpc-router),
+  // which — with ordered main→renderer IPC — guarantees every duplicated
+  // byte is in `pending` by the time the response lands. Here we drop the
+  // longest snapshot-tail / pending-head overlap, preserving per-chunk
+  // writes for the unseen remainder. The scan is capped: a duplicate window
+  // is at most one coalescer flush (~64KiB burst cap), and this runs once
+  // per cache miss.
   void (async () => {
+    let snapBuffer = '';
     try {
       const snap = await rpc.pty.snapshot(sessionId);
       if (!cache.has(sessionId)) return;
-      if (snap.buffer) term.write(snap.buffer);
+      if (snap.buffer) {
+        snapBuffer = snap.buffer;
+        term.write(snapBuffer);
+      }
     } catch {
       /* snapshot is best-effort; the live subscription already captured
          everything since the bus listener attached. */
     }
-    for (const chunk of pending) term.write(chunk);
+    const joined = pending.join('');
+    let overlap = 0;
+    if (snapBuffer && joined) {
+      const MAX_OVERLAP_SCAN = 65_536; // coalescer maxBytes — the largest single flush
+      const max = Math.min(snapBuffer.length, joined.length, MAX_OVERLAP_SCAN);
+      for (let k = max; k > 0; k--) {
+        if (snapBuffer.endsWith(joined.slice(0, k))) {
+          overlap = k;
+          break;
+        }
+      }
+    }
+    let skip = overlap;
+    for (const chunk of pending) {
+      if (skip >= chunk.length) {
+        skip -= chunk.length;
+        continue;
+      }
+      term.write(skip > 0 ? chunk.slice(skip) : chunk);
+      skip = 0;
+    }
     pending.length = 0;
     snapshotDone = true;
     entry.snapshotReady = true;

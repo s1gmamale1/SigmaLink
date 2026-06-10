@@ -532,6 +532,52 @@ describe('terminal-cache — eviction guard (2026-06-10 finding 2)', () => {
   });
 });
 
+// ── 2026-06-10 finding 5b — snapshot ∩ pending dedup (no double-written text) ─
+describe('terminal-cache — snapshot drain dedup (2026-06-10 finding 5b)', () => {
+  it('drops a pending chunk fully contained in the snapshot tail', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    const entry = getOrCreateTerminal('dedup-1', ctx);
+    const term = entry.terminal as unknown as MockTerm;
+
+    // The chunk reaches the renderer through the live bus AND was already in
+    // the main ring buffer when the snapshot was read (the 12ms coalescer
+    // window) — i.e. the snapshot ENDS with it.
+    emitData('dedup-1', 'AAA');
+    snapshotControllers.get('dedup-1')?.resolve({ buffer: 'PREFIX-AAA' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(term.__writes).toEqual(['PREFIX-AAA']); // 'AAA' NOT written twice
+  });
+
+  it('trims a partial overlap and writes only the unseen suffix', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    const entry = getOrCreateTerminal('dedup-2', ctx);
+    const term = entry.terminal as unknown as MockTerm;
+
+    emitData('dedup-2', 'BBCC'); // 'BB' is already in the snapshot; 'CC' is new
+    snapshotControllers.get('dedup-2')?.resolve({ buffer: 'XX-BB' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(term.__writes).toEqual(['XX-BB', 'CC']);
+  });
+
+  it('handles overlap spanning multiple pending chunks', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    const entry = getOrCreateTerminal('dedup-3', ctx);
+    const term = entry.terminal as unknown as MockTerm;
+
+    emitData('dedup-3', 'AB'); // entirely duplicated
+    emitData('dedup-3', 'CD'); // 'C' duplicated, 'D' new
+    snapshotControllers.get('dedup-3')?.resolve({ buffer: 'snap:ABC' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(term.__writes).toEqual(['snap:ABC', 'D']);
+  });
+});
+
 // ── 2026-06-10 finding 5a — cache hit refreshes the link-routing context ────
 describe('terminal-cache — ctx refresh on cache hit (2026-06-10 finding 5a)', () => {
   it('routes link clicks through the LATEST mount ctx, not the first', async () => {
