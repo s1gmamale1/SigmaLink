@@ -188,7 +188,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 **Definition of done.** Scratch tab survives a room switch and dies on pane close with its cache entry destroyed (tests); LRU never evicts an attached entry; prompt card appears for a line received while unmounted; full gate + CI.
 
-## Phase 8 — Perf: main-loop hot paths
+## Phase 8 — Perf: main-loop hot paths ✅ SHIPPED (PR #142 `ec42de4`, 2026-06-10)
 
 **Goal.** Zero main-loop blocking from stats polling, zero polling while the window is hidden, and pane-header git status costs one process and two fields.
 
