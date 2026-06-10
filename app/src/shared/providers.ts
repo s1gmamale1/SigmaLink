@@ -245,3 +245,16 @@ export function listVisibleProviders(showLegacy: boolean): AgentProviderDefiniti
     return true;
   });
 }
+
+/**
+ * Spec 2026-06-10 (B) — providers whose CLIs ingest an image FILE PATH from
+ * the prompt (Claude Code detects image paths; Codex accepts paths / -i).
+ * Drives the pane drop/paste image-staging interceptor. Gemini stays OFF
+ * until its PTY image-path support is verified. Precedent:
+ * SLASH_CAPABLE_PROVIDERS (renderer insertSkillCommand.ts).
+ */
+export const IMAGE_CAPABLE_PROVIDERS: ReadonlySet<string> = new Set(['claude', 'codex']);
+
+export function isImageCapableProvider(providerId: string): boolean {
+  return IMAGE_CAPABLE_PROVIDERS.has(providerId);
+}

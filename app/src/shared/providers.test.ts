@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
   AGENT_PROVIDERS,
   findProvider,
+  isImageCapableProvider,
   listDetectable,
   listVisibleProviders,
 } from './providers';
@@ -70,5 +71,15 @@ describe('listDetectable', () => {
     expect(detectable).toContain('cursor');
     // shell has an empty command → never detectable
     expect(detectable).not.toContain('shell');
+  });
+});
+
+describe('IMAGE_CAPABLE_PROVIDERS (spec 2026-06-10 B)', () => {
+  it('claude and codex are image-capable; shell and unknown are not', () => {
+    expect(isImageCapableProvider('claude')).toBe(true);
+    expect(isImageCapableProvider('codex')).toBe(true);
+    expect(isImageCapableProvider('shell')).toBe(false);
+    expect(isImageCapableProvider('gemini')).toBe(false); // unverified upstream — OFF until proven
+    expect(isImageCapableProvider('')).toBe(false);
   });
 });

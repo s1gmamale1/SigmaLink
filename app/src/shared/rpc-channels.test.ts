@@ -97,6 +97,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'panes.listForWorkspace',
   'panes.brief',            // C-5 — inject plan capsule + write scope block
   'panes.rename',           // BSP-O4 — operator-supplied display name
+  'panes.stageImage',       // Spec 2026-06-10 (B) — image staging for pane drop/paste
   // providers (providersCtl)
   'providers.list',
   'providers.probeAll',
@@ -136,6 +137,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'swarms.rollCall',
   'swarms.tail',
   'swarms.kill',
+  'swarms.resume',    // Spec 2026-06-10 (D) — + Pane auto-resume escape hatch
   'swarms.splitPane',
   'swarms.minimisePane',
   // browser (browserCtl — from buildBrowserController)

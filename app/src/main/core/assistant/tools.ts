@@ -89,6 +89,15 @@ export interface ToolContext {
    * don't exercise the browser path).
    */
   cdpCallCounter?: { count: number };
+  /**
+   * Spec 2026-06-10 (A) — renderer event broadcaster (the controller's
+   * `deps.emit`). Lets tool handlers that spawn panes echo
+   * `assistant:dispatch-echo` so the Command Room grid refetches and shows
+   * them (the bare launch_pane tool previously emitted nothing → panes
+   * spawned but never rendered). Optional: absent in tests/legacy callers
+   * ⇒ no echo, no throw (back-compat).
+   */
+  emit?: (event: string, payload: unknown) => void;
 }
 
 export interface ToolDefinition {
@@ -173,6 +182,7 @@ const sListActiveSessions = z.object({ workspaceId: z.string().optional() });
 const sListSwarms = z.object({ workspaceId: z.string().optional() });
 const sListWorkspaces = z.object({});
 const sMonitorPane = z.object({ sessionId: z.string().min(1), conversationId: z.string().min(1) });
+const sClosePane = z.object({ sessionId: z.string().min(1) });
 // BSP-B3 — browser agent tool schemas.
 const sBrowserNavigate = z.object({
   url: z.string().min(1),
@@ -296,7 +306,57 @@ export const TOOLS: ToolDefinition[] = [
         pty: ctx.pty,
         worktreePool: ctx.worktreePool,
       });
+      // Spec 2026-06-10 (A) — echo each spawned session so the Command Room
+      // grid refetches (use-jorvis-dispatch-echo) and renders the new panes.
+      // Sibling of dispatchPane's loop (controller.ts) — same payload shape.
+      // workspaceId: the conversation's workspace (same source requireWs uses).
+      const workspaceId = ctx.defaultWorkspaceId;
+      if (ctx.emit && workspaceId) {
+        for (const session of out.sessions) {
+          try {
+            ctx.emit('assistant:dispatch-echo', {
+              workspaceId,
+              sessionId: session.id,
+              providerId: session.providerId,
+              ok: session.status !== 'error',
+              error: session.error ?? null,
+              conversationId: null,
+            });
+          } catch {
+            /* best-effort — an echo failure must not fail the launch */
+          }
+        }
+      }
       return { sessionIds: out.sessions.map((s) => s.id), sessions: out.sessions };
+    },
+  ),
+  T(
+    'close_pane',
+    'Close pane',
+    'Close (kill) an agent pane by its session id and remove it from the Command Room grid.',
+    {
+      type: 'object',
+      required: ['sessionId'],
+      properties: { sessionId: { type: 'string' } },
+    },
+    sClosePane,
+    async (a, ctx) => {
+      // 1. Kill the process tree (best-effort — a dead/unknown id is a no-op).
+      try { ctx.pty.kill(a.sessionId); } catch { /* already gone */ }
+      // 2. Mark exited so panes.resume cannot resurrect it (mirrors the
+      //    launcher's onExit DB write for an explicit close).
+      try {
+        getDb()
+          .update(agentSessions)
+          .set({ status: 'exited', exitCode: 0, exitedAt: Date.now() })
+          .where(eq(agentSessions.id, a.sessionId))
+          .run();
+      } catch { /* best-effort — kill + emit still proceed */ }
+      // 3. Tell the renderer grid to drop the pane live (twin of launch_pane's
+      //    assistant:dispatch-echo; without this the pane lingers until the
+      //    slow pty:exit GC, and never removes an already-errored pane).
+      ctx.emit?.('assistant:pane-closed', { sessionId: a.sessionId });
+      return { ok: true, sessionId: a.sessionId };
     },
   ),
   T(
@@ -907,17 +967,20 @@ const TOOL_ALIASES: Record<string, string> = {
  * R-1 (Jorvis Telegram remote) — tools that are too dangerous to run
  * unattended from a remote origin and therefore require explicit human
  * confirmation when `origin === 'telegram'`. `prompt_agent` writes raw bytes
- * straight into a live PTY (it can type ANY shell command into an agent),
- * which is the single highest-blast-radius tool in the registry.
+ * straight into a live PTY (it can type ANY shell command into an agent);
+ * `close_pane` KILLS a pane and marks its session exited (strictly more
+ * destructive — it tears down an operator's running agent). Both are
+ * high-blast-radius and must not run unattended from a remote origin.
  *
  * Keyed by canonical tool *id* (post-alias). The authorization gate in
  * `invokeAssistantTool` resolves aliases before consulting this set.
  *
- * NOTE (cross-lane contract): the exact name `DANGEROUS_REMOTE` and the
- * membership `{ 'prompt_agent' }` are relied on by the Telegram-bridge lane.
- * Do not rename or change semantics without coordinating.
+ * NOTE (cross-lane contract): the exact name `DANGEROUS_REMOTE` and its
+ * existing members (`prompt_agent`, `close_pane`) are relied on by the
+ * Telegram-bridge lane. Adding members is additive/safe; do not rename or
+ * remove existing ones without coordinating.
  */
-export const DANGEROUS_REMOTE = new Set<string>(['prompt_agent']);
+export const DANGEROUS_REMOTE = new Set<string>(['prompt_agent', 'close_pane']);
 
 /**
  * R-1 — produce a short, human-readable one-liner describing a tool call, for

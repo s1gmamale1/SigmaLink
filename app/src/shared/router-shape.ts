@@ -274,6 +274,13 @@ export interface AppRouter {
      * computed alias. Broadcasts `panes:session-renamed` so title pills refresh.
      */
     rename: (a: { sessionId: string; name: string | null }) => Promise<{ ok: boolean }>;
+    /**
+     * Spec 2026-06-10 (B) — stage a dropped/pasted image under
+     * `<userData>/staged-images/` and return its absolute path, so the pane
+     * injects `@<absPath>` for image-capable CLIs. ext ∈ png|jpg|jpeg|gif|webp,
+     * payload ≤ 20MB; throws on violation.
+     */
+    stageImage: (input: { bytesBase64: string; ext: string }) => Promise<{ absPath: string }>;
   };
   ramBrake: {
     sessionRisk: (input: {
@@ -418,6 +425,12 @@ export interface AppRouter {
     rollCall: (swarmId: string) => Promise<SwarmMessage>;
     tail: (swarmId: string, opts?: { limit?: number }) => Promise<SwarmMessage[]>;
     kill: (id: string) => Promise<void>;
+    /**
+     * Spec 2026-06-10 (D) — heal a janitor-'failed' (or legacy 'paused')
+     * swarm back to running. 'completed' stays ended. Called by + Pane's
+     * auto-resume; healed=false means nothing needed healing.
+     */
+    resume: (id: string) => Promise<{ ok: boolean; healed: boolean }>;
     // v1.4.3 #06 — Pane Split + Minimise. `splitPane` shares the parent's
     // worktree (intentional design — see controller.ts comments) and rejects
     // panes that are already in a split group (max 2-level deep in v1.4.x).

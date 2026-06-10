@@ -98,6 +98,7 @@ describe('DEV-6 — previously-missing channel schemas are now registered', () =
     'panes.listForWorkspace',
     'panes.setDisplayProvider',
     'panes.brief',
+    'panes.stageImage',
     // providers.*
     'providers.spawnInstall',
     'providers.setInstallConsent',
@@ -185,5 +186,32 @@ describe('Phase 2 RAM Brake — session risk schema', () => {
         externalSessionId: '37846eca-4143-4f3b-a1b5-5fe919ddf2b3',
       }).success,
     ).toBe(true);
+  });
+});
+
+// Spec 2026-06-10 (B) — panes.stageImage stages untrusted renderer bytes. The
+// schema enforces a PRE-DECODE size bound so an oversized payload is rejected
+// at the boundary before Buffer.from allocates ~40MB (the helper's post-decode
+// 20MB byte cap is defense in depth, not the primary gate).
+describe('Spec 2026-06-10 (B) — panes.stageImage pre-decode size gate', () => {
+  it('ACCEPTS a well-formed small payload through the router seam', () => {
+    const out = validateChannelInput('panes.stageImage', {
+      bytesBase64: 'aGVsbG8=', // "hello"
+      ext: 'png',
+    });
+    expect(out).toEqual({ bytesBase64: 'aGVsbG8=', ext: 'png' });
+  });
+
+  it('REJECTS an oversized base64 string before decode (max bound)', () => {
+    const oversized = 'a'.repeat(28 * 1024 * 1024 + 1);
+    expect(() =>
+      validateChannelInput('panes.stageImage', { bytesBase64: oversized, ext: 'png' }),
+    ).toThrow(z.ZodError);
+  });
+
+  it('REJECTS an empty base64 string (min(1))', () => {
+    expect(() =>
+      validateChannelInput('panes.stageImage', { bytesBase64: '', ext: 'png' }),
+    ).toThrow(z.ZodError);
   });
 });

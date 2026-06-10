@@ -71,9 +71,11 @@ function getAddPaneDisabledReason(
   if (swarmsLoading) return 'Loading workspace…';
   // No swarm yet but workspace exists → allow; addPane() will create one.
   if (!activeSwarm) return null;
-  if (activeSwarm.status !== 'running') {
-    return 'Swarm is paused — resume it to add panes';
+  if (activeSwarm.status === 'completed') {
+    return 'Swarm has ended — start a new swarm to add panes';
   }
+  // Spec 2026-06-10 (D): other non-running states (janitor 'failed', legacy
+  // 'paused') no longer gate the button — addPane() auto-resumes on click.
   if (activeSwarm.agents.length >= 20) {
     return `Maximum 20 panes per swarm (current: ${activeSwarm.agents.length})`;
   }
@@ -222,6 +224,22 @@ export function AddPaneButton({
       if (targetSwarmIdOverride) {
         targetSwarmId = targetSwarmIdOverride;
       } else if (activeSwarm) {
+        // Spec 2026-06-10 (D) — auto-resume a non-running swarm on + Pane
+        // (symmetric with the auto-CREATE below): the boot janitor can leave
+        // a restored swarm 'failed' with no other escape hatch.
+        //
+        // Gate BOTH the optimistic dispatch and the proceed on resume().ok:
+        // if the heal failed (ok:false — DB exception), the real row stays
+        // 'failed' and addAgent would be rejected by the backend
+        // (factory-add-agent.ts). Throwing here routes into the existing
+        // catch → toast.error path and skips the optimistic 'running'
+        // dispatch + the doomed addAgent, so local state never diverges from
+        // the DB.
+        if (activeSwarm.status !== 'running' && activeSwarm.status !== 'completed') {
+          const r = await rpc.swarms.resume(activeSwarm.id);
+          if (!r.ok) throw new Error('Could not resume swarm — try again');
+          dispatch({ type: 'UPSERT_SWARM', swarm: { ...activeSwarm, status: 'running' } });
+        }
         targetSwarmId = activeSwarm.id;
       } else {
         const newSwarm = await rpc.swarms.create({

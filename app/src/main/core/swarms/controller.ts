@@ -17,7 +17,7 @@ import type {
 } from '../../../shared/types';
 import type { PtyRegistry } from '../pty/registry';
 import type { WorktreePool } from '../git/worktree';
-import { getDb } from '../db/client';
+import { getDb, getRawDb } from '../db/client';
 import { swarmAgents, swarmSkills } from '../db/schema';
 import { SwarmMailbox, expandRecipient } from './mailbox';
 import type { MailboxKind } from './types';
@@ -183,6 +183,34 @@ export function buildSwarmController(deps: SwarmControllerDeps) {
     },
     kill: async (id: string): Promise<void> => {
       killSwarm(id, { pty: deps.pty, userDataDir: deps.userDataDir });
+    },
+    // Spec 2026-06-10 (D) — escape hatch for swarms the boot janitor left
+    // non-running when the resume-path heal (unfailZombieSwarms,
+    // resume-launcher.ts) didn't fire (0 panes spawned) or the renderer holds
+    // a stale status. Heals failed|paused ONLY — 'completed' is a deliberate
+    // end state and stays ended (same policy as unfailZombieSwarms).
+    //
+    // Implementation note: we SELECT the current status first rather than
+    // relying on the SQL IN-predicate to determine healed=true/false, so the
+    // db-fake (which only parses `col = ?` WHERE fragments in UPDATE) gives
+    // correct results in tests without requiring raw-fake changes.
+    resume: async (id: string): Promise<{ ok: boolean; healed: boolean }> => {
+      if (typeof id !== 'string' || !id.trim()) return { ok: false, healed: false };
+      try {
+        const db = getRawDb();
+        const existing = db
+          .prepare("SELECT status FROM swarms WHERE id = ?")
+          .get(id) as { status: string } | undefined;
+        if (!existing) return { ok: true, healed: false };
+        const healable = existing.status === 'failed' || existing.status === 'paused';
+        if (!healable) return { ok: true, healed: false };
+        db.prepare(
+          'UPDATE swarms SET status = ?, ended_at = ? WHERE id = ?',
+        ).run('running', null, id);
+        return { ok: true, healed: true };
+      } catch {
+        return { ok: false, healed: false };
+      }
     },
     // v1.4.3 #06 — Pane Split. Spawns a NEW swarm agent whose worktree +
     // cwd are SHARED with the parent pane (no fresh git worktree allocated),

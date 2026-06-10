@@ -49,6 +49,18 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, [dispatch]);
 
+  // Jorvis close_pane → drop the pane from the grid live (twin of the
+  // assistant:dispatch-echo ADD path).
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:pane-closed', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown };
+      if (typeof p.sessionId !== 'string') return;
+      dispatch({ type: 'REMOVE_SESSION', id: p.sessionId });
+    });
+    return off;
+  }, [dispatch]);
+
   // v1.13.2 — Listen for PTY crash. The main process emits a DISTINCT
   // `pty:error` event for runtime / fast crashes (contract:
   // `{ sessionId: string; exitCode: number | null; signal?: string | null }`).

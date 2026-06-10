@@ -14,6 +14,8 @@ result back as a tool_result):
 
   launch_pane         { workspaceRoot, provider, count?, initialPrompt? }
                       Spawn 1-8 agent panes in the active workspace.
+  close_pane          { sessionId }
+                      Close/kill a pane by session id (removes it from the grid).
   prompt_agent        { sessionId, prompt }
                       Type a prompt into an existing PTY session.
   read_files          { paths: string[1..32], maxBytes? }

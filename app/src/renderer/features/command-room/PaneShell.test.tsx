@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, act } from '@testing-library/react';
 import type { AgentSession } from '@/shared/types';
+import * as terminalCache from '@/renderer/lib/terminal-cache';
 
 // ---- mocks ---------------------------------------------------------------
 
@@ -24,6 +25,7 @@ const toastWarningMock = vi.fn();
 const worktreeCreateMock = vi.fn();
 const openInPaneMock = vi.fn();
 const openNewWorkspaceMock = vi.fn();
+const stageImageMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -42,6 +44,9 @@ vi.mock('@/renderer/lib/rpc', () => ({
     },
     workspaces: {
       openNew: (...args: unknown[]) => openNewWorkspaceMock(...args),
+    },
+    panes: {
+      stageImage: (...args: unknown[]) => stageImageMock(...args),
     },
     // FEAT-4 — PaneShell reads the pty.promptCards gate on mount. Default OFF
     // (null) so the prompt-card feature stays inert in these scratch-tab tests.
@@ -122,6 +127,7 @@ beforeEach(() => {
   worktreeCreateMock.mockReset();
   openInPaneMock.mockReset();
   openNewWorkspaceMock.mockReset();
+  stageImageMock.mockReset();
   createWorktreeModalOpenChangeMock.mockReset();
   capturedCreateWorktreeModalProps = null;
   // Default: spawnScratch resolves with a fresh id each time.
@@ -692,5 +698,219 @@ describe('PaneShell — BSP-G1/P1/G3/W3a context menu items', () => {
     // The CreateWorktreeModal stub captures props on every render.
     // Even when closed (open=false), the component is mounted and props are captured.
     expect(capturedCreateWorktreeModalProps?.repoRoot).toBe('/tmp/ws-1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Spec 2026-06-10 (C) — right-click Copy/Paste + copy-on-select
+// ---------------------------------------------------------------------------
+
+describe('pane context-menu Copy/Paste (spec 2026-06-10 C)', () => {
+  it('Copy writes the xterm selection to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText, readText: vi.fn().mockResolvedValue('') },
+      configurable: true,
+    });
+    vi.spyOn(terminalCache, 'getCached').mockReturnValue({
+      terminal: { hasSelection: () => true, getSelection: () => 'picked text' },
+    } as unknown as ReturnType<typeof terminalCache.getCached>);
+
+    await renderPaneShell();
+    await openContextMenu();
+
+    const item = document.querySelector('[data-testid="ctx-copy"]') as HTMLElement;
+    expect(item).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(item);
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledWith('picked text');
+  });
+
+  it('Paste writes clipboard text to the pane PTY', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn(), readText: vi.fn().mockResolvedValue('pasted!') },
+      configurable: true,
+    });
+    vi.spyOn(terminalCache, 'getCached').mockReturnValue({
+      terminal: { hasSelection: () => false, getSelection: () => '' },
+    } as unknown as ReturnType<typeof terminalCache.getCached>);
+
+    await renderPaneShell();
+    await openContextMenu();
+
+    const item = document.querySelector('[data-testid="ctx-paste"]') as HTMLElement;
+    expect(item).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(item);
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => expect(ptyWriteMock).toHaveBeenCalledWith(expect.any(String), 'pasted!'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Spec 2026-06-10 (B) — image drop staging
+// ---------------------------------------------------------------------------
+
+describe('image drop staging (spec 2026-06-10 B)', () => {
+  function dropEvent(files: File[]) {
+    return {
+      dataTransfer: { types: ['Files'], files: files as unknown as FileList, getData: () => '' } as unknown as DataTransfer,
+      preventDefault: () => undefined,
+    };
+  }
+
+  it('stages an image on a claude pane and injects the ABSOLUTE @path', async () => {
+    stageImageMock.mockResolvedValue({ absPath: '/tmp/staged/img.png' });
+
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'claude', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'claude', name: 'Claude' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+      />,
+    );
+
+    const bytes = new Uint8Array([1, 2, 3]);
+    const file = new File([bytes], 'shot.png', { type: 'image/png' });
+    // jsdom may not implement arrayBuffer — stub it if missing
+    if (typeof file.arrayBuffer !== 'function') {
+      Object.defineProperty(file, 'arrayBuffer', {
+        value: () => Promise.resolve(bytes.buffer),
+      });
+    }
+
+    fireEvent.drop(screen.getByTestId('pane-body'), dropEvent([file]));
+
+    await vi.waitFor(() =>
+      expect(stageImageMock).toHaveBeenCalledWith(expect.objectContaining({ ext: 'png' })),
+    );
+    // insertMention writes '@<absPath> ' via rpc.pty.write
+    await vi.waitFor(() =>
+      expect(ptyWriteMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining('/tmp/staged/img.png'),
+      ),
+    );
+  });
+
+  it('keeps the relative path-mention for an image on a NON-image provider (shell)', async () => {
+    // Override getPathForFile to return a real abs path for this test
+    Object.defineProperty(window, 'sigma', {
+      value: { getPathForFile: () => '/abs/shot.png', invoke: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'shell', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'shell', name: 'Shell' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+      />,
+    );
+
+    const file = new File([new Uint8Array([1])], 'shot.png', { type: 'image/png' });
+    fireEvent.drop(screen.getByTestId('pane-body'), dropEvent([file]));
+
+    await Promise.resolve();
+    expect(stageImageMock).not.toHaveBeenCalled();
+    // Existing relative-mention path is taken via getPathForFile
+  });
+
+  it('keeps the path-mention for a NON-image file on a claude pane', async () => {
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'claude', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'claude', name: 'Claude' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+      />,
+    );
+
+    const file = new File(['hi'], 'notes.txt', { type: 'text/plain' });
+    fireEvent.drop(screen.getByTestId('pane-body'), dropEvent([file]));
+
+    await Promise.resolve();
+    expect(stageImageMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. Spec 2026-06-10 (B) — image paste interception
+// ---------------------------------------------------------------------------
+
+describe('image paste interception (spec 2026-06-10 B)', () => {
+  function pasteEvent(items: Array<{ kind: string; type: string; file: File | null }>, target: Node) {
+    const e = new Event('paste', { bubbles: true }) as ClipboardEvent;
+    Object.defineProperty(e, 'clipboardData', {
+      value: { items: items.map((it) => ({ kind: it.kind, type: it.type, getAsFile: () => it.file })) },
+    });
+    Object.defineProperty(e, 'target', { value: target });
+    return e;
+  }
+
+  it('stages a pasted image on a running claude pane (and prevents default)', async () => {
+    stageImageMock.mockResolvedValue({ absPath: '/tmp/staged/clip.png' });
+
+    const { container } = await renderPaneShell();
+
+    const file = new File([new Uint8Array([9])], 'clip.png', { type: 'image/png' });
+    // jsdom may not implement arrayBuffer — stub it if missing
+    if (typeof file.arrayBuffer !== 'function') {
+      Object.defineProperty(file, 'arrayBuffer', {
+        value: () => Promise.resolve(new Uint8Array([9]).buffer),
+      });
+    }
+
+    // Target a node INSIDE the pane container (mirrors the Cmd+T test pattern)
+    const paneContainer = container.firstElementChild as HTMLElement;
+    const evt = pasteEvent([{ kind: 'file', type: 'image/png', file }], paneContainer);
+    const prevent = vi.spyOn(evt, 'preventDefault');
+    act(() => { window.dispatchEvent(evt); });
+    await vi.waitFor(() => expect(stageImageMock).toHaveBeenCalled());
+    expect(prevent).toHaveBeenCalled();
+  });
+
+  it('ignores a text-only paste (xterm keeps handling it)', async () => {
+    const { container } = await renderPaneShell();
+
+    const paneContainer = container.firstElementChild as HTMLElement;
+    const evt = pasteEvent([{ kind: 'string', type: 'text/plain', file: null }], paneContainer);
+    const prevent = vi.spyOn(evt, 'preventDefault');
+    act(() => { window.dispatchEvent(evt); });
+    await Promise.resolve();
+    expect(stageImageMock).not.toHaveBeenCalled();
+    expect(prevent).not.toHaveBeenCalled();
   });
 });
