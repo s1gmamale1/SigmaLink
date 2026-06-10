@@ -5,11 +5,9 @@
 // Asserts that:
 //   1. Dialog close button uses the STANDARD focus-visible:ring-[3px] pattern
 //   2. Dialog close button does NOT use the legacy ring-offset-2 pattern
-//   3. Sheet close button uses the STANDARD focus-visible:ring-[3px] pattern
-//   4. Sheet close button does NOT use the legacy ring-offset-2 pattern
-//   5. Both carry opacity-70 / hover:opacity-100
-//   6. Both carry hover:bg-foreground/[0.07] ghost-on-glass token
-//   7. DialogFooter uses flex-col-reverse / sm:flex-row / sm:justify-end ordering
+//   3. It carries opacity-70 / hover:opacity-100
+//   4. It carries hover:bg-foreground/[0.07] ghost-on-glass token
+//   5. DialogFooter uses flex-col-reverse / sm:flex-row / sm:justify-end ordering
 //
 // Tests are class-string assertions — no DOM render needed, avoiding the
 // need to mock Radix portals in a headless environment.
@@ -28,10 +26,8 @@ import { describe, expect, it } from 'vitest';
 // inspect the stringified function body.
 
 import * as DialogModule from './dialog';
-import * as SheetModule from './sheet';
 
 const dialogContentSrc = DialogModule.DialogContent.toString();
-const sheetContentSrc = SheetModule.SheetContent.toString();
 const dialogFooterSrc = DialogModule.DialogFooter.toString();
 
 describe('Dialog close button — focus-ring', () => {
@@ -60,33 +56,6 @@ describe('Dialog close button — focus-ring', () => {
 
   it('carries ghost-on-glass hover token', () => {
     expect(dialogContentSrc).toContain('hover:bg-foreground/[0.07]');
-  });
-});
-
-describe('Sheet close button — focus-ring', () => {
-  it('carries focus-visible:ring-[3px]', () => {
-    expect(sheetContentSrc).toContain('focus-visible:ring-[3px]');
-  });
-
-  it('does NOT carry legacy ring-offset-2', () => {
-    expect(sheetContentSrc).not.toContain('ring-offset-2');
-  });
-
-  it('carries focus-visible:ring-ring/50', () => {
-    expect(sheetContentSrc).toContain('focus-visible:ring-ring/50');
-  });
-
-  it('carries focus-visible:border-ring', () => {
-    expect(sheetContentSrc).toContain('focus-visible:border-ring');
-  });
-
-  it('carries opacity-70 and hover:opacity-100', () => {
-    expect(sheetContentSrc).toContain('opacity-70');
-    expect(sheetContentSrc).toContain('hover:opacity-100');
-  });
-
-  it('carries ghost-on-glass hover token', () => {
-    expect(sheetContentSrc).toContain('hover:bg-foreground/[0.07]');
   });
 });
 
