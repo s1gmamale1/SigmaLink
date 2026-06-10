@@ -168,7 +168,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 **Definition of done.** Out-of-roots brief/exists rejected in tests; a disk-guard notification fires on an assistant-launched pane in test; scrollback toggle-ON persists at the next exit; full gate + CI.
 
-## Phase 7 — Terminal-cache & scratch-tab lifecycle *(prereq: after Phase 3 — shared `PaneShell.tsx`/`terminal-cache.ts`)*
+## Phase 7 — Terminal-cache & scratch-tab lifecycle ✅ SHIPPED (PR #141 `a387e1b`, 2026-06-10)
 
 **Goal.** No orphaned scratch PTYs or leaked xterm/WebGL cache entries; a visible pane never loses its renderer; prompt cards survive remounts.
 
