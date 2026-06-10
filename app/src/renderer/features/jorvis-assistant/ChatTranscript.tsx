@@ -3,7 +3,7 @@
 // Auto-sticks to bottom unless the user has scrolled away.
 // Phase 6 — stream-reveal (rAF catch-up), spring bubble-enter, inline tool chips.
 
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useJorvisStreamReveal } from './use-jorvis-stream-reveal';
 import { InlineToolChips } from './InlineToolChips';
@@ -170,7 +170,12 @@ interface ChatRowProps {
   streamingTurnId?: string;
 }
 
-function ChatRow({ message, isStreaming, isPending, streamingDelta, conversationId, streamingTurnId }: ChatRowProps) {
+// Perf audit 2026-06-10 #3 — memo'd: committed rows keep stable props across
+// stream deltas (stable message object identity; isStreaming=false), so only
+// the in-flight sentinel re-renders per delta. The sentinel's key handoff to
+// its committed twin (Phase-6 H1 anti-double-spring) lives in the PARENT's
+// key={m.id} and is untouched by memoization.
+const ChatRow = memo(function ChatRow({ message, isStreaming, isPending, streamingDelta, conversationId, streamingTurnId }: ChatRowProps) {
   // Spring bubble-enter: React-19 ref-as-prop, applied exactly once via useLayoutEffect([]).
   const rootRef = useRef<HTMLDivElement | null>(null);
   const played = useRef(false);
@@ -255,7 +260,7 @@ function ChatRow({ message, isStreaming, isPending, streamingDelta, conversation
       ) : null}
     </div>
   );
-}
+});
 
 /**
  * Three staggered dots shown while Jorvis is composing a reply but before the
@@ -281,7 +286,9 @@ function TypingDots() {
 
 function ToolBody({ content }: { content: string }) {
   // Compute outside JSX so the lint rule (no JSX in try/catch) never fires.
-  const pretty = prettyPrint(content);
+  // Perf audit #3 — memoized: historical tool rows re-ran JSON.parse +
+  // stringify on every transcript render; content is stable for committed rows.
+  const pretty = useMemo(() => prettyPrint(content), [content]);
   return pretty === null
     ? <span>{content}</span>
     : <pre className="m-0 whitespace-pre-wrap break-words">{pretty}</pre>;
