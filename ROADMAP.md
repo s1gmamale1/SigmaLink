@@ -77,7 +77,9 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 ---
 
-## Phase 3 — Command Room interaction reliability
+## Phase 3 — Command Room interaction reliability ✅ SHIPPED (PR #137 `b7fac3a`, 2026-06-10)
+
+> Shipped all 4 fixes + a `close_pane` Jorvis tool. Built subagent-driven (implementer → spec review → Opus code-quality review per task); the two-stage review caught 4 issues a green gate missed (xterm-6 `copyOnSelect` no-op → `onSelectionChange`; missing `panes.stageImage` zod schema; failed-resume optimistic-state divergence; `close_pane` missing from `DANGEROUS_REMOTE`). Owed follow-ups (wishlist): extract `usePaneImageStaging` (PaneShell 732 lines), staged-image janitor sweep, verify `add_agent`/`create_swarm` panes render live.
 
 **Goal.** Every core pane interaction does what the operator expects: Jorvis-launched panes appear in the grid, terminal text can be copied/pasted, a dropped or pasted screenshot actually reaches the agent as a readable image, and `+ Pane` works first-click after an app restart.
 
