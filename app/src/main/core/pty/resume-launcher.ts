@@ -509,6 +509,21 @@ export async function respawnFailedWorkspacePanes(
   for (const row of rows) {
     const providerId = row.providerEffective ?? row.providerId;
     const cwd = await resolveResumeCwd(row);
+    // GHOST-HEAL parity (2026-06-10 audit, finding 3) — this is a FRESH spawn
+    // (no resume args): the row's external_session_id points at the PRE-crash
+    // conversation, so leaving it in place made the NEXT reopen resume the
+    // pre-crash session even though the operator explicitly respawned fresh.
+    // Null it for EVERY provider BEFORE spawning (the router's
+    // persistExternalSessionId capture sink only writes into a NULL column).
+    // Providers that mint a deterministic --session-id (claude) additionally
+    // spawn with FRESH semantics (preassignedSessionId + isResume:false →
+    // shouldPreAssign injects --session-id, capture is not suppressed) and the
+    // new id is stamped back below — mirroring resumeWorkspacePanes' heal
+    // gate. Other providers keep sessionId + isResume:true so the cwd
+    // disk-scan stays suppressed (it races siblings/the operator in the
+    // shared in-place cwd — the session-collapse class of bug).
+    const healViaPreAssign = providerPreAssignsSession(providerId);
+    setExternalSessionId(db, row.id, null);
     try {
       if (providerId === 'claude') {
         await prepareClaudeWorkspaceContext(row.workspaceRoot, cwd, {
@@ -527,17 +542,15 @@ export async function respawnFailedWorkspacePanes(
         { ptyRegistry: deps.pty },
         {
           providerId,
-          sessionId: row.id,
+          ...(healViaPreAssign
+            ? { preassignedSessionId: row.id, isResume: false as const }
+            : { sessionId: row.id, isResume: true as const }),
           cwd,
           cols: deps.cols ?? 120,
           rows: deps.rows ?? 32,
           showLegacy: deps.showLegacy ?? readShowLegacy(db),
           // No resumeArgs — this is a fresh spawn in the same worktree.
           extraArgs: [],
-          // v1.5.5 — explicit resume flag: sessionId reuses the existing DB
-          // row, so this IS a resume even though no --resume/--continue arg
-          // is passed. Suppresses the redundant onPostSpawnCapture disk-scan.
-          isResume: true,
           spawnMode,
         },
       );
@@ -545,6 +558,11 @@ export async function respawnFailedWorkspacePanes(
       markResumeRunning(db, row.id, rec.startedAt);
       writeProviderEffective(db, row.id, result.providerEffective);
       attachExitPersistence(db, row.id, rec, deps.broadcastPtyError);
+      // GHOST-HEAL — persist the freshly pre-assigned id so the NEXT reopen
+      // resumes the post-respawn conversation by a REAL id.
+      if (healViaPreAssign && result.preassignedExternalSessionId) {
+        setExternalSessionId(db, row.id, result.preassignedExternalSessionId);
+      }
       spawned += 1;
     } catch {
       // Re-mark failure so the row stays in the bucket for a future retry.

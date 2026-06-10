@@ -1260,3 +1260,144 @@ describe('attachExitPersistence — shared isPtyCrash classification (audit find
     expect(broadcasts[0]?.sessionId).toBe('sess-respawn-crash');
   });
 });
+
+// ── 2026-06-10 audit finding 3: respawnFailedWorkspacePanes ghost-heal parity ──
+// "Respawn fresh" spawned sessionId+isResume:true with extraArgs [] for ALL
+// providers — the exact "fresh spawn down the RESUME path" failure mode the
+// GHOST-HEAL comment in resumeWorkspacePanes documents (no --session-id
+// pre-assign, capture suppressed) — and never touched the stale
+// external_session_id, so the NEXT reopen resumed the PRE-crash conversation.
+
+describe('respawnFailedWorkspacePanes — ghost-heal parity (audit finding 3)', () => {
+  const NEW_RESPAWN_ID = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff';
+
+  function makeCaptureResolve(
+    calls: Array<{
+      preassignedSessionId?: string;
+      sessionId?: string;
+      isResume?: boolean;
+      args: string[];
+    }>,
+    preassignedExternalSessionId?: string,
+  ): NonNullable<ResumeLauncherDeps['resolve']> {
+    return (_deps, opts) => {
+      calls.push({
+        preassignedSessionId: opts.preassignedSessionId,
+        sessionId: opts.sessionId,
+        isResume: opts.isResume,
+        args: opts.extraArgs ?? [],
+      });
+      return {
+        ptySession: makeSession(
+          opts.preassignedSessionId ?? opts.sessionId ?? 'new',
+          opts.providerId,
+        ),
+        providerRequested: opts.providerId,
+        providerEffective: opts.providerId,
+        commandUsed: opts.providerId,
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+        preassignedExternalSessionId,
+      };
+    };
+  }
+
+  it('claude respawn uses FRESH semantics (preassignedSessionId + isResume:false) and stamps the new pre-assigned id', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'sess-respawn-claude',
+      status: 'exited',
+      exit_code: -1,
+      exited_at: 111,
+      external_session_id: VALID_CLAUDE_SESSION_ID, // stale PRE-crash conversation id
+    });
+    const calls: Array<{
+      preassignedSessionId?: string;
+      sessionId?: string;
+      isResume?: boolean;
+      args: string[];
+    }> = [];
+
+    const result = await respawnFailedWorkspacePanes('ws-1', {
+      pty: { get: () => undefined } as unknown as PtyRegistry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      resolve: makeCaptureResolve(calls, NEW_RESPAWN_ID),
+    });
+
+    expect(result).toEqual({ workspaceId: 'ws-1', spawned: 1, failed: 0 });
+    // FRESH semantics — shouldPreAssign must inject --session-id and the
+    // post-spawn capture must not be suppressed.
+    expect(calls[0]?.preassignedSessionId).toBe('sess-respawn-claude');
+    expect(calls[0]?.sessionId).toBeUndefined();
+    expect(calls[0]?.isResume).toBe(false);
+    expect(calls[0]?.args).toEqual([]);
+    // The NEW session id is persisted → the next reopen resumes the
+    // POST-respawn conversation, not the pre-crash one.
+    expect(rows[0]?.external_session_id).toBe(NEW_RESPAWN_ID);
+    expect(rows[0]?.status).toBe('running');
+  });
+
+  it('codex respawn keeps resume-path semantics (no disk-scan race) but NULLS the stale external id', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'sess-respawn-codex',
+      provider_id: 'codex',
+      provider_effective: 'codex',
+      status: 'exited',
+      exit_code: -1,
+      exited_at: 111,
+      external_session_id: 'stale-codex-session',
+    });
+    const calls: Array<{
+      preassignedSessionId?: string;
+      sessionId?: string;
+      isResume?: boolean;
+      args: string[];
+    }> = [];
+
+    const result = await respawnFailedWorkspacePanes('ws-1', {
+      pty: { get: () => undefined } as unknown as PtyRegistry,
+      db,
+      resolve: makeCaptureResolve(calls),
+    });
+
+    expect(result.spawned).toBe(1);
+    // codex has no deterministic --session-id; its disk-scan capture races
+    // siblings/the operator in the shared in-place cwd → keep the suppressed
+    // resume-path semantics…
+    expect(calls[0]?.sessionId).toBe('sess-respawn-codex');
+    expect(calls[0]?.preassignedSessionId).toBeUndefined();
+    expect(calls[0]?.isResume).toBe(true);
+    // …but the stale PRE-crash id must be cleared so the next reopen spawns
+    // fresh (safe per the session-collapse policy) instead of resuming the
+    // pre-crash conversation.
+    expect(rows[0]?.external_session_id).toBeNull();
+  });
+
+  it('claude respawn without a minted pre-assign id leaves the column cleared (never re-stamps the stale id)', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'sess-respawn-nopre',
+      status: 'exited',
+      exit_code: -1,
+      exited_at: 111,
+      external_session_id: VALID_CLAUDE_SESSION_ID,
+    });
+    const calls: Array<{
+      preassignedSessionId?: string;
+      sessionId?: string;
+      isResume?: boolean;
+      args: string[];
+    }> = [];
+
+    await respawnFailedWorkspacePanes('ws-1', {
+      pty: { get: () => undefined } as unknown as PtyRegistry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      resolve: makeCaptureResolve(calls /* no preassignedExternalSessionId */),
+    });
+
+    expect(rows[0]?.external_session_id).toBeNull();
+  });
+});
