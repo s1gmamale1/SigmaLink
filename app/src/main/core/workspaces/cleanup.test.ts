@@ -39,6 +39,7 @@ interface SessionRow {
   workspace_id: string;
   worktree_path: string | null;
   status: string;
+  exit_code: number | null;
   exited_at: number | null;
 }
 
@@ -68,6 +69,29 @@ function makeDb(
 
     prepare(sql: string) {
       const s = sql.trim().toLowerCase();
+
+      // Shared keep-fence fetch (worktree-cleanup.listWorktreeSessionRows):
+      // SELECT id, workspace_id, status, exit_code, exited_at, worktree_path
+      // FROM agent_sessions WHERE worktree_path IS NOT NULL
+      // Matched on the distinctive select list — NOT on 'worktree_path is not
+      // null', which would also match the old liveWorktreePaths fence SQL
+      // that removeWorkspaceAndGc still issues until Task 5.
+      if (s.includes('select id, workspace_id, status, exit_code, exited_at, worktree_path')) {
+        return {
+          all() {
+            return sessions
+              .filter((r) => r.worktree_path !== null)
+              .map((r) => ({
+                id: r.id,
+                workspace_id: r.workspace_id,
+                status: r.status,
+                exit_code: r.exit_code,
+                exited_at: r.exited_at,
+                worktree_path: r.worktree_path,
+              }));
+          },
+        };
+      }
 
       // SELECT live worktree paths (live = starting|running)
       if (s.includes('select distinct worktree_path') && s.includes("status in ('starting','running')")) {
@@ -194,6 +218,7 @@ function makeSession(overrides: Partial<SessionRow> = {}): SessionRow {
     workspace_id: WS_ID,
     worktree_path: path.join(REPO_DIR, `pane-${Math.random().toString(36).slice(2)}`),
     status: 'exited',
+    exit_code: 0,
     exited_at: Date.now() - 1000,
     ...overrides,
   };
@@ -400,6 +425,87 @@ describe('pruneOrphanWorktreesForWorkspace — live', () => {
       path.join(REPO_DIR, 'stray-file.txt'),
       expect.anything(),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-06-10 audit, finding 1 (CRIT): keep ⊇ use fence.
+// The prune fence must spare (a) resume/respawn-eligible exited/-1 worktrees
+// and (b) sibling workspaces' worktrees in the SHARED <repoHash> dir
+// (repoHash = sha1(repoRoot) — shared by all workspaces on one repo since
+// migration 0034).
+// ---------------------------------------------------------------------------
+
+describe('pruneOrphanWorktreesForWorkspace — keep ⊇ use fence', () => {
+  it('spares a worktree owned by an exited/-1 (resume-eligible) session, even outside the 7-day window', async () => {
+    const crashedPath = path.join(REPO_DIR, 'crashed-pane');
+    const crashed = makeSession({
+      worktree_path: crashedPath,
+      status: 'exited',
+      exit_code: -1,
+      exited_at: Date.now() - 30 * 86400 * 1000, // 30 days — far outside the 7-day window
+    });
+    const db = makeDb([crashed]);
+    readdirMock.mockResolvedValue(dirents('crashed-pane', 'orphan-pane'));
+
+    const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
+      worktreeBase: WORKTREE_BASE,
+      repoHash: REPO_HASH,
+      workspaceId: WS_ID,
+      db,
+      dryRun: false,
+    });
+
+    expect(result.liveBlocked.map((p) => path.basename(p))).toEqual(['crashed-pane']);
+    expect(result.removed).toBe(1); // only orphan-pane
+    expect(rmMock).not.toHaveBeenCalledWith(crashedPath, expect.anything());
+  });
+
+  it("spares ANOTHER workspace's running worktree in the shared repoHash dir", async () => {
+    const siblingPath = path.join(REPO_DIR, 'sibling-live-pane');
+    const sibling = makeSession({
+      workspace_id: 'ws-OTHER',
+      worktree_path: siblingPath,
+      status: 'running',
+      exited_at: null,
+    });
+    const db = makeDb([sibling]);
+    readdirMock.mockResolvedValue(dirents('sibling-live-pane'));
+
+    const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
+      worktreeBase: WORKTREE_BASE,
+      repoHash: REPO_HASH,
+      workspaceId: WS_ID, // pruning on behalf of ws-001 must NOT stomp ws-OTHER
+      db,
+      dryRun: false,
+    });
+
+    expect(result.removed).toBe(0);
+    expect(result.liveBlocked).toEqual([siblingPath]);
+    expect(rmMock).not.toHaveBeenCalled();
+  });
+
+  it('spares a recently-exited (within 7 days) worktree — uncommitted-work guard', async () => {
+    const recentPath = path.join(REPO_DIR, 'recent-pane');
+    const recent = makeSession({
+      worktree_path: recentPath,
+      status: 'exited',
+      exit_code: 0,
+      exited_at: Date.now() - 1000,
+    });
+    const db = makeDb([recent]);
+    readdirMock.mockResolvedValue(dirents('recent-pane', 'orphan-pane'));
+
+    const result = await cleanupModule.pruneOrphanWorktreesForWorkspace({
+      worktreeBase: WORKTREE_BASE,
+      repoHash: REPO_HASH,
+      workspaceId: WS_ID,
+      db,
+      dryRun: false,
+    });
+
+    expect(result.liveBlocked).toEqual([recentPath]);
+    expect(result.removed).toBe(1);
   });
 });
 

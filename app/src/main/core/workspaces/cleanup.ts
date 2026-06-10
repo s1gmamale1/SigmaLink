@@ -20,6 +20,7 @@ import type Database from 'better-sqlite3';
 import { canonicalPathKey, pathKeyIsWithin } from '../util/path-key';
 import type { PtyRegistry } from '../pty/registry';
 import type { ProcessTreeSnapshot } from '../process/process-tree';
+import { collectKeptWorktreePaths } from './worktree-cleanup';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,7 +30,7 @@ import type { ProcessTreeSnapshot } from '../process/process-tree';
 export interface PruneWorktreeResult {
   /** Paths that were (or would be) removed. */
   wouldRemove: string[];
-  /** Paths that were skipped because a live (starting|running) session owns them. */
+  /** Paths skipped because the keep-fence holds them (live, resume-eligible exited/-1, or exited <7d ago). */
   liveBlocked: string[];
   /** Number of dirs actually deleted (0 on dryRun). */
   removed: number;
@@ -93,13 +94,14 @@ function liveWorktreePaths(db: Database.Database, workspaceId: string): Set<stri
  * Core dir-level prune logic, shared by `pruneOrphanWorktreesForWorkspace`
  * and the GC pass inside `removeWorkspaceAndGc`.
  *
- * Lists dirs under `<worktreeBase>/<repoHash>/`, cross-references the live
- * fence, then removes (or dry-runs) anything outside it.
+ * Lists dirs under `<worktreeBase>/<repoHash>/`, cross-references the keep-fence
+ * (live, resume-eligible, or recently-exited sessions), then removes (or
+ * dry-runs) anything outside it.
  */
 async function pruneRepoDir(
   worktreeBase: string,
   repoHash: string,
-  livePaths: Set<string>,
+  keepPaths: Set<string>,
   dryRun: boolean,
 ): Promise<Omit<PruneWorktreeResult, 'liveBlocked'> & { liveBlocked: string[] }> {
   const normalBase = path.normalize(worktreeBase);
@@ -129,7 +131,7 @@ async function pruneRepoDir(
     // dir (.DS_Store, crash artifact, …) must never be rm-rf'd by the reaper.
     if (!entry.isDirectory()) continue;
     const full = path.join(repoDir, entry.name);
-    if (livePaths.has(canonicalPathKey(full))) {
+    if (keepPaths.has(canonicalPathKey(full))) {
       liveBlocked.push(full);
     } else {
       wouldRemove.push(full);
@@ -163,7 +165,8 @@ export interface PruneOrphanWorktreesInput {
   worktreeBase: string;
   /** SHA-like hash segment of the repo root (computed by `repoHash()`). */
   repoHash: string;
-  /** Workspace id — used to scope the live-session fence query. */
+  /** Workspace id — retained for RPC compatibility; the keep-fence is global
+   *  (shared repoHash dir per repo since migration 0034). */
   workspaceId: string;
   /** Raw better-sqlite3 handle (never import getDb here — testability). */
   db: Database.Database;
@@ -172,17 +175,29 @@ export interface PruneOrphanWorktreesInput {
 }
 
 /**
- * Exposes the best-effort orphan worktree cleanup already run on
- * `workspaces.open` as a manual trigger.  Safe: live sessions fence applies;
- * no DB rows are touched.
+ * Exposes the orphan worktree cleanup as a manual trigger (RPC
+ * `cleanup.pruneWorktrees`). Safe: the keep-fence applies; no DB rows are
+ * touched.
+ *
+ * 2026-06-10 audit (finding 1, CRIT): the fence is GLOBAL and uses the shared
+ * keep-predicate from worktree-cleanup.ts (keep ⊇ use):
+ *  (a) resume (resume-launcher.listEligibleRows) and respawn
+ *      (listRespawnableRows) still consume exited/-1 rows — a fence of only
+ *      starting|running deletes worktrees resume will re-spawn into
+ *      (the 93fbca6 regression class).
+ *  (b) `<worktreeBase>/<repoHash>/` is keyed by repoHash(repoRoot)
+ *      (git-ops.ts:38) and is SHARED by every workspace on the same repo
+ *      since migration 0034 — a per-workspace fence rm-rf's sibling
+ *      workspaces' RUNNING worktrees. `input.workspaceId` is retained for
+ *      RPC compatibility but deliberately does NOT scope the fence.
  */
 export async function pruneOrphanWorktreesForWorkspace(
   input: PruneOrphanWorktreesInput,
 ): Promise<PruneWorktreeResult> {
-  const { worktreeBase, repoHash, workspaceId, db, dryRun } = input;
+  const { worktreeBase, repoHash, db, dryRun } = input;
 
-  const live = liveWorktreePaths(db, workspaceId);
-  return pruneRepoDir(worktreeBase, repoHash, live, dryRun);
+  const keep = collectKeptWorktreePaths(db);
+  return pruneRepoDir(worktreeBase, repoHash, keep, dryRun);
 }
 
 // ---------------------------------------------------------------------------
