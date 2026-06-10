@@ -13,7 +13,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const killScratchMock = vi.fn((..._a: unknown[]) => Promise.resolve());
+const killScratchMock = vi.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const destroyMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
