@@ -128,6 +128,16 @@ export interface CacheEntry {
   /** True after the snapshot RPC has resolved and pending chunks drained
    *  (or after a remount, where snapshot is skipped entirely). */
   snapshotReady: boolean;
+  /** 2026-06-10 finding 3 — WebGL addon held ONLY while attached to a real
+   *  host, so live GPU contexts ≈ visible panes instead of ≈ cache size
+   *  (Chromium caps ~16 WebGL contexts per process; the cache holds 32).
+   *  Null while parked (the DOM-renderer-free buffer still parses bytes). */
+  webglAddon: WebglAddon | null;
+  /** 2026-06-10 finding 5a — mutable holder for the LATEST mount's context.
+   *  The linkHandler/WebLinks closures read through this ref, and the cache-
+   *  hit path refreshes it, so links always route via the current mount's
+   *  wsIdRef + surfaceBrowser instead of the first mount's dead refs. */
+  ctxRef: { current: TerminalCacheContext };
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -176,7 +186,7 @@ const THEME = {
   brightWhite: '#f8fafc',
 } as const;
 
-function buildTerminalOptions(ctx: TerminalCacheContext): ITerminalOptions {
+function buildTerminalOptions(ctxRef: { current: TerminalCacheContext }): ITerminalOptions {
   return {
     fontFamily:
       'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace',
@@ -190,10 +200,12 @@ function buildTerminalOptions(ctx: TerminalCacheContext): ITerminalOptions {
     convertEol: true,
     // V3-W13-002 — OSC8 hyperlink activation. Plain URLs go through the
     // WebLinksAddon below; this handles `\x1b]8;;…` sequences from CLIs
-    // like claude / gh / ripgrep --hyperlink.
+    // like claude / gh / ripgrep --hyperlink. Reads through ctxRef so a
+    // remount's fresh context takes effect (2026-06-10 finding 5a).
     linkHandler: {
       activate: (_event, text) => {
-        ctx.routeLinkClick(text, ctx.wsIdRef.current, ctx.surfaceBrowser);
+        const c = ctxRef.current;
+        c.routeLinkClick(text, c.wsIdRef.current, c.surfaceBrowser);
       },
     },
   };
@@ -210,14 +222,30 @@ export function copySelectionToClipboard(
   if (sel) void navigator.clipboard?.writeText(sel).catch(() => undefined);
 }
 
+/**
+ * 2026-06-10 finding 2 — an entry is "parked" when its xterm DOM root is in
+ * the offscreen parking lot (or was never attached anywhere). Entries whose
+ * root is parented by a REAL host are on-screen right now; destroying one
+ * blanks a visible pane (Terminal.tsx's runFit try/catch then swallows every
+ * subsequent fit). Only parked entries are eviction candidates.
+ */
+function isParked(entry: CacheEntry): boolean {
+  const root = entry.terminal.element;
+  if (!root || !root.parentNode) return true;
+  return parkingLot !== null && root.parentNode === parkingLot;
+}
+
 function evictOldestIfFull(): void {
   if (cache.size < TERMINAL_CACHE_LIMIT) return;
   // Prefer evicting entries whose PTY has already exited (they're effectively
   // read-only scrollback at this point); only then fall back to plain LRU
-  // among live sessions.
+  // among live sessions. 2026-06-10 finding 2: NEVER evict an entry attached
+  // to a real host — if every entry is attached (pathological: >cap mounted
+  // panes) we exceed the cap instead, which is bounded by mounted-pane count.
   let exitedVictim: CacheEntry | null = null;
   let liveVictim: CacheEntry | null = null;
   for (const entry of cache.values()) {
+    if (!isParked(entry)) continue;
     if (entry.ptyExited) {
       if (!exitedVictim || entry.lastAccessed < exitedVictim.lastAccessed) {
         exitedVictim = entry;
@@ -242,17 +270,22 @@ export function getOrCreateTerminal(
 ): CacheEntry {
   const existing = cache.get(sessionId);
   if (existing) {
+    // 2026-06-10 finding 5a — accept the latest mount's context so the
+    // link-handler closures stop reading the first mount's dead refs.
+    existing.ctxRef.current = ctx;
     existing.lastAccessed = Date.now();
     return existing;
   }
   evictOldestIfFull();
 
-  const term = new XTerm(buildTerminalOptions(ctx));
+  const ctxRef = { current: ctx };
+  const term = new XTerm(buildTerminalOptions(ctxRef));
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.loadAddon(
     new WebLinksAddon((_event, uri) => {
-      ctx.routeLinkClick(uri, ctx.wsIdRef.current, ctx.surfaceBrowser);
+      const c = ctxRef.current;
+      c.routeLinkClick(uri, c.wsIdRef.current, c.surfaceBrowser);
     }),
   );
 
@@ -262,33 +295,11 @@ export function getOrCreateTerminal(
   const parking = ensureParkingLot();
   term.open(parking);
 
-  // Renderer: load the WebGL renderer (must come AFTER open()). xterm 6's
-  // DEFAULT renderer is the DOM renderer, which rebuilds per-row <div>/<span>
-  // elements + injects a <style> block + does inline-block reflow on EVERY
-  // resize repaint — so resizing a pane made the terminal content visibly
-  // "glitch its way" to the new size. WebGL repaints on the GPU in one pass,
-  // so a resize reflow is near-instant.
-  //
-  // Best-effort + self-healing: if WebGL is unavailable (jsdom unit tests, a
-  // GPU blocklist) the load throws and we silently keep the DOM renderer; if
-  // Chromium later evicts this context (its ~16-WebGL-context-per-process cap,
-  // reachable with many panes) `onContextLoss` fires and we dispose the addon,
-  // at which point xterm automatically reverts to the DOM renderer — never a
-  // blank pane. The canvas lives inside `term.element`, so it survives the
-  // park/reattach DOM moves, and `term.dispose()` cascades to dispose it.
-  try {
-    const webgl = new WebglAddon();
-    webgl.onContextLoss(() => {
-      try {
-        webgl.dispose();
-      } catch {
-        /* already disposed — ignore */
-      }
-    });
-    term.loadAddon(webgl);
-  } catch {
-    /* WebGL unavailable — xterm's default DOM renderer remains active */
-  }
+  // 2026-06-10 finding 3 — the WebGL renderer is NO LONGER loaded at creation.
+  // It is an ATTACHED-ONLY concern (loadWebglAddon in attachToHost / disposed
+  // in detachFromHost), so live GPU contexts ≈ visible panes rather than ≈
+  // cache size. A parked terminal only parses bytes into its buffer and needs
+  // no renderer.
 
   // Wire keystrokes back to the PTY. This listener lives for the entry's
   // entire cache lifetime — only `destroy()` disposes it.
@@ -356,6 +367,8 @@ export function getOrCreateTerminal(
     lastAccessed: Date.now(),
     ptyExited: false,
     snapshotReady: false,
+    webglAddon: null,
+    ctxRef,
   };
   entryRef.current = entry;
   cache.set(sessionId, entry);
@@ -364,16 +377,51 @@ export function getOrCreateTerminal(
   // arrived between bus-subscribe and snapshot-resolve are in `pending`
   // and drain here. On hot-remount we never hit this path again because
   // the cache entry already exists.
+  //
+  // 2026-06-10 finding 5b — main appends to the ring buffer per raw chunk
+  // but coalesces the renderer broadcast (≤12ms, PERF-1), so a byte can be
+  // in BOTH the snapshot buffer and a pending live chunk. The pty.snapshot
+  // handler now flushes the coalescer before reading the ring (rpc-router),
+  // which — with ordered main→renderer IPC — guarantees every duplicated
+  // byte is in `pending` by the time the response lands. Here we drop the
+  // longest snapshot-tail / pending-head overlap, preserving per-chunk
+  // writes for the unseen remainder. The scan is capped: a duplicate window
+  // is at most one coalescer flush (~64KiB burst cap), and this runs once
+  // per cache miss.
   void (async () => {
+    let snapBuffer = '';
     try {
       const snap = await rpc.pty.snapshot(sessionId);
       if (!cache.has(sessionId)) return;
-      if (snap.buffer) term.write(snap.buffer);
+      if (snap.buffer) {
+        snapBuffer = snap.buffer;
+        term.write(snapBuffer);
+      }
     } catch {
       /* snapshot is best-effort; the live subscription already captured
          everything since the bus listener attached. */
     }
-    for (const chunk of pending) term.write(chunk);
+    const joined = pending.join('');
+    let overlap = 0;
+    if (snapBuffer && joined) {
+      const MAX_OVERLAP_SCAN = 65_536; // coalescer maxBytes — the largest single flush
+      const max = Math.min(snapBuffer.length, joined.length, MAX_OVERLAP_SCAN);
+      for (let k = max; k > 0; k--) {
+        if (snapBuffer.endsWith(joined.slice(0, k))) {
+          overlap = k;
+          break;
+        }
+      }
+    }
+    let skip = overlap;
+    for (const chunk of pending) {
+      if (skip >= chunk.length) {
+        skip -= chunk.length;
+        continue;
+      }
+      term.write(skip > 0 ? chunk.slice(skip) : chunk);
+      skip = 0;
+    }
     pending.length = 0;
     snapshotDone = true;
     entry.snapshotReady = true;
@@ -383,32 +431,72 @@ export function getOrCreateTerminal(
 }
 
 /**
+ * 2026-06-10 finding 3 — WebGL renderer is an ATTACHED-ONLY concern. xterm 6's
+ * default DOM renderer rebuilds per-row DOM on every resize repaint (the
+ * pane-resize "glitch"), so visible panes want WebGL; parked terminals only
+ * parse bytes into the buffer and need no renderer at all. Loading here (and
+ * disposing in detachFromHost) keeps live GPU contexts ≈ visible panes,
+ * under Chromium's ~16-context cap.
+ *
+ * Best-effort + self-healing (unchanged from the creation-time version): if
+ * WebGL is unavailable (jsdom, GPU blocklist) the load throws and the DOM
+ * renderer stays; if Chromium evicts the context, `onContextLoss` disposes
+ * the addon and xterm reverts to the DOM renderer — never a blank pane. Must
+ * run AFTER term.open(), which always happened at creation (parking-lot open).
+ */
+function loadWebglAddon(entry: CacheEntry): void {
+  if (entry.webglAddon) return;
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => {
+      try {
+        webgl.dispose();
+      } catch {
+        /* already disposed — ignore */
+      }
+      if (entry.webglAddon === webgl) entry.webglAddon = null;
+    });
+    entry.terminal.loadAddon(webgl);
+    entry.webglAddon = webgl;
+  } catch {
+    /* WebGL unavailable — xterm's default DOM renderer remains active */
+  }
+}
+
+/**
  * Move the xterm DOM root from wherever it currently lives (parking lot
- * or previous host) into the provided container. Idempotent — safe to
- * call when the terminal is already mounted in `host`.
+ * or previous host) into the provided container, and bring up the WebGL
+ * renderer for the now-visible terminal. Idempotent — safe to call when
+ * the terminal is already mounted in `host`.
  */
 export function attachToHost(entry: CacheEntry, host: HTMLElement): void {
   const root = entry.terminal.element;
   if (!root) return;
-  if (root.parentNode === host) {
-    entry.lastAccessed = Date.now();
-    return;
-  }
-  host.appendChild(root);
+  if (root.parentNode !== host) host.appendChild(root);
   entry.lastAccessed = Date.now();
+  loadWebglAddon(entry);
 }
 
 /**
  * Park the xterm DOM root in the offscreen container without disposing
- * the terminal. Resize observers / focus listeners that the host wired
- * are NOT removed here — they belong to the host's React mount and are
- * torn down by the host's cleanup.
+ * the terminal, and release the WebGL context (finding 3) — a parked
+ * terminal only needs buffer parsing. Resize observers / focus listeners
+ * that the host wired are NOT removed here — they belong to the host's
+ * React mount and are torn down by the host's cleanup.
  */
 export function detachFromHost(entry: CacheEntry): void {
   const root = entry.terminal.element;
   if (!root) return;
   const parking = ensureParkingLot();
   if (root.parentNode !== parking) parking.appendChild(root);
+  if (entry.webglAddon) {
+    try {
+      entry.webglAddon.dispose();
+    } catch {
+      /* already disposed (e.g. context loss raced) — ignore */
+    }
+    entry.webglAddon = null;
+  }
 }
 
 /**

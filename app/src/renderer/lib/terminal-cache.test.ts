@@ -96,6 +96,24 @@ vi.mock('@xterm/addon-web-links', () => ({
   WebLinksAddon: class {},
 }));
 
+// 2026-06-10 finding 3 — observable WebGL addon lifecycle. The real addon
+// needs a GPU context; this mock records construction/dispose so tests can
+// assert "contexts ≈ visible panes".
+interface MockWebgl {
+  dispose: ReturnType<typeof vi.fn>;
+  onContextLoss: ReturnType<typeof vi.fn>;
+}
+const createdWebgls: MockWebgl[] = [];
+vi.mock('@xterm/addon-webgl', () => ({
+  WebglAddon: class {
+    dispose = vi.fn();
+    onContextLoss = vi.fn();
+    constructor() {
+      createdWebgls.push(this as unknown as MockWebgl);
+    }
+  },
+}));
+
 // `@xterm/xterm/css/xterm.css` import in terminal-cache.ts side-channel
 // (we don't import the .ts module's css — the cache module does NOT import
 // the css, only Terminal.tsx does — confirmed by reading the source).
@@ -170,6 +188,7 @@ let sigma: SigmaStub;
 beforeEach(async () => {
   nextTermId = 0;
   createdTerms.length = 0;
+  createdWebgls.length = 0;
   snapshotControllers = new Map();
   snapshotMock = vi.fn((sessionId: string) => {
     return new Promise<{ buffer: string }>((resolve, reject) => {
@@ -460,6 +479,172 @@ describe('stripDeviceAttributesResponses (SF-3)', () => {
   it('strips multiple DA replies in one chunk', async () => {
     const { stripDeviceAttributesResponses } = await import('./terminal-cache');
     expect(stripDeviceAttributesResponses('\x1b[?1;2c\x1b[>0;1;0c')).toBe('');
+  });
+});
+
+// ── 2026-06-10 finding 2 — LRU eviction must skip host-attached terminals ───
+describe('terminal-cache — eviction guard (2026-06-10 finding 2)', () => {
+  it('never evicts an entry attached to a real host, even when it is the LRU', async () => {
+    const { getOrCreateTerminal, attachToHost, hasCached, TERMINAL_CACHE_LIMIT } =
+      await import('./terminal-cache');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    // Deterministic lastAccessed ordering: advance the clock 1ms per entry.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      const entries = [];
+      for (let i = 0; i < TERMINAL_CACHE_LIMIT; i++) {
+        entries.push(getOrCreateTerminal(`evict-${i}`, ctx));
+        vi.setSystemTime(1_000_000 + (i + 1) * 1000);
+      }
+      // evict-0 is the LRU — but it is ON-SCREEN (attached to a real host).
+      // attachToHost bumps lastAccessed, so re-pin it as oldest afterwards.
+      attachToHost(entries[0]!, host);
+      entries[0]!.lastAccessed = 0;
+
+      // 33rd entry forces an eviction.
+      getOrCreateTerminal('evict-overflow', ctx);
+
+      // The attached LRU survives; the oldest PARKED entry (evict-1) died.
+      expect(hasCached('evict-0')).toBe(true);
+      expect(hasCached('evict-1')).toBe(false);
+      expect(hasCached('evict-overflow')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('exceeds the cap rather than evict when every entry is attached', async () => {
+    const { getOrCreateTerminal, attachToHost, getCacheSize, TERMINAL_CACHE_LIMIT } =
+      await import('./terminal-cache');
+    for (let i = 0; i < TERMINAL_CACHE_LIMIT; i++) {
+      const entry = getOrCreateTerminal(`pin-${i}`, ctx);
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      attachToHost(entry, host);
+    }
+    getOrCreateTerminal('pin-overflow', ctx);
+    // Nothing was destroyable — the cache grows past the cap (bounded by
+    // the number of mounted panes), instead of blanking a visible pane.
+    expect(getCacheSize()).toBe(TERMINAL_CACHE_LIMIT + 1);
+  });
+});
+
+// ── 2026-06-10 finding 5b — snapshot ∩ pending dedup (no double-written text) ─
+describe('terminal-cache — snapshot drain dedup (2026-06-10 finding 5b)', () => {
+  it('drops a pending chunk fully contained in the snapshot tail', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    const entry = getOrCreateTerminal('dedup-1', ctx);
+    const term = entry.terminal as unknown as MockTerm;
+
+    // The chunk reaches the renderer through the live bus AND was already in
+    // the main ring buffer when the snapshot was read (the 12ms coalescer
+    // window) — i.e. the snapshot ENDS with it.
+    emitData('dedup-1', 'AAA');
+    snapshotControllers.get('dedup-1')?.resolve({ buffer: 'PREFIX-AAA' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(term.__writes).toEqual(['PREFIX-AAA']); // 'AAA' NOT written twice
+  });
+
+  it('trims a partial overlap and writes only the unseen suffix', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    const entry = getOrCreateTerminal('dedup-2', ctx);
+    const term = entry.terminal as unknown as MockTerm;
+
+    emitData('dedup-2', 'BBCC'); // 'BB' is already in the snapshot; 'CC' is new
+    snapshotControllers.get('dedup-2')?.resolve({ buffer: 'XX-BB' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(term.__writes).toEqual(['XX-BB', 'CC']);
+  });
+
+  it('handles overlap spanning multiple pending chunks', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    const entry = getOrCreateTerminal('dedup-3', ctx);
+    const term = entry.terminal as unknown as MockTerm;
+
+    emitData('dedup-3', 'AB'); // entirely duplicated
+    emitData('dedup-3', 'CD'); // 'C' duplicated, 'D' new
+    snapshotControllers.get('dedup-3')?.resolve({ buffer: 'snap:ABC' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(term.__writes).toEqual(['snap:ABC', 'D']);
+  });
+});
+
+// ── 2026-06-10 finding 5a — cache hit refreshes the link-routing context ────
+describe('terminal-cache — ctx refresh on cache hit (2026-06-10 finding 5a)', () => {
+  it('routes link clicks through the LATEST mount ctx, not the first', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+
+    const routeA = vi.fn();
+    const ctxA = { wsIdRef: { current: 'ws-A' as string | undefined }, routeLinkClick: routeA };
+    getOrCreateTerminal('ctx-1', ctxA);
+
+    // Remount with a FRESH ctx (new wsIdRef holder — exactly what a new
+    // SessionTerminal mount produces) pointing at a different workspace.
+    const routeB = vi.fn();
+    const surfaceB = vi.fn();
+    const ctxB = {
+      wsIdRef: { current: 'ws-B' as string | undefined },
+      routeLinkClick: routeB,
+      surfaceBrowser: surfaceB,
+    };
+    getOrCreateTerminal('ctx-1', ctxB);
+
+    // Drive the OSC8 linkHandler captured at construction.
+    const opts = createdTerms[0]!.__ctorArg as {
+      linkHandler: { activate: (e: unknown, text: string) => void };
+    };
+    opts.linkHandler.activate(null, 'https://example.com');
+
+    expect(routeB).toHaveBeenCalledWith('https://example.com', 'ws-B', surfaceB);
+    expect(routeA).not.toHaveBeenCalled();
+  });
+});
+
+// ── 2026-06-10 finding 3 — WebGL renderer only while attached to a host ─────
+describe('terminal-cache — WebGL attach/detach lifecycle (2026-06-10 finding 3)', () => {
+  it('does NOT load the WebGL addon at creation (parked terminals parse buffers only)', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    getOrCreateTerminal('webgl-1', ctx);
+    expect(createdWebgls.length).toBe(0);
+  });
+
+  it('loads WebGL on attachToHost and disposes it on detachFromHost', async () => {
+    const { getOrCreateTerminal, attachToHost, detachFromHost } =
+      await import('./terminal-cache');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    const entry = getOrCreateTerminal('webgl-2', ctx);
+    attachToHost(entry, host);
+    expect(createdWebgls.length).toBe(1);
+    // Registered the context-loss self-heal before loading.
+    expect(createdWebgls[0]!.onContextLoss).toHaveBeenCalledTimes(1);
+
+    detachFromHost(entry);
+    expect(createdWebgls[0]!.dispose).toHaveBeenCalledTimes(1);
+
+    // Re-attach builds a FRESH addon (contexts track visible panes).
+    attachToHost(entry, host);
+    expect(createdWebgls.length).toBe(2);
+  });
+
+  it('attachToHost is idempotent — re-attaching to the same host loads no second addon', async () => {
+    const { getOrCreateTerminal, attachToHost } = await import('./terminal-cache');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const entry = getOrCreateTerminal('webgl-3', ctx);
+    attachToHost(entry, host);
+    attachToHost(entry, host);
+    expect(createdWebgls.length).toBe(1);
   });
 });
 

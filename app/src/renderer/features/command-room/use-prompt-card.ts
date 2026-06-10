@@ -11,26 +11,25 @@
 //
 // Re-buffering: `pty:data` chunks are coalesced on the main side (PERF-1) so a
 // single SIGMA::PROMPT line can be split across chunks (or share a chunk with
-// other output). We feed every chunk through `ProtocolLineBuffer` — the SAME
-// newline splitter the swarm watcher uses (factory-spawn.ts) — so only COMPLETE
-// lines are parsed. We import it from the shared protocol module rather than
-// re-implementing it: protocol.ts is a pure module (no node/electron deps) and
-// the renderer already imports values from `@/main/core/*` (see canDo.ts /
-// AppearanceTab.tsx), so there is no bundling hazard and no drift risk.
+// other output). 2026-06-10 finding 4: the bus has no replay, so a watcher that
+// only lived while PaneShell was mounted lost prompt lines that arrived during a
+// room/workspace switch. Parsing + prompt state now live in the module-scope
+// `prompt-watcher` (installed on the first enabled mount and persisting across
+// unmounts); this hook is a thin React adapter over it.
 //
 // OPT-IN: the hook is inert unless `enabled` is true. The caller gates that on
 // the `pty.promptCards` KV flag (default OFF) to avoid false positives on
 // untrusted PTY output.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
+import type { PromptPayload } from '@/main/core/swarms/protocol';
 import {
-  ProtocolLineBuffer,
-  isPromptPayload,
-  parseProtocolLine,
-  type PromptPayload,
-} from '@/main/core/swarms/protocol';
-import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
+  clearActivePrompt,
+  ensurePromptWatcher,
+  getActivePrompt,
+  subscribeActivePrompt,
+} from '@/renderer/lib/prompt-watcher';
 
 export interface UsePromptCardResult {
   /** The active prompt, or null when none is pending. */
@@ -47,43 +46,34 @@ export interface UsePromptCardResult {
 }
 
 /**
- * FEAT-4 prompt-card hook. Subscribes to `sessionId`'s PTY stream (when
- * `enabled`), surfaces the first valid `SIGMA::PROMPT` line as `prompt`, and
- * writes the operator's choice back to stdin on `answer`.
+ * FEAT-4 prompt-card hook. 2026-06-10 finding 4: parsing + prompt state live
+ * in the module-scope prompt-watcher (installed on the first enabled mount and
+ * persisting across unmounts, because the pty-data bus has no replay). This
+ * hook is a thin React adapter: it ensures the watcher exists, mirrors the
+ * module state via useSyncExternalStore, and writes answers back to stdin.
  */
 export function usePromptCard(sessionId: string, enabled: boolean): UsePromptCardResult {
-  const [prompt, setPrompt] = useState<PromptPayload | null>(null);
-  // Keep a ref so the answer/dismiss callbacks have stable identity and don't
-  // re-create the subscription on every prompt change.
+  // Keep a ref so the answer/dismiss callbacks have stable identity.
   const sessionRef = useRef(sessionId);
   useEffect(() => {
     sessionRef.current = sessionId;
   }, [sessionId]);
 
+  // Install the persistent watcher on the first enabled mount. Deliberately
+  // NOT torn down on unmount/disable — that persistence IS the fix; the GC
+  // hook disposes it when the session leaves app state.
   useEffect(() => {
-    // When disabled we do not subscribe. Any prompt that was active before the
-    // feature was turned off is cleared by the previous effect run's cleanup
-    // (which calls setPrompt(null)) — so we deliberately avoid a synchronous
-    // setState in the effect body here.
     if (!enabled) return;
-    // A fresh buffer per (session, enabled) subscription — a new pane or a
-    // re-enable starts from a clean partial-line accumulator.
-    const buf = new ProtocolLineBuffer();
-    const unsubscribe = subscribePtyData(sessionId, ({ data }) => {
-      buf.push(data, (line) => {
-        const parsed = parseProtocolLine(line);
-        if (!parsed || parsed.verb !== 'PROMPT') return;
-        if (!isPromptPayload(parsed.payload)) return;
-        // Latest valid prompt wins. We intentionally do NOT queue: a pane asks
-        // one question at a time, and a newer question supersedes a stale one.
-        setPrompt(parsed.payload);
-      });
-    });
-    return () => {
-      unsubscribe();
-      setPrompt(null);
-    };
+    ensurePromptWatcher(sessionId);
   }, [sessionId, enabled]);
+
+  const subscribe = useCallback(
+    (cb: () => void) => subscribeActivePrompt(sessionId, cb),
+    [sessionId],
+  );
+  const getSnapshot = useCallback(() => getActivePrompt(sessionId), [sessionId]);
+  const live = useSyncExternalStore(subscribe, getSnapshot);
+  const prompt = enabled ? live : null;
 
   const answer = useCallback((choices: string[]) => {
     // C1 (review) — `choices` are AGENT-controlled (decoded from the SIGMA::PROMPT
@@ -101,11 +91,11 @@ export function usePromptCard(sessionId: string, enabled: boolean): UsePromptCar
     void rpc.pty.write(sessionRef.current, `${text}\n`).catch(() => {
       /* registry swallows unknown-session writes; nothing to surface here */
     });
-    setPrompt(null);
+    clearActivePrompt(sessionRef.current);
   }, []);
 
   const dismiss = useCallback(() => {
-    setPrompt(null);
+    clearActivePrompt(sessionRef.current);
   }, []);
 
   return { prompt, answer, dismiss };

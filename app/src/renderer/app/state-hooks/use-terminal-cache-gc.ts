@@ -17,6 +17,8 @@
 import { useEffect, useRef } from 'react';
 import type { AppState } from '../state.types';
 import { destroy, hasCached } from '@/renderer/lib/terminal-cache';
+import { closeScratchForParent, getScratchParentIds } from '@/renderer/lib/scratch-tabs';
+import { disposePromptWatcher } from '@/renderer/lib/prompt-watcher';
 
 export function useTerminalCacheGc(state: AppState): void {
   // Track every sessionId we've seen so a one-shot vanishing (session was
@@ -36,9 +38,21 @@ export function useTerminalCacheGc(state: AppState): void {
     for (const session of state.sessions) seenNow.add(session.id);
 
     // Anything in everSeen but not in seenNow disappeared this tick;
-    // dispose its cache entry (if any).
+    // dispose its cache entry (if any) AND its scratch sub-tabs — this is
+    // the single choke point that sees all three REMOVE_SESSION dispatch
+    // sites (explicit close, relaunch, exited-grace GC). 2026-06-10
+    // finding 1: scratch ids never appear in state, so they must be reaped
+    // via their PARENT id here.
     for (const id of everSeen.current) {
-      if (!seenNow.has(id) && hasCached(id)) destroy(id);
+      if (seenNow.has(id)) continue;
+      if (hasCached(id)) destroy(id);
+      closeScratchForParent(id);
+      disposePromptWatcher(id); // 2026-06-10 finding 4 — no-op if never watched
+    }
+    // Defence in depth: scratch parents the store knows about that are not
+    // in state at all (e.g. state slices replaced wholesale) get swept too.
+    for (const parentId of getScratchParentIds()) {
+      if (!seenNow.has(parentId)) closeScratchForParent(parentId);
     }
     // Persist the merged set for next-tick diff. We only ADD here; once
     // a session id has appeared once we keep tracking it until it's gone.

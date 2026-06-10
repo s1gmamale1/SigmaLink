@@ -987,6 +987,13 @@ async function buildRouter() {
       pty.kill(sessionId);
     },
     snapshot: async (sessionId: string) => {
+      // 2026-06-10 finding 5b — broadcast any coalesced-but-unsent bytes for
+      // this session BEFORE reading the ring buffer. Main→renderer IPC is
+      // ordered, so the flushed `pty:data` lands before this RPC response —
+      // every byte in the returned buffer that the renderer will also see
+      // live is then sitting in its pre-snapshot pending queue, where the
+      // terminal-cache drain dedups it (no double-written text on attach).
+      ptyDataCoalescer.flush(sessionId);
       return { buffer: pty.snapshot(sessionId) };
     },
     subscribe: async (sessionId: string) => {
