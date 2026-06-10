@@ -20,6 +20,7 @@ import type Database from 'better-sqlite3';
 import { canonicalPathKey, pathKeyIsWithin } from '../util/path-key';
 import type { PtyRegistry } from '../pty/registry';
 import type { ProcessTreeSnapshot } from '../process/process-tree';
+import { collectKeptWorktreePaths } from './worktree-cleanup';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,7 +30,7 @@ import type { ProcessTreeSnapshot } from '../process/process-tree';
 export interface PruneWorktreeResult {
   /** Paths that were (or would be) removed. */
   wouldRemove: string[];
-  /** Paths that were skipped because a live (starting|running) session owns them. */
+  /** Paths skipped because the keep-fence holds them (live, resume-eligible exited/-1, or exited <7d ago). */
   liveBlocked: string[];
   /** Number of dirs actually deleted (0 on dryRun). */
   removed: number;
@@ -72,34 +73,17 @@ export interface RemoveWorkspaceAndGcResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the set of worktree paths currently held by live (starting|running)
- * sessions that belong to `workspaceId`.  This is the safety fence — we never
- * delete these dirs.
- */
-function liveWorktreePaths(db: Database.Database, workspaceId: string): Set<string> {
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT worktree_path
-       FROM agent_sessions
-       WHERE workspace_id = ?
-         AND worktree_path IS NOT NULL
-         AND status IN ('starting','running')`,
-    )
-    .all(workspaceId) as Array<{ worktree_path: string }>;
-  return new Set(rows.map((r) => canonicalPathKey(r.worktree_path)));
-}
-
-/**
  * Core dir-level prune logic, shared by `pruneOrphanWorktreesForWorkspace`
  * and the GC pass inside `removeWorkspaceAndGc`.
  *
- * Lists dirs under `<worktreeBase>/<repoHash>/`, cross-references the live
- * fence, then removes (or dry-runs) anything outside it.
+ * Lists dirs under `<worktreeBase>/<repoHash>/`, cross-references the keep-fence
+ * (live, resume-eligible, or recently-exited sessions), then removes (or
+ * dry-runs) anything outside it.
  */
 async function pruneRepoDir(
   worktreeBase: string,
   repoHash: string,
-  livePaths: Set<string>,
+  keepPaths: Set<string>,
   dryRun: boolean,
 ): Promise<Omit<PruneWorktreeResult, 'liveBlocked'> & { liveBlocked: string[] }> {
   const normalBase = path.normalize(worktreeBase);
@@ -111,9 +95,12 @@ async function pruneRepoDir(
     return { wouldRemove: [], liveBlocked: [], removed: 0, errors: 0 };
   }
 
-  let entries: string[];
+  let entries: Array<{ name: string; isDirectory: () => boolean }>;
   try {
-    entries = await fs.readdir(repoDir);
+    entries = (await fs.readdir(repoDir, { withFileTypes: true })) as Array<{
+      name: string;
+      isDirectory: () => boolean;
+    }>;
   } catch {
     return { wouldRemove: [], liveBlocked: [], removed: 0, errors: 0 };
   }
@@ -122,8 +109,11 @@ async function pruneRepoDir(
   const liveBlocked: string[] = [];
 
   for (const entry of entries) {
-    const full = path.join(repoDir, entry);
-    if (livePaths.has(canonicalPathKey(full))) {
+    // 2026-06-10 audit (finding 3): dirs only. A stray FILE in the repoHash
+    // dir (.DS_Store, crash artifact, …) must never be rm-rf'd by the reaper.
+    if (!entry.isDirectory()) continue;
+    const full = path.join(repoDir, entry.name);
+    if (keepPaths.has(canonicalPathKey(full))) {
       liveBlocked.push(full);
     } else {
       wouldRemove.push(full);
@@ -157,7 +147,8 @@ export interface PruneOrphanWorktreesInput {
   worktreeBase: string;
   /** SHA-like hash segment of the repo root (computed by `repoHash()`). */
   repoHash: string;
-  /** Workspace id — used to scope the live-session fence query. */
+  /** Workspace id — retained for RPC compatibility; the keep-fence is global
+   *  (shared repoHash dir per repo since migration 0034). */
   workspaceId: string;
   /** Raw better-sqlite3 handle (never import getDb here — testability). */
   db: Database.Database;
@@ -166,17 +157,29 @@ export interface PruneOrphanWorktreesInput {
 }
 
 /**
- * Exposes the best-effort orphan worktree cleanup already run on
- * `workspaces.open` as a manual trigger.  Safe: live sessions fence applies;
- * no DB rows are touched.
+ * Exposes the orphan worktree cleanup as a manual trigger (RPC
+ * `cleanup.pruneWorktrees`). Safe: the keep-fence applies; no DB rows are
+ * touched.
+ *
+ * 2026-06-10 audit (finding 1, CRIT): the fence is GLOBAL and uses the shared
+ * keep-predicate from worktree-cleanup.ts (keep ⊇ use):
+ *  (a) resume (resume-launcher.listEligibleRows) and respawn
+ *      (listRespawnableRows) still consume exited/-1 rows — a fence of only
+ *      starting|running deletes worktrees resume will re-spawn into
+ *      (the 93fbca6 regression class).
+ *  (b) `<worktreeBase>/<repoHash>/` is keyed by repoHash(repoRoot)
+ *      (git-ops.ts:38) and is SHARED by every workspace on the same repo
+ *      since migration 0034 — a per-workspace fence rm-rf's sibling
+ *      workspaces' RUNNING worktrees. `input.workspaceId` is retained for
+ *      RPC compatibility but deliberately does NOT scope the fence.
  */
 export async function pruneOrphanWorktreesForWorkspace(
   input: PruneOrphanWorktreesInput,
 ): Promise<PruneWorktreeResult> {
-  const { worktreeBase, repoHash, workspaceId, db, dryRun } = input;
+  const { worktreeBase, repoHash, db, dryRun } = input;
 
-  const live = liveWorktreePaths(db, workspaceId);
-  return pruneRepoDir(worktreeBase, repoHash, live, dryRun);
+  const keep = collectKeptWorktreePaths(db);
+  return pruneRepoDir(worktreeBase, repoHash, keep, dryRun);
 }
 
 // ---------------------------------------------------------------------------
@@ -308,29 +311,44 @@ export async function removeWorkspaceAndGc(
     (r) => r.status !== 'starting' && r.status !== 'running',
   );
 
-  // Step 2: GC orphan worktrees (only when we have a repoHash to key on).
+  // Step 2 — 2026-06-10 audit (finding 2): when stopLiveSessions is set,
+  // kill the PTYs and delete the rows BEFORE the worktree GC. The old order
+  // (prune → kill → delete) spared live worktrees then deleted their rows,
+  // leaving dirs the boot sweep's cold-install guard (worktree-cleanup.ts)
+  // can never reap once the repo has zero remaining rows.
+  if (!dryRun && stopLiveSessions) {
+    for (const id of liveBlockedSessionIds) {
+      pty?.stop(id, { tree: true, forget: true });
+    }
+    if (sessionRows.length > 0) {
+      db.prepare('DELETE FROM agent_sessions WHERE workspace_id = ?').run(workspaceId);
+    }
+  }
+
+  // Step 3: GC orphan worktrees (only when we have a repoHash to key on).
+  // Fence = the shared keep-predicate across ALL sessions, minus exactly the
+  // rows this call deletes (or would delete on dryRun) — deleted rows' dirs
+  // are reaped in the same pass while sibling workspaces' worktrees in the
+  // shared repoHash dir stay fenced.
   const effectiveHash = repoHash ?? null;
   let worktreeCount = 0;
   let liveBlockedWorktrees: string[] = [];
   let worktreeErrors = 0;
 
   if (effectiveHash) {
-    const live = liveWorktreePaths(db, workspaceId);
-    const pruneResult = await pruneRepoDir(worktreeBase, effectiveHash, live, dryRun);
+    const excludeSessionIds = new Set(
+      (stopLiveSessions ? sessionRows : nonLiveSessionRows).map((r) => r.id),
+    );
+    const keep = collectKeptWorktreePaths(db, { excludeSessionIds });
+    const pruneResult = await pruneRepoDir(worktreeBase, effectiveHash, keep, dryRun);
     worktreeCount = dryRun ? pruneResult.wouldRemove.length : pruneResult.removed;
     liveBlockedWorktrees = pruneResult.liveBlocked;
     worktreeErrors = pruneResult.errors;
   }
 
-  // Step 3+4: Mutate DB (skipped in dry-run).
+  // Step 4: remaining DB mutations (skipped in dry-run).
   if (!dryRun) {
     if (stopLiveSessions) {
-      for (const id of liveBlockedSessionIds) {
-        pty?.stop(id, { tree: true, forget: true });
-      }
-      if (sessionRows.length > 0) {
-        db.prepare('DELETE FROM agent_sessions WHERE workspace_id = ?').run(workspaceId);
-      }
       db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
     } else {
       if (nonLiveSessionRows.length > 0) {

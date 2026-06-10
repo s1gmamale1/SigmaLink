@@ -157,4 +157,14 @@ describe('gcScrollback()', () => {
     unlinkSync.mockImplementation(() => { throw new Error('EPERM'); });
     expect(() => gcScrollback('/userData', new Set())).not.toThrow();
   });
+
+  it('removes crash-orphaned .log.tmp files for dead sessions (2026-06-10 audit, finding 4)', () => {
+    readdirSync.mockReturnValue(['dead.log.tmp', 'live.log.tmp', 'dead2.log', 'notlog.txt']);
+    const liveIds = new Set(['live']);
+    gcScrollback('/userData', liveIds);
+    expect(unlinkSync).toHaveBeenCalledTimes(2);
+    expect(unlinkSync).toHaveBeenCalledWith(expect.stringMatching(/dead\.log\.tmp$/));
+    expect(unlinkSync).toHaveBeenCalledWith(expect.stringMatching(/dead2\.log$/));
+    expect(unlinkSync).not.toHaveBeenCalledWith(expect.stringMatching(/live\.log\.tmp$/));
+  });
 });

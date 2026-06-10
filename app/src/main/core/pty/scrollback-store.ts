@@ -74,8 +74,8 @@ export function loadScrollback(userDataDir: string, sessionId: string): string {
  * Remove scrollback files for sessions that are no longer live.
  *
  * Called once at boot with the set of session IDs that are present in the DB
- * (or otherwise considered still live). Any `.log` files whose base names are
- * NOT in `liveSessionIds` are deleted best-effort.
+ * (or otherwise considered still live). Any `.log` or crash-orphaned `.log.tmp`
+ * files whose base names are NOT in `liveSessionIds` are deleted best-effort.
  *
  * Never throws.
  */
@@ -89,8 +89,18 @@ export function gcScrollback(userDataDir: string, liveSessionIds: ReadonlySet<st
       return; // dir doesn't exist yet — nothing to GC
     }
     for (const entry of entries) {
-      if (!entry.endsWith('.log')) continue;
-      const sessionId = entry.slice(0, -'.log'.length);
+      // 2026-06-10 audit (finding 4): also reap crash-orphaned `.log.tmp`.
+      // persistScrollback writes tmp → rename, so any tmp that survives to
+      // the next boot is debris from a mid-write crash. Same liveness rule
+      // as `.log`: a live session's stale tmp is overwritten by its next
+      // persist anyway.
+      const suffix = entry.endsWith('.log.tmp')
+        ? '.log.tmp'
+        : entry.endsWith('.log')
+          ? '.log'
+          : null;
+      if (suffix === null) continue;
+      const sessionId = entry.slice(0, -suffix.length);
       if (!liveSessionIds.has(sessionId)) {
         try {
           fs.unlinkSync(path.join(dir, entry));
