@@ -31,6 +31,7 @@ import { PaneSplash } from './PaneSplash';
 import { PaneFooter } from './PaneFooter';
 import { insertMention } from './insertMention';
 import { insertSkillCommand, isSlashCapableProvider } from './insertSkillCommand';
+import { isImageCapableProvider } from '@/shared/providers';
 import { pathRelative } from '@/renderer/lib/path-relative';
 import type { AgentSession } from '@/shared/types';
 import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
@@ -186,6 +187,28 @@ export function PaneShell({
     }
   }, [session.id]);
 
+  // Spec 2026-06-10 (B) — stage image bytes via panes.stageImage and inject the
+  // ABSOLUTE @path (insertMention prefixes '@'). Absolute (not workspace-
+  // relative) because screenshots live outside the workspace (/var/folders/…)
+  // and the CLI must open the file from the prompt path alone. Shared by the
+  // drop branch and (Task 6) the paste interceptor.
+  const stageAndInsertImages = useCallback(
+    async (imageFiles: File[]): Promise<void> => {
+      for (const file of imageFiles) {
+        try {
+          const buf = await file.arrayBuffer();
+          const ext = (file.type.split('/')[1] ?? 'png').toLowerCase();
+          const { absPath } = await rpc.panes.stageImage({ bytesBase64: arrayBufferToBase64(buf), ext });
+          await insertMention(session.id, absPath, session.status);
+          toast.success('Screenshot staged for the agent', { description: absPath });
+        } catch (err) {
+          toast.error('Could not stage image', { description: err instanceof Error ? err.message : String(err) });
+        }
+      }
+    },
+    [session.id, session.status],
+  );
+
   // Cmd+T (macOS) / Ctrl+Shift+T (other) — open a scratch tab when this pane
   // container (or any element inside it) holds keyboard focus.
   // Scope guard: only fires when the event target is INSIDE our container, so
@@ -310,8 +333,17 @@ export function PaneShell({
       });
     }
     const capped = files.slice(0, MAX_DROP_FILES);
+    // Spec 2026-06-10 (B) — image files on an image-capable pane are staged
+    // (bytes → temp file → absolute @path) so the CLI can READ the image;
+    // previously they degraded to a fragile relative path-mention with the
+    // bytes never read. Everything else keeps the mention behaviour.
+    const imageFiles = isImageCapableProvider(session.providerId)
+      ? capped.filter((f) => f.type.startsWith('image/'))
+      : [];
+    if (imageFiles.length > 0) void stageAndInsertImages(imageFiles);
+    const pathFiles = capped.filter((f) => !imageFiles.includes(f));
     const paths: string[] = [];
-    for (const file of capped) {
+    for (const file of pathFiles) {
       const absPath = window.sigma.getPathForFile(file);
       if (!absPath) continue;
       const rel = pathRelative(absPath, workspaceRootPath);
@@ -621,6 +653,18 @@ export function PaneShell({
       />
     </div>
   );
+}
+
+// Spec 2026-06-10 (B) — renderer-side ArrayBuffer→base64 (no Buffer in the
+// renderer). Chunked to stay under the fromCharCode argument-count limit.
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
 /**

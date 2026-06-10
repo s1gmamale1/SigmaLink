@@ -25,6 +25,7 @@ const toastWarningMock = vi.fn();
 const worktreeCreateMock = vi.fn();
 const openInPaneMock = vi.fn();
 const openNewWorkspaceMock = vi.fn();
+const stageImageMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -43,6 +44,9 @@ vi.mock('@/renderer/lib/rpc', () => ({
     },
     workspaces: {
       openNew: (...args: unknown[]) => openNewWorkspaceMock(...args),
+    },
+    panes: {
+      stageImage: (...args: unknown[]) => stageImageMock(...args),
     },
     // FEAT-4 — PaneShell reads the pty.promptCards gate on mount. Default OFF
     // (null) so the prompt-card feature stays inert in these scratch-tab tests.
@@ -123,6 +127,7 @@ beforeEach(() => {
   worktreeCreateMock.mockReset();
   openInPaneMock.mockReset();
   openNewWorkspaceMock.mockReset();
+  stageImageMock.mockReset();
   createWorktreeModalOpenChangeMock.mockReset();
   capturedCreateWorktreeModalProps = null;
   // Default: spawnScratch resolves with a fresh id each time.
@@ -744,5 +749,119 @@ describe('pane context-menu Copy/Paste (spec 2026-06-10 C)', () => {
     });
 
     await vi.waitFor(() => expect(ptyWriteMock).toHaveBeenCalledWith(expect.any(String), 'pasted!'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Spec 2026-06-10 (B) — image drop staging
+// ---------------------------------------------------------------------------
+
+describe('image drop staging (spec 2026-06-10 B)', () => {
+  function dropEvent(files: File[]) {
+    return {
+      dataTransfer: { types: ['Files'], files: files as unknown as FileList, getData: () => '' } as unknown as DataTransfer,
+      preventDefault: () => undefined,
+    };
+  }
+
+  it('stages an image on a claude pane and injects the ABSOLUTE @path', async () => {
+    stageImageMock.mockResolvedValue({ absPath: '/tmp/staged/img.png' });
+
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'claude', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'claude', name: 'Claude' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+      />,
+    );
+
+    const bytes = new Uint8Array([1, 2, 3]);
+    const file = new File([bytes], 'shot.png', { type: 'image/png' });
+    // jsdom may not implement arrayBuffer — stub it if missing
+    if (typeof file.arrayBuffer !== 'function') {
+      Object.defineProperty(file, 'arrayBuffer', {
+        value: () => Promise.resolve(bytes.buffer),
+      });
+    }
+
+    fireEvent.drop(screen.getByTestId('pane-body'), dropEvent([file]));
+
+    await vi.waitFor(() =>
+      expect(stageImageMock).toHaveBeenCalledWith(expect.objectContaining({ ext: 'png' })),
+    );
+    // insertMention writes '@<absPath> ' via rpc.pty.write
+    await vi.waitFor(() =>
+      expect(ptyWriteMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining('/tmp/staged/img.png'),
+      ),
+    );
+  });
+
+  it('keeps the relative path-mention for an image on a NON-image provider (shell)', async () => {
+    // Override getPathForFile to return a real abs path for this test
+    Object.defineProperty(window, 'sigma', {
+      value: { getPathForFile: () => '/abs/shot.png', invoke: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'shell', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'shell', name: 'Shell' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+      />,
+    );
+
+    const file = new File([new Uint8Array([1])], 'shot.png', { type: 'image/png' });
+    fireEvent.drop(screen.getByTestId('pane-body'), dropEvent([file]));
+
+    await Promise.resolve();
+    expect(stageImageMock).not.toHaveBeenCalled();
+    // Existing relative-mention path is taken via getPathForFile
+  });
+
+  it('keeps the path-mention for a NON-image file on a claude pane', async () => {
+    const { PaneShell } = await import('./PaneShell');
+    render(
+      <PaneShell
+        session={makeSession({ providerId: 'claude', status: 'running' })}
+        paneIndex={0}
+        providers={[{ id: 'claude', name: 'Claude' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+      />,
+    );
+
+    const file = new File(['hi'], 'notes.txt', { type: 'text/plain' });
+    fireEvent.drop(screen.getByTestId('pane-body'), dropEvent([file]));
+
+    await Promise.resolve();
+    expect(stageImageMock).not.toHaveBeenCalled();
   });
 });
