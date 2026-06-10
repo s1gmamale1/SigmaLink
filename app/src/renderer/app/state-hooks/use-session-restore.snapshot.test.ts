@@ -63,9 +63,9 @@ const resumeMock = vi.fn((workspaceId: string) =>
     skipped: [] as unknown[],
   }),
 );
-const listForWorkspaceMock = vi.fn(async (_wsId: string) => [] as unknown[]);
-const swarmsListMock = vi.fn(async (_wsId: string) => [] as unknown[]);
-const kvGetMock = vi.fn(async (_key: string) => null as string | null);
+const listForWorkspaceMock = vi.fn(async (): Promise<unknown[]> => []);
+const swarmsListMock = vi.fn(async (): Promise<unknown[]> => []);
+const kvGetMock = vi.fn(async (): Promise<string | null> => null);
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },

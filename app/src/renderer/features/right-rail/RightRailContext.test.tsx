@@ -6,12 +6,12 @@
 // <StrictMode> makes the double-fire observable, so the assert below is the
 // regression lock.
 
-import { StrictMode } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 
-const writeWorkspaceUiMock = vi.fn(async (..._a: unknown[]) => undefined);
-const readWorkspaceUiMock = vi.fn(async (..._a: unknown[]) => null as string | null);
+const writeWorkspaceUiMock = vi.fn(async (): Promise<undefined> => undefined);
+const readWorkspaceUiMock = vi.fn(async (): Promise<string | null> => null);
 vi.mock('@/renderer/lib/workspace-ui-kv', () => ({
   readWorkspaceUi: (...args: unknown[]) => readWorkspaceUiMock(...args),
   writeWorkspaceUi: (...args: unknown[]) => writeWorkspaceUiMock(...args),
@@ -37,9 +37,16 @@ vi.mock('@/renderer/app/state', () => ({
 import { RightRailProvider } from './RightRailContext';
 import { KV_OPEN, useRightRail, type RightRailContextValue } from './RightRailContext.data';
 
-let ctx: RightRailContextValue | null = null;
+// Capture the live context into a module ref via useEffect (not during render)
+// so the react-hooks/globals lint rule — which forbids writing module-scope
+// values during render — is satisfied. The effect runs synchronously inside
+// the test's act() wrappers, so ctxRef.current is up to date when asserted.
+const ctxRef: { current: RightRailContextValue | null } = { current: null };
 function Probe() {
-  ctx = useRightRail();
+  const value = useRightRail();
+  useEffect(() => {
+    ctxRef.current = value;
+  });
   return null;
 }
 
@@ -55,7 +62,7 @@ function renderProvider() {
 
 afterEach(() => {
   cleanup();
-  ctx = null;
+  ctxRef.current = null;
   vi.clearAllMocks();
 });
 
@@ -66,10 +73,10 @@ describe('RightRailContext — toggleRail KV write hygiene', () => {
     writeWorkspaceUiMock.mockClear();
 
     act(() => {
-      ctx?.toggleRail();
+      ctxRef.current?.toggleRail();
     });
 
-    expect(ctx?.railOpen).toBe(false); // default open → closed
+    expect(ctxRef.current?.railOpen).toBe(false); // default open → closed
     // Pre-fix: 2 calls (updater double-invoked under StrictMode).
     expect(writeWorkspaceUiMock).toHaveBeenCalledTimes(1);
     expect(writeWorkspaceUiMock).toHaveBeenCalledWith('ws1', KV_OPEN, 'false');
@@ -79,15 +86,15 @@ describe('RightRailContext — toggleRail KV write hygiene', () => {
     renderProvider();
     await act(async () => {});
     act(() => {
-      ctx?.toggleRail();
+      ctxRef.current?.toggleRail();
     });
     writeWorkspaceUiMock.mockClear();
 
     act(() => {
-      ctx?.toggleRail();
+      ctxRef.current?.toggleRail();
     });
 
-    expect(ctx?.railOpen).toBe(true);
+    expect(ctxRef.current?.railOpen).toBe(true);
     expect(writeWorkspaceUiMock).toHaveBeenCalledTimes(1);
     expect(writeWorkspaceUiMock).toHaveBeenCalledWith('ws1', KV_OPEN, 'true');
   });
