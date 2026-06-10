@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import {
   buildWindowsSpawnArgs,
+  buildWindowsOpenShellArgs,
   cmdEscapeArg,
   cmdEscapeCommandPath,
   resolveWindowsCommand,
@@ -136,5 +137,19 @@ describe('buildWindowsSpawnArgs', () => {
       command: 'powershell.exe',
       args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\\scripts\\tool.PS1', 'a&b'],
     });
+  });
+});
+
+describe('buildWindowsOpenShellArgs', () => {
+  it('builds a verbatim /k cd-line that survives paths with spaces', () => {
+    const r = buildWindowsOpenShellArgs('C:\\Users\\First Last\\project');
+    expect(r.command).toBe('cmd.exe');
+    // /s strips the outer pair → cmd /k runs: cd /d "C:\Users\First Last\project"
+    expect(r.args).toEqual(['/d', '/s', '/k', '"cd /d "C:\\Users\\First Last\\project""']);
+    expect(r.windowsVerbatimArguments).toBe(true);
+  });
+  it('strips illegal quote chars from the cwd defensively', () => {
+    const r = buildWindowsOpenShellArgs('C:\\evil" & del C:\\x"');
+    expect(r.args[3]).toBe('"cd /d "C:\\evil & del C:\\x""');
   });
 });

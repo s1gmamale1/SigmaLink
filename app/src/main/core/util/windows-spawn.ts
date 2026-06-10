@@ -177,3 +177,23 @@ export function buildWindowsSpawnArgs(
   }
   return { command: resolved, args };
 }
+
+/**
+ * Detached interactive console in `cwd` (rpc openShell). The `/k` tail is ONE
+ * pre-built line: `cd` is a cmd BUILTIN parsed exactly once, so the path is
+ * plain-quoted — NOT caret-escaped (carets inside quotes are literal, and a
+ * builtin consumes the quoted form natively; `&` inside the quotes is
+ * phase-2 literal). MUST be spawned with `windowsVerbatimArguments: true`:
+ * libuv's default quoting turns the spaced/quoted tail into `\"`-soup that
+ * cmd.exe cannot parse (broke C:\Users\First Last\…). Residual edge: a
+ * defined %VAR% pattern inside the path still expands (phase 1 ignores
+ * quotes) — pathological for a directory name, accepted.
+ */
+export function buildWindowsOpenShellArgs(cwd: string): BuiltWindowsSpawn {
+  const safeCwd = cwd.replace(/"/g, '');
+  return {
+    command: 'cmd.exe',
+    args: ['/d', '/s', '/k', `"cd /d "${safeCwd}""`],
+    windowsVerbatimArguments: true,
+  };
+}
