@@ -274,6 +274,13 @@ export interface AppRouter {
      * computed alias. Broadcasts `panes:session-renamed` so title pills refresh.
      */
     rename: (a: { sessionId: string; name: string | null }) => Promise<{ ok: boolean }>;
+    /**
+     * Spec 2026-06-10 (B) — stage a dropped/pasted image under
+     * `<userData>/staged-images/` and return its absolute path, so the pane
+     * injects `@<absPath>` for image-capable CLIs. ext ∈ png|jpg|jpeg|gif|webp,
+     * payload ≤ 20MB; throws on violation.
+     */
+    stageImage: (input: { bytesBase64: string; ext: string }) => Promise<{ absPath: string }>;
   };
   ramBrake: {
     sessionRisk: (input: {

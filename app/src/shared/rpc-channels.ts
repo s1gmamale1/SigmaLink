@@ -62,6 +62,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // BSP-O4 — operator-supplied display name for a pane session. Pass
   // name: null to clear the override (reverts to computed alias).
   'panes.rename',
+  // Spec 2026-06-10 (B) — image staging for pane drop/paste.
+  'panes.stageImage',
   // providers
   'providers.list',
   'providers.probeAll',

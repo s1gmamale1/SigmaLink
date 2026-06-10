@@ -39,6 +39,7 @@ import {
 import { buildGitCheckpointController } from './core/git/checkpoint-controller';
 import { buildUsageController } from './core/usage/controller';
 import { buildMcpDiagnosticController } from './core/workspaces/mcp-diagnostic';
+import { stageImage as stageImageFile } from './core/workspaces/stage-image';
 import { WorktreePool } from './core/git/worktree';
 import { worktreeCreate } from './core/git/worktree-gui';
 import { openInPane } from './core/workspaces/open-in-pane';
@@ -1289,6 +1290,11 @@ async function buildRouter() {
       } catch {
         return { ok: false };
       }
+    },
+    // Spec 2026-06-10 (B) — stage a dropped/pasted image (validation +
+    // rationale in core/workspaces/stage-image.ts).
+    stageImage: async (input: { bytesBase64: string; ext: string }): Promise<{ absPath: string }> => {
+      return stageImageFile(input, { baseDir: app.getPath('userData') });
     },
     // C-5 — inject a structured plan capsule into the pane's PTY + write a
     // per-worktree CLAUDE.md scope guidance block.

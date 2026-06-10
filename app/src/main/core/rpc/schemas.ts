@@ -408,6 +408,17 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
     }),
     output: z.object({ ok: z.boolean() }),
   },
+  // Spec 2026-06-10 (B) — stageImage({ bytesBase64, ext }) — stage a
+  // dropped/pasted image to a temp file. The base64 max bound is a PRE-DECODE
+  // size gate (rejects oversized input before Buffer.from allocates ~40MB);
+  // the helper's post-decode allowlist + 20MB byte cap remain as defense in depth.
+  'panes.stageImage': {
+    input: z.object({
+      bytesBase64: z.string().min(1).max(28 * 1024 * 1024), // ~20MB image ≈ 27MB base64
+      ext: z.string().max(32),
+    }),
+    output: z.object({ absPath: z.string() }),
+  },
   // brief({ sessionId, worktreePath, capsule }) — inject a plan capsule into PTY.
   'panes.brief': {
     input: z.object({
