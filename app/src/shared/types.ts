@@ -2,7 +2,6 @@
 import type { AgentRuntimeProfileId } from './runtime-profiles';
 
 export type WorkspaceId = string;
-export type ProjectId = string;
 export type SessionId = string; // PTY session id
 export type TaskId = string;
 
@@ -706,9 +705,6 @@ export interface NotificationsDelta {
 // ──────────────────────────────────────────────────────────────────────────
 // Cross-machine sync (v1.5.0 packet 09)
 // ──────────────────────────────────────────────────────────────────────────
-
-/** Packed HLC value for IPC transport (52-char hex string). */
-export type HlcPacked = string;
 
 /**
  * User-provided configuration for the sync feature.
