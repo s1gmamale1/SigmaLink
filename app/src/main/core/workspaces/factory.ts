@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { getDb, getRawDb } from '../db/client';
-import { workspaces } from '../db/schema';
+import { agentSessions, workspaces } from '../db/schema';
 import { getRepoRoot } from '../git/git-ops';
 import { KV_RUFLO_AUTOWRITE_MCP, KV_RUFLO_AUTOTRUST_MCP, writeWorkspaceMcpConfig } from './mcp-autowrite';
 import { ensureRufloTrusted } from './mcp-trust';
@@ -13,6 +13,7 @@ import { maybeNotifyStdioFallback, type StdioFallbackNotificationInput } from '.
 import { seedWorkspaceMemory } from '../ruflo/seed-workspace-memory';
 import type { RufloMcpSupervisor } from '../ruflo/supervisor';
 import type { RufloHttpDaemonSupervisor } from '../ruflo/http-daemon-supervisor';
+import type { PtyRegistry } from '../pty/registry';
 import {
   KV_RUFLO_STRICT_MCP_VERIFICATION,
   verifyForWorkspace,
@@ -37,6 +38,10 @@ export interface OpenWorkspaceDeps {
 
 export interface RemoveWorkspaceDeps {
   rufloHttpDaemonSupervisor?: Pick<RufloHttpDaemonSupervisor, 'stop'>;
+  /** 2026-06-10 audit — live PTY registry so removal can stop the workspace's
+   *  running panes. Optional: callers without a registry still get the DB-row
+   *  cleanup (the stop loop is skipped per-row via optional chaining). */
+  pty?: Pick<PtyRegistry, 'stop'>;
 }
 
 /**
@@ -373,5 +378,35 @@ export async function removeWorkspace(id: string, deps: RemoveWorkspaceDeps = {}
     }
   }
   const db = getDb();
+  // 2026-06-10 audit (MED ws) — agent_sessions has NO foreign key to
+  // workspaces (its bootstrap DDL predates the cascading tables), so deleting
+  // only the workspace row leaked: live PTYs kept running headless, and the
+  // orphaned rows were flipped to exited/-1 by the boot janitor — a state the
+  // worktree keep-predicate protects with no time bound. Mirror
+  // cleanup.ts#removeWorkspaceAndGc's stopLiveSessions path: stop live PTY
+  // trees (fail-open, one bad session never aborts the batch), delete the
+  // session rows, THEN the workspace row. Sessions first so a crash between
+  // the two deletes leaves the workspace visible and remove retryable —
+  // the reverse order would orphan the rows this fix exists to clean up.
+  // (session_review rows cascade off agent_sessions via FK; foreign_keys=ON.)
+  const sessionRows = db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.workspaceId, id))
+    .all();
+  for (const row of sessionRows) {
+    if (row.status === 'starting' || row.status === 'running') {
+      try {
+        deps.pty?.stop(row.id, { tree: true, forget: true });
+      } catch (err) {
+        console.warn(
+          `[workspaces.remove] pty stop failed for session ${row.id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+  }
+  db.delete(agentSessions).where(eq(agentSessions.workspaceId, id)).run();
   db.delete(workspaces).where(eq(workspaces.id, id)).run();
 }

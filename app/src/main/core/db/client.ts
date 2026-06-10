@@ -25,7 +25,16 @@ CREATE TABLE IF NOT EXISTS workspaces (
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   last_opened_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS workspaces_root_idx ON workspaces(root_path);
+-- DEV-W3a / migration 0034: root_path is intentionally NON-unique (two
+-- workspaces may share one directory, disambiguated by custom name).
+-- BOOTSTRAP_SQL runs on EVERY boot BEFORE migrate(), so it must converge with
+-- 0034's end-state: the old CREATE UNIQUE INDEX here re-created the dropped
+-- index on every boot after 0034 had run once (breaking workspaces.openNew),
+-- and CRASHED boot outright when duplicate root_path rows already existed.
+-- The DROP self-heals installs where an older build's bootstrap already
+-- re-created the unique twin.
+DROP INDEX IF EXISTS workspaces_root_idx;
+CREATE INDEX IF NOT EXISTS workspaces_root_lookup_idx ON workspaces(root_path);
 
 CREATE TABLE IF NOT EXISTS agent_sessions (
   id TEXT PRIMARY KEY,
