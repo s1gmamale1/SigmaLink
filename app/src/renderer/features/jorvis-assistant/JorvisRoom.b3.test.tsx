@@ -51,6 +51,9 @@ vi.mock('@/renderer/app/state', () => ({
     state: { activeWorkspace: workspace, workspaces: [workspace] },
     dispatch: mocks.dispatch,
   }),
+  useAppDispatch: () => mocks.dispatch,
+  useAppStateSelector: (sel: (s: unknown) => unknown) =>
+    sel({ activeWorkspace: workspace, workspaces: [workspace] }),
 }));
 
 // A controllable event bus so the test can emit `assistant:state` events.

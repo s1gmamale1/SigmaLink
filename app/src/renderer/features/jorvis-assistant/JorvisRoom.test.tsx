@@ -29,6 +29,9 @@ vi.mock('@/renderer/app/state', () => ({
     },
     dispatch: mocks.dispatch,
   }),
+  useAppDispatch: () => mocks.dispatch,
+  useAppStateSelector: (sel: (s: unknown) => unknown) =>
+    sel({ activeWorkspace: workspace, workspaces: [workspace] }),
 }));
 
 vi.mock('@/renderer/lib/rpc', () => ({
