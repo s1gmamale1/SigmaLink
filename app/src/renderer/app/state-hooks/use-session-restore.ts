@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
 import { toast } from 'sonner';
 import { rpc } from '../../lib/rpc';
 import type { Workspace } from '../../../shared/types';
-import type { Action, AppState } from '../state.types';
+import { isGlobalRoom, type Action, type AppState } from '../state.types';
 import { isRoomId, normalizeRoomId, parseSessionRestore, type PendingRestore } from './parsers';
 
 export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): void {
@@ -264,7 +264,10 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
   // rescheduled. By tracking the previous key in a ref and only cancelling
   // when it differs, we preserve the pending timer across no-op updates.
   const wsId = state.activeWorkspace?.id;
-  const fallbackRoom = state.room !== 'workspaces' ? state.room : 'command';
+  // 2026-06-10 — global rooms (workspaces/settings/automations) must never be
+  // serialized as a workspace's room; fall back to 'command'. Shares
+  // isGlobalRoom with the reducer's three guard sites (anti-drift).
+  const fallbackRoom = !isGlobalRoom(state.room) ? state.room : 'command';
   // v1.5.5 A5 — wrap in useMemo so the array reference is stable across
   // re-renders where the content hasn't changed.  Without this the deps
   // array of the snapshot effect below would see a new array on every render,
