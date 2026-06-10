@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { assertAllowedPath, isInsideRoot } from './path-guard';
+import { assertAllowedPath, isInsideRoot, isInsideAnyRoot } from './path-guard';
 
 let root: string;
 let outside: string;
@@ -120,5 +120,39 @@ describe('isInsideRoot', () => {
 
   it('treats a parent as outside', () => {
     expect(isInsideRoot('/a', '/a/b')).toBe(false);
+  });
+});
+
+describe('isInsideAnyRoot (lexical containment, pathImpl-injectable)', () => {
+  it('win32: accepts a target whose drive-letter casing differs from the root', () => {
+    expect(isInsideAnyRoot('c:\\Repo\\sub\\file.ts', ['C:\\Repo'], path.win32)).toBe(true);
+  });
+
+  it('win32: accepts the root itself regardless of casing', () => {
+    expect(isInsideAnyRoot('C:\\Repo', ['c:\\repo'], path.win32)).toBe(true);
+  });
+
+  it('win32: rejects the prefix trap C:\\RepoEvil vs C:\\Repo', () => {
+    expect(isInsideAnyRoot('C:\\RepoEvil\\x', ['C:\\Repo'], path.win32)).toBe(false);
+  });
+
+  it('win32: rejects a different drive', () => {
+    expect(isInsideAnyRoot('D:\\Repo\\x', ['C:\\Repo'], path.win32)).toBe(false);
+  });
+
+  it('posix: rejects the prefix trap /a/bc vs /a/b', () => {
+    expect(isInsideAnyRoot('/a/bc/file', ['/a/b'], path.posix)).toBe(false);
+  });
+
+  it('posix: accepts a nested target under any of several roots', () => {
+    expect(isInsideAnyRoot('/w/two/x', ['/w/one', '/w/two'], path.posix)).toBe(true);
+  });
+
+  it('empty roots ⇒ false (fail-closed)', () => {
+    expect(isInsideAnyRoot('/a/b', [], path.posix)).toBe(false);
+  });
+
+  it('empty-string roots are skipped, not treated as filesystem root', () => {
+    expect(isInsideAnyRoot('/a/b', [''], path.posix)).toBe(false);
   });
 });

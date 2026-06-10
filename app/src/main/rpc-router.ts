@@ -123,7 +123,7 @@ import { buildTelegramController } from './core/remote/controller';
 import { CredentialStore } from './core/credentials/storage';
 import { runVoiceDiagnostics } from './core/voice/diagnostics';
 import { fsReadDir, fsReadFile, fsWriteFile, fsExists } from './core/fs/controller';
-import { assertAllowedPath, type AllowedRootsSource } from './core/security/path-guard';
+import { assertAllowedPath, isInsideAnyRoot, type AllowedRootsSource } from './core/security/path-guard';
 import { validateChannelInput, validateChannelOutput } from './core/rpc/validate';
 import { getChannelSchema } from './core/rpc/schemas';
 // Phase 4 Track C — Ruflo MCP embed. Process-singleton supervisor + lazy
@@ -878,14 +878,11 @@ async function buildRouter() {
     revealInFolder: async (p: string) => {
       const resolved = path.resolve(p);
       const userDataDir = app.getPath('userData');
-      if (!resolved.startsWith(userDataDir + path.sep) && resolved !== userDataDir) {
+      if (!isInsideAnyRoot(resolved, [userDataDir])) {
         const workspaces = getRawDb()
           .prepare('SELECT root_path FROM workspaces')
           .all() as { root_path: string }[];
-        const allowed = workspaces.some((w) => {
-          const root = path.resolve(w.root_path);
-          return resolved.startsWith(root + path.sep) || resolved === root;
-        });
+        const allowed = isInsideAnyRoot(resolved, workspaces.map((w) => w.root_path));
         if (!allowed) return { ok: false, error: 'path not in allowed root' };
       }
       shell.showItemInFolder(resolved);
@@ -894,14 +891,11 @@ async function buildRouter() {
     openShell: async (cwd: string) => {
       const resolved = path.resolve(cwd);
       const userDataDir = app.getPath('userData');
-      if (!resolved.startsWith(userDataDir + path.sep) && resolved !== userDataDir) {
+      if (!isInsideAnyRoot(resolved, [userDataDir])) {
         const workspaces = getRawDb()
           .prepare('SELECT root_path FROM workspaces')
           .all() as { root_path: string }[];
-        const allowed = workspaces.some((w) => {
-          const root = path.resolve(w.root_path);
-          return resolved.startsWith(root + path.sep) || resolved === root;
-        });
+        const allowed = isInsideAnyRoot(resolved, workspaces.map((w) => w.root_path));
         if (!allowed) return { ok: false, error: 'path not in allowed root' };
       }
       const plat = process.platform;
