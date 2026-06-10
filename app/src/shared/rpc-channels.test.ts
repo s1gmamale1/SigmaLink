@@ -137,6 +137,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'swarms.rollCall',
   'swarms.tail',
   'swarms.kill',
+  'swarms.resume',    // Spec 2026-06-10 (D) — + Pane auto-resume escape hatch
   'swarms.splitPane',
   'swarms.minimisePane',
   // browser (browserCtl — from buildBrowserController)

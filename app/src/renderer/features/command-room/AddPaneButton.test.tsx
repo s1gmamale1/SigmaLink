@@ -35,6 +35,9 @@ import type { Swarm, Workspace } from '@/shared/types';
 
 const addAgentMock = vi.fn();
 const createSwarmMock = vi.fn();
+const resumeMock = vi.fn<(id: string) => Promise<{ ok: boolean; healed: boolean }>>(
+  async () => ({ ok: true, healed: true }),
+);
 const kvGetMock = vi.fn<(key: string) => Promise<string | null>>(async () => null);
 const kvSetMock = vi.fn<(key: string, value: string) => Promise<void>>(async () => undefined);
 
@@ -43,6 +46,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
     swarms: {
       addAgent: (...args: unknown[]) => addAgentMock(...args),
       create: (...args: unknown[]) => createSwarmMock(...args),
+      resume: (...args: unknown[]) => resumeMock(...args as [string]),
     },
     kv: {
       get: (...args: unknown[]) => kvGetMock(...args as [string]),
@@ -124,6 +128,7 @@ beforeEach(() => {
   dispatchMock.mockReset();
   addAgentMock.mockReset();
   createSwarmMock.mockReset();
+  resumeMock.mockReset().mockResolvedValue({ ok: true, healed: true });
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
   kvGetMock.mockReset().mockResolvedValue(null);
@@ -223,10 +228,17 @@ describe('AddPaneButton — disabled reason pill', () => {
     expect(pill.textContent).toContain('Open or create a workspace first');
   });
 
-  it('1b: shows pill "Swarm is paused" when swarm status is not running', async () => {
-    await renderAddPaneButton({ activeSwarm: makeSwarm({ status: 'paused' }) });
+  // Spec 2026-06-10 (D): 'paused' no longer gates the button (auto-resume on
+  // click). Only 'completed' is a deliberate end state that stays gated.
+  it('1b: shows ended pill when swarm status is "completed"', async () => {
+    await renderAddPaneButton({ activeSwarm: makeSwarm({ status: 'completed' }) });
     const pill = screen.getByTestId('add-pane-disabled-reason');
-    expect(pill.textContent).toContain('Swarm is paused');
+    expect(pill.textContent).toContain('ended');
+  });
+
+  it('1b-compat: paused swarm no longer shows a disabled pill (auto-resume enabled)', async () => {
+    await renderAddPaneButton({ activeSwarm: makeSwarm({ status: 'paused' }) });
+    expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
   });
 
   it('1c: shows pill "Maximum 20 panes" when agent count reaches 20', async () => {
@@ -742,5 +754,139 @@ describe('AddPaneButton — DEV-W5: plain terminal + worktree toggle', () => {
         expect.objectContaining({ skipWorktree: true }),
       );
     });
+  });
+});
+
+// ---- Spec 2026-06-10 (D) — + Pane auto-resume --------------------------------
+
+describe('+ Pane auto-resume (spec 2026-06-10 D)', () => {
+  it("clicking + Pane on a 'failed' swarm resumes it then adds the agent", async () => {
+    addAgentMock.mockResolvedValue({
+      sessionId: 's-new',
+      paneIndex: 0,
+      agentKey: 'builder-1',
+      session: { id: 's-new', workspaceId: 'ws-1' },
+      swarm: makeSwarm({ status: 'running' }),
+    });
+
+    await renderAddPaneButton({
+      activeSwarm: makeSwarm({ status: 'failed' }),
+    });
+
+    // Button must be enabled (only 'completed' gates it now)
+    expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
+
+    clickProvider('Claude');
+
+    await waitFor(() => {
+      expect(resumeMock).toHaveBeenCalledWith('swarm-1');
+    });
+
+    await waitFor(() => {
+      expect(addAgentMock).toHaveBeenCalledWith(
+        expect.objectContaining({ swarmId: 'swarm-1', providerId: 'claude' }),
+      );
+    });
+
+    // UPSERT_SWARM with running status dispatched (optimistic local update)
+    expect(dispatchMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'UPSERT_SWARM' }),
+    );
+  });
+
+  it("clicking + Pane on a 'paused' swarm resumes it then adds the agent", async () => {
+    addAgentMock.mockResolvedValue({
+      sessionId: 's-new',
+      paneIndex: 0,
+      agentKey: 'builder-1',
+      session: { id: 's-new', workspaceId: 'ws-1' },
+      swarm: makeSwarm({ status: 'running' }),
+    });
+
+    await renderAddPaneButton({
+      activeSwarm: makeSwarm({ status: 'paused' }),
+    });
+
+    expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
+
+    clickProvider('Claude');
+
+    await waitFor(() => {
+      expect(resumeMock).toHaveBeenCalledWith('swarm-1');
+      expect(addAgentMock).toHaveBeenCalledWith(
+        expect.objectContaining({ swarmId: 'swarm-1' }),
+      );
+    });
+  });
+
+  it("a FAILED resume (ok:false) does NOT call addAgent and surfaces the error", async () => {
+    // DB exception path: resume reports ok:false → real row stays 'failed', so
+    // addAgent would be backend-rejected. The throw must skip addAgent AND the
+    // optimistic 'running' dispatch so local state never diverges from the DB.
+    resumeMock.mockResolvedValue({ ok: false, healed: false });
+
+    await renderAddPaneButton({
+      activeSwarm: makeSwarm({ status: 'failed' }),
+    });
+
+    clickProvider('Claude');
+
+    await waitFor(() => {
+      expect(resumeMock).toHaveBeenCalledWith('swarm-1');
+    });
+
+    // addAgent must NOT be called — the resume failure short-circuits.
+    expect(addAgentMock).not.toHaveBeenCalled();
+
+    // The error path is hit (toast.error + inline error chip).
+    await waitFor(() => {
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        'Could not add pane',
+        expect.objectContaining({ description: expect.stringContaining('resume') }),
+      );
+    });
+
+    // The optimistic 'running' UPSERT_SWARM must NOT have been dispatched.
+    const upsertRunning = dispatchMock.mock.calls.find(
+      ([action]) =>
+        action?.type === 'UPSERT_SWARM' && action?.swarm?.status === 'running',
+    );
+    expect(upsertRunning).toBeUndefined();
+  });
+
+  it("a 'completed' swarm stays gated (button disabled, no resume)", async () => {
+    await renderAddPaneButton({
+      activeSwarm: makeSwarm({ status: 'completed' }),
+    });
+
+    const pill = screen.getByTestId('add-pane-disabled-reason');
+    expect(pill.textContent).toContain('ended');
+
+    // Verify the button is actually disabled (pill = disabled state)
+    expect(resumeMock).not.toHaveBeenCalled();
+  });
+
+  it("a 'running' swarm skips resume and goes straight to addAgent", async () => {
+    addAgentMock.mockResolvedValue({
+      sessionId: 's-new',
+      paneIndex: 0,
+      agentKey: 'builder-1',
+      session: { id: 's-new', workspaceId: 'ws-1' },
+      swarm: makeSwarm(),
+    });
+
+    await renderAddPaneButton({
+      activeSwarm: makeSwarm({ status: 'running' }),
+    });
+
+    clickProvider('Claude');
+
+    await waitFor(() => {
+      expect(addAgentMock).toHaveBeenCalledWith(
+        expect.objectContaining({ swarmId: 'swarm-1' }),
+      );
+    });
+
+    expect(resumeMock).not.toHaveBeenCalled();
   });
 });

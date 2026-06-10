@@ -111,6 +111,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'swarms.rollCall',
   'swarms.tail',
   'swarms.kill',
+  // Spec 2026-06-10 (D) — + Pane auto-resume escape hatch.
+  'swarms.resume',
   // v1.4.3 #06 — Pane Split + Minimise.
   'swarms.splitPane',
   'swarms.minimisePane',

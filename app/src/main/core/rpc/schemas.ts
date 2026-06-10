@@ -636,6 +636,9 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'swarms.rollCall': stub,
   'swarms.tail': stub,
   'swarms.kill': stub,
+  // Spec 2026-06-10 (D) — + Pane auto-resume escape hatch. Mirrors swarms.kill
+  // (both take a bare id string).
+  'swarms.resume': stub,
   // v1.4.3 #06 — Pane Split + Minimise. Tighten the input shape so the
   // renderer can't accidentally send a bogus direction.
   'swarms.splitPane': {
