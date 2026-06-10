@@ -14,7 +14,7 @@
 // behaviour. The router (rpc-router.ts) injects the real provider built from
 // DB workspaces + the worktree pool.
 
-import { promises as fsp } from 'node:fs';
+import fs, { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { assertAllowedPath, type AllowedRootsSource } from '../security/path-guard';
 
@@ -162,4 +162,24 @@ export async function fsWriteFile(
   const safe = containPath(target, input.allowedRoots);
   await fsp.writeFile(safe, input.content, 'utf8');
   return { ok: true };
+}
+
+/**
+ * Audit 2026-06-10 — sandboxed existence probe. The old rpc-router handler
+ * was a bare `fs.existsSync(p)` — the only fs.* channel skipping the
+ * allowedRoots sandbox, i.e. a filesystem existence oracle for the renderer.
+ *
+ * Out-of-roots (or no provider wired — fail-closed) returns FALSE rather than
+ * throwing: an existence probe outside the sandbox must be indistinguishable
+ * from "not there", and the two renderer call sites (MissionStep in-roots
+ * probe; ProviderInstallModal best-effort well-known-path probe) both treat
+ * false as a benign miss.
+ */
+export function fsExists(input: { path: string; allowedRoots?: AllowedRootsSource }): boolean {
+  if (!input.path || typeof input.path !== 'string') return false;
+  try {
+    return fs.existsSync(containPath(input.path, input.allowedRoots));
+  } catch {
+    return false; // out-of-roots / no roots — indistinguishable from absent
+  }
 }

@@ -121,7 +121,7 @@ import { TelegramBridge } from './core/remote/bridge';
 import { buildTelegramController } from './core/remote/controller';
 import { CredentialStore } from './core/credentials/storage';
 import { runVoiceDiagnostics } from './core/voice/diagnostics';
-import { fsReadDir, fsReadFile, fsWriteFile } from './core/fs/controller';
+import { fsReadDir, fsReadFile, fsWriteFile, fsExists } from './core/fs/controller';
 import { assertAllowedPath, type AllowedRootsSource } from './core/security/path-guard';
 import { validateChannelInput, validateChannelOutput } from './core/rpc/validate';
 import { getChannelSchema } from './core/rpc/schemas';
@@ -1641,7 +1641,9 @@ async function buildRouter() {
   });
 
   const fsCtl = defineController({
-    exists: async (p: string) => fs.existsSync(p),
+    // Audit 2026-06-10 — fs.exists was the only fs.* channel skipping the
+    // allowedRoots sandbox (existence oracle). Out-of-roots now reads as false.
+    exists: async (p: string) => fsExists({ path: p, allowedRoots: fsAllowedRoots }),
     // V3-W14-007 — Editor tab. The controller bodies live in core/fs/controller.ts
     // so they can be unit-tested without spinning up the whole router.
     readDir: async (input: { path: string }) =>

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fsWriteFile } from './controller';
+import { fsWriteFile, fsExists } from './controller';
 
 // Create a temp dir, run the body, clean up afterwards.
 async function withTmpDir(fn: (dir: string) => Promise<void>): Promise<void> {
@@ -91,5 +91,42 @@ describe('fsWriteFile — path-containment guard (allowed-roots)', () => {
     await expect(
       fsWriteFile({ path: '', content: 'x', allowedRoots: roots('/tmp') }),
     ).rejects.toThrow('path required');
+  });
+});
+
+// Audit 2026-06-10 finding 2 — fs.exists was the only fs.* channel skipping
+// the allowedRoots sandbox (filesystem existence oracle). Out-of-roots must be
+// indistinguishable from "absent": return false, never throw.
+describe('fsExists — sandboxed existence probe', () => {
+  it('returns true for an existing file inside an allowed root', async () => {
+    await withTmpDir(async (dir) => {
+      const target = path.join(dir, 'present.txt');
+      await fsp.writeFile(target, 'x', 'utf8');
+      expect(fsExists({ path: target, allowedRoots: roots(dir) })).toBe(true);
+    });
+  });
+
+  it('returns false for a missing file inside an allowed root', async () => {
+    await withTmpDir(async (dir) => {
+      expect(fsExists({ path: path.join(dir, 'absent.txt'), allowedRoots: roots(dir) })).toBe(false);
+    });
+  });
+
+  it('returns false for an EXISTING file outside every allowed root (oracle closed)', async () => {
+    await withTmpDir(async (dir) => {
+      await withTmpDir(async (outside) => {
+        const target = path.join(outside, 'secret.txt');
+        await fsp.writeFile(target, 'x', 'utf8');
+        expect(fsExists({ path: target, allowedRoots: roots(dir) })).toBe(false);
+      });
+    });
+  });
+
+  it('fail-closed: returns false when no allowedRoots provider is wired', async () => {
+    await withTmpDir(async (dir) => {
+      const target = path.join(dir, 'present.txt');
+      await fsp.writeFile(target, 'x', 'utf8');
+      expect(fsExists({ path: target })).toBe(false);
+    });
   });
 });
