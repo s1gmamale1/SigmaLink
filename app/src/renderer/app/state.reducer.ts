@@ -699,7 +699,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return { ...state, focusedPaneId: null };
     case 'SPLIT_PANE': {
       // v1.4.3 #06 — Annotate the parent (splitIndex 0) AND insert the new
-      // sub-pane (splitIndex 1) in a single dispatch so the GridLayout sees
+      // sub-pane (splitIndex 1) in a single dispatch so the pane grid sees
       // both panes in the same render pass. Without this, ADD_SESSIONS would
       // run first (sub-pane appears as a standalone tile) before a later
       // dispatch could mutate the parent — produces a one-frame flash.

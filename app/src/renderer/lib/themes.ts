@@ -153,7 +153,6 @@ export const DEFAULT_THEME: ThemeId = 'glass';
  * P5.2 — global density scale. Drives `<html data-density>`, which rescales
  * the `--space-*` tokens declared in `src/index.css`. `comfortable` is the
  * roomy default (Mac density-is-a-feature); `cozy`/`compact` tighten spacing.
- * Distinct from GridLayout's auto-derived per-grid tier (`data-grid-density`).
  */
 export type DensityId = 'comfortable' | 'cozy' | 'compact';
 
