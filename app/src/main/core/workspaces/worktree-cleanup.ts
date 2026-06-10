@@ -43,9 +43,12 @@ export async function cleanupOrphanWorktrees(
     return { removed: 0, kept: 0, errors: 0 };
   }
 
-  let entries: string[];
+  let entries: Array<{ name: string; isDirectory: () => boolean }>;
   try {
-    entries = await fs.readdir(repoDir);
+    entries = (await fs.readdir(repoDir, { withFileTypes: true })) as Array<{
+      name: string;
+      isDirectory: () => boolean;
+    }>;
   } catch {
     // dir doesn't exist — nothing to clean up
     return { removed: 0, kept: 0, errors: 0 };
@@ -100,7 +103,12 @@ export async function cleanupOrphanWorktrees(
   let errors = 0;
 
   for (const entry of entries) {
-    const full = path.join(repoDir, entry);
+    // 2026-06-10 audit (finding 3): dirs only — mirror of cleanup.ts pruneRepoDir.
+    if (!entry.isDirectory()) {
+      kept++;
+      continue;
+    }
+    const full = path.join(repoDir, entry.name);
     if (liveSet.has(canonicalPathKey(full))) {
       kept++;
       continue;

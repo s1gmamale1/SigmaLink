@@ -97,6 +97,13 @@ function oldExited(): number {
   return NOW - SEVEN_DAYS_MS - 1000; // > 7 days ago
 }
 
+// Dirent-ish factory — cleanupOrphanWorktrees and sweepAllReposOnBoot both
+// read with { withFileTypes: true } now.
+function dirent(name: string, isDir: boolean) {
+  return { name, isDirectory: () => isDir };
+}
+const dirents = (...names: string[]) => names.map((n) => dirent(n, true));
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -128,7 +135,7 @@ describe('cleanupOrphanWorktrees', () => {
   });
 
   it('3. No agent_sessions rows reference this repo (cold install) — skips cleanup; returns kept=N', async () => {
-    readdirMock.mockResolvedValue(['dir-a', 'dir-b', 'dir-c']);
+    readdirMock.mockResolvedValue(dirents('dir-a', 'dir-b', 'dir-c'));
     const db = makeDb([]); // no sessions at all
     const result = await cleanupOrphanWorktrees(BASE, HASH, db);
     // Cold install guard: no rows → skip, return kept = number of dirs
@@ -139,7 +146,7 @@ describe('cleanupOrphanWorktrees', () => {
   });
 
   it('4. All dirs referenced by running sessions — removed=0, kept=N, errors=0', async () => {
-    readdirMock.mockResolvedValue(['pane-0', 'pane-1']);
+    readdirMock.mockResolvedValue(dirents('pane-0', 'pane-1'));
     const db = makeDb([
       { worktree_path: path.join(REPO_DIR, 'pane-0'), status: 'running', exited_at: null },
       { worktree_path: path.join(REPO_DIR, 'pane-1'), status: 'running', exited_at: null },
@@ -150,7 +157,7 @@ describe('cleanupOrphanWorktrees', () => {
   });
 
   it('5. Mix referenced + orphan — orphans removed, referenced kept', async () => {
-    readdirMock.mockResolvedValue(['live-pane', 'orphan-1', 'orphan-2']);
+    readdirMock.mockResolvedValue(dirents('live-pane', 'orphan-1', 'orphan-2'));
     const db = makeDb([
       { worktree_path: path.join(REPO_DIR, 'live-pane'), status: 'running', exited_at: null },
       // Rows for orphan dirs don't exist in DB (or are old enough to GC).
@@ -164,7 +171,7 @@ describe('cleanupOrphanWorktrees', () => {
   });
 
   it('6. Orphan removal failure (permission denied etc.) — logged + counted as error; does not throw', async () => {
-    readdirMock.mockResolvedValue(['orphan-perm-fail']);
+    readdirMock.mockResolvedValue(dirents('orphan-perm-fail'));
     rmMock.mockRejectedValue(new Error('EACCES: permission denied'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const db = makeDb([
@@ -178,7 +185,7 @@ describe('cleanupOrphanWorktrees', () => {
   });
 
   it('7. Recently-exited sessions (within 7 days) are kept — R-04-2', async () => {
-    readdirMock.mockResolvedValue(['recently-exited-pane', 'old-exited-pane']);
+    readdirMock.mockResolvedValue(dirents('recently-exited-pane', 'old-exited-pane'));
     const db = makeDb([
       {
         worktree_path: path.join(REPO_DIR, 'recently-exited-pane'),
@@ -198,7 +205,7 @@ describe('cleanupOrphanWorktrees', () => {
   });
 
   it('keeps exited/-1 worktrees because resume still treats those panes as eligible', async () => {
-    readdirMock.mockResolvedValue(['crashed-pane', 'old-clean-pane']);
+    readdirMock.mockResolvedValue(dirents('crashed-pane', 'old-clean-pane'));
     const db = makeDb([
       {
         worktree_path: path.join(REPO_DIR, 'crashed-pane'),
@@ -226,7 +233,7 @@ describe('cleanupOrphanWorktrees', () => {
   });
 
   it('keeps starting worktrees if cleanup runs after a janitor miss', async () => {
-    readdirMock.mockResolvedValue(['starting-pane', 'orphan-pane']);
+    readdirMock.mockResolvedValue(dirents('starting-pane', 'orphan-pane'));
     const db = makeDb([
       {
         worktree_path: path.join(REPO_DIR, 'starting-pane'),
@@ -245,7 +252,7 @@ describe('cleanupOrphanWorktrees', () => {
   it('win32: keeps a live worktree when DB path case/separators differ from fs path', async () => {
     const base = 'C:\\Users\\Me\\AppData\\Roaming\\SigmaLink\\worktrees';
     const hash = 'abc123def456';
-    readdirMock.mockResolvedValue(['Pane-0', 'orphan-pane']);
+    readdirMock.mockResolvedValue(dirents('Pane-0', 'orphan-pane'));
     const db = makeDb([
       {
         worktree_path: 'c:/users/me/appdata/roaming/sigmalink/worktrees/ABC123DEF456/pane-0',
@@ -265,7 +272,7 @@ describe('cleanupOrphanWorktrees', () => {
   it('8. LIKE pattern matches subdirs but not unrelated repos — SQL safety', async () => {
     const hashA = 'aaaaaa000000';
     const hashB = 'bbbbbb000000';
-    readdirMock.mockResolvedValue(['pane-x']);
+    readdirMock.mockResolvedValue(dirents('pane-x'));
 
     // Sessions only for hashB
     const sessionForB = {
@@ -281,6 +288,21 @@ describe('cleanupOrphanWorktrees', () => {
     expect(result.removed).toBe(0);
     expect(result.kept).toBe(1);
   });
+
+  it('never removes a stray FILE in the repoDir — dirs only (2026-06-10 audit, finding 3)', async () => {
+    readdirMock.mockResolvedValue([dirent('stray-file.txt', false), dirent('orphan-dir', true)]);
+    const db = makeDb([
+      // One running session elsewhere in this repo so the cold-install guard is bypassed.
+      { worktree_path: path.join(REPO_DIR, 'some-other-pane'), status: 'running', exited_at: null },
+    ]);
+
+    const result = await cleanupOrphanWorktrees(BASE, HASH, db);
+
+    expect(rmMock).toHaveBeenCalledTimes(1);
+    expect(String(rmMock.mock.calls[0]![0])).toContain('orphan-dir');
+    expect(result.removed).toBe(1);
+    expect(result.kept).toBe(1); // the stray file is counted as kept, never touched
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -295,10 +317,6 @@ describe('cleanupOrphanWorktrees', () => {
 //   - readdir(<base>, {withFileTypes}) → Dirent[] (the repoHash dirs)
 //   - readdir(<base>/<hash>)           → string[] (worktree entries)
 // ---------------------------------------------------------------------------
-
-function dirent(name: string, isDir: boolean) {
-  return { name, isDirectory: () => isDir };
-}
 
 /**
  * Wire up a path-aware readdir:
@@ -319,9 +337,9 @@ function wireReaddir(
       }
       return baseEntries.map((e) => e.name);
     }
-    // per-repo readdir → worktree entry names
+    // per-repo readdir → Dirent-ish worktree entries (all dirs)
     const hash = path.basename(p);
-    return perRepo[hash] ?? [];
+    return (perRepo[hash] ?? []).map((n) => dirent(n, true));
   });
 }
 
