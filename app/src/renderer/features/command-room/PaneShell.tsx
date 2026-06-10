@@ -13,7 +13,7 @@
 // Extracted to keep CommandRoom.tsx under 500 LOC (v1.5.1-A caveat 1).
 
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
-import { FolderOpen, GitBranch, RotateCw, Square, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
+import { ClipboardPaste, Copy, FolderOpen, GitBranch, RotateCw, Square, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ContextMenu,
@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/context-menu';
 import { CreateWorktreeModal } from './CreateWorktreeModal';
 import { rpc } from '@/renderer/lib/rpc';
+import { getCached } from '@/renderer/lib/terminal-cache';
 import { SessionTerminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
 import { PaneSplash } from './PaneSplash';
@@ -532,6 +533,37 @@ export function PaneShell({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          {/* Spec 2026-06-10 (C) — terminal Copy/Paste. The Radix trigger
+              intercepts right-click (xterm's native copy never fires), so the
+              menu must own clipboard access. Keyed on activeTabId so scratch
+              tabs work. */}
+          <ContextMenuItem
+            data-testid="ctx-copy"
+            disabled={!getCached(activeTabId)?.terminal.hasSelection()}
+            onSelect={() => {
+              const sel = getCached(activeTabId)?.terminal.getSelection();
+              if (sel) void navigator.clipboard?.writeText(sel).catch(() => undefined);
+            }}
+          >
+            <Copy className="h-3.5 w-3.5" />
+            <span>Copy</span>
+          </ContextMenuItem>
+          <ContextMenuItem
+            data-testid="ctx-paste"
+            disabled={exited || errored}
+            onSelect={() => {
+              void navigator.clipboard
+                ?.readText()
+                .then((text) => {
+                  if (text) void rpc.pty.write(activeTabId, text);
+                })
+                .catch(() => undefined);
+            }}
+          >
+            <ClipboardPaste className="h-3.5 w-3.5" />
+            <span>Paste</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem onSelect={handleReveal} disabled={!hasWorktree}>
             <FolderOpen className="h-3.5 w-3.5" />
             <span>Reveal worktree in Finder</span>

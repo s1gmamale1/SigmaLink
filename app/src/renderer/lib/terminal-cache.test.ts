@@ -32,6 +32,9 @@ interface MockTerm {
   dispose: ReturnType<typeof vi.fn>;
   loadAddon: ReturnType<typeof vi.fn>;
   onData: ReturnType<typeof vi.fn>;
+  onSelectionChange: ReturnType<typeof vi.fn>;
+  hasSelection: ReturnType<typeof vi.fn>;
+  getSelection: ReturnType<typeof vi.fn>;
   cols: number;
   rows: number;
   focus: ReturnType<typeof vi.fn>;
@@ -68,6 +71,9 @@ vi.mock('@xterm/xterm', () => {
     });
     loadAddon = vi.fn();
     onData = vi.fn(() => ({ dispose: vi.fn() }));
+    onSelectionChange = vi.fn(() => ({ dispose: vi.fn() }));
+    hasSelection = vi.fn(() => false);
+    getSelection = vi.fn(() => '');
     focus = vi.fn();
     constructor(opts: unknown) {
       this.__ctorArg = opts;
@@ -454,5 +460,52 @@ describe('stripDeviceAttributesResponses (SF-3)', () => {
   it('strips multiple DA replies in one chunk', async () => {
     const { stripDeviceAttributesResponses } = await import('./terminal-cache');
     expect(stripDeviceAttributesResponses('\x1b[?1;2c\x1b[>0;1;0c')).toBe('');
+  });
+});
+
+// Spec 2026-06-10 (C) — iTerm2-style select-to-copy. xterm 6 dropped the
+// built-in copyOnSelect option, so the cache wires onSelectionChange to this
+// pure helper. It pushes any non-empty selection to the system clipboard.
+describe('copySelectionToClipboard (spec 2026-06-10 C)', () => {
+  it('writes the selection to the clipboard when a selection is present', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    const { copySelectionToClipboard } = await import('./terminal-cache');
+    copySelectionToClipboard({
+      hasSelection: () => true,
+      getSelection: () => 'picked text',
+    });
+    expect(writeText).toHaveBeenCalledWith('picked text');
+  });
+
+  it('does NOT write when there is no selection', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    const { copySelectionToClipboard } = await import('./terminal-cache');
+    copySelectionToClipboard({
+      hasSelection: () => false,
+      getSelection: () => '',
+    });
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it('does NOT write when the selection is empty string', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    const { copySelectionToClipboard } = await import('./terminal-cache');
+    copySelectionToClipboard({
+      hasSelection: () => true,
+      getSelection: () => '',
+    });
+    expect(writeText).not.toHaveBeenCalled();
   });
 });

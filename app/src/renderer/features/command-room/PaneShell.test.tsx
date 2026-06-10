@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, act } from '@testing-library/react';
 import type { AgentSession } from '@/shared/types';
+import * as terminalCache from '@/renderer/lib/terminal-cache';
 
 // ---- mocks ---------------------------------------------------------------
 
@@ -692,5 +693,56 @@ describe('PaneShell — BSP-G1/P1/G3/W3a context menu items', () => {
     // The CreateWorktreeModal stub captures props on every render.
     // Even when closed (open=false), the component is mounted and props are captured.
     expect(capturedCreateWorktreeModalProps?.repoRoot).toBe('/tmp/ws-1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Spec 2026-06-10 (C) — right-click Copy/Paste + copy-on-select
+// ---------------------------------------------------------------------------
+
+describe('pane context-menu Copy/Paste (spec 2026-06-10 C)', () => {
+  it('Copy writes the xterm selection to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText, readText: vi.fn().mockResolvedValue('') },
+      configurable: true,
+    });
+    vi.spyOn(terminalCache, 'getCached').mockReturnValue({
+      terminal: { hasSelection: () => true, getSelection: () => 'picked text' },
+    } as unknown as ReturnType<typeof terminalCache.getCached>);
+
+    await renderPaneShell();
+    await openContextMenu();
+
+    const item = document.querySelector('[data-testid="ctx-copy"]') as HTMLElement;
+    expect(item).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(item);
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledWith('picked text');
+  });
+
+  it('Paste writes clipboard text to the pane PTY', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn(), readText: vi.fn().mockResolvedValue('pasted!') },
+      configurable: true,
+    });
+    vi.spyOn(terminalCache, 'getCached').mockReturnValue({
+      terminal: { hasSelection: () => false, getSelection: () => '' },
+    } as unknown as ReturnType<typeof terminalCache.getCached>);
+
+    await renderPaneShell();
+    await openContextMenu();
+
+    const item = document.querySelector('[data-testid="ctx-paste"]') as HTMLElement;
+    expect(item).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(item);
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => expect(ptyWriteMock).toHaveBeenCalledWith(expect.any(String), 'pasted!'));
   });
 });

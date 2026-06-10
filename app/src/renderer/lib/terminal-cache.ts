@@ -112,6 +112,10 @@ export interface CacheEntry {
   /** xterm `onData` disposer — writes user keystrokes back to the PTY.
    *  Created once on first miss; never recreated on remount. */
   onDataDispose: { dispose: () => void };
+  /** Spec 2026-06-10 (C) — xterm `onSelectionChange` disposer for iTerm2-style
+   *  select-to-copy. Created once on first miss; disposed alongside the others
+   *  on evict/destroy. */
+  onSelectionDispose: { dispose: () => void };
   /** Global `pty:exit` listener disposer. Owned by the cache so the exit
    *  message gets written exactly once into the scrollback, regardless of
    *  whether the terminal happened to be mounted at exit time. */
@@ -193,6 +197,17 @@ function buildTerminalOptions(ctx: TerminalCacheContext): ITerminalOptions {
       },
     },
   };
+}
+
+/** Spec 2026-06-10 (C) — xterm 6 dropped the built-in copyOnSelect option,
+ *  so we replicate iTerm2 select-to-copy: push any non-empty selection to
+ *  the system clipboard whenever the selection changes. */
+export function copySelectionToClipboard(
+  term: Pick<XTerm, 'hasSelection' | 'getSelection'>,
+): void {
+  if (!term.hasSelection()) return;
+  const sel = term.getSelection();
+  if (sel) void navigator.clipboard?.writeText(sel).catch(() => undefined);
 }
 
 function evictOldestIfFull(): void {
@@ -290,6 +305,12 @@ export function getOrCreateTerminal(
     void rpc.pty.write(sessionId, clean).catch(() => undefined);
   });
 
+  // Spec 2026-06-10 (C) — iTerm2-style select-to-copy. xterm 6 removed the
+  // built-in copyOnSelect option, so we mirror it by copying any non-empty
+  // selection to the system clipboard whenever the selection changes. The
+  // disposable is owned by the cache entry and torn down like onDataDispose.
+  const onSelectionDispose = term.onSelectionChange(() => copySelectionToClipboard(term));
+
   // V1.4.2 packet-03 (Layer 1) — race-safe snapshot + live ordering. The
   // subscription attaches synchronously; pending chunks buffer locally
   // until the snapshot resolves, then drain in arrival order.
@@ -330,6 +351,7 @@ export function getOrCreateTerminal(
     fitAddon: fit,
     unsubscribePty,
     onDataDispose,
+    onSelectionDispose,
     offExit,
     lastAccessed: Date.now(),
     ptyExited: false,
@@ -413,6 +435,11 @@ export function destroy(sessionId: string): void {
     /* same */
   }
   try {
+    entry.onSelectionDispose.dispose();
+  } catch {
+    /* same */
+  }
+  try {
     entry.terminal.dispose();
   } catch {
     /* same */
@@ -438,4 +465,11 @@ export function getCacheSize(): number {
  *  `getOrCreateTerminal`. */
 export function hasCached(sessionId: string): boolean {
   return cache.has(sessionId);
+}
+
+/** Spec 2026-06-10 (C) — read-only accessor for a cached entry (no create).
+ *  Used by PaneShell's context-menu Copy/Paste to reach the live xterm
+ *  instance for a pane/scratch-tab without constructing a cache context. */
+export function getCached(sessionId: string): CacheEntry | undefined {
+  return cache.get(sessionId);
 }
