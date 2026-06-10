@@ -25,7 +25,11 @@ class PaneEventStore {
   }
 
   add(raw: RawPaneEvent) {
-    this.events.push(raw as PaneEvent);
+    // Copy-on-add: useSyncExternalStore compares snapshots with Object.is —
+    // an in-place push returns the SAME array reference and every subscriber
+    // bails out without re-rendering (2026-06-10 audit finding #1). clear()
+    // already allocates a new array; add() must too.
+    this.events = [...this.events, raw as PaneEvent];
     for (const fn of this.listeners) fn();
   }
 
