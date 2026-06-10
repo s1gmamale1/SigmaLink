@@ -73,24 +73,6 @@ export interface RemoveWorkspaceAndGcResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the set of worktree paths currently held by live (starting|running)
- * sessions that belong to `workspaceId`.  This is the safety fence — we never
- * delete these dirs.
- */
-function liveWorktreePaths(db: Database.Database, workspaceId: string): Set<string> {
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT worktree_path
-       FROM agent_sessions
-       WHERE workspace_id = ?
-         AND worktree_path IS NOT NULL
-         AND status IN ('starting','running')`,
-    )
-    .all(workspaceId) as Array<{ worktree_path: string }>;
-  return new Set(rows.map((r) => canonicalPathKey(r.worktree_path)));
-}
-
-/**
  * Core dir-level prune logic, shared by `pruneOrphanWorktreesForWorkspace`
  * and the GC pass inside `removeWorkspaceAndGc`.
  *
@@ -329,29 +311,44 @@ export async function removeWorkspaceAndGc(
     (r) => r.status !== 'starting' && r.status !== 'running',
   );
 
-  // Step 2: GC orphan worktrees (only when we have a repoHash to key on).
+  // Step 2 — 2026-06-10 audit (finding 2): when stopLiveSessions is set,
+  // kill the PTYs and delete the rows BEFORE the worktree GC. The old order
+  // (prune → kill → delete) spared live worktrees then deleted their rows,
+  // leaving dirs the boot sweep's cold-install guard (worktree-cleanup.ts)
+  // can never reap once the repo has zero remaining rows.
+  if (!dryRun && stopLiveSessions) {
+    for (const id of liveBlockedSessionIds) {
+      pty?.stop(id, { tree: true, forget: true });
+    }
+    if (sessionRows.length > 0) {
+      db.prepare('DELETE FROM agent_sessions WHERE workspace_id = ?').run(workspaceId);
+    }
+  }
+
+  // Step 3: GC orphan worktrees (only when we have a repoHash to key on).
+  // Fence = the shared keep-predicate across ALL sessions, minus exactly the
+  // rows this call deletes (or would delete on dryRun) — deleted rows' dirs
+  // are reaped in the same pass while sibling workspaces' worktrees in the
+  // shared repoHash dir stay fenced.
   const effectiveHash = repoHash ?? null;
   let worktreeCount = 0;
   let liveBlockedWorktrees: string[] = [];
   let worktreeErrors = 0;
 
   if (effectiveHash) {
-    const live = liveWorktreePaths(db, workspaceId);
-    const pruneResult = await pruneRepoDir(worktreeBase, effectiveHash, live, dryRun);
+    const excludeSessionIds = new Set(
+      (stopLiveSessions ? sessionRows : nonLiveSessionRows).map((r) => r.id),
+    );
+    const keep = collectKeptWorktreePaths(db, { excludeSessionIds });
+    const pruneResult = await pruneRepoDir(worktreeBase, effectiveHash, keep, dryRun);
     worktreeCount = dryRun ? pruneResult.wouldRemove.length : pruneResult.removed;
     liveBlockedWorktrees = pruneResult.liveBlocked;
     worktreeErrors = pruneResult.errors;
   }
 
-  // Step 3+4: Mutate DB (skipped in dry-run).
+  // Step 4: remaining DB mutations (skipped in dry-run).
   if (!dryRun) {
     if (stopLiveSessions) {
-      for (const id of liveBlockedSessionIds) {
-        pty?.stop(id, { tree: true, forget: true });
-      }
-      if (sessionRows.length > 0) {
-        db.prepare('DELETE FROM agent_sessions WHERE workspace_id = ?').run(workspaceId);
-      }
       db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
     } else {
       if (nonLiveSessionRows.length > 0) {
