@@ -328,30 +328,41 @@ describe('RufloHttpDaemonSupervisor', () => {
     warnSpy.mockRestore();
   });
 
-  it('falls back to `npx -y @claude-flow/cli@latest` when ruflo is absent but npx is present', async () => {
+  // ── win32 regression: no auto-download of @claude-flow/cli via npx ──────
+  //
+  // Before this fix, when ruflo was resolvable via neither PATH nor userData
+  // but `npx` WAS present, the supervisor returned an `npx -y
+  // @claude-flow/cli@latest …` launcher. Production machines without ruflo hit
+  // this tier on every workspace open, and `npx -y` AUTO-DOWNLOADS the package
+  // from the network during the awaited `workspaces.open`. With the daemon
+  // restart loop that meant several concurrent network downloads → CI runner
+  // saturation → the dogfood e2e hung to its 180s timeout. The correct
+  // behavior is to skip the daemon (resolveLaunch null → spawn null) so the
+  // existing stdio fallback in factory.ts takes over — exactly the
+  // pre-regression behavior (a bare `spawn('npx')` ENOENT'd instantly on
+  // win32 anyway, but we must NOT depend on a spawn failure for that).
+  it('no ruflo installed (only npx) → resolveLaunch null → spawn resolves null, NO npx spawn', async () => {
     const sup = new RufloHttpDaemonSupervisor();
-    // First probe (ruflo) misses; second probe (npx) hits.
+    // ruflo probe misses; npx probe HITS — but we must NOT use it.
     mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
       const probed = args[args.length - 1];
       if (probed === 'ruflo') throw new Error('not found');
-      return Buffer.from('/usr/local/bin/npx');
+      return Buffer.from('/usr/local/bin/npx'); // npx present
     });
-    alwaysHealthOk();
-    const child = makeChild(7777);
-    mockSpawn.mockReturnValue(child);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const p = sup.spawn('ws-npx', '/proj');
-    await vi.runAllTimersAsync();
-    const handle = await p;
+    const result = await sup.spawn('ws-no-ruflo', '/proj');
 
-    expect(handle).not.toBeNull();
-    expect(handle!.status).toBe('running');
-    // The npx fallback must carry the package spec before the daemon subcommand.
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'npx',
-      ['-y', '@claude-flow/cli@latest', 'mcp', 'start', '-t', 'http', '-p', String(NET_PORT), '--host', '127.0.0.1'],
-      expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] }),
-    );
+    // Daemon skipped — stdio fallback takes over.
+    expect(result).toBeNull();
+    // CRITICAL: no spawn at all — never `npx -y @claude-flow/cli@latest` (which
+    // would network-download during the awaited open).
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(spawnExecutableCalls.length).toBe(0);
+    // Still the LOUD distinct warning so the operator knows why HTTP state is
+    // degraded.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('DAEMON UNAVAILABLE'));
+    warnSpy.mockRestore();
   });
 
   it('prefers PATH `ruflo` (no npx prefix) when ruflo is present', async () => {
@@ -419,27 +430,23 @@ describe('RufloHttpDaemonSupervisor', () => {
     }
   });
 
-  it('falls through to npx when the userData CLI is not installed', async () => {
+  it('does NOT fall through to npx when the userData CLI is not installed (skips → stdio fallback)', async () => {
     // rufloRoot points at an empty dir → no cli.js → userData tier returns null.
+    // With ruflo absent from PATH too, the supervisor must SKIP (return null) and
+    // NEVER reach for `npx -y @claude-flow/cli@latest` (which network-downloads).
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sf14-empty-'));
     try {
       const sup = new RufloHttpDaemonSupervisor({ rufloRoot: root });
       mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
         if (args[args.length - 1] === 'ruflo') throw new Error('not found');
-        return Buffer.from('/usr/local/bin/npx'); // npx present
+        return Buffer.from('/usr/local/bin/npx'); // npx present but must be ignored
       });
-      alwaysHealthOk();
       mockSpawn.mockReturnValue(makeChild(4243));
 
-      const p = sup.spawn('ws-empty', '/proj');
-      await vi.runAllTimersAsync();
-      await p;
+      const result = await sup.spawn('ws-empty', '/proj');
 
-      expect(mockSpawn).toHaveBeenCalledWith(
-        'npx',
-        ['-y', '@claude-flow/cli@latest', 'mcp', 'start', '-t', 'http', '-p', String(NET_PORT), '--host', '127.0.0.1'],
-        expect.anything(),
-      );
+      expect(result).toBeNull();
+      expect(mockSpawn).not.toHaveBeenCalled();
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
