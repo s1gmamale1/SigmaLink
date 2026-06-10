@@ -201,7 +201,7 @@ export function PaneHeader({
         aria-hidden="true"
       />
       {/* P5.2 density-aware height — h-7 comfortable/compact, h-6 dense tier. */}
-      <div className="sl-glass-toolbar flex h-7 items-center gap-1.5 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))] [[data-grid-density=dense]_&]:h-6">
+      <div className="sl-glass-toolbar flex h-7 items-center gap-1.5 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]">
 
         {/* ── Title pill (drag handle, status glyph, alias·effort) ──────── */}
         <TooltipProvider delayDuration={coachmark.loaded && !coachmark.seen ? 300 : 200}>

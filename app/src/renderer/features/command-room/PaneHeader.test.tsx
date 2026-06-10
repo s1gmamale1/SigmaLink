@@ -275,13 +275,12 @@ describe('PaneHeader (Phase 4 BridgeSpace strip)', () => {
     expect(split.disabled).toBe(true);
   });
 
-  it('carries h-7 + dense variant on the toolbar strip', () => {
+  it('carries h-7 on the toolbar strip', () => {
     const { getByTestId } = render(<PaneHeader {...baseProps()} />);
     const header = getByTestId('pane-header');
     const strip = header.querySelector('.sl-glass-toolbar') as HTMLElement;
     expect(strip).toBeTruthy();
     expect(strip.className).toMatch(/\bh-7\b/);
-    expect(strip.className).toMatch(/\[\[data-grid-density=dense\]_&\]:h-6/);
   });
 
   it('gear + split + minimise are in the opacity-0 reveal wrapper (hover/focus)', () => {
