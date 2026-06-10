@@ -208,7 +208,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 **Definition of done.** No `execFileSync` on the stats path; 0 RPCs while `document.hidden`; summary parity tests green; full gate + operator `npm run test:perf` jank delta.
 
-## Phase 9 — Perf: render & bundle
+## Phase 9 — Perf: render & bundle ✅ SHIPPED (PR #143 `67b8f1b`, 2026-06-10 · vendor-react 636→193 kB)
 
 **Goal.** Boot parses ~450 KB less JS and long transcripts/mailboxes re-render only what changed.
 
