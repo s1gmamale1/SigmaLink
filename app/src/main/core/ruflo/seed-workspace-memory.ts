@@ -6,7 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawnExecutable } from '../util/spawn-cross-platform';
 
 const MAX_VALUE_CHARS = 2000;
 
@@ -52,11 +52,17 @@ function readContextFile(workspaceRoot: string): string | null {
  * Default runStore: spawns the claude-flow CLI with CLAUDE_FLOW_DIR set to
  * the workspace-local .claude-flow directory. Stdio is ignored (fire-and-
  * forget). Resolves on process close regardless of exit code. Never rejects.
+ *
+ * Routed through `spawnExecutable` so bare `npx` resolves to `npx.cmd` on
+ * win32 (a raw `spawn('npx', …)` CreateProcessW-ENOENTs there). NOTE: the
+ * `--value` payload is multi-line markdown; on win32 the cmd wrap flattens
+ * newlines to spaces (Task-1 `cmdEscapeArg` sanitization) — degraded content,
+ * never command injection.
  */
 function defaultRunStore(args: RunStoreArgs): Promise<void> {
   return new Promise<void>((resolve) => {
     try {
-      const child = spawn(
+      const child = spawnExecutable(
         'npx',
         [
           '-y',
@@ -77,7 +83,14 @@ function defaultRunStore(args: RunStoreArgs): Promise<void> {
         },
       );
       child.on('close', () => resolve());
-      child.on('error', () => resolve());
+      child.on('error', (err: unknown) => {
+        // Best-effort seeding must never reject — but an invisible ENOENT
+        // (bare `npx` on win32 pre-fix) cost us this whole feature silently.
+        console.warn(
+          `[ruflo-seed] memory store spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        resolve();
+      });
     } catch {
       resolve();
     }

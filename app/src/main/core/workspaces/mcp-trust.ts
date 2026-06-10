@@ -25,7 +25,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawnExecutable } from '../util/spawn-cross-platform';
 
 const RUFLO_SERVER_NAME = 'ruflo';
 const CURSOR_AGENT_BIN = 'cursor-agent';
@@ -192,8 +192,9 @@ function defaultDetectCli(name: string): boolean {
  * it must never add seconds of synchronous latency to workspace or pane launch
  * when the external CLI is slow or waiting on its own first-run setup.
  */
-function defaultRunCli(cmd: string, args: string[], cwd: string): void {
-  const child = spawn(cmd, args, { cwd, stdio: 'ignore' });
+/** Exported for unit tests. */
+export function defaultRunCli(cmd: string, args: string[], cwd: string): void {
+  const child = spawnExecutable(cmd, args, { cwd, stdio: 'ignore' });
   const timer = setTimeout(() => {
     child.kill('SIGTERM');
   }, CURSOR_ENABLE_TIMEOUT_MS);

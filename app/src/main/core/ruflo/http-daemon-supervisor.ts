@@ -12,12 +12,13 @@
 //   • emits 'restarted' (workspaceId, success) after each recovery cycle
 
 import { EventEmitter } from 'node:events';
-import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync, type ChildProcess } from 'node:child_process';
 import net from 'node:net';
 import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
 import { defaultRufloRoot } from './installer';
+import { spawnExecutable } from '../util/spawn-cross-platform';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -373,7 +374,7 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
 
       let child: ChildProcess;
       try {
-        child = spawn(entry.launch.command, this.daemonArgs(entry), {
+        child = spawnExecutable(entry.launch.command, this.daemonArgs(entry), {
           env: {
             ...process.env,
             CLAUDE_FLOW_CWD: entry.workspaceRoot,
@@ -601,7 +602,7 @@ export class RufloHttpDaemonSupervisor extends EventEmitter {
    */
   private launchChild(entry: DaemonEntry): ChildProcess | null {
     try {
-      return spawn(entry.launch.command, this.daemonArgs(entry), {
+      return spawnExecutable(entry.launch.command, this.daemonArgs(entry), {
         env: {
           ...process.env,
           CLAUDE_FLOW_CWD: entry.workspaceRoot,

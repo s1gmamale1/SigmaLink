@@ -105,7 +105,13 @@ export function resolvePosixCommand(
   return null;
 }
 
-function defaultShell(env: NodeJS.ProcessEnv = process.env): { command: string; args: string[] } {
+/**
+ * Resolve the user's default interactive shell for the given env.
+ * win32 NEVER consults env.SHELL (git-bash exports SHELL=/usr/bin/bash —
+ * not a Win32 path → ENOENT) — it probes pwsh → powershell → cmd.
+ * Exported for the rpc scratch-shell seam + unit tests.
+ */
+export function defaultShell(env: NodeJS.ProcessEnv = process.env): { command: string; args: string[] } {
   if (process.platform === 'win32') {
     // Prefer pwsh (PowerShell 7+) when available, then powershell.exe (Windows
     // PowerShell 5), then cmd.exe. BUG-W7-007: pass `-NoLogo` so the upgrade
@@ -120,10 +126,10 @@ function defaultShell(env: NodeJS.ProcessEnv = process.env): { command: string; 
     return { command: cmdExe, args: [] };
   }
   if (process.platform === 'darwin') {
-    const sh = process.env.SHELL ?? '/bin/zsh';
+    const sh = env.SHELL ?? '/bin/zsh';
     return { command: sh, args: ['-l'] };
   }
-  const sh = process.env.SHELL ?? '/bin/bash';
+  const sh = env.SHELL ?? '/bin/bash';
   return { command: sh, args: ['-l'] };
 }
 

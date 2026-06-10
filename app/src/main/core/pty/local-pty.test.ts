@@ -29,6 +29,7 @@ import {
   win32QuoteCmdArg,
   buildWin32PwshCommandLine,
   buildWin32CmdCommandLine,
+  defaultShell,
 } from './local-pty';
 import { SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
 
@@ -928,5 +929,31 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     const e = caught as NodeJS.ErrnoException;
     expect(e).toBeInstanceOf(Error);
     expect(e.code).toBe('ENOENT');
+  });
+});
+
+describe('defaultShell', () => {
+  it('honours the caller-supplied env on darwin (was: read process.env.SHELL)', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    expect(defaultShell({ SHELL: '/opt/custom/fish' })).toEqual({
+      command: '/opt/custom/fish',
+      args: ['-l'],
+    });
+  });
+
+  it('win32: ignores env.SHELL entirely and probes pwsh → powershell → cmd', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    vi.spyOn(fs, 'existsSync').mockImplementation(
+      (p) => p === 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    );
+    const r = defaultShell({
+      SHELL: '/usr/bin/bash', // git-bash export — must NOT be used (ENOENT on win32)
+      PATH: 'C:\\Program Files\\PowerShell\\7',
+      PATHEXT: '.EXE',
+    });
+    expect(r).toEqual({
+      command: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+      args: ['-NoLogo'],
+    });
   });
 });
