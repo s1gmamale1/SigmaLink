@@ -19,6 +19,12 @@ import { selectActiveWorkspace, type Action, type AppState, type RoomId } from '
 // workspace-independent), so it must NOT be remembered per-workspace.
 const GLOBAL_ROOMS: readonly RoomId[] = ['workspaces', 'settings', 'automations'] as const;
 
+// Perf audit 2026-06-10 #4 — per-swarm message thread cap. Hydrate tails 200
+// (SwarmRoom / SwarmRailTab); live APPENDs previously grew the array without
+// bound. 500 keeps the full hydrated tail plus a generous live window while
+// bounding SideChat / MailboxBubble row counts on long-running swarms.
+const SWARM_MESSAGES_CAP = 500;
+
 function isGlobalRoom(room: RoomId): boolean {
   return (GLOBAL_ROOMS as readonly string[]).includes(room);
 }
@@ -530,7 +536,12 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       // Avoid duplicates if the renderer received the message twice (event +
       // tail refresh). Identity by `id`.
       if (existing.some((m) => m.id === action.message.id)) return state;
-      const next = [...existing, action.message];
+      const appended = [...existing, action.message];
+      // Cap the thread, dropping the oldest, so it can't grow unbounded.
+      const next =
+        appended.length > SWARM_MESSAGES_CAP
+          ? appended.slice(appended.length - SWARM_MESSAGES_CAP)
+          : appended;
       return {
         ...state,
         swarmMessages: { ...state.swarmMessages, [action.message.swarmId]: next },
