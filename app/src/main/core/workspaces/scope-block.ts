@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { PlanCapsule } from '@/shared/plan-capsule';
+import { buildCapsuleText, type PlanCapsule } from '@/shared/plan-capsule';
+// Audit 2026-06-10 — containment keystone (pure node, fail-closed; see
+// core/security/path-guard.ts). briefPane judges the renderer-supplied
+// worktreePath against the injected allowed roots BEFORE any disk write.
+import { assertAllowedPath } from '../security/path-guard';
 
 const SCOPE_BLOCK_START = '<!-- sigmalink-scope:start -->';
 const SCOPE_BLOCK_END = '<!-- sigmalink-scope:end -->';
@@ -62,4 +66,30 @@ export async function writeScopeBlock(worktreePath: string, capsule: PlanCapsule
   if (next === existing) return;
   fs.mkdirSync(path.dirname(target), { recursive: true });
   writeFileAtomic(target, next);
+}
+
+/**
+ * C-5 / audit 2026-06-10 — the `panes.brief` RPC body, extracted from
+ * rpc-router so the containment guard is unit-testable (the router cannot
+ * load under vitest). Order matters: the containment check throws BEFORE the
+ * CLAUDE.md write AND before the PTY capsule injection, so an out-of-roots
+ * path produces no side effects at all ('path outside workspace').
+ *
+ * Sibling parity: git.worktreeCreate / git.openInPane / git.runCommand and
+ * the fs.* controller all contain renderer paths the same way.
+ */
+export async function briefPane(
+  input: { sessionId: string; worktreePath: string | null; capsule: PlanCapsule },
+  deps: {
+    /** Authoritative allowed-roots provider (rpc-router's fsAllowedRoots). */
+    allowedRoots: () => string[];
+    /** PTY write sink — (sessionId, data). */
+    writePty: (sessionId: string, data: string) => void;
+  },
+): Promise<void> {
+  if (input.worktreePath) {
+    const safe = assertAllowedPath(input.worktreePath, deps.allowedRoots());
+    await writeScopeBlock(safe, input.capsule);
+  }
+  deps.writePty(input.sessionId, buildCapsuleText(input.capsule) + '\n');
 }

@@ -1316,10 +1316,15 @@ async function buildRouter() {
     // C-5 — inject a structured plan capsule into the pane's PTY + write a
     // per-worktree CLAUDE.md scope guidance block.
     brief: async ({ sessionId, worktreePath, capsule }: { sessionId: string; worktreePath: string | null; capsule: import('@/shared/plan-capsule').PlanCapsule }) => {
-      const { writeScopeBlock } = await import('./core/workspaces/scope-block');
-      const { buildCapsuleText } = await import('@/shared/plan-capsule');
-      if (worktreePath) await writeScopeBlock(worktreePath, capsule);
-      pty.write(sessionId, buildCapsuleText(capsule) + '\n');
+      // Audit 2026-06-10 — contain the renderer-supplied worktreePath to the
+      // workspace/worktree allowed roots BEFORE the CLAUDE.md write (sibling
+      // parity with git.worktreeCreate/:openInPane). briefPane throws
+      // 'path outside workspace' and produces NO side effects out-of-roots.
+      const { briefPane } = await import('./core/workspaces/scope-block');
+      await briefPane(
+        { sessionId, worktreePath, capsule },
+        { allowedRoots: fsAllowedRoots, writePty: (id, data) => pty.write(id, data) },
+      );
     },
   });
 
