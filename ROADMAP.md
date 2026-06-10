@@ -107,7 +107,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 ---
 
-## Phase 4 — Main-process data-integrity criticals
+## Phase 4 — Main-process data-integrity criticals ✅ SHIPPED (PR #136 `81619e3` + PR #138 `e1d0968`, 2026-06-10)
 
 **Goal.** A boot can never crash or silently re-break multi-workspace-same-dir, and no sweep can delete a worktree that resume — or a sibling workspace — still needs.
 
@@ -127,7 +127,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 **Definition of done.** Boot→0034→boot test green incl. self-heal; keep⊇use matrix + tripwire tests green; removing a workspace leaves no headless PTYs and no permanently-unreapable worktrees; full gate (`tsc -b`/eslint/vitest/`product:check`) + CI.
 
-## Phase 5 — PTY lifecycle & resume correctness
+## Phase 5 — PTY lifecycle & resume correctness ✅ SHIPPED (PR #139 `c26695c`, 2026-06-10)
 
 **Goal.** A resumed/respawned pane can never be killed by a stale timer, crash classification is uniform at all three exit sites, respawn-fresh can't roll a pane back to its pre-crash conversation, and a CLI-exit sentinel can't be missed on a chunk split.
 
