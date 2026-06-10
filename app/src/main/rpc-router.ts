@@ -58,7 +58,7 @@ import {
   markWorkspaceOpened,
 } from './core/workspaces/lifecycle';
 import { executeLaunchPlan } from './core/workspaces/launcher';
-import { AGENT_PROVIDERS } from '../shared/providers';
+import { AGENT_PROVIDERS, installCommandFor } from '../shared/providers';
 import { SwarmMailbox } from './core/swarms/mailbox';
 import { BoardManager } from './core/swarms/boards';
 import { buildSwarmController } from './core/swarms/controller';
@@ -1359,8 +1359,11 @@ async function buildRouter() {
     spawnInstall: async (providerId: string): Promise<{ paneId: string }> => {
       const def = AGENT_PROVIDERS.find((p) => p.id === providerId);
       if (!def) throw new Error(`providers.spawnInstall: unknown provider '${providerId}'`);
-      const platform = process.platform as 'darwin' | 'linux' | 'win32';
-      const cmd = def.installCommand?.[platform] ?? def.installCommand?.linux;
+      const platform = process.platform;
+      // installCommandFor never cross-falls-back onto a POSIX command on
+      // win32 — a missing win32 installer throws here and the renderer modal
+      // shows the manual-install docs link instead.
+      const cmd = installCommandFor(def, platform);
       if (!cmd || cmd.length === 0) {
         throw new Error(
           `providers.spawnInstall: no installCommand for provider '${providerId}' on ${platform}`,

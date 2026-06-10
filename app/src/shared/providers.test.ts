@@ -9,9 +9,11 @@ import { describe, it, expect } from 'vitest';
 import {
   AGENT_PROVIDERS,
   findProvider,
+  installCommandFor,
   isImageCapableProvider,
   listDetectable,
   listVisibleProviders,
+  type AgentProviderDefinition,
 } from './providers';
 
 describe('AGENT_PROVIDERS registry', () => {
@@ -81,5 +83,56 @@ describe('IMAGE_CAPABLE_PROVIDERS (spec 2026-06-10 B)', () => {
     expect(isImageCapableProvider('shell')).toBe(false);
     expect(isImageCapableProvider('gemini')).toBe(false); // unverified upstream — OFF until proven
     expect(isImageCapableProvider('')).toBe(false);
+  });
+});
+
+const fakeDef = (ic?: AgentProviderDefinition['installCommand']): AgentProviderDefinition => ({
+  id: 'x',
+  name: 'X',
+  description: '',
+  command: 'x',
+  args: [],
+  color: '#fff',
+  icon: 'cpu',
+  installHint: '',
+  installCommand: ic,
+});
+
+describe('installCommandFor', () => {
+  it('win32 NEVER falls back to a posix command (the bash-on-Windows bug)', () => {
+    expect(installCommandFor(fakeDef({ linux: ['bash', '-c', 'curl https://x | bash'] }), 'win32')).toBeNull();
+  });
+
+  it('win32 returns the win32 command when present', () => {
+    expect(installCommandFor(fakeDef({ win32: ['npm', 'i', '-g', 'x'] }), 'win32')).toEqual(['npm', 'i', '-g', 'x']);
+  });
+
+  it('darwin falls back to linux when darwin is absent', () => {
+    expect(installCommandFor(fakeDef({ linux: ['npm', 'i', '-g', 'x'] }), 'darwin')).toEqual(['npm', 'i', '-g', 'x']);
+  });
+
+  it('linux uses linux', () => {
+    expect(installCommandFor(fakeDef({ linux: ['pip', 'install', 'x'] }), 'linux')).toEqual(['pip', 'install', 'x']);
+  });
+
+  it('no installCommand at all → null', () => {
+    expect(installCommandFor(fakeDef(undefined), 'darwin')).toBeNull();
+  });
+});
+
+describe('AGENT_PROVIDERS registry pins (win32 runnability)', () => {
+  it('every win32 installCommand starts with a Windows-runnable binary', () => {
+    const allowed = new Set(['npm', 'pip', 'powershell.exe']);
+    for (const p of AGENT_PROVIDERS) {
+      const win = p.installCommand?.win32;
+      if (!win) continue;
+      expect(allowed.has(win[0]!), `${p.id}: win32 installCommand starts with '${win[0]}'`).toBe(true);
+    }
+  });
+
+  it('no provider ships bash on win32', () => {
+    for (const p of AGENT_PROVIDERS) {
+      expect(p.installCommand?.win32?.[0], `${p.id} win32 cmd[0]`).not.toBe('bash');
+    }
   });
 });
