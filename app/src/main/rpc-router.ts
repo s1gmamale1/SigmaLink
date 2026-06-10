@@ -142,7 +142,7 @@ import { checkForUpdates as checkForUpdatesImpl } from '../../electron/auto-upda
 // of 'ultra'. The capability matrix lives next to this import; the renderer
 // reads through `app.tier()` rather than touching kv directly.
 import { KV_PLAN_TIER, parseTier } from './core/plan/capabilities';
-import { KV_PTY_SPAWN_MODE, parseSpawnMode, KV_PTY_SCROLLBACK_PERSISTENCE, parseScrollbackPersistence } from './core/pty/local-pty';
+import { KV_PTY_SPAWN_MODE, parseSpawnMode, KV_PTY_SCROLLBACK_PERSISTENCE, parseScrollbackPersistence, defaultShell } from './core/pty/local-pty';
 import { persistScrollback, loadScrollback, gcScrollback, makeScrollbackExitSink } from './core/pty/scrollback-store';
 import { buildWindowsOpenShellArgs } from './core/util/windows-spawn';
 import { whenShellPathReady } from './core/util/shell-path';
@@ -1040,13 +1040,17 @@ async function buildRouter() {
       // perf-hot-paths Task 4 — gate the spawn on the async login-shell PATH
       // resolve (≤3.5 s cap; instant on warm boot).
       await whenShellPathReady();
-      const shell =
-        process.env.SHELL ??
-        (process.platform === 'win32' ? 'cmd.exe' : '/bin/sh');
+      // win32: NEVER trust env.SHELL — git-bash users export SHELL=/usr/bin/bash
+      // (ENOENT as a Win32 path) and honouring it bypasses defaultShell()'s
+      // pwsh → powershell → cmd preference. POSIX behaviour unchanged.
+      const scratchShell =
+        process.platform === 'win32'
+          ? defaultShell()
+          : { command: process.env.SHELL ?? '/bin/sh', args: [] as string[] };
       const rec = pty.create({
         providerId: 'shell',
-        command: shell,
-        args: [],
+        command: scratchShell.command,
+        args: scratchShell.args,
         cwd: input.cwd,
         cols: 80,
         rows: 24,
