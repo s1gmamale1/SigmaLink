@@ -18,12 +18,19 @@ export interface CleanupResult {
 // INVARIANT (keep ⊇ use): this predicate MUST stay at least as broad as every
 // consumer of worktree dirs, or the reaper deletes what a consumer needs
 // (feedback_reaper_keep_superset_of_use; 93fbca6 regression class):
-//   - resume-launcher.listEligibleRows (resume-launcher.ts:296-321):
-//       running OR (exited AND exit_code=-1)
-//   - resume-launcher.listRespawnableRows (resume-launcher.ts:427-454):
-//       exited AND exit_code=-1
+//   - resume-launcher.listEligibleRows:
+//       closed_at IS NULL AND (running OR (exited AND exit_code=-1))
+//   - resume-launcher.listRespawnableRows:
+//       closed_at IS NULL AND exited AND exit_code=-1
 //   - boot janitor candidates: starting/running rows
 //   - 7-day uncommitted-work guard for other recently-exited rows
+//
+// Phase 13 narrowing (Task 9): both resume consumers now additionally AND
+// closed_at IS NULL. The keep-predicate does NOT check closed_at — it keeps
+// a closed pane's worktree via the 7-day window or exited/-1 branch until it
+// ages out naturally. keep ⊇ use holds trivially: the USE-set shrank (closed
+// rows are no longer consumed) while the KEEP-set is unchanged. Closed rows
+// retained within the 7-day window support Part B (Recents).
 //
 // Implemented as a plain JS predicate over a single all-rows fetch (NOT a
 // second SQL copy) so the SQL and the predicate cannot drift apart. The

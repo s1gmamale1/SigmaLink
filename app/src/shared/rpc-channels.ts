@@ -40,6 +40,9 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'panes.resume',
   // v1.2.8 — Recovery action behind the aggregated resume-failure toast.
   'panes.respawnFailed',
+  // Phase 13 — deliberate pane close (marks closed_at, then kills). Routed by
+  // the × button, context-menu close, and the Jorvis close_pane tool.
+  'panes.close',
   // P6 FEAT-1 — on-demand subset relaunch from the "Resume agents…" command.
   // ADDITIVE to the boot auto-resume (`panes.resume`); resumes only the
   // operator-chosen session ids.

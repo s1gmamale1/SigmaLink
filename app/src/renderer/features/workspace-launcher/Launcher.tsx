@@ -34,7 +34,7 @@ import type { SavedLayout } from './PresetRow';
 import { AgentsStep } from './AgentsStep';
 import { SessionStep, fetchLastResumePlan } from './SessionStep';
 import type { PaneRow } from './SessionStep';
-import { gridLabel } from './grid';
+import { gridLabel, GRID_DIMS } from './grid';
 import { AGENT_PROVIDERS } from '@/shared/providers';
 // DEV-W3b — single source of truth for the worktree-mode KV key, shared with
 // the main-side reader (core/workspaces/worktree-mode.ts). No hand-rolled copy.
@@ -80,6 +80,31 @@ export function buildPaneResumePlanArray(
     }
   }
   return out;
+}
+
+/** Ascending preset ladder derived from GRID_DIMS — exhaustive over the
+ *  GridPreset union by construction, so it cannot drift from shared/types. */
+const PRESET_LADDER = (Object.keys(GRID_DIMS).map(Number) as GridPreset[]).sort(
+  (a, b) => a - b,
+);
+
+/**
+ * Phase 13 — closed panes are filtered out of lastResumePlan (closed_at IS
+ * NULL), so paneIndex can GAP (close the middle pane of 3 → rows at slots
+ * [0, 2]). Size the grid by the highest surviving slot, NOT the row count:
+ * a count-sized preset under-scans in buildPaneResumePlanArray's
+ * 0..preset-1 loop and silently drops the trailing sessions. GridPreset is a
+ * closed union, so snap to the smallest valid preset ≥ maxSlot+1, capped at
+ * the largest. Exported for unit testing (Launcher.test.tsx).
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function inferResumeGridPreset(
+  plan: ReadonlyArray<{ paneIndex: number }>,
+): GridPreset {
+  const maxSlot = plan.reduce((m, e) => Math.max(m, e.paneIndex), 0);
+  return (
+    PRESET_LADDER.find((p) => p >= maxSlot + 1) ?? PRESET_LADDER[PRESET_LADDER.length - 1]
+  );
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -442,8 +467,10 @@ export function WorkspaceLauncher() {
     try {
       const plan = await fetchLastResumePlan(reopened.id);
       if (plan.length > 0) {
-        // Derive preset from the number of pane entries (best-effort).
-        const inferredPreset = plan.length as GridPreset;
+        // Closed panes are filtered from lastResumePlan (Phase 13), so
+        // paneIndex can gap — size the grid by the highest surviving slot,
+        // not the row count, or the trailing sessions are silently dropped.
+        const inferredPreset = inferResumeGridPreset(plan);
         const inferredCounts: Record<string, number> = {};
         const hydrated: Record<number, string | null> = {};
         for (const entry of plan) {

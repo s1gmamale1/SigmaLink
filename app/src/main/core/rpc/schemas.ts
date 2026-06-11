@@ -317,6 +317,9 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       failed: z.number().int().nonnegative(),
     }),
   },
+  // Phase 13 — deliberate pane close. Handler is `close(sessionId: string)`;
+  // first (only) arg is the session id (mirrors the `pty.kill` arg schema).
+  'panes.close': { input: z.string().min(1).max(512), output: any },
   // P6 FEAT-1 — on-demand subset relaunch. Handler is
   // `resumeSelected(workspaceId, sessionIds)`. The validator only sees the
   // FIRST positional arg, so we bound `workspaceId` here (matching the

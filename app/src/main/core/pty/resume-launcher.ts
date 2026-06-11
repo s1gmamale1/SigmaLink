@@ -348,6 +348,7 @@ function listEligibleRows(db: Database.Database, workspaceId: string): ResumeRow
        FROM agent_sessions s
        JOIN workspaces w ON w.id = s.workspace_id
        WHERE s.workspace_id = ?
+         AND s.closed_at IS NULL
          AND (
            s.status = 'running'
            OR (s.status = 'exited' AND s.exit_code = -1)
@@ -483,6 +484,7 @@ function listRespawnableRows(
        FROM agent_sessions s
        JOIN workspaces w ON w.id = s.workspace_id
        WHERE s.workspace_id = ?
+         AND s.closed_at IS NULL
          AND s.status = 'exited'
          AND s.exit_code = -1
        ORDER BY s.started_at ASC`,

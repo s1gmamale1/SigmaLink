@@ -204,6 +204,15 @@ export interface AppRouter {
       workspaceId: string,
     ) => Promise<{ workspaceId: string; spawned: number; failed: number }>;
     /**
+     * Phase 13 — Deliberate close of a single pane by session id. Marks
+     * `agent_sessions.closed_at` (durable soft-delete) BEFORE killing the PTY,
+     * so the closed pane neither resurrects on restart nor raises the spurious
+     * "Pane exited" toast. The × button, context-menu close, and the Jorvis
+     * `close_pane` tool all route through this primitive. Best-effort: a
+     * dead/unknown id is a no-op.
+     */
+    close: (sessionId: string) => Promise<void>;
+    /**
      * P6 FEAT-1 — on-demand subset relaunch. Resumes ONLY the eligible panes
      * whose session id appears in `sessionIds` (every other pane is left
      * untouched), returning the same `PaneResumeResult` as `resume`. Additive:

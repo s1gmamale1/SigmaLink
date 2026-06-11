@@ -88,10 +88,15 @@ export const agentSessions = sqliteTable(
     minimised: integer('minimised').notNull().default(0),
     // BSP-O4 — operator-supplied display name. NULL = use computed alias.
     name: text('name'),
+    // 0037 — deliberate-close soft-delete marker (epoch-ms). NULL = open.
+    // DURABLE close marker: every resume/rehydrate/toast-suppression path keys
+    // off this, NOT status (the late onExit write can clobber status).
+    closedAt: integer('closed_at'),
   },
   (t) => ({
     wsIdx: index('agent_sessions_ws_idx').on(t.workspaceId),
     statusIdx: index('agent_sessions_status_idx').on(t.status),
+    closedIdx: index('agent_sessions_closed_idx').on(t.workspaceId, t.closedAt),
     wsPaneIdx: index('agent_sessions_ws_pane_idx').on(
       t.workspaceId,
       t.paneIndex,

@@ -739,8 +739,8 @@ describe('BSP-B3 browser_snapshot — scanIngested integration', () => {
 });
 
 describe('assistant close_pane tool', () => {
-  it('kills the PTY, marks DB row exited, emits assistant:pane-closed, returns ok', async () => {
-    // Seed a running session so the DB update has a row to mutate.
+  it('marks closed_at BEFORE the kill, emits assistant:pane-closed, returns ok', async () => {
+    // Seed a running session so the closed_at write has a row to mutate.
     seedAgentSession(fake, {
       id: 'sess-1',
       workspaceId: 'ws-1',
@@ -748,7 +748,17 @@ describe('assistant close_pane tool', () => {
       status: 'running',
     });
 
-    const kill = vi.fn();
+    // Capture call ordering: the durable closed_at write MUST land before the
+    // kill, or the async pty-exit misses the marker (ADR-007 invariant).
+    const order: string[] = [];
+    const rowAtKill: { closedAt?: unknown } = {};
+    const kill = vi.fn(() => {
+      order.push('kill');
+      const r = (fake.store.tables.get('agent_sessions') ?? []).find(
+        (x) => x['id'] === 'sess-1',
+      );
+      rowAtKill.closedAt = r?.['closedAt'];
+    });
     const emit = vi.fn();
     const ctx: ToolContext = {
       ...makeCtx([], 'ws-1'),
@@ -761,18 +771,20 @@ describe('assistant close_pane tool', () => {
     // 1. PTY kill was called.
     expect(kill).toHaveBeenCalledWith('sess-1');
 
-    // 2. DB row is now marked exited.
+    // 2. DB row carries the durable closed_at marker (NOT a status write — the
+    //    late onExit clobbers status; closed_at is the durable axis).
     const rows = fake.store.tables.get('agent_sessions') ?? [];
     const row = rows.find((r) => r['id'] === 'sess-1');
     expect(row).toBeDefined();
-    expect(row!['status']).toBe('exited');
-    expect(row!['exitCode']).toBe(0);
-    expect(typeof row!['exitedAt']).toBe('number');
+    expect(typeof row!['closedAt']).toBe('number');
 
-    // 3. Renderer signal emitted.
+    // 3. Ordering invariant: closed_at was already set when kill fired.
+    expect(typeof rowAtKill.closedAt).toBe('number');
+
+    // 4. Renderer signal emitted.
     expect(emit).toHaveBeenCalledWith('assistant:pane-closed', { sessionId: 'sess-1' });
 
-    // 4. Return value.
+    // 5. Return value.
     expect(out).toEqual({ ok: true, sessionId: 'sess-1' });
   });
 

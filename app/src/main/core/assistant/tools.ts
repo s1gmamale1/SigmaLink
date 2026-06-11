@@ -14,6 +14,7 @@ import {
   swarmAgents,
   workspaces as workspacesTable,
 } from '../db/schema';
+import { markPaneClosed } from '../pty/mark-pane-closed';
 import type { PtyRegistry } from '../pty/registry';
 import type { WorktreePool } from '../git/worktree';
 import type { SwarmMailbox } from '../swarms/mailbox';
@@ -403,17 +404,15 @@ export const TOOLS: ToolDefinition[] = [
     },
     sClosePane,
     async (a, ctx) => {
-      // 1. Kill the process tree (best-effort — a dead/unknown id is a no-op).
+      // 1. Mark closed FIRST (durable closed_at) — BEFORE the kill — so the
+      //    async pty-exit is excluded from boot rehydrate/resume AND its
+      //    "Pane exited" toast is suppressed. closed_at is the durable marker;
+      //    status is racy (the launcher's late onExit write clobbers it), so we
+      //    no longer write status here. Unifies onto the shared markPaneClosed
+      //    primitive used by panes.close (× button + context-menu close).
+      try { markPaneClosed(getRawDb(), a.sessionId, Date.now()); } catch { /* best-effort */ }
+      // 2. Kill the process tree (best-effort — a dead/unknown id is a no-op).
       try { ctx.pty.kill(a.sessionId); } catch { /* already gone */ }
-      // 2. Mark exited so panes.resume cannot resurrect it (mirrors the
-      //    launcher's onExit DB write for an explicit close).
-      try {
-        getDb()
-          .update(agentSessions)
-          .set({ status: 'exited', exitCode: 0, exitedAt: Date.now() })
-          .where(eq(agentSessions.id, a.sessionId))
-          .run();
-      } catch { /* best-effort — kill + emit still proceed */ }
       // 3. Tell the renderer grid to drop the pane live (twin of launch_pane's
       //    assistant:dispatch-echo; without this the pane lingers until the
       //    slow pty:exit GC, and never removes an already-errored pane).

@@ -22,6 +22,7 @@ import {
   listSessionsInCwd,
 } from './core/pty/session-disk-scanner';
 import { resumeWorkspacePanes, respawnFailedWorkspacePanes } from './core/pty/resume-launcher';
+import { markPaneClosed } from './core/pty/mark-pane-closed';
 import { probeAllProviders, probeProviderById } from './core/providers/probe';
 import {
   commitAndMerge,
@@ -1118,6 +1119,23 @@ async function buildRouter() {
         pty,
         broadcastPtyError: (payload) => broadcast('pty:error', payload),
       }),
+    // Phase 13 — Deliberate pane close (× button, context-menu close, and the
+    // Jorvis close_pane tool all route here). Mark closed_at BEFORE the kill so
+    // the async pty-exit (a) is excluded from boot rehydrate/resume and (b) has
+    // its "Pane exited" toast suppressed. closed_at is the DURABLE marker; status
+    // is racy (the late onExit write clobbers it). Both writes are best-effort.
+    close: async (sessionId: string) => {
+      try {
+        markPaneClosed(getRawDb(), sessionId, Date.now());
+      } catch {
+        /* best-effort — kill still proceeds */
+      }
+      try {
+        pty.kill(sessionId);
+      } catch {
+        /* already gone */
+      }
+    },
     // P6 FEAT-1 — on-demand subset relaunch from the "Resume agents…" command.
     // ADDITIVE: the boot auto-resume keeps calling `resume(workspaceId)` with no
     // subset (full behaviour). This passes the operator-chosen `sessionIds`
@@ -1197,6 +1215,7 @@ async function buildRouter() {
                  ) AS rn
                FROM agent_sessions s
                WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
+                 AND s.closed_at IS NULL
              )
              SELECT paneIndex, providerId, externalSessionId
              FROM ranked
@@ -1259,6 +1278,7 @@ async function buildRouter() {
                  ) AS rn
                FROM agent_sessions s
                WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
+                 AND s.closed_at IS NULL
              )
              SELECT *
              FROM ranked
