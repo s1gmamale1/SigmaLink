@@ -34,6 +34,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 | 10 | High | `panes.brief` writes a CLAUDE.md to a renderer-supplied path with no containment (prompt-injection write primitive). → **Phase 6** | `app/src/main/rpc-router.ts:1295` | S |
 | 11 | High | Scratch-shell tabs orphan PTYs + leak xterm/WebGL cache entries (per-mount state the cache GC can't see). → **Phase 7** | `app/src/renderer/features/command-room/PaneShell.tsx:145-186` | M |
 | 12 | Crit (win32) | `cmdQuoteArg` cmd.exe escaping corrupts npm `.cmd`-shim argv (carets literal inside quotes; odd `\"` toggles quote state = injection); class invisible to CI (vitest never ran on Windows). → **Phase 11** | `app/src/main/core/util/windows-spawn.ts:88-96` | M |
+| 16 | Crit (win32) | App **crashes on reopen** ("database is locked" main-process dialog) + WAL grows unboundedly — orphaned per-CLI `mcp-memory-server.cjs` writers survive quit (`taskkill /T` can't reach reparented grandchildren) and hold `sigmalink.db`; `journal_mode=WAL` ran before `busy_timeout`; `bootstrapAndMigrate` uncaught at boot. (#13–15 reserved by the concurrent session's Phase 13/14 WIP.) → **Phase 15** | `app/src/main/core/db/client.ts:225`, `app/src/main/core/memory/mcp-server.ts:191`, `app/src/main/core/process/process-tree.ts:175`, `app/src/main/rpc-router.ts:285` | M |
 
 ---
 
@@ -293,6 +294,21 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 **Definition of done.** All deletions land with the full gate green incl. `product:check`; `pnpm-workspace.yaml` untouched (or reverted) after dep removals; zero runtime diffs.
 
 ---
+
+## Phase 15 — win32 DB lifecycle: reopen crash + WAL bloat *(operator-reported on the W-4 device, 2026-06-11; Phase 13/14 numbers reserved by the concurrent session's in-flight work)*
+
+**Goal.** SigmaLink on Windows reopens cleanly after a close — no "database is locked" main-process crash dialog, workspace state resumes, and `sigmalink.db-wal` stops growing across runs.
+
+**Root cause (operator-confirmed: ① crash dialog mentions database locked/busy, ② orphan node processes linger after close, ③ `-wal` is tens of MB).** Every agent CLI spawns its own `mcp-memory-server.cjs` — a persistent better-sqlite3 **writer** on `sigmalink.db` via full `initializeDatabase()` (`mcp-server.ts:191`). On win32 quit, `taskkill /T` only walks **surviving** ppid links; the `.cmd`-shim chain exits early and reparents those grandchildren → they outlive the app holding the db/`-shm`. Reopen: `journal_mode=WAL` (a lock-acquiring statement) ran **before** `busy_timeout` → instant `SQLITE_BUSY` → uncaught through `bootstrapAndMigrate`/`registerRouter` → crash dialog. Quit: `wal_checkpoint(TRUNCATE)` always failed against orphan readers → unbounded WAL. macOS unaffected (working `ps` tree-kill + advisory locks).
+
+**Deliverables.**
+- `busy_timeout` FIRST in `openAndCheck` (+ source-text tripwire test).
+- `core/process/orphan-sweep.ts` — boot-time win32 orphan sweep by CIM `CommandLine` marker (`mcp-memory-server.cjs`), reparenting-proof, fail-open; runs before the DB open.
+- `core/db/boot-open.ts` — `openDatabaseWithBootRetry` (bounded busy-retry; non-busy errors rethrow immediately) + boot-time `wal_checkpoint(TRUNCATE)` reclaiming historic WAL bloat.
+- Quit ordering: capture PTY root pids → `killAll()` → bounded `waitForPidsExit` (≤2.5 s) **before** `closeDatabase()` so handles release and the quit checkpoint can TRUNCATE.
+- Plan: `app/docs/superpowers/plans/2026-06-11-win32-db-lifecycle.md`. All helpers dependency-injected; unit tests execute for real on the windows-latest vitest CI leg (ADR-006).
+
+**Definition of done.** Tests green on windows-latest CI; operator device check: close → no lingering node processes (or boot sweep clears them) → reopen → no dialog, workspaces resume → `-wal` shrinks. **Deferred (wishlist):** memory-server redesign (full bootstrap+migrate per CLI spawn = N concurrent DDL writers by design); WAL-size telemetry.
 
 ## Architecture decisions (ADRs)
 
