@@ -42,6 +42,7 @@ import * as mig0033 from './migrations/0033_browser_tabs_closed_at';
 import * as mig0034 from './migrations/0034_drop_workspaces_root_idx';
 import * as mig0035 from './migrations/0035_agent_sessions_runtime_profile';
 import * as mig0036 from './migrations/0036_agent_sessions_name';
+import * as mig0037 from './migrations/0037_agent_sessions_closed_at';
 
 export interface Migration {
   name: string;
@@ -94,6 +95,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   mig0034,
   mig0035,
   mig0036,
+  mig0037,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `
