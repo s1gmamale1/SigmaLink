@@ -144,6 +144,23 @@ export function encodeKeyEvent(ev: EncoderKeyEvent, modes: EncoderModes): string
 }
 
 /**
+ * Paste keybindings the HOST must let through to the browser so the native
+ * `paste` event fires (the host's paste handler then wraps clipboard text via
+ * encodePaste). On mac, paste is Cmd+V, which already passes through
+ * (metaKey → null), and Ctrl+V is readline quoted-insert — it stays encoded.
+ * On win32/linux the conventions are Ctrl+V / Ctrl+Shift+V / Shift+Insert;
+ * encoding those (`\x16` / `CSI 2;2~`) would also preventDefault the browser
+ * paste, leaving DOM-mode panes with no keyboard paste at all on Windows.
+ * Ctrl+Insert (copy) and plain Insert stay with the terminal.
+ */
+export function isNativePasteCombo(ev: EncoderKeyEvent, isMac: boolean): boolean {
+  if (isMac) return false;
+  if (ev.metaKey || ev.altKey) return false;
+  if (ev.ctrlKey) return ev.key.toLowerCase() === 'v';
+  return ev.shiftKey && ev.key === 'Insert';
+}
+
+/**
  * Encode pasted text: newlines become `\r` (what a terminal Enter sends), and
  * the whole payload is wrapped in bracketed-paste guards when the app has
  * enabled the mode (`\x1b[?2004h`) — that's how shells/TUIs distinguish a

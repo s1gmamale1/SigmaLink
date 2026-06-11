@@ -12,7 +12,8 @@
 import { useEffect, useRef } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
-import { encodeKeyEvent, encodePaste } from './input-encoder';
+import { encodeKeyEvent, encodePaste, isNativePasteCombo } from './input-encoder';
+import { getPlatform } from '@/renderer/lib/platform';
 import { FlowView } from './FlowView';
 import { RefitController } from './refit-controller';
 
@@ -115,16 +116,20 @@ export function DomTerminalView({
 
   const onKeyDown = (ev: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (entry.ptyExited) return;
-    const bytes = encodeKeyEvent(
-      {
-        key: ev.key,
-        ctrlKey: ev.ctrlKey,
-        altKey: ev.altKey,
-        metaKey: ev.metaKey,
-        shiftKey: ev.shiftKey,
-      },
-      entry.engine.modes,
-    );
+    const keyEvent = {
+      key: ev.key,
+      ctrlKey: ev.ctrlKey,
+      altKey: ev.altKey,
+      metaKey: ev.metaKey,
+      shiftKey: ev.shiftKey,
+    };
+    // win32/linux paste keybindings (Ctrl+V / Ctrl+Shift+V / Shift+Insert)
+    // must reach the browser un-prevented so the native `paste` event fires
+    // and onPaste does the bracketed-paste encoding. Encoding them instead
+    // (`\x16` / CSI 2;2~) would leave DOM panes with no keyboard paste on
+    // Windows. mac keeps Ctrl+V as readline quoted-insert (paste is Cmd+V).
+    if (isNativePasteCombo(keyEvent, getPlatform() === 'darwin')) return;
+    const bytes = encodeKeyEvent(keyEvent, entry.engine.modes);
     if (bytes === null) return; // cmd-shortcuts / bare modifiers stay with the app
     ev.preventDefault();
     writeBytes(bytes);
