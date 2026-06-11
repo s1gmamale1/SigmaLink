@@ -2,7 +2,8 @@
 //
 // The Claude CLI's tool-use protocol requires tools to be REGISTERED via an
 // MCP server, not described in prose in the system prompt. With no MCP server
-// publishing the 13 Jorvis tools to the child CLI, Claude never emits a
+// publishing the Jorvis tools (see tool-catalogue.ts; count is
+// test-enforced) to the child CLI, Claude never emits a
 // `tool_use` envelope and the live dispatcher in `runClaudeCliTurn.ts` never
 // fires.
 //

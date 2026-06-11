@@ -593,4 +593,14 @@ export class PtyRegistry {
   snapshot(id: string): string {
     return this.sessions.get(id)?.buffer.snapshot() ?? '';
   }
+
+  /** read_pane — record exists (live OR inside its graceful-exit window). */
+  has(id: string): boolean {
+    return this.sessions.has(id);
+  }
+
+  /** prompt_agent guard — session exists AND its PTY is still alive. */
+  isLive(id: string): boolean {
+    return this.sessions.get(id)?.alive === true;
+  }
 }
