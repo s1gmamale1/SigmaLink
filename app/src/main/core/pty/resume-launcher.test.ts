@@ -254,8 +254,16 @@ describe('buildResumeArgs', () => {
     }
   });
 
+  it('shell → fresh respawn descriptor (empty args), never an id/continue-latest guess', () => {
+    // SigmaLink Dev — plain shells have no session to resume; id-or-fresh invariant.
+    expect(buildResumeArgs('shell', null)).toEqual({ args: [], mode: 'continue' });
+    // Even a (bogus) stored id must not produce resume flags for a shell.
+    expect(buildResumeArgs('shell', 'whatever')).toEqual({ args: [], mode: 'continue' });
+  });
+
   it('returns null for providers without a known resume strategy', () => {
-    expect(buildResumeArgs('shell', null)).toBeNull();
+    // 'shell' now returns a fresh-respawn descriptor (see test above); only
+    // truly unknown providers and 'custom' still return null.
     expect(buildResumeArgs('custom', 'ext-id')).toBeNull();
     expect(buildResumeArgs('unknown-provider', 'ext-id')).toBeNull();
   });
