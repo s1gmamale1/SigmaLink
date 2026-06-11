@@ -163,7 +163,7 @@ function ensureParkingLot(): HTMLDivElement {
   return div;
 }
 
-const THEME = {
+export const THEME = {
   background: '#0a0c12',
   foreground: '#e6e8f0',
   cursor: '#a78bfa',
