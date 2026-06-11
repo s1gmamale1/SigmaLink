@@ -91,6 +91,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   // panes (panesCtl)
   'panes.resume',
   'panes.respawnFailed',
+  'panes.close',            // Phase 13 — deliberate close (mark closed_at, then kill)
   'panes.resumeSelected',   // P6 FEAT-1 — on-demand subset relaunch
   'panes.listSessions',
   'panes.lastResumePlan',
