@@ -169,6 +169,8 @@ export const KV_KEYS = {
   onboarded: 'app.onboarded',
   sidebarCollapsed: 'app.sidebar.collapsed',
   density: 'app.density',
+  fontSize: 'app.fontSize',
+  zoomFactor: 'app.zoomFactor',
 } as const;
 
 export function isDensityId(v: unknown): v is DensityId {

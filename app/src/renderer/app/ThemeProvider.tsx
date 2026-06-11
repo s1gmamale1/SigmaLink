@@ -7,6 +7,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { rpc } from '@/renderer/lib/rpc';
 import {
   applyDensity,
+  applyFontSize,
   applyTheme,
   DEFAULT_DENSITY,
   DEFAULT_THEME,
@@ -16,6 +17,7 @@ import {
   type DensityId,
   type ThemeId,
 } from '@/renderer/lib/themes';
+import { loadPersistedZoom } from '@/renderer/lib/zoom';
 
 interface ThemeContextValue {
   theme: ThemeId;
@@ -43,9 +45,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     let alive = true;
     void (async () => {
       try {
-        const [storedTheme, storedDensity] = await Promise.all([
+        const [storedTheme, storedDensity, storedFont] = await Promise.all([
           rpc.kv.get(KV_KEYS.theme),
           rpc.kv.get(KV_KEYS.density).catch(() => null),
+          rpc.kv.get(KV_KEYS.fontSize).catch(() => null),
         ]);
         if (!alive) return;
         // BUG-W7-003: validate the stored value. If it's missing OR not in the
@@ -67,6 +70,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           setDensityState(DEFAULT_DENSITY);
           applyDensity(DEFAULT_DENSITY);
         }
+        // BUGFIX — app.fontSize was only re-applied when the Settings tab
+        // mounted, so the persisted base font size silently reset to default on
+        // every cold boot. Restore it here alongside theme/density.
+        if (storedFont != null) {
+          const n = Number(storedFont);
+          if (Number.isFinite(n)) applyFontSize(n);
+        }
+        // Restore persisted whole-app zoom (silent — no HUD on boot). Delegates
+        // to the controller's read-parse-clamp-fallback helper (single source of
+        // truth for the zoom-restore contract).
+        void loadPersistedZoom();
       } catch {
         // kv may be unavailable during very early app boot; non-fatal.
       } finally {
