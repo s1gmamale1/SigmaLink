@@ -38,6 +38,7 @@ interface MockTerm {
   cols: number;
   rows: number;
   focus: ReturnType<typeof vi.fn>;
+  attachCustomWheelEventHandler: ReturnType<typeof vi.fn>;
   __ctorArg: unknown;
 }
 
@@ -75,6 +76,7 @@ vi.mock('@xterm/xterm', () => {
     hasSelection = vi.fn(() => false);
     getSelection = vi.fn(() => '');
     focus = vi.fn();
+    attachCustomWheelEventHandler = vi.fn();
     constructor(opts: unknown) {
       this.__ctorArg = opts;
       this.__id = `t${++nextTermId}`;

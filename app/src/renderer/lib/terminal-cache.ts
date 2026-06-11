@@ -49,6 +49,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { rpc } from '@/renderer/lib/rpc';
 import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
 import { subscribeExit } from '@/renderer/lib/pty-exit-bus';
+import { ctrlWheelShouldBubble } from './wheel-zoom';
 
 /** Maximum number of cached xterm instances before LRU eviction. */
 export const TERMINAL_CACHE_LIMIT = 32;
@@ -300,6 +301,10 @@ export function getOrCreateTerminal(
   // with a real DOM parent; we satisfy that here.
   const parking = ensureParkingLot();
   term.open(parking);
+  // Ctrl/Cmd+wheel is a whole-app zoom gesture, not terminal scrollback.
+  // Returning false suppresses xterm's own scroll for those events; the event
+  // still bubbles to the window-level zoom listener (useZoomControls).
+  term.attachCustomWheelEventHandler(ctrlWheelShouldBubble);
 
   // 2026-06-10 finding 3 — the WebGL renderer is NO LONGER loaded at creation.
   // It is an ATTACHED-ONLY concern (loadWebglAddon in attachToHost / disposed

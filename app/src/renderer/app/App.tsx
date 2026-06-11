@@ -34,6 +34,8 @@ import { ROOM_LOADERS, prefetchRooms } from '@/renderer/app/room-loaders';
 // no longer blanks the window, plus per-room boundaries so one crashing room
 // keeps the shell + other navigation alive.
 import { RootErrorBoundary, RoomErrorBoundary } from '@/renderer/app/ErrorBoundary';
+import { useZoomControls } from './useZoomControls';
+import { ZoomIndicator } from './ZoomIndicator';
 
 // --- Lazy rooms ----------------------------------------------------------
 // Each room is wrapped in `React.lazy` so its module (and the heavy feature
@@ -286,6 +288,8 @@ export default function App() {
   // first navigation to a not-yet-visited room skips even the Suspense spinner.
   // Runs once; cleanup cancels any pending idle callback if we unmount first.
   useEffect(() => prefetchRooms(), []);
+  // Whole-app zoom: Ctrl/Cmd+wheel and Cmd/Ctrl + =/-/0. Mounted once at root.
+  useZoomControls();
 
   return (
     <AppStateProvider>
@@ -353,6 +357,9 @@ export default function App() {
             light/dark from the active app theme and styles toasts from the
             popover tokens (richColors would override that). */}
         <Toaster position="bottom-right" closeButton />
+        {/* Transient zoom-level HUD. Outside the error boundary (like Toaster)
+            so it surfaces regardless of shell state; pointer-events off. */}
+        <ZoomIndicator />
       </ThemeProvider>
     </AppStateProvider>
   );
