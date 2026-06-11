@@ -68,3 +68,12 @@ _Found while root-causing the Windows reopen crash (ROADMAP Phase 15). The crash
 - **[db/arch] memory MCP server runs FULL `initializeDatabase()` per CLI spawn** — every agent pane's CLI spawns its own `mcp-memory-server.cjs`, and `mcp-server.ts:191` runs the complete bootstrap (BOOTSTRAP_SQL DDL + `migrate()` + kv migrations) as a persistent WRITER on the live `sigmalink.db`. N panes = N concurrent DDL writers by design — DDL races between fresh children are possible (duplicate-column throws), and every spawned CLI holds a write-capable handle the quit path must chase. Redesign: open the child connection WITHOUT DDL (schema is main's job; add a `SIGMALINK_SKIP_BOOTSTRAP=1` path or a readonly+`busy_timeout` open with lazy write), or share one supervised server instead of per-CLI copies. Effort: M. [[grep-sibling-call-sites]]
 
 - **[db/obs] WAL-size telemetry + boot log line** — devices accumulated tens-of-MB `-wal` files silently for weeks (quit checkpoint failing on win32). Log `-wal` size at boot (before/after the Phase-15 TRUNCATE reclaim) and surface a diagnostics counter so a regressing checkpoint is visible instead of silent. Effort: S.
+
+---
+
+## 🔬 Deep review findings (2026-06-11 — Jorvis terminal-access debugging)
+
+_(out-of-scope findings from the `fix/jorvis-terminal-access` root-cause session; the in-scope fixes — catalogue triple-drift, `read_pane`, `prompt_agent` liveness — ship on that branch, spec `app/docs/superpowers/specs/2026-06-11-jorvis-terminal-access-design.md`)_
+
+- 🐞 **[medium] swarm-roster ghost entries — no healing** — live DB shows `swarm_agents` row `builder-1` (session `1580b8c7…`) with NO live/DB-running session; `list_swarms` (`app/src/main/core/assistant/tools.ts:763`) serves it to Jorvis as a real roster member, and mailbox broadcasts/roll-calls target it. The `prompt_agent` liveness guard now surfaces the ghost on direct prompts, but the roster itself never self-heals. Fix: a roster sweep that cross-checks `swarm_agents` against live sessions and marks orphans `status='lost'` (reaper keep⊇use rule applies). Effort: M.
+- **[UX/low] deferred-MCP-tools flow reads as "host reconnecting" to the model** — the Claude CLI defers `mcp__jorvis-host__*` schemas (model must ToolSearch-load them; traces 2026-06-11 19:21:59 + 02:31:32), and the model narrates it as "the host is reconnecting", alarming the operator. Options: a system-prompt line ("tools may need ToolSearch — this is normal, not an outage") or investigate pre-loading via the CLI's MCP eager-load config if/when exposed. Effort: S.

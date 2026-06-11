@@ -35,6 +35,9 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 | 11 | High | Scratch-shell tabs orphan PTYs + leak xterm/WebGL cache entries (per-mount state the cache GC can't see). → **Phase 7** | `app/src/renderer/features/command-room/PaneShell.tsx:145-186` | M |
 | 12 | Crit (win32) | `cmdQuoteArg` cmd.exe escaping corrupts npm `.cmd`-shim argv (carets literal inside quotes; odd `\"` toggles quote state = injection); class invisible to CI (vitest never ran on Windows). → **Phase 11** | `app/src/main/core/util/windows-spawn.ts:88-96` | M |
 | 16 | Crit (win32) | App **crashes on reopen** ("database is locked" main-process dialog) + WAL grows unboundedly — orphaned per-CLI `mcp-memory-server.cjs` writers survive quit (`taskkill /T` can't reach reparented grandchildren) and hold `sigmalink.db`; `journal_mode=WAL` ran before `busy_timeout`; `bootstrapAndMigrate` uncaught at boot. (#13–15 reserved by the concurrent session's Phase 13/14 WIP.) → **Phase 15** | `app/src/main/core/db/client.ts:225`, `app/src/main/core/memory/mcp-server.ts:191`, `app/src/main/core/process/process-tree.ts:175`, `app/src/main/rpc-router.ts:285` | M |
+| 17 | High | Jorvis tool-catalogue triple-drift: `close_pane`/`add_agent`/`monitor_pane` in `tools.ts` (and `close_pane` in the system prompt) but absent from the MCP `tools/list` — under `--strict-mcp-config` the model cannot call them; failures occur CLI-side, invisible to traces. → **Hotfix: Jorvis terminal access** | `app/src/main/core/assistant/mcp-host-server.ts:81-258` vs `tools.ts:287` | S |
+| 18 | High | Jorvis has NO terminal-read tool — `registry.snapshot()` ring buffer (256 KiB/session) exists but is unexposed; "can't access terminals". → **Hotfix: Jorvis terminal access** | `app/src/main/core/pty/registry.ts:593`, `app/src/main/core/assistant/tools.ts` | S |
+| 19 | Med | `prompt_agent` silent no-op on dead sessions: `registry.write()` is `?.`-guarded and the handler returns `ok:true` unconditionally — Jorvis "successfully" prompts roster ghosts. → **Hotfix: Jorvis terminal access** | `app/src/main/core/pty/registry.ts:447-449`, `app/src/main/core/assistant/tools.ts:385-388` | S |
 
 ---
 
@@ -309,6 +312,30 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 - Plan: `app/docs/superpowers/plans/2026-06-11-win32-db-lifecycle.md`. All helpers dependency-injected; unit tests execute for real on the windows-latest vitest CI leg (ADR-006).
 
 **Definition of done.** Tests green on windows-latest CI; operator device check: close → no lingering node processes (or boot sweep clears them) → reopen → no dialog, workspaces resume → `-wal` shrinks. **Deferred (wishlist):** memory-server redesign (full bootstrap+migrate per CLI spawn = N concurrent DDL writers by design); WAL-size telemetry.
+
+---
+
+## Hotfix — Jorvis terminal access 🚧 IN FLIGHT (branch `fix/jorvis-terminal-access`, 2026-06-11)
+
+**Goal.** Jorvis can read any pane's terminal screen and every advertised tool is actually callable, with dead-session interactions failing loudly instead of silently.
+
+**Deliverables.**
+- `app/src/main/core/assistant/tool-catalogue.ts` — single-source MCP `tools/list` (pure data, host-bundle-safe) + `tool-catalogue.test.ts` three-surface parity contract (tools.ts ids ↔ catalogue ↔ system-prompt blurb).
+- New `read_pane` tool (`{sessionId, maxBytes?}` → ANSI-stripped scrollback tail via `registry.snapshot()`, aidefence-scanned) + `pane-screen.ts` pure extractor.
+- `prompt_agent` liveness guard (`registry.isLive()`/`has()`); throws on ghosts so traces record `ok:false`.
+- Spec `app/docs/superpowers/specs/2026-06-11-jorvis-terminal-access-design.md` · plan `app/docs/superpowers/plans/2026-06-11-jorvis-terminal-access.md`.
+
+**Why now.** Operator-reported outage class: in prod v2.2.0 Jorvis "can't access terminals, can't interact" — hotlist #17–19; the drift class (PR #137 sibling-miss) will recur without the contract test.
+
+**Scope.** Hotlist rows #17–19; 4-task TDD plan (catalogue+parity → read_pane → liveness guard → sibling sweep/gate/PR).
+
+**Findings + recommendation.** Verified in code + live DB: `--strict-mcp-config` makes the host catalogue the ONLY callable surface (`runClaudeCliTurn.args.ts:82`); zero `ok:false` traces ever recorded because failures happen CLI-side; `broadcast_to_swarm`/`roll_call` ride the mailbox (not `pty.write`) so the liveness fix correctly targets `prompt_agent` only. Chose shared-data catalogue + parity tests over runtime forwarding (socket boot race) and over hand-sync (already drifted once).
+
+**Risks.** Host esbuild bundle must stay heavy-import-free — catalogue is pure data (test: bundle builds). Existing tests enumerating tool counts/names need updating, not weakening. read_pane ingests other agents' untrusted output — gated through `scanIngested` (H-19), capped 64 KiB, NOT in `DANGEROUS_REMOTE` (read-only).
+
+**Definition of done.** Jorvis (prod build) can `read_pane` a live builder's screen and gets a loud error prompting a ghost; `tool-catalogue.test.ts` fails on any future surface drift; full gate + CI green; PR merged.
+
+---
 
 ## Architecture decisions (ADRs)
 
