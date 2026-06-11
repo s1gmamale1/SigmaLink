@@ -146,3 +146,66 @@ describe('TerminalEngine — resize + change notification', () => {
     expect(() => engine.resize(80, 24)).not.toThrow();
   });
 });
+
+describe('TerminalEngine — styled runs + cursor', () => {
+  it('SGR splits a line into attribute runs', async () => {
+    const { engine } = makeEngine({ cols: 40, rows: 5 });
+    track(engine);
+    await flushWrite(engine, '\x1b[1;31mred-bold\x1b[0m plain');
+    const runs = engine.styledLine(0);
+    expect(runs.length).toBe(2);
+    expect(runs[0]).toMatchObject({
+      text: 'red-bold',
+      bold: true,
+      fg: { mode: 'palette', value: 1 },
+    });
+    expect(runs[1]).toMatchObject({
+      text: ' plain',
+      bold: false,
+      fg: { mode: 'default' },
+    });
+  });
+
+  it('truecolor + inverse + underline attributes survive extraction', async () => {
+    const { engine } = makeEngine({ cols: 40, rows: 5 });
+    track(engine);
+    await flushWrite(engine, '\x1b[38;2;16;32;48m\x1b[4;7mX\x1b[0m');
+    const run = engine.styledLine(0)[0]!;
+    expect(run.fg).toEqual({ mode: 'rgb', value: 0x102030 });
+    expect(run.underline).toBe(true);
+    expect(run.inverse).toBe(true);
+  });
+
+  it('a wrapped styled line extracts as ONE logical run sequence', async () => {
+    const { engine } = makeEngine({ cols: 10, rows: 5 });
+    track(engine);
+    await flushWrite(engine, '\x1b[32m' + 'abcdefghijklmnop' + '\x1b[0m');
+    const runs = engine.styledLine(0);
+    expect(runs.map((r) => r.text).join('')).toBe('abcdefghijklmnop');
+    expect(runs[0]!.fg).toEqual({ mode: 'palette', value: 2 });
+    // asking from the continuation row snaps to the head
+    expect(engine.styledLine(1).map((r) => r.text).join('')).toBe('abcdefghijklmnop');
+  });
+
+  it('wide (CJK) characters keep their text without zero-width dupes', async () => {
+    const { engine } = makeEngine({ cols: 20, rows: 5 });
+    track(engine);
+    await flushWrite(engine, 'a你b');
+    expect(engine.styledLine(0).map((r) => r.text).join('')).toBe('a你b');
+  });
+
+  it('trailing default-styled whitespace is trimmed', async () => {
+    const { engine } = makeEngine({ cols: 20, rows: 5 });
+    track(engine);
+    await flushWrite(engine, 'hi');
+    const runs = engine.styledLine(0);
+    expect(runs.map((r) => r.text).join('')).toBe('hi');
+  });
+
+  it('cursor tracks absolute row/col', async () => {
+    const { engine } = makeEngine({ cols: 40, rows: 5 });
+    track(engine);
+    await flushWrite(engine, 'one\r\ntwo');
+    expect(engine.cursor).toEqual({ row: 1, col: 3 });
+  });
+});
