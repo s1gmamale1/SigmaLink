@@ -2,6 +2,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { getDb, getRawDb } from '../db/client';
@@ -21,6 +22,7 @@ import {
 } from '../ruflo/verify';
 import type { SkillsManager } from '../skills/manager';
 import type { Workspace } from '../../../shared/types';
+import { DEV_WORKSPACE_KV_KEY, DEV_WORKSPACE_NAME } from '../../../shared/special-workspace';
 
 export interface OpenWorkspaceDeps {
   rufloSupervisor?: Pick<RufloMcpSupervisor, 'ensureStarted'>;
@@ -176,6 +178,62 @@ export async function openWorkspaceNew(
     });
   }
   return workspace;
+}
+
+/**
+ * SigmaLink Dev (2026-06-11) — open THE singleton dev workspace: a
+ * forced-`plain` row rooted at os.homedir() that holds only plain shell
+ * panes. Deliberately:
+ *   • never calls getRepoRoot(~) — even if ~ sits inside a dotfiles repo,
+ *     this workspace must never engage worktree machinery (repoMode is
+ *     forced 'plain', repoRoot null, so launcher Gate A and factory-spawn
+ *     Gate B both skip worktreePool.create unconditionally);
+ *   • skips EVERY open side effect (MCP autowrite, ruflo trust, memory
+ *     seeding, preflight) — nothing may write `.mcp.json`/`.sigmamemory`
+ *     into the user's home directory.
+ * Singleton: the kv row DEV_WORKSPACE_KV_KEY points at the live row; a
+ * dangling pointer (row deleted) self-heals by inserting fresh + repointing.
+ */
+export async function openDevWorkspace(): Promise<Workspace> {
+  const db = getDb();
+  const raw = getRawDb();
+  const now = Date.now();
+  const kvRow = raw
+    .prepare('SELECT value FROM kv WHERE key = ?')
+    .get(DEV_WORKSPACE_KV_KEY) as { value?: string } | undefined;
+  if (kvRow?.value) {
+    const existing = db.select().from(workspaces).where(eq(workspaces.id, kvRow.value)).get();
+    if (existing) {
+      db.update(workspaces).set({ lastOpenedAt: now }).where(eq(workspaces.id, existing.id)).run();
+      return rowToWorkspace({ ...existing, lastOpenedAt: now });
+    }
+  }
+  const resultId = randomUUID();
+  db.insert(workspaces)
+    .values({
+      id: resultId,
+      name: DEV_WORKSPACE_NAME,
+      rootPath: os.homedir(),
+      repoRoot: null,
+      repoMode: 'plain',
+      createdAt: now,
+      lastOpenedAt: now,
+    })
+    .run();
+  raw
+    .prepare(
+      `INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+    .run(DEV_WORKSPACE_KV_KEY, resultId);
+  // Same WAL-checkpoint rationale as openWorkspaceNew (BUG-W7-006).
+  try {
+    raw.pragma('wal_checkpoint(PASSIVE)');
+  } catch {
+    /* best-effort */
+  }
+  const row = db.select().from(workspaces).where(eq(workspaces.id, resultId)).get();
+  return rowToWorkspace(row!);
 }
 
 export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = {}): Promise<Workspace> {
