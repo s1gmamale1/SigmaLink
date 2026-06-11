@@ -124,6 +124,36 @@ function requireWs(ctx: ToolContext, explicit: string | undefined, label: string
   return wsId;
 }
 
+/**
+ * Spec 2026-06-10 (A) — emit one `assistant:dispatch-echo` per spawned pane so
+ * the Command Room grid refetches (use-jorvis-dispatch-echo → panes.listForWorkspace
+ * + swarms.list) and renders the new panes WITHOUT a workspace reopen. Shared by
+ * launch_pane, create_swarm, and add_agent (sibling spawn sites — grep-twin per
+ * feedback_grep_sibling_call_sites). Each echo is best-effort: an emit failure
+ * must never fail the spawn. No-op when `ctx.emit` or `workspaceId` is absent.
+ */
+function emitDispatchEchoes(
+  ctx: ToolContext,
+  workspaceId: string | null | undefined,
+  panes: Array<{ sessionId: string; providerId: string; ok: boolean; error: string | null }>,
+): void {
+  if (!ctx.emit || !workspaceId) return;
+  for (const pane of panes) {
+    try {
+      ctx.emit('assistant:dispatch-echo', {
+        workspaceId,
+        sessionId: pane.sessionId,
+        providerId: pane.providerId,
+        ok: pane.ok,
+        error: pane.error,
+        conversationId: null,
+      });
+    } catch {
+      /* best-effort — an echo failure must not fail the spawn */
+    }
+  }
+}
+
 const T = <S extends z.ZodTypeAny>(
   id: string,
   name: string,
@@ -323,23 +353,16 @@ export const TOOLS: ToolDefinition[] = [
       // grid refetches (use-jorvis-dispatch-echo) and renders the new panes.
       // Sibling of dispatchPane's loop (controller.ts) — same payload shape.
       // workspaceId: the conversation's workspace (same source requireWs uses).
-      const workspaceId = ctx.defaultWorkspaceId;
-      if (ctx.emit && workspaceId) {
-        for (const session of out.sessions) {
-          try {
-            ctx.emit('assistant:dispatch-echo', {
-              workspaceId,
-              sessionId: session.id,
-              providerId: session.providerId,
-              ok: session.status !== 'error',
-              error: session.error ?? null,
-              conversationId: null,
-            });
-          } catch {
-            /* best-effort — an echo failure must not fail the launch */
-          }
-        }
-      }
+      emitDispatchEchoes(
+        ctx,
+        ctx.defaultWorkspaceId,
+        out.sessions.map((session) => ({
+          sessionId: session.id,
+          providerId: session.providerId,
+          ok: session.status !== 'error',
+          error: session.error ?? null,
+        })),
+      );
       return { sessionIds: out.sessions.map((s) => s.id), sessions: out.sessions };
     },
   ),
@@ -545,6 +568,24 @@ export const TOOLS: ToolDefinition[] = [
           userDataDir: ctx.userDataDir,
         },
       );
+      // Spec 2026-06-10 (A) parity — a swarm's agent panes are spawned here but
+      // had NO live-surfacing path: the renderer only refetches swarms on a
+      // workspace-id CHANGE (use-live-events) or on an assistant:dispatch-echo
+      // (use-jorvis-dispatch-echo, which refetches BOTH panes + swarms). Without
+      // an echo the new panes only appeared on a workspace reopen. Echo every
+      // agent that got a session (twin of launch_pane / add_agent).
+      emitDispatchEchoes(
+        ctx,
+        swarm.workspaceId,
+        swarm.agents
+          .filter((agent) => agent.sessionId !== null)
+          .map((agent) => ({
+            sessionId: agent.sessionId as string,
+            providerId: agent.providerId,
+            ok: agent.status !== 'error',
+            error: null,
+          })),
+      );
       return { swarm };
     },
   ),
@@ -578,6 +619,18 @@ export const TOOLS: ToolDefinition[] = [
           userDataDir: ctx.userDataDir,
         },
       );
+      // Spec 2026-06-10 (A) parity — echo the new agent pane so the grid
+      // refetches and renders it live (twin of launch_pane / create_swarm).
+      // The workspace comes from the freshly-attached swarm row. Without this
+      // the +Pane-via-Jorvis pane only appeared on a workspace reopen.
+      emitDispatchEchoes(ctx, result.swarm.workspaceId, [
+        {
+          sessionId: result.sessionId,
+          providerId: result.session.providerId,
+          ok: result.session.status !== 'error',
+          error: result.session.error ?? null,
+        },
+      ]);
       return {
         sessionId: result.sessionId,
         paneIndex: result.paneIndex,

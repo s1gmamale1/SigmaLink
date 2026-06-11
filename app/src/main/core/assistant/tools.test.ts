@@ -361,6 +361,37 @@ describe('assistant add_agent tool', () => {
       (ctx.pty as unknown as { create: ReturnType<typeof vi.fn> }).create,
     ).not.toHaveBeenCalled();
   });
+
+  // Phase 3 follow-up (Task 4) — add_agent must echo assistant:dispatch-echo so
+  // the new pane renders live (parity with launch_pane). Without this the +Pane
+  // pane only surfaced on a workspace reopen.
+  it('add_agent emits assistant:dispatch-echo for the new pane', async () => {
+    seedSwarmWithBuilders(1);
+    const emit = vi.fn();
+    const ctx = { ...makeAddAgentCtx(), emit } as unknown as ToolContext;
+
+    await findTool('add_agent')!.handler({ swarmId: 'swarm-1', providerId: 'shell' }, ctx);
+
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledWith('assistant:dispatch-echo', {
+      workspaceId: 'ws-1',
+      sessionId: 'sess-new',
+      providerId: 'shell',
+      ok: true,
+      error: null,
+      conversationId: null,
+    });
+  });
+
+  it('add_agent does not throw when ctx.emit is absent (back-compat)', async () => {
+    seedSwarmWithBuilders(1);
+    const ctx = makeAddAgentCtx(); // no emit wired
+    const out = await findTool('add_agent')!.handler(
+      { swarmId: 'swarm-1', providerId: 'shell' },
+      ctx,
+    );
+    expect(out).toMatchObject({ sessionId: 'sess-new' });
+  });
 });
 
 describe('H-19 ingestion scanning in read_files + search_memories', () => {

@@ -31,7 +31,7 @@ import { PaneSplash } from './PaneSplash';
 import { PaneFooter } from './PaneFooter';
 import { insertMention } from './insertMention';
 import { insertSkillCommand, isSlashCapableProvider } from './insertSkillCommand';
-import { isImageCapableProvider } from '@/shared/providers';
+import { usePaneImageStaging } from './usePaneImageStaging';
 import { pathRelative } from '@/renderer/lib/path-relative';
 import type { AgentSession } from '@/shared/types';
 import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
@@ -69,13 +69,6 @@ export function PaneShell({
   onToggleMinimise,
   isFullscreen,
   onToggleFullscreen,
-  /**
-   * v1.4.3 #06 — When the pane is in a split group, the Split-H/V icons are
-   * disabled (max 2-level deep in v1.4.x). The CommandRoom passes this true
-   * for sub-panes via `SplitGroupCell`. Defaults to false for the standalone
-   * pane case.
-   */
-  inSplitGroup = false,
   // v1.7.1 W-5 Phase 2 — INFORMATIONAL skill binding chips for this pane.
   skillBindings = [],
   onSkillDrop,
@@ -96,7 +89,6 @@ export function PaneShell({
   onToggleMinimise: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
-  inSplitGroup?: boolean;
   /**
    * v1.13.2 — Called when the user clicks "Relaunch" on a crashed pane. The
    * parent (CommandRoom) re-adds an agent of the same provider to the swarm
@@ -204,27 +196,16 @@ export function PaneShell({
     [session.id],
   );
 
-  // Spec 2026-06-10 (B) — stage image bytes via panes.stageImage and inject the
-  // ABSOLUTE @path (insertMention prefixes '@'). Absolute (not workspace-
-  // relative) because screenshots live outside the workspace (/var/folders/…)
-  // and the CLI must open the file from the prompt path alone. Shared by the
-  // drop branch and (Task 6) the paste interceptor.
-  const stageAndInsertImages = useCallback(
-    async (imageFiles: File[]): Promise<void> => {
-      for (const file of imageFiles) {
-        try {
-          const buf = await file.arrayBuffer();
-          const ext = (file.type.split('/')[1] ?? 'png').toLowerCase();
-          const { absPath } = await rpc.panes.stageImage({ bytesBase64: arrayBufferToBase64(buf), ext });
-          await insertMention(session.id, absPath, session.status);
-          toast.success('Screenshot staged for the agent', { description: absPath });
-        } catch (err) {
-          toast.error('Could not stage image', { description: err instanceof Error ? err.message : String(err) });
-        }
-      }
-    },
-    [session.id, session.status],
-  );
+  // Spec 2026-06-10 (B) — image staging concern (drop-branch helper + the
+  // capture-phase paste interceptor) lives in usePaneImageStaging. The hook
+  // installs the paste listener for this pane's lifetime and exposes the
+  // image-capable gate + the stage-and-inject helper used by the drop handler.
+  const { isImageCapable, stageAndInsertImages } = usePaneImageStaging({
+    sessionId: session.id,
+    providerId: session.providerId,
+    status: session.status,
+    containerRef: paneContainerRef,
+  });
 
   // Cmd+T (macOS) / Ctrl+Shift+T (other) — open a scratch tab when this pane
   // container (or any element inside it) holds keyboard focus.
@@ -256,33 +237,6 @@ export function PaneShell({
       window.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [spawnScratch]);
-
-  // Spec 2026-06-10 (B) — intercept image PASTE before xterm. xterm's paste
-  // handler reads only text/plain, so an image clipboard (macOS screenshot)
-  // produced "" and was silently swallowed. Capture phase on window +
-  // containment check, mirroring the Cmd+T handler above. Text pastes fall
-  // through untouched (no preventDefault) so xterm still handles them.
-  useEffect(() => {
-    const container = paneContainerRef.current;
-    if (!container) return;
-
-    function handlePaste(e: ClipboardEvent): void {
-      if (!container!.contains(e.target as Node)) return;
-      if (!isImageCapableProvider(session.providerId)) return;
-      if (session.status !== 'running') return;
-      const items = Array.from(e.clipboardData?.items ?? []);
-      const imageItem = items.find((it) => it.kind === 'file' && it.type.startsWith('image/'));
-      if (!imageItem) return; // text paste — let xterm handle it
-      const file = imageItem.getAsFile();
-      if (!file) return;
-      e.preventDefault();
-      e.stopPropagation();
-      void stageAndInsertImages([file]);
-    }
-
-    window.addEventListener('paste', handlePaste, true);
-    return () => window.removeEventListener('paste', handlePaste, true);
-  }, [session.providerId, session.status, stageAndInsertImages]);
 
   const errored = session.status === 'error';
   // v1.13.2 — distinguish the TWO error shapes a pane can land in:
@@ -382,7 +336,7 @@ export function PaneShell({
     // (bytes → temp file → absolute @path) so the CLI can READ the image;
     // previously they degraded to a fragile relative path-mention with the
     // bytes never read. Everything else keeps the mention behaviour.
-    const imageFiles = isImageCapableProvider(session.providerId)
+    const imageFiles = isImageCapable
       ? capped.filter((f) => f.type.startsWith('image/'))
       : [];
     if (imageFiles.length > 0) void stageAndInsertImages(imageFiles);
@@ -483,7 +437,6 @@ export function PaneShell({
         onClose={onRemove}
         onSplit={onSplit}
         onToggleMinimise={onToggleMinimise}
-        canSplit={!inSplitGroup}
         isMinimised={minimised}
         isFullscreen={isFullscreen}
         onToggleFullscreen={onToggleFullscreen}
@@ -698,18 +651,6 @@ export function PaneShell({
       />
     </div>
   );
-}
-
-// Spec 2026-06-10 (B) — renderer-side ArrayBuffer→base64 (no Buffer in the
-// renderer). Chunked to stay under the fromCharCode argument-count limit.
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let binary = '';
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
 }
 
 /**
