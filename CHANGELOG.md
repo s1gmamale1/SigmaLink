@@ -2,6 +2,34 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.3.0] — 2026-06-11
+
+**v2.3.0 is the post-audit reliability + polish batch: the Windows reopen crash is fixed at the root, the restore-from-hidden terminal render glitch is gone, the app gains Ctrl/Cmd+scroll whole-app zoom, the Phase-3 Command-Room follow-ups land, and the Phase-12 dead-code sweep completes the 2026-06-10 audit.** Six PRs (#149, #150, #152, #153, #154, #156), each merged to `main` with CI green (macOS + the windows-latest legs).
+
+### Fixed — Windows reopen crash ("database is locked") + unbounded WAL growth (#154 `7e54eb6`)
+
+Operator-reported on the W-4 device: closing SigmaLink on Windows and reopening hit a "JavaScript error in the main process / database is locked" dialog and workspace state never resumed; `sigmalink.db-wal` had grown to tens of MB. Root cause: every agent CLI spawns its own `mcp-memory-server.cjs` — a persistent better-sqlite3 writer on `sigmalink.db` — and on win32 quit `taskkill /T` cannot reach grandchildren the exiting `.cmd`-shim chain has reparented, so they outlive the app holding the db; `journal_mode=WAL` then ran before `busy_timeout` at the next boot → instant `SQLITE_BUSY` → uncaught → crash. Fixes, each at a real fault site: `busy_timeout` is now the first pragma (+ source tripwire test); a boot-time win32 orphan sweep kills stale memory-server processes by CIM CommandLine marker (reparenting-proof, heals old-build orphans) before the DB opens; the boot open retries the `SQLITE_BUSY` family (bounded; anything else still surfaces); a boot `wal_checkpoint(TRUNCATE)` reclaims historic WAL bloat; and quit now waits (bounded ≤2.5 s) for killed PTY trees to actually exit before closing the DB so the quit checkpoint can truncate. 22 new dependency-injected unit tests execute on the windows-latest vitest CI leg. macOS was never affected.
+
+### Fixed — pane restore-from-hidden render glitch (#152 `3a96147`)
+
+Un-minimising / leaving fullscreen / restoring the window could reveal terminals with duplicated or garbled text: xterm's `fit()` no-ops when cols/rows are unchanged, so a `display:none` hide that didn't change geometry restored unrepainted. A `RefitController` now performs the reveal (fit + refresh + glyph-atlas clear) driven by a new `window:restored` event, closing the #133 residuals. Companion perf pass (#156 `b7f969e`): the maximize toggle refits in the same frame (no one-frame stale-size flash) and a zero-size fit guard prevents degenerate fits mid-transition.
+
+### Added — Ctrl/Cmd+scroll whole-app zoom (#153 `5c23864`)
+
+Native whole-app zoom via `webFrame.setZoomFactor`: Ctrl/Cmd+scroll, plus `⌘/Ctrl =`, `-`, and `0` to reset, 50–200 % with a transient `%` HUD; the factor persists (`app.zoomFactor`) and restores on boot. Also fixed the latent `app.fontSize` cold-boot bug (the stored font size was not applied until Settings opened).
+
+### Added/Fixed — Phase 3 Command-Room follow-ups (#150 `ee89fb4`)
+
+`add_agent`/`create_swarm` Jorvis panes now render in the grid live (the tools emitted no dispatch echo — panes only appeared after a workspace reopen; all three spawn tools now share one `emitDispatchEchoes()` helper). Staged screenshot images are janitored on boot (>7 days, fail-open). The image-staging concern is extracted into a `usePaneImageStaging` hook (PaneShell 751→691 lines, behavior identical), and the dead `inSplitGroup` prop is gone.
+
+### Removed — Phase 12 dead-code sweep (#149 `a3b5837`)
+
+~535 net LOC and two unused dependencies (`monaco-editor`, `@radix-ui/react-separator`) removed with zero behavior change: `events.ts`, the unused shadcn `sheet`/`separator`/`skeleton`, `use-mobile.ts`, the dead main-process voice-stats twin (+ orphaned `sheetSideMotion`, dead CSS/selectors/type aliases). Every deletion re-verified zero-importer at execution HEAD; completes the 2026-06-10 audit (Phases 3–12 all shipped).
+
+### Verification
+
+Each PR gated green before merge (`tsc -b` · vitest · `eslint --max-warnings 0` · `product:check`) and CI green on macOS + windows-latest; the `main` tip being tagged (`7e54eb6`) passed `lint-and-build` + the full `e2e-matrix`. The #154 Windows fix carries one owed real-device verification: close → reopen → no dialog, state resumes, `-wal` shrinks.
+
 ## [2.2.0] — 2026-06-11
 
 **v2.2.0 ships Phase 11 — Windows runtime readiness — completing the 2026-06-10 deep-dive audit's code work (Phases 3–11; Phase 12 dead-code is owned by a separate lane).** It makes the npm-`.cmd`-shim CLI-launch path correct on Windows, adds a Windows process/kill/path/voice platform layer, and adds the missing CI signal that caught the whole class. A `windows-latest` vitest leg was added (vitest previously ran only on macOS) and it immediately caught — and gated the fix for — a `workspaces.open` hang the spawn-routing introduced.

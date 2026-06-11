@@ -1,0 +1,58 @@
+SigmaLink v2.3.0 — 2026-06-11
+=============================
+
+The post-audit reliability + polish batch: the Windows reopen crash is
+fixed at the root, the restore-from-hidden terminal render glitch is
+gone, the app gains Ctrl/Cmd+scroll whole-app zoom, the Phase-3
+Command-Room follow-ups land, and the dead-code sweep completes the
+2026-06-10 audit. Six PRs (#149 #150 #152 #153 #154 #156), each CI-green on
+macOS + windows-latest.
+
+See CHANGELOG.md [2.3.0] for the itemized record.
+
+
+Fixed
+-----
+
+- Windows: closing and reopening the app no longer crashes with
+  "database is locked", and workspace state resumes (#154). Orphaned
+  per-CLI memory-server processes survived quit holding the database;
+  the boot now sweeps them (works for orphans from older builds too),
+  opens with a bounded busy-retry, and reclaims the WAL — so the
+  multi-MB sigmalink.db-wal files also shrink. Quit now waits for its
+  killed process trees before closing the database. macOS was never
+  affected.
+
+- Terminals no longer restore from minimise/fullscreen/window-restore
+  with duplicated or garbled text (#152) — reveals now force a real
+  repaint (fit + refresh + glyph-atlas clear), and the maximize toggle
+  refits in the same frame (#156).
+
+- Jorvis add_agent / create_swarm panes appear in the Command Room grid
+  live, without a workspace reopen (#150).
+
+- Stored app font size now applies on cold boot (#153).
+
+
+What's new
+----------
+
+- Whole-app zoom (#153): Ctrl/Cmd+scroll, or Cmd/Ctrl + = / - / 0,
+  50–200% with an on-screen indicator; persists across restarts.
+
+- Staged screenshot images are cleaned up automatically after 7 days
+  (#150); image-staging internals refactored with no behavior change.
+
+- Dead-code sweep (#149): ~535 LOC + 2 unused dependencies removed,
+  zero behavior change.
+
+
+Verification
+------------
+
+Each PR gated green before merge (tsc -b, vitest, eslint
+--max-warnings 0, product:check) with CI green on macOS +
+windows-latest; the tagged main tip (7e54eb6) passed lint-and-build +
+the full e2e-matrix. The Windows fix (#154) carries one owed
+real-device check: close → reopen → no dialog, state resumes, -wal
+shrinks.
