@@ -165,7 +165,7 @@ vi.mock('../db/client', () => ({
 // ---------------------------------------------------------------------------
 // Import modules under test
 // ---------------------------------------------------------------------------
-import { openDevWorkspace } from './factory';
+import { openDevWorkspace, openWorkspace } from './factory';
 import { DEV_WORKSPACE_KV_KEY, DEV_WORKSPACE_NAME } from '../../../shared/special-workspace';
 import { getRepoRoot } from '../git/git-ops';
 import { writeWorkspaceMcpConfig } from './mcp-autowrite';
@@ -241,6 +241,29 @@ describe('openDevWorkspace (singleton dev workspace factory)', () => {
     // Same id returned — no new insert
     expect(ws.id).toBe(firstId);
     expect(_insertMock).not.toHaveBeenCalled();
+  });
+
+  it('openWorkspace(homedir) inserts a SEPARATE row instead of capturing the dev singleton', async () => {
+    // First, create the dev singleton.
+    const dev = await openDevWorkspace();
+
+    // Dangerous case: getRepoRoot reports ~ as a git repo (would flip repoMode
+    // on the dev row if it were captured by the dedup-reuse branch).
+    vi.mocked(getRepoRoot).mockResolvedValueOnce('/home/testuser');
+
+    // Now open a "normal" workspace at the same path.
+    const normal = await openWorkspace('/home/testuser');
+
+    // Must be a fresh row — not the dev singleton.
+    expect(normal.id).not.toBe(dev.id);
+
+    // The dev row must remain untouched: no update ran against dev.id.
+    // The update mock captures update().set().where().run() calls; in the
+    // happy path above we just inserted a fresh row (no update branch).
+    // Verify the dev row's repoMode is still 'plain' (the inserted dev row).
+    const devRow = _dbRows.find((r) => r.id === dev.id);
+    expect(devRow).toBeDefined();
+    expect(devRow!.repoMode).toBe('plain');
   });
 
   it('self-heals a dangling KV pointer (deleted row → fresh insert + re-point)', async () => {

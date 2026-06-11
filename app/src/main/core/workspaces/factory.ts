@@ -245,7 +245,25 @@ export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = 
   const repoMode: 'git' | 'plain' = repoRoot ? 'git' : 'plain';
   const name = path.basename(abs) || abs;
   const db = getDb();
-  const existing = db.select().from(workspaces).where(eq(workspaces.rootPath, abs)).get();
+  // SigmaLink Dev (2026-06-11) — never dedup-reuse the dev singleton: a
+  // normal open at ~ must not capture the dev row (its reuse branch would
+  // overwrite repoMode/repoRoot and re-engage worktree machinery on it).
+  // A fresh, separate row at the same path is fine post-mig-0034.
+  let devWorkspaceId: string | null = null;
+  try {
+    const devKv = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(DEV_WORKSPACE_KV_KEY) as { value?: string } | undefined;
+    devWorkspaceId = devKv?.value ?? null;
+  } catch {
+    devWorkspaceId = null;
+  }
+  const existing = db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.rootPath, abs))
+    .all()
+    .find((r) => r.id !== devWorkspaceId);
   const now = Date.now();
   let resultId: string;
   if (existing) {
