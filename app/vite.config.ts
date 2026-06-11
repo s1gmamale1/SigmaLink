@@ -16,6 +16,18 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // @xterm/headless@6.0.0 ships a BROKEN `module` field
+      // (`lib/xterm.mjs`, which does not exist) while the real ESM build is
+      // `lib-headless/xterm-headless.mjs`. Vite/rollup prefer `module` for the
+      // renderer bundle → "Failed to resolve entry". P1b is the first renderer
+      // consumer of the headless engine (P1a landed it standalone, never
+      // bundled), so we pin the alias to the actual entry. Remove if upstream
+      // fixes the field. (vitest resolves via node `main`, so this is
+      // build-only and does not affect the test runner.)
+      "@xterm/headless": path.resolve(
+        __dirname,
+        "./node_modules/@xterm/headless/lib-headless/xterm-headless.mjs",
+      ),
     },
   },
   build: {

@@ -35,7 +35,36 @@ export interface LogicalLine {
   text: string;
 }
 
+/** Color of one run: default (inherit theme), palette index 0–255, or 0xRRGGBB. */
+export interface RunColor {
+  mode: 'default' | 'palette' | 'rgb';
+  value: number;
+}
+
+/** One attribute-contiguous span of a logical line. */
+export interface StyledRun {
+  text: string;
+  fg: RunColor;
+  bg: RunColor;
+  bold: boolean;
+  dim: boolean;
+  italic: boolean;
+  underline: boolean;
+  inverse: boolean;
+  strikethrough: boolean;
+}
+
 type Disposer = { dispose(): void };
+
+function cellColor(_mode: number, value: number, isPalette: boolean, isRgb: boolean): RunColor {
+  if (isRgb) return { mode: 'rgb', value };
+  if (isPalette) return { mode: 'palette', value };
+  return { mode: 'default', value: 0 };
+}
+
+function sameColor(a: RunColor, b: RunColor): boolean {
+  return a.mode === b.mode && a.value === b.value;
+}
 
 const schedule: (cb: () => void) => void =
   typeof requestAnimationFrame === 'function'
@@ -130,6 +159,72 @@ export class TerminalEngine {
       row = next;
     }
     return out;
+  }
+
+  /** Absolute cursor position in the active buffer (row = baseY + cursorY). */
+  get cursor(): { row: number; col: number } {
+    const buf = this.term.buffer.active;
+    return { row: buf.baseY + buf.cursorY, col: buf.cursorX };
+  }
+
+  /**
+   * Extract the logical line starting at (or containing) `startRow` as
+   * attribute-contiguous runs — the FlowView's span contract. Trailing
+   * default-styled whitespace is trimmed (parity with translateToString(true)).
+   */
+  styledLine(startRow: number): StyledRun[] {
+    const buf = this.term.buffer.active;
+    if (buf.length === 0) return [];
+    let row = Math.min(Math.max(0, startRow), buf.length - 1);
+    while (row > 0 && buf.getLine(row)?.isWrapped) row--;
+    const runs: StyledRun[] = [];
+    const work = buf.getNullCell();
+    let cur: StyledRun | null = null;
+    let r = row;
+    for (;;) {
+      const line = buf.getLine(r);
+      if (!line) break;
+      for (let x = 0; x < line.length; x++) {
+        const cell = line.getCell(x, work);
+        if (!cell || cell.getWidth() === 0) continue; // wide-char continuation
+        const chars = cell.getChars() || ' ';
+        const fg = cellColor(cell.getFgColorMode(), cell.getFgColor(), cell.isFgPalette(), cell.isFgRGB());
+        const bg = cellColor(cell.getBgColorMode(), cell.getBgColor(), cell.isBgPalette(), cell.isBgRGB());
+        const bold = !!cell.isBold();
+        const dim = !!cell.isDim();
+        const italic = !!cell.isItalic();
+        const underline = !!cell.isUnderline();
+        const inverse = !!cell.isInverse();
+        const strikethrough = !!cell.isStrikethrough();
+        if (
+          cur &&
+          sameColor(cur.fg, fg) && sameColor(cur.bg, bg) &&
+          cur.bold === bold && cur.dim === dim && cur.italic === italic &&
+          cur.underline === underline && cur.inverse === inverse &&
+          cur.strikethrough === strikethrough
+        ) {
+          cur.text += chars;
+        } else {
+          cur = { text: chars, fg, bg, bold, dim, italic, underline, inverse, strikethrough };
+          runs.push(cur);
+        }
+      }
+      r++;
+      if (r >= buf.length || !buf.getLine(r)?.isWrapped) break;
+    }
+    // Trim trailing default-styled whitespace (the buffer pads rows to cols).
+    while (runs.length > 0) {
+      const last = runs[runs.length - 1]!;
+      if (last.fg.mode === 'default' && last.bg.mode === 'default' && !last.inverse && !last.underline && !last.strikethrough) {
+        last.text = last.text.replace(/[ ]+$/, '');
+        if (last.text === '') {
+          runs.pop();
+          continue;
+        }
+      }
+      break;
+    }
+    return runs;
   }
 
   dispose(): void {

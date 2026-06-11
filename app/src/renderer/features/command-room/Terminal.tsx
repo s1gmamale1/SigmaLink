@@ -32,11 +32,12 @@
 // PaneHeader / PaneFooter, which wrap this component in CommandRoom. This
 // file is intentionally a bare xterm host; chrome lives outside it.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 import {
   attachToHost,
+  destroy as destroyXtermEntry,
   detachFromHost,
   getOrCreateTerminal,
   type TerminalCacheContext,
@@ -44,6 +45,13 @@ import {
 import { useAppStateSelector } from '@/renderer/app/state';
 import { useRightRail } from '@/renderer/features/right-rail/RightRailContext.data';
 import { RefitController } from './refit-controller';
+import { DomTerminalView } from './DomTerminalView';
+import { destroyEngine } from '@/renderer/lib/engine-cache';
+import {
+  peekRendererMode,
+  resolveRendererMode,
+  type RendererMode,
+} from '@/renderer/lib/renderer-flag';
 
 interface Props {
   sessionId: string;
@@ -93,7 +101,7 @@ function routeLinkClick(
   })();
 }
 
-export function SessionTerminal({ sessionId, className }: Props) {
+function XtermTerminalHost({ sessionId, className }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // V1.1.10 perf — subscribe to only the workspace id slice instead of
   // the full AppState (the Terminal previously re-rendered on every chat
@@ -259,4 +267,42 @@ export function SessionTerminal({ sessionId, className }: Props) {
   }, [sessionId, setActiveTab]);
 
   return <div ref={containerRef} className={className} style={{ width: '100%', height: '100%' }} />;
+}
+
+/**
+ * P1b (spec 2026-06-12) — renderer switch. Resolves the pane's renderer mode
+ * from KV (module-cached: remounts are synchronous), then mounts exactly one
+ * host. THE single mutual-exclusion choke point: before/while a mode is
+ * mounted, the OTHER renderer's cached instance for this session is
+ * destroyed — a session must never have two live onData→pty.write pipes
+ * (each would answer DA/DSR queries → doubled bytes to the PTY). Content
+ * survives the switch via the main ring-buffer snapshot, which both caches
+ * replay on their next cache-miss (spec §Renderer flag & fallback).
+ */
+export function SessionTerminal({ sessionId, className }: Props) {
+  const [mode, setMode] = useState<RendererMode | null>(() => peekRendererMode(sessionId));
+
+  useEffect(() => {
+    let alive = true;
+    void resolveRendererMode(sessionId).then((m) => {
+      if (alive) setMode(m);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (mode === 'dom') destroyXtermEntry(sessionId);
+    else if (mode === 'xterm') destroyEngine(sessionId);
+  }, [mode, sessionId]);
+
+  if (mode === null) {
+    // One async tick on the very first mount of a session (later mounts hit
+    // the module cache). An empty shell avoids constructing the WRONG
+    // renderer's cache entry and immediately destroying it.
+    return <div className={className} style={{ width: '100%', height: '100%' }} />;
+  }
+  if (mode === 'dom') return <DomTerminalView sessionId={sessionId} className={className} />;
+  return <XtermTerminalHost sessionId={sessionId} className={className} />;
 }
