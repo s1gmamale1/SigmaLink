@@ -2,6 +2,34 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.4.0] — 2026-06-12
+
+**v2.4.0 closes the pane-rendering arc and opens the next chapter: the duplicate-text / live-rewrap fixes finish the 2026-06-11 work, and the first two slices of the DOM terminal presenter land — an opt-in renderer where pane resize is pure CSS reflow, selection/scroll are native DOM, and the whole xterm-grid glitch class is impossible by construction.** Plus the SigmaLink Dev workspace, the pane deliberate-close lifecycle, and the Jorvis terminal-access repair. Seven PRs (#157, #158, #159, #160, #161, #162, #163), each merged to `main` with CI green (macOS + the windows-latest legs).
+
+### Added — DOM terminal presenter, P1a engine + P1b FlowView (opt-in) (#162 `c33615d`, #163 `6849e46`)
+
+The structural answer to the xterm character-grid ceiling (spec `docs/superpowers/specs/2026-06-12-dom-terminal-presenter-design.md`): every pane splits into a **headless VT engine** (`@xterm/headless` — xterm's full escape-sequence parser and buffer, no renderer) and a **DOM presenter we own**. P1a (#162) landed the foundation: a `TerminalEngine` with logical-line extraction (wrapped continuations joined), DA/DSR query answers, mode tracking, and a pure golden-tested `input-encoder` (key/paste → VT bytes, DECCKM + bracketed paste + the `1;N` modifier grammar). P1b (#163) makes it visible: `FlowView` renders logical lines as styled span runs that **CSS re-wraps at any pane width** — resize is a pure reflow with exactly one PTY resize per settle and none during drag; selection, copy, and scrolling are native DOM; `content-visibility` virtualization keeps the DOM at the most recent 1500 logical lines while the engine retains the full 8000-line scrollback. An engine-side cache twins the xterm cache's lifecycle (PTY bus, race-safe snapshot seeding via a now-shared overlap helper, exit banner, DA-strip parity), and `Terminal.tsx` becomes a renderer switch on KV (`panes.renderer.<sessionId>` → `panes.renderer.default` → `xterm`) with single-choke-point mutual exclusion so a session never has two PTY write pipes. **Ships dark: with no KV set, every pane stays on the battle-tested xterm path.** Set `panes.renderer.default` = `dom` to opt in. Known P1b limits (P1c work): alt-screen TUIs (claude fullscreen, codex) render legibly but not cell-exact in FlowView — GridView is their real presenter; no mouse forwarding yet. Includes a build fix pinning `@xterm/headless`'s broken upstream `module` field to its real ESM entry.
+
+### Fixed — claude pane duplicate-text class closed (#160 `979bbeb`) + live re-wrap during divider drag (#159 `439d002`)
+
+The operator-recorded duplicate/garbled text in claude panes was Claude Code's Ink renderer reprinting its frame into scrollback on every resize (upstream anthropics/claude-code#49086): claude spawns now force the fullscreen TUI renderer (`--settings '{"tui":"fullscreen"}'`) — an alt-screen app physically cannot pollute scrollback. Operator-verified: "I see no duplicates." And dragging a pane divider now re-wraps the text **live** so it tracks the moving box (xterm `fit()` per throttled frame, display-side only), while the hosted app still receives exactly ONE SIGWINCH per gesture at release — the reprint storm can't return.
+
+### Added — SigmaLink Dev workspace (#158 `9cda070`)
+
+A dedicated singleton workspace ("SigmaLink Dev") of plain terminals at `~` for working on SigmaLink itself: KV-pointer identity (no duplicate benches), forced plain-terminal provider, zero writes to `~`, and shell respawn-on-boot extended to all workspaces. Drive-by: workspace rename and open-new now ride the canonical CHANNELS path.
+
+### Fixed — pane deliberate-close lifecycle (#161 `a0e9bee`)
+
+Closing a pane on purpose no longer shows the "session exited" toast, and deliberately closed panes no longer resurrect on app restart (hotlist #13/#14): `agent_sessions` gains a `closed_at` soft-delete the reaper, resume, and sync `COLUMN_ALLOWLIST` all honor.
+
+### Fixed — Jorvis terminal access (#157 `5ac6e3a`)
+
+Jorvis's callable tool surface had drifted from its advertised one (three mirrored catalogues): a pure-data `tool-catalogue.ts` is now the single source with parity tests; a `read_pane` tool lands; `prompt_agent` gains a liveness guard (its optional-chained write was a silent ghost no-op on dead panes).
+
+### Verification
+
+Each PR gated green before merge (`tsc -b` · full vitest — 3,820 tests at tag time · `eslint --max-warnings 0` · `product:check`) and CI green on macOS + windows-latest. The P1b tree was additionally dogfooded live by the operator (DOM renderer enabled globally in an isolated profile). The DOM presenter ships dark behind the renderer KV; one-toggle revert.
+
 ## [2.3.0] — 2026-06-11
 
 **v2.3.0 is the post-audit reliability + polish batch: the Windows reopen crash is fixed at the root, the restore-from-hidden terminal render glitch is gone, the app gains Ctrl/Cmd+scroll whole-app zoom, the Phase-3 Command-Room follow-ups land, and the Phase-12 dead-code sweep completes the 2026-06-10 audit.** Six PRs (#149, #150, #152, #153, #154, #156), each merged to `main` with CI green (macOS + the windows-latest legs).

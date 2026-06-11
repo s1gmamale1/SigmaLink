@@ -1,0 +1,53 @@
+SigmaLink v2.4.0 — 2026-06-12
+=============================
+
+The pane-rendering arc closes and the next chapter opens: the
+duplicate-text and live-rewrap fixes finish the terminal glitch work,
+and the first two slices of the DOM terminal presenter land — an
+opt-in renderer where pane resize is pure CSS reflow, selection and
+scrolling are native, and the xterm-grid glitch class is impossible
+by construction. Plus the SigmaLink Dev workspace, the pane
+deliberate-close lifecycle, and the Jorvis terminal-access repair.
+Seven PRs (#157 #158 #159 #160 #161 #162 #163), each CI-green on
+macOS + windows-latest.
+
+See CHANGELOG.md [2.4.0] for the itemized record.
+
+
+Added
+-----
+
+- DOM terminal presenter (opt-in, ships dark) (#162, #163). Panes can
+  now render through a headless VT engine + a DOM presenter: resize
+  re-wraps the text live via CSS (one PTY resize per settle, none
+  during drag), selection/copy/scroll are native DOM, and scrollback
+  is virtualized. Enable with KV panes.renderer.default = dom (or per
+  pane via panes.renderer.<sessionId>); with no KV set, every pane
+  stays on the existing xterm path. Known limits until P1c: alt-screen
+  TUIs (claude fullscreen, codex) render legibly but not cell-exact;
+  no mouse forwarding yet.
+
+- SigmaLink Dev workspace (#158): a singleton workspace of plain
+  terminals at ~ for working on SigmaLink itself — KV-pointer
+  identity, forced plain provider, zero writes to ~, and shell
+  respawn-on-boot now applies to all workspaces.
+
+Fixed
+-----
+
+- Claude panes no longer accumulate duplicated transcript text on
+  resize (#160): claude now runs the fullscreen TUI renderer, whose
+  alt-screen cannot pollute scrollback (upstream Ink reprint bug,
+  anthropics/claude-code#49086). Operator-verified.
+
+- Dragging a pane divider re-wraps the text live so it tracks the
+  moving box (#159), while the app inside still receives exactly one
+  resize signal per gesture at release.
+
+- Deliberately closing a pane no longer shows the "session exited"
+  toast, and closed panes no longer resurrect on restart (#161) —
+  closed_at soft-delete honored by reaper, resume, and sync.
+
+- Jorvis terminal access repaired (#157): the callable tool catalogue
+  is a single parity-tested source again, read_pane lands, and
+  prompt_agent no longer silently no-ops on dead panes.
