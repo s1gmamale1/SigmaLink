@@ -982,6 +982,13 @@ async function buildRouter() {
       pty.write(sessionId, data);
     },
     resize: async (sessionId: string, cols: number, rows: number) => {
+      // #133 residual (WISHLIST pane-rendering) — broadcast coalesced-but-
+      // unsent bytes BEFORE the PTY learns the new size. Main→renderer IPC is
+      // ordered, so every byte produced at the OLD width lands in the
+      // renderer before the first byte the app paints at the NEW width — no
+      // mixed-width interleave around a resize. Twin of the snapshot-handler
+      // flush below (2026-06-10 finding 5b).
+      ptyDataCoalescer.flush(sessionId);
       pty.resize(sessionId, cols, rows);
     },
     kill: async (sessionId: string) => {
