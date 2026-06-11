@@ -44,7 +44,7 @@ import { stageImage as stageImageFile } from './core/workspaces/stage-image';
 import { WorktreePool } from './core/git/worktree';
 import { worktreeCreate } from './core/git/worktree-gui';
 import { openInPane } from './core/workspaces/open-in-pane';
-import { listWorkspaces, openWorkspace, openWorkspaceNew, removeWorkspace, renameWorkspace } from './core/workspaces/factory';
+import { listWorkspaces, openDevWorkspace, openWorkspace, openWorkspaceNew, removeWorkspace, renameWorkspace } from './core/workspaces/factory';
 import { cleanupOrphanWorktrees, sweepAllReposOnBoot } from './core/workspaces/worktree-cleanup';
 import {
   pruneOrphanWorktreesForWorkspace,
@@ -1487,6 +1487,15 @@ async function buildRouter() {
         emit: (event, payload) => broadcast(event, payload),
         notifications: notificationsManager,
       });
+      markWorkspaceOpened(workspace.id);
+      return workspace;
+    },
+    // SigmaLink Dev (2026-06-11) — singleton dev workspace. No side-effect
+    // deps threaded ON PURPOSE: openDevWorkspace never autowrites MCP, never
+    // seeds memory, never preflights (nothing may touch ~). fsAllowedRoots
+    // picks the new row up from the DB on its next rebuild, same as open/openNew.
+    openDev: async () => {
+      const workspace = await openDevWorkspace();
       markWorkspaceOpened(workspace.id);
       return workspace;
     },

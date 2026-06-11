@@ -325,6 +325,8 @@ export interface AppRouter {
     launch: (plan: LaunchPlan) => Promise<{ sessions: AgentSession[] }>;
     /** DEV-W3a — force-open a DISTINCT workspace on a dir (never reuses an existing one). */
     openNew: (root: string) => Promise<Workspace>;
+    /** SigmaLink Dev — open (or create) the singleton plain-shell dev workspace at ~. */
+    openDev: () => Promise<Workspace>;
   };
   git: {
     status: (cwd: string) => Promise<GitStatus | null>;

@@ -81,6 +81,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'workspaces.list',
   'workspaces.remove',
   'workspaces.launch',
+  // SigmaLink Dev (2026-06-11) — open/create the singleton dev workspace.
+  'workspaces.openDev',
   // git
   'git.status',
   'git.statusSummary',

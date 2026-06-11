@@ -111,6 +111,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'workspaces.list',
   'workspaces.remove',
   'workspaces.launch',
+  'workspaces.openDev',     // SigmaLink Dev — singleton plain-shell workspace at ~
   // git (gitCtl)
   'git.status',
   'git.statusSummary',   // perf-hot-paths Task 3 — count-only pane-header poll
