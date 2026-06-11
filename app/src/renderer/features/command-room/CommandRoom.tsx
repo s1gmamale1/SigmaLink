@@ -255,9 +255,14 @@ export function CommandRoom() {
   }
 
   function handleRemove(session: AgentSession) {
-    if (session.status !== 'error') {
-      void rpc.pty.kill(session.id).catch(() => undefined);
-    }
+    // Deliberate close → soft-delete via panes.close (marks closed_at, THEN
+    // kills). This stops the pane resurrecting on restart AND suppresses the
+    // spurious "Pane exited" toast (both the × button and the context-menu
+    // "Close pane" funnel here via onRemove). The grid drops the tile below.
+    // No status guard: panes.close is safe for an already-errored pane (the kill
+    // is best-effort, and we still want closed_at set so the errored row stops
+    // rehydrating); markPaneClosed's WHERE closed_at IS NULL keeps it idempotent.
+    void rpc.panes.close(session.id).catch(() => undefined);
     dispatch({ type: 'REMOVE_SESSION', id: session.id });
   }
 
