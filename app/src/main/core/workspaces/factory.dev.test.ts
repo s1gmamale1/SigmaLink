@@ -257,10 +257,12 @@ describe('openDevWorkspace (singleton dev workspace factory)', () => {
     // Must be a fresh row — not the dev singleton.
     expect(normal.id).not.toBe(dev.id);
 
-    // The dev row must remain untouched: no update ran against dev.id.
-    // The update mock captures update().set().where().run() calls; in the
-    // happy path above we just inserted a fresh row (no update branch).
-    // Verify the dev row's repoMode is still 'plain' (the inserted dev row).
+    // The dev row must remain untouched: NO update ran at all (neither
+    // openDevWorkspace first-call nor openWorkspace's insert branch touches
+    // the update path — only the dedup-reuse branch does, and it must not
+    // have fired against the dev singleton).
+    expect(_updateMock).not.toHaveBeenCalled();
+    // Belt-and-braces: the dev row's repoMode is still 'plain'.
     const devRow = _dbRows.find((r) => r.id === dev.id);
     expect(devRow).toBeDefined();
     expect(devRow!.repoMode).toBe('plain');
