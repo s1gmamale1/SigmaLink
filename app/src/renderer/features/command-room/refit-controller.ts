@@ -24,7 +24,7 @@ export interface RefitCallbacks {
 }
 
 export interface RefitControllerOptions {
-  /** Trailing debounce for non-drag visible resizes (VS Code uses 50ms). */
+  /** Trailing debounce for non-drag visible resizes — 60ms, slightly above VS Code's 50ms. */
   debounceMs?: number;
   /** Self-clear for a missed pane-resize-end (release outside the window). */
   dragFailsafeMs?: number;
@@ -40,6 +40,7 @@ export class RefitController {
    *  the tree). The next non-zero rect is a restore → forced reveal. */
   private hidden = false;
   private dragging = false;
+  private disposed = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dragFailsafe: ReturnType<typeof setTimeout> | null = null;
 
@@ -50,11 +51,13 @@ export class RefitController {
   }
 
   onContentRect(width: number, height: number): void {
+    if (this.disposed) return;
     if (width <= 0 || height <= 0) {
       // A queued fit must never run against a display:none container —
       // proposeDimensions() reads 0/garbage there.
       this.hidden = true;
       this.clearDebounce();
+      // dragging/failsafe left intact: the drag is still live; reveal ignores it.
       return;
     }
     if (!this.firstFitDone) {
@@ -81,6 +84,7 @@ export class RefitController {
   }
 
   onDragStart(): void {
+    if (this.disposed) return;
     this.dragging = true;
     this.clearDebounce();
     if (this.dragFailsafe) clearTimeout(this.dragFailsafe);
@@ -91,20 +95,27 @@ export class RefitController {
   }
 
   onDragEnd(): void {
+    if (this.disposed) return;
     this.dragging = false;
     this.clearFailsafe();
     this.clearDebounce();
+    // No fit while hidden: the container is display:none (proposeDimensions
+    // garbage) and the hidden→visible reveal will repaint on restore.
+    if (this.hidden) return;
     this.cb.fit();
   }
 
   /** Electron window un-minimize / re-show: the RO never fires (layout is
    *  unchanged) but occlusion throttling may have stalled WebGL frames. */
   onWindowRestored(): void {
-    if (!this.firstFitDone || this.hidden) return;
+    // Skip mid-drag: onDragEnd refits at the final size anyway, and a full
+    // reveal (refresh + atlas clear) is too heavy to land between drag frames.
+    if (!this.firstFitDone || this.hidden || this.dragging || this.disposed) return;
     this.cb.reveal();
   }
 
   dispose(): void {
+    this.disposed = true;
     this.clearDebounce();
     this.clearFailsafe();
   }

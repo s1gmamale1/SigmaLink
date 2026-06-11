@@ -135,4 +135,46 @@ describe('RefitController', () => {
     vi.advanceTimersByTime(5000);
     expect(fit).toHaveBeenCalledTimes(1);
   });
+
+  it('window-restored is suppressed during a drag (drag end refits instead)', () => {
+    ctrl.onContentRect(800, 600);
+    ctrl.onDragStart();
+    ctrl.onWindowRestored();
+    expect(reveal).not.toHaveBeenCalled();
+    ctrl.onDragEnd();
+    expect(fit).toHaveBeenCalledTimes(2);
+  });
+
+  it('goes inert after dispose — no callbacks from any input', () => {
+    ctrl.onContentRect(800, 600);
+    ctrl.dispose();
+    ctrl.onContentRect(700, 600);
+    ctrl.onDragStart();
+    ctrl.onDragEnd();
+    ctrl.onWindowRestored();
+    vi.advanceTimersByTime(5000);
+    expect(fit).toHaveBeenCalledTimes(1);
+    expect(reveal).not.toHaveBeenCalled();
+  });
+
+  it('drag end while hidden does not fit; the later restore reveals', () => {
+    ctrl.onContentRect(800, 600);
+    ctrl.onDragStart();
+    ctrl.onContentRect(0, 0);   // hidden mid-drag
+    ctrl.onDragEnd();           // must NOT fit against display:none
+    expect(fit).toHaveBeenCalledTimes(1);
+    ctrl.onContentRect(800, 600);
+    expect(reveal).toHaveBeenCalledTimes(1);
+  });
+
+  it('reveal-on-restore still works when the drag ended while hidden', () => {
+    ctrl.onContentRect(800, 600);
+    ctrl.onContentRect(0, 0);
+    ctrl.onDragStart();
+    ctrl.onDragEnd();
+    expect(fit).toHaveBeenCalledTimes(1); // suppressed: hidden
+    ctrl.onContentRect(800, 600);
+    expect(reveal).toHaveBeenCalledTimes(1);
+    expect(fit).toHaveBeenCalledTimes(1);
+  });
 });
