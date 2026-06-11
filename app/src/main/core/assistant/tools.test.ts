@@ -43,6 +43,7 @@ import {
   seedWorkspace,
   type DbFake,
 } from '@/test-utils/db-fake';
+import { DEV_WORKSPACE_KV_KEY } from '../../../shared/special-workspace';
 
 const tmpDirs: string[] = [];
 
@@ -767,6 +768,108 @@ describe('assistant close_pane tool', () => {
     expect(out).toMatchObject({ ok: true, sessionId: 'dead-sess' });
     // emit still fires even when kill throws.
     expect(emit).toHaveBeenCalledWith('assistant:pane-closed', { sessionId: 'dead-sess' });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 7 — dev workspace excluded from allowedReadRoots
+// The dev workspace (rootPath = HOME) must never widen Jorvis read scope to
+// all of ~. allowedReadRoots must skip the workspace row whose id is pointed
+// to by the kv key DEV_WORKSPACE_KV_KEY.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('allowedReadRoots excludes the dev workspace', () => {
+  const devHome = '/home/testuser';
+  const normalRoot = '/repo/normal';
+
+  function seedKv(devId: string) {
+    // Seed the kv row that marks which workspace is the dev workspace.
+    // The raw fake handles: SELECT value FROM kv WHERE key = ?
+    getRawDb()
+      .prepare('INSERT INTO kv (key, value) VALUES (?, ?)')
+      .run(DEV_WORKSPACE_KV_KEY, devId);
+  }
+
+  it('INCLUDES the normal workspace root and EXCLUDES the dev workspace root', async () => {
+    // Use a real temp dir as devHome so files can exist inside it, proving
+    // the containment check (not the "file not found" branch) is what rejects.
+    const fakeDevHome = path.join(os.tmpdir(), `sigmalink-task7-dev-${process.pid}`);
+    fs.mkdirSync(fakeDevHome, { recursive: true });
+
+    try {
+      // Place a real file inside the fake dev home so "not found" can't mask
+      // an absent containment exclusion.
+      const secretFile = path.join(fakeDevHome, 'secret.txt');
+      fs.writeFileSync(secretFile, 'private content');
+
+      // Seed: one normal workspace + one dev workspace
+      seedWorkspace(fake, { id: 'ws-normal', name: 'Normal', rootPath: normalRoot });
+      seedWorkspace(fake, { id: 'ws-dev', name: 'Dev', rootPath: fakeDevHome });
+      // Mark ws-dev as the dev workspace via kv
+      seedKv('ws-dev');
+
+      const out = (await findTool('read_files')!.handler(
+        { paths: [secretFile] },
+        makeCtx([], 'ws-normal'),
+      )) as { files: Array<{ path: string; ok: boolean; error?: string }> };
+
+      const denied = out.files.find((f) => f.path === secretFile)!;
+      // Must be denied with "outside workspace", not "not found" — this
+      // distinguishes the containment exclusion from a missing-file result.
+      expect(denied.ok).toBe(false);
+      expect(denied.error).toMatch(/outside workspace/i);
+    } finally {
+      fs.rmSync(fakeDevHome, { recursive: true, force: true });
+    }
+  });
+
+  it('STILL allows reading from the normal workspace when the dev workspace is excluded', async () => {
+    const tmp = path.join(os.tmpdir(), `sigmalink-task7-${process.pid}`);
+    fs.mkdirSync(tmp, { recursive: true });
+
+    try {
+      const file = path.join(tmp, 'allowed.txt');
+      fs.writeFileSync(file, 'normal workspace content');
+
+      seedWorkspace(fake, { id: 'ws-normal', name: 'Normal', rootPath: tmp });
+      seedWorkspace(fake, { id: 'ws-dev', name: 'Dev', rootPath: devHome });
+      seedKv('ws-dev');
+
+      const out = (await findTool('read_files')!.handler(
+        { paths: [file] },
+        makeCtx([], 'ws-normal'),
+      )) as { files: Array<{ path: string; ok: boolean; content?: string }> };
+
+      const allowed = out.files.find((f) => f.path === file)!;
+      expect(allowed.ok).toBe(true);
+      expect(allowed.content).toBe('normal workspace content');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('kv failure (missing key) degrades to no-exclusion — does NOT deny-all (back-compat)', async () => {
+    const tmp = path.join(os.tmpdir(), `sigmalink-task7-noexcl-${process.pid}`);
+    fs.mkdirSync(tmp, { recursive: true });
+
+    try {
+      const file = path.join(tmp, 'file.txt');
+      fs.writeFileSync(file, 'some content');
+
+      // No kv row seeded — simulates missing or failed kv read.
+      seedWorkspace(fake, { id: 'ws-normal', name: 'Normal', rootPath: tmp });
+
+      const out = (await findTool('read_files')!.handler(
+        { paths: [file] },
+        makeCtx([], 'ws-normal'),
+      )) as { files: Array<{ path: string; ok: boolean; content?: string }> };
+
+      const result = out.files.find((f) => f.path === file)!;
+      // No exclusion applied → normal workspace still readable (not deny-all)
+      expect(result.ok).toBe(true);
+      expect(result.content).toBe('some content');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
