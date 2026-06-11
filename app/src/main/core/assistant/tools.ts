@@ -1,5 +1,8 @@
-// V3-W13-013 — Sigma Assistant tool registry. Ten canonical tools per
-// PRODUCT_SPEC §3.10. Each delegates into an existing controller.
+// V3-W13-013 — Sigma Assistant tool registry (PRODUCT_SPEC §3.10; the tool
+// count is enforced by tool-catalogue.test.ts, not this comment). Each tool
+// delegates into an existing controller. NOTE: adding a tool requires the
+// SIBLING edits in tool-catalogue.ts (MCP tools/list) and system-prompt.ts
+// (blurb) — the parity tests fail otherwise.
 
 import fs from 'node:fs';
 import path from 'node:path';

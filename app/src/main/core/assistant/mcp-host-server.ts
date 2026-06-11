@@ -16,7 +16,8 @@
 //                                                        mailbox, browser…)
 //
 // Why a thin proxy and not a self-contained tool host:
-//   • The 13 Jorvis tools NEED live access to the PTY registry, the browser
+//   • The Jorvis tools (tool-catalogue.ts; count test-enforced) NEED live
+//     access to the PTY registry, the browser
 //     manager, the worktree pool, etc., which only exist in the main process.
 //   • Re-instantiating those from a stdio child would deadlock against the
 //     better-sqlite3 WAL writer and miss live in-memory state (BUG-V1.1.1-02
