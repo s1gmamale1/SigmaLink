@@ -86,7 +86,16 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     description: "Anthropic's Claude Code CLI",
     command: 'claude',
     altCommands: ['claude.cmd'],
-    args: [],
+    // --settings: force the alt-screen (fullscreen) TUI renderer inside
+    // SigmaLink panes — the default inline renderer reprints its frame into
+    // scrollback on every SIGWINCH (upstream anthropics/claude-code#49086),
+    // so each pane-resize settle appended a duplicate transcript copy that
+    // select-to-copy then picked up. Alt-screen redraws can't touch
+    // scrollback. Scoped to SigmaLink spawns only (the user's own terminal
+    // claude is untouched); unknown settings are silently ignored by the
+    // CLI, so a future key rename degrades to a no-op, never a crash.
+    // One-line revert if the fullscreen renderer misbehaves.
+    args: ['--settings', '{"tui":"fullscreen"}'],
     resumeArgs: ['--resume'],
     oneshotArgs: ['-p', '{prompt}'],
     autoApproveFlag: '--dangerously-skip-permissions',
