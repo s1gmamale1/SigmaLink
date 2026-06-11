@@ -77,6 +77,11 @@ function fakeState(activeTabId: string | null): any {
   return { workspaceId: 'ws-1', tabs: [], activeTabId, lockOwner: null, mcpUrl: null };
 }
 
+type SigmaCb = (payload: unknown) => void;
+let sigmaHandlers: Map<string, Set<SigmaCb>>;
+const emitSigma = (name: string, payload: unknown = {}) =>
+  sigmaHandlers.get(name)?.forEach((fn) => fn(payload));
+
 // Minimal ResizeObserver polyfill — jsdom doesn't ship one and the host
 // component constructs a real instance on mount.
 beforeEach(async () => {
@@ -86,10 +91,22 @@ beforeEach(async () => {
     disconnect(): void { /* no-op */ }
   } as unknown as typeof ResizeObserver;
 
-  // window.sigma.eventOn is used by terminal-cache; provide a no-op stub so
-  // the module loads without crashing in jsdom.
-  (globalThis as unknown as { sigma: { eventOn: () => () => void } }).sigma = {
-    eventOn: () => () => undefined,
+  // window.sigma.eventOn registry — terminal-cache loads against it, and the
+  // host now subscribes to 'window:restored' through it (pane-refit spec
+  // 2026-06-11). emitSigma() drives those subscriptions in tests.
+  sigmaHandlers = new Map();
+  (globalThis as unknown as { sigma: unknown }).sigma = {
+    eventOn: (name: string, cb: SigmaCb) => {
+      let set = sigmaHandlers.get(name);
+      if (!set) {
+        set = new Set();
+        sigmaHandlers.set(name, set);
+      }
+      set.add(cb);
+      return () => {
+        sigmaHandlers.get(name)?.delete(cb);
+      };
+    },
   };
 
   getOrCreateTerminalMock.mockReset();
@@ -122,9 +139,11 @@ function fakeEntry(sessionId: string) {
       cols: 80,
       rows: 24,
       focus: vi.fn(),
+      refresh: vi.fn(),
     },
     fitAddon: { fit: vi.fn() },
     ptyExited: false,
+    webglAddon: null as null | { clearTextureAtlas: ReturnType<typeof vi.fn> },
   };
 }
 
@@ -362,6 +381,99 @@ describe('resize refit — divider-drag suppression', () => {
     // Release → exactly one refit.
     await act(async () => {
       window.dispatchEvent(new Event('sigma:pane-resize-end'));
+    });
+    expect(entry.fitAddon.fit).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Restore-from-hidden reveal (pane-refit spec 2026-06-11): every pane-hide
+// affordance (minimise, fullscreen siblings, scratch tabs) is display:none and
+// restores at the SAME pixel size, where fit.fit() no-ops (no renderer clear).
+// The host must force a full repaint: fit + refresh(0, rows-1) + atlas clear.
+describe('resize refit — restore-from-hidden reveal', () => {
+  function captureRo() {
+    let roCb: ResizeObserverCallback | null = null;
+    globalThis.ResizeObserver = class {
+      constructor(cb: ResizeObserverCallback) {
+        roCb = cb;
+      }
+      observe(): void {/* no-op */}
+      unobserve(): void {/* no-op */}
+      disconnect(): void {/* no-op */}
+    } as unknown as typeof ResizeObserver;
+    return (width: number, height: number) =>
+      roCb?.(
+        [{ contentRect: { width, height } }] as unknown as ResizeObserverEntry[],
+        {} as ResizeObserver,
+      );
+  }
+
+  it('forces fit + refresh + atlas clear immediately when restored at the same size', async () => {
+    const entry = fakeEntry('sess-RV');
+    entry.webglAddon = { clearTextureAtlas: vi.fn() };
+    getOrCreateTerminalMock.mockReturnValue(entry);
+    const fireRo = captureRo();
+
+    const { SessionTerminal } = await import('./Terminal');
+    render(<SessionTerminal sessionId="sess-RV" />);
+
+    await act(async () => {
+      fireRo(800, 600); // first fit
+    });
+    expect(entry.fitAddon.fit).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireRo(0, 0);     // hidden (display:none)
+      fireRo(800, 600); // restored at the SAME size
+    });
+    // Reveal is immediate — no 60ms debounce window with a stale frame.
+    expect(entry.fitAddon.fit).toHaveBeenCalledTimes(2);
+    expect(entry.terminal.refresh).toHaveBeenCalledWith(0, 23);
+    expect(entry.webglAddon.clearTextureAtlas).toHaveBeenCalledTimes(1);
+  });
+
+  it('reveals even while a divider drag is in flight', async () => {
+    const entry = fakeEntry('sess-RV2');
+    getOrCreateTerminalMock.mockReturnValue(entry);
+    const fireRo = captureRo();
+
+    const { SessionTerminal } = await import('./Terminal');
+    render(<SessionTerminal sessionId="sess-RV2" />);
+
+    await act(async () => {
+      fireRo(800, 600);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event('sigma:pane-resize-start'));
+    });
+    await act(async () => {
+      fireRo(0, 0);
+      fireRo(800, 600);
+    });
+    expect(entry.fitAddon.fit).toHaveBeenCalledTimes(2);
+    expect(entry.terminal.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('repaints on window:restored while visible, ignores it while hidden', async () => {
+    const entry = fakeEntry('sess-WR');
+    getOrCreateTerminalMock.mockReturnValue(entry);
+    const fireRo = captureRo();
+
+    const { SessionTerminal } = await import('./Terminal');
+    render(<SessionTerminal sessionId="sess-WR" />);
+
+    await act(async () => {
+      fireRo(800, 600);
+    });
+    await act(async () => {
+      emitSigma('window:restored');
+    });
+    expect(entry.fitAddon.fit).toHaveBeenCalledTimes(2);
+    expect(entry.terminal.refresh).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireRo(0, 0);
+      emitSigma('window:restored'); // hidden pane — pane-level restore will handle it
     });
     expect(entry.fitAddon.fit).toHaveBeenCalledTimes(2);
   });
