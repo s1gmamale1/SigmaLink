@@ -486,6 +486,10 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // BSP-O4 — emitted after a pane is renamed so PaneHeader title pills
   // refresh without a full rehydration. Payload: { sessionId, name }.
   'panes:session-renamed',
+  // Pane-refit spec 2026-06-11 — emitted on BrowserWindow restore/show so
+  // visible terminals force-repaint (the RO never fires for an un-minimize,
+  // and occlusion throttling can stall WebGL frames while minimized).
+  'window:restored',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {

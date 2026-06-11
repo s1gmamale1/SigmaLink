@@ -616,6 +616,18 @@ function createWindow(): void {
   // PERF-11 — register the single renderer window as the broadcast fast-path.
   setBroadcastTarget(mainWindow);
 
+  // Pane-refit spec 2026-06-11 — un-minimizing ('restore') or re-showing
+  // ('show', e.g. macOS cmd+H un-hide) never fires the renderer's
+  // ResizeObservers, while Chromium occlusion throttling may have stalled
+  // WebGL frames; emit an explicit signal so terminals force a repaint.
+  const emitWindowRestored = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window:restored', {});
+    }
+  };
+  mainWindow.on('restore', emitWindowRestored);
+  mainWindow.on('show', emitWindowRestored);
+
   if (devServerUrl) {
     void mainWindow.loadURL(devServerUrl);
   } else {

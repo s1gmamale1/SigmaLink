@@ -552,4 +552,15 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
   it('pty:error is NOT in CHANNELS (it is a one-way event, not an RPC method)', () => {
     expect(CHANNELS.has('pty:error')).toBe(false);
   });
+
+  /**
+   * Pane-refit spec 2026-06-11 — 'window:restored' must be in EVENTS so the
+   * preload's eventOn() doesn't silently return a no-op unsubscribe for it.
+   * Terminal.tsx subscribes via eventOn('window:restored', ...) to force a
+   * repaint after app-window un-minimize; a non-allowlisted name is silently
+   * dropped by the preload bridge, making the subscription permanently dead.
+   */
+  it("allowlists 'window:restored' — Terminal.tsx subscribes via eventOn; a non-allowlisted name silently no-ops in preload", () => {
+    expect(EVENTS.has('window:restored')).toBe(true);
+  });
 });
