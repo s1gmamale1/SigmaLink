@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Role, SwarmAgent } from '@/shared/types';
 import { rpc } from '@/renderer/lib/rpc';
+import { isZoomWheel } from '@/renderer/lib/wheel-zoom';
 import type { AgentFilter } from './TopBar';
 import type { ReplayFrame } from './ReplayScrubber';
 
@@ -662,6 +663,9 @@ export function Constellation({
 
   const onWheel = useCallback(
     (e: React.WheelEvent<HTMLCanvasElement>) => {
+      // Ctrl/Cmd+wheel is whole-app font zoom — let it bubble to the window
+      // handler instead of zooming the constellation viewport.
+      if (isZoomWheel(e)) return;
       e.preventDefault();
       const cv = canvasRef.current;
       if (!cv) return;
