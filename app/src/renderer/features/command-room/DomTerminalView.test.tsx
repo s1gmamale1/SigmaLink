@@ -95,4 +95,30 @@ describe('DomTerminalView', () => {
     fireEvent.keyDown(container.querySelector('textarea')!, { key: 'a' });
     expect(rpcMock.pty.write).not.toHaveBeenCalled();
   });
+
+  it('win32: paste keybindings are NOT encoded — the native paste event handles them', async () => {
+    const prevSigma = (window as { sigma?: unknown }).sigma;
+    (window as { sigma?: unknown }).sigma = { platform: 'win32' };
+    try {
+      const { container } = render(<DomTerminalView sessionId="d7" />);
+      await settle();
+      const input = container.querySelector('textarea')!;
+      fireEvent.keyDown(input, { key: 'v', ctrlKey: true });
+      fireEvent.keyDown(input, { key: 'V', ctrlKey: true, shiftKey: true });
+      fireEvent.keyDown(input, { key: 'Insert', shiftKey: true });
+      expect(rpcMock.pty.write).not.toHaveBeenCalled();
+      // the browser-level paste those keys trigger still flows through onPaste
+      fireEvent.paste(input, { clipboardData: { getData: () => 'pasted' } });
+      expect(rpcMock.pty.write).toHaveBeenCalledWith('d7', 'pasted');
+    } finally {
+      (window as { sigma?: unknown }).sigma = prevSigma;
+    }
+  });
+
+  it('mac (default platform): Ctrl+V stays readline quoted-insert (\\x16)', async () => {
+    const { container } = render(<DomTerminalView sessionId="d8" />);
+    await settle();
+    fireEvent.keyDown(container.querySelector('textarea')!, { key: 'v', ctrlKey: true });
+    expect(rpcMock.pty.write).toHaveBeenCalledWith('d8', '\x16');
+  });
 });

@@ -5,7 +5,7 @@
 // exhaustive goldens over the set claude/codex (and shells later) consume.
 
 import { describe, expect, it } from 'vitest';
-import { encodeKeyEvent, encodePaste, type EncoderModes } from './input-encoder';
+import { encodeKeyEvent, encodePaste, isNativePasteCombo, type EncoderModes } from './input-encoder';
 
 const M = (over: Partial<EncoderModes> = {}): EncoderModes => ({
   applicationCursorKeys: false,
@@ -179,5 +179,30 @@ describe('encodePaste', () => {
 
   it('bracketed wrap composes with newline normalization', () => {
     expect(encodePaste('x\ny', M({ bracketedPaste: true }))).toBe('\x1b[200~x\ry\x1b[201~');
+  });
+});
+
+describe('isNativePasteCombo — win32/linux paste keybindings pass through', () => {
+  it('mac: never (Cmd+V already passes via metaKey; Ctrl+V stays quoted-insert)', () => {
+    expect(isNativePasteCombo(k('v', { ctrl: true }), true)).toBe(false);
+    expect(isNativePasteCombo(k('V', { ctrl: true, shift: true }), true)).toBe(false);
+    expect(isNativePasteCombo(k('Insert', { shift: true }), true)).toBe(false);
+  });
+
+  it('non-mac: Ctrl+V and Ctrl+Shift+V are native paste', () => {
+    expect(isNativePasteCombo(k('v', { ctrl: true }), false)).toBe(true);
+    expect(isNativePasteCombo(k('V', { ctrl: true, shift: true }), false)).toBe(true);
+  });
+
+  it('non-mac: Shift+Insert is native paste; Ctrl+Insert / plain Insert are not', () => {
+    expect(isNativePasteCombo(k('Insert', { shift: true }), false)).toBe(true);
+    expect(isNativePasteCombo(k('Insert', { ctrl: true }), false)).toBe(false);
+    expect(isNativePasteCombo(k('Insert'), false)).toBe(false);
+  });
+
+  it('non-mac: alt/meta variants and other ctrl letters stay with the terminal', () => {
+    expect(isNativePasteCombo(k('v', { ctrl: true, alt: true }), false)).toBe(false);
+    expect(isNativePasteCombo(k('v', { meta: true }), false)).toBe(false);
+    expect(isNativePasteCombo(k('c', { ctrl: true }), false)).toBe(false); // SIGINT, not copy
   });
 });
