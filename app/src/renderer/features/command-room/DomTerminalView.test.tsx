@@ -4,9 +4,15 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 
 const rpcMock = vi.hoisted(() => ({
   pty: {
-    snapshot: vi.fn(async (_sessionId: string) => ({ buffer: '' })),
-    write: vi.fn(async (_sessionId: string, _data: string) => undefined),
-    resize: vi.fn(async (_sessionId: string, _cols: number, _rows: number) => undefined),
+    snapshot: vi.fn<(sessionId: string) => Promise<{ buffer: string }>>(() =>
+      Promise.resolve({ buffer: '' }),
+    ),
+    write: vi.fn<(sessionId: string, data: string) => Promise<void>>(() =>
+      Promise.resolve(),
+    ),
+    resize: vi.fn<(sessionId: string, cols: number, rows: number) => Promise<void>>(() =>
+      Promise.resolve(),
+    ),
   },
 }));
 vi.mock('@/renderer/lib/rpc', () => ({ rpc: rpcMock, rpcSilent: rpcMock }));

@@ -35,8 +35,11 @@ export function paletteColor(index: number): string {
 }
 
 /** Resolve a run color to CSS, or null for "default" (inherit the view's
- *  fg/bg) — keeps default-styled spans free of inline color styles. */
-export function colorFor(c: RunColor, _kind: 'fg' | 'bg'): string | null {
+ *  fg/bg) — keeps default-styled spans free of inline color styles. The
+ *  `kind` arg is part of the call contract (FlowView passes 'fg'/'bg') and
+ *  reserved for future fg/bg-specific defaults; it does not branch today. */
+export function colorFor(c: RunColor, kind: 'fg' | 'bg'): string | null {
+  void kind;
   if (c.mode === 'palette') return paletteColor(c.value);
   if (c.mode === 'rgb') return `#${c.value.toString(16).padStart(6, '0')}`;
   return null;

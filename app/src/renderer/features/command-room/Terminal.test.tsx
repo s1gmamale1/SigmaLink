@@ -20,18 +20,37 @@
 // behaviour without needing a real DOM-canvas-capable xterm.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, act } from '@testing-library/react';
+import { cleanup, render, act, waitFor } from '@testing-library/react';
 
 // ---- mocks ---------------------------------------------------------------
 
 const attachToHostMock = vi.fn();
 const detachFromHostMock = vi.fn();
 const getOrCreateTerminalMock = vi.fn();
+const destroyXtermMock = vi.fn();
 
 vi.mock('@/renderer/lib/terminal-cache', () => ({
   getOrCreateTerminal: (...args: unknown[]) => getOrCreateTerminalMock(...args),
   attachToHost: (...args: unknown[]) => attachToHostMock(...args),
   detachFromHost: (...args: unknown[]) => detachFromHostMock(...args),
+  destroy: (...args: unknown[]) => destroyXtermMock(...args),
+}));
+
+// P1b — SessionTerminal is now the renderer switch. The DOM host + engine
+// cache are mocked away here; this suite is the XTERM-host contract. The
+// switch resolves the flag (xterm by default — kv.get below returns '1',
+// which the renderer-flag parser rejects → 'xterm') then mounts the xterm
+// host; an `await act(async () => {})` after each render settles that tick.
+const destroyEngineMock = vi.fn();
+vi.mock('@/renderer/lib/engine-cache', () => ({
+  destroyEngine: (...args: unknown[]) => destroyEngineMock(...args),
+}));
+vi.mock('./DomTerminalView', () => ({
+  // Lightweight stand-in — the real DomTerminalView has its own suite; here we
+  // only need to assert the switch mounts IT (not the xterm host) in dom mode.
+  DomTerminalView: ({ sessionId }: { sessionId: string }) => (
+    <div data-testid="dom-terminal-view" data-session={sessionId} />
+  ),
 }));
 
 vi.mock('@/renderer/lib/rpc', () => ({
@@ -112,7 +131,14 @@ beforeEach(async () => {
   getOrCreateTerminalMock.mockReset();
   attachToHostMock.mockReset();
   detachFromHostMock.mockReset();
+  destroyXtermMock.mockReset();
+  destroyEngineMock.mockReset();
   setActiveTabMock.mockReset();
+
+  // P1b — the renderer-flag module caches resolutions across imports; clear
+  // it so each test re-resolves against this test's kv.get mock.
+  const { __resetRendererFlagCache } = await import('@/renderer/lib/renderer-flag');
+  __resetRendererFlagCache();
 
   // Reset browser RPC mocks to defaults before each test. Use mockClear
   // (not mockReset) on openTab so the factory's Promise<BrowserTab>
@@ -141,6 +167,17 @@ function sizeHost(root: HTMLElement, width = 800, height = 600) {
   Object.defineProperty(el, 'clientHeight', { configurable: true, value: height });
 }
 
+// P1b — SessionTerminal resolves the renderer flag on an async tick before
+// mounting the xterm host. Flush that tick (and the cache reattach effects)
+// so the rest of each test sees the mounted xterm host — exactly as it did
+// before the switch wrapper existed.
+async function settleFlag() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 function fakeEntry(sessionId: string) {
   return {
     sessionId,
@@ -163,6 +200,7 @@ describe('<SessionTerminal> — Layer 2 host contract', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     render(<SessionTerminal sessionId="sess-A" />);
+    await settleFlag();
 
     expect(getOrCreateTerminalMock).toHaveBeenCalledTimes(1);
     const callArgs = getOrCreateTerminalMock.mock.calls[0];
@@ -181,6 +219,7 @@ describe('<SessionTerminal> — Layer 2 host contract', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     const { unmount } = render(<SessionTerminal sessionId="sess-B" />);
+    await settleFlag();
     unmount();
 
     expect(detachFromHostMock).toHaveBeenCalledTimes(1);
@@ -193,8 +232,10 @@ describe('<SessionTerminal> — Layer 2 host contract', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     const first = render(<SessionTerminal sessionId="sess-C" />);
+    await settleFlag();
     first.unmount();
     render(<SessionTerminal sessionId="sess-C" />);
+    await settleFlag();
 
     // Two mount cycles → cache lookup fires twice with the same sessionId,
     // and the cache returns the same entry (the mock returns the closed-
@@ -214,10 +255,46 @@ describe('<SessionTerminal> — Layer 2 host contract', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     render(<SessionTerminal sessionId="sess-D" />);
+    await settleFlag();
 
     const callArgs = getOrCreateTerminalMock.mock.calls[0];
     const ctx = callArgs[1] as { surfaceBrowser?: () => void };
     expect(typeof ctx.surfaceBrowser).toBe('function');
+  });
+});
+
+// P1b — SessionTerminal renderer switch (spec 2026-06-12). Resolves the pane's
+// renderer mode from KV, then mounts exactly one host.
+describe('<SessionTerminal> — renderer switch (P1b)', () => {
+  it('mounts DomTerminalView when the session KV override is dom', async () => {
+    const { rpcSilent } = await import('@/renderer/lib/rpc');
+    vi.mocked(rpcSilent.kv.get).mockImplementation(async (key: string) =>
+      key === 'panes.renderer.sess-dom' ? 'dom' : null,
+    );
+
+    const { SessionTerminal } = await import('./Terminal');
+    const { findByTestId } = render(<SessionTerminal sessionId="sess-dom" />);
+    expect(await findByTestId('dom-terminal-view')).toBeTruthy();
+    // mutual exclusion: dom mode destroys any cached xterm for this session.
+    expect(destroyXtermMock).toHaveBeenCalledWith('sess-dom');
+    // and never constructs the xterm host's cache entry.
+    expect(getOrCreateTerminalMock).not.toHaveBeenCalled();
+  });
+
+  it('defaults to the xterm host when no flag is set', async () => {
+    const entry = fakeEntry('sess-x');
+    getOrCreateTerminalMock.mockReturnValue(entry);
+    const { rpcSilent } = await import('@/renderer/lib/rpc');
+    vi.mocked(rpcSilent.kv.get).mockResolvedValue(null);
+
+    const { SessionTerminal } = await import('./Terminal');
+    const { queryByTestId } = render(<SessionTerminal sessionId="sess-x" />);
+    await settleFlag();
+    // the xterm host mounted (cache lookup fired) and the DOM host did not.
+    await waitFor(() => expect(getOrCreateTerminalMock).toHaveBeenCalledTimes(1));
+    expect(queryByTestId('dom-terminal-view')).toBeNull();
+    // mutual exclusion: xterm mode destroys any cached engine for this session.
+    expect(destroyEngineMock).toHaveBeenCalledWith('sess-x');
   });
 });
 
@@ -239,6 +316,7 @@ describe('C-8 — routeLinkClick → surfaceBrowser', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     render(<SessionTerminal sessionId="sess-E" />);
+    await settleFlag();
 
     const ctx = getOrCreateTerminalMock.mock.calls[0][1] as {
       routeLinkClick: (url: string, wsId: string | undefined, surfaceBrowser?: () => void) => void;
@@ -265,6 +343,7 @@ describe('C-8 — routeLinkClick → surfaceBrowser', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     render(<SessionTerminal sessionId="sess-F" />);
+    await settleFlag();
 
     const ctx = getOrCreateTerminalMock.mock.calls[0][1] as {
       routeLinkClick: (url: string, wsId: string | undefined, surfaceBrowser?: () => void) => void;
@@ -291,6 +370,7 @@ describe('C-8 — routeLinkClick → surfaceBrowser', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     render(<SessionTerminal sessionId="sess-G" />);
+    await settleFlag();
 
     const ctx = getOrCreateTerminalMock.mock.calls[0][1] as {
       routeLinkClick: (url: string, wsId: string | undefined, surfaceBrowser?: () => void) => void;
@@ -323,6 +403,7 @@ describe('resize refit — renderer-clear regression guard', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     const { container } = render(<SessionTerminal sessionId="sess-R" />);
+    await settleFlag();
     sizeHost(container);
 
     // jsdom's ResizeObserver polyfill is a no-op, so no fit fires on mount.
@@ -368,6 +449,7 @@ describe('resize refit — drag: live visual re-wrap, single PTY notify', () => 
 
     const { SessionTerminal } = await import('./Terminal');
     const { container } = render(<SessionTerminal sessionId="sess-D2" />);
+    await settleFlag();
     sizeHost(container);
 
     const fireRo = () =>
@@ -436,6 +518,7 @@ describe('resize refit — restore-from-hidden reveal', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     const { container } = render(<SessionTerminal sessionId="sess-RV" />);
+    await settleFlag();
     sizeHost(container);
 
     await act(async () => {
@@ -460,6 +543,7 @@ describe('resize refit — restore-from-hidden reveal', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     const { container } = render(<SessionTerminal sessionId="sess-RV2" />);
+    await settleFlag();
     sizeHost(container);
 
     await act(async () => {
@@ -483,6 +567,7 @@ describe('resize refit — restore-from-hidden reveal', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     const { container } = render(<SessionTerminal sessionId="sess-WR" />);
+    await settleFlag();
     sizeHost(container);
 
     await act(async () => {
@@ -515,6 +600,7 @@ describe('resize refit — zero-size container guard', () => {
 
     const { SessionTerminal } = await import('./Terminal');
     render(<SessionTerminal sessionId="sess-Z" />); // jsdom default: clientWidth/Height = 0
+    await settleFlag();
 
     await act(async () => {
       window.dispatchEvent(new Event('sigma:pane-resize-end'));

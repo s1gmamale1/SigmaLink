@@ -9,9 +9,9 @@
 // compositor state to repaint), dragFit (CSS wrap handles live drag), WebGL
 // addon, link addon (FlowView anchors land in P2).
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
-import { getOrCreateEngine } from '@/renderer/lib/engine-cache';
+import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
 import { encodeKeyEvent, encodePaste } from './input-encoder';
 import { FlowView } from './FlowView';
 import { RefitController } from './refit-controller';
@@ -32,12 +32,18 @@ export function DomTerminalView({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const probeRef = useRef<HTMLSpanElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  // Idempotent cache hit — safe under StrictMode double-render.
-  const entry = useMemo(() => getOrCreateEngine(sessionId), [sessionId]);
+  // The cache OWNS the entry. getOrCreateEngine is idempotent (a Map hit after
+  // the first call), so resolving it directly in render is cheap and pure for
+  // the read paths (engine for FlowView, ptyExited/modes for the handlers). We
+  // never MUTATE it here — the lifecycle mutations (mounted/lastAccessed)
+  // happen inside the effect against its own in-effect resolve, satisfying the
+  // React immutability lint (parity with Terminal.tsx's in-effect handling).
+  const entry: EngineCacheEntry = getOrCreateEngine(sessionId);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    const entry = getOrCreateEngine(sessionId);
     entry.mounted = true;
     entry.lastAccessed = Date.now();
 
@@ -101,7 +107,7 @@ export function DomTerminalView({
       window.removeEventListener('sigma:pty-focus', onFocusReq);
       // Engine is cache-owned: NOT disposed here (parity with detachFromHost).
     };
-  }, [sessionId, entry]);
+  }, [sessionId]);
 
   const writeBytes = (bytes: string) => {
     void rpc.pty.write(sessionId, bytes).catch(() => undefined);
