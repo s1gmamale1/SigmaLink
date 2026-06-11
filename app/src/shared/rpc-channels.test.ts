@@ -111,6 +111,9 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'workspaces.list',
   'workspaces.remove',
   'workspaces.launch',
+  'workspaces.openDev',     // SigmaLink Dev — singleton plain-shell workspace at ~
+  'workspaces.rename',      // DEV-W2 — was missing from CHANNELS; Sidebar.tsx:294 rename was bridge-rejected
+  'workspaces.openNew',     // DEV-W3a — was missing from CHANNELS
   // git (gitCtl)
   'git.status',
   'git.statusSummary',   // perf-hot-paths Task 3 — count-only pane-header poll

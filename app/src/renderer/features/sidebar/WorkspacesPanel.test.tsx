@@ -295,6 +295,111 @@ describe('<WorkspacesPanel />', () => {
     expect(onOpenPersisted).toHaveBeenCalledWith(wsD);
   });
 
+  it('+ menu offers a SigmaLink Dev entry that fires onOpenDev', async () => {
+    const onOpenDev = vi.fn();
+    const { getByLabelText, findByText } = render(
+      <WorkspacesPanel
+        workspaces={[wsA]}
+        persistedWorkspaces={[wsA]}
+        sessions={sessions}
+        activeId="a"
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+        onOpenDev={onOpenDev}
+      />,
+    );
+
+    const trigger = getByLabelText('Add or open workspace');
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    fireEvent.click(await findByText('SigmaLink Dev'));
+
+    expect(onOpenDev).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the DEV badge and ~ subtitle only on the devWorkspaceId row', () => {
+    const { getAllByTestId } = render(
+      <WorkspacesPanel
+        workspaces={[wsA, wsB]}
+        persistedWorkspaces={[wsA, wsB]}
+        sessions={[]}
+        activeId="a"
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+        devWorkspaceId="a"
+      />,
+    );
+    const rows = getAllByTestId('workspace-row');
+    const rowA = rows.find((n) => n.getAttribute('data-workspace-id') === 'a')!;
+    const rowB = rows.find((n) => n.getAttribute('data-workspace-id') === 'b')!;
+    // DEV badge only on the dev row.
+    expect(rowA.querySelector('[data-testid="workspace-dev-badge"]')).toBeTruthy();
+    expect(rowB.querySelector('[data-testid="workspace-dev-badge"]')).toBeNull();
+    // ~ subtitle only on the dev row; the other keeps its basename subtitle.
+    expect(rowA.querySelector('[data-testid="workspace-subtitle"]')?.textContent).toBe('~');
+    expect(rowB.querySelector('[data-testid="workspace-subtitle"]')?.textContent).toBe('b');
+  });
+
+  it('renders no DEV badge when devWorkspaceId is absent', () => {
+    const { getAllByTestId } = renderPanel('a');
+    for (const row of getAllByTestId('workspace-row')) {
+      expect(row.querySelector('[data-testid="workspace-dev-badge"]')).toBeNull();
+    }
+  });
+
+  it(
+    'SigmaLink Dev (2026-06-11): dev singleton in persistedClosed is excluded ' +
+      'from the generic reopen list — only the dedicated "SigmaLink Dev" item shows',
+    async () => {
+      // Scenario: the dev workspace was previously closed and shows up in
+      // persistedWorkspaces but is not in openWorkspaces.
+      const devWs = workspace('dev-id', {
+        name: 'SigmaLink Dev',
+        rootPath: '/home/testuser',
+      });
+      const normalWs = workspace('normal-id', {
+        name: 'My Project',
+        rootPath: '/tmp/project',
+      });
+      const onOpenPersisted = vi.fn();
+      const { getByLabelText, findByText, getAllByText } = render(
+        <WorkspacesPanel
+          workspaces={[]}
+          persistedWorkspaces={[devWs, normalWs]}
+          sessions={[]}
+          activeId={null}
+          onPick={vi.fn()}
+          onClose={vi.fn()}
+          onOpenPersisted={onOpenPersisted}
+          onBrowseWorkspaces={vi.fn()}
+          devWorkspaceId="dev-id"
+        />,
+      );
+
+      // Open the + menu (the empty-state CTA shows "Open workspace").
+      const trigger = getByLabelText('Open workspace');
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+
+      // The generic persisted-closed list must show "My Project" but NOT the
+      // dev workspace name as a second generic entry alongside the dedicated item.
+      await findByText('My Project');
+
+      // "SigmaLink Dev" should appear exactly once (the dedicated item).
+      // If persistedClosed filtering is broken, it would appear twice.
+      const allDevTexts = getAllByText('SigmaLink Dev');
+      expect(allDevTexts).toHaveLength(1);
+
+      // Clicking the generic "My Project" entry fires onOpenPersisted.
+      fireEvent.click(await findByText('My Project'));
+      expect(onOpenPersisted).toHaveBeenCalledWith(normalWs);
+    },
+  );
+
   it('renders an empty-state placeholder + CTA when no workspaces are open', () => {
     // v1.2.5 — the empty state was upgraded from a one-line "No workspaces
     // open." string to a centred placeholder with an icon + "Open workspace"

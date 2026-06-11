@@ -260,48 +260,58 @@ export async function executeLaunchPlan(
         worktreePath,
       });
 
-      // RAM Brake — Browser/SigmaMemory are heavy MCPs and must be explicitly
-      // opted into per pane. Ruflo remains the default lightweight profile.
-      // Best-effort — never block PTY spawn.
-      try {
-        const shared = getSharedDeps();
-        if (shared) {
-          const memRoot = wsRow.repoRoot ?? wsRow.rootPath;
-          let memCmd: ReturnType<typeof shared.memorySupervisor.getCommandFor> | null = null;
-          if (profileAllowsMcp(runtimeProfileId, 'sigmamemory')) {
-            try {
-              await shared.memorySupervisor.start(wsRow.id, memRoot);
-            } catch {
-              /* memory supervisor is non-fatal */
+      // SigmaLink Dev (2026-06-11) — a plain shell consumes no MCP config
+      // (no agent CLI reads .mcp.json), and for the dev workspace the pane
+      // cwd IS the user's home directory: writing MCP/memory config there
+      // is forbidden. Gate the whole wiring block on a non-shell provider.
+      if (provider.id !== 'shell') {
+        // RAM Brake — Browser/SigmaMemory are heavy MCPs and must be explicitly
+        // opted into per pane. Ruflo remains the default lightweight profile.
+        // Best-effort — never block PTY spawn.
+        try {
+          const shared = getSharedDeps();
+          if (shared) {
+            const memRoot = wsRow.repoRoot ?? wsRow.rootPath;
+            let memCmd: ReturnType<typeof shared.memorySupervisor.getCommandFor> | null = null;
+            if (profileAllowsMcp(runtimeProfileId, 'sigmamemory')) {
+              try {
+                await shared.memorySupervisor.start(wsRow.id, memRoot);
+              } catch {
+                /* memory supervisor is non-fatal */
+              }
+              memCmd = shared.memorySupervisor.getCommandFor(wsRow.id);
             }
-            memCmd = shared.memorySupervisor.getCommandFor(wsRow.id);
+            writeMcpConfigForAgent({
+              worktree: cwd,
+              runtimeProfileId,
+              memory: memCmd ?? undefined,
+            });
+            // SF-15 — the pane CLI reads `.mcp.json` + `.claude/settings.local.json`
+            // relative to ITS cwd (the worktree), NOT the workspace root where
+            // openWorkspace's autowrite/trust ran. Write a managed `ruflo` entry
+            // (+ claude trust) into this pane's cwd BEFORE the CLI spawns so Ruflo
+            // MCP actually attaches to the pane. HTTP mode when the per-workspace
+            // daemon has a live port; stdio otherwise. Fail-open + opt-out aware.
+            const rufloResult = await ensureRufloMcpForPane({
+              cwd,
+              workspaceId: wsRow.id,
+              workspaceRoot: wsRow.repoRoot ?? wsRow.rootPath,
+              runtimeProfileId,
+              // SigmaLink Dev (2026-06-11) — thread the provider so the
+              // policy's by-construction shell gate also covers this path
+              // (belt-and-braces with the outer provider gate above).
+              providerId: provider.id,
+              rawDb: getRawDb(),
+              daemon: shared.rufloHttpDaemonSupervisor,
+              httpDaemonEnabled: ENABLE_RUFLO_HTTP_DAEMON,
+            });
+            if (rufloResult.transport === 'http') {
+              rufloMcpPort = rufloResult.port;
+            }
           }
-          writeMcpConfigForAgent({
-            worktree: cwd,
-            runtimeProfileId,
-            memory: memCmd ?? undefined,
-          });
-          // SF-15 — the pane CLI reads `.mcp.json` + `.claude/settings.local.json`
-          // relative to ITS cwd (the worktree), NOT the workspace root where
-          // openWorkspace's autowrite/trust ran. Write a managed `ruflo` entry
-          // (+ claude trust) into this pane's cwd BEFORE the CLI spawns so Ruflo
-          // MCP actually attaches to the pane. HTTP mode when the per-workspace
-          // daemon has a live port; stdio otherwise. Fail-open + opt-out aware.
-          const rufloResult = await ensureRufloMcpForPane({
-            cwd,
-            workspaceId: wsRow.id,
-            workspaceRoot: wsRow.repoRoot ?? wsRow.rootPath,
-            runtimeProfileId,
-            rawDb: getRawDb(),
-            daemon: shared.rufloHttpDaemonSupervisor,
-            httpDaemonEnabled: ENABLE_RUFLO_HTTP_DAEMON,
-          });
-          if (rufloResult.transport === 'http') {
-            rufloMcpPort = rufloResult.port;
-          }
+        } catch {
+          /* MCP wiring is non-fatal */
         }
-      } catch {
-        /* MCP wiring is non-fatal */
       }
 
       // V1.1: route every spawn through the provider launcher façade. The

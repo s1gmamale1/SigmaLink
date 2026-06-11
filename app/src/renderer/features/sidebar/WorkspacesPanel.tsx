@@ -24,6 +24,7 @@ import {
   FolderPlus,
   Plus,
   RotateCcw,
+  Terminal,
   X,
 } from 'lucide-react';
 import {
@@ -69,6 +70,18 @@ export interface WorkspacesPanelProps {
    * omitted, drag-to-reorder is disabled.
    */
   onReorder?: (orderedIds: string[]) => void;
+  /**
+   * SigmaLink Dev (Phase 14) — called when the user picks the "SigmaLink Dev"
+   * item from the open-workspace menu. Opens (or creates) the singleton plain-
+   * terminal dev workspace at ~.
+   */
+  onOpenDev?: () => void;
+  /**
+   * SigmaLink Dev — id of the singleton dev workspace (from the KV pointer), or
+   * null when it hasn't been created yet. Used to render the DEV badge + `~`
+   * subtitle on its row.
+   */
+  devWorkspaceId?: string | null;
 }
 
 // Drag mime distinct from the skills DnD mime so the workspace-header skill
@@ -102,6 +115,8 @@ export function WorkspacesPanel({
   onBrowseWorkspaces,
   onRename,
   onReorder,
+  onOpenDev,
+  devWorkspaceId,
 }: WorkspacesPanelProps) {
   // DEV-W2 — inline rename state. `editingId` is the workspace being renamed;
   // `editValue` mirrors the input value.
@@ -234,14 +249,28 @@ export function WorkspacesPanel({
   // dozen sessions × every render.
   const byWorkspace = useMemo(() => summarizeWorkspaces(sessions), [sessions]);
   const openIds = useMemo(() => new Set(workspaces.map((w) => w.id)), [workspaces]);
+  // SigmaLink Dev (2026-06-11) — exclude the dev singleton from persistedClosed
+  // so it never appears as a generic "reopen" entry in the + menu. The dedicated
+  // "SigmaLink Dev" menu item (onOpenDev) is the sole reopen affordance for it.
   const persistedClosed = useMemo(
-    () => persistedWorkspaces.filter((w) => !openIds.has(w.id)),
-    [openIds, persistedWorkspaces],
+    () =>
+      persistedWorkspaces.filter(
+        (w) => !openIds.has(w.id) && w.id !== devWorkspaceId,
+      ),
+    [openIds, persistedWorkspaces, devWorkspaceId],
   );
 
   const pickerMenu = (
     <DropdownMenuContent side="right" align="start" className="w-72">
       <DropdownMenuLabel>Open Workspace</DropdownMenuLabel>
+      <DropdownMenuItem onClick={() => onOpenDev?.()}>
+        <Terminal className="h-4 w-4" />
+        <span className="min-w-0 flex-1 truncate">
+          <span className="font-medium">SigmaLink Dev</span>
+          <span className="block truncate text-xs text-muted-foreground">Plain terminals at ~</span>
+        </span>
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
       {persistedClosed.length > 0 ? (
         persistedClosed.map((ws) => (
           <DropdownMenuItem key={ws.id} onClick={() => onOpenPersisted(ws)}>
@@ -353,8 +382,12 @@ export function WorkspacesPanel({
             // single dot + count badge with no readable label, which looks
             // like an empty sidebar to the user (v1.2.5 regression report).
             const displayName = ws.name?.trim() ? ws.name : 'Untitled workspace';
+            // SigmaLink Dev — the singleton dev workspace lives at ~; show a
+            // literal `~` subtitle (its rootPath basename is the homedir name,
+            // which reads as noise) plus a DEV badge next to the name.
+            const isDevWorkspace = devWorkspaceId != null && ws.id === devWorkspaceId;
             // Subtitle = basename of the root path. Tolerates trailing slash.
-            const subtitle = basenameOf(ws.rootPath);
+            const subtitle = isDevWorkspace ? '~' : basenameOf(ws.rootPath);
 
             // Subtle left-border row accent: full alpha on active, ~33% on inactive.
             const borderColor = isActive ? wsColor : `${wsColor}55`;
@@ -439,17 +472,27 @@ export function WorkspacesPanel({
                             aria-label={`Rename workspace ${displayName}`}
                           />
                         ) : (
-                          <span
-                            data-testid="workspace-name"
-                            className="truncate text-[13px] leading-tight"
-                            onDoubleClick={(e) => {
-                              if (!onRename) return;
-                              e.stopPropagation();
-                              startEdit(ws);
-                            }}
-                            title="Double-click to rename"
-                          >
-                            {displayName}
+                          <span className="flex min-w-0 items-center">
+                            <span
+                              data-testid="workspace-name"
+                              className="truncate text-[13px] leading-tight"
+                              onDoubleClick={(e) => {
+                                if (!onRename) return;
+                                e.stopPropagation();
+                                startEdit(ws);
+                              }}
+                              title="Double-click to rename"
+                            >
+                              {displayName}
+                            </span>
+                            {isDevWorkspace ? (
+                              <span
+                                data-testid="workspace-dev-badge"
+                                className="ml-1 shrink-0 rounded bg-primary/15 px-1 text-[10px] font-semibold uppercase tracking-wide text-primary"
+                              >
+                                dev
+                              </span>
+                            ) : null}
                           </span>
                         )}
                         {subtitle && subtitle !== displayName ? (

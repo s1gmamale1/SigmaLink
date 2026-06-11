@@ -127,6 +127,11 @@ export function buildResumeArgs(
       return id
         ? { args: ['--resume', id], mode: 'id' }
         : { args: [], mode: 'continue' }; // null id → FRESH, never continue-latest (session-collapse fix)
+    case 'shell':
+      // SigmaLink Dev (2026-06-11) — a plain shell has NO session to resume:
+      // ALWAYS respawn fresh ($SHELL -l at the stored cwd). Empty args ⇒ the
+      // freshFallback path below; never a resume/continue flag (id-or-fresh).
+      return { args: [], mode: 'continue' };
     default:
       return null;
   }

@@ -90,6 +90,32 @@ describe('ensureRufloMcpForPane', () => {
     expect(result.transport).toBe('stdio');
   });
 
+  it('skips entirely for a shell provider (never writes config into the pane cwd)', async () => {
+    // Task 6 (Dev workspace, 2026-06-11) — a plain shell consumes no MCP
+    // config; for the dev workspace the pane cwd is the user's HOME directory,
+    // where writing .mcp.json / trust is forbidden. The gate lives HERE (by
+    // construction) so every spawn path — workspaces/launcher.ts AND
+    // swarms/factory-spawn.ts (+Pane → Plain terminal) — is covered.
+    const spawn = vi.fn();
+    const write = vi.fn();
+
+    const result = await ensureRufloMcpForPane({
+      cwd: '/Users/someone', // home-dir-shaped cwd, the dev-workspace case
+      workspaceId: 'ws1',
+      workspaceRoot: '/Users/someone',
+      runtimeProfileId: 'ruflo-core',
+      providerId: 'shell',
+      rawDb: rawDb({}),
+      daemon: { spawn, port: vi.fn(() => 7777) },
+      writeRuflo: write,
+      httpDaemonEnabled: true,
+    });
+
+    expect(write).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+    expect(result).toEqual({ transport: 'skipped', written: null });
+  });
+
   it('does nothing when Ruflo autowrite is disabled', async () => {
     const write = vi.fn();
 

@@ -16,8 +16,10 @@ import { PLATFORM_IS_MAC } from '@/renderer/lib/shortcuts';
 import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 import { useBelowBreakpoint } from '@/renderer/lib/use-breakpoint';
 import { readWorkspaceUi, writeWorkspaceUi } from '@/renderer/lib/workspace-ui-kv';
-import type { Workspace } from '@/shared/types';
+import { DEV_WORKSPACE_KV_KEY, DEV_WORKSPACE_MAX_PANES } from '@/shared/special-workspace';
+import type { GridPreset, Workspace } from '@/shared/types';
 import { WorkspacesPanel } from './WorkspacesPanel';
+import { DevWorkspaceDialog } from './DevWorkspaceDialog';
 
 const APP_SIDEBAR_DEFAULT = 240;
 const APP_SIDEBAR_MIN = 180;
@@ -30,6 +32,10 @@ const APP_SIDEBAR_LEGACY_COLLAPSED_KEY = 'app.sidebar.collapsed';
 // `ui.<wsId>.<panel>` by workspace-ui-kv). Only the WIDTH is per-workspace;
 // collapse stays a global preference (see setCollapsed / session-restore).
 const SIDEBAR_WIDTH_PANEL = 'sidebar.width';
+// SigmaLink Dev — grid preset snap steps for the launch plan. Preset is a UI
+// hint only (panes[] drives the real pane count); hoisted to module scope so
+// it isn't re-allocated on every launch.
+const DEV_PRESET_STEPS: GridPreset[] = [1, 2, 4, 6, 8, 10, 12];
 
 export function Sidebar() {
   // V1.1.10 perf — slice subscriptions instead of full AppState. Sidebar
@@ -44,6 +50,26 @@ export function Sidebar() {
   // RSP-1 — per-workspace width keying. When no workspace is open, `wsId` is
   // null and we fall back to the legacy global key (see read/write helpers).
   const wsId = activeWorkspace?.id ?? null;
+
+  // SigmaLink Dev (Phase 14) — terminal-count dialog visibility + the KV
+  // pointer to the singleton dev workspace (used for the DEV badge / `~`
+  // subtitle on its row). The pointer is read once on mount and refreshed
+  // whenever the flow opens-or-creates the workspace.
+  const [devDialogOpen, setDevDialogOpen] = useState(false);
+  const [devWorkspaceId, setDevWorkspaceId] = useState<string | null>(null);
+  // In-flight launch guard. workspaces.launch is ADDITIVE server-side — a
+  // double-fire would spawn 2N panes. The REF is the actual re-entrancy gate
+  // (state lags a render, so a second click queued in the same tick would
+  // still read launching=false); the STATE mirrors it to disable the dialog's
+  // Launch button.
+  const [devLaunching, setDevLaunching] = useState(false);
+  const devLaunchingRef = useRef(false);
+  useEffect(() => {
+    void rpc.kv
+      .get(DEV_WORKSPACE_KV_KEY)
+      .then((v) => setDevWorkspaceId(v ?? null))
+      .catch(() => undefined);
+  }, []);
 
   // v1.4.8 packet-02 — stateful expanded width with kv persistence.
   const [sidebarWidth, setSidebarWidth] = useState<number>(APP_SIDEBAR_DEFAULT);
@@ -173,6 +199,13 @@ export function Sidebar() {
   }
 
   async function openPersistedWorkspace(ws: Workspace) {
+    // SigmaLink Dev (2026-06-11) — belt: if somehow the dev row leaks through
+    // to this handler (e.g. a stale persisted-closed list), intercept it and
+    // route to the proper dev flow instead of re-opening by path.
+    if (devWorkspaceId && ws.id === devWorkspaceId) {
+      await openDevWorkspaceFlow();
+      return;
+    }
     try {
       const reopened = await rpc.workspaces.open(ws.rootPath);
       dispatch({ type: 'WORKSPACE_OPEN', workspace: reopened });
@@ -206,6 +239,68 @@ export function Sidebar() {
       dispatch({ type: 'SET_ROOM', room: 'command' });
     } catch (err) {
       console.error('Failed to open workspace:', err);
+    }
+  }
+
+  // SigmaLink Dev — menu entry. Open-or-create the singleton; if it already has
+  // pane rows, mirror the boot-restore path (resume → hydrate → route) so dead
+  // shells respawn fresh; otherwise ask for a terminal count first. The dev
+  // workspace never owns swarms, so we skip the swarms.list hydration that
+  // openPersistedWorkspace does.
+  async function openDevWorkspaceFlow() {
+    try {
+      const ws = await rpc.workspaces.openDev();
+      setDevWorkspaceId(ws.id);
+      dispatch({ type: 'WORKSPACE_OPEN', workspace: ws });
+      dispatch({ type: 'SET_WORKSPACES', workspaces: await rpc.workspaces.list() });
+      const sessions = await rpc.panes.listForWorkspace(ws.id);
+      if (sessions.length === 0) {
+        // Fresh (or fully reaped) dev workspace — ask how many terminals.
+        dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: ws.id });
+        setDevDialogOpen(true);
+        return;
+      }
+      // Path A — existing panes: respawn dead shells fresh, then hydrate.
+      await rpc.panes.resume(ws.id).catch(() => undefined);
+      const refreshed = await rpc.panes.listForWorkspace(ws.id);
+      if (refreshed.length > 0) dispatch({ type: 'ADD_SESSIONS', sessions: refreshed });
+      dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: ws.id });
+      dispatch({ type: 'SET_ROOM', room: 'command' });
+    } catch (err) {
+      console.error('Failed to open SigmaLink Dev workspace:', err);
+    }
+  }
+
+  // SigmaLink Dev — launch N plain shell panes after the count dialog commits.
+  async function launchDevTerminals(paneCount: number) {
+    // Re-entrancy guard — see devLaunchingRef. A second fire while the rpc is
+    // in flight would queue a second ADDITIVE plan → 2N panes.
+    if (devLaunchingRef.current) return;
+    devLaunchingRef.current = true;
+    setDevLaunching(true);
+    setDevDialogOpen(false);
+    try {
+      const ws = await rpc.workspaces.openDev(); // idempotent — returns the singleton
+      // Preset is a UI hint; the launcher iterates `panes` for the real count.
+      // Snap to the smallest preset step that fits paneCount.
+      const preset = DEV_PRESET_STEPS.find((p) => p >= paneCount) ?? DEV_WORKSPACE_MAX_PANES;
+      const { sessions } = await rpc.workspaces.launch({
+        workspaceRoot: ws.rootPath,
+        workspaceId: ws.id,
+        preset,
+        panes: Array.from({ length: paneCount }, (_, i) => ({
+          paneIndex: i,
+          providerId: 'shell',
+        })),
+      });
+      if (sessions.length > 0) dispatch({ type: 'ADD_SESSIONS', sessions });
+      dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: ws.id });
+      dispatch({ type: 'SET_ROOM', room: 'command' });
+    } catch (err) {
+      console.error('Failed to launch SigmaLink Dev terminals:', err);
+    } finally {
+      devLaunchingRef.current = false;
+      setDevLaunching(false);
     }
   }
 
@@ -283,6 +378,8 @@ export function Sidebar() {
           }}
           onClose={(workspaceId) => dispatch({ type: 'WORKSPACE_CLOSE', workspaceId })}
           onOpenPersisted={openPersistedWorkspace}
+          onOpenDev={() => void openDevWorkspaceFlow()}
+          devWorkspaceId={devWorkspaceId}
           onBrowseWorkspaces={() => dispatch({ type: 'SET_ROOM', room: 'workspaces' })}
           onReorder={(orderedIds) =>
             dispatch({ type: 'REORDER_OPEN_WORKSPACES', orderedIds })
@@ -375,6 +472,13 @@ export function Sidebar() {
         }}
       />
     ) : null}
+    {/* SigmaLink Dev — terminal-count dialog (portal; placement is cosmetic). */}
+    <DevWorkspaceDialog
+      open={devDialogOpen}
+      onOpenChange={setDevDialogOpen}
+      onLaunch={(n) => void launchDevTerminals(n)}
+      launching={devLaunching}
+    />
     </>
   );
 }

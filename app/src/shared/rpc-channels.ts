@@ -81,6 +81,13 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'workspaces.list',
   'workspaces.remove',
   'workspaces.launch',
+  // SigmaLink Dev (2026-06-11) — open/create the singleton dev workspace.
+  'workspaces.openDev',
+  // DEV-W2 — rename a workspace's display label; was missing from CHANNELS (Sidebar.tsx:294
+  // rename was bridge-rejected since the handler shipped without an allowlist entry).
+  'workspaces.rename',
+  // DEV-W3a — force-open a distinct workspace (never reuses existing); same omission.
+  'workspaces.openNew',
   // git
   'git.status',
   'git.statusSummary',

@@ -481,6 +481,9 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   // DEV-W3a — force-open a DISTINCT workspace on a dir (never reuses existing).
   // Input shape mirrors workspaces.open (a bare path string).
   'workspaces.openNew': { input: PATH_STR, output: any },
+  // SigmaLink Dev (2026-06-11) — open/create the singleton dev workspace.
+  // Zero-arg, same as pickFolder/list.
+  'workspaces.openDev': stub,
   // H-8 — handler is `launch(plan: LaunchPlan)`. LaunchPlan is a deeply nested
   // shape (`panes: PaneAssignment[]`, optional resume plan); modelling it here
   // risks rejecting valid payloads, so it intentionally stays `stub`. See the

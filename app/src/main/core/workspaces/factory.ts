@@ -2,6 +2,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { getDb, getRawDb } from '../db/client';
@@ -21,6 +22,7 @@ import {
 } from '../ruflo/verify';
 import type { SkillsManager } from '../skills/manager';
 import type { Workspace } from '../../../shared/types';
+import { DEV_WORKSPACE_KV_KEY, DEV_WORKSPACE_NAME } from '../../../shared/special-workspace';
 
 export interface OpenWorkspaceDeps {
   rufloSupervisor?: Pick<RufloMcpSupervisor, 'ensureStarted'>;
@@ -178,6 +180,62 @@ export async function openWorkspaceNew(
   return workspace;
 }
 
+/**
+ * SigmaLink Dev (2026-06-11) — open THE singleton dev workspace: a
+ * forced-`plain` row rooted at os.homedir() that holds only plain shell
+ * panes. Deliberately:
+ *   • never calls getRepoRoot(~) — even if ~ sits inside a dotfiles repo,
+ *     this workspace must never engage worktree machinery (repoMode is
+ *     forced 'plain', repoRoot null, so launcher Gate A and factory-spawn
+ *     Gate B both skip worktreePool.create unconditionally);
+ *   • skips EVERY open side effect (MCP autowrite, ruflo trust, memory
+ *     seeding, preflight) — nothing may write `.mcp.json`/`.sigmamemory`
+ *     into the user's home directory.
+ * Singleton: the kv row DEV_WORKSPACE_KV_KEY points at the live row; a
+ * dangling pointer (row deleted) self-heals by inserting fresh + repointing.
+ */
+export async function openDevWorkspace(): Promise<Workspace> {
+  const db = getDb();
+  const raw = getRawDb();
+  const now = Date.now();
+  const kvRow = raw
+    .prepare('SELECT value FROM kv WHERE key = ?')
+    .get(DEV_WORKSPACE_KV_KEY) as { value?: string } | undefined;
+  if (kvRow?.value) {
+    const existing = db.select().from(workspaces).where(eq(workspaces.id, kvRow.value)).get();
+    if (existing) {
+      db.update(workspaces).set({ lastOpenedAt: now }).where(eq(workspaces.id, existing.id)).run();
+      return rowToWorkspace({ ...existing, lastOpenedAt: now });
+    }
+  }
+  const resultId = randomUUID();
+  db.insert(workspaces)
+    .values({
+      id: resultId,
+      name: DEV_WORKSPACE_NAME,
+      rootPath: os.homedir(),
+      repoRoot: null,
+      repoMode: 'plain',
+      createdAt: now,
+      lastOpenedAt: now,
+    })
+    .run();
+  raw
+    .prepare(
+      `INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+    .run(DEV_WORKSPACE_KV_KEY, resultId);
+  // Same WAL-checkpoint rationale as openWorkspaceNew (BUG-W7-006).
+  try {
+    raw.pragma('wal_checkpoint(PASSIVE)');
+  } catch {
+    /* best-effort */
+  }
+  const row = db.select().from(workspaces).where(eq(workspaces.id, resultId)).get();
+  return rowToWorkspace(row!);
+}
+
 export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = {}): Promise<Workspace> {
   const abs = path.resolve(rootPath);
   if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
@@ -187,7 +245,46 @@ export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = 
   const repoMode: 'git' | 'plain' = repoRoot ? 'git' : 'plain';
   const name = path.basename(abs) || abs;
   const db = getDb();
-  const existing = db.select().from(workspaces).where(eq(workspaces.rootPath, abs)).get();
+  // SigmaLink Dev (2026-06-11) — never dedup-reuse the dev singleton: a
+  // normal open at ~ must not capture the dev row (its reuse branch would
+  // overwrite repoMode/repoRoot and re-engage worktree machinery on it).
+  // A fresh, separate row at the same path is fine post-mig-0034.
+  let devWorkspaceId: string | null = null;
+  try {
+    const devKv = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(DEV_WORKSPACE_KV_KEY) as { value?: string } | undefined;
+    devWorkspaceId = devKv?.value ?? null;
+  } catch {
+    devWorkspaceId = null;
+  }
+  const existing = db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.rootPath, abs))
+    .all()
+    .find((r) => r.id !== devWorkspaceId);
+  // SigmaLink Dev (2026-06-11) — by-path reopen of the dev singleton.
+  // When there is no non-dev row at `abs` AND the dev pointer resolves to a
+  // live row whose rootPath equals `abs`, the caller's intent is to reopen the
+  // dev workspace (recents / persisted-closed rows reopen by path). Delegate
+  // to openDevWorkspace() instead of inserting a second row at ~ — the open
+  // side effects (MCP autowrite, trust, memory seed) must never run against
+  // the home directory.
+  if (!existing && devWorkspaceId) {
+    try {
+      const devRow = db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, devWorkspaceId))
+        .get();
+      if (devRow && devRow.rootPath === abs) {
+        return openDevWorkspace();
+      }
+    } catch {
+      // DB probe failed; fall through to the normal insert path.
+    }
+  }
   const now = Date.now();
   let resultId: string;
   if (existing) {

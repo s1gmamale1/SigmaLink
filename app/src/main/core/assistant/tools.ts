@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
-import { getDb } from '../db/client';
+import { getDb, getRawDb } from '../db/client';
 import {
   agentSessions,
   swarmAgents,
@@ -22,6 +22,7 @@ import type { TasksManager } from '../tasks/manager';
 import type { BrowserManagerRegistry } from '../browser/manager';
 import type { LaunchPlan, Role, RoleAssignment, SwarmPreset } from '../../../shared/types';
 import { derivePaneName } from '../../../shared/agent-identity';
+import { DEV_WORKSPACE_KV_KEY } from '../../../shared/special-workspace';
 import { executeLaunchPlan } from '../workspaces/launcher';
 // v1.5.4-rollup-fold — reuse the v1.5.4-C-fixed pickPreset from controller.ts
 // instead of maintaining a duplicate-and-buggy copy. The duplicate at line 46-47
@@ -287,8 +288,25 @@ function cwdLooksInsideWorkspace(
 function allowedReadRoots(ctx: ToolContext): string[] {
   const roots = new Set<string>();
   try {
+    // SigmaLink Dev (2026-06-11) — the dev workspace roots at the user's HOME
+    // directory. Never let it widen Jorvis's read scope to all of ~; its panes
+    // are plain shells the assistant has no business reading for.
+    // NB: rpc-router's fsAllowedRoots intentionally does NOT exclude the dev
+    // row — the operator-driven editor/terminal legitimately browse ~; only
+    // the assistant's read scope is narrowed here. Don't "fix" the asymmetry.
+    let devWorkspaceId: string | null = null;
+    try {
+      const kvRow = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get(DEV_WORKSPACE_KV_KEY) as { value?: string } | undefined;
+      devWorkspaceId = kvRow?.value ?? null;
+    } catch {
+      devWorkspaceId = null;
+    }
+
     const rows = getDb().select().from(workspacesTable).all();
     for (const ws of rows) {
+      if (ws.id === devWorkspaceId) continue;
       if (ws.rootPath) roots.add(path.resolve(ws.rootPath));
       if (ws.repoRoot) {
         roots.add(path.resolve(ws.repoRoot));
