@@ -40,7 +40,7 @@ import {
 import { buildGitCheckpointController } from './core/git/checkpoint-controller';
 import { buildUsageController } from './core/usage/controller';
 import { buildMcpDiagnosticController } from './core/workspaces/mcp-diagnostic';
-import { stageImage as stageImageFile } from './core/workspaces/stage-image';
+import { stageImage as stageImageFile, sweepStagedImages } from './core/workspaces/stage-image';
 import { WorktreePool } from './core/git/worktree';
 import { worktreeCreate } from './core/git/worktree-gui';
 import { openInPane } from './core/workspaces/open-in-pane';
@@ -295,6 +295,14 @@ async function buildRouter() {
   });
   await sweepAllReposOnBoot(worktreeBase, getRawDb()).catch((err) => {
     console.warn('[boot] worktree sweep failed (non-fatal):', err);
+  });
+
+  // Phase 3 follow-up — staged-image janitor. `panes.stageImage` writes
+  // screenshots to <userData>/staged-images and never deletes them; sweep the
+  // ones older than 7 days at boot so transient prompt inputs can't grow the
+  // disk unbounded. Best-effort: fail-open, never blocks startup.
+  await sweepStagedImages({ baseDir: userData }).catch((err) => {
+    console.warn('[boot] staged-image sweep failed (non-fatal):', err);
   });
 
   // v1.9-scrollback — boot GC. Best-effort: remove stale .log files for
