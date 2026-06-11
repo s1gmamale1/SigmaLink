@@ -37,10 +37,11 @@ vi.mock('@/renderer/lib/terminal-cache', () => ({
 }));
 
 // P1b — SessionTerminal is now the renderer switch. The DOM host + engine
-// cache are mocked away here; this suite is the XTERM-host contract. The
-// switch resolves the flag (xterm by default — kv.get below returns '1',
-// which the renderer-flag parser rejects → 'xterm') then mounts the xterm
-// host; an `await act(async () => {})` after each render settles that tick.
+// cache are mocked away here; this suite is the XTERM-host contract. Since
+// v2.4.1 the unset-flag default is 'dom', so the beforeEach kv.get mock
+// answers renderer keys with an EXPLICIT 'xterm' (and '1' for everything
+// else, the captureLinks gate); the switch then mounts the xterm host. An
+// `await act(async () => {})` after each render settles that tick.
 const destroyEngineMock = vi.fn();
 vi.mock('@/renderer/lib/engine-cache', () => ({
   destroyEngine: (...args: unknown[]) => destroyEngineMock(...args),
@@ -145,7 +146,11 @@ beforeEach(async () => {
   // implementation is not wiped; re-apply getState / kv.get with correct
   // full-shape values so each test starts with a known default.
   const { rpcSilent, rpc } = await import('@/renderer/lib/rpc');
-  vi.mocked(rpcSilent.kv.get).mockReset().mockResolvedValue('1');
+  vi.mocked(rpcSilent.kv.get)
+    .mockReset()
+    .mockImplementation(async (key: string) =>
+      key.startsWith('panes.renderer.') ? 'xterm' : '1',
+    );
   vi.mocked(rpcSilent.browser.getState).mockReset().mockResolvedValue(fakeState(null));
   vi.mocked(rpcSilent.browser.navigate).mockClear();
   vi.mocked(rpcSilent.browser.openTab).mockClear();
@@ -281,20 +286,33 @@ describe('<SessionTerminal> — renderer switch (P1b)', () => {
     expect(getOrCreateTerminalMock).not.toHaveBeenCalled();
   });
 
-  it('defaults to the xterm host when no flag is set', async () => {
-    const entry = fakeEntry('sess-x');
-    getOrCreateTerminalMock.mockReturnValue(entry);
+  it('defaults to the DOM host when no flag is set (v2.4.1 default flip)', async () => {
     const { rpcSilent } = await import('@/renderer/lib/rpc');
     vi.mocked(rpcSilent.kv.get).mockResolvedValue(null);
 
     const { SessionTerminal } = await import('./Terminal');
-    const { queryByTestId } = render(<SessionTerminal sessionId="sess-x" />);
+    const { findByTestId } = render(<SessionTerminal sessionId="sess-x" />);
+    expect(await findByTestId('dom-terminal-view')).toBeTruthy();
+    expect(getOrCreateTerminalMock).not.toHaveBeenCalled();
+    expect(destroyXtermMock).toHaveBeenCalledWith('sess-x');
+  });
+
+  it('mounts the xterm host when the KV says xterm (one-KV revert)', async () => {
+    const entry = fakeEntry('sess-x2');
+    getOrCreateTerminalMock.mockReturnValue(entry);
+    const { rpcSilent } = await import('@/renderer/lib/rpc');
+    vi.mocked(rpcSilent.kv.get).mockImplementation(async (key: string) =>
+      key === 'panes.renderer.sess-x2' ? 'xterm' : null,
+    );
+
+    const { SessionTerminal } = await import('./Terminal');
+    const { queryByTestId } = render(<SessionTerminal sessionId="sess-x2" />);
     await settleFlag();
     // the xterm host mounted (cache lookup fired) and the DOM host did not.
     await waitFor(() => expect(getOrCreateTerminalMock).toHaveBeenCalledTimes(1));
     expect(queryByTestId('dom-terminal-view')).toBeNull();
     // mutual exclusion: xterm mode destroys any cached engine for this session.
-    expect(destroyEngineMock).toHaveBeenCalledWith('sess-x');
+    expect(destroyEngineMock).toHaveBeenCalledWith('sess-x2');
   });
 });
 
@@ -311,7 +329,9 @@ describe('C-8 — routeLinkClick → surfaceBrowser', () => {
 
     // Configure mocks: capture ON, no active tab → openTab path.
     const { rpcSilent, rpc } = await import('@/renderer/lib/rpc');
-    vi.mocked(rpcSilent.kv.get).mockResolvedValue('1');
+    vi.mocked(rpcSilent.kv.get).mockImplementation(async (key: string) =>
+      key.startsWith('panes.renderer.') ? 'xterm' : '1',
+    );
     vi.mocked(rpcSilent.browser.getState).mockResolvedValue(fakeState(null));
 
     const { SessionTerminal } = await import('./Terminal');
@@ -338,7 +358,9 @@ describe('C-8 — routeLinkClick → surfaceBrowser', () => {
     getOrCreateTerminalMock.mockReturnValue(entry);
 
     const { rpcSilent, rpc } = await import('@/renderer/lib/rpc');
-    vi.mocked(rpcSilent.kv.get).mockResolvedValue('1');
+    vi.mocked(rpcSilent.kv.get).mockImplementation(async (key: string) =>
+      key.startsWith('panes.renderer.') ? 'xterm' : '1',
+    );
     vi.mocked(rpcSilent.browser.getState).mockResolvedValue(fakeState('tab-42'));
 
     const { SessionTerminal } = await import('./Terminal');
@@ -365,7 +387,9 @@ describe('C-8 — routeLinkClick → surfaceBrowser', () => {
 
     // Capture OFF: kv returns '0'.
     const { rpcSilent } = await import('@/renderer/lib/rpc');
-    vi.mocked(rpcSilent.kv.get).mockResolvedValue('0');
+    vi.mocked(rpcSilent.kv.get).mockImplementation(async (key: string) =>
+      key.startsWith('panes.renderer.') ? 'xterm' : '0',
+    );
     const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
 
     const { SessionTerminal } = await import('./Terminal');

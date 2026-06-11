@@ -2,6 +2,24 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.4.1] — 2026-06-12
+
+**v2.4.1 turns the DOM terminal presenter ON by default.** v2.4.0 shipped it dark (KV-gated), which meant installed builds still rendered through the xterm grid — resize re-arranged lines, exactly the behavior the presenter eliminates — while flag-enabled dev builds showed the new feel. Operator-directed flip after testing both on macOS and Windows: byte-verification of the v2.4.0 artifacts confirmed all code shipped; the only gap was the dark default.
+
+### Changed — DOM renderer is the default (operator-directed early flip of the spec's P3 step)
+
+- `panes.renderer.*` unset now resolves to `dom` (was `xterm`). The xterm renderer remains one KV away: `panes.renderer.default` = `xterm` globally, or `panes.renderer.<sessionId>` per pane. Known alt-screen caveat unchanged from 2.4.0: claude (fullscreen) and codex TUIs render legibly but not cell-exact until P1c's GridView.
+- Pane context menu Copy/Paste now works on DOM-renderer panes: Copy falls back to the document selection (DOM panes have no cached xterm), and Paste honors bracketed-paste via the engine's live modes.
+- The `tests/e2e` xterm-cache preservation spec pins `panes.renderer.default=xterm` explicitly — it asserts the xterm cache contract, which is now opt-in (the v1.22.1 stale-default e2e class, caught at flip time by the release-ritual grep).
+
+### Fixed — Windows keyboard paste in DOM-mode panes (#164 `26b81d6`, was untagged in 2.4.0)
+
+Ctrl+V / Ctrl+Shift+V / Shift+Insert now fall through to the native paste event on win32/linux instead of being encoded as terminal bytes (which also suppressed the browser paste — DOM panes had no keyboard paste on Windows). mac keeps Ctrl+V as readline quoted-insert; Ctrl+C stays SIGINT.
+
+### Verification
+
+Full gate green (`tsc -b` · vitest 3,827 · `eslint --max-warnings 0` · `product:check`); CI macOS + windows-latest + the full e2e matrix on the release PR. v2.4.0 artifact bytes were verified to contain the P1b renderer (`panes.renderer`/`dom-terminal-view` in the bundle, `tui":"fullscreen` in main.js) before concluding the dark default — not missing code — explained the install-vs-dev difference.
+
 ## [2.4.0] — 2026-06-12
 
 **v2.4.0 closes the pane-rendering arc and opens the next chapter: the duplicate-text / live-rewrap fixes finish the 2026-06-11 work, and the first two slices of the DOM terminal presenter land — an opt-in renderer where pane resize is pure CSS reflow, selection/scroll are native DOM, and the whole xterm-grid glitch class is impossible by construction.** Plus the SigmaLink Dev workspace, the pane deliberate-close lifecycle, and the Jorvis terminal-access repair. Seven PRs (#157, #158, #159, #160, #161, #162, #163), each merged to `main` with CI green (macOS + the windows-latest legs).

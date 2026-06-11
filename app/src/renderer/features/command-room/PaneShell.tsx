@@ -25,6 +25,8 @@ import {
 import { CreateWorktreeModal } from './CreateWorktreeModal';
 import { rpc } from '@/renderer/lib/rpc';
 import { getCached } from '@/renderer/lib/terminal-cache';
+import { getCachedEngine } from '@/renderer/lib/engine-cache';
+import { encodePaste } from './input-encoder';
 import { SessionTerminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
 import { PaneSplash } from './PaneSplash';
@@ -569,9 +571,16 @@ export function PaneShell({
               tabs work. */}
           <ContextMenuItem
             data-testid="ctx-copy"
-            disabled={!getCached(activeTabId)?.terminal.hasSelection()}
+            disabled={
+              !getCached(activeTabId)?.terminal.hasSelection() &&
+              // DOM-renderer panes (v2.4.1 default) have no cached xterm —
+              // their selection IS the document selection.
+              !(window.getSelection()?.toString() ?? '')
+            }
             onSelect={() => {
-              const sel = getCached(activeTabId)?.terminal.getSelection();
+              const sel =
+                getCached(activeTabId)?.terminal.getSelection() ||
+                (window.getSelection()?.toString() ?? '');
               if (sel) void navigator.clipboard?.writeText(sel).catch(() => undefined);
             }}
           >
@@ -585,7 +594,15 @@ export function PaneShell({
               void navigator.clipboard
                 ?.readText()
                 .then((text) => {
-                  if (text) void rpc.pty.write(activeTabId, text);
+                  if (!text) return;
+                  // DOM-renderer panes: honor bracketed paste via the engine's
+                  // live modes (the xterm path's menu paste was always a raw
+                  // write; unchanged).
+                  const engine = getCachedEngine(activeTabId)?.engine;
+                  void rpc.pty.write(
+                    activeTabId,
+                    engine ? encodePaste(text, engine.modes) : text,
+                  );
                 })
                 .catch(() => undefined);
             }}
