@@ -103,3 +103,60 @@ describe('PaneGrid', () => {
     expect(row.style.getPropertyValue('--pg-cols')).toContain('0.5fr');
   });
 });
+
+// Maximize (⤢) same-frame refit (pane-refit follow-up 2026-06-11): flipping
+// focusedPaneId must dispatch the divider-release refit signal so terminals
+// fit in the SAME frame as the layout flip instead of waiting out Terminal's
+// 60ms non-drag debounce (box snapped, text lagged, then the TUI repainted —
+// reads as "every line re-arranges"). Hidden-by-this-flip siblings are safe:
+// Terminal's runFit zero-size guard + the controller's hidden skip.
+describe('fullscreen toggle → immediate refit signal', () => {
+  function countResizeEnd() {
+    const counter = { n: 0 };
+    const onEnd = () => {
+      counter.n += 1;
+    };
+    window.addEventListener('sigma:pane-resize-end', onEnd);
+    return { counter, off: () => window.removeEventListener('sigma:pane-resize-end', onEnd) };
+  }
+
+  const gridProps = (focusedPaneId: string | null, activeSessionId = 'a') => (
+    <PaneGrid
+      sessionIds={['a', 'b']}
+      activeSessionId={activeSessionId}
+      focusedPaneId={focusedPaneId}
+      workspaceId="ws1"
+      onActivate={() => {}}
+      renderLeaf={leafRender}
+    />
+  );
+
+  it('dispatches sigma:pane-resize-end when a pane enters and exits fullscreen', async () => {
+    const { counter, off } = countResizeEnd();
+    const view = render(gridProps(null));
+    await act(async () => {});
+    expect(counter.n).toBe(0); // initial mount: nothing to refit
+
+    await act(async () => {
+      view.rerender(gridProps('a'));
+    });
+    expect(counter.n).toBe(1); // enter fullscreen
+
+    await act(async () => {
+      view.rerender(gridProps(null));
+    });
+    expect(counter.n).toBe(2); // exit fullscreen
+    off();
+  });
+
+  it('does not dispatch on unrelated re-renders with unchanged focusedPaneId', async () => {
+    const { counter, off } = countResizeEnd();
+    const view = render(gridProps(null));
+    await act(async () => {});
+    await act(async () => {
+      view.rerender(gridProps(null, 'b')); // active pane changes, focus does not
+    });
+    expect(counter.n).toBe(0);
+    off();
+  });
+});

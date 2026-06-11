@@ -192,6 +192,23 @@ export function PaneGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fracsKey]);
 
+  // Maximize (⤢) toggle: refit terminals in the SAME frame as the layout flip
+  // instead of waiting out Terminal's 60ms non-drag debounce (box snapped,
+  // text lagged, then the TUI repainted — reads as "every line re-arranges").
+  // Reuses the divider-release signal: the visible (focused/restored) pane
+  // fits before paint; panes hidden by this very flip are safe via Terminal's
+  // runFit zero-size guard + the controller's hidden skip. Skipped on first
+  // mount — the per-pane first fit covers it.
+  const prevFocusedRef = useRef(focusedPaneId);
+  useLayoutEffect(() => {
+    if (prevFocusedRef.current === focusedPaneId) return;
+    prevFocusedRef.current = focusedPaneId;
+    // Intentionally an UNPAIRED release (no -start): for a non-dragging
+    // controller onDragEnd is just "fit now"; a real mid-drag focus flip is
+    // unreachable (pointer drags own the mouse, Escape only arms fullscreen).
+    window.dispatchEvent(new CustomEvent('sigma:pane-resize-end'));
+  }, [focusedPaneId]);
+
   // Plain closures (not useCallback): they read mutable refs + rebuild the
   // fracs, which the React compiler can't memoize; they're handed to a
   // non-memoized divider, so memoization buys nothing.
