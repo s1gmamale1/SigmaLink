@@ -166,9 +166,28 @@ export function SessionTerminal({ sessionId, className }: Props) {
         /* terminal may be mid-dispose */
       }
     };
+    // Live visual re-wrap during a divider drag: fit.fit() resizes xterm's
+    // grid and re-wraps the buffer so the TEXT tracks the moving box — but
+    // the PTY is NOT told (no rpc.pty.resize). The app inside still gets
+    // exactly ONE SIGWINCH per gesture, at release via runFit (Claude Code's
+    // Ink renderer appends a duplicate transcript frame per SIGWINCH —
+    // upstream anthropics/claude-code#49086 — the storm must never return).
+    const runDragFit = () => {
+      if (entry.ptyExited) return;
+      if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
+      try {
+        fit.fit();
+      } catch {
+        /* transient mid-layout measure failure — the next tick covers it */
+      }
+    };
     // WHEN to refit (hidden/first-fit/drag/debounce/reveal) lives in the
     // controller — see refit-controller.ts for the full rationale.
-    const controller = new RefitController({ fit: runFit, reveal: runReveal });
+    const controller = new RefitController({
+      fit: runFit,
+      reveal: runReveal,
+      dragFit: runDragFit,
+    });
 
     const ro = new ResizeObserver((entries) => {
       if (entry.ptyExited) return;

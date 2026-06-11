@@ -178,3 +178,86 @@ describe('RefitController', () => {
     expect(fit).toHaveBeenCalledTimes(1);
   });
 });
+
+// Live visual re-wrap during a drag (pane-refit follow-up 2026-06-11 #2):
+// when a `dragFit` callback is provided, mid-drag rects drive a THROTTLED
+// visual-only fit (xterm re-wraps, text tracks the box) while the full
+// `fit` (which notifies the PTY) still waits for drag end — the app inside
+// gets exactly one SIGWINCH per gesture (Ink dup budget unchanged).
+// Without `dragFit`, mid-drag rects are skipped entirely (legacy behavior,
+// covered by the suite above).
+describe('RefitController — live drag re-wrap (dragFit)', () => {
+  let fit: ReturnType<typeof vi.fn<() => void>>;
+  let reveal: ReturnType<typeof vi.fn<() => void>>;
+  let dragFit: ReturnType<typeof vi.fn<() => void>>;
+  let ctrl: RefitController;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fit = vi.fn<() => void>();
+    reveal = vi.fn<() => void>();
+    dragFit = vi.fn<() => void>();
+    ctrl = new RefitController({ fit, reveal, dragFit });
+  });
+
+  afterEach(() => {
+    ctrl.dispose();
+    vi.useRealTimers();
+  });
+
+  it('calls dragFit immediately (leading) on the first mid-drag rect, not fit', () => {
+    ctrl.onContentRect(800, 600); // first fit
+    ctrl.onDragStart();
+    ctrl.onContentRect(750, 600);
+    expect(dragFit).toHaveBeenCalledTimes(1);
+    expect(fit).toHaveBeenCalledTimes(1); // only the first fit
+  });
+
+  it('throttles rapid mid-drag rects to leading + one trailing per cooldown', () => {
+    ctrl.onContentRect(800, 600);
+    ctrl.onDragStart();
+    ctrl.onContentRect(790, 600); // leading
+    ctrl.onContentRect(780, 600); // within cooldown → pending
+    ctrl.onContentRect(770, 600); // still pending
+    expect(dragFit).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(80); // cooldown expiry → trailing
+    expect(dragFit).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(200); // no further rects → no further calls
+    expect(dragFit).toHaveBeenCalledTimes(2);
+  });
+
+  it('drag end cancels a pending trailing dragFit and performs the single full fit', () => {
+    ctrl.onContentRect(800, 600);
+    ctrl.onDragStart();
+    ctrl.onContentRect(790, 600); // leading
+    ctrl.onContentRect(780, 600); // pending
+    ctrl.onDragEnd();
+    expect(fit).toHaveBeenCalledTimes(2); // first + release
+    vi.advanceTimersByTime(500);
+    expect(dragFit).toHaveBeenCalledTimes(1); // trailing never fired
+  });
+
+  it('going hidden mid-drag cancels pending dragFit; restore still reveals', () => {
+    ctrl.onContentRect(800, 600);
+    ctrl.onDragStart();
+    ctrl.onContentRect(790, 600); // leading
+    ctrl.onContentRect(780, 600); // pending
+    ctrl.onContentRect(0, 0);     // hidden
+    vi.advanceTimersByTime(500);
+    expect(dragFit).toHaveBeenCalledTimes(1);
+    ctrl.onContentRect(780, 600); // restore mid-drag
+    expect(reveal).toHaveBeenCalledTimes(1);
+  });
+
+  it('never calls dragFit outside a drag or after dispose', () => {
+    ctrl.onContentRect(800, 600);
+    ctrl.onContentRect(700, 600); // visible resize → debounce path
+    vi.advanceTimersByTime(120);
+    expect(dragFit).not.toHaveBeenCalled();
+    ctrl.onDragStart();
+    ctrl.dispose();
+    ctrl.onContentRect(650, 600);
+    vi.advanceTimersByTime(500);
+    expect(dragFit).not.toHaveBeenCalled();
+  });
+});
