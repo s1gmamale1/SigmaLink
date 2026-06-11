@@ -4,7 +4,7 @@ SigmaLink is an Electron desktop workspace for launching and coordinating live C
 
 This ROADMAP is the single source of truth for what to build next.
 
-> **Release status (2026-06-10):** the 2026-06-10 audit's **Phases 3–10 are SHIPPED and RELEASED in `v2.1.0`** (tag `340613c`; see CHANGELOG `[2.1.0]`). The remaining work is **Phase 11 (Windows runtime readiness, ADR-006)** and **Phase 12 (dead-code sweep)**. The shipped Phase 3–10 sections below are retained for reference until the cycle closes; treat Phases 11–12 as the live next-build list.
+> **Release status (2026-06-11):** the **2026-06-10 audit is complete — Phases 3–12 all SHIPPED** (3–10 in `v2.1.0` `340613c`; 11 win32 in `v2.2.0` `41f6e53`; 12 dead-code in #149 `a3b5837`). The Phase 1–12 sections below are retained for reference. The next cycle (Phase 13+) is being sequenced by a concurrent session.
 
 ---
 
@@ -271,7 +271,9 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 **Definition of done.** Stub-`.cmd` argv round-trip green on windows-latest; all 15 spawn sites classified and routed; resume bridge succeeds without Developer Mode in the win32 CI test where mockable; device checklist published for W-4.
 
-## Phase 12 — Dead-code sweep *(last; coordinate the vite matcher with Phase 9 and the `PaneShell` edit after Phase 7)*
+## Phase 12 — Dead-code sweep ✅ SHIPPED (PR #149 `a3b5837`, 2026-06-11)
+
+> Landed the concurrent session's already-implemented `fix/dead-code-removal` work (PR #147 closed/reassigned): cherry-picked 8 commits, re-verified every deletion still-dead at HEAD, hand-edited `package.json` deps. `+36/−571`, 24 files; removed `monaco-editor` + `@radix-ui/react-separator` + 5 zero-importer modules + the dead voice-stats twin. The PaneShell `inSplitGroup` removal (this plan's Task 4) shipped via the Phase-3 follow-ups PR #150 to keep a single PaneShell owner. Full gate + CI green; lead dynamic-reference hunt (CSS-in-JS / lazy-import) clean.
 
 **Goal.** ~470 dead LOC and two unused dependencies removed with zero behavior change.
 
