@@ -25,6 +25,7 @@ import { executeLaunchPlan } from '../workspaces/launcher';
 // still returned `6` for n=7..8, leaving the MCP `launchPane` tool with the
 // same invalid-LaunchPlan.preset gap that v1.5.4-C fixed in controller.ts.
 import { pickPreset } from './controller';
+import { extractPaneScreen } from './pane-screen';
 import { addAgentToSwarm, createSwarm, listSwarmsForWorkspace } from '../swarms/factory';
 import { formatBroadcast, formatRollCall } from '../swarms/protocol';
 import { defaultRoster } from '../swarms/types';
@@ -178,6 +179,10 @@ const sLaunchPane = z.object({
   initialPrompt: z.string().optional(),
 });
 const sPromptAgent = z.object({ sessionId: z.string().min(1), prompt: z.string() });
+const sReadPane = z.object({
+  sessionId: z.string().min(1),
+  maxBytes: z.number().int().positive().max(65_536).optional(),
+});
 const sReadFiles = z.object({
   paths: z.array(z.string().min(1)).min(1).max(32),
   maxBytes: z.number().int().positive().max(2_000_000).optional(),
@@ -406,8 +411,53 @@ export const TOOLS: ToolDefinition[] = [
     },
     sPromptAgent,
     async (a, ctx) => {
+      // registry.write() is ?.-guarded (silent no-op on ghosts) — the
+      // 2026-06-11 "can't interact" bug: ok:true against dead sessions while
+      // the swarm roster carried stale entries. Fail loudly so the model
+      // re-lists sessions and the trace records ok:false.
+      if (!ctx.pty.isLive(a.sessionId)) {
+        throw new Error(`prompt_agent: session not found or exited: ${a.sessionId}`);
+      }
       ctx.pty.write(a.sessionId, a.prompt + '\n');
       return { ok: true };
+    },
+  ),
+  T(
+    'read_pane',
+    'Read pane',
+    'Read the visible terminal output (scrollback tail) of a pane by session id. Returns plain text with ANSI stripped.',
+    {
+      type: 'object',
+      required: ['sessionId'],
+      properties: {
+        sessionId: { type: 'string' },
+        maxBytes: { type: 'number', minimum: 1, maximum: 65_536 },
+      },
+    },
+    sReadPane,
+    async (a, ctx) => {
+      // Loud failure on ghosts — the 2026-06-11 bug class was silent no-ops
+      // against dead sessions ("can't access terminals" with zero errors).
+      // has() (not isLive) so a pane in its graceful-exit window stays
+      // readable: the ring buffer survives until forget().
+      if (!ctx.pty.has(a.sessionId)) {
+        throw new Error(`read_pane: session not found: ${a.sessionId}`);
+      }
+      const cap = a.maxBytes ?? 16_384;
+      const screen = extractPaneScreen(ctx.pty.snapshot(a.sessionId), cap);
+      // H-19 — pane output is OTHER AGENTS' text: untrusted, may carry
+      // prompt-injection. Same gate as read_files/browser_snapshot.
+      const scan = ctx.scanIngested
+        ? await ctx.scanIngested(screen.text, `pane:${a.sessionId}`)
+        : { text: screen.text, flagged: false };
+      return {
+        ok: true,
+        sessionId: a.sessionId,
+        alive: ctx.pty.isLive(a.sessionId),
+        text: scan.text,
+        truncated: screen.truncated,
+        ...(scan.flagged ? { flagged: true } : {}),
+      };
     },
   ),
   T(

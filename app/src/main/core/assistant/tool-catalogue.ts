@@ -65,6 +65,19 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
     },
   },
   {
+    name: 'read_pane',
+    description:
+      'Read the visible terminal output (scrollback tail) of a pane by session id. Returns plain text with ANSI stripped.',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId'],
+      properties: {
+        sessionId: { type: 'string' },
+        maxBytes: { type: 'number', minimum: 1, maximum: 65_536 },
+      },
+    },
+  },
+  {
     name: 'read_files',
     description: 'Read up to 32 files from disk (UTF-8, capped per file).',
     inputSchema: {

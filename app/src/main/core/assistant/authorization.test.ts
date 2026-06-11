@@ -50,7 +50,10 @@ afterAll(() => {
 
 function makeDeps(overrides: Partial<AssistantControllerDeps> = {}): AssistantControllerDeps {
   return {
-    pty: { write: vi.fn() } as unknown as AssistantControllerDeps['pty'],
+    // isLive: prompt_agent's liveness guard (2026-06-11) must see a live
+    // session here — these tests exercise the AUTHORIZATION gate, not the
+    // ghost-session path (covered in tools.test.ts).
+    pty: { write: vi.fn(), isLive: () => true } as unknown as AssistantControllerDeps['pty'],
     worktreePool: {} as AssistantControllerDeps['worktreePool'],
     mailbox: {} as AssistantControllerDeps['mailbox'],
     memory: {} as AssistantControllerDeps['memory'],
@@ -116,7 +119,9 @@ describe('R-1 authorization gate — prompt_agent', () => {
 
   function makeInvoke(): { invoke: InvokeTool; ptyWrite: ReturnType<typeof vi.fn> } {
     const ptyWrite = vi.fn();
-    const deps = makeDeps({ pty: { write: ptyWrite } as unknown as AssistantControllerDeps['pty'] });
+    const deps = makeDeps({
+      pty: { write: ptyWrite, isLive: () => true } as unknown as AssistantControllerDeps['pty'],
+    });
     const { controller } = buildAssistantController(deps);
     const invoke = (controller as unknown as { invokeTool: InvokeTool }).invokeTool;
     return { invoke, ptyWrite };
