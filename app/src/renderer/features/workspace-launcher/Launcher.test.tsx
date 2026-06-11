@@ -24,7 +24,11 @@
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-library/react';
-import { buildPaneResumePlanArray, buildSafeRamBrakePlan } from './Launcher';
+import {
+  buildPaneResumePlanArray,
+  buildSafeRamBrakePlan,
+  inferResumeGridPreset,
+} from './Launcher';
 import type { SessionRiskReport } from '@/shared/router-shape';
 
 // ---------------------------------------------------------------------------
@@ -628,6 +632,58 @@ describe('buildPaneResumePlanArray — Bug B regression guard', () => {
     expect(result.find((r) => r.paneIndex === 1)?.sessionId).toBe('codex-uuid');
     expect(result.find((r) => r.paneIndex === 2)?.sessionId).toBe('gemini-uuid');
     expect(result.find((r) => r.paneIndex === 3)?.sessionId).toBe('kimi-uuid');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 13 — closed panes are filtered out of lastResumePlan (closed_at IS
+// NULL), so paneIndex can GAP (close the middle pane of 3 → rows at slots
+// [0, 2]). The resume-jump used to infer the grid preset from plan.length,
+// which under-sizes the grid and silently drops trailing sessions in
+// buildPaneResumePlanArray's 0..preset-1 scan.
+// ---------------------------------------------------------------------------
+
+describe('inferResumeGridPreset — closed-pane gaps (Phase 13 regression guard)', () => {
+  it('documents the old bug: a count-sized scan drops the session at the gapped slot', () => {
+    // Pre-fix behavior: preset = plan.length = 2 → slot 2 never scanned.
+    const dropped = buildPaneResumePlanArray(2, { 0: 'A', 2: 'C' });
+    expect(dropped).toEqual([{ paneIndex: 0, sessionId: 'A' }]);
+  });
+
+  it('sizes by the highest surviving slot, snapping to the next valid preset', () => {
+    // maxSlot 2 → needs ≥3 panes → snaps to preset 4.
+    const preset = inferResumeGridPreset([{ paneIndex: 0 }, { paneIndex: 2 }]);
+    expect(preset).toBeGreaterThanOrEqual(3);
+    expect(preset).toBe(4);
+  });
+
+  it('the gapped plan keeps BOTH sessions through buildPaneResumePlanArray (C at slot 2)', () => {
+    // Mirror chooseExisting's resume-jump pipeline end-to-end.
+    const plan = [
+      { paneIndex: 0, sessionId: 'A' },
+      { paneIndex: 2, sessionId: 'C' },
+    ];
+    const hydrated: Record<number, string | null> = {};
+    for (const entry of plan) hydrated[entry.paneIndex] = entry.sessionId;
+    const result = buildPaneResumePlanArray(inferResumeGridPreset(plan), hydrated);
+    expect(result).toContainEqual({ paneIndex: 0, sessionId: 'A' });
+    expect(result).toContainEqual({ paneIndex: 2, sessionId: 'C' });
+  });
+
+  it('contiguous plans keep their exact preset when it is valid', () => {
+    expect(inferResumeGridPreset([{ paneIndex: 0 }])).toBe(1);
+    expect(inferResumeGridPreset([{ paneIndex: 0 }, { paneIndex: 1 }])).toBe(2);
+  });
+
+  it('snaps an invalid pane count up to the next preset (3 → 4, 5 → 6)', () => {
+    expect(
+      inferResumeGridPreset([{ paneIndex: 0 }, { paneIndex: 1 }, { paneIndex: 2 }]),
+    ).toBe(4);
+    expect(inferResumeGridPreset([{ paneIndex: 4 }])).toBe(6);
+  });
+
+  it('caps at the largest grid preset (20) for out-of-range slots', () => {
+    expect(inferResumeGridPreset([{ paneIndex: 25 }])).toBe(20);
   });
 });
 
