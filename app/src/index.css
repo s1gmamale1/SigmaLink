@@ -144,10 +144,7 @@
        `comfortable` is the default and intentionally roomy (Mac
        density-is-a-feature — never loosen further). The `--space-*`
        tokens are derived from the scale so any surface that opts in
-       tightens uniformly across the app.
-
-       NOTE: distinct from GridLayout's auto-derived per-grid tier, which
-       now lives on `data-grid-density` to avoid colliding with this. */
+       tightens uniformly across the app. */
     --space-scale: 1;
     --space-1: calc(0.25rem * var(--space-scale)); /* 4px  @ scale 1 */
     --space-2: calc(0.5rem * var(--space-scale));  /* 8px  @ scale 1 */
@@ -613,18 +610,6 @@
     --role-builder: 262 65% 52%;
     --role-scout: 150 55% 36%;
     --role-reviewer: 32 88% 42%;
-  }
-}
-
-/* Memory room three-column → single-column collapse. Kept here because
-   Tailwind's arbitrary-variant breakpoints can't override an inline
-   gridTemplateColumns style at runtime. */
-.memory-tri-grid {
-  grid-template-columns: 260px 1fr 280px;
-}
-@media (max-width: 900px) {
-  .memory-tri-grid {
-    grid-template-columns: 1fr;
   }
 }
 
