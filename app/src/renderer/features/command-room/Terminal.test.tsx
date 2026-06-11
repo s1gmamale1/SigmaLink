@@ -132,6 +132,15 @@ afterEach(() => {
   cleanup();
 });
 
+// jsdom reports clientWidth/Height 0 for every element; give the host div a
+// real layout size so runFit's zero-size guard (see Terminal.tsx) lets fits
+// through in tests that exercise the fit paths.
+function sizeHost(root: HTMLElement, width = 800, height = 600) {
+  const el = root.firstElementChild as HTMLElement;
+  Object.defineProperty(el, 'clientWidth', { configurable: true, value: width });
+  Object.defineProperty(el, 'clientHeight', { configurable: true, value: height });
+}
+
 function fakeEntry(sessionId: string) {
   return {
     sessionId,
@@ -313,7 +322,8 @@ describe('resize refit — renderer-clear regression guard', () => {
     vi.mocked(rpc.pty.resize).mockClear();
 
     const { SessionTerminal } = await import('./Terminal');
-    render(<SessionTerminal sessionId="sess-R" />);
+    const { container } = render(<SessionTerminal sessionId="sess-R" />);
+    sizeHost(container);
 
     // jsdom's ResizeObserver polyfill is a no-op, so no fit fires on mount.
     expect(entry.fitAddon.fit).not.toHaveBeenCalled();
@@ -352,7 +362,8 @@ describe('resize refit — divider-drag suppression', () => {
     } as unknown as typeof ResizeObserver;
 
     const { SessionTerminal } = await import('./Terminal');
-    render(<SessionTerminal sessionId="sess-D2" />);
+    const { container } = render(<SessionTerminal sessionId="sess-D2" />);
+    sizeHost(container);
 
     const fireRo = () =>
       roCb?.(
@@ -415,7 +426,8 @@ describe('resize refit — restore-from-hidden reveal', () => {
     const fireRo = captureRo();
 
     const { SessionTerminal } = await import('./Terminal');
-    render(<SessionTerminal sessionId="sess-RV" />);
+    const { container } = render(<SessionTerminal sessionId="sess-RV" />);
+    sizeHost(container);
 
     await act(async () => {
       fireRo(800, 600); // first fit
@@ -438,7 +450,8 @@ describe('resize refit — restore-from-hidden reveal', () => {
     const fireRo = captureRo();
 
     const { SessionTerminal } = await import('./Terminal');
-    render(<SessionTerminal sessionId="sess-RV2" />);
+    const { container } = render(<SessionTerminal sessionId="sess-RV2" />);
+    sizeHost(container);
 
     await act(async () => {
       fireRo(800, 600);
@@ -460,7 +473,8 @@ describe('resize refit — restore-from-hidden reveal', () => {
     const fireRo = captureRo();
 
     const { SessionTerminal } = await import('./Terminal');
-    render(<SessionTerminal sessionId="sess-WR" />);
+    const { container } = render(<SessionTerminal sessionId="sess-WR" />);
+    sizeHost(container);
 
     await act(async () => {
       fireRo(800, 600);
@@ -476,5 +490,26 @@ describe('resize refit — restore-from-hidden reveal', () => {
       emitSigma('window:restored'); // hidden pane — pane-level restore will handle it
     });
     expect(entry.fitAddon.fit).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Zero-size fit guard (pane-refit follow-up 2026-06-11): a refit signal can
+// arrive in the same frame a pane went display:none (the maximize toggle flips
+// siblings hidden, then dispatches sigma:pane-resize-end before the RO has
+// delivered the 0×0 to the controller). Fitting a zero-size container would
+// clamp to addon-fit's 2×1 minimum and catastrophically reflow the buffer —
+// runFit must skip when the container has no layout size.
+describe('resize refit — zero-size container guard', () => {
+  it('skips the fit when the container has no layout size', async () => {
+    const entry = fakeEntry('sess-Z');
+    getOrCreateTerminalMock.mockReturnValue(entry);
+
+    const { SessionTerminal } = await import('./Terminal');
+    render(<SessionTerminal sessionId="sess-Z" />); // jsdom default: clientWidth/Height = 0
+
+    await act(async () => {
+      window.dispatchEvent(new Event('sigma:pane-resize-end'));
+    });
+    expect(entry.fitAddon.fit).not.toHaveBeenCalled();
   });
 });

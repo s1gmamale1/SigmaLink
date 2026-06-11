@@ -134,6 +134,12 @@ export function SessionTerminal({ sessionId, className }: Props) {
     // with full-screen TUIs like Claude Code that only repaint changed cells.
     const runFit = () => {
       if (entry.ptyExited) return;
+      // Zero-size guard (upstream xterm #3029 family): fitting a display:none
+      // container clamps to addon-fit's 2×1 minimum and catastrophically
+      // reflows the buffer. Covers the window where a layout flip (maximize
+      // toggle) dispatches an immediate refit before the RO has delivered the
+      // 0×0 to the controller's hidden tracking.
+      if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
       try {
         fit.fit();
       } catch {
