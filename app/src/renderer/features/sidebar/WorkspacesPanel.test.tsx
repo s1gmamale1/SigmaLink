@@ -295,6 +295,62 @@ describe('<WorkspacesPanel />', () => {
     expect(onOpenPersisted).toHaveBeenCalledWith(wsD);
   });
 
+  it('+ menu offers a SigmaLink Dev entry that fires onOpenDev', async () => {
+    const onOpenDev = vi.fn();
+    const { getByLabelText, findByText } = render(
+      <WorkspacesPanel
+        workspaces={[wsA]}
+        persistedWorkspaces={[wsA]}
+        sessions={sessions}
+        activeId="a"
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+        onOpenDev={onOpenDev}
+      />,
+    );
+
+    const trigger = getByLabelText('Add or open workspace');
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    fireEvent.click(await findByText('SigmaLink Dev'));
+
+    expect(onOpenDev).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the DEV badge and ~ subtitle only on the devWorkspaceId row', () => {
+    const { getAllByTestId } = render(
+      <WorkspacesPanel
+        workspaces={[wsA, wsB]}
+        persistedWorkspaces={[wsA, wsB]}
+        sessions={[]}
+        activeId="a"
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+        devWorkspaceId="a"
+      />,
+    );
+    const rows = getAllByTestId('workspace-row');
+    const rowA = rows.find((n) => n.getAttribute('data-workspace-id') === 'a')!;
+    const rowB = rows.find((n) => n.getAttribute('data-workspace-id') === 'b')!;
+    // DEV badge only on the dev row.
+    expect(rowA.querySelector('[data-testid="workspace-dev-badge"]')).toBeTruthy();
+    expect(rowB.querySelector('[data-testid="workspace-dev-badge"]')).toBeNull();
+    // ~ subtitle only on the dev row; the other keeps its basename subtitle.
+    expect(rowA.querySelector('[data-testid="workspace-subtitle"]')?.textContent).toBe('~');
+    expect(rowB.querySelector('[data-testid="workspace-subtitle"]')?.textContent).toBe('b');
+  });
+
+  it('renders no DEV badge when devWorkspaceId is absent', () => {
+    const { getAllByTestId } = renderPanel('a');
+    for (const row of getAllByTestId('workspace-row')) {
+      expect(row.querySelector('[data-testid="workspace-dev-badge"]')).toBeNull();
+    }
+  });
+
   it('renders an empty-state placeholder + CTA when no workspaces are open', () => {
     // v1.2.5 — the empty state was upgraded from a one-line "No workspaces
     // open." string to a centred placeholder with an icon + "Open workspace"
