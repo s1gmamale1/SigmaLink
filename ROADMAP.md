@@ -315,7 +315,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 ---
 
-## Hotfix — Jorvis terminal access 🚧 IN FLIGHT (branch `fix/jorvis-terminal-access`, 2026-06-11)
+## Hotfix — Jorvis terminal access ✅ SHIPPED (PR #157 `5ac6e3a`, 2026-06-11 · main CI green; rides the NEXT release — NOT in v2.3.0, which tagged before the merge)
 
 **Goal.** Jorvis can read any pane's terminal screen and every advertised tool is actually callable, with dead-session interactions failing loudly instead of silently.
 
@@ -333,7 +333,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 **Risks.** Host esbuild bundle must stay heavy-import-free — catalogue is pure data (test: bundle builds). Existing tests enumerating tool counts/names need updating, not weakening. read_pane ingests other agents' untrusted output — gated through `scanIngested` (H-19), capped 64 KiB, NOT in `DANGEROUS_REMOTE` (read-only).
 
-**Definition of done.** Jorvis (prod build) can `read_pane` a live builder's screen and gets a loud error prompting a ghost; `tool-catalogue.test.ts` fails on any future surface drift; full gate + CI green; PR merged.
+**Definition of done.** Jorvis (prod build) can `read_pane` a live builder's screen and gets a loud error prompting a ghost; `tool-catalogue.test.ts` fails on any future surface drift; full gate + CI green; PR merged. STATUS: merged `5ac6e3a`; the prod-build check lands with the next release.
 
 ---
 
