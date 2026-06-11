@@ -14,6 +14,15 @@ export interface EnsureRufloMcpForPaneInput {
   workspaceId: string;
   workspaceRoot: string;
   runtimeProfileId: AgentRuntimeProfileId;
+  /**
+   * SigmaLink Dev (2026-06-11) — the pane's provider id. When 'shell' the
+   * whole policy short-circuits: a plain shell consumes no MCP config, and
+   * for the dev workspace the pane cwd is the user's home directory where
+   * writing `.mcp.json`/trust is forbidden. Optional so legacy callers keep
+   * compiling; both spawn paths (workspaces/launcher, swarms/factory-spawn)
+   * thread it.
+   */
+  providerId?: string;
   rawDb: Pick<Database.Database, 'prepare'>;
   daemon: Pick<RufloHttpDaemonSupervisor, 'port' | 'spawn'>;
   writeRuflo?: (
@@ -41,6 +50,14 @@ export interface EnsureRufloMcpForPaneResult {
 export async function ensureRufloMcpForPane(
   input: EnsureRufloMcpForPaneInput,
 ): Promise<EnsureRufloMcpForPaneResult> {
+  // SigmaLink Dev (2026-06-11) — a plain shell consumes no MCP config (no
+  // agent CLI reads .mcp.json); for the dev workspace the pane cwd is the
+  // user's home directory, where writing config/trust is forbidden. Gate
+  // here (not only at call sites) so every spawn path is covered by
+  // construction.
+  if (input.providerId === 'shell') {
+    return { transport: 'skipped', written: null };
+  }
   if (!profileAllowsMcp(input.runtimeProfileId, 'ruflo')) {
     return { transport: 'skipped', written: null };
   }

@@ -67,6 +67,7 @@ async function ensureRufloInWorktreeCwd(
   cwd: string,
   wsRow: typeof workspacesTable.$inferSelect,
   runtimeProfileId: AgentRuntimeProfileId,
+  providerId: string,
 ): Promise<number | undefined> {
   try {
     const shared = getSharedDeps();
@@ -75,6 +76,11 @@ async function ensureRufloInWorktreeCwd(
       workspaceId: wsRow.id,
       workspaceRoot: wsRow.repoRoot ?? wsRow.rootPath,
       runtimeProfileId,
+      // SigmaLink Dev (2026-06-11) — thread the provider so the policy's
+      // by-construction shell gate fires: a plain shell consumes no MCP
+      // config, and for the dev workspace the pane cwd is the user's home
+      // directory where writing config/trust is forbidden.
+      providerId,
       rawDb: getRawDb(),
       daemon: shared?.rufloHttpDaemonSupervisor ?? {
         port: () => null,
@@ -326,8 +332,15 @@ export async function spawnAgentSession(
   // port; stdio otherwise. Fail-open + opt-out aware — never blocks the spawn.
   try {
     const shared = getSharedDeps();
+    // SigmaLink Dev (2026-06-11) — `provider.id !== 'shell'`: the default
+    // ruflo-core profile never reaches this block (browser/sigmamemory/
+    // security all disallowed), but a heavy profile (browser-tools etc.) on a
+    // shell pane WOULD fire it and write config into the pane cwd — which for
+    // the dev workspace is the user's home directory. Shell panes consume no
+    // MCP config; skip outright.
     if (
       shared &&
+      provider.id !== 'shell' &&
       (profileAllowsMcp(runtimeProfileId, 'browser') ||
         profileAllowsMcp(runtimeProfileId, 'sigmamemory') ||
         profileAllowsMcp(runtimeProfileId, 'security'))
@@ -351,7 +364,7 @@ export async function spawnAgentSession(
   } catch {
     /* Browser/SigmaMemory MCP wiring is non-fatal */
   }
-  const rufloMcpPort = await ensureRufloInWorktreeCwd(cwd, args.wsRow, runtimeProfileId);
+  const rufloMcpPort = await ensureRufloInWorktreeCwd(cwd, args.wsRow, runtimeProfileId, provider.id);
   // V1.1: route swarm-agent spawns through the provider launcher façade so
   // SigmaCode→Claude fallback, altCommands ENOENT walk, and the legacy gate
   // all apply uniformly. Read `kv['providers.showLegacy']` defensively — if

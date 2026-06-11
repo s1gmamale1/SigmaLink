@@ -423,6 +423,11 @@ describe('spawnAgentSession — SF-15 ruflo MCP written into worktree cwd', () =
     vi.mocked(getDb).mockReturnValue(dbStub as unknown as ReturnType<typeof getDb>);
 
     const args = makeArgs(deps);
+    // Task 6 (Dev workspace, 2026-06-11) — shell panes now SKIP all MCP wiring
+    // by construction (see the shell twin test below), so this ordering test
+    // uses codex: a real agent CLI that reads .mcp.json, but non-claude so the
+    // claude-only prepareClaudeWorkspaceContext branch stays dormant.
+    args.providerId = 'codex';
     args.cwdOverride = cwd;
     await spawnAgentSession(args);
 
@@ -436,6 +441,44 @@ describe('spawnAgentSession — SF-15 ruflo MCP written into worktree cwd', () =
     expect(doc.mcpServers?.ruflo?.command).toBe('npx');
     // Trust file also landed in the cwd.
     expect(fs.existsSync(path.join(cwd, '.claude', 'settings.local.json'))).toBe(true);
+  });
+
+  it('shell panes skip ALL per-pane MCP wiring (no .mcp.json / trust written into the pane cwd)', async () => {
+    // Task 6 twin-site (Dev workspace, 2026-06-11) — `+Pane → Plain terminal`
+    // routes through spawnAgentSession → ensureRufloInWorktreeCwd. For the dev
+    // workspace the pane cwd is the user's HOME directory; even with autowrite
+    // ON (KV default) nothing may be written there for a shell provider. The
+    // gate is by-construction inside ensureRufloMcpForPane (providerId:'shell').
+    const cwd = tmpCwd();
+    const registry = makePtyRegistryStub();
+    const deps = makeDeps(registry);
+
+    // autowrite ON for THIS test: stub returns undefined for every KV (default ON).
+    vi.mocked(getRawDb).mockReturnValue(
+      {
+        prepare: vi.fn(() => ({
+          get: vi.fn(() => undefined),
+          all: vi.fn(() => []),
+          run: vi.fn(() => undefined),
+        })),
+        transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+      } as unknown as ReturnType<typeof getRawDb>,
+    );
+
+    const dbStub = {
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    };
+    vi.mocked(getDb).mockReturnValue(dbStub as unknown as ReturnType<typeof getDb>);
+
+    const args = makeArgs(deps); // providerId: 'shell'
+    args.cwdOverride = cwd;
+    await spawnAgentSession(args);
+
+    // Nothing was written into the shell pane's cwd.
+    expect(fs.existsSync(path.join(cwd, '.mcp.json'))).toBe(false);
+    expect(fs.existsSync(path.join(cwd, '.claude', 'settings.local.json'))).toBe(false);
+    expect(fs.existsSync(path.join(cwd, '.claude-flow'))).toBe(false);
   });
 
   it('defaults swarm-added Claude panes to strict core MCP using shared Ruflo HTTP', async () => {

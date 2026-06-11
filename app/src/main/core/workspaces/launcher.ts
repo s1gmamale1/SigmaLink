@@ -297,6 +297,10 @@ export async function executeLaunchPlan(
               workspaceId: wsRow.id,
               workspaceRoot: wsRow.repoRoot ?? wsRow.rootPath,
               runtimeProfileId,
+              // SigmaLink Dev (2026-06-11) — thread the provider so the
+              // policy's by-construction shell gate also covers this path
+              // (belt-and-braces with the outer provider gate above).
+              providerId: provider.id,
               rawDb: getRawDb(),
               daemon: shared.rufloHttpDaemonSupervisor,
               httpDaemonEnabled: ENABLE_RUFLO_HTTP_DAEMON,

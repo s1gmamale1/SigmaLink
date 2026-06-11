@@ -186,6 +186,10 @@ beforeEach(() => {
   stubSpawnForLauncher();
   vi.mocked(getRawDb).mockReturnValue(makeRawStub() as unknown as ReturnType<typeof getRawDb>);
   vi.mocked(getSharedDeps).mockReturnValue(null);
+  // Re-establish the default 'skipped' resolution each test. The HTTP-mode
+  // test overrides this with an 'http' implementation; afterEach uses
+  // mockReset (not mockClear) so that override cannot bleed across tests.
+  vi.mocked(ensureRufloMcpForPane).mockResolvedValue({ transport: 'skipped', written: null });
 });
 
 afterEach(() => {
@@ -193,7 +197,7 @@ afterEach(() => {
   vi.mocked(getRawDb).mockReset();
   vi.mocked(resolveAndSpawn).mockReset();
   vi.mocked(writeMcpConfigForAgent).mockClear();
-  vi.mocked(ensureRufloMcpForPane).mockClear();
+  vi.mocked(ensureRufloMcpForPane).mockReset();
   vi.restoreAllMocks();
 });
 
@@ -443,6 +447,8 @@ describe('executeLaunchPlan — Phase 2 RAM Brake MCP launch modes', () => {
         getCommandFor: vi.fn(() => null),
       },
       rufloHttpDaemonSupervisor: {
+        // Inert shape-filler: ensureRufloMcpForPane is module-mocked, so the
+        // port actually comes from the mockResolvedValue below, not this stub.
         port: vi.fn(() => 4567),
         spawn: vi.fn(),
       },
