@@ -79,8 +79,10 @@ describe('mcp-host-server / handleMcpLine', () => {
     const out = h.responses();
     expect(out).toHaveLength(1);
     const tools = (out[0].result as { tools: unknown[] }).tools;
-    // BSP-B3 adds browser_navigate + browser_snapshot → 15 tools total.
-    expect(tools.length).toBe(15);
+    // Count is owned by tool-catalogue.ts; the parity contract with tools.ts
+    // lives in tool-catalogue.test.ts — here we only assert non-emptiness so
+    // adding a tool doesn't require touching this file.
+    expect(tools.length).toBeGreaterThan(0);
     for (const t of tools as Array<{
       name: string;
       description: string;

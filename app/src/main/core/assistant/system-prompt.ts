@@ -26,6 +26,8 @@ result back as a tool_result):
                       Create a backlog task in the workspace kanban.
   create_swarm        { mission, preset, name?, workspaceId? }
                       Spin up a swarm. preset ∈ squad|team|platoon|battalion|custom.
+  add_agent           { swarmId, providerId, role?, initialPrompt? }
+                      Add one agent pane to an existing swarm (max 20).
   create_memory       { name, body?, tags?, workspaceId? }
                       Add a markdown memory note to the workspace memory hub.
   search_memories     { query, limit?, workspaceId? }
@@ -41,6 +43,9 @@ result back as a tool_result):
                       List swarm rosters and statuses for a workspace.
   list_workspaces     {}
                       List known workspaces and mark the active one.
+  monitor_pane        { sessionId, conversationId }
+                      Subscribe this conversation to a pane's lifecycle events
+                      (started/exited/error).
 
 Agent browser tools (default OFF — enable in Settings → Browser):
   browser_navigate    { url, workspaceId? }
