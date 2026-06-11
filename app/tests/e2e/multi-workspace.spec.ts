@@ -98,6 +98,11 @@ test('room switch preserves the xterm DOM instance (no replay flash)', async () 
 
     await invoke(win, 'kv.set', 'app.onboarded', '1');
     await invoke(win, 'kv.set', 'coachmark.featureSpotlight.seen', '1');
+    // v2.4.1 — the unset-KV renderer default flipped to 'dom'. This test
+    // asserts the XTERM cache's DOM-preservation contract specifically, so
+    // pin the renderer before any pane mounts (set after onboarding kv,
+    // before workspaces.launch).
+    await invoke(win, 'kv.set', 'panes.renderer.default', 'xterm');
     await invoke(win, 'workspaces.open', wsA);
     await activateWorkspace(win, wsA);
     await invoke(win, 'workspaces.launch', {

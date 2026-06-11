@@ -1,8 +1,14 @@
 // DOM terminal presenter P1b — which renderer hosts a pane (spec §Renderer
 // flag & fallback). Per-session KV override, then the global default, then
-// 'xterm' (the battle-tested fallback). Resolutions are module-cached so a
-// REMOUNT (workspace/room switch) renders the right host synchronously with
-// no async flash — the remount-overlay lesson (PaneSplash whiteout #131).
+// DEFAULT_RENDERER_MODE. Resolutions are module-cached so a REMOUNT
+// (workspace/room switch) renders the right host synchronously with no async
+// flash — the remount-overlay lesson (PaneSplash whiteout #131).
+//
+// v2.4.1 — the unset-KV default is 'dom' (operator-directed flip after the
+// v2.4.0 install round: shipping the presenter dark meant installs behaved
+// "old" while dogfood builds — flag enabled — behaved new; the operator wants
+// installs to match dogfood). xterm remains one KV away:
+// `panes.renderer.default` = 'xterm' globally, or per-session.
 //
 // Stored as plain KV (`panes.renderer.<sessionId>`), NOT an agent_sessions
 // column: the sessions table already has SIX mirror sites for its column
@@ -14,6 +20,10 @@ import { rpc, rpcSilent } from '@/renderer/lib/rpc';
 export type RendererMode = 'xterm' | 'dom';
 
 export const RENDERER_DEFAULT_KEY = 'panes.renderer.default';
+
+/** The renderer when neither the per-session nor the global KV is set (and
+ *  when KV is unreachable — consistency beats a split-brain default). */
+export const DEFAULT_RENDERER_MODE: RendererMode = 'dom';
 
 export function rendererSessionKey(sessionId: string): string {
   return `panes.renderer.${sessionId}`;
@@ -33,7 +43,7 @@ export function peekRendererMode(sessionId: string): RendererMode | null {
 export async function resolveRendererMode(sessionId: string): Promise<RendererMode> {
   const hit = resolved.get(sessionId);
   if (hit) return hit;
-  let mode: RendererMode = 'xterm';
+  let mode: RendererMode = DEFAULT_RENDERER_MODE;
   try {
     const per = parseMode(await rpcSilent.kv.get(rendererSessionKey(sessionId)));
     if (per) {
@@ -43,7 +53,7 @@ export async function resolveRendererMode(sessionId: string): Promise<RendererMo
       if (def) mode = def;
     }
   } catch {
-    /* kv unreachable → xterm, the safe fallback */
+    /* kv unreachable → DEFAULT_RENDERER_MODE */
   }
   resolved.set(sessionId, mode);
   return mode;

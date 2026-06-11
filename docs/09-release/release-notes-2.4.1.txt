@@ -1,0 +1,33 @@
+SigmaLink v2.4.1 — 2026-06-12
+=============================
+
+The DOM terminal presenter is now ON by default. v2.4.0 shipped it
+dark behind a KV flag, so installed builds still rendered through the
+xterm grid (resize re-arranged lines — the old feel) while dev builds
+with the flag on showed the new renderer. The v2.4.0 artifacts were
+byte-verified complete; the only gap was the dark default. v2.4.1
+flips it and folds in the Windows keyboard-paste fix.
+
+See CHANGELOG.md [2.4.1] for the itemized record.
+
+
+Changed
+-------
+
+- Panes render through the DOM presenter by default: resize is live
+  CSS reflow (no line re-arranging, no grid glitches), selection /
+  copy / scrolling are native. Revert per pane or globally with KV
+  panes.renderer.default = xterm. Alt-screen TUIs (claude fullscreen,
+  codex) render legibly but not cell-exact until the next slice's
+  GridView.
+
+- Pane context-menu Copy/Paste now works on DOM panes (document
+  selection fallback; paste honors bracketed-paste).
+
+Fixed
+-----
+
+- Windows: keyboard paste in DOM panes (Ctrl+V, Ctrl+Shift+V,
+  Shift+Insert) reaches the terminal as a real paste instead of being
+  swallowed. mac Ctrl+V remains readline quoted-insert; Ctrl+C remains
+  SIGINT everywhere.
