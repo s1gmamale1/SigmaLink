@@ -380,6 +380,13 @@ describe('terminal-cache — Layer 1 race + Layer 2 instance preservation', () =
     expect(entry.ptyExited).toBe(true);
   });
 
+  it('enables reflowCursorLine so a column-shrink reflow includes the cursor line (#133 residual)', async () => {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    getOrCreateTerminal('sess-8', ctx);
+    const opts = createdTerms[0]!.__ctorArg as { reflowCursorLine?: boolean };
+    expect(opts.reflowCursorLine).toBe(true);
+  });
+
   // ── SF-3 — Device-Attributes responses must NOT reach pty.write ─────────────
   //
   // On OS window focus-switch, a program in the PTY emits a DA query (`\x1b[c`);

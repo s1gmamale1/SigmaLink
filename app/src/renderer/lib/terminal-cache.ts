@@ -198,6 +198,12 @@ function buildTerminalOptions(ctxRef: { current: TerminalCacheContext }): ITermi
     scrollback: 8000,
     theme: THEME,
     convertEol: true,
+    // #133 residual (WISHLIST pane-rendering) — include the cursor line when
+    // reflowing on a column shrink; the xterm default (false) skips it and
+    // desyncs/overlaps the cursor row while a TUI streams. Watch Claude
+    // Code's prompt redraw in the operator smoke; one-line revert if it
+    // misbehaves.
+    reflowCursorLine: true,
     // V3-W13-002 — OSC8 hyperlink activation. Plain URLs go through the
     // WebLinksAddon below; this handles `\x1b]8;;…` sequences from CLIs
     // like claude / gh / ripgrep --hyperlink. Reads through ctxRef so a
