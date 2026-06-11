@@ -30,12 +30,12 @@ _(real upgrades to build once the current system is production-grade)_
   Safety policy: manual "Sleep pane" first; later auto-sleep only when there is a clear finished/idle signal, no active prompt, no recent output, low CPU, and the pane is not pinned keep-alive. Never auto-sleep remote/autopilot/Telegram or explicitly pinned panes. On wake failure, keep the frozen pane and show a resumable error rather than deleting the session.
   Trigger: build after the current RAM brake and strict MCP launch defaults have been dogfooded, and after we can reliably persist/restore scrollback for sleeping panes. Effort: L.
 
-- **[pane-rendering] residual polish after the 2026-06-11 refit-controller fix** — the restore-from-hidden stale-frame bug (minimise/fullscreen/scratch-tab/window-minimize duplicated text: FitAddon's same-dims no-op skips `_renderService.clear()` on every restore-at-same-size) and both #133 residuals (coalescer flush before `pty.resize`; `reflowCursorLine: true`) SHIPPED via `docs/superpowers/specs/2026-06-11-pane-refit-controller-design.md` (RefitController + reveal repaint + `window:restored` signal). Still open, all low:
-  - **1-frame repaint flicker at drag release for a full-screen TUI** — the CLI's own redraw after SIGWINCH; likely NOT fixable our side.
-  - **Upstream: Claude Code CLI duplicates scrollback frames on resize** (anthropics/claude-code #49086/#51828 — Ink cursor-up saturation). Our settle-debounce limits it to one SIGWINCH per gesture; if residual duplication is reported, recommend the user-side `"tui": "fullscreen"` Claude Code setting.
+- **[pane-rendering] residual watches after the 2026-06-11 four-PR arc (operator-verified end-to-end)** — SHIPPED: restore-from-hidden reveal + `window:restored` + #133 residuals (#152), same-frame ⤢ refit + zero-size fit guard (#156), LIVE drag re-wrap with single-SIGWINCH-per-gesture (#159), claude `--settings '{"tui":"fullscreen"}'` killing the upstream Ink scrollback dup (#160, operator: "I see no duplicates"). Spec `docs/superpowers/specs/2026-06-11-pane-refit-controller-design.md`. Still open, all low, all watch-only:
+  - **Fullscreen-renderer feel** — line-by-line scroll lag inside claude panes (upstream anthropics/claude-code#56546) and one CJK copy-mojibake report (#66269). Revert = drop the `--settings` pair in `src/shared/providers.ts` (one line).
+  - **1-frame repaint flicker at drag release for a full-screen TUI** — the CLI's own redraw after SIGWINCH; not fixable our side.
   - **Snapshot/live overlap dedup caps its scan at 64 KiB** (`app/src/renderer/lib/terminal-cache.ts` MAX_OVERLAP_SCAN) — a >64 KiB pending burst at first-attach can double-write the overlap window. Bump or chunk-hash if duplicated text is ever reported ON FIRST ATTACH (not on resize).
-  - **Suppressed window-restore + same-dims drag-end leaves a stale frame** (near-impossible interleaving: window restore lands mid-drag, then dragEnd fits at unchanged dims → FitAddon no-op). Fix if ever seen: latch a `pendingReveal` flag that upgrades the drag-end fit to a reveal.
-  Trigger: only if re-reported after dogfooding the refit controller. Severity: low. Effort: S.
+  - **Suppressed window-restore + same-dims drag-end leaves a stale frame** (near-impossible interleaving) — fix if ever seen: latch a `pendingReveal` flag that upgrades the drag-end fit to a reveal.
+  Trigger: only if re-reported. Severity: low. Effort: S.
 
 ---
 
