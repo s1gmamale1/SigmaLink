@@ -10,6 +10,8 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { defineController, defineRouter } from '../shared/rpc';
 import type { AppRouter } from '../shared/router-shape';
 import { initializeDatabase, closeDatabase, getRawDb } from './core/db/client';
+import { openDatabaseWithBootRetry } from './core/db/boot-open';
+import { sweepWin32DbOrphans, waitForPidsExit } from './core/process/orphan-sweep';
 import { runBootJanitor } from './core/db/janitor';
 import { PtyRegistry } from './core/pty/registry';
 import { PtyDataCoalescer } from './core/pty/pty-data-coalescer';
@@ -282,7 +284,15 @@ async function dirSize(dir: string): Promise<number> {
 
 async function buildRouter() {
   const userData = app.getPath('userData');
-  initializeDatabase(userData);
+  // win32-db-lifecycle: orphaned per-CLI mcp-memory-server children from a
+  // PREVIOUS run hold sigmalink.db open on Windows (taskkill /T can't reach
+  // reparented grandchildren) — sweep them by CommandLine marker BEFORE the
+  // open, then open with a bounded busy-retry so a straggler (or an old-build
+  // orphan) delays boot instead of crashing it. Both best-effort.
+  await sweepWin32DbOrphans().catch((err) => {
+    console.warn('[boot] win32 db-orphan sweep failed (non-fatal):', err);
+  });
+  await openDatabaseWithBootRetry(userData, { initialize: initializeDatabase });
 
   const worktreeBase = path.join(userData, 'worktrees');
 
@@ -2523,6 +2533,20 @@ export async function shutdownRouter(): Promise<void> {
   } catch {
     /* never block shutdown */
   }
+  // win32-db-lifecycle: capture the live PTY root pids BEFORE killAll so we
+  // can wait (bounded) for them to actually exit before closeDatabase below —
+  // taskkill only INITIATES termination; handle release lags, and a child
+  // still holding sigmalink.db makes the quit wal_checkpoint(TRUNCATE) fail
+  // (the WAL then grows unboundedly across Windows runs).
+  const liveRootPids = (() => {
+    try {
+      return (sharedDeps?.pty.list() ?? [])
+        .map((rec) => rec.pid)
+        .filter((pid) => pid > 0);
+    } catch {
+      return [] as number[];
+    }
+  })();
   try {
     sharedDeps?.pty.killAll();
   } catch {
@@ -2609,6 +2633,21 @@ export async function shutdownRouter(): Promise<void> {
     sharedDeps?.digestCollector?.cancel();
   } catch {
     /* ignore */
+  }
+  // win32-db-lifecycle: bounded wait (≤2.5 s, polls 100 ms) for the killed PTY
+  // trees to actually exit so their file handles on sigmalink.db are released
+  // and the TRUNCATE checkpoint inside closeDatabase() can succeed. The
+  // awaited daemon drains above already gave the kills free overlap time, so
+  // this is usually instant. Survivors are logged, never fatal.
+  try {
+    const survivors = await waitForPidsExit(liveRootPids);
+    if (survivors.length > 0) {
+      console.warn(
+        `[shutdown] ${survivors.length} PTY root(s) still alive at DB close: ${survivors.join(', ')}`,
+      );
+    }
+  } catch {
+    /* never block shutdown */
   }
   try {
     closeDatabase();

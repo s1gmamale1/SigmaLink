@@ -222,6 +222,14 @@ CREATE TABLE IF NOT EXISTS session_review (
  */
 function openAndCheck(filePath: string): Database.Database {
   const sqlite = new Database(filePath);
+  // H-7 / win32-db-lifecycle: busy_timeout MUST be the FIRST pragma — BEFORE
+  // journal_mode. `journal_mode = WAL` is itself a lock-acquiring statement
+  // (WAL-index/DMS handshake), and on Windows orphaned mcp-memory-server
+  // children from a previous run can still hold the db/-shm: with no timeout
+  // set yet that threw SQLITE_BUSY instantly → uncaught → the boot crash
+  // dialog (operator-confirmed 2026-06-11). Timeout-first makes the open wait
+  // up to 5s for stragglers instead of failing.
+  sqlite.pragma('busy_timeout = 5000');
   sqlite.pragma('journal_mode = WAL');
   // WAL + synchronous=NORMAL is the SQLite-recommended durable+fast pairing for
   // app databases. The previous default (synchronous=FULL) fsynced on EVERY
@@ -232,10 +240,6 @@ function openAndCheck(filePath: string): Database.Database {
   // committed transactions but the database can NEVER corrupt. (Worth it.)
   sqlite.pragma('synchronous = NORMAL');
   sqlite.pragma('foreign_keys = ON');
-  // H-7: wait up to 5s for a lock instead of throwing SQLITE_BUSY immediately.
-  // With WAL + multiple connections (HTTP daemon, sync engine) a migration's
-  // write transaction can briefly contend; the timeout makes it wait, not fail.
-  sqlite.pragma('busy_timeout = 5000');
   // DB-1: integrity probe BEFORE bootstrap/migrate. quick_check is far cheaper
   // than integrity_check and catches the corruption cases that make the file
   // unusable as a database.
