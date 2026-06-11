@@ -4,7 +4,7 @@ SigmaLink is an Electron desktop workspace for launching and coordinating live C
 
 This ROADMAP is the single source of truth for what to build next.
 
-> **Release status (2026-06-11):** the **2026-06-10 audit is complete — Phases 3–12 all SHIPPED** (3–10 in `v2.1.0` `340613c`; 11 win32 in `v2.2.0` `41f6e53`; 12 dead-code in #149 `a3b5837`). The Phase 1–12 sections below are retained for reference. The next cycle (Phase 13+) is being sequenced by a concurrent session.
+> **Release status (2026-06-12):** the **2026-06-10 audit is complete — Phases 3–12 all SHIPPED** (3–10 in `v2.1.0` `340613c`; 11 win32 in `v2.2.0` `41f6e53`; 12 dead-code in #149 `a3b5837`; `v2.3.0` tagged `04d8e24`). The shipped phase sections below are retained for reference. Post-v2.3.0, untagged on main: **Phase 13 — Pane close lifecycle ✅ Part A SHIPPED** (PR #161 `a0e9bee`, 2026-06-12; hotlist #13/#14 fixed; Part B Recents remains; plan + ADR-007 below) · **Phase 14 — SigmaLink Dev workspace ✅ SHIPPED** (PR #158 `9cda070`, 2026-06-11; plan + ADR-008 below) · Phase 15 win32 DB lifecycle (#154) · Jorvis terminal-access hotfix (#157) · pane-rendering arc (#159/#160). All ride the next tag.
 
 ---
 
@@ -34,7 +34,10 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 | 10 | High | `panes.brief` writes a CLAUDE.md to a renderer-supplied path with no containment (prompt-injection write primitive). → **Phase 6** | `app/src/main/rpc-router.ts:1295` | S |
 | 11 | High | Scratch-shell tabs orphan PTYs + leak xterm/WebGL cache entries (per-mount state the cache GC can't see). → **Phase 7** | `app/src/renderer/features/command-room/PaneShell.tsx:145-186` | M |
 | 12 | Crit (win32) | `cmdQuoteArg` cmd.exe escaping corrupts npm `.cmd`-shim argv (carets literal inside quotes; odd `\"` toggles quote state = injection); class invisible to CI (vitest never ran on Windows). → **Phase 11** | `app/src/main/core/util/windows-spawn.ts:88-96` | M |
-| 16 | Crit (win32) | App **crashes on reopen** ("database is locked" main-process dialog) + WAL grows unboundedly — orphaned per-CLI `mcp-memory-server.cjs` writers survive quit (`taskkill /T` can't reach reparented grandchildren) and hold `sigmalink.db`; `journal_mode=WAL` ran before `busy_timeout`; `bootstrapAndMigrate` uncaught at boot. (#13–15 reserved by the concurrent session's Phase 13/14 WIP.) → **Phase 15** | `app/src/main/core/db/client.ts:225`, `app/src/main/core/memory/mcp-server.ts:191`, `app/src/main/core/process/process-tree.ts:175`, `app/src/main/rpc-router.ts:285` | M |
+| 13 | High | Manually-closed panes **resurrect on app restart** — `panes.listForWorkspace` rehydrates every `pane_index IS NOT NULL` row with NO status filter, and manual × writes nothing to the DB; a lost-race `running` row is even resumed live by the janitor→`listEligibleRows` path. → **Phase 13 — ✅ FIXED PR #161 `a0e9bee`** | `app/src/main/rpc-router.ts:1236`, `app/src/renderer/features/command-room/CommandRoom.tsx:257-262`, `app/src/main/core/pty/resume-launcher.ts:346` | M |
+| 14 | Med | Closing a pane raises a spurious **"Pane exited (code 143/0)" warn toast** — `pushPtyExitNotification` fires on every PTY exit with no deliberate-close suppression; the `close_pane` tool hits the same path (sibling). → **Phase 13 — ✅ FIXED PR #161 `a0e9bee`** | `app/src/main/core/notifications/sources/pty-exit.ts:47-74` | S |
+| 15 | High | `workspaces.rename`/`openNew` **hard-rejected at the preload bridge** — registered + typed but absent from the `CHANNELS` allowlist (`isAllowedChannel` is exact-match), so sidebar inline rename silently never persists (optimistic dispatch masks it until restart); the v1.5.3-B defensive test passes because its own hand-list omits them too (quad-drift). → **Phase 14 (drive-by Task 4) — ✅ FIXED PR #158 `bf708c7`** | `app/src/shared/rpc-channels.ts:78-83` vs `app/src/shared/router-shape.ts:323,327`; `app/src/renderer/features/sidebar/Sidebar.tsx:294`; `app/src/shared/rpc-channels.test.ts:108-113` | S |
+| 16 | Crit (win32) | App **crashes on reopen** ("database is locked" main-process dialog) + WAL grows unboundedly — orphaned per-CLI `mcp-memory-server.cjs` writers survive quit (`taskkill /T` can't reach reparented grandchildren) and hold `sigmalink.db`; `journal_mode=WAL` ran before `busy_timeout`; `bootstrapAndMigrate` uncaught at boot. → **Phase 15** | `app/src/main/core/db/client.ts:225`, `app/src/main/core/memory/mcp-server.ts:191`, `app/src/main/core/process/process-tree.ts:175`, `app/src/main/rpc-router.ts:285` | M |
 | 17 | High | Jorvis tool-catalogue triple-drift: `close_pane`/`add_agent`/`monitor_pane` in `tools.ts` (and `close_pane` in the system prompt) but absent from the MCP `tools/list` — under `--strict-mcp-config` the model cannot call them; failures occur CLI-side, invisible to traces. → **Hotfix: Jorvis terminal access** | `app/src/main/core/assistant/mcp-host-server.ts:81-258` vs `tools.ts:287` | S |
 | 18 | High | Jorvis has NO terminal-read tool — `registry.snapshot()` ring buffer (256 KiB/session) exists but is unexposed; "can't access terminals". → **Hotfix: Jorvis terminal access** | `app/src/main/core/pty/registry.ts:593`, `app/src/main/core/assistant/tools.ts` | S |
 | 19 | Med | `prompt_agent` silent no-op on dead sessions: `registry.write()` is `?.`-guarded and the handler returns `ok:true` unconditionally — Jorvis "successfully" prompts roster ghosts. → **Hotfix: Jorvis terminal access** | `app/src/main/core/pty/registry.ts:447-449`, `app/src/main/core/assistant/tools.ts:385-388` | S |
@@ -296,6 +299,63 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 **Definition of done.** All deletions land with the full gate green incl. `product:check`; `pnpm-workspace.yaml` untouched (or reverted) after dep removals; zero runtime diffs.
 
+## Phase 13 — Pane close lifecycle (deliberate-close soft-delete) ✅ Part A SHIPPED (PR #161 `a0e9bee`, 2026-06-12 · CI 4/4 green · rides next release) — Part B (Recents) remains
+
+> **Part A executed subagent-driven 2026-06-11/12** (plan authored by a parallel session): 3 impl units + per-unit spec/Opus-quality reviews + final whole-branch integration review. Review-loop catches folded in: migration `hasColumn` cross-process guard · `lastResumePlan` twin CTE filter · launcher resume-jump max-slot preset fix (`inferResumeGridPreset`) · `closed_at` into sync `COLUMN_ALLOWLIST` (drift test caught — a missed allowlist would have resurrected closed panes on synced peers). Deferred: Part B Tasks 12–13 (Recently-closed list + reopen) → follow-on PR; `handleRelaunch` close-write + silent `panes.close` failure toast → wishlist. Two operator-reported bugs (hotlist #13/#14), 3-agent root-cause sweep + Opus verification against live code. Full TDD plan: `app/docs/superpowers/plans/2026-06-11-pane-close-lifecycle.md`. Operator design choices (AskUserQuestion 2026-06-11): `closed_at` soft-delete column + Recents-recoverable.
+
+**Goal.** Deliberately closing a pane (× button, context-menu, or the Jorvis `close_pane` tool) keeps it closed across restarts and never raises a "Pane exited" toast; an accidental close is reopenable from a Recents list.
+
+**Deliverables.**
+- Migration `0037_agent_sessions_closed_at.ts` (+ test) — nullable `closed_at` epoch-ms soft-delete column + recents index; `agentSessions.closedAt` in `schema.ts`.
+- `src/main/core/pty/mark-pane-closed.ts` — `markPaneClosed(db, sessionId, now)` shared primitive (+ test).
+- `panes.close(sessionId)` RPC (mark-then-kill) across the router-shape / rpc-channels / schemas sibling surfaces; `handleRemove` + `close_pane` tool both routed through it.
+- Toast suppression in `pushPtyExitNotification` (injectable `resolveSessionMeta`, early-return when `closed_at` set) (+ test).
+- `AND closed_at IS NULL` on `listForWorkspace`, `listEligibleRows`, `listRespawnableRows` (+ SQL-shape guards).
+- **Part B (follow-on PR):** `panes.listClosed` + `panes.reopen` (`clearClosedMarker` + extracted `respawnSessionById`) + a "Recently closed" UI affordance mirroring the browser-tab recents.
+
+**Why now.** Both are daily-driver friction on the core Command Room flow: a closed pane that re-opens on every restart erodes trust in persistence (the operator's words: "db working good that even manually closed panes are opening up lol"), and a crash-style toast on an intentional action is alarming noise. Cheap (S+M), fully root-caused, and they fix a latent half-bug in `close_pane` too.
+
+**Scope.** (ordered; full TDD detail in the plan)
+1. Migration 0037 + drizzle `schema.ts:90` column + index — `migrate.ts:44,96` registration (lexical-order test enforced).
+2. `markPaneClosed` primitive (raw-SQL, `MockDb`-testable).
+3. `panes.close` RPC at `rpc-router.ts:1064` (uses `getRawDb()`, `Date.now()`); mirror across `src/shared/router-shape.ts` / `src/shared/rpc-channels.ts` / `src/main/core/rpc/schemas.ts` (grep `rename`/`kill`).
+4. `handleRemove` `CommandRoom.tsx:257-262` → `rpc.panes.close` (drop the status guard; keep `handleStop` on `pty.kill`).
+5. `close_pane` tool `tools.ts:356-373` → mark-then-kill (drop the redundant drizzle status write; tool list/DANGEROUS_REMOTE unchanged so `authorization` `toEqual` stays green).
+6. Bug 1 — `pty-exit.ts:47-74` suppression. Bug 2 tile — `rpc-router.ts:1236`. Bug 2 resume — `resume-launcher.ts:346,481`.
+7. Reaper keep⊇use check (`db/janitor.ts`; ADR-004 invariant holds trivially — use-set shrank).
+
+**Findings + recommendation.** Both bugs share ONE structural cause: the manual × path is a poor cousin of `close_pane` (kills the PTY, skips the bookkeeping), and `close_pane` is itself only half resume-proof (`status='exited',code=0` blocks the live re-spawn but `listForWorkspace` ignores status, so the dead tile still rehydrates). `status` is racy — the late `onExit` write flips a killed `running` pane to `'error'`/143 — so a **durable** marker is required. Chosen: a single `closed_at` soft-delete (parity with `browser_tabs` mig 0033) that every exclusion keys off, routed through one shared close primitive (kills the sibling-miss). Rejected: reuse `status='exited',code=0` (can't distinguish a deliberate close from an agent finishing cleanly → naturally-finished panes would also vanish); clear `pane_index` (loses the slot; `listEligibleRows` ignores `pane_index` so a lost-race row still resumes). See ADR-007.
+
+**Risks.** New RPC touches the router-shape/rpc-channels/schemas sibling triple — plan has an explicit grep-and-mirror step. Ordering invariant: `markPaneClosed` MUST run before `pty.kill` everywhere or the async exit misses the marker (encoded in Tasks 4+6). `close_pane` body change must not alter the tool list (authorization `toEqual` tripwire). DB-touching code is `MockDb`/SQL-shape tested (better-sqlite3 won't load under vitest). e2e deferred to CI (never local).
+
+**Definition of done.** Operator can: ① click × on a running pane → **no toast**, tile vanishes; ② quit + reopen → the closed pane stays gone while live panes resume, and a naturally-finished (exit 0) pane left on screen still rehydrates; ③ (Part B) reopen an accidentally-closed pane from a "Recently closed" list. Full local gate (`tsc -b`/vitest/eslint/build) + CI e2e-matrix green.
+
+## Phase 14 — SigmaLink Dev workspace (singleton plain-terminal bench at ~) ✅ SHIPPED (PR #158 `9cda070`, 2026-06-11 · CI 4/4 green · rides next release)
+
+> Full TDD plan: `app/docs/superpowers/plans/2026-06-11-sigmalink-dev-workspace.md` · Spec: `app/docs/superpowers/specs/2026-06-11-sigmalink-dev-workspace-design.md`. Operator design choices (AskUserQuestion 2026-06-11): singleton · respawn-fresh-on-restart · sidebar "+" menu entry · numeric stepper 1–12. Subagent-driven execution: 6 units + per-unit spec/Opus-quality reviews + final whole-branch integration review; 4 green-but-broken issues fixed pre-PR (factory-spawn MCP twin gate-by-construction · launch re-entrancy ref-guard · openWorkspace dedup hazard · by-path reopen leak → `openDevWorkspace` delegation choke point). Accepted deviations: static menu label; modal dialog (not popover); agent panes at ~ out of scope. NOTE: shell respawn-on-boot now applies to ALL workspaces (verified safe).
+
+**Goal.** One menu click gives the operator a grid of N plain shell terminals at `~` — no repo, no worktrees, no agent CLIs — that survives restarts by respawning fresh shells.
+
+**Deliverables.**
+- `app/src/shared/special-workspace.ts` — singleton KV contract (`workspace.devWorkspace.id`, name "SigmaLink Dev", 12-pane cap) (+ test)
+- `openDevWorkspace()` in `app/src/main/core/workspaces/factory.ts` — forced-`plain` row at `os.homedir()` (never probes `getRepoRoot(~)`), ALL open side effects skipped (no `.mcp.json`/trust/memory-seed into `~`), dangling-pointer self-heal (+ `factory.dev.test.ts`)
+- `workspaces.openDev` RPC across all FOUR mirror sites (`router-shape.ts` / `rpc-router.ts` / `rpc-channels.ts` CHANNELS / `rpc-channels.test.ts` TYPED_ROUTER_CHANNELS)
+- `'shell'` case in `buildResumeArgs` (`app/src/main/core/pty/resume-launcher.ts:80-132`) — boot-resume respawns dead shells fresh (empty args ⇒ `freshFallback`; user-`exit`ed shells stay closed)
+- Shell-provider gate around the per-pane MCP wiring block (`app/src/main/core/workspaces/launcher.ts:262-305`) — `writeMcpConfigForAgent`/`ensureRufloMcpForPane` never write into a shell pane's cwd
+- Jorvis read-roots exclusion for the dev workspace (`app/src/main/core/assistant/tools.ts:250-262`) — `~` never widens the assistant's read scope
+- Renderer: `DevWorkspaceDialog.tsx` (CounterControls stepper 1–12, default 4) + `WorkspacesPanel` menu item / DEV badge / `~` subtitle + `Sidebar` open/launch flow (mirrors boot-restore Path A: resume → hydrate → route)
+- Drive-by hotlist fix #15 (`workspaces.rename`/`openNew` into CHANNELS + test list)
+
+**Why now.** Operator-requested (2026-06-11): a frictionless "just give me terminals" daily-driver bench without polluting `~` with workspace side effects. 4-lane recon shows ~90% of the machinery already exists (`repoMode:'plain'` skips both worktree gates; the `'shell'` provider already spawns `$SHELL -l`; the grid auto-tiles any N) — high value, low effort. Hotlist #15 rides along because Task 3 edits the exact same allowlist lines.
+
+**Scope.** Execute the 9-task TDD plan (all line numbers verified on `main` @ `41f6e53`): shared contract → `openDevWorkspace` factory → RPC quad → allowlist drive-by → shell resume case → MCP-wiring gate → Jorvis exclusion → renderer (menu/dialog/badge/flow) → full local gate (tsc/lint/vitest/build; e2e via CI only).
+
+**Findings + recommendation.** Recon (2 Sonnet + 2 Haiku read-only Explore lanes) + lead verification: plain workspaces already skip launcher Gate A (`launcher.ts:225`) and factory-spawn Gate B (`factory-spawn.ts:285`); resume eligibility (`running` ∪ `exited(-1)`) means only `buildResumeArgs`'s `null` return blocks shell respawn (the boot janitor marks app-quit survivors `exited(-1)`); the dangerous side effects are open-time autowrite/seed (skipped by the new factory) and per-pane MCP writes into cwd (gated on non-shell). Chosen approach: **zero schema change** — KV pointer, no `kind` column (ADR-008); rejected a `kind` migration (churn for one flavor) and a non-workspace "Dev Terminals room" (breaks "selectable in the workspace menu").
+
+**Risks.** FS sandbox necessarily widens to `~` for PTY/fs RPCs (inherent to the feature) — mitigated by the Jorvis read-roots exclusion + zero config written into `~`. Resume-path edits have a sibling-miss history — the plan deliberately mirrors boot-restore Path A only and keeps `default: null` for unknown providers. `GridPreset` is a closed union: odd N passes nearest-preset-≥N while `panes.length = N` (`executeLaunchPlan` iterates `plan.panes`, never validates against `preset` — verified `launcher.ts:170-230`; executor re-verifies at Task 8). Phase 13 lands a `closed_at` filter on the same read-paths — if it merges first, rebase Task 5/8 trivially (additive `AND`).
+
+**Definition of done.** An operator can: click "+ → SigmaLink Dev", pick 5, get 5 live shells at `~`; quit + relaunch → the dev workspace's shells respawn fresh; `~/.mcp.json` and `~/.sigmamemory/` are NOT created; renaming a NORMAL workspace persists across restart (hotlist #15); full local gate green + PR CI e2e-matrix green.
+
 ---
 
 ## Phase 15 — win32 DB lifecycle: reopen crash + WAL bloat *(operator-reported on the W-4 device, 2026-06-11; Phase 13/14 numbers reserved by the concurrent session's in-flight work)*
@@ -357,6 +417,12 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 ### ADR-006 — win32 spawn = verbatim command line + cross-spawn escaping, proven by a CI stub-shim
 **Decision.** Windows spawns hand cmd.exe a single hand-built verbatim command line (`windowsVerbatimArguments` / node-pty string `commandLine`) escaped with cross-spawn's caret-escape-everything algorithm, and CI gains a windows-latest vitest leg whose stub `.cmd` shim round-trips argv. **Context.** PR #134 shipped the verbatim plumbing, but `cmdQuoteArg` still corrupts `^ % !` and odd quotes (quote-state toggle = injection risk); vitest had never executed on the Windows CI leg, so the entire class stayed invisible behind green e2e. **Consequences.** (+) The primary provider (`claude.cmd`) becomes launchable on stock Windows and regressions fail CI. (−) A slightly slower CI matrix and a cmd.exe escaping table to maintain.
 
+### ADR-007 — `closed_at` is the durable deliberate-close axis; one shared close primitive
+**Decision.** A deliberately-closed pane is marked by a nullable `agent_sessions.closed_at` soft-delete column (parity with `browser_tabs`, mig 0033), written by ONE shared primitive (`markPaneClosed`) BEFORE the PTY kill, and consumed by every lifecycle decision: the exit-notification source suppresses the toast when it is set, and both boot read-paths (`listForWorkspace` grid rehydrate + `listEligibleRows`/`listRespawnableRows` resume) exclude `closed_at IS NOT NULL`. The × button, context-menu close, and the `close_pane` tool all route through the same primitive. **Context.** Manual close and `close_pane` had diverged into three close paths; manual close wrote nothing the boot read-paths excluded (resurrection) and raised a crash-style toast (no intentional-close marker). `status` is unusable as the marker because the launcher's late `onExit` write overwrites a killed `running` pane's status to `'error'`/143, and a clean `exited/0` is indistinguishable from an agent finishing on its own. **Consequences.** (+) Both bugs fixed by one durable marker; `close_pane`'s latent half-resurrection is fixed too; future close-sites can't drift (single choke point). (+) Closed rows are retained for a Recents/reopen affordance and reaped on the normal window (keep⊇use, ADR-004, holds trivially — the use-set shrank). (−) A new column + migration, and a mark-before-kill ordering invariant that every close site must honor.
+
+### ADR-008 — Special workspaces are KV-marked, not schema-typed
+**Decision.** The "SigmaLink Dev" singleton is identified by a KV pointer (`workspace.devWorkspace.id`) plus forced `repoMode:'plain'`/`repoRoot:null` — NOT by a new `kind`/`type` column on `workspaces`. **Context.** Only one special flavor exists; `repoMode:'plain'` already short-circuits every worktree/git/janitor path (both spawn gates, boot janitor, orphan cleanup, auto-checkpoint), and the shared-KV-contract pattern is established (`shared/worktree-mode.ts`). A migration would buy nothing today. **Consequences.** (+) Zero migration risk; reuses both existing spawn gates unchanged; a deleted row self-heals (recreate + repoint). (−) Specialness is invisible in the `workspaces` table itself (must join KV to see it); a second special flavor later would justify revisiting a `kind` column.
+
 ---
 
 ## Effort / impact table
@@ -382,3 +448,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 | Renderer state & Jorvis correctness | Phase 10 | M | Medium | Boot-room hijack + invisible pane events + hydrate races. |
 | Windows runtime readiness | Phase 11 | L | High | Unbricks the shipped win32 target; ADR-006; feeds W-4. |
 | Dead-code sweep | Phase 12 | S–M | Low | ~470 LOC + 2 deps; verify-first protocol is load-bearing. |
+| Pane close: `closed_at` marker + no-resurrect + no toast | Phase 13 | S+M | High | Fixes hotlist #13/#14; one durable marker, one shared close primitive; ADR-007. |
+| Recently-closed panes (listClosed + reopen + UI) | Phase 13 (Part B) | M | Medium | Recoverable accidental close; mirrors browser-tab recents. |
+| SigmaLink Dev workspace (singleton + shell resume + containment + renderer) | Phase 14 | M | High | 9-task TDD plan; ~90% existing machinery; ADR-008. |
+| CHANNELS allowlist fix (`rename`/`openNew`) | Phase 14 (Task 4) | S | High | Silent data-loss class (hotlist #15); rides the same edit. |

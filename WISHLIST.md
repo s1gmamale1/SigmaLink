@@ -14,6 +14,8 @@ _(consciously NOT built — each is a separate track or a non-goal, not a gap)_
 
 - **[desktop-runtime] Tauri migration for host-shell footprint** — replacing Electron with Tauri may reduce baseline app overhead, but the current RAM bottleneck is per-pane Claude/Codex/MCP process trees. Defer until shared MCP, lazy resume, and process-tree cleanup prove the remaining host overhead is worth a platform migration.
 
+- **[dev-workspace] multiple SigmaLink Dev instances / custom cwd / agent panes in it** — operator chose a singleton at `~` with plain shells only (AskUserQuestion 2026-06-11, Phase 14 design); revisit only if a second fixed-cwd terminal bench is requested. (`+ Pane` will technically work there — tolerated, not designed for.)
+
 ---
 
 ## ✨ Future enhancements (planned-later upgrades)
@@ -81,3 +83,38 @@ _(out-of-scope findings from the `fix/jorvis-terminal-access` root-cause session
 
 - 🐞 **[medium] swarm-roster ghost entries — no healing** — live DB shows `swarm_agents` row `builder-1` (session `1580b8c7…`) with NO live/DB-running session; `list_swarms` (`app/src/main/core/assistant/tools.ts:763`) serves it to Jorvis as a real roster member, and mailbox broadcasts/roll-calls target it. The `prompt_agent` liveness guard now surfaces the ghost on direct prompts, but the roster itself never self-heals. Fix: a roster sweep that cross-checks `swarm_agents` against live sessions and marks orphans `status='lost'` (reaper keep⊇use rule applies). Effort: M.
 - **[UX/low] deferred-MCP-tools flow reads as "host reconnecting" to the model** — the Claude CLI defers `mcp__jorvis-host__*` schemas (model must ToolSearch-load them; traces 2026-06-11 19:21:59 + 02:31:32), and the model narrates it as "the host is reconnecting", alarming the operator. Options: a system-prompt line ("tools may need ToolSearch — this is normal, not an outage") or investigate pre-loading via the CLI's MCP eager-load config if/when exposed. Effort: S.
+
+- ~~**[workspaces] SigmaLink Dev special workspace** — singleton workspace from the sidebar "+" menu; NO git/worktree machinery; N plain shell terminals (stepper 1–12) at `os.homedir()`; fresh respawn on restart; side-effect containment (nothing writes into `~`).~~ → **promoted to ROADMAP Phase 14** (2026-06-11); **✅ SHIPPED PR #158 `9cda070`** (2026-06-11). Spec: `app/docs/superpowers/specs/2026-06-11-sigmalink-dev-workspace-design.md` · Plan: `app/docs/superpowers/plans/2026-06-11-sigmalink-dev-workspace.md`.
+
+---
+
+## 🔬 Deep review findings (2026-06-11) — manual pane-close lifecycle
+
+> **→ Part A SHIPPED in PR #161 `a0e9bee` (2026-06-12)** — toast + resurrection both fixed; Recents recoverability (Part B) still pending; `handleRelaunch`/silent-failure items above remain open.
+
+_Operator-reported, 3-agent root-cause sweep + Opus verification against live code. Both bugs trace to ONE structural flaw: the manual × close path is a "poor cousin" of the Jorvis `close_pane` tool — it kills the PTY but skips the bookkeeping — and `close_pane` itself is only half-complete. Design confirmed with operator: `closed_at` soft-delete marker + Recents-recoverable._
+
+> **→ ALL FIVE items below promoted to ROADMAP Phase 13** (2026-06-11). Plan: `app/docs/superpowers/plans/2026-06-11-pane-close-lifecycle.md`; ADR-007. Kept here as history.
+
+- 🐞 **[medium] manually closing a pane raises a spurious "Pane exited (code 143/0)" warn toast** — an intentional close is surfaced as an unexpected crash. `pushPtyExitNotification` (`app/src/main/core/notifications/sources/pty-exit.ts:47-74`) fires on EVERY pty exit with no user-initiated suppression; `PtyExitEvent` has no "closed" field. Path: manual × (`app/src/renderer/features/command-room/CommandRoom.tsx:257-262` `handleRemove` → `rpc.pty.kill` → SIGTERM → exit 143) → `registry.ts:347` `onExit` → `rpc-router.ts:558` `onPaneEvent` → `pushPtyExitNotification` → `use-live-events.ts:270-285` `toast.warning`. The Jorvis `close_pane` tool (`app/src/main/core/assistant/tools.ts:356-373`) hits the SAME path → same toast (sibling). Fix: skip the notification when the row's `closed_at` is set. Effort: S. [[grep-sibling-call-sites]]
+
+- 🐞 **[high] manually-closed panes resurrect on app restart** — the DB re-opens panes the user deliberately ×'d. TWO layers, both confirmed: (1) manual close (`CommandRoom.tsx:257-262`) does `pty.kill()` + in-memory `REMOVE_SESSION` only — **no DB close-write, no `pane_index` clear**; (2) boot rehydrate (`app/src/renderer/app/state-hooks/use-session-restore.ts:144-149`) calls `panes.listForWorkspace` whose SQL (`app/src/main/rpc-router.ts:1224-1242`) is `WHERE pane_index IS NOT NULL` with **NO status filter** → re-adds the tile for any pane that ever had a slot. If the kill loses the race to quit, the boot janitor (`app/src/main/core/db/janitor.ts:33-50`) flips `running→exited/-1`, which `listEligibleRows` (`app/src/main/core/pty/resume-launcher.ts:328-352`) then **resumes live**. `agent_sessions` has NO `closed_at` column (soft-delete exists only on `browser_tabs`, mig 0033). NOTE: `close_pane`'s `status='exited',code=0` write blocks the live re-spawn but NOT the tile rehydrate (listForWorkspace ignores status) → `close_pane` is only half resume-proof (latent same bug). Fix: add `closed_at` to `agent_sessions` + `AND closed_at IS NULL` on `listForWorkspace`/`listEligibleRows`/`listRespawnableRows`. Effort: M. [[reaper-keep-superset-of-use]]
+  ↳ **(2026-06-11, post-#158) Phase 14 widens this for SHELL panes:** `buildResumeArgs('shell')` no longer returns null, so a manually-×'d shell pane whose row stays `running`→`exited(-1)` now respawns **LIVE** on restart (previously only a ghost tile). Phase 13's `closed_at` filter on `listEligibleRows` covers it automatically — raises Phase 13's priority. Operator re-confirmed the #14 toast live on `9cda070` (2026-06-11, add+remove pane → "Pane exited (code 143/0)" toasts).
+
+- **[pane-lifecycle] unify pane-close into ONE shared "close properly" primitive** — manual × (`handleRemove`), context-menu close (`PaneShell.tsx:687`→`onRemove`), and the `close_pane` tool (`tools.ts:356`) are three divergent close paths (the root of both bugs above). Collapse them onto one main-side primitive that sets `closed_at=now` BEFORE `pty.kill()` (so the async exit sees the marker), so future close-sites can't drift. Also audit `handleRelaunch` (`CommandRoom.tsx:273-296`) which drops the old session without a DB close-write. Effort: M. [[grep-sibling-call-sites]]
+
+- 🐞 **[low] `handleRelaunch` still drops the old session with NO close-write** (deferred from Phase 13 Part A — out of plan scope, pre-existing): the crashed row keeps `pane_index`/`status='error'`; if the replacement takes a different slot the old row can rehydrate as a ghost tile on restart. Fix: route the drop through `rpc.panes.close` (marker write is now one call). Effort: S. (Opus review, PR #161.)
+
+- **[ux] `panes.close` failure after the optimistic `REMOVE_SESSION` is silent** — fire-and-forget `.catch(() => undefined)` in `CommandRoom.handleRemove`; a bridge failure leaves the row unmarked → resurrects on restart with no operator signal. Pre-existing shape; add a `toast.error` in the catch. Effort: S. (Opus review, PR #161.)
+
+- **[pane-lifecycle] Recents recoverability for closed panes** — keep the soft-deleted (`closed_at IS NOT NULL`) row and surface it in `listRecents` (mig 0033 added the recents surface) so an accidental × is reopenable (reopen = clear `closed_at` + resume/relaunch). Reaper GCs after the normal window; verify keep-set ⊇ use-set still holds with the narrower resume predicate. Effort: M.
+
+---
+
+## 🔬 Deep review findings (2026-06-11) — SigmaLink Dev plan grounding
+
+_Found by the 4-lane recon + lead verification while grounding the Phase 14 plan._
+
+- 🐞 **[high] `workspaces.rename` + `workspaces.openNew` hard-rejected at the preload bridge** — both are registered handlers (`app/src/main/rpc-router.ts:1482,1494`) and typed in `app/src/shared/router-shape.ts:323,327`, but ABSENT from the `CHANNELS` allowlist (`app/src/shared/rpc-channels.ts:78-83`); `isAllowedChannel` is exact-match (`rpc-channels.ts:491-493`), so `Sidebar.tsx:294`'s inline rename silently never persists (the optimistic `RENAME_WORKSPACE` dispatch masks it until restart). The v1.5.3-B defensive test stays green because its own hand-maintained list (`rpc-channels.test.ts:108-113`) omits them too — the RPC mirror is a QUAD (shape + router + CHANNELS + test list), not a triple. Fix: add both to `CHANNELS` + `TYPED_ROUTER_CHANNELS`. Effort: S. → **promoted to ROADMAP Phase 14 (drive-by Task 4) / hotlist #15** (2026-06-11); **FIXED in PR #158** (`bf708c7`). [[grep-sibling-call-sites]]
+
+- **[test-infra] make `TYPED_ROUTER_CHANNELS` self-maintaining** — the v1.5.3-B CHANNELS-vs-AppRouter defensive test's enumeration (`app/src/shared/rpc-channels.test.ts:67+`) is hand-maintained, so it drifts in tandem with the allowlist it guards (exactly how the rename/openNew hole above stayed green). Replace the hand-list with a derivation from the live registration source (enumerate `rpc-router.ts`'s registered handler map at test time, or generate from `router-shape.ts` via a type-level/codegen check) so a registered-but-unlisted channel FAILS the test instead of silently joining the drift. Found by Opus quality review during Phase 14 U2 (PR #158). Effort: M. [[grep-sibling-call-sites]]
