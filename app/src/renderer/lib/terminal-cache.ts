@@ -49,6 +49,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { rpc } from '@/renderer/lib/rpc';
 import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
 import { subscribeExit } from '@/renderer/lib/pty-exit-bus';
+import { computeSnapshotOverlap } from './snapshot-overlap';
 import { ctrlWheelShouldBubble } from './wheel-zoom';
 
 /** Maximum number of cached xterm instances before LRU eviction. */
@@ -412,19 +413,7 @@ export function getOrCreateTerminal(
       /* snapshot is best-effort; the live subscription already captured
          everything since the bus listener attached. */
     }
-    const joined = pending.join('');
-    let overlap = 0;
-    if (snapBuffer && joined) {
-      const MAX_OVERLAP_SCAN = 65_536; // coalescer maxBytes — the largest single flush
-      const max = Math.min(snapBuffer.length, joined.length, MAX_OVERLAP_SCAN);
-      for (let k = max; k > 0; k--) {
-        if (snapBuffer.endsWith(joined.slice(0, k))) {
-          overlap = k;
-          break;
-        }
-      }
-    }
-    let skip = overlap;
+    let skip = computeSnapshotOverlap(snapBuffer, pending.join(''));
     for (const chunk of pending) {
       if (skip >= chunk.length) {
         skip -= chunk.length;
