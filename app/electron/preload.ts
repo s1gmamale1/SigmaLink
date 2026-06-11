@@ -3,7 +3,7 @@
 // a runtime allowlist so a compromised renderer cannot invoke arbitrary IPC
 // channels (e.g. `git.runCommand` with attacker-controlled cwd).
 
-import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron';
 import { isAllowedChannel, isAllowedEvent } from '../src/shared/rpc-channels';
 
 const api = {
@@ -40,6 +40,13 @@ const api = {
   // IPC for what is, by definition, a constant for the lifetime of the
   // process. Consumed by `src/renderer/lib/platform.ts`.
   platform: process.platform as NodeJS.Platform,
+  // Renderer-side native zoom. webFrame is a renderer-process module; exposing
+  // get/set here lets the renderer drive whole-window zoom (React DOM + xterm
+  // canvas + Monaco) with no per-event IPC round-trip. factor 1.0 = 100%.
+  getZoomFactor: (): number => webFrame.getZoomFactor(),
+  setZoomFactor: (factor: number): void => {
+    webFrame.setZoomFactor(factor);
+  },
 };
 
 contextBridge.exposeInMainWorld('sigma', api);
