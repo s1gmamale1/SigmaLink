@@ -8,7 +8,7 @@ vi.mock('../../db/client', () => ({
   getDb: vi.fn(() => ({
     select: () => ({
       from: () => ({
-        where: () => ({ get: () => ({ workspaceId: 'ws-1' }) }),
+        where: () => ({ get: () => ({ workspaceId: 'ws-1', closedAt: null }) }),
       }),
     }),
   })),
@@ -42,6 +42,11 @@ function makeMgr(): { mgr: NotificationsManager; calls: AddInputCapture[] } {
     },
   } as unknown as NotificationsManager;
   return { mgr, calls };
+}
+
+/** Minimal stub for suppression tests that just need to assert add was/wasn't called. */
+function fakeManager() {
+  return { add: vi.fn() } as unknown as Parameters<typeof pushPtyExitNotification>[0];
 }
 
 beforeEach(() => {
@@ -91,5 +96,37 @@ describe('pushPtyExitNotification', () => {
     const { mgr, calls } = makeMgr();
     pushPtyExitNotification(mgr, { sessionId: 's-1', kind: 'exited', exitCode: 0 });
     expect(calls[0].workspaceId).toBe('ws-1');
+  });
+});
+
+describe('pushPtyExitNotification — deliberate-close suppression', () => {
+  it('does NOT add a notification when the session is closed (closed_at set)', () => {
+    const mgr = fakeManager();
+    pushPtyExitNotification(
+      mgr,
+      { sessionId: 's1', kind: 'error', exitCode: 143 },
+      () => ({ workspaceId: 'w1', closedAt: 1234 }),
+    );
+    expect((mgr as unknown as { add: ReturnType<typeof vi.fn> }).add).not.toHaveBeenCalled();
+  });
+
+  it('does NOT add a notification for exit code 0 on a closed session', () => {
+    const mgr = fakeManager();
+    pushPtyExitNotification(
+      mgr,
+      { sessionId: 's1', kind: 'exited', exitCode: 0 },
+      () => ({ workspaceId: 'w1', closedAt: 9999 }),
+    );
+    expect((mgr as unknown as { add: ReturnType<typeof vi.fn> }).add).not.toHaveBeenCalled();
+  });
+
+  it('DOES add a notification for an unexpected exit (closed_at NULL)', () => {
+    const mgr = fakeManager();
+    pushPtyExitNotification(
+      mgr,
+      { sessionId: 's2', kind: 'error', exitCode: 1 },
+      () => ({ workspaceId: 'w1', closedAt: null }),
+    );
+    expect((mgr as unknown as { add: ReturnType<typeof vi.fn> }).add).toHaveBeenCalledTimes(1);
   });
 });

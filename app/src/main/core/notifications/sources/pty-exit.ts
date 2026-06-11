@@ -16,6 +16,10 @@
 // Dedup key (D3): `pty-exit:${sessionId}`. Per-session so two different
 // panes exiting separately do NOT collapse; a single pane restart-looping
 // (same sessionId) DOES collapse into one row.
+//
+// Bug 1 suppression: a deliberate close (closed_at set by markPaneClosed
+// BEFORE the kill) is NOT an unexpected exit. The exit toast is suppressed.
+// Keyed off closed_at (durable), not status (racy — 143/error overwrites it).
 
 import type { NotificationsManager } from '../manager';
 import { getDb } from '../../db/client';
@@ -29,27 +33,38 @@ export interface PtyExitEvent {
   body?: string;
 }
 
-/** Resolve the workspace_id for a session id; nullable for rows that may
- *  have been forgotten already (the registry's graceful-forget delay). */
-function resolveWorkspaceId(sessionId: string): string | null {
+export interface SessionCloseMeta {
+  workspaceId: string | null;
+  closedAt: number | null;
+}
+
+/** Resolve workspace_id + closed_at for a session id; nullable when forgotten. */
+function resolveSessionMeta(sessionId: string): SessionCloseMeta {
   try {
     const row = getDb()
-      .select({ workspaceId: agentSessions.workspaceId })
+      .select({ workspaceId: agentSessions.workspaceId, closedAt: agentSessions.closedAt })
       .from(agentSessions)
       .where(eq(agentSessions.id, sessionId))
       .get();
-    return row?.workspaceId ?? null;
+    return { workspaceId: row?.workspaceId ?? null, closedAt: row?.closedAt ?? null };
   } catch {
-    return null;
+    return { workspaceId: null, closedAt: null };
   }
 }
 
 export function pushPtyExitNotification(
   manager: NotificationsManager,
   event: PtyExitEvent,
+  resolveMeta: (sessionId: string) => SessionCloseMeta = resolveSessionMeta,
 ): void {
   // Skip non-exit events; the bell would otherwise drown in PTY chatter.
   if (event.kind !== 'exited' && event.kind !== 'error') return;
+
+  const meta = resolveMeta(event.sessionId);
+  // Bug 1 — a deliberate close (closed_at set) is NOT an unexpected exit.
+  // Suppress the "Pane exited (code N)" toast for it. Covers the × button,
+  // context-menu, and the close_pane tool (all set closed_at before the kill).
+  if (meta.closedAt != null) return;
 
   // D1 mapping. `exited` with code 0 is the only `info` case; anything else
   // (non-zero code, signal-kill, error event) escalates to `warn`. error and
@@ -58,11 +73,10 @@ export function pushPtyExitNotification(
   const severity =
     event.kind === 'exited' && (event.exitCode ?? 0) === 0 ? 'info' : 'warn';
 
-  const workspaceId = resolveWorkspaceId(event.sessionId);
   const codeStr = event.exitCode !== undefined ? `code ${event.exitCode}` : 'signal';
 
   manager.add({
-    workspaceId,
+    workspaceId: meta.workspaceId,
     kind: 'pty-exit',
     severity,
     title: `Pane exited (${codeStr})`,
