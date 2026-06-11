@@ -58,18 +58,31 @@ vi.mock('./WorkspacesPanel', () => ({
 }));
 
 // DevWorkspaceDialog is mocked to surface its onLaunch via a button so we can
-// drive launchDevTerminals; it only renders when `open` is true.
+// drive launchDevTerminals; it only renders when `open` is true. The "twice"
+// button fires onLaunch twice in one synchronous tick — modelling two rapid
+// clicks queued before React flushes the dialog close — to exercise the
+// in-flight re-entrancy guard.
 vi.mock('./DevWorkspaceDialog', () => ({
   DevWorkspaceDialog: ({
     open,
     onLaunch,
+    launching,
   }: {
     open: boolean;
     onLaunch: (n: number) => void;
+    launching?: boolean;
   }) =>
     open ? (
-      <div data-testid="dev-dialog">
+      <div data-testid="dev-dialog" data-launching={launching ? 'true' : 'false'}>
         <button type="button" data-testid="dev-launch-4" onClick={() => onLaunch(4)} />
+        <button
+          type="button"
+          data-testid="dev-launch-4-twice"
+          onClick={() => {
+            onLaunch(4);
+            onLaunch(4);
+          }}
+        />
       </div>
     ) : null,
 }));
@@ -544,5 +557,26 @@ describe('Sidebar — SigmaLink Dev flow (Phase 14, Task 8)', () => {
     expect(dispatchMock).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_ROOM', room: 'command' }),
     );
+  });
+
+  it('in-flight guard: two rapid Launch fires call workspaces.launch exactly once', async () => {
+    // workspaces.launch is ADDITIVE server-side — without the guard a second
+    // queued click would submit a second plan → 2N panes.
+    listForWorkspaceMock.mockResolvedValue([]); // forces the dialog open
+    const { getByTestId } = renderSidebar();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(getByTestId('open-dev'));
+    });
+    // Fire Launch(4) twice in one synchronous tick (see the dialog mock) —
+    // the first enters launchDevTerminals and suspends at the openDev await;
+    // the second must early-return on the in-flight ref.
+    await act(async () => {
+      fireEvent.click(getByTestId('dev-launch-4-twice'));
+    });
+
+    expect(launchMock).toHaveBeenCalledTimes(1);
+    expect(openDevMock).toHaveBeenCalledTimes(2); // 1× open flow + 1× launch (not 3×)
   });
 });

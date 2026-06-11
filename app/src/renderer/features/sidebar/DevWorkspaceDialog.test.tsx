@@ -75,4 +75,33 @@ describe('<DevWorkspaceDialog />', () => {
     fireEvent.click(inc);
     expect(getByTestId('dev-workspace-count').textContent).toBe(String(DEV_WORKSPACE_MAX_PANES));
   });
+
+  it('resets the count to the default when closed and reopened', () => {
+    // The wrapper stays mounted across open/close — a count bumped on a
+    // previous visit must not leak into the next one.
+    const onLaunch = vi.fn();
+    const onOpenChange = vi.fn();
+    const { getByTestId, getByLabelText, rerender } = render(
+      <DevWorkspaceDialog open onOpenChange={onOpenChange} onLaunch={onLaunch} />,
+    );
+    fireEvent.click(getByLabelText('Increment'));
+    fireEvent.click(getByLabelText('Increment'));
+    expect(getByTestId('dev-workspace-count').textContent).toBe('6');
+
+    rerender(<DevWorkspaceDialog open={false} onOpenChange={onOpenChange} onLaunch={onLaunch} />);
+    rerender(<DevWorkspaceDialog open onOpenChange={onOpenChange} onLaunch={onLaunch} />);
+
+    expect(getByTestId('dev-workspace-count').textContent).toBe('4');
+  });
+
+  it('disables the Launch button while launching', () => {
+    const onLaunch = vi.fn();
+    const { getByTestId } = render(
+      <DevWorkspaceDialog open onOpenChange={vi.fn()} onLaunch={onLaunch} launching />,
+    );
+    const launch = getByTestId('dev-workspace-launch') as HTMLButtonElement;
+    expect(launch.disabled).toBe(true);
+    fireEvent.click(launch);
+    expect(onLaunch).not.toHaveBeenCalled();
+  });
 });

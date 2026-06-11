@@ -10,6 +10,7 @@ import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -21,18 +22,43 @@ export interface DevWorkspaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onLaunch: (paneCount: number) => void;
+  /**
+   * True while the Sidebar's launch rpc is in flight. Disables the Launch
+   * button so a rapid double-click can't queue a second launch plan —
+   * workspaces.launch is ADDITIVE server-side and would spawn 2N panes.
+   */
+  launching?: boolean;
 }
 
 const DEFAULT_TERMINALS = 4;
 
-export function DevWorkspaceDialog({ open, onOpenChange, onLaunch }: DevWorkspaceDialogProps) {
+export function DevWorkspaceDialog({
+  open,
+  onOpenChange,
+  onLaunch,
+  launching,
+}: DevWorkspaceDialogProps) {
   const [count, setCount] = useState(DEFAULT_TERMINALS);
+
+  // The wrapper stays mounted across open/close (Radix only unmounts the
+  // portal content), so reset the stepper each time the dialog opens — a
+  // count bumped on a previous visit must not leak into the next one.
+  // Render-time prev-prop adjustment (react.dev "You Might Not Need an
+  // Effect"); an effect-based reset trips react-hooks/set-state-in-effect.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) setCount(DEFAULT_TERMINALS);
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid="dev-workspace-dialog" className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{DEV_WORKSPACE_NAME}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Choose how many plain terminals to launch in your home directory.
+          </DialogDescription>
         </DialogHeader>
         <div className="flex items-center justify-between py-2">
           <span className="text-sm text-muted-foreground">Terminals</span>
@@ -64,7 +90,11 @@ export function DevWorkspaceDialog({ open, onOpenChange, onLaunch }: DevWorkspac
           </div>
         </div>
         <DialogFooter>
-          <Button data-testid="dev-workspace-launch" onClick={() => onLaunch(count)}>
+          <Button
+            data-testid="dev-workspace-launch"
+            onClick={() => onLaunch(count)}
+            disabled={launching}
+          >
             Launch
           </Button>
         </DialogFooter>

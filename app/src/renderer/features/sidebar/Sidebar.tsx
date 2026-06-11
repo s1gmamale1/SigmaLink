@@ -32,6 +32,10 @@ const APP_SIDEBAR_LEGACY_COLLAPSED_KEY = 'app.sidebar.collapsed';
 // `ui.<wsId>.<panel>` by workspace-ui-kv). Only the WIDTH is per-workspace;
 // collapse stays a global preference (see setCollapsed / session-restore).
 const SIDEBAR_WIDTH_PANEL = 'sidebar.width';
+// SigmaLink Dev — grid preset snap steps for the launch plan. Preset is a UI
+// hint only (panes[] drives the real pane count); hoisted to module scope so
+// it isn't re-allocated on every launch.
+const DEV_PRESET_STEPS: GridPreset[] = [1, 2, 4, 6, 8, 10, 12];
 
 export function Sidebar() {
   // V1.1.10 perf — slice subscriptions instead of full AppState. Sidebar
@@ -53,6 +57,13 @@ export function Sidebar() {
   // whenever the flow opens-or-creates the workspace.
   const [devDialogOpen, setDevDialogOpen] = useState(false);
   const [devWorkspaceId, setDevWorkspaceId] = useState<string | null>(null);
+  // In-flight launch guard. workspaces.launch is ADDITIVE server-side — a
+  // double-fire would spawn 2N panes. The REF is the actual re-entrancy gate
+  // (state lags a render, so a second click queued in the same tick would
+  // still read launching=false); the STATE mirrors it to disable the dialog's
+  // Launch button.
+  const [devLaunching, setDevLaunching] = useState(false);
+  const devLaunchingRef = useRef(false);
   useEffect(() => {
     void rpc.kv
       .get(DEV_WORKSPACE_KV_KEY)
@@ -255,13 +266,17 @@ export function Sidebar() {
 
   // SigmaLink Dev — launch N plain shell panes after the count dialog commits.
   async function launchDevTerminals(paneCount: number) {
+    // Re-entrancy guard — see devLaunchingRef. A second fire while the rpc is
+    // in flight would queue a second ADDITIVE plan → 2N panes.
+    if (devLaunchingRef.current) return;
+    devLaunchingRef.current = true;
+    setDevLaunching(true);
     setDevDialogOpen(false);
     try {
       const ws = await rpc.workspaces.openDev(); // idempotent — returns the singleton
       // Preset is a UI hint; the launcher iterates `panes` for the real count.
       // Snap to the smallest preset step that fits paneCount.
-      const PRESET_STEPS: GridPreset[] = [1, 2, 4, 6, 8, 10, 12];
-      const preset = PRESET_STEPS.find((p) => p >= paneCount) ?? DEV_WORKSPACE_MAX_PANES;
+      const preset = DEV_PRESET_STEPS.find((p) => p >= paneCount) ?? DEV_WORKSPACE_MAX_PANES;
       const { sessions } = await rpc.workspaces.launch({
         workspaceRoot: ws.rootPath,
         workspaceId: ws.id,
@@ -276,6 +291,9 @@ export function Sidebar() {
       dispatch({ type: 'SET_ROOM', room: 'command' });
     } catch (err) {
       console.error('Failed to launch SigmaLink Dev terminals:', err);
+    } finally {
+      devLaunchingRef.current = false;
+      setDevLaunching(false);
     }
   }
 
@@ -452,6 +470,7 @@ export function Sidebar() {
       open={devDialogOpen}
       onOpenChange={setDevDialogOpen}
       onLaunch={(n) => void launchDevTerminals(n)}
+      launching={devLaunching}
     />
     </>
   );
