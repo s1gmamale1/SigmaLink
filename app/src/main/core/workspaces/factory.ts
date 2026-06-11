@@ -264,6 +264,27 @@ export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = 
     .where(eq(workspaces.rootPath, abs))
     .all()
     .find((r) => r.id !== devWorkspaceId);
+  // SigmaLink Dev (2026-06-11) — by-path reopen of the dev singleton.
+  // When there is no non-dev row at `abs` AND the dev pointer resolves to a
+  // live row whose rootPath equals `abs`, the caller's intent is to reopen the
+  // dev workspace (recents / persisted-closed rows reopen by path). Delegate
+  // to openDevWorkspace() instead of inserting a second row at ~ — the open
+  // side effects (MCP autowrite, trust, memory seed) must never run against
+  // the home directory.
+  if (!existing && devWorkspaceId) {
+    try {
+      const devRow = db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, devWorkspaceId))
+        .get();
+      if (devRow && devRow.rootPath === abs) {
+        return openDevWorkspace();
+      }
+    } catch {
+      // DB probe failed; fall through to the normal insert path.
+    }
+  }
   const now = Date.now();
   let resultId: string;
   if (existing) {

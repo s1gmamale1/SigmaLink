@@ -243,30 +243,43 @@ describe('openDevWorkspace (singleton dev workspace factory)', () => {
     expect(_insertMock).not.toHaveBeenCalled();
   });
 
-  it('openWorkspace(homedir) inserts a SEPARATE row instead of capturing the dev singleton', async () => {
-    // First, create the dev singleton.
-    const dev = await openDevWorkspace();
+  it(
+    'openWorkspace(homedir) with ONLY the dev singleton at ~ ' +
+      'delegates to openDevWorkspace (returns the dev row, no second insert)',
+    async () => {
+      // SigmaLink Dev (2026-06-11) fix: when the only row at ~ is the dev
+      // singleton, openWorkspace must delegate to openDevWorkspace instead of
+      // inserting a second workspace at the home directory.
 
-    // Dangerous case: getRepoRoot reports ~ as a git repo (would flip repoMode
-    // on the dev row if it were captured by the dedup-reuse branch).
-    vi.mocked(getRepoRoot).mockResolvedValueOnce('/home/testuser');
+      // Arrange: create the dev singleton; no other row at ~.
+      const dev = await openDevWorkspace();
+      // _insertMock was called once by openDevWorkspace.
+      const insertCountAfterDev = _dbRows.length; // should be 1
 
-    // Now open a "normal" workspace at the same path.
-    const normal = await openWorkspace('/home/testuser');
+      // Dangerous case: getRepoRoot might report ~ as a git repo — the
+      // delegation path must not engage git mode on the dev workspace.
+      vi.mocked(getRepoRoot).mockResolvedValueOnce('/home/testuser');
 
-    // Must be a fresh row — not the dev singleton.
-    expect(normal.id).not.toBe(dev.id);
+      // _selectMockFindById: the delegation probe (db.select.where(id=devId).get)
+      // AND openDevWorkspace's reuse path both call .get() — both want the dev row.
+      _selectMockFindById = () => _dbRows.find((r) => r.id === dev.id) ?? null;
 
-    // The dev row must remain untouched: NO update ran at all (neither
-    // openDevWorkspace first-call nor openWorkspace's insert branch touches
-    // the update path — only the dedup-reuse branch does, and it must not
-    // have fired against the dev singleton).
-    expect(_updateMock).not.toHaveBeenCalled();
-    // Belt-and-braces: the dev row's repoMode is still 'plain'.
-    const devRow = _dbRows.find((r) => r.id === dev.id);
-    expect(devRow).toBeDefined();
-    expect(devRow!.repoMode).toBe('plain');
-  });
+      // Act: open "by path" — the only row at ~ is the dev singleton.
+      const reopened = await openWorkspace('/home/testuser');
+
+      // Assert delegation worked: same id returned, no new row.
+      expect(reopened.id).toBe(dev.id);
+      expect(_dbRows.length).toBe(insertCountAfterDev);
+      // The insert mock was NOT called again (only the openDevWorkspace first-call).
+      expect(_insertMock).toHaveBeenCalledTimes(1);
+
+      // The dev row's repoMode must still be 'plain' — the delegation path must
+      // not have engaged git mode or updated the row's repoMode.
+      const devRow = _dbRows.find((r) => r.id === dev.id);
+      expect(devRow).toBeDefined();
+      expect(devRow!.repoMode).toBe('plain');
+    },
+  );
 
   it('self-heals a dangling KV pointer (deleted row → fresh insert + re-point)', async () => {
     // KV points to a gone id; workspace select returns undefined for it.
@@ -294,5 +307,124 @@ describe('openDevWorkspace (singleton dev workspace factory)', () => {
     expect(_kvUpsertRuns).toHaveLength(1);
     expect(_kvUpsertRuns[0].key).toBe(DEV_WORKSPACE_KV_KEY);
     expect(_kvUpsertRuns[0].value).toBe(ws.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: openWorkspace by-path delegation to openDevWorkspace (2026-06-11)
+// ---------------------------------------------------------------------------
+describe('openWorkspace — by-path delegation to openDevWorkspace', () => {
+  beforeEach(() => {
+    resetDb();
+  });
+
+  it(
+    'FAIL-PRE-CHANGE (proves the bug): ' +
+      'pre-fix openWorkspace(homedir) with only the dev singleton at ~ ' +
+      'inserted a second row and called home-dir side effects',
+    async () => {
+      // NOTE: this test documents the PRE-CHANGE behaviour.
+      // It is now the POST-CHANGE correct behaviour (delegation, no insert).
+      // We assert the FIXED state: no insert, no side effects, dev id returned.
+
+      // Arrange: dev singleton created, KV set, no other row at ~.
+      const devId = 'dev-uuid-001';
+      const devRow: FakeWorkspaceRow = {
+        id: devId,
+        name: DEV_WORKSPACE_NAME,
+        rootPath: '/home/testuser',
+        repoRoot: null,
+        repoMode: 'plain',
+        createdAt: 1000,
+        lastOpenedAt: 1000,
+      };
+      _dbRows.push(devRow);
+      _kvStore.set(DEV_WORKSPACE_KV_KEY, devId);
+
+      // _selectMockFindById is used by both the delegation probe (.get() for
+      // the dev row by id) AND by openDevWorkspace's reuse path (.get() for
+      // the existing row). Both calls want the dev row — return it always.
+      _selectMockFindById = () => devRow;
+
+      const insertCountBefore = _dbRows.length; // 1 (the dev row)
+
+      const result = await openWorkspace('/home/testuser');
+
+      // POST-FIX assertions (prove delegation works):
+      // 1. Returns the dev row id — no second workspace was minted.
+      expect(result.id).toBe(devId);
+      // 2. No new row was inserted.
+      expect(_dbRows.length).toBe(insertCountBefore);
+      expect(_insertMock).not.toHaveBeenCalled();
+      // 3. Home-dir side effects were NOT called.
+      expect(vi.mocked(writeWorkspaceMcpConfig)).not.toHaveBeenCalled();
+      expect(vi.mocked(ensureRufloTrusted)).not.toHaveBeenCalled();
+      expect(vi.mocked(seedWorkspaceMemory)).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    'dev singleton + a second normal row at ~ → openWorkspace reuses the NORMAL row ' +
+      '(existing dedup behaviour preserved)',
+    async () => {
+      // Arrange: dev singleton AND a pre-existing normal workspace both at ~.
+      const devId = 'dev-uuid-002';
+      const normalId = 'normal-uuid-002';
+      const devRow: FakeWorkspaceRow = {
+        id: devId,
+        name: DEV_WORKSPACE_NAME,
+        rootPath: '/home/testuser',
+        repoRoot: null,
+        repoMode: 'plain',
+        createdAt: 1000,
+        lastOpenedAt: 1000,
+      };
+      const normalRow: FakeWorkspaceRow = {
+        id: normalId,
+        name: 'testuser',
+        rootPath: '/home/testuser',
+        repoRoot: null,
+        repoMode: 'plain',
+        createdAt: 900,
+        lastOpenedAt: 900,
+      };
+      _dbRows.push(devRow, normalRow);
+      _kvStore.set(DEV_WORKSPACE_KV_KEY, devId);
+
+      // select.get() is used by the final rowToWorkspace fetch after update.
+      _selectMockFindById = () => normalRow;
+
+      const result = await openWorkspace('/home/testuser');
+
+      // Must reuse the NORMAL row, not the dev row.
+      expect(result.id).toBe(normalId);
+      // The update path ran (not insert).
+      expect(_updateMock).toHaveBeenCalledTimes(1);
+      expect(_insertMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('dangling dev pointer (row gone) → normal insert path runs, no crash', async () => {
+    // Arrange: KV has a devId, but no row with that id exists.
+    _kvStore.set(DEV_WORKSPACE_KV_KEY, 'gone-dev-uuid');
+    // No rows at /tmp/other-project either, so existing=undefined.
+    // The delegation probe finds no dev row → falls through to insert.
+    let getCallCount = 0;
+    _selectMockFindById = () => {
+      getCallCount++;
+      if (getCallCount === 1) {
+        // Delegation probe: looking up 'gone-dev-uuid' → not found.
+        return undefined;
+      }
+      // Post-insert fetch: return the newly inserted row.
+      return _dbRows[_dbRows.length - 1] ?? null;
+    };
+
+    const result = await openWorkspace('/home/testuser');
+
+    // A new (normal) row was inserted.
+    expect(_insertMock).toHaveBeenCalledTimes(1);
+    expect(result.id).toBeDefined();
+    expect(result.id).not.toBe('gone-dev-uuid');
   });
 });

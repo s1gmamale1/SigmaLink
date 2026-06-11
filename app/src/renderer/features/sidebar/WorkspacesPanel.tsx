@@ -249,9 +249,15 @@ export function WorkspacesPanel({
   // dozen sessions × every render.
   const byWorkspace = useMemo(() => summarizeWorkspaces(sessions), [sessions]);
   const openIds = useMemo(() => new Set(workspaces.map((w) => w.id)), [workspaces]);
+  // SigmaLink Dev (2026-06-11) — exclude the dev singleton from persistedClosed
+  // so it never appears as a generic "reopen" entry in the + menu. The dedicated
+  // "SigmaLink Dev" menu item (onOpenDev) is the sole reopen affordance for it.
   const persistedClosed = useMemo(
-    () => persistedWorkspaces.filter((w) => !openIds.has(w.id)),
-    [openIds, persistedWorkspaces],
+    () =>
+      persistedWorkspaces.filter(
+        (w) => !openIds.has(w.id) && w.id !== devWorkspaceId,
+      ),
+    [openIds, persistedWorkspaces, devWorkspaceId],
   );
 
   const pickerMenu = (

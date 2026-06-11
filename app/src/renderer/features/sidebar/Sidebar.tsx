@@ -199,6 +199,13 @@ export function Sidebar() {
   }
 
   async function openPersistedWorkspace(ws: Workspace) {
+    // SigmaLink Dev (2026-06-11) — belt: if somehow the dev row leaks through
+    // to this handler (e.g. a stale persisted-closed list), intercept it and
+    // route to the proper dev flow instead of re-opening by path.
+    if (devWorkspaceId && ws.id === devWorkspaceId) {
+      await openDevWorkspaceFlow();
+      return;
+    }
     try {
       const reopened = await rpc.workspaces.open(ws.rootPath);
       dispatch({ type: 'WORKSPACE_OPEN', workspace: reopened });
