@@ -339,15 +339,20 @@ describe('resize refit — renderer-clear regression guard', () => {
   });
 });
 
-// Drag-suppression guard (2026-06-10): between sigma:pane-resize-start and -end
-// (a divider drag) the per-frame ResizeObserver refit MUST be suppressed — the
-// box moves via PaneGrid's CSS var, and refitting mid-drag fires a SIGWINCH storm
-// the CLI repaints over (the shrink "glitches until it adjusts / breaks"). We
-// refit exactly once on release. See the plan doc, contributor #1.
-describe('resize refit — divider-drag suppression', () => {
-  it('skips RO refits during a drag and refits once on release', async () => {
+// Drag guard, v2 (2026-06-10 → 2026-06-11): between sigma:pane-resize-start
+// and -end (a divider drag) the per-frame RO callbacks drive a THROTTLED
+// VISUAL-ONLY re-wrap (fit.fit — text tracks the moving box) but MUST NOT
+// notify the PTY — a mid-drag SIGWINCH storm makes the CLI repaint over every
+// dragged-through size (the original "glitches until it adjusts / breaks",
+// plus Claude Code's Ink duplicates a transcript frame per SIGWINCH). The
+// single PTY resize happens at release — and only if the grid changed.
+describe('resize refit — drag: live visual re-wrap, single PTY notify', () => {
+  it('re-wraps visually mid-drag but sends no pty.resize until release', async () => {
     const entry = fakeEntry('sess-D2');
     getOrCreateTerminalMock.mockReturnValue(entry);
+
+    const { rpc } = await import('@/renderer/lib/rpc');
+    vi.mocked(rpc.pty.resize).mockClear();
 
     // Capturing ResizeObserver so the test can drive the refit callback the
     // component registers (jsdom's default polyfill never invokes it).
@@ -371,29 +376,33 @@ describe('resize refit — divider-drag suppression', () => {
         {} as ResizeObserver,
       );
 
-    // First RO callback = the synchronous first-fit → fit once.
+    // First RO callback = the synchronous first-fit → fit once + ONE pty.resize.
     await act(async () => {
       fireRo();
     });
     expect(entry.fitAddon.fit).toHaveBeenCalledTimes(1);
+    expect(rpc.pty.resize).toHaveBeenCalledTimes(1);
 
-    // Drag starts → a mid-drag RO callback must NOT schedule a refit.
+    // Drag starts → mid-drag RO callbacks re-wrap VISUALLY (leading throttle
+    // fires immediately; rapid follow-ups coalesce) without touching the PTY.
     await act(async () => {
       window.dispatchEvent(new Event('sigma:pane-resize-start'));
     });
     await act(async () => {
       fireRo();
-      // Let the (suppressed) 60ms debounce window elapse — if suppression were
-      // broken, runFit would fire here and bump the count to 2.
-      await new Promise((r) => setTimeout(r, 80));
+      fireRo();
+      fireRo();
     });
-    expect(entry.fitAddon.fit).toHaveBeenCalledTimes(1);
+    expect(entry.fitAddon.fit).toHaveBeenCalledTimes(2); // +1 leading dragFit
+    expect(rpc.pty.resize).toHaveBeenCalledTimes(1); // STILL just the first
 
-    // Release → exactly one refit.
+    // Release → one full refit; the mock grid never changed (80×24), so the
+    // lastCols/lastRows dedup sends NO second pty.resize either.
     await act(async () => {
       window.dispatchEvent(new Event('sigma:pane-resize-end'));
     });
-    expect(entry.fitAddon.fit).toHaveBeenCalledTimes(2);
+    expect(entry.fitAddon.fit).toHaveBeenCalledTimes(3);
+    expect(rpc.pty.resize).toHaveBeenCalledTimes(1);
   });
 });
 
