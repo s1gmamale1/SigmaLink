@@ -1215,6 +1215,7 @@ async function buildRouter() {
                  ) AS rn
                FROM agent_sessions s
                WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
+                 AND s.closed_at IS NULL
              )
              SELECT paneIndex, providerId, externalSessionId
              FROM ranked
@@ -1277,6 +1278,7 @@ async function buildRouter() {
                  ) AS rn
                FROM agent_sessions s
                WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
+                 AND s.closed_at IS NULL
              )
              SELECT *
              FROM ranked
