@@ -67,6 +67,10 @@ vi.mock('./ruflo-worktree-mcp', () => ({
   writeRufloMcpIntoCwd: vi.fn(),
 }));
 
+vi.mock('./ruflo-mcp-policy', () => ({
+  ensureRufloMcpForPane: vi.fn(async () => ({ transport: 'skipped', written: null })),
+}));
+
 // Note: '../pty/claude-resume-sigma' is intentionally NOT mocked here.
 // The CRIT tests use providerId:'shell', which never triggers the claude/gemini
 // branches in executeLaunchPlan, so the real bridge module is never called.
@@ -88,6 +92,8 @@ import { resolveAndSpawn } from '../providers/launcher';
 import { executeLaunchPlan } from './launcher';
 import { WorktreeDiskGuardError } from '../git/worktree';
 import type { LaunchPlan } from '../../../shared/types';
+import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
+import { ensureRufloMcpForPane } from './ruflo-mcp-policy';
 
 const WS_ID = 'ws-launcher-test';
 const REPO_ROOT = '/tmp/repo-root';
@@ -186,6 +192,8 @@ afterEach(() => {
   vi.mocked(getDb).mockReset();
   vi.mocked(getRawDb).mockReset();
   vi.mocked(resolveAndSpawn).mockReset();
+  vi.mocked(writeMcpConfigForAgent).mockClear();
+  vi.mocked(ensureRufloMcpForPane).mockClear();
   vi.restoreAllMocks();
 });
 
@@ -439,6 +447,13 @@ describe('executeLaunchPlan — Phase 2 RAM Brake MCP launch modes', () => {
         spawn: vi.fn(),
       },
     } as unknown as ReturnType<typeof getSharedDeps>);
+    // Simulate ensureRufloMcpForPane resolving the HTTP daemon port so
+    // rufloMcpPort flows into buildClaudeMcpLaunchArgs as expected.
+    vi.mocked(ensureRufloMcpForPane).mockResolvedValue({
+      transport: 'http',
+      port: 4567,
+      written: null,
+    });
 
     vi.mocked(getDb).mockReturnValue({
       select: vi.fn(() => ({
@@ -809,5 +824,65 @@ describe('executeLaunchPlan — DEV-W3a: resolves the workspace by id', () => {
     const plan = { ...makeGitPlan(), workspaceId: GIT_WS_ROW.id } as unknown as LaunchPlan;
     const { sessions } = await executeLaunchPlan(plan, deps);
     expect(sessions[0]!.workspaceId).toBe(GIT_WS_ROW.id);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 6 (Dev workspace, 2026-06-11) — shell-provider gate
+//
+// Shell panes skip ALL per-pane MCP wiring: writeMcpConfigForAgent and
+// ensureRufloMcpForPane must NEVER be called when provider.id === 'shell'.
+// For the dev workspace the pane cwd is the user's home directory; writing
+// .mcp.json or .claude/settings.local.json into ~ is forbidden.
+//
+// The harness provides a non-null getSharedDeps mock so the `if (shared)` gate
+// is open — without this the block no-ops before reaching the provider check
+// and the test would be vacuous (passing pre-change for the wrong reason).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('executeLaunchPlan — Task 6: shell panes skip ALL per-pane MCP wiring', () => {
+  it('shell pane: writeMcpConfigForAgent and ensureRufloMcpForPane are NOT called (no .mcp.json written into the pane cwd)', async () => {
+    const { deps } = makeTestDeps();
+
+    // Provide a non-null shared-deps so the `if (shared)` guard is open.
+    // Without this the block short-circuits before the provider check and the
+    // assertion would pass vacuously even without the gate.
+    vi.mocked(getSharedDeps).mockReturnValue({
+      memorySupervisor: {
+        start: vi.fn(),
+        getCommandFor: vi.fn(() => null),
+      },
+      rufloHttpDaemonSupervisor: {
+        port: vi.fn(() => null),
+        spawn: vi.fn(),
+      },
+    } as unknown as ReturnType<typeof getSharedDeps>);
+
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    // A single shell pane on a git workspace (plain workspace would also work
+    // but git exercises the full wiring path most aggressively).
+    const plan: LaunchPlan = {
+      workspaceRoot: '/tmp/ws',
+      panes: [{ paneIndex: 0, providerId: 'shell' }],
+    } as unknown as LaunchPlan;
+
+    const { sessions } = await executeLaunchPlan(plan, deps);
+
+    // The pane must launch successfully.
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.status).toBe('running');
+
+    // THE CRITICAL ASSERTIONS: no MCP config files written into the pane cwd.
+    expect(vi.mocked(writeMcpConfigForAgent)).not.toHaveBeenCalled();
+    expect(vi.mocked(ensureRufloMcpForPane)).not.toHaveBeenCalled();
   });
 });
