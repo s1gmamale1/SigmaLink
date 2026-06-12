@@ -1,0 +1,26 @@
+SigmaLink v2.4.2 — 2026-06-12
+=============================
+
+First-dogfood polish for the now-default DOM terminal renderer: four
+operator-reported issues in TUI (alt-screen) panes, fixed and live-
+verified in one round. One PR (#166), CI-green on macOS +
+windows-latest.
+
+See CHANGELOG.md [2.4.2] for the itemized record.
+
+
+Fixed
+-----
+
+- Chat panes scroll again: the wheel now reaches claude's fullscreen
+  TUI as real SGR mouse reports (it requests mouse tracking), so the
+  transcript scrolls under the pointer. Alt-screen apps that don't
+  track the mouse (less, vim) get the classic arrow-key fallback;
+  shell panes keep native scrolling with stick-to-bottom.
+
+- The cursor block now tracks trailing spaces instead of pinning
+  after the last visible character.
+
+- claude composer borders no longer shift by one glyph (TUI rows
+  never CSS-wrap anymore), and opencode panes lose the dark stripes
+  (run backgrounds now fill the full row height).

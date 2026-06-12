@@ -2,6 +2,26 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.4.2] — 2026-06-12
+
+**v2.4.2 is the first-dogfood polish round for the now-default DOM renderer** — four operator-reported issues, all in the alt-screen (TUI) path, fixed in one PR (#166 `d85de6d`) with each round verified live before merge.
+
+### Fixed — chat panes scroll again (#166)
+
+claude fullscreen requests SGR mouse tracking and consumes the wheel as mouse reports; the DOM renderer never forwarded the wheel, so chat transcripts couldn't scroll at all — and a first-cut arrow-key fallback recalled the composer's prompt history instead (operator-caught live). The engine now watches DECSET/DECRST 1006 via a parser hook (xterm's public modes API exposes the tracking mode but not the report encoding) and the wheel routes correctly: SGR wheel reports at the pointer cell for mouse-tracking apps → arrow-key fallback only for non-tracking alt-screen apps (`less`, `vim`) → native DOM scroll in the normal buffer.
+
+### Fixed — cursor tracks trailing spaces (#166)
+
+The purple cursor block pinned after the last visible glyph when typing spaces (screenshot-confirmed): `styledLine()` trims trailing whitespace, so the buffer cursor advanced past the rendered text. `LineRow` now pads the gap up to the true cursor column.
+
+### Fixed — alt-screen rendering fidelity: composer misalignment + theme-fill stripes (#166)
+
+TUI rows are exactly `cols` wide; FlowView's CSS wrapping pushed the last glyph of full-width rows onto the next line, shifting the claude composer's borders. And inline span backgrounds only cover the glyph box, so opencode's full-screen theme fill showed dark stripes at every row's line-height gap. Alt-screen rows now render `white-space: pre` (never wrap) with inline-block top-aligned run spans (backgrounds fill the full line box). Normal-buffer flowing output is untouched.
+
+### Verification
+
+Full gate green (`tsc -b` · vitest 3,835 · `eslint --max-warnings 0` · build); CI macOS + windows-latest; every fix operator-verified in a live build before merge. Alt-screen rendering remains FlowView-based until P1c's GridView (cell-exact TUI presenter) — these fixes raise fidelity to daily-usable, GridView raises it to terminal-exact.
+
 ## [2.4.1] — 2026-06-12
 
 **v2.4.1 turns the DOM terminal presenter ON by default.** v2.4.0 shipped it dark (KV-gated), which meant installed builds still rendered through the xterm grid — resize re-arranged lines, exactly the behavior the presenter eliminates — while flag-enabled dev builds showed the new feel. Operator-directed flip after testing both on macOS and Windows: byte-verification of the v2.4.0 artifacts confirmed all code shipped; the only gap was the dark default.
