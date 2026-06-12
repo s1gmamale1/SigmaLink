@@ -16,24 +16,18 @@
 // not earn a seventh.
 
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
+import {
+  DEFAULT_RENDERER_MODE,
+  parseRendererMode,
+  RENDERER_DEFAULT_KEY,
+  rendererSessionKey,
+  type RendererMode,
+} from '@/shared/renderer-mode';
 
-export type RendererMode = 'xterm' | 'dom';
-
-export const RENDERER_DEFAULT_KEY = 'panes.renderer.default';
-
-/** The renderer when neither the per-session nor the global KV is set (and
- *  when KV is unreachable — consistency beats a split-brain default). */
-export const DEFAULT_RENDERER_MODE: RendererMode = 'dom';
-
-export function rendererSessionKey(sessionId: string): string {
-  return `panes.renderer.${sessionId}`;
-}
+export { DEFAULT_RENDERER_MODE, RENDERER_DEFAULT_KEY, rendererSessionKey };
+export type { RendererMode };
 
 const resolved = new Map<string, RendererMode>();
-
-function parseMode(raw: unknown): RendererMode | null {
-  return raw === 'dom' || raw === 'xterm' ? raw : null;
-}
 
 /** Sync cache read — null until the first resolveRendererMode for the id. */
 export function peekRendererMode(sessionId: string): RendererMode | null {
@@ -45,11 +39,11 @@ export async function resolveRendererMode(sessionId: string): Promise<RendererMo
   if (hit) return hit;
   let mode: RendererMode = DEFAULT_RENDERER_MODE;
   try {
-    const per = parseMode(await rpcSilent.kv.get(rendererSessionKey(sessionId)));
+    const per = parseRendererMode(await rpcSilent.kv.get(rendererSessionKey(sessionId)));
     if (per) {
       mode = per;
     } else {
-      const def = parseMode(await rpcSilent.kv.get(RENDERER_DEFAULT_KEY));
+      const def = parseRendererMode(await rpcSilent.kv.get(RENDERER_DEFAULT_KEY));
       if (def) mode = def;
     }
   } catch {
