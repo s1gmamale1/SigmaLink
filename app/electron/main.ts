@@ -26,6 +26,8 @@ import {
   readSessionSnapshot,
   rememberSessionSnapshot,
 } from '../src/main/core/session/session-restore';
+// Multi-window B1 — re-dock continuity on secondary-window close.
+import { markWorkspaceOpened, refreshOpenWorkspaces } from '../src/main/core/workspaces/lifecycle';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -614,13 +616,26 @@ function showDiagnosticWindow(checks: NativeModuleCheck[]): void {
   void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDiagnosticHtml(checks))}`);
 }
 
-function createWindow(): void {
-  mainWindow = new BrowserWindow({
-    width: 1480,
-    height: 960,
+// Multi-window B1 — shared BrowserWindow construction + URL load + common
+// wiring used by both the main window (createWindow) and every secondary
+// window (createSecondaryWindow). Owns ONLY the cross-window behavior: the
+// window:restored emitter (pane-refit spec), the external-link open handler,
+// URL/file load, and the default `ready-to-show → show`. Main-only blocks
+// (registry {isMain:true}, session-restore push, native-rebuild recheck,
+// teardown-on-close) stay in createWindow; secondary-only ownership wiring
+// stays in createSecondaryWindow.
+function buildWindow(opts: {
+  width: number;
+  height: number;
+  title: string;
+  additionalArguments: string[];
+}): BrowserWindow {
+  const win = new BrowserWindow({
+    width: opts.width,
+    height: opts.height,
     minWidth: 1024,
     minHeight: 660,
-    title: 'SigmaLink',
+    title: opts.title,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 19, y: 9 } } : {}),
     backgroundColor: '#0a0c12',
@@ -630,10 +645,44 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      additionalArguments: [
-        '--sigma-window-main=1',
-      ],
+      additionalArguments: opts.additionalArguments,
     },
+  });
+
+  if (devServerUrl) {
+    void win.loadURL(devServerUrl);
+  } else {
+    void win.loadFile(path.join(__dirname, '../dist/index.html'));
+  }
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  // Pane-refit spec 2026-06-11 — un-minimizing ('restore') or re-showing
+  // ('show', e.g. macOS cmd+H un-hide) never fires the renderer's
+  // ResizeObservers, while Chromium occlusion throttling may have stalled
+  // WebGL frames; emit an explicit signal so terminals force a repaint.
+  // Every window (main + secondary) needs this.
+  const emitRestored = () => {
+    if (!win.isDestroyed()) win.webContents.send('window:restored', {});
+  };
+  win.on('restore', emitRestored);
+  win.on('show', emitRestored);
+
+  win.once('ready-to-show', () => win.show());
+  return win;
+}
+
+function createWindow(): void {
+  mainWindow = buildWindow({
+    width: 1480,
+    height: 960,
+    title: 'SigmaLink',
+    additionalArguments: [
+      '--sigma-window-main=1',
+    ],
   });
 
   // Multi-window A2 — register this renderer window with the WindowRegistry as
@@ -642,24 +691,6 @@ function createWindow(): void {
   // id so the `closed` handler can unregister even after `mainWindow` is null.
   const winId = mainWindow.id;
   getWindowRegistry().registerWindow(asHandle(mainWindow), { isMain: true });
-
-  // Pane-refit spec 2026-06-11 — un-minimizing ('restore') or re-showing
-  // ('show', e.g. macOS cmd+H un-hide) never fires the renderer's
-  // ResizeObservers, while Chromium occlusion throttling may have stalled
-  // WebGL frames; emit an explicit signal so terminals force a repaint.
-  const emitWindowRestored = () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('window:restored', {});
-    }
-  };
-  mainWindow.on('restore', emitWindowRestored);
-  mainWindow.on('show', emitWindowRestored);
-
-  if (devServerUrl) {
-    void mainWindow.loadURL(devServerUrl);
-  } else {
-    void mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-  }
 
   // BUG-V1.1.2-02 — once the renderer's bundle has loaded, push the persisted
   // session snapshot so AppStateProvider can dispatch SET_ACTIVE_WORKSPACE +
@@ -684,8 +715,12 @@ function createWindow(): void {
     }
   });
 
+  // buildWindow already owns the default `once('ready-to-show', show)`. The
+  // main window needs its native-rebuild recheck too; attach it as a SECOND
+  // `once('ready-to-show')` listener (Electron fires all once-listeners on the
+  // single emit). The redundant show() inside buildWindow's listener runs
+  // first; a second show() on an already-shown window is a no-op (acceptable).
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
     // V3-W14-009 — re-run the native-module probe once the renderer is
     // listening. The boot self-check above already gates the dominant
     // failure mode (ABI mismatch on cold start), but a `pnpm install` that
@@ -705,11 +740,6 @@ function createWindow(): void {
     }
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
-    return { action: 'deny' };
-  });
-
   mainWindow.on('closed', () => {
     // Tear down any per-workspace BrowserManagers that were attached to this
     // window so their child WebContentsViews don't outlive the parent and
@@ -722,8 +752,69 @@ function createWindow(): void {
     // released workspaceIds ignored here — re-dock responsibility lands with
     // the secondary-window factory (B1).
     getWindowRegistry().unregisterWindow(winId); // Multi-window A2 — drop on close
+    // MAIN-CLOSES-ALL (B1) — closing the main window tears down the whole app;
+    // close every surviving secondary window so they don't orphan. Each
+    // secondary's own `closed` handler runs its re-dock cleanup, but with the
+    // main window already gone `mainWindow()` returns null → it skips re-dock
+    // cleanly (PTYs untouched).
+    for (const other of BrowserWindow.getAllWindows()) {
+      if (!other.isDestroyed()) other.close();
+    }
     mainWindow = null;
   });
+}
+
+// Multi-window B1 — diagnostic-only monotonic id passed as `--sigma-window-id`.
+// NEVER used for ownership (the registry keys on Electron's win.id); purely a
+// human-readable marker in the preload args for debugging. Starts at 1000 to
+// stay visually distinct from Electron's low BrowserWindow ids.
+let nextSecondaryWindowSeq = 1000;
+
+// Multi-window B1 — factory for a detached secondary window that owns a single
+// workspace. Registers with the WindowRegistry (isMain:false), assigns the
+// workspace, and on close RE-DOCKS everything it owned back to the main window
+// (PTYs untouched — only the routing ownership moves). B2 wires the call site;
+// nothing invokes this yet (dead-but-compiled is expected).
+export function createSecondaryWindow(workspaceId: string, workspaceName: string): BrowserWindow {
+  const win = buildWindow({
+    width: 1100,
+    height: 800,
+    title: `${workspaceName} — SigmaLink`,
+    additionalArguments: [
+      '--sigma-window-main=0',
+      `--sigma-workspace-scope=${workspaceId}`,
+      `--sigma-window-id=${nextSecondaryWindowSeq++}`, // diagnostic only — never used for ownership
+    ],
+  });
+
+  const registry = getWindowRegistry();
+  registry.registerWindow(asHandle(win), { isMain: false });
+  registry.assignWorkspace(workspaceId, win.id);
+  registry.broadcastScopes();
+  refreshOpenWorkspaces(); // detached set changed; raw echoed list may not have yet
+
+  win.on('closed', () => {
+    // Re-dock everything this window owned to the main window. PTYs untouched.
+    // ORDER (A4 continuity rule): seed the echoed open-list BEFORE the registry
+    // stops reporting the workspace detached, so the union never drops it.
+    const owned = registry.scopes().find((s) => s.windowId === win.id)?.workspaceIds ?? [];
+    const main = registry.mainWindow();
+    if (main) {
+      for (const wsId of owned) markWorkspaceOpened(wsId); // raw list regains them + emits
+    }
+    registry.unregisterWindow(win.id);
+    if (main) {
+      // assignWorkspace throws on an unregistered windowId; `main` is the live
+      // (non-destroyed) main window the registry just returned, so it IS
+      // registered. On the quit path (main-closes-all) mainWindow() returns
+      // null and we skip re-dock cleanly.
+      for (const wsId of owned) registry.assignWorkspace(wsId, main.id);
+    }
+    registry.broadcastScopes();
+    refreshOpenWorkspaces(); // belt-and-braces for the raw-unchanged case
+  });
+
+  return win;
 }
 
 // v1.1.1 — single-instance lock. Without this, double-clicking the .app a
