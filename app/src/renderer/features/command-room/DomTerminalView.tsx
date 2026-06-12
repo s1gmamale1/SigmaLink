@@ -9,12 +9,15 @@
 // compositor state to repaint), dragFit (CSS wrap handles live drag), WebGL
 // addon, link addon (FlowView anchors land in P2).
 
-import { useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
 import { encodeKeyEvent, encodePaste, isNativePasteCombo } from './input-encoder';
 import { encodeSgrMouse, shouldReportMouse } from './mouse-encoder';
 import { getPlatform } from '@/renderer/lib/platform';
+import { useAppStateSelector } from '@/renderer/app/state';
+import { useRightRail } from '@/renderer/features/right-rail/RightRailContext.data';
+import { routeLinkClick } from './route-link-click';
 import { FlowView } from './FlowView';
 import { GridView } from './GridView';
 import { RefitController } from './refit-controller';
@@ -47,6 +50,21 @@ export function DomTerminalView({
   // alt-screen enter/exit (1049h/l). Cheap: the host renders a few divs.
   const [, bump] = useReducer((n: number) => n + 1, 0);
   useEffect(() => entry.engine.onBufferChanged(bump), [entry]);
+
+  // FlowView link context — mirror the xterm host (Terminal.tsx): a clicked
+  // PTY-pane link routes through the active workspace's built-in browser via
+  // the shared routeLinkClick. The workspace id is read from a mutable ref so
+  // the callback identity stays stable (FlowView memoizes rows on it).
+  const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspace?.id);
+  const wsIdRef = useRef<string | undefined>(activeWorkspaceId);
+  useEffect(() => {
+    wsIdRef.current = activeWorkspaceId;
+  }, [activeWorkspaceId]);
+  const { setActiveTab } = useRightRail();
+  const onLinkClick = useCallback(
+    (url: string) => routeLinkClick(url, wsIdRef.current, () => setActiveTab('browser')),
+    [setActiveTab],
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -331,7 +349,7 @@ export function DomTerminalView({
       {entry.engine.bufferType === 'alternate' ? (
         <GridView engine={entry.engine} />
       ) : (
-        <FlowView engine={entry.engine} />
+        <FlowView engine={entry.engine} onLinkClick={onLinkClick} />
       )}
       <textarea
         ref={inputRef}

@@ -19,6 +19,23 @@ vi.mock('@/renderer/lib/rpc', () => ({ rpc: rpcMock, rpcSilent: rpcMock }));
 vi.mock('@/renderer/lib/pty-data-bus', () => ({ subscribePtyData: () => () => undefined }));
 vi.mock('@/renderer/lib/pty-exit-bus', () => ({ subscribeExit: () => () => undefined }));
 
+// FlowView link context (P2): the host reads the active workspace + right-rail
+// and routes clicked links through the shared routeLinkClick. Mock all three
+// so the host renders without a provider tree; the link test asserts the
+// route-link-click spy received the url + workspace id.
+const routeLinkClickMock = vi.fn();
+vi.mock('./route-link-click', () => ({
+  routeLinkClick: (...args: unknown[]) => routeLinkClickMock(...args),
+}));
+const setActiveTabMock = vi.fn();
+vi.mock('@/renderer/features/right-rail/RightRailContext.data', () => ({
+  useRightRail: () => ({ activeTab: 'browser', setActiveTab: setActiveTabMock }),
+}));
+vi.mock('@/renderer/app/state', () => ({
+  useAppStateSelector: (selector: (s: { activeWorkspace?: { id?: string } }) => unknown) =>
+    selector({ activeWorkspace: { id: 'ws-1' } }),
+}));
+
 import { __resetEngineCache, getCachedEngine } from '@/renderer/lib/engine-cache';
 import { DomTerminalView } from './DomTerminalView';
 
@@ -200,6 +217,24 @@ describe('DomTerminalView', () => {
     await settle();
     fireEvent.mouseDown(container.querySelector('[data-testid="dom-terminal-view"]')!, { button: 0 });
     expect(rpcMock.pty.write).not.toHaveBeenCalled();
+  });
+
+  it('clicking a FlowView link routes through routeLinkClick with the workspace id', async () => {
+    const { container } = render(<DomTerminalView sessionId="m4" />);
+    await settle();
+    const engine = getCachedEngine('m4')!.engine;
+    await act(
+      () =>
+        new Promise<void>((r) =>
+          engine.term.write('open https://a.dev/x now', () => setTimeout(r, 40)),
+        ),
+    );
+    const anchor = container.querySelector('[data-link]') as HTMLElement;
+    expect(anchor).toBeTruthy();
+    fireEvent.click(anchor);
+    expect(routeLinkClickMock).toHaveBeenCalledTimes(1);
+    expect(routeLinkClickMock.mock.calls[0][0]).toBe('https://a.dev/x');
+    expect(routeLinkClickMock.mock.calls[0][1]).toBe('ws-1');
   });
 
   it('switches FlowView↔GridView on buffer-type transitions', async () => {

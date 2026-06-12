@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { TerminalEngine } from '@/renderer/lib/terminal-engine';
 import { FlowView, MAX_RENDER_LINES } from './FlowView';
 
@@ -96,6 +96,37 @@ describe('FlowView', () => {
     expect(view.style.whiteSpace).toBe('pre-wrap');
     const red = Array.from(view.querySelectorAll('span')).find((sp) => sp.textContent === 'red')!;
     expect(red.style.display).not.toBe('inline-block');
+  });
+
+  it('renders a URL as a clickable [data-link] anchor (P2)', async () => {
+    const engine = makeEngine(60, 5);
+    const onLinkClick = vi.fn();
+    const { getByTestId } = render(<FlowView engine={engine} onLinkClick={onLinkClick} />);
+    await write(engine, 'open https://a.dev/x now');
+    const view = getByTestId('flow-view');
+    // text is preserved across the link-segment split
+    expect(view.textContent).toContain('open https://a.dev/x now');
+    const anchor = view.querySelector('[data-link]') as HTMLElement;
+    expect(anchor).toBeTruthy();
+    expect(anchor.getAttribute('data-link')).toBe('https://a.dev/x');
+    expect(anchor.style.textDecoration).toContain('underline');
+    fireEvent.click(anchor);
+    expect(onLinkClick).toHaveBeenCalledWith('https://a.dev/x');
+  });
+
+  it('highlights search matches and marks the active one (P2)', async () => {
+    const engine = makeEngine(40, 5);
+    const { getByTestId } = render(
+      <FlowView engine={engine} searchTerm="lo" activeMatch={{ line: 0, index: 0 }} />,
+    );
+    await write(engine, 'hello world hello');
+    const view = getByTestId('flow-view');
+    const highlights = Array.from(view.querySelectorAll('span')).filter(
+      (s) => s.style.backgroundColor && s.textContent?.toLowerCase() === 'lo',
+    );
+    expect(highlights.length).toBeGreaterThanOrEqual(1);
+    // the active match carries the data-search-active marker
+    expect(view.querySelector('[data-search-active]')).toBeTruthy();
   });
 
   it('caps rendered rows at MAX_RENDER_LINES', async () => {
