@@ -9,13 +9,18 @@
 // compositor state to repaint), dragFit (CSS wrap handles live drag), WebGL
 // addon, link addon (FlowView anchors land in P2).
 
-import { useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
 import { encodeKeyEvent, encodePaste, isNativePasteCombo } from './input-encoder';
+import { encodeSgrMouse, shouldReportMouse } from './mouse-encoder';
 import { getPlatform } from '@/renderer/lib/platform';
-import { FlowView } from './FlowView';
+import { useAppStateSelector } from '@/renderer/app/state';
+import { useRightRail } from '@/renderer/features/right-rail/RightRailContext.data';
+import { routeLinkClick } from './route-link-click';
+import { FlowView, MAX_RENDER_LINES } from './FlowView';
 import { GridView } from './GridView';
+import { PaneSearch } from './PaneSearch';
 import { RefitController } from './refit-controller';
 
 const PROBE_LEN = 10;
@@ -23,6 +28,32 @@ const PAD_X = 6; // FlowView horizontal padding — subtracted before cols math
 
 const MONO_FONT =
   'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace';
+
+/** Flat list of search matches across the RENDERED (visible) logical lines —
+ *  `line` is the index into the visible slice (FlowView's activeMatch.line
+ *  contract), `index` is which match within that line. Case-insensitive,
+ *  string ops only (no regex → no control-char-in-regex lint risk). */
+function computeMatches(
+  visibleTexts: string[],
+  term: string,
+): { line: number; index: number }[] {
+  if (!term) return [];
+  const needle = term.toLowerCase();
+  const out: { line: number; index: number }[] = [];
+  visibleTexts.forEach((text, line) => {
+    const hay = text.toLowerCase();
+    let from = 0;
+    let index = 0;
+    for (;;) {
+      const at = hay.indexOf(needle, from);
+      if (at === -1) break;
+      out.push({ line, index });
+      index += 1;
+      from = at + needle.length;
+    }
+  });
+  return out;
+}
 
 export function DomTerminalView({
   sessionId,
@@ -46,6 +77,56 @@ export function DomTerminalView({
   // alt-screen enter/exit (1049h/l). Cheap: the host renders a few divs.
   const [, bump] = useReducer((n: number) => n + 1, 0);
   useEffect(() => entry.engine.onBufferChanged(bump), [entry]);
+
+  // FlowView link context — mirror the xterm host (Terminal.tsx): a clicked
+  // PTY-pane link routes through the active workspace's built-in browser via
+  // the shared routeLinkClick. The workspace id is read from a mutable ref so
+  // the callback identity stays stable (FlowView memoizes rows on it).
+  const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspace?.id);
+  const wsIdRef = useRef<string | undefined>(activeWorkspaceId);
+  useEffect(() => {
+    wsIdRef.current = activeWorkspaceId;
+  }, [activeWorkspaceId]);
+  const { setActiveTab } = useRightRail();
+  const onLinkClick = useCallback(
+    (url: string) => routeLinkClick(url, wsIdRef.current, () => setActiveTab('browser')),
+    [setActiveTab],
+  );
+
+  // Find-in-pane state. Matches are recomputed each render from the engine's
+  // current visible lines (pane content is capped at MAX_RENDER_LINES, the
+  // same window FlowView renders + highlights — alt-screen apps own their own
+  // search so the overlay shows 0/0 there).
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeIdx, setActiveIdx] = useState(0);
+
+  let matches: { line: number; index: number }[] = [];
+  if (searchOpen && searchTerm && entry.engine.bufferType !== 'alternate') {
+    const lines = entry.engine.logicalLines();
+    const visible = lines.slice(Math.max(0, lines.length - MAX_RENDER_LINES));
+    matches = computeMatches(
+      visible.map((l) => l.text),
+      searchTerm,
+    );
+  }
+  const activeMatch =
+    matches.length > 0 ? matches[((activeIdx % matches.length) + matches.length) % matches.length]! : null;
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchTerm('');
+    setActiveIdx(0);
+    inputRef.current?.focus();
+  };
+  const onSearchTermChange = (term: string) => {
+    setSearchTerm(term);
+    setActiveIdx(0);
+  };
+  const onSearchNavigate = (direction: 1 | -1) => {
+    if (matches.length === 0) return;
+    setActiveIdx((i) => (((i + direction) % matches.length) + matches.length) % matches.length);
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -101,6 +182,26 @@ export function DomTerminalView({
     };
     window.addEventListener('sigma:pty-focus', onFocusReq);
 
+    // Shared cell-hit math: client coords → 1-based (col,row) in the terminal
+    // grid, clamped to the engine's current dimensions. Falls back to the
+    // 7.2px / 17px estimates when the probe span hasn't measured yet (jsdom).
+    const cellAt = (clientX: number, clientY: number): { col: number; row: number } => {
+      const rect = container.getBoundingClientRect();
+      const probe = probeRef.current;
+      const cellW = probe && probe.offsetWidth > 0 ? probe.offsetWidth / PROBE_LEN : 7.2;
+      const lineH = probe && probe.offsetHeight > 0 ? probe.offsetHeight : 17;
+      return {
+        col: Math.max(
+          1,
+          Math.min(entry.engine.term.cols, Math.floor((clientX - rect.left) / cellW) + 1),
+        ),
+        row: Math.max(
+          1,
+          Math.min(entry.engine.term.rows, Math.floor((clientY - rect.top) / lineH) + 1),
+        ),
+      };
+    };
+
     // Wheel routing, in priority order (parity with xterm.js's viewport):
     //   1. App requested wheel-capable mouse tracking with SGR encoding
     //      (claude fullscreen does: 1049+1000+1006) → SGR wheel REPORTS at
@@ -121,22 +222,15 @@ export function DomTerminalView({
       const n = Math.max(1, Math.min(10, Math.round(lines)));
 
       const mt = entry.engine.mouseTracking;
-      if (mt.active && mt.sgr) {
+      if (mt.mode !== 'none' && mt.mode !== 'x10' && mt.sgr) {
         ev.preventDefault();
-        const rect = container.getBoundingClientRect();
-        const probe = probeRef.current;
-        const cellW = probe && probe.offsetWidth > 0 ? probe.offsetWidth / PROBE_LEN : 7.2;
-        const lineH = probe && probe.offsetHeight > 0 ? probe.offsetHeight : LINE_PX;
-        const col = Math.max(
-          1,
-          Math.min(entry.engine.term.cols, Math.floor((ev.clientX - rect.left) / cellW) + 1),
-        );
-        const row = Math.max(
-          1,
-          Math.min(entry.engine.term.rows, Math.floor((ev.clientY - rect.top) / lineH) + 1),
-        );
+        const { col, row } = cellAt(ev.clientX, ev.clientY);
         const button = ev.deltaY < 0 ? 64 : 65; // SGR wheel up / down
-        const report = `\x1b[<${button};${col};${row}M`;
+        const report = encodeSgrMouse('press', button, col, row, {
+          shift: ev.shiftKey,
+          alt: ev.altKey,
+          ctrl: ev.ctrlKey,
+        });
         void rpc.pty.write(sessionId, report.repeat(n)).catch(() => undefined);
         return;
       }
@@ -157,9 +251,77 @@ export function DomTerminalView({
     };
     container.addEventListener('wheel', onWheel, { passive: false });
 
+    // P2 — pointer reporting. Shift is the universal "let me select text"
+    // bypass (xterm/iTerm convention): shifted events never report and never
+    // preventDefault, so native selection + the select-to-copy mouseup keep
+    // working even under tracking. Reports require SGR encoding (1006) —
+    // legacy encodings are not emitted.
+    let heldButton: number | null = null;
+    let lastMotionCell: string | null = null;
+    const report = (kind: 'press' | 'release' | 'motion', button: number, ev: MouseEvent) => {
+      const { col, row } = cellAt(ev.clientX, ev.clientY);
+      const bytes = encodeSgrMouse(kind, button, col, row, {
+        shift: ev.shiftKey,
+        alt: ev.altKey,
+        ctrl: ev.ctrlKey,
+      });
+      void rpc.pty.write(sessionId, bytes).catch(() => undefined);
+      return `${col};${row}`;
+    };
+    const trackingActive = () => {
+      const mt = entry.engine.mouseTracking;
+      return !entry.ptyExited && mt.mode !== 'none' && mt.sgr;
+    };
+    const onMouseDownNative = (ev: MouseEvent) => {
+      if (!trackingActive() || ev.shiftKey) return;
+      if (!shouldReportMouse(entry.engine.mouseTracking.mode, 'press', false)) return;
+      ev.preventDefault(); // suppress native selection start under tracking
+      inputRef.current?.focus();
+      heldButton = ev.button;
+      // Seed the motion-dedup with the press cell so the first same-cell move
+      // is coalesced away (one report per cell, not press + redundant motion).
+      lastMotionCell = report('press', ev.button, ev);
+    };
+    const onMouseUpNative = (ev: MouseEvent) => {
+      if (heldButton === null) return;
+      const btn = heldButton;
+      heldButton = null;
+      if (!trackingActive() || ev.shiftKey) return;
+      if (!shouldReportMouse(entry.engine.mouseTracking.mode, 'release', false)) return;
+      report('release', btn, ev);
+    };
+    const onMouseMoveNative = (ev: MouseEvent) => {
+      if (!trackingActive() || ev.shiftKey) return;
+      const mode = entry.engine.mouseTracking.mode;
+      if (!shouldReportMouse(mode, 'motion', heldButton !== null)) return;
+      const { col, row } = cellAt(ev.clientX, ev.clientY);
+      const cellKey = `${col};${row}`;
+      if (cellKey === lastMotionCell) return; // one report per cell, not per pixel
+      lastMotionCell = cellKey;
+      // motion carries the held button, or 3 (release/no-button) in any-mode
+      const button = heldButton ?? 3;
+      void rpc.pty
+        .write(
+          sessionId,
+          encodeSgrMouse('motion', button, col, row, {
+            shift: ev.shiftKey,
+            alt: ev.altKey,
+            ctrl: ev.ctrlKey,
+          }),
+        )
+        .catch(() => undefined);
+    };
+    container.addEventListener('mousedown', onMouseDownNative);
+    // window-level so a release outside the pane still ends the drag
+    window.addEventListener('mouseup', onMouseUpNative);
+    container.addEventListener('mousemove', onMouseMoveNative);
+
     return () => {
       entry.mounted = false;
       container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('mousedown', onMouseDownNative);
+      window.removeEventListener('mouseup', onMouseUpNative);
+      container.removeEventListener('mousemove', onMouseMoveNative);
       controller.dispose();
       try {
         ro.disconnect();
@@ -179,6 +341,18 @@ export function DomTerminalView({
 
   const onKeyDown = (ev: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (entry.ptyExited) return;
+    // Find-in-pane open: mac ⌘F, win/linux Ctrl+Shift+F (plain Ctrl+F stays
+    // readline forward-char). Handled before the encoder so the keystroke
+    // never reaches the PTY.
+    const isMac = getPlatform() === 'darwin';
+    if (
+      (isMac && ev.metaKey && !ev.ctrlKey && ev.key.toLowerCase() === 'f') ||
+      (!isMac && ev.ctrlKey && ev.shiftKey && ev.key.toLowerCase() === 'f')
+    ) {
+      ev.preventDefault();
+      setSearchOpen(true);
+      return;
+    }
     const keyEvent = {
       key: ev.key,
       ctrlKey: ev.ctrlKey,
@@ -208,7 +382,10 @@ export function DomTerminalView({
 
   // Click focuses the input host — but never at the cost of an in-progress
   // text selection; select-to-copy parity with the xterm path's
-  // onSelectionChange→clipboard pipe.
+  // onSelectionChange→clipboard pipe. While the hosted app is tracking the
+  // mouse (SGR) the native press handler already focused + owns the click, so
+  // the focus() fallback here must stand down (shift-selection still works:
+  // shifted events bypass tracking, leaving a real selection to copy below).
   const onMouseUp = () => {
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) {
@@ -216,6 +393,8 @@ export function DomTerminalView({
       if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
       return;
     }
+    const mt = entry.engine.mouseTracking;
+    if (mt.mode !== 'none' && mt.sgr) return; // tracking owns the unshifted click
     inputRef.current?.focus();
   };
 
@@ -241,10 +420,25 @@ export function DomTerminalView({
       >
         {'W'.repeat(PROBE_LEN)}
       </span>
+      {searchOpen && (
+        <PaneSearch
+          term={searchTerm}
+          matchCount={matches.length}
+          activeIndex={matches.length > 0 ? ((activeIdx % matches.length) + matches.length) % matches.length : 0}
+          onTermChange={onSearchTermChange}
+          onNavigate={onSearchNavigate}
+          onClose={closeSearch}
+        />
+      )}
       {entry.engine.bufferType === 'alternate' ? (
         <GridView engine={entry.engine} />
       ) : (
-        <FlowView engine={entry.engine} />
+        <FlowView
+          engine={entry.engine}
+          onLinkClick={onLinkClick}
+          searchTerm={searchOpen ? searchTerm : undefined}
+          activeMatch={activeMatch}
+        />
       )}
       <textarea
         ref={inputRef}

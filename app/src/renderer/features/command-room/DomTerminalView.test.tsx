@@ -19,6 +19,23 @@ vi.mock('@/renderer/lib/rpc', () => ({ rpc: rpcMock, rpcSilent: rpcMock }));
 vi.mock('@/renderer/lib/pty-data-bus', () => ({ subscribePtyData: () => () => undefined }));
 vi.mock('@/renderer/lib/pty-exit-bus', () => ({ subscribeExit: () => () => undefined }));
 
+// FlowView link context (P2): the host reads the active workspace + right-rail
+// and routes clicked links through the shared routeLinkClick. Mock all three
+// so the host renders without a provider tree; the link test asserts the
+// route-link-click spy received the url + workspace id.
+const routeLinkClickMock = vi.fn();
+vi.mock('./route-link-click', () => ({
+  routeLinkClick: (...args: unknown[]) => routeLinkClickMock(...args),
+}));
+const setActiveTabMock = vi.fn();
+vi.mock('@/renderer/features/right-rail/RightRailContext.data', () => ({
+  useRightRail: () => ({ activeTab: 'browser', setActiveTab: setActiveTabMock }),
+}));
+vi.mock('@/renderer/app/state', () => ({
+  useAppStateSelector: (selector: (s: { activeWorkspace?: { id?: string } }) => unknown) =>
+    selector({ activeWorkspace: { id: 'ws-1' } }),
+}));
+
 import { __resetEngineCache, getCachedEngine } from '@/renderer/lib/engine-cache';
 import { DomTerminalView } from './DomTerminalView';
 
@@ -163,6 +180,100 @@ describe('DomTerminalView', () => {
     await settle();
     fireEvent.keyDown(container.querySelector('textarea')!, { key: 'v', ctrlKey: true });
     expect(rpcMock.pty.write).toHaveBeenCalledWith('d8', '\x16');
+  });
+
+  it('reports SGR press/release when the app tracks the mouse; shift bypasses for selection', async () => {
+    const { container } = render(<DomTerminalView sessionId="m1" />);
+    await settle();
+    const engine = getCachedEngine('m1')!.engine;
+    await new Promise<void>((r) => engine.term.write('\x1b[?1049h\x1b[?1000h\x1b[?1006h', () => r()));
+    const view = container.querySelector('[data-testid="dom-terminal-view"]')!;
+    fireEvent.mouseDown(view, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.mouseUp(view, { button: 0, clientX: 0, clientY: 0 });
+    const sent = rpcMock.pty.write.mock.calls.map((c) => c[1]).join('');
+    expect(sent).toContain('\x1b[<0;1;1M');
+    expect(sent).toContain('\x1b[<0;1;1m');
+    rpcMock.pty.write.mockClear();
+    fireEvent.mouseDown(view, { button: 0, shiftKey: true });
+    expect(rpcMock.pty.write).not.toHaveBeenCalled(); // shift = native selection
+  });
+
+  it('drag mode (1002) reports motion only while pressed; cell-deduped', async () => {
+    const { container } = render(<DomTerminalView sessionId="m2" />);
+    await settle();
+    const engine = getCachedEngine('m2')!.engine;
+    await new Promise<void>((r) => engine.term.write('\x1b[?1049h\x1b[?1002h\x1b[?1006h', () => r()));
+    const view = container.querySelector('[data-testid="dom-terminal-view"]')!;
+    fireEvent.mouseMove(view, { clientX: 0, clientY: 0 });
+    expect(rpcMock.pty.write).not.toHaveBeenCalled(); // not pressed
+    fireEvent.mouseDown(view, { button: 0, clientX: 0, clientY: 0 });
+    rpcMock.pty.write.mockClear();
+    fireEvent.mouseMove(view, { clientX: 0, clientY: 0 }); // same cell → deduped
+    expect(rpcMock.pty.write).not.toHaveBeenCalled();
+  });
+
+  it('no tracking → no reports, selection untouched', async () => {
+    const { container } = render(<DomTerminalView sessionId="m3" />);
+    await settle();
+    fireEvent.mouseDown(container.querySelector('[data-testid="dom-terminal-view"]')!, { button: 0 });
+    expect(rpcMock.pty.write).not.toHaveBeenCalled();
+  });
+
+  it('clicking a FlowView link routes through routeLinkClick with the workspace id', async () => {
+    const { container } = render(<DomTerminalView sessionId="m4" />);
+    await settle();
+    const engine = getCachedEngine('m4')!.engine;
+    await act(
+      () =>
+        new Promise<void>((r) =>
+          engine.term.write('open https://a.dev/x now', () => setTimeout(r, 40)),
+        ),
+    );
+    const anchor = container.querySelector('[data-link]') as HTMLElement;
+    expect(anchor).toBeTruthy();
+    fireEvent.click(anchor);
+    expect(routeLinkClickMock).toHaveBeenCalledTimes(1);
+    expect(routeLinkClickMock.mock.calls[0][0]).toBe('https://a.dev/x');
+    expect(routeLinkClickMock.mock.calls[0][1]).toBe('ws-1');
+  });
+
+  it('Cmd+F opens find-in-pane; typing highlights matches; Escape closes + refocuses (P2)', async () => {
+    const { container } = render(<DomTerminalView sessionId="m5" />);
+    await settle();
+    const engine = getCachedEngine('m5')!.engine;
+    await act(
+      () => new Promise<void>((r) => engine.term.write('hello world hello', () => setTimeout(r, 40))),
+    );
+    const input = container.querySelector('textarea')!;
+    // default platform is darwin → Cmd+F opens the search bar
+    fireEvent.keyDown(input, { key: 'f', metaKey: true });
+    expect(container.querySelector('[data-testid="pane-search"]')).toBeTruthy();
+    // the keystroke must NOT reach the PTY
+    expect(rpcMock.pty.write).not.toHaveBeenCalled();
+
+    const searchInput = container.querySelector(
+      '[data-testid="pane-search"] input',
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(searchInput, { target: { value: 'hello' } });
+    });
+    // FlowView renders a highlight span for the active match
+    const flow = container.querySelector('[data-testid="flow-view"]')!;
+    expect(flow.querySelector('[data-search-active]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="pane-search-count"]')!.textContent).toBe('1/2');
+
+    fireEvent.keyDown(searchInput, { key: 'Escape' });
+    expect(container.querySelector('[data-testid="pane-search"]')).toBeNull();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('Ctrl+F alone does NOT open search (stays readline forward-char) (P2)', async () => {
+    const { container } = render(<DomTerminalView sessionId="m6" />);
+    await settle();
+    fireEvent.keyDown(container.querySelector('textarea')!, { key: 'f', ctrlKey: true });
+    expect(container.querySelector('[data-testid="pane-search"]')).toBeNull();
+    // Ctrl+F encodes to \x06 (readline forward-char) and reaches the PTY
+    expect(rpcMock.pty.write).toHaveBeenCalledWith('m6', '\x06');
   });
 
   it('switches FlowView↔GridView on buffer-type transitions', async () => {

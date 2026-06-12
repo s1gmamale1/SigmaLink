@@ -14,10 +14,35 @@
 // live tail (where TUIs repaint/recolor) always re-render. A style-only
 // change deep in scrollback not re-rendering is a documented P1b limitation.
 
+import type { CSSProperties } from 'react';
 import { memo, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
 import type { TerminalEngine } from '@/renderer/lib/terminal-engine';
 import { DEFAULT_BG, DEFAULT_FG } from './ansi-palette';
 import { CURSOR_STYLE, runStyle } from './run-style';
+import { findUrls } from './linkify';
+import { segmentRuns, type Decoration, type LineSegment } from './line-segments';
+import { deriveBlocks } from './command-blocks';
+
+/** Search highlight backgrounds (normal match / the active/current match). */
+const SEARCH_BG_NORMAL = '#7c5e10';
+const SEARCH_BG_ACTIVE = '#b8860b';
+
+/** Case-insensitive match offsets of `term` within `text` (string ops only —
+ *  no regex, so no control-char-in-regex lint risk and no escaping). */
+function findMatches(text: string, term: string): { start: number; end: number }[] {
+  if (!term) return [];
+  const out: { start: number; end: number }[] = [];
+  const hay = text.toLowerCase();
+  const needle = term.toLowerCase();
+  let from = 0;
+  for (;;) {
+    const at = hay.indexOf(needle, from);
+    if (at === -1) break;
+    out.push({ start: at, end: at + needle.length });
+    from = at + needle.length;
+  }
+  return out;
+}
 
 export const MAX_RENDER_LINES = 1500;
 /** Rows from the bottom that re-render on every buffer change. */
@@ -38,33 +63,88 @@ interface LineRowProps {
   live: boolean;
   /** Character offset of the cursor within this logical line, or null. */
   cursorOffset: number | null;
+  /** Active find-in-pane term (undefined when search is closed). */
+  searchTerm: string | undefined;
+  /** Index of the active match WITHIN THIS ROW, or null if this row holds none. */
+  activeMatchIndex: number | null;
+  onLinkClick: ((url: string) => void) | undefined;
+  /** This row is the first line of an OSC-133 command block (A mark). */
+  blockStart: boolean;
+  /** This row is inside a command block whose exit code was nonzero. */
+  blockFailed: boolean;
+}
+
+/** Style + per-segment decoration → a span's CSSProperties (link underline,
+ *  search background). The decoration styling layers ON TOP of the run style. */
+function segStyle(seg: LineSegment): CSSProperties {
+  const style = runStyle(seg, false);
+  if (seg.search) {
+    style.backgroundColor = seg.search === 'active' ? SEARCH_BG_ACTIVE : SEARCH_BG_NORMAL;
+  }
+  if (seg.link) {
+    style.textDecoration = 'underline';
+    style.cursor = 'pointer';
+  }
+  return style;
 }
 
 const LineRow = memo(
-  function LineRow({ engine, startRow, cursorOffset }: LineRowProps) {
+  function LineRow({
+    engine,
+    startRow,
+    text,
+    cursorOffset,
+    searchTerm,
+    activeMatchIndex,
+    onLinkClick,
+    blockStart,
+    blockFailed,
+  }: LineRowProps) {
     const runs = engine.styledLine(startRow);
+    // Decorations: link anchors (plain-URL) + search highlights. The match at
+    // `activeMatchIndex` (if this row is the active line) is the 'active' one.
+    const decorations: Decoration[] = [];
+    for (const u of findUrls(text)) decorations.push({ start: u.start, end: u.end, link: u.url });
+    if (searchTerm) {
+      const matches = findMatches(text, searchTerm);
+      matches.forEach((m, mi) => {
+        decorations.push({
+          start: m.start,
+          end: m.end,
+          search: mi === activeMatchIndex ? 'active' : 'normal',
+        });
+      });
+    }
+    const segments = segmentRuns(runs, decorations);
     const children: React.ReactNode[] = [];
     let consumed = 0;
     let cursorPlaced = false;
-    runs.forEach((run, i) => {
-      if (cursorOffset !== null && !cursorPlaced && cursorOffset < consumed + run.text.length) {
+    segments.forEach((seg, i) => {
+      const style = segStyle(seg);
+      const extra: React.HTMLAttributes<HTMLSpanElement> & { 'data-link'?: string; 'data-search-active'?: string } = {};
+      if (seg.link) {
+        extra['data-link'] = seg.link;
+        const url = seg.link;
+        extra.onClick = () => onLinkClick?.(url);
+      }
+      if (seg.search === 'active') extra['data-search-active'] = '';
+      if (cursorOffset !== null && !cursorPlaced && cursorOffset < consumed + seg.text.length) {
         const at = cursorOffset - consumed;
-        const before = run.text.slice(0, at);
-        const cursorChar = run.text.slice(at, at + 1) || ' ';
-        const after = run.text.slice(at + 1);
-        const style = runStyle(run, false);
-        if (before) children.push(<span key={`${i}b`} style={style}>{before}</span>);
+        const before = seg.text.slice(0, at);
+        const cursorChar = seg.text.slice(at, at + 1) || ' ';
+        const after = seg.text.slice(at + 1);
+        if (before) children.push(<span key={`${i}b`} style={style} {...extra}>{before}</span>);
         children.push(
           <span key={`${i}c`} data-cursor style={{ ...style, ...CURSOR_STYLE }}>
             {cursorChar}
           </span>,
         );
-        if (after) children.push(<span key={`${i}a`} style={style}>{after}</span>);
+        if (after) children.push(<span key={`${i}a`} style={style} {...extra}>{after}</span>);
         cursorPlaced = true;
       } else {
-        children.push(<span key={i} style={runStyle(run, false)}>{run.text}</span>);
+        children.push(<span key={i} style={style} {...extra}>{seg.text}</span>);
       }
-      consumed += run.text.length;
+      consumed += seg.text.length;
     });
     if (cursorOffset !== null && !cursorPlaced) {
       // The buffer cursor can sit BEYOND the trimmed runs (styledLine drops
@@ -79,11 +159,22 @@ const LineRow = memo(
         </span>,
       );
     }
+    const rowStyle: CSSProperties = {
+      contentVisibility: 'auto',
+      containIntrinsicSize: `auto ${LINE_HEIGHT_PX}px`,
+    };
+    // OSC-133 command-block gutters: a red left rule flags a failed block; a
+    // faint top rule marks the start of a new command block (the prompt line).
+    if (blockFailed) {
+      rowStyle.borderLeft = '2px solid #ef4444';
+      rowStyle.paddingLeft = 4;
+    }
+    if (blockStart) {
+      rowStyle.borderTop = '1px solid rgba(82,90,115,0.35)';
+      rowStyle.marginTop = 2;
+    }
     return (
-      <div
-        data-row={startRow}
-        style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${LINE_HEIGHT_PX}px` }}
-      >
+      <div data-row={startRow} style={rowStyle}>
         {children.length > 0 ? children : ' '}
       </div>
     );
@@ -92,15 +183,45 @@ const LineRow = memo(
     !next.live &&
     prev.text === next.text &&
     prev.startRow === next.startRow &&
-    prev.cursorOffset === next.cursorOffset,
+    prev.cursorOffset === next.cursorOffset &&
+    prev.searchTerm === next.searchTerm &&
+    prev.activeMatchIndex === next.activeMatchIndex &&
+    prev.onLinkClick === next.onLinkClick &&
+    prev.blockStart === next.blockStart &&
+    prev.blockFailed === next.blockFailed,
 );
 
-export function FlowView({ engine, className }: { engine: TerminalEngine; className?: string }) {
+export function FlowView({
+  engine,
+  className,
+  onLinkClick,
+  searchTerm,
+  activeMatch,
+}: {
+  engine: TerminalEngine;
+  className?: string;
+  onLinkClick?: (url: string) => void;
+  searchTerm?: string;
+  /** `line` = logical-line array index (in the rendered `visible` slice);
+   *  `index` = which match within that line is the current/active one. */
+  activeMatch?: { line: number; index: number } | null;
+}) {
   const [, bump] = useReducer((n: number) => n + 1, 0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
 
   useEffect(() => engine.onBufferChanged(bump), [engine]);
+
+  // Scroll the active match into view when it changes.
+  useEffect(() => {
+    try {
+      scrollRef.current
+        ?.querySelector('[data-search-active]')
+        ?.scrollIntoView({ block: 'nearest' });
+    } catch {
+      /* jsdom / detached */
+    }
+  }, [activeMatch?.line, activeMatch?.index, searchTerm]);
 
   // Stick-to-bottom: follow output while the user is at the bottom; stop the
   // moment they scroll up; resume when they return to the bottom.
@@ -117,6 +238,8 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
 
   const lines = engine.logicalLines();
   const visible = lines.slice(Math.max(0, lines.length - MAX_RENDER_LINES));
+  // OSC-133 command blocks (marks array is small — derive per render).
+  const blocks = deriveBlocks(engine.promptMarks);
   const liveFromRow =
     visible.length > 0 ? visible[Math.max(0, visible.length - LIVE_TAIL_LINES)]!.startRow : 0;
   const cursor = engine.cursor;
@@ -166,6 +289,17 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
           cursorOffset={
             i === cursorLine ? (cursor.row - l.startRow) * engine.term.cols + cursor.col : null
           }
+          searchTerm={searchTerm}
+          activeMatchIndex={activeMatch && activeMatch.line === i ? activeMatch.index : null}
+          onLinkClick={onLinkClick}
+          blockStart={blocks.some((b) => b.startRow === l.startRow)}
+          blockFailed={blocks.some(
+            (b) =>
+              typeof b.exitCode === 'number' &&
+              b.exitCode !== 0 &&
+              l.startRow >= b.startRow &&
+              l.startRow <= b.endRow,
+          )}
         />
       ))}
     </div>

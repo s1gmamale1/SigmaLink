@@ -42,6 +42,19 @@ export interface RunColor {
   value: number;
 }
 
+/** OSC-133 (FinalTerm shell-integration) prompt mark. */
+export interface PromptMark {
+  kind: 'A' | 'B' | 'C' | 'D';
+  /** Absolute buffer row (baseY + cursorY) at mark time. Drifts once the
+   *  scrollback trims past it — accepted: trimmed rows are out of the render
+   *  window anyway. */
+  row: number;
+  /** Only on 'D' marks that carried one (`133;D;<code>`). */
+  exitCode?: number;
+}
+
+const MAX_PROMPT_MARKS = 2048;
+
 /** One attribute-contiguous span of a logical line. */
 export interface StyledRun {
   text: string;
@@ -80,6 +93,7 @@ export class TerminalEngine {
   private notifyScheduled = false;
   private disposed = false;
   private sgrMouseMode = false;
+  private readonly marks: PromptMark[] = [];
 
   constructor(delegate: EngineDelegate, opts: EngineOptions = {}) {
     this.term = new HeadlessTerminal({
@@ -112,6 +126,26 @@ export class TerminalEngine {
     this.disposers.push(
       this.term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, watch1006(false)),
     );
+    // OSC 133 (FinalTerm shell integration): A=prompt B=command-start
+    // C=output-start D=command-end[;exit]. Recording rows here gives the
+    // FlowView its command-block gutters. Return true: the mark is consumed
+    // (xterm has no default handler for 133 anyway).
+    this.disposers.push(
+      this.term.parser.registerOscHandler(133, (data) => {
+        const kind = data[0];
+        if (kind === 'A' || kind === 'B' || kind === 'C' || kind === 'D') {
+          const buf = this.term.buffer.active;
+          const mark: PromptMark = { kind, row: buf.baseY + buf.cursorY };
+          if (kind === 'D' && data.length > 2) {
+            const code = Number(data.slice(2).split(';')[0]);
+            if (Number.isFinite(code)) mark.exitCode = code;
+          }
+          this.marks.push(mark);
+          if (this.marks.length > MAX_PROMPT_MARKS) this.marks.shift();
+        }
+        return true;
+      }),
+    );
   }
 
   write(data: string): void {
@@ -138,12 +172,16 @@ export class TerminalEngine {
     return this.term.buffer.active.type;
   }
 
-  /** Whether the hosted app requested wheel-capable mouse tracking, and
-   *  whether reports must use SGR encoding (x10 is press-only legacy — it
-   *  never reports wheel, so it does not count as active). */
-  get mouseTracking(): { active: boolean; sgr: boolean } {
-    const m = this.term.modes.mouseTrackingMode;
-    return { active: m !== 'none' && m !== 'x10', sgr: this.sgrMouseMode };
+  /** Granular mouse-tracking state. `mode` mirrors xterm verbatim ('x10' is
+   *  press-only legacy and reports no wheel/motion); `sgr` tracks DECSET 1006
+   *  via the parser hook (the public modes API hides the report encoding). */
+  get mouseTracking(): { mode: 'none' | 'x10' | 'vt200' | 'drag' | 'any'; sgr: boolean } {
+    return { mode: this.term.modes.mouseTrackingMode, sgr: this.sgrMouseMode };
+  }
+
+  /** OSC-133 shell-integration marks (FinalTerm protocol), oldest first. */
+  get promptMarks(): readonly PromptMark[] {
+    return this.marks;
   }
 
   /** Modes the presenter's InputEncoder must respect (DECCKM, bracketed paste). */
