@@ -630,6 +630,9 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      additionalArguments: [
+        '--sigma-window-main=1',
+      ],
     },
   });
 
