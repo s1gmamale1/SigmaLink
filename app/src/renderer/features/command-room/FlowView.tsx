@@ -29,7 +29,7 @@ const STICK_SLOP_PX = 8;
 const MONO_FONT =
   'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace';
 
-function runStyle(run: StyledRun): CSSProperties {
+function runStyle(run: StyledRun, alt: boolean): CSSProperties {
   let color = colorFor(run.fg, 'fg');
   let background = colorFor(run.bg, 'bg');
   if (run.inverse) {
@@ -39,6 +39,14 @@ function runStyle(run: StyledRun): CSSProperties {
     background = fgResolved;
   }
   const style: CSSProperties = {};
+  // Alt-screen fidelity: an INLINE span's background only covers the glyph
+  // box, so a TUI that paints whole rows (opencode's theme fill) showed dark
+  // stripes between rows. inline-block makes the background span the full
+  // line box; vertical-align keeps rows top-aligned.
+  if (alt) {
+    style.display = 'inline-block';
+    style.verticalAlign = 'top';
+  }
   if (color) style.color = color;
   if (background) style.backgroundColor = background;
   if (run.bold) style.fontWeight = 700;
@@ -59,10 +67,12 @@ interface LineRowProps {
   live: boolean;
   /** Character offset of the cursor within this logical line, or null. */
   cursorOffset: number | null;
+  /** Alternate-buffer rendering: no wrap, full-height run backgrounds. */
+  alt: boolean;
 }
 
 const LineRow = memo(
-  function LineRow({ engine, startRow, cursorOffset }: LineRowProps) {
+  function LineRow({ engine, startRow, cursorOffset, alt }: LineRowProps) {
     const runs = engine.styledLine(startRow);
     const children: React.ReactNode[] = [];
     let consumed = 0;
@@ -73,7 +83,7 @@ const LineRow = memo(
         const before = run.text.slice(0, at);
         const cursorChar = run.text.slice(at, at + 1) || ' ';
         const after = run.text.slice(at + 1);
-        const style = runStyle(run);
+        const style = runStyle(run, alt);
         if (before) children.push(<span key={`${i}b`} style={style}>{before}</span>);
         children.push(
           <span key={`${i}c`} data-cursor style={{ ...style, backgroundColor: '#a78bfa', color: '#0a0c12' }}>
@@ -83,7 +93,7 @@ const LineRow = memo(
         if (after) children.push(<span key={`${i}a`} style={style}>{after}</span>);
         cursorPlaced = true;
       } else {
-        children.push(<span key={i} style={runStyle(run)}>{run.text}</span>);
+        children.push(<span key={i} style={runStyle(run, alt)}>{run.text}</span>);
       }
       consumed += run.text.length;
     });
@@ -113,7 +123,8 @@ const LineRow = memo(
     !next.live &&
     prev.text === next.text &&
     prev.startRow === next.startRow &&
-    prev.cursorOffset === next.cursorOffset,
+    prev.cursorOffset === next.cursorOffset &&
+    prev.alt === next.alt,
 );
 
 export function FlowView({ engine, className }: { engine: TerminalEngine; className?: string }) {
@@ -136,6 +147,7 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_SLOP_PX;
   };
 
+  const alt = engine.bufferType === 'alternate';
   const lines = engine.logicalLines();
   const visible = lines.slice(Math.max(0, lines.length - MAX_RENDER_LINES));
   const liveFromRow =
@@ -166,8 +178,13 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
         fontFamily: MONO_FONT,
         fontSize: 12,
         lineHeight: 1.4,
-        whiteSpace: 'pre-wrap',
-        overflowWrap: 'anywhere',
+        // TUI rows are exactly `cols` wide — CSS-wrapping them shifts every
+        // line below by one glyph (the claude composer misalignment). Alt
+        // screen never wraps; flowing output keeps CSS wrap (the redesign's
+        // whole point).
+        whiteSpace: alt ? 'pre' : 'pre-wrap',
+        overflowWrap: alt ? undefined : 'anywhere',
+        overflowX: 'hidden',
         userSelect: 'text',
         padding: '4px 6px',
         boxSizing: 'border-box',
@@ -183,6 +200,7 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
           cursorOffset={
             i === cursorLine ? (cursor.row - l.startRow) * engine.term.cols + cursor.col : null
           }
+          alt={alt}
         />
       ))}
     </div>
