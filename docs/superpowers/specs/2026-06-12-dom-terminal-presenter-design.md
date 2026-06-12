@@ -1,6 +1,6 @@
 # DOM Terminal Presenter — engine/presenter split for SigmaLink panes
 
-**Date:** 2026-06-12 · **Status:** operator-approved direction (shape/rollout/phase-1 scope chosen 2026-06-11), spec under review
+**Date:** 2026-06-12 · **Status:** P1a SHIPPED v2.4.0 (#162) · P1b SHIPPED v2.4.0 (#163) · **default flipped to `dom` v2.4.1 (#165, operator-directed — pulls P3's flip forward)** · dogfood polish v2.4.2 (#166: SGR wheel routing, cursor space-tracking, alt-screen no-wrap + full-height backgrounds) · REMAINING: P1c GridView + conditional #160 + context-menu toggle, then P2/P3 deletions
 **Decision (mini-ADR):** Split every terminal pane into a **headless VT engine** (`@xterm/headless@6.0.0` — xterm's full escape-sequence parser + buffer state, no renderer) and a **DOM presenter we own** (CSS-wrapped logical lines for flowing output; a DOM grid for alt-screen TUIs). Staged rollout behind a per-pane renderer flag; the existing attached-xterm path remains the fallback until the presenter earns default. Phase 1 = claude + codex panes.
 
 ## Why (context that forced this)
