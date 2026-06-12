@@ -12,6 +12,7 @@
 // untouched until then.
 
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
+import type { IBuffer, IBufferCell } from '@xterm/headless';
 import type { EncoderModes } from '../features/command-room/input-encoder';
 
 export interface EngineDelegate {
@@ -191,6 +192,58 @@ export class TerminalEngine {
     return { row: buf.baseY + buf.cursorY, col: buf.cursorX };
   }
 
+  /** Walk one buffer line's cells, appending attribute-contiguous runs to
+   *  `runs` (continuing `cur` across calls so wrapped rows can merge). */
+  private appendRowRuns(
+    line: NonNullable<ReturnType<IBuffer['getLine']>>,
+    runs: StyledRun[],
+    cur: StyledRun | null,
+    work: IBufferCell,
+  ): StyledRun | null {
+    for (let x = 0; x < line.length; x++) {
+      const cell = line.getCell(x, work);
+      if (!cell || cell.getWidth() === 0) continue; // wide-char continuation
+      const chars = cell.getChars() || ' ';
+      const fg = cellColor(cell.getFgColorMode(), cell.getFgColor(), cell.isFgPalette(), cell.isFgRGB());
+      const bg = cellColor(cell.getBgColorMode(), cell.getBgColor(), cell.isBgPalette(), cell.isBgRGB());
+      const bold = !!cell.isBold();
+      const dim = !!cell.isDim();
+      const italic = !!cell.isItalic();
+      const underline = !!cell.isUnderline();
+      const inverse = !!cell.isInverse();
+      const strikethrough = !!cell.isStrikethrough();
+      if (
+        cur &&
+        sameColor(cur.fg, fg) && sameColor(cur.bg, bg) &&
+        cur.bold === bold && cur.dim === dim && cur.italic === italic &&
+        cur.underline === underline && cur.inverse === inverse &&
+        cur.strikethrough === strikethrough
+      ) {
+        cur.text += chars;
+      } else {
+        cur = { text: chars, fg, bg, bold, dim, italic, underline, inverse, strikethrough };
+        runs.push(cur);
+      }
+    }
+    return cur;
+  }
+
+  /** Trim trailing DEFAULT-styled whitespace in place (parity with
+   *  translateToString(true)); painted trailing cells are kept. */
+  private trimTrailingDefaultWhitespace(runs: StyledRun[]): void {
+    while (runs.length > 0) {
+      const last = runs[runs.length - 1]!;
+      if (last.fg.mode === 'default' && last.bg.mode === 'default' && !last.inverse && !last.underline && !last.strikethrough) {
+        last.text = last.text.replace(/[ ]+$/, '');
+        if (last.text === '') {
+          runs.pop();
+          continue;
+        }
+      }
+      break;
+    }
+  }
+
   /**
    * Extract the logical line starting at (or containing) `startRow` as
    * attribute-contiguous runs — the FlowView's span contract. Trailing
@@ -208,46 +261,28 @@ export class TerminalEngine {
     for (;;) {
       const line = buf.getLine(r);
       if (!line) break;
-      for (let x = 0; x < line.length; x++) {
-        const cell = line.getCell(x, work);
-        if (!cell || cell.getWidth() === 0) continue; // wide-char continuation
-        const chars = cell.getChars() || ' ';
-        const fg = cellColor(cell.getFgColorMode(), cell.getFgColor(), cell.isFgPalette(), cell.isFgRGB());
-        const bg = cellColor(cell.getBgColorMode(), cell.getBgColor(), cell.isBgPalette(), cell.isBgRGB());
-        const bold = !!cell.isBold();
-        const dim = !!cell.isDim();
-        const italic = !!cell.isItalic();
-        const underline = !!cell.isUnderline();
-        const inverse = !!cell.isInverse();
-        const strikethrough = !!cell.isStrikethrough();
-        if (
-          cur &&
-          sameColor(cur.fg, fg) && sameColor(cur.bg, bg) &&
-          cur.bold === bold && cur.dim === dim && cur.italic === italic &&
-          cur.underline === underline && cur.inverse === inverse &&
-          cur.strikethrough === strikethrough
-        ) {
-          cur.text += chars;
-        } else {
-          cur = { text: chars, fg, bg, bold, dim, italic, underline, inverse, strikethrough };
-          runs.push(cur);
-        }
-      }
+      cur = this.appendRowRuns(line, runs, cur, work);
       r++;
       if (r >= buf.length || !buf.getLine(r)?.isWrapped) break;
     }
-    // Trim trailing default-styled whitespace (the buffer pads rows to cols).
-    while (runs.length > 0) {
-      const last = runs[runs.length - 1]!;
-      if (last.fg.mode === 'default' && last.bg.mode === 'default' && !last.inverse && !last.underline && !last.strikethrough) {
-        last.text = last.text.replace(/[ ]+$/, '');
-        if (last.text === '') {
-          runs.pop();
-          continue;
-        }
-      }
-      break;
-    }
+    this.trimTrailingDefaultWhitespace(runs);
+    return runs;
+  }
+
+  /**
+   * GridView contract — ONE buffer row as attribute runs: no wrapped-run
+   * snapping, no continuation joining (a grid row is a grid row even if the
+   * app's output autowrapped). Trailing default whitespace trimmed; painted
+   * trailing cells (TUI theme fills) kept.
+   */
+  styledRow(row: number): StyledRun[] {
+    const buf = this.term.buffer.active;
+    if (row < 0 || row >= buf.length) return [];
+    const line = buf.getLine(row);
+    if (!line) return [];
+    const runs: StyledRun[] = [];
+    this.appendRowRuns(line, runs, null, buf.getNullCell());
+    this.trimTrailingDefaultWhitespace(runs);
     return runs;
   }
 

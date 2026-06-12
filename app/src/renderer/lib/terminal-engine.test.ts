@@ -210,6 +210,42 @@ describe('TerminalEngine — styled runs + cursor', () => {
   });
 });
 
+describe('TerminalEngine — styledRow (grid contract: one buffer row, no joining)', () => {
+  it('extracts a single row even when the line wrapped', async () => {
+    const { engine } = makeEngine({ cols: 10, rows: 5 });
+    track(engine);
+    await flushWrite(engine, 'abcdefghijklmnop'); // wraps: row0=abcdefghij row1=klmnop
+    expect(engine.styledRow(0).map((r) => r.text).join('')).toBe('abcdefghij');
+    expect(engine.styledRow(1).map((r) => r.text).join('')).toBe('klmnop');
+  });
+
+  it('keeps attribute runs and trims trailing default whitespace', async () => {
+    const { engine } = makeEngine({ cols: 20, rows: 5 });
+    track(engine);
+    await flushWrite(engine, '\x1b[1;31mab\x1b[0mcd');
+    const runs = engine.styledRow(0);
+    expect(runs.length).toBe(2);
+    expect(runs[0]).toMatchObject({ text: 'ab', bold: true, fg: { mode: 'palette', value: 1 } });
+    expect(runs[1]!.text).toBe('cd');
+  });
+
+  it('keeps non-default trailing background cells (TUI theme fills)', async () => {
+    const { engine } = makeEngine({ cols: 8, rows: 4 });
+    track(engine);
+    await flushWrite(engine, '\x1b[48;5;236m        \x1b[0m'); // full row of bg-painted spaces
+    const runs = engine.styledRow(0);
+    expect(runs.map((r) => r.text).join('').length).toBe(8);
+    expect(runs[0]!.bg).toEqual({ mode: 'palette', value: 236 });
+  });
+
+  it('out-of-range row returns []', async () => {
+    const { engine } = makeEngine({ cols: 10, rows: 4 });
+    track(engine);
+    expect(engine.styledRow(999)).toEqual([]);
+    expect(engine.styledRow(-1)).toEqual([]);
+  });
+});
+
 describe('TerminalEngine — mouse tracking exposure (wheel reporting)', () => {
   it('reports active+sgr when the app enables vt200 tracking with SGR encoding', async () => {
     const { engine } = makeEngine();
