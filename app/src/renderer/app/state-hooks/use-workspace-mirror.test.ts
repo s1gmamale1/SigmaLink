@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import type { Workspace } from '@/shared/types';
+import type { AgentSession, Workspace } from '@/shared/types';
 import type { Action, AppState } from '../state.types';
 import { initialAppState } from '../state.types';
 import { __resetWorkspaceMirrorModuleStateForTests } from './use-workspace-mirror';
@@ -54,11 +54,29 @@ function installSigmaStub(windowContext?: WindowContextStub): SigmaStub {
 }
 
 const listMock = vi.fn<() => Promise<Workspace[]>>();
+// B4 review fix 1 — redock stale status: the scope-event handler re-fetches a
+// REATTACHED workspace's pane rows so fresh DB status upserts over the stale
+// 'running' copy (pty:exit only routed to the owning window while detached).
+const panesListMock = vi.fn<(wsId: string) => Promise<AgentSession[]>>();
+// Multi-window B4 — terminal-cache `destroy` is the cache-eviction API the
+// scope-event subscriber calls on detach. Mock it (the real module pulls xterm,
+// which doesn't load in jsdom) and assert which sessionIds were disposed.
+const destroyMock = vi.fn<(sessionId: string) => void>();
+
+vi.mock('@/renderer/lib/terminal-cache', () => ({
+  destroy: (id: string) => destroyMock(id),
+}));
+vi.mock('../../lib/terminal-cache', () => ({
+  destroy: (id: string) => destroyMock(id),
+}));
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     workspaces: {
       list: (...args: unknown[]) => listMock(...(args as [])),
+    },
+    panes: {
+      listForWorkspace: (id: string) => panesListMock(id),
     },
   },
 }));
@@ -67,6 +85,9 @@ vi.mock('../../lib/rpc', () => ({
   rpc: {
     workspaces: {
       list: (...args: unknown[]) => listMock(...(args as [])),
+    },
+    panes: {
+      listForWorkspace: (id: string) => panesListMock(id),
     },
   },
 }));
@@ -90,6 +111,9 @@ beforeEach(() => {
   sigma = installSigmaStub();
   dispatch = vi.fn();
   listMock.mockReset();
+  panesListMock.mockReset();
+  panesListMock.mockResolvedValue([]);
+  destroyMock.mockReset();
   // Module-scope caches (secondaryOwned / lastUnion) survive remounts by
   // design — clear them between cases so scope state doesn't leak across tests.
   __resetWorkspaceMirrorModuleStateForTests();
@@ -437,5 +461,193 @@ describe('useWorkspaceMirror — multi-window B3 scope awareness', () => {
     // No additional SYNC dispatched — secondaryOwned untouched.
     expect(syncCalls().length).toBe(baseline);
     expect(syncCalls().at(-1)?.workspaceIds).toEqual(['a', 'b']);
+  });
+});
+
+// Multi-window B4 — main-window terminal-cache eviction on detach.
+describe('useWorkspaceMirror — B4 detach cache eviction', () => {
+  function session(id: string, workspaceId: string): AgentSession {
+    return {
+      id,
+      workspaceId,
+      providerId: 'claude',
+      cwd: `/tmp/${workspaceId}`,
+      branch: null,
+      worktreePath: null,
+      status: 'running',
+      startedAt: 1,
+    };
+  }
+
+  function stateWithSessions(sessions: AgentSession[]): AppState {
+    const wsA = workspace('a');
+    const wsB = workspace('b');
+    return {
+      ...initialAppState,
+      ready: true,
+      workspaces: [wsA, wsB],
+      openWorkspaces: [wsA, wsB],
+      activeWorkspaceId: 'a',
+      sessions,
+    };
+  }
+
+  it("destroys the detached workspace's sessions (cache only) and NOT others", async () => {
+    // ws 'b' has two panes; ws 'a' has one. Detaching 'b' must dispose b's
+    // cache entries and leave a's untouched.
+    const state = stateWithSessions([
+      session('a-1', 'a'),
+      session('b-1', 'b'),
+      session('b-2', 'b'),
+    ]);
+    await renderMirror(state);
+
+    await act(async () => {
+      sigma.emit('app:window-scope-changed', {
+        scopes: [
+          { windowId: 1, isMain: true, workspaceIds: ['a'] },
+          { windowId: 2, isMain: false, workspaceIds: ['b'] },
+        ],
+      });
+      await Promise.resolve();
+    });
+
+    expect(destroyMock).toHaveBeenCalledWith('b-1');
+    expect(destroyMock).toHaveBeenCalledWith('b-2');
+    expect(destroyMock).not.toHaveBeenCalledWith('a-1');
+    expect(destroyMock).toHaveBeenCalledTimes(2);
+    // Cache-only — NO REMOVE_SESSION dispatched (state stays intact for redock).
+    const removeCalls = dispatch.mock.calls
+      .map((args) => args[0])
+      .filter((a): a is Extract<Action, { type: 'REMOVE_SESSION' }> => a.type === 'REMOVE_SESSION');
+    expect(removeCalls).toHaveLength(0);
+  });
+
+  it('only evicts NEWLY-detached workspaces (re-fired scope event is idempotent)', async () => {
+    const state = stateWithSessions([session('a-1', 'a'), session('b-1', 'b')]);
+    await renderMirror(state);
+
+    const detachB = {
+      scopes: [
+        { windowId: 1, isMain: true, workspaceIds: ['a'] },
+        { windowId: 2, isMain: false, workspaceIds: ['b'] },
+      ],
+    };
+    // First detach of 'b' → evict b-1.
+    await act(async () => {
+      sigma.emit('app:window-scope-changed', detachB);
+      await Promise.resolve();
+    });
+    expect(destroyMock).toHaveBeenCalledTimes(1);
+    expect(destroyMock).toHaveBeenCalledWith('b-1');
+
+    // Re-fire the SAME scope table — 'b' is no longer NEWLY detached, so no
+    // additional destroy (newlyDetached = new − old = ∅).
+    await act(async () => {
+      sigma.emit('app:window-scope-changed', detachB);
+      await Promise.resolve();
+    });
+    expect(destroyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a scoped (secondary) window never evicts other workspaces', async () => {
+    // Scoped window owns 'b'; a scope event that detaches 'a' into yet another
+    // window must NOT make this scoped window dispose 'a''s sessions.
+    sigma = installSigmaStub({ windowId: 2, isMain: false, workspaceScope: 'b' });
+    const state = stateWithSessions([session('a-1', 'a'), session('b-1', 'b')]);
+    await renderMirror(state);
+
+    await act(async () => {
+      sigma.emit('app:window-scope-changed', {
+        scopes: [
+          { windowId: 1, isMain: true, workspaceIds: [] },
+          { windowId: 2, isMain: false, workspaceIds: ['b'] },
+          { windowId: 3, isMain: false, workspaceIds: ['a'] },
+        ],
+      });
+      await Promise.resolve();
+    });
+
+    expect(destroyMock).not.toHaveBeenCalled();
+  });
+
+  // B4 review fix 1 — redock stale status (zombie tiles). A pane that exits
+  // while its workspace is detached only delivers pty:exit to the owning
+  // window; main's copy stays 'running'. On REATTACH the handler must re-fetch
+  // the workspace's rows from the DB (which IS correct) and upsert them.
+  describe('redock session re-fetch', () => {
+    const detachB = {
+      scopes: [
+        { windowId: 1, isMain: true, workspaceIds: ['a'] },
+        { windowId: 2, isMain: false, workspaceIds: ['b'] },
+      ],
+    };
+    const reattachAll = {
+      scopes: [{ windowId: 1, isMain: true, workspaceIds: ['a', 'b'] }],
+    };
+
+    it('re-fetches ONLY the reattached workspace and upserts via ADD_SESSIONS', async () => {
+      const state = stateWithSessions([session('a-1', 'a'), session('b-1', 'b')]);
+      const freshRows = [{ ...session('b-1', 'b'), status: 'exited' as const, exitCode: 0 }];
+      panesListMock.mockResolvedValue(freshRows);
+      await renderMirror(state);
+
+      // Detach 'b' — NOT a reattach; no re-fetch may fire.
+      await act(async () => {
+        sigma.emit('app:window-scope-changed', detachB);
+        await Promise.resolve();
+      });
+      expect(panesListMock).not.toHaveBeenCalled();
+
+      // Redock 'b' (prev has it, next doesn't) → re-fetch 'b' only and upsert
+      // the fresh DB rows (stale 'running' → 'exited').
+      await act(async () => {
+        sigma.emit('app:window-scope-changed', reattachAll);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(panesListMock).toHaveBeenCalledTimes(1);
+      expect(panesListMock).toHaveBeenCalledWith('b');
+      const addCalls = dispatch.mock.calls
+        .map((args) => args[0])
+        .filter((a): a is Extract<Action, { type: 'ADD_SESSIONS' }> => a.type === 'ADD_SESSIONS');
+      expect(addCalls).toHaveLength(1);
+      expect(addCalls[0]?.sessions).toEqual(freshRows);
+    });
+
+    it('does not dispatch ADD_SESSIONS when the reattached workspace has no rows', async () => {
+      const state = stateWithSessions([session('b-1', 'b')]);
+      panesListMock.mockResolvedValue([]);
+      await renderMirror(state);
+
+      await act(async () => {
+        sigma.emit('app:window-scope-changed', detachB);
+        await Promise.resolve();
+        sigma.emit('app:window-scope-changed', reattachAll);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(panesListMock).toHaveBeenCalledWith('b');
+      const addCalls = dispatch.mock.calls
+        .map((args) => args[0])
+        .filter((a): a is Extract<Action, { type: 'ADD_SESSIONS' }> => a.type === 'ADD_SESSIONS');
+      expect(addCalls).toHaveLength(0);
+    });
+
+    it('a scoped (secondary) window never re-fetches on scope changes', async () => {
+      sigma = installSigmaStub({ windowId: 2, isMain: false, workspaceScope: 'b' });
+      const state = stateWithSessions([session('b-1', 'b')]);
+      await renderMirror(state);
+
+      await act(async () => {
+        sigma.emit('app:window-scope-changed', detachB);
+        await Promise.resolve();
+        sigma.emit('app:window-scope-changed', reattachAll);
+        await Promise.resolve();
+      });
+
+      expect(panesListMock).not.toHaveBeenCalled();
+    });
   });
 });

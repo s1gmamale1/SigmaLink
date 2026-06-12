@@ -24,6 +24,7 @@ import { initialAppState } from './state.types';
 import { appStateReducer } from './state.reducer';
 import { AppDispatchContext, AppStateContext, appStateStore } from './state.hook';
 import { useSessionRestore } from './state-hooks/use-session-restore';
+import { useWindowScopeBoot } from './state-hooks/use-window-scope-boot';
 import { useWorkspaceMirror } from './state-hooks/use-workspace-mirror';
 import { useLiveEvents } from './state-hooks/use-live-events';
 import { useExitedSessionGc } from './state-hooks/use-exited-session-gc';
@@ -124,6 +125,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [state.activeWorkspace?.id]);
 
   useSessionRestore(state, dispatch);
+  // Multi-window B4 — scoped (secondary) windows don't receive
+  // `app:session-restore`; they self-hydrate their single workspace here.
+  // No-op in the main window. useSessionRestore is gated to skip scoped
+  // windows so the two never race a double hydration.
+  useWindowScopeBoot(state, dispatch);
   useWorkspaceMirror(state, dispatch);
   useLiveEvents(state, dispatch);
   // C-10b — push focused PTY session id renderer → main for pane dictation

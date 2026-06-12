@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
 import { toast } from 'sonner';
 import { rpc } from '../../lib/rpc';
+import { getWorkspaceScope, isMainWindow } from '../../lib/window-context';
 import type { Workspace } from '../../../shared/types';
 import { isGlobalRoom, type Action, type AppState } from '../state.types';
 import { isRoomId, normalizeRoomId, parseSessionRestore, type PendingRestore } from './parsers';
@@ -82,6 +83,11 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
   // shows up here as a no-op). Idempotent — clearing the ref guarantees a
   // single dispatch per snapshot.
   useEffect(() => {
+    // Multi-window B4 — scoped (secondary) windows self-hydrate via
+    // useWindowScopeBoot. They must NOT also drain the (never-delivered)
+    // session-restore payload, or the two paths would race a double
+    // hydration of the same workspace.
+    if (getWorkspaceScope()) return;
     if (!state.ready) return;
     const pending = pendingRestoreRef.current;
     if (!pending) return;
@@ -343,6 +349,11 @@ export function useSessionRestore(state: AppState, dispatch: Dispatch<Action>): 
   }, [flushSnapshot]);
 
   useEffect(() => {
+    // Multi-window B4 — only the MAIN window writes the persisted session
+    // snapshot (kv `app.lastSession` is main-window state). A scoped window
+    // holds a single-workspace view; letting it emit `app:session-snapshot`
+    // would overwrite the operator's full multi-workspace layout on quit.
+    if (!isMainWindow()) return;
     if (!state.ready) return;
     if (!snapshotKey) return;
     const pending = pendingSnapshotRef.current;

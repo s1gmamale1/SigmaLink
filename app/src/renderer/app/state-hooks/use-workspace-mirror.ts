@@ -20,7 +20,8 @@
 import { useEffect, useRef, type Dispatch } from 'react';
 import { rpc } from '../../lib/rpc';
 import { getWorkspaceScope, isMainWindow } from '../../lib/window-context';
-import type { Workspace } from '../../../shared/types';
+import { destroy as destroyTerminalCache } from '../../lib/terminal-cache';
+import type { AgentSession, Workspace } from '../../../shared/types';
 import type { Action, AppState } from '../state.types';
 import { parseOpenWorkspacesChanged, parseWindowScopeChanged } from './parsers';
 
@@ -58,10 +59,18 @@ export function __resetWorkspaceMirrorModuleStateForTests(): void {
 
 export function useWorkspaceMirror(state: AppState, dispatch: Dispatch<Action>): void {
   const workspacesRef = useRef<Workspace[]>([]);
+  // Multi-window B4 — the scope-event subscriber (module-scope listener) reads
+  // the latest sessions through a ref so it can map a newly-detached workspace
+  // to its session ids without re-subscribing on every state change.
+  const sessionsRef = useRef<AgentSession[]>([]);
 
   useEffect(() => {
     workspacesRef.current = state.workspaces;
   }, [state.workspaces]);
+
+  useEffect(() => {
+    sessionsRef.current = state.sessions;
+  }, [state.sessions]);
 
   // v1.1.3 Step 2 — main-process workspace lifecycle mirror. `workspaces.open`
   // emits the event after it marks a workspace opened, and local close/open
@@ -125,7 +134,58 @@ export function useWorkspaceMirror(state: AppState, dispatch: Dispatch<Action>):
         if (s.isMain) continue;
         for (const id of s.workspaceIds) next.add(id);
       }
+      const prev = secondaryOwned;
       secondaryOwned = next;
+
+      // Multi-window B4 — main-window cache eviction on detach. When a
+      // workspace ENTERS the secondary-owned set, the MAIN window keeps its
+      // sessions in app state (the grid must rehydrate intact on redock) but
+      // its parked xterms go STALE: pty:data now routes only to the secondary
+      // window. Destroy those sessions' terminal-cache entries (cache only) so
+      // a later re-activate takes the cache-MISS path → fresh pty.snapshot.
+      // Scoped windows never park OTHER workspaces, so they skip this.
+      if (isMainWindow()) {
+        const detached = new Set<string>();
+        for (const id of next) if (!prev.has(id)) detached.add(id);
+        if (detached.size > 0) {
+          for (const session of sessionsRef.current) {
+            if (detached.has(session.workspaceId)) {
+              // Idempotent: terminal-cache `destroy` is a no-op for an absent
+              // sessionId, so a re-fired scope event is safe. State is NOT
+              // touched — only the renderer cache entry is disposed.
+              destroyTerminalCache(session.id);
+            }
+          }
+        }
+
+        // B4 review fix — redock stale status (zombie tiles). pty:exit routes
+        // only to the OWNING window, so a pane that died while its workspace
+        // was detached never got MARK_SESSION_EXITED here in main; on redock
+        // main's state still shows a stale 'running' chip. The DB is correct
+        // (exit persistence is IPC-independent), so for every REATTACHED
+        // workspace (prev − next) re-fetch its rows and upsert them —
+        // ADD_SESSIONS is a map.set upsert in the reducer, so fresh DB status
+        // overwrites the stale copy. Fire-and-forget; a failed fetch leaves
+        // the stale chip until the next sync (no worse than before).
+        //
+        // Swarms are deliberately NOT re-fetched here: the only full-replace
+        // action is SET_SWARMS, which swaps the GLOBAL swarms slice wholesale
+        // (state.reducer.ts:490 — `swarms: action.swarms`), so dispatching it
+        // with one workspace's rows would wipe every other workspace's swarms.
+        // Panes are the visible bug.
+        for (const id of prev) {
+          if (next.has(id)) continue; // still detached — not reattached
+          void rpc.panes
+            .listForWorkspace(id)
+            .then((sessions) => {
+              if (sessions.length > 0) {
+                dispatch({ type: 'ADD_SESSIONS', sessions });
+              }
+            })
+            .catch(() => undefined);
+        }
+      }
+
       reconcile(lastUnion);
     });
 
