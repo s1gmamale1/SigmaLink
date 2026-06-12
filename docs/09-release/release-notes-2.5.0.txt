@@ -1,0 +1,44 @@
+SigmaLink v2.5.0 — 2026-06-12
+=============================
+
+Two features: workspaces now open as separate OS windows (Phase 16,
+#169), and the DOM terminal presenter completes Phase 1 and gains its
+power-user layer (P1c #167 + P2 #168). CI-green on macOS +
+windows-latest.
+
+See CHANGELOG.md [2.5.0] for the itemized record.
+
+
+Added
+-----
+
+- Multi-window workspaces (#169): hover a workspace in the sidebar and
+  click "Open in new window" to pop it out into its own OS window —
+  full Command Room, per-window title and tint, multi-monitor ready.
+  Closing the window docks the workspace back into the main window.
+  Every terminal survives the move: panes re-attach to their running
+  PTYs with scrollback replayed — no restarts, no resumes. Terminal
+  output is routed only to the window that owns the workspace.
+
+  Notes: window layout is not yet restored across app relaunch (the
+  app boots single-window; planned follow-up), and secondary windows
+  are Command-Room-only by design — Jorvis, Settings, Memory, and
+  Tasks stay in the main window.
+
+- DOM presenter GridView (P1c, #167): TUIs (claude, vim, htop) render
+  through a cell-exact grid presenter — terminal-exact alt-screen
+  fidelity on the now-default DOM renderer, with a per-pane renderer
+  toggle in the context menu.
+
+- DOM presenter P2 (#168): mouse reporting for TUIs, clickable link
+  anchors, in-pane search, and OSC-133 command blocks in shell panes.
+
+
+Verification
+------------
+
+Full gate green in main (tsc -b · eslint --max-warnings 0 · vitest
+3,948 · product:check); e2e via the CI matrix on both platforms.
+Owed: operator smoke of the multi-window flow (7-step list in PR
+#169) — detach a running claude pane, type in both windows (no double
+echo), close the window and confirm re-dock.

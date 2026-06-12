@@ -2,6 +2,28 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.5.0] — 2026-06-12
+
+**v2.5.0 ships multi-window workspaces and completes DOM presenter Phase 1 (+ its P2 power-user layer).**
+
+### Added — open workspaces as separate OS windows (#169, ROADMAP Phase 16, ADR-009)
+
+A workspace row's "Open in new window" action detaches it into its own BrowserWindow — a workspace-scoped Command Room with per-window title, tint, and zoom; closing the window re-docks the workspace into the main window. The invariant is single attachment: a detach is a MOVE, never a mirror — the new window re-attaches to the still-running PTYs via the existing `pty.snapshot` first-attach path (no restarts, no resume machinery), and `pty:data`/`pty:exit` route only to the owning window via a new main-side `WindowRegistry` (workspaceId→windowId ownership + sessionId routing cache; supersedes the PERF-11 single-target fast path). The open-workspace list becomes a union of the main window's echo and registry-detached workspaces, with a continuity rule (re-dock seeds the open list BEFORE ownership flips) that keeps every transition loss-free. Secondary windows are Command-Room-only by design; window-layout restore across relaunch is a follow-up (the app boots single-window).
+
+Built subagent-driven (10 TDD tasks, two-stage review each); the review loop caught and fixed four real bugs pre-merge: a scratch-terminal per-chunk DB re-query on the pty:data hot path (negative-cache), an out-of-order renderer reconcile race (monotonic token, empirically pinned), redock zombie tiles from owner-routed exits (symmetric refetch), and a StrictMode dev-boot hang. Plan: `app/docs/superpowers/plans/2026-06-12-multi-window-workspaces.md`.
+
+### Added — DOM presenter P1c: GridView (#167)
+
+Alt-screen TUIs (claude, vim, htop) render through a cell-exact grid presenter — terminal-exact fidelity on the now-default DOM renderer — with conditional fullscreen handling and a per-pane renderer toggle in the context menu. Completes DOM presenter Phase 1 (P1a engine + P1b FlowView shipped v2.4.0–v2.4.2).
+
+### Added — DOM presenter P2: mouse, links, search, command blocks (#168)
+
+Mouse reporting for tracking TUIs, clickable link anchors, in-pane search, and OSC-133 command-block segmentation in shell panes (collapsible blocks, per-command copy).
+
+### Verification
+
+Full gate green in main (`tsc -b` · `eslint --max-warnings 0` · vitest 3,948 · `product:check`); e2e via the CI matrix (macOS + windows-latest, 4/4 green on #169). Owed: operator smoke of the multi-window flow (7-step list in PR #169).
+
 ## [2.4.2] — 2026-06-12
 
 **v2.4.2 is the first-dogfood polish round for the now-default DOM renderer** — four operator-reported issues, all in the alt-screen (TUI) path, fixed in one PR (#166 `d85de6d`) with each round verified live before merge.
