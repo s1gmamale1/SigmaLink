@@ -96,6 +96,32 @@ describe('DomTerminalView', () => {
     expect(rpcMock.pty.write).not.toHaveBeenCalled();
   });
 
+  it('alt-screen: wheel converts to arrow-key bytes (TUI-owned scrollback)', async () => {
+    const { container } = render(<DomTerminalView sessionId="d9" />);
+    await settle();
+    const engine = getCachedEngine('d9')!.engine;
+    await new Promise<void>((r) => engine.term.write('\x1b[?1049h', () => r()));
+    const view = container.querySelector('[data-testid="dom-terminal-view"]')!;
+    fireEvent.wheel(view, { deltaY: 51, deltaMode: 0 }); // ≈3 lines of pixels
+    fireEvent.wheel(view, { deltaY: -17, deltaMode: 0 }); // ≈1 line up
+    const sent = rpcMock.pty.write.mock.calls.map((c) => c[1]).join('');
+    expect(sent).toContain('\x1b[B');
+    expect(sent).toContain('\x1b[A');
+    // DECCKM flips the encoding to SS3 — the encoder owns that mapping.
+    rpcMock.pty.write.mockClear();
+    await new Promise<void>((r) => engine.term.write('\x1b[?1h', () => r()));
+    fireEvent.wheel(view, { deltaY: 17, deltaMode: 0 });
+    expect(rpcMock.pty.write.mock.calls.map((c) => c[1]).join('')).toContain('\x1bOB');
+  });
+
+  it('normal buffer: wheel sends NO bytes (native DOM scroll owns it)', async () => {
+    const { container } = render(<DomTerminalView sessionId="d10" />);
+    await settle();
+    const view = container.querySelector('[data-testid="dom-terminal-view"]')!;
+    fireEvent.wheel(view, { deltaY: 51, deltaMode: 0 });
+    expect(rpcMock.pty.write).not.toHaveBeenCalled();
+  });
+
   it('win32: paste keybindings are NOT encoded — the native paste event handles them', async () => {
     const prevSigma = (window as { sigma?: unknown }).sigma;
     (window as { sigma?: unknown }).sigma = { platform: 'win32' };

@@ -64,6 +64,23 @@ describe('FlowView', () => {
     ).toBe(1);
   });
 
+  it('cursor tracks trailing spaces (pads past the trimmed text)', async () => {
+    const engine = makeEngine();
+    const { getByTestId } = render(<FlowView engine={engine} />);
+    await write(engine, 'Also '); // trailing space: buffer cursor col 5, trimmed text len 4
+    const cursor = getByTestId('flow-view').querySelector('[data-cursor]')!;
+    expect(cursor).toBeTruthy();
+    const row = cursor.closest('[data-row]')!;
+    let before = '';
+    for (const node of Array.from(row.childNodes)) {
+      if (node === cursor || (node instanceof Element && node.contains(cursor))) break;
+      before += node.textContent ?? '';
+    }
+    // everything rendered before the cursor block spans the typed prefix
+    // INCLUDING the trailing space the trimmed runs dropped.
+    expect(before).toBe('Also ');
+  });
+
   it('renders a cursor marker on the cursor line', async () => {
     const engine = makeEngine();
     const { getByTestId } = render(<FlowView engine={engine} />);

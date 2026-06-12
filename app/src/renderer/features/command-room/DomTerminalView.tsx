@@ -95,8 +95,41 @@ export function DomTerminalView({
     };
     window.addEventListener('sigma:pty-focus', onFocusReq);
 
+    // Alt-screen TUIs (claude fullscreen, codex ratatui) own their scrollback
+    // — the DOM holds viewport-only rows, so there is nothing to natively
+    // scroll AND the app never hears the wheel. Parity with xterm.js's
+    // viewport behavior: convert wheel ticks into arrow-key bytes (mouse
+    // REPORTING is P2; this is the no-mouse-tracking fallback every terminal
+    // ships). Normal buffer: untouched — native DOM scroll + stick-to-bottom.
+    // Native NON-passive listener: React root-level wheel handlers are
+    // passive, so ev.preventDefault() would be ignored there.
+    const onWheel = (ev: WheelEvent) => {
+      if (entry.ptyExited || ev.deltaY === 0) return;
+      if (entry.engine.bufferType !== 'alternate') return;
+      ev.preventDefault();
+      const LINE_PX = 17; // FlowView row height estimate — only a wheel ratio
+      const lines =
+        ev.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? Math.abs(ev.deltaY)
+          : Math.abs(ev.deltaY) / LINE_PX;
+      const n = Math.max(1, Math.min(10, Math.round(lines)));
+      const bytes = encodeKeyEvent(
+        {
+          key: ev.deltaY < 0 ? 'ArrowUp' : 'ArrowDown',
+          ctrlKey: false,
+          altKey: false,
+          metaKey: false,
+          shiftKey: false,
+        },
+        entry.engine.modes,
+      );
+      if (bytes) void rpc.pty.write(sessionId, bytes.repeat(n)).catch(() => undefined);
+    };
+    container.addEventListener('wheel', onWheel, { passive: false });
+
     return () => {
       entry.mounted = false;
+      container.removeEventListener('wheel', onWheel);
       controller.dispose();
       try {
         ro.disconnect();

@@ -88,6 +88,12 @@ const LineRow = memo(
       consumed += run.text.length;
     });
     if (cursorOffset !== null && !cursorPlaced) {
+      // The buffer cursor can sit BEYOND the trimmed runs (styledLine drops
+      // trailing default-styled whitespace): typing spaces advances cursor.col
+      // without changing the trimmed text. Pad the gap so the block visually
+      // tracks every typed space instead of pinning after the last glyph.
+      const pad = cursorOffset - consumed;
+      if (pad > 0) children.push(<span key="cpad">{' '.repeat(pad)}</span>);
       children.push(
         <span key="ce" data-cursor style={{ backgroundColor: '#a78bfa', color: '#0a0c12' }}>
           {' '}
