@@ -14,9 +14,10 @@
 // live tail (where TUIs repaint/recolor) always re-render. A style-only
 // change deep in scrollback not re-rendering is a documented P1b limitation.
 
-import { memo, useEffect, useLayoutEffect, useReducer, useRef, type CSSProperties } from 'react';
-import type { StyledRun, TerminalEngine } from '@/renderer/lib/terminal-engine';
-import { colorFor, DEFAULT_BG, DEFAULT_FG } from './ansi-palette';
+import { memo, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
+import type { TerminalEngine } from '@/renderer/lib/terminal-engine';
+import { DEFAULT_BG, DEFAULT_FG } from './ansi-palette';
+import { CURSOR_STYLE, runStyle } from './run-style';
 
 export const MAX_RENDER_LINES = 1500;
 /** Rows from the bottom that re-render on every buffer change. */
@@ -28,36 +29,6 @@ const STICK_SLOP_PX = 8;
 
 const MONO_FONT =
   'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace';
-
-function runStyle(run: StyledRun, alt: boolean): CSSProperties {
-  let color = colorFor(run.fg, 'fg');
-  let background = colorFor(run.bg, 'bg');
-  if (run.inverse) {
-    const fgResolved = color ?? DEFAULT_FG;
-    const bgResolved = background ?? DEFAULT_BG;
-    color = bgResolved;
-    background = fgResolved;
-  }
-  const style: CSSProperties = {};
-  // Alt-screen fidelity: an INLINE span's background only covers the glyph
-  // box, so a TUI that paints whole rows (opencode's theme fill) showed dark
-  // stripes between rows. inline-block makes the background span the full
-  // line box; vertical-align keeps rows top-aligned.
-  if (alt) {
-    style.display = 'inline-block';
-    style.verticalAlign = 'top';
-  }
-  if (color) style.color = color;
-  if (background) style.backgroundColor = background;
-  if (run.bold) style.fontWeight = 700;
-  if (run.dim) style.opacity = 0.6;
-  if (run.italic) style.fontStyle = 'italic';
-  const deco = [run.underline ? 'underline' : '', run.strikethrough ? 'line-through' : '']
-    .filter(Boolean)
-    .join(' ');
-  if (deco) style.textDecoration = deco;
-  return style;
-}
 
 interface LineRowProps {
   engine: TerminalEngine;
@@ -86,7 +57,7 @@ const LineRow = memo(
         const style = runStyle(run, alt);
         if (before) children.push(<span key={`${i}b`} style={style}>{before}</span>);
         children.push(
-          <span key={`${i}c`} data-cursor style={{ ...style, backgroundColor: '#a78bfa', color: '#0a0c12' }}>
+          <span key={`${i}c`} data-cursor style={{ ...style, ...CURSOR_STYLE }}>
             {cursorChar}
           </span>,
         );
@@ -105,7 +76,7 @@ const LineRow = memo(
       const pad = cursorOffset - consumed;
       if (pad > 0) children.push(<span key="cpad">{' '.repeat(pad)}</span>);
       children.push(
-        <span key="ce" data-cursor style={{ backgroundColor: '#a78bfa', color: '#0a0c12' }}>
+        <span key="ce" data-cursor style={CURSOR_STYLE}>
           {' '}
         </span>,
       );
