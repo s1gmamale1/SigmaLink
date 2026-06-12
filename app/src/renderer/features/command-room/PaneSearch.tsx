@@ -71,7 +71,6 @@ export function PaneSearch({
   return (
     <div style={BAR} data-testid="pane-search" onMouseDown={(e) => e.stopPropagation()}>
       <input
-        // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
         aria-label="find in pane"
         placeholder="Find"
