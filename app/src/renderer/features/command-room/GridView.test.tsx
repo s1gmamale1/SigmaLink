@@ -76,4 +76,44 @@ describe('GridView', () => {
     expect(getByTestId('grid-view').textContent).toContain('second');
     expect(getByTestId('grid-view').textContent).not.toContain('first');
   });
+
+  // P2 fidelity goldens — vim/htop-class TUI rendering through xterm's real
+  // parser. These assert the GridView reads the buffer cell-exactly.
+  it('cursor-positioned full-screen repaint lands cell-exact (vim-class)', async () => {
+    const engine = makeEngine(10, 3);
+    const { getByTestId } = render(<GridView engine={engine} />);
+    // paint three rows via explicit cursor addressing, out of order
+    await write(engine, alt('\x1b[3;1Hrow3======\x1b[1;1Hrow1======\x1b[2;1Hrow2======'));
+    const rows = getByTestId('grid-view').querySelectorAll('[data-grid-row]');
+    expect(rows[0]!.textContent).toContain('row1');
+    expect(rows[1]!.textContent).toContain('row2');
+    expect(rows[2]!.textContent).toContain('row3');
+  });
+
+  it('wide (CJK) characters occupy grid cells without duplication', async () => {
+    const engine = makeEngine(10, 3);
+    const { getByTestId } = render(<GridView engine={engine} />);
+    await write(engine, alt('a你b'));
+    expect(getByTestId('grid-view').querySelectorAll('[data-grid-row]')[0]!.textContent).toContain('a你b');
+  });
+
+  it('attribute combos (underline+dim+inverse) render distinct styled spans', async () => {
+    const engine = makeEngine(20, 3);
+    const { getByTestId } = render(<GridView engine={engine} />);
+    await write(engine, alt('\x1b[4;2;7mUDI\x1b[0m plain'));
+    const span = Array.from(getByTestId('grid-view').querySelectorAll('span')).find((s) => s.textContent === 'UDI')!;
+    expect(span.style.textDecoration).toContain('underline');
+    expect(span.style.opacity).toBe('0.6');
+  });
+
+  it('erase-display mid-frame leaves no stale cells (htop refresh class)', async () => {
+    const engine = makeEngine(12, 3);
+    const { getByTestId } = render(<GridView engine={engine} />);
+    await write(engine, alt('AAAAAAAAAAAA\r\nBBBBBBBBBBBB'));
+    await write(engine, '\x1b[H\x1b[2J\x1b[1;1Hfresh');
+    const text = getByTestId('grid-view').textContent!;
+    expect(text).toContain('fresh');
+    expect(text).not.toContain('AAAA');
+    expect(text).not.toContain('BBBB');
+  });
 });
