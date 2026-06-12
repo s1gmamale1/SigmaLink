@@ -21,6 +21,7 @@ import { DEFAULT_BG, DEFAULT_FG } from './ansi-palette';
 import { CURSOR_STYLE, runStyle } from './run-style';
 import { findUrls } from './linkify';
 import { segmentRuns, type Decoration, type LineSegment } from './line-segments';
+import { deriveBlocks } from './command-blocks';
 
 /** Search highlight backgrounds (normal match / the active/current match). */
 const SEARCH_BG_NORMAL = '#7c5e10';
@@ -67,6 +68,10 @@ interface LineRowProps {
   /** Index of the active match WITHIN THIS ROW, or null if this row holds none. */
   activeMatchIndex: number | null;
   onLinkClick: ((url: string) => void) | undefined;
+  /** This row is the first line of an OSC-133 command block (A mark). */
+  blockStart: boolean;
+  /** This row is inside a command block whose exit code was nonzero. */
+  blockFailed: boolean;
 }
 
 /** Style + per-segment decoration → a span's CSSProperties (link underline,
@@ -92,6 +97,8 @@ const LineRow = memo(
     searchTerm,
     activeMatchIndex,
     onLinkClick,
+    blockStart,
+    blockFailed,
   }: LineRowProps) {
     const runs = engine.styledLine(startRow);
     // Decorations: link anchors (plain-URL) + search highlights. The match at
@@ -152,11 +159,22 @@ const LineRow = memo(
         </span>,
       );
     }
+    const rowStyle: CSSProperties = {
+      contentVisibility: 'auto',
+      containIntrinsicSize: `auto ${LINE_HEIGHT_PX}px`,
+    };
+    // OSC-133 command-block gutters: a red left rule flags a failed block; a
+    // faint top rule marks the start of a new command block (the prompt line).
+    if (blockFailed) {
+      rowStyle.borderLeft = '2px solid #ef4444';
+      rowStyle.paddingLeft = 4;
+    }
+    if (blockStart) {
+      rowStyle.borderTop = '1px solid rgba(82,90,115,0.35)';
+      rowStyle.marginTop = 2;
+    }
     return (
-      <div
-        data-row={startRow}
-        style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${LINE_HEIGHT_PX}px` }}
-      >
+      <div data-row={startRow} style={rowStyle}>
         {children.length > 0 ? children : ' '}
       </div>
     );
@@ -168,7 +186,9 @@ const LineRow = memo(
     prev.cursorOffset === next.cursorOffset &&
     prev.searchTerm === next.searchTerm &&
     prev.activeMatchIndex === next.activeMatchIndex &&
-    prev.onLinkClick === next.onLinkClick,
+    prev.onLinkClick === next.onLinkClick &&
+    prev.blockStart === next.blockStart &&
+    prev.blockFailed === next.blockFailed,
 );
 
 export function FlowView({
@@ -218,6 +238,8 @@ export function FlowView({
 
   const lines = engine.logicalLines();
   const visible = lines.slice(Math.max(0, lines.length - MAX_RENDER_LINES));
+  // OSC-133 command blocks (marks array is small — derive per render).
+  const blocks = deriveBlocks(engine.promptMarks);
   const liveFromRow =
     visible.length > 0 ? visible[Math.max(0, visible.length - LIVE_TAIL_LINES)]!.startRow : 0;
   const cursor = engine.cursor;
@@ -270,6 +292,14 @@ export function FlowView({
           searchTerm={searchTerm}
           activeMatchIndex={activeMatch && activeMatch.line === i ? activeMatch.index : null}
           onLinkClick={onLinkClick}
+          blockStart={blocks.some((b) => b.startRow === l.startRow)}
+          blockFailed={blocks.some(
+            (b) =>
+              typeof b.exitCode === 'number' &&
+              b.exitCode !== 0 &&
+              l.startRow >= b.startRow &&
+              l.startRow <= b.endRow,
+          )}
         />
       ))}
     </div>

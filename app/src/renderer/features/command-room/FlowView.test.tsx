@@ -129,6 +129,25 @@ describe('FlowView', () => {
     expect(view.querySelector('[data-search-active]')).toBeTruthy();
   });
 
+  it('draws OSC-133 command-block gutters (failed block + new-block top rule) (P2)', async () => {
+    const engine = makeEngine(40, 10);
+    const { getByTestId } = render(<FlowView engine={engine} />);
+    // A;$ fail / boom / D;1 (exit 1) then a fresh prompt A;$ — the D + second
+    // A land on the same buffer row (no newline between command-end + prompt),
+    // so that row is both the start of a failed block and a new-block start.
+    await write(engine, '\x1b]133;A\x07$ fail\r\nboom\r\n\x1b]133;D;1\x07\x1b]133;A\x07$ ');
+    const view = getByTestId('flow-view');
+    const rows = view.querySelectorAll('[data-row]');
+    const row2 = Array.from(rows).find((r) => r.getAttribute('data-row') === '2') as HTMLElement;
+    expect(row2).toBeTruthy();
+    expect(row2.style.borderLeft).toContain('rgb(239, 68, 68)'); // #ef4444 failed-block red rule
+    expect(row2.style.borderTop).not.toBe(''); // new command block top rule
+    // the first prompt row starts a block (top rule) but did not fail (no red).
+    const row0 = Array.from(rows).find((r) => r.getAttribute('data-row') === '0') as HTMLElement;
+    expect(row0.style.borderTop).not.toBe('');
+    expect(row0.style.borderLeft).toBe('');
+  });
+
   it('caps rendered rows at MAX_RENDER_LINES', async () => {
     const engine = makeEngine(80, 10);
     const { getByTestId } = render(<FlowView engine={engine} />);
