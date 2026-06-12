@@ -13,6 +13,7 @@ import { useEffect, useReducer, useRef } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
 import { encodeKeyEvent, encodePaste, isNativePasteCombo } from './input-encoder';
+import { encodeSgrMouse, shouldReportMouse } from './mouse-encoder';
 import { getPlatform } from '@/renderer/lib/platform';
 import { FlowView } from './FlowView';
 import { GridView } from './GridView';
@@ -101,6 +102,26 @@ export function DomTerminalView({
     };
     window.addEventListener('sigma:pty-focus', onFocusReq);
 
+    // Shared cell-hit math: client coords → 1-based (col,row) in the terminal
+    // grid, clamped to the engine's current dimensions. Falls back to the
+    // 7.2px / 17px estimates when the probe span hasn't measured yet (jsdom).
+    const cellAt = (clientX: number, clientY: number): { col: number; row: number } => {
+      const rect = container.getBoundingClientRect();
+      const probe = probeRef.current;
+      const cellW = probe && probe.offsetWidth > 0 ? probe.offsetWidth / PROBE_LEN : 7.2;
+      const lineH = probe && probe.offsetHeight > 0 ? probe.offsetHeight : 17;
+      return {
+        col: Math.max(
+          1,
+          Math.min(entry.engine.term.cols, Math.floor((clientX - rect.left) / cellW) + 1),
+        ),
+        row: Math.max(
+          1,
+          Math.min(entry.engine.term.rows, Math.floor((clientY - rect.top) / lineH) + 1),
+        ),
+      };
+    };
+
     // Wheel routing, in priority order (parity with xterm.js's viewport):
     //   1. App requested wheel-capable mouse tracking with SGR encoding
     //      (claude fullscreen does: 1049+1000+1006) → SGR wheel REPORTS at
@@ -123,20 +144,13 @@ export function DomTerminalView({
       const mt = entry.engine.mouseTracking;
       if (mt.mode !== 'none' && mt.mode !== 'x10' && mt.sgr) {
         ev.preventDefault();
-        const rect = container.getBoundingClientRect();
-        const probe = probeRef.current;
-        const cellW = probe && probe.offsetWidth > 0 ? probe.offsetWidth / PROBE_LEN : 7.2;
-        const lineH = probe && probe.offsetHeight > 0 ? probe.offsetHeight : LINE_PX;
-        const col = Math.max(
-          1,
-          Math.min(entry.engine.term.cols, Math.floor((ev.clientX - rect.left) / cellW) + 1),
-        );
-        const row = Math.max(
-          1,
-          Math.min(entry.engine.term.rows, Math.floor((ev.clientY - rect.top) / lineH) + 1),
-        );
+        const { col, row } = cellAt(ev.clientX, ev.clientY);
         const button = ev.deltaY < 0 ? 64 : 65; // SGR wheel up / down
-        const report = `\x1b[<${button};${col};${row}M`;
+        const report = encodeSgrMouse('press', button, col, row, {
+          shift: ev.shiftKey,
+          alt: ev.altKey,
+          ctrl: ev.ctrlKey,
+        });
         void rpc.pty.write(sessionId, report.repeat(n)).catch(() => undefined);
         return;
       }
@@ -157,9 +171,77 @@ export function DomTerminalView({
     };
     container.addEventListener('wheel', onWheel, { passive: false });
 
+    // P2 — pointer reporting. Shift is the universal "let me select text"
+    // bypass (xterm/iTerm convention): shifted events never report and never
+    // preventDefault, so native selection + the select-to-copy mouseup keep
+    // working even under tracking. Reports require SGR encoding (1006) —
+    // legacy encodings are not emitted.
+    let heldButton: number | null = null;
+    let lastMotionCell: string | null = null;
+    const report = (kind: 'press' | 'release' | 'motion', button: number, ev: MouseEvent) => {
+      const { col, row } = cellAt(ev.clientX, ev.clientY);
+      const bytes = encodeSgrMouse(kind, button, col, row, {
+        shift: ev.shiftKey,
+        alt: ev.altKey,
+        ctrl: ev.ctrlKey,
+      });
+      void rpc.pty.write(sessionId, bytes).catch(() => undefined);
+      return `${col};${row}`;
+    };
+    const trackingActive = () => {
+      const mt = entry.engine.mouseTracking;
+      return !entry.ptyExited && mt.mode !== 'none' && mt.sgr;
+    };
+    const onMouseDownNative = (ev: MouseEvent) => {
+      if (!trackingActive() || ev.shiftKey) return;
+      if (!shouldReportMouse(entry.engine.mouseTracking.mode, 'press', false)) return;
+      ev.preventDefault(); // suppress native selection start under tracking
+      inputRef.current?.focus();
+      heldButton = ev.button;
+      // Seed the motion-dedup with the press cell so the first same-cell move
+      // is coalesced away (one report per cell, not press + redundant motion).
+      lastMotionCell = report('press', ev.button, ev);
+    };
+    const onMouseUpNative = (ev: MouseEvent) => {
+      if (heldButton === null) return;
+      const btn = heldButton;
+      heldButton = null;
+      if (!trackingActive() || ev.shiftKey) return;
+      if (!shouldReportMouse(entry.engine.mouseTracking.mode, 'release', false)) return;
+      report('release', btn, ev);
+    };
+    const onMouseMoveNative = (ev: MouseEvent) => {
+      if (!trackingActive() || ev.shiftKey) return;
+      const mode = entry.engine.mouseTracking.mode;
+      if (!shouldReportMouse(mode, 'motion', heldButton !== null)) return;
+      const { col, row } = cellAt(ev.clientX, ev.clientY);
+      const cellKey = `${col};${row}`;
+      if (cellKey === lastMotionCell) return; // one report per cell, not per pixel
+      lastMotionCell = cellKey;
+      // motion carries the held button, or 3 (release/no-button) in any-mode
+      const button = heldButton ?? 3;
+      void rpc.pty
+        .write(
+          sessionId,
+          encodeSgrMouse('motion', button, col, row, {
+            shift: ev.shiftKey,
+            alt: ev.altKey,
+            ctrl: ev.ctrlKey,
+          }),
+        )
+        .catch(() => undefined);
+    };
+    container.addEventListener('mousedown', onMouseDownNative);
+    // window-level so a release outside the pane still ends the drag
+    window.addEventListener('mouseup', onMouseUpNative);
+    container.addEventListener('mousemove', onMouseMoveNative);
+
     return () => {
       entry.mounted = false;
       container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('mousedown', onMouseDownNative);
+      window.removeEventListener('mouseup', onMouseUpNative);
+      container.removeEventListener('mousemove', onMouseMoveNative);
       controller.dispose();
       try {
         ro.disconnect();
@@ -208,7 +290,10 @@ export function DomTerminalView({
 
   // Click focuses the input host — but never at the cost of an in-progress
   // text selection; select-to-copy parity with the xterm path's
-  // onSelectionChange→clipboard pipe.
+  // onSelectionChange→clipboard pipe. While the hosted app is tracking the
+  // mouse (SGR) the native press handler already focused + owns the click, so
+  // the focus() fallback here must stand down (shift-selection still works:
+  // shifted events bypass tracking, leaving a real selection to copy below).
   const onMouseUp = () => {
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) {
@@ -216,6 +301,8 @@ export function DomTerminalView({
       if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
       return;
     }
+    const mt = entry.engine.mouseTracking;
+    if (mt.mode !== 'none' && mt.sgr) return; // tracking owns the unshifted click
     inputRef.current?.focus();
   };
 

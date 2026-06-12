@@ -165,6 +165,43 @@ describe('DomTerminalView', () => {
     expect(rpcMock.pty.write).toHaveBeenCalledWith('d8', '\x16');
   });
 
+  it('reports SGR press/release when the app tracks the mouse; shift bypasses for selection', async () => {
+    const { container } = render(<DomTerminalView sessionId="m1" />);
+    await settle();
+    const engine = getCachedEngine('m1')!.engine;
+    await new Promise<void>((r) => engine.term.write('\x1b[?1049h\x1b[?1000h\x1b[?1006h', () => r()));
+    const view = container.querySelector('[data-testid="dom-terminal-view"]')!;
+    fireEvent.mouseDown(view, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.mouseUp(view, { button: 0, clientX: 0, clientY: 0 });
+    const sent = rpcMock.pty.write.mock.calls.map((c) => c[1]).join('');
+    expect(sent).toContain('\x1b[<0;1;1M');
+    expect(sent).toContain('\x1b[<0;1;1m');
+    rpcMock.pty.write.mockClear();
+    fireEvent.mouseDown(view, { button: 0, shiftKey: true });
+    expect(rpcMock.pty.write).not.toHaveBeenCalled(); // shift = native selection
+  });
+
+  it('drag mode (1002) reports motion only while pressed; cell-deduped', async () => {
+    const { container } = render(<DomTerminalView sessionId="m2" />);
+    await settle();
+    const engine = getCachedEngine('m2')!.engine;
+    await new Promise<void>((r) => engine.term.write('\x1b[?1049h\x1b[?1002h\x1b[?1006h', () => r()));
+    const view = container.querySelector('[data-testid="dom-terminal-view"]')!;
+    fireEvent.mouseMove(view, { clientX: 0, clientY: 0 });
+    expect(rpcMock.pty.write).not.toHaveBeenCalled(); // not pressed
+    fireEvent.mouseDown(view, { button: 0, clientX: 0, clientY: 0 });
+    rpcMock.pty.write.mockClear();
+    fireEvent.mouseMove(view, { clientX: 0, clientY: 0 }); // same cell → deduped
+    expect(rpcMock.pty.write).not.toHaveBeenCalled();
+  });
+
+  it('no tracking → no reports, selection untouched', async () => {
+    const { container } = render(<DomTerminalView sessionId="m3" />);
+    await settle();
+    fireEvent.mouseDown(container.querySelector('[data-testid="dom-terminal-view"]')!, { button: 0 });
+    expect(rpcMock.pty.write).not.toHaveBeenCalled();
+  });
+
   it('switches FlowView↔GridView on buffer-type transitions', async () => {
     const { container } = render(<DomTerminalView sessionId="d12" />);
     await settle();
