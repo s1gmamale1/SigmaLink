@@ -14,9 +14,10 @@
 // live tail (where TUIs repaint/recolor) always re-render. A style-only
 // change deep in scrollback not re-rendering is a documented P1b limitation.
 
-import { memo, useEffect, useLayoutEffect, useReducer, useRef, type CSSProperties } from 'react';
-import type { StyledRun, TerminalEngine } from '@/renderer/lib/terminal-engine';
-import { colorFor, DEFAULT_BG, DEFAULT_FG } from './ansi-palette';
+import { memo, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
+import type { TerminalEngine } from '@/renderer/lib/terminal-engine';
+import { DEFAULT_BG, DEFAULT_FG } from './ansi-palette';
+import { CURSOR_STYLE, runStyle } from './run-style';
 
 export const MAX_RENDER_LINES = 1500;
 /** Rows from the bottom that re-render on every buffer change. */
@@ -29,36 +30,6 @@ const STICK_SLOP_PX = 8;
 const MONO_FONT =
   'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace';
 
-function runStyle(run: StyledRun, alt: boolean): CSSProperties {
-  let color = colorFor(run.fg, 'fg');
-  let background = colorFor(run.bg, 'bg');
-  if (run.inverse) {
-    const fgResolved = color ?? DEFAULT_FG;
-    const bgResolved = background ?? DEFAULT_BG;
-    color = bgResolved;
-    background = fgResolved;
-  }
-  const style: CSSProperties = {};
-  // Alt-screen fidelity: an INLINE span's background only covers the glyph
-  // box, so a TUI that paints whole rows (opencode's theme fill) showed dark
-  // stripes between rows. inline-block makes the background span the full
-  // line box; vertical-align keeps rows top-aligned.
-  if (alt) {
-    style.display = 'inline-block';
-    style.verticalAlign = 'top';
-  }
-  if (color) style.color = color;
-  if (background) style.backgroundColor = background;
-  if (run.bold) style.fontWeight = 700;
-  if (run.dim) style.opacity = 0.6;
-  if (run.italic) style.fontStyle = 'italic';
-  const deco = [run.underline ? 'underline' : '', run.strikethrough ? 'line-through' : '']
-    .filter(Boolean)
-    .join(' ');
-  if (deco) style.textDecoration = deco;
-  return style;
-}
-
 interface LineRowProps {
   engine: TerminalEngine;
   startRow: number;
@@ -67,12 +38,10 @@ interface LineRowProps {
   live: boolean;
   /** Character offset of the cursor within this logical line, or null. */
   cursorOffset: number | null;
-  /** Alternate-buffer rendering: no wrap, full-height run backgrounds. */
-  alt: boolean;
 }
 
 const LineRow = memo(
-  function LineRow({ engine, startRow, cursorOffset, alt }: LineRowProps) {
+  function LineRow({ engine, startRow, cursorOffset }: LineRowProps) {
     const runs = engine.styledLine(startRow);
     const children: React.ReactNode[] = [];
     let consumed = 0;
@@ -83,17 +52,17 @@ const LineRow = memo(
         const before = run.text.slice(0, at);
         const cursorChar = run.text.slice(at, at + 1) || ' ';
         const after = run.text.slice(at + 1);
-        const style = runStyle(run, alt);
+        const style = runStyle(run, false);
         if (before) children.push(<span key={`${i}b`} style={style}>{before}</span>);
         children.push(
-          <span key={`${i}c`} data-cursor style={{ ...style, backgroundColor: '#a78bfa', color: '#0a0c12' }}>
+          <span key={`${i}c`} data-cursor style={{ ...style, ...CURSOR_STYLE }}>
             {cursorChar}
           </span>,
         );
         if (after) children.push(<span key={`${i}a`} style={style}>{after}</span>);
         cursorPlaced = true;
       } else {
-        children.push(<span key={i} style={runStyle(run, alt)}>{run.text}</span>);
+        children.push(<span key={i} style={runStyle(run, false)}>{run.text}</span>);
       }
       consumed += run.text.length;
     });
@@ -105,7 +74,7 @@ const LineRow = memo(
       const pad = cursorOffset - consumed;
       if (pad > 0) children.push(<span key="cpad">{' '.repeat(pad)}</span>);
       children.push(
-        <span key="ce" data-cursor style={{ backgroundColor: '#a78bfa', color: '#0a0c12' }}>
+        <span key="ce" data-cursor style={CURSOR_STYLE}>
           {' '}
         </span>,
       );
@@ -123,8 +92,7 @@ const LineRow = memo(
     !next.live &&
     prev.text === next.text &&
     prev.startRow === next.startRow &&
-    prev.cursorOffset === next.cursorOffset &&
-    prev.alt === next.alt,
+    prev.cursorOffset === next.cursorOffset,
 );
 
 export function FlowView({ engine, className }: { engine: TerminalEngine; className?: string }) {
@@ -147,7 +115,6 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_SLOP_PX;
   };
 
-  const alt = engine.bufferType === 'alternate';
   const lines = engine.logicalLines();
   const visible = lines.slice(Math.max(0, lines.length - MAX_RENDER_LINES));
   const liveFromRow =
@@ -178,12 +145,11 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
         fontFamily: MONO_FONT,
         fontSize: 12,
         lineHeight: 1.4,
-        // TUI rows are exactly `cols` wide — CSS-wrapping them shifts every
-        // line below by one glyph (the claude composer misalignment). Alt
-        // screen never wraps; flowing output keeps CSS wrap (the redesign's
-        // whole point).
-        whiteSpace: alt ? 'pre' : 'pre-wrap',
-        overflowWrap: alt ? undefined : 'anywhere',
+        // Flowing output keeps CSS wrap (the redesign's whole point); the
+        // alternate buffer is now owned by GridView (P1c), so FlowView never
+        // needs the no-wrap alt branch.
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'anywhere',
         overflowX: 'hidden',
         userSelect: 'text',
         padding: '4px 6px',
@@ -200,7 +166,6 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
           cursorOffset={
             i === cursorLine ? (cursor.row - l.startRow) * engine.term.cols + cursor.col : null
           }
-          alt={alt}
         />
       ))}
     </div>

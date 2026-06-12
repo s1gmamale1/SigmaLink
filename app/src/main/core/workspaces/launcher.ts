@@ -18,6 +18,7 @@ import { getSharedDeps } from '../../rpc-router';
 import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
 import { resolveAndSpawn, ProviderLaunchError } from '../providers/launcher';
 import { whenShellPathReady } from '../util/shell-path';
+import { resolveSpawnRendererMode } from '../pty/spawn-renderer-mode';
 import { buildResumeArgs } from '../pty/resume-launcher';
 import {
   ensureClaudeProjectDir,
@@ -498,6 +499,14 @@ export async function executeLaunchPlan(
           // SF-8 Yolo/Bypass — thread pane.autoApprove into resolveAndSpawn
           // so buildArgs appends provider.autoApproveFlag when true.
           autoApprove: pane.autoApprove ?? false,
+          // P1c — resolve the pane's renderer mode at spawn so claude's #160
+          // fullscreen injection is appended ONLY for xterm-mode panes (the
+          // DOM presenter wants inline). Per-session KV override (resume) →
+          // global default KV → shared DEFAULT_RENDERER_MODE.
+          rendererMode: resolveSpawnRendererMode(
+            getRawDb(),
+            resumeSessionId ?? finalPreallocSessionId,
+          ),
         },
       );
       const rec = spawnResult.ptySession;

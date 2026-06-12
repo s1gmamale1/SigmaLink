@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 
 const rpcMock = vi.hoisted(() => ({
   pty: {
@@ -163,5 +163,22 @@ describe('DomTerminalView', () => {
     await settle();
     fireEvent.keyDown(container.querySelector('textarea')!, { key: 'v', ctrlKey: true });
     expect(rpcMock.pty.write).toHaveBeenCalledWith('d8', '\x16');
+  });
+
+  it('switches FlowView↔GridView on buffer-type transitions', async () => {
+    const { container } = render(<DomTerminalView sessionId="d12" />);
+    await settle();
+    expect(container.querySelector('[data-testid="flow-view"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="grid-view"]')).toBeNull();
+    const engine = getCachedEngine('d12')!.engine;
+    await act(
+      () => new Promise<void>((r) => engine.term.write('\x1b[?1049h', () => setTimeout(r, 40))),
+    );
+    expect(container.querySelector('[data-testid="grid-view"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="flow-view"]')).toBeNull();
+    await act(
+      () => new Promise<void>((r) => engine.term.write('\x1b[?1049l', () => setTimeout(r, 40))),
+    );
+    expect(container.querySelector('[data-testid="flow-view"]')).toBeTruthy();
   });
 });

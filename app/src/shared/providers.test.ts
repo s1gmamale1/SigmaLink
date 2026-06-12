@@ -144,12 +144,12 @@ describe('AGENT_PROVIDERS registry pins (win32 runnability)', () => {
 // renderer; confirmed in the operator's screen recording, codex panes clean
 // through identical drags). Settings that fail validation are silently
 // ignored by the CLI, so this entry must stay EXACTLY a valid settings JSON.
-describe('claude pane spawns force the fullscreen TUI renderer', () => {
-  it("base args carry --settings with tui:'fullscreen' (valid JSON)", () => {
+describe('claude xterm-mode spawns force the fullscreen TUI renderer (#160, conditional since P1c)', () => {
+  it("xtermOnlyArgs carry --settings with tui:'fullscreen' (valid JSON); base args are clean", () => {
     const claude = AGENT_PROVIDERS.find((p) => p.id === 'claude')!;
-    const i = claude.args.indexOf('--settings');
-    expect(i).toBeGreaterThanOrEqual(0);
-    const json = claude.args[i + 1]!;
-    expect(JSON.parse(json)).toEqual({ tui: 'fullscreen' });
+    const idx = claude.xtermOnlyArgs!.indexOf('--settings');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(JSON.parse(claude.xtermOnlyArgs![idx + 1]!)).toEqual({ tui: 'fullscreen' });
+    expect(claude.args).not.toContain('--settings');
   });
 });

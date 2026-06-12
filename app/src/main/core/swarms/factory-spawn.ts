@@ -28,6 +28,7 @@ import type { AgentSession, Role, Swarm, SwarmAgent } from '../../../shared/type
 import { agentKey as makeAgentKey } from './types';
 import { envelopeToInsert, parseProtocolLine, ProtocolLineBuffer } from './protocol';
 import { resolveAndSpawn } from '../providers/launcher';
+import { resolveSpawnRendererMode } from '../pty/spawn-renderer-mode';
 import type { SwarmFactoryDeps } from './factory';
 import { workspaceCwdInWorktree } from '../workspaces/worktree-cwd';
 import {
@@ -417,6 +418,11 @@ export async function spawnAgentSession(
       // v1.5.5 — explicit: swarm agent spawns are always fresh (no sessionId).
       isResume: false,
       spawnMode,
+      // P1c — resolve the renderer mode at spawn so claude's #160 fullscreen
+      // injection is appended ONLY for xterm-mode panes (the DOM presenter
+      // wants inline). Fresh swarm spawns have no per-session override yet, so
+      // this resolves global default KV → shared DEFAULT_RENDERER_MODE.
+      rendererMode: resolveSpawnRendererMode(getRawDb(), spawnSessionId),
     },
   );
   const rec = spawnResult.ptySession;

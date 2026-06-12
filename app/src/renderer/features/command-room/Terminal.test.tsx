@@ -314,6 +314,28 @@ describe('<SessionTerminal> — renderer switch (P1b)', () => {
     // mutual exclusion: xterm mode destroys any cached engine for this session.
     expect(destroyEngineMock).toHaveBeenCalledWith('sess-x2');
   });
+
+  it('sigma:renderer-mode-changed remounts the host in the new mode', async () => {
+    const { rpcSilent } = await import('@/renderer/lib/rpc');
+    vi.mocked(rpcSilent.kv.get).mockResolvedValue(null); // default → dom
+    const { SessionTerminal } = await import('./Terminal');
+    const { setSessionRendererMode } = await import('@/renderer/lib/renderer-flag');
+    const { findByTestId, queryByTestId } = render(<SessionTerminal sessionId="sess-t" />);
+    expect(await findByTestId('dom-terminal-view')).toBeTruthy();
+
+    const entry = fakeEntry('sess-t');
+    getOrCreateTerminalMock.mockReturnValue(entry);
+    await act(async () => {
+      await setSessionRendererMode('sess-t', 'xterm'); // updates the module cache
+      window.dispatchEvent(
+        new CustomEvent('sigma:renderer-mode-changed', { detail: { sessionId: 'sess-t' } }),
+      );
+    });
+    await settleFlag();
+    await waitFor(() => expect(queryByTestId('dom-terminal-view')).toBeNull());
+    await waitFor(() => expect(getOrCreateTerminalMock).toHaveBeenCalled());
+    expect(destroyEngineMock).toHaveBeenCalledWith('sess-t'); // exclusion fired
+  });
 });
 
 // C-8 — routeLinkClick surfaces the browser tab after navigating.
