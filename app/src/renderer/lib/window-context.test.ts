@@ -16,7 +16,7 @@ describe('window-context', () => {
   });
 
   it('reads scope + main flag from the preload bridge', async () => {
-    (window as any).sigma = { windowContext: { windowId: 7, isMain: false, workspaceScope: 'ws-a' } };
+    (window as unknown as { sigma?: unknown }).sigma = { windowContext: { windowId: 7, isMain: false, workspaceScope: 'ws-a' } };
     const { getWindowContext, isMainWindow, getWorkspaceScope } = await import('./window-context');
     expect(getWindowContext()).toEqual({ windowId: 7, isMain: false, workspaceScope: 'ws-a' });
     expect(isMainWindow()).toBe(false);
@@ -24,14 +24,14 @@ describe('window-context', () => {
   });
 
   it('defaults to main-window semantics when the bridge predates multi-window', async () => {
-    (window as any).sigma = {};
+    (window as unknown as { sigma?: unknown }).sigma = {};
     const { isMainWindow, getWorkspaceScope } = await import('./window-context');
     expect(isMainWindow()).toBe(true);
     expect(getWorkspaceScope()).toBeNull();
   });
 
   it('empty-string workspaceScope degrades to null', async () => {
-    (window as any).sigma = { windowContext: { windowId: null, isMain: true, workspaceScope: '' } };
+    (window as unknown as { sigma?: unknown }).sigma = { windowContext: { windowId: null, isMain: true, workspaceScope: '' } };
     const { getWindowContext, getWorkspaceScope } = await import('./window-context');
     expect(getWindowContext()).toEqual({ windowId: null, isMain: true, workspaceScope: null });
     expect(getWorkspaceScope()).toBeNull();

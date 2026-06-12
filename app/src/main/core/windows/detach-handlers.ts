@@ -11,6 +11,12 @@ export interface DetachDeps {
   getWorkspaceName: (workspaceId: string) => string | null;
 }
 
+/**
+ * Detach a workspace into its own OS window. Note: accepts ANY workspace row
+ * in the DB — detaching a CLOSED workspace opens it scoped to the new window
+ * (detach-as-open, mirroring `workspaces.open` semantics); the sidebar only
+ * offers the action on open workspaces, but the RPC surface is wider.
+ */
 export function buildDetachWorkspace(deps: DetachDeps) {
   return async ({ workspaceId }: { workspaceId: string }): Promise<{ windowId: number }> => {
     const existing = deps.registry.ownerWindowIdFor(workspaceId);

@@ -33,7 +33,7 @@ describe('windows.detachWorkspace / redockWorkspace handlers', () => {
   function detach() {
     return buildDetachWorkspace({
       registry: reg,
-      createSecondaryWindow: (wsId, _name) => {
+      createSecondaryWindow: (wsId) => {
         created.push(wsId);
         const w = fakeWindow(100 + created.length);
         madeWindows.push(w);
@@ -51,6 +51,11 @@ describe('windows.detachWorkspace / redockWorkspace handlers', () => {
     expect(reg.ownerWindowIdFor('ws-a')).toBe(101);
   });
 
+  // Sequential calls suffice to pin the double-click race: the handler body has
+  // NO internal await before createSecondaryWindow (sync Map reads + sync
+  // better-sqlite3 get), so two queued IPC invocations cannot interleave between
+  // the ownership check and the create. Adding an await inside the handler
+  // would silently reintroduce the race — keep it await-free or add a lock.
   it('focuses the existing window instead of double-detaching', async () => {
     const fn = detach();
     await fn({ workspaceId: 'ws-a' });
