@@ -173,6 +173,9 @@ export function useWorkspaceMirror(state: AppState, dispatch: Dispatch<Action>):
         // (state.reducer.ts:490 — `swarms: action.swarms`), so dispatching it
         // with one workspace's rows would wipe every other workspace's swarms.
         // Panes are the visible bug.
+        // Swarm staleness heals via the canonical loader in use-live-events
+        // (SET_SWARMS re-fetch on every active-workspace change, v1.13.2) —
+        // do not add a second loader here.
         for (const id of prev) {
           if (next.has(id)) continue; // still detached — not reattached
           void rpc.panes

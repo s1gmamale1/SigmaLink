@@ -17,6 +17,7 @@
 
 import { useMemo, useRef, useState, type DragEvent } from 'react';
 import {
+  AppWindow,
   Check,
   ChevronDown,
   ChevronUp,
@@ -82,6 +83,12 @@ export interface WorkspacesPanelProps {
    * subtitle on its row.
    */
   devWorkspaceId?: string | null;
+  /**
+   * Multi-window B5 — called when the user clicks "Open in new window" on an
+   * open-workspace row. Rendered only in the main window (scoped windows have
+   * no sidebar to show this action from). When omitted the button is hidden.
+   */
+  onDetach?: (workspaceId: string) => void;
 }
 
 // Drag mime distinct from the skills DnD mime so the workspace-header skill
@@ -117,6 +124,7 @@ export function WorkspacesPanel({
   onReorder,
   onOpenDev,
   devWorkspaceId,
+  onDetach,
 }: WorkspacesPanelProps) {
   // DEV-W2 — inline rename state. `editingId` is the workspace being renamed;
   // `editValue` mirrors the input value.
@@ -517,6 +525,21 @@ export function WorkspacesPanel({
                         {status.running}
                       </span>
                     </button>
+                    {onDetach ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDetach(ws.id);
+                        }}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                        aria-label={`Open ${displayName} in a new window`}
+                        title="Open in new window"
+                        data-testid="workspace-detach"
+                      >
+                        <AppWindow className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={(event) => {
