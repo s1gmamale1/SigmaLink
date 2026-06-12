@@ -10,6 +10,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { defineController, defineRouter } from '../shared/rpc';
 import type { AppRouter } from '../shared/router-shape';
 import { initializeDatabase, closeDatabase, getRawDb } from './core/db/client';
+import { getWindowRegistry, initWindowRegistry } from './core/windows/registry';
 import { openDatabaseWithBootRetry } from './core/db/boot-open';
 import { sweepWin32DbOrphans, waitForPidsExit } from './core/process/orphan-sweep';
 import { runBootJanitor } from './core/db/janitor';
@@ -217,27 +218,20 @@ let ptyDataCoalescerRef: PtyDataCoalescer | null = null;
 
 const requireCJS = createRequire(import.meta.url);
 
-// PERF-11 — the app has exactly one renderer window. Cache it so the hot
-// `broadcast()` path (pty:data etc.) sends O(1) instead of rebuilding the
-// `getAllWindows()` array per event. `createWindow()` sets this; the window's
-// `closed` handler clears it. Falls back to the full sweep when unset/stale.
-let broadcastTarget: BrowserWindow | null = null;
-
-/** PERF-11 — register the single renderer window as the broadcast fast-path. */
-export function setBroadcastTarget(win: BrowserWindow | null): void {
-  broadcastTarget = win;
-}
+/** Events whose payload carries a sessionId and should only reach the
+ *  window owning that session's workspace. Everything else broadcasts. */
+const SESSION_ROUTED_EVENTS = new Set(['pty:data', 'pty:exit', 'pty:error', 'pty:link-detected']);
 
 function broadcast(event: string, payload: unknown) {
-  const target = broadcastTarget;
-  if (target && !target.isDestroyed()) {
-    target.webContents.send(event, payload);
-    return;
+  const registry = getWindowRegistry();
+  if (SESSION_ROUTED_EVENTS.has(event)) {
+    const sessionId = (payload as { sessionId?: unknown } | null)?.sessionId;
+    if (typeof sessionId === 'string') {
+      registry.sendToSessionOwner(sessionId, event, payload);
+      return;
+    }
   }
-  // Fallback: no target registered yet (early boot) or it was destroyed.
-  for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send(event, payload);
-  }
+  registry.sendToAll(event, payload);
 }
 
 function capitalize(s: string): string {
@@ -294,6 +288,22 @@ async function buildRouter() {
     console.warn('[boot] win32 db-orphan sweep failed (non-fatal):', err);
   });
   await openDatabaseWithBootRetry(userData, { initialize: initializeDatabase });
+
+  // Multi-window A2 — seed the WindowRegistry's session→workspace lookup now
+  // that the DB is open. `broadcast()` routes pty:* events to the window that
+  // owns a session's workspace (falling back to sendToAll when unowned).
+  initWindowRegistry({
+    lookupSessionWorkspace: (sessionId) => {
+      try {
+        const row = getRawDb()
+          .prepare('SELECT workspace_id FROM agent_sessions WHERE id = ?')
+          .get(sessionId) as { workspace_id?: string } | undefined;
+        return row?.workspace_id ?? null;
+      } catch {
+        return null;
+      }
+    },
+  });
 
   const worktreeBase = path.join(userData, 'worktrees');
 
@@ -507,6 +517,9 @@ async function buildRouter() {
     (sessionId, exitCode, signal) => {
       ptyDataCoalescer.flush(sessionId);
       broadcast('pty:exit', { sessionId, exitCode, signal });
+      // Multi-window A2 — evict the session→workspace routing cache AFTER the
+      // exit event routes to the owner, so the final event still lands.
+      getWindowRegistry().forgetSession(sessionId);
     },
     {
       // v1.5.6 — 3s grace window prevents fast-exit binaries from clearing the ring buffer before the renderer's pty.snapshot IPC resolves (race surfaced when v1.5.5-A removed async timing slack from the worktree pool path).
@@ -1083,6 +1096,10 @@ async function buildRouter() {
       }
       pty.kill(input.scratchId);
       pty.forget(input.scratchId);
+      // Multi-window A2 — scratch shells have no agent_sessions row, so the
+      // registry holds a NEGATIVE routing-cache entry for them; evict it here
+      // or it leaks per killed scratch tab.
+      getWindowRegistry().forgetSession(input.scratchId);
     },
   });
 

@@ -32,7 +32,11 @@ const SCOPE_EVENT = 'app:window-scope-changed';
 export class WindowRegistry {
   private readonly windows = new Map<number, { handle: WindowHandle; isMain: boolean }>();
   private readonly ownership = new Map<string, number>(); // workspaceId → windowId
-  private readonly sessionWorkspace = new Map<string, string>(); // sessionId → workspaceId
+  // cache stores string | null — null = "looked up, no workspace" (scratch shells,
+  // pre-INSERT launcher window); negative entries stop per-chunk DB re-queries.
+  // A null entry is re-resolved only after forgetSession(sessionId); until then
+  // delivery falls back to sendToAll (correct, just broadcast).
+  private readonly sessionWorkspace = new Map<string, string | null>();
   private readonly deps: WindowRegistryDeps;
 
   constructor(deps: WindowRegistryDeps) {
@@ -102,13 +106,14 @@ export class WindowRegistry {
     this.sendToAll(event, payload);
   }
 
-  /** pty:data/pty:exit fast path: cache → DB lookup → fallback broadcast. */
+  /** pty:data/pty:exit fast path: cache → DB lookup → fallback broadcast.
+   *  Negative results ARE cached (has()-gated) so workspace-less sessions
+   *  (scratch shells) don't re-run the DB lookup on every coalescer flush. */
   sendToSessionOwner(sessionId: string, event: string, payload: unknown): void {
-    let wsId = this.sessionWorkspace.get(sessionId) ?? null;
-    if (wsId == null) {
-      wsId = this.deps.lookupSessionWorkspace(sessionId);
-      if (wsId != null) this.sessionWorkspace.set(sessionId, wsId);
+    if (!this.sessionWorkspace.has(sessionId)) {
+      this.sessionWorkspace.set(sessionId, this.deps.lookupSessionWorkspace(sessionId));
     }
+    const wsId = this.sessionWorkspace.get(sessionId) ?? null;
     if (wsId == null) {
       this.sendToAll(event, payload);
       return;

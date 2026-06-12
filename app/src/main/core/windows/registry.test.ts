@@ -81,9 +81,16 @@ describe('WindowRegistry', () => {
     expect(lookups).toEqual(['sess-1']); // second send hit the cache
   });
 
-  it('falls back to sendToAll when the session lookup returns null', () => {
+  it('falls back to sendToAll when the session lookup returns null — and caches the negative (lookup runs ONCE)', () => {
+    let lookups = 0;
+    reg = new WindowRegistry({
+      lookupSessionWorkspace: () => { lookups += 1; return null; },
+    });
+    reg.registerWindow(main, { isMain: true });
     reg.sendToSessionOwner('sess-ghost', 'pty:data', {});
-    expect(main.sent).toHaveLength(1);
+    reg.sendToSessionOwner('sess-ghost', 'pty:data', {});
+    expect(main.sent).toHaveLength(2); // both delivered via the sendToAll fallback
+    expect(lookups).toBe(1); // negative entry cached — no per-chunk DB re-query
   });
 
   it('unregisterWindow returns the workspaces it owned and re-docks them to main', () => {

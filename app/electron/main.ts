@@ -9,8 +9,10 @@ import { createRequire } from 'node:module';
 import { startShellPathBootstrap } from '../src/main/core/util/shell-path';
 import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeImage, clipboard } from 'electron';
 import { buildGlobalCaptureController, getWhisperEngine, type GlobalCaptureController } from '@sigmalink/voice-core';
-import { registerRouter, shutdownRouter, getSharedDeps, setBroadcastTarget } from '../src/main/rpc-router';
+import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
 import { getRawDb } from '../src/main/core/db/client';
+import { getWindowRegistry } from '../src/main/core/windows/registry';
+import type { WindowHandle } from '../src/main/core/windows/registry';
 // C-11 "Hey Jorvis" listening-mode primitives (pure, shared).
 import { PcmRing } from '../src/shared/pcm-ring';
 import { isSpeech as energyIsSpeech } from '../src/shared/audio-energy';
@@ -31,6 +33,24 @@ const requireCJS = createRequire(import.meta.url);
 
 let mainWindow: BrowserWindow | null = null;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+// Multi-window A2 — adapt an Electron BrowserWindow to the registry's
+// pure-DI WindowHandle so the WindowRegistry stays Electron-free (testable
+// with fakes). `send` is destroyed-guarded; `focus` restores/shows first.
+function asHandle(win: BrowserWindow): WindowHandle {
+  return {
+    id: win.id,
+    isDestroyed: () => win.isDestroyed(),
+    send: (event, payload) => {
+      if (!win.isDestroyed()) win.webContents.send(event, payload);
+    },
+    focus: () => {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    },
+  };
+}
 
 // v1.5.0 — Global voice capture: Tray + globalShortcut + state controller.
 // The Tray keeps the process alive on all platforms when the last window
@@ -613,8 +633,12 @@ function createWindow(): void {
     },
   });
 
-  // PERF-11 — register the single renderer window as the broadcast fast-path.
-  setBroadcastTarget(mainWindow);
+  // Multi-window A2 — register this renderer window with the WindowRegistry as
+  // the main window. `broadcast()` in rpc-router routes through the registry;
+  // with one window every routed/unowned event falls back to it. Capture the
+  // id so the `closed` handler can unregister even after `mainWindow` is null.
+  const winId = mainWindow.id;
+  getWindowRegistry().registerWindow(asHandle(mainWindow), { isMain: true });
 
   // Pane-refit spec 2026-06-11 — un-minimizing ('restore') or re-showing
   // ('show', e.g. macOS cmd+H un-hide) never fires the renderer's
@@ -692,7 +716,9 @@ function createWindow(): void {
     } catch {
       /* ignore */
     }
-    setBroadcastTarget(null); // PERF-11 — drop the cached window on close
+    // released workspaceIds ignored here — re-dock responsibility lands with
+    // the secondary-window factory (B1).
+    getWindowRegistry().unregisterWindow(winId); // Multi-window A2 — drop on close
     mainWindow = null;
   });
 }
