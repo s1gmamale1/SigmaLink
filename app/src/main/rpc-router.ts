@@ -60,6 +60,7 @@ import {
   installWorkspaceLifecycleIpc,
   markWorkspaceClosed,
   markWorkspaceOpened,
+  setDetachedWorkspaceIdsProvider,
 } from './core/workspaces/lifecycle';
 import { executeLaunchPlan } from './core/workspaces/launcher';
 import { AGENT_PROVIDERS, installCommandFor } from '../shared/providers';
@@ -303,6 +304,18 @@ async function buildRouter() {
         return null;
       }
     },
+  });
+
+  // Multi-window A4 — anything owned by a non-main window is detached, by
+  // definition. The lifecycle module unions these into the open-workspace list
+  // so the main renderer's echo (which omits detached workspaces) can't drop
+  // them from `app:open-workspaces-changed`.
+  setDetachedWorkspaceIdsProvider(() => {
+    const reg = getWindowRegistry();
+    return reg
+      .scopes()
+      .filter((s) => !s.isMain)
+      .flatMap((s) => s.workspaceIds);
   });
 
   const worktreeBase = path.join(userData, 'worktrees');
