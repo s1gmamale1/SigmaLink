@@ -241,6 +241,69 @@ describe('<WorkspacesPanel />', () => {
     expect(onClose).toHaveBeenCalledWith('b');
   });
 
+  describe('multi-window B5: "Open in new window" detach action', () => {
+    it('renders a detach button for every open-workspace row when onDetach is provided', () => {
+      const onDetach = vi.fn();
+      const { getAllByTestId } = render(
+        <WorkspacesPanel
+          workspaces={[wsA, wsB, wsC]}
+          persistedWorkspaces={[]}
+          sessions={[]}
+          activeId="a"
+          onPick={vi.fn()}
+          onClose={vi.fn()}
+          onOpenPersisted={vi.fn()}
+          onBrowseWorkspaces={vi.fn()}
+          onDetach={onDetach}
+        />,
+      );
+      const detachButtons = getAllByTestId('workspace-detach');
+      expect(detachButtons).toHaveLength(3);
+    });
+
+    it('click calls onDetach with the workspace id and does NOT dispatch anything', () => {
+      const onDetach = vi.fn();
+      const onClose = vi.fn();
+      const { getAllByTestId } = render(
+        <WorkspacesPanel
+          workspaces={[wsA, wsB, wsC]}
+          persistedWorkspaces={[]}
+          sessions={[]}
+          activeId="a"
+          onPick={vi.fn()}
+          onClose={onClose}
+          onOpenPersisted={vi.fn()}
+          onBrowseWorkspaces={vi.fn()}
+          onDetach={onDetach}
+        />,
+      );
+      const rows = getAllByTestId('workspace-row');
+      const rowB = rows.find((n) => n.getAttribute('data-workspace-id') === 'b')!;
+      const detachBtn = rowB.querySelector('[data-testid="workspace-detach"]') as HTMLElement;
+      fireEvent.click(detachBtn);
+      expect(onDetach).toHaveBeenCalledWith('b');
+      // close must NOT be called — the click is isolated to onDetach
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('detach button is absent when onDetach is not provided (scoped window)', () => {
+      const { container } = render(
+        <WorkspacesPanel
+          workspaces={[wsA, wsB]}
+          persistedWorkspaces={[]}
+          sessions={[]}
+          activeId="a"
+          onPick={vi.fn()}
+          onClose={vi.fn()}
+          onOpenPersisted={vi.fn()}
+          onBrowseWorkspaces={vi.fn()}
+          // no onDetach prop
+        />,
+      );
+      expect(container.querySelector('[data-testid="workspace-detach"]')).toBeNull();
+    });
+  });
+
   it('marks the active row with sidebar accent styling', () => {
     const { getAllByTestId } = renderPanel('a');
     const activeRow = getAllByTestId('workspace-row').find(

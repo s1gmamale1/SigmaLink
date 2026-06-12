@@ -6,6 +6,22 @@
 import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron';
 import { isAllowedChannel, isAllowedEvent } from '../src/shared/rpc-channels';
 
+// Multi-window (2026-06-12) — window identity injected by main via
+// webPreferences.additionalArguments. Absent args = legacy single window.
+function argValue(prefix: string): string | null {
+  const hit = process.argv.find((a) => a.startsWith(prefix));
+  return hit ? hit.slice(prefix.length) : null;
+}
+const windowContext = {
+  windowId: (() => {
+    const v = argValue('--sigma-window-id=');
+    const n = v ? Number(v) : NaN;
+    return Number.isInteger(n) && n > 0 ? n : null;
+  })(),
+  isMain: argValue('--sigma-window-main=') !== '0',
+  workspaceScope: argValue('--sigma-workspace-scope=') || null,
+};
+
 const api = {
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
     if (typeof channel !== 'string' || !isAllowedChannel(channel)) {
@@ -47,6 +63,7 @@ const api = {
   setZoomFactor: (factor: number): void => {
     webFrame.setZoomFactor(factor);
   },
+  windowContext,
 };
 
 contextBridge.exposeInMainWorld('sigma', api);

@@ -115,6 +115,9 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'workspaces.openDev',     // SigmaLink Dev — singleton plain-shell workspace at ~
   'workspaces.rename',      // DEV-W2 — was missing from CHANNELS; Sidebar.tsx:294 rename was bridge-rejected
   'workspaces.openNew',     // DEV-W3a — was missing from CHANNELS
+  // windows (windowsCtl)
+  'windows.detachWorkspace', // multi-window B2 — detach a workspace into its own OS window
+  'windows.redockWorkspace', // multi-window B2 — move a detached workspace back into main
   // git (gitCtl)
   'git.status',
   'git.statusSummary',   // perf-hot-paths Task 3 — count-only pane-header poll
@@ -566,5 +569,15 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
    */
   it("allowlists 'window:restored' — Terminal.tsx subscribes via eventOn; a non-allowlisted name silently no-ops in preload", () => {
     expect(EVENTS.has('window:restored')).toBe(true);
+  });
+
+  /**
+   * Multi-window A1 (2026-06-12) — 'app:window-scope-changed' carries the full
+   * scope table pushed by WindowRegistry.broadcastScopes(). The broadcast is
+   * gated on isAllowedEvent, so a missing allowlist entry makes it a silent
+   * no-op (and the preload's eventOn silently no-ops non-allowlisted names).
+   */
+  it("allowlists 'app:window-scope-changed' (multi-window scope table; preload eventOn silently no-ops non-allowlisted names)", () => {
+    expect(EVENTS.has('app:window-scope-changed')).toBe(true);
   });
 });

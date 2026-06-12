@@ -16,6 +16,29 @@ const EVENT_NAME = 'app:open-workspaces-changed';
 let openWorkspaceIds: string[] = [];
 let ipcInstalled = false;
 
+// Multi-window A4 — detached workspaces live in secondary windows; the main
+// renderer's echo legitimately omits them. The registry is the source of
+// truth for "detached"; inject as a provider to keep this module pure.
+let detachedIdsProvider: (() => string[]) | null = null;
+
+export function setDetachedWorkspaceIdsProvider(provider: (() => string[]) | null): void {
+  detachedIdsProvider = provider;
+}
+
+function unionWithDetached(ids: string[]): string[] {
+  // Best-effort: this runs inside IPC handlers — a throwing provider must not
+  // take down the lifecycle; degrade to the raw echoed list.
+  let detached: string[] = [];
+  try {
+    detached = detachedIdsProvider?.() ?? [];
+  } catch {
+    detached = [];
+  }
+  if (detached.length === 0) return [...ids];
+  const seen = new Set(ids);
+  return [...ids, ...detached.filter((id) => id && !seen.has(id))];
+}
+
 function normalizeWorkspaceIds(ids: string[]): string[] {
   const seen = new Set<string>();
   const next: string[] = [];
@@ -40,13 +63,19 @@ function broadcast(payload: OpenWorkspacesChangedEvent): void {
 function emitOpenWorkspacesChanged(): void {
   if (!isAllowedEvent(EVENT_NAME)) return;
   const payload = OpenWorkspacesChangedEventSchema.parse({
-    workspaceIds: openWorkspaceIds,
+    workspaceIds: unionWithDetached(openWorkspaceIds),
   });
   broadcast(payload);
 }
 
 export function getOpenWorkspaceIds(): string[] {
-  return [...openWorkspaceIds];
+  return unionWithDetached(openWorkspaceIds);
+}
+
+/** Re-broadcast the open-list union; call after any registry-side detached-set
+ *  change (the replaceOpenWorkspaces short-circuit only diffs the RAW echoed list). */
+export function refreshOpenWorkspaces(): void {
+  emitOpenWorkspacesChanged();
 }
 
 export function replaceOpenWorkspaces(workspaceIds: string[]): boolean {
@@ -57,6 +86,10 @@ export function replaceOpenWorkspaces(workspaceIds: string[]): boolean {
   return true;
 }
 
+// Multi-window continuity rule (A4): any path that moves a workspace BACK to
+// the main window must call markWorkspaceOpened(workspaceId) BEFORE the
+// registry stops reporting it detached — otherwise the union transiently
+// drops it and the main window's SYNC never re-adds it.
 export function markWorkspaceOpened(workspaceId: string): void {
   replaceOpenWorkspaces([workspaceId, ...openWorkspaceIds.filter((id) => id !== workspaceId)]);
 }
@@ -79,4 +112,5 @@ export function installWorkspaceLifecycleIpc(): void {
 export function __resetWorkspaceLifecycleForTests(): void {
   openWorkspaceIds = [];
   ipcInstalled = false;
+  detachedIdsProvider = null;
 }

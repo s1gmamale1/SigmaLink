@@ -13,6 +13,7 @@ import { Monogram } from '@/renderer/components/Monogram';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { PLATFORM_IS_MAC } from '@/renderer/lib/shortcuts';
+import { isMainWindow } from '@/renderer/lib/window-context';
 import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 import { useBelowBreakpoint } from '@/renderer/lib/use-breakpoint';
 import { readWorkspaceUi, writeWorkspaceUi } from '@/renderer/lib/workspace-ui-kv';
@@ -377,6 +378,15 @@ export function Sidebar() {
             dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: ws.id });
           }}
           onClose={(workspaceId) => dispatch({ type: 'WORKSPACE_CLOSE', workspaceId })}
+          onDetach={
+            isMainWindow()
+              ? (workspaceId) => {
+                  void rpc.windows
+                    .detachWorkspace({ workspaceId })
+                    .catch(() => undefined);
+                }
+              : undefined
+          }
           onOpenPersisted={openPersistedWorkspace}
           onOpenDev={() => void openDevWorkspaceFlow()}
           devWorkspaceId={devWorkspaceId}

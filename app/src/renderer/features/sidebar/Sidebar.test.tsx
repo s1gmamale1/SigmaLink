@@ -22,6 +22,8 @@ const openDevMock = vi.fn();
 const launchMock = vi.fn();
 const listForWorkspaceMock = vi.fn();
 const resumeMock = vi.fn();
+// Multi-window B5 — named so the detach wiring test can assert on it.
+const detachWorkspaceMock = vi.fn<(args: { workspaceId: string }) => Promise<void>>();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -39,6 +41,9 @@ vi.mock('@/renderer/lib/rpc', () => ({
       listForWorkspace: (...args: [string]) => listForWorkspaceMock(...args),
       resume: (...args: [string]) => resumeMock(...args),
     },
+    windows: {
+      detachWorkspace: (...args: [{ workspaceId: string }]) => detachWorkspaceMock(...args),
+    },
   },
 }));
 
@@ -50,9 +55,10 @@ vi.mock('@/renderer/components/Monogram', () => ({
 // clickable button so flow tests can trigger openDevWorkspaceFlow without the
 // real dropdown. Other tests ignore it (they assert on the aside/divider).
 vi.mock('./WorkspacesPanel', () => ({
-  WorkspacesPanel: ({ onOpenDev }: { onOpenDev?: () => void }) => (
+  WorkspacesPanel: ({ onOpenDev, onDetach }: { onOpenDev?: () => void; onDetach?: (id: string) => void }) => (
     <div data-testid="workspaces-panel">
       <button type="button" data-testid="open-dev" onClick={() => onOpenDev?.()} />
+      {onDetach ? <button type="button" data-testid="ws-detach-stub" onClick={() => onDetach('stub-ws')} /> : null}
     </div>
   ),
 }));
@@ -90,6 +96,12 @@ vi.mock('./DevWorkspaceDialog', () => ({
 vi.mock('@/renderer/lib/drag-region', () => ({
   dragStyle: () => ({}),
   noDragStyle: () => ({}),
+}));
+
+vi.mock('@/renderer/lib/window-context', () => ({
+  isMainWindow: () => true,
+  getWindowContext: () => ({ windowId: null, isMain: true, workspaceScope: null }),
+  getWorkspaceScope: () => null,
 }));
 
 vi.mock('@/renderer/lib/shortcuts', () => ({
@@ -578,5 +590,42 @@ describe('Sidebar — SigmaLink Dev flow (Phase 14, Task 8)', () => {
 
     expect(launchMock).toHaveBeenCalledTimes(1);
     expect(openDevMock).toHaveBeenCalledTimes(2); // 1× open flow + 1× launch (not 3×)
+  });
+});
+
+describe('Sidebar — multi-window B5: detach wiring', () => {
+  beforeEach(() => {
+    kvGetMock.mockResolvedValue(null);
+    kvSetMock.mockResolvedValue(undefined);
+    dispatchMock.mockReset();
+    detachWorkspaceMock.mockReset().mockResolvedValue(undefined);
+    mockState = {
+      activeWorkspace: null,
+      sidebarCollapsed: false,
+      openWorkspaces: [],
+      workspaces: [],
+      sessions: [],
+    };
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('onDetach calls rpc.windows.detachWorkspace with the workspace id and dispatches nothing', async () => {
+    const { getByTestId } = renderSidebar();
+    await act(async () => {});
+    dispatchMock.mockReset(); // ignore mount-time dispatches (breakpoint collapse etc.)
+
+    await act(async () => {
+      fireEvent.click(getByTestId('ws-detach-stub'));
+    });
+
+    expect(detachWorkspaceMock).toHaveBeenCalledTimes(1);
+    expect(detachWorkspaceMock).toHaveBeenCalledWith({ workspaceId: 'stub-ws' });
+    // NO optimistic dispatch — the scope-event round-trip (B3) is the single
+    // source of truth for dropping the workspace from the main window.
+    expect(dispatchMock).not.toHaveBeenCalled();
   });
 });

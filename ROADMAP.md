@@ -397,6 +397,31 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 ---
 
+## Phase 16 — Multi-window workspaces (detach to a separate OS window)
+
+**Goal.** An operator can pop a workspace out of the sidebar into its own OS window (and re-dock it by closing that window) with every PTY surviving the move untouched.
+
+**Deliverables.**
+- `app/src/main/core/windows/registry.ts` — WindowRegistry: windowId↔handle, workspaceId→windowId ownership, sessionId→workspaceId routing cache, `app:window-scope-changed` broadcast (+ pure-DI tests).
+- Routed event delivery: `pty:data`/`pty:exit`/`pty:error`/`pty:link-detected` reach ONLY the owning window (supersedes the PERF-11 single-target fast path, `rpc-router.ts:227-241`).
+- `windows.detachWorkspace` / `windows.redockWorkspace` RPCs (full channel QUAD) + `app/src/main/core/windows/detach-handlers.ts` (DI'd, tested).
+- Preload `windowContext` (via `additionalArguments`) + `src/renderer/lib/window-context.ts`; scoped windows render a Command-Room-only shell branch inside `App.tsx`.
+- Scope-aware `use-workspace-mirror` (main-only outbound echo; per-window SYNC filter) + detached-aware open-list union in `workspaces/lifecycle.ts`.
+- Sidebar "Open in new window" row action; secondary-window factory + re-dock-on-close in `electron/main.ts`.
+- Plan: `app/docs/superpowers/plans/2026-06-12-multi-window-workspaces.md` (Phase A plumbing ships dark; Phase B the UX).
+
+**Why now.** Operator-requested (2026-06-12); multi-monitor Command Rooms are the top structural UX gap vs. running N separate apps, and the investigation found the hard parts pre-built: `pty.snapshot` first-attach (`terminal-cache.ts:337-413`) means moving a workspace needs NO PTY restart, and the BSP-B2 browser detach (`browser/manager.ts:395`) proves the secondary-window pattern in-repo.
+
+**Scope.** Per the plan: A1 WindowRegistry → A2 route broadcasts (`rpc-router.ts:483-486` coalescer choke point; sessionId→workspaceId via `agent_sessions.workspace_id`, query pattern `rpc-router.ts:398-405`) → A3 preload identity (`electron/preload.ts:9-52`) → A4 detached-aware union (`lifecycle.ts:34-76`) → B1 window factory (`electron/main.ts:597-698`) → B2 detach/redock RPCs (QUAD: `rpc-channels.ts:82-93`, `rpc-channels.test.ts:110-117`, `router-shape.ts:327`) → B3 scope-aware mirror (`use-workspace-mirror.ts`) → B4 scoped boot + shell (`use-session-restore.ts`, `App.tsx:83-106`) → B5 sidebar affordance (`Sidebar.tsx:379`) → B6 gate.
+
+**Findings + recommendation.** Full SPA per window + main-side ownership registry chosen over a thin second renderer root (a new App-wiring mirror = the drift class) and over N free-floating windows (no detach semantics, same guards needed anyway) — ADR-009. Single-attachment is the load-bearing invariant: detach = MOVE, never mirror (two xterms on one PTY fight over SIGWINCH and double-echo input); all transitions sequenced in main.
+
+**Risks.** Mirror multi-writer stomp → only the main window echoes; the union re-adds registry-detached ids; redock seeds `markWorkspaceOpened` BEFORE ownership flips (continuity rule, encoded in tests). Remaining `mainWindow` call-sites → mandatory sibling-mirror grep at PR time. Per-window renderer RSS → acceptable at 1–3 windows; revisit with pane-hibernate thinking. Scrollback on move is ring-buffer-bounded → DOM-presenter engine later makes it lossless.
+
+**Definition of done.** Operator smoke on a real build: detach a workspace with a running claude pane → scrollback present, typing works, NO doubled echo; resize re-wraps once; close the window → re-docks with the pane live; double-detach focuses the existing window; pane-exit toast fires exactly once. Full gate (`tsc -b`, eslint, FULL vitest, build) + CI e2e-matrix green. Phase A alone ships dark with byte-identical behavior. **Out of scope (follow-up plan):** boot restore of window layout (kv `ui.windows.layout`), non-workspace rooms in secondary windows, pane-level tear-out.
+
+---
+
 ## Architecture decisions (ADRs)
 
 ### ADR-001 — Prefer shared Ruflo HTTP over per-pane stdio
@@ -422,6 +447,9 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 ### ADR-008 — Special workspaces are KV-marked, not schema-typed
 **Decision.** The "SigmaLink Dev" singleton is identified by a KV pointer (`workspace.devWorkspace.id`) plus forced `repoMode:'plain'`/`repoRoot:null` — NOT by a new `kind`/`type` column on `workspaces`. **Context.** Only one special flavor exists; `repoMode:'plain'` already short-circuits every worktree/git/janitor path (both spawn gates, boot janitor, orphan cleanup, auto-checkpoint), and the shared-KV-contract pattern is established (`shared/worktree-mode.ts`). A migration would buy nothing today. **Consequences.** (+) Zero migration risk; reuses both existing spawn gates unchanged; a deleted row self-heals (recreate + repoint). (−) Specialness is invisible in the `workspaces` table itself (must join KV to see it); a second special flavor later would justify revisiting a `kind` column.
+
+### ADR-009 — Multi-window = full SPA per window + main-side ownership registry; detach is a MOVE, never a mirror
+**Decision.** Secondary windows load the SAME renderer bundle scoped via a preload-injected `workspaceScope`; a main-process WindowRegistry is the sole source of truth for workspaceId→windowId ownership; a workspace's xterm instances exist in exactly ONE window, and session-scoped PTY events are routed only to that window. Renderer echoes of the open-workspace list come ONLY from the main window; the global list is the union of that echo and registry-detached workspaces. **Context.** Two xterms attached to one PTY fight over SIGWINCH/cols and double-echo input, so mirroring is structurally unsafe. A thin secondary renderer root would duplicate App.tsx provider wiring (the sibling-drift class that has bitten repeatedly); N un-scoped windows give no detach semantics while still needing every ownership guard. The move path is cheap because `pty.snapshot` + the pty-data-bus first-attach already rebuild a terminal against a RUNNING PTY (`terminal-cache.ts:337-413`), and the BSP-B2 browser detach proved secondary-window lifecycle in-repo (`browser/manager.ts:395`). **Consequences.** (+) One renderer codebase, process isolation gives each window its own terminal cache for free, and pty:data routing CUTS total IPC versus broadcast (supersedes PERF-11). (+) Re-dock-on-close keeps PTYs alive (ADR-007-consistent). (−) Every direct `mainWindow.webContents.send` becomes a routing decision (audited class); per-window renderer processes cost RSS; ring-buffer-bounded scrollback on move until the DOM-presenter engine serializes buffers.
 
 ---
 
@@ -452,3 +480,6 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 | Recently-closed panes (listClosed + reopen + UI) | Phase 13 (Part B) | M | Medium | Recoverable accidental close; mirrors browser-tab recents. |
 | SigmaLink Dev workspace (singleton + shell resume + containment + renderer) | Phase 14 | M | High | 9-task TDD plan; ~90% existing machinery; ADR-008. |
 | CHANNELS allowlist fix (`rename`/`openNew`) | Phase 14 (Task 4) | S | High | Silent data-loss class (hotlist #15); rides the same edit. |
+| Multi-window plumbing (registry + routed events + scoped identity) | Phase 16 (A) | M | High | Ships dark, byte-identical single-window behavior; ADR-009. |
+| Workspace detach/re-dock UX (RPCs + scoped shell + sidebar action) | Phase 16 (B) | L | High | Move-never-mirror; PTYs survive; operator smoke is the DoD. |
+| Window-layout boot restore (kv `ui.windows.layout`) | Wishlist | M | Medium | Follow-up plan after Phase 16 dogfood. |
