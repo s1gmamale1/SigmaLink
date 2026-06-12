@@ -17,7 +17,7 @@
 
 ## 🧊 Deferred XL (held — each is its own cycle; see ROADMAP ADR-003/006)
 - **BSP-P4 — Canvas mode** (freeform draggable/resizable panes). XL — pane layout-engine rewrite. Leapfrog if shipped before BridgeCanvas.
-- **BSP-P6 — multi-window / dual-window** (detach to its own OS window, multi-monitor). L–XL — multi-`BrowserWindow`. (Phase 10's B2 already shipped the browser-only detach slice.)
+- ~~**BSP-P6 — multi-window / dual-window**~~ ✅ **SHIPPED v2.5.0** (#169, ROADMAP Phase 16, ADR-009) — workspace detach to its own OS window; built on the BSP-B2 browser-detach precedent. Follow-ups (layout boot restore, redock affordance, voice focus) live in root `WISHLIST.md`.
 - **BSP-P5 — workspaces-as-tabs** (top tab-strip variant of the workspace switcher). S, but a layout-shell change — fold into a future shell pass.
 - **Tauri/Rust platform migration.** Evaluated + rejected for now (ADR-006) — the disk leak was a logic bug, not a platform limit. Revisit only if idle-RAM / binary-size become a strategic priority, as its own cycle.
 
