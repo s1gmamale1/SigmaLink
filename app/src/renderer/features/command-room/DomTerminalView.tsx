@@ -9,7 +9,7 @@
 // compositor state to repaint), dragFit (CSS wrap handles live drag), WebGL
 // addon, link addon (FlowView anchors land in P2).
 
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
 import { encodeKeyEvent, encodePaste, isNativePasteCombo } from './input-encoder';
@@ -18,8 +18,9 @@ import { getPlatform } from '@/renderer/lib/platform';
 import { useAppStateSelector } from '@/renderer/app/state';
 import { useRightRail } from '@/renderer/features/right-rail/RightRailContext.data';
 import { routeLinkClick } from './route-link-click';
-import { FlowView } from './FlowView';
+import { FlowView, MAX_RENDER_LINES } from './FlowView';
 import { GridView } from './GridView';
+import { PaneSearch } from './PaneSearch';
 import { RefitController } from './refit-controller';
 
 const PROBE_LEN = 10;
@@ -27,6 +28,32 @@ const PAD_X = 6; // FlowView horizontal padding — subtracted before cols math
 
 const MONO_FONT =
   'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace';
+
+/** Flat list of search matches across the RENDERED (visible) logical lines —
+ *  `line` is the index into the visible slice (FlowView's activeMatch.line
+ *  contract), `index` is which match within that line. Case-insensitive,
+ *  string ops only (no regex → no control-char-in-regex lint risk). */
+function computeMatches(
+  visibleTexts: string[],
+  term: string,
+): { line: number; index: number }[] {
+  if (!term) return [];
+  const needle = term.toLowerCase();
+  const out: { line: number; index: number }[] = [];
+  visibleTexts.forEach((text, line) => {
+    const hay = text.toLowerCase();
+    let from = 0;
+    let index = 0;
+    for (;;) {
+      const at = hay.indexOf(needle, from);
+      if (at === -1) break;
+      out.push({ line, index });
+      index += 1;
+      from = at + needle.length;
+    }
+  });
+  return out;
+}
 
 export function DomTerminalView({
   sessionId,
@@ -65,6 +92,41 @@ export function DomTerminalView({
     (url: string) => routeLinkClick(url, wsIdRef.current, () => setActiveTab('browser')),
     [setActiveTab],
   );
+
+  // Find-in-pane state. Matches are recomputed each render from the engine's
+  // current visible lines (pane content is capped at MAX_RENDER_LINES, the
+  // same window FlowView renders + highlights — alt-screen apps own their own
+  // search so the overlay shows 0/0 there).
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeIdx, setActiveIdx] = useState(0);
+
+  let matches: { line: number; index: number }[] = [];
+  if (searchOpen && searchTerm && entry.engine.bufferType !== 'alternate') {
+    const lines = entry.engine.logicalLines();
+    const visible = lines.slice(Math.max(0, lines.length - MAX_RENDER_LINES));
+    matches = computeMatches(
+      visible.map((l) => l.text),
+      searchTerm,
+    );
+  }
+  const activeMatch =
+    matches.length > 0 ? matches[((activeIdx % matches.length) + matches.length) % matches.length]! : null;
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchTerm('');
+    setActiveIdx(0);
+    inputRef.current?.focus();
+  };
+  const onSearchTermChange = (term: string) => {
+    setSearchTerm(term);
+    setActiveIdx(0);
+  };
+  const onSearchNavigate = (direction: 1 | -1) => {
+    if (matches.length === 0) return;
+    setActiveIdx((i) => (((i + direction) % matches.length) + matches.length) % matches.length);
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -279,6 +341,18 @@ export function DomTerminalView({
 
   const onKeyDown = (ev: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (entry.ptyExited) return;
+    // Find-in-pane open: mac ⌘F, win/linux Ctrl+Shift+F (plain Ctrl+F stays
+    // readline forward-char). Handled before the encoder so the keystroke
+    // never reaches the PTY.
+    const isMac = getPlatform() === 'darwin';
+    if (
+      (isMac && ev.metaKey && !ev.ctrlKey && ev.key.toLowerCase() === 'f') ||
+      (!isMac && ev.ctrlKey && ev.shiftKey && ev.key.toLowerCase() === 'f')
+    ) {
+      ev.preventDefault();
+      setSearchOpen(true);
+      return;
+    }
     const keyEvent = {
       key: ev.key,
       ctrlKey: ev.ctrlKey,
@@ -346,10 +420,25 @@ export function DomTerminalView({
       >
         {'W'.repeat(PROBE_LEN)}
       </span>
+      {searchOpen && (
+        <PaneSearch
+          term={searchTerm}
+          matchCount={matches.length}
+          activeIndex={matches.length > 0 ? ((activeIdx % matches.length) + matches.length) % matches.length : 0}
+          onTermChange={onSearchTermChange}
+          onNavigate={onSearchNavigate}
+          onClose={closeSearch}
+        />
+      )}
       {entry.engine.bufferType === 'alternate' ? (
         <GridView engine={entry.engine} />
       ) : (
-        <FlowView engine={entry.engine} onLinkClick={onLinkClick} />
+        <FlowView
+          engine={entry.engine}
+          onLinkClick={onLinkClick}
+          searchTerm={searchOpen ? searchTerm : undefined}
+          activeMatch={activeMatch}
+        />
       )}
       <textarea
         ref={inputRef}

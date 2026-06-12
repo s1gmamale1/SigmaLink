@@ -237,6 +237,45 @@ describe('DomTerminalView', () => {
     expect(routeLinkClickMock.mock.calls[0][1]).toBe('ws-1');
   });
 
+  it('Cmd+F opens find-in-pane; typing highlights matches; Escape closes + refocuses (P2)', async () => {
+    const { container } = render(<DomTerminalView sessionId="m5" />);
+    await settle();
+    const engine = getCachedEngine('m5')!.engine;
+    await act(
+      () => new Promise<void>((r) => engine.term.write('hello world hello', () => setTimeout(r, 40))),
+    );
+    const input = container.querySelector('textarea')!;
+    // default platform is darwin → Cmd+F opens the search bar
+    fireEvent.keyDown(input, { key: 'f', metaKey: true });
+    expect(container.querySelector('[data-testid="pane-search"]')).toBeTruthy();
+    // the keystroke must NOT reach the PTY
+    expect(rpcMock.pty.write).not.toHaveBeenCalled();
+
+    const searchInput = container.querySelector(
+      '[data-testid="pane-search"] input',
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(searchInput, { target: { value: 'hello' } });
+    });
+    // FlowView renders a highlight span for the active match
+    const flow = container.querySelector('[data-testid="flow-view"]')!;
+    expect(flow.querySelector('[data-search-active]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="pane-search-count"]')!.textContent).toBe('1/2');
+
+    fireEvent.keyDown(searchInput, { key: 'Escape' });
+    expect(container.querySelector('[data-testid="pane-search"]')).toBeNull();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('Ctrl+F alone does NOT open search (stays readline forward-char) (P2)', async () => {
+    const { container } = render(<DomTerminalView sessionId="m6" />);
+    await settle();
+    fireEvent.keyDown(container.querySelector('textarea')!, { key: 'f', ctrlKey: true });
+    expect(container.querySelector('[data-testid="pane-search"]')).toBeNull();
+    // Ctrl+F encodes to \x06 (readline forward-char) and reaches the PTY
+    expect(rpcMock.pty.write).toHaveBeenCalledWith('m6', '\x06');
+  });
+
   it('switches FlowView↔GridView on buffer-type transitions', async () => {
     const { container } = render(<DomTerminalView sessionId="d12" />);
     await settle();
