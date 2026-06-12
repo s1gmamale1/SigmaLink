@@ -25,6 +25,15 @@ export interface AgentProviderDefinition {
   command: string;            // canonical CLI binary name
   altCommands?: string[];     // alternates to probe on PATH (e.g. via npx)
   args: string[];             // initial args appended on plain spawn
+  /**
+   * Args appended ONLY when the spawning pane renders through the legacy
+   * xterm path (P1c, spec §Renderer flag). The claude fullscreen injection
+   * (#160) lives here: the xterm grid needs alt-screen to keep Ink's
+   * SIGWINCH reprints out of scrollback, while the DOM presenter WANTS
+   * inline mode (no scrollback grid to corrupt; FlowView renders the
+   * transcript as flowing lines — spec G3).
+   */
+  xtermOnlyArgs?: string[];
   versionArgs?: string[];     // for `--version` probe; default ['--version']
   resumeArgs?: string[];      // appended when resuming an existing session
   oneshotArgs?: string[];     // contains `{prompt}` placeholder for one-shot use
@@ -86,16 +95,19 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     description: "Anthropic's Claude Code CLI",
     command: 'claude',
     altCommands: ['claude.cmd'],
-    // --settings: force the alt-screen (fullscreen) TUI renderer inside
-    // SigmaLink panes — the default inline renderer reprints its frame into
-    // scrollback on every SIGWINCH (upstream anthropics/claude-code#49086),
-    // so each pane-resize settle appended a duplicate transcript copy that
-    // select-to-copy then picked up. Alt-screen redraws can't touch
-    // scrollback. Scoped to SigmaLink spawns only (the user's own terminal
-    // claude is untouched); unknown settings are silently ignored by the
-    // CLI, so a future key rename degrades to a no-op, never a crash.
-    // One-line revert if the fullscreen renderer misbehaves.
-    args: ['--settings', '{"tui":"fullscreen"}'],
+    // --settings (xterm-mode panes ONLY since P1c): force the alt-screen
+    // (fullscreen) TUI renderer inside SigmaLink xterm panes — the default
+    // inline renderer reprints its frame into scrollback on every SIGWINCH
+    // (upstream anthropics/claude-code#49086), so each pane-resize settle
+    // appended a duplicate transcript copy that select-to-copy then picked
+    // up. Alt-screen redraws can't touch scrollback. The DOM presenter
+    // (GridView/FlowView) has no scrollback grid to corrupt and WANTS inline
+    // mode, so the injection is now keyed off rendererMode in the launcher.
+    // Scoped to SigmaLink spawns only (the user's own terminal claude is
+    // untouched); unknown settings are silently ignored by the CLI, so a
+    // future key rename degrades to a no-op, never a crash.
+    args: [],
+    xtermOnlyArgs: ['--settings', '{"tui":"fullscreen"}'],
     resumeArgs: ['--resume'],
     oneshotArgs: ['-p', '{prompt}'],
     autoApproveFlag: '--dangerously-skip-permissions',

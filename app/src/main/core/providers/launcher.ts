@@ -34,6 +34,10 @@ import {
   type AgentProviderDefinition,
   type ProviderId,
 } from '../../../shared/providers';
+import {
+  DEFAULT_RENDERER_MODE,
+  type RendererMode,
+} from '../../../shared/renderer-mode';
 
 /**
  * Providers that accept a pre-assigned session UUID via `--session-id <uuid>`.
@@ -112,6 +116,12 @@ export interface ResolveAndSpawnOpts {
    * When absent, behaviour is byte-for-byte identical to pre-v1.9.
    */
   resumeScrollback?: string;
+  /**
+   * Which renderer hosts this pane (P1c). Decides whether xtermOnlyArgs are
+   * appended. Unset resolves to the shared DEFAULT_RENDERER_MODE — main and
+   * renderer must never disagree on the default (v2.4.1 lesson).
+   */
+  rendererMode?: RendererMode;
 }
 
 export interface ResolveAndSpawnResult {
@@ -217,6 +227,12 @@ function buildArgs(
     out.push('--session-id', preassignedUuid);
   }
   out.push(...provider.args);
+  // P1c — xterm-only args (claude's #160 fullscreen injection): the DOM
+  // presenter wants inline mode, the xterm grid needs alt-screen.
+  const rendererMode = opts.rendererMode ?? DEFAULT_RENDERER_MODE;
+  if (rendererMode === 'xterm' && provider.xtermOnlyArgs?.length) {
+    out.push(...provider.xtermOnlyArgs);
+  }
   if (opts.autoApprove && provider.autoApproveFlag) {
     out.push(provider.autoApproveFlag);
   }

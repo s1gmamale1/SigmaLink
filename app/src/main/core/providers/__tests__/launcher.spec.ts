@@ -101,6 +101,14 @@ const claudeProvider: AgentProviderDefinition = {
   installHint: 'npm i -g @anthropic-ai/claude-code',
 };
 
+// P1c — claude with the xtermOnlyArgs fullscreen injection (#160). The
+// production registry moved `--settings '{"tui":"fullscreen"}'` off `args`
+// onto `xtermOnlyArgs`; the launcher appends it ONLY for xterm-mode panes.
+const claudeXtermOnlyProvider: AgentProviderDefinition = {
+  ...claudeProvider,
+  xtermOnlyArgs: ['--settings', '{"tui":"fullscreen"}'],
+};
+
 // Synthetic comingSoon provider used to exercise the fallback machinery. The
 // v1.2.4 shipping registry no longer includes such a row; this fixture keeps
 // the launcher façade's swap path under test for future stubs.
@@ -244,6 +252,56 @@ test('BUG-V1.1-06: extraArgs are appended after the autoApproveFlag', () => {
     '-p',
     'hello world',
   ]);
+});
+
+// claude is a PRE_ASSIGN provider, so a FRESH spawn always prepends
+// `--session-id <uuid>` to argv; these tests assert on the PRESENCE/ABSENCE
+// of the xtermOnly `--settings '{"tui":"fullscreen"}'` PAIR rather than exact
+// argv equality (the uuid is non-deterministic). A small helper keeps it
+// readable. Pass a resume sentinel (`sessionId`) is avoided here so we stay on
+// the fresh-spawn path the real pane launch uses.
+function hasFullscreenPair(args: string[]): boolean {
+  const i = args.indexOf('--settings');
+  return i >= 0 && args[i + 1] === '{"tui":"fullscreen"}';
+}
+
+test('P1c: rendererMode=xterm appends provider.xtermOnlyArgs (#160 fullscreen)', () => {
+  const { registry, calls } = makeMockRegistry(() => makeFakeSession('s-xterm'));
+  const result = resolveAndSpawn(
+    {
+      ptyRegistry: registry,
+      getProvider: makeProviderRegistry([claudeXtermOnlyProvider]),
+    },
+    { providerId: 'claude', cwd: '/tmp', rendererMode: 'xterm' },
+  );
+  assert.equal(hasFullscreenPair(result.argsUsed), true);
+  assert.equal(hasFullscreenPair(calls[0]?.args ?? []), true);
+});
+
+test('P1c: rendererMode=dom does NOT append xtermOnlyArgs (DOM presenter wants inline)', () => {
+  const { registry } = makeMockRegistry(() => makeFakeSession('s-dom'));
+  const result = resolveAndSpawn(
+    {
+      ptyRegistry: registry,
+      getProvider: makeProviderRegistry([claudeXtermOnlyProvider]),
+    },
+    { providerId: 'claude', cwd: '/tmp', rendererMode: 'dom' },
+  );
+  assert.equal(hasFullscreenPair(result.argsUsed), false);
+  assert.equal(result.argsUsed.includes('--settings'), false);
+});
+
+test('P1c: omitting rendererMode defaults to dom — no xtermOnlyArgs (one default, main+renderer)', () => {
+  const { registry } = makeMockRegistry(() => makeFakeSession('s-default'));
+  const result = resolveAndSpawn(
+    {
+      ptyRegistry: registry,
+      getProvider: makeProviderRegistry([claudeXtermOnlyProvider]),
+    },
+    { providerId: 'claude', cwd: '/tmp' },
+  );
+  assert.equal(hasFullscreenPair(result.argsUsed), false);
+  assert.equal(result.argsUsed.includes('--settings'), false);
 });
 
 test('BUG-V1.1-07: legacy provider refused when showLegacy=false', () => {
