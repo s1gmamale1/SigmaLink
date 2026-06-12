@@ -567,4 +567,14 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
   it("allowlists 'window:restored' — Terminal.tsx subscribes via eventOn; a non-allowlisted name silently no-ops in preload", () => {
     expect(EVENTS.has('window:restored')).toBe(true);
   });
+
+  /**
+   * Multi-window A1 (2026-06-12) — 'app:window-scope-changed' carries the full
+   * scope table pushed by WindowRegistry.broadcastScopes(). The broadcast is
+   * gated on isAllowedEvent, so a missing allowlist entry makes it a silent
+   * no-op (and the preload's eventOn silently no-ops non-allowlisted names).
+   */
+  it("allowlists 'app:window-scope-changed' (multi-window scope table; preload eventOn silently no-ops non-allowlisted names)", () => {
+    expect(EVENTS.has('app:window-scope-changed')).toBe(true);
+  });
 });

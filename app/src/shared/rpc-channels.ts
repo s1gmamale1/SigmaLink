@@ -500,6 +500,9 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // visible terminals force-repaint (the RO never fires for an un-minimize,
   // and occlusion throttling can stall WebGL frames while minimized).
   'window:restored',
+  // Multi-window (2026-06-12) — full scope table {scopes:[{windowId,isMain,workspaceIds}]}
+  // pushed by WindowRegistry.broadcastScopes() on every ownership change.
+  'app:window-scope-changed',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {
