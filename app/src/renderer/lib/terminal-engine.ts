@@ -78,6 +78,7 @@ export class TerminalEngine {
   private readonly changeSubs = new Set<() => void>();
   private notifyScheduled = false;
   private disposed = false;
+  private sgrMouseMode = false;
 
   constructor(delegate: EngineDelegate, opts: EngineOptions = {}) {
     this.term = new HeadlessTerminal({
@@ -95,6 +96,21 @@ export class TerminalEngine {
     // Coalesced change notify: bursts of writes collapse to one callback per
     // frame (rAF in the renderer; setTimeout(0) under node tests).
     this.disposers.push(this.term.onWriteParsed(() => this.scheduleNotify()));
+    // DECSET/DECRST 1006 watcher — xterm's public modes API exposes
+    // mouseTrackingMode but NOT the report ENCODING; the presenter needs it
+    // to emit well-formed SGR wheel reports (claude fullscreen consumes the
+    // wheel via mouse reporting, not arrow keys). Returning false lets
+    // xterm's own handler still process the sequence.
+    const watch1006 = (set: boolean) => (params: (number | number[])[]): boolean => {
+      if (params.includes(1006)) this.sgrMouseMode = set;
+      return false;
+    };
+    this.disposers.push(
+      this.term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, watch1006(true)),
+    );
+    this.disposers.push(
+      this.term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, watch1006(false)),
+    );
   }
 
   write(data: string): void {
@@ -119,6 +135,14 @@ export class TerminalEngine {
 
   get bufferType(): 'normal' | 'alternate' {
     return this.term.buffer.active.type;
+  }
+
+  /** Whether the hosted app requested wheel-capable mouse tracking, and
+   *  whether reports must use SGR encoding (x10 is press-only legacy — it
+   *  never reports wheel, so it does not count as active). */
+  get mouseTracking(): { active: boolean; sgr: boolean } {
+    const m = this.term.modes.mouseTrackingMode;
+    return { active: m !== 'none' && m !== 'x10', sgr: this.sgrMouseMode };
   }
 
   /** Modes the presenter's InputEncoder must respect (DECCKM, bracketed paste). */

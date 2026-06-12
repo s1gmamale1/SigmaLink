@@ -209,3 +209,22 @@ describe('TerminalEngine — styled runs + cursor', () => {
     expect(engine.cursor).toEqual({ row: 1, col: 3 });
   });
 });
+
+describe('TerminalEngine — mouse tracking exposure (wheel reporting)', () => {
+  it('reports active+sgr when the app enables vt200 tracking with SGR encoding', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    expect(engine.mouseTracking).toEqual({ active: false, sgr: false });
+    await flushWrite(engine, '\x1b[?1000h\x1b[?1006h'); // claude-fullscreen style
+    expect(engine.mouseTracking).toEqual({ active: true, sgr: true });
+  });
+
+  it('DECRST 1006 drops the sgr flag; x10 tracking does not count as active', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    await flushWrite(engine, '\x1b[?1000h\x1b[?1006h\x1b[?1006l');
+    expect(engine.mouseTracking).toEqual({ active: true, sgr: false });
+    await flushWrite(engine, '\x1b[?1000l\x1b[?9h'); // x10: button-press only, no wheel
+    expect(engine.mouseTracking.active).toBe(false);
+  });
+});

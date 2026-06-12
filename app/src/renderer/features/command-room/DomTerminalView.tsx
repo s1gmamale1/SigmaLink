@@ -95,8 +95,65 @@ export function DomTerminalView({
     };
     window.addEventListener('sigma:pty-focus', onFocusReq);
 
+    // Wheel routing, in priority order (parity with xterm.js's viewport):
+    //   1. App requested wheel-capable mouse tracking with SGR encoding
+    //      (claude fullscreen does: 1049+1000+1006) → SGR wheel REPORTS at
+    //      the pointer cell. Arrows here would hit the composer's prompt
+    //      history instead of scrolling the transcript (operator-reported).
+    //   2. Alt screen WITHOUT mouse tracking (less, vim without mouse=a) →
+    //      arrow-key fallback, the classic terminal convention.
+    //   3. Normal buffer → untouched: native DOM scroll + stick-to-bottom.
+    // Native NON-passive listener: React root-level wheel handlers are
+    // passive, so ev.preventDefault() would be ignored there.
+    const onWheel = (ev: WheelEvent) => {
+      if (entry.ptyExited || ev.deltaY === 0) return;
+      const LINE_PX = 17; // FlowView row height estimate — only a wheel ratio
+      const lines =
+        ev.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? Math.abs(ev.deltaY)
+          : Math.abs(ev.deltaY) / LINE_PX;
+      const n = Math.max(1, Math.min(10, Math.round(lines)));
+
+      const mt = entry.engine.mouseTracking;
+      if (mt.active && mt.sgr) {
+        ev.preventDefault();
+        const rect = container.getBoundingClientRect();
+        const probe = probeRef.current;
+        const cellW = probe && probe.offsetWidth > 0 ? probe.offsetWidth / PROBE_LEN : 7.2;
+        const lineH = probe && probe.offsetHeight > 0 ? probe.offsetHeight : LINE_PX;
+        const col = Math.max(
+          1,
+          Math.min(entry.engine.term.cols, Math.floor((ev.clientX - rect.left) / cellW) + 1),
+        );
+        const row = Math.max(
+          1,
+          Math.min(entry.engine.term.rows, Math.floor((ev.clientY - rect.top) / lineH) + 1),
+        );
+        const button = ev.deltaY < 0 ? 64 : 65; // SGR wheel up / down
+        const report = `\x1b[<${button};${col};${row}M`;
+        void rpc.pty.write(sessionId, report.repeat(n)).catch(() => undefined);
+        return;
+      }
+
+      if (entry.engine.bufferType !== 'alternate') return;
+      ev.preventDefault();
+      const bytes = encodeKeyEvent(
+        {
+          key: ev.deltaY < 0 ? 'ArrowUp' : 'ArrowDown',
+          ctrlKey: false,
+          altKey: false,
+          metaKey: false,
+          shiftKey: false,
+        },
+        entry.engine.modes,
+      );
+      if (bytes) void rpc.pty.write(sessionId, bytes.repeat(n)).catch(() => undefined);
+    };
+    container.addEventListener('wheel', onWheel, { passive: false });
+
     return () => {
       entry.mounted = false;
+      container.removeEventListener('wheel', onWheel);
       controller.dispose();
       try {
         ro.disconnect();
