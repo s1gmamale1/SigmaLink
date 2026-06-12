@@ -128,6 +128,44 @@ export function parseOpenWorkspacesChanged(raw: unknown): string[] | null {
   return ids.length === p.workspaceIds.length ? ids : null;
 }
 
+/** Multi-window B3 — one entry of the `app:window-scope-changed` table. */
+export interface WindowScopeEntry {
+  windowId: number;
+  isMain: boolean;
+  workspaceIds: string[];
+}
+
+/**
+ * Multi-window B3 — defensively parse the `{ scopes }` payload main broadcasts
+ * on every ownership change (detach/redock/window-close). Mirrors
+ * `parseOpenWorkspacesChanged`'s strict style: any malformed entry (bad shape,
+ * non-integer windowId, non-boolean isMain, non-string-array workspaceIds)
+ * rejects the WHOLE payload so a corrupt scope table never half-applies and
+ * silently drops a window's workspaces. Returns `null` on any malformation.
+ */
+export function parseWindowScopeChanged(raw: unknown): WindowScopeEntry[] | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const p = raw as { scopes?: unknown };
+  if (!Array.isArray(p.scopes)) return null;
+  const scopes: WindowScopeEntry[] = [];
+  for (const entry of p.scopes) {
+    if (!entry || typeof entry !== 'object') return null;
+    const e = entry as { windowId?: unknown; isMain?: unknown; workspaceIds?: unknown };
+    // windowId: accepted as ANY integer here — renderer consumers read only
+    // isMain/workspaceIds and must not assume positivity (window-context.ts is
+    // the surface that requires > 0).
+    if (typeof e.windowId !== 'number' || !Number.isInteger(e.windowId)) return null;
+    if (typeof e.isMain !== 'boolean') return null;
+    if (!Array.isArray(e.workspaceIds)) return null;
+    const ids = e.workspaceIds.filter(
+      (id): id is string => typeof id === 'string' && id.length > 0,
+    );
+    if (ids.length !== e.workspaceIds.length) return null;
+    scopes.push({ windowId: e.windowId, isMain: e.isMain, workspaceIds: ids });
+  }
+  return scopes;
+}
+
 export interface PendingRestore {
   activeWorkspaceId: string;
   openWorkspaces: Array<{ workspaceId: string; room: string }>;

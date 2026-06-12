@@ -7,7 +7,7 @@
 //     to 'OPERATOR' when `kind` is absent (legacy main-process payloads).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseSwarmMessage, runRefreshOnEvent } from './parsers';
+import { parseSwarmMessage, parseWindowScopeChanged, runRefreshOnEvent } from './parsers';
 import type { SwarmMessageKind } from '../../../shared/types';
 
 const baseRaw = {
@@ -132,5 +132,72 @@ describe('runRefreshOnEvent — perf-hot-paths Task 5: 250 ms trailing coalesce'
     vi.advanceTimersByTime(1_000);
     expect(fetcher).toHaveBeenCalledTimes(1); // mount fetch only
     expect(offSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('parseWindowScopeChanged — multi-window B3 scope table', () => {
+  it('parses a well-formed multi-window scope table', () => {
+    const parsed = parseWindowScopeChanged({
+      scopes: [
+        { windowId: 1, isMain: true, workspaceIds: ['a', 'c'] },
+        { windowId: 2, isMain: false, workspaceIds: ['b'] },
+      ],
+    });
+    expect(parsed).toEqual([
+      { windowId: 1, isMain: true, workspaceIds: ['a', 'c'] },
+      { windowId: 2, isMain: false, workspaceIds: ['b'] },
+    ]);
+  });
+
+  it('tolerates extra unknown fields on an entry (accepted; extras not echoed)', () => {
+    const parsed = parseWindowScopeChanged({
+      scopes: [{ windowId: 1, isMain: true, workspaceIds: ['a'], focused: true, zOrder: 3 }],
+    });
+    // toEqual is exact on keys — proves the extra fields are NOT echoed through.
+    expect(parsed).toEqual([{ windowId: 1, isMain: true, workspaceIds: ['a'] }]);
+  });
+
+  it('accepts an empty scopes array and empty workspaceIds', () => {
+    expect(parseWindowScopeChanged({ scopes: [] })).toEqual([]);
+    expect(
+      parseWindowScopeChanged({ scopes: [{ windowId: 1, isMain: true, workspaceIds: [] }] }),
+    ).toEqual([{ windowId: 1, isMain: true, workspaceIds: [] }]);
+  });
+
+  it('rejects non-object / missing-scopes payloads', () => {
+    expect(parseWindowScopeChanged(null)).toBeNull();
+    expect(parseWindowScopeChanged(undefined)).toBeNull();
+    expect(parseWindowScopeChanged('x')).toBeNull();
+    expect(parseWindowScopeChanged({})).toBeNull();
+    expect(parseWindowScopeChanged({ scopes: 'nope' })).toBeNull();
+  });
+
+  it('rejects the WHOLE payload when any entry is malformed', () => {
+    // non-integer windowId
+    expect(
+      parseWindowScopeChanged({ scopes: [{ windowId: 1.5, isMain: true, workspaceIds: [] }] }),
+    ).toBeNull();
+    // non-number windowId
+    expect(
+      parseWindowScopeChanged({ scopes: [{ windowId: 'x', isMain: true, workspaceIds: [] }] }),
+    ).toBeNull();
+    // non-boolean isMain
+    expect(
+      parseWindowScopeChanged({ scopes: [{ windowId: 1, isMain: 'yes', workspaceIds: [] }] }),
+    ).toBeNull();
+    // non-array workspaceIds
+    expect(
+      parseWindowScopeChanged({ scopes: [{ windowId: 1, isMain: true, workspaceIds: 'a' }] }),
+    ).toBeNull();
+    // a non-string id inside workspaceIds
+    expect(
+      parseWindowScopeChanged({ scopes: [{ windowId: 1, isMain: true, workspaceIds: ['a', 3] }] }),
+    ).toBeNull();
+    // an empty-string id inside workspaceIds
+    expect(
+      parseWindowScopeChanged({ scopes: [{ windowId: 1, isMain: true, workspaceIds: ['a', ''] }] }),
+    ).toBeNull();
+    // null entry
+    expect(parseWindowScopeChanged({ scopes: [null] })).toBeNull();
   });
 });
