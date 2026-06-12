@@ -38,12 +38,10 @@ interface LineRowProps {
   live: boolean;
   /** Character offset of the cursor within this logical line, or null. */
   cursorOffset: number | null;
-  /** Alternate-buffer rendering: no wrap, full-height run backgrounds. */
-  alt: boolean;
 }
 
 const LineRow = memo(
-  function LineRow({ engine, startRow, cursorOffset, alt }: LineRowProps) {
+  function LineRow({ engine, startRow, cursorOffset }: LineRowProps) {
     const runs = engine.styledLine(startRow);
     const children: React.ReactNode[] = [];
     let consumed = 0;
@@ -54,7 +52,7 @@ const LineRow = memo(
         const before = run.text.slice(0, at);
         const cursorChar = run.text.slice(at, at + 1) || ' ';
         const after = run.text.slice(at + 1);
-        const style = runStyle(run, alt);
+        const style = runStyle(run, false);
         if (before) children.push(<span key={`${i}b`} style={style}>{before}</span>);
         children.push(
           <span key={`${i}c`} data-cursor style={{ ...style, ...CURSOR_STYLE }}>
@@ -64,7 +62,7 @@ const LineRow = memo(
         if (after) children.push(<span key={`${i}a`} style={style}>{after}</span>);
         cursorPlaced = true;
       } else {
-        children.push(<span key={i} style={runStyle(run, alt)}>{run.text}</span>);
+        children.push(<span key={i} style={runStyle(run, false)}>{run.text}</span>);
       }
       consumed += run.text.length;
     });
@@ -94,8 +92,7 @@ const LineRow = memo(
     !next.live &&
     prev.text === next.text &&
     prev.startRow === next.startRow &&
-    prev.cursorOffset === next.cursorOffset &&
-    prev.alt === next.alt,
+    prev.cursorOffset === next.cursorOffset,
 );
 
 export function FlowView({ engine, className }: { engine: TerminalEngine; className?: string }) {
@@ -118,7 +115,6 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_SLOP_PX;
   };
 
-  const alt = engine.bufferType === 'alternate';
   const lines = engine.logicalLines();
   const visible = lines.slice(Math.max(0, lines.length - MAX_RENDER_LINES));
   const liveFromRow =
@@ -149,12 +145,11 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
         fontFamily: MONO_FONT,
         fontSize: 12,
         lineHeight: 1.4,
-        // TUI rows are exactly `cols` wide — CSS-wrapping them shifts every
-        // line below by one glyph (the claude composer misalignment). Alt
-        // screen never wraps; flowing output keeps CSS wrap (the redesign's
-        // whole point).
-        whiteSpace: alt ? 'pre' : 'pre-wrap',
-        overflowWrap: alt ? undefined : 'anywhere',
+        // Flowing output keeps CSS wrap (the redesign's whole point); the
+        // alternate buffer is now owned by GridView (P1c), so FlowView never
+        // needs the no-wrap alt branch.
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'anywhere',
         overflowX: 'hidden',
         userSelect: 'text',
         padding: '4px 6px',
@@ -171,7 +166,6 @@ export function FlowView({ engine, className }: { engine: TerminalEngine; classN
           cursorOffset={
             i === cursorLine ? (cursor.row - l.startRow) * engine.term.cols + cursor.col : null
           }
-          alt={alt}
         />
       ))}
     </div>

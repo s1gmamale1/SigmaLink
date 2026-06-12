@@ -88,23 +88,6 @@ describe('FlowView', () => {
     expect(getByTestId('flow-view').querySelector('[data-cursor]')).toBeTruthy();
   });
 
-  it('alt-screen: rows never CSS-wrap and run backgrounds fill the row (TUI fidelity)', async () => {
-    const engine = makeEngine(20, 5);
-    const { getByTestId } = render(<FlowView engine={engine} />);
-    // enter alt screen, paint a full-width bg row (opencode-style theme fill)
-    await write(engine, '\x1b[?1049h\x1b[48;5;236m' + 'X'.repeat(20) + '\x1b[0m');
-    const view = getByTestId('flow-view');
-    // no wrapping in alt mode — a cols-wide row must stay ONE visual line
-    expect(view.style.whiteSpace).toBe('pre');
-    const painted = Array.from(view.querySelectorAll('span')).find(
-      (sp) => sp.textContent === 'X'.repeat(20),
-    )!;
-    expect(painted).toBeTruthy();
-    // inline-block lets the background cover the full line box — the inline
-    // glyph-box background left dark stripes between rows (operator report)
-    expect(painted.style.display).toBe('inline-block');
-  });
-
   it('normal buffer keeps flowing: pre-wrap container, plain inline spans', async () => {
     const engine = makeEngine(20, 5);
     const { getByTestId } = render(<FlowView engine={engine} />);

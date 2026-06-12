@@ -9,12 +9,13 @@
 // compositor state to repaint), dragFit (CSS wrap handles live drag), WebGL
 // addon, link addon (FlowView anchors land in P2).
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
 import { encodeKeyEvent, encodePaste, isNativePasteCombo } from './input-encoder';
 import { getPlatform } from '@/renderer/lib/platform';
 import { FlowView } from './FlowView';
+import { GridView } from './GridView';
 import { RefitController } from './refit-controller';
 
 const PROBE_LEN = 10;
@@ -40,6 +41,11 @@ export function DomTerminalView({
   // happen inside the effect against its own in-effect resolve, satisfying the
   // React immutability lint (parity with Terminal.tsx's in-effect handling).
   const entry: EngineCacheEntry = getOrCreateEngine(sessionId);
+
+  // Re-render the host on engine changes so the Flow↔Grid switch reacts to
+  // alt-screen enter/exit (1049h/l). Cheap: the host renders a few divs.
+  const [, bump] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => entry.engine.onBufferChanged(bump), [entry]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -235,7 +241,11 @@ export function DomTerminalView({
       >
         {'W'.repeat(PROBE_LEN)}
       </span>
-      <FlowView engine={entry.engine} />
+      {entry.engine.bufferType === 'alternate' ? (
+        <GridView engine={entry.engine} />
+      ) : (
+        <FlowView engine={entry.engine} />
+      )}
       <textarea
         ref={inputRef}
         onKeyDown={onKeyDown}
