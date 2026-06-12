@@ -91,6 +91,11 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'workspaces.rename',
   // DEV-W3a — force-open a distinct workspace (never reuses existing); same omission.
   'workspaces.openNew',
+  // windows
+  // Multi-window (2026-06-12) — detach a workspace into its own OS window /
+  // move a detached workspace back into the main window.
+  'windows.detachWorkspace',
+  'windows.redockWorkspace',
   // git
   'git.status',
   'git.statusSummary',

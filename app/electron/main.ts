@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import { startShellPathBootstrap } from '../src/main/core/util/shell-path';
 import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeImage, clipboard } from 'electron';
 import { buildGlobalCaptureController, getWhisperEngine, type GlobalCaptureController } from '@sigmalink/voice-core';
-import { registerRouter, shutdownRouter, getSharedDeps } from '../src/main/rpc-router';
+import { registerRouter, shutdownRouter, getSharedDeps, setSecondaryWindowFactory } from '../src/main/rpc-router';
 import { getRawDb } from '../src/main/core/db/client';
 import { getWindowRegistry } from '../src/main/core/windows/registry';
 import type { WindowHandle } from '../src/main/core/windows/registry';
@@ -50,6 +50,12 @@ function asHandle(win: BrowserWindow): WindowHandle {
       if (win.isMinimized()) win.restore();
       win.show();
       win.focus();
+    },
+    // Multi-window B2 — close the OS window (redock disposes the empty former
+    // owner). Destroyed-guarded; the window's own `closed` handler runs the B1
+    // re-dock cleanup (a no-op here since ownership already moved to main).
+    close: () => {
+      if (!win.isDestroyed()) win.close();
     },
   };
 }
@@ -892,6 +898,11 @@ void app.whenReady().then(async () => {
     showDiagnosticWindow(checks);
     return;
   }
+  // Multi-window B2 — wire the secondary-window factory BEFORE registerRouter()
+  // so the windows.detachWorkspace handler can spawn detached windows. The
+  // registry's WindowHandle is the Electron-free seam; asHandle adapts the
+  // BrowserWindow (createSecondaryWindow registers + assigns + broadcasts).
+  setSecondaryWindowFactory((wsId, name) => asHandle(createSecondaryWindow(wsId, name)));
   await registerRouter();
   createWindow();
   // V3-W14-008 — kick off auto-update check on boot when the user has opted

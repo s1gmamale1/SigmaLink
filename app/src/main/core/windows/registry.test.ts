@@ -13,6 +13,7 @@ function fakeWindow(id: number): WindowHandle & { sent: Array<{ event: string; p
     isDestroyed() { return this.destroyed; },
     send(event: string, payload: unknown) { sent.push({ event, payload }); },
     focus() { /* recorded only when a test needs it */ },
+    close() { this.destroyed = true; },
   };
 }
 

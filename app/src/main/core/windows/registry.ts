@@ -14,6 +14,9 @@ export interface WindowHandle {
   isDestroyed(): boolean;
   send(event: string, payload: unknown): void;
   focus(): void;
+  /** Multi-window B2 — close the OS window. Used by redock to dispose the now-
+   *  empty former-owner secondary window; guarded by isDestroyed in main.ts. */
+  close(): void;
 }
 
 export interface WindowRegistryDeps {

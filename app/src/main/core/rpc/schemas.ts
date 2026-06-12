@@ -492,6 +492,17 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   // risks rejecting valid payloads, so it intentionally stays `stub`. See the
   // Lane-SB report for the rationale.
   'workspaces.launch': stub,
+  // ── windows ───────────────────────────────────────────────────────────
+  // Multi-window B2 — detach/redock take a single { workspaceId } bounded the
+  // same way as OpenWorkspacesChangedEventSchema's ids.
+  'windows.detachWorkspace': {
+    input: z.object({ workspaceId: z.string().min(1).max(200) }),
+    output: z.object({ windowId: z.number() }),
+  },
+  'windows.redockWorkspace': {
+    input: z.object({ workspaceId: z.string().min(1).max(200) }),
+    output: any,
+  },
   // ── git ──────────────────────────────────────────────────────────────
   // H-8 — `status(cwd)` / `diff(cwd)`: first (and only) arg is a bounded cwd.
   'git.status': { input: PATH_STR, output: GIT_STATUS_OUTPUT },

@@ -337,6 +337,13 @@ export interface AppRouter {
     /** SigmaLink Dev — open (or create) the singleton plain-shell dev workspace at ~. */
     openDev: () => Promise<Workspace>;
   };
+  // Multi-window (2026-06-12) — detach/redock a workspace across OS windows.
+  windows: {
+    /** Detach a workspace into its own OS window; focuses the existing one if already detached. */
+    detachWorkspace: (input: { workspaceId: string }) => Promise<{ windowId: number }>;
+    /** Move a detached workspace back into the main window and close its former window. */
+    redockWorkspace: (input: { workspaceId: string }) => Promise<void>;
+  };
   git: {
     status: (cwd: string) => Promise<GitStatus | null>;
     /** perf-hot-paths Task 3 — count-only status for the pane-header poll. */

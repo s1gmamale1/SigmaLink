@@ -11,6 +11,8 @@ import { defineController, defineRouter } from '../shared/rpc';
 import type { AppRouter } from '../shared/router-shape';
 import { initializeDatabase, closeDatabase, getRawDb } from './core/db/client';
 import { getWindowRegistry, initWindowRegistry } from './core/windows/registry';
+import type { WindowHandle } from './core/windows/registry';
+import { buildDetachWorkspace, buildRedockWorkspace } from './core/windows/detach-handlers';
 import { openDatabaseWithBootRetry } from './core/db/boot-open';
 import { sweepWin32DbOrphans, waitForPidsExit } from './core/process/orphan-sweep';
 import { runBootJanitor } from './core/db/janitor';
@@ -60,6 +62,7 @@ import {
   installWorkspaceLifecycleIpc,
   markWorkspaceClosed,
   markWorkspaceOpened,
+  refreshOpenWorkspaces,
   setDetachedWorkspaceIdsProvider,
 } from './core/workspaces/lifecycle';
 import { executeLaunchPlan } from './core/workspaces/launcher';
@@ -216,6 +219,16 @@ let sigmabenchHandlers: Record<string, (...args: unknown[]) => unknown> | null =
 let designShutdown: (() => void) | null = null;
 /** PERF-1 — module ref so shutdownRouter can flush + cancel the coalescer timer. */
 let ptyDataCoalescerRef: PtyDataCoalescer | null = null;
+
+// Multi-window B2 — injectable secondary-window factory. The real factory lives
+// in electron/main.ts (createSecondaryWindow, adapted to WindowHandle via
+// asHandle); main.ts wires it in whenReady BEFORE registerRouter(). Keeping it
+// behind a setter lets rpc-router stay Electron-window-free and unit-testable.
+let secondaryWindowFactory: (wsId: string, name: string) => WindowHandle =
+  () => { throw new Error('secondary window factory not wired'); };
+export function setSecondaryWindowFactory(f: typeof secondaryWindowFactory): void {
+  secondaryWindowFactory = f;
+}
 
 const requireCJS = createRequire(import.meta.url);
 
@@ -1603,6 +1616,34 @@ async function buildRouter() {
     },
   });
 
+  // Multi-window B2 — detach/redock RPCs. The handler logic is DI'd in
+  // core/windows/detach-handlers.ts (unit-tested with registry + window fakes);
+  // here we bind the live registry, the injected secondary-window factory, and
+  // the lifecycle continuity fns. `getWorkspaceName` reads the workspaces table's
+  // display-name column (`name`) for the secondary window's title; a missing row
+  // returns null → detach rejects with "unknown workspace".
+  const windowsCtl = defineController({
+    detachWorkspace: buildDetachWorkspace({
+      registry: getWindowRegistry(),
+      createSecondaryWindow: (wsId, name) => secondaryWindowFactory(wsId, name),
+      getWorkspaceName: (wsId) => {
+        try {
+          const row = getRawDb()
+            .prepare('SELECT name FROM workspaces WHERE id = ?')
+            .get(wsId) as { name?: string } | undefined;
+          return row?.name ?? null;
+        } catch {
+          return null;
+        }
+      },
+    }),
+    redockWorkspace: buildRedockWorkspace({
+      registry: getWindowRegistry(),
+      markWorkspaceOpened,
+      refreshOpenWorkspaces,
+    }),
+  });
+
   // P6 FEAT-11 — agent undo/rewind checkpoint methods. The logic lives in a
   // dependency-injected factory (core/git/checkpoint-controller.ts) so it is
   // unit-testable without booting the whole router; here we build it with the
@@ -2351,6 +2392,7 @@ async function buildRouter() {
     ramBrake: ramBrakeCtl,
     providers: providersCtl,
     workspaces: workspacesCtl,
+    windows: windowsCtl,
     git: gitCtl,
     fs: fsCtl,
     swarms: swarmsCtl,
