@@ -247,20 +247,54 @@ describe('TerminalEngine — styledRow (grid contract: one buffer row, no joinin
 });
 
 describe('TerminalEngine — mouse tracking exposure (wheel reporting)', () => {
-  it('reports active+sgr when the app enables vt200 tracking with SGR encoding', async () => {
+  it('reports the mode+sgr when the app enables vt200 tracking with SGR encoding', async () => {
     const { engine } = makeEngine();
     track(engine);
-    expect(engine.mouseTracking).toEqual({ active: false, sgr: false });
+    expect(engine.mouseTracking).toEqual({ mode: 'none', sgr: false });
     await flushWrite(engine, '\x1b[?1000h\x1b[?1006h'); // claude-fullscreen style
-    expect(engine.mouseTracking).toEqual({ active: true, sgr: true });
+    expect(engine.mouseTracking).toEqual({ mode: 'vt200', sgr: true });
   });
 
-  it('DECRST 1006 drops the sgr flag; x10 tracking does not count as active', async () => {
+  it('DECRST 1006 drops the sgr flag; x10 tracking reports mode x10', async () => {
     const { engine } = makeEngine();
     track(engine);
     await flushWrite(engine, '\x1b[?1000h\x1b[?1006h\x1b[?1006l');
-    expect(engine.mouseTracking).toEqual({ active: true, sgr: false });
+    expect(engine.mouseTracking).toEqual({ mode: 'vt200', sgr: false });
     await flushWrite(engine, '\x1b[?1000l\x1b[?9h'); // x10: button-press only, no wheel
-    expect(engine.mouseTracking.active).toBe(false);
+    expect(engine.mouseTracking.mode).toBe('x10');
+  });
+});
+
+describe('TerminalEngine — granular mouse mode (P2)', () => {
+  it('exposes the tracking mode verbatim', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    expect(engine.mouseTracking).toEqual({ mode: 'none', sgr: false });
+    await flushWrite(engine, '\x1b[?1002h\x1b[?1006h');
+    expect(engine.mouseTracking).toEqual({ mode: 'drag', sgr: true });
+    await flushWrite(engine, '\x1b[?1002l\x1b[?1003h');
+    expect(engine.mouseTracking.mode).toBe('any');
+  });
+});
+
+describe('TerminalEngine — OSC-133 prompt marks (P2)', () => {
+  it('records A/B/C/D marks with absolute rows and exit codes', async () => {
+    const { engine } = makeEngine({ cols: 40, rows: 10 });
+    track(engine);
+    await flushWrite(engine, '\x1b]133;A\x07$ ');
+    await flushWrite(engine, 'make\r\n\x1b]133;C\x07building...\r\n\x1b]133;D;2\x07');
+    await flushWrite(engine, '\x1b]133;A\x07$ ');
+    const marks = engine.promptMarks;
+    expect(marks.map((m) => m.kind).join('')).toBe('ACDA');
+    expect(marks[0]!.row).toBe(0);
+    expect(marks[2]!.exitCode).toBe(2);
+    expect(marks[3]!.row).toBeGreaterThan(marks[0]!.row);
+  });
+
+  it('caps stored marks (oldest dropped)', async () => {
+    const { engine } = makeEngine({ cols: 20, rows: 5 });
+    track(engine);
+    for (let i = 0; i < 30; i++) await flushWrite(engine, '\x1b]133;A\x07x\r\n');
+    expect(engine.promptMarks.length).toBeLessThanOrEqual(2048);
   });
 });

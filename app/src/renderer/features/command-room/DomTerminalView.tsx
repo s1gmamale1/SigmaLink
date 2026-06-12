@@ -121,7 +121,7 @@ export function DomTerminalView({
       const n = Math.max(1, Math.min(10, Math.round(lines)));
 
       const mt = entry.engine.mouseTracking;
-      if (mt.active && mt.sgr) {
+      if (mt.mode !== 'none' && mt.mode !== 'x10' && mt.sgr) {
         ev.preventDefault();
         const rect = container.getBoundingClientRect();
         const probe = probeRef.current;
