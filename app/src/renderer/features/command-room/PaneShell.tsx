@@ -13,7 +13,7 @@
 // Extracted to keep CommandRoom.tsx under 500 LOC (v1.5.1-A caveat 1).
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
-import { ClipboardPaste, Copy, FolderOpen, GitBranch, RotateCw, Square, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
+import { ClipboardPaste, Copy, FolderOpen, GitBranch, RotateCw, Square, SquareTerminal, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ContextMenu,
@@ -26,6 +26,7 @@ import { CreateWorktreeModal } from './CreateWorktreeModal';
 import { rpc } from '@/renderer/lib/rpc';
 import { getCached } from '@/renderer/lib/terminal-cache';
 import { getCachedEngine } from '@/renderer/lib/engine-cache';
+import { peekRendererMode, setSessionRendererMode } from '@/renderer/lib/renderer-flag';
 import { encodePaste } from './input-encoder';
 import { SessionTerminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
@@ -609,6 +610,31 @@ export function PaneShell({
           >
             <ClipboardPaste className="h-3.5 w-3.5" />
             <span>Paste</span>
+          </ContextMenuItem>
+          {/* P1c — per-pane renderer toggle (spec §Renderer flag). Cache-first
+              persist via setSessionRendererMode, THEN the remount event the
+              SessionTerminal switch listens for. A claude pane toggled
+              DOM→xterm keeps its CURRENT process (already inline-mode); the
+              #160 fullscreen injection only applies to the NEXT spawn. */}
+          <ContextMenuItem
+            data-testid="ctx-renderer-toggle"
+            onSelect={() => {
+              const current = peekRendererMode(activeTabId) ?? 'dom';
+              const next = current === 'dom' ? 'xterm' : 'dom';
+              void setSessionRendererMode(activeTabId, next).finally(() => {
+                window.dispatchEvent(
+                  new CustomEvent('sigma:renderer-mode-changed', {
+                    detail: { sessionId: activeTabId },
+                  }),
+                );
+              });
+            }}
+          >
+            <SquareTerminal className="h-3.5 w-3.5" />
+            <span>
+              Renderer: switch to{' '}
+              {(peekRendererMode(activeTabId) ?? 'dom') === 'dom' ? 'xterm' : 'DOM'}
+            </span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={handleReveal} disabled={!hasWorktree}>

@@ -292,6 +292,21 @@ export function SessionTerminal({ sessionId, className }: Props) {
     };
   }, [sessionId]);
 
+  // P1c — the PaneShell context-menu toggle persists the new mode via
+  // setSessionRendererMode (module cache updates first) then fires this
+  // event; re-reading peek here swaps the host. The mode-exclusion effect
+  // below then destroys the OTHER renderer's cache; the replacement host
+  // re-seeds from the main ring-buffer snapshot (no content loss).
+  useEffect(() => {
+    const onModeChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ sessionId?: string }>).detail;
+      if (!detail || detail.sessionId !== sessionId) return;
+      setMode(peekRendererMode(sessionId));
+    };
+    window.addEventListener('sigma:renderer-mode-changed', onModeChanged);
+    return () => window.removeEventListener('sigma:renderer-mode-changed', onModeChanged);
+  }, [sessionId]);
+
   useEffect(() => {
     if (mode === 'dom') destroyXtermEntry(sessionId);
     else if (mode === 'xterm') destroyEngine(sessionId);

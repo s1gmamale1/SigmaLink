@@ -808,6 +808,38 @@ describe('pane context-menu Copy/Paste (spec 2026-06-10 C)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 8b. P1c — per-pane renderer toggle in the context menu
+// ---------------------------------------------------------------------------
+
+describe('pane context-menu renderer toggle (P1c)', () => {
+  it('offers a renderer toggle that persists + fires the remount event', async () => {
+    const { setSessionRendererMode, __resetRendererFlagCache } = await import(
+      '@/renderer/lib/renderer-flag'
+    );
+    __resetRendererFlagCache();
+    await setSessionRendererMode('main-session', 'dom'); // warm the peek cache
+    const events: string[] = [];
+    const onEvt = (ev: Event) =>
+      events.push((ev as CustomEvent<{ sessionId?: string }>).detail?.sessionId ?? '');
+    window.addEventListener('sigma:renderer-mode-changed', onEvt);
+    try {
+      await renderPaneShell();
+      await openContextMenu();
+      const item = document.querySelector('[data-testid="ctx-renderer-toggle"]') as HTMLElement;
+      expect(item).toBeTruthy();
+      expect(item.textContent).toMatch(/xterm/i); // offers the OTHER mode
+      await act(async () => {
+        fireEvent.click(item);
+        await Promise.resolve();
+      });
+      await vi.waitFor(() => expect(events).toContain('main-session'));
+    } finally {
+      window.removeEventListener('sigma:renderer-mode-changed', onEvt);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 9. Spec 2026-06-10 (B) — image drop staging
 // ---------------------------------------------------------------------------
 
