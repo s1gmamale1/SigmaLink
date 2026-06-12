@@ -397,7 +397,7 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 ---
 
-## Phase 16 — Multi-window workspaces (detach to a separate OS window)
+## Phase 16 — Multi-window workspaces (detach to a separate OS window) ✅ SHIPPED (PR #169 `2344093`, 2026-06-12 · CI 4/4 green · subagent-driven A1–B6 · operator smoke OWED — 7-step list in the PR)
 
 **Goal.** An operator can pop a workspace out of the sidebar into its own OS window (and re-dock it by closing that window) with every PTY surviving the move untouched.
 
