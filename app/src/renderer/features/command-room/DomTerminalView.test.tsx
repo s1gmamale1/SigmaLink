@@ -114,6 +114,23 @@ describe('DomTerminalView', () => {
     expect(rpcMock.pty.write.mock.calls.map((c) => c[1]).join('')).toContain('\x1bOB');
   });
 
+  it('mouse-tracking apps (claude fullscreen) get SGR wheel REPORTS, not arrows', async () => {
+    const { container } = render(<DomTerminalView sessionId="d11" />);
+    await settle();
+    const engine = getCachedEngine('d11')!.engine;
+    // claude-fullscreen style: alt screen + vt200 tracking + SGR encoding
+    await new Promise<void>((r) => engine.term.write('\x1b[?1049h\x1b[?1000h\x1b[?1006h', () => r()));
+    const view = container.querySelector('[data-testid="dom-terminal-view"]')!;
+    fireEvent.wheel(view, { deltaY: -17, deltaMode: 0 }); // one tick up
+    const sent = rpcMock.pty.write.mock.calls.map((c) => c[1]).join('');
+    expect(sent).toContain('\x1b[<64;'); // SGR wheel-up report
+    expect(sent.endsWith('M')).toBe(true);
+    expect(sent).not.toContain('\x1b[A'); // NEVER arrows — they hit the composer history
+    rpcMock.pty.write.mockClear();
+    fireEvent.wheel(view, { deltaY: 17, deltaMode: 0 });
+    expect(rpcMock.pty.write.mock.calls.map((c) => c[1]).join('')).toContain('\x1b[<65;');
+  });
+
   it('normal buffer: wheel sends NO bytes (native DOM scroll owns it)', async () => {
     const { container } = render(<DomTerminalView sessionId="d10" />);
     await settle();
