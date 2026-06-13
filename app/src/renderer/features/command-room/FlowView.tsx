@@ -263,6 +263,13 @@ export function FlowView({
       style={{
         height: '100%',
         overflowY: 'auto',
+        // Reserve the (layout-taking, styled) scrollbar gutter ALWAYS so the
+        // text box width is constant whether or not the scrollbar is showing —
+        // no reflow when it toggles, and DomTerminalView's matching SCROLLBAR_W
+        // cols reserve stays exact. Without this the gutter only appears once
+        // the transcript overflows, narrowing the box mid-session and stranding
+        // the last word of full lines (the "inline break" bug).
+        scrollbarGutter: 'stable',
         background: DEFAULT_BG,
         color: DEFAULT_FG,
         fontFamily: MONO_FONT,
