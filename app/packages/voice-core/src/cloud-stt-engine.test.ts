@@ -222,8 +222,10 @@ describe('buildOpenAiSttEngine — configurable endpoint (ADR-007)', () => {
   });
 
   it('sends Authorization when a key IS present, against the custom baseUrl', async () => {
+    let calledUrl = '';
     let calledHeaders: Record<string, string> = {};
-    const fetchFn = vi.fn(async (_url: string, init: RequestInit) => {
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      calledUrl = url;
       calledHeaders = (init.headers ?? {}) as Record<string, string>;
       return new Response(JSON.stringify({ text: 'k' }), { status: 200 });
     }) as unknown as typeof fetch;
@@ -231,7 +233,25 @@ describe('buildOpenAiSttEngine — configurable endpoint (ADR-007)', () => {
       fetchFn, getApiKey: () => 'sk-test', getBaseUrl: () => 'https://api.groq.com/openai/v1',
     });
     await engine.transcribe(silentAudio(), '');
+    expect(calledUrl).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
     expect(calledHeaders.Authorization).toBe('Bearer sk-test');
+  });
+
+  it('strips a trailing slash from the baseUrl (no double slash in URL)', async () => {
+    let calledUrl = '';
+    const fetchFn = vi.fn(async (url: string) => {
+      calledUrl = url;
+      return new Response(JSON.stringify({ text: 'ok' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    const engine = buildOpenAiSttEngine({
+      fetchFn,
+      getApiKey: () => null,
+      getBaseUrl: () => 'http://192.168.1.50:8000/v1/',
+    });
+    await engine.transcribe(silentAudio(), '');
+    expect(calledUrl).toBe('http://192.168.1.50:8000/v1/audio/transcriptions');
   });
 
   it('does NOT throw SttKeyMissingError when a baseUrl is set but no key', async () => {

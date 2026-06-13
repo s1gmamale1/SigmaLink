@@ -72,7 +72,8 @@ export interface CloudSttEngineDeps {
  * The `modelPath` argument from the WhisperEngine interface is ignored — the
  * OpenAI API selects its own model (we default to "whisper-1").
  *
- * @throws {SttKeyMissingError} when `voice.stt.openai-whisper-api.apiKey` is absent.
+ * @throws {SttKeyMissingError} when getApiKey returns null AND no getBaseUrl is
+ *   provided (a custom base URL allows keyless operation against self-hosted servers).
  */
 export function buildOpenAiSttEngine(deps: CloudSttEngineDeps): WhisperEngine {
   const fetchFn = deps.fetchFn ?? globalThis.fetch.bind(globalThis);
