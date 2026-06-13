@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Network } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
-import { dragStyle } from '@/renderer/lib/drag-region';
+import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 import { IS_WIN32 } from '@/renderer/lib/platform';
 import { RufloReadinessPill } from '@/renderer/components/RufloReadinessPill';
 import { NotificationBell } from '@/renderer/features/notifications/NotificationBell';
@@ -132,6 +132,9 @@ export function Breadcrumb() {
         aria-label="Open memory graph"
         data-testid="breadcrumb-memory-graph"
         className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+        // Inside the draggable breadcrumb — without this the click would start a
+        // window drag instead of firing onClick (Windows + macOS frameless chrome).
+        style={noDragStyle()}
       >
         <Network className="h-3.5 w-3.5" />
       </button>
