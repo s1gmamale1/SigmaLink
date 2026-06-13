@@ -113,6 +113,8 @@ export function CommandRoom() {
       if (!detail || typeof detail.sessionId !== 'string') return;
       const target = detail.sessionId;
       if (!sessions.some((s) => s.id === target)) return;
+      // Clear attention unconditionally — even if the pane is already active.
+      dispatch({ type: 'CLEAR_SESSION_ATTENTION', sessionId: target });
       if (activeSessionId === target) return;
       dispatch({ type: 'SET_ACTIVE_SESSION', id: target });
     };
@@ -429,6 +431,7 @@ export function CommandRoom() {
           focusedPaneId={focusedPaneId}
           workspaceId={activeWorkspaceId}
           onActivate={(id) => {
+            dispatch({ type: 'CLEAR_SESSION_ATTENTION', sessionId: id });
             if (activeSessionId !== id) dispatch({ type: 'SET_ACTIVE_SESSION', id });
           }}
           renderLeaf={(sessionId) => {
@@ -444,6 +447,7 @@ export function CommandRoom() {
                 providers={providers}
                 workspaceRootPath={activeWorkspace.rootPath}
                 onFocus={() => {
+                  dispatch({ type: 'CLEAR_SESSION_ATTENTION', sessionId: session.id });
                   if (activeSessionId !== session.id) dispatch({ type: 'SET_ACTIVE_SESSION', id: session.id });
                 }}
                 onRemove={() => handleRemove(session)}

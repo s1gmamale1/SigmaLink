@@ -193,6 +193,10 @@ export type Action =
   | { type: 'ADD_SESSIONS'; sessions: AgentSession[] }
   | { type: 'SET_ACTIVE_SESSION'; id: string | null }
   | { type: 'SET_ATTENTION'; sessionId: string; ts: number }
+  // Clear a session's attention on focus/engage — dispatched UNCONDITIONALLY by
+  // the pane-focus paths (the SET_ACTIVE_SESSION clear only fires when the active
+  // session actually changes, so an already-active glowing pane would never clear).
+  | { type: 'CLEAR_SESSION_ATTENTION'; sessionId: string }
   | { type: 'MARK_SESSION_EXITED'; id: string; exitCode: number }
   // v1.13.2 — runtime crash (or fast-crash) exit. Distinct from
   // MARK_SESSION_EXITED: sets `status: 'error'` so the pane stays VISIBLE

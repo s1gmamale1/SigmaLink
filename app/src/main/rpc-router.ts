@@ -674,6 +674,10 @@ async function buildRouter() {
         } catch {
           /* notifications fan-out is best-effort */
         }
+        // The CLI quit (shell stays alive in shell-first mode) — the agent is
+        // done, so drop its bell/idle detection state; the bare shell's output
+        // must not produce a false "agent needs you" idle-fire.
+        attentionDetector.forget(sessionId);
       },
       // v1.9-scrollback — DEFAULT-OFF. The sink is ALWAYS wired; the KV flag
       // is re-read inside on every exit, so BOTH runtime toggle-ON and
@@ -1121,6 +1125,7 @@ async function buildRouter() {
     },
     forget: async (sessionId: string) => {
       pty.forget(sessionId);
+      attentionDetector.forget(sessionId); // drop bell/idle state for the forgotten session
     },
     // W-4 Phase 4 — Ephemeral scratch-shell sub-tabs. Spawns a plain shell PTY
     // in the given cwd. NO agent_session DB row, NO persistence, NO sidebar
@@ -1158,6 +1163,7 @@ async function buildRouter() {
       }
       pty.kill(input.scratchId);
       pty.forget(input.scratchId);
+      attentionDetector.forget(input.scratchId); // drop bell/idle state for the killed scratch
       // Multi-window A2 — scratch shells have no agent_sessions row, so the
       // registry holds a NEGATIVE routing-cache entry for them; evict it here
       // or it leaks per killed scratch tab.

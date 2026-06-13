@@ -453,6 +453,8 @@ export function appStateReducer(state: AppState, action: Action): AppState {
           : state.attentionWorkspaces,
       };
     }
+    case 'CLEAR_SESSION_ATTENTION':
+      return { ...state, attentionSessions: omitKey(state.attentionSessions, action.sessionId) };
     case 'MARK_SESSION_EXITED': {
       const sessions: AgentSession[] = state.sessions.map((s) =>
         s.id === action.id
@@ -463,6 +465,9 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         ...state,
         sessions,
         sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
+        // A dead agent isn't waiting on you — clear any lingering glow so an
+        // exited/crashed-but-still-visible pane doesn't keep glowing.
+        attentionSessions: omitKey(state.attentionSessions, action.id),
       };
     }
     case 'MARK_SESSION_ERROR': {
@@ -488,6 +493,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         ...state,
         sessions,
         sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
+        attentionSessions: omitKey(state.attentionSessions, action.id),
       };
     }
     case 'REMOVE_SESSION': {
@@ -511,6 +517,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
         activeSessionId,
         focusedPaneId,
+        attentionSessions: omitKey(state.attentionSessions, action.id),
       };
     }
     case 'SET_SWARMS':
