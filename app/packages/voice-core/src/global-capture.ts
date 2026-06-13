@@ -25,6 +25,7 @@ import { buildCliTranscribeEngine } from './cli-transcribe-engine.js';
 import type { CliTranscribeEngineDeps } from './cli-transcribe-engine.js';
 import { buildOpenAiSttEngine, buildDeepgramSttEngine } from './cloud-stt-engine.js';
 import type { CloudSttEngineDeps } from './cloud-stt-engine.js';
+import { buildOpenRouterTransform, resolveTransformPrompt } from './openrouter-llm-engine.js';
 import { routeTranscript } from './output-router.js';
 import { computeSessionStats, appendSessionStat } from './voice-stats.js';
 import {
@@ -175,6 +176,14 @@ export interface GlobalCaptureDeps {
    * or `'deepgram'`.
    */
   cloudSttEngineDeps?: Pick<CloudSttEngineDeps, 'fetchFn'>;
+
+  // ── ADR-007 — OpenRouter transcript transform (optional; absent = cleanup off) ──
+  /**
+   * Injected deps for the OpenRouter cleanup pass. The app shell supplies `getApiKey`
+   * reading from ENCRYPTED storage (the key is never in KV). Only used when
+   * `kv.get('voice.transform.mode') === 'openrouter'`.
+   */
+  transformDeps?: { fetchFn?: typeof fetch; getApiKey: () => string | null };
 
   // ── C-11 "Hey Jorvis" listening mode (all optional; absent = feature off) ──
   /** True when `voice.listeningMode` is enabled. */
@@ -599,6 +608,21 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
     // C-10a — Apply phrase/macro dictionary substitutions before routing.
     finalText = normalizeTranscript(finalText, kvGet);
+
+    // ADR-007 — Optional OpenRouter cleanup pass. On ANY failure, keep the raw
+    // transcript (never drop a dictation).
+    if (kvGet('voice.transform.mode') === 'openrouter' && deps.transformDeps) {
+      try {
+        const transform = buildOpenRouterTransform(deps.transformDeps);
+        const model = kvGet('voice.transform.model') ?? 'google/gemini-2.5-flash-lite';
+        const prompt = resolveTransformPrompt(kvGet('voice.transform.preset'), kvGet('voice.transform.prompt'));
+        const cleaned = await transform(finalText, { model, prompt });
+        if (cleaned) finalText = cleaned;
+      } catch (err) {
+        console.warn('[global-capture] OpenRouter cleanup failed, using raw transcript:', err);
+        toast('AI cleanup failed — used the raw transcript.', 'warn');
+      }
+    }
 
     // Route the transcript — C-10b: pass focused-pane opts when available.
     // C-10c: pass the dispatch provider from KV (defaults to 'claude').

@@ -1023,3 +1023,137 @@ describe('platform-aware hotkey + persistent register status', () => {
     expect(ctl.getStatus().hotkeyRegistered).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ADR-007 — OpenRouter cleanup seam
+// ---------------------------------------------------------------------------
+
+describe('OpenRouter cleanup seam (ADR-007)', () => {
+  /**
+   * Fake native that fires onFinal with seedText immediately, delivers a PCM
+   * chunk so pcm.samples > 0, and grants mic permission.
+   */
+  function makeFakeNative(seedText = '') {
+    return {
+      isAvailable: () => true,
+      requestPermission: vi.fn(() => Promise.resolve('granted' as const)),
+      getAuthStatus: () => 'granted' as const,
+      start: vi.fn(() => Promise.resolve()),
+      stop: vi.fn(() => Promise.resolve()),
+      onPartial: vi.fn(() => () => undefined),
+      onFinal: vi.fn((cb: (t: string) => void) => {
+        if (seedText) cb(seedText);
+        return () => undefined;
+      }),
+      onError: vi.fn(() => () => undefined),
+      onState: vi.fn(() => () => undefined),
+      onPcm: vi.fn((cb: (chunk: Float32Array) => void) => {
+        cb(new Float32Array(1600).fill(0.1));
+        return () => undefined;
+      }),
+    };
+  }
+
+  /** Build a minimal fetch mock that returns a 200 OpenRouter-shaped response. */
+  function makeOkFetchFn(content: string): typeof fetch {
+    return vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({ choices: [{ message: { content } }] }),
+        text: () => Promise.resolve(content),
+      } as unknown as Response),
+    ) as unknown as typeof fetch;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (routeTranscript as Mock).mockReturnValue({ target: 'clipboard', toast: '' });
+    // resolveTranscriptionEngine returns null → engine path is skipped.
+    // This leaves finalText = capturedTranscript (the onFinal seed text).
+    (resolveTranscriptionEngine as Mock).mockReturnValue(null);
+  });
+
+  it('replaces the transcript with the transform output when mode=openrouter', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transform.mode', 'openrouter');
+    kv.set('voice.transform.model', 'm');
+    kv.set('voice.transform.preset', 'punctuate');
+
+    const fetchFn = makeOkFetchFn('Polished.');
+    deps.transformDeps = { getApiKey: () => 'k', fetchFn };
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('polished'));
+    (resolveTranscriptionEngine as Mock).mockReturnValue(null);
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
+    expect(routedText).toBe('Polished.');
+
+    // No failure toasts
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const failToast = toasts.find((t) => /cleanup failed/i.test(t.message));
+    expect(failToast).toBeUndefined();
+  });
+
+  it('passes the RAW transcript through when the transform throws', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transform.mode', 'openrouter');
+    kv.set('voice.transform.preset', 'punctuate');
+
+    // fetchFn rejects — simulates network error
+    const failingFetch = vi.fn(() => Promise.reject(new Error('fetch boom'))) as unknown as typeof fetch;
+    deps.transformDeps = { getApiKey: () => 'k', fetchFn: failingFetch };
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('raw transcript'));
+    (resolveTranscriptionEngine as Mock).mockReturnValue(null);
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // Routed text is the raw (normalized) transcript, NOT undefined or dropped
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
+    expect(routedText).toBe('raw transcript');
+
+    // A warn toast matching /cleanup failed/i was emitted
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const failToast = toasts.find(
+      (t) => t.level === 'warn' && /cleanup failed/i.test(t.message),
+    );
+    expect(failToast).toBeDefined();
+  });
+
+  it('does nothing when mode != openrouter (default off)', async () => {
+    const { deps, kv } = makeDeps();
+    // No voice.transform.mode in KV
+
+    const fetchFn = makeOkFetchFn('Should not be called.');
+    deps.transformDeps = { getApiKey: () => 'k', fetchFn };
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('raw transcript'));
+    (resolveTranscriptionEngine as Mock).mockReturnValue(null);
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // fetchFn must never have been called
+    expect(fetchFn as Mock).not.toHaveBeenCalled();
+
+    // Routed text is the raw (normalized) transcript
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
+    expect(routedText).toBe('raw transcript');
+  });
+});
