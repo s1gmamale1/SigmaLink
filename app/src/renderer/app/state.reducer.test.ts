@@ -432,11 +432,12 @@ describe('agent-attention', () => {
   const wsId = 'ws-1';
   const sid = 'sess-1';
   function seeded(): AppState {
-    // a session so SET_ATTENTION can derive the workspace
-    return appStateReducer(
-      { ...initialAppState, openWorkspaces: [{ id: wsId, name: 'W', rootPath: '/w' } as any] },
-      { type: 'ADD_SESSIONS', sessions: [{ id: sid, workspaceId: wsId, providerId: 'claude', status: 'running' } as any] },
-    );
+    // workspace open (so SET_ACTIVE_WORKSPACE_ID finds it) + a session in it
+    // (so SET_ATTENTION can derive the workspace from the sessionId)
+    return appStateReducer(makeStateWithOpen([wsId], wsId), {
+      type: 'ADD_SESSIONS',
+      sessions: [session(sid, wsId)],
+    });
   }
 
   it('SET_ATTENTION marks both the session and its workspace', () => {
