@@ -521,6 +521,8 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     const makeCloudDeps = (provider: 'openai-whisper-api' | 'deepgram'): CloudSttEngineDeps => ({
       ...cloudDepsBase,
       getApiKey: () => kvGet(`voice.stt.${provider}.apiKey`),
+      getBaseUrl: () => kvGet(`voice.stt.${provider}.baseUrl`),
+      getModel: () => kvGet(`voice.stt.${provider}.model`),
     });
     const openaiEngine = transcriptionMode === 'openai-whisper-api'
       ? buildOpenAiSttEngine(makeCloudDeps('openai-whisper-api'))
@@ -560,21 +562,22 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
           const { SttKeyMissingError } = await import('./cloud-stt-engine.js');
           if (err instanceof SttKeyMissingError) {
             toast(err.message, 'warn');
-          } else if (transcriptionMode === 'gemini-cli') {
-            // C-10c — CLI engine failure: log and fall back to local Whisper.
-            console.warn('[global-capture] Gemini-CLI transcription failed, falling back to local:', err);
+          } else if (transcriptionMode === 'gemini-cli' || transcriptionMode === 'openai-whisper-api') {
+            // C-10c / ADR-007 — CLI or remote engine failure: fall back to local Whisper.
+            console.warn(`[global-capture] ${transcriptionMode} transcription failed, falling back to local:`, err);
             const localEngine = getWhisperEngine();
             if (localEngine && modelPath) {
               try {
                 const audio16k = resampleTo16k(audio, hwRate);
                 const result = await localEngine.transcribe(audio16k, modelPath, { language: 'en', threads: 4 });
-                if (result.text.trim()) {
-                  finalText = result.text.trim();
-                }
+                if (result.text.trim()) finalText = result.text.trim();
                 appendSessionStat(deps.kv, computeSessionStats(result.segments ?? []));
+                toast('Remote transcription unreachable — used on-device Whisper.', 'warn');
               } catch (fallbackErr) {
                 console.warn('[global-capture] local fallback also failed:', fallbackErr);
               }
+            } else {
+              toast('Remote transcription failed and no local model is downloaded.', 'warn');
             }
           } else {
             console.warn('[global-capture] whisper transcription failed, using SF result:', err);

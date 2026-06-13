@@ -838,6 +838,110 @@ function makePttDeps(overrides: Partial<GlobalCaptureDeps> = {}): GlobalCaptureD
   };
 }
 
+// ---------------------------------------------------------------------------
+// ADR-007 — remote STT fallback to on-device Whisper
+// ---------------------------------------------------------------------------
+
+describe('remote STT fallback (ADR-007)', () => {
+  /**
+   * Build a fake native that grants permission, starts/stops, fires onFinal with
+   * seedText, and delivers a PCM chunk via onPcm so pcm.samples > 0.
+   */
+  function makeFakeNative(seedText = '') {
+    return {
+      isAvailable: () => true,
+      requestPermission: vi.fn(() => Promise.resolve('granted' as const)),
+      getAuthStatus: () => 'granted' as const,
+      start: vi.fn(() => Promise.resolve()),
+      stop: vi.fn(() => Promise.resolve()),
+      onPartial: vi.fn(() => () => undefined),
+      onFinal: vi.fn((cb: (t: string) => void) => { if (seedText) cb(seedText); return () => undefined; }),
+      onError: vi.fn(() => () => undefined),
+      onState: vi.fn(() => () => undefined),
+      // Immediately deliver a non-empty PCM chunk so pcm.samples > 0 after startRecording.
+      onPcm: vi.fn((cb: (chunk: Float32Array) => void) => {
+        cb(new Float32Array(1600).fill(0.1));
+        return () => undefined;
+      }),
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (routeTranscript as Mock).mockReturnValue({ target: 'clipboard', toast: '' });
+  });
+
+  it('falls back to on-device Whisper when the remote endpoint fails', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transcriptionMode', 'openai-whisper-api');
+    kv.set('voice.stt.openai-whisper-api.baseUrl', 'https://custom.example.com');
+
+    // Remote (openai) engine rejects — simulates ECONNREFUSED.
+    const failingRemote = { transcribe: vi.fn(() => Promise.reject(new Error('ECONNREFUSED'))) };
+    (resolveTranscriptionEngine as Mock).mockReturnValue(failingRemote);
+
+    // Local whisper fallback succeeds.
+    const localTranscribe = vi.fn(() => Promise.resolve({ text: 'local whisper result', segments: [] }));
+    (getWhisperEngine as Mock).mockReturnValue({ transcribe: localTranscribe });
+
+    // A downloaded local model is available for the fallback.
+    (getDownloadedModelPath as Mock).mockReturnValue('/tmp/ggml-base.en-q5_1.bin');
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('seed'));
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // Local fallback engine was invoked.
+    expect(localTranscribe).toHaveBeenCalled();
+
+    // routeTranscript was called with the local engine's text.
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
+    expect(routedText).toContain('local whisper result');
+
+    // A warn toast matching /on-device|unreachable/ was emitted.
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const fallbackToast = toasts.find(
+      (t) => t.level === 'warn' && /on-device|unreachable/i.test(t.message),
+    );
+    expect(fallbackToast).toBeDefined();
+  });
+
+  it('emits "no local model" warn toast when remote fails and no local model is downloaded', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transcriptionMode', 'openai-whisper-api');
+
+    // Remote engine rejects.
+    const failingRemote = { transcribe: vi.fn(() => Promise.reject(new Error('ECONNREFUSED'))) };
+    (resolveTranscriptionEngine as Mock).mockReturnValue(failingRemote);
+
+    // No local whisper engine available (not installed).
+    (getWhisperEngine as Mock).mockReturnValue(null);
+
+    // No local model downloaded.
+    (getDownloadedModelPath as Mock).mockReturnValue(null);
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('seed'));
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // A warn toast about the missing local model was emitted.
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const noModelToast = toasts.find(
+      (t) => t.level === 'warn' && /no local model/i.test(t.message),
+    );
+    expect(noModelToast).toBeDefined();
+  });
+});
+
 describe('defaultGlobalCaptureHotkey (win32 IME collision)', () => {
   it('win32 default avoids Ctrl+Alt+Space (the IME input-method toggle)', () => {
     expect(defaultGlobalCaptureHotkey('win32')).toBe('Control+Shift+Space');
