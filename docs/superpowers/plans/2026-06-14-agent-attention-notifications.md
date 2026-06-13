@@ -337,8 +337,13 @@ export class IdleDetector {
   private readonly clearTimer: (handle: unknown) => void;
   private readonly now: () => number;
   private readonly dedupeMs: number;
+  private readonly opts: IdleDetectorOptions;
 
-  constructor(private readonly opts: IdleDetectorOptions) {
+  // NOTE: this project has TS `erasableSyntaxOnly` enabled — constructor
+  // PARAMETER PROPERTIES (`constructor(private readonly opts…)`) are forbidden.
+  // Declare the field above and assign it in the body.
+  constructor(opts: IdleDetectorOptions) {
+    this.opts = opts;
     this.setTimer = opts.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
     this.clearTimer = opts.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
     this.now = opts.now ?? (() => Date.now());
@@ -557,8 +562,11 @@ export interface AttentionDetectorOptions {
 export class AttentionDetector {
   private readonly scanners = new Map<string, BellScanner>();
   private readonly idle: IdleDetector;
+  private readonly opts: AttentionDetectorOptions;
 
-  constructor(private readonly opts: AttentionDetectorOptions) {
+  // NOTE: TS `erasableSyntaxOnly` — no constructor parameter properties.
+  constructor(opts: AttentionDetectorOptions) {
+    this.opts = opts;
     this.idle = new IdleDetector({
       idleMs: opts.idleMs,
       dedupeMs: opts.dedupeMs,
