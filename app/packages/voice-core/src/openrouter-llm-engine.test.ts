@@ -27,6 +27,8 @@ describe('buildOpenRouterTransform', () => {
     expect(out).toBe('Cleaned text.');
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions');
     expect(headers.Authorization).toBe('Bearer or-key');
+    expect(headers['HTTP-Referer']).toBe('https://sigmavoice.app');
+    expect(headers['X-Title']).toBe('SigmaVoice');
     expect(body.model).toBe('google/gemini-2.5-flash-lite');
     expect(body.messages).toEqual([
       { role: 'system', content: 'Fix it' },
@@ -51,5 +53,8 @@ describe('resolveTransformPrompt', () => {
   it('falls back to the punctuate preset for unknown/empty', () => {
     expect(resolveTransformPrompt(null, null)).toBe(TRANSFORM_PRESETS.punctuate);
     expect(resolveTransformPrompt('custom', '')).toBe(TRANSFORM_PRESETS.punctuate);
+  });
+  it('falls back to punctuate when custom prompt is whitespace-only', () => {
+    expect(resolveTransformPrompt('custom', '   ')).toBe(TRANSFORM_PRESETS.punctuate);
   });
 });

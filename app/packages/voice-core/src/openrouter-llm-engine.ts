@@ -31,6 +31,7 @@ export function buildOpenRouterTransform(deps: OpenRouterTransformDeps): Transfo
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        // OpenRouter-specific attribution headers (their docs use this exact casing).
         'HTTP-Referer': 'https://sigmavoice.app',
         'X-Title': 'SigmaVoice',
       },
@@ -49,6 +50,7 @@ export function buildOpenRouterTransform(deps: OpenRouterTransformDeps): Transfo
       throw new Error(`OpenRouter ${response.status}: ${body}`);
     }
     const json = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    // Empty/malformed 200 → ''; the cleanup caller treats '' as passthrough (keeps the raw transcript).
     return (json.choices?.[0]?.message?.content ?? '').trim();
   };
 }
