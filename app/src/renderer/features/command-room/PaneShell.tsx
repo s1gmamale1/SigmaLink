@@ -426,7 +426,8 @@ export function PaneShell({
   const minimised = !!session.minimised;
   // Agent-attention (spec 2026-06-14) — drive the glow class from the
   // attentionSessions map. Cleared by SET_ACTIVE_SESSION on focus.
-  const needsAttention = useAppStateSelector((s) => s.attentionSessions[session.id] !== undefined);
+  // `?.` guards hand-built partial AppState in tests (prod always seeds the map via initialAppState).
+  const needsAttention = useAppStateSelector((s) => s.attentionSessions?.[session.id] !== undefined);
   // Repo root for the CreateWorktreeModal = the workspace root (the repo a new
   // worktree is cut from). The session's own worktreePath is a CHILD worktree,
   // not the repo, so it is deliberately NOT used here.
