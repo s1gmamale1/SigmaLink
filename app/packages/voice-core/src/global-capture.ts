@@ -25,7 +25,7 @@ import { buildCliTranscribeEngine } from './cli-transcribe-engine.js';
 import type { CliTranscribeEngineDeps } from './cli-transcribe-engine.js';
 import { buildOpenAiSttEngine, buildDeepgramSttEngine } from './cloud-stt-engine.js';
 import type { CloudSttEngineDeps } from './cloud-stt-engine.js';
-import { buildOpenRouterTransform, resolveTransformPrompt } from './openrouter-llm-engine.js';
+import { buildOpenRouterTransform, resolveTransformPrompt, LlmKeyMissingError } from './openrouter-llm-engine.js';
 import { routeTranscript } from './output-router.js';
 import { computeSessionStats, appendSessionStat } from './voice-stats.js';
 import {
@@ -611,6 +611,7 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
     // ADR-007 — Optional OpenRouter cleanup pass. On ANY failure, keep the raw
     // transcript (never drop a dictation).
+    // NOTE: this also runs for wake-word-initiated captures when both are enabled (both are opt-in/off by default).
     if (kvGet('voice.transform.mode') === 'openrouter' && deps.transformDeps) {
       try {
         const transform = buildOpenRouterTransform(deps.transformDeps);
@@ -620,7 +621,10 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
         if (cleaned) finalText = cleaned;
       } catch (err) {
         console.warn('[global-capture] OpenRouter cleanup failed, using raw transcript:', err);
-        toast('AI cleanup failed — used the raw transcript.', 'warn');
+        toast(
+          err instanceof LlmKeyMissingError ? err.message : 'AI cleanup failed — used the raw transcript.',
+          'warn',
+        );
       }
     }
 

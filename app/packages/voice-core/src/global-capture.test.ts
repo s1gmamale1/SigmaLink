@@ -1156,4 +1156,39 @@ describe('OpenRouter cleanup seam (ADR-007)', () => {
     const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
     expect(routedText).toBe('raw transcript');
   });
+
+  it('surfaces the key-missing message and keeps the raw transcript when getApiKey returns null', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transform.mode', 'openrouter');
+    kv.set('voice.transform.preset', 'punctuate');
+
+    // getApiKey returns null → buildOpenRouterTransform throws LlmKeyMissingError
+    // BEFORE ever calling fetch.
+    const fetchFn = makeOkFetchFn('Should not be called.');
+    deps.transformDeps = { getApiKey: () => null, fetchFn };
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('raw transcript'));
+    (resolveTranscriptionEngine as Mock).mockReturnValue(null);
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // fetchFn never called — the key check throws before the network request.
+    expect(fetchFn as Mock).not.toHaveBeenCalled();
+
+    // Routed text is the raw (normalized) transcript — dictation never dropped.
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
+    expect(routedText).toBe('raw transcript');
+
+    // The actionable key-missing message was surfaced in a warn toast.
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const keyToast = toasts.find(
+      (t) => t.level === 'warn' && /API key missing|Settings/i.test(t.message),
+    );
+    expect(keyToast).toBeDefined();
+  });
 });
