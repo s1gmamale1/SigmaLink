@@ -141,4 +141,10 @@ describe('sound catalog', () => {
       expect(['alert', 'ui']).toContain(def.category);
     }
   });
+  it('includes the agent-attention alert cue', () => {
+    const def = cueDef('agent-attention');
+    expect(def).toBeDefined();
+    expect(def?.category).toBe('alert');
+    expect((def?.tones.length ?? 0)).toBeGreaterThan(0);
+  });
 });
