@@ -121,18 +121,19 @@ function makeDeps() {
   const emitted: Array<{ event: string; payload: unknown }> = [];
   const kv = new Map<string, string>();
   const clipboard = { writeText: vi.fn() };
-  return {
-    deps: {
-      emit: (event: string, payload: unknown) => {
-        emitted.push({ event, payload });
-      },
-      kv: {
-        get: (key: string) => kv.get(key) ?? null,
-        set: (key: string, value: string) => { kv.set(key, value); },
-      },
-      getModelsDir: () => '/tmp/voice-core-test/voice-models',
-      clipboard,
+  const deps: GlobalCaptureDeps = {
+    emit: (event: string, payload: unknown) => {
+      emitted.push({ event, payload });
     },
+    kv: {
+      get: (key: string) => kv.get(key) ?? null,
+      set: (key: string, value: string) => { kv.set(key, value); },
+    },
+    getModelsDir: () => '/tmp/voice-core-test/voice-models',
+    clipboard,
+  };
+  return {
+    deps,
     emitted,
     kv,
     clipboard,
@@ -1135,7 +1136,7 @@ describe('OpenRouter cleanup seam (ADR-007)', () => {
   });
 
   it('does nothing when mode != openrouter (default off)', async () => {
-    const { deps, kv } = makeDeps();
+    const { deps } = makeDeps();
     // No voice.transform.mode in KV
 
     const fetchFn = makeOkFetchFn('Should not be called.');
