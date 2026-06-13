@@ -89,6 +89,8 @@ export interface WorkspacesPanelProps {
    * no sidebar to show this action from). When omitted the button is hidden.
    */
   onDetach?: (workspaceId: string) => void;
+  /** Agent-attention: workspaceId → ts. A row glows while its id is present. */
+  attentionWorkspaces?: Record<string, number>;
 }
 
 // Drag mime distinct from the skills DnD mime so the workspace-header skill
@@ -125,6 +127,7 @@ export function WorkspacesPanel({
   onOpenDev,
   devWorkspaceId,
   onDetach,
+  attentionWorkspaces = {},
 }: WorkspacesPanelProps) {
   // DEV-W2 — inline rename state. `editingId` is the workspace being renamed;
   // `editValue` mirrors the input value.
@@ -400,6 +403,7 @@ export function WorkspacesPanel({
             // Subtle left-border row accent: full alpha on active, ~33% on inactive.
             const borderColor = isActive ? wsColor : `${wsColor}55`;
 
+            const needsAttention = attentionWorkspaces[ws.id] !== undefined;
             const isDragging = draggingId === ws.id;
             // Insertion line: above this row when the gap == its index; below the
             // last row when the gap == list length (append). Hidden once the
@@ -432,6 +436,7 @@ export function WorkspacesPanel({
                       isActive
                         ? 'sl-nav-active bg-sidebar-accent text-sidebar-accent-foreground'
                         : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
+                      needsAttention && 'sl-attention',
                     )}
                   >
                     <button

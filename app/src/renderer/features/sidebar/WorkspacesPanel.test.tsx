@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, createEvent, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import type { AgentSession, Workspace } from '@/shared/types';
 import { defaultWorkspaceColor } from '@/renderer/lib/workspace-color';
 import { WorkspacesPanel } from './WorkspacesPanel';
@@ -86,7 +86,7 @@ describe('<WorkspacesPanel />', () => {
     kvSetMock.mockResolvedValue(undefined);
   });
 
-  function renderPanel(activeId: string | null = 'a') {
+  function renderPanel(activeId: string | null = 'a', attentionWorkspaces: Record<string, number> = {}) {
     const onPick = vi.fn();
     const onClose = vi.fn();
     const onOpenPersisted = vi.fn();
@@ -103,6 +103,7 @@ describe('<WorkspacesPanel />', () => {
         onOpenPersisted={onOpenPersisted}
         onBrowseWorkspaces={onBrowseWorkspaces}
         onReorder={onReorder}
+        attentionWorkspaces={attentionWorkspaces}
       />,
     );
     return { ...utils, onPick, onClose, onOpenPersisted, onBrowseWorkspaces, onReorder };
@@ -499,6 +500,44 @@ describe('<WorkspacesPanel />', () => {
       />,
     );
     expect(getByText('Untitled workspace')).toBeTruthy();
+  });
+
+  it('applies sl-attention to a workspace row that needs attention', () => {
+    const ws = workspace('ws-1', { name: 'Alpha', rootPath: '/a' });
+    render(
+      <WorkspacesPanel
+        workspaces={[ws]}
+        persistedWorkspaces={[ws]}
+        sessions={[]}
+        activeId={null}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+        attentionWorkspaces={{ 'ws-1': 123 }}
+      />,
+    );
+    const row = screen.getByTestId('workspace-row');
+    expect(row.className).toContain('sl-attention');
+  });
+
+  it('does not apply sl-attention without attention', () => {
+    const ws = workspace('ws-1', { name: 'Alpha', rootPath: '/a' });
+    render(
+      <WorkspacesPanel
+        workspaces={[ws]}
+        persistedWorkspaces={[ws]}
+        sessions={[]}
+        activeId={null}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onOpenPersisted={vi.fn()}
+        onBrowseWorkspaces={vi.fn()}
+        attentionWorkspaces={{}}
+      />,
+    );
+    const row = screen.getByTestId('workspace-row');
+    expect(row.className).not.toContain('sl-attention');
   });
 
   it('renders the root-path basename as a subtitle under the workspace name', () => {
