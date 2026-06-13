@@ -236,6 +236,37 @@ describe('PaneShell — zero-subtab invariant', () => {
     const style = wrapper?.getAttribute('style') ?? '';
     expect(style).not.toContain('display: none');
   });
+
+  // 2026-06-14 — PANE-SHRINK REFLOW REGRESSION GUARD.
+  //
+  // Symptom: dragging a divider to NARROW a pane left the terminal text at its
+  // old (wider) column count, overflowing the pane and overlapping the divider;
+  // it never reflowed, even after release. Renderer-agnostic (xterm, DOM
+  // GridView, FlowView all affected) — most visible on a full-screen TUI.
+  //
+  // Root cause: the terminal area is a flex item in a flex ROW (FEAT-2 added the
+  // row at PaneShell:496 so a context sidebar can sit beside the terminal). A
+  // flex item defaults to `min-width:auto`, which floors it at its CONTENT's
+  // intrinsic width — i.e. the terminal's stamped pixel width. So the box never
+  // shrank below the content, the ResizeObserver/runFit never saw a smaller
+  // width, and nothing reflowed. A descendant `overflow:hidden` (the DOM
+  // presenter container) does NOT relieve this — the flex item ITSELF needs
+  // `min-width:0`. Verified in headless Chromium: at a 200px cell the area
+  // measured 1872px (floored) without min-w-0 and 200px (shrinks) with it, for
+  // both overflow:visible (xterm) and overflow:hidden (DOM) children.
+  //
+  // jsdom has no layout engine, so this guards the CSS CONTRACT: both the flex
+  // row (:496) and the terminal-area flex item (:497) must carry `min-w-0`.
+  it('terminal-area flex wrappers carry min-w-0 so a narrowed pane can reflow', async () => {
+    await renderPaneShell();
+    const paneBody = screen.getByTestId('pane-body');
+    const row = paneBody.firstElementChild; // :496 — flex ROW (terminal + sidebar)
+    const area = row?.firstElementChild; // :497 — the terminal area flex item
+    expect(row?.className).toContain('flex-1');
+    expect(row?.className).toContain('min-w-0');
+    expect(area?.className).toContain('flex-1');
+    expect(area?.className).toContain('min-w-0');
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,18 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.5.1] — 2026-06-14
+
+**v2.5.1 finishes the Windows window-chrome cleanup: no more menu bar or redundant native title bar.**
+
+### Fixed — Windows: hide the application menu bar and integrate the title bar (#170)
+
+Windows showed Electron's default application menu (File / Edit / View / Window / Help) plus a redundant native title bar stacked above the app's own breadcrumb — a wasted "double header". This completes the v1.2.0 Windows-port chrome work: the renderer already reserved 140px (`WIN32_WCO_RESERVE_PX`) for the caption overlay, but the main process never switched off the default title bar, so the prep was dormant. `Menu.setApplicationMenu(null)` removes the menu bar on Windows/Linux; the shared `buildWindow()` factory now uses `titleBarStyle: 'hidden'` + `titleBarOverlay` on Windows so the native min/max/close buttons render as a top-right overlay and the breadcrumb becomes the title bar (mirroring the existing macOS `hiddenInset` treatment, applied to every window the factory builds). The renderer drag region is enabled on Windows so the frameless window stays draggable, and the breadcrumb's memory-graph button is marked no-drag (also fixes a latent macOS click bug). macOS and Linux chrome unchanged.
+
+### Verification
+
+Full CI gate green on #170 (`shellcheck` · `lint + build (macos)` · `smoke (macos-14)` · `smoke (windows-latest)`); an independent adversarial review returned no correctness or logic bugs; the integrated title bar was verified live on Windows via an isolated-instance screenshot (no menu, no separate OS title bar, native controls integrated top-right with no overlap).
+
 ## [2.5.0] — 2026-06-12
 
 **v2.5.0 ships multi-window workspaces and completes DOM presenter Phase 1 (+ its P2 power-user layer).**

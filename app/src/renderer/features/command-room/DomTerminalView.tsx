@@ -22,9 +22,7 @@ import { FlowView, MAX_RENDER_LINES } from './FlowView';
 import { GridView } from './GridView';
 import { PaneSearch } from './PaneSearch';
 import { RefitController } from './refit-controller';
-
-const PROBE_LEN = 10;
-const PAD_X = 6; // FlowView horizontal padding — subtracted before cols math
+import { measureCellW, measureLineH, proposeGrid, PROBE_LEN } from './pane-metrics';
 
 const MONO_FONT =
   'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace';
@@ -143,10 +141,7 @@ export function DomTerminalView({
       const h = container.clientHeight;
       if (w <= 0 || h <= 0) return;
       const probe = probeRef.current;
-      const cellW = probe && probe.offsetWidth > 0 ? probe.offsetWidth / PROBE_LEN : 7.2;
-      const lineH = probe && probe.offsetHeight > 0 ? probe.offsetHeight : 17;
-      const cols = Math.max(2, Math.floor((w - PAD_X * 2) / cellW));
-      const rows = Math.max(1, Math.floor(h / lineH));
+      const { cols, rows } = proposeGrid(w, h, measureCellW(probe), measureLineH(probe));
       entry.engine.resize(cols, rows);
       if (cols !== lastCols || rows !== lastRows) {
         lastCols = cols;
@@ -188,8 +183,8 @@ export function DomTerminalView({
     const cellAt = (clientX: number, clientY: number): { col: number; row: number } => {
       const rect = container.getBoundingClientRect();
       const probe = probeRef.current;
-      const cellW = probe && probe.offsetWidth > 0 ? probe.offsetWidth / PROBE_LEN : 7.2;
-      const lineH = probe && probe.offsetHeight > 0 ? probe.offsetHeight : 17;
+      const cellW = measureCellW(probe);
+      const lineH = measureLineH(probe);
       return {
         col: Math.max(
           1,

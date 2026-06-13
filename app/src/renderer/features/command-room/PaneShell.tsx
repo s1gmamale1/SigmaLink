@@ -500,9 +500,16 @@ export function PaneShell({
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
-            {/* FEAT-2 — terminal area + (when fullscreen) a context sidebar. */}
-            <div className="flex min-h-0 flex-1">
-              <div className="relative min-h-0 flex-1">
+            {/* FEAT-2 — terminal area + (when fullscreen) a context sidebar.
+                Both this flex row and the terminal-area flex item below MUST
+                carry `min-w-0`. A flex item defaults to `min-width:auto`, which
+                floors it at its content's intrinsic width (the terminal's
+                stamped pixel width) — without `min-w-0` the box never shrinks
+                when a divider narrows the pane, so the text overflows and gets
+                overlapped by the divider and never reflows (renderer-agnostic;
+                verified in headless Chromium). See PaneShell.test.tsx guard. */}
+            <div className="flex min-h-0 min-w-0 flex-1">
+              <div className="relative min-h-0 min-w-0 flex-1">
               {launchFailed ? (
                 // ENOENT / pre-flight failure: no PTY ever started, so there is
                 // no scrollback to surface — show the launch error full-screen.

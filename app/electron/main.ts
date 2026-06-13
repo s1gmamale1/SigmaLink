@@ -642,8 +642,34 @@ function buildWindow(opts: {
     minWidth: 1024,
     minHeight: 660,
     title: opts.title,
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    // Window chrome per platform (applies to every window built here — main
+    // and secondary — mirroring the existing macOS treatment):
+    //   macOS   — 'hiddenInset' frees the title bar; traffic lights float top-left.
+    //   Windows — 'hidden' + titleBarOverlay drops the redundant native title bar
+    //             but keeps the native min/max/close buttons as an overlay at
+    //             top-right, so the app's own breadcrumb becomes the title bar
+    //             (one clean row instead of an OS title bar stacked above it).
+    //             The renderer's Breadcrumb already reserves WIN32_WCO_RESERVE_PX
+    //             (140px) on the right so its controls never sit under the
+    //             overlay, and drag-region.ts marks the bar draggable on Windows.
+    //   Linux   — keep the native frame ('default'); titleBarOverlay support is
+    //             inconsistent across desktop environments.
+    titleBarStyle:
+      process.platform === 'darwin'
+        ? 'hiddenInset'
+        : process.platform === 'win32'
+          ? 'hidden'
+          : 'default',
     ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 19, y: 9 } } : {}),
+    ...(process.platform === 'win32'
+      ? {
+          titleBarOverlay: {
+            color: '#0a0c12', // matches `backgroundColor` (the chrome base)
+            symbolColor: '#e5e7eb', // light glyphs for the dark chrome
+            height: 32, // matches the h-8 (32px) breadcrumb the controls overlay
+          },
+        }
+      : {}),
     backgroundColor: '#0a0c12',
     show: false,
     webPreferences: {
@@ -869,6 +895,17 @@ ipcMain.on('voice:focused-session', (_event, payload: unknown) => {
 });
 
 void app.whenReady().then(async () => {
+  // Windows/Linux — strip Electron's default application menu bar
+  // (File / Edit / View / Window / Help). On those platforms the menu renders
+  // inside the window chrome, eating a row of vertical space for stock entries
+  // SigmaLink never uses. Passing `null` removes it entirely (it does NOT
+  // reappear on Alt, unlike `autoHideMenuBar`). macOS is left untouched: there
+  // the menu lives in the system menu bar and carries the conventional
+  // Cmd+Q / Cmd+C / Cmd+H bindings users expect.
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null);
+  }
+
   // BUG-V1.1-03-PROV + perf-hot-paths Task 4 — cached + ASYNC login-shell
   // PATH bootstrap. Warm boots apply the cached merged PATH instantly and
   // refresh in the background; window creation never waits. PTY-spawn paths
