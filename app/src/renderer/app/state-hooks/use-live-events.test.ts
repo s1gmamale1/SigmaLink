@@ -72,6 +72,10 @@ vi.mock('../../lib/notifications', () => ({
   playNotificationTone: (...args: unknown[]) => playNotificationToneMock(...args),
 }));
 
+// Task 8 — mock playCue for agent-attention throttled sound.
+const playCueMock = vi.fn();
+vi.mock('../../lib/sounds', () => ({ playCue: (...a: unknown[]) => playCueMock(...a) }));
+
 // P3 — sonner is the toast surface for the bell handoff. Mock the three call
 // shapes the delta effect uses (`toast`, `toast.warning`, `toast.error`).
 const toastMock = vi.fn() as ReturnType<typeof vi.fn> & {
@@ -153,6 +157,7 @@ beforeEach(() => {
   reviewListMock.mockReset();
   reviewListMock.mockResolvedValue(emptyReview('a'));
   playNotificationToneMock.mockReset();
+  playCueMock.mockReset();
   kvStore = {};
   toastMock.mockReset();
   toastMock.warning.mockReset();
@@ -626,5 +631,36 @@ describe('useLiveEvents — P3 toast↔bell handoff', () => {
     expect(playNotificationToneMock).toHaveBeenCalledWith('warn');
     expect(toastMock.warning).toHaveBeenCalledTimes(1);
     expect(toastMock.error).not.toHaveBeenCalled();
+  });
+});
+
+// ---- Task 8: agent:attention subscriber + throttled sound --------------------
+
+describe('useLiveEvents — agent:attention subscriber', () => {
+  it('agent:attention dispatches SET_ATTENTION and plays the throttled cue', async () => {
+    // Use a far-future ts so the module-scope throttle (lastAttentionSoundAt) is
+    // effectively reset relative to this test's timestamps.
+    const baseTs = Date.now() + 10_000_000;
+
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('agent:attention', { sessionId: 's1', reason: 'bell', ts: baseTs });
+      await Promise.resolve();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ATTENTION', sessionId: 's1', ts: baseTs });
+    expect(playCueMock).toHaveBeenCalledWith('agent-attention');
+
+    // A second event within the 2s throttle window does NOT replay the sound.
+    playCueMock.mockClear();
+    await act(async () => {
+      sigma.emit('agent:attention', { sessionId: 's2', reason: 'idle', ts: baseTs + 500 });
+      await Promise.resolve();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ATTENTION', sessionId: 's2', ts: baseTs + 500 });
+    expect(playCueMock).not.toHaveBeenCalled();
   });
 });
