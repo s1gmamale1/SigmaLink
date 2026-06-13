@@ -22,6 +22,14 @@ import {
 // the two files had drifted (the WORKSPACE_OPEN seed + snapshot fallbackRoom
 // only checked 'workspaces', leaking 'settings'/'automations').
 
+/** Immutably drop a key from a record (returns the same ref if absent). */
+function omitKey<T>(rec: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in rec)) return rec;
+  const { [key]: _drop, ...rest } = rec;
+  void _drop;
+  return rest;
+}
+
 // Perf audit 2026-06-10 #4 — per-swarm message thread cap. Hydrate tails 200
 // (SwarmRoom / SwarmRailTab); live APPENDs previously grew the array without
 // bound. 500 keeps the full hydrated tail plus a generous live window while
@@ -352,6 +360,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         activeWorkspaceId: action.workspaceId,
         room,
         focusedPaneId,
+        attentionWorkspaces: omitKey(state.attentionWorkspaces, action.workspaceId),
       });
     }
     case 'SYNC_OPEN_WORKSPACES': {
@@ -412,6 +421,9 @@ export function appStateReducer(state: AppState, action: Action): AppState {
           : state.openWorkspaces,
         activeWorkspaceId: action.workspace?.id ?? null,
         room: action.workspace ? state.room : 'workspaces',
+        attentionWorkspaces: action.workspace
+          ? omitKey(state.attentionWorkspaces, action.workspace.id)
+          : state.attentionWorkspaces,
       });
     case 'ADD_SESSIONS': {
       const map = new Map(state.sessions.map((s) => [s.id, s]));
@@ -426,7 +438,21 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       };
     }
     case 'SET_ACTIVE_SESSION':
-      return { ...state, activeSessionId: action.id };
+      return {
+        ...state,
+        activeSessionId: action.id,
+        attentionSessions: action.id ? omitKey(state.attentionSessions, action.id) : state.attentionSessions,
+      };
+    case 'SET_ATTENTION': {
+      const ws = state.sessions.find((s) => s.id === action.sessionId)?.workspaceId ?? null;
+      return {
+        ...state,
+        attentionSessions: { ...state.attentionSessions, [action.sessionId]: action.ts },
+        attentionWorkspaces: ws
+          ? { ...state.attentionWorkspaces, [ws]: action.ts }
+          : state.attentionWorkspaces,
+      };
+    }
     case 'MARK_SESSION_EXITED': {
       const sessions: AgentSession[] = state.sessions.map((s) =>
         s.id === action.id

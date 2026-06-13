@@ -91,6 +91,13 @@ export interface AppState {
   sessions: AgentSession[];
   sessionsByWorkspace: Record<string, AgentSession[]>;
   activeSessionId: string | null;
+  /**
+   * Agent-attention (spec 2026-06-14). Maps keyed by id → the attention
+   * timestamp. Presence drives the glow; cleared on focus/visit. A workspace
+   * glows if it is a key here; a pane glows if its sessionId is a key.
+   */
+  attentionWorkspaces: Record<string, number>;
+  attentionSessions: Record<string, number>;
   // Swarm Room (Phase 2)
   swarms: Swarm[];
   swarmsByWorkspace: Record<string, Swarm[]>;
@@ -185,6 +192,7 @@ export type Action =
   | { type: 'SET_ACTIVE_WORKSPACE'; workspace: Workspace | null }
   | { type: 'ADD_SESSIONS'; sessions: AgentSession[] }
   | { type: 'SET_ACTIVE_SESSION'; id: string | null }
+  | { type: 'SET_ATTENTION'; sessionId: string; ts: number }
   | { type: 'MARK_SESSION_EXITED'; id: string; exitCode: number }
   // v1.13.2 — runtime crash (or fast-crash) exit. Distinct from
   // MARK_SESSION_EXITED: sets `status: 'error'` so the pane stays VISIBLE
@@ -274,6 +282,8 @@ export const initialAppState: AppState = {
   sessions: [],
   sessionsByWorkspace: {},
   activeSessionId: null,
+  attentionWorkspaces: {},
+  attentionSessions: {},
   swarms: [],
   swarmsByWorkspace: {},
   activeSwarmId: null,
