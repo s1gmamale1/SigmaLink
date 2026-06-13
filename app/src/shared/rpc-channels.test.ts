@@ -580,4 +580,13 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
   it("allowlists 'app:window-scope-changed' (multi-window scope table; preload eventOn silently no-ops non-allowlisted names)", () => {
     expect(EVENTS.has('app:window-scope-changed')).toBe(true);
   });
+
+  /**
+   * Agent-attention spec 2026-06-14 — 'agent:attention' must be in EVENTS or the
+   * preload's isAllowedEvent() guard drops it and the renderer subscriber is a
+   * silent no-op (no glow, no sound).
+   */
+  it('agent:attention is in EVENTS allowlist', () => {
+    expect(EVENTS.has('agent:attention')).toBe(true);
+  });
 });

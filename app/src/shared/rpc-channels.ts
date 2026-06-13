@@ -390,6 +390,11 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // OSC8 hyperlink). The renderer routes the click into the in-app browser
   // when `kv['browser.captureLinks']` is on.
   'pty:link-detected',
+  // Agent-attention spec 2026-06-14 — emitted when a pane's agent stops working
+  // and is now waiting for the user (real terminal bell OR output-inactivity).
+  // Routed to the owning window (session-scoped). Payload:
+  // { sessionId, reason: 'bell' | 'idle', ts }.
+  'agent:attention',
   'workspace:launched',
   'swarm:message',
   'memory:changed',
