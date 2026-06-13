@@ -911,7 +911,7 @@ describe('remote STT fallback (ADR-007)', () => {
     expect(fallbackToast).toBeDefined();
   });
 
-  it('emits "no local model" warn toast when remote fails and no local model is downloaded', async () => {
+  it('emits "engine not available" warn toast when remote fails and on-device Whisper is unavailable', async () => {
     const { deps, kv, emitted } = makeDeps();
     kv.set('voice.transcriptionMode', 'openai-whisper-api');
 
@@ -930,6 +930,40 @@ describe('remote STT fallback (ADR-007)', () => {
     const ctrl = buildGlobalCaptureController(deps);
     await ctrl.startRecording();
     await ctrl.stopAndTranscribe();
+
+    // A warn toast about the unavailable on-device engine was emitted.
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const engineToast = toasts.find(
+      (t) => t.level === 'warn' && /on-device Whisper is not available/i.test(t.message),
+    );
+    expect(engineToast).toBeDefined();
+  });
+
+  it('emits "no local model" warn toast when remote fails, Whisper engine is present, but no model is downloaded', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transcriptionMode', 'openai-whisper-api');
+
+    // Remote engine rejects.
+    const failingRemote = { transcribe: vi.fn(() => Promise.reject(new Error('ECONNREFUSED'))) };
+    (resolveTranscriptionEngine as Mock).mockReturnValue(failingRemote);
+
+    // Local whisper engine IS available...
+    const localTranscribe = vi.fn(() => Promise.resolve({ text: 'unused', segments: [] }));
+    (getWhisperEngine as Mock).mockReturnValue({ transcribe: localTranscribe });
+
+    // ...but no local model is downloaded.
+    (getDownloadedModelPath as Mock).mockReturnValue(null);
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('seed'));
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // The local engine could not run without a model path.
+    expect(localTranscribe).not.toHaveBeenCalled();
 
     // A warn toast about the missing local model was emitted.
     const toasts = emitted

@@ -576,6 +576,8 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
               } catch (fallbackErr) {
                 console.warn('[global-capture] local fallback also failed:', fallbackErr);
               }
+            } else if (!localEngine) {
+              toast('Remote transcription failed and on-device Whisper is not available.', 'warn');
             } else {
               toast('Remote transcription failed and no local model is downloaded.', 'warn');
             }
