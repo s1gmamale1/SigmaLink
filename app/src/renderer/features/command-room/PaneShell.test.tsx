@@ -13,6 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, act } from '@testing-library/react';
 import type { AgentSession } from '@/shared/types';
 import * as terminalCache from '@/renderer/lib/terminal-cache';
+import { initialAppState } from '@/renderer/app/state';
+import { appStateStore } from '@/renderer/app/state.hook';
 
 // ---- mocks ---------------------------------------------------------------
 
@@ -1030,6 +1032,32 @@ describe('image paste interception (spec 2026-06-10 B)', () => {
     await Promise.resolve();
     expect(stageImageMock).not.toHaveBeenCalled();
     expect(prevent).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 12 — agent-attention pane glow
+// ---------------------------------------------------------------------------
+describe('PaneShell — agent-attention pane glow (Task 12)', () => {
+  afterEach(() => {
+    // Reset the appStateStore to initialAppState after each test in this suite.
+    appStateStore.setState(initialAppState);
+  });
+
+  it('applies sl-attention to the pane root when its session needs attention', async () => {
+    // Seed the store so attentionSessions contains our session id.
+    appStateStore.setState({ ...initialAppState, attentionSessions: { 'main-session': 123 } });
+    const { container } = await renderPaneShell(makeSession({ id: 'main-session' }));
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.getAttribute('data-testid')).toBe('pane-shell');
+    expect(root.className).toContain('sl-attention');
+  });
+
+  it('does not apply sl-attention when the session has no attention', async () => {
+    appStateStore.setState({ ...initialAppState, attentionSessions: {} });
+    const { container } = await renderPaneShell(makeSession({ id: 'main-session' }));
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.className).not.toContain('sl-attention');
   });
 });
 

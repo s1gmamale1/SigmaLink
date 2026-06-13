@@ -48,6 +48,7 @@ export function Sidebar() {
   const openWorkspaces = useAppStateSelector((s) => s.openWorkspaces);
   const workspaces = useAppStateSelector((s) => s.workspaces);
   const sessions = useAppStateSelector((s) => s.sessions);
+  const attentionWorkspaces = useAppStateSelector((s) => s.attentionWorkspaces);
   // RSP-1 — per-workspace width keying. When no workspace is open, `wsId` is
   // null and we fall back to the legacy global key (see read/write helpers).
   const wsId = activeWorkspace?.id ?? null;
@@ -394,6 +395,7 @@ export function Sidebar() {
           onReorder={(orderedIds) =>
             dispatch({ type: 'REORDER_OPEN_WORKSPACES', orderedIds })
           }
+          attentionWorkspaces={attentionWorkspaces}
           onRename={async (workspaceId, newName) => {
             // DEV-W2 — optimistic update first so the UI is instant.
             dispatch({ type: 'RENAME_WORKSPACE', id: workspaceId, name: newName });

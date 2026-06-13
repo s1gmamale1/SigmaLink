@@ -200,6 +200,7 @@ export function isSoundSuppressedByPrefs(
 // ── Sound cue catalog ──────────────────────────────────────────────────────────
 export type SoundCue =
   | 'agent-done'
+  | 'agent-attention'
   | 'agent-crash'
   | 'message-arrive'
   | 'merge-ready'
@@ -255,6 +256,17 @@ export const SOUND_CATALOG: ReadonlyArray<CueDef> = [
     tones: [
       { freq: 880, start: 0, duration: 0.16 },
       { freq: 1318.51, start: 0.1, duration: 0.18 },
+    ],
+  },
+  {
+    cue: 'agent-attention',
+    label: 'Agent needs you',
+    category: 'alert',
+    // Soft two-note prompt (D5→G5) — gentler & distinct from the brighter
+    // agent-done completion chime. Fires when an agent is waiting for input.
+    tones: [
+      { freq: 587.33, start: 0, duration: 0.12, peak: 0.14 },
+      { freq: 783.99, start: 0.09, duration: 0.16, peak: 0.14 },
     ],
   },
   {

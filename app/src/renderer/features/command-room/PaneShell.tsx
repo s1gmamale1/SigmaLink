@@ -13,6 +13,7 @@
 // Extracted to keep CommandRoom.tsx under 500 LOC (v1.5.1-A caveat 1).
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
+import { useAppStateSelector } from '@/renderer/app/state';
 import { ClipboardPaste, Copy, FolderOpen, GitBranch, RotateCw, Square, SquareTerminal, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -423,6 +424,10 @@ export function PaneShell({
   // the terminal-cache (v1.4.2 #03) preserves scrollback and the PTY keeps
   // emitting bytes — clicking the header restores the body view.
   const minimised = !!session.minimised;
+  // Agent-attention (spec 2026-06-14) — drive the glow class from the
+  // attentionSessions map. Cleared by SET_ACTIVE_SESSION on focus.
+  // `?.` guards hand-built partial AppState in tests (prod always seeds the map via initialAppState).
+  const needsAttention = useAppStateSelector((s) => s.attentionSessions?.[session.id] !== undefined);
   // Repo root for the CreateWorktreeModal = the workspace root (the repo a new
   // worktree is cut from). The session's own worktreePath is a CHILD worktree,
   // not the repo, so it is deliberately NOT used here.
@@ -430,7 +435,10 @@ export function PaneShell({
   return (
     <div
       ref={paneContainerRef}
-      className="sl-pane-enter flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+      data-testid="pane-shell"
+      className={`sl-pane-enter flex h-full min-h-0 min-w-0 flex-col overflow-hidden${
+        needsAttention ? ' sl-attention' : ''
+      }`}
     >
       <PaneHeader
         session={session}

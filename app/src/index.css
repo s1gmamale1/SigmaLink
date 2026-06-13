@@ -669,6 +669,22 @@
   50% { opacity: 0.4; }
 }
 
+/* Agent-attention (spec 2026-06-14) — flicker for ~10s then settle to a static
+   glow. The base box-shadow IS the settled glow; the 10-iteration animation
+   overlays the flicker on top. After ~10s the animation ends and the element
+   keeps the base glow until the class is removed (cleared on focus/visit).
+   Under prefers-reduced-motion the global safety-net collapses the duration so
+   reduced-motion users land on the settled glow instantly (no flicker). */
+.sl-attention {
+  border-radius: 0.375rem; /* rounded-md, matches workspace rows + panes */
+  box-shadow: 0 0 0 1px hsl(var(--ring) / 0.4), 0 0 6px 1px hsl(var(--ring) / 0.15);
+  animation: sl-attention-flicker 1s ease-in-out 10;
+}
+@keyframes sl-attention-flicker {
+  0%, 100% { box-shadow: 0 0 0 1px hsl(var(--ring) / 0.6), 0 0 10px 3px hsl(var(--ring) / 0.35); }
+  50% { box-shadow: 0 0 0 1px hsl(var(--ring) / 0.2), 0 0 2px 0 hsl(var(--ring) / 0.08); }
+}
+
 /* Phase 6 — streaming caret blink. Collapses under reduced-motion via the
    global safety-net (animation-duration→0.01ms) and the explicit motion-safe
    guard. Hidden entirely under reduced-motion so there's no static cursor. */

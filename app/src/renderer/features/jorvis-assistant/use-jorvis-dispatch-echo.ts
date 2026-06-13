@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { rpcSilent, onEvent } from '@/renderer/lib/rpc';
-import { playDing } from '@/renderer/lib/notifications';
 import type { AppState } from '@/renderer/app/state';
 import type { Action } from '@/renderer/app/state.types';
 
@@ -102,7 +101,6 @@ export function useJorvisDispatchEcho({
             onClick: jumpToPane,
           },
         });
-        void playDing();
       })();
     });
     return off;

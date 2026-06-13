@@ -18,6 +18,7 @@ import { sweepWin32DbOrphans, waitForPidsExit } from './core/process/orphan-swee
 import { runBootJanitor } from './core/db/janitor';
 import { PtyRegistry } from './core/pty/registry';
 import { PtyDataCoalescer } from './core/pty/pty-data-coalescer';
+import { AttentionDetector } from './core/pty/attention-detector';
 import {
   DISK_SCAN_PROVIDERS,
   DISK_SCAN_RETRY_SCHEDULE_MS,
@@ -234,7 +235,13 @@ const requireCJS = createRequire(import.meta.url);
 
 /** Events whose payload carries a sessionId and should only reach the
  *  window owning that session's workspace. Everything else broadcasts. */
-const SESSION_ROUTED_EVENTS = new Set(['pty:data', 'pty:exit', 'pty:error', 'pty:link-detected']);
+const SESSION_ROUTED_EVENTS = new Set([
+  'pty:data',
+  'pty:exit',
+  'pty:error',
+  'pty:link-detected',
+  'agent:attention', // route to the owning window (detached-window safe)
+]);
 
 function broadcast(event: string, payload: unknown) {
   const registry = getWindowRegistry();
@@ -538,11 +545,40 @@ async function buildRouter() {
     linkGate = { value, at: now };
     return value;
   };
+  // Agent-attention (spec 2026-06-14) — bell + idle detection on the
+  // sentinel-stripped data stream. Idle threshold is KV-tunable
+  // (`notifications.idleMs`, default 4000ms), 2s-cached like the link gate.
+  let idleMsGate = { value: 4000, at: 0 };
+  const idleMs = (): number => {
+    const now = Date.now();
+    if (now - idleMsGate.at < 2_000) return idleMsGate.value;
+    let value = 4000;
+    try {
+      const row = getRawDb()
+        .prepare('SELECT value FROM kv WHERE key = ?')
+        .get('notifications.idleMs') as { value?: string } | undefined;
+      const n = row?.value == null ? Number.NaN : Number(row.value);
+      if (Number.isFinite(n) && n >= 500) value = n;
+    } catch {
+      value = 4000;
+    }
+    idleMsGate = { value, at: now };
+    return value;
+  };
+  const attentionDetector = new AttentionDetector({
+    idleMs,
+    emit: (sessionId, reason) =>
+      broadcast('agent:attention', { sessionId, reason, ts: Date.now() }),
+  });
   const pty = new PtyRegistry(
-    (sessionId, data) => ptyDataCoalescer.push(sessionId, data),
+    (sessionId, data) => {
+      attentionDetector.feed(sessionId, data); // sentinel already stripped
+      ptyDataCoalescer.push(sessionId, data);
+    },
     (sessionId, exitCode, signal) => {
       ptyDataCoalescer.flush(sessionId);
       broadcast('pty:exit', { sessionId, exitCode, signal });
+      attentionDetector.forget(sessionId);
       // Multi-window A2 — evict the session→workspace routing cache AFTER the
       // exit event routes to the owner, so the final event still lands.
       getWindowRegistry().forgetSession(sessionId);
@@ -638,6 +674,10 @@ async function buildRouter() {
         } catch {
           /* notifications fan-out is best-effort */
         }
+        // The CLI quit (shell stays alive in shell-first mode) — the agent is
+        // done, so drop its bell/idle detection state; the bare shell's output
+        // must not produce a false "agent needs you" idle-fire.
+        attentionDetector.forget(sessionId);
       },
       // v1.9-scrollback — DEFAULT-OFF. The sink is ALWAYS wired; the KV flag
       // is re-read inside on every exit, so BOTH runtime toggle-ON and
@@ -1085,6 +1125,7 @@ async function buildRouter() {
     },
     forget: async (sessionId: string) => {
       pty.forget(sessionId);
+      attentionDetector.forget(sessionId); // drop bell/idle state for the forgotten session
     },
     // W-4 Phase 4 — Ephemeral scratch-shell sub-tabs. Spawns a plain shell PTY
     // in the given cwd. NO agent_session DB row, NO persistence, NO sidebar
@@ -1122,6 +1163,7 @@ async function buildRouter() {
       }
       pty.kill(input.scratchId);
       pty.forget(input.scratchId);
+      attentionDetector.forget(input.scratchId); // drop bell/idle state for the killed scratch
       // Multi-window A2 — scratch shells have no agent_sessions row, so the
       // registry holds a NEGATIVE routing-cache entry for them; evict it here
       // or it leaks per killed scratch tab.

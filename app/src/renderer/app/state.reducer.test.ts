@@ -426,6 +426,66 @@ describe('SET_ACTIVE_WORKSPACE_ID (DEV-4)', () => {
   });
 });
 
+// ─── agent-attention — attention maps, SET_ATTENTION, clear-on-focus ─────────
+
+describe('agent-attention', () => {
+  const wsId = 'ws-1';
+  const sid = 'sess-1';
+  function seeded(): AppState {
+    // workspace open (so SET_ACTIVE_WORKSPACE_ID finds it) + a session in it
+    // (so SET_ATTENTION can derive the workspace from the sessionId)
+    return appStateReducer(makeStateWithOpen([wsId], wsId), {
+      type: 'ADD_SESSIONS',
+      sessions: [session(sid, wsId)],
+    });
+  }
+
+  it('SET_ATTENTION marks both the session and its workspace', () => {
+    const s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+    expect(s.attentionSessions[sid]).toBe(1000);
+    expect(s.attentionWorkspaces[wsId]).toBe(1000);
+  });
+
+  it('SET_ACTIVE_SESSION clears that session\'s attention', () => {
+    let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+    s = appStateReducer(s, { type: 'SET_ACTIVE_SESSION', id: sid });
+    expect(s.attentionSessions[sid]).toBeUndefined();
+  });
+
+  it('SET_ACTIVE_WORKSPACE_ID clears that workspace\'s attention', () => {
+    let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+    s = appStateReducer(s, { type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: wsId });
+    expect(s.attentionWorkspaces[wsId]).toBeUndefined();
+  });
+
+  // Review HIGH — focusing an ALREADY-active pane must still clear its glow, so
+  // the focus paths dispatch CLEAR_SESSION_ATTENTION unconditionally.
+  it('CLEAR_SESSION_ATTENTION clears the session regardless of active state', () => {
+    let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+    s = appStateReducer(s, { type: 'CLEAR_SESSION_ATTENTION', sessionId: sid });
+    expect(s.attentionSessions[sid]).toBeUndefined();
+  });
+
+  // Review MED1 — a dead/removed agent isn't waiting on you; its glow must clear.
+  it('MARK_SESSION_EXITED clears the exited session\'s attention', () => {
+    let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+    s = appStateReducer(s, { type: 'MARK_SESSION_EXITED', id: sid, exitCode: 0 });
+    expect(s.attentionSessions[sid]).toBeUndefined();
+  });
+
+  it('MARK_SESSION_ERROR clears the crashed session\'s attention', () => {
+    let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+    s = appStateReducer(s, { type: 'MARK_SESSION_ERROR', id: sid, exitCode: 1 });
+    expect(s.attentionSessions[sid]).toBeUndefined();
+  });
+
+  it('REMOVE_SESSION clears the removed session\'s attention', () => {
+    let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+    s = appStateReducer(s, { type: 'REMOVE_SESSION', id: sid });
+    expect(s.attentionSessions[sid]).toBeUndefined();
+  });
+});
+
 // ─── REORDER_OPEN_WORKSPACES — drag-to-reorder the rail ──────────────────────
 
 describe('REORDER_OPEN_WORKSPACES', () => {

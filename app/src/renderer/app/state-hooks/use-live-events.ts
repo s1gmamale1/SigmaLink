@@ -24,6 +24,7 @@ import type { Action, AppState } from '../state.types';
 import type { Notification } from '../../../shared/types';
 import { parseBrowserState, parseSwarmMessage, runRefreshOnEvent } from './parsers';
 import { playNotificationTone } from '../../lib/notifications';
+import { playCue } from '../../lib/sounds';
 import {
   KV_DND,
   KV_OS_PER_SOURCE,
@@ -36,6 +37,11 @@ import {
 } from '../../../shared/notification-prefs';
 import { maxSeverity, navigateToNotification } from '../../features/notifications/helpers';
 
+// Agent-attention sound throttle. Module scope so a 20-agent swarm finishing
+// together plays ONE sound, and the throttle survives hook remounts.
+const ATTENTION_SOUND_THROTTLE_MS = 2000;
+let lastAttentionSoundAt = 0;
+
 export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void {
   // Listen for PTY exit so the UI can mark sessions accordingly.
   useEffect(() => {
@@ -45,6 +51,23 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       if (typeof p.sessionId !== 'string') return;
       const exitCode = typeof p.exitCode === 'number' ? p.exitCode : -1;
       dispatch({ type: 'MARK_SESSION_EXITED', id: p.sessionId, exitCode });
+    });
+    return off;
+  }, [dispatch]);
+
+  // Agent-attention (spec 2026-06-14) — "agent is now waiting for you" (bell or
+  // idle). Light up the workspace row + pane and play the throttled cue.
+  useEffect(() => {
+    const off = window.sigma.eventOn('agent:attention', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown; ts?: unknown };
+      if (typeof p.sessionId !== 'string') return;
+      const ts = typeof p.ts === 'number' ? p.ts : Date.now();
+      dispatch({ type: 'SET_ATTENTION', sessionId: p.sessionId, ts });
+      if (ts - lastAttentionSoundAt > ATTENTION_SOUND_THROTTLE_MS) {
+        lastAttentionSoundAt = ts;
+        void playCue('agent-attention');
+      }
     });
     return off;
   }, [dispatch]);
