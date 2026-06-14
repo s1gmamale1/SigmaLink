@@ -17,7 +17,7 @@ describe('buildOpenRouterTransform', () => {
   });
 
   it('POSTs chat/completions with system+user messages and returns content', async () => {
-    let url = ''; let body: any = {}; let headers: Record<string, string> = {};
+    let url = ''; let body: Record<string, unknown> = {}; let headers: Record<string, string> = {};
     const fetchFn = vi.fn(async (u: string, init: RequestInit) => {
       url = u; headers = init.headers as Record<string, string>; body = JSON.parse(init.body as string);
       return new Response(JSON.stringify({ choices: [{ message: { content: 'Cleaned text.' } }] }), { status: 200 });
