@@ -98,7 +98,7 @@ describe('buildOpenAiSttEngine', () => {
       getApiKey: () => 'bad-key',
     };
     const engine = buildOpenAiSttEngine(deps);
-    await expect(engine.transcribe(silentAudio(), '')).rejects.toThrow('OpenAI STT error 401');
+    await expect(engine.transcribe(silentAudio(), '')).rejects.toThrow('OpenAI-compatible STT error 401');
   });
 
   it('returns empty string when OpenAI response has no text field', async () => {
@@ -191,5 +191,77 @@ describe('buildDeepgramSttEngine', () => {
     const engine = buildDeepgramSttEngine(deps);
     const result = await engine.transcribe(silentAudio(), '');
     expect(result.text).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-007 — configurable endpoint (custom baseUrl + optional key)
+// ---------------------------------------------------------------------------
+
+describe('buildOpenAiSttEngine — configurable endpoint (ADR-007)', () => {
+  it('POSTs to a custom baseUrl + model and omits Authorization when keyless', async () => {
+    let calledUrl = '';
+    let calledHeaders: Record<string, string> = {};
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      calledUrl = url;
+      calledHeaders = (init.headers ?? {}) as Record<string, string>;
+      return new Response(JSON.stringify({ text: 'hello lan' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    const engine = buildOpenAiSttEngine({
+      fetchFn,
+      getApiKey: () => null,
+      getBaseUrl: () => 'http://192.168.1.50:8000/v1',
+      getModel: () => 'Systran/faster-whisper-large-v3',
+    });
+    const result = await engine.transcribe(silentAudio(), '');
+    expect(result.text).toBe('hello lan');
+    expect(calledUrl).toBe('http://192.168.1.50:8000/v1/audio/transcriptions');
+    expect('Authorization' in calledHeaders).toBe(false);
+  });
+
+  it('sends Authorization when a key IS present, against the custom baseUrl', async () => {
+    let calledUrl = '';
+    let calledHeaders: Record<string, string> = {};
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      calledUrl = url;
+      calledHeaders = (init.headers ?? {}) as Record<string, string>;
+      return new Response(JSON.stringify({ text: 'k' }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const engine = buildOpenAiSttEngine({
+      fetchFn, getApiKey: () => 'sk-test', getBaseUrl: () => 'https://api.groq.com/openai/v1',
+    });
+    await engine.transcribe(silentAudio(), '');
+    expect(calledUrl).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
+    expect(calledHeaders.Authorization).toBe('Bearer sk-test');
+  });
+
+  it('strips a trailing slash from the baseUrl (no double slash in URL)', async () => {
+    let calledUrl = '';
+    const fetchFn = vi.fn(async (url: string) => {
+      calledUrl = url;
+      return new Response(JSON.stringify({ text: 'ok' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    const engine = buildOpenAiSttEngine({
+      fetchFn,
+      getApiKey: () => null,
+      getBaseUrl: () => 'http://192.168.1.50:8000/v1/',
+    });
+    await engine.transcribe(silentAudio(), '');
+    expect(calledUrl).toBe('http://192.168.1.50:8000/v1/audio/transcriptions');
+  });
+
+  it('does NOT throw SttKeyMissingError when a baseUrl is set but no key', async () => {
+    const fetchFn = makeFetchFn(200, { text: 'ok' });
+    const engine = buildOpenAiSttEngine({ fetchFn, getApiKey: () => null, getBaseUrl: () => 'http://box:9000' });
+    await expect(engine.transcribe(silentAudio(), '')).resolves.toEqual({ text: 'ok', segments: [] });
+  });
+
+  it('still throws SttKeyMissingError for default cloud (no baseUrl, no key)', async () => {
+    const engine = buildOpenAiSttEngine({ fetchFn: vi.fn() as unknown as typeof fetch, getApiKey: () => null });
+    await expect(engine.transcribe(silentAudio(), '')).rejects.toBeInstanceOf(SttKeyMissingError);
   });
 });

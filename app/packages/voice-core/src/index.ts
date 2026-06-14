@@ -80,6 +80,12 @@ export type { CliTranscribeEngineDeps } from './cli-transcribe-engine.js';
 export { buildOpenAiSttEngine, buildDeepgramSttEngine, SttKeyMissingError } from './cloud-stt-engine.js';
 export type { CloudSttEngineDeps } from './cloud-stt-engine.js';
 
+// ── OpenRouter LLM transform engine (ADR-007) ──────────────────────────────
+export {
+  buildOpenRouterTransform, LlmKeyMissingError, resolveTransformPrompt, TRANSFORM_PRESETS,
+} from './openrouter-llm-engine.js';
+export type { OpenRouterTransformDeps, TransformFn, TransformPresetId } from './openrouter-llm-engine.js';
+
 // ── Native mac loader ──────────────────────────────────────────────────────
 export {
   loadNative,

@@ -121,18 +121,19 @@ function makeDeps() {
   const emitted: Array<{ event: string; payload: unknown }> = [];
   const kv = new Map<string, string>();
   const clipboard = { writeText: vi.fn() };
-  return {
-    deps: {
-      emit: (event: string, payload: unknown) => {
-        emitted.push({ event, payload });
-      },
-      kv: {
-        get: (key: string) => kv.get(key) ?? null,
-        set: (key: string, value: string) => { kv.set(key, value); },
-      },
-      getModelsDir: () => '/tmp/voice-core-test/voice-models',
-      clipboard,
+  const deps: GlobalCaptureDeps = {
+    emit: (event: string, payload: unknown) => {
+      emitted.push({ event, payload });
     },
+    kv: {
+      get: (key: string) => kv.get(key) ?? null,
+      set: (key: string, value: string) => { kv.set(key, value); },
+    },
+    getModelsDir: () => '/tmp/voice-core-test/voice-models',
+    clipboard,
+  };
+  return {
+    deps,
     emitted,
     kv,
     clipboard,
@@ -838,6 +839,144 @@ function makePttDeps(overrides: Partial<GlobalCaptureDeps> = {}): GlobalCaptureD
   };
 }
 
+// ---------------------------------------------------------------------------
+// ADR-007 — remote STT fallback to on-device Whisper
+// ---------------------------------------------------------------------------
+
+describe('remote STT fallback (ADR-007)', () => {
+  /**
+   * Build a fake native that grants permission, starts/stops, fires onFinal with
+   * seedText, and delivers a PCM chunk via onPcm so pcm.samples > 0.
+   */
+  function makeFakeNative(seedText = '') {
+    return {
+      isAvailable: () => true,
+      requestPermission: vi.fn(() => Promise.resolve('granted' as const)),
+      getAuthStatus: () => 'granted' as const,
+      start: vi.fn(() => Promise.resolve()),
+      stop: vi.fn(() => Promise.resolve()),
+      onPartial: vi.fn(() => () => undefined),
+      onFinal: vi.fn((cb: (t: string) => void) => { if (seedText) cb(seedText); return () => undefined; }),
+      onError: vi.fn(() => () => undefined),
+      onState: vi.fn(() => () => undefined),
+      // Immediately deliver a non-empty PCM chunk so pcm.samples > 0 after startRecording.
+      onPcm: vi.fn((cb: (chunk: Float32Array) => void) => {
+        cb(new Float32Array(1600).fill(0.1));
+        return () => undefined;
+      }),
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (routeTranscript as Mock).mockReturnValue({ target: 'clipboard', toast: '' });
+  });
+
+  it('falls back to on-device Whisper when the remote endpoint fails', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transcriptionMode', 'openai-whisper-api');
+    kv.set('voice.stt.openai-whisper-api.baseUrl', 'https://custom.example.com');
+
+    // Remote (openai) engine rejects — simulates ECONNREFUSED.
+    const failingRemote = { transcribe: vi.fn(() => Promise.reject(new Error('ECONNREFUSED'))) };
+    (resolveTranscriptionEngine as Mock).mockReturnValue(failingRemote);
+
+    // Local whisper fallback succeeds.
+    const localTranscribe = vi.fn(() => Promise.resolve({ text: 'local whisper result', segments: [] }));
+    (getWhisperEngine as Mock).mockReturnValue({ transcribe: localTranscribe });
+
+    // A downloaded local model is available for the fallback.
+    (getDownloadedModelPath as Mock).mockReturnValue('/tmp/ggml-base.en-q5_1.bin');
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('seed'));
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // Local fallback engine was invoked.
+    expect(localTranscribe).toHaveBeenCalled();
+
+    // routeTranscript was called with the local engine's text.
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
+    expect(routedText).toContain('local whisper result');
+
+    // A warn toast matching /on-device|unreachable/ was emitted.
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const fallbackToast = toasts.find(
+      (t) => t.level === 'warn' && /on-device|unreachable/i.test(t.message),
+    );
+    expect(fallbackToast).toBeDefined();
+  });
+
+  it('emits "engine not available" warn toast when remote fails and on-device Whisper is unavailable', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transcriptionMode', 'openai-whisper-api');
+
+    // Remote engine rejects.
+    const failingRemote = { transcribe: vi.fn(() => Promise.reject(new Error('ECONNREFUSED'))) };
+    (resolveTranscriptionEngine as Mock).mockReturnValue(failingRemote);
+
+    // No local whisper engine available (not installed).
+    (getWhisperEngine as Mock).mockReturnValue(null);
+
+    // No local model downloaded.
+    (getDownloadedModelPath as Mock).mockReturnValue(null);
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('seed'));
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // A warn toast about the unavailable on-device engine was emitted.
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const engineToast = toasts.find(
+      (t) => t.level === 'warn' && /on-device Whisper is not available/i.test(t.message),
+    );
+    expect(engineToast).toBeDefined();
+  });
+
+  it('emits "no local model" warn toast when remote fails, Whisper engine is present, but no model is downloaded', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transcriptionMode', 'openai-whisper-api');
+
+    // Remote engine rejects.
+    const failingRemote = { transcribe: vi.fn(() => Promise.reject(new Error('ECONNREFUSED'))) };
+    (resolveTranscriptionEngine as Mock).mockReturnValue(failingRemote);
+
+    // Local whisper engine IS available...
+    const localTranscribe = vi.fn(() => Promise.resolve({ text: 'unused', segments: [] }));
+    (getWhisperEngine as Mock).mockReturnValue({ transcribe: localTranscribe });
+
+    // ...but no local model is downloaded.
+    (getDownloadedModelPath as Mock).mockReturnValue(null);
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('seed'));
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // The local engine could not run without a model path.
+    expect(localTranscribe).not.toHaveBeenCalled();
+
+    // A warn toast about the missing local model was emitted.
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const noModelToast = toasts.find(
+      (t) => t.level === 'warn' && /no local model/i.test(t.message),
+    );
+    expect(noModelToast).toBeDefined();
+  });
+});
+
 describe('defaultGlobalCaptureHotkey (win32 IME collision)', () => {
   it('win32 default avoids Ctrl+Alt+Space (the IME input-method toggle)', () => {
     expect(defaultGlobalCaptureHotkey('win32')).toBe('Control+Shift+Space');
@@ -883,5 +1022,174 @@ describe('platform-aware hotkey + persistent register status', () => {
   it('register success → hotkeyRegistered=true', () => {
     const ctl = buildGlobalCaptureController(makePttDeps({ platform: 'darwin' }));
     expect(ctl.getStatus().hotkeyRegistered).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-007 — OpenRouter cleanup seam
+// ---------------------------------------------------------------------------
+
+describe('OpenRouter cleanup seam (ADR-007)', () => {
+  /**
+   * Fake native that fires onFinal with seedText immediately, delivers a PCM
+   * chunk so pcm.samples > 0, and grants mic permission.
+   */
+  function makeFakeNative(seedText = '') {
+    return {
+      isAvailable: () => true,
+      requestPermission: vi.fn(() => Promise.resolve('granted' as const)),
+      getAuthStatus: () => 'granted' as const,
+      start: vi.fn(() => Promise.resolve()),
+      stop: vi.fn(() => Promise.resolve()),
+      onPartial: vi.fn(() => () => undefined),
+      onFinal: vi.fn((cb: (t: string) => void) => {
+        if (seedText) cb(seedText);
+        return () => undefined;
+      }),
+      onError: vi.fn(() => () => undefined),
+      onState: vi.fn(() => () => undefined),
+      onPcm: vi.fn((cb: (chunk: Float32Array) => void) => {
+        cb(new Float32Array(1600).fill(0.1));
+        return () => undefined;
+      }),
+    };
+  }
+
+  /** Build a minimal fetch mock that returns a 200 OpenRouter-shaped response. */
+  function makeOkFetchFn(content: string): typeof fetch {
+    return vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({ choices: [{ message: { content } }] }),
+        text: () => Promise.resolve(content),
+      } as unknown as Response),
+    ) as unknown as typeof fetch;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (routeTranscript as Mock).mockReturnValue({ target: 'clipboard', toast: '' });
+    // resolveTranscriptionEngine returns null → engine path is skipped.
+    // This leaves finalText = capturedTranscript (the onFinal seed text).
+    (resolveTranscriptionEngine as Mock).mockReturnValue(null);
+  });
+
+  it('replaces the transcript with the transform output when mode=openrouter', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transform.mode', 'openrouter');
+    kv.set('voice.transform.model', 'm');
+    kv.set('voice.transform.preset', 'punctuate');
+
+    const fetchFn = makeOkFetchFn('Polished.');
+    deps.transformDeps = { getApiKey: () => 'k', fetchFn };
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('polished'));
+    (resolveTranscriptionEngine as Mock).mockReturnValue(null);
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
+    expect(routedText).toBe('Polished.');
+
+    // No failure toasts
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const failToast = toasts.find((t) => /cleanup failed/i.test(t.message));
+    expect(failToast).toBeUndefined();
+  });
+
+  it('passes the RAW transcript through when the transform throws', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transform.mode', 'openrouter');
+    kv.set('voice.transform.preset', 'punctuate');
+
+    // fetchFn rejects — simulates network error
+    const failingFetch = vi.fn(() => Promise.reject(new Error('fetch boom'))) as unknown as typeof fetch;
+    deps.transformDeps = { getApiKey: () => 'k', fetchFn: failingFetch };
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('raw transcript'));
+    (resolveTranscriptionEngine as Mock).mockReturnValue(null);
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // Routed text is the raw (normalized) transcript, NOT undefined or dropped
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
+    expect(routedText).toBe('raw transcript');
+
+    // A warn toast matching /cleanup failed/i was emitted
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const failToast = toasts.find(
+      (t) => t.level === 'warn' && /cleanup failed/i.test(t.message),
+    );
+    expect(failToast).toBeDefined();
+  });
+
+  it('does nothing when mode != openrouter (default off)', async () => {
+    const { deps } = makeDeps();
+    // No voice.transform.mode in KV
+
+    const fetchFn = makeOkFetchFn('Should not be called.');
+    deps.transformDeps = { getApiKey: () => 'k', fetchFn };
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('raw transcript'));
+    (resolveTranscriptionEngine as Mock).mockReturnValue(null);
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // fetchFn must never have been called
+    expect(fetchFn as Mock).not.toHaveBeenCalled();
+
+    // Routed text is the raw (normalized) transcript
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
+    expect(routedText).toBe('raw transcript');
+  });
+
+  it('surfaces the key-missing message and keeps the raw transcript when getApiKey returns null', async () => {
+    const { deps, kv, emitted } = makeDeps();
+    kv.set('voice.transform.mode', 'openrouter');
+    kv.set('voice.transform.preset', 'punctuate');
+
+    // getApiKey returns null → buildOpenRouterTransform throws LlmKeyMissingError
+    // BEFORE ever calling fetch.
+    const fetchFn = makeOkFetchFn('Should not be called.');
+    deps.transformDeps = { getApiKey: () => null, fetchFn };
+
+    (loadNative as Mock).mockReturnValue(makeFakeNative('raw transcript'));
+    (resolveTranscriptionEngine as Mock).mockReturnValue(null);
+
+    const ctrl = buildGlobalCaptureController(deps);
+    await ctrl.startRecording();
+    await ctrl.stopAndTranscribe();
+
+    // fetchFn never called — the key check throws before the network request.
+    expect(fetchFn as Mock).not.toHaveBeenCalled();
+
+    // Routed text is the raw (normalized) transcript — dictation never dropped.
+    expect(routeTranscript as Mock).toHaveBeenCalled();
+    const routedText = (routeTranscript as Mock).mock.calls[0][0] as string;
+    expect(routedText).toBe('raw transcript');
+
+    // The actionable key-missing message was surfaced in a warn toast.
+    const toasts = emitted
+      .filter((e) => e.event === 'voice:global-capture-toast')
+      .map((e) => e.payload as { message: string; level: string });
+    const keyToast = toasts.find(
+      (t) => t.level === 'warn' && /API key missing|Settings/i.test(t.message),
+    );
+    expect(keyToast).toBeDefined();
   });
 });

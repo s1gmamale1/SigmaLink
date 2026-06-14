@@ -25,6 +25,7 @@ import { buildCliTranscribeEngine } from './cli-transcribe-engine.js';
 import type { CliTranscribeEngineDeps } from './cli-transcribe-engine.js';
 import { buildOpenAiSttEngine, buildDeepgramSttEngine } from './cloud-stt-engine.js';
 import type { CloudSttEngineDeps } from './cloud-stt-engine.js';
+import { buildOpenRouterTransform, resolveTransformPrompt, LlmKeyMissingError } from './openrouter-llm-engine.js';
 import { routeTranscript } from './output-router.js';
 import { computeSessionStats, appendSessionStat } from './voice-stats.js';
 import {
@@ -175,6 +176,14 @@ export interface GlobalCaptureDeps {
    * or `'deepgram'`.
    */
   cloudSttEngineDeps?: Pick<CloudSttEngineDeps, 'fetchFn'>;
+
+  // ── ADR-007 — OpenRouter transcript transform (optional; absent = cleanup off) ──
+  /**
+   * Injected deps for the OpenRouter cleanup pass. The app shell supplies `getApiKey`
+   * reading from ENCRYPTED storage (the key is never in KV). Only used when
+   * `kv.get('voice.transform.mode') === 'openrouter'`.
+   */
+  transformDeps?: { fetchFn?: typeof fetch; getApiKey: () => string | null };
 
   // ── C-11 "Hey Jorvis" listening mode (all optional; absent = feature off) ──
   /** True when `voice.listeningMode` is enabled. */
@@ -521,6 +530,8 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
     const makeCloudDeps = (provider: 'openai-whisper-api' | 'deepgram'): CloudSttEngineDeps => ({
       ...cloudDepsBase,
       getApiKey: () => kvGet(`voice.stt.${provider}.apiKey`),
+      getBaseUrl: () => kvGet(`voice.stt.${provider}.baseUrl`),
+      getModel: () => kvGet(`voice.stt.${provider}.model`),
     });
     const openaiEngine = transcriptionMode === 'openai-whisper-api'
       ? buildOpenAiSttEngine(makeCloudDeps('openai-whisper-api'))
@@ -560,21 +571,24 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
           const { SttKeyMissingError } = await import('./cloud-stt-engine.js');
           if (err instanceof SttKeyMissingError) {
             toast(err.message, 'warn');
-          } else if (transcriptionMode === 'gemini-cli') {
-            // C-10c — CLI engine failure: log and fall back to local Whisper.
-            console.warn('[global-capture] Gemini-CLI transcription failed, falling back to local:', err);
+          } else if (transcriptionMode === 'gemini-cli' || transcriptionMode === 'openai-whisper-api') {
+            // C-10c / ADR-007 — CLI or remote engine failure: fall back to local Whisper.
+            console.warn(`[global-capture] ${transcriptionMode} transcription failed, falling back to local:`, err);
             const localEngine = getWhisperEngine();
             if (localEngine && modelPath) {
               try {
                 const audio16k = resampleTo16k(audio, hwRate);
                 const result = await localEngine.transcribe(audio16k, modelPath, { language: 'en', threads: 4 });
-                if (result.text.trim()) {
-                  finalText = result.text.trim();
-                }
+                if (result.text.trim()) finalText = result.text.trim();
                 appendSessionStat(deps.kv, computeSessionStats(result.segments ?? []));
+                toast('Remote transcription unreachable — used on-device Whisper.', 'warn');
               } catch (fallbackErr) {
                 console.warn('[global-capture] local fallback also failed:', fallbackErr);
               }
+            } else if (!localEngine) {
+              toast('Remote transcription failed and on-device Whisper is not available.', 'warn');
+            } else {
+              toast('Remote transcription failed and no local model is downloaded.', 'warn');
             }
           } else {
             console.warn('[global-capture] whisper transcription failed, using SF result:', err);
@@ -594,6 +608,25 @@ export function buildGlobalCaptureController(deps: GlobalCaptureDeps) {
 
     // C-10a — Apply phrase/macro dictionary substitutions before routing.
     finalText = normalizeTranscript(finalText, kvGet);
+
+    // ADR-007 — Optional OpenRouter cleanup pass. On ANY failure, keep the raw
+    // transcript (never drop a dictation).
+    // NOTE: this also runs for wake-word-initiated captures when both are enabled (both are opt-in/off by default).
+    if (kvGet('voice.transform.mode') === 'openrouter' && deps.transformDeps) {
+      try {
+        const transform = buildOpenRouterTransform(deps.transformDeps);
+        const model = kvGet('voice.transform.model') ?? 'google/gemini-2.5-flash-lite';
+        const prompt = resolveTransformPrompt(kvGet('voice.transform.preset'), kvGet('voice.transform.prompt'));
+        const cleaned = await transform(finalText, { model, prompt });
+        if (cleaned) finalText = cleaned;
+      } catch (err) {
+        console.warn('[global-capture] OpenRouter cleanup failed, using raw transcript:', err);
+        toast(
+          err instanceof LlmKeyMissingError ? err.message : 'AI cleanup failed — used the raw transcript.',
+          'warn',
+        );
+      }
+    }
 
     // Route the transcript — C-10b: pass focused-pane opts when available.
     // C-10c: pass the dispatch provider from KV (defaults to 'claude').
