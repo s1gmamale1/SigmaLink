@@ -31,6 +31,7 @@ import type { PtyRegistry, SessionRecord } from '../pty/registry';
 import {
   AGENT_PROVIDERS,
   findProvider,
+  paneLabelArgs,
   type AgentProviderDefinition,
   type ProviderId,
 } from '../../../shared/providers';
@@ -227,6 +228,8 @@ function buildArgs(
     out.push('--session-id', preassignedUuid);
   }
   out.push(...provider.args);
+  // Pane auto-label — claude-only SIGMA::LABEL instruction (no-op for others).
+  out.push(...paneLabelArgs(provider.id));
   // P1c — xterm-only args (claude's #160 fullscreen injection): the DOM
   // presenter wants inline mode, the xterm grid needs alt-screen.
   const rendererMode = opts.rendererMode ?? DEFAULT_RENDERER_MODE;

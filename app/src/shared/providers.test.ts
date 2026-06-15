@@ -13,6 +13,8 @@ import {
   isImageCapableProvider,
   listDetectable,
   listVisibleProviders,
+  paneLabelArgs,
+  PANE_LABEL_INSTRUCTION,
   type AgentProviderDefinition,
 } from './providers';
 
@@ -151,5 +153,19 @@ describe('claude xterm-mode spawns force the fullscreen TUI renderer (#160, cond
     expect(idx).toBeGreaterThanOrEqual(0);
     expect(JSON.parse(claude.xtermOnlyArgs![idx + 1]!)).toEqual({ tui: 'fullscreen' });
     expect(claude.args).not.toContain('--settings');
+  });
+});
+
+describe('paneLabelArgs', () => {
+  it('injects --append-system-prompt for claude', () => {
+    expect(paneLabelArgs('claude')).toEqual(['--append-system-prompt', PANE_LABEL_INSTRUCTION]);
+  });
+  it('injects nothing for non-claude providers', () => {
+    expect(paneLabelArgs('codex')).toEqual([]);
+    expect(paneLabelArgs('gemini')).toEqual([]);
+    expect(paneLabelArgs('shell')).toEqual([]);
+  });
+  it('the instruction names the SIGMA::LABEL sentinel', () => {
+    expect(PANE_LABEL_INSTRUCTION).toContain('SIGMA::LABEL');
   });
 });
