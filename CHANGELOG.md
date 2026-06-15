@@ -2,6 +2,26 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.6.0] — 2026-06-15
+
+**v2.6.0 adds agent-attention notifications and voice remote-STT + OpenRouter transcript cleanup (ADR-007), plus two DOM-presenter pane fixes.** Tags main HEAD (bundles the parallel voice-core lane).
+
+### Added — agent-attention notifications (#173)
+
+A Claude Code / Codex pane now tells you when its agent has stopped working and is **waiting for you** — whether it asked a question or finished a turn and went idle (both are the same runtime state, since an interactive CLI never exits between turns). On that transition the app plays a sound and the workspace's **sidebar row + the specific pane glow and flicker for ~10s, then settle to a static highlight** that clears when you focus the pane / switch to the workspace. Detection runs main-side so it works for both the xterm and DOM presenters and across detached windows: an **OSC-aware terminal-bell scanner** (`\x07`, ignoring BEL that merely terminates an OSC string) is the primary signal, with a **4s output-inactivity timer** (KV `notifications.idleMs`, bell-deduped) as the fallback. One transient `agent:attention` IPC event is routed to the owning window; the renderer records it in per-workspace/per-session attention maps and drives a reduced-motion-safe `.sl-attention` CSS glow + a throttled `agent-attention` cue (≤1 / 2s, so a swarm finishing together doesn't machine-gun). The old wrong-timing per-spawn "dispatch ding" is removed. Built subagent-driven (3 parallel waves, TDD); a final adversarial review caught and fixed 3 green-test-invisible bugs (an already-active pane never clearing, stale glow on exited/removed sessions, a main-side detector timer leak). Spec/plan: `docs/superpowers/{specs,plans}/2026-06-14-agent-attention-notifications*`.
+
+### Added — voice remote STT + OpenRouter transcript cleanup (ADR-007, #175)
+
+The engine half of ADR-007, in shared `voice-core` (so SigmaLink gains the capability too) — **opt-in, off by default** (dormant unless configured via KV). The OpenAI-compatible STT engine takes a **configurable base URL + model + optional API key**, so you can point dictation at a self-hosted/LAN Whisper server (keyless LAN allowed via a custom base URL; the default cloud path still needs a key). If remote STT fails it **auto-falls-back to on-device Whisper**, with distinct toasts for "engine unavailable" vs "no model downloaded". A new `openrouter-llm-engine.ts` adds an optional **transcript-cleanup seam** after `normalizeTranscript` (`chat/completions` transform with punctuate / fillers / email presets) that **passes the raw transcript through on any failure** — a dictation is never dropped.
+
+### Fixed — DOM presenter no longer strands the last word of full lines (#171)
+
+### Fixed — terminal reflows when a pane is narrowed (`min-w-0` on flex wrappers) (#172)
+
+### Verification
+
+Gate green on main HEAD: `tsc -b` · `eslint --max-warnings 0` · vitest 4,007 · `product:check`; e2e via the CI matrix (macOS + windows-latest), green on each constituent PR (#171–#175). **Caveats:** agent-attention's live behavior is unconfirmed pre-release — the bell-emission assumption hasn't been captured against a real CLI (the idle-timer fallback guarantees a signal regardless), and no hands-on glow/sound smoke has been done; the voice remote-STT/cleanup path is opt-in/off-by-default with no on-device smoke yet (per #175). DDD map updated (#174).
+
 ## [2.5.1] — 2026-06-14
 
 **v2.5.1 finishes the Windows window-chrome cleanup: no more menu bar or redundant native title bar.**

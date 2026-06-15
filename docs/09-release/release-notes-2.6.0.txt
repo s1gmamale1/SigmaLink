@@ -1,0 +1,53 @@
+SigmaLink v2.6.0 — 2026-06-15
+=============================
+
+Two features and two pane fixes. Agent panes now signal when an agent
+is waiting for you (sound + workspace/pane glow), and SigmaVoice gains
+remote speech-to-text with optional OpenRouter transcript cleanup
+(ADR-007, opt-in). Tags main HEAD — bundles the parallel voice-core
+lane. CI-green on macOS + windows-latest.
+
+See CHANGELOG.md [2.6.0] for the itemized record.
+
+
+Added
+-----
+
+- Agent-attention notifications (#173): when a Claude Code / Codex pane
+  stops working and is waiting for you — it asked a question, or it
+  finished a turn and went idle — the app plays a sound and the
+  workspace's sidebar row and the specific pane glow + flicker for
+  about 10 seconds, then settle to a steady highlight that clears when
+  you focus the pane or switch to that workspace. Detection is
+  bell-first (the terminal bell the CLI rings) with a short
+  output-inactivity fallback, so it works on every pane type and in
+  detached windows. The old per-spawn "ding" is gone; the new cue is
+  throttled so a whole swarm finishing at once plays one sound.
+
+- Voice remote STT + OpenRouter cleanup (ADR-007, #175): point
+  dictation at a self-hosted / LAN Whisper server (configurable base
+  URL + model + optional key), with automatic fall-back to on-device
+  Whisper if the remote fails. An optional OpenRouter cleanup pass can
+  punctuate / de-filler / email-format a transcript, and always passes
+  the raw text through if it fails so a dictation is never lost.
+  Opt-in and off by default — dormant unless you configure it.
+
+Fixed
+-----
+
+- DOM terminal presenter no longer strands the last word of full-width
+  lines (#171).
+- Terminals reflow correctly when a pane is narrowed (#172).
+
+
+Notes
+-----
+
+- Agent-attention is on by default but its live behavior is
+  unconfirmed pre-release: the bell-emission assumption wasn't captured
+  against a real CLI (the idle-timer fallback still fires regardless),
+  and no hands-on glow/sound smoke has been run. The idle fallback can
+  also fire on a long SILENT task (no output for >4s reads as
+  "waiting"); tune via the notifications.idleMs setting.
+- Voice remote STT / cleanup is opt-in, off by default, with no
+  on-device smoke yet (per #175).
