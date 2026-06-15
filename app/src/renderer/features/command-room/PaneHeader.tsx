@@ -10,7 +10,7 @@
 //
 // Props interface: UNCHANGED — all existing callers keep working.
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback, useSyncExternalStore } from 'react';
 import {
   Maximize2,
   Minimize2,
@@ -41,6 +41,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { PANE_DRAG_MIME } from '@/renderer/lib/pane-context-builder';
 import { agentColor } from '@/renderer/lib/workspace-color';
+import { subscribeAgentLabel, getAgentLabel, summarizePrompt } from '@/renderer/lib/pane-labels';
 import { derivePaneIdentity } from './pane-identity';
 import { PaneGearPopoverBody } from './PaneGearPopover';
 import { useCoachmark } from './use-coachmark';
@@ -143,6 +144,27 @@ export function PaneHeader({
     return off;
   }, [session.id]);
 
+  // Claude auto-label (SIGMA::LABEL). Ephemeral; precedence below.
+  const agentLabel = useSyncExternalStore(
+    useCallback((cb) => subscribeAgentLabel(session.id, cb), [session.id]),
+    useCallback(() => getAgentLabel(session.id), [session.id]),
+  );
+
+  // Context-menu "Rename label…" (PaneShell) requests inline edit via a window
+  // event — same renderer-internal CustomEvent pattern as sigma:renderer-mode-changed.
+  useEffect(() => {
+    function onReq(e: Event): void {
+      const detail = (e as CustomEvent<{ sessionId: string }>).detail;
+      if (detail?.sessionId === session.id) startEditing();
+    }
+    window.addEventListener('sigma:pane-rename-request', onReq as EventListener);
+    return () => window.removeEventListener('sigma:pane-rename-request', onReq as EventListener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
+
+  // Display label: operator name > Claude SIGMA::LABEL > launch-prompt summary > alias.
+  const initialLabel = summarizePrompt(session.initialPrompt);
+
   // Focus the input as soon as the editing state activates.
   useEffect(() => {
     if (editing) {
@@ -152,7 +174,7 @@ export function PaneHeader({
   }, [editing]);
 
   function startEditing(): void {
-    setDraftName(localName ?? id.alias);
+    setDraftName(localName ?? agentLabel ?? initialLabel ?? id.alias);
     setEditing(true);
   }
 
@@ -172,8 +194,8 @@ export function PaneHeader({
     setDraftName('');
   }
 
-  // Display label: operator name > computed alias.
-  const displayLabel = localName?.trim() || id.alias;
+  // Display label: operator name > Claude SIGMA::LABEL > launch-prompt summary > alias.
+  const displayLabel = localName?.trim() || agentLabel?.trim() || initialLabel || id.alias;
 
   // FEAT-12 — drag-start handler. The pill is now the drag source.
   function handleGripDragStart(e: React.DragEvent): void {
@@ -255,7 +277,7 @@ export function PaneHeader({
                     className="max-w-[80px] truncate cursor-text"
                     onDoubleClick={(e) => { e.stopPropagation(); startEditing(); }}
                     data-testid="pane-display-name"
-                    title="Double-click to rename"
+                    title={`${displayLabel} · ${id.effortLabel}`}
                   >
                     {displayLabel} · {id.effortLabel}
                   </span>
