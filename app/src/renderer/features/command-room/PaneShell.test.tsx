@@ -1066,6 +1066,31 @@ describe('PaneShell — agent-attention pane glow (Task 12)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Task 6 — Rename label… context-menu item
+// ---------------------------------------------------------------------------
+describe('PaneShell — Rename label… context-menu item', () => {
+  it('dispatches sigma:pane-rename-request for the MAIN session from the context menu', async () => {
+    const onReq = vi.fn();
+    window.addEventListener('sigma:pane-rename-request', onReq as EventListener);
+    try {
+      await renderPaneShell(makeSession({ id: 'pane-x' }));
+      await openContextMenu();
+      const item = document.querySelector('[data-testid="ctx-rename-label"]') as HTMLElement | null;
+      expect(item).toBeTruthy();
+      await act(async () => {
+        fireEvent.click(item!);
+        await Promise.resolve();
+      });
+      expect(onReq).toHaveBeenCalledOnce();
+      const evt = onReq.mock.calls[0]?.[0] as CustomEvent<{ sessionId: string }>;
+      expect(evt?.detail.sessionId).toBe('pane-x');
+    } finally {
+      window.removeEventListener('sigma:pane-rename-request', onReq as EventListener);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 2026-06-10 audit, finding 6 — flash-drop timer hygiene
 // ---------------------------------------------------------------------------
 describe('PaneShell — flash-drop timer hygiene', () => {

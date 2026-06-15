@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
 import { useAppStateSelector } from '@/renderer/app/state';
-import { ClipboardPaste, Copy, FolderOpen, GitBranch, RotateCw, Square, SquareTerminal, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
+import { ClipboardPaste, Copy, FolderOpen, GitBranch, Pencil, RotateCw, Square, SquareTerminal, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ContextMenu,
@@ -657,6 +657,22 @@ export function PaneShell({
               Renderer: switch to{' '}
               {(peekRendererMode(activeTabId) ?? 'dom') === 'dom' ? 'xterm' : 'DOM'}
             </span>
+          </ContextMenuItem>
+          {/* Rename the pane label. Targets the MAIN session; PaneHeader listens
+              for this event and enters inline edit. Clearing the name reverts to
+              the auto-label, then the launch-prompt summary, then the alias. */}
+          <ContextMenuItem
+            data-testid="ctx-rename-label"
+            onSelect={() => {
+              window.dispatchEvent(
+                new CustomEvent('sigma:pane-rename-request', {
+                  detail: { sessionId: session.id },
+                }),
+              );
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            <span>Rename label…</span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={handleReveal} disabled={!hasWorktree}>
