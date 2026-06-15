@@ -6,14 +6,19 @@
 
 const LABEL_CAP = 80;
 const PROMPT_CAP = 60;
-const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g; // CSI sequences (colors, cursor)
+// CSI sequences (colors, cursor) and raw control chars — stripped from labels.
+// The \x1b / \x00-\x1f bytes are intentional terminal control characters.
+// eslint-disable-next-line no-control-regex
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\x00-\x1f\x7f]/g;
 
 /** Clean a label: strip ANSI + control chars, collapse whitespace, trim, cap.
  *  Returns null for junk (empty after cleaning). Callers treat null as
  *  "ignore — keep the last good value". */
 export function sanitizeLabel(raw: string): string | null {
   if (typeof raw !== 'string') return null;
-  let s = raw.replace(ANSI, '').replace(/[\x00-\x1f\x7f]/g, ' ');
+  let s = raw.replace(ANSI, '').replace(CONTROL, ' ');
   s = s.replace(/\s+/g, ' ').trim();
   if (s === '') return null;
   return s.length > LABEL_CAP ? s.slice(0, LABEL_CAP) : s;
@@ -23,7 +28,7 @@ export function sanitizeLabel(raw: string): string | null {
  *  an ellipsis. Returns null when there's no usable prompt. */
 export function summarizePrompt(prompt: string | null | undefined): string | null {
   if (!prompt) return null;
-  const s = prompt.replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const s = prompt.replace(CONTROL, ' ').replace(/\s+/g, ' ').trim();
   if (s === '') return null;
   return s.length > PROMPT_CAP ? s.slice(0, PROMPT_CAP - 1).trimEnd() + '…' : s;
 }
