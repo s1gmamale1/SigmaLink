@@ -677,4 +677,13 @@ describe('PaneHeader auto-label precedence', () => {
     act(() => window.dispatchEvent(new CustomEvent('sigma:pane-rename-request', { detail: { sessionId: 'p6' } })));
     expect(screen.getByTestId('pane-rename-input')).toBeTruthy();
   });
+
+  it('context-menu rename prefills the CURRENT agent label, not a stale one', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p7', name: null, initialPrompt: 'Old prompt' })} />);
+    // Label arrives AFTER mount — the mount-registered listener must use it.
+    act(() => setAgentLabel('p7', 'Reviewing PR'));
+    act(() => window.dispatchEvent(new CustomEvent('sigma:pane-rename-request', { detail: { sessionId: 'p7' } })));
+    const input = screen.getByTestId('pane-rename-input') as HTMLInputElement;
+    expect(input.value).toBe('Reviewing PR');
+  });
 });

@@ -150,6 +150,18 @@ export function PaneHeader({
     useCallback(() => getAgentLabel(session.id), [session.id]),
   );
 
+  // Launch-prompt floor for the display chain (see displayLabel below).
+  const initialLabel = summarizePrompt(session.initialPrompt);
+
+  // Memoized so the rename-request listener below can depend on it: its identity
+  // changes only when a prefill input changes (not on every render), so the
+  // listener always invokes the LIVE closure (current agentLabel) without
+  // re-registering on high-frequency re-renders.
+  const startEditing = useCallback((): void => {
+    setDraftName(localName ?? agentLabel ?? initialLabel ?? id.alias);
+    setEditing(true);
+  }, [localName, agentLabel, initialLabel, id.alias]);
+
   // Context-menu "Rename label…" (PaneShell) requests inline edit via a window
   // event — same renderer-internal CustomEvent pattern as sigma:renderer-mode-changed.
   useEffect(() => {
@@ -159,11 +171,7 @@ export function PaneHeader({
     }
     window.addEventListener('sigma:pane-rename-request', onReq as EventListener);
     return () => window.removeEventListener('sigma:pane-rename-request', onReq as EventListener);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.id]);
-
-  // Display label: operator name > Claude SIGMA::LABEL > launch-prompt summary > alias.
-  const initialLabel = summarizePrompt(session.initialPrompt);
+  }, [session.id, startEditing]);
 
   // Focus the input as soon as the editing state activates.
   useEffect(() => {
@@ -172,11 +180,6 @@ export function PaneHeader({
       inputRef.current?.select();
     }
   }, [editing]);
-
-  function startEditing(): void {
-    setDraftName(localName ?? agentLabel ?? initialLabel ?? id.alias);
-    setEditing(true);
-  }
 
   function commitRename(): void {
     setEditing(false);
