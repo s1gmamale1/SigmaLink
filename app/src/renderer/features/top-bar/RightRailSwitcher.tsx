@@ -34,7 +34,7 @@ const SEGMENTS: readonly SegmentDef[] = [
   { id: 'sigma', label: 'Sigma', Icon: Sparkles },
 ] as const;
 
-export function RightRailSwitcher() {
+export function RightRailSwitcher({ showSettings = true }: { showSettings?: boolean } = {}) {
   const { activeTab, setActiveTab, railOpen, setRailOpen, toggleRail } = useRightRail();
   // PERF-3 — dispatch-only consumer. useAppDispatch is stable and never
   // re-renders, so the switcher no longer wakes on every unrelated dispatch.
@@ -83,17 +83,19 @@ export function RightRailSwitcher() {
           );
         })}
       </div>
-      <button
-        type="button"
-        aria-label="Settings"
-        title="Settings"
-        data-room-id="settings"
-        onClick={() => dispatch({ type: 'SET_ROOM', room: 'settings' })}
-        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        style={noDragStyle()}
-      >
-        <Settings className="h-3.5 w-3.5" aria-hidden />
-      </button>
+      {showSettings && (
+        <button
+          type="button"
+          aria-label="Settings"
+          title="Settings"
+          data-room-id="settings"
+          onClick={() => dispatch({ type: 'SET_ROOM', room: 'settings' })}
+          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          style={noDragStyle()}
+        >
+          <Settings className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      )}
     </div>
   );
 }

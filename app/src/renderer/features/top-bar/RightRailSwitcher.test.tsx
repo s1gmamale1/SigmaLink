@@ -61,10 +61,10 @@ vi.mock('@/renderer/lib/drag-region', () => ({
 import { RightRailProvider } from '@/renderer/features/right-rail/RightRailContext';
 import { RightRailSwitcher } from './RightRailSwitcher';
 
-function renderSwitcher() {
+function renderSwitcher(props: Parameters<typeof RightRailSwitcher>[0] = {}) {
   return render(
     <RightRailProvider>
-      <RightRailSwitcher />
+      <RightRailSwitcher {...props} />
     </RightRailProvider>,
   );
 }
@@ -212,5 +212,19 @@ describe('RightRailSwitcher', () => {
 
     // readWorkspaceUi should have been called for 'rightRail.open'.
     expect(readWorkspaceUiMock).toHaveBeenCalledWith('ws-switcher-1', 'rightRail.open');
+  });
+
+  // ── Task 5 — showSettings prop ───────────────────────────────────────────
+
+  it('shows the Settings gear by default', () => {
+    renderSwitcher({});
+    expect(screen.getByLabelText('Settings')).toBeTruthy();
+  });
+
+  it('hides the Settings gear when showSettings is false', () => {
+    renderSwitcher({ showSettings: false });
+    expect(screen.queryByLabelText('Settings')).toBeNull();
+    // Tab buttons are still present.
+    expect(screen.getByLabelText('Jorvis')).toBeTruthy();
   });
 });
