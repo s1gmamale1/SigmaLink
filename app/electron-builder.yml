@@ -98,9 +98,9 @@ nsis:
   uninstallerIcon: build/icon.ico
   installerHeaderIcon: build/icon.ico
   include: build/installer.nsh
-# v1.2.9 — Linux is not a supported platform. Local builds emit these for
-# completeness; no CI, no smoke. See docs/03-plan/WISHLIST.md
-# "Architectural decisions".
+# Linux is a supported x64 platform. CI builds and smokes AppImage + deb on
+# ubuntu-latest before release upload. Runtime support targets Ubuntu 22.04 LTS
+# and Ubuntu 24.04 LTS.
 linux:
   target:
     - target: AppImage

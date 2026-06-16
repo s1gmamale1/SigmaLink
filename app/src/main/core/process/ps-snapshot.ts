@@ -21,6 +21,7 @@ import {
   type ProcessTreeSnapshot,
 } from './process-tree';
 import { buildCimPsArgs, parseCimProcessRows } from './process-list-win32';
+import { parseLinuxPsRows } from './process-list-linux';
 
 export type ProcessLister = () => Promise<ProcessTreeNode[]>;
 
@@ -65,11 +66,28 @@ const win32Lister: ProcessLister = () =>
     );
   });
 
+// linux: same `ps -axo` argv as darwin, but parsed via parseLinuxPsRows (same
+// regex — kept in process-list-linux.ts for a clean module boundary). Async
+// execFile keeps the TTL/cache layer non-blocking.
+const linuxLister: ProcessLister = () =>
+  new Promise((resolve, reject) => {
+    execFile(
+      'ps',
+      ['-axo', 'pid=,ppid=,rss=,comm=,args='],
+      { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) return reject(err);
+        resolve(parseLinuxPsRows(stdout));
+      },
+    );
+  });
+
 // Per-platform backends. The win32-platform-services plan added `win32:` here
 // WITHOUT touching the TTL/cache layer below.
 const LISTERS: Partial<Record<NodeJS.Platform, ProcessLister>> = {
   darwin: darwinLister,
   win32: win32Lister,
+  linux: linuxLister,
 };
 
 let testLister: ProcessLister | null = null;

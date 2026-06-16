@@ -10,10 +10,11 @@
     "index.d.ts",
     "src",
     "binding.gyp",
-    "prebuilds"
+    "prebuilds",
+    "scripts"
   ],
   "scripts": {
-    "install": "node-gyp-build",
+    "install": "node scripts/install-or-stub.cjs",
     "rebuild": "node-gyp rebuild",
     "prebuild": "prebuildify --napi --strip"
   },

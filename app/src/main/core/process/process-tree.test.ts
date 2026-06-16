@@ -21,10 +21,16 @@ describe('listProcessRows (the per-platform list fn — perf-hot-paths wraps thi
     expect(res.rows).toHaveLength(4);
   });
 
-  it('linux: unsupported, never execs (status quo preserved — win32-only scope)', () => {
-    const exec = vi.fn();
-    expect(listProcessRows({ platform: 'linux', exec })).toEqual({ supported: false, rows: [] });
-    expect(exec).not.toHaveBeenCalled();
+  it('linux: shells out to ps with posix argv (linux support added)', () => {
+    const psOut = [
+      '  10     1  1000 /usr/bin/bash bash',
+      '  11    10  2000 /usr/bin/node node cli.js',
+    ].join('\n');
+    const exec = vi.fn(() => psOut);
+    const res = listProcessRows({ platform: 'linux', exec });
+    expect(exec).toHaveBeenCalledWith('ps', ['-axo', 'pid=,ppid=,rss=,comm=,args=']);
+    expect(res.supported).toBe(true);
+    expect(res.rows).toHaveLength(2);
   });
 
   it('win32 exec failure: supported stays true, rows empty (registry falls back to pty.kill)', () => {
@@ -74,5 +80,35 @@ describe('stopProcessTrees on win32', () => {
       return CIM_TABLE;
     });
     expect(() => stopProcessTrees([100], 5_000, { platform: 'win32', exec })).not.toThrow();
+  });
+});
+
+describe('process-tree on linux', () => {
+  const psOut = [
+    '  10     1  1000 /usr/bin/bash bash',
+    '  11    10  2000 /usr/bin/node node cli.js',
+    '  12    11  3000 /usr/bin/node node mcp-memory-server.cjs',
+  ].join('\n');
+
+  it('linux: lists ps rows and computes descendants', () => {
+    const exec = vi.fn(() => psOut);
+    const snap = inspectProcessTree(10, { platform: 'linux', exec });
+
+    expect(exec).toHaveBeenCalledWith('ps', ['-axo', 'pid=,ppid=,rss=,comm=,args=']);
+    expect(snap.supported).toBe(true);
+    expect(snap.descendantPids).toEqual([11, 12]);
+    expect(snap.rssBytes).toBe((1000 + 2000 + 3000) * 1024);
+  });
+
+  it('linux: stopProcessTrees sends signals through the POSIX path', () => {
+    const exec = vi.fn(() => psOut);
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const res = stopProcessTrees([10], 0, { platform: 'linux', exec });
+
+    expect(res.stoppedPids).toEqual([12, 11, 10]);
+    expect(kill).toHaveBeenCalledWith(12, 'SIGTERM');
+    expect(kill).toHaveBeenCalledWith(11, 'SIGTERM');
+    expect(kill).toHaveBeenCalledWith(10, 'SIGTERM');
+    kill.mockRestore();
   });
 });

@@ -489,6 +489,9 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'app:update-win-progress',
   'app:update-win-ready',
   'app:update-error',
+  // Linux auto-update UX — AppImage manual handoff
+  'app:update-linux-progress',
+  'app:update-linux-ready',
   // v1.4.9 #07 — Notification delta stream. Payload shape:
   // `{ added: Notification[], removed: string[], unreadCount: number }`.
   // The renderer reconciles via the reducer's `NOTIFICATIONS_DELTA` action;

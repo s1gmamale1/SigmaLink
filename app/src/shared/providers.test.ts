@@ -113,8 +113,12 @@ describe('installCommandFor', () => {
     expect(installCommandFor(fakeDef({ linux: ['npm', 'i', '-g', 'x'] }), 'darwin')).toEqual(['npm', 'i', '-g', 'x']);
   });
 
-  it('linux uses linux', () => {
-    expect(installCommandFor(fakeDef({ linux: ['pip', 'install', 'x'] }), 'linux')).toEqual(['pip', 'install', 'x']);
+  it('linux pip installs are wrapped with pipx-first logic', () => {
+    expect(installCommandFor(fakeDef({ linux: ['pip', 'install', 'x'] }), 'linux')).toEqual([
+      'bash',
+      '-lc',
+      'set -euo pipefail; if command -v pipx >/dev/null 2>&1; then pipx install x; else python3 -m pip install --user x; fi',
+    ]);
   });
 
   it('no installCommand at all → null', () => {

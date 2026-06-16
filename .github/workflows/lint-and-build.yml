@@ -65,6 +65,40 @@ jobs:
       - name: Build
         run: pnpm run build
 
+  linux-product-check:
+    name: product check (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ pkg-config libsecret-1-dev
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+          cache-dependency-path: app/package.json
+
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Product check
+        run: pnpm run product:check
+
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
@@ -78,4 +112,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
       - name: Shellcheck installer
-        run: shellcheck app/scripts/install-macos.sh
+        run: |
+          shellcheck app/scripts/install-macos.sh
+          shellcheck app/scripts/install-linux.sh

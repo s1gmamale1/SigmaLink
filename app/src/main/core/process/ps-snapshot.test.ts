@@ -76,14 +76,25 @@ describe('inspectProcessTreeCached', () => {
   });
 
   it('returns unsupported-empty when no lister exists for the platform', async () => {
-    // win32 now HAS a lister (win32-platform-services CIM backend), so the
-    // "no backend" case is exercised via linux, which is intentionally
-    // unsupported (win32-only scope).
+    // darwin/win32/linux all now have listers, so exercise via a truly-unknown
+    // platform (freebsd has no LISTERS entry).
     __setProcessListerForTests(null);
-    const snap = await inspectProcessTreeCached(100, 'linux');
+    const snap = await inspectProcessTreeCached(100, 'freebsd');
     expect(snap.supported).toBe(false);
     expect(snap.nodes).toEqual([]);
     expect(snap.rssBytes).toBe(0);
+  });
+
+  it('linux cached snapshot uses the linux lister', async () => {
+    const rows: import('./process-tree').ProcessTreeNode[] = [
+      { pid: 100, ppid: 1, rssBytes: 1024, command: '/bin/bash', args: 'bash' },
+      { pid: 101, ppid: 100, rssBytes: 2048, command: '/usr/bin/node', args: 'node cli.js' },
+    ];
+    __setProcessListerForTests(async () => rows);
+    const snap = await inspectProcessTreeCached(100, 'linux');
+    expect(snap.supported).toBe(true);
+    expect(snap.descendantPids).toEqual([101]);
+    expect(snap.rssBytes).toBe(1024 + 2048);
   });
 
   it('a failing lister degrades to the last cached table (never throws)', async () => {

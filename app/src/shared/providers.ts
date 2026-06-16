@@ -1,4 +1,5 @@
 // Provider registry. Pure data + small helpers; no Node-only code so safe in renderer too.
+import { providerInstallCommandFor } from './provider-install';
 //
 // v1.2.4 cleanup (user-confirmed 2026-05-13): the registry was trimmed to the
 // five CLIs SigmaLink actually targets — claude / codex / gemini / opencode /
@@ -81,11 +82,7 @@ export function installCommandFor(
   def: AgentProviderDefinition,
   platform: string,
 ): string[] | null {
-  const ic = def.installCommand;
-  if (!ic) return null;
-  if (platform === 'win32') return ic.win32 ?? null;
-  if (platform === 'darwin') return ic.darwin ?? ic.linux ?? null;
-  return ic.linux ?? null;
+  return providerInstallCommandFor(def, platform);
 }
 
 export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
