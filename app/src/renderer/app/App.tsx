@@ -38,6 +38,7 @@ import { ROOM_LOADERS, prefetchRooms } from '@/renderer/app/room-loaders';
 import { RootErrorBoundary, RoomErrorBoundary } from '@/renderer/app/ErrorBoundary';
 import { useZoomControls } from './useZoomControls';
 import { ZoomIndicator } from './ZoomIndicator';
+import { ScopedShell } from './ScopedShell';
 
 // Multi-window B4 — a window's scope is preload-injected and STATIC per
 // process, so resolve it once at module load. A non-null scope means this is a
@@ -209,42 +210,6 @@ function MainBody() {
   return <RightRail>{body}</RightRail>;
 }
 
-/**
- * Multi-window B4 — minimal shell for a SCOPED (secondary / detached-workspace)
- * window. No Sidebar, no room nav, no Jorvis/Settings routes (design non-goals);
- * just the app's draggable titlebar affordance + the Command Room for the one
- * workspace this window owns. The global providers (Toaster, tint, zoom) live
- * ABOVE this branch in the provider tree, so they still apply.
- *
- * The titlebar reuses the same macOS drag-region pattern as the Sidebar
- * (`dragStyle()` → `WebkitAppRegion: 'drag'`), so the frameless `hiddenInset`
- * window stays movable without a native titlebar. `noDragStyle` is unneeded —
- * the bar has no interactive children.
- *
- * The title effect stamps `document.title = "<workspace> — SigmaLink"` once the
- * scoped workspace resolves, so the OS window-switcher / mission-control labels
- * the window by its workspace.
- */
-function ScopedShell() {
-  const workspaceName = useAppStateSelector((s) => s.activeWorkspace?.name ?? null);
-
-  useEffect(() => {
-    if (workspaceName) document.title = `${workspaceName} — SigmaLink`;
-  }, [workspaceName]);
-
-  return (
-    <div className="flex h-full w-full flex-col">
-      <div
-        className="h-8 shrink-0 border-b border-border bg-background/60"
-        style={dragStyle()}
-        aria-hidden
-      />
-      <main id="main" tabIndex={-1} className="flex min-h-0 flex-1 flex-col">
-        <CommandRoom />
-      </main>
-    </div>
-  );
-}
 
 /**
  * global-⌘O — the Memory Quick Switcher, lifted out of MemoryRoom so ⌘O works
