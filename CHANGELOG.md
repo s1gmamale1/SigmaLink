@@ -2,6 +2,26 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.7.0] — 2026-06-16
+
+**v2.7.0 adds pane auto-labeling and brings the tool surfaces (Browser, Jorvis, the rest of the right-rail) into popped-out workspace windows.**
+
+### Added — pane auto-labeling (#176)
+
+Claude Code panes now **label themselves**: a `SIGMA::LABEL` instruction is injected into the claude spawn, a renderer watcher parses the emitted label and feeds a per-pane label store, and the pane header shows that auto-label (behind any manual name) with the full text on hover. A **"Rename label…"** item in the pane context menu lets you override it manually (the prefill tracks the live label). Labels clear and the watcher is disposed when the session is removed. Spec/plan: `docs/superpowers/{specs,plans}/2026-06-16-pane-auto-labeling*`.
+
+### Added — tools in scoped (popped-out) workspace windows (#177)
+
+A workspace detached into its own OS window is no longer Command-Room-only: it now mounts the existing **right-rail (Browser / Jorvis / Skills / Swarm / Sigma)** with a switcher in its titlebar, **scoped to that window's workspace**. Backend routing was made per-window so a popped-out window's Jorvis and browser act on **its own** workspace and the main window never double-acts: `assistant:*` / `browser:state` events route to the workspace's owner window (priority `workspaceId` → `sessionId` → `conversationId`→workspace, else broadcast), and a workspace's browser `WebContentsView` follows it on detach/redock (owner-resolved host window + stale-manager self-heal + teardown/re-hydrate, rather than live re-parenting). The active rail tab is now persisted per-workspace so windows don't clobber each other. Picks up the Phase 16 / ADR-009 "non-workspace rooms in secondary windows" follow-up. Spec/plan: `docs/superpowers/{specs,plans}/2026-06-16-tools-in-scoped-windows*`.
+
+### Fixed — agent-attention stays routed to the owning window
+
+While reworking event routing for #177, `agent:attention` was restored to the session-routed set (a regression that would have broadcast attention bells to every window instead of only the owning one — the PR #173 "detached-window safe" guarantee), now guarded by an `isSessionRoutedEvent` regression test.
+
+### Verification
+
+Gate green on main HEAD: `tsc -b` · `eslint --max-warnings 0` · vitest 4,059 · `product:check`; e2e via the CI matrix (macOS + windows-latest). **Caveats:** scoped-window tools have no hands-on smoke yet — detach a workspace, then exercise its Browser/Jorvis rail and confirm panes/chat land in that window only (5-step checklist in PR #177); pane auto-labeling's live `SIGMA::LABEL` self-labeling is unconfirmed against a real Claude CLI pre-release.
+
 ## [2.6.0] — 2026-06-15
 
 **v2.6.0 adds agent-attention notifications and voice remote-STT + OpenRouter transcript cleanup (ADR-007), plus two DOM-presenter pane fixes.** Tags main HEAD (bundles the parallel voice-core lane).

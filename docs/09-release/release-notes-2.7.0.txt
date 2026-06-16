@@ -1,0 +1,48 @@
+SigmaLink v2.7.0 — 2026-06-16
+=============================
+
+Two features. Claude panes now label themselves, and a workspace popped
+out into its own window finally carries its tools — the Browser, Jorvis,
+and the rest of the right-rail — instead of being Command-Room-only.
+CI-green on macOS + windows-latest.
+
+See CHANGELOG.md [2.7.0] for the itemized record.
+
+
+Added
+-----
+
+- Pane auto-labeling (#176): Claude Code panes label themselves. A
+  hidden SIGMA::LABEL instruction is injected into the pane's spawn,
+  the app watches for the label the agent emits, and the pane header
+  shows it (behind any name you've set), with the full text on hover.
+  A "Rename label…" item in the pane right-click menu lets you set the
+  name yourself; the label clears when the pane is closed.
+
+- Tools in popped-out workspace windows (#177): when you open a
+  workspace in its own window, it now includes the right-rail —
+  Browser, Jorvis, Skills, Swarm, and Sigma — with a switcher in its
+  titlebar, scoped to that one workspace. Each window's Jorvis and
+  browser act on their own workspace: launching or closing a pane,
+  the chat stream, and the in-app browser all stay in the window that
+  owns the workspace, so the main window never double-acts. The
+  browser view follows its workspace when you detach or re-dock, and
+  each window remembers its own active rail tab.
+
+Fixed
+-----
+
+- Agent-attention notifications stay routed to the window that owns the
+  pane (a routing change for #177 briefly risked broadcasting the
+  attention bell to every window; restored and covered by a test).
+
+
+Notes
+-----
+
+- Scoped-window tools have not had a hands-on smoke yet: detach a
+  workspace, open its Browser and Jorvis from the rail, and confirm
+  new panes and the chat appear in that window only (full checklist in
+  PR #177).
+- Pane auto-labeling's live self-labeling hasn't been confirmed against
+  a real Claude CLI pre-release.
