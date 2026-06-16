@@ -60,7 +60,9 @@ jobs:
           npm_config_build_from_source: 'false'
 
       - name: Rebuild Electron native modules
-        run: npx @electron/rebuild -f -w better-sqlite3 -w node-pty
+        # -o (exclusive): build ONLY these two. voice-whisper is rebuilt
+        # best-effort in the next step (continue-on-error) so it can't fail the build.
+        run: npx @electron/rebuild -f -o better-sqlite3,node-pty
 
       - name: Rebuild voice-whisper for Electron
         run: npx @electron/rebuild -f -w @sigmalink/voice-whisper

@@ -71,7 +71,10 @@ jobs:
         # bundled Node ABI (20.9 in Electron 30), not the host Node ABI (20.16).
         # Modules built against the wrong ABI fail to dlopen in Electron's renderer,
         # causing a React boot crash that makes e2e tests false-green or all-fail.
-        run: npx @electron/rebuild -f -w better-sqlite3 -w node-pty
+        # -o (exclusive) so only these two are built; voice-whisper is vendored
+        # (whisper.cpp sources absent in CI) + lazy-loaded, so it must NOT be
+        # auto-detected here or its node-gyp build hard-fails the whole step.
+        run: npx @electron/rebuild -f -o better-sqlite3,node-pty
 
       - name: Win32 spawn correctness tests (unit + .cmd shim round-trip)
         if: runner.os == 'Windows'
