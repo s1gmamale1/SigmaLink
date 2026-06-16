@@ -125,6 +125,16 @@ function setupDb(kv: Record<string, string> = {}): { db: Database.Database; rows
             }
             return { changes: row ? 1 : 0 };
           }
+          if (/status = 'error'/.test(sql)) {
+            const [exitedAt, sessionId] = args as [number, string];
+            const row = rows.find((r) => r.id === sessionId);
+            if (row) {
+              row.status = 'error';
+              row.exit_code = -1;
+              row.exited_at = exitedAt;
+            }
+            return { changes: row ? 1 : 0 };
+          }
           if (/status = 'exited'/.test(sql)) {
             const [exitedAt, sessionId] = args as [number, string];
             const row = rows.find((r) => r.id === sessionId);
@@ -345,7 +355,7 @@ describe('resumeWorkspacePanes', () => {
     expect(rows[0]?.started_at).toBe(1234);
   });
 
-  it('marks failed resumes as exited without throwing', async () => {
+  it('marks failed resumes as error (not resume-eligible) without throwing', async () => {
     const { db, rows } = setupDb();
     insertSession(rows, { id: 'sess-fail' });
     const registry = {
@@ -355,21 +365,32 @@ describe('resumeWorkspacePanes', () => {
       throw new Error('spawn failed');
     }) as NonNullable<ResumeLauncherDeps['resolve']>;
 
-    const result = await resumeWorkspacePanes('ws-1', {
+    const deps = {
       pty: registry,
       db,
       claudeHomeDir: makeClaudeHome(),
       now: () => 2222,
       getProvider: () => claudeProvider,
       resolve,
-    });
+    };
+
+    const result = await resumeWorkspacePanes('ws-1', deps);
 
     expect(result.resumed.length).toBe(0);
     expect(result.failed.length).toBe(1);
     expect(result.failed[0]?.error).toBe('spawn failed');
-    expect(rows[0]?.status).toBe('exited');
+    // A failed resume must NOT remain in the resume-eligible exited/-1 bucket —
+    // otherwise it retries (and re-fails) on every boot forever (the
+    // post-power-loss crash loop). It lands in 'error', which the renderer
+    // surfaces as the crashed/Relaunch card.
+    expect(rows[0]?.status).toBe('error');
     expect(rows[0]?.exit_code).toBe(-1);
     expect(rows[0]?.exited_at).toBe(2222);
+
+    // Re-running resume must now skip it (no infinite retry loop).
+    const second = await resumeWorkspacePanes('ws-1', deps);
+    expect(second.resumed.length).toBe(0);
+    expect(second.failed.length).toBe(0);
   });
 
   it('routes missing external_session_id to a FRESH spawn (no longer a failure, no continue-latest)', async () => {
@@ -926,6 +947,16 @@ function setupDbWithAutoApprove(): {
               row.exit_code = null;
               row.exited_at = null;
               row.started_at = startedAt;
+            }
+            return { changes: row ? 1 : 0 };
+          }
+          if (/status = 'error'/.test(sql)) {
+            const [exitedAt, sessionId] = args as [number, string];
+            const row = rows.find((r) => r.id === sessionId);
+            if (row) {
+              row.status = 'error';
+              row.exit_code = -1;
+              row.exited_at = exitedAt;
             }
             return { changes: row ? 1 : 0 };
           }
