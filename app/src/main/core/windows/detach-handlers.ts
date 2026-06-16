@@ -9,6 +9,9 @@ export interface DetachDeps {
   createSecondaryWindow: (workspaceId: string, workspaceName: string) => WindowHandle;
   /** Resolve a display name (workspaces table). Null = unknown id. */
   getWorkspaceName: (workspaceId: string) => string | null;
+  /** Multi-window — dispose the workspace's BrowserManager so its WebContentsView
+   *  is released from the old window; the new owner re-hydrates it from the DB. */
+  teardownBrowser?: (workspaceId: string) => void;
 }
 
 /**
@@ -31,6 +34,7 @@ export function buildDetachWorkspace(deps: DetachDeps) {
     const name = deps.getWorkspaceName(workspaceId);
     if (!name) throw new Error(`windows.detachWorkspace: unknown workspace ${workspaceId}`);
     const win = deps.createSecondaryWindow(workspaceId, name);
+    deps.teardownBrowser?.(workspaceId); // release the main-window browser view
     // factory assigns ownership + broadcasts scopes + refreshes the open list (B1)
     return { windowId: win.id };
   };
@@ -44,6 +48,9 @@ export function buildRedockWorkspace(deps: {
   /** lifecycle.ts refreshOpenWorkspaces — re-broadcast the union (the replace
    *  short-circuit only diffs the RAW echoed list). */
   refreshOpenWorkspaces: () => void;
+  /** Multi-window — dispose the workspace's BrowserManager so its WebContentsView
+   *  is released from the old window; the new owner re-hydrates it from the DB. */
+  teardownBrowser?: (workspaceId: string) => void;
 }) {
   return async ({ workspaceId }: { workspaceId: string }): Promise<void> => {
     const reg = deps.registry;
@@ -59,6 +66,7 @@ export function buildRedockWorkspace(deps: {
     reg.broadcastScopes();
     deps.refreshOpenWorkspaces();
     main.focus();
+    deps.teardownBrowser?.(workspaceId); // release scoped-window view before close
     // Dispose the now-empty secondary window. Its B1 `closed` handler then
     // re-docks everything IT owned — but ownership for this workspace already
     // moved to main, so that window's owned list is empty: the re-dock loops

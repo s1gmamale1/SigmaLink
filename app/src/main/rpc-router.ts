@@ -1757,11 +1757,13 @@ async function buildRouter() {
           return null;
         }
       },
+      teardownBrowser: (workspaceId) => browserRegistry.teardown(workspaceId),
     }),
     redockWorkspace: buildRedockWorkspace({
       registry: getWindowRegistry(),
       markWorkspaceOpened,
       refreshOpenWorkspaces,
+      teardownBrowser: (workspaceId) => browserRegistry.teardown(workspaceId),
     }),
   });
 

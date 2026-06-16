@@ -151,3 +151,58 @@ describe('windows.detachWorkspace / redockWorkspace handlers', () => {
     expect(main.focused).toBe(0);
   });
 });
+
+describe('detach/redock — browser teardown', () => {
+  let reg: WindowRegistry;
+  let main: ReturnType<typeof fakeWindow>;
+  let created: string[];
+  let madeWindows: ReturnType<typeof fakeWindow>[];
+
+  beforeEach(() => {
+    reg = new WindowRegistry({ lookupSessionWorkspace: () => null });
+    main = fakeWindow(1);
+    reg.registerWindow(main, { isMain: true });
+    created = [];
+    madeWindows = [];
+  });
+
+  function makeDetachWithTeardown(teardownBrowser: (id: string) => void) {
+    return buildDetachWorkspace({
+      registry: reg,
+      createSecondaryWindow: (wsId) => {
+        created.push(wsId);
+        const w = fakeWindow(100 + created.length);
+        madeWindows.push(w);
+        reg.registerWindow(w, { isMain: false });
+        reg.assignWorkspace(wsId, w.id);
+        return w as unknown as WindowHandle;
+      },
+      getWorkspaceName: (wsId) => (wsId === 'ws-1' ? 'Workspace One' : null),
+      teardownBrowser,
+    });
+  }
+
+  it('tears down the workspace browser when detaching', async () => {
+    const torndown: string[] = [];
+    const detach = makeDetachWithTeardown((id) => torndown.push(id));
+    await detach({ workspaceId: 'ws-1' });
+    expect(torndown).toEqual(['ws-1']);
+  });
+
+  it('tears down the workspace browser when redocking, before closing the former owner', async () => {
+    const order: string[] = [];
+    const detach = makeDetachWithTeardown(() => {});
+    await detach({ workspaceId: 'ws-1' });
+    const formerOwner = madeWindows[0];
+    const origClose = formerOwner.close.bind(formerOwner);
+    formerOwner.close = () => { order.push('close'); origClose(); };
+    const redock = buildRedockWorkspace({
+      registry: reg,
+      markWorkspaceOpened: () => {},
+      refreshOpenWorkspaces: () => {},
+      teardownBrowser: (id) => order.push('teardown:' + id),
+    });
+    await redock({ workspaceId: 'ws-1' });
+    expect(order).toEqual(['teardown:ws-1', 'close']);
+  });
+});
