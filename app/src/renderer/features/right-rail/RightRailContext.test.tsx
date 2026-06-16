@@ -103,3 +103,25 @@ describe('RightRailContext — toggleRail KV write hygiene', () => {
     expect(writeWorkspaceUiMock).toHaveBeenCalledWith('ws1', KV_OPEN, 'true');
   });
 });
+
+// ── Task 6 — per-workspace active-tab persistence ────────────────────────────
+
+describe('RightRailContext — per-workspace active tab', () => {
+  it('hydrates the active tab from ui.<wsId>.rightRail.tab with a legacy global fallback', async () => {
+    renderProvider();
+    await act(async () => { await Promise.resolve(); });
+    // readWorkspaceUi must be called with wsId='ws1', panel='rightRail.tab',
+    // and legacyGlobalKey='rightRail.tab' (the 3rd arg is the legacy fallback).
+    expect(readWorkspaceUiMock).toHaveBeenCalledWith('ws1', 'rightRail.tab', 'rightRail.tab');
+  });
+
+  it('persists tab changes per-workspace via writeWorkspaceUi', async () => {
+    renderProvider();
+    await act(async () => { await Promise.resolve(); });
+    writeWorkspaceUiMock.mockClear();
+
+    await act(async () => { ctxRef.current?.setActiveTab('skills'); });
+
+    expect(writeWorkspaceUiMock).toHaveBeenCalledWith('ws1', 'rightRail.tab', 'skills');
+  });
+});
