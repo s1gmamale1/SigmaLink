@@ -25,7 +25,7 @@
 // file stays within `erasableSyntaxOnly`.
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { AlertTriangle, ClipboardCopy, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, ClipboardCopy, RefreshCcw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/renderer/components/EmptyState';
@@ -223,6 +223,79 @@ function RoomFallback({ error, componentStack, reset }: BoundaryRenderState) {
 export function RoomErrorBoundary({ children }: { children: ReactNode }) {
   return (
     <ErrorBoundary label="room" fallback={(s) => <RoomFallback {...s} />}>
+      {children}
+    </ErrorBoundary>
+  );
+}
+
+/**
+ * Per-pane fallback — compact, fills the pane cell. A single pane's render throw
+ * is contained here instead of bubbling to the room boundary and taking down the
+ * whole command room. Offers Relaunch (re-spawn the pane), Close pane (soft-delete
+ * so it does NOT resurrect on restart), and Copy diagnostics.
+ */
+function PaneFallback({
+  error,
+  componentStack,
+  onRelaunch,
+  onClose,
+}: BoundaryRenderState & { onRelaunch?: () => void; onClose?: () => void }) {
+  return (
+    <div className="sl-fade-in flex h-full min-h-0 w-full flex-col items-center justify-center bg-card p-4">
+      <EmptyState
+        icon={AlertTriangle}
+        title="This pane couldn’t render"
+        description={error.message || 'An unexpected error occurred while rendering this pane.'}
+        className="h-auto"
+        action={
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {onRelaunch ? (
+              <Button type="button" size="sm" variant="default" onClick={onRelaunch}>
+                <RefreshCcw className="h-3.5 w-3.5" aria-hidden />
+                Relaunch
+              </Button>
+            ) : null}
+            {onClose ? (
+              <Button type="button" size="sm" variant="outline" onClick={onClose}>
+                <X className="h-3.5 w-3.5" aria-hidden />
+                Close pane
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void copyDiagnostics(error, componentStack)}
+            >
+              <ClipboardCopy className="h-3.5 w-3.5" aria-hidden />
+              Copy diagnostics
+            </Button>
+          </div>
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * Wrap each command-room pane so one pane's render throw is contained to its own
+ * cell — the room, the sidebar, and every sibling pane keep working. `onRelaunch`
+ * / `onClose` are the same handlers the pane chrome uses.
+ */
+export function PaneErrorBoundary({
+  children,
+  onRelaunch,
+  onClose,
+}: {
+  children: ReactNode;
+  onRelaunch?: () => void;
+  onClose?: () => void;
+}) {
+  return (
+    <ErrorBoundary
+      label="pane"
+      fallback={(s) => <PaneFallback {...s} onRelaunch={onRelaunch} onClose={onClose} />}
+    >
       {children}
     </ErrorBoundary>
   );

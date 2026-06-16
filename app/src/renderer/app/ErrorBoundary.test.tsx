@@ -16,7 +16,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { RootErrorBoundary } from './ErrorBoundary';
+import { PaneErrorBoundary, RootErrorBoundary } from './ErrorBoundary';
 
 // sonner toast is fire-and-forget UI; stub it so the boundary's copy-diagnostics
 // handler and any incidental toasts don't touch a real toaster in jsdom.
@@ -92,6 +92,49 @@ describe('RootErrorBoundary (ERR-1)', () => {
       // the fallback is gone.
       expect(await screen.findByTestId('recovered')).toBeTruthy();
       expect(screen.queryByText(/this view ran into a problem/i)).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('PaneErrorBoundary (pane isolation)', () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it('contains a throwing pane and renders the pane fallback', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      render(
+        <PaneErrorBoundary>
+          <Boom shouldThrow />
+        </PaneErrorBoundary>,
+      );
+      // The `.` matches the curly apostrophe in "couldn’t".
+      expect(screen.getByText(/this pane couldn.t render/i)).toBeTruthy();
+      expect(screen.getByText(/kaboom in child render/i)).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('isolates the crash: a sibling pane boundary still renders its content', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      render(
+        <div>
+          <PaneErrorBoundary>
+            <Boom shouldThrow />
+          </PaneErrorBoundary>
+          <PaneErrorBoundary>
+            <div data-testid="healthy-sibling">healthy sibling pane</div>
+          </PaneErrorBoundary>
+        </div>,
+      );
+      expect(screen.getByText(/this pane couldn.t render/i)).toBeTruthy();
+      expect(screen.getByTestId('healthy-sibling')).toBeTruthy();
     } finally {
       spy.mockRestore();
     }

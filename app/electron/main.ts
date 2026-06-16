@@ -20,6 +20,7 @@ import { matchesWakeWord as wakeMatch } from '../src/shared/wake-word';
 import { getModelById as getVoiceModelById, getDownloadedModelPath as getDownloadedVoiceModelPath } from '../src/main/core/voice/model-registry';
 import { maybeCheckOnBoot } from './auto-update';
 import { isAllowedEvent } from '../src/shared/rpc-channels';
+import { appendDiagnostic, attachRendererLogCapture, formatError } from '../src/main/diagnostics-log';
 import {
   getCachedSnapshot,
   persistCachedSnapshot,
@@ -681,6 +682,11 @@ function buildWindow(opts: {
     },
   });
 
+  // V3 boot safety net — persist this window's renderer console errors (incl. the
+  // `[ErrorBoundary]` component stack) to a file so a render crash is diagnosable
+  // from disk without DevTools. Covers main + secondary windows (both built here).
+  attachRendererLogCapture(win.webContents, diagnosticsLogPath());
+
   if (devServerUrl) {
     void win.loadURL(devServerUrl);
   } else {
@@ -870,6 +876,28 @@ if (!gotLock) {
   });
 }
 
+// V3 boot safety net — there were previously ZERO process-level handlers, and the
+// `app.whenReady().then(...)` chain below had no `.catch()`, so any unhandled
+// main-side error during boot killed the process silently with no log and no
+// recovery. Log every uncaught error/rejection to a persisted diagnostics file
+// (function declarations → hoisted, so buildWindow's earlier call resolves).
+function diagnosticsLogPath(): string {
+  return path.join(app.getPath('userData'), 'logs', 'diagnostics.log');
+}
+function logMainError(kind: string, err: unknown): void {
+  // Must NEVER throw — this runs INSIDE the uncaughtException handler, so a throw
+  // here (e.g. app.getPath before ready, or a circular reason) would re-enter the
+  // same handler recursively → stack overflow with no log written. Both
+  // diagnosticsLogPath() (app.getPath) and formatError run inside this guard.
+  try {
+    appendDiagnostic(diagnosticsLogPath(), formatError(kind, err, new Date().toISOString()));
+  } catch {
+    /* swallow — the original error is what matters; logging is best-effort */
+  }
+}
+process.on('uncaughtException', (err) => logMainError('uncaughtException', err));
+process.on('unhandledRejection', (reason) => logMainError('unhandledRejection', reason));
+
 // BUG-V1.1.2-02 — Renderer pushes `app:session-snapshot { workspaceId, room }`
 // every time the active workspace or room changes (throttled to ≤ 1/sec).
 // `rememberSessionSnapshot` runs the zod schema on the payload and silently
@@ -964,6 +992,16 @@ void app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch((err) => {
+  // Without this, a boot-time rejection (DB open, migration, registerRouter)
+  // became an unhandled rejection that killed the process silently. Log it and
+  // surface the diagnostic window instead of a black/blank death.
+  logMainError('boot', err);
+  try {
+    showDiagnosticWindow([{ module: 'boot', ok: false, error: String(err) }]);
+  } catch {
+    /* last-resort: the error is already on disk via logMainError */
+  }
 });
 
 app.on('window-all-closed', () => {
