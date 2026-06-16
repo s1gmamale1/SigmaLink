@@ -120,6 +120,7 @@ import {
   buildConversationsHandlers,
   buildSwarmOriginHandlers,
 } from './core/assistant/conversations-controller';
+import { getConversation } from './core/assistant/conversations';
 import { buildDesignController } from './core/design/controller';
 import { buildVoiceController } from './core/voice/adapter';
 // v1.5.0 packet 09 — Cross-machine sync controller.
@@ -235,13 +236,59 @@ const requireCJS = createRequire(import.meta.url);
 
 /** Events whose payload carries a sessionId and should only reach the
  *  window owning that session's workspace. Everything else broadcasts. */
-const SESSION_ROUTED_EVENTS = new Set([
-  'pty:data',
-  'pty:exit',
-  'pty:error',
-  'pty:link-detected',
-  'agent:attention', // route to the owning window (detached-window safe)
+const SESSION_ROUTED_EVENTS = new Set(['pty:data', 'pty:exit', 'pty:error', 'pty:link-detected']);
+
+/** Multi-window — assistant/browser events that must reach only the window
+ *  owning the relevant workspace, so a popped-out window's Jorvis/browser
+ *  acts on its own workspace and the main window never double-acts. */
+const WORKSPACE_ROUTED_ASSISTANT_EVENTS = new Set([
+  'assistant:state',
+  'assistant:tool-trace',
+  'assistant:dispatch-echo',
+  'assistant:pane-event',
+  'assistant:pane-closed',
+  'browser:state',
 ]);
+
+export type AssistantRoute =
+  | { kind: 'workspace'; workspaceId: string }
+  | { kind: 'session'; sessionId: string }
+  | { kind: 'all' };
+
+/** Pure routing decision for a workspace-routed event. Priority:
+ *  explicit workspaceId → sessionId (session→workspace) → conversationId
+ *  (conversation→workspace) → broadcast. `resolveConversationWorkspace`
+ *  returns null when the conversation is unknown. */
+export function resolveAssistantRoute(
+  event: string,
+  payload: unknown,
+  resolveConversationWorkspace: (conversationId: string) => string | null,
+): AssistantRoute {
+  if (!WORKSPACE_ROUTED_ASSISTANT_EVENTS.has(event)) return { kind: 'all' };
+  const p = (payload ?? {}) as { workspaceId?: unknown; sessionId?: unknown; conversationId?: unknown };
+  if (typeof p.workspaceId === 'string' && p.workspaceId) return { kind: 'workspace', workspaceId: p.workspaceId };
+  if (typeof p.sessionId === 'string' && p.sessionId) return { kind: 'session', sessionId: p.sessionId };
+  if (typeof p.conversationId === 'string' && p.conversationId) {
+    const ws = resolveConversationWorkspace(p.conversationId);
+    if (ws) return { kind: 'workspace', workspaceId: ws };
+  }
+  return { kind: 'all' };
+}
+
+// conversationId → workspaceId is immutable once a conversation exists, so a
+// forever-cache keeps the hot delta path (assistant:state) off the DB.
+const conversationWorkspaceCache = new Map<string, string>();
+function conversationWorkspace(conversationId: string): string | null {
+  const hit = conversationWorkspaceCache.get(conversationId);
+  if (hit) return hit;
+  try {
+    const ws = getConversation(conversationId)?.workspaceId ?? null;
+    if (ws) conversationWorkspaceCache.set(conversationId, ws);
+    return ws;
+  } catch {
+    return null;
+  }
+}
 
 function broadcast(event: string, payload: unknown) {
   const registry = getWindowRegistry();
@@ -251,6 +298,15 @@ function broadcast(event: string, payload: unknown) {
       registry.sendToSessionOwner(sessionId, event, payload);
       return;
     }
+  }
+  const route = resolveAssistantRoute(event, payload, conversationWorkspace);
+  if (route.kind === 'workspace') {
+    registry.sendToWorkspaceOwner(route.workspaceId, event, payload);
+    return;
+  }
+  if (route.kind === 'session') {
+    registry.sendToSessionOwner(route.sessionId, event, payload);
+    return;
   }
   registry.sendToAll(event, payload);
 }
