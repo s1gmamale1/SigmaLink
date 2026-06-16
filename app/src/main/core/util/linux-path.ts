@@ -2,13 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export function linuxToolPathCandidates(home: string): string[] {
+  // Always POSIX-join: these are Linux PATH entries and must use '/' regardless
+  // of the host OS this code (or its tests) runs on. Plain path.join emits '\'
+  // on a Windows host, which breaks the cross-platform vitest leg.
   return [
-    path.join(home, '.local', 'bin'),
-    path.join(home, '.npm-global', 'bin'),
-    path.join(home, '.npm', 'bin'),
-    path.join(home, '.bun', 'bin'),
-    path.join(home, '.cargo', 'bin'),
-    path.join(home, '.asdf', 'shims'),
+    path.posix.join(home, '.local', 'bin'),
+    path.posix.join(home, '.npm-global', 'bin'),
+    path.posix.join(home, '.npm', 'bin'),
+    path.posix.join(home, '.bun', 'bin'),
+    path.posix.join(home, '.cargo', 'bin'),
+    path.posix.join(home, '.asdf', 'shims'),
     '/usr/local/bin',
     '/usr/bin',
     '/bin',
