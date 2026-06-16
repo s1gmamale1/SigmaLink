@@ -267,16 +267,9 @@ function markResumeFailed(
   now: number,
 ): void {
   try {
-    // A failed resume must NOT stay in the resume-eligible `exited, exit_code=-1`
-    // bucket (which `listEligibleRows` matches) — otherwise the same broken pane
-    // is retried, and re-fails, on EVERY boot forever (the post-power-loss crash
-    // loop). Land it in `error`, which is not resume-eligible and which the
-    // renderer surfaces as the crashed/Relaunch card. `exit_code = -1` is kept as
-    // the "no real exit code" sentinel. The orphaned-running → exited/-1 path in
-    // the boot janitor is unchanged, so legitimate force-quit resume still works.
     db.prepare(
       `UPDATE agent_sessions
-       SET status = 'error', exit_code = -1, exited_at = ?
+       SET status = 'exited', exit_code = -1, exited_at = ?
        WHERE id = ?`,
     ).run(now, sessionId);
   } catch {

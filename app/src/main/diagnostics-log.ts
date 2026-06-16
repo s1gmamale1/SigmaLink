@@ -27,12 +27,23 @@ export function appendDiagnostic(file: string, line: string): void {
   }
 }
 
-/** Format a main-process error for the log. */
+/** Format a main-process error for the log. Never throws (JSON.stringify on a
+ *  circular reason falls back to String). */
 export function formatError(kind: string, err: unknown, iso: string): string {
-  const e =
-    err instanceof Error
-      ? err
-      : new Error(typeof err === 'string' ? err : JSON.stringify(err));
+  let e: Error;
+  if (err instanceof Error) {
+    e = err;
+  } else if (typeof err === 'string') {
+    e = new Error(err);
+  } else {
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(err);
+    } catch {
+      serialized = String(err); // circular / unstringifiable reason
+    }
+    e = new Error(serialized);
+  }
   return `[${iso}] ${kind}: ${e.message}\n${e.stack ?? ''}`;
 }
 
@@ -50,14 +61,16 @@ interface ConsoleCapableWebContents {
 }
 
 /**
- * Persist renderer console errors. Electron ^30 uses the legacy
- * `(event, level, message, line, sourceId)` signature where `level` is numeric
- * (>= 2 ⇒ warning/error). We also always capture our own `[ErrorBoundary]` marker
- * regardless of level, since that line carries the React component stack.
+ * Persist renderer console ERRORS. Electron ^30 uses the legacy
+ * `(event, level, message, line, sourceId)` signature where `level` is numeric:
+ * 0=verbose, 1=info, 2=warning, 3=error. We capture `level >= 3` (errors only) —
+ * warnings (React dev-mode noise) are excluded so they cannot push the real crash
+ * out of the size-capped window — plus our own `[ErrorBoundary]` marker regardless
+ * of level, since that line carries the React component stack.
  */
 export function attachRendererLogCapture(wc: ConsoleCapableWebContents, file: string): void {
   wc.on('console-message', (_event, level, message) => {
-    if (level >= 2 || message.startsWith('[ErrorBoundary]')) {
+    if (level >= 3 || message.startsWith('[ErrorBoundary]')) {
       appendDiagnostic(file, `[${new Date().toISOString()}] [renderer] ${message}`);
     }
   });

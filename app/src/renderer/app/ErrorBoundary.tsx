@@ -237,7 +237,6 @@ export function RoomErrorBoundary({ children }: { children: ReactNode }) {
 function PaneFallback({
   error,
   componentStack,
-  reset,
   onRelaunch,
   onClose,
 }: BoundaryRenderState & { onRelaunch?: () => void; onClose?: () => void }) {
@@ -251,15 +250,7 @@ function PaneFallback({
         action={
           <div className="flex flex-wrap items-center justify-center gap-2">
             {onRelaunch ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="default"
-                onClick={() => {
-                  reset();
-                  onRelaunch();
-                }}
-              >
+              <Button type="button" size="sm" variant="default" onClick={onRelaunch}>
                 <RefreshCcw className="h-3.5 w-3.5" aria-hidden />
                 Relaunch
               </Button>

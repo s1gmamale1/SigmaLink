@@ -62,12 +62,14 @@ describe('attachRendererLogCapture', () => {
     const f = tmpFile();
     const wc = fakeWc();
     attachRendererLogCapture(wc as never, f);
-    wc.emit(1, 'just an info log'); // ignored
-    wc.emit(2, 'a warning or error'); // captured (level >= 2)
+    wc.emit(1, 'just an info log'); // ignored (info)
+    wc.emit(2, 'a dev warning'); // ignored (warning — React dev noise)
+    wc.emit(3, 'a real error'); // captured (level >= 3)
     wc.emit(0, '[ErrorBoundary] room Error: boom at PaneShell'); // captured (marker)
     const out = fs.readFileSync(f, 'utf8');
     expect(out).not.toContain('just an info log');
-    expect(out).toContain('a warning or error');
+    expect(out).not.toContain('a dev warning');
+    expect(out).toContain('a real error');
     expect(out).toContain('[ErrorBoundary] room');
   });
 });

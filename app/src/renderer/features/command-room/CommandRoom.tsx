@@ -443,6 +443,7 @@ export function CommandRoom() {
             const paneIndex = sessions.findIndex((s) => s.id === sessionId) + 1;
             return (
               <PaneErrorBoundary
+                key={session.id}
                 onRelaunch={() => void handleRelaunch(session)}
                 onClose={() => handleRemove(session)}
               >

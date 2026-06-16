@@ -885,7 +885,15 @@ function diagnosticsLogPath(): string {
   return path.join(app.getPath('userData'), 'logs', 'diagnostics.log');
 }
 function logMainError(kind: string, err: unknown): void {
-  appendDiagnostic(diagnosticsLogPath(), formatError(kind, err, new Date().toISOString()));
+  // Must NEVER throw — this runs INSIDE the uncaughtException handler, so a throw
+  // here (e.g. app.getPath before ready, or a circular reason) would re-enter the
+  // same handler recursively → stack overflow with no log written. Both
+  // diagnosticsLogPath() (app.getPath) and formatError run inside this guard.
+  try {
+    appendDiagnostic(diagnosticsLogPath(), formatError(kind, err, new Date().toISOString()));
+  } catch {
+    /* swallow — the original error is what matters; logging is best-effort */
+  }
 }
 process.on('uncaughtException', (err) => logMainError('uncaughtException', err));
 process.on('unhandledRejection', (reason) => logMainError('unhandledRejection', reason));
