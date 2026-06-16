@@ -422,6 +422,33 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 ---
 
+## Phase 17 — Full Linux (Ubuntu x64) support 🚧 IN PROGRESS (`feat/full-linux-support`, 2026-06-16 · subagent-driven 5 code lanes ‖ 1 build/CI lane ‖ docs)
+
+**Goal.** SigmaLink is a first-class Ubuntu 22.04/24.04 x64 desktop target — tested runtime behavior (process trees, GUI PATH, shells, provider installs, updates), AppImage + deb release artifacts, a one-line installer, and CI gates — with macOS/Windows behavior byte-for-byte unchanged.
+
+**Deliverables.**
+- `app/src/main/core/process/process-list-linux.ts` + Linux branches in `process-tree.ts` / `ps-snapshot.ts` (ps `-axo` parser; tree stats + POSIX tree-kill).
+- `app/src/main/core/util/linux-path.ts` (`linuxToolPathCandidates` + `mergePathEntries`), consumed by `electron/main.ts` `bootstrapNodeToolPath`.
+- Linux POSIX login-shell guard in `local-pty.ts` `defaultShell` (fish/non-POSIX `SHELL` → `bash -l`).
+- `app/src/shared/provider-install.ts` (`providerInstallCommandFor`) — user-owned npm prefix + pipx-first python installs; `providers.ts` delegates.
+- Linux auto-update path in `electron/auto-update.ts` (manual AppImage download + `app:update-linux-progress`/`-ready` allowlisted events) + `UpdatesTab.tsx` "Open download" UX.
+- `electron-builder.yml` Linux AppImage+deb x64 block; `electron:pack:linux`/`:all` scripts; `@sigmalink/voice-whisper` root dep + `install-or-stub.cjs` clean-degrade install.
+- `.github/workflows/release-linux.yml` (AppImage+deb on `v*` tag); Ubuntu lane in `e2e-matrix.yml` (Xvfb smoke) + `linux-product-check` job in `lint-and-build.yml`.
+- `app/scripts/install-linux.sh` one-line `.deb` installer (Ubuntu 22.04/24.04 x64 guard) + shellcheck gate.
+- Docs: README support table, app/README distribution, CI_NOTES matrix, BACKLOG promotion.
+
+**Why now.** Linux was the standing WONTFIX in BACKLOG; the codex plan decomposes it into thin testable seams, and the hard cross-platform machinery (process/PTY/PATH/provider/update seams) already exists for macOS/Windows — Linux is mostly a third branch per seam plus packaging/CI. Promoting now turns "builds but ungated" into a release-gated target.
+
+**Scope.** Per `app/docs/superpowers/plans/2026-06-16-full-linux-support.md` (12 tasks): T2 process tree → T3 PTY shell → T4 PATH → T5 provider install → T6 update UX (5 parallel code lanes) ‖ T1/T7/T8/T9/T10 build+CI+packaging+native (one lane) ‖ T11 docs (lead). T12 Ubuntu packaging + Playwright-under-Xvfb verification is CI/operator-owed (cannot run on the mac dev host — no local electron/playwright).
+
+**Findings + recommendation.** Treat Linux as a platform contract via thin seams, not just an electron-builder target — each platform branch is independently unit-tested (vitest), packaging/e2e gated only in CI. AppImage + deb (x64) only; no snap/flatpak/rpm/arm64 (ADR-010). Auto-update on Linux is a manual download + reveal-in-folder (no in-place electron-updater apply on AppImage/deb) — clearer than a half-working auto-apply. npm global installs are rewritten to a user-owned `$HOME/.npm-global` prefix and python CLIs prefer pipx, avoiding sudo.
+
+**Risks.** Plan-base drift (plan authored on a base ~20 commits behind main) → lanes read-then-edit and never wholesale-replace allowlists; the rpc-channels event-allowlist regression class is explicitly guarded + membership-tested. Native voice-whisper resolution on Linux is unverifiable on the mac host → `install-or-stub.cjs` degrades to a JS stub and resolution/packaging is CI-owed. Xvfb smoke flakiness → two-step split + `--auto-servernum`.
+
+**Definition of done.** Full local gate green (`tsc -b`, eslint, FULL vitest, `pnpm build`) on the integration branch. CI: `lint-and-build` (incl. new ubuntu product-check), `e2e-matrix` ubuntu Xvfb smoke, and `release-linux` produce `*.AppImage` + `*.deb` + `latest-linux.yml`. Operator/CI runtime checklist on Ubuntu 24.04 x64 (T12): workspace launch, shell + provider panes, process-tree cleanup, restart-restore, updates check, voice fallback — no uncaught main errors. macOS/Windows artifacts + tests unchanged.
+
+---
+
 ## Architecture decisions (ADRs)
 
 ### ADR-001 — Prefer shared Ruflo HTTP over per-pane stdio
@@ -450,6 +477,9 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 
 ### ADR-009 — Multi-window = full SPA per window + main-side ownership registry; detach is a MOVE, never a mirror
 **Decision.** Secondary windows load the SAME renderer bundle scoped via a preload-injected `workspaceScope`; a main-process WindowRegistry is the sole source of truth for workspaceId→windowId ownership; a workspace's xterm instances exist in exactly ONE window, and session-scoped PTY events are routed only to that window. Renderer echoes of the open-workspace list come ONLY from the main window; the global list is the union of that echo and registry-detached workspaces. **Context.** Two xterms attached to one PTY fight over SIGWINCH/cols and double-echo input, so mirroring is structurally unsafe. A thin secondary renderer root would duplicate App.tsx provider wiring (the sibling-drift class that has bitten repeatedly); N un-scoped windows give no detach semantics while still needing every ownership guard. The move path is cheap because `pty.snapshot` + the pty-data-bus first-attach already rebuild a terminal against a RUNNING PTY (`terminal-cache.ts:337-413`), and the BSP-B2 browser detach proved secondary-window lifecycle in-repo (`browser/manager.ts:395`). **Consequences.** (+) One renderer codebase, process isolation gives each window its own terminal cache for free, and pty:data routing CUTS total IPC versus broadcast (supersedes PERF-11). (+) Re-dock-on-close keeps PTYs alive (ADR-007-consistent). (−) Every direct `mainWindow.webContents.send` becomes a routing decision (audited class); per-window renderer processes cost RSS; ring-buffer-bounded scrollback on move until the DOM-presenter engine serializes buffers.
+
+### ADR-010 — Linux support contract: AppImage+deb x64 only, manual update, user-owned CLI installs
+**Decision.** Ship Linux as Ubuntu 22.04/24.04 x64 via AppImage + deb only; auto-update is a manual download + reveal-in-folder (no in-place apply); provider CLI installs are rewritten to a user-owned npm prefix (`$HOME/.npm-global`) / pipx-first python (never sudo). **Context.** Linux was BACKLOG WONTFIX; electron-updater cannot safely re-apply an AppImage/deb in place; global npm/pip installs otherwise need root or pollute system dirs; Wayland has no reliable paste-injection. **Consequences.** (+) A real, CI-gated Linux target with predictable install/update UX and no sudo for CLIs. (+) mac/win paths untouched (third branch per seam, independently unit-tested). (−) No snap/flatpak/rpm/arm64, no auto-apply updates, Wayland gets clipboard-fallback only — all explicit non-goals.
 
 ---
 
@@ -483,3 +513,4 @@ Status: the RAM hotlist below was implemented in `feat/pane-ram-optimization`.
 | Multi-window plumbing (registry + routed events + scoped identity) | Phase 16 (A) | M | High | Ships dark, byte-identical single-window behavior; ADR-009. |
 | Workspace detach/re-dock UX (RPCs + scoped shell + sidebar action) | Phase 16 (B) | L | High | Move-never-mirror; PTYs survive; operator smoke is the DoD. |
 | Window-layout boot restore (kv `ui.windows.layout`) | Wishlist | M | Medium | Follow-up plan after Phase 16 dogfood. |
+| Full Linux (Ubuntu x64) support | Phase 17 | L | High | Thin testable seams (process/PTY/PATH/provider/update) + AppImage+deb + one-line installer + CI gates; packaging/e2e CI-owed; ADR-010. |

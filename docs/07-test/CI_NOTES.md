@@ -9,12 +9,16 @@ posture, and known toolchain quirks.
 ### `lint-and-build.yml` — fast PR gate
 
 - **Trigger**: `pull_request` to `main`, `push` to `main`.
-- **Runner**: `ubuntu-latest` only (single OS, optimised for speed).
+- **Runners**: `macos-14` for the full lint + unit-test (coverage) + build
+  gate; `ubuntu-latest` for the `shellcheck` and `linux-product-check` jobs.
 - **Steps**: checkout → pnpm 9 → Node 20.x → `pnpm install --frozen-lockfile
   --ignore-scripts` → `pnpm run lint` → `pnpm run build`.
 - **Purpose**: cheap, fast feedback (~2-4 min) on every push and PR. Catches
   ESLint regressions and TypeScript / Vite build errors before the heavier
   Electron matrix runs.
+- **`linux-product-check` job**: a second `ubuntu-latest` job runs
+  `pnpm run product:check` (renderer build + Electron main compile) to gate
+  Linux build health on every PR.
 
 ### `e2e-matrix.yml` — cross-platform Electron smoke
 
@@ -31,6 +35,14 @@ posture, and known toolchain quirks.
 - **Concurrency**: keyed on `pull_request.head.sha` so duplicate runs cancel
   on rapid pushes.
 
+### Release workflows (tag-driven, not PR gates)
+
+Packaging + publish on `v*` tag push (also `workflow_dispatch`):
+`release-macos.yml` (DMG), `release-windows.yml` (NSIS EXE), and
+`release-linux.yml` (AppImage + deb on `ubuntu-latest`, attached to the GitHub
+Release). The Linux job installs GTK/NSS/ALSA + `fakeroot`/`rpm` build deps,
+rebuilds native modules for Electron, then runs `electron-builder --linux`.
+
 ## Required check (manual)
 
 GitHub branch-protection settings are not codifiable in the workflow YAML.
@@ -43,7 +55,8 @@ Required checks for the `main` branch:
 
 | Check | Workflow | Why required |
 |---|---|---|
-| `lint + build (ubuntu)` | `lint-and-build.yml` | Fast must-pass gate. |
+| `lint + build (macos)` | `lint-and-build.yml` | Fast must-pass gate (lint + unit tests + build). |
+| `product check (ubuntu)` | `lint-and-build.yml` | Linux build + Electron-compile health. |
 | `smoke (ubuntu-latest)` | `e2e-matrix.yml` | Linux Electron smoke. |
 | `smoke (macos-14)` | `e2e-matrix.yml` | macOS Electron smoke. |
 | `smoke (windows-latest)` | `e2e-matrix.yml` | Windows Electron smoke. |

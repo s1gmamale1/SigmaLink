@@ -8,7 +8,7 @@ Local-first desktop workspace for orchestrating grids of CLI coding agents in re
 [![e2e-matrix](https://github.com/s1gmamale1/SigmaLink/actions/workflows/e2e-matrix.yml/badge.svg?branch=main)](https://github.com/s1gmamale1/SigmaLink/actions/workflows/e2e-matrix.yml)
 
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
-![Platform](https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Windows%20x64-lightgrey?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Windows%20x64%20%7C%20Linux%20x64-lightgrey?style=flat-square)
 ![Electron](https://img.shields.io/badge/Electron-30-2B2E3A?style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square)
 ![Status](https://img.shields.io/badge/status-WIP-orange?style=flat-square)
@@ -19,8 +19,9 @@ Local-first desktop workspace for orchestrating grids of CLI coding agents in re
 |---|---|---|---|---|
 | macOS 13+ (Apple Silicon arm64) | DMG | `curl … install-macos.sh` | None via curl-bash (Gatekeeper bypass) | SigmaVoice native Speech.framework |
 | Windows 10/11 (x64) | NSIS EXE | `iex (irm … install-windows.ps1)` | SmartScreen warning on first run (workarounds documented) | Web Speech API (Chromium, requires internet) |
+| Ubuntu 22.04/24.04 (x64) | AppImage + `.deb` | `curl … install-linux.sh \| bash` | AppImage may need the executable bit; `.deb` prompts for sudo | Web Speech / cloud STT fallback; local Whisper best-effort |
 
-> Linux (AppImage + .deb) is built from the same `electron-builder.yml` but is not test-gated and not on the supported platform list yet — tracked in [`docs/08-bugs/BACKLOG.md`](docs/08-bugs/BACKLOG.md) (v1.3+).
+> Linux support targets Ubuntu 22.04/24.04 x64 (AppImage + `.deb`), built and smoke-tested under Xvfb in CI and released by [`.github/workflows/release-linux.yml`](.github/workflows/release-linux.yml). Other distributions may run the AppImage but are not release-gated. See [ROADMAP Phase 17](ROADMAP.md).
 > Windows x86 (ia32) was dropped in v1.2.0; the installer is x64-only.
 
 ## Install in one line (macOS, Apple Silicon)
