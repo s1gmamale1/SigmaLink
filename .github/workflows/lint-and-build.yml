@@ -93,8 +93,11 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: app/package.json
 
-      - name: Install
-        run: pnpm install --no-frozen-lockfile
+      - name: Install (skip postinstall)
+        # --ignore-scripts: product:check (tsc -b + vite + esbuild) needs no
+        # compiled natives, and postinstall's electron-builder install-app-deps
+        # would try to rebuild the vendored voice-whisper (sources absent) and fail.
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
 
       - name: Product check
         run: pnpm run product:check
