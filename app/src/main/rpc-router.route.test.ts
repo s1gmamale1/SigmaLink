@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAssistantRoute } from './rpc-router';
+import { resolveAssistantRoute, resolveBrowserHostWindowId } from './rpc-router';
 
 describe('resolveAssistantRoute', () => {
   const convWs = (id: string) => (id === 'c-owned' ? 'ws-conv' : null);
@@ -30,5 +30,22 @@ describe('resolveAssistantRoute', () => {
     expect(resolveAssistantRoute('assistant:state', {}, convWs)).toEqual({ kind: 'all' });
     expect(resolveAssistantRoute('memory:changed', { workspaceId: 'ws-1' }, convWs)).toEqual({ kind: 'all' });
     expect(resolveAssistantRoute('assistant:state', null, convWs)).toEqual({ kind: 'all' });
+  });
+});
+
+describe('resolveBrowserHostWindowId', () => {
+  const ids = { ownerWindowIdFor: (ws: string) => (ws === 'ws-detached' ? 1001 : null) };
+
+  it('prefers the owner window when ownership is known', () => {
+    expect(resolveBrowserHostWindowId('ws-detached', ids, 1, [1, 1001])).toBe(1001);
+  });
+  it('falls back to the focused window when ownership is unknown', () => {
+    expect(resolveBrowserHostWindowId('ws-unowned', ids, 1, [1, 1001])).toBe(1);
+  });
+  it('falls back to the first window when nothing is focused', () => {
+    expect(resolveBrowserHostWindowId('ws-unowned', ids, null, [7, 8])).toBe(7);
+  });
+  it('returns null when there are no windows', () => {
+    expect(resolveBrowserHostWindowId('ws-unowned', ids, null, [])).toBeNull();
   });
 });

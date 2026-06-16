@@ -311,6 +311,21 @@ function broadcast(event: string, payload: unknown) {
   registry.sendToAll(event, payload);
 }
 
+/** Pure browser-host window resolution: owner window first, then the focused
+ *  window, then the first live window. ids/focusedId/allIds are window ids;
+ *  the caller maps the result back to a BrowserWindow. */
+export function resolveBrowserHostWindowId(
+  workspaceId: string,
+  registry: { ownerWindowIdFor: (workspaceId: string) => number | null },
+  focusedWindowId: number | null,
+  allWindowIds: number[],
+): number | null {
+  const owner = registry.ownerWindowIdFor(workspaceId);
+  if (owner != null && allWindowIds.includes(owner)) return owner;
+  if (focusedWindowId != null && allWindowIds.includes(focusedWindowId)) return focusedWindowId;
+  return allWindowIds[0] ?? null;
+}
+
 function capitalize(s: string): string {
   if (!s) return s;
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -821,12 +836,20 @@ async function buildRouter() {
     }
   });
   const browserRegistry = new BrowserManagerRegistry({
-    windowProvider: () => {
-      // Prefer the focused window; fall back to the first non-destroyed one.
+    windowProvider: (workspaceId: string) => {
+      // Multi-window — mount the browser view in the window that OWNS this
+      // workspace (possibly a detached/scoped window), not just the focused one.
+      const live = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
       const focused = BrowserWindow.getFocusedWindow();
-      if (focused && !focused.isDestroyed()) return focused;
-      const all = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
-      return all[0] ?? null;
+      const hostId = resolveBrowserHostWindowId(
+        workspaceId,
+        getWindowRegistry(),
+        focused && !focused.isDestroyed() ? focused.id : null,
+        live.map((w) => w.id),
+      );
+      if (hostId == null) return null;
+      const host = BrowserWindow.fromId(hostId);
+      return host && !host.isDestroyed() ? host : (live[0] ?? null);
     },
     onState: (state) => broadcast('browser:state', state),
   });
