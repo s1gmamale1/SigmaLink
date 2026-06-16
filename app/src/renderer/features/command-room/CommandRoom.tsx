@@ -17,6 +17,7 @@ import { EmptyState } from '@/renderer/components/EmptyState';
 import { WorktreeInfoBanner } from '@/renderer/components/WorktreeInfoBanner';
 import { PaneGrid } from './PaneGrid';
 import { PaneShell } from './PaneShell';
+import { PaneErrorBoundary } from '@/renderer/app/ErrorBoundary';
 import { AddPaneButton } from './AddPaneButton';
 import type { AgentSession, Swarm } from '@/shared/types';
 import { useSkillBindings } from '@/renderer/features/skills/useSkillBindings';
@@ -441,34 +442,39 @@ export function CommandRoom() {
             const paneBindings = skillBindings.filter((b) => b.paneSessionId === session.id);
             const paneIndex = sessions.findIndex((s) => s.id === sessionId) + 1;
             return (
-              <PaneShell
-                session={session}
-                paneIndex={paneIndex}
-                providers={providers}
-                workspaceRootPath={activeWorkspace.rootPath}
-                onFocus={() => {
-                  dispatch({ type: 'CLEAR_SESSION_ATTENTION', sessionId: session.id });
-                  if (activeSessionId !== session.id) dispatch({ type: 'SET_ACTIVE_SESSION', id: session.id });
-                }}
-                onRemove={() => handleRemove(session)}
-                onStop={() => handleStop(session)}
+              <PaneErrorBoundary
                 onRelaunch={() => void handleRelaunch(session)}
-                onSplit={(dir, providerId) => void handleSplitPane(session, dir, providerId)}
-                onToggleMinimise={() => handleToggleMinimise(session)}
-                isFullscreen={focusedPaneId === session.id}
-                onToggleFullscreen={() =>
-                  dispatch(
-                    focusedPaneId === session.id
-                      ? { type: 'UNFOCUS_PANE' }
-                      : { type: 'FOCUS_PANE', paneId: session.id },
-                  )
-                }
-                skillBindings={paneBindings}
-                onSkillDrop={(name, source) =>
-                  void attachSkill({ paneSessionId: session.id, skillName: name, skillSource: source })
-                }
-                onSkillDetach={(bindingId) => void detachSkill(bindingId)}
-              />
+                onClose={() => handleRemove(session)}
+              >
+                <PaneShell
+                  session={session}
+                  paneIndex={paneIndex}
+                  providers={providers}
+                  workspaceRootPath={activeWorkspace.rootPath}
+                  onFocus={() => {
+                    dispatch({ type: 'CLEAR_SESSION_ATTENTION', sessionId: session.id });
+                    if (activeSessionId !== session.id) dispatch({ type: 'SET_ACTIVE_SESSION', id: session.id });
+                  }}
+                  onRemove={() => handleRemove(session)}
+                  onStop={() => handleStop(session)}
+                  onRelaunch={() => void handleRelaunch(session)}
+                  onSplit={(dir, providerId) => void handleSplitPane(session, dir, providerId)}
+                  onToggleMinimise={() => handleToggleMinimise(session)}
+                  isFullscreen={focusedPaneId === session.id}
+                  onToggleFullscreen={() =>
+                    dispatch(
+                      focusedPaneId === session.id
+                        ? { type: 'UNFOCUS_PANE' }
+                        : { type: 'FOCUS_PANE', paneId: session.id },
+                    )
+                  }
+                  skillBindings={paneBindings}
+                  onSkillDrop={(name, source) =>
+                    void attachSkill({ paneSessionId: session.id, skillName: name, skillSource: source })
+                  }
+                  onSkillDetach={(bindingId) => void detachSkill(bindingId)}
+                />
+              </PaneErrorBoundary>
             );
           }}
         />
