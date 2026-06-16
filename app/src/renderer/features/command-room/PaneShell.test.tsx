@@ -130,6 +130,10 @@ vi.mock('@/renderer/features/skills/SkillBindingChip', () => ({
   SkillBindingChip: () => null,
 }));
 
+// Insulate the auto-label watcher — its real subscribePtyData hits
+// window.sigma.eventOn, which this suite's window.sigma stub does not provide.
+vi.mock('@/renderer/lib/label-watcher', () => ({ ensureLabelWatcher: vi.fn() }));
+
 beforeEach(async () => {
   spawnScratchMock.mockReset();
   killScratchMock.mockReset();
@@ -1058,6 +1062,31 @@ describe('PaneShell — agent-attention pane glow (Task 12)', () => {
     const { container } = await renderPaneShell(makeSession({ id: 'main-session' }));
     const root = container.firstElementChild as HTMLElement;
     expect(root.className).not.toContain('sl-attention');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 6 — Rename label… context-menu item
+// ---------------------------------------------------------------------------
+describe('PaneShell — Rename label… context-menu item', () => {
+  it('dispatches sigma:pane-rename-request for the MAIN session from the context menu', async () => {
+    const onReq = vi.fn();
+    window.addEventListener('sigma:pane-rename-request', onReq as EventListener);
+    try {
+      await renderPaneShell(makeSession({ id: 'pane-x' }));
+      await openContextMenu();
+      const item = document.querySelector('[data-testid="ctx-rename-label"]') as HTMLElement | null;
+      expect(item).toBeTruthy();
+      await act(async () => {
+        fireEvent.click(item!);
+        await Promise.resolve();
+      });
+      expect(onReq).toHaveBeenCalledOnce();
+      const evt = onReq.mock.calls[0]?.[0] as CustomEvent<{ sessionId: string }>;
+      expect(evt?.detail.sessionId).toBe('pane-x');
+    } finally {
+      window.removeEventListener('sigma:pane-rename-request', onReq as EventListener);
+    }
   });
 });
 

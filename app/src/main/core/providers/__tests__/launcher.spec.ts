@@ -208,6 +208,23 @@ test('BUG-V1.1-05: every candidate ENOENTs → ProviderLaunchError listing tries
   );
 });
 
+// Normalize argv for the autoApprove/extraArgs contract assertions. claude is a
+// PRE_ASSIGN provider (fresh spawns prepend a non-deterministic
+// `--session-id <uuid>`) AND gets a claude-only `--append-system-prompt <instr>`
+// auto-label pair injected. Strip both flag+value pairs to leave the
+// deterministic contract flags (mirrors the `hasFullscreenPair` tolerance below).
+function contractArgs(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--session-id' || args[i] === '--append-system-prompt') {
+      i++; // skip the flag's value too
+      continue;
+    }
+    out.push(args[i]!);
+  }
+  return out;
+}
+
 test('BUG-V1.1-06: autoApprove=true appends the provider autoApproveFlag', () => {
   const { registry, calls } = makeMockRegistry(() => makeFakeSession('s-aa'));
   const result = resolveAndSpawn(
@@ -217,8 +234,8 @@ test('BUG-V1.1-06: autoApprove=true appends the provider autoApproveFlag', () =>
     },
     { providerId: 'claude', cwd: '/tmp', autoApprove: true },
   );
-  assert.deepEqual(result.argsUsed, ['--dangerously-skip-permissions']);
-  assert.deepEqual(calls[0]?.args, ['--dangerously-skip-permissions']);
+  assert.deepEqual(contractArgs(result.argsUsed), ['--dangerously-skip-permissions']);
+  assert.deepEqual(contractArgs(calls[0]?.args ?? []), ['--dangerously-skip-permissions']);
 });
 
 test('BUG-V1.1-06: autoApprove=false does NOT append the flag', () => {
@@ -230,7 +247,10 @@ test('BUG-V1.1-06: autoApprove=false does NOT append the flag', () => {
     },
     { providerId: 'claude', cwd: '/tmp' },
   );
-  assert.deepEqual(result.argsUsed, []);
+  // claude gets the auto-label instruction injected (pane-labeling); confirm
+  // it IS present, then strip it to assert the autoApprove contract.
+  assert.ok(result.argsUsed.includes('--append-system-prompt'));
+  assert.deepEqual(contractArgs(result.argsUsed), []);
 });
 
 test('BUG-V1.1-06: extraArgs are appended after the autoApproveFlag', () => {
@@ -247,7 +267,7 @@ test('BUG-V1.1-06: extraArgs are appended after the autoApproveFlag', () => {
       extraArgs: ['-p', 'hello world'],
     },
   );
-  assert.deepEqual(result.argsUsed, [
+  assert.deepEqual(contractArgs(result.argsUsed), [
     '--dangerously-skip-permissions',
     '-p',
     'hello world',

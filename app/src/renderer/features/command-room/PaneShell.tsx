@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
 import { useAppStateSelector } from '@/renderer/app/state';
-import { ClipboardPaste, Copy, FolderOpen, GitBranch, RotateCw, Square, SquareTerminal, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
+import { ClipboardPaste, Copy, FolderOpen, GitBranch, Pencil, RotateCw, Square, SquareTerminal, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ContextMenu,
@@ -52,6 +52,7 @@ import { PaneContextSidebar } from './PaneContextSidebar';
 import { useUncommittedCount } from '@/renderer/lib/use-git-status-poll';
 import { usePromptCard } from './use-prompt-card';
 import { PromptCard } from './PromptCard';
+import { ensureLabelWatcher } from '@/renderer/lib/label-watcher';
 
 // v1.4.8 — Max number of files allowed in a single Finder multi-drop.
 const MAX_DROP_FILES = 10;
@@ -125,6 +126,12 @@ export function PaneShell({
   // share ONE 15 s poll (and it pauses while the window is hidden). The
   // consumed `uncommitted: number | null` shape is unchanged.
   const uncommitted = useUncommittedCount(session.worktreePath);
+
+  // Auto-label — install the SIGMA::LABEL watcher for this pane. Idempotent +
+  // persists across remounts (module-scope); the cache GC disposes it on close.
+  useEffect(() => {
+    ensureLabelWatcher(session.id);
+  }, [session.id]);
 
   // FEAT-4 — opt-in interactive prompt cards. Read the KV gate ONCE on mount
   // (off-by-default; '1' = on). The hook watches this pane's PTY for a valid
@@ -650,6 +657,22 @@ export function PaneShell({
               Renderer: switch to{' '}
               {(peekRendererMode(activeTabId) ?? 'dom') === 'dom' ? 'xterm' : 'DOM'}
             </span>
+          </ContextMenuItem>
+          {/* Rename the pane label. Targets the MAIN session; PaneHeader listens
+              for this event and enters inline edit. Clearing the name reverts to
+              the auto-label, then the launch-prompt summary, then the alias. */}
+          <ContextMenuItem
+            data-testid="ctx-rename-label"
+            onSelect={() => {
+              window.dispatchEvent(
+                new CustomEvent('sigma:pane-rename-request', {
+                  detail: { sessionId: session.id },
+                }),
+              );
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            <span>Rename label…</span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={handleReveal} disabled={!hasWorktree}>

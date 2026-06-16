@@ -310,3 +310,18 @@ export const IMAGE_CAPABLE_PROVIDERS: ReadonlySet<string> = new Set(['claude', '
 export function isImageCapableProvider(providerId: string): boolean {
   return IMAGE_CAPABLE_PROVIDERS.has(providerId);
 }
+
+/** Injected into pane Claude spawns via --append-system-prompt so the pane
+ *  self-labels. Kept short for compliance; label-watcher parses the line. */
+export const PANE_LABEL_INSTRUCTION =
+  'When you start working on a task, output one line exactly in the form ' +
+  '"SIGMA::LABEL <a 2-4 word summary of the task>" and nothing else on that ' +
+  'line, before your other output. Emit it again whenever the task changes.';
+
+/** Claude-only auto-label args. Other providers get the launch-prompt floor +
+ *  manual rename instead. Pure (no node deps) so it\'s unit-testable. */
+export function paneLabelArgs(providerId: string): string[] {
+  return providerId === 'claude'
+    ? ['--append-system-prompt', PANE_LABEL_INSTRUCTION]
+    : [];
+}

@@ -32,10 +32,16 @@ vi.mock('@/renderer/lib/prompt-watcher', () => ({
   disposePromptWatcher: (...args: unknown[]) => disposePromptWatcherMock(...args),
 }));
 
+const disposeLabelWatcherMock = vi.fn();
+vi.mock('@/renderer/lib/label-watcher', () => ({
+  disposeLabelWatcher: (...args: unknown[]) => disposeLabelWatcherMock(...args),
+}));
+
 import type { AgentSession } from '@/shared/types';
 import type { AppState } from '../state.types';
 import { initialAppState } from '../state.types';
 import { useTerminalCacheGc } from './use-terminal-cache-gc';
+import { setAgentLabel, getAgentLabel, __resetAgentLabels } from '@/renderer/lib/pane-labels';
 
 function session(id: string): AgentSession {
   return {
@@ -66,6 +72,8 @@ beforeEach(() => {
   closeScratchForParentMock.mockReset();
   scratchParentIds = [];
   disposePromptWatcherMock.mockReset();
+  disposeLabelWatcherMock.mockReset();
+  __resetAgentLabels();
 });
 
 afterEach(() => {
@@ -140,5 +148,30 @@ describe('useTerminalCacheGc — prompt-watcher reaping (2026-06-10 finding 4)',
     rerender({ s: stateWith({ 'ws-1': [session('s1')] }) });
     expect(disposePromptWatcherMock).toHaveBeenCalledWith('s2');
     expect(disposePromptWatcherMock).not.toHaveBeenCalledWith('s1');
+  });
+});
+
+describe('useTerminalCacheGc — pane-label reaping', () => {
+  it('clears the auto-label when a session permanently disappears', () => {
+    setAgentLabel('gone-1', 'Reviewing auth');
+    expect(getAgentLabel('gone-1')).toBe('Reviewing auth');
+
+    const { rerender } = renderHook(({ s }: { s: AppState }) => useTerminalCacheGc(s), {
+      initialProps: { s: stateWith({ 'ws-1': [session('gone-1')] }) },
+    });
+    // Session still present — label must survive.
+    expect(getAgentLabel('gone-1')).toBe('Reviewing auth');
+
+    rerender({ s: stateWith({ 'ws-1': [] }) });
+    expect(getAgentLabel('gone-1')).toBeNull();
+  });
+
+  it('disposes the label watcher of a session that disappears from state', () => {
+    const { rerender } = renderHook(({ s }: { s: AppState }) => useTerminalCacheGc(s), {
+      initialProps: { s: stateWith({ 'ws-1': [session('s1'), session('s2')] }) },
+    });
+    rerender({ s: stateWith({ 'ws-1': [session('s1')] }) });
+    expect(disposeLabelWatcherMock).toHaveBeenCalledWith('s2');
+    expect(disposeLabelWatcherMock).not.toHaveBeenCalledWith('s1');
   });
 });

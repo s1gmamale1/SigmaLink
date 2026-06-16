@@ -321,10 +321,11 @@ describe('resolveAndSpawn ENOENT fallback walk', () => {
       },
     );
 
-    expect(calls[0]?.args).toEqual([
-      '--resume',
-      '01234567-89ab-4cde-9f01-23456789abcd',
-    ]);
+    const a = calls[0]?.args ?? [];
+    expect(a).not.toContain('--session-id');
+    const ri = a.indexOf('--resume');
+    expect(ri).toBeGreaterThanOrEqual(0);
+    expect(a[ri + 1]).toBe('01234567-89ab-4cde-9f01-23456789abcd');
     expect(result.preassignedExternalSessionId).toBeUndefined();
   });
 });

@@ -8,7 +8,7 @@
 // BSP-V2 — also covers the live cost + tok/s estimate badge.
 
 import { describe, expect, it, vi, afterEach, beforeAll, beforeEach } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -630,5 +630,60 @@ describe('PaneHeader — BSP-O4 inline rename', () => {
         name: 'Blur name',
       }),
     );
+  });
+});
+
+// ── Auto-label precedence tests ───────────────────────────────────────────────
+
+import { setAgentLabel, __resetAgentLabels } from '@/renderer/lib/pane-labels';
+
+describe('PaneHeader auto-label precedence', () => {
+  afterEach(() => __resetAgentLabels());
+
+  it('shows the alias with no manual name, no SIGMA::LABEL, no initialPrompt', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p1', name: null, initialPrompt: undefined })} />);
+    expect(screen.getByTestId('pane-display-name').textContent).toMatch(/·/);
+  });
+
+  it('shows the launch-prompt summary when there is no SIGMA::LABEL', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p2', name: null, initialPrompt: 'Refactor the auth module' })} />);
+    expect(screen.getByTestId('pane-display-name').textContent).toContain('Refactor the auth module');
+  });
+
+  it('SIGMA::LABEL beats the launch-prompt summary', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p3', name: null, initialPrompt: 'Refactor the auth module' })} />);
+    act(() => setAgentLabel('p3', 'Reviewing PR'));
+    const t = screen.getByTestId('pane-display-name').textContent ?? '';
+    expect(t).toContain('Reviewing PR');
+    expect(t).not.toContain('Refactor the auth module');
+  });
+
+  it('manual name beats SIGMA::LABEL', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p4', name: 'Reviewer', initialPrompt: 'x' })} />);
+    act(() => setAgentLabel('p4', 'Reviewing PR'));
+    const t = screen.getByTestId('pane-display-name').textContent ?? '';
+    expect(t).toContain('Reviewer');
+    expect(t).not.toContain('Reviewing PR');
+  });
+
+  it('tooltip title carries the full label', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p5', name: null })} />);
+    act(() => setAgentLabel('p5', 'A very long task summary that overflows the narrow pane pill region here'));
+    expect(screen.getByTestId('pane-display-name').getAttribute('title')).toContain('A very long task summary');
+  });
+
+  it('opens inline edit on a targeted pane-rename-request', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p6', name: null })} />);
+    act(() => window.dispatchEvent(new CustomEvent('sigma:pane-rename-request', { detail: { sessionId: 'p6' } })));
+    expect(screen.getByTestId('pane-rename-input')).toBeTruthy();
+  });
+
+  it('context-menu rename prefills the CURRENT agent label, not a stale one', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p7', name: null, initialPrompt: 'Old prompt' })} />);
+    // Label arrives AFTER mount — the mount-registered listener must use it.
+    act(() => setAgentLabel('p7', 'Reviewing PR'));
+    act(() => window.dispatchEvent(new CustomEvent('sigma:pane-rename-request', { detail: { sessionId: 'p7' } })));
+    const input = screen.getByTestId('pane-rename-input') as HTMLInputElement;
+    expect(input.value).toBe('Reviewing PR');
   });
 });
