@@ -108,6 +108,15 @@ linux:
     - target: deb
       arch: [x64]
   category: Development
+# Pin the .deb artifactName so the uploaded asset matches what
+# scripts/install-linux.sh downloads (SigmaLink_<version>_amd64.deb).
+# electron-builder's deb default template uses the raw package.json "name"
+# (sigmalink-agent-orchestrator_<version>_amd64.deb), which would 404 the
+# one-line installer — same dashed/underscore 404 class the nsis block above
+# already guards against. AppImage keeps its productName-based default
+# (SigmaLink-<version>.AppImage).
+deb:
+  artifactName: ${productName}_${version}_${arch}.${ext}
 # V3-W14-008 — auto-update channel. Targets the public GitHub Releases of the
 # SigmaLink repository so `electron-updater` can resolve `latest-mac.yml`,
 # `latest.yml`, and `latest-linux.yml` from a single source. macOS code-signing
