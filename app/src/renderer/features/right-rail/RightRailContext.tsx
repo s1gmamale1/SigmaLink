@@ -38,13 +38,16 @@ export function RightRailProvider({ children }: { children: ReactNode }) {
   // DEV-W4 — per-workspace keying mirrors RightRail.tsx's width pattern.
   const wsId = useAppStateSelector((s) => s.activeWorkspace?.id ?? null);
 
-  // Hydrate the persisted tab once on mount. Mirrors the read pattern that
-  // used to live in `RightRail.tsx` so users keep their last selection.
+  // Hydrate the persisted tab. DEV-W4 follow-up — per-workspace key
+  // (`ui.<wsId>.rightRail.tab`) with a legacy global fallback, so the main
+  // window and a detached/scoped window don't clobber each other's tab.
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
-        const raw = await rpcSilent.kv.get(KV_TAB);
+        const raw = wsId
+          ? await readWorkspaceUi(wsId, KV_TAB, KV_TAB)
+          : await rpcSilent.kv.get(KV_TAB);
         if (!alive) return;
         const normalized = typeof raw === 'string' ? normalizeTabId(raw) : raw;
         if (typeof normalized === 'string' && VALID_TABS.has(normalized as RightRailTabId)) {
@@ -57,7 +60,7 @@ export function RightRailProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [wsId]);
 
   // DEV-W4 — hydrate persisted railOpen from the per-workspace key
   // (`ui.<wsId>.rightRail.open`) with no legacy global fallback (new feature).
@@ -85,10 +88,17 @@ export function RightRailProvider({ children }: { children: ReactNode }) {
     };
   }, [wsId]);
 
-  const setActiveTab = useCallback((tab: RightRailTabId) => {
-    setActiveTabState(tab);
-    void rpc.kv.set(KV_TAB, tab).catch(() => undefined);
-  }, []);
+  const setActiveTab = useCallback(
+    (tab: RightRailTabId) => {
+      setActiveTabState(tab);
+      if (wsId) {
+        void writeWorkspaceUi(wsId, KV_TAB, tab);
+      } else {
+        void rpc.kv.set(KV_TAB, tab).catch(() => undefined);
+      }
+    },
+    [wsId],
+  );
 
   const setRailOpen = useCallback(
     (open: boolean) => {

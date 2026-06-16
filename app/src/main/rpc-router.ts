@@ -120,6 +120,7 @@ import {
   buildConversationsHandlers,
   buildSwarmOriginHandlers,
 } from './core/assistant/conversations-controller';
+import { getConversation } from './core/assistant/conversations';
 import { buildDesignController } from './core/design/controller';
 import { buildVoiceController } from './core/voice/adapter';
 // v1.5.0 packet 09 — Cross-machine sync controller.
@@ -243,16 +244,99 @@ const SESSION_ROUTED_EVENTS = new Set([
   'agent:attention', // route to the owning window (detached-window safe)
 ]);
 
+/** Test seam — does this event route to its session's owner window? Keeps the
+ *  SESSION_ROUTED_EVENTS set private while letting a regression test assert
+ *  membership (so multi-window event-routing edits can't silently drop one). */
+export function isSessionRoutedEvent(event: string): boolean {
+  return SESSION_ROUTED_EVENTS.has(event);
+}
+
+/** Multi-window — assistant/browser events that must reach only the window
+ *  owning the relevant workspace, so a popped-out window's Jorvis/browser
+ *  acts on its own workspace and the main window never double-acts. */
+const WORKSPACE_ROUTED_ASSISTANT_EVENTS = new Set([
+  'assistant:state',
+  'assistant:tool-trace',
+  'assistant:dispatch-echo',
+  'assistant:pane-event',
+  'assistant:pane-closed',
+  'browser:state',
+]);
+
+export type AssistantRoute =
+  | { kind: 'workspace'; workspaceId: string }
+  | { kind: 'session'; sessionId: string }
+  | { kind: 'all' };
+
+/** Pure routing decision for a workspace-routed event. Priority:
+ *  explicit workspaceId → sessionId (session→workspace) → conversationId
+ *  (conversation→workspace) → broadcast. `resolveConversationWorkspace`
+ *  returns null when the conversation is unknown. */
+export function resolveAssistantRoute(
+  event: string,
+  payload: unknown,
+  resolveConversationWorkspace: (conversationId: string) => string | null,
+): AssistantRoute {
+  if (!WORKSPACE_ROUTED_ASSISTANT_EVENTS.has(event)) return { kind: 'all' };
+  const p = (payload ?? {}) as { workspaceId?: unknown; sessionId?: unknown; conversationId?: unknown };
+  if (typeof p.workspaceId === 'string' && p.workspaceId) return { kind: 'workspace', workspaceId: p.workspaceId };
+  if (typeof p.sessionId === 'string' && p.sessionId) return { kind: 'session', sessionId: p.sessionId };
+  if (typeof p.conversationId === 'string' && p.conversationId) {
+    const ws = resolveConversationWorkspace(p.conversationId);
+    if (ws) return { kind: 'workspace', workspaceId: ws };
+  }
+  return { kind: 'all' };
+}
+
+// conversationId → workspaceId is immutable once a conversation exists, so a
+// forever-cache keeps the hot delta path (assistant:state) off the DB.
+const conversationWorkspaceCache = new Map<string, string>();
+function conversationWorkspace(conversationId: string): string | null {
+  const hit = conversationWorkspaceCache.get(conversationId);
+  if (hit) return hit;
+  try {
+    const ws = getConversation(conversationId)?.workspaceId ?? null;
+    if (ws) conversationWorkspaceCache.set(conversationId, ws);
+    return ws;
+  } catch {
+    return null;
+  }
+}
+
 function broadcast(event: string, payload: unknown) {
   const registry = getWindowRegistry();
-  if (SESSION_ROUTED_EVENTS.has(event)) {
+  if (isSessionRoutedEvent(event)) {
     const sessionId = (payload as { sessionId?: unknown } | null)?.sessionId;
     if (typeof sessionId === 'string') {
       registry.sendToSessionOwner(sessionId, event, payload);
       return;
     }
   }
+  const route = resolveAssistantRoute(event, payload, conversationWorkspace);
+  if (route.kind === 'workspace') {
+    registry.sendToWorkspaceOwner(route.workspaceId, event, payload);
+    return;
+  }
+  if (route.kind === 'session') {
+    registry.sendToSessionOwner(route.sessionId, event, payload);
+    return;
+  }
   registry.sendToAll(event, payload);
+}
+
+/** Pure browser-host window resolution: owner window first, then the focused
+ *  window, then the first live window. ids/focusedId/allIds are window ids;
+ *  the caller maps the result back to a BrowserWindow. */
+export function resolveBrowserHostWindowId(
+  workspaceId: string,
+  registry: { ownerWindowIdFor: (workspaceId: string) => number | null },
+  focusedWindowId: number | null,
+  allWindowIds: number[],
+): number | null {
+  const owner = registry.ownerWindowIdFor(workspaceId);
+  if (owner != null && allWindowIds.includes(owner)) return owner;
+  if (focusedWindowId != null && allWindowIds.includes(focusedWindowId)) return focusedWindowId;
+  return allWindowIds[0] ?? null;
 }
 
 function capitalize(s: string): string {
@@ -765,12 +849,20 @@ async function buildRouter() {
     }
   });
   const browserRegistry = new BrowserManagerRegistry({
-    windowProvider: () => {
-      // Prefer the focused window; fall back to the first non-destroyed one.
+    windowProvider: (workspaceId: string) => {
+      // Multi-window — mount the browser view in the window that OWNS this
+      // workspace (possibly a detached/scoped window), not just the focused one.
+      const live = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
       const focused = BrowserWindow.getFocusedWindow();
-      if (focused && !focused.isDestroyed()) return focused;
-      const all = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
-      return all[0] ?? null;
+      const hostId = resolveBrowserHostWindowId(
+        workspaceId,
+        getWindowRegistry(),
+        focused && !focused.isDestroyed() ? focused.id : null,
+        live.map((w) => w.id),
+      );
+      if (hostId == null) return null;
+      const host = BrowserWindow.fromId(hostId);
+      return host && !host.isDestroyed() ? host : (live[0] ?? null);
     },
     onState: (state) => broadcast('browser:state', state),
   });
@@ -1678,11 +1770,13 @@ async function buildRouter() {
           return null;
         }
       },
+      teardownBrowser: (workspaceId) => browserRegistry.teardown(workspaceId),
     }),
     redockWorkspace: buildRedockWorkspace({
       registry: getWindowRegistry(),
       markWorkspaceOpened,
       refreshOpenWorkspaces,
+      teardownBrowser: (workspaceId) => browserRegistry.teardown(workspaceId),
     }),
   });
 

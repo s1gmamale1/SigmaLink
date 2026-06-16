@@ -86,6 +86,18 @@ export class BrowserManager extends EventEmitter {
     this.window = win;
   }
 
+  /** Multi-window — a manager is stale once its host window is destroyed
+   *  (e.g. a scoped window the user closed). The registry rebuilds it,
+   *  re-hydrating tabs from the DB into the new owner window. */
+  isStale(): boolean {
+    if (this.detachedState) return false; // BSP-B2 popout manages its own window
+    try {
+      return this.window.isDestroyed();
+    } catch {
+      return true;
+    }
+  }
+
   /**
    * Lazily load persisted tabs from `browser_tabs`. Views are NOT created
    * here — we only build them when the user actually views a tab, so that
@@ -751,7 +763,7 @@ function buildDetachedToolbarHtml(currentUrl: string): string {
 // ─────────────────────────────────────────── registry ──
 
 interface RegistryDeps {
-  windowProvider: () => BrowserWindow | null;
+  windowProvider: (workspaceId: string) => BrowserWindow | null;
   onState: (state: BrowserState) => void;
 }
 
@@ -764,18 +776,18 @@ export class BrowserManagerRegistry {
 
   get(workspaceId: string): BrowserManager {
     let mgr = this.map.get(workspaceId);
+    if (mgr && mgr.isStale()) {
+      this.teardown(workspaceId);
+      mgr = undefined;
+    }
     if (mgr) {
-      const win = this.deps.windowProvider();
+      const win = this.deps.windowProvider(workspaceId);
       if (win) mgr.setWindow(win);
       return mgr;
     }
-    const win = this.deps.windowProvider();
+    const win = this.deps.windowProvider(workspaceId);
     if (!win) throw new Error('No active BrowserWindow for workspace ' + workspaceId);
-    mgr = new BrowserManager({
-      workspaceId,
-      window: win,
-
-    });
+    mgr = new BrowserManager({ workspaceId, window: win });
     mgr.on('state', this.deps.onState);
     this.map.set(workspaceId, mgr);
     return mgr;
