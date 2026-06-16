@@ -133,7 +133,20 @@ vi.mock('./cdp', () => ({ attachDebugger: vi.fn() }));
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { BrowserManager } from './manager';
+import { BrowserManager, BrowserManagerRegistry } from './manager';
+
+function makeFakeWindow() {
+  let destroyed = false;
+  const win = {
+    isDestroyed: () => destroyed,
+    __destroy: () => { destroyed = true; },
+    contentView: {
+      addChildView: () => {},
+      removeChildView: () => {},
+    },
+  } as unknown as import('electron').BrowserWindow & { __destroy: () => void };
+  return win;
+}
 
 function makeManager() {
   const fakeWindow = {} as unknown as import('electron').BrowserWindow;
@@ -367,5 +380,30 @@ describe('BrowserManager — closeTab soft-delete (DEV-2)', () => {
     const manager = makeManager();
     const recents = manager.listRecents();
     expect(recents.some((r) => r.url.includes('example.com'))).toBe(true);
+  });
+});
+
+describe('BrowserManagerRegistry — multi-window host resolution', () => {
+  it('passes the workspaceId to windowProvider', () => {
+    const seen: string[] = [];
+    const reg = new BrowserManagerRegistry({
+      windowProvider: (wsId: string) => { seen.push(wsId); return makeFakeWindow(); },
+      onState: () => {},
+    });
+    reg.get('ws-abc');
+    expect(seen).toContain('ws-abc');
+  });
+
+  it('tears down and rebuilds a manager whose window was destroyed', () => {
+    const win1 = makeFakeWindow();
+    const win2 = makeFakeWindow();
+    let next = win1;
+    const reg = new BrowserManagerRegistry({ windowProvider: () => next, onState: () => {} });
+    const first = reg.get('ws-1');
+    win1.__destroy();
+    next = win2;
+    const second = reg.get('ws-1');
+    expect(second).not.toBe(first);
+    expect(first.isStale()).toBe(true);
   });
 });
