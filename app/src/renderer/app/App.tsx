@@ -30,7 +30,6 @@ import { ThemeProvider } from '@/renderer/app/ThemeProvider';
 import { AppStateProvider, useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { useWorkspaceTint } from '@/renderer/app/useWorkspaceTint';
 import { getWorkspaceScope } from '@/renderer/lib/window-context';
-import { dragStyle } from '@/renderer/lib/drag-region';
 import { ROOM_LOADERS, prefetchRooms } from '@/renderer/app/room-loaders';
 // ERR-1 — app-resilience layer: a root boundary so a render throw anywhere
 // no longer blanks the window, plus per-room boundaries so one crashing room
