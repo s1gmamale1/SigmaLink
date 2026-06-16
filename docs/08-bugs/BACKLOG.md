@@ -288,8 +288,8 @@
 ### EV/OV Authenticode certificate — **OFF-ROADMAP (internal use only)**
 - SigmaLink is not publicly distributed. SmartScreen workaround in `app/build/nsis/README — First launch.txt` + PowerShell installer `Unblock-File` flow are canonical for internal users.
 
-### Linux AppImage / .deb — **WONTFIX (2026-05-16)**
-- Closed as wontfix per user decision. SigmaLink ships macOS arm64 + Windows x64 only. `electron-builder.yml` still has a `linux:` target block for local-build completeness, but no CI, no smoke, no docs.
+### ~~Linux AppImage / .deb — WONTFIX (2026-05-16)~~ — **PROMOTED (2026-06-16)**
+- Reopened from WONTFIX to the full Linux support track — [ROADMAP Phase 17](../../ROADMAP.md) + ADR-010. Plan: [`../../app/docs/superpowers/plans/2026-06-16-full-linux-support.md`](../../app/docs/superpowers/plans/2026-06-16-full-linux-support.md). Ubuntu 22.04/24.04 x64 AppImage + deb, one-line `.deb` installer, manual update UX, CI release (`release-linux.yml`) + Xvfb smoke + product-check gates. Non-goals retained: snap/flatpak/rpm/arm64, auto-apply updates, Wayland paste.
 
 ### Microsoft Store / WinGet distribution — **OFF-ROADMAP (internal use only)**
 - Not publicly distributed; storefront submission off-roadmap.

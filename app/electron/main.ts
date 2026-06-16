@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { startShellPathBootstrap } from '../src/main/core/util/shell-path';
+import { linuxToolPathCandidates, mergePathEntries } from '../src/main/core/util/linux-path';
 import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeImage, clipboard } from 'electron';
 import { buildGlobalCaptureController, getWhisperEngine, type GlobalCaptureController } from '@sigmalink/voice-core';
 import { registerRouter, shutdownRouter, getSharedDeps, setSecondaryWindowFactory } from '../src/main/rpc-router';
@@ -433,7 +434,8 @@ export function bootstrapNodeToolPath(): void {
   if (process.platform === 'darwin') {
     candidates.push('/opt/homebrew/bin', '/usr/local/bin');
   } else if (process.platform === 'linux') {
-    candidates.push('/usr/local/bin');
+    process.env.PATH = mergePathEntries(linuxToolPathCandidates(home), process.env.PATH ?? '');
+    return;
   }
 
   // Volta — single bin dir, all shims live there.

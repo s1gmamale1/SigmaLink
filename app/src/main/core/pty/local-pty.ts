@@ -129,8 +129,23 @@ export function defaultShell(env: NodeJS.ProcessEnv = process.env): { command: s
     const sh = env.SHELL ?? '/bin/zsh';
     return { command: sh, args: ['-l'] };
   }
-  const sh = env.SHELL ?? '/bin/bash';
+  // Linux: only honour env.SHELL when it is a POSIX login shell (sh, bash,
+  // zsh, dash, ksh). Exotic shells like fish do not accept `-l` and will fail
+  // to source /etc/profile.d on session start, so fall back to bash.
+  const sh = isPosixLoginShell(env.SHELL) ? env.SHELL : '/bin/bash';
   return { command: sh, args: ['-l'] };
+}
+
+/**
+ * Return true when shellPath resolves to a POSIX login-compatible shell
+ * (sh, bash, zsh, dash, or ksh). Used on Linux to guard against non-login
+ * shells (e.g. fish) that do not support the `-l` flag and would fail to
+ * source /etc/profile.d on session start.
+ */
+function isPosixLoginShell(shellPath: string | undefined): shellPath is string {
+  if (!shellPath) return false;
+  const base = path.basename(shellPath).toLowerCase();
+  return base === 'sh' || base === 'bash' || base === 'zsh' || base === 'dash' || base === 'ksh';
 }
 
 /**

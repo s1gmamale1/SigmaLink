@@ -13,6 +13,7 @@ const KV_LAST_CHECK = 'updates.lastCheckTimestamp';
 
 let configured = false;
 let macDmgPath: string | null = null;
+let linuxDownloadPath: string | null = null;
 let pendingVersion: string | null = null;
 
 function kvGet(key: string): string | null {
@@ -63,6 +64,12 @@ function resolveMacDmgUrl(info: UpdateInfo, fileUrl: string): string {
   }
 }
 
+function resolveLinuxAppImageUrl(info: UpdateInfo): { url: string; name: string } | null {
+  const file = info.files.find((f) => f.url.endsWith('.AppImage'));
+  if (!file) return null;
+  return { url: resolveMacDmgUrl(info, file.url), name: file.url };
+}
+
 function configureUpdater(): void {
   if (configured) return;
   configured = true;
@@ -100,6 +107,28 @@ function configureUpdater(): void {
     } else if (process.platform === 'win32') {
       // Windows: Proceed with standard download (signature check bypassed in electron-builder.yml)
       autoUpdater.downloadUpdate().catch(err => {
+        broadcast('app:update-error', { error: err.message });
+      });
+    } else if (process.platform === 'linux') {
+      // Linux: download AppImage manually; no auto-installer, user replaces it themselves
+      const appImage = resolveLinuxAppImageUrl(info);
+      if (!appImage) {
+        broadcast('app:update-error', { error: 'No AppImage found in release manifest' });
+        return;
+      }
+      const dest = path.join(app.getPath('downloads'), appImage.name);
+      linuxDownloadPath = dest;
+      let cumulative = 0;
+      httpDownload(
+        appImage.url,
+        dest,
+        (delta, total) => {
+          cumulative += delta;
+          broadcast('app:update-linux-progress', { version: info.version, downloaded: cumulative, total });
+        }
+      ).then(() => {
+        broadcast('app:update-linux-ready', { version: info.version, path: dest });
+      }).catch(err => {
         broadcast('app:update-error', { error: err.message });
       });
     }
@@ -179,6 +208,11 @@ export async function quitAndInstallImpl(): Promise<void> {
     }
     await shell.openPath(macDmgPath);
     app.quit();
+  } else if (process.platform === 'linux') {
+    if (!linuxDownloadPath) {
+      throw new Error('No Linux download available. Check for updates first.');
+    }
+    await shell.showItemInFolder(linuxDownloadPath);
   } else {
     throw new Error(`Auto-install is not supported on ${process.platform}`);
   }

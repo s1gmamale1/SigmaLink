@@ -22,6 +22,8 @@ _(consciously NOT built — each is a separate track or a non-goal, not a gap)_
 
 _(real upgrades to build once the current system is production-grade)_
 
+- ~~**[linux] full Ubuntu (x64) support track**~~ → **promoted to [ROADMAP.md](ROADMAP.md) Phase 17 — Full Linux support** (2026-06-16). Was BACKLOG WONTFIX (2026-05-16); reopened via the codex plan `app/docs/superpowers/plans/2026-06-16-full-linux-support.md`. AppImage + deb (x64), one-line `.deb` installer, manual update UX, CI release+smoke gates; thin testable per-seam branches keep mac/win byte-identical. Non-goals: snap/flatpak/rpm/arm64, auto-apply updates, Wayland paste (ADR-010).
+
 - **[pane-lifecycle] automatic idle suspend for completed agents** — park idle/completed panes by preserving scrollback/session metadata and killing the live process tree. Build after the shared Ruflo HTTP and explicit lazy-resume path is stable, because automatic suspension needs clear pinned/keep-alive semantics.
 - **[pane-lifecycle] pinned keep-alive policy for remote/autopilot agents** — mark panes that must never be parked by idle cleanup, especially Telegram/remote/autopilot lanes. Build when idle suspend is implemented.
 - **[pane-lifecycle] Pane Hibernate: pause/resume-like RAM offload for inactive finished panes** — make the current "inactive/blurred/resuming" pane concept into a real memory feature: keep the pane visible as a cheap frozen shell, but stop the provider/MCP process tree so idle Claude/Codex panes no longer keep 300 MB-1 GB resident.

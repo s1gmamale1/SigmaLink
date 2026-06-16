@@ -142,6 +142,29 @@ export function UpdatesTab() {
       }),
     );
 
+    offs.push(
+      onEvent<{ version?: string; downloaded?: number; total?: number }>(
+        'app:update-linux-progress',
+        (payload) => {
+          const p = payload as { version?: string; downloaded?: number; total?: number };
+          setState('downloading');
+          if (p.version) setUpdateVersion(p.version);
+          setProgress({
+            downloaded: Number.isFinite(p.downloaded) ? Number(p.downloaded) : 0,
+            total: Number.isFinite(p.total) ? Number(p.total) : 0,
+          });
+        },
+      ),
+    );
+
+    offs.push(
+      onEvent<{ version?: string; path?: string }>('app:update-linux-ready', (payload) => {
+        const p = payload as { version?: string; path?: string };
+        setState('ready');
+        if (p.version) setUpdateVersion(p.version);
+      }),
+    );
+
     return () => {
       offs.forEach((off) => off());
     };
@@ -298,6 +321,11 @@ export function UpdatesTab() {
                     <ExternalLink className="h-3.5 w-3.5" />
                     Quit & Install
                   </Button>
+                ) : platform === 'linux' ? (
+                  <Button type="button" size="sm" onClick={() => void onInstall()} className="gap-1">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Open download
+                  </Button>
                 ) : (
                   <Button type="button" size="sm" disabled>
                     Unsupported platform
@@ -310,6 +338,11 @@ export function UpdatesTab() {
               {platform === 'darwin' && (
                 <div className="text-[11px] text-muted-foreground">
                   The DMG will open in Finder. Drag SigmaLink to Applications to complete the update.
+                </div>
+              )}
+              {platform === 'linux' && (
+                <div className="text-[11px] text-muted-foreground">
+                  Linux update downloaded. Replace your AppImage manually or install the new .deb from GitHub Releases.
                 </div>
               )}
             </div>

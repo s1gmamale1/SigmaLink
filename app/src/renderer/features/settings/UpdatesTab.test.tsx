@@ -20,11 +20,13 @@ vi.mock('sonner', () => ({
   },
 }));
 
+const platformMock = { value: 'darwin' };
+
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
     app: {
       getVersion: vi.fn().mockResolvedValue('1.2.3'),
-      getPlatform: vi.fn().mockResolvedValue('darwin'),
+      getPlatform: vi.fn().mockImplementation(() => Promise.resolve(platformMock.value)),
       checkForUpdates: vi.fn().mockResolvedValue({ ok: true, version: '1.2.4' }),
       quitAndInstall: vi.fn().mockResolvedValue(undefined),
     },
@@ -55,6 +57,7 @@ describe('<UpdatesTab />', () => {
     mocks.toastSuccess.mockClear();
     mocks.toastError.mockClear();
     mocks.kvGet.mockClear();
+    platformMock.value = 'darwin';
   });
 
   afterEach(() => {
@@ -121,5 +124,22 @@ describe('<UpdatesTab />', () => {
 
     // Retry button should NOT be present when isUacDenied
     expect(screen.queryByText('Retry')).toBeNull();
+  });
+
+  it('shows Linux manual install copy when an update is ready', async () => {
+    platformMock.value = 'linux';
+    render(<UpdatesTab />);
+    await screen.findByRole('button', { name: /check for updates/i });
+
+    emit('app:update-available', { version: '9.9.9' });
+    emit('app:update-linux-ready', {
+      version: '9.9.9',
+      path: '/home/user/Downloads/SigmaLink-9.9.9.AppImage',
+    });
+
+    expect(await screen.findByText(/Linux update downloaded/i)).toBeTruthy();
+    const openBtn = screen.getByRole('button', { name: /open download/i });
+    expect(openBtn).toBeTruthy();
+    expect((openBtn as HTMLButtonElement).disabled).toBe(false);
   });
 });

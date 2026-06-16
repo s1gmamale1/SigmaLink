@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { buildCimPsArgs, buildTaskkillArgs, parseCimProcessRows } from './process-list-win32';
+import { parseLinuxPsRows } from './process-list-linux';
 
 export interface ProcessTreeNode {
   pid: number;
@@ -32,7 +33,7 @@ function defaultExec(command: string, args: string[]): string {
 }
 
 function platformSupported(platform: NodeJS.Platform): boolean {
-  return platform === 'darwin' || platform === 'win32';
+  return platform === 'darwin' || platform === 'win32' || platform === 'linux';
 }
 
 export function emptySnapshot(rootPid: number, supported: boolean): ProcessTreeSnapshot {
@@ -105,7 +106,7 @@ export interface ProcessListResult {
  * is the kill-path equivalent — keep the `(deps?) => ProcessListResult`
  * signature and add NO caching here.
  *
- * darwin: `ps -axo` (kilobyte rss → bytes). win32: PowerShell CIM
+ * darwin/linux: `ps -axo` (kilobyte rss → bytes). win32: PowerShell CIM
  * (`Get-CimInstance Win32_Process`, byte WorkingSetSize; wmic-free — wmic is
  * deprecated/removed on Win11). Other platforms: unsupported (status quo).
  * Exec failure ⇒ `{ supported: true, rows: [] }` so callers keep their
@@ -118,6 +119,9 @@ export function listProcessRows(deps: ProcessTreeDeps = {}): ProcessListResult {
   try {
     if (platform === 'win32') {
       return { supported: true, rows: parseCimProcessRows(exec('powershell.exe', buildCimPsArgs())) };
+    }
+    if (platform === 'linux') {
+      return { supported: true, rows: parseLinuxPsRows(exec('ps', ['-axo', 'pid=,ppid=,rss=,comm=,args='])) };
     }
     const out = exec('ps', ['-axo', 'pid=,ppid=,rss=,comm=,args=']);
     return {

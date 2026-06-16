@@ -957,3 +957,21 @@ describe('defaultShell', () => {
     });
   });
 });
+
+describe('defaultShell on linux', () => {
+  const originalPlatform = process.platform;
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
+
+  it('uses SHELL when it is POSIX-compatible', () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    expect(defaultShell({ SHELL: '/usr/bin/zsh' })).toEqual({ command: '/usr/bin/zsh', args: ['-l'] });
+  });
+
+  it('falls back to bash when SHELL is fish', () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    expect(defaultShell({ SHELL: '/usr/bin/fish' })).toEqual({ command: '/bin/bash', args: ['-l'] });
+  });
+});
