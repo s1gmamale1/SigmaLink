@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAssistantRoute, resolveBrowserHostWindowId } from './rpc-router';
+import { resolveAssistantRoute, resolveBrowserHostWindowId, isSessionRoutedEvent } from './rpc-router';
 
 describe('resolveAssistantRoute', () => {
   const convWs = (id: string) => (id === 'c-owned' ? 'ws-conv' : null);
@@ -30,6 +30,21 @@ describe('resolveAssistantRoute', () => {
     expect(resolveAssistantRoute('assistant:state', {}, convWs)).toEqual({ kind: 'all' });
     expect(resolveAssistantRoute('memory:changed', { workspaceId: 'ws-1' }, convWs)).toEqual({ kind: 'all' });
     expect(resolveAssistantRoute('assistant:state', null, convWs)).toEqual({ kind: 'all' });
+  });
+});
+
+describe('isSessionRoutedEvent', () => {
+  it('keeps pty:* AND agent:attention session-routed (regression: agent-attention must reach only the owning window)', () => {
+    expect(isSessionRoutedEvent('pty:data')).toBe(true);
+    expect(isSessionRoutedEvent('pty:exit')).toBe(true);
+    expect(isSessionRoutedEvent('pty:error')).toBe(true);
+    expect(isSessionRoutedEvent('pty:link-detected')).toBe(true);
+    expect(isSessionRoutedEvent('agent:attention')).toBe(true);
+  });
+  it('does not session-route workspace-routed or unrelated events', () => {
+    expect(isSessionRoutedEvent('assistant:state')).toBe(false);
+    expect(isSessionRoutedEvent('browser:state')).toBe(false);
+    expect(isSessionRoutedEvent('memory:changed')).toBe(false);
   });
 });
 

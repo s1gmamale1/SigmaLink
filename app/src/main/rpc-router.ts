@@ -236,7 +236,20 @@ const requireCJS = createRequire(import.meta.url);
 
 /** Events whose payload carries a sessionId and should only reach the
  *  window owning that session's workspace. Everything else broadcasts. */
-const SESSION_ROUTED_EVENTS = new Set(['pty:data', 'pty:exit', 'pty:error', 'pty:link-detected']);
+const SESSION_ROUTED_EVENTS = new Set([
+  'pty:data',
+  'pty:exit',
+  'pty:error',
+  'pty:link-detected',
+  'agent:attention', // route to the owning window (detached-window safe)
+]);
+
+/** Test seam — does this event route to its session's owner window? Keeps the
+ *  SESSION_ROUTED_EVENTS set private while letting a regression test assert
+ *  membership (so multi-window event-routing edits can't silently drop one). */
+export function isSessionRoutedEvent(event: string): boolean {
+  return SESSION_ROUTED_EVENTS.has(event);
+}
 
 /** Multi-window — assistant/browser events that must reach only the window
  *  owning the relevant workspace, so a popped-out window's Jorvis/browser
@@ -292,7 +305,7 @@ function conversationWorkspace(conversationId: string): string | null {
 
 function broadcast(event: string, payload: unknown) {
   const registry = getWindowRegistry();
-  if (SESSION_ROUTED_EVENTS.has(event)) {
+  if (isSessionRoutedEvent(event)) {
     const sessionId = (payload as { sessionId?: unknown } | null)?.sessionId;
     if (typeof sessionId === 'string') {
       registry.sendToSessionOwner(sessionId, event, payload);
