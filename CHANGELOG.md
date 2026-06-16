@@ -2,6 +2,18 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.7.1] — 2026-06-17
+
+**v2.7.1 makes the flat near-black `obsidian` theme the default, replacing the translucent `glass` look.**
+
+### Changed — default theme is now `obsidian` (#178)
+
+New installs (and profiles that never picked a theme) now open in the flat near-black **`obsidian`** theme instead of the Liquid-Glass `glass` default introduced in v1.21.0 — matching the flat command-room aesthetic. `obsidian` already mirrors the CSS `:root` base tokens, so first paint and post-hydration agree (no theme flash). **Existing users keep their selected theme** — the per-user kv preference overrides the default — and all 15 themes (including `glass`) remain available in Settings → Theme. One-line change in `renderer/lib/themes.ts`, with the `DEFAULT_THEME` unit and `BUG-W7-003` e2e assertions updated to match.
+
+### Verification
+
+Full CI gate green on #178 (`shellcheck` · `lint + build (macos)` · `smoke (macos-14)` · `smoke (windows-latest)`).
+
 ## [2.7.0] — 2026-06-16
 
 **v2.7.0 adds pane auto-labeling and brings the tool surfaces (Browser, Jorvis, the rest of the right-rail) into popped-out workspace windows.**
