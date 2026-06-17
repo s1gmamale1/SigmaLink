@@ -372,6 +372,16 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'usage.weekSummary',
   // P6 FEAT-5 — MCP config diagnostics
   'mcp.diagnoseWorkspace',
+  // External Control MCP — operator-facing RPC surface (enable/disable/freeze/
+  // token rotation/connect command/escalation response).
+  'control.status',
+  'control.enable',
+  'control.disable',
+  'control.freeze',
+  'control.unfreeze',
+  'control.rotateToken',
+  'control.connectCommand',
+  'control.respondEscalation',
 ]);
 
 /**

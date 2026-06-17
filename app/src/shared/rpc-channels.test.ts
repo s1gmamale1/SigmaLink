@@ -300,6 +300,15 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'usage.sessionSummary',     // P6 FEAT-3 — per-pane usage/cost
   'usage.weekSummary',        // P6 FEAT-3 — per-pane usage/cost
   'mcp.diagnoseWorkspace',    // P6 FEAT-5 — MCP config diagnostics
+  // control (buildControlController) — External Control MCP operator surface
+  'control.status',
+  'control.enable',
+  'control.disable',
+  'control.freeze',
+  'control.unfreeze',
+  'control.rotateToken',
+  'control.connectCommand',
+  'control.respondEscalation',
 ];
 
 // ------------------------------------------------------------------

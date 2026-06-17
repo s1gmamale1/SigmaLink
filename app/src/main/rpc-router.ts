@@ -120,6 +120,7 @@ import { ControlMcpHost, type ExternalToolInvoker } from './core/control/control
 import { ExternalEscalator } from './core/control/escalation';
 import { PromptSink } from './core/pty/prompt-sink';
 import { isControlEnabled, isControlFrozen, ensureBearerToken, controlSocketPath } from './core/control/control-config';
+import { buildControlController } from './core/control/control-rpc';
 import { JORVIS_TOOL_CATALOGUE } from './core/assistant/tool-catalogue';
 import {
   buildConversationsHandlers,
@@ -921,6 +922,7 @@ async function buildRouter() {
     'electron-dist',
     'mcp-jorvis-host-server.cjs',
   );
+  const controlServerEntry = path.join(app.getAppPath(), 'electron-dist', 'mcp-sigma-control-server.cjs');
   const memoryManager = new MemoryManager({
     emit: (event) => broadcast('memory:changed', event),
     resolveMcpCommand: (workspaceId) => {
@@ -2601,6 +2603,17 @@ async function buildRouter() {
     telegram: telegramCtl,
     usage: usageCtl,
     mcp: mcpCtl,
+    control: buildControlController({
+      kv: controlKv,
+      credentials: CredentialStore,
+      socketPath: controlMcpHost.getSocketPath(),
+      serverEntry: controlServerEntry,
+      start: () => controlMcpHost.start(),
+      stop: () => controlMcpHost.stop(),
+      liveConnections: () => controlMcpHost.liveConnectionCount(),
+      setBearer: (t) => { controlBearer = t; },
+      respondEscalation: (id, approved) => controlEscalator.resolve(id, approved),
+    }),
   });
 }
 
