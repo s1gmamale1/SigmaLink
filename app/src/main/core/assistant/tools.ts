@@ -60,7 +60,7 @@ export interface ToolContext {
    * tool runs. Defaults to `'local'` everywhere so every existing caller keeps
    * working without change.
    */
-  origin?: 'local' | 'telegram';
+  origin?: 'local' | 'telegram' | 'external';
   /**
    * R-1 — confirm-on-dangerous hook. Supplied by the remote bridge so the
    * authorization gate can ask the human operator to approve a dangerous tool

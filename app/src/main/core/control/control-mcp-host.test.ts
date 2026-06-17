@@ -56,9 +56,9 @@ describe('ControlMcpHost', () => {
     expect(hi.result.ok).toBe(true);
     const res = await rpc(c, { jsonrpc: '2.0', id: 2, method: 'tools.invoke', params: { name: 'read_pane', args: { sessionId: 's1' } } });
     expect(res.result).toEqual({ ok: true, result: { screen: 'hi' } });
-    const call = invoke.mock.calls[0][0];
-    expect(call.origin).toBe('external');
-    expect(typeof call.confirmDangerous).toBe('function');
+    const call = (invoke.mock.calls as unknown as Array<Array<{ origin: string; confirmDangerous: unknown }>>)[0]?.[0];
+    expect(call?.origin).toBe('external');
+    expect(typeof call?.confirmDangerous).toBe('function');
     c.destroy(); host.stop();
   });
 

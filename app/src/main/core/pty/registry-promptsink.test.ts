@@ -67,7 +67,7 @@ function makeControllablePty(pid: number = FAKE_PID) {
     killCalls: 0,
     write: () => undefined,
     resize: () => undefined,
-    kill() { this.killCalls += 1; },
+    kill(this: { killCalls: number }) { this.killCalls += 1; },
     onData(cb: (d: string) => void) {
       dataHandler = cb;
       return () => undefined;
