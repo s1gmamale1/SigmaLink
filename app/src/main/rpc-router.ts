@@ -275,6 +275,14 @@ const WORKSPACE_ROUTED_ASSISTANT_EVENTS = new Set([
   'assistant:pane-event',
   'assistant:pane-closed',
   'browser:state',
+  // Phase-2 external control — NON-IDEMPOTENT side effects that must fire in
+  // exactly ONE window (never broadcast to all, or N windows double-execute):
+  // split (creates a sub-pane), detach/redock (creates/moves a window),
+  // swarm-message (sends a message). Routed by sessionId (split) or workspaceId.
+  'assistant:split-pane',
+  'assistant:detach-window',
+  'assistant:redock-window',
+  'assistant:swarm-message',
 ]);
 
 export type AssistantRoute =

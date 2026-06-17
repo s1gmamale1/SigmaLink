@@ -1146,7 +1146,10 @@ export const TOOLS: ToolDefinition[] = [
     },
     sSplitPane,
     async (a, ctx) => {
-      ctx.emit?.('assistant:split-pane', { paneId: a.paneId, direction: a.direction, provider: a.provider });
+      // sessionId mirrors paneId so broadcast() routes this to the parent pane's
+      // OWNER window only — split_pane is non-idempotent (creates a sub-pane), so
+      // it must fire in exactly one window, never broadcast to all.
+      ctx.emit?.('assistant:split-pane', { paneId: a.paneId, sessionId: a.paneId, direction: a.direction, provider: a.provider });
       return { ok: true, paneId: a.paneId };
     },
   ),
