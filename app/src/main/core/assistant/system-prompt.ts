@@ -44,6 +44,12 @@ result back as a tool_result):
                       Search the memory hub for matching notes.
   broadcast_to_swarm  { swarmId, body }
                       Send a broadcast message to every agent in a swarm.
+  send_message_to_agent { swarmId, toAgent, body, kind? }
+                      Direct-message ONE agent in a swarm (targeted DM).
+  resume_swarm        { swarmId }
+                      Resume a failed/paused swarm.
+  kill_swarm          { swarmId }
+                      End a swarm + stop its panes. Destructive — operator approval.
   roll_call           { swarmId?, workspaceId? }
                       Send ROLLCALL to one swarm (or every swarm in workspace).
   list_active_sessions { workspaceId? }

@@ -89,7 +89,7 @@ describe('DANGEROUS_REMOTE contract', () => {
     // remote (telegram) origin is at least as destructive as close_pane, so it
     // must clear the confirmation gate too. Additive change (the comment in
     // tools.ts permits adding members; removing/renaming would break the lane).
-    expect([...DANGEROUS_REMOTE].sort()).toEqual(['close_pane', 'close_workspace', 'prompt_agent']);
+    expect([...DANGEROUS_REMOTE].sort()).toEqual(['close_pane', 'close_workspace', 'kill_swarm', 'prompt_agent']);
   });
 
   it('close_pane is gated (kills a pane — strictly more destructive than prompt_agent)', () => {

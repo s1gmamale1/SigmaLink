@@ -28,9 +28,10 @@ export const AGENT_PROVIDERS: ReadonlySet<string> = new Set([
 
 /** Irreversible / high-blast-radius tools — always escalate to the operator. */
 export const EXTERNAL_ESCALATE_TOOLS: ReadonlySet<string> = new Set([
+  'browser_navigate',
   'close_pane',
   'close_workspace',
-  'browser_navigate',
+  'kill_swarm',
 ]);
 
 /** Tools whose danger depends on the TARGET pane's provider (agent vs shell). */

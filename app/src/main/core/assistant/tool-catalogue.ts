@@ -372,6 +372,38 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
       properties: { workspaceId: { type: 'string' } },
     },
   },
+  {
+    name: 'send_message_to_agent',
+    description: 'Send a direct message to ONE agent in a swarm (targeted, unlike broadcast_to_swarm).',
+    inputSchema: {
+      type: 'object',
+      required: ['swarmId', 'toAgent', 'body'],
+      properties: {
+        swarmId: { type: 'string' },
+        toAgent: { type: 'string' },
+        body: { type: 'string' },
+        kind: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'resume_swarm',
+    description: 'Resume a failed/paused swarm so its agents can run again.',
+    inputSchema: {
+      type: 'object',
+      required: ['swarmId'],
+      properties: { swarmId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'kill_swarm',
+    description: 'End a swarm and stop all its agent panes. Destructive — requires operator approval.',
+    inputSchema: {
+      type: 'object',
+      required: ['swarmId'],
+      properties: { swarmId: { type: 'string' } },
+    },
+  },
   // BSP-B3 — agent-drivable browser tools (read-only, default-OFF).
   // Must be enabled via Settings → Browser (KV key: browser.agentDriving).
   {

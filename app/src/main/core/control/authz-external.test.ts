@@ -20,8 +20,8 @@ describe('classifyExternal', () => {
     }
   });
 
-  it('close_pane / close_workspace / browser_navigate escalate', () => {
-    for (const id of ['close_pane', 'close_workspace', 'browser_navigate']) {
+  it('close_pane / close_workspace / browser_navigate / kill_swarm escalate', () => {
+    for (const id of ['close_pane', 'close_workspace', 'browser_navigate', 'kill_swarm']) {
       expect(classifyExternal({ toolId: id, targetProvider: null, killSwitch: false }), id).toBe('escalate');
     }
   });
@@ -39,7 +39,7 @@ describe('classifyExternal', () => {
   });
 
   it('escalate/gated/agent sets have exactly the expected members', () => {
-    expect([...EXTERNAL_ESCALATE_TOOLS].sort()).toEqual(['browser_navigate', 'close_pane', 'close_workspace']);
+    expect([...EXTERNAL_ESCALATE_TOOLS].sort()).toEqual(['browser_navigate', 'close_pane', 'close_workspace', 'kill_swarm']);
     expect([...PROVIDER_GATED_TOOLS].sort()).toEqual(['prompt_agent', 'send_keys']);
     expect([...AGENT_PROVIDERS].sort()).toEqual(['claude', 'codex', 'gemini', 'kimi', 'opencode']);
   });
@@ -85,6 +85,9 @@ describe('classifyExternal', () => {
     rename_workspace: 'free',
     detach_window: 'free',
     redock_window: 'free',
+    send_message_to_agent: 'free',
+    resume_swarm: 'free',
+    kill_swarm: 'escalate',
   };
 
   it('every externally-exposed catalogue tool has a pinned, intended verdict', () => {
@@ -96,6 +99,10 @@ describe('classifyExternal', () => {
       ).toBeDefined();
       expect(classifyExternal({ toolId: entry.name, targetProvider: null, killSwitch: false }), entry.name).toBe(expected);
     }
+  });
+
+  it('kill_swarm escalates (destructive — ends a swarm and all its panes)', () => {
+    expect(classifyExternal({ toolId: 'kill_swarm', targetProvider: null, killSwitch: false })).toBe('escalate');
   });
 
   it('has no stale pinned verdicts (every pinned tool still exists in the catalogue)', () => {

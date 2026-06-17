@@ -284,6 +284,67 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, []);
 
+  // Jorvis send_message_to_agent → send a targeted DM to one agent in a swarm.
+  // Mirrors SideChat's send path: rpc.swarms.sendMessage({ swarmId, toAgent, body, kind }).
+  // The workspaceId field in the payload is routing-only (used by WORKSPACE_ROUTED_ASSISTANT_EVENTS);
+  // ignore it here.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:swarm-message', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { swarmId?: unknown; toAgent?: unknown; body?: unknown; kind?: unknown };
+      if (typeof p.swarmId !== 'string') return;
+      if (typeof p.toAgent !== 'string') return;
+      if (typeof p.body !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.swarms.sendMessage({
+            swarmId: p.swarmId as string,
+            toAgent: p.toAgent as string,
+            body: p.body as string,
+            kind: typeof p.kind === 'string' ? p.kind : 'OPERATOR',
+          });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, []);
+
+  // Jorvis resume_swarm → resume a failed/paused swarm.
+  // Mirrors AddPaneButton's auto-resume: rpc.swarms.resume(swarmId). After the
+  // heal, refresh the full swarm list for the active workspace so SET_SWARMS
+  // reflects the updated status (we don't have the full swarm object here to
+  // do an optimistic UPSERT_SWARM spread like AddPaneButton does).
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:resume-swarm', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { swarmId?: unknown };
+      if (typeof p.swarmId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.swarms.resume(p.swarmId as string);
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, []);
+
+  // Jorvis kill_swarm → end a swarm and stop all its agent panes.
+  // Mirrors SwarmRoom's killActive: rpc.swarms.kill(swarmId) + MARK_SWARM_ENDED.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:kill-swarm', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { swarmId?: unknown };
+      if (typeof p.swarmId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.swarms.kill(p.swarmId as string);
+          dispatch({ type: 'MARK_SWARM_ENDED', id: p.swarmId as string });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
   // v1.13.2 — Listen for PTY crash. The main process emits a DISTINCT
   // `pty:error` event for runtime / fast crashes (contract:
   // `{ sessionId: string; exitCode: number | null; signal?: string | null }`).
