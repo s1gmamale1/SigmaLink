@@ -282,6 +282,24 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
       properties: { sessionId: { type: 'string' }, label: { type: 'string' } },
     },
   },
+  {
+    name: 'open_workspace',
+    description: 'Open a workspace by its root folder path (use list_workspaces to get the new id afterward).',
+    inputSchema: {
+      type: 'object',
+      required: ['root'],
+      properties: { root: { type: 'string' } },
+    },
+  },
+  {
+    name: 'close_workspace',
+    description: 'Close an open workspace by id (stops its panes). Destructive — escalates to the operator.',
+    inputSchema: {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+  },
   // BSP-B3 — agent-drivable browser tools (read-only, default-OFF).
   // Must be enabled via Settings → Browser (KV key: browser.agentDriving).
   {

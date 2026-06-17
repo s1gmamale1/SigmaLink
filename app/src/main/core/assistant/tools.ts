@@ -254,6 +254,8 @@ const sClosePane = z.object({ sessionId: z.string().min(1) });
 const sSwitchWorkspace = z.object({ workspaceId: z.string().min(1) });
 const sFocusPane = z.object({ sessionId: z.string().min(1), fullscreen: z.boolean().optional() });
 const sSetPaneLabel = z.object({ sessionId: z.string().min(1), label: z.string().min(1).max(80) });
+const sOpenWorkspace = z.object({ root: z.string().min(1) });
+const sCloseWorkspace = z.object({ workspaceId: z.string().min(1) });
 // BSP-B3 — browser agent tool schemas.
 const sBrowserNavigate = z.object({
   url: z.string().min(1),
@@ -1078,6 +1080,22 @@ export const TOOLS: ToolDefinition[] = [
       return { ok: true, sessionId: a.sessionId, label: a.label };
     },
   ),
+  T(
+    'open_workspace',
+    'Open workspace',
+    'Open a workspace by its root folder path (use list_workspaces to get the new id afterward).',
+    { type: 'object', required: ['root'], properties: { root: { type: 'string' } } },
+    sOpenWorkspace,
+    async (a, ctx) => { ctx.emit?.('assistant:open-workspace', { root: a.root }); return { ok: true, root: a.root }; },
+  ),
+  T(
+    'close_workspace',
+    'Close workspace',
+    'Close an open workspace by id (stops its panes). Destructive — escalates to the operator.',
+    { type: 'object', required: ['workspaceId'], properties: { workspaceId: { type: 'string' } } },
+    sCloseWorkspace,
+    async (a, ctx) => { ctx.emit?.('assistant:close-workspace', { workspaceId: a.workspaceId }); return { ok: true, workspaceId: a.workspaceId }; },
+  ),
   // ── BSP-B3 Agent-drivable browser tools (default-OFF, read-only) ──────────
   //
   // These three tools give Jorvis headless-browser capability that is:
@@ -1236,7 +1254,7 @@ const TOOL_ALIASES: Record<string, string> = {
  * Telegram-bridge lane. Adding members is additive/safe; do not rename or
  * remove existing ones without coordinating.
  */
-export const DANGEROUS_REMOTE = new Set<string>(['prompt_agent', 'close_pane']);
+export const DANGEROUS_REMOTE = new Set<string>(['prompt_agent', 'close_pane', 'close_workspace']);
 
 /**
  * R-1 — produce a short, human-readable one-liner describing a tool call, for

@@ -62,6 +62,10 @@ result back as a tool_result):
                       Focus a pane (optionally fullscreen it) in the Command Room.
   set_pane_label      { sessionId, label }
                       Set a pane's display name (persisted + live title refresh).
+  open_workspace      { root }
+                      Open a workspace by its root folder path (call list_workspaces after to get its id).
+  close_workspace     { workspaceId }
+                      Close an open workspace by id (stops its panes). Destructive — requires operator approval.
 
 Agent browser tools (default OFF — enable in Settings → Browser):
   browser_navigate    { url, workspaceId? }

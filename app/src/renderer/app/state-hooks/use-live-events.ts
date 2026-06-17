@@ -95,6 +95,38 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, [dispatch]);
 
+  // Jorvis open_workspace → open the workspace + add it to the rail.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:open-workspace', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { root?: unknown };
+      if (typeof p.root !== 'string') return;
+      void (async () => {
+        try {
+          const ws = await rpc.workspaces.open(p.root as string);
+          dispatch({ type: 'WORKSPACE_OPEN', workspace: ws });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis close_workspace → remove the workspace + drop it from the rail.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:close-workspace', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown };
+      if (typeof p.workspaceId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.workspaces.remove(p.workspaceId as string);
+          dispatch({ type: 'WORKSPACE_CLOSE', workspaceId: p.workspaceId as string });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
   // Jorvis focus_pane → set active session and optionally fullscreen it.
   useEffect(() => {
     const off = window.sigma.eventOn('assistant:focus-pane', (raw: unknown) => {

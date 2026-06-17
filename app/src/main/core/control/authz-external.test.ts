@@ -75,6 +75,8 @@ describe('classifyExternal', () => {
     switch_workspace: 'free',
     focus_pane: 'free',
     set_pane_label: 'free',
+    open_workspace: 'free',
+    close_workspace: 'escalate',
   };
 
   it('every externally-exposed catalogue tool has a pinned, intended verdict', () => {
