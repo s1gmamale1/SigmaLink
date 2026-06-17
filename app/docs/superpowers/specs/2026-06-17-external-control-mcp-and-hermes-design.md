@@ -80,11 +80,12 @@ Confirmed by codebase research (2026-06-17). All file:line references are entry 
 
 ```
 External AI (external Claude Code / Hermes / OpenClaw)
-   │  claude mcp add --transport http sigmalink http://127.0.0.1:<port>/mcp -H "Authorization: Bearer <token>"
-   ▼
+   │  claude mcp add sigmalink -- node <appResources>/mcp-sigma-control-server.cjs   (token via env)
+   ▼  (client spawns+owns the stdio bridge; it connects to main's control socket)
 ┌────────────────────────── SigmaLink main process ──────────────────────────┐
-│ (1) Sigma Control MCP Server  ── ONE singleton, loopback HTTP, refcounted,  │
-│      protocol only, killable; ZERO child processes per client              │
+│ (1) Control MCP Host  ── ONE net socket (Unix socket / Win named pipe),     │
+│      stateless per-connection, forces origin:'external', token handshake,   │
+│      kill-switch-aware; ZERO child processes spawned by main per client     │
 │        │  origin:'external' (+ client label, token scope)                   │
 │        ▼                                                                    │
 │ (3) External Authorization Policy  ── provider-aware FREE / ESCALATE        │
@@ -106,7 +107,7 @@ Redux reducer + IPC events (pty:data, assistant:dispatch-echo, …) → live UI 
 
 | # | Unit | Responsibility | Boundary |
 |---|------|----------------|----------|
-| 1 | **Sigma Control MCP Server** (`core/control/mcp-server.ts`) | Singleton loopback HTTP Streamable-MCP transport; refcounted client registry; killable; protocol only. | Swap transport (stdio shim / remote tunnel) without touching tools. Leak-safe (no per-client process). |
+| 1 | **Control MCP Host** (`core/control/control-mcp-host.ts`) + external stdio bridge (`build/mcp-sigma-control-server.cjs`) | A `net` socket server in main (mirrors `mcp-host-sigma.ts`), stateless per-connection, **forces `origin:'external'`**, token handshake, kill-switch-aware. The stdio bridge is a tiny MCP server the *external client* spawns and owns; it relays to the socket. | Swap transport (HTTP shim / remote tunnel) without touching tools. **Leak-safe: main spawns no per-client process** — the bridge is the client's child (see §8). |
 | 2 | **Control tool layer** (`assistant/tools.ts` + `control/tools-control.ts`) | Existing 19 + ~8 new tools via `invokeAssistantTool`; 3-mirror catalogue + parity tests. | Pure effect layer; same code serves Jorvis, Telegram, external. |
 | 3 | **External authorization policy** (`control/authz-external.ts`) | `origin:'external'`; provider-aware FREE/ESCALATE decision; kill-switch check first. Pure function. | One place encodes supervised-autonomy; unit-testable. |
 | 4 | **Escalation bridge** (`remote/escalation.ts`, generalizes the Telegram seam) | Route `confirmDangerous` → operator; timeout → default-deny + audit; channel-down → fail-closed. | Non-Telegram escalation drops in later. |
@@ -201,18 +202,31 @@ classification applies only to `origin:'external'`.
 
 ## 8. Transport, Auth, Remote-Later, Cross-Platform
 
-- **Phase 1 transport:** single in-process **loopback HTTP Streamable-MCP** server bound to `127.0.0.1:<port>`
-  (configurable; default ephemeral, persisted), behind a **bearer token**. Refcounted connection registry.
-  `claude mcp add --transport http`. Optional Phase 1.5: a thin **stdio shim** binary proxying to the same
-  HTTP server, for stdio-only clients.
-- **Auth:** bearer tokens in `CredentialStore` (encrypted), per-token **scope** (`observe` | `control`) and
-  **label** (audit attribution). Enable flag `control.mcp.enabled`, **default OFF**. Bound to loopback by default.
-- **Remote later (Phase 3, not now):** bind to a tunnel (Tailscale/Cloudflare) or `0.0.0.0` behind TLS +
-  stronger auth (mTLS / rotating tokens) + rate limits. **Same server, different bind + auth layer** — no
-  rearchitecture. The token/scope/label model is the remote auth seam already.
-- **Cross-platform:** loopback HTTP is uniform on macOS/Linux/Windows (no socket/pipe/.cmd issues for the
-  server). The only child process is Hermes — apply the documented win32 discipline. Sub-agent PTY spawn is
-  already cross-platform-hardened.
+> **Transport revision (2026-06-17, post-extraction).** The earlier draft assumed a loopback **HTTP**
+> Streamable-MCP server. Codebase extraction showed (a) **no HTTP server is hosted in `main`** today and
+> (b) **no MCP SDK / JSON-RPC / express / ws dependency** exists — all MCP framing is hand-rolled. Meanwhile
+> the app already ships the proven pattern: `mcp-host-sigma.ts` (a `net` Unix-socket / Windows-named-pipe
+> JSON-RPC server) + a bundled stdio MCP server the Claude CLI connects to. Phase 1 therefore **reuses the
+> socket + stdio-bridge pattern** rather than building an HTTP MCP server. (Operator-approved 2026-06-17.)
+
+- **Phase 1 transport:** a dedicated **Control MCP Host** — a `net` socket server in `main` (separate socket
+  path from the in-app Jorvis host; mirrors `mcp-host-sigma.ts`), **stateless per-connection**. External
+  clients add a tiny stdio MCP bridge: `claude mcp add sigmalink -- node <appResources>/mcp-sigma-control-server.cjs`
+  (token + socket path via env). **The bridge process is spawned and reaped by the external client, not by
+  `main`** → zero per-client fan-out on our side (the v2-leak rule). Optional Phase 1.5 / Phase 3: a loopback
+  **HTTP shim** proxying to the same control socket for HTTP-only clients.
+- **Auth:** a **bearer token** in `CredentialStore` (encrypted) that the bridge presents in a one-line
+  handshake before any `tools.invoke`; the socket also relies on filesystem permissions (Unix socket / named
+  pipe is local-only). The control socket **hard-codes `origin:'external'`** for every call (a client cannot
+  claim `local`). Enable flag `control.mcp.enabled`, **default OFF**. Token scope (`observe` | `control`) and
+  client **label** (audit attribution).
+- **Remote later (Phase 3, not now):** put a tunnel/relay in front of the control socket, **or** add the
+  loopback-HTTP shim + TLS + stronger auth (mTLS / rotating tokens) + rate limits. The tool + authz layers are
+  transport-agnostic, so this is additive — no rearchitecture. The token/scope/label model is the remote auth seam.
+- **Cross-platform:** the `net` socket server uses a Unix domain socket on macOS/Linux and a **named pipe** on
+  Windows (the existing host already handles both). No `.cmd`/PATHEXT issues for the server. The only child
+  process spawned **by main** is Hermes (Phase 2) — apply the documented win32 discipline; the external stdio
+  bridge is the client's child. Sub-agent PTY spawn is already cross-platform-hardened.
 
 ## 9. Error Handling
 
@@ -257,17 +271,18 @@ classification applies only to `origin:'external'`.
 
 1. **Hermes brain model:** default **Claude Opus** for the supervisor (planning/judgment); sub-agent coder
    panes can be cheaper (Sonnet/external CLI). Configurable per mission.
-2. **Default MCP port:** ephemeral + persisted to KV, surfaced in the Hermes/settings UI as a copyable
-   `claude mcp add` command. (Alternative: a fixed default port.)
+2. **Control socket path:** a stable per-user path (Unix socket under the user data dir on macOS/Linux; a
+   named pipe `\\.\pipe\sigmalink-control-<hash>` on Windows), surfaced in the Settings UI as a copyable
+   `claude mcp add sigmalink -- node …` command with the token wired via env.
 3. **`prompt_agent` into a shell pane:** classified ESCALATE by default. If you want a per-mission
    "trusted shell" opt-in (operator pre-authorizes shell writes for a mission), that's a small policy
    extension — not in Phase 1.
-4. **OpenClaw/other clients:** assumed to speak HTTP Streamable-MCP (standard). If a target client is
-   stdio-only, the Phase 1.5 stdio shim covers it.
+4. **OpenClaw/other clients:** reached via the same stdio bridge (`claude mcp add … -- node <cjs>`). If a
+   target client speaks HTTP-only, the optional Phase 1.5/Phase 3 HTTP shim covers it.
 
 ## 13. Non-Goals
 
-- Remote/network exposure in Phase 1 (loopback only).
+- Remote/network exposure in Phase 1 (local Unix socket / named pipe only — no network bind).
 - A bespoke non-MCP REST API (MCP is the surface; a REST adapter can wrap the same tools later if needed).
 - Replacing xterm/the in-app Jorvis — this is an *additional* surface, not a rewrite.
 - Hand-coding Hermes's reasoning loop — Hermes is a Claude agent driven by tools + prompt, not a state machine.
