@@ -30,6 +30,7 @@ import { useLiveEvents } from './state-hooks/use-live-events';
 import { useExitedSessionGc } from './state-hooks/use-exited-session-gc';
 import { useTerminalCacheGc } from './state-hooks/use-terminal-cache-gc';
 import { useVoiceFocusSync } from './state-hooks/use-voice-focus-sync';
+import { useViewportShadow } from './state-hooks/use-viewport-shadow';
 
 // Re-exports so external callers continue to use `@/renderer/app/state`
 // without knowing about the split. DO NOT inline these consumers.
@@ -132,6 +133,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   useWindowScopeBoot(state, dispatch);
   useWorkspaceMirror(state, dispatch);
   useLiveEvents(state, dispatch);
+  // Push "what the human is looking at" facts into the main-side ViewportShadow.
+  useViewportShadow();
   // C-10b — push focused PTY session id renderer → main for pane dictation
   useVoiceFocusSync();
   useExitedSessionGc(state, dispatch);

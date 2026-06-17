@@ -1329,6 +1329,12 @@ export interface AppRouter {
     connectCommand: () => Promise<{ command: string }>;
     /** Approve or deny a pending dangerous-tool escalation. */
     respondEscalation: (input: { id: string; approved: boolean }) => Promise<{ ok: boolean }>;
+    /**
+     * Renderer echo: push the current viewport facts into the main-side
+     * ViewportShadow so get_app_state can report what the human is looking at.
+     * Best-effort — renderer never awaits the result or rethrows.
+     */
+    reportViewport: (patch: Partial<{ activeWorkspaceId: string | null; activeSessionId: string | null; focusedPaneId: string | null; room: string | null; activeSwarmId: string | null }>) => Promise<{ ok: boolean }>;
   };
 }
 

@@ -382,6 +382,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'control.rotateToken',
   'control.connectCommand',
   'control.respondEscalation',
+  'control.reportViewport',
 ]);
 
 /**

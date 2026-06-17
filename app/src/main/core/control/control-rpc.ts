@@ -26,6 +26,7 @@ export interface ControlRpcDeps {
   liveConnections: () => number;
   setBearer: (token: string) => void;
   respondEscalation: (id: string, approved: boolean) => void;
+  reportViewport: (patch: import('./app-state-shadow').ViewportPatch) => void;
 }
 
 export interface ControlStatus {
@@ -58,5 +59,8 @@ export function buildControlController(deps: ControlRpcDeps) {
     rotateToken: async (): Promise<ControlStatus> => { const t = await rotateBearerToken(deps.credentials); deps.setBearer(t); return statusOf(); },
     connectCommand: async (): Promise<{ command: string }> => ({ command: buildConnectCommand(deps.socketPath, deps.serverEntry, await getBearerToken(deps.credentials)) }),
     respondEscalation: async (input: { id: string; approved: boolean }): Promise<{ ok: boolean }> => { deps.respondEscalation(input.id, input.approved); return { ok: true }; },
+    reportViewport: async (patch: import('./app-state-shadow').ViewportPatch): Promise<{ ok: boolean }> => {
+      deps.reportViewport(patch); return { ok: true };
+    },
   };
 }

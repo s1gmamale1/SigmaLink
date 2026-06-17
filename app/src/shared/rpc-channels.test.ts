@@ -309,6 +309,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'control.rotateToken',
   'control.connectCommand',
   'control.respondEscalation',
+  'control.reportViewport',
 ];
 
 // ------------------------------------------------------------------

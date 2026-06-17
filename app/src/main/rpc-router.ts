@@ -121,6 +121,7 @@ import { ExternalEscalator } from './core/control/escalation';
 import { PromptSink } from './core/pty/prompt-sink';
 import { isControlEnabled, isControlFrozen, ensureBearerToken, controlSocketPath } from './core/control/control-config';
 import { buildControlController } from './core/control/control-rpc';
+import { createViewportShadow } from './core/control/app-state-shadow';
 import { JORVIS_TOOL_CATALOGUE } from './core/assistant/tool-catalogue';
 import {
   buildConversationsHandlers,
@@ -665,6 +666,8 @@ async function buildRouter() {
 
   // External Control MCP — singletons (one per app; no per-client process).
   const promptSink = new PromptSink();
+  // viewportShadow: also read by get_app_state (Task 4)
+  const viewportShadow = createViewportShadow();
   const controlKv = {
     get: (key: string): string | null => {
       try { const row = getRawDb().prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value?: string } | undefined; return row?.value ?? null; } catch { return null; }
@@ -2613,6 +2616,7 @@ async function buildRouter() {
       liveConnections: () => controlMcpHost.liveConnectionCount(),
       setBearer: (t) => { controlBearer = t; },
       respondEscalation: (id, approved) => controlEscalator.resolve(id, approved),
+      reportViewport: (patch) => viewportShadow.report(patch),
     }),
   });
 }
