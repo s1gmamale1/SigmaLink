@@ -38,6 +38,7 @@ import { RootErrorBoundary, RoomErrorBoundary } from '@/renderer/app/ErrorBounda
 import { useZoomControls } from './useZoomControls';
 import { ZoomIndicator } from './ZoomIndicator';
 import { ScopedShell } from './ScopedShell';
+import { ControlEscalationPrompt } from '@/renderer/features/settings/ControlEscalationPrompt';
 
 // Multi-window B4 — a window's scope is preload-injected and STATIC per
 // process, so resolve it once at module load. A non-null scope means this is a
@@ -386,6 +387,10 @@ export default function App() {
         {/* Transient zoom-level HUD. Outside the error boundary (like Toaster)
             so it surfaces regardless of shell state; pointer-events off. */}
         <ZoomIndicator />
+        {/* External Control MCP — escalation prompt for dangerous external tool
+            calls. Stays outside the error boundary so it surfaces even on
+            shell crashes. Renders nothing when the queue is empty. */}
+        <ControlEscalationPrompt />
       </ThemeProvider>
     </AppStateProvider>
   );
