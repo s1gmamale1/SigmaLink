@@ -141,6 +141,97 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, [dispatch]);
 
+  // Jorvis stop_pane → kill the PTY process but leave the pane in the grid.
+  // Mirrors CommandRoom's handleStop: rpc.pty.kill(sessionId). The existing
+  // pty:exit → MARK_SESSION_EXITED plumbing updates the UI automatically.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:stop-pane', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown };
+      if (typeof p.sessionId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.pty.kill(p.sessionId as string);
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, []);
+
+  // Jorvis split_pane → split a pane and add the new session to the grid.
+  // Mirrors CommandRoom's handleSplitPane: rpc.swarms.splitPane then SPLIT_PANE.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:split-pane', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { paneId?: unknown; direction?: unknown; provider?: unknown };
+      if (typeof p.paneId !== 'string') return;
+      if (p.direction !== 'horizontal' && p.direction !== 'vertical') return;
+      if (typeof p.provider !== 'string') return;
+      void (async () => {
+        try {
+          const newSession = await rpc.swarms.splitPane({
+            paneId: p.paneId as string,
+            direction: p.direction as 'horizontal' | 'vertical',
+            provider: p.provider as string,
+          });
+          const groupId = newSession.splitGroupId;
+          if (!groupId) {
+            dispatch({ type: 'ADD_SESSIONS', sessions: [newSession] });
+            return;
+          }
+          dispatch({
+            type: 'SPLIT_PANE',
+            parentId: p.paneId as string,
+            newSession,
+            groupId,
+            direction: p.direction as 'horizontal' | 'vertical',
+          });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis set_pane_minimised → minimise or restore a pane.
+  // Mirrors CommandRoom's handleToggleMinimise: dispatch MINIMISE_PANE then rpc.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:set-pane-minimised', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { paneId?: unknown; minimised?: unknown };
+      if (typeof p.paneId !== 'string') return;
+      if (typeof p.minimised !== 'boolean') return;
+      dispatch({ type: 'MINIMISE_PANE', paneId: p.paneId, minimised: p.minimised });
+      void (async () => {
+        try {
+          await rpc.swarms.minimisePane({ paneId: p.paneId as string, minimised: p.minimised as boolean });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis set_pane_display_provider → cosmetic relabel of a pane's provider badge.
+  // Mirrors PaneGearPopover's relabel: rpc.panes.setDisplayProvider. The main
+  // process emits panes:display-provider-changed which the renderer can pick up
+  // to refresh; the rpc call alone is sufficient for the initiating window.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:set-display-provider', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown; displayProviderId?: unknown };
+      if (typeof p.sessionId !== 'string') return;
+      if (typeof p.displayProviderId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.panes.setDisplayProvider({
+            sessionId: p.sessionId as string,
+            displayProviderId: p.displayProviderId as string,
+          });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, []);
+
   // v1.13.2 — Listen for PTY crash. The main process emits a DISTINCT
   // `pty:error` event for runtime / fast crashes (contract:
   // `{ sessionId: string; exitCode: number | null; signal?: string | null }`).

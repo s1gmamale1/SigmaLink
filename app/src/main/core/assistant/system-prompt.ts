@@ -65,6 +65,14 @@ result back as a tool_result):
                       Focus a pane (optionally fullscreen it) in the Command Room.
   set_pane_label      { sessionId, label }
                       Set a pane's display name (persisted + live title refresh).
+  stop_pane           { sessionId }
+                      Stop a pane's process but keep the pane (recoverable).
+  split_pane          { paneId, direction, provider }
+                      Split a pane into a sub-pane sharing its worktree.
+  set_pane_minimised  { paneId, minimised }
+                      Minimise/restore a pane (process keeps running).
+  set_pane_display_provider { sessionId, displayProviderId }
+                      Set a pane's displayed provider badge (cosmetic).
   open_workspace      { root }
                       Open a workspace by its root folder path (call list_workspaces after to get its id).
   close_workspace     { workspaceId }

@@ -305,6 +305,46 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
       properties: { workspaceId: { type: 'string' } },
     },
   },
+  {
+    name: 'stop_pane',
+    description: 'Stop (kill) a pane\'s process but keep the pane in the grid (recoverable; distinct from close_pane).',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId'],
+      properties: { sessionId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'split_pane',
+    description: 'Split a pane, adding a sub-pane that shares its worktree.',
+    inputSchema: {
+      type: 'object',
+      required: ['paneId', 'direction', 'provider'],
+      properties: {
+        paneId: { type: 'string' },
+        direction: { type: 'string', enum: ['horizontal', 'vertical'] },
+        provider: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'set_pane_minimised',
+    description: 'Minimise or restore a pane (collapse to its header strip; process keeps running).',
+    inputSchema: {
+      type: 'object',
+      required: ['paneId', 'minimised'],
+      properties: { paneId: { type: 'string' }, minimised: { type: 'boolean' } },
+    },
+  },
+  {
+    name: 'set_pane_display_provider',
+    description: 'Set a pane\'s displayed provider badge (cosmetic relabel).',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId', 'displayProviderId'],
+      properties: { sessionId: { type: 'string' }, displayProviderId: { type: 'string' } },
+    },
+  },
   // BSP-B3 — agent-drivable browser tools (read-only, default-OFF).
   // Must be enabled via Settings → Browser (KV key: browser.agentDriving).
   {

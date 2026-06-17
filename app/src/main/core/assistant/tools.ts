@@ -261,6 +261,14 @@ const sFocusPane = z.object({ sessionId: z.string().min(1), fullscreen: z.boolea
 const sSetPaneLabel = z.object({ sessionId: z.string().min(1), label: z.string().min(1).max(80) });
 const sOpenWorkspace = z.object({ root: z.string().min(1) });
 const sCloseWorkspace = z.object({ workspaceId: z.string().min(1) });
+const sStopPane = z.object({ sessionId: z.string().min(1) });
+const sSplitPane = z.object({
+  paneId: z.string().min(1),
+  direction: z.enum(['horizontal', 'vertical']),
+  provider: z.string().min(1),
+});
+const sSetPaneMinimised = z.object({ paneId: z.string().min(1), minimised: z.boolean() });
+const sSetPaneDisplayProvider = z.object({ sessionId: z.string().min(1), displayProviderId: z.string().min(1) });
 // BSP-B3 — browser agent tool schemas.
 const sBrowserNavigate = z.object({
   url: z.string().min(1),
@@ -1111,6 +1119,66 @@ export const TOOLS: ToolDefinition[] = [
     { type: 'object', required: ['workspaceId'], properties: { workspaceId: { type: 'string' } } },
     sCloseWorkspace,
     async (a, ctx) => { ctx.emit?.('assistant:close-workspace', { workspaceId: a.workspaceId }); return { ok: true, workspaceId: a.workspaceId }; },
+  ),
+  T(
+    'stop_pane',
+    'Stop pane',
+    'Stop (kill) a pane\'s process but keep the pane in the grid (recoverable; distinct from close_pane).',
+    { type: 'object', required: ['sessionId'], properties: { sessionId: { type: 'string' } } },
+    sStopPane,
+    async (a, ctx) => {
+      ctx.emit?.('assistant:stop-pane', { sessionId: a.sessionId });
+      return { ok: true, sessionId: a.sessionId };
+    },
+  ),
+  T(
+    'split_pane',
+    'Split pane',
+    'Split a pane, adding a sub-pane that shares its worktree.',
+    {
+      type: 'object',
+      required: ['paneId', 'direction', 'provider'],
+      properties: {
+        paneId: { type: 'string' },
+        direction: { type: 'string', enum: ['horizontal', 'vertical'] },
+        provider: { type: 'string' },
+      },
+    },
+    sSplitPane,
+    async (a, ctx) => {
+      ctx.emit?.('assistant:split-pane', { paneId: a.paneId, direction: a.direction, provider: a.provider });
+      return { ok: true, paneId: a.paneId };
+    },
+  ),
+  T(
+    'set_pane_minimised',
+    'Set pane minimised',
+    'Minimise or restore a pane (collapse to its header strip; process keeps running).',
+    {
+      type: 'object',
+      required: ['paneId', 'minimised'],
+      properties: { paneId: { type: 'string' }, minimised: { type: 'boolean' } },
+    },
+    sSetPaneMinimised,
+    async (a, ctx) => {
+      ctx.emit?.('assistant:set-pane-minimised', { paneId: a.paneId, minimised: a.minimised });
+      return { ok: true, paneId: a.paneId, minimised: a.minimised };
+    },
+  ),
+  T(
+    'set_pane_display_provider',
+    'Set pane display provider',
+    'Set a pane\'s displayed provider badge (cosmetic relabel).',
+    {
+      type: 'object',
+      required: ['sessionId', 'displayProviderId'],
+      properties: { sessionId: { type: 'string' }, displayProviderId: { type: 'string' } },
+    },
+    sSetPaneDisplayProvider,
+    async (a, ctx) => {
+      ctx.emit?.('assistant:set-display-provider', { sessionId: a.sessionId, displayProviderId: a.displayProviderId });
+      return { ok: true, sessionId: a.sessionId, displayProviderId: a.displayProviderId };
+    },
   ),
   // ── BSP-B3 Agent-drivable browser tools (default-OFF, read-only) ──────────
   //

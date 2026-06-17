@@ -15,7 +15,7 @@ describe('classifyExternal', () => {
   });
 
   it('reads/lists/launch are free', () => {
-    for (const id of ['read_pane', 'read_pane_since', 'list_active_sessions', 'list_workspaces', 'wait_for_pane', 'launch_pane', 'open_workspace', 'set_pane_label', 'switch_workspace', 'focus_pane']) {
+    for (const id of ['read_pane', 'read_pane_since', 'list_active_sessions', 'list_workspaces', 'wait_for_pane', 'launch_pane', 'open_workspace', 'set_pane_label', 'switch_workspace', 'focus_pane', 'stop_pane', 'split_pane', 'set_pane_minimised', 'set_pane_display_provider']) {
       expect(classifyExternal({ toolId: id, targetProvider: null, killSwitch: false }), id).toBe('free');
     }
   });
@@ -78,6 +78,10 @@ describe('classifyExternal', () => {
     set_pane_label: 'free',
     open_workspace: 'free',
     close_workspace: 'escalate',
+    stop_pane: 'free',
+    split_pane: 'free',
+    set_pane_minimised: 'free',
+    set_pane_display_provider: 'free',
   };
 
   it('every externally-exposed catalogue tool has a pinned, intended verdict', () => {
