@@ -147,10 +147,7 @@ export const THEMES: ThemeDefinition[] = [
   },
 ];
 
-// Default to the flat near-black 'obsidian' theme. This also matches the
-// CSS `:root` base tokens (index.css), so first paint and post-hydration agree
-// with no theme flash. (Users who have already chosen a theme keep their pick.)
-export const DEFAULT_THEME: ThemeId = 'obsidian';
+export const DEFAULT_THEME: ThemeId = 'glass';
 
 /**
  * P5.2 — global density scale. Drives `<html data-density>`, which rescales

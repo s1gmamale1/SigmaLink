@@ -13,29 +13,29 @@ import {
   THEMES,
 } from './themes';
 
-describe('themes — DEFAULT_THEME is obsidian', () => {
-  it('DEFAULT_THEME === obsidian', () => {
-    expect(DEFAULT_THEME).toBe('obsidian');
+describe('themes — DEFAULT_THEME is glass', () => {
+  it('DEFAULT_THEME === glass', () => {
+    expect(DEFAULT_THEME).toBe('glass');
   });
 
   it('isThemeId("glass") === true', () => {
     expect(isThemeId('glass')).toBe(true);
   });
 
-  it('findTheme(null) falls back to obsidian', () => {
-    expect(findTheme(null).id).toBe('obsidian');
+  it('findTheme(null) falls back to glass', () => {
+    expect(findTheme(null).id).toBe('glass');
   });
 
-  it('findTheme("nonsense") falls back to obsidian', () => {
-    expect(findTheme('nonsense').id).toBe('obsidian');
+  it('findTheme("nonsense") falls back to glass', () => {
+    expect(findTheme('nonsense').id).toBe('glass');
   });
 
   it('findTheme("obsidian") still resolves correctly', () => {
     expect(findTheme('obsidian').id).toBe('obsidian');
   });
 
-  it('findTheme(undefined) falls back to obsidian', () => {
-    expect(findTheme(undefined).id).toBe('obsidian');
+  it('findTheme(undefined) falls back to glass', () => {
+    expect(findTheme(undefined).id).toBe('glass');
   });
 });
 
