@@ -292,4 +292,44 @@ describe('DomTerminalView', () => {
     );
     expect(container.querySelector('[data-testid="flow-view"]')).toBeTruthy();
   });
+
+  // 2026-06-17 — PANE-FOCUS REGRESSION GUARD (ROADMAP Phase 18).
+  //
+  // Bug: a single click needed 3-4 tries to focus a DOM-presenter pane. Root
+  // cause: onMouseUp focused the hidden input ONLY when the selection was
+  // collapsed and early-returned otherwise — so any click that left a stray
+  // micro-selection never focused. Fix: copy-on-select first, then focus
+  // UNCONDITIONALLY (non-tracking), with preventScroll to kill the scroll-jump.
+  it('focuses the input on click EVEN WHEN a stray selection exists (no 3-4 clicks)', async () => {
+    const { container } = render(<DomTerminalView sessionId="f1" />);
+    await settle();
+    const input = container.querySelector('textarea')!;
+    Object.assign(navigator, { clipboard: { writeText: vi.fn(() => Promise.resolve()) } });
+    const getSel = vi
+      .spyOn(window, 'getSelection')
+      .mockReturnValue({ isCollapsed: false, toString: () => 'x' } as unknown as Selection);
+    try {
+      expect(document.activeElement).not.toBe(input);
+      fireEvent.mouseUp(container.querySelector('[data-testid="dom-terminal-view"]')!);
+      expect(document.activeElement).toBe(input); // focus NOT swallowed by the selection
+    } finally {
+      getSel.mockRestore();
+    }
+  });
+
+  it('focuses with { preventScroll: true } to avoid the scroll-jump flicker', async () => {
+    const { container } = render(<DomTerminalView sessionId="f2" />);
+    await settle();
+    const input = container.querySelector('textarea')!;
+    const focusSpy = vi.spyOn(input, 'focus');
+    const getSel = vi
+      .spyOn(window, 'getSelection')
+      .mockReturnValue({ isCollapsed: true, toString: () => '' } as unknown as Selection);
+    try {
+      fireEvent.mouseUp(container.querySelector('[data-testid="dom-terminal-view"]')!);
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    } finally {
+      getSel.mockRestore();
+    }
+  });
 });
