@@ -17,7 +17,7 @@
 //   - tasks:changed         → SET_TASKS (initial + live)
 //   - workspace switch      → SET_SWARMS (rpc.swarms.list)
 
-import { useEffect, type Dispatch } from 'react';
+import { useEffect, useRef, type Dispatch } from 'react';
 import { toast } from 'sonner';
 import { rpc, rpcSilent } from '../../lib/rpc';
 import type { Action, AppState } from '../state.types';
@@ -43,6 +43,17 @@ const ATTENTION_SOUND_THROTTLE_MS = 2000;
 let lastAttentionSoundAt = 0;
 
 export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void {
+  // Multi-window scope guard — main may broadcast a control event to EVERY
+  // window when the target workspace is DOCKED (docked workspaces have no
+  // WindowRegistry owner, so sendToWorkspaceOwner / sendToSessionOwner fall back
+  // to sendToAll). For NON-IDEMPOTENT control tools (split_pane creates a pane,
+  // send_message_to_agent sends a DM) only the window whose state actually holds
+  // the target may run the rpc — else a 2nd (detached) window double-executes it.
+  // Scoped windows partition workspaces, so exactly one window owns each target.
+  // Read via a ref so the event callback sees CURRENT state, not a stale closure.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
   // Listen for PTY exit so the UI can mark sessions accordingly.
   useEffect(() => {
     const off = window.sigma.eventOn('pty:exit', (raw: unknown) => {
@@ -167,6 +178,10 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       if (typeof p.paneId !== 'string') return;
       if (p.direction !== 'horizontal' && p.direction !== 'vertical') return;
       if (typeof p.provider !== 'string') return;
+      // Scope guard: only the window that holds the parent pane splits it (else a
+      // detached window double-creates the sub-pane via the broadcast fallback).
+      const paneId = p.paneId;
+      if (!stateRef.current.sessions.some((s) => s.id === paneId)) return;
       void (async () => {
         try {
           const newSession = await rpc.swarms.splitPane({
@@ -295,6 +310,11 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       if (typeof p.swarmId !== 'string') return;
       if (typeof p.toAgent !== 'string') return;
       if (typeof p.body !== 'string') return;
+      // Scope guard: only the window that holds this swarm sends the DM (else a
+      // detached window double-sends via the broadcast fallback — sendMessage is
+      // non-idempotent: two mailbox rows + the PTY receives the line twice).
+      const swarmId = p.swarmId;
+      if (!stateRef.current.swarms.some((sw) => sw.id === swarmId)) return;
       void (async () => {
         try {
           await rpc.swarms.sendMessage({

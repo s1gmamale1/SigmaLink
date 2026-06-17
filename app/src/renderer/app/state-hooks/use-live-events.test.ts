@@ -21,7 +21,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import type { AgentSession, Notification, ReviewState } from '@/shared/types';
+import type { AgentSession, Notification, ReviewState, Swarm } from '@/shared/types';
 import { KV_DND, KV_OS_PER_SOURCE, KV_QUIET_HOURS } from '@/shared/notification-prefs';
 import type { Action, AppState } from '../state.types';
 import { initialAppState } from '../state.types';
@@ -60,6 +60,9 @@ function installSigmaStub(): SigmaStub {
 // churn assertion; the rest are no-op resolved promises so the other effects
 // (skills/memory/tasks/swarms) settle quietly.
 const reviewListMock = vi.fn<(wsId: string) => Promise<ReviewState>>();
+// Phase-2 control — scope-guard coverage for the non-idempotent subscribers.
+const splitPaneMock = vi.fn();
+const sendMessageMock = vi.fn();
 
 function emptyReview(workspaceId: string): ReviewState {
   return { workspaceId, sessions: [] };
@@ -95,7 +98,12 @@ const rpcMock = {
   skills: { list: () => Promise.resolve({ skills: [], states: [] }) },
   memory: { list_memories: () => Promise.resolve([]) },
   tasks: { list: () => Promise.resolve([]) },
-  swarms: { list: () => Promise.resolve([]) },
+  swarms: {
+    list: () => Promise.resolve([]),
+    splitPane: (a: unknown) => splitPaneMock(a),
+    sendMessage: (a: unknown) => sendMessageMock(a),
+    resume: () => Promise.resolve(),
+  },
 };
 const rpcSilentMock = {
   notifications: {
@@ -158,6 +166,10 @@ beforeEach(() => {
   reviewListMock.mockResolvedValue(emptyReview('a'));
   playNotificationToneMock.mockReset();
   playCueMock.mockReset();
+  splitPaneMock.mockReset();
+  splitPaneMock.mockResolvedValue({ id: 's2', splitGroupId: null });
+  sendMessageMock.mockReset();
+  sendMessageMock.mockResolvedValue(undefined);
   kvStore = {};
   toastMock.mockReset();
   toastMock.warning.mockReset();
@@ -662,5 +674,61 @@ describe('useLiveEvents — agent:attention subscriber', () => {
 
     expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ATTENTION', sessionId: 's2', ts: baseTs + 500 });
     expect(playCueMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---- Phase-2 control — multi-window scope guard ----------------------------
+// broadcast() falls back to sendToAll for DOCKED workspaces (no WindowRegistry
+// owner). The non-idempotent subscribers (split_pane, send_message_to_agent)
+// must run their rpc ONLY in the window whose state holds the target, or a 2nd
+// (detached) window double-executes (double split / duplicate DM).
+
+describe('useLiveEvents — Phase-2 control scope guard', () => {
+  function swarm(id: string): Swarm {
+    return {
+      id,
+      workspaceId: 'a',
+      name: 'S',
+      mission: 'm',
+      preset: 'squad',
+      status: 'running',
+      createdAt: 1,
+      endedAt: null,
+      agents: [],
+    };
+  }
+
+  it('split_pane runs the rpc ONLY when this window holds the parent pane', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => {
+      sigma.emit('assistant:split-pane', { paneId: 's1', sessionId: 's1', direction: 'horizontal', provider: 'claude' });
+      await Promise.resolve();
+    });
+    expect(splitPaneMock).toHaveBeenCalledTimes(1);
+
+    splitPaneMock.mockClear();
+    await act(async () => {
+      // Parent pane NOT in this window's state → another window owns it → skip.
+      sigma.emit('assistant:split-pane', { paneId: 'other', sessionId: 'other', direction: 'horizontal', provider: 'claude' });
+      await Promise.resolve();
+    });
+    expect(splitPaneMock).not.toHaveBeenCalled();
+  });
+
+  it('send_message_to_agent runs the rpc ONLY when this window holds the swarm', async () => {
+    await renderLiveEvents({ ...stateWith([session('s1')]), swarms: [swarm('sw1')] });
+    await act(async () => {
+      sigma.emit('assistant:swarm-message', { swarmId: 'sw1', toAgent: 'builder-1', body: 'hi', workspaceId: 'a' });
+      await Promise.resolve();
+    });
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+
+    sendMessageMock.mockClear();
+    await act(async () => {
+      // Swarm NOT in this window's state → skip (no duplicate DM).
+      sigma.emit('assistant:swarm-message', { swarmId: 'elsewhere', toAgent: 'builder-1', body: 'hi', workspaceId: 'z' });
+      await Promise.resolve();
+    });
+    expect(sendMessageMock).not.toHaveBeenCalled();
   });
 });
