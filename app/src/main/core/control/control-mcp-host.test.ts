@@ -6,6 +6,7 @@ import { ControlMcpHost } from './control-mcp-host';
 
 const sock = () => path.join(os.tmpdir(), `sl-ctl-${Math.floor(Math.random() * 1e9)}.sock`);
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rpc(socket: net.Socket, obj: unknown): Promise<any> {
   return new Promise((resolve) => {
     let buf = '';
@@ -101,6 +102,7 @@ describe('ControlMcpHost', () => {
     const host = new ControlMcpHost({ socketPath, getToken: () => 'secret', isFrozen: () => false, resolveInvoker: () => vi.fn(), escalate: async () => true, maxLineBytes: 1000 });
     await host.start();
     const c = net.connect(socketPath);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const got = await new Promise<any>((resolve) => {
       let b = '';
       c.on('data', (d: Buffer) => {

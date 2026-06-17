@@ -14,7 +14,7 @@ vi.mock('../db/client', () => ({
 import { getDb, getRawDb } from '../db/client';
 import { buildAssistantController } from './controller';
 import type { AssistantControllerDeps } from './controller';
-import { createDbFake, seedWorkspace, type DbFake } from '@/test-utils/db-fake';
+import { createDbFake, type DbFake } from '@/test-utils/db-fake';
 
 // ── fixtures ──────────────────────────────────────────────────────────────
 

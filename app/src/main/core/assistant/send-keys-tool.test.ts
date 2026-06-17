@@ -16,12 +16,13 @@ vi.mock('../workspaces/launcher', () => ({
 }));
 
 import { findTool } from './tools';
+import type { ToolContext } from './tools';
 
 describe('send_keys tool', () => {
   it('encodes keys and writes them to the pty', async () => {
     const tool = findTool('send_keys')!;
     const write = vi.fn();
-    const ctx: any = { pty: { write } };
+    const ctx = { pty: { write } } as unknown as ToolContext;
     const r = await tool.handler({ sessionId: 's1', keys: ['l', 's', 'Enter'] }, ctx);
     expect(write).toHaveBeenCalledWith('s1', 'ls\r');
     expect(r).toEqual({ ok: true, sessionId: 's1' });
