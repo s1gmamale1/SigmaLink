@@ -125,6 +125,10 @@ export interface ToolContext {
       idleMs?: number;
     }): Promise<{ sessionId: string | null; reason: string; prompt?: unknown }>;
   };
+  /**
+   * get_app_state — holistic app snapshot provider (built in the router).
+   */
+  appState?: { snapshot(opts: { workspaceId?: string; allWorkspaces?: boolean }): unknown };
 }
 
 export interface ToolDefinition {
@@ -250,6 +254,7 @@ const sListActiveSessions = z.object({ workspaceId: z.string().optional() });
 const sListSwarms = z.object({ workspaceId: z.string().optional() });
 const sListWorkspaces = z.object({});
 const sMonitorPane = z.object({ sessionId: z.string().min(1), conversationId: z.string().min(1) });
+const sGetAppState = z.object({ workspaceId: z.string().optional(), allWorkspaces: z.boolean().optional() });
 const sClosePane = z.object({ sessionId: z.string().min(1) });
 const sSwitchWorkspace = z.object({ workspaceId: z.string().min(1) });
 const sFocusPane = z.object({ sessionId: z.string().min(1), fullscreen: z.boolean().optional() });
@@ -1001,6 +1006,17 @@ export const TOOLS: ToolDefinition[] = [
           active: row.id === fallbackActiveId,
         })),
       };
+    },
+  ),
+  T(
+    'get_app_state',
+    'Get app state',
+    'Return a holistic snapshot of SigmaLink: workspaces (open/active/detached), panes (per-pane provider/label/cwd/status/attention/split), grid shape, swarms, browser tabs, notifications, windows. The "look at the screen" tool — call this to orient before acting.',
+    { type: 'object', properties: { workspaceId: { type: 'string' }, allWorkspaces: { type: 'boolean' } } },
+    sGetAppState,
+    async (a, ctx) => {
+      if (!ctx.appState) return { ok: false, error: 'app-state unavailable' };
+      return { ok: true, state: ctx.appState.snapshot({ workspaceId: a.workspaceId, allWorkspaces: a.allWorkspaces === true }) };
     },
   ),
   T(

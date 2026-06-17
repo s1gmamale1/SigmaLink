@@ -53,6 +53,9 @@ result back as a tool_result):
                       List swarm rosters and statuses for a workspace.
   list_workspaces     {}
                       List known workspaces and mark the active one.
+  get_app_state       { workspaceId?, allWorkspaces? }
+                      Holistic snapshot: workspaces, panes, grid, swarms,
+                      browser, notifications, windows. Orient before acting.
   monitor_pane        { sessionId, conversationId }
                       Subscribe this conversation to a pane's lifecycle events
                       (started/exited/error).

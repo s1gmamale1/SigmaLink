@@ -69,6 +69,7 @@ describe('classifyExternal', () => {
     list_active_sessions: 'free',
     list_swarms: 'free',
     list_workspaces: 'free',
+    get_app_state: 'free',
     monitor_pane: 'free',
     browser_navigate: 'escalate',
     browser_snapshot: 'free',

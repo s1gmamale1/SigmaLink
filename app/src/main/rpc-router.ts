@@ -122,6 +122,11 @@ import { PromptSink } from './core/pty/prompt-sink';
 import { isControlEnabled, isControlFrozen, ensureBearerToken, controlSocketPath } from './core/control/control-config';
 import { buildControlController } from './core/control/control-rpc';
 import { createViewportShadow } from './core/control/app-state-shadow';
+import { buildAppState } from './core/control/app-state';
+import { getOpenWorkspaceIds } from './core/workspaces/lifecycle';
+import { listSwarmsForWorkspace } from './core/swarms/factory';
+import { derivePaneName } from '../shared/agent-identity';
+import { shapeSignature } from '../shared/pane-grid-shape';
 import { JORVIS_TOOL_CATALOGUE } from './core/assistant/tool-catalogue';
 import {
   buildConversationsHandlers,
@@ -668,6 +673,150 @@ async function buildRouter() {
   const promptSink = new PromptSink();
   // viewportShadow: also read by get_app_state (Task 4)
   const viewportShadow = createViewportShadow();
+
+  // get_app_state provider — built once, passed into the assistant tool ctx.
+  const appStateProvider = {
+    snapshot: (opts: { workspaceId?: string; allWorkspaces?: boolean }) =>
+      buildAppState(
+        {
+          listWorkspaces: () =>
+            listWorkspaces().map((w) => ({
+              id: w.id,
+              name: w.name,
+              rootPath: w.rootPath,
+              repoRoot: w.repoRoot,
+              repoMode: w.repoMode,
+              lastOpenedAt: w.lastOpenedAt,
+            })),
+          getOpenWorkspaceIds,
+          windowScopes: () => getWindowRegistry().scopes(),
+          listSessions: (wsId: string) => {
+            try {
+              interface AppStateSessionRow {
+                id: string;
+                workspace_id: string;
+                pane_index: number | null;
+                name: string | null;
+                provider_id: string;
+                display_provider_id: string | null;
+                cwd: string;
+                branch: string | null;
+                worktree_path: string | null;
+                status: string;
+                exit_code: number | null;
+                started_at: number;
+                exited_at: number | null;
+                minimised: number;
+                split_group_id: string | null;
+                split_direction: string | null;
+                split_index: number | null;
+                swarm_id: string | null;
+                agent_key: string | null;
+                swarm_role: string | null;
+              }
+              const rows = getRawDb()
+                .prepare(
+                  `SELECT s.id, s.workspace_id, s.pane_index, s.name,
+                          s.provider_id, s.display_provider_id, s.cwd,
+                          s.branch, s.worktree_path, s.status, s.exit_code,
+                          s.started_at, s.exited_at,
+                          COALESCE(s.minimised, 0) AS minimised,
+                          s.split_group_id, s.split_direction, s.split_index,
+                          sa.swarm_id, sa.agent_key, sa.role AS swarm_role
+                   FROM agent_sessions s
+                   LEFT JOIN swarm_agents sa ON sa.session_id = s.id
+                   WHERE s.workspace_id = ?
+                     AND s.pane_index IS NOT NULL
+                     AND s.closed_at IS NULL
+                   ORDER BY s.pane_index ASC`,
+                )
+                .all(wsId) as AppStateSessionRow[];
+              return rows.map((r) => ({
+                id: r.id,
+                workspaceId: r.workspace_id,
+                paneIndex: r.pane_index,
+                name: r.name,
+                providerId: r.provider_id,
+                displayProviderId: r.display_provider_id,
+                cwd: r.cwd,
+                branch: r.branch,
+                worktreePath: r.worktree_path,
+                status: r.status as 'starting' | 'running' | 'exited' | 'error',
+                exitCode: r.exit_code,
+                startedAt: r.started_at,
+                exitedAt: r.exited_at,
+                minimised: r.minimised === 1,
+                splitGroupId: r.split_group_id,
+                splitDirection: r.split_direction as 'horizontal' | 'vertical' | null,
+                splitIndex: r.split_index as 0 | 1 | null,
+                swarmId: r.swarm_id,
+                agentKey: r.agent_key,
+                swarmRole: r.swarm_role,
+              }));
+            } catch {
+              return [];
+            }
+          },
+          ptyAlive: (sid: string) => {
+            const r = pty.list().find((x) => x.id === sid);
+            return { alive: !!r?.alive, pid: r?.pid ?? null };
+          },
+          attention: () => attentionDetector.snapshot(),
+          listSwarms: (wsId: string) =>
+            listSwarmsForWorkspace(wsId).map((sw) => ({
+              id: sw.id,
+              name: sw.name,
+              mission: sw.mission,
+              preset: sw.preset,
+              status: sw.status,
+              createdAt: sw.createdAt,
+              endedAt: sw.endedAt,
+              agents: sw.agents.map((a) => ({
+                agentKey: a.agentKey,
+                role: a.role,
+                roleIndex: a.roleIndex,
+                status: a.status,
+                sessionId: a.sessionId,
+                providerId: a.providerId,
+              })),
+            })),
+          browserState: (wsId: string) => {
+            if (!browserRegistry.has(wsId)) return null;
+            const state = browserRegistry.get(wsId).getState();
+            return {
+              activeTabId: state.activeTabId,
+              lockOwner: state.lockOwner,
+              detached: state.detached,
+              tabs: state.tabs.map((t) => ({
+                id: t.id,
+                url: t.url,
+                title: t.title,
+                active: t.active,
+                createdAt: t.createdAt,
+                lastVisitedAt: t.lastVisitedAt,
+              })),
+            };
+          },
+          notifications: () => ({
+            unreadCount: notificationsManager.unreadCount(),
+            recent: notificationsManager.list({ limit: 10 }).map((n) => ({
+              id: n.id,
+              kind: n.kind,
+              severity: n.severity,
+              title: n.title,
+              body: n.body,
+              workspaceId: n.workspaceId,
+              createdAt: n.createdAt,
+              readAt: n.readAt ?? null,
+            })),
+          }),
+          viewport: () => viewportShadow.get(),
+          derivePaneName,
+          shapeSignature,
+        },
+        opts,
+      ),
+  };
   const controlKv = {
     get: (key: string): string | null => {
       try { const row = getRawDb().prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value?: string } | undefined; return row?.value ?? null; } catch { return null; }
@@ -2300,6 +2449,7 @@ async function buildRouter() {
     },
     controlFrozen: () => isControlFrozen(controlKv),
     promptSink,
+    appState: appStateProvider,
   });
   const assistantCtl = assistantBundle.controller;
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the

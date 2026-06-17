@@ -96,6 +96,12 @@ export interface AssistantControllerDeps {
   promptSink?: {
     wait(opts: { sessionIds: string[]; until: 'prompt' | 'idle' | 'exit'; timeoutMs: number; idleMs?: number }): Promise<{ sessionId: string | null; reason: string; prompt?: unknown }>;
   };
+  /**
+   * get_app_state — holistic app snapshot provider (built in rpc-router).
+   * Absent ⇒ the tool returns `{ ok: false, error: 'app-state unavailable' }`
+   * (safe default — all existing callers unaffected).
+   */
+  appState?: { snapshot(opts: { workspaceId?: string; allWorkspaces?: boolean }): unknown };
 }
 
 interface ActiveTurn {
@@ -316,6 +322,7 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         notifications: deps.notifications,
         broadcastPtyError: deps.broadcastPtyError,
         promptSink: deps.promptSink,
+        appState: deps.appState,
       });
       // P3-S7 — single persistence path: the tracer writes the `messages`
       // row with role='tool' and `toolCallId` set to the trace id; the

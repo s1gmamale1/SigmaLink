@@ -243,6 +243,11 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
     inputSchema: { type: 'object', properties: {} },
   },
   {
+    name: 'get_app_state',
+    description: 'Holistic snapshot of the app: workspaces, panes (provider/label/cwd/status/attention/split), grid shape, swarms, browser, notifications, windows. The "look at the screen" tool.',
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, allWorkspaces: { type: 'boolean' } } },
+  },
+  {
     name: 'monitor_pane',
     description:
       'Subscribe a Sigma conversation to lifecycle events from a PTY session (started, exited, error).',
