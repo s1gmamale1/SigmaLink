@@ -116,6 +116,11 @@ import { buildTasksController } from './core/tasks/controller';
 import { buildKvController } from './core/db/kv-controller';
 import { buildAssistantController } from './core/assistant/controller';
 import { McpHostSigma, type ToolInvoker } from './core/assistant/mcp-host-sigma';
+import { ControlMcpHost, type ExternalToolInvoker } from './core/control/control-mcp-host';
+import { ExternalEscalator } from './core/control/escalation';
+import { PromptSink } from './core/pty/prompt-sink';
+import { isControlEnabled, isControlFrozen, ensureBearerToken, controlSocketPath } from './core/control/control-config';
+import { JORVIS_TOOL_CATALOGUE } from './core/assistant/tool-catalogue';
 import {
   buildConversationsHandlers,
   buildSwarmOriginHandlers,
@@ -183,6 +188,8 @@ interface SharedDeps {
    *  `.mcp.json` declaring the stdio server, which dials back here and
    *  proxies `tools/call` envelopes into the assistant controller. */
   mcpHostSigma?: McpHostSigma;
+  controlMcpHost?: ControlMcpHost;
+  controlEscalator?: ExternalEscalator;
   /** R-1 — Jorvis Telegram remote supervisor. Stopped in the shutdown path. */
   telegramBridge?: TelegramBridge;
   /** P4.2 — daily-note agent-activity digest collector. Final flush + cancel
@@ -654,6 +661,32 @@ async function buildRouter() {
     emit: (sessionId, reason) =>
       broadcast('agent:attention', { sessionId, reason, ts: Date.now() }),
   });
+
+  // External Control MCP — singletons (one per app; no per-client process).
+  const promptSink = new PromptSink();
+  const controlKv = {
+    get: (key: string): string | null => {
+      try { const row = getRawDb().prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value?: string } | undefined; return row?.value ?? null; } catch { return null; }
+    },
+    set: (key: string, value: string): void => {
+      try { getRawDb().prepare('INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at').run(key, value); } catch { /* swallow */ }
+    },
+  };
+  const controlEscalator = new ExternalEscalator({
+    notify: (req) => broadcast('control:escalation', req),
+    timeoutMs: 60_000,
+  });
+  let controlBearer: string | null = null;
+  let resolvedExternalInvoker: ExternalToolInvoker | null = null;
+  const controlMcpHost = new ControlMcpHost({
+    socketPath: controlSocketPath(app.getPath('userData')),
+    getToken: () => controlBearer,
+    isFrozen: () => isControlFrozen(controlKv),
+    resolveInvoker: () => resolvedExternalInvoker,
+    escalate: (toolName, summary, label) => controlEscalator.confirm(toolName, summary, label),
+    getCatalogue: () => JORVIS_TOOL_CATALOGUE,
+  });
+
   const pty = new PtyRegistry(
     (sessionId, data) => {
       attentionDetector.feed(sessionId, data); // sentinel already stripped
@@ -778,6 +811,7 @@ async function buildRouter() {
         },
         persist: (sessionId, snapshot) => persistScrollback(userData, sessionId, snapshot),
       }),
+      promptSink,
     },
   );
   const mailbox = new SwarmMailbox(userData);
@@ -1013,6 +1047,8 @@ async function buildRouter() {
     rufloSupervisor,
     rufloHttpDaemonSupervisor,
     mcpHostSigma,
+    controlMcpHost,
+    controlEscalator,
     digestCollector: digestCollectorRef,
     dailyScheduler,
     rearmDailySummary: armDailySummary,
@@ -2254,6 +2290,11 @@ async function buildRouter() {
     // workspaces.launch handler above).
     notifications: notificationsManager,
     broadcastPtyError: (payload) => broadcast('pty:error', payload),
+    resolveSessionProvider: (sessionId: string): string | null => {
+      try { const row = getRawDb().prepare('SELECT provider_id FROM agent_sessions WHERE id = ?').get(sessionId) as { provider_id?: string } | undefined; return row?.provider_id ?? null; } catch { return null; }
+    },
+    controlFrozen: () => isControlFrozen(controlKv),
+    promptSink,
   });
   const assistantCtl = assistantBundle.controller;
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the
@@ -2263,6 +2304,19 @@ async function buildRouter() {
   // turn — but in practice the CLI doesn't dial in until a user prompt
   // lands, by which point the bridge + invoker are fully wired.
   resolvedToolInvoker = assistantBundle.invokeTool;
+  // External Control MCP uses the SAME invoker but as the origin+confirmDangerous-
+  // aware signature (assistantBundle.invokeTool accepts origin/confirmDangerous).
+  resolvedExternalInvoker = assistantBundle.invokeTool as unknown as ExternalToolInvoker;
+  void (async () => {
+    try {
+      controlBearer = await ensureBearerToken(CredentialStore);
+      if (isControlEnabled(controlKv)) {
+        await controlMcpHost.start();
+      }
+    } catch (err) {
+      console.warn(`[control-mcp] init/start failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  })();
   // Start listening; failure here is non-fatal because the controller's
   // direct tool dispatch path still works (the CLI just won't see any
   // Sigma tools registered, exactly like v1.1.1 behaviour).
@@ -2804,6 +2858,8 @@ export async function shutdownRouter(): Promise<void> {
   } catch {
     /* ignore */
   }
+  try { sharedDeps?.controlMcpHost?.stop(); } catch { /* ignore */ }
+  try { sharedDeps?.controlEscalator?.cancelAll(); } catch { /* ignore */ }
   // Phase 4 Track C — stop the Ruflo child cleanly so the JSON-RPC stdio
   // pipes drain and the SIGTERM/SIGKILL escalation runs before electron
   // tears the process down.
