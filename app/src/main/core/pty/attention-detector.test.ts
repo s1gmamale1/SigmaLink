@@ -73,3 +73,42 @@ describe('AttentionDetector', () => {
     expect(h.emit).not.toHaveBeenCalled();
   });
 });
+
+// ── query-map tests ────────────────────────────────────────────────────────
+
+function make() {
+  const emitted: Array<{ id: string; reason: string }> = [];
+  let t = 1000;
+  const d = new AttentionDetector({
+    idleMs: () => 5_000,
+    emit: (id, reason) => emitted.push({ id, reason }),
+    now: () => t,
+  });
+  return { d, emitted, tick: (ms: number) => { t += ms; } };
+}
+
+describe('AttentionDetector query map', () => {
+  it('records last attention on a bell and exposes it via lastAttention()', () => {
+    const { d } = make();
+    d.feed('s1', '\x07'); // BEL
+    const a = d.lastAttention('s1');
+    expect(a?.reason).toBe('bell');
+    expect(a?.ts).toBe(1000);
+    expect(d.lastAttention('nope')).toBeNull();
+  });
+
+  it('snapshot() returns every tracked session and forget() clears it', () => {
+    const { d } = make();
+    d.feed('s1', '\x07');
+    expect(d.snapshot().get('s1')?.reason).toBe('bell');
+    d.forget('s1');
+    expect(d.snapshot().has('s1')).toBe(false);
+    expect(d.lastAttention('s1')).toBeNull();
+  });
+
+  it('still fires the push emit unchanged (no behaviour regression)', () => {
+    const { emitted, d } = make();
+    d.feed('s1', '\x07');
+    expect(emitted).toEqual([{ id: 's1', reason: 'bell' }]);
+  });
+});

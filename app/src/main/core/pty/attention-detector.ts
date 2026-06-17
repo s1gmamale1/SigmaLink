@@ -21,6 +21,7 @@ export class AttentionDetector {
   private readonly scanners = new Map<string, BellScanner>();
   private readonly idle: IdleDetector;
   private readonly opts: AttentionDetectorOptions;
+  private readonly lastAttn = new Map<string, { ts: number; reason: AttentionReason }>();
 
   // NOTE: TS `erasableSyntaxOnly` — no constructor parameter properties.
   constructor(opts: AttentionDetectorOptions) {
@@ -28,11 +29,17 @@ export class AttentionDetector {
     this.idle = new IdleDetector({
       idleMs: opts.idleMs,
       dedupeMs: opts.dedupeMs,
-      onIdle: (sessionId) => opts.emit(sessionId, 'idle'),
+      onIdle: (sessionId) => { this.record(sessionId, 'idle'); opts.emit(sessionId, 'idle'); },
       setTimer: opts.setTimer,
       clearTimer: opts.clearTimer,
       now: opts.now,
     });
+  }
+
+  private nowMs(): number { return (this.opts.now ?? Date.now)(); }
+
+  private record(sessionId: string, reason: AttentionReason): void {
+    this.lastAttn.set(sessionId, { ts: this.nowMs(), reason });
   }
 
   feed(sessionId: string, data: string): void {
@@ -44,6 +51,7 @@ export class AttentionDetector {
     const bells = scanner.feed(data);
     if (bells > 0) {
       this.idle.noteBell(sessionId);
+      this.record(sessionId, 'bell');
       this.opts.emit(sessionId, 'bell');
     }
     this.idle.onData(sessionId);
@@ -52,5 +60,14 @@ export class AttentionDetector {
   forget(sessionId: string): void {
     this.scanners.delete(sessionId);
     this.idle.forget(sessionId);
+    this.lastAttn.delete(sessionId);
+  }
+
+  lastAttention(sessionId: string): { ts: number; reason: AttentionReason } | null {
+    return this.lastAttn.get(sessionId) ?? null;
+  }
+
+  snapshot(): ReadonlyMap<string, { ts: number; reason: AttentionReason }> {
+    return new Map(this.lastAttn);
   }
 }
