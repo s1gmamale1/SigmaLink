@@ -65,6 +65,18 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
     },
   },
   {
+    name: 'send_keys',
+    description: 'Send named keys / control chars (e.g. "C-c", "Enter", "Up") or literal text into a pane\'s terminal. Use prompt_agent for typing a whole prompt; use send_keys for control sequences and editing keys.',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId', 'keys'],
+      properties: {
+        sessionId: { type: 'string' },
+        keys: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  },
+  {
     name: 'read_pane',
     description:
       'Read the visible terminal output (scrollback tail) of a pane by session id. Returns plain text with ANSI stripped.',

@@ -41,6 +41,7 @@ import { assertAllowedPath, isInsideRoot } from '../security/path-guard';
 // BSP-B3 — agent-drivable browser tools: SSRF guard + runCDP.
 import { assertAgentNavigable } from '../browser/agent-guard';
 import { runCDP } from '../browser/cdp';
+import { encodeKeys } from '../control/key-encode';
 
 export interface ToolContext {
   pty: PtyRegistry;
@@ -239,6 +240,7 @@ const sSearchMemories = z.object({
   query: z.string(),
   limit: z.number().int().min(1).max(50).optional(),
 });
+const sSendKeys = z.object({ sessionId: z.string().min(1), keys: z.array(z.string()).min(1) });
 const sBroadcast = z.object({ swarmId: z.string().min(1), body: z.string().min(1) });
 const sRollCall = z.object({
   swarmId: z.string().optional(),
@@ -457,6 +459,17 @@ export const TOOLS: ToolDefinition[] = [
       }
       ctx.pty.write(a.sessionId, a.prompt + '\n');
       return { ok: true };
+    },
+  ),
+  T(
+    'send_keys',
+    'Send keys',
+    'Send named keys / control chars (e.g. "C-c", "Enter", "Up") or literal text into a pane\'s terminal. Use prompt_agent for typing a whole prompt; use send_keys for control sequences and editing keys.',
+    { type: 'object', required: ['sessionId', 'keys'], properties: { sessionId: { type: 'string' }, keys: { type: 'array', items: { type: 'string' } } } },
+    sSendKeys,
+    async (a, ctx) => {
+      ctx.pty.write(a.sessionId, encodeKeys(a.keys));
+      return { ok: true, sessionId: a.sessionId };
     },
   ),
   T(
