@@ -2,6 +2,18 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.7.2] — 2026-06-18
+
+**v2.7.2 reverts the default theme back to `glass` — the flat `obsidian` default from v2.7.1 wasn't the look we wanted.**
+
+### Reverted — default theme back to `glass` (reverts #178)
+
+v2.7.1 made `obsidian` (flat near-black) the default; this reverts it to the translucent Liquid-Glass `glass` default. `obsidian` and all 14 other themes remain available in Settings → Theme. Reverts the `DEFAULT_THEME` change and its unit/e2e (`BUG-W7-003`) assertions back to `glass`.
+
+### Verification
+
+Full CI gate green (`shellcheck` · `lint + build (macos)` · `smoke (macos-14)` · `smoke (windows-latest)`).
+
 ## [2.7.1] — 2026-06-17
 
 **v2.7.1 makes the flat near-black `obsidian` theme the default, replacing the translucent `glass` look.**
