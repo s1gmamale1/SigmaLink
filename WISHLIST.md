@@ -123,3 +123,11 @@ _Independent 3-agent (Opus) release-readiness review of the two merged-but-unrel
 - **[trivial] #179 diagnostics-log byte-trim can sever the oldest surviving line mid-string** — `app/src/main/diagnostics-log.ts:21-24` trims by bytes, not line boundaries, so the first surviving entry after a trim may be a fragment. Harmless. Effort: S.
 
 _(Not new / already tracked: `handleRelaunch` no close-write — see the pane-close section above (byte-identical to v2.7.1, not introduced by #179); the `uncaughtException` handler not calling `process.exit` is the intended "log instead of dying" for a GUI, not a bug.)_
+
+---
+
+## 🔬 Operator-reported bug (2026-06-17) — pane focus + click-flicker
+
+_Operator: pane windows need 3-4 clicks to focus and flicker when clicked. Disambiguated via AskUserQuestion: **all panes**, **both main + popped-out windows**, **flicker only on click**, **both ring + keystroke focus feel stuck**. Root-caused against `origin/main` (read-only); confirm-first plan written._
+
+- ~~🐞 **[high] DOM-presenter panes need 3-4 clicks to focus + flicker on click**~~ → **promoted to [ROADMAP.md](ROADMAP.md) Phase 18** (2026-06-17). Plan: `app/docs/superpowers/plans/2026-06-17-pane-focus-flicker.md`. Root cause (code-evidenced, default DOM presenter since v2.4.1): keystrokes go to a hidden 1×1 `<textarea>` focused on `mouseUp` **gated behind a `!sel.isCollapsed` early-return** (`app/src/renderer/features/command-room/DomTerminalView.tsx:386-390`) → a micro-movement click doesn't focus + clobbers the clipboard; plain `.focus()` with no `{ preventScroll }` (`:171,274,393`) scroll-jumps the `overflowY:auto` FlowView (textarea pinned `bottom:0`) → the flicker. Activation fires on mousedown-capture (`PaneGrid.tsx:315`→`CommandRoom.tsx:434`) with no static remount, so the "ring lag" is confirm-first (likely perceived failed-focus). Fix: focus on `pointerdown` + `preventScroll`, decouple copy-on-select; xterm path untouched. Effort: M.
