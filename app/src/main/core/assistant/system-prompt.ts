@@ -77,6 +77,12 @@ result back as a tool_result):
                       Open a workspace by its root folder path (call list_workspaces after to get its id).
   close_workspace     { workspaceId }
                       Close an open workspace by id (stops its panes). Destructive — requires operator approval.
+  rename_workspace    { workspaceId, name }
+                      Rename a workspace (label updates everywhere).
+  detach_window       { workspaceId }
+                      Pop a workspace out into its own OS window.
+  redock_window       { workspaceId }
+                      Redock a detached workspace window into the main window.
 
 Agent browser tools (default OFF — enable in Settings → Browser):
   browser_navigate    { url, workspaceId? }

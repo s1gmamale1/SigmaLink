@@ -269,6 +269,9 @@ const sSplitPane = z.object({
 });
 const sSetPaneMinimised = z.object({ paneId: z.string().min(1), minimised: z.boolean() });
 const sSetPaneDisplayProvider = z.object({ sessionId: z.string().min(1), displayProviderId: z.string().min(1) });
+const sRenameWorkspace = z.object({ workspaceId: z.string().min(1), name: z.string().min(1) });
+const sDetachWindow = z.object({ workspaceId: z.string().min(1) });
+const sRedockWindow = z.object({ workspaceId: z.string().min(1) });
 // BSP-B3 — browser agent tool schemas.
 const sBrowserNavigate = z.object({
   url: z.string().min(1),
@@ -1181,6 +1184,51 @@ export const TOOLS: ToolDefinition[] = [
     async (a, ctx) => {
       ctx.emit?.('assistant:set-display-provider', { sessionId: a.sessionId, displayProviderId: a.displayProviderId });
       return { ok: true, sessionId: a.sessionId, displayProviderId: a.displayProviderId };
+    },
+  ),
+  T(
+    'rename_workspace',
+    'Rename workspace',
+    'Rename a workspace (updates its label everywhere).',
+    {
+      type: 'object',
+      required: ['workspaceId', 'name'],
+      properties: { workspaceId: { type: 'string' }, name: { type: 'string' } },
+    },
+    sRenameWorkspace,
+    async (a, ctx) => {
+      ctx.emit?.('assistant:rename-workspace', { workspaceId: a.workspaceId, name: a.name });
+      return { ok: true, workspaceId: a.workspaceId, name: a.name };
+    },
+  ),
+  T(
+    'detach_window',
+    'Detach window',
+    'Pop a workspace out into its own OS window.',
+    {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+    sDetachWindow,
+    async (a, ctx) => {
+      ctx.emit?.('assistant:detach-window', { workspaceId: a.workspaceId });
+      return { ok: true, workspaceId: a.workspaceId };
+    },
+  ),
+  T(
+    'redock_window',
+    'Redock window',
+    'Redock a detached workspace window back into the main window.',
+    {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+    sRedockWindow,
+    async (a, ctx) => {
+      ctx.emit?.('assistant:redock-window', { workspaceId: a.workspaceId });
+      return { ok: true, workspaceId: a.workspaceId };
     },
   ),
   // ── BSP-B3 Agent-drivable browser tools (default-OFF, read-only) ──────────

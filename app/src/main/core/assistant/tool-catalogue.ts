@@ -345,6 +345,33 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
       properties: { sessionId: { type: 'string' }, displayProviderId: { type: 'string' } },
     },
   },
+  {
+    name: 'rename_workspace',
+    description: 'Rename a workspace (updates its label everywhere).',
+    inputSchema: {
+      type: 'object',
+      required: ['workspaceId', 'name'],
+      properties: { workspaceId: { type: 'string' }, name: { type: 'string' } },
+    },
+  },
+  {
+    name: 'detach_window',
+    description: 'Pop a workspace out into its own OS window.',
+    inputSchema: {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'redock_window',
+    description: 'Redock a detached workspace window back into the main window.',
+    inputSchema: {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+  },
   // BSP-B3 — agent-drivable browser tools (read-only, default-OFF).
   // Must be enabled via Settings → Browser (KV key: browser.agentDriving).
   {

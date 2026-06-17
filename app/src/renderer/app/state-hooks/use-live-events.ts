@@ -232,6 +232,58 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, []);
 
+  // Jorvis rename_workspace → rename a workspace optimistically then persist via RPC.
+  // Mirrors Sidebar's onRename: dispatch RENAME_WORKSPACE first (optimistic), then
+  // rpc.workspaces.rename({ id, name }). On failure, a full SET_WORKSPACES reload
+  // is skipped here (best-effort path — the sidebar handler does it if desired).
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:rename-workspace', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown; name?: unknown };
+      if (typeof p.workspaceId !== 'string') return;
+      if (typeof p.name !== 'string') return;
+      dispatch({ type: 'RENAME_WORKSPACE', id: p.workspaceId, name: p.name });
+      void (async () => {
+        try {
+          await rpc.workspaces.rename({ id: p.workspaceId as string, name: p.name as string });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis detach_window → pop a workspace out into its own OS window.
+  // Mirrors Sidebar's onDetach: rpc.windows.detachWorkspace({ workspaceId }).
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:detach-window', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown };
+      if (typeof p.workspaceId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.windows.detachWorkspace({ workspaceId: p.workspaceId as string });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, []);
+
+  // Jorvis redock_window → redock a detached workspace window back into main.
+  // Mirrors rpc.windows.redockWorkspace({ workspaceId }).
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:redock-window', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown };
+      if (typeof p.workspaceId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.windows.redockWorkspace({ workspaceId: p.workspaceId as string });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, []);
+
   // v1.13.2 — Listen for PTY crash. The main process emits a DISTINCT
   // `pty:error` event for runtime / fast crashes (contract:
   // `{ sessionId: string; exitCode: number | null; signal?: string | null }`).
