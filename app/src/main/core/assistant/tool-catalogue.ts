@@ -78,6 +78,24 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
     },
   },
   {
+    name: 'read_pane_since',
+    description: 'Read a pane\'s terminal output since a byte cursor; returns new text + a new cursor for incremental polling.',
+    inputSchema: { type: 'object', required: ['sessionId'], properties: { sessionId: { type: 'string' }, cursor: { type: 'number' } } },
+  },
+  {
+    name: 'wait_for_pane',
+    description: 'Block until any of the given panes prompts for input / goes idle / exits, or until timeout. Returns the session that became ready + a tail of its output.',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionIds', 'until'],
+      properties: {
+        sessionIds: { type: 'array', items: { type: 'string' } },
+        until: { type: 'string', enum: ['prompt', 'idle', 'exit'] },
+        timeoutMs: { type: 'number' },
+      },
+    },
+  },
+  {
     name: 'read_files',
     description: 'Read up to 32 files from disk (UTF-8, capped per file).',
     inputSchema: {

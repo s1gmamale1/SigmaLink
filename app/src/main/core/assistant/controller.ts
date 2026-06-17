@@ -87,6 +87,15 @@ export interface AssistantControllerDeps {
    * tool calls are denied immediately. When absent, defaults to false (off).
    */
   controlFrozen?: () => boolean;
+  /**
+   * wait_for_pane — main-side pane watcher. When supplied, the tool blocks
+   * until one of the given sessions becomes ready (prompt/idle/exit) or
+   * times out. Absent ⇒ the tool returns `reason:'unavailable'` immediately
+   * (safe default — all existing callers unaffected).
+   */
+  promptSink?: {
+    wait(opts: { sessionIds: string[]; until: 'prompt' | 'idle' | 'exit'; timeoutMs: number; idleMs?: number }): Promise<{ sessionId: string | null; reason: string; prompt?: unknown }>;
+  };
 }
 
 interface ActiveTurn {
@@ -306,6 +315,7 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         // (including the MCP-host bridge path) gets them too.
         notifications: deps.notifications,
         broadcastPtyError: deps.broadcastPtyError,
+        promptSink: deps.promptSink,
       });
       // P3-S7 — single persistence path: the tracer writes the `messages`
       // row with role='tool' and `toolCallId` set to the trace id; the

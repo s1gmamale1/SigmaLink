@@ -113,6 +113,17 @@ export interface ToolContext {
    * ⇒ no echo, no throw (back-compat).
    */
   emit?: (event: string, payload: unknown) => void;
+  /**
+   * wait_for_pane — main-side pane watcher (injected by the controller).
+   */
+  promptSink?: {
+    wait(opts: {
+      sessionIds: string[];
+      until: 'prompt' | 'idle' | 'exit';
+      timeoutMs: number;
+      idleMs?: number;
+    }): Promise<{ sessionId: string | null; reason: string; prompt?: unknown }>;
+  };
 }
 
 export interface ToolDefinition {
@@ -187,6 +198,12 @@ const sPromptAgent = z.object({ sessionId: z.string().min(1), prompt: z.string()
 const sReadPane = z.object({
   sessionId: z.string().min(1),
   maxBytes: z.number().int().positive().max(65_536).optional(),
+});
+const sReadPaneSince = z.object({ sessionId: z.string().min(1), cursor: z.number().int().nonnegative().optional() });
+const sWaitForPane = z.object({
+  sessionIds: z.array(z.string().min(1)).min(1),
+  until: z.enum(['prompt', 'idle', 'exit']),
+  timeoutMs: z.number().int().min(100).max(600000).optional(),
 });
 const sReadFiles = z.object({
   paths: z.array(z.string().min(1)).min(1).max(32),
@@ -478,6 +495,39 @@ export const TOOLS: ToolDefinition[] = [
         truncated: screen.truncated,
         ...(scan.flagged ? { flagged: true } : {}),
       };
+    },
+  ),
+  T(
+    'read_pane_since',
+    'Read pane since cursor',
+    'Read a pane\'s terminal output since a byte cursor; returns new text + a new cursor for incremental polling.',
+    { type: 'object', required: ['sessionId'], properties: { sessionId: { type: 'string' }, cursor: { type: 'number' } } },
+    sReadPaneSince,
+    async (a, ctx) => {
+      const snap = ctx.pty.snapshot(a.sessionId) ?? '';
+      const cursor = typeof a.cursor === 'number' ? Math.min(a.cursor, snap.length) : 0;
+      return { text: snap.slice(cursor), cursor: snap.length };
+    },
+  ),
+  T(
+    'wait_for_pane',
+    'Wait for pane',
+    'Block until any of the given panes prompts for input / goes idle / exits, or until timeout. Returns the session that became ready + a tail of its output.',
+    {
+      type: 'object',
+      required: ['sessionIds', 'until'],
+      properties: {
+        sessionIds: { type: 'array', items: { type: 'string' } },
+        until: { type: 'string', enum: ['prompt', 'idle', 'exit'] },
+        timeoutMs: { type: 'number' },
+      },
+    },
+    sWaitForPane,
+    async (a, ctx) => {
+      if (!ctx.promptSink) return { sessionId: null, reason: 'unavailable', prompt: null, tail: '' };
+      const r = await ctx.promptSink.wait({ sessionIds: a.sessionIds, until: a.until, timeoutMs: a.timeoutMs ?? 120000 });
+      const tail = r.sessionId ? (ctx.pty.snapshot(r.sessionId) ?? '').slice(-2048) : '';
+      return { sessionId: r.sessionId, reason: r.reason, prompt: r.prompt ?? null, tail };
     },
   ),
   T(
