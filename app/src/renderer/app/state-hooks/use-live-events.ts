@@ -84,6 +84,31 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, [dispatch]);
 
+  // Jorvis switch_workspace → activate a different workspace in the UI.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:switch-workspace', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown };
+      if (typeof p.workspaceId !== 'string') return;
+      dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: p.workspaceId });
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis focus_pane → set active session and optionally fullscreen it.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:focus-pane', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown; fullscreen?: unknown };
+      if (typeof p.sessionId !== 'string') return;
+      dispatch({ type: 'SET_ACTIVE_SESSION', id: p.sessionId });
+      if (p.fullscreen === true) {
+        dispatch({ type: 'FOCUS_PANE', paneId: p.sessionId });
+      }
+    });
+    return off;
+  }, [dispatch]);
+
   // v1.13.2 — Listen for PTY crash. The main process emits a DISTINCT
   // `pty:error` event for runtime / fast crashes (contract:
   // `{ sessionId: string; exitCode: number | null; signal?: string | null }`).

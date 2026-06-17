@@ -72,6 +72,9 @@ describe('classifyExternal', () => {
     monitor_pane: 'free',
     browser_navigate: 'escalate',
     browser_snapshot: 'free',
+    switch_workspace: 'free',
+    focus_pane: 'free',
+    set_pane_label: 'free',
   };
 
   it('every externally-exposed catalogue tool has a pinned, intended verdict', () => {

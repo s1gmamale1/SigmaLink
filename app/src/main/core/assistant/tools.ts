@@ -251,6 +251,9 @@ const sListSwarms = z.object({ workspaceId: z.string().optional() });
 const sListWorkspaces = z.object({});
 const sMonitorPane = z.object({ sessionId: z.string().min(1), conversationId: z.string().min(1) });
 const sClosePane = z.object({ sessionId: z.string().min(1) });
+const sSwitchWorkspace = z.object({ workspaceId: z.string().min(1) });
+const sFocusPane = z.object({ sessionId: z.string().min(1), fullscreen: z.boolean().optional() });
+const sSetPaneLabel = z.object({ sessionId: z.string().min(1), label: z.string().min(1).max(80) });
 // BSP-B3 — browser agent tool schemas.
 const sBrowserNavigate = z.object({
   url: z.string().min(1),
@@ -1019,6 +1022,60 @@ export const TOOLS: ToolDefinition[] = [
         .where(eq(agentSessions.id, a.sessionId))
         .run();
       return { ok: true };
+    },
+  ),
+  T(
+    'switch_workspace',
+    'Switch workspace',
+    'Make a workspace the active one in the UI.',
+    {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+    sSwitchWorkspace,
+    async (a, ctx) => {
+      ctx.emit?.('assistant:switch-workspace', { workspaceId: a.workspaceId });
+      return { ok: true, workspaceId: a.workspaceId };
+    },
+  ),
+  T(
+    'focus_pane',
+    'Focus pane',
+    'Focus a pane (optionally fullscreen it) in the Command Room.',
+    {
+      type: 'object',
+      required: ['sessionId'],
+      properties: { sessionId: { type: 'string' }, fullscreen: { type: 'boolean' } },
+    },
+    sFocusPane,
+    async (a, ctx) => {
+      ctx.emit?.('assistant:focus-pane', { sessionId: a.sessionId, fullscreen: a.fullscreen === true });
+      return { ok: true, sessionId: a.sessionId };
+    },
+  ),
+  T(
+    'set_pane_label',
+    'Set pane label',
+    "Set a pane's display name.",
+    {
+      type: 'object',
+      required: ['sessionId', 'label'],
+      properties: { sessionId: { type: 'string' }, label: { type: 'string' } },
+    },
+    sSetPaneLabel,
+    async (a, ctx) => {
+      // Replicate panes.rename's DB write: UPDATE agent_sessions SET name = ? WHERE id = ?
+      // Then signal the renderer so live title pills refresh instantly.
+      try {
+        getRawDb()
+          .prepare('UPDATE agent_sessions SET name = ? WHERE id = ?')
+          .run(a.label, a.sessionId);
+      } catch {
+        /* best-effort — DB unavailable in tests or stale session */
+      }
+      ctx.emit?.('panes:session-renamed', { sessionId: a.sessionId, name: a.label });
+      return { ok: true, sessionId: a.sessionId, label: a.label };
     },
   ),
   // ── BSP-B3 Agent-drivable browser tools (default-OFF, read-only) ──────────

@@ -255,6 +255,33 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
       },
     },
   },
+  {
+    name: 'switch_workspace',
+    description: 'Make a workspace the active one in the UI.',
+    inputSchema: {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'focus_pane',
+    description: 'Focus a pane (optionally fullscreen it) in the Command Room.',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId'],
+      properties: { sessionId: { type: 'string' }, fullscreen: { type: 'boolean' } },
+    },
+  },
+  {
+    name: 'set_pane_label',
+    description: "Set a pane's display name.",
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId', 'label'],
+      properties: { sessionId: { type: 'string' }, label: { type: 'string' } },
+    },
+  },
   // BSP-B3 — agent-drivable browser tools (read-only, default-OFF).
   // Must be enabled via Settings → Browser (KV key: browser.agentDriving).
   {

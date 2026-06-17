@@ -56,6 +56,12 @@ result back as a tool_result):
   monitor_pane        { sessionId, conversationId }
                       Subscribe this conversation to a pane's lifecycle events
                       (started/exited/error).
+  switch_workspace    { workspaceId }
+                      Make a workspace the active one in the UI.
+  focus_pane          { sessionId, fullscreen? }
+                      Focus a pane (optionally fullscreen it) in the Command Room.
+  set_pane_label      { sessionId, label }
+                      Set a pane's display name (persisted + live title refresh).
 
 Agent browser tools (default OFF — enable in Settings → Browser):
   browser_navigate    { url, workspaceId? }
