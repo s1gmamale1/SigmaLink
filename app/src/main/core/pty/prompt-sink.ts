@@ -52,12 +52,18 @@ export class PromptSink {
       const parsed = parseProtocolLine(line);
       if (!parsed || parsed.verb !== 'PROMPT' || !isPromptPayload(parsed.payload)) return;
       st!.lastPrompt = parsed.payload;
-      this.fire(sessionId, { sessionId, reason: 'prompt', prompt: parsed.payload }, 'prompt');
+      this.fire(sessionId, { sessionId, reason: 'prompt', prompt: parsed.payload });
     });
   }
 
   noteExit(sessionId: string): void {
-    this.fire(sessionId, { sessionId, reason: 'exit' }, 'exit');
+    // Exit is terminal: settle EVERY waiter watching this session, regardless of
+    // `until` (a dead pane will never prompt or settle meaningfully — a
+    // prompt-waiter must learn the pane died instead of hanging to timeout).
+    // First terminal event among a wait-for-any set wins.
+    for (const w of [...this.waiters]) {
+      if (w.sessionIds.has(sessionId)) this.settle(w, { sessionId, reason: 'exit' });
+    }
     this.sessions.delete(sessionId);
   }
 
@@ -90,9 +96,10 @@ export class PromptSink {
     );
   }
 
-  private fire(sessionId: string, result: PaneWaitResult, kind: 'prompt' | 'exit'): void {
+  private fire(sessionId: string, result: PaneWaitResult): void {
+    // Only prompt-waiters wake on a SIGMA::PROMPT (idle/exit have their own paths).
     for (const w of [...this.waiters]) {
-      if (w.until === kind && w.sessionIds.has(sessionId)) this.settle(w, result);
+      if (w.until === 'prompt' && w.sessionIds.has(sessionId)) this.settle(w, result);
     }
   }
 

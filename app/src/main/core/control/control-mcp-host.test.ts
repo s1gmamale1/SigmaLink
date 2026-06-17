@@ -85,4 +85,32 @@ describe('ControlMcpHost', () => {
     expect(host.liveConnectionCount()).toBe(0);
     c1.destroy(); c2.destroy();
   });
+
+  it('destroys a socket that never completes the handshake (timeout)', async () => {
+    const socketPath = sock();
+    const host = new ControlMcpHost({ socketPath, getToken: () => 'secret', isFrozen: () => false, resolveInvoker: () => vi.fn(), escalate: async () => true, handshakeTimeoutMs: 50 });
+    await host.start();
+    const c = net.connect(socketPath);
+    await new Promise((r) => setTimeout(r, 140));
+    expect(host.liveConnectionCount()).toBe(0);
+    c.destroy(); host.stop();
+  });
+
+  it('drops a connection that overflows the pre-newline buffer cap', async () => {
+    const socketPath = sock();
+    const host = new ControlMcpHost({ socketPath, getToken: () => 'secret', isFrozen: () => false, resolveInvoker: () => vi.fn(), escalate: async () => true, maxLineBytes: 1000 });
+    await host.start();
+    const c = net.connect(socketPath);
+    const got = await new Promise<any>((resolve) => {
+      let b = '';
+      c.on('data', (d: Buffer) => {
+        b += d.toString('utf8');
+        const nl = b.indexOf('\n');
+        if (nl !== -1) resolve(JSON.parse(b.slice(0, nl)));
+      });
+      c.write('x'.repeat(1500)); // no newline, exceeds the 1000-byte cap
+    });
+    expect(got.error.message).toMatch(/too large/i);
+    c.destroy(); host.stop();
+  });
 });

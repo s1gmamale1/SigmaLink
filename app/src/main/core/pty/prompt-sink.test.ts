@@ -45,4 +45,19 @@ describe('PromptSink', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(await p).toMatchObject({ reason: 'timeout', sessionId: null });
   });
+
+  it('an exit wakes a prompt-waiter with reason:exit (no hang to timeout)', async () => {
+    const sink = new PromptSink();
+    const p = sink.wait({ sessionIds: ['s1'], until: 'prompt', timeoutMs: 5000 });
+    sink.noteExit('s1');
+    expect(await p).toEqual({ sessionId: 's1', reason: 'exit' });
+  });
+
+  it('reassembles a SIGMA::PROMPT split across two feed() calls', async () => {
+    const sink = new PromptSink();
+    const p = sink.wait({ sessionIds: ['s1'], until: 'prompt', timeoutMs: 5000 });
+    sink.feed('s1', 'SIGMA::PROMPT {"question":"Split","type":"single",');
+    sink.feed('s1', '"choices":["a"]}\n');
+    expect(await p).toMatchObject({ sessionId: 's1', reason: 'prompt', prompt: { question: 'Split' } });
+  });
 });

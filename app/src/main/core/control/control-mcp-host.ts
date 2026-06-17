@@ -30,6 +30,10 @@ export interface ControlMcpHostOpts {
   escalate: (toolName: string, summary: string, clientLabel: string) => Promise<boolean>;
   /** Optional catalogue provider for tools/list (the external-exposed subset). */
   getCatalogue?: () => unknown[];
+  /** Destroy a socket that hasn't completed control.hello within this window (default 10s). */
+  handshakeTimeoutMs?: number;
+  /** Max bytes buffered before a newline before the connection is dropped (default 1 MiB). */
+  maxLineBytes?: number;
 }
 
 interface IncomingMessage {
@@ -44,6 +48,7 @@ export class ControlMcpHost {
   private started = false;
   private readonly live = new Set<net.Socket>();
   private readonly authed = new WeakMap<net.Socket, { label: string }>();
+  private readonly handshakeTimers = new Map<net.Socket, ReturnType<typeof setTimeout>>();
   private readonly opts: ControlMcpHostOpts;
 
   constructor(opts: ControlMcpHostOpts) {
@@ -69,6 +74,8 @@ export class ControlMcpHost {
     const s = this.server;
     this.server = null;
     this.started = false;
+    for (const t of this.handshakeTimers.values()) { try { clearTimeout(t); } catch { /* ignore */ } }
+    this.handshakeTimers.clear();
     for (const sock of [...this.live]) { try { sock.destroy(); } catch { /* ignore */ } }
     this.live.clear();
     if (s) { try { s.close(); } catch { /* ignore */ } }
@@ -78,9 +85,24 @@ export class ControlMcpHost {
   private handleConnection(socket: net.Socket): void {
     this.live.add(socket);
     let buf = '';
+    const maxBytes = this.opts.maxLineBytes ?? 1 << 20;
+    // Drop a socket that connects but never completes the handshake (stuck
+    // listener / resource hold).
+    const hsTimer = setTimeout(() => {
+      if (!this.authed.has(socket)) { try { socket.destroy(); } catch { /* ignore */ } }
+    }, this.opts.handshakeTimeoutMs ?? 10_000);
+    this.handshakeTimers.set(socket, hsTimer);
     socket.setEncoding('utf8');
     socket.on('data', (chunk: string) => {
       buf += chunk;
+      // Cap the pre-newline buffer (a client streaming bytes with no newline
+      // would otherwise grow `buf` unbounded — local memory-exhaustion path).
+      if (buf.length > maxBytes) {
+        this.send(socket, { jsonrpc: '2.0', id: null, error: { code: -32603, message: 'line too large' } });
+        buf = '';
+        try { socket.destroy(); } catch { /* ignore */ }
+        return;
+      }
       let nl = buf.indexOf('\n');
       while (nl !== -1) {
         const line = buf.slice(0, nl).trim();
@@ -89,8 +111,14 @@ export class ControlMcpHost {
         if (line) void this.handleLine(line, socket);
       }
     });
-    socket.on('close', () => this.live.delete(socket));
-    socket.on('error', () => this.live.delete(socket));
+    socket.on('close', () => this.cleanupSocket(socket));
+    socket.on('error', () => this.cleanupSocket(socket));
+  }
+
+  private cleanupSocket(socket: net.Socket): void {
+    const t = this.handshakeTimers.get(socket);
+    if (t) { clearTimeout(t); this.handshakeTimers.delete(socket); }
+    this.live.delete(socket);
   }
 
   private send(socket: net.Socket, payload: unknown): void {
@@ -114,6 +142,8 @@ export class ControlMcpHost {
         return;
       }
       this.authed.set(socket, { label });
+      const t = this.handshakeTimers.get(socket);
+      if (t) { clearTimeout(t); this.handshakeTimers.delete(socket); }
       this.send(socket, { jsonrpc: '2.0', id, result: { ok: true } });
       return;
     }
