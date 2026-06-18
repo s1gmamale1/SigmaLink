@@ -195,7 +195,7 @@ describe('external gate — prompt_agent (provider-gated)', () => {
     });
     expect(out.ok).toBe(true);
     expect(confirmDangerous).not.toHaveBeenCalled();
-    expect(writeFn).toHaveBeenCalledWith('sess-claude', 'echo hi\n');
+    expect(writeFn).toHaveBeenCalledWith('sess-claude', 'echo hi\r');
   });
 
   it('prompt_agent → codex provider → FREE', async () => {

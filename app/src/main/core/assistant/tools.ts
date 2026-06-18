@@ -486,7 +486,11 @@ export const TOOLS: ToolDefinition[] = [
       if (!ctx.pty.isLive(a.sessionId)) {
         throw new Error(`prompt_agent: session not found or exited: ${a.sessionId}`);
       }
-      ctx.pty.write(a.sessionId, a.prompt + '\n');
+      // Submit with '\r' (the Enter key), NOT '\n' (a literal line-feed). TUI
+      // agents (claude/codex/opencode) treat '\n' as a newline INSIDE the input
+      // and only '\r' submits — without this prompt_agent typed but never sent
+      // (live-smoke: callers had to follow with send_keys(['Enter'])).
+      ctx.pty.write(a.sessionId, a.prompt + '\r');
       return { ok: true };
     },
   ),

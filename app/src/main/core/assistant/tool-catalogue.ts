@@ -30,7 +30,7 @@ export interface JorvisCatalogueEntry {
 export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
   {
     name: 'launch_pane',
-    description: 'Spawn one or more agent panes in the active workspace.',
+    description: 'Spawn one or more STANDALONE agent panes in the active workspace (NOT swarm members — the swarm tools split_pane/send_message_to_agent/resume_swarm/kill_swarm do not apply to them; use create_swarm/add_agent for a managed swarm).',
     inputSchema: {
       type: 'object',
       required: ['workspaceRoot', 'provider'],
@@ -54,7 +54,7 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
   },
   {
     name: 'prompt_agent',
-    description: 'Type a prompt into an existing PTY session.',
+    description: 'Type a prompt into an existing PTY session AND submit it (sends Enter). One call sends the prompt — no separate Enter needed.',
     inputSchema: {
       type: 'object',
       required: ['sessionId', 'prompt'],
@@ -316,7 +316,7 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
   },
   {
     name: 'split_pane',
-    description: 'Split a pane, adding a sub-pane that shares its worktree.',
+    description: 'Split a SWARM pane, adding a sub-pane that shares its worktree. Only works on panes that belong to a swarm (create_swarm/add_agent); returns an error for a standalone launch_pane pane.',
     inputSchema: {
       type: 'object',
       required: ['paneId', 'direction', 'provider'],

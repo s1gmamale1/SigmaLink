@@ -154,7 +154,7 @@ describe('R-1 authorization gate — prompt_agent', () => {
     });
     expect(out.ok).toBe(true);
     expect(confirmDangerous).toHaveBeenCalledWith('prompt_agent', expect.stringContaining('prompt_agent('));
-    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\n');
+    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\r');
   });
 
   it('telegram + confirmDangerous resolves false → BLOCKED, handler not run', async () => {
@@ -199,7 +199,7 @@ describe('R-1 authorization gate — prompt_agent', () => {
     });
     expect(out.ok).toBe(true);
     expect(confirmDangerous).not.toHaveBeenCalled();
-    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\n');
+    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\r');
   });
 
   it('omitted origin defaults to local → NOT gated', async () => {
@@ -209,7 +209,7 @@ describe('R-1 authorization gate — prompt_agent', () => {
       args: { sessionId: 'sess-1', prompt: 'echo hi' },
     });
     expect(out.ok).toBe(true);
-    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\n');
+    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\r');
   });
 
   it('telegram + the dispatch_pane alias still resolves to gated prompt_agent', async () => {
