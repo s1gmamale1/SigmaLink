@@ -104,7 +104,12 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, [dispatch]);
 
-  // Jorvis open_workspace → open the workspace + add it to the rail.
+  // Jorvis / external open_workspace → open the workspace, add it to the rail,
+  // AND activate it so the operator SEES the agent's work live. A human opening a
+  // workspace switches to it; without the activate, an external agent's newly
+  // opened workspace — and any panes it then launches there — render in the
+  // background and never surface in the visible window. (Canonical pattern:
+  // WORKSPACE_OPEN + SET_ACTIVE_WORKSPACE_ID — see state.types.ts.)
   useEffect(() => {
     const off = window.sigma.eventOn('assistant:open-workspace', (raw: unknown) => {
       if (!raw || typeof raw !== 'object') return;
@@ -114,6 +119,7 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
         try {
           const ws = await rpc.workspaces.open(p.root as string);
           dispatch({ type: 'WORKSPACE_OPEN', workspace: ws });
+          dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: ws.id });
         } catch { /* best-effort */ }
       })();
     });
