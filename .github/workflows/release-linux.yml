@@ -82,7 +82,6 @@ jobs:
           retention-days: 30
           path: |
             app/release/*.AppImage
-            app/release/*.AppImage.blockmap
             app/release/*.deb
             app/release/latest-linux.yml
 
@@ -92,7 +91,6 @@ jobs:
         with:
           files: |
             app/release/*.AppImage
-            app/release/*.AppImage.blockmap
             app/release/*.deb
             app/release/latest-linux.yml
           fail_on_unmatched_files: true
