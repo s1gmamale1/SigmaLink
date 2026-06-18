@@ -281,7 +281,9 @@ describe('<SessionTerminal> — renderer switch (P1b)', () => {
     const { findByTestId } = render(<SessionTerminal sessionId="sess-dom" />);
     expect(await findByTestId('dom-terminal-view')).toBeTruthy();
     // mutual exclusion: dom mode destroys any cached xterm for this session.
-    expect(destroyXtermMock).toHaveBeenCalledWith('sess-dom');
+    // destroyXterm fires in a post-commit useEffect, so it can lag behind the
+    // findByTestId resolution under parallel-coverage load — wait for it.
+    await waitFor(() => expect(destroyXtermMock).toHaveBeenCalledWith('sess-dom'));
     // and never constructs the xterm host's cache entry.
     expect(getOrCreateTerminalMock).not.toHaveBeenCalled();
   });
@@ -294,7 +296,9 @@ describe('<SessionTerminal> — renderer switch (P1b)', () => {
     const { findByTestId } = render(<SessionTerminal sessionId="sess-x" />);
     expect(await findByTestId('dom-terminal-view')).toBeTruthy();
     expect(getOrCreateTerminalMock).not.toHaveBeenCalled();
-    expect(destroyXtermMock).toHaveBeenCalledWith('sess-x');
+    // destroyXterm fires in a post-commit useEffect (same race as the override
+    // test above) — wait for it rather than asserting synchronously.
+    await waitFor(() => expect(destroyXtermMock).toHaveBeenCalledWith('sess-x'));
   });
 
   it('mounts the xterm host when the KV says xterm (one-KV revert)', async () => {
