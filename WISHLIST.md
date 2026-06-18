@@ -68,6 +68,12 @@ _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
   - **[state/low] exited-session GC drops a detached ws's exited rows from main's state** (`use-exited-session-gc.ts`) — transient; self-heals via the redock refetch. Fix only if a ghost is ever reported. Effort: S.
   - **[hardening] secondary-window cap + preload `argValue` unit test** — resource-exhaustion belt-and-braces + the one un-unit-tested preload parse. Effort: S.
 
+- **[panes] pane auto-scroll + Shift+Enter follow-ups (PR #185 + #187 review residue, 2026-06-18)** — both features SHIPPED to the DOM presenter (auto-scroll robustness + jump-to-bottom button `#185`; provider-aware Shift+Enter newline `#187`). Non-blocking residue the Opus reviews + the verification step filed:
+  - **[verify] on-device confirm Shift+Enter inserts a newline in a real Codex pane** — the mapping is provider-aware: `claude → \x1b\r` (meta-Enter, authoritative from claude's own `/terminal-setup`) vs `codex`/others → `\n` (Ctrl+J). Codex's `\n` is strong (its footer + kitty-fallback) but NOT yet live-confirmed. If it submits instead of newlining, it's a one-line tweak in `shiftEnterNewline` (`app/src/renderer/features/command-room/input-encoder.ts`). [[reference_shift_enter_newline_per_tui]] Effort: S.
+  - **[a11y] jump-to-bottom "↓" button has no `:focus-visible` outline** — `FlowView.tsx` renders the button with inline styles (no pseudo-class), so keyboard focus is invisible. Pane is mouse-driven so cosmetic. Fix needs a CSS class or onFocus/onBlur (inline can't do `:focus-visible`). Effort: S.
+  - **[xterm parity] neither feature covers the xterm renderer** (one KV away, not default since v2.4.1). xterm scrolls-on-output natively but has no jump-to-bottom button; it encodes Enter inside `term.onData`, so provider-aware Shift+Enter there needs `attachCustomKeyEventHandler` in `terminal-cache.ts`. Build only if a pane is flipped to xterm and parity is wanted. Effort: M.
+  - **[test] DomTerminalView undefined-provider Shift+Enter fallback** — the `providerId===undefined` (session not yet in state) → LF path is covered by the pure golden but not a DomTerminalView integration test; cheap to add. Effort: S.
+
 ---
 
 ## 🔬 Deep review findings (2026-06-11) — win32 DB lifecycle (Phase 15 grounding)
