@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
-import { encodeKeyEvent, encodePaste, isNativePasteCombo } from './input-encoder';
+import { encodeKeyEvent, encodePaste, isNativePasteCombo, shiftEnterNewline } from './input-encoder';
 import { encodeSgrMouse, shouldReportMouse } from './mouse-encoder';
 import { getPlatform } from '@/renderer/lib/platform';
 import { useAppStateSelector } from '@/renderer/app/state';
@@ -82,6 +82,9 @@ export function DomTerminalView({
   // the callback identity stays stable (FlowView memoizes rows on it).
   const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspace?.id);
   const wsIdRef = useRef<string | undefined>(activeWorkspaceId);
+  const providerId = useAppStateSelector((s) =>
+    s.sessions.find((sess) => sess.id === sessionId)?.providerId,
+  );
   useEffect(() => {
     wsIdRef.current = activeWorkspaceId;
   }, [activeWorkspaceId]);
@@ -361,7 +364,9 @@ export function DomTerminalView({
     // (`\x16` / CSI 2;2~) would leave DOM panes with no keyboard paste on
     // Windows. mac keeps Ctrl+V as readline quoted-insert (paste is Cmd+V).
     if (isNativePasteCombo(keyEvent, getPlatform() === 'darwin')) return;
-    const bytes = encodeKeyEvent(keyEvent, entry.engine.modes);
+    const bytes = encodeKeyEvent(keyEvent, entry.engine.modes, {
+      shiftEnterNewline: shiftEnterNewline(providerId),
+    });
     if (bytes === null) return; // cmd-shortcuts / bare modifiers stay with the app
     ev.preventDefault();
     writeBytes(bytes);

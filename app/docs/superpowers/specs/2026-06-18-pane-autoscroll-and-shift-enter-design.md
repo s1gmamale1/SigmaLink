@@ -106,34 +106,54 @@ case 'Enter':
 Shift+Enter sends `\r` → **submits**. The operator wants it to insert a newline
 in the composer of Claude Code / Codex panes.
 
-### Design
-```ts
-case 'Enter':
-  if (ev.altKey) return `${ESC}\r`;   // Option/Alt+Enter = meta-enter (unchanged)
-  if (ev.shiftKey) return '\n';       // Shift+Enter = LF newline  ← NEW
-  return '\r';                        // plain Enter = submit (unchanged)
-```
-LF (`\n`) is what Claude Code's `/terminal-setup` configures for Shift+Enter and
-is the broadest-supported "insert newline" byte. Ctrl+Enter is unaffected
-(falls through to `\r`). In a cooked-mode shell, `\n` completes the line via the
-line discipline exactly as `\r` does (ICRNL) — no regression for plain shells.
+### Design — PROVIDER-AWARE (revised after empirical verification)
+**Verification result (from the CLIs themselves, 2026-06-18):** the newline byte
+differs per TUI.
+- **Claude Code** — its own `/terminal-setup` configures VS Code Shift+Enter to
+  send `\x1B\r` (meta-Enter); it documents "Option+Enter for newlines". Bare LF
+  is NOT its newline. → **claude wants `\x1B\r`.**
+- **Codex** — footer shows `⌃J` (Ctrl+J = `\n`/LF) for newline, and it pushes
+  the kitty keyboard protocol (which our DOM presenter does not implement, so it
+  falls back to Ctrl+J); it does not bind meta-Enter. → **codex wants `\n`.**
 
-### Verification (operator-chosen: "LF, verified per-TUI")
-Before shipping, **PTY-probe Claude Code AND Codex** with a Python `pty` harness
-(node-pty is unreliable for this per prior probes): drive each TUI's composer,
-send `\n`, and confirm a newline is inserted (cursor drops a line, prompt does
-*not* submit). Document the result in the PR. If a TUI requires different bytes,
-fall back to meta-Enter (`ESC\r`) for that case and note it.
+No single byte works for both, so the encoding is provider-aware (operator
+decision, 2026-06-18). The pane's REAL provider (`session.providerId`, not the
+cosmetic `displayProviderId`) selects the bytes:
+
+```ts
+// input-encoder.ts
+export function shiftEnterNewline(providerId: string | undefined | null): string {
+  return providerId === 'claude' ? `${ESC}\r` : '\n'; // claude=meta-Enter; codex/others=LF
+}
+export function encodeKeyEvent(ev, modes, opts?: { shiftEnterNewline?: string }): string | null {
+  // ...
+  case 'Enter':
+    if (ev.altKey) return `${ESC}\r`;                 // Alt/Option+Enter unchanged
+    if (ev.shiftKey) return opts?.shiftEnterNewline ?? '\n'; // provider-resolved, default LF
+    return '\r';                                      // plain Enter submits
+}
+```
+`DomTerminalView` resolves `providerId` from app state (`s.sessions.find(id)`)
+and passes `{ shiftEnterNewline: shiftEnterNewline(providerId) }` into
+`encodeKeyEvent`. Plain shells submit on either byte in cooked mode — no
+regression. The encoder's other call site (wheel→arrow keys) passes no `opts`
+and is unaffected.
 
 ### Testing
-- **Golden table** (`input-encoder.test.ts`): add `Shift+Enter → "\n"`;
-  regression-guard `Enter → "\r"` and `Alt+Enter → "\x1b\r"`.
+- **Pure goldens** (`input-encoder.test.ts`): `shiftEnterNewline('claude') →
+  "\x1b\r"`, `('codex') → "\n"`, `('shell'|undefined) → "\n"`;
+  `encodeKeyEvent(Shift+Enter, …, {shiftEnterNewline:'\x1b\r'}) → "\x1b\r"`;
+  default (no opts) `Shift+Enter → "\n"`; regression-guard `Enter → "\r"`,
+  `Alt+Enter → "\x1b\r"`.
+- **Wiring** (`DomTerminalView.test.tsx`): make the `useAppStateSelector` mock
+  state configurable; assert a `claude` session's Shift+Enter writes `\x1b\r` and
+  a `codex` session's writes `\n`.
 
 ### Scope
-- DOM presenter (`input-encoder.ts` + test). The xterm path encodes Enter inside
-  `term.onData` (xterm's own handler) — making Shift+Enter→`\n` there needs
-  `attachCustomKeyEventHandler`; **out of scope** (xterm isn't the default),
-  logged as an optional follow-up.
+- DOM presenter (`input-encoder.ts` + `DomTerminalView.tsx` + their tests). The
+  xterm path encodes Enter inside `term.onData` (xterm's own handler); making
+  Shift+Enter provider-aware there needs `attachCustomKeyEventHandler` —
+  **out of scope** (xterm isn't the default), logged as an optional follow-up.
 
 ---
 
