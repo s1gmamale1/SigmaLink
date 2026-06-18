@@ -52,7 +52,7 @@
 //   Future drift caught by this test must be reviewed by the
 //   lead before being added to or removed from CHANNELS.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -638,6 +638,38 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
       missing,
       `use-live-events subscribes to these events but they are NOT in the EVENTS allowlist — ` +
         `the preload's eventOn silently no-ops them (the 2026-06-18 dead-control-plane bug): ${missing.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  /**
+   * Broadened class-guard (2026-06-18) — the use-live-events scan above only
+   * covered `assistant:`/`panes:` events in ONE file, so `control:escalation`
+   * (subscribed in features/settings/use-control-escalation.ts) slipped through
+   * un-allowlisted and the External Control approval prompt was a dead channel
+   * (#188 recurrence). This scans EVERY literal `eventOn('…')` across the whole
+   * renderer tree and fails if any subscribed channel is missing from EVENTS —
+   * regardless of file or prefix — so no future subscriber anywhere can silently
+   * no-op in the preload.
+   */
+  it('every literal eventOn() channel across the renderer is in EVENTS (no silent-drop, any file/prefix)', () => {
+    const here = dirname(fileURLToPath(import.meta.url)); // src/shared
+    const rendererDir = resolve(here, '../renderer');
+    const files = readdirSync(rendererDir, { recursive: true })
+      .map((p) => String(p))
+      .filter((p) => /\.tsx?$/.test(p) && !/\.test\.tsx?$/.test(p));
+    const subscribed = new Set<string>();
+    for (const rel of files) {
+      const text = readFileSync(resolve(rendererDir, rel), 'utf8');
+      for (const m of text.matchAll(/eventOn\(\s*'([^']+)'/g)) subscribed.add(m[1]);
+    }
+    // Sanity: the recursive scan actually found subscriptions (guards a path/regex break).
+    expect(subscribed.size).toBeGreaterThan(15);
+    const missing = [...subscribed].filter((e) => !EVENTS.has(e)).sort();
+    expect(
+      missing,
+      `These channels are subscribed via eventOn() somewhere in src/renderer but are NOT in the ` +
+        `EVENTS allowlist — the preload's eventOn returns a no-op unsubscribe so they are silently ` +
+        `dead (the #188 dead-control-plane bug class): ${missing.join(', ')}`,
     ).toEqual([]);
   });
 });

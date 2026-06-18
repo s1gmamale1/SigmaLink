@@ -26,6 +26,8 @@ export interface ControlRpcDeps {
   liveConnections: () => number;
   setBearer: (token: string) => void;
   respondEscalation: (id: string, approved: boolean) => void;
+  /** Deny + clear every in-flight escalation (kill-switch authority over pending approvals). */
+  cancelEscalations: () => void;
   reportViewport: (patch: import('./app-state-shadow').ViewportPatch) => void;
 }
 
@@ -53,8 +55,11 @@ export function buildControlController(deps: ControlRpcDeps) {
   return {
     status: async (): Promise<ControlStatus> => statusOf(),
     enable: async (): Promise<ControlStatus> => { setControlEnabled(deps.kv, true); await deps.start().catch(() => {}); return statusOf(); },
-    disable: async (): Promise<ControlStatus> => { setControlEnabled(deps.kv, false); deps.stop(); return statusOf(); },
-    freeze: async (): Promise<ControlStatus> => { setControlFrozen(deps.kv, true); return statusOf(); },
+    // disable + freeze are kill-switch paths: cancel in-flight escalations so a
+    // dangerous action already awaiting confirmation can't still resolve after the
+    // operator pulls the switch (stop() destroys sockets but leaves pending intact).
+    disable: async (): Promise<ControlStatus> => { setControlEnabled(deps.kv, false); deps.cancelEscalations(); deps.stop(); return statusOf(); },
+    freeze: async (): Promise<ControlStatus> => { setControlFrozen(deps.kv, true); deps.cancelEscalations(); return statusOf(); },
     unfreeze: async (): Promise<ControlStatus> => { setControlFrozen(deps.kv, false); return statusOf(); },
     rotateToken: async (): Promise<ControlStatus> => { const t = await rotateBearerToken(deps.credentials); deps.setBearer(t); return statusOf(); },
     connectCommand: async (): Promise<{ command: string }> => ({ command: buildConnectCommand(deps.socketPath, deps.serverEntry, await getBearerToken(deps.credentials)) }),
