@@ -134,6 +134,10 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'fs.readDir',
   'fs.readFile',
   'fs.writeFile',
+  'fs.createFile',
+  'fs.mkdir',
+  'fs.rename',
+  'fs.trash',
   'fs.getWorktreeSizes',
   // swarms (swarmsCtl — from buildSwarmController)
   'swarms.create',
