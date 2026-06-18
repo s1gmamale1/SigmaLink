@@ -5,7 +5,7 @@
 // exhaustive goldens over the set claude/codex (and shells later) consume.
 
 import { describe, expect, it } from 'vitest';
-import { encodeKeyEvent, encodePaste, isNativePasteCombo, type EncoderModes } from './input-encoder';
+import { encodeKeyEvent, encodePaste, isNativePasteCombo, shiftEnterNewline, type EncoderModes } from './input-encoder';
 
 const M = (over: Partial<EncoderModes> = {}): EncoderModes => ({
   applicationCursorKeys: false,
@@ -73,9 +73,12 @@ describe('encodeKeyEvent — control characters', () => {
 });
 
 describe('encodeKeyEvent — editing keys', () => {
-  it('Enter / alt+Enter', () => {
-    expect(encodeKeyEvent(k('Enter'), M())).toBe('\r');
-    expect(encodeKeyEvent(k('Enter', { alt: true }), M())).toBe('\x1b\r');
+  it('Enter / shift+Enter / alt+Enter (shift uses provider-resolved newline)', () => {
+    expect(encodeKeyEvent(k('Enter'), M())).toBe('\r'); // plain Enter still submits
+    expect(encodeKeyEvent(k('Enter', { shift: true }), M())).toBe('\n'); // default newline = LF
+    expect(encodeKeyEvent(k('Enter', { shift: true }), M(), { shiftEnterNewline: '\x1b\r' })).toBe('\x1b\r');
+    expect(encodeKeyEvent(k('Enter', { alt: true }), M())).toBe('\x1b\r'); // meta-enter unchanged
+    expect(encodeKeyEvent(k('Enter', { alt: true, shift: true }), M())).toBe('\x1b\r'); // alt wins
   });
 
   it('Backspace family (DEL; ctrl→BS; alt→ESC DEL)', () => {
@@ -91,6 +94,21 @@ describe('encodeKeyEvent — editing keys', () => {
 
   it('Escape', () => {
     expect(encodeKeyEvent(k('Escape'), M())).toBe('\x1b');
+  });
+});
+
+describe('shiftEnterNewline — provider-aware newline bytes', () => {
+  it('claude uses meta-Enter (ESC CR)', () => {
+    expect(shiftEnterNewline('claude')).toBe('\x1b\r');
+  });
+  it('codex and other providers use LF', () => {
+    expect(shiftEnterNewline('codex')).toBe('\n');
+    expect(shiftEnterNewline('gemini')).toBe('\n');
+    expect(shiftEnterNewline('shell')).toBe('\n');
+  });
+  it('unknown / undefined provider falls back to LF', () => {
+    expect(shiftEnterNewline(undefined)).toBe('\n');
+    expect(shiftEnterNewline(null)).toBe('\n');
   });
 });
 

@@ -90,11 +90,28 @@ const CURSOR_LETTERS: Record<string, string> = {
 };
 
 /**
+ * Bytes Shift+Enter sends to insert a newline — this differs per CLI:
+ *  - claude: meta-Enter (`ESC CR`) — exactly what Claude Code's own
+ *    `/terminal-setup` configures Shift+Enter to send; a bare LF does NOT
+ *    insert a newline there.
+ *  - codex / everything else / unknown: LF (`\n`, i.e. Ctrl+J) — Codex's
+ *    documented newline; a safe generic default (cooked-mode shells submit on
+ *    it exactly as they do on CR, so no regression).
+ */
+export function shiftEnterNewline(providerId: string | undefined | null): string {
+  return providerId === 'claude' ? `${ESC}\r` : '\n';
+}
+
+/**
  * Encode one key event to the bytes a terminal would send, or `null` when the
  * event is not terminal input (bare modifiers, IME dead keys, cmd-shortcuts —
  * those stay with the host app).
  */
-export function encodeKeyEvent(ev: EncoderKeyEvent, modes: EncoderModes): string | null {
+export function encodeKeyEvent(
+  ev: EncoderKeyEvent,
+  modes: EncoderModes,
+  opts?: { shiftEnterNewline?: string },
+): string | null {
   // cmd (meta) combos belong to the host app (copy/paste/zoom shortcuts).
   if (ev.metaKey) return null;
 
@@ -103,7 +120,9 @@ export function encodeKeyEvent(ev: EncoderKeyEvent, modes: EncoderModes): string
   // Named keys first — their `key` values are multi-char.
   switch (key) {
     case 'Enter':
-      return ev.altKey ? `${ESC}\r` : '\r';
+      if (ev.altKey) return `${ESC}\r`; // Option/Alt+Enter = meta-enter (unchanged)
+      if (ev.shiftKey) return opts?.shiftEnterNewline ?? '\n'; // provider-resolved newline
+      return '\r'; // plain Enter submits
     case 'Backspace':
       if (ev.ctrlKey) return '\x08';
       return ev.altKey ? `${ESC}\x7f` : '\x7f';

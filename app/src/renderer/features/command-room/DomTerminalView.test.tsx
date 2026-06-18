@@ -31,9 +31,14 @@ const setActiveTabMock = vi.fn();
 vi.mock('@/renderer/features/right-rail/RightRailContext.data', () => ({
   useRightRail: () => ({ activeTab: 'browser', setActiveTab: setActiveTabMock }),
 }));
+const stateMock = vi.hoisted(() => ({
+  state: {
+    activeWorkspace: { id: 'ws-1' } as { id?: string },
+    sessions: [] as Array<{ id: string; providerId: string }>,
+  },
+}));
 vi.mock('@/renderer/app/state', () => ({
-  useAppStateSelector: (selector: (s: { activeWorkspace?: { id?: string } }) => unknown) =>
-    selector({ activeWorkspace: { id: 'ws-1' } }),
+  useAppStateSelector: (selector: (s: typeof stateMock.state) => unknown) => selector(stateMock.state),
 }));
 
 import { __resetEngineCache, getCachedEngine } from '@/renderer/lib/engine-cache';
@@ -48,6 +53,7 @@ class ROStub {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('ResizeObserver', ROStub);
+  stateMock.state.sessions = [];
 });
 afterEach(() => {
   cleanup();
@@ -315,6 +321,22 @@ describe('DomTerminalView', () => {
     } finally {
       getSel.mockRestore();
     }
+  });
+
+  it('Shift+Enter sends meta-Enter (ESC CR) for a claude pane', async () => {
+    stateMock.state.sessions = [{ id: 'se-claude', providerId: 'claude' }];
+    const { container } = render(<DomTerminalView sessionId="se-claude" />);
+    await settle();
+    fireEvent.keyDown(container.querySelector('textarea')!, { key: 'Enter', shiftKey: true });
+    expect(rpcMock.pty.write).toHaveBeenCalledWith('se-claude', '\x1b\r');
+  });
+
+  it('Shift+Enter sends LF for a codex pane', async () => {
+    stateMock.state.sessions = [{ id: 'se-codex', providerId: 'codex' }];
+    const { container } = render(<DomTerminalView sessionId="se-codex" />);
+    await settle();
+    fireEvent.keyDown(container.querySelector('textarea')!, { key: 'Enter', shiftKey: true });
+    expect(rpcMock.pty.write).toHaveBeenCalledWith('se-codex', '\n');
   });
 
   it('focuses with { preventScroll: true } to avoid the scroll-jump flicker', async () => {
