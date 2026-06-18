@@ -75,7 +75,13 @@ jobs:
         # bundled Node ABI (20.9 in Electron 30), not the host Node ABI (20.16).
         # Modules built against the wrong ABI fail to dlopen in Electron's renderer,
         # causing a React boot crash that makes e2e tests false-green or all-fail.
-        run: npx @electron/rebuild -f -w better-sqlite3 -w node-pty -w @sigmalink/voice-win
+        # -o (EXCLUSIVE) builds ONLY these three — matching release-linux.yml. The
+        # prior -w flag does NOT restrict and rebuilt voice-whisper too, whose
+        # from-source whisper.cpp build fails on MSVC (ggml-cpu.c/.cpp collide on
+        # ggml-cpu.obj → LNK4042 → 40 unresolved ggml_* symbols). whisper is built
+        # in its own continue-on-error step below and stubs on failure; it must NOT
+        # ride this fatal step. (clang/gcc don't collide, so mac/linux build it for real.)
+        run: npx @electron/rebuild -f -o better-sqlite3,node-pty,@sigmalink/voice-win
 
       - name: Rebuild voice-whisper for Electron (Windows)
         # Build the whisper.cpp N-API binding against Electron's Node ABI.

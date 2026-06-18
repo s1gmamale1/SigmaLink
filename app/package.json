@@ -6,8 +6,9 @@
   "description": "Electron desktop workspace for running multiple CLI coding agents in isolated Git worktrees.",
   "type": "module",
   "main": "electron-dist/main.js",
-  "author": "SigmaLink Team",
+  "author": { "name": "SigmaLink Team", "email": "s1gmamale1@users.noreply.github.com" },
   "license": "MIT",
+  "homepage": "https://github.com/s1gmamale1/SigmaLink",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
