@@ -63,6 +63,9 @@ const reviewListMock = vi.fn<(wsId: string) => Promise<ReviewState>>();
 // Phase-2 control — scope-guard coverage for the non-idempotent subscribers.
 const splitPaneMock = vi.fn();
 const sendMessageMock = vi.fn();
+// open_workspace navigate coverage — returns the opened workspace so the handler
+// can WORKSPACE_OPEN + SET_ACTIVE_WORKSPACE_ID it.
+const workspaceOpenMock = vi.fn<(root: string) => Promise<{ id: string }>>();
 
 function emptyReview(workspaceId: string): ReviewState {
   return { workspaceId, sessions: [] };
@@ -104,6 +107,7 @@ const rpcMock = {
     sendMessage: (a: unknown) => sendMessageMock(a),
     resume: () => Promise.resolve(),
   },
+  workspaces: { open: (root: string) => workspaceOpenMock(root) },
 };
 const rpcSilentMock = {
   notifications: {
@@ -170,6 +174,7 @@ beforeEach(() => {
   splitPaneMock.mockResolvedValue({ id: 's2', splitGroupId: null });
   sendMessageMock.mockReset();
   sendMessageMock.mockResolvedValue(undefined);
+  workspaceOpenMock.mockReset();
   kvStore = {};
   toastMock.mockReset();
   toastMock.warning.mockReset();
@@ -302,6 +307,45 @@ describe('useLiveEvents — assistant:pane-closed → REMOVE_SESSION', () => {
 
     expect(dispatch).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'REMOVE_SESSION' }),
+    );
+  });
+});
+
+describe('useLiveEvents — assistant:open-workspace navigates (view follows the agent)', () => {
+  it('opens AND activates the workspace so external/Jorvis work surfaces live', async () => {
+    workspaceOpenMock.mockResolvedValueOnce({ id: 'ws-new' });
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+    dispatch.mockClear();
+
+    await act(async () => {
+      sigma.emit('assistant:open-workspace', { root: '/tmp/new' });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(workspaceOpenMock).toHaveBeenCalledWith('/tmp/new');
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'WORKSPACE_OPEN' }),
+    );
+    // The fix: without SET_ACTIVE_WORKSPACE_ID the opened workspace (and any panes
+    // launched into it) stay in the background and never surface in the view.
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: 'ws-new' });
+  });
+
+  it('ignores assistant:open-workspace with a non-string root', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+    dispatch.mockClear();
+
+    await act(async () => {
+      sigma.emit('assistant:open-workspace', { root: 42 });
+      await Promise.resolve();
+    });
+
+    expect(workspaceOpenMock).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_ACTIVE_WORKSPACE_ID' }),
     );
   });
 });
