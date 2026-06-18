@@ -218,7 +218,7 @@ export function FlowView({
     } catch {
       /* jsdom / detached */
     }
-  }, [activeMatch?.line, activeMatch?.index, searchTerm]);
+  }, [activeMatch?.line, activeMatch?.index, searchTerm, scrollRef]);
 
   const lines = engine.logicalLines();
   const visible = lines.slice(Math.max(0, lines.length - MAX_RENDER_LINES));
