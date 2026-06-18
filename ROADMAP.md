@@ -4,7 +4,7 @@ SigmaLink is an Electron desktop workspace for launching and coordinating live C
 
 This ROADMAP is the single source of truth for what to build next.
 
-> **Release status (2026-06-17).** Phases 1–17 have all SHIPPED — their permanent record lives in CHANGELOG + master memory + Ruflo; the shipped phase bodies have been cleared from this doc, which is the ephemeral *next-up* whiteboard, not an archive. Released through **v2.7.1** (`9dbc833`). **Merged on `main`, not yet released:** pane crash isolation (#179 `56f9994`) + first-class Linux Ubuntu x64 support (#180 `80b5fd2`) — both independently pre-release-verified release-ready (2026-06-17 multi-agent review; no blockers; CI green on macOS/Windows/Ubuntu, full vitest in CI). The next tag bundles them. ⚠️ If that tag is the **maiden Linux release**, `workflow_dispatch`-run `release-linux.yml` first — the Linux packaging path has never executed in CI (see the 2026-06-17 findings in [WISHLIST.md](WISHLIST.md)).
+> **Release status (2026-06-18).** Phases 1–18 have all SHIPPED — their permanent record lives in CHANGELOG + master memory + Ruflo; the shipped phase bodies have been cleared from this doc, which is the ephemeral *next-up* whiteboard, not an archive. Released through **v2.7.1** (`9dbc833`). **Merged on `main`, not yet released (the next tag bundles them all):** pane crash isolation (#179) · first-class Linux Ubuntu x64 support (#180) · pane focus + click-flicker fix (Phase 18, #182) · v2.7.2 prep / default-theme revert to 'glass' (#183) · file-viewer create/delete/rename/move (#184) · pane auto-scroll + jump-to-bottom (#185) · provider-aware Shift+Enter (#187) · **External Control MCP — external-agent control plane: Phase 1 gateway + Phase 2 human-parity surface (#188, CI-green; standalone bridge published at [s1gmamale1/Sigma-Control](https://github.com/s1gmamale1/Sigma-Control))**. ⚠️ If the next tag is the **maiden Linux release**, `workflow_dispatch`-run `release-linux.yml` first — the Linux packaging path has never executed in CI (see the 2026-06-17 findings in [WISHLIST.md](WISHLIST.md)).
 
 ---
 
@@ -19,29 +19,7 @@ This ROADMAP is the single source of truth for what to build next.
 
 ## Open / next work
 
-Everything previously sequenced here (Phases 1–17) has shipped. Two items remain, priority-ordered (the focus bug first — it's daily-driver friction):
-
-## Phase 18 — Pane focus + click-flicker (DOM presenter)
-
-**Goal.** A single click reliably focuses any pane (keystrokes land on the first click) with no flicker, on every renderer (DOM default + xterm) and in both main and popped-out windows.
-
-**Deliverables.**
-- `DomTerminalView.tsx` focuses the hidden input on `pointerdown` with `{ preventScroll: true }`, decoupled from copy-on-select.
-- `DomTerminalView.test.tsx` (new) — focus-on-pointerdown + selection-does-not-block-focus.
-- Headless-Chromium guard: focusing a pane does not scroll-jump.
-- (Conditional, gated on the confirm step) activation/ring-lag repair in `PaneGrid`/`CommandRoom`.
-
-**Why now.** Operator-reported daily-driver friction (2026-06-17, confirmed via AskUserQuestion): every pane needs 3-4 clicks to focus and flickers on click — across **all panes** and **both** main + popped-out windows. The core Command Room interaction has been degraded since the DOM presenter became the default renderer (v2.4.1).
-
-**Scope.** Per `app/docs/superpowers/plans/2026-06-17-pane-focus-flicker.md`. Task 1 is confirm-first (instrument the click→activate→focus sequence — no-fix-without-root-cause). Then: focus on `pointerdown` + `{ preventScroll: true }` (`DomTerminalView.tsx:171,274,393` + a new pointerdown listener near `:309`); decouple copy-on-select from focus (`onMouseUp` `:384-394`); conditional ring repair (`PaneGrid.tsx:315` / `CommandRoom.tsx:434`).
-
-**Findings + recommendation.** Root cause (code-evidenced): the DOM presenter routes keystrokes to a hidden 1×1 `<textarea>` focused on `mouseUp` **gated behind a `!sel.isCollapsed` early-return** (`DomTerminalView.tsx:386-390`) → a click with any micro-movement leaves a tiny selection, so it does NOT focus (and copies the stray selection to the clipboard); and a plain `.focus()` (no `preventScroll`) on the textarea pinned at `bottom:0` scroll-jumps the `overflowY:auto` FlowView → the "flicker on click". Activation fires on mousedown-capture with no static remount (stable keys), so the reported "ring lag" is treated as confirm-first (likely perceived failed-focus). Fix: focus on `pointerdown` so focus precedes selection; keep xterm's native click-focus untouched.
-
-**Risks.** jsdom has no layout/scroll → the scroll-jump is verified in headless Chromium, not jsdom. All three `inputRef.focus()` sibling sites must get `preventScroll` (grep before commit). Mouse-tracking panes (claude fullscreen) already focus on mousedown — the new pointerdown focus must stand down under tracking + shift (the selection bypass) to avoid double-handling. Do NOT code the ring fix before Task 1 confirms it.
-
-**Definition of done.** Operator: one click focuses any pane (shell + agent), no scroll-jump/flicker, copy-on-select still works, tracking + xterm panes unchanged, identical in popped-out windows; full local gate (`tsc -b`/vitest/eslint/build) + CI green. Effort: M.
-
----
+Everything previously sequenced here (Phases 1–18) has shipped (Phase 18 — pane focus + click-flicker — landed in #182; External Control MCP, a major new external-agent control surface, shipped via #188 and is recorded in CHANGELOG + master memory, not re-listed here as it was never a sequenced phase). One scoped item remains:
 
 ## Phase 13 (Part B) — Recently-closed panes (reopen)
 
@@ -104,5 +82,4 @@ _(Unscoped future enhancements, deferrals, and out-of-scope review findings — 
 
 | Item | Phase | Effort | Impact | Notes |
 |------|-------|--------|--------|-------|
-| Pane focus + click-flicker (DOM presenter) | Phase 18 | M | High | Daily-driver: 3-4 clicks to focus + flicker on click; focus-on-`pointerdown` + `preventScroll`, decouple copy-on-select; confirm-first ring. |
 | Recently-closed panes (listClosed + reopen + UI) | Phase 13 (Part B) | M | Medium | Recoverable accidental close; mirrors browser-tab recents; reuses Part A's `closed_at` + `listRecents` surface (ADR-007). |
