@@ -411,6 +411,12 @@ export interface AppRouter {
       content: string;
       repoRoot: string;
     }) => Promise<{ ok: true }>;
+    // file-viewer mutations (2026-06-18). All paths are contained by the
+    // main-process allowed-roots guard (core/fs/controller.ts).
+    createFile: (input: { path: string }) => Promise<{ ok: true }>;
+    mkdir: (input: { path: string }) => Promise<{ ok: true }>;
+    rename: (input: { from: string; to: string }) => Promise<{ ok: true }>;
+    trash: (input: { path: string }) => Promise<{ ok: true }>;
     /**
      * v1.4.2-06 — List all worktree directories under userData/worktrees
      * with their disk sizes for the Settings → Storage panel.

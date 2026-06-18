@@ -115,6 +115,11 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'fs.readDir',
   'fs.readFile',
   'fs.writeFile',
+  // file-viewer mutations (2026-06-18) — create/delete/rename/move
+  'fs.createFile',
+  'fs.mkdir',
+  'fs.rename',
+  'fs.trash',
   // v1.4.2-06 — Storage panel: list worktrees with sizes.
   'fs.getWorktreeSizes',
   // swarms
