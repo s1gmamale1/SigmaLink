@@ -183,3 +183,70 @@ export function fsExists(input: { path: string; allowedRoots?: AllowedRootsSourc
     return false; // out-of-roots / no roots — indistinguishable from absent
   }
 }
+
+export async function fsCreateFile(
+  input: { path: string; allowedRoots?: AllowedRootsSource },
+): Promise<{ ok: true }> {
+  const target = input.path;
+  if (!target || typeof target !== 'string') throw new Error('fs.createFile: path required');
+  const safe = containPath(target, input.allowedRoots);
+  try {
+    // 'wx' — create empty, fail if it already exists (no clobber). The parent
+    // dir must already exist (it does: you create into a visible tree folder).
+    const handle = await fsp.open(safe, 'wx');
+    await handle.close();
+  } catch (err) {
+    throw new Error(`fs.createFile: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return { ok: true };
+}
+
+export async function fsMkdir(
+  input: { path: string; allowedRoots?: AllowedRootsSource },
+): Promise<{ ok: true }> {
+  const target = input.path;
+  if (!target || typeof target !== 'string') throw new Error('fs.mkdir: path required');
+  const safe = containPath(target, input.allowedRoots);
+  try {
+    // Non-recursive: throws EEXIST if the directory already exists.
+    await fsp.mkdir(safe);
+  } catch (err) {
+    throw new Error(`fs.mkdir: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return { ok: true };
+}
+
+export async function fsRename(
+  input: { from: string; to: string; allowedRoots?: AllowedRootsSource },
+): Promise<{ ok: true }> {
+  if (!input.from || !input.to) throw new Error('fs.rename: from and to required');
+  // Contain BOTH ends — a move must not let `to` escape the sandbox.
+  const safeFrom = containPath(input.from, input.allowedRoots);
+  const safeTo = containPath(input.to, input.allowedRoots);
+  // No-clobber: refuse if the destination already exists. (A case-only rename
+  // on a case-insensitive FS is conservatively rejected; acceptable for v1.)
+  if (fs.existsSync(safeTo)) throw new Error('fs.rename: destination already exists');
+  try {
+    await fsp.rename(safeFrom, safeTo);
+  } catch (err) {
+    throw new Error(`fs.rename: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return { ok: true };
+}
+
+export async function fsTrash(
+  input: {
+    path: string;
+    allowedRoots?: AllowedRootsSource;
+    // Injected so the controller stays Electron-free + unit-testable; the router
+    // passes Electron's shell.trashItem. Moves to the OS Trash (recoverable).
+    trashItem: (absPath: string) => Promise<void>;
+  },
+): Promise<{ ok: true }> {
+  const target = input.path;
+  if (!target || typeof target !== 'string') throw new Error('fs.trash: path required');
+  // Contain FIRST — out-of-roots throws here, before trashItem ever runs.
+  const safe = containPath(target, input.allowedRoots);
+  await input.trashItem(safe);
+  return { ok: true };
+}

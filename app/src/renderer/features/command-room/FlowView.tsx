@@ -15,13 +15,14 @@
 // change deep in scrollback not re-rendering is a documented P1b limitation.
 
 import type { CSSProperties } from 'react';
-import { memo, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
+import { memo, useEffect, useReducer } from 'react';
 import type { TerminalEngine } from '@/renderer/lib/terminal-engine';
 import { DEFAULT_BG, DEFAULT_FG } from './ansi-palette';
 import { CURSOR_STYLE, runStyle } from './run-style';
 import { findUrls } from './linkify';
 import { segmentRuns, type Decoration, type LineSegment } from './line-segments';
 import { deriveBlocks } from './command-blocks';
+import { useStickToBottom } from './use-stick-to-bottom';
 
 /** Search highlight backgrounds (normal match / the active/current match). */
 const SEARCH_BG_NORMAL = '#7c5e10';
@@ -49,9 +50,6 @@ export const MAX_RENDER_LINES = 1500;
 export const LIVE_TAIL_LINES = 64;
 /** Estimated single-row height for content-visibility (12px × 1.4 ≈ 17). */
 const LINE_HEIGHT_PX = 17;
-/** Within this many px of the bottom counts as "stuck" (auto-follow). */
-const STICK_SLOP_PX = 8;
-
 const MONO_FONT =
   'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace';
 
@@ -207,8 +205,7 @@ export function FlowView({
   activeMatch?: { line: number; index: number } | null;
 }) {
   const [, bump] = useReducer((n: number) => n + 1, 0);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const stickRef = useRef(true);
+  const { scrollRef, atBottom, onScroll, scrollToBottom } = useStickToBottom();
 
   useEffect(() => engine.onBufferChanged(bump), [engine]);
 
@@ -221,20 +218,7 @@ export function FlowView({
     } catch {
       /* jsdom / detached */
     }
-  }, [activeMatch?.line, activeMatch?.index, searchTerm]);
-
-  // Stick-to-bottom: follow output while the user is at the bottom; stop the
-  // moment they scroll up; resume when they return to the bottom.
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  });
-
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_SLOP_PX;
-  };
+  }, [activeMatch?.line, activeMatch?.index, searchTerm, scrollRef]);
 
   const lines = engine.logicalLines();
   const visible = lines.slice(Math.max(0, lines.length - MAX_RENDER_LINES));
@@ -255,60 +239,92 @@ export function FlowView({
   }
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={onScroll}
-      className={className}
-      data-testid="flow-view"
-      style={{
-        height: '100%',
-        overflowY: 'auto',
-        // Reserve the (layout-taking, styled) scrollbar gutter ALWAYS so the
-        // text box width is constant whether or not the scrollbar is showing —
-        // no reflow when it toggles, and DomTerminalView's matching SCROLLBAR_W
-        // cols reserve stays exact. Without this the gutter only appears once
-        // the transcript overflows, narrowing the box mid-session and stranding
-        // the last word of full lines (the "inline break" bug).
-        scrollbarGutter: 'stable',
-        background: DEFAULT_BG,
-        color: DEFAULT_FG,
-        fontFamily: MONO_FONT,
-        fontSize: 12,
-        lineHeight: 1.4,
-        // Flowing output keeps CSS wrap (the redesign's whole point); the
-        // alternate buffer is now owned by GridView (P1c), so FlowView never
-        // needs the no-wrap alt branch.
-        whiteSpace: 'pre-wrap',
-        overflowWrap: 'anywhere',
-        overflowX: 'hidden',
-        userSelect: 'text',
-        padding: '4px 6px',
-        boxSizing: 'border-box',
-      }}
-    >
-      {visible.map((l, i) => (
-        <LineRow
-          key={l.startRow}
-          engine={engine}
-          startRow={l.startRow}
-          text={l.text}
-          live={l.startRow >= liveFromRow}
-          cursorOffset={
-            i === cursorLine ? (cursor.row - l.startRow) * engine.term.cols + cursor.col : null
-          }
-          searchTerm={searchTerm}
-          activeMatchIndex={activeMatch && activeMatch.line === i ? activeMatch.index : null}
-          onLinkClick={onLinkClick}
-          blockStart={blocks.some((b) => b.startRow === l.startRow)}
-          blockFailed={blocks.some(
-            (b) =>
-              typeof b.exitCode === 'number' &&
-              b.exitCode !== 0 &&
-              l.startRow >= b.startRow &&
-              l.startRow <= b.endRow,
-          )}
-        />
-      ))}
+    <div className={className} style={{ position: 'relative', height: '100%' }}>
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        data-testid="flow-view"
+        style={{
+          height: '100%',
+          overflowY: 'auto',
+          overflowAnchor: 'none', // stop Chromium scroll-anchoring fighting auto-follow
+          // Reserve the (layout-taking, styled) scrollbar gutter ALWAYS so the
+          // text box width is constant whether or not the scrollbar is showing —
+          // no reflow when it toggles, and DomTerminalView's matching SCROLLBAR_W
+          // cols reserve stays exact. Without this the gutter only appears once
+          // the transcript overflows, narrowing the box mid-session and stranding
+          // the last word of full lines (the "inline break" bug).
+          scrollbarGutter: 'stable',
+          background: DEFAULT_BG,
+          color: DEFAULT_FG,
+          fontFamily: MONO_FONT,
+          fontSize: 12,
+          lineHeight: 1.4,
+          // Flowing output keeps CSS wrap (the redesign's whole point); the
+          // alternate buffer is now owned by GridView (P1c), so FlowView never
+          // needs the no-wrap alt branch.
+          whiteSpace: 'pre-wrap',
+          overflowWrap: 'anywhere',
+          overflowX: 'hidden',
+          userSelect: 'text',
+          padding: '4px 6px',
+          boxSizing: 'border-box',
+        }}
+      >
+        {visible.map((l, i) => (
+          <LineRow
+            key={l.startRow}
+            engine={engine}
+            startRow={l.startRow}
+            text={l.text}
+            live={l.startRow >= liveFromRow}
+            cursorOffset={
+              i === cursorLine ? (cursor.row - l.startRow) * engine.term.cols + cursor.col : null
+            }
+            searchTerm={searchTerm}
+            activeMatchIndex={activeMatch && activeMatch.line === i ? activeMatch.index : null}
+            onLinkClick={onLinkClick}
+            blockStart={blocks.some((b) => b.startRow === l.startRow)}
+            blockFailed={blocks.some(
+              (b) =>
+                typeof b.exitCode === 'number' &&
+                b.exitCode !== 0 &&
+                l.startRow >= b.startRow &&
+                l.startRow <= b.endRow,
+            )}
+          />
+        ))}
+      </div>
+      {!atBottom && (
+        <button
+          type="button"
+          data-testid="jump-to-bottom"
+          onClick={scrollToBottom}
+          aria-label="Jump to latest output"
+          title="Jump to latest output"
+          style={{
+            position: 'absolute',
+            right: 14,
+            bottom: 12,
+            width: 28,
+            height: 28,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: '9999px',
+            border: '1px solid rgba(130,140,165,0.4)',
+            background: 'rgba(28,32,44,0.9)',
+            color: DEFAULT_FG,
+            cursor: 'pointer',
+            fontSize: 14,
+            lineHeight: 1,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+            padding: 0,
+          }}
+        >
+          ↓
+        </button>
+      )}
     </div>
   );
 }

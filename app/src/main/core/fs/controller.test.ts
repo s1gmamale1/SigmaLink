@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fsWriteFile, fsExists } from './controller';
+import { fsWriteFile, fsExists, fsCreateFile, fsMkdir, fsRename, fsTrash } from './controller';
 
 // Create a temp dir, run the body, clean up afterwards.
 async function withTmpDir(fn: (dir: string) => Promise<void>): Promise<void> {
@@ -127,6 +127,147 @@ describe('fsExists — sandboxed existence probe', () => {
       const target = path.join(dir, 'present.txt');
       await fsp.writeFile(target, 'x', 'utf8');
       expect(fsExists({ path: target })).toBe(false);
+    });
+  });
+});
+
+describe('fsCreateFile', () => {
+  it('creates an empty file inside an allowed root', async () => {
+    await withTmpDir(async (dir) => {
+      const target = path.join(dir, 'new.txt');
+      const res = await fsCreateFile({ path: target, allowedRoots: roots(dir) });
+      expect(res.ok).toBe(true);
+      expect(await fsp.readFile(target, 'utf8')).toBe('');
+    });
+  });
+  it('rejects clobbering an existing file', async () => {
+    await withTmpDir(async (dir) => {
+      const target = path.join(dir, 'exists.txt');
+      await fsp.writeFile(target, 'keep');
+      await expect(
+        fsCreateFile({ path: target, allowedRoots: roots(dir) }),
+      ).rejects.toThrow(/fs\.createFile/);
+      expect(await fsp.readFile(target, 'utf8')).toBe('keep'); // untouched
+    });
+  });
+  it('rejects a path outside the allowed roots', async () => {
+    await withTmpDir(async (dir) => {
+      await expect(
+        fsCreateFile({ path: path.join(dir, '..', 'escape.txt'), allowedRoots: roots(dir) }),
+      ).rejects.toThrow('path outside workspace');
+    });
+  });
+  it('is fail-closed with no allowed roots', async () => {
+    await withTmpDir(async (dir) => {
+      await expect(fsCreateFile({ path: path.join(dir, 'x.txt') })).rejects.toThrow(
+        'path outside workspace',
+      );
+    });
+  });
+});
+
+describe('fsMkdir', () => {
+  it('creates a directory inside an allowed root', async () => {
+    await withTmpDir(async (dir) => {
+      const target = path.join(dir, 'sub');
+      const res = await fsMkdir({ path: target, allowedRoots: roots(dir) });
+      expect(res.ok).toBe(true);
+      expect((await fsp.stat(target)).isDirectory()).toBe(true);
+    });
+  });
+  it('rejects when the directory already exists', async () => {
+    await withTmpDir(async (dir) => {
+      const target = path.join(dir, 'sub');
+      await fsp.mkdir(target);
+      await expect(
+        fsMkdir({ path: target, allowedRoots: roots(dir) }),
+      ).rejects.toThrow(/fs\.mkdir/);
+    });
+  });
+  it('rejects a path outside the allowed roots', async () => {
+    await withTmpDir(async (dir) => {
+      await expect(
+        fsMkdir({ path: path.join(dir, '..', 'evil'), allowedRoots: roots(dir) }),
+      ).rejects.toThrow('path outside workspace');
+    });
+  });
+});
+
+describe('fsRename', () => {
+  it('renames a file within an allowed root', async () => {
+    await withTmpDir(async (dir) => {
+      const from = path.join(dir, 'a.txt');
+      const to = path.join(dir, 'b.txt');
+      await fsp.writeFile(from, 'data');
+      const res = await fsRename({ from, to, allowedRoots: roots(dir) });
+      expect(res.ok).toBe(true);
+      expect(await fsp.readFile(to, 'utf8')).toBe('data');
+      expect(fsExists({ path: from, allowedRoots: roots(dir) })).toBe(false);
+    });
+  });
+  it('rejects when the destination already exists', async () => {
+    await withTmpDir(async (dir) => {
+      const from = path.join(dir, 'a.txt');
+      const to = path.join(dir, 'b.txt');
+      await fsp.writeFile(from, 'a');
+      await fsp.writeFile(to, 'b');
+      await expect(
+        fsRename({ from, to, allowedRoots: roots(dir) }),
+      ).rejects.toThrow(/destination already exists/);
+    });
+  });
+  it('rejects when the destination escapes the allowed roots', async () => {
+    await withTmpDir(async (dir) => {
+      const from = path.join(dir, 'a.txt');
+      await fsp.writeFile(from, 'a');
+      await expect(
+        fsRename({ from, to: path.join(dir, '..', 'b.txt'), allowedRoots: roots(dir) }),
+      ).rejects.toThrow('path outside workspace');
+    });
+  });
+  it('rejects when the source escapes the allowed roots', async () => {
+    await withTmpDir(async (dir) => {
+      await withTmpDir(async (other) => {
+        const from = path.join(other, 'a.txt');
+        await fsp.writeFile(from, 'a');
+        await expect(
+          fsRename({ from, to: path.join(dir, 'b.txt'), allowedRoots: roots(dir) }),
+        ).rejects.toThrow('path outside workspace');
+      });
+    });
+  });
+});
+
+describe('fsTrash', () => {
+  it('contains the path then calls the injected trashItem with the realpath', async () => {
+    await withTmpDir(async (dir) => {
+      const target = path.join(dir, 'doomed.txt');
+      await fsp.writeFile(target, 'bye');
+      const calls: string[] = [];
+      const res = await fsTrash({
+        path: target,
+        allowedRoots: roots(dir),
+        trashItem: async (p) => {
+          calls.push(p);
+        },
+      });
+      expect(res.ok).toBe(true);
+      expect(calls).toEqual([target]); // contained, realpath'd target
+    });
+  });
+  it('rejects out-of-roots BEFORE calling trashItem', async () => {
+    await withTmpDir(async (dir) => {
+      const calls: string[] = [];
+      await expect(
+        fsTrash({
+          path: path.join(dir, '..', 'outside.txt'),
+          allowedRoots: roots(dir),
+          trashItem: async (p) => {
+            calls.push(p);
+          },
+        }),
+      ).rejects.toThrow('path outside workspace');
+      expect(calls).toEqual([]);
     });
   });
 });

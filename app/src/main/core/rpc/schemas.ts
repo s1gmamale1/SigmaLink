@@ -624,6 +624,10 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
     }),
     output: any,
   },
+  'fs.createFile': { input: z.object({ path: PATH_STR }), output: any },
+  'fs.mkdir': { input: z.object({ path: PATH_STR }), output: any },
+  'fs.rename': { input: z.object({ from: PATH_STR, to: PATH_STR }), output: any },
+  'fs.trash': { input: z.object({ path: PATH_STR }), output: any },
   // ── swarms ───────────────────────────────────────────────────────────
   'swarms.create': stub,
   // V3-W12-017 — controller wraps `addAgentToSwarm` (factory.ts).

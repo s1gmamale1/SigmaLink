@@ -5,55 +5,22 @@
 // different tree root (W-8 worktree browsing) does not bleed expansion state.
 
 import {
-  memo,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import { ChevronRight, File as FileIcon, Folder, FolderOpen, RefreshCw } from 'lucide-react';
+import {
+  FilePlus,
+  FolderPlus,
+  RefreshCw,
+} from 'lucide-react';
 import { rpc, rpcSilent } from '@/renderer/lib/rpc';
-import { cn } from '@/lib/utils';
-import { pathRelative } from '@/renderer/lib/path-relative';
-
-// Tiny renderer-side path helpers — `path-browserify` isn't in our deps and
-// the renderer can't import the Node `path` module. We only need `join` +
-// `basename`, and our paths are always absolute (POSIX or Windows).
-const ptr = {
-  join: (...parts: string[]): string => {
-    const sep = parts[0]?.includes('\\') && !parts[0].startsWith('/') ? '\\' : '/';
-    return parts
-      .map((p, i) => (i === 0 ? p.replace(/[\\/]+$/, '') : p.replace(/^[\\/]+|[\\/]+$/g, '')))
-      .filter(Boolean)
-      .join(sep);
-  },
-  basename: (p: string): string => {
-    const norm = p.replace(/[\\/]+$/, '');
-    const idx = Math.max(norm.lastIndexOf('/'), norm.lastIndexOf('\\'));
-    return idx === -1 ? norm : norm.slice(idx + 1);
-  },
-};
-
-interface DirEntry {
-  name: string;
-  type: 'file' | 'dir';
-}
-
-interface NodeProps {
-  fullPath: string;
-  name: string;
-  type: 'file' | 'dir';
-  depth: number;
-  expanded: ReadonlySet<string>;
-  childrenByPath: ReadonlyMap<string, DirEntry[]>;
-  selectedPath: string | null;
-  onToggle: (p: string) => void;
-  onOpen: (p: string) => void;
-  /** v1.4.8 drag-drop — passed through so the drag payload carries both paths. */
-  workspaceId: string;
-  rootPath: string;
-}
+import { fsPath, isDescendant } from './fs-path';
+import { useFileMutations } from './useFileMutations';
+import { PromptDialog } from '@/components/ui/prompt-dialog';
+import { TreeNode, type DirEntry } from './FileTreeNode';
 
 interface Props {
   workspaceId: string;
@@ -79,6 +46,11 @@ export function FileTree(props: Props) {
   return <FileTreeInner key={`${props.workspaceId}::${props.rootPath}`} {...props} />;
 }
 
+type DialogState =
+  | { mode: 'newFile'; dir: string }
+  | { mode: 'newFolder'; dir: string }
+  | { mode: 'rename'; path: string; currentName: string };
+
 function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([rootPath]));
   const [childrenByPath, setChildren] = useState<Map<string, DirEntry[]>>(new Map());
@@ -87,6 +59,9 @@ function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Prop
   // In-flight paths live in a ref so the load-kicker effect never triggers a
   // re-render itself; "Loading…" is derived from expanded ∖ childrenByPath.
   const inFlightRef = useRef<Set<string>>(new Set());
+
+  const mutations = useFileMutations();
+  const [dialog, setDialog] = useState<DialogState | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -171,7 +146,102 @@ function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Prop
     setChildren(new Map());
   }, []);
 
-  const rootName = useMemo(() => ptr.basename(rootPath) || rootPath, [rootPath]);
+  // Invalidate one directory's cached listing; the lazy-load effect refetches
+  // because the path is still in `expanded` but no longer in childrenByPath.
+  const refreshDir = useCallback((dir: string) => {
+    setChildren((prev) => {
+      if (!prev.has(dir)) return prev;
+      const next = new Map(prev);
+      next.delete(dir);
+      return next;
+    });
+  }, []);
+
+  const openNewFile = useCallback((dir: string) => setDialog({ mode: 'newFile', dir }), []);
+  const openNewFolder = useCallback((dir: string) => setDialog({ mode: 'newFolder', dir }), []);
+  const openRename = useCallback(
+    (path: string, currentName: string) => setDialog({ mode: 'rename', path, currentName }),
+    [],
+  );
+
+  const handleDelete = useCallback(
+    async (path: string) => {
+      const ok = await mutations.trash(path);
+      if (ok) refreshDir(fsPath.dirname(path));
+    },
+    [mutations, refreshDir],
+  );
+
+  const [dragOverDir, setDragOverDir] = useState<string | null>(null);
+
+  const onDropMove = useCallback(
+    async (destDir: string, e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOverDir(null);
+      const raw = e.dataTransfer.getData('application/sigmalink-file');
+      if (!raw) return;
+      let source: string;
+      try {
+        source = (JSON.parse(raw) as { absolutePath?: string }).absolutePath ?? '';
+      } catch {
+        return;
+      }
+      if (!source) return;
+      // Guards: self, current-parent (no-op), into own subtree.
+      if (source === destDir) return;
+      if (fsPath.dirname(source) === destDir) return;
+      if (isDescendant(destDir, source)) return;
+      const moved = await mutations.move(source, destDir);
+      if (moved) {
+        refreshDir(fsPath.dirname(source));
+        refreshDir(destDir);
+        setExpanded((prev) => new Set(prev).add(destDir));
+      }
+    },
+    [mutations, refreshDir],
+  );
+
+  // Reject leaf names that contain separators or are dot-only (UX guard; the
+  // backend containment is the real boundary). Stable ref so it can be a
+  // dependency of handleDialogConfirm without re-creating the callback.
+  const validName = useCallback(
+    (name: string) =>
+      name.trim().length > 0 && !/[\\/]/.test(name) && name !== '.' && name !== '..',
+    [],
+  );
+
+  const handleDialogConfirm = useCallback(
+    async (raw: string) => {
+      const name = raw.trim();
+      // Snapshot the state value for narrowing — async callbacks can't narrow
+      // React state variables directly in some TS versions.
+      const d = dialog;
+      if (!d) return;
+      if (d.mode !== 'rename' && !validName(name)) return;
+      if (d.mode === 'newFile') {
+        const created = await mutations.createFile(d.dir, name);
+        if (created) {
+          refreshDir(d.dir);
+          setExpanded((prev) => new Set(prev).add(d.dir));
+          onOpenFile(created);
+        }
+      } else if (d.mode === 'newFolder') {
+        const created = await mutations.createFolder(d.dir, name);
+        if (created) {
+          refreshDir(d.dir);
+          setExpanded((prev) => new Set(prev).add(d.dir).add(created));
+        }
+      } else {
+        if (!validName(name) || name === d.currentName) return;
+        const moved = await mutations.rename(d.path, name);
+        if (moved) refreshDir(fsPath.dirname(d.path));
+      }
+    },
+    [dialog, mutations, refreshDir, onOpenFile, validName],
+  );
+
+  const rootName = useMemo(() => fsPath.basename(rootPath) || rootPath, [rootPath]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -179,20 +249,42 @@ function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Prop
         <div className="truncate text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           {rootName}
         </div>
-        <button
-          type="button"
-          onClick={refreshRoot}
-          className="rounded p-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-          aria-label="Refresh file tree"
-          title="Refresh"
-        >
-          <RefreshCw className="h-3 w-3" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => openNewFile(rootPath)}
+            className="rounded p-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            aria-label="New file"
+            title="New file"
+          >
+            <FilePlus className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => openNewFolder(rootPath)}
+            className="rounded p-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            aria-label="New folder"
+            title="New folder"
+          >
+            <FolderPlus className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={refreshRoot}
+            className="rounded p-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            aria-label="Refresh file tree"
+            title="Refresh"
+          >
+            <RefreshCw className="h-3 w-3" />
+          </button>
+        </div>
       </div>
       <div
         role="tree"
         aria-label="Workspace files"
         className="flex-1 overflow-auto py-1 text-sm"
+        onDragOver={(e) => { e.preventDefault(); }}
+        onDrop={(e) => onDropMove(rootPath, e)}
       >
         <TreeNode
           fullPath={rootPath}
@@ -204,129 +296,40 @@ function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Prop
           selectedPath={selectedPath}
           onToggle={toggle}
           onOpen={onOpenFile}
+          onNewFile={openNewFile}
+          onNewFolder={openNewFolder}
+          onRename={openRename}
+          onDelete={handleDelete}
           workspaceId={workspaceId}
           rootPath={rootPath}
+          onMoveInto={onDropMove}
+          dragOverDir={dragOverDir}
+          onDragOverDir={setDragOverDir}
         />
         {error ? (
           <div className="px-2 py-1 text-[11px] text-destructive">{error}</div>
         ) : null}
       </div>
+      <PromptDialog
+        open={dialog !== null}
+        onOpenChange={(o) => { if (!o) setDialog(null); }}
+        title={
+          dialog === null ? 'New file'
+            : dialog.mode === 'newFolder' ? 'New folder'
+            : dialog.mode === 'rename' ? 'Rename'
+            : 'New file'
+        }
+        label={
+          dialog === null ? 'File name'
+            : dialog.mode === 'newFolder' ? 'Folder name'
+            : dialog.mode === 'rename' ? 'New name'
+            : 'File name'
+        }
+        placeholder={dialog !== null && dialog.mode === 'newFolder' ? 'components' : 'index.ts'}
+        defaultValue={dialog !== null && dialog.mode === 'rename' ? dialog.currentName : ''}
+        confirmLabel={dialog !== null && dialog.mode === 'rename' ? 'Rename' : 'Create'}
+        onConfirm={handleDialogConfirm}
+      />
     </div>
   );
 }
-
-const TreeNode = memo(function TreeNode(props: NodeProps) {
-  const {
-    fullPath,
-    name,
-    type,
-    depth,
-    expanded,
-    childrenByPath,
-    selectedPath,
-    onToggle,
-    onOpen,
-    workspaceId,
-    rootPath,
-  } = props;
-
-  const isOpen = expanded.has(fullPath);
-  const isSelected = selectedPath === fullPath;
-  const children = type === 'dir' && isOpen ? childrenByPath.get(fullPath) : undefined;
-  // "Loading" = expanded directory whose children haven't landed yet.
-  const isLoading = type === 'dir' && isOpen && !children;
-
-  // Keep root row hidden — depth 0 is rendered by the parent header.
-  const isRoot = depth === 0;
-
-  return (
-    <div role="treeitem" aria-expanded={type === 'dir' ? isOpen : undefined}>
-      {!isRoot ? (
-        <button
-          type="button"
-          draggable
-          onDragStart={(e) => {
-            // v1.4.8 — workspace-relative path via shared pathRelative helper.
-            // Falls back to absolutePath when the file is outside the workspace root.
-            const relativePath = pathRelative(fullPath, rootPath);
-            e.dataTransfer.setData(
-              'application/sigmalink-file',
-              JSON.stringify({ absolutePath: fullPath, relativePath, workspaceId }),
-            );
-            e.dataTransfer.effectAllowed = 'copy';
-          }}
-          onClick={() => (type === 'dir' ? onToggle(fullPath) : onOpen(fullPath))}
-          onDoubleClick={() => type === 'dir' && onOpen(fullPath)}
-          className={cn(
-            'group flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[12px] transition',
-            'hover:bg-accent/30',
-            isSelected && 'bg-accent text-accent-foreground',
-          )}
-          style={{ paddingLeft: 4 + depth * 12 }}
-          title={fullPath}
-        >
-          {type === 'dir' ? (
-            <ChevronRight
-              className={cn(
-                'h-3 w-3 shrink-0 text-muted-foreground transition',
-                isOpen && 'rotate-90',
-              )}
-              aria-hidden
-            />
-          ) : (
-            <span className="inline-block w-3" aria-hidden />
-          )}
-          {type === 'dir' ? (
-            isOpen ? (
-              <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            ) : (
-              <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            )
-          ) : (
-            <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
-          )}
-          <span className="truncate">{name}</span>
-        </button>
-      ) : null}
-      {type === 'dir' && isOpen ? (
-        <div role="group">
-          {isLoading && !children ? (
-            <div
-              className="px-2 py-0.5 text-[11px] text-muted-foreground"
-              style={{ paddingLeft: 16 + depth * 12 }}
-            >
-              Loading…
-            </div>
-          ) : children && children.length === 0 ? (
-            <div
-              className="px-2 py-0.5 text-[11px] text-muted-foreground/70"
-              style={{ paddingLeft: 16 + depth * 12 }}
-            >
-              (empty)
-            </div>
-          ) : (
-            children?.map((c) => {
-              const childPath = ptr.join(fullPath, c.name);
-              return (
-                <TreeNode
-                  key={childPath}
-                  fullPath={childPath}
-                  name={c.name}
-                  type={c.type}
-                  depth={depth + 1}
-                  expanded={expanded}
-                  childrenByPath={childrenByPath}
-                  selectedPath={selectedPath}
-                  onToggle={onToggle}
-                  onOpen={onOpen}
-                  workspaceId={workspaceId}
-                  rootPath={rootPath}
-                />
-              );
-            })
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-});
