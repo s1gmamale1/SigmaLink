@@ -1157,6 +1157,27 @@ export const TOOLS: ToolDefinition[] = [
     },
     sSplitPane,
     async (a, ctx) => {
+      // Validate before emitting — rpc.swarms.splitPane THROWS for a missing /
+      // already-split / non-swarm pane (controller.ts:235-250), but the emit
+      // pattern can't observe that async rejection, so without this the tool
+      // returned ok:true while NOTHING happened (live-smoke finding: split_pane
+      // on a standalone launch_pane pane was a silent no-op).
+      try {
+        const row = getRawDb()
+          .prepare('SELECT split_group_id FROM agent_sessions WHERE id = ? AND closed_at IS NULL')
+          .get(a.paneId) as { split_group_id?: string | null } | undefined;
+        if (!row) return { ok: false, error: `split_pane: pane '${a.paneId}' not found` };
+        if (row.split_group_id) return { ok: false, error: `split_pane: pane '${a.paneId}' is already in a split group` };
+        const bound = getRawDb()
+          .prepare('SELECT 1 AS hit FROM swarm_agents WHERE session_id = ?')
+          .get(a.paneId) as { hit?: number } | undefined;
+        if (!bound) {
+          return {
+            ok: false,
+            error: `split_pane: pane '${a.paneId}' is not part of a swarm; split is only available for swarm panes (use create_swarm/add_agent, or split a swarm pane)`,
+          };
+        }
+      } catch { /* DB unavailable (tests) — fall through and emit best-effort */ }
       // sessionId mirrors paneId so broadcast() routes this to the parent pane's
       // OWNER window only — split_pane is non-idempotent (creates a sub-pane), so
       // it must fire in exactly one window, never broadcast to all.
