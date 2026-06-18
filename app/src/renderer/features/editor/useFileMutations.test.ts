@@ -33,12 +33,14 @@ describe('useFileMutations', () => {
     expect(toast.success).toHaveBeenCalled();
   });
 
-  it('createFolder calls fs.mkdir', async () => {
+  it('createFolder calls fs.mkdir and returns the new path', async () => {
     const { result } = renderHook(() => useFileMutations());
+    let out: string | null = null;
     await act(async () => {
-      await result.current.createFolder('/ws', 'sub');
+      out = await result.current.createFolder('/ws', 'sub');
     });
     expect(fs.mkdir).toHaveBeenCalledWith({ path: '/ws/sub' });
+    expect(out).toBe('/ws/sub');
   });
 
   it('rename keeps the parent dir and swaps the basename', async () => {
@@ -49,6 +51,7 @@ describe('useFileMutations', () => {
     });
     expect(fs.rename).toHaveBeenCalledWith({ from: '/ws/a.txt', to: '/ws/b.txt' });
     expect(out).toBe('/ws/b.txt');
+    expect(toast.success).toHaveBeenCalled();
   });
 
   it('move reparents under destDir keeping the basename', async () => {
@@ -59,6 +62,7 @@ describe('useFileMutations', () => {
     });
     expect(fs.rename).toHaveBeenCalledWith({ from: '/ws/src/a.txt', to: '/ws/dest/a.txt' });
     expect(out).toBe('/ws/dest/a.txt');
+    expect(toast.success).toHaveBeenCalled();
   });
 
   it('trash calls fs.trash and returns true', async () => {
@@ -69,6 +73,17 @@ describe('useFileMutations', () => {
     });
     expect(fs.trash).toHaveBeenCalledWith({ path: '/ws/gone.txt' });
     expect(ok).toBe(true);
+  });
+
+  it('trash surfaces a backend error as a toast and returns false', async () => {
+    fs.trash.mockRejectedValueOnce(new Error('fs.trash: EACCES'));
+    const { result } = renderHook(() => useFileMutations());
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.trash('/ws/x.txt');
+    });
+    expect(ok).toBe(false);
+    expect(toast.error).toHaveBeenCalledWith('fs.trash: EACCES');
   });
 
   it('surfaces a backend error as a toast and returns null', async () => {
