@@ -116,6 +116,18 @@ import { buildTasksController } from './core/tasks/controller';
 import { buildKvController } from './core/db/kv-controller';
 import { buildAssistantController } from './core/assistant/controller';
 import { McpHostSigma, type ToolInvoker } from './core/assistant/mcp-host-sigma';
+import { ControlMcpHost, type ExternalToolInvoker } from './core/control/control-mcp-host';
+import { ExternalEscalator } from './core/control/escalation';
+import { PromptSink } from './core/pty/prompt-sink';
+import { isControlEnabled, isControlFrozen, ensureBearerToken, controlSocketPath } from './core/control/control-config';
+import { buildControlController } from './core/control/control-rpc';
+import { createViewportShadow } from './core/control/app-state-shadow';
+import { buildAppState } from './core/control/app-state';
+import { getOpenWorkspaceIds } from './core/workspaces/lifecycle';
+import { listSwarmsForWorkspace } from './core/swarms/factory';
+import { derivePaneName } from '../shared/agent-identity';
+import { shapeSignature } from '../shared/pane-grid-shape';
+import { JORVIS_TOOL_CATALOGUE } from './core/assistant/tool-catalogue';
 import {
   buildConversationsHandlers,
   buildSwarmOriginHandlers,
@@ -183,6 +195,8 @@ interface SharedDeps {
    *  `.mcp.json` declaring the stdio server, which dials back here and
    *  proxies `tools/call` envelopes into the assistant controller. */
   mcpHostSigma?: McpHostSigma;
+  controlMcpHost?: ControlMcpHost;
+  controlEscalator?: ExternalEscalator;
   /** R-1 — Jorvis Telegram remote supervisor. Stopped in the shutdown path. */
   telegramBridge?: TelegramBridge;
   /** P4.2 — daily-note agent-activity digest collector. Final flush + cancel
@@ -261,6 +275,15 @@ const WORKSPACE_ROUTED_ASSISTANT_EVENTS = new Set([
   'assistant:pane-event',
   'assistant:pane-closed',
   'browser:state',
+  // Phase-2 external control — route to ONE owner window. split-pane: the TOOL
+  // ran the rpc in main, so only the parent pane's owner window should dispatch
+  // the SPLIT_PANE grid update (routed by sessionId). detach/redock: window ops
+  // (routed by workspaceId). The other swarm-op tools (send_message/resume/kill)
+  // now run fully in main and either need no renderer effect or a broadcast
+  // refresh, so they are NOT routed here.
+  'assistant:split-pane',
+  'assistant:detach-window',
+  'assistant:redock-window',
 ]);
 
 export type AssistantRoute =
@@ -654,6 +677,178 @@ async function buildRouter() {
     emit: (sessionId, reason) =>
       broadcast('agent:attention', { sessionId, reason, ts: Date.now() }),
   });
+
+  // External Control MCP — singletons (one per app; no per-client process).
+  const promptSink = new PromptSink();
+  // viewportShadow: also read by get_app_state (Task 4)
+  const viewportShadow = createViewportShadow();
+
+  // get_app_state provider — built once, passed into the assistant tool ctx.
+  const appStateProvider = {
+    snapshot: (opts: { workspaceId?: string; allWorkspaces?: boolean }) =>
+      buildAppState(
+        {
+          listWorkspaces: () =>
+            listWorkspaces().map((w) => ({
+              id: w.id,
+              name: w.name,
+              rootPath: w.rootPath,
+              repoRoot: w.repoRoot,
+              repoMode: w.repoMode,
+              lastOpenedAt: w.lastOpenedAt,
+            })),
+          getOpenWorkspaceIds,
+          windowScopes: () => getWindowRegistry().scopes(),
+          listSessions: (wsId: string) => {
+            try {
+              interface AppStateSessionRow {
+                id: string;
+                workspace_id: string;
+                pane_index: number | null;
+                name: string | null;
+                provider_id: string;
+                display_provider_id: string | null;
+                cwd: string;
+                branch: string | null;
+                worktree_path: string | null;
+                status: string;
+                exit_code: number | null;
+                started_at: number;
+                exited_at: number | null;
+                minimised: number;
+                split_group_id: string | null;
+                split_direction: string | null;
+                split_index: number | null;
+                swarm_id: string | null;
+                agent_key: string | null;
+                swarm_role: string | null;
+              }
+              const rows = getRawDb()
+                .prepare(
+                  `SELECT s.id, s.workspace_id, s.pane_index, s.name,
+                          s.provider_id, s.display_provider_id, s.cwd,
+                          s.branch, s.worktree_path, s.status, s.exit_code,
+                          s.started_at, s.exited_at,
+                          COALESCE(s.minimised, 0) AS minimised,
+                          s.split_group_id, s.split_direction, s.split_index,
+                          sa.swarm_id, sa.agent_key, sa.role AS swarm_role
+                   FROM agent_sessions s
+                   LEFT JOIN swarm_agents sa ON sa.session_id = s.id
+                   WHERE s.workspace_id = ?
+                     AND s.pane_index IS NOT NULL
+                     AND s.closed_at IS NULL
+                   ORDER BY s.pane_index ASC`,
+                )
+                .all(wsId) as AppStateSessionRow[];
+              return rows.map((r) => ({
+                id: r.id,
+                workspaceId: r.workspace_id,
+                paneIndex: r.pane_index,
+                name: r.name,
+                providerId: r.provider_id,
+                displayProviderId: r.display_provider_id,
+                cwd: r.cwd,
+                branch: r.branch,
+                worktreePath: r.worktree_path,
+                status: r.status as 'starting' | 'running' | 'exited' | 'error',
+                exitCode: r.exit_code,
+                startedAt: r.started_at,
+                exitedAt: r.exited_at,
+                minimised: r.minimised === 1,
+                splitGroupId: r.split_group_id,
+                splitDirection: r.split_direction as 'horizontal' | 'vertical' | null,
+                splitIndex: r.split_index as 0 | 1 | null,
+                swarmId: r.swarm_id,
+                agentKey: r.agent_key,
+                swarmRole: r.swarm_role,
+              }));
+            } catch {
+              return [];
+            }
+          },
+          ptyAlive: (sid: string) => {
+            const r = pty.list().find((x) => x.id === sid);
+            return { alive: !!r?.alive, pid: r?.pid ?? null };
+          },
+          attention: () => attentionDetector.snapshot(),
+          listSwarms: (wsId: string) =>
+            listSwarmsForWorkspace(wsId).map((sw) => ({
+              id: sw.id,
+              name: sw.name,
+              mission: sw.mission,
+              preset: sw.preset,
+              status: sw.status,
+              createdAt: sw.createdAt,
+              endedAt: sw.endedAt,
+              agents: sw.agents.map((a) => ({
+                agentKey: a.agentKey,
+                role: a.role,
+                roleIndex: a.roleIndex,
+                status: a.status,
+                sessionId: a.sessionId,
+                providerId: a.providerId,
+              })),
+            })),
+          browserState: (wsId: string) => {
+            if (!browserRegistry.has(wsId)) return null;
+            const state = browserRegistry.get(wsId).getState();
+            return {
+              activeTabId: state.activeTabId,
+              lockOwner: state.lockOwner,
+              detached: state.detached,
+              tabs: state.tabs.map((t) => ({
+                id: t.id,
+                url: t.url,
+                title: t.title,
+                active: t.active,
+                createdAt: t.createdAt,
+                lastVisitedAt: t.lastVisitedAt,
+              })),
+            };
+          },
+          notifications: () => ({
+            unreadCount: notificationsManager.unreadCount(),
+            recent: notificationsManager.list({ limit: 10 }).map((n) => ({
+              id: n.id,
+              kind: n.kind,
+              severity: n.severity,
+              title: n.title,
+              body: n.body,
+              workspaceId: n.workspaceId,
+              createdAt: n.createdAt,
+              readAt: n.readAt ?? null,
+            })),
+          }),
+          viewport: () => viewportShadow.get(),
+          derivePaneName,
+          shapeSignature,
+        },
+        opts,
+      ),
+  };
+  const controlKv = {
+    get: (key: string): string | null => {
+      try { const row = getRawDb().prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value?: string } | undefined; return row?.value ?? null; } catch { return null; }
+    },
+    set: (key: string, value: string): void => {
+      try { getRawDb().prepare('INSERT INTO kv (key, value, updated_at) VALUES (?, ?, unixepoch() * 1000) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at').run(key, value); } catch { /* swallow */ }
+    },
+  };
+  const controlEscalator = new ExternalEscalator({
+    notify: (req) => broadcast('control:escalation', req),
+    timeoutMs: 60_000,
+  });
+  let controlBearer: string | null = null;
+  let resolvedExternalInvoker: ExternalToolInvoker | null = null;
+  const controlMcpHost = new ControlMcpHost({
+    socketPath: controlSocketPath(app.getPath('userData')),
+    getToken: () => controlBearer,
+    isFrozen: () => isControlFrozen(controlKv),
+    resolveInvoker: () => resolvedExternalInvoker,
+    escalate: (toolName, summary, label) => controlEscalator.confirm(toolName, summary, label),
+    getCatalogue: () => JORVIS_TOOL_CATALOGUE,
+  });
+
   const pty = new PtyRegistry(
     (sessionId, data) => {
       attentionDetector.feed(sessionId, data); // sentinel already stripped
@@ -778,6 +973,7 @@ async function buildRouter() {
         },
         persist: (sessionId, snapshot) => persistScrollback(userData, sessionId, snapshot),
       }),
+      promptSink,
     },
   );
   const mailbox = new SwarmMailbox(userData);
@@ -887,6 +1083,7 @@ async function buildRouter() {
     'electron-dist',
     'mcp-jorvis-host-server.cjs',
   );
+  const controlServerEntry = path.join(app.getAppPath(), 'electron-dist', 'mcp-sigma-control-server.cjs');
   const memoryManager = new MemoryManager({
     emit: (event) => broadcast('memory:changed', event),
     resolveMcpCommand: (workspaceId) => {
@@ -1013,6 +1210,8 @@ async function buildRouter() {
     rufloSupervisor,
     rufloHttpDaemonSupervisor,
     mcpHostSigma,
+    controlMcpHost,
+    controlEscalator,
     digestCollector: digestCollectorRef,
     dailyScheduler,
     rearmDailySummary: armDailySummary,
@@ -2262,6 +2461,20 @@ async function buildRouter() {
     // workspaces.launch handler above).
     notifications: notificationsManager,
     broadcastPtyError: (payload) => broadcast('pty:error', payload),
+    resolveSessionProvider: (sessionId: string): string | null => {
+      try { const row = getRawDb().prepare('SELECT provider_id FROM agent_sessions WHERE id = ?').get(sessionId) as { provider_id?: string } | undefined; return row?.provider_id ?? null; } catch { return null; }
+    },
+    controlFrozen: () => isControlFrozen(controlKv),
+    promptSink,
+    appState: appStateProvider,
+    // Robustness — swarm-op tools call the controller directly (real result/error).
+    swarms: {
+      splitPane: (i: { paneId: string; direction: 'horizontal' | 'vertical'; provider: string }) => swarmsCtl.splitPane(i),
+      sendMessage: (i: { swarmId: string; toAgent: string; body: string; kind?: string }) =>
+        swarmsCtl.sendMessage(i as Parameters<typeof swarmsCtl.sendMessage>[0]),
+      resume: (id: string) => swarmsCtl.resume(id),
+      kill: (id: string) => swarmsCtl.kill(id),
+    },
   });
   const assistantCtl = assistantBundle.controller;
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the
@@ -2271,6 +2484,19 @@ async function buildRouter() {
   // turn — but in practice the CLI doesn't dial in until a user prompt
   // lands, by which point the bridge + invoker are fully wired.
   resolvedToolInvoker = assistantBundle.invokeTool;
+  // External Control MCP uses the SAME invoker but as the origin+confirmDangerous-
+  // aware signature (assistantBundle.invokeTool accepts origin/confirmDangerous).
+  resolvedExternalInvoker = assistantBundle.invokeTool as unknown as ExternalToolInvoker;
+  void (async () => {
+    try {
+      controlBearer = await ensureBearerToken(CredentialStore);
+      if (isControlEnabled(controlKv)) {
+        await controlMcpHost.start();
+      }
+    } catch (err) {
+      console.warn(`[control-mcp] init/start failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  })();
   // Start listening; failure here is non-fatal because the controller's
   // direct tool dispatch path still works (the CLI just won't see any
   // Sigma tools registered, exactly like v1.1.1 behaviour).
@@ -2555,6 +2781,18 @@ async function buildRouter() {
     telegram: telegramCtl,
     usage: usageCtl,
     mcp: mcpCtl,
+    control: buildControlController({
+      kv: controlKv,
+      credentials: CredentialStore,
+      socketPath: controlMcpHost.getSocketPath(),
+      serverEntry: controlServerEntry,
+      start: () => controlMcpHost.start(),
+      stop: () => controlMcpHost.stop(),
+      liveConnections: () => controlMcpHost.liveConnectionCount(),
+      setBearer: (t) => { controlBearer = t; },
+      respondEscalation: (id, approved) => controlEscalator.resolve(id, approved),
+      reportViewport: (patch) => viewportShadow.report(patch),
+    }),
   });
 }
 
@@ -2812,6 +3050,8 @@ export async function shutdownRouter(): Promise<void> {
   } catch {
     /* ignore */
   }
+  try { sharedDeps?.controlMcpHost?.stop(); } catch { /* ignore */ }
+  try { sharedDeps?.controlEscalator?.cancelAll(); } catch { /* ignore */ }
   // Phase 4 Track C — stop the Ruflo child cleanly so the JSON-RPC stdio
   // pipes drain and the SIGTERM/SIGKILL escalation runs before electron
   // tears the process down.

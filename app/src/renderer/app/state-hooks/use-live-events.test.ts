@@ -60,6 +60,9 @@ function installSigmaStub(): SigmaStub {
 // churn assertion; the rest are no-op resolved promises so the other effects
 // (skills/memory/tasks/swarms) settle quietly.
 const reviewListMock = vi.fn<(wsId: string) => Promise<ReviewState>>();
+// Phase-2 control — scope-guard coverage for the non-idempotent subscribers.
+const splitPaneMock = vi.fn();
+const sendMessageMock = vi.fn();
 
 function emptyReview(workspaceId: string): ReviewState {
   return { workspaceId, sessions: [] };
@@ -95,7 +98,12 @@ const rpcMock = {
   skills: { list: () => Promise.resolve({ skills: [], states: [] }) },
   memory: { list_memories: () => Promise.resolve([]) },
   tasks: { list: () => Promise.resolve([]) },
-  swarms: { list: () => Promise.resolve([]) },
+  swarms: {
+    list: () => Promise.resolve([]),
+    splitPane: (a: unknown) => splitPaneMock(a),
+    sendMessage: (a: unknown) => sendMessageMock(a),
+    resume: () => Promise.resolve(),
+  },
 };
 const rpcSilentMock = {
   notifications: {
@@ -158,6 +166,10 @@ beforeEach(() => {
   reviewListMock.mockResolvedValue(emptyReview('a'));
   playNotificationToneMock.mockReset();
   playCueMock.mockReset();
+  splitPaneMock.mockReset();
+  splitPaneMock.mockResolvedValue({ id: 's2', splitGroupId: null });
+  sendMessageMock.mockReset();
+  sendMessageMock.mockResolvedValue(undefined);
   kvStore = {};
   toastMock.mockReset();
   toastMock.warning.mockReset();
@@ -662,5 +674,41 @@ describe('useLiveEvents — agent:attention subscriber', () => {
 
     expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ATTENTION', sessionId: 's2', ts: baseTs + 500 });
     expect(playCueMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---- Phase-2 control — multi-window scope guard ----------------------------
+// broadcast() falls back to sendToAll for DOCKED workspaces (no WindowRegistry
+// owner). The non-idempotent subscribers (split_pane, send_message_to_agent)
+// must run their rpc ONLY in the window whose state holds the target, or a 2nd
+// (detached) window double-executes (double split / duplicate DM).
+
+// Robustness refactor (2026-06-18): split_pane now runs rpc.swarms.splitPane in
+// the TOOL (main) and emits the new session; the subscriber ONLY dispatches the
+// grid update (no second rpc → no double-create), and the tool surfaces failures
+// as ok:false instead of a silent ok:true.
+describe('useLiveEvents — split_pane subscriber dispatches from the tool result', () => {
+  it('dispatches SPLIT_PANE from the emitted newSession (no second rpc)', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    const newSession = session('s2');
+    await act(async () => {
+      sigma.emit('assistant:split-pane', { parentId: 's1', sessionId: 's1', newSession, groupId: 'g1', direction: 'horizontal' });
+      await Promise.resolve();
+    });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SPLIT_PANE', parentId: 's1', groupId: 'g1', direction: 'horizontal' }),
+    );
+    // The subscriber must NOT re-call rpc.swarms.splitPane (the tool already did).
+    expect(splitPaneMock).not.toHaveBeenCalled();
+  });
+
+  it('dispatches ADD_SESSIONS when the new session has no split group', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    const newSession = session('s2');
+    await act(async () => {
+      sigma.emit('assistant:split-pane', { parentId: 's1', sessionId: 's1', newSession, groupId: null, direction: 'horizontal' });
+      await Promise.resolve();
+    });
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'ADD_SESSIONS' }));
   });
 });

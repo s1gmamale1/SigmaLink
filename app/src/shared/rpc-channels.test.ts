@@ -52,6 +52,9 @@
 //   Future drift caught by this test must be reviewed by the
 //   lead before being added to or removed from CHANNELS.
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CHANNELS, EVENTS } from './rpc-channels';
 
@@ -304,6 +307,16 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'usage.sessionSummary',     // P6 FEAT-3 — per-pane usage/cost
   'usage.weekSummary',        // P6 FEAT-3 — per-pane usage/cost
   'mcp.diagnoseWorkspace',    // P6 FEAT-5 — MCP config diagnostics
+  // control (buildControlController) — External Control MCP operator surface
+  'control.status',
+  'control.enable',
+  'control.disable',
+  'control.freeze',
+  'control.unfreeze',
+  'control.rotateToken',
+  'control.connectCommand',
+  'control.respondEscalation',
+  'control.reportViewport',
 ];
 
 // ------------------------------------------------------------------
@@ -592,5 +605,39 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
    */
   it('agent:attention is in EVENTS allowlist', () => {
     expect(EVENTS.has('agent:attention')).toBe(true);
+  });
+
+  /**
+   * 2026-06-18 dead-control-plane bug — the renderer-driven control tools
+   * (focus_pane, rename_workspace, split_pane, …) emit an `assistant:*` event
+   * that a use-live-events subscriber turns into the real rpc/dispatch. EVERY
+   * one of those events was MISSING from EVENTS, so the preload's eventOn
+   * silently returned a no-op unsubscribe and the whole emit→subscriber class
+   * was dead for external/Jorvis/Telegram callers (tools returned ok, nothing
+   * happened). jsdom unit tests mock eventOn, so only a live drive caught it.
+   *
+   * This SOURCE-SCAN guard reads the actual subscriber file and fails if it
+   * subscribes to any assistant- or panes- event that isn't allowlisted — so a
+   * future subscriber added without its EVENTS entry can never silently no-op.
+   */
+  it('every assistant/panes event subscribed in use-live-events is in EVENTS (no silent-drop)', () => {
+    const here = dirname(fileURLToPath(import.meta.url)); // src/shared
+    const src = readFileSync(
+      resolve(here, '../renderer/app/state-hooks/use-live-events.ts'),
+      'utf8',
+    );
+    const subscribed = [
+      ...new Set(
+        [...src.matchAll(/eventOn\(\s*'((?:assistant|panes):[a-z-]+)'/g)].map((m) => m[1]),
+      ),
+    ];
+    // Sanity: the scan actually found subscriptions (guards against a regex/path break).
+    expect(subscribed.length).toBeGreaterThan(8);
+    const missing = subscribed.filter((e) => !EVENTS.has(e));
+    expect(
+      missing,
+      `use-live-events subscribes to these events but they are NOT in the EVENTS allowlist — ` +
+        `the preload's eventOn silently no-ops them (the 2026-06-18 dead-control-plane bug): ${missing.join(', ')}`,
+    ).toEqual([]);
   });
 });

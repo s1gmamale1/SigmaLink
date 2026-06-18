@@ -31,6 +31,33 @@ describe('resolveAssistantRoute', () => {
     expect(resolveAssistantRoute('memory:changed', { workspaceId: 'ws-1' }, convWs)).toEqual({ kind: 'all' });
     expect(resolveAssistantRoute('assistant:state', null, convWs)).toEqual({ kind: 'all' });
   });
+
+  // Phase-2 external control — NON-IDEMPOTENT side effects MUST reach a single
+  // owner window (else N windows double-execute: split twice, detach twice, send
+  // a message twice). Regression-pin both the routed set AND the broadcast set so
+  // a future edit can't silently flip an event's delivery (the agent-attention
+  // routing-drop lesson).
+  it('routes Phase-2 non-idempotent control events to a single owner window', () => {
+    expect(resolveAssistantRoute('assistant:split-pane', { sessionId: 's-1', paneId: 's-1', direction: 'horizontal', provider: 'claude' }, convWs))
+      .toEqual({ kind: 'session', sessionId: 's-1' });
+    expect(resolveAssistantRoute('assistant:detach-window', { workspaceId: 'ws-1' }, convWs))
+      .toEqual({ kind: 'workspace', workspaceId: 'ws-1' });
+    expect(resolveAssistantRoute('assistant:redock-window', { workspaceId: 'ws-1' }, convWs))
+      .toEqual({ kind: 'workspace', workspaceId: 'ws-1' });
+  });
+
+  it('does NOT route idempotent/global control events (they broadcast to every window)', () => {
+    for (const ev of [
+      'assistant:stop-pane',
+      'assistant:set-pane-minimised',
+      'assistant:set-display-provider',
+      'assistant:rename-workspace',
+      'assistant:resume-swarm',
+      'assistant:kill-swarm',
+    ]) {
+      expect(resolveAssistantRoute(ev, { sessionId: 's', workspaceId: 'w' }, convWs), ev).toEqual({ kind: 'all' });
+    }
+  });
 });
 
 describe('isSessionRoutedEvent', () => {

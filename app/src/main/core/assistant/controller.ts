@@ -29,6 +29,7 @@ import {
   type ConversationWithMessages,
 } from './conversations';
 import { DANGEROUS_REMOTE, findTool, publicTools, summarizeArgs } from './tools';
+import { classifyExternal } from '../control/authz-external';
 import { ToolTracer, safeSerialize, type ToolTrace } from './tool-tracer';
 import { recordSwarmOrigin } from './swarm-origins';
 import { runClaudeCliTurn, cancelClaudeCliTurn } from './runClaudeCliTurn';
@@ -74,6 +75,44 @@ export interface AssistantControllerDeps {
    */
   notifications?: { add: (input: import('../notifications/manager').AddInput) => unknown };
   broadcastPtyError?: (payload: { sessionId: string; exitCode: number | null; signal?: string | null }) => void;
+  /**
+   * Control MCP — supervised-autonomy gate for origin:'external' tool calls.
+   * Returns the provider string (e.g. 'claude', 'shell') for a given session id,
+   * or null if the session is unknown. When absent, provider resolves to null
+   * (triggers escalate for provider-gated tools). Existing callers unaffected.
+   */
+  resolveSessionProvider?: (sessionId: string) => string | null;
+  /**
+   * Control MCP — kill-switch predicate. When it returns true, ALL external
+   * tool calls are denied immediately. When absent, defaults to false (off).
+   */
+  controlFrozen?: () => boolean;
+  /**
+   * wait_for_pane — main-side pane watcher. When supplied, the tool blocks
+   * until one of the given sessions becomes ready (prompt/idle/exit) or
+   * times out. Absent ⇒ the tool returns `reason:'unavailable'` immediately
+   * (safe default — all existing callers unaffected).
+   */
+  promptSink?: {
+    wait(opts: { sessionIds: string[]; until: 'prompt' | 'idle' | 'exit'; timeoutMs: number; idleMs?: number }): Promise<{ sessionId: string | null; reason: string; prompt?: unknown }>;
+  };
+  /**
+   * get_app_state — holistic app snapshot provider (built in rpc-router).
+   * Absent ⇒ the tool returns `{ ok: false, error: 'app-state unavailable' }`
+   * (safe default — all existing callers unaffected).
+   */
+  appState?: { snapshot(opts: { workspaceId?: string; allWorkspaces?: boolean }): unknown };
+  /**
+   * Direct main-side swarm controller for the swarm-op tools (robustness fix —
+   * the tools call this and return the real result/error instead of a silent
+   * ok:true). Absent ⇒ those tools return ok:false 'swarm controller unavailable'.
+   */
+  swarms?: {
+    splitPane(input: { paneId: string; direction: 'horizontal' | 'vertical'; provider: string }): Promise<import('../../../shared/types').AgentSession>;
+    sendMessage(input: { swarmId: string; toAgent: string; body: string; kind?: string }): Promise<unknown>;
+    resume(id: string): Promise<{ ok: boolean; healed: boolean }>;
+    kill(id: string): Promise<void>;
+  };
 }
 
 interface ActiveTurn {
@@ -87,7 +126,7 @@ interface ActiveTurn {
  * `'local'` (default) = in-app operator, full trust. `'telegram'` = remote
  * bridge, gated through `confirmDangerous` for DANGEROUS_REMOTE tools.
  */
-export type ToolOrigin = 'local' | 'telegram';
+export type ToolOrigin = 'local' | 'telegram' | 'external';
 
 /**
  * R-1 — confirm-on-dangerous callback (cross-lane contract). Resolve `true` to
@@ -211,6 +250,35 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         return { ok: false, result: null, error };
       }
     }
+    // Supervised-autonomy gate for origin:'external' (Control MCP). Provider-aware:
+    // talking to an AGENT pane is free; close/destructive/shell-write escalates.
+    if (origin === 'external') {
+      const killSwitch = deps.controlFrozen ? deps.controlFrozen() : false;
+      const sidRaw = (input?.args as { sessionId?: unknown })?.sessionId;
+      const sid = typeof sidRaw === 'string' ? sidRaw : null;
+      const targetProvider = sid && deps.resolveSessionProvider ? deps.resolveSessionProvider(sid) : null;
+      const verdict = classifyExternal({ toolId: tool.id, targetProvider, killSwitch });
+      if (verdict === 'deny') {
+        const error = 'External control is frozen (kill-switch engaged).';
+        recordTrace({ ...traceBase, args: input?.args ?? {}, ok: false, result: null, error });
+        return { ok: false, result: null, error };
+      }
+      if (verdict === 'escalate') {
+        let approved = false;
+        try {
+          approved =
+            typeof input?.confirmDangerous === 'function' &&
+            (await input.confirmDangerous(tool.id, summarizeArgs(tool.id, input?.args ?? {}))) === true;
+        } catch {
+          approved = false;
+        }
+        if (!approved) {
+          const error = 'This action needs operator confirmation and was not approved.';
+          recordTrace({ ...traceBase, args: input?.args ?? {}, ok: false, result: null, error });
+          return { ok: false, result: null, error };
+        }
+      }
+    }
     const startedAt = Date.now();
     let parsed: Record<string, unknown>;
     try {
@@ -264,6 +332,9 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         // (including the MCP-host bridge path) gets them too.
         notifications: deps.notifications,
         broadcastPtyError: deps.broadcastPtyError,
+        promptSink: deps.promptSink,
+        appState: deps.appState,
+        swarms: deps.swarms,
       });
       // P3-S7 — single persistence path: the tracer writes the `messages`
       // row with role='tool' and `toolCallId` set to the trace id; the

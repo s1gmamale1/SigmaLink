@@ -84,8 +84,12 @@ function makeToolCtx(overrides: Partial<ToolContext> = {}): ToolContext {
 // ── contract: DANGEROUS_REMOTE membership ───────────────────────────────────
 
 describe('DANGEROUS_REMOTE contract', () => {
-  it('contains exactly prompt_agent and close_pane', () => {
-    expect([...DANGEROUS_REMOTE].sort()).toEqual(['close_pane', 'prompt_agent']);
+  it('contains exactly prompt_agent, close_pane, close_workspace', () => {
+    // close_workspace added 2026-06-17: tearing down a whole workspace from a
+    // remote (telegram) origin is at least as destructive as close_pane, so it
+    // must clear the confirmation gate too. Additive change (the comment in
+    // tools.ts permits adding members; removing/renaming would break the lane).
+    expect([...DANGEROUS_REMOTE].sort()).toEqual(['close_pane', 'close_workspace', 'kill_swarm', 'prompt_agent']);
   });
 
   it('close_pane is gated (kills a pane — strictly more destructive than prompt_agent)', () => {
@@ -150,7 +154,7 @@ describe('R-1 authorization gate — prompt_agent', () => {
     });
     expect(out.ok).toBe(true);
     expect(confirmDangerous).toHaveBeenCalledWith('prompt_agent', expect.stringContaining('prompt_agent('));
-    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\n');
+    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\r');
   });
 
   it('telegram + confirmDangerous resolves false → BLOCKED, handler not run', async () => {
@@ -195,7 +199,7 @@ describe('R-1 authorization gate — prompt_agent', () => {
     });
     expect(out.ok).toBe(true);
     expect(confirmDangerous).not.toHaveBeenCalled();
-    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\n');
+    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\r');
   });
 
   it('omitted origin defaults to local → NOT gated', async () => {
@@ -205,7 +209,7 @@ describe('R-1 authorization gate — prompt_agent', () => {
       args: { sessionId: 'sess-1', prompt: 'echo hi' },
     });
     expect(out.ok).toBe(true);
-    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\n');
+    expect(ptyWrite).toHaveBeenCalledWith('sess-1', 'echo hi\r');
   });
 
   it('telegram + the dispatch_pane alias still resolves to gated prompt_agent', async () => {

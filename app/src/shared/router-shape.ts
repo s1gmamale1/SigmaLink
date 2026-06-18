@@ -1310,6 +1310,38 @@ export interface AppRouter {
       runtimeProfileId?: AgentRuntimeProfileId;
     }) => Promise<McpDiagnostic>;
   };
+  /**
+   * External Control MCP — operator surface for the stdio MCP server that
+   * lets external agents drive SigmaLink.
+   *
+   * SECURITY: `connectCommand` contains a secret token. Never log or display
+   * it without a warning. `respondEscalation` is the approve/deny gate for
+   * dangerous external tool calls.
+   */
+  control: {
+    /** Current state snapshot. */
+    status: () => Promise<ControlStatus>;
+    /** Start the external-control MCP server. */
+    enable: () => Promise<ControlStatus>;
+    /** Stop the external-control MCP server. */
+    disable: () => Promise<ControlStatus>;
+    /** Freeze — deny all external calls until unfrozen. */
+    freeze: () => Promise<ControlStatus>;
+    /** Unfreeze — resume normal operation. */
+    unfreeze: () => Promise<ControlStatus>;
+    /** Rotate the secret token; returns updated status with new connectCommand. */
+    rotateToken: () => Promise<ControlStatus>;
+    /** Return the `claude mcp add …` connection string (contains secret token). */
+    connectCommand: () => Promise<{ command: string }>;
+    /** Approve or deny a pending dangerous-tool escalation. */
+    respondEscalation: (input: { id: string; approved: boolean }) => Promise<{ ok: boolean }>;
+    /**
+     * Renderer echo: push the current viewport facts into the main-side
+     * ViewportShadow so get_app_state can report what the human is looking at.
+     * Best-effort — renderer never awaits the result or rethrows.
+     */
+    reportViewport: (patch: Partial<{ activeWorkspaceId: string | null; activeSessionId: string | null; focusedPaneId: string | null; room: string | null; activeSwarmId: string | null }>) => Promise<{ ok: boolean }>;
+  };
 }
 
 /** R-1 — operator-safe Telegram remote status (no token value). */
@@ -1328,4 +1360,13 @@ export interface TelegramAuditEntry {
   kind: string;
   chatId: number | null;
   detail: string;
+}
+
+/** External Control MCP — operator-safe status snapshot. */
+export interface ControlStatus {
+  enabled: boolean;
+  frozen: boolean;
+  liveConnections: number;
+  socketPath: string;
+  connectCommand: string;
 }

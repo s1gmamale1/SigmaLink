@@ -33,6 +33,7 @@ import { NotificationsSettings } from './NotificationsSettings';
 import { SyncTab } from './SyncTab';
 import { TelegramTab } from './TelegramTab';
 import { MaintenanceTab } from './MaintenanceTab';
+import { ExternalControlSettings } from './ExternalControlSettings';
 
 interface TabDef {
   value: string;
@@ -57,6 +58,7 @@ const TABS: readonly TabDef[] = [
   { value: 'storage', label: 'Storage', keywords: 'disk cache database worktrees cleanup data path' },
   { value: 'maintenance', label: 'Maintenance', keywords: 'cleanup repair reset diagnostics rebuild orphans' },
   { value: 'diagnostics', label: 'Diagnostics', keywords: 'logs report debug troubleshoot copy' },
+  { value: 'external-control', label: 'External Control', keywords: 'mcp external agent remote control token freeze kill-switch stdio' },
 ];
 
 function matchesQuery(tab: TabDef, query: string): boolean {
@@ -186,6 +188,9 @@ export function SettingsRoom() {
               </TabsContent>
               <TabsContent value="diagnostics" className="mt-0">
                 <DiagnosticsTab />
+              </TabsContent>
+              <TabsContent value="external-control" className="mt-0">
+                <ExternalControlSettings />
               </TabsContent>
             </div>
           </Tabs>

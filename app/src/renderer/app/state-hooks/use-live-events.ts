@@ -17,11 +17,11 @@
 //   - tasks:changed         → SET_TASKS (initial + live)
 //   - workspace switch      → SET_SWARMS (rpc.swarms.list)
 
-import { useEffect, type Dispatch } from 'react';
+import { useEffect, useRef, type Dispatch } from 'react';
 import { toast } from 'sonner';
 import { rpc, rpcSilent } from '../../lib/rpc';
 import type { Action, AppState } from '../state.types';
-import type { Notification } from '../../../shared/types';
+import type { AgentSession, Notification } from '../../../shared/types';
 import { parseBrowserState, parseSwarmMessage, runRefreshOnEvent } from './parsers';
 import { playNotificationTone } from '../../lib/notifications';
 import { playCue } from '../../lib/sounds';
@@ -43,6 +43,15 @@ const ATTENTION_SOUND_THROTTLE_MS = 2000;
 let lastAttentionSoundAt = 0;
 
 export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void {
+  // Current-state ref so event callbacks (which subscribe with stable deps) see
+  // the LATEST state, not a stale closure. Used by the resume_swarm refresh to
+  // read the active workspace at event time. Updated in an effect (never assign
+  // a ref during render — react-hooks/refs).
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  });
+
   // Listen for PTY exit so the UI can mark sessions accordingly.
   useEffect(() => {
     const off = window.sigma.eventOn('pty:exit', (raw: unknown) => {
@@ -80,6 +89,234 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       const p = raw as { sessionId?: unknown };
       if (typeof p.sessionId !== 'string') return;
       dispatch({ type: 'REMOVE_SESSION', id: p.sessionId });
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis switch_workspace → activate a different workspace in the UI.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:switch-workspace', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown };
+      if (typeof p.workspaceId !== 'string') return;
+      dispatch({ type: 'SET_ACTIVE_WORKSPACE_ID', workspaceId: p.workspaceId });
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis open_workspace → open the workspace + add it to the rail.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:open-workspace', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { root?: unknown };
+      if (typeof p.root !== 'string') return;
+      void (async () => {
+        try {
+          const ws = await rpc.workspaces.open(p.root as string);
+          dispatch({ type: 'WORKSPACE_OPEN', workspace: ws });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis close_workspace → remove the workspace + drop it from the rail.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:close-workspace', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown };
+      if (typeof p.workspaceId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.workspaces.remove(p.workspaceId as string);
+          dispatch({ type: 'WORKSPACE_CLOSE', workspaceId: p.workspaceId as string });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis focus_pane → set active session and optionally fullscreen it.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:focus-pane', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown; fullscreen?: unknown };
+      if (typeof p.sessionId !== 'string') return;
+      dispatch({ type: 'SET_ACTIVE_SESSION', id: p.sessionId });
+      if (p.fullscreen === true) {
+        dispatch({ type: 'FOCUS_PANE', paneId: p.sessionId });
+      }
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis stop_pane → kill the PTY process but leave the pane in the grid.
+  // Mirrors CommandRoom's handleStop: rpc.pty.kill(sessionId). The existing
+  // pty:exit → MARK_SESSION_EXITED plumbing updates the UI automatically.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:stop-pane', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown };
+      if (typeof p.sessionId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.pty.kill(p.sessionId as string);
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, []);
+
+  // Jorvis split_pane → split a pane and add the new session to the grid.
+  // Mirrors CommandRoom's handleSplitPane: rpc.swarms.splitPane then SPLIT_PANE.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:split-pane', (raw: unknown) => {
+      // The split_pane TOOL already ran rpc.swarms.splitPane in main and emitted
+      // the new session — this subscriber ONLY dispatches the grid update (no
+      // second rpc → no double-create; the tool surfaced any failure as ok:false).
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { parentId?: unknown; newSession?: unknown; groupId?: unknown; direction?: unknown };
+      if (typeof p.parentId !== 'string') return;
+      if (!p.newSession || typeof p.newSession !== 'object') return;
+      const newSession = p.newSession as AgentSession;
+      const groupId = typeof p.groupId === 'string' ? p.groupId : null;
+      if (!groupId) {
+        dispatch({ type: 'ADD_SESSIONS', sessions: [newSession] });
+        return;
+      }
+      dispatch({
+        type: 'SPLIT_PANE',
+        parentId: p.parentId,
+        newSession,
+        groupId,
+        direction: p.direction === 'vertical' ? 'vertical' : 'horizontal',
+      });
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis set_pane_minimised → minimise or restore a pane.
+  // Mirrors CommandRoom's handleToggleMinimise: dispatch MINIMISE_PANE then rpc.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:set-pane-minimised', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { paneId?: unknown; minimised?: unknown };
+      if (typeof p.paneId !== 'string') return;
+      if (typeof p.minimised !== 'boolean') return;
+      dispatch({ type: 'MINIMISE_PANE', paneId: p.paneId, minimised: p.minimised });
+      void (async () => {
+        try {
+          await rpc.swarms.minimisePane({ paneId: p.paneId as string, minimised: p.minimised as boolean });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis set_pane_display_provider → cosmetic relabel of a pane's provider badge.
+  // Mirrors PaneGearPopover's relabel: rpc.panes.setDisplayProvider. The main
+  // process emits panes:display-provider-changed which the renderer can pick up
+  // to refresh; the rpc call alone is sufficient for the initiating window.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:set-display-provider', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown; displayProviderId?: unknown };
+      if (typeof p.sessionId !== 'string') return;
+      if (typeof p.displayProviderId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.panes.setDisplayProvider({
+            sessionId: p.sessionId as string,
+            displayProviderId: p.displayProviderId as string,
+          });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, []);
+
+  // Jorvis rename_workspace → rename a workspace optimistically then persist via RPC.
+  // Mirrors Sidebar's onRename: dispatch RENAME_WORKSPACE first (optimistic), then
+  // rpc.workspaces.rename({ id, name }). On failure, a full SET_WORKSPACES reload
+  // is skipped here (best-effort path — the sidebar handler does it if desired).
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:rename-workspace', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown; name?: unknown };
+      if (typeof p.workspaceId !== 'string') return;
+      if (typeof p.name !== 'string') return;
+      dispatch({ type: 'RENAME_WORKSPACE', id: p.workspaceId, name: p.name });
+      void (async () => {
+        try {
+          await rpc.workspaces.rename({ id: p.workspaceId as string, name: p.name as string });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
+  // Jorvis detach_window → pop a workspace out into its own OS window.
+  // Mirrors Sidebar's onDetach: rpc.windows.detachWorkspace({ workspaceId }).
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:detach-window', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown };
+      if (typeof p.workspaceId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.windows.detachWorkspace({ workspaceId: p.workspaceId as string });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, []);
+
+  // Jorvis redock_window → redock a detached workspace window back into main.
+  // Mirrors rpc.windows.redockWorkspace({ workspaceId }).
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:redock-window', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { workspaceId?: unknown };
+      if (typeof p.workspaceId !== 'string') return;
+      void (async () => {
+        try {
+          await rpc.windows.redockWorkspace({ workspaceId: p.workspaceId as string });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, []);
+
+  // send_message_to_agent has NO subscriber: the tool calls swarmsCtl.sendMessage
+  // DIRECTLY in main (mailbox-append + PTY-write), so the renderer sees the line
+  // via the existing pty:data stream. A subscriber here would DOUBLE-SEND.
+
+  // resume_swarm → the TOOL already healed the swarm (DB status flip) in main;
+  // this subscriber only REFRESHES the renderer's swarm list so the new status
+  // shows (no second rpc.swarms.resume).
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:resume-swarm', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const wsId = stateRef.current.activeWorkspaceId;
+      if (!wsId) return;
+      void (async () => {
+        try {
+          const swarms = await rpc.swarms.list(wsId);
+          dispatch({ type: 'SET_SWARMS', swarms });
+        } catch { /* best-effort */ }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
+  // kill_swarm → the TOOL already killed the swarm (PTYs reaped) in main; this
+  // subscriber only marks it ended in the renderer (no second rpc.swarms.kill).
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:kill-swarm', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { swarmId?: unknown };
+      if (typeof p.swarmId !== 'string') return;
+      dispatch({ type: 'MARK_SWARM_ENDED', id: p.swarmId });
     });
     return off;
   }, [dispatch]);

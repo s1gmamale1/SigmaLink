@@ -377,6 +377,17 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'usage.weekSummary',
   // P6 FEAT-5 — MCP config diagnostics
   'mcp.diagnoseWorkspace',
+  // External Control MCP — operator-facing RPC surface (enable/disable/freeze/
+  // token rotation/connect command/escalation response).
+  'control.status',
+  'control.enable',
+  'control.disable',
+  'control.freeze',
+  'control.unfreeze',
+  'control.rotateToken',
+  'control.connectCommand',
+  'control.respondEscalation',
+  'control.reportViewport',
 ]);
 
 /**
@@ -454,6 +465,27 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'assistant:state',
   'assistant:tool-trace',
   'assistant:pane-event',
+  // Renderer-driven control tools (Jorvis / Telegram / external MCP). The tool
+  // handler `ctx.emit`s one of these; a use-live-events subscriber turns it into
+  // the authoritative rpc.* + reducer dispatch. WITHOUT an allowlist entry the
+  // preload's eventOn silently no-ops the subscription → the tool returns ok but
+  // NOTHING happens (the entire emit→subscriber class was dead for external
+  // callers until 2026-06-18). Every assistant:* event a subscriber listens for
+  // MUST be here — enforced by the membership test in rpc-channels.test.ts.
+  'assistant:switch-workspace',
+  'assistant:focus-pane',
+  'assistant:open-workspace',
+  'assistant:close-workspace',
+  'assistant:pane-closed',
+  'assistant:rename-workspace',
+  'assistant:detach-window',
+  'assistant:redock-window',
+  'assistant:stop-pane',
+  'assistant:split-pane',
+  'assistant:set-pane-minimised',
+  'assistant:set-display-provider',
+  'assistant:resume-swarm',
+  'assistant:kill-swarm',
   'design:capture',
   // V3-W14-001..005 — picker lifecycle + HMR poke notifications.
   'design:picker-state',

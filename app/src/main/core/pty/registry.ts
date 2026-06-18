@@ -167,6 +167,12 @@ export interface PtyRegistryOptions {
    * ON.  When omitted (flag off) the exit path is byte-for-byte unchanged.
    */
   onSessionExit?: (sessionId: string, snapshot: string) => void;
+  /**
+   * wait_for_pane sink — fed every raw PTY data chunk (via `feed`) and notified
+   * on session exit (via `noteExit`).  Injected structurally so the registry
+   * stays vitest-loadable with no import of the concrete PromptSink class.
+   */
+  promptSink?: { feed(id: string, data: string): void; noteExit(id: string): void };
 }
 
 export class PtyRegistry {
@@ -180,6 +186,7 @@ export class PtyRegistry {
   private readonly onPaneEvent: PaneEventSink | null;
   private readonly onCliExited: CliExitedSink | null;
   private readonly onSessionExit: ((sessionId: string, snapshot: string) => void) | null;
+  private readonly promptSink: { feed(id: string, data: string): void; noteExit(id: string): void } | null;
   constructor(onData: DataSink, onExit: ExitSink, opts: PtyRegistryOptions = {}) {
     this.onData = onData;
     this.onExit = onExit;
@@ -190,6 +197,7 @@ export class PtyRegistry {
     this.onPaneEvent = opts.onPaneEvent ?? null;
     this.onCliExited = opts.onCliExited ?? null;
     this.onSessionExit = opts.onSessionExit ?? null;
+    this.promptSink = opts.promptSink ?? null;
   }
 
   create(
@@ -317,6 +325,7 @@ export class PtyRegistry {
       }
       buffer.append(data);
       this.onData(id, data);
+      try { this.promptSink?.feed(id, data); } catch { /* never break the data stream */ }
       // PERF-2 — only run the link-detection regex + emit when a sink is wired
       // AND link capture is enabled. The `shouldDetectLinks` gate (when
       // provided) mirrors the renderer's `kv['browser.captureLinks']` gate so
@@ -362,6 +371,7 @@ export class PtyRegistry {
           this.onPaneEvent({ sessionId: id, kind: exitCode === 0 ? 'exited' : 'error', exitCode });
         } catch { /* ignore */ }
       }
+      try { this.promptSink?.noteExit(id); } catch { /* ignore */ }
       // v1.9-scrollback — persist the buffer snapshot before the graceful-exit
       // timer calls forget()/buffer.clear().  Only runs when the caller wired
       // onSessionExit (flag ON).  Never blocks the exit path.

@@ -30,7 +30,7 @@ export interface JorvisCatalogueEntry {
 export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
   {
     name: 'launch_pane',
-    description: 'Spawn one or more agent panes in the active workspace.',
+    description: 'Spawn one or more STANDALONE agent panes in the active workspace (NOT swarm members — the swarm tools split_pane/send_message_to_agent/resume_swarm/kill_swarm do not apply to them; use create_swarm/add_agent for a managed swarm).',
     inputSchema: {
       type: 'object',
       required: ['workspaceRoot', 'provider'],
@@ -54,13 +54,25 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
   },
   {
     name: 'prompt_agent',
-    description: 'Type a prompt into an existing PTY session.',
+    description: 'Type a prompt into an existing PTY session AND submit it (sends Enter). One call sends the prompt — no separate Enter needed.',
     inputSchema: {
       type: 'object',
       required: ['sessionId', 'prompt'],
       properties: {
         sessionId: { type: 'string' },
         prompt: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'send_keys',
+    description: 'Send named keys / control chars (e.g. "C-c", "Enter", "Up") or literal text into a pane\'s terminal. Use prompt_agent for typing a whole prompt; use send_keys for control sequences and editing keys.',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId', 'keys'],
+      properties: {
+        sessionId: { type: 'string' },
+        keys: { type: 'array', items: { type: 'string' } },
       },
     },
   },
@@ -74,6 +86,24 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
       properties: {
         sessionId: { type: 'string' },
         maxBytes: { type: 'number', minimum: 1, maximum: 65_536 },
+      },
+    },
+  },
+  {
+    name: 'read_pane_since',
+    description: 'Read a pane\'s terminal output since a byte cursor; returns new text + a new cursor for incremental polling.',
+    inputSchema: { type: 'object', required: ['sessionId'], properties: { sessionId: { type: 'string' }, cursor: { type: 'number' } } },
+  },
+  {
+    name: 'wait_for_pane',
+    description: 'Block until any of the given panes prompts for input / goes idle / exits, or until timeout. Returns the session that became ready + a tail of its output.',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionIds', 'until'],
+      properties: {
+        sessionIds: { type: 'array', items: { type: 'string' } },
+        until: { type: 'string', enum: ['prompt', 'idle', 'exit'] },
+        timeoutMs: { type: 'number' },
       },
     },
   },
@@ -213,6 +243,11 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
     inputSchema: { type: 'object', properties: {} },
   },
   {
+    name: 'get_app_state',
+    description: 'Holistic snapshot of the app: workspaces, panes (provider/label/cwd/status/attention/split), grid shape, swarms, browser, notifications, windows. The "look at the screen" tool.',
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, allWorkspaces: { type: 'boolean' } } },
+  },
+  {
     name: 'monitor_pane',
     description:
       'Subscribe a Sigma conversation to lifecycle events from a PTY session (started, exited, error).',
@@ -223,6 +258,150 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
         sessionId: { type: 'string' },
         conversationId: { type: 'string' },
       },
+    },
+  },
+  {
+    name: 'switch_workspace',
+    description: 'Make a workspace the active one in the UI.',
+    inputSchema: {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'focus_pane',
+    description: 'Focus a pane (optionally fullscreen it) in the Command Room.',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId'],
+      properties: { sessionId: { type: 'string' }, fullscreen: { type: 'boolean' } },
+    },
+  },
+  {
+    name: 'set_pane_label',
+    description: "Set a pane's display name.",
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId', 'label'],
+      properties: { sessionId: { type: 'string' }, label: { type: 'string' } },
+    },
+  },
+  {
+    name: 'open_workspace',
+    description: 'Open a workspace by its root folder path (use list_workspaces to get the new id afterward).',
+    inputSchema: {
+      type: 'object',
+      required: ['root'],
+      properties: { root: { type: 'string' } },
+    },
+  },
+  {
+    name: 'close_workspace',
+    description: 'Close an open workspace by id (stops its panes). Destructive — escalates to the operator.',
+    inputSchema: {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'stop_pane',
+    description: 'Stop (kill) a pane\'s process but keep the pane in the grid (recoverable; distinct from close_pane).',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId'],
+      properties: { sessionId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'split_pane',
+    description: 'Split a SWARM pane, adding a sub-pane that shares its worktree. Only works on panes that belong to a swarm (create_swarm/add_agent); returns an error for a standalone launch_pane pane.',
+    inputSchema: {
+      type: 'object',
+      required: ['paneId', 'direction', 'provider'],
+      properties: {
+        paneId: { type: 'string' },
+        direction: { type: 'string', enum: ['horizontal', 'vertical'] },
+        provider: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'set_pane_minimised',
+    description: 'Minimise or restore a pane (collapse to its header strip; process keeps running).',
+    inputSchema: {
+      type: 'object',
+      required: ['paneId', 'minimised'],
+      properties: { paneId: { type: 'string' }, minimised: { type: 'boolean' } },
+    },
+  },
+  {
+    name: 'set_pane_display_provider',
+    description: 'Set a pane\'s displayed provider badge (cosmetic relabel).',
+    inputSchema: {
+      type: 'object',
+      required: ['sessionId', 'displayProviderId'],
+      properties: { sessionId: { type: 'string' }, displayProviderId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'rename_workspace',
+    description: 'Rename a workspace (updates its label everywhere).',
+    inputSchema: {
+      type: 'object',
+      required: ['workspaceId', 'name'],
+      properties: { workspaceId: { type: 'string' }, name: { type: 'string' } },
+    },
+  },
+  {
+    name: 'detach_window',
+    description: 'Pop a workspace out into its own OS window.',
+    inputSchema: {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'redock_window',
+    description: 'Redock a detached workspace window back into the main window.',
+    inputSchema: {
+      type: 'object',
+      required: ['workspaceId'],
+      properties: { workspaceId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'send_message_to_agent',
+    description: 'Send a direct message to ONE agent in a swarm (targeted, unlike broadcast_to_swarm).',
+    inputSchema: {
+      type: 'object',
+      required: ['swarmId', 'toAgent', 'body'],
+      properties: {
+        swarmId: { type: 'string' },
+        toAgent: { type: 'string' },
+        body: { type: 'string' },
+        kind: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'resume_swarm',
+    description: 'Resume a failed/paused swarm so its agents can run again.',
+    inputSchema: {
+      type: 'object',
+      required: ['swarmId'],
+      properties: { swarmId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'kill_swarm',
+    description: 'End a swarm and stop all its agent panes. Destructive — requires operator approval.',
+    inputSchema: {
+      type: 'object',
+      required: ['swarmId'],
+      properties: { swarmId: { type: 'string' } },
     },
   },
   // BSP-B3 — agent-drivable browser tools (read-only, default-OFF).

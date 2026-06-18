@@ -1086,7 +1086,7 @@ describe('prompt_agent liveness', () => {
     expect(writes).toEqual([]);
   });
 
-  it('writes prompt + newline to a live session', async () => {
+  it('writes prompt + carriage return (Enter, to submit) to a live session', async () => {
     const writes: Array<[string, string]> = [];
     const ctx: ToolContext = {
       ...makeCtx([], 'ws-1'),
@@ -1101,6 +1101,6 @@ describe('prompt_agent liveness', () => {
       ctx,
     )) as Record<string, unknown>;
     expect(out['ok']).toBe(true);
-    expect(writes).toEqual([['s1', 'hi\n']]);
+    expect(writes).toEqual([['s1', 'hi\r']]);
   });
 });

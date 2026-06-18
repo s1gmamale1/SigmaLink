@@ -3,7 +3,7 @@
 // ONB-1 — SettingsRoom search + controlled tabs + pendingSettingsTab consume.
 //
 // Tests:
-//   - all 12 tab triggers render by default
+//   - all 13 tab triggers render by default
 //   - the search box filters triggers by label AND keyword
 //   - clearing the search restores all triggers
 //   - a query that matches nothing shows the empty hint
@@ -28,6 +28,7 @@ vi.mock('./NotificationsSettings', () => ({ NotificationsSettings: () => <div da
 vi.mock('./SyncTab', () => ({ SyncTab: () => <div data-testid="tab-body-SyncTab" /> }));
 vi.mock('./TelegramTab', () => ({ TelegramTab: () => <div data-testid="tab-body-TelegramTab" /> }));
 vi.mock('./MaintenanceTab', () => ({ MaintenanceTab: () => <div data-testid="tab-body-MaintenanceTab" /> }));
+vi.mock('./ExternalControlSettings', () => ({ ExternalControlSettings: () => <div data-testid="tab-body-ExternalControlSettings" /> }));
 
 // Controllable app-state mock.
 const dispatch = vi.fn();
@@ -51,6 +52,7 @@ const ALL_TAB_LABELS = [
   'Storage',
   'Maintenance',
   'Diagnostics',
+  'External Control',
 ];
 
 function tabs(): HTMLElement[] {
@@ -64,9 +66,9 @@ describe('SettingsRoom — ONB-1 search + controlled tabs', () => {
   });
   afterEach(() => cleanup());
 
-  it('renders all 12 tab triggers by default', () => {
+  it('renders all 13 tab triggers by default', () => {
     render(<SettingsRoom />);
-    expect(tabs()).toHaveLength(12);
+    expect(tabs()).toHaveLength(13);
     for (const label of ALL_TAB_LABELS) {
       expect(screen.getByRole('tab', { name: label })).toBeTruthy();
     }
@@ -96,7 +98,7 @@ describe('SettingsRoom — ONB-1 search + controlled tabs', () => {
     fireEvent.change(search, { target: { value: 'voice' } });
     expect(tabs()).toHaveLength(1);
     fireEvent.change(search, { target: { value: '' } });
-    expect(tabs()).toHaveLength(12);
+    expect(tabs()).toHaveLength(13);
   });
 
   it('shows an empty hint when nothing matches', () => {

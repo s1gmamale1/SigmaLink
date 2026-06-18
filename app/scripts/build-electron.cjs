@@ -79,4 +79,17 @@ esbuild.buildSync({
   banner: { js: 'process.env.JORVIS_HOST_AUTOBOOT = "1";' },
 });
 
+// External Control MCP bridge. Spawned by external MCP clients (Claude CLI,
+// Hermes, OpenClaw) as their stdio MCP server; it connects to SigmaLink main
+// over the Control socket (SIGMA_CONTROL_SOCKET). The banner sets
+// SIGMA_CONTROL_AUTOBOOT=1 so the CJS file auto-boots on direct invocation,
+// while unit tests can still import the pure functions without side effects.
+esbuild.buildSync({
+  ...common,
+  entryPoints: [path.join(root, 'src/main/control/mcp-sigma-control-server.ts')],
+  format: 'cjs',
+  outfile: path.join(outDir, 'mcp-sigma-control-server.cjs'),
+  banner: { js: 'process.env.SIGMA_CONTROL_AUTOBOOT = "1";' },
+});
+
 console.log('[build-electron] wrote', path.relative(root, outDir));
