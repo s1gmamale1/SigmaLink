@@ -21,7 +21,7 @@ import { useEffect, useRef, type Dispatch } from 'react';
 import { toast } from 'sonner';
 import { rpc, rpcSilent } from '../../lib/rpc';
 import type { Action, AppState } from '../state.types';
-import type { Notification } from '../../../shared/types';
+import type { AgentSession, Notification } from '../../../shared/types';
 import { parseBrowserState, parseSwarmMessage, runRefreshOnEvent } from './parsers';
 import { playNotificationTone } from '../../lib/notifications';
 import { playCue } from '../../lib/sounds';
@@ -43,16 +43,14 @@ const ATTENTION_SOUND_THROTTLE_MS = 2000;
 let lastAttentionSoundAt = 0;
 
 export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void {
-  // Multi-window scope guard — main may broadcast a control event to EVERY
-  // window when the target workspace is DOCKED (docked workspaces have no
-  // WindowRegistry owner, so sendToWorkspaceOwner / sendToSessionOwner fall back
-  // to sendToAll). For NON-IDEMPOTENT control tools (split_pane creates a pane,
-  // send_message_to_agent sends a DM) only the window whose state actually holds
-  // the target may run the rpc — else a 2nd (detached) window double-executes it.
-  // Scoped windows partition workspaces, so exactly one window owns each target.
-  // Read via a ref so the event callback sees CURRENT state, not a stale closure.
+  // Current-state ref so event callbacks (which subscribe with stable deps) see
+  // the LATEST state, not a stale closure. Used by the resume_swarm refresh to
+  // read the active workspace at event time. Updated in an effect (never assign
+  // a ref during render — react-hooks/refs).
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => {
+    stateRef.current = state;
+  });
 
   // Listen for PTY exit so the UI can mark sessions accordingly.
   useEffect(() => {
@@ -173,36 +171,26 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
   // Mirrors CommandRoom's handleSplitPane: rpc.swarms.splitPane then SPLIT_PANE.
   useEffect(() => {
     const off = window.sigma.eventOn('assistant:split-pane', (raw: unknown) => {
+      // The split_pane TOOL already ran rpc.swarms.splitPane in main and emitted
+      // the new session — this subscriber ONLY dispatches the grid update (no
+      // second rpc → no double-create; the tool surfaced any failure as ok:false).
       if (!raw || typeof raw !== 'object') return;
-      const p = raw as { paneId?: unknown; direction?: unknown; provider?: unknown };
-      if (typeof p.paneId !== 'string') return;
-      if (p.direction !== 'horizontal' && p.direction !== 'vertical') return;
-      if (typeof p.provider !== 'string') return;
-      // Scope guard: only the window that holds the parent pane splits it (else a
-      // detached window double-creates the sub-pane via the broadcast fallback).
-      const paneId = p.paneId;
-      if (!stateRef.current.sessions.some((s) => s.id === paneId)) return;
-      void (async () => {
-        try {
-          const newSession = await rpc.swarms.splitPane({
-            paneId: p.paneId as string,
-            direction: p.direction as 'horizontal' | 'vertical',
-            provider: p.provider as string,
-          });
-          const groupId = newSession.splitGroupId;
-          if (!groupId) {
-            dispatch({ type: 'ADD_SESSIONS', sessions: [newSession] });
-            return;
-          }
-          dispatch({
-            type: 'SPLIT_PANE',
-            parentId: p.paneId as string,
-            newSession,
-            groupId,
-            direction: p.direction as 'horizontal' | 'vertical',
-          });
-        } catch { /* best-effort */ }
-      })();
+      const p = raw as { parentId?: unknown; newSession?: unknown; groupId?: unknown; direction?: unknown };
+      if (typeof p.parentId !== 'string') return;
+      if (!p.newSession || typeof p.newSession !== 'object') return;
+      const newSession = p.newSession as AgentSession;
+      const groupId = typeof p.groupId === 'string' ? p.groupId : null;
+      if (!groupId) {
+        dispatch({ type: 'ADD_SESSIONS', sessions: [newSession] });
+        return;
+      }
+      dispatch({
+        type: 'SPLIT_PANE',
+        parentId: p.parentId,
+        newSession,
+        groupId,
+        direction: p.direction === 'vertical' ? 'vertical' : 'horizontal',
+      });
     });
     return off;
   }, [dispatch]);
@@ -299,68 +287,36 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, []);
 
-  // Jorvis send_message_to_agent → send a targeted DM to one agent in a swarm.
-  // Mirrors SideChat's send path: rpc.swarms.sendMessage({ swarmId, toAgent, body, kind }).
-  // The workspaceId field in the payload is routing-only (used by WORKSPACE_ROUTED_ASSISTANT_EVENTS);
-  // ignore it here.
-  useEffect(() => {
-    const off = window.sigma.eventOn('assistant:swarm-message', (raw: unknown) => {
-      if (!raw || typeof raw !== 'object') return;
-      const p = raw as { swarmId?: unknown; toAgent?: unknown; body?: unknown; kind?: unknown };
-      if (typeof p.swarmId !== 'string') return;
-      if (typeof p.toAgent !== 'string') return;
-      if (typeof p.body !== 'string') return;
-      // Scope guard: only the window that holds this swarm sends the DM (else a
-      // detached window double-sends via the broadcast fallback — sendMessage is
-      // non-idempotent: two mailbox rows + the PTY receives the line twice).
-      const swarmId = p.swarmId;
-      if (!stateRef.current.swarms.some((sw) => sw.id === swarmId)) return;
-      void (async () => {
-        try {
-          await rpc.swarms.sendMessage({
-            swarmId: p.swarmId as string,
-            toAgent: p.toAgent as string,
-            body: p.body as string,
-            kind: typeof p.kind === 'string' ? p.kind : 'OPERATOR',
-          });
-        } catch { /* best-effort */ }
-      })();
-    });
-    return off;
-  }, []);
+  // send_message_to_agent has NO subscriber: the tool calls swarmsCtl.sendMessage
+  // DIRECTLY in main (mailbox-append + PTY-write), so the renderer sees the line
+  // via the existing pty:data stream. A subscriber here would DOUBLE-SEND.
 
-  // Jorvis resume_swarm → resume a failed/paused swarm.
-  // Mirrors AddPaneButton's auto-resume: rpc.swarms.resume(swarmId). After the
-  // heal, refresh the full swarm list for the active workspace so SET_SWARMS
-  // reflects the updated status (we don't have the full swarm object here to
-  // do an optimistic UPSERT_SWARM spread like AddPaneButton does).
+  // resume_swarm → the TOOL already healed the swarm (DB status flip) in main;
+  // this subscriber only REFRESHES the renderer's swarm list so the new status
+  // shows (no second rpc.swarms.resume).
   useEffect(() => {
     const off = window.sigma.eventOn('assistant:resume-swarm', (raw: unknown) => {
       if (!raw || typeof raw !== 'object') return;
-      const p = raw as { swarmId?: unknown };
-      if (typeof p.swarmId !== 'string') return;
+      const wsId = stateRef.current.activeWorkspaceId;
+      if (!wsId) return;
       void (async () => {
         try {
-          await rpc.swarms.resume(p.swarmId as string);
+          const swarms = await rpc.swarms.list(wsId);
+          dispatch({ type: 'SET_SWARMS', swarms });
         } catch { /* best-effort */ }
       })();
     });
     return off;
-  }, []);
+  }, [dispatch]);
 
-  // Jorvis kill_swarm → end a swarm and stop all its agent panes.
-  // Mirrors SwarmRoom's killActive: rpc.swarms.kill(swarmId) + MARK_SWARM_ENDED.
+  // kill_swarm → the TOOL already killed the swarm (PTYs reaped) in main; this
+  // subscriber only marks it ended in the renderer (no second rpc.swarms.kill).
   useEffect(() => {
     const off = window.sigma.eventOn('assistant:kill-swarm', (raw: unknown) => {
       if (!raw || typeof raw !== 'object') return;
       const p = raw as { swarmId?: unknown };
       if (typeof p.swarmId !== 'string') return;
-      void (async () => {
-        try {
-          await rpc.swarms.kill(p.swarmId as string);
-          dispatch({ type: 'MARK_SWARM_ENDED', id: p.swarmId as string });
-        } catch { /* best-effort */ }
-      })();
+      dispatch({ type: 'MARK_SWARM_ENDED', id: p.swarmId });
     });
     return off;
   }, [dispatch]);

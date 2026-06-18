@@ -479,7 +479,6 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'assistant:split-pane',
   'assistant:set-pane-minimised',
   'assistant:set-display-provider',
-  'assistant:swarm-message',
   'assistant:resume-swarm',
   'assistant:kill-swarm',
   'design:capture',

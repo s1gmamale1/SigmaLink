@@ -21,7 +21,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import type { AgentSession, Notification, ReviewState, Swarm } from '@/shared/types';
+import type { AgentSession, Notification, ReviewState } from '@/shared/types';
 import { KV_DND, KV_OS_PER_SOURCE, KV_QUIET_HOURS } from '@/shared/notification-prefs';
 import type { Action, AppState } from '../state.types';
 import { initialAppState } from '../state.types';
@@ -683,52 +683,32 @@ describe('useLiveEvents — agent:attention subscriber', () => {
 // must run their rpc ONLY in the window whose state holds the target, or a 2nd
 // (detached) window double-executes (double split / duplicate DM).
 
-describe('useLiveEvents — Phase-2 control scope guard', () => {
-  function swarm(id: string): Swarm {
-    return {
-      id,
-      workspaceId: 'a',
-      name: 'S',
-      mission: 'm',
-      preset: 'squad',
-      status: 'running',
-      createdAt: 1,
-      endedAt: null,
-      agents: [],
-    };
-  }
-
-  it('split_pane runs the rpc ONLY when this window holds the parent pane', async () => {
+// Robustness refactor (2026-06-18): split_pane now runs rpc.swarms.splitPane in
+// the TOOL (main) and emits the new session; the subscriber ONLY dispatches the
+// grid update (no second rpc → no double-create), and the tool surfaces failures
+// as ok:false instead of a silent ok:true.
+describe('useLiveEvents — split_pane subscriber dispatches from the tool result', () => {
+  it('dispatches SPLIT_PANE from the emitted newSession (no second rpc)', async () => {
     await renderLiveEvents(stateWith([session('s1')]));
+    const newSession = session('s2');
     await act(async () => {
-      sigma.emit('assistant:split-pane', { paneId: 's1', sessionId: 's1', direction: 'horizontal', provider: 'claude' });
+      sigma.emit('assistant:split-pane', { parentId: 's1', sessionId: 's1', newSession, groupId: 'g1', direction: 'horizontal' });
       await Promise.resolve();
     });
-    expect(splitPaneMock).toHaveBeenCalledTimes(1);
-
-    splitPaneMock.mockClear();
-    await act(async () => {
-      // Parent pane NOT in this window's state → another window owns it → skip.
-      sigma.emit('assistant:split-pane', { paneId: 'other', sessionId: 'other', direction: 'horizontal', provider: 'claude' });
-      await Promise.resolve();
-    });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SPLIT_PANE', parentId: 's1', groupId: 'g1', direction: 'horizontal' }),
+    );
+    // The subscriber must NOT re-call rpc.swarms.splitPane (the tool already did).
     expect(splitPaneMock).not.toHaveBeenCalled();
   });
 
-  it('send_message_to_agent runs the rpc ONLY when this window holds the swarm', async () => {
-    await renderLiveEvents({ ...stateWith([session('s1')]), swarms: [swarm('sw1')] });
+  it('dispatches ADD_SESSIONS when the new session has no split group', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    const newSession = session('s2');
     await act(async () => {
-      sigma.emit('assistant:swarm-message', { swarmId: 'sw1', toAgent: 'builder-1', body: 'hi', workspaceId: 'a' });
+      sigma.emit('assistant:split-pane', { parentId: 's1', sessionId: 's1', newSession, groupId: null, direction: 'horizontal' });
       await Promise.resolve();
     });
-    expect(sendMessageMock).toHaveBeenCalledTimes(1);
-
-    sendMessageMock.mockClear();
-    await act(async () => {
-      // Swarm NOT in this window's state → skip (no duplicate DM).
-      sigma.emit('assistant:swarm-message', { swarmId: 'elsewhere', toAgent: 'builder-1', body: 'hi', workspaceId: 'z' });
-      await Promise.resolve();
-    });
-    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'ADD_SESSIONS' }));
   });
 });

@@ -275,14 +275,15 @@ const WORKSPACE_ROUTED_ASSISTANT_EVENTS = new Set([
   'assistant:pane-event',
   'assistant:pane-closed',
   'browser:state',
-  // Phase-2 external control — NON-IDEMPOTENT side effects that must fire in
-  // exactly ONE window (never broadcast to all, or N windows double-execute):
-  // split (creates a sub-pane), detach/redock (creates/moves a window),
-  // swarm-message (sends a message). Routed by sessionId (split) or workspaceId.
+  // Phase-2 external control — route to ONE owner window. split-pane: the TOOL
+  // ran the rpc in main, so only the parent pane's owner window should dispatch
+  // the SPLIT_PANE grid update (routed by sessionId). detach/redock: window ops
+  // (routed by workspaceId). The other swarm-op tools (send_message/resume/kill)
+  // now run fully in main and either need no renderer effect or a broadcast
+  // refresh, so they are NOT routed here.
   'assistant:split-pane',
   'assistant:detach-window',
   'assistant:redock-window',
-  'assistant:swarm-message',
 ]);
 
 export type AssistantRoute =
@@ -2458,6 +2459,14 @@ async function buildRouter() {
     controlFrozen: () => isControlFrozen(controlKv),
     promptSink,
     appState: appStateProvider,
+    // Robustness — swarm-op tools call the controller directly (real result/error).
+    swarms: {
+      splitPane: (i: { paneId: string; direction: 'horizontal' | 'vertical'; provider: string }) => swarmsCtl.splitPane(i),
+      sendMessage: (i: { swarmId: string; toAgent: string; body: string; kind?: string }) =>
+        swarmsCtl.sendMessage(i as Parameters<typeof swarmsCtl.sendMessage>[0]),
+      resume: (id: string) => swarmsCtl.resume(id),
+      kill: (id: string) => swarmsCtl.kill(id),
+    },
   });
   const assistantCtl = assistantBundle.controller;
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the

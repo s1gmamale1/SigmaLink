@@ -102,6 +102,17 @@ export interface AssistantControllerDeps {
    * (safe default — all existing callers unaffected).
    */
   appState?: { snapshot(opts: { workspaceId?: string; allWorkspaces?: boolean }): unknown };
+  /**
+   * Direct main-side swarm controller for the swarm-op tools (robustness fix —
+   * the tools call this and return the real result/error instead of a silent
+   * ok:true). Absent ⇒ those tools return ok:false 'swarm controller unavailable'.
+   */
+  swarms?: {
+    splitPane(input: { paneId: string; direction: 'horizontal' | 'vertical'; provider: string }): Promise<import('../../../shared/types').AgentSession>;
+    sendMessage(input: { swarmId: string; toAgent: string; body: string; kind?: string }): Promise<unknown>;
+    resume(id: string): Promise<{ ok: boolean; healed: boolean }>;
+    kill(id: string): Promise<void>;
+  };
 }
 
 interface ActiveTurn {
@@ -323,6 +334,7 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         broadcastPtyError: deps.broadcastPtyError,
         promptSink: deps.promptSink,
         appState: deps.appState,
+        swarms: deps.swarms,
       });
       // P3-S7 — single persistence path: the tracer writes the `messages`
       // row with role='tool' and `toolCallId` set to the trace id; the

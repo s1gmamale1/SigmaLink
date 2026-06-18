@@ -44,8 +44,6 @@ describe('resolveAssistantRoute', () => {
       .toEqual({ kind: 'workspace', workspaceId: 'ws-1' });
     expect(resolveAssistantRoute('assistant:redock-window', { workspaceId: 'ws-1' }, convWs))
       .toEqual({ kind: 'workspace', workspaceId: 'ws-1' });
-    expect(resolveAssistantRoute('assistant:swarm-message', { workspaceId: 'ws-2' }, convWs))
-      .toEqual({ kind: 'workspace', workspaceId: 'ws-2' });
   });
 
   it('does NOT route idempotent/global control events (they broadcast to every window)', () => {
