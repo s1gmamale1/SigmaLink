@@ -2,6 +2,49 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.8.0] — 2026-06-19
+
+**v2.8.0 ships first-class Linux support, an External Control surface that lets external AI agents drive SigmaLink like a human, file-viewer CRUD, and a batch of pane / DOM-presenter fixes — and repairs the release pipeline so installers build on all three platforms again.**
+
+### Added — first-class Ubuntu / Linux x64 support (#180)
+
+SigmaLink is now a supported **Ubuntu 22.04 / 24.04 x64** target: the release pipeline builds an **AppImage + `.deb`**, with linux paths wired through process-tree handling, the POSIX shell guard, user-owned provider installs, the menu bar / title bar, and a manual AppImage auto-update handoff. Ships `install-linux.sh` + Ubuntu CI (Xvfb smoke + product-check). Caveats on a standard Ubuntu desktop: `openShell` uses `x-terminal-emulator` (Debian/Ubuntu), OS-Trash needs GVfs, and the Hey-Jorvis wake word is a no-op on Linux.
+
+### Added — External Control MCP: drive SigmaLink like a human (#188, #192, #194)
+
+A **supervised-autonomy MCP control surface** lets external AI agents (Hermes, OpenClaw, Claude Code, …) operate SigmaLink the way you would — open/close/rename workspaces, launch/split/close/focus panes, type into agents, drive the browser, manage swarms — over a zero-dependency stdio bridge. It is **default-OFF and token-gated**; every external call is forced to `origin:'external'` (un-spoofable) and classified `free` / `escalate` / `deny`; destructive actions require operator confirmation (in-app prompt or Telegram), and the kill-switch (freeze/disable) instantly halts and cancels everything in flight. Read-only `get_app_state` gives the agent eyes on the live UI.
+
+- **#192** — fixed the in-app escalation-approval prompt: `control:escalation` was missing from the renderer event allowlist (the prompt silently never rendered). Added it, broadened the allowlist drift-guard to scan every renderer `eventOn` subscription, and made freeze/disable cancel pending approvals.
+- **#194** — `open_workspace` now navigates to the workspace it opens, so an external agent's new workspace and the panes it launches there appear **live** instead of in the background.
+
+### Added — create / delete / rename / move files from the file viewer (#184)
+
+The file viewer is now read-write: create, rename, move, and delete files and folders, with delete routed to the OS Trash. Paths are validated server-side (`..`, absolute-path, and symlink escapes are rejected) so an operation can never leave the workspace root.
+
+### Added — reliable pane auto-scroll + jump-to-bottom (#185)
+
+DOM-presenter panes now stick to the bottom reliably while output streams and stop cleanly when you scroll up, with a **jump-to-bottom** button that appears whenever you're not at the bottom.
+
+### Added — provider-aware Shift+Enter newline (#187)
+
+Shift+Enter inserts a newline correctly per CLI: Claude gets meta-Enter (`\x1b\r`), Codex and the rest get a plain LF — resolved from the pane's real provider so a bare LF can't silently break Claude.
+
+### Fixed — per-pane crash isolation + boot safety net (#179)
+
+A single pane that throws during render no longer takes down the whole room: each pane is wrapped in its own error boundary with relaunch/close actions, plus guarded main-process uncaught handlers and an errors-only `diagnostics.log`. Resolves the post-power-loss "all panes crash → kicked to the workspace list" restart loop.
+
+### Fixed — panes focus on first click, without flicker (#182)
+
+DOM-presenter panes focus on a single click (the copy-on-select path no longer swallows the focus) and no longer flicker / scroll-jump when focused.
+
+### Fixed — release pipeline restored on all three platforms (#193)
+
+Release builds had been red since the Linux work (#180) switched voice-whisper's install to a from-source compile that fails (on Windows, an MSVC `ggml-cpu.c`/`.cpp` object-name collision → unresolved `ggml_*` symbols). The whisper build is now **fail-safe** — a failed compile degrades to the existing JS stub (Apple Speech.framework fallback) instead of aborting packaging, exactly as v2.7.1 shipped — `homepage` + author email were added for the Linux `.deb`, and the Windows native rebuild was made exclusive (`-o`) so the broken whisper build can't kill it. macOS and Linux compile real whisper; Windows ships the stub (it was never buildable there). **Folds in the v2.7.2 default-theme revert to `glass` (#183), which was never tagged.**
+
+### Verification
+
+Release builds dry-run-verified green on **macOS, Windows, and Linux**; full CI gate green (`tsc` · `eslint` · `vitest` · `lint + build` · `product check` · 3-platform `smoke` + `e2e-matrix`). External Control + pipeline + navigation changes reviewed by an independent Opus pass; pane changes owe an on-device eyeball (jsdom can't prove focus/scroll).
+
 ## [2.7.2] — 2026-06-18
 
 **v2.7.2 reverts the default theme back to `glass` — the flat `obsidian` default from v2.7.1 wasn't the look we wanted.**
