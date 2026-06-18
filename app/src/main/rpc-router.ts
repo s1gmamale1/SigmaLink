@@ -144,7 +144,7 @@ import { TelegramBridge } from './core/remote/bridge';
 import { buildTelegramController } from './core/remote/controller';
 import { CredentialStore } from './core/credentials/storage';
 import { runVoiceDiagnostics } from './core/voice/diagnostics';
-import { fsReadDir, fsReadFile, fsWriteFile, fsExists } from './core/fs/controller';
+import { fsReadDir, fsReadFile, fsWriteFile, fsExists, fsCreateFile, fsMkdir, fsRename, fsTrash } from './core/fs/controller';
 import { assertAllowedPath, isInsideAnyRoot, type AllowedRootsSource } from './core/security/path-guard';
 import { validateChannelInput, validateChannelOutput } from './core/rpc/validate';
 import { getChannelSchema } from './core/rpc/schemas';
@@ -2128,6 +2128,14 @@ async function buildRouter() {
       fsReadFile({ ...input, allowedRoots: fsAllowedRoots }),
     writeFile: async (input: { path: string; content: string; repoRoot: string }) =>
       fsWriteFile({ ...input, allowedRoots: fsAllowedRoots }),
+    createFile: async (input: { path: string }) =>
+      fsCreateFile({ ...input, allowedRoots: fsAllowedRoots }),
+    mkdir: async (input: { path: string }) =>
+      fsMkdir({ ...input, allowedRoots: fsAllowedRoots }),
+    rename: async (input: { from: string; to: string }) =>
+      fsRename({ ...input, allowedRoots: fsAllowedRoots }),
+    trash: async (input: { path: string }) =>
+      fsTrash({ ...input, allowedRoots: fsAllowedRoots, trashItem: (p) => shell.trashItem(p) }),
     // v1.4.2-06 — Storage panel: enumerate worktree dirs with sizes.
     getWorktreeSizes: async () => {
       const worktreesDir = path.join(app.getPath('userData'), 'worktrees');

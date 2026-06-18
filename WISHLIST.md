@@ -68,6 +68,12 @@ _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
   - **[state/low] exited-session GC drops a detached ws's exited rows from main's state** (`use-exited-session-gc.ts`) — transient; self-heals via the redock refetch. Fix only if a ghost is ever reported. Effort: S.
   - **[hardening] secondary-window cap + preload `argValue` unit test** — resource-exhaustion belt-and-braces + the one un-unit-tested preload parse. Effort: S.
 
+- **[panes] pane auto-scroll + Shift+Enter follow-ups (PR #185 + #187 review residue, 2026-06-18)** — both features SHIPPED to the DOM presenter (auto-scroll robustness + jump-to-bottom button `#185`; provider-aware Shift+Enter newline `#187`). Non-blocking residue the Opus reviews + the verification step filed:
+  - **[verify] on-device confirm Shift+Enter inserts a newline in a real Codex pane** — the mapping is provider-aware: `claude → \x1b\r` (meta-Enter, authoritative from claude's own `/terminal-setup`) vs `codex`/others → `\n` (Ctrl+J). Codex's `\n` is strong (its footer + kitty-fallback) but NOT yet live-confirmed. If it submits instead of newlining, it's a one-line tweak in `shiftEnterNewline` (`app/src/renderer/features/command-room/input-encoder.ts`). [[reference_shift_enter_newline_per_tui]] Effort: S.
+  - **[a11y] jump-to-bottom "↓" button has no `:focus-visible` outline** — `FlowView.tsx` renders the button with inline styles (no pseudo-class), so keyboard focus is invisible. Pane is mouse-driven so cosmetic. Fix needs a CSS class or onFocus/onBlur (inline can't do `:focus-visible`). Effort: S.
+  - **[xterm parity] neither feature covers the xterm renderer** (one KV away, not default since v2.4.1). xterm scrolls-on-output natively but has no jump-to-bottom button; it encodes Enter inside `term.onData`, so provider-aware Shift+Enter there needs `attachCustomKeyEventHandler` in `terminal-cache.ts`. Build only if a pane is flipped to xterm and parity is wanted. Effort: M.
+  - **[test] DomTerminalView undefined-provider Shift+Enter fallback** — the `providerId===undefined` (session not yet in state) → LF path is covered by the pure golden but not a DomTerminalView integration test; cheap to add. Effort: S.
+
 ---
 
 ## 🔬 Deep review findings (2026-06-11) — win32 DB lifecycle (Phase 15 grounding)
@@ -123,3 +129,11 @@ _Independent 3-agent (Opus) release-readiness review of the two merged-but-unrel
 - **[trivial] #179 diagnostics-log byte-trim can sever the oldest surviving line mid-string** — `app/src/main/diagnostics-log.ts:21-24` trims by bytes, not line boundaries, so the first surviving entry after a trim may be a fragment. Harmless. Effort: S.
 
 _(Not new / already tracked: `handleRelaunch` no close-write — see the pane-close section above (byte-identical to v2.7.1, not introduced by #179); the `uncaughtException` handler not calling `process.exit` is the intended "log instead of dying" for a GUI, not a bug.)_
+
+---
+
+## 🔬 Operator-reported bug (2026-06-17) — pane focus + click-flicker
+
+_Operator: pane windows need 3-4 clicks to focus and flicker when clicked. Disambiguated via AskUserQuestion: **all panes**, **both main + popped-out windows**, **flicker only on click**, **both ring + keystroke focus feel stuck**. Root-caused against `origin/main` (read-only); confirm-first plan written._
+
+- ~~🐞 **[high] DOM-presenter panes need 3-4 clicks to focus + flicker on click**~~ → **promoted to [ROADMAP.md](ROADMAP.md) Phase 18** (2026-06-17). Plan: `app/docs/superpowers/plans/2026-06-17-pane-focus-flicker.md`. Root cause (code-evidenced, default DOM presenter since v2.4.1): keystrokes go to a hidden 1×1 `<textarea>` focused on `mouseUp` **gated behind a `!sel.isCollapsed` early-return** (`app/src/renderer/features/command-room/DomTerminalView.tsx:386-390`) → a micro-movement click doesn't focus + clobbers the clipboard; plain `.focus()` with no `{ preventScroll }` (`:171,274,393`) scroll-jumps the `overflowY:auto` FlowView (textarea pinned `bottom:0`) → the flicker. Activation fires on mousedown-capture (`PaneGrid.tsx:315`→`CommandRoom.tsx:434`) with no static remount, so the "ring lag" is confirm-first (likely perceived failed-focus). Fix: focus on `pointerdown` + `preventScroll`, decouple copy-on-select; xterm path untouched. Effort: M.

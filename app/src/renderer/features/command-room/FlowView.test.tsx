@@ -158,4 +158,28 @@ describe('FlowView', () => {
     expect(getByTestId('flow-view').textContent).toContain(`L${MAX_RENDER_LINES + 49}`);
     expect(getByTestId('flow-view').textContent).not.toContain('L0 '); // oldest dropped from DOM
   });
+
+  it('shows a jump-to-bottom button only after scrolling up, and hides it on click', () => {
+    const engine = makeEngine();
+    const { container } = render(<FlowView engine={engine} />);
+    const scroller = container.querySelector('[data-testid="flow-view"]') as HTMLDivElement;
+
+    // Mock layout: tall content, 200px viewport.
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 200 });
+
+    // At the bottom -> following, no button.
+    scroller.scrollTop = 800;
+    fireEvent.scroll(scroller);
+    expect(container.querySelector('[data-testid="jump-to-bottom"]')).toBeNull();
+
+    // User scrolls UP -> detaches, button appears.
+    scroller.scrollTop = 200;
+    fireEvent.scroll(scroller);
+    expect(container.querySelector('[data-testid="jump-to-bottom"]')).not.toBeNull();
+
+    // Click returns to bottom -> button gone.
+    fireEvent.click(container.querySelector('[data-testid="jump-to-bottom"]')!);
+    expect(container.querySelector('[data-testid="jump-to-bottom"]')).toBeNull();
+  });
 });

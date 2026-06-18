@@ -31,9 +31,14 @@ const setActiveTabMock = vi.fn();
 vi.mock('@/renderer/features/right-rail/RightRailContext.data', () => ({
   useRightRail: () => ({ activeTab: 'browser', setActiveTab: setActiveTabMock }),
 }));
+const stateMock = vi.hoisted(() => ({
+  state: {
+    activeWorkspace: { id: 'ws-1' } as { id?: string },
+    sessions: [] as Array<{ id: string; providerId: string }>,
+  },
+}));
 vi.mock('@/renderer/app/state', () => ({
-  useAppStateSelector: (selector: (s: { activeWorkspace?: { id?: string } }) => unknown) =>
-    selector({ activeWorkspace: { id: 'ws-1' } }),
+  useAppStateSelector: (selector: (s: typeof stateMock.state) => unknown) => selector(stateMock.state),
 }));
 
 import { __resetEngineCache, getCachedEngine } from '@/renderer/lib/engine-cache';
@@ -48,6 +53,7 @@ class ROStub {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('ResizeObserver', ROStub);
+  stateMock.state.sessions = [];
 });
 afterEach(() => {
   cleanup();
@@ -291,5 +297,61 @@ describe('DomTerminalView', () => {
       () => new Promise<void>((r) => engine.term.write('\x1b[?1049l', () => setTimeout(r, 40))),
     );
     expect(container.querySelector('[data-testid="flow-view"]')).toBeTruthy();
+  });
+
+  // 2026-06-17 — PANE-FOCUS REGRESSION GUARD (ROADMAP Phase 18).
+  //
+  // Bug: a single click needed 3-4 tries to focus a DOM-presenter pane. Root
+  // cause: onMouseUp focused the hidden input ONLY when the selection was
+  // collapsed and early-returned otherwise — so any click that left a stray
+  // micro-selection never focused. Fix: copy-on-select first, then focus
+  // UNCONDITIONALLY (non-tracking), with preventScroll to kill the scroll-jump.
+  it('focuses the input on click EVEN WHEN a stray selection exists (no 3-4 clicks)', async () => {
+    const { container } = render(<DomTerminalView sessionId="f1" />);
+    await settle();
+    const input = container.querySelector('textarea')!;
+    Object.assign(navigator, { clipboard: { writeText: vi.fn(() => Promise.resolve()) } });
+    const getSel = vi
+      .spyOn(window, 'getSelection')
+      .mockReturnValue({ isCollapsed: false, toString: () => 'x' } as unknown as Selection);
+    try {
+      expect(document.activeElement).not.toBe(input);
+      fireEvent.mouseUp(container.querySelector('[data-testid="dom-terminal-view"]')!);
+      expect(document.activeElement).toBe(input); // focus NOT swallowed by the selection
+    } finally {
+      getSel.mockRestore();
+    }
+  });
+
+  it('Shift+Enter sends meta-Enter (ESC CR) for a claude pane', async () => {
+    stateMock.state.sessions = [{ id: 'se-claude', providerId: 'claude' }];
+    const { container } = render(<DomTerminalView sessionId="se-claude" />);
+    await settle();
+    fireEvent.keyDown(container.querySelector('textarea')!, { key: 'Enter', shiftKey: true });
+    expect(rpcMock.pty.write).toHaveBeenCalledWith('se-claude', '\x1b\r');
+  });
+
+  it('Shift+Enter sends LF for a codex pane', async () => {
+    stateMock.state.sessions = [{ id: 'se-codex', providerId: 'codex' }];
+    const { container } = render(<DomTerminalView sessionId="se-codex" />);
+    await settle();
+    fireEvent.keyDown(container.querySelector('textarea')!, { key: 'Enter', shiftKey: true });
+    expect(rpcMock.pty.write).toHaveBeenCalledWith('se-codex', '\n');
+  });
+
+  it('focuses with { preventScroll: true } to avoid the scroll-jump flicker', async () => {
+    const { container } = render(<DomTerminalView sessionId="f2" />);
+    await settle();
+    const input = container.querySelector('textarea')!;
+    const focusSpy = vi.spyOn(input, 'focus');
+    const getSel = vi
+      .spyOn(window, 'getSelection')
+      .mockReturnValue({ isCollapsed: true, toString: () => '' } as unknown as Selection);
+    try {
+      fireEvent.mouseUp(container.querySelector('[data-testid="dom-terminal-view"]')!);
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    } finally {
+      getSel.mockRestore();
+    }
   });
 });

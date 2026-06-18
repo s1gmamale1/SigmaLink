@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
-import { encodeKeyEvent, encodePaste, isNativePasteCombo } from './input-encoder';
+import { encodeKeyEvent, encodePaste, isNativePasteCombo, shiftEnterNewline } from './input-encoder';
 import { encodeSgrMouse, shouldReportMouse } from './mouse-encoder';
 import { getPlatform } from '@/renderer/lib/platform';
 import { useAppStateSelector } from '@/renderer/app/state';
@@ -82,6 +82,9 @@ export function DomTerminalView({
   // the callback identity stays stable (FlowView memoizes rows on it).
   const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspace?.id);
   const wsIdRef = useRef<string | undefined>(activeWorkspaceId);
+  const providerId = useAppStateSelector((s) =>
+    s.sessions.find((sess) => sess.id === sessionId)?.providerId,
+  );
   useEffect(() => {
     wsIdRef.current = activeWorkspaceId;
   }, [activeWorkspaceId]);
@@ -168,7 +171,7 @@ export function DomTerminalView({
     const onFocusReq = (ev: Event) => {
       const detail = (ev as CustomEvent<{ sessionId?: string }>).detail;
       if (!detail || detail.sessionId !== sessionId) return;
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: true });
       try {
         container.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       } catch {
@@ -271,7 +274,7 @@ export function DomTerminalView({
       if (!trackingActive() || ev.shiftKey) return;
       if (!shouldReportMouse(entry.engine.mouseTracking.mode, 'press', false)) return;
       ev.preventDefault(); // suppress native selection start under tracking
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: true });
       heldButton = ev.button;
       // Seed the motion-dedup with the press cell so the first same-cell move
       // is coalesced away (one report per cell, not press + redundant motion).
@@ -361,7 +364,9 @@ export function DomTerminalView({
     // (`\x16` / CSI 2;2~) would leave DOM panes with no keyboard paste on
     // Windows. mac keeps Ctrl+V as readline quoted-insert (paste is Cmd+V).
     if (isNativePasteCombo(keyEvent, getPlatform() === 'darwin')) return;
-    const bytes = encodeKeyEvent(keyEvent, entry.engine.modes);
+    const bytes = encodeKeyEvent(keyEvent, entry.engine.modes, {
+      shiftEnterNewline: shiftEnterNewline(providerId),
+    });
     if (bytes === null) return; // cmd-shortcuts / bare modifiers stay with the app
     ev.preventDefault();
     writeBytes(bytes);
@@ -375,22 +380,24 @@ export function DomTerminalView({
     writeBytes(encodePaste(text, entry.engine.modes));
   };
 
-  // Click focuses the input host — but never at the cost of an in-progress
-  // text selection; select-to-copy parity with the xterm path's
-  // onSelectionChange→clipboard pipe. While the hosted app is tracking the
-  // mouse (SGR) the native press handler already focused + owns the click, so
-  // the focus() fallback here must stand down (shift-selection still works:
-  // shifted events bypass tracking, leaving a real selection to copy below).
+  // Click focuses the input host. Copy-on-select runs first (parity with the
+  // xterm path's onSelectionChange→clipboard pipe), THEN focus is set
+  // UNCONDITIONALLY — gating focus behind "selection collapsed" let a stray
+  // micro-selection (the tiny range an ordinary click leaves) swallow the
+  // click's focus, which is the "pane needs 3-4 clicks to focus" bug. Under
+  // SGR mouse-tracking the native press handler already focused, so stand down.
   const onMouseUp = () => {
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) {
       const text = sel.toString();
       if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
-      return;
     }
     const mt = entry.engine.mouseTracking;
-    if (mt.mode !== 'none' && mt.sgr) return; // tracking owns the unshifted click
-    inputRef.current?.focus();
+    if (mt.mode !== 'none' && mt.sgr) return; // tracking focused on mousedown
+    // `preventScroll` stops the browser scroll-jumping to reveal the
+    // bottom-pinned 1×1 hidden textarea — that scroll-jump was the
+    // "flicker on click".
+    inputRef.current?.focus({ preventScroll: true });
   };
 
   return (

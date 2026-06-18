@@ -322,12 +322,11 @@ test('Differentiator surfaces render without console errors', async () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────
-// (2) BUG-W7-003 — Default theme on a fresh kv profile is `obsidian`.
-// (Was `glass` (v1.21.0 Liquid Glass foundation); flipped back to the flat
-// near-black `obsidian` to match the command-room reference look —
-// DEFAULT_THEME='obsidian' in renderer/lib/themes.ts.)
+// (2) BUG-W7-003 — Default theme on a fresh kv profile is `glass`.
+// (Was `obsidian`; flipped to `glass` in v1.21.0, the Apple-grade Liquid
+// Glass foundation — DEFAULT_THEME='glass' in renderer/lib/themes.ts.)
 // ────────────────────────────────────────────────────────────────────────
-test('BUG-W7-003: default theme on fresh kv is obsidian', async () => {
+test('BUG-W7-003: default theme on fresh kv is glass', async () => {
   const userData = tempUserData('w7-003');
   const app = await launchApp(userData);
   const win = await app.firstWindow({ timeout: 30_000 });
@@ -361,9 +360,9 @@ test('BUG-W7-003: default theme on fresh kv is obsidian', async () => {
     fullPage: true,
   });
 
-  // ThemeProvider corrects an unset value to the default (obsidian) and writes it back.
-  expect(stored === null || stored === 'obsidian').toBeTruthy();
-  expect(docTheme).toBe('obsidian');
+  // ThemeProvider corrects an unset value to the default (glass) and writes it back.
+  expect(stored === null || stored === 'glass').toBeTruthy();
+  expect(docTheme).toBe('glass');
 
   await app.close().catch(() => undefined);
 });
