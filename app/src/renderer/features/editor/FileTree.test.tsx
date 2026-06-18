@@ -52,13 +52,9 @@ describe('FileTree mutations', () => {
     fireEvent.click(await screen.findByText('src'));
     const fileRow = await screen.findByText('a.ts');
     fireEvent.contextMenu(fileRow);
-    // Radix portals in jsdom: try findByText first, fall back to findByRole
-    let deleteItem: HTMLElement;
-    try {
-      deleteItem = await within(document.body).findByText('Delete');
-    } catch {
-      deleteItem = await within(document.body).findByRole('menuitem', { name: 'Delete' });
-    }
+    // Scope to the portalled menu item by role so the lookup can never match
+    // stray "Delete" text elsewhere in the DOM.
+    const deleteItem = await within(document.body).findByRole('menuitem', { name: 'Delete' });
     fireEvent.click(deleteItem);
     await waitFor(() => expect(mutations.trash).toHaveBeenCalledWith('/ws/src/a.ts'));
   });

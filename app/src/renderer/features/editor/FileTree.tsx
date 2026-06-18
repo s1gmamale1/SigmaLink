@@ -212,9 +212,13 @@ function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Prop
   );
 
   // Reject leaf names that contain separators or are dot-only (UX guard; the
-  // backend containment is the real boundary).
-  const validName = (name: string) =>
-    name.trim().length > 0 && !/[\\/]/.test(name) && name !== '.' && name !== '..';
+  // backend containment is the real boundary). Stable ref so it can be a
+  // dependency of handleDialogConfirm without re-creating the callback.
+  const validName = useCallback(
+    (name: string) =>
+      name.trim().length > 0 && !/[\\/]/.test(name) && name !== '.' && name !== '..',
+    [],
+  );
 
   const handleDialogConfirm = useCallback(
     async (raw: string) => {
@@ -243,7 +247,7 @@ function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Prop
         if (moved) refreshDir(fsPath.dirname(d.path));
       }
     },
-    [dialog, mutations, refreshDir, onOpenFile],
+    [dialog, mutations, refreshDir, onOpenFile, validName],
   );
 
   const rootName = useMemo(() => fsPath.basename(rootPath) || rootPath, [rootPath]);
@@ -319,7 +323,12 @@ function FileTreeInner({ workspaceId, rootPath, selectedPath, onOpenFile }: Prop
             : dialog.mode === 'rename' ? 'Rename'
             : 'New file'
         }
-        label={dialog !== null && dialog.mode === 'newFolder' ? 'Folder name' : 'File name'}
+        label={
+          dialog === null ? 'File name'
+            : dialog.mode === 'newFolder' ? 'Folder name'
+            : dialog.mode === 'rename' ? 'New name'
+            : 'File name'
+        }
         placeholder={dialog !== null && dialog.mode === 'newFolder' ? 'components' : 'index.ts'}
         defaultValue={dialog !== null && dialog.mode === 'rename' ? dialog.currentName : ''}
         confirmLabel={dialog !== null && dialog.mode === 'rename' ? 'Rename' : 'Create'}
