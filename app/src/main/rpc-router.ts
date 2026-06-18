@@ -2791,6 +2791,7 @@ async function buildRouter() {
       liveConnections: () => controlMcpHost.liveConnectionCount(),
       setBearer: (t) => { controlBearer = t; },
       respondEscalation: (id, approved) => controlEscalator.resolve(id, approved),
+      cancelEscalations: () => controlEscalator.cancelAll(),
       reportViewport: (patch) => viewportShadow.report(patch),
     }),
   });

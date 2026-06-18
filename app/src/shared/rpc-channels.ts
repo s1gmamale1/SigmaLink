@@ -553,6 +553,15 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // Multi-window (2026-06-12) — full scope table {scopes:[{windowId,isMain,workspaceIds}]}
   // pushed by WindowRegistry.broadcastScopes() on every ownership change.
   'app:window-scope-changed',
+  // External Control MCP (2026-06-18) — main broadcasts a pending dangerous-action
+  // confirmation for an origin:'external' tool call; useControlEscalation()
+  // (features/settings) subscribes via eventOn and renders the approval prompt.
+  // WITHOUT this entry the preload's eventOn silently no-ops the subscription, so
+  // the in-app operator-approval UX is DEAD and every escalate-class call times
+  // out → auto-deny (the #188 dead-control-plane bug, recurred on the control:
+  // prefix the assistant|panes source-scan guard didn't cover). See the broadened
+  // membership guard in rpc-channels.test.ts.
+  'control:escalation',
 ]);
 
 export function isAllowedChannel(channel: string): boolean {
