@@ -4,7 +4,15 @@
 // channels (e.g. `git.runCommand` with attacker-controlled cwd).
 
 import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron';
+import { release } from 'node:os';
 import { isAllowedChannel, isAllowedEvent } from '../src/shared/rpc-channels';
+
+// Windows ConPTY build number (e.g. 26100 on Win11 24H2), parsed once at
+// preload time from `os.release()` ("10.0.26100"). `undefined` off-Windows or
+// when unparseable. Consumed by `src/renderer/lib/platform.ts` to configure
+// xterm's `windowsPty` reflow heuristics without an IPC round-trip.
+const WINDOWS_OS_BUILD: number | undefined =
+  process.platform === 'win32' ? Number(release().split('.')[2]) || undefined : undefined;
 
 // Multi-window (2026-06-12) — window identity injected by main via
 // webPreferences.additionalArguments. Absent args = legacy single window.
@@ -56,6 +64,10 @@ const api = {
   // IPC for what is, by definition, a constant for the lifetime of the
   // process. Consumed by `src/renderer/lib/platform.ts`.
   platform: process.platform as NodeJS.Platform,
+  // Windows ConPTY build number (see WINDOWS_OS_BUILD above). `undefined`
+  // off-Windows. Lets the renderer pick the correct xterm `windowsPty` reflow
+  // behavior for the host's ConPTY generation.
+  osBuild: WINDOWS_OS_BUILD,
   // Renderer-side native zoom. webFrame is a renderer-process module; exposing
   // get/set here lets the renderer drive whole-window zoom (React DOM + xterm
   // canvas + Monaco) with no per-event IPC round-trip. factor 1.0 = 100%.

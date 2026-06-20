@@ -22,3 +22,18 @@ export function getPlatform(): NodeJS.Platform {
 }
 
 export const IS_WIN32: boolean = getPlatform() === 'win32';
+
+/**
+ * Windows ConPTY build number (e.g. 26100), or `undefined` off-Windows / when
+ * the preload bridge is absent (vitest jsdom, vite preview). The preload bakes
+ * this from `os.release()` at startup. Read at call-time (not a frozen const)
+ * so callers and tests see the current `window.sigma` stub.
+ *
+ * xterm uses it to choose `windowsPty` heuristics: modern ConPTY
+ * (build >= 21376) keeps the reflow path enabled; below that xterm assumes the
+ * legacy "wrapped if last cell is non-blank" behavior.
+ */
+export function getWindowsBuild(): number | undefined {
+  const b = typeof window !== 'undefined' ? window.sigma?.osBuild : undefined;
+  return typeof b === 'number' && Number.isFinite(b) ? b : undefined;
+}

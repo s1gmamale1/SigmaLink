@@ -42,10 +42,16 @@
 // disposed (xterm + listeners + DOM), which is fine because the PTY itself
 // keeps running in the main process — a future remount just rebuilds.
 
-import { Terminal as XTerm, type ITerminalOptions } from '@xterm/xterm';
+import {
+  Terminal as XTerm,
+  type ITerminalOptions,
+  type ITerminalInitOnlyOptions,
+} from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { getPlatform, getWindowsBuild } from '@/renderer/lib/platform';
 import { rpc } from '@/renderer/lib/rpc';
 import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
 import { subscribeExit } from '@/renderer/lib/pty-exit-bus';
@@ -188,8 +194,40 @@ export const THEME = {
   brightWhite: '#f8fafc',
 } as const;
 
-function buildTerminalOptions(ctxRef: { current: TerminalCacheContext }): ITerminalOptions {
+/** xterm keeps its modern reflow path for ConPTY at or above this Windows build
+ *  (the threshold baked into `@xterm/xterm`'s `windowsPty` docs); below it the
+ *  legacy "wrapped if last cell is non-blank" heuristic kicks in. */
+const WINDOWS_CONPTY_REFLOW_MIN_BUILD = 21376;
+
+/** Resolve the xterm `windowsPty` option for the current host, or `undefined`
+ *  when it must stay unset (non-Windows, or a build we can't confirm is a
+ *  modern ConPTY). Passing it ONLY for confirmed modern ConPTY makes the change
+ *  strictly additive — older/unknown hosts keep today's behavior. */
+function resolveWindowsPty(): ITerminalOptions['windowsPty'] {
+  if (getPlatform() !== 'win32') return undefined;
+  const build = getWindowsBuild();
+  if (build === undefined || build < WINDOWS_CONPTY_REFLOW_MIN_BUILD) return undefined;
+  // node-pty drives ConPTY on Win10+; telling xterm so (a) pulls grown rows
+  // back from scrollback instead of blanking them and (b) keeps the modern
+  // reflow path enabled, which fixes ConPTY's full-width line padding showing
+  // up as stray wraps/blank lines in full-screen TUIs like Claude Code.
+  return { backend: 'conpty', buildNumber: build };
+}
+
+function buildTerminalOptions(
+  ctxRef: { current: TerminalCacheContext },
+): ITerminalOptions & ITerminalInitOnlyOptions {
+  const windowsPty = resolveWindowsPty();
   return {
+    // The PTY is spawned at 120×32 (main/core/providers/launcher.ts) but xterm
+    // defaults to 80×24, and the cache subscribes to PTY data on creation —
+    // BEFORE the first FitAddon.fit(). A full-screen TUI therefore draws its
+    // opening frames into a grid that disagrees with the PTY's, producing
+    // wrapped/garbled first paint until the ResizeObserver fires. Starting
+    // xterm at the SAME default as the PTY lines those pre-fit frames up; fit()
+    // still corrects to the real pane size a moment later.
+    cols: 120,
+    rows: 32,
     fontFamily:
       'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace',
     fontSize: 12,
@@ -200,6 +238,13 @@ function buildTerminalOptions(ctxRef: { current: TerminalCacheContext }): ITermi
     scrollback: 8000,
     theme: THEME,
     convertEol: true,
+    // Required for the Unicode 11 width tables activated in getOrCreateTerminal
+    // (`term.unicode.activeVersion`) — without it that proposed API throws and
+    // box-drawing/emoji widths stay at xterm's built-in Unicode 6 defaults.
+    allowProposedApi: true,
+    // Windows ConPTY reflow handling (modern builds only; see resolveWindowsPty).
+    // Spread conditionally so the key is simply absent on macOS/Linux.
+    ...(windowsPty ? { windowsPty } : {}),
     // #133 residual (WISHLIST pane-rendering) — include the cursor line when
     // reflowing on a column shrink; the xterm default (false) skips it and
     // desyncs/overlaps the cursor row while a TUI streams. Watch Claude
@@ -296,6 +341,17 @@ export function getOrCreateTerminal(
       c.routeLinkClick(uri, c.wsIdRef.current, c.surfaceBrowser);
     }),
   );
+  // Unicode 11 width tables — Claude Code's TUI is dense with box-drawing
+  // glyphs and status emoji; xterm's built-in Unicode 6 widths miscount the
+  // cells those occupy, shifting every column to their right. Guarded like the
+  // WebGL addon: a load failure must never blank the pane (the buffer keeps
+  // xterm's default widths). Needs allowProposedApi (buildTerminalOptions).
+  try {
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = '11';
+  } catch {
+    /* proposed-API unavailable (e.g. test mock) — default widths remain */
+  }
 
   // Park the xterm DOM in the offscreen container until React mounts give
   // it a real host. xterm.js requires `open()` to be called exactly once
