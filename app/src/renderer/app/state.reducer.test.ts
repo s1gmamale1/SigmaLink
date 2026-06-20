@@ -547,3 +547,50 @@ describe('REORDER_OPEN_WORKSPACES', () => {
     expect(after).toBe(before);
   });
 });
+
+// ─── RC4 — MARK_NOTIFICATION_READ optimistic unread decrement ────────────────
+
+describe('RC4 — MARK_NOTIFICATION_READ optimistic unread decrement', () => {
+  it('decrements when marking an unread notification read', () => {
+    const start: AppState = {
+      ...initialAppState,
+      notifications: [notif('n-unread', 100, { readAt: null })],
+      notificationsUnreadCount: 1,
+    };
+    const after = appStateReducer(start, {
+      type: 'MARK_NOTIFICATION_READ',
+      id: 'n-unread',
+      readAt: Date.now(),
+    });
+    expect(after.notificationsUnreadCount).toBe(0);
+    expect(after.notifications.find((n) => n.id === 'n-unread')?.readAt).not.toBeNull();
+  });
+
+  it('no decrement for already-read (idempotent)', () => {
+    const start: AppState = {
+      ...initialAppState,
+      notifications: [notif('n-read', 100, { readAt: 999 })],
+      notificationsUnreadCount: 0,
+    };
+    const after = appStateReducer(start, {
+      type: 'MARK_NOTIFICATION_READ',
+      id: 'n-read',
+      readAt: Date.now(),
+    });
+    expect(after.notificationsUnreadCount).toBe(0);
+  });
+
+  it('does not go below 0', () => {
+    const start: AppState = {
+      ...initialAppState,
+      notifications: [notif('n-ghost', 100, { readAt: null })],
+      notificationsUnreadCount: 0,
+    };
+    const after = appStateReducer(start, {
+      type: 'MARK_NOTIFICATION_READ',
+      id: 'n-ghost',
+      readAt: Date.now(),
+    });
+    expect(after.notificationsUnreadCount).toBe(0);
+  });
+});
