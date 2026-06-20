@@ -84,6 +84,7 @@ import { scoreConflicts } from '../shared/bench-scoring';
 import { NotificationsManager } from './core/notifications/manager';
 import { buildNotificationsController } from './core/notifications/controller';
 import { pushPtyExitNotification } from './core/notifications/sources/pty-exit';
+import { shouldSuppressPaneExitNotification } from './core/notifications/sources/pty-exit-dedup';
 import { pushSwarmMessageNotification } from './core/notifications/sources/swarm-message';
 import { pushToolErrorNotification } from './core/notifications/sources/tool-error';
 import { runBootNotificationsGc } from './core/notifications/gc';
@@ -568,6 +569,9 @@ async function buildRouter() {
   // The OS-notify wrapper consumes new rows surfaced via the manager's delta
   // emit; the renderer subscribes to the same delta via `notifications:changed`.
   const osNotifier = new OsNotifier();
+  // RC1 — one-shot Set guard: onCliExited adds sessionId here so the subsequent
+  // shell-exit onPaneEvent can suppress the duplicate pty-exit notification.
+  const cliExitedSessions = new Set<string>();
   // P4.2 — forward ref so the manager's emit tap can feed delta.added into the
   // daily-note digest. The collector is constructed after memoryManager exists
   // (a few lines down); the closure captures this binding by reference, so it
@@ -732,8 +736,12 @@ async function buildRouter() {
         // `notifications` (below). The source helper internally filters out
         // non-exit kinds (`started` / `output-spike` / `idle`) so the bell
         // doesn't drown in PTY chatter.
+        // RC1 — in shell-first mode onCliExited already fired a notification
+        // for this session; suppress the duplicate here.
         try {
-          pushPtyExitNotification(notificationsManager, event);
+          if (!shouldSuppressPaneExitNotification(cliExitedSessions, event.sessionId)) {
+            pushPtyExitNotification(notificationsManager, event);
+          }
         } catch {
           /* notifications fan-out is best-effort */
         }
@@ -749,6 +757,9 @@ async function buildRouter() {
         // PERF-1 — flush any buffered output for this session before the
         // CLI-done notification fires (spec parity; harmless if already empty).
         ptyDataCoalescer.flush(sessionId);
+        // RC1 — register this session before pushing the notification so the
+        // subsequent shell-exit onPaneEvent can detect and suppress its copy.
+        cliExitedSessions.add(sessionId);
         try {
           pushPtyExitNotification(notificationsManager, {
             sessionId,
