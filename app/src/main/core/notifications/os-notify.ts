@@ -134,7 +134,8 @@ export class OsNotifier {
       deps.resolveIconPath ??
       (() => {
         try {
-          return path.join(app.getAppPath(), 'build', 'icon.png');
+          const iconFile = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+          return path.join(app.getAppPath(), 'build', iconFile);
         } catch {
           return undefined;
         }

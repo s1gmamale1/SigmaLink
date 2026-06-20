@@ -168,3 +168,30 @@ describe('OsNotifier — NTF-1 prefs gating', () => {
     expect(show).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('OsNotifier — default resolveIconPath platform branching', () => {
+  const orig = process.platform;
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: orig, writable: true, configurable: true });
+  });
+
+  function captureIcon(platform: NodeJS.Platform, dedupKey: string): string | undefined {
+    Object.defineProperty(process, 'platform', { value: platform, writable: true, configurable: true });
+    kv.set(KV_OS_ENABLED, '1');
+    let icon: string | undefined;
+    const n = new OsNotifier({
+      notificationFactory: (i) => { icon = i.icon; return { show: vi.fn(), on: vi.fn() }; },
+      focusWindow: () => {},
+    });
+    n.notify(makeNotification({ severity: 'warn', kind: 'system', workspaceId: null, dedupKey }));
+    return icon;
+  }
+
+  it('icon.ico on win32', () => {
+    expect(captureIcon('win32', 'ico-test')).toMatch(/icon\.ico$/);
+  });
+
+  it('icon.png on darwin', () => {
+    expect(captureIcon('darwin', 'png-test')).toMatch(/icon\.png$/);
+  });
+});
