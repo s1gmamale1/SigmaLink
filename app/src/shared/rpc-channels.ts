@@ -506,6 +506,10 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // hook pushes the currently active PTY session id whenever it changes so the
   // global-capture pipeline can pty.write() into the focused pane.
   'voice:focused-session',
+  // RC5 guard fix — emitted when the display-provider override is set on a pane
+  // (rpc-router.ts:1509). Was broadcast but absent from EVENTS, so renderer
+  // subscriptions silently no-oped. Payload: { sessionId, displayProviderId }.
+  'panes:display-provider-changed',
   // BSP-O4 — emitted after a pane is renamed so PaneHeader title pills
   // refresh without a full rehydration. Payload: { sessionId, name }.
   'panes:session-renamed',
