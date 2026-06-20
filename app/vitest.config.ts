@@ -21,6 +21,7 @@ export default defineConfig({
       // perf harness analyzer (pure fn) — the .spec.ts is Playwright-only and
       // never matches *.test.ts, so it stays out of the vitest sweep.
       'tests/perf/**/*.test.ts',
+      'electron/**/*.test.ts',
     ],
     exclude: ['node_modules', 'dist', 'electron-dist', 'tests/e2e'],
     environment: 'node',
