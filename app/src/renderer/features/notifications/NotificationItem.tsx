@@ -61,7 +61,6 @@ export function NotificationItem({
   onMarkUnread,
 }: ItemProps) {
   const isRead = notification.readAt !== null;
-  const isCritical = notification.severity === 'critical';
   const sevLabel = severityLabel(notification.severity);
   return (
     <div
@@ -100,10 +99,7 @@ export function NotificationItem({
                 CSS resets that strip aria-label from text extraction. */}
             <span className="sr-only">{sevLabel}:</span>
             <span
-              className={cn(
-                'truncate font-medium text-foreground',
-                isCritical && 'sl-bell-pulse',
-              )}
+              className="truncate font-medium text-foreground"
             >
               {notification.title}
             </span>
