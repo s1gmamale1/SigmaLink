@@ -289,10 +289,7 @@ export function Sidebar() {
       aria-label="Sidebar"
       data-testid="sidebar"
       className={cn(
-        // BSP-T4 — `sl-chrome-tint` opts THIS chrome surface (only) into the
-        // per-workspace --surface-tint wash. Other `bg-sidebar` surfaces
-        // (EditorTab, browser TabStrip/recents, right-rail) stay untinted.
-        'relative flex shrink-0 flex-col bg-sidebar sl-chrome-tint text-sidebar-foreground sl-glass-heavy',
+        'relative flex shrink-0 flex-col bg-sidebar text-sidebar-foreground sl-glass-heavy',
         // Collapsed state retains the border-r since no drag divider is rendered.
         // Expanded state: border-r lives on the drag divider div (see below).
         collapsed && 'border-r border-border w-14',
