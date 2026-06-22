@@ -2,6 +2,22 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.8.1] — 2026-06-23
+
+**v2.8.1 is a Windows-only patch that fixes the Claude Code (and other full-screen TUI) misformatting inside SigmaLink panes — wrong wrapping/blank lines, garbled box-drawing glyphs, misaligned columns, and broken first paint.**
+
+### Fixed — Windows ConPTY pane rendering (#198)
+
+The live xterm.js pane terminal was never configured for the Windows ConPTY backend or the PTY's startup geometry. Three renderer-only, win32-gated changes (no UI/theme/layout change):
+
+- **`windowsPty: { backend: 'conpty', buildNumber }`** on modern Windows (build ≥ 21376) — enables xterm's correct ConPTY reflow + scrollback handling instead of its platform-agnostic default. OS build is plumbed through a new `window.sigma.osBuild`. Left unset off-Windows and on older/unknown builds, so it is strictly additive and never regresses macOS/Linux.
+- **Unicode 11 width tables** (`@xterm/addon-unicode11` + `allowProposedApi`) — box-drawing glyphs and emoji now occupy the correct number of cells, so columns stop drifting.
+- **Initial geometry** — the terminal is created at the PTY's `120×32` default instead of xterm's `80×24`, so a TUI's opening frames align with the PTY before the first fit.
+
+### Fixed — main CI lint (#199)
+
+Removed unused `MockDb` stub params in `0038_os_notify_default_on.test.ts` that were tripping `@typescript-eslint/no-unused-vars` and blocking the `lint + build` job.
+
 ## [2.8.0] — 2026-06-19
 
 **v2.8.0 ships first-class Linux support, an External Control surface that lets external AI agents drive SigmaLink like a human, file-viewer CRUD, and a batch of pane / DOM-presenter fixes — and repairs the release pipeline so installers build on all three platforms again.**
