@@ -703,3 +703,54 @@ describe('copySelectionToClipboard (spec 2026-06-10 C)', () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 });
+
+describe('terminal-cache — Windows TUI rendering config (windowsPty / sizing / unicode)', () => {
+  interface CtorOpts {
+    cols?: number;
+    rows?: number;
+    allowProposedApi?: boolean;
+    windowsPty?: { backend?: string; buildNumber?: number };
+  }
+  function setHost(platform: string, osBuild?: number): void {
+    const s = (window as unknown as { sigma: Record<string, unknown> }).sigma;
+    s.platform = platform;
+    s.osBuild = osBuild;
+  }
+  async function ctorOptsFor(sessionId: string): Promise<CtorOpts> {
+    const { getOrCreateTerminal } = await import('./terminal-cache');
+    const entry = getOrCreateTerminal(sessionId, ctx);
+    return (entry.terminal as unknown as MockTerm).__ctorArg as CtorOpts;
+  }
+
+  it('Layer D — starts xterm at the PTY default 120×32 so pre-fit frames align', async () => {
+    setHost('darwin');
+    const opts = await ctorOptsFor('win-cfg-size');
+    expect(opts.cols).toBe(120);
+    expect(opts.rows).toBe(32);
+  });
+
+  it('Layer B — enables allowProposedApi (required by the Unicode 11 addon)', async () => {
+    setHost('darwin');
+    const opts = await ctorOptsFor('win-cfg-unicode');
+    expect(opts.allowProposedApi).toBe(true);
+  });
+
+  it('Layer A — sets windowsPty {conpty, buildNumber} on modern Windows ConPTY', async () => {
+    setHost('win32', 26100);
+    const opts = await ctorOptsFor('win-cfg-conpty');
+    expect(opts.windowsPty).toEqual({ backend: 'conpty', buildNumber: 26100 });
+  });
+
+  it('Layer A — leaves windowsPty unset off-Windows (no regression on mac/linux)', async () => {
+    setHost('darwin');
+    const opts = await ctorOptsFor('win-cfg-darwin');
+    expect(opts.windowsPty).toBeUndefined();
+  });
+
+  it('Layer A — leaves windowsPty unset on pre-21376 builds and when build is unknown', async () => {
+    setHost('win32', 19045); // Win10 22H2 — below the modern-ConPTY reflow threshold
+    expect((await ctorOptsFor('win-cfg-oldbuild')).windowsPty).toBeUndefined();
+    setHost('win32', undefined); // build unparseable / preload bridge absent
+    expect((await ctorOptsFor('win-cfg-nobuild')).windowsPty).toBeUndefined();
+  });
+});
