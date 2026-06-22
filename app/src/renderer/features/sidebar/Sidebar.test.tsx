@@ -174,6 +174,20 @@ describe('Sidebar — v1.4.8 resize handle (expanded state)', () => {
     expect(aside.style.width).toBe('360px');
   });
 
+  it('reads the GLOBAL key even when a workspace is active (universal, not per-workspace)', async () => {
+    mockState = {
+      ...mockState,
+      activeWorkspace: { id: 'ws1', name: 'W', rootPath: '/x', repoMode: 'git' },
+    };
+    kvGetMock.mockResolvedValue('360');
+    const { container } = renderSidebar();
+    await act(async () => {});
+    const aside = container.querySelector('aside') as HTMLElement;
+    expect(aside.style.width).toBe('360px');
+    // Proves it did NOT key by workspace — it read the single global key.
+    expect(kvGetMock).toHaveBeenCalledWith('app.sidebar.width');
+  });
+
   it('ignores out-of-range kv values and keeps default', async () => {
     kvGetMock.mockResolvedValue('50');
     const { container } = renderSidebar();
