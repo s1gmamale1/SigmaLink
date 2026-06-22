@@ -126,6 +126,44 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, [dispatch]);
 
+  // launch_pane / create_swarm / add_agent emit `assistant:dispatch-echo` after
+  // spawning a pane. The renderer has no server-push for a new pane, so without a
+  // GLOBAL subscriber the pane exists in the DB but never appears in the grid
+  // until a workspace reopen. (Previously the ONLY dispatch-echo subscriber lived
+  // inside JorvisRoom, so an external- or Telegram-driven launch never reflected
+  // unless the operator happened to be in the Jorvis room.) This refetches the
+  // workspace's panes + swarms and upserts them so the pane surfaces in ANY room.
+  // It deliberately does NOT change the active room/session — that view-follow UX
+  // belongs to the Jorvis chat flow (useJorvisDispatchEcho, the grep-twin), which
+  // an autonomous external/Telegram launch must not trigger. ADD_SESSIONS /
+  // UPSERT_SWARM are idempotent upserts, so the two paths overlapping while the
+  // Jorvis room is active is safe.
+  useEffect(() => {
+    const off = window.sigma.eventOn('assistant:dispatch-echo', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const echo = raw as { workspaceId?: unknown; ok?: unknown };
+      if (echo.ok !== true || typeof echo.workspaceId !== 'string') return;
+      const workspaceId = echo.workspaceId;
+      void (async () => {
+        try {
+          const [sessions, swarms] = await Promise.all([
+            rpcSilent.panes.listForWorkspace(workspaceId),
+            rpcSilent.swarms.list(workspaceId),
+          ]);
+          if (sessions && sessions.length > 0) {
+            dispatch({ type: 'ADD_SESSIONS', sessions });
+          }
+          if (swarms) {
+            for (const swarm of swarms) dispatch({ type: 'UPSERT_SWARM', swarm });
+          }
+        } catch {
+          /* best-effort — pane will populate on next workspace reopen */
+        }
+      })();
+    });
+    return off;
+  }, [dispatch]);
+
   // Jorvis close_workspace → remove the workspace + drop it from the rail.
   useEffect(() => {
     const off = window.sigma.eventOn('assistant:close-workspace', (raw: unknown) => {

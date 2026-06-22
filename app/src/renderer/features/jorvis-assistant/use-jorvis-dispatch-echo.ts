@@ -61,6 +61,14 @@ export function useJorvisDispatchEcho({
       };
 
       void (async () => {
+        // NOTE (grep-twin): the GLOBAL use-live-events `assistant:dispatch-echo`
+        // subscriber performs this SAME panes+swarms hydration so external- and
+        // Telegram-driven launches reflect in the grid in ANY room. Keep the two
+        // in sync; ADD_SESSIONS / UPSERT_SWARM are idempotent upserts, so both
+        // firing while the Jorvis room is active is harmless. This copy ALSO
+        // drives the view-follow jump below — the Jorvis-chat-only UX that an
+        // autonomous launch must not trigger.
+        //
         // v1.5.3 hotfix for v1.5.2-and-earlier — refresh renderer's swarms +
         // sessions state from the source of truth before navigation. The echo
         // event tells us a pane was spawned, but the backend creates the swarm
