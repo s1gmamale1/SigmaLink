@@ -224,6 +224,12 @@ export class TerminalEngine {
     return out;
   }
 
+  /** Rows currently in the active buffer (screen + scrollback). Lets a consumer
+   *  bound a recent-rows scan without materializing the whole buffer. */
+  get bufferLength(): number {
+    return this.term.buffer.active.length;
+  }
+
   /** Absolute cursor position in the active buffer (row = baseY + cursorY). */
   get cursor(): { row: number; col: number } {
     const buf = this.term.buffer.active;
