@@ -35,9 +35,9 @@ export interface RightRailContextValue {
   setActiveTab: (tab: RightRailTabId) => void;
   /** Whether the right-rail panel is currently open. Defaults to true. */
   railOpen: boolean;
-  /** Explicitly set the rail open/closed state. Persists per-workspace. */
+  /** Explicitly set the rail open/closed state. Persists globally (per-window-scope when detached). */
   setRailOpen: (open: boolean) => void;
-  /** Toggle rail open↔closed. Persists per-workspace. */
+  /** Toggle rail open↔closed. Persists globally (per-window-scope when detached). */
   toggleRail: () => void;
 }
 
