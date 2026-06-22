@@ -8,7 +8,7 @@
 
 // Leading decoration the TUI may paint before the sentinel: whitespace, a
 // quote/box-draw glyph, or a bullet. `│`=U+2502, `⏺`=U+23FA, `•`=U+2022.
-const SENTINEL = /^[\s>│⏺•*\-]*SIGMA::LABEL\s+(.+?)\s*$/;
+const SENTINEL = /^[\s>│⏺•*-]*SIGMA::LABEL\s+(.+?)\s*$/;
 
 export function extractLabel(lines: string[]): string | null {
   let found: string | null = null;

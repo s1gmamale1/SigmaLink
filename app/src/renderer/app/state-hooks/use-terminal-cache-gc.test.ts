@@ -166,7 +166,7 @@ describe('useTerminalCacheGc — pane-label reaping', () => {
     expect(getAgentLabel('gone-1')).toBeNull();
   });
 
-  it('disposes the label watcher of a session that disappears from state', () => {
+  it('detaches the label reader of a session that disappears from state', () => {
     const { rerender } = renderHook(({ s }: { s: AppState }) => useTerminalCacheGc(s), {
       initialProps: { s: stateWith({ 'ws-1': [session('s1'), session('s2')] }) },
     });

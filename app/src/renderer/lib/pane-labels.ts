@@ -1,5 +1,5 @@
 // Renderer-only, ephemeral pane auto-label store. Holds the latest SANITIZED
-// label per sessionId, fed by label-watcher.ts (Claude's SIGMA::LABEL line).
+// label per sessionId, fed by label-reader.ts (Claude's SIGMA::LABEL line).
 // PaneHeader reads it via useSyncExternalStore; precedence is
 // `manual name → this label → summarizePrompt(initialPrompt) → alias`.
 // Not persisted. Mirrors the module-scope store pattern of scratch-tabs.ts.
