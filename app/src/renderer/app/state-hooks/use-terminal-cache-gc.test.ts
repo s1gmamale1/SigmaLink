@@ -32,9 +32,9 @@ vi.mock('@/renderer/lib/prompt-watcher', () => ({
   disposePromptWatcher: (...args: unknown[]) => disposePromptWatcherMock(...args),
 }));
 
-const disposeLabelWatcherMock = vi.fn();
-vi.mock('@/renderer/lib/label-watcher', () => ({
-  disposeLabelWatcher: (...args: unknown[]) => disposeLabelWatcherMock(...args),
+const detachLabelReaderMock = vi.fn();
+vi.mock('@/renderer/lib/label-reader', () => ({
+  detachLabelReader: (...args: unknown[]) => detachLabelReaderMock(...args),
 }));
 
 import type { AgentSession } from '@/shared/types';
@@ -72,7 +72,7 @@ beforeEach(() => {
   closeScratchForParentMock.mockReset();
   scratchParentIds = [];
   disposePromptWatcherMock.mockReset();
-  disposeLabelWatcherMock.mockReset();
+  detachLabelReaderMock.mockReset();
   __resetAgentLabels();
 });
 
@@ -171,7 +171,7 @@ describe('useTerminalCacheGc — pane-label reaping', () => {
       initialProps: { s: stateWith({ 'ws-1': [session('s1'), session('s2')] }) },
     });
     rerender({ s: stateWith({ 'ws-1': [session('s1')] }) });
-    expect(disposeLabelWatcherMock).toHaveBeenCalledWith('s2');
-    expect(disposeLabelWatcherMock).not.toHaveBeenCalledWith('s1');
+    expect(detachLabelReaderMock).toHaveBeenCalledWith('s2');
+    expect(detachLabelReaderMock).not.toHaveBeenCalledWith('s1');
   });
 });

@@ -19,7 +19,7 @@ import type { AppState } from '../state.types';
 import { destroy, hasCached } from '@/renderer/lib/terminal-cache';
 import { closeScratchForParent, getScratchParentIds } from '@/renderer/lib/scratch-tabs';
 import { disposePromptWatcher } from '@/renderer/lib/prompt-watcher';
-import { disposeLabelWatcher } from '@/renderer/lib/label-watcher';
+import { detachLabelReader } from '@/renderer/lib/label-reader';
 import { clearAgentLabel } from '@/renderer/lib/pane-labels';
 
 export function useTerminalCacheGc(state: AppState): void {
@@ -50,7 +50,7 @@ export function useTerminalCacheGc(state: AppState): void {
       if (hasCached(id)) destroy(id);
       closeScratchForParent(id);
       disposePromptWatcher(id); // 2026-06-10 finding 4 — no-op if never watched
-      disposeLabelWatcher(id);
+      detachLabelReader(id);
       clearAgentLabel(id);
     }
     // Defence in depth: scratch parents the store knows about that are not
