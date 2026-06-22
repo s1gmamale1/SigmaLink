@@ -18,6 +18,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { EVENTS, CHANNELS } from '../shared/rpc-channels';
 
 const ROUTER_SRC = readFileSync(
   path.resolve(__dirname, './rpc-router.ts'),
@@ -44,5 +45,36 @@ describe('rpc-router production wiring — notifications sink threaded to spawn 
     expect(ctorIdx).toBeGreaterThanOrEqual(0);
     expect(launchIdx).toBeGreaterThan(ctorIdx);
     expect(swarmIdx).toBeGreaterThan(ctorIdx);
+  });
+});
+
+// RC5 — Guard: every broadcast('literal') in rpc-router.ts must be in EVENTS.
+// The preload bridge silently no-ops renderer subscriptions to events not in
+// EVENTS, so a missing entry means the renderer never receives the event.
+// This test reads the router source (same constant above) and checks every
+// literal string passed to broadcast() is allowlisted.
+describe('rpc-router broadcast events — every literal is in EVENTS', () => {
+  const RE = /\bbroadcast\(\s*(['"])([^'"]+)\1/g;
+  const lits: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = RE.exec(ROUTER_SRC)) !== null) lits.push(m[2]);
+
+  it('finds broadcast literals', () => {
+    expect(lits.length).toBeGreaterThan(0);
+  });
+
+  it('every broadcast literal is in EVENTS', () => {
+    const missing = lits.filter((e) => !EVENTS.has(e));
+    expect(missing, JSON.stringify(missing)).toEqual([]);
+  });
+
+  it('notifications:changed in EVENTS', () => {
+    expect(EVENTS.has('notifications:changed')).toBe(true);
+  });
+
+  it('notification channels in CHANNELS', () => {
+    expect(CHANNELS.has('notifications.list')).toBe(true);
+    expect(CHANNELS.has('notifications.unreadCount')).toBe(true);
+    expect(CHANNELS.has('notifications.markRead')).toBe(true);
   });
 });

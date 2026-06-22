@@ -33,11 +33,8 @@ describe('severityClass (D1)', () => {
   it('maps info → muted', () => expect(severityClass('info')).toContain('muted'));
   it('maps warn → amber', () => expect(severityClass('warn')).toContain('amber'));
   it('maps error → red', () => expect(severityClass('error')).toContain('red'));
-  it('maps critical → red + pulse', () => {
-    const cls = severityClass('critical');
-    expect(cls).toContain('red');
-    expect(cls).toContain('sl-bell-pulse');
-  });
+  it('maps critical → red', () => { expect(severityClass('critical')).toContain('red'); });
+  it('severityClass critical does NOT include sl-bell-pulse (RC3 — bell-only)', () => { expect(severityClass('critical')).not.toContain('sl-bell-pulse'); });
 });
 
 describe('NotificationItem', () => {
@@ -127,5 +124,18 @@ describe('NotificationItem', () => {
     // UX-9 — aria-label now prefixes the severity word: "Info: title-a".
     fireEvent.click(screen.getByLabelText(/title-a/));
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('RC3 — a critical row has no sl-bell-pulse element', () => {
+    render(
+      <NotificationItem
+        notification={makeN({ id: 'crit', severity: 'critical' })}
+        onClick={() => undefined}
+        onDismiss={() => undefined}
+        onMarkUnread={() => undefined}
+      />,
+    );
+    const row = screen.getByTestId('notification-item-crit');
+    expect(row.querySelectorAll('.sl-bell-pulse').length).toBe(0);
   });
 });

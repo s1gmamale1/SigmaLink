@@ -38,6 +38,12 @@ const requireCJS = createRequire(import.meta.url);
 let mainWindow: BrowserWindow | null = null;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
+// RC2b — Windows toast identity. Without an explicit AUMID, Windows silently
+// drops Electron toasts. Must be called early, before the ready event. Matches appId.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.sigmalink.agentorchestrator');
+}
+
 // Multi-window A2 — adapt an Electron BrowserWindow to the registry's
 // pure-DI WindowHandle so the WindowRegistry stays Electron-free (testable
 // with fakes). `send` is destroyed-guarded; `focus` restores/shows first.

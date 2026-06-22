@@ -820,12 +820,21 @@ export function appStateReducer(state: AppState, action: Action): AppState {
     case 'MARK_NOTIFICATION_READ': {
       // Optimistic local update; the NOTIFICATIONS_DELTA echo reconciles
       // unreadCount authoritatively.
-      const next = state.notifications.map((n) =>
-        n.id === action.id && n.readAt === null
-          ? { ...n, readAt: action.readAt }
-          : n,
-      );
-      return { ...state, notifications: next };
+      let transitioned = false;
+      const next = state.notifications.map((n) => {
+        if (n.id === action.id && n.readAt === null) {
+          transitioned = true;
+          return { ...n, readAt: action.readAt };
+        }
+        return n;
+      });
+      return {
+        ...state,
+        notifications: next,
+        notificationsUnreadCount: transitioned
+          ? Math.max(0, state.notificationsUnreadCount - 1)
+          : state.notificationsUnreadCount,
+      };
     }
     case 'DISMISS_NOTIFICATION': {
       const next = state.notifications.filter((n) => n.id !== action.id);

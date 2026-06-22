@@ -81,7 +81,7 @@ export function severityClass(severity: NotificationSeverity): string {
     case 'error':
       return 'text-red-500';
     case 'critical':
-      return 'text-red-500 sl-bell-pulse';
+      return 'text-red-500';
   }
 }
 
