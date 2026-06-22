@@ -8,7 +8,7 @@ import { createContext, useContext } from 'react';
 export type RightRailTabId = 'browser' | 'editor' | 'jorvis' | 'skills' | 'swarm' | 'sigma';
 
 export const KV_TAB = 'rightRail.tab';
-// Per-workspace panel id for the open/closed state.
+// Global key / panel id for the open/closed state (window-scope-aware via chrome-ui-kv).
 export const KV_OPEN = 'rightRail.open';
 export const DEFAULT_TAB: RightRailTabId = 'browser';
 export const VALID_TABS: ReadonlySet<RightRailTabId> = new Set([

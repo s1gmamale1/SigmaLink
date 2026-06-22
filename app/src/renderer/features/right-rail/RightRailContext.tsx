@@ -6,8 +6,9 @@
 // rail used (see `RightRail.tsx`, KV_TAB), so users do not lose their last
 // active tab when the v1.1.4 chrome lands.
 //
-// DEV-W4 — adds `railOpen` + `setRailOpen` + `toggleRail` with per-workspace
-// persistence (mirrors how RightRail.tsx persists `rightRail.width`).
+// DEV-W4 — adds `railOpen` + `setRailOpen` + `toggleRail` with window-scope-aware
+// persistence via chrome-ui-kv (global in the main window, per-scope when detached;
+// mirrors how RightRail.tsx persists `rightRail.width`).
 
 import {
   useCallback,

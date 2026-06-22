@@ -73,10 +73,11 @@ interface Props {
 const DEFAULT_WIDTH = 480;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 1200;
-// Legacy GLOBAL kv key — read-through fallback so pre-RSP-1 widths aren't lost
-// on first run after the migration to per-workspace keying.
+// Global kv key for the rail width. Window-scope-aware via chrome-ui-kv: the
+// main window uses this global key (universal across workspaces); a detached
+// scoped window uses `ui.<scope>.rightRail.width`.
 const KV_WIDTH = 'rightRail.width';
-// Per-workspace panel id (combined into `ui.<wsId>.rightRail.width`).
+// Panel id (combined into `ui.<scope>.rightRail.width` in a scoped window).
 const RIGHT_RAIL_WIDTH_PANEL = 'rightRail.width';
 
 export function RightRail({ children }: Props) {
