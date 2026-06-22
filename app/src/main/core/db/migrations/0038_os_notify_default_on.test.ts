@@ -11,12 +11,12 @@ interface KvRow {
 class MockDb {
   readonly rows = new Map<string, KvRow>();
 
-  exec(_s: string): void {}
+  exec(): void {}
 
   prepare(sql: string) {
     if (/INSERT OR IGNORE INTO kv/i.test(sql)) {
       return {
-        run: (..._a: unknown[]) => {
+        run: () => {
           const k = 'notifications.osEnabled';
           const v = '1';
           if (!this.rows.has(k)) {
