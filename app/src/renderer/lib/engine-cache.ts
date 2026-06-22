@@ -15,6 +15,7 @@ import { subscribePtyData } from './pty-data-bus';
 import { subscribeExit } from './pty-exit-bus';
 import { stripDeviceAttributesResponses } from './terminal-cache';
 import { computeSnapshotOverlap } from './snapshot-overlap';
+import { attachEngineLabelReader, detachLabelReader } from './label-reader';
 
 export const ENGINE_CACHE_LIMIT = 32;
 
@@ -95,6 +96,8 @@ export function getOrCreateEngine(sessionId: string): EngineCacheEntry {
     offExit,
   };
   cache.set(sessionId, entry);
+  // Auto-label — read SIGMA::LABEL from this engine's parsed buffer.
+  attachEngineLabelReader(sessionId, engine);
 
   void (async () => {
     let snapBuffer = '';
@@ -129,6 +132,7 @@ export function destroyEngine(sessionId: string): void {
   const entry = cache.get(sessionId);
   if (!entry) return;
   cache.delete(sessionId);
+  detachLabelReader(sessionId);
   try {
     entry.unsubscribePty();
   } catch {

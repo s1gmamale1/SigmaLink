@@ -57,6 +57,7 @@ import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
 import { subscribeExit } from '@/renderer/lib/pty-exit-bus';
 import { computeSnapshotOverlap } from './snapshot-overlap';
 import { ctrlWheelShouldBubble } from './wheel-zoom';
+import { attachXtermLabelReader, detachLabelReader } from './label-reader';
 
 /** Maximum number of cached xterm instances before LRU eviction. */
 export const TERMINAL_CACHE_LIMIT = 32;
@@ -440,6 +441,8 @@ export function getOrCreateTerminal(
   };
   entryRef.current = entry;
   cache.set(sessionId, entry);
+  // Auto-label — read SIGMA::LABEL from this terminal's parsed buffer.
+  attachXtermLabelReader(sessionId, term);
 
   // Kick off the snapshot in the background. Race-safe: any chunks that
   // arrived between bus-subscribe and snapshot-resolve are in `pending`
@@ -563,6 +566,7 @@ export function destroy(sessionId: string): void {
   const entry = cache.get(sessionId);
   if (!entry) return;
   cache.delete(sessionId);
+  detachLabelReader(sessionId);
   try {
     entry.unsubscribePty();
   } catch {
