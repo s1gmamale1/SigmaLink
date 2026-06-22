@@ -1,16 +1,13 @@
 // @vitest-environment jsdom
 //
-// RSP-1 (Lane RSP-Shell) — RightRail per-workspace width persistence + narrow
+// RightRail — universal/window-scope-aware width (via chrome-ui-kv) + narrow
 // auto-collapse.
 //
 // Asserts:
-//   - Width hydrates from the per-workspace key (`ui.<wsId>.rightRail.width`)
-//     when a workspace is active, with read-through fallback to the legacy
-//     global key (`rightRail.width`).
-//   - A splitter commit writes the PER-WORKSPACE key (not the global one).
-//   - Changing `wsId` re-hydrates.
-//   - With no workspace open (`wsId === null`) it falls back to the legacy
-//     global key.
+//   - Width hydrates from the GLOBAL key (`rightRail.width`) via chrome-ui-kv,
+//     mount-once (no re-read on workspace change).
+//   - A splitter commit writes via writeChromeUi (global key, never per-workspace).
+//   - Width is universal: switching the active workspace does NOT re-hydrate.
 //   - Below the `narrow` breakpoint (900px) the rail auto-collapses: the body
 //     renders full-bleed (with `min-w-0`, SF-11) and no <aside> is mounted.
 
@@ -32,23 +29,17 @@ vi.mock('@/renderer/lib/rpc', () => ({
   },
 }));
 
-// ─── per-workspace kv helper (in-memory map) ─────────────────────────────────
+// ─── chrome-ui-kv mock (in-memory map keyed by globalKey) ───────────────────
 const { store } = vi.hoisted(() => ({ store: new Map<string, string>() }));
-const readWorkspaceUiMock = vi.fn(
-  async (wsId: string, panel: string, legacyGlobalKey?: string): Promise<string | null> => {
-    const scoped = store.get(`ui.${wsId}.${panel}`);
-    if (scoped !== undefined) return scoped;
-    if (legacyGlobalKey) return store.get(legacyGlobalKey) ?? null;
-    return null;
-  },
+const readChromeUiMock = vi.fn(
+  async (globalKey: string, _panel: string): Promise<string | null> => store.get(globalKey) ?? null,
 );
-const writeWorkspaceUiMock = vi.fn(async (wsId: string, panel: string, value: string) => {
-  store.set(`ui.${wsId}.${panel}`, value);
+const writeChromeUiMock = vi.fn(async (globalKey: string, _panel: string, value: string) => {
+  store.set(globalKey, value);
 });
-vi.mock('@/renderer/lib/workspace-ui-kv', () => ({
-  workspaceUiKey: (wsId: string, panel: string) => `ui.${wsId}.${panel}`,
-  readWorkspaceUi: (...a: [string, string, string?]) => readWorkspaceUiMock(...a),
-  writeWorkspaceUi: (...a: [string, string, string]) => writeWorkspaceUiMock(...a),
+vi.mock('@/renderer/lib/chrome-ui-kv', () => ({
+  readChromeUi: (...a: [string, string]) => readChromeUiMock(...a),
+  writeChromeUi: (...a: [string, string, string]) => writeChromeUiMock(...a),
 }));
 
 // ─── shared breakpoint hook ──────────────────────────────────────────────────
@@ -118,8 +109,8 @@ beforeEach(() => {
   store.clear();
   kvGetMock.mockReset().mockResolvedValue(null);
   kvSetMock.mockReset().mockResolvedValue(undefined);
-  readWorkspaceUiMock.mockClear();
-  writeWorkspaceUiMock.mockClear();
+  readChromeUiMock.mockClear();
+  writeChromeUiMock.mockClear();
   belowNarrow = false;
   activeWsId = 'ws-1';
 });
@@ -129,40 +120,33 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('RightRail RSP-1 — per-workspace width persistence', () => {
-  it('hydrates width from the per-workspace key when present', async () => {
-    store.set('ui.ws-1.rightRail.width', '600');
+describe('RightRail — universal width (window-scope-aware via chrome-ui-kv)', () => {
+  it('hydrates width from the global key', async () => {
+    store.set('rightRail.width', '600');
     const { container } = renderRail();
     await act(async () => {});
     const aside = container.querySelector('aside') as HTMLElement;
     expect(aside.style.width).toBe('600px');
-    expect(readWorkspaceUiMock).toHaveBeenCalledWith('ws-1', 'rightRail.width', 'rightRail.width');
+    expect(readChromeUiMock).toHaveBeenCalledWith('rightRail.width', 'rightRail.width');
   });
 
-  it('falls through to the legacy global key when the scoped value is unset', async () => {
-    store.set('rightRail.width', '520'); // pre-RSP-1 global value
-    const { container } = renderRail();
-    await act(async () => {});
-    const aside = container.querySelector('aside') as HTMLElement;
-    expect(aside.style.width).toBe('520px');
-  });
-
-  it('a splitter commit writes the per-workspace key', async () => {
+  it('a splitter commit writes via writeChromeUi(global, panel, value)', async () => {
     const { getByTestId } = renderRail();
     await act(async () => {});
     getByTestId('splitter').click();
-    expect(writeWorkspaceUiMock).toHaveBeenCalledWith('ws-1', 'rightRail.width', '640');
-    expect(kvSetMock).not.toHaveBeenCalledWith('rightRail.width', expect.anything());
+    expect(writeChromeUiMock).toHaveBeenCalledWith('rightRail.width', 'rightRail.width', '640');
+    expect(store.get('rightRail.width')).toBe('640');
   });
 
-  it('re-hydrates when wsId changes', async () => {
-    store.set('ui.ws-1.rightRail.width', '600');
-    store.set('ui.ws-2.rightRail.width', '300');
+  it('does NOT re-hydrate when the active workspace changes (universal)', async () => {
+    store.set('rightRail.width', '600');
     const { container, rerender } = renderRail();
     await act(async () => {});
     let aside = container.querySelector('aside') as HTMLElement;
     expect(aside.style.width).toBe('600px');
 
+    // Change the global value AND the active workspace; width must not re-read.
+    store.set('rightRail.width', '300');
     activeWsId = 'ws-2';
     rerender(
       <RightRail>
@@ -171,21 +155,7 @@ describe('RightRail RSP-1 — per-workspace width persistence', () => {
     );
     await act(async () => {});
     aside = container.querySelector('aside') as HTMLElement;
-    expect(aside.style.width).toBe('300px');
-  });
-
-  it('falls back to the global key when no workspace is open', async () => {
-    activeWsId = null;
-    kvGetMock.mockResolvedValue('444');
-    const { container, getByTestId } = renderRail();
-    await act(async () => {});
-    const aside = container.querySelector('aside') as HTMLElement;
-    expect(aside.style.width).toBe('444px');
-    expect(kvGetMock).toHaveBeenCalledWith('rightRail.width');
-
-    getByTestId('splitter').click();
-    expect(kvSetMock).toHaveBeenCalledWith('rightRail.width', '640');
-    expect(writeWorkspaceUiMock).not.toHaveBeenCalled();
+    expect(aside.style.width).toBe('600px');
   });
 });
 
