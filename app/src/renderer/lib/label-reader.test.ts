@@ -122,3 +122,62 @@ describe('readXtermLabel / attachXtermLabelReader (fallback xterm mode)', () => 
     expect(getAgentLabel('x1')).toBe('Task A'); // unchanged after detach
   });
 });
+
+describe('renderer-mode toggle (I-1)', () => {
+  /** DOM→xterm: engine attaches first; then xterm attaches (new host); then
+   *  engine destroy calls detachLabelReader with its owner. The xterm reader
+   *  must remain live. */
+  it('DOM→xterm: xterm reader survives when the engine reader is destroyed last', () => {
+    // Build a minimal fake engine (same shape as the idempotency test above).
+    const fakeEngine = {
+      bufferLength: 1,
+      logicalLines: () => [{ startRow: 0, text: 'SIGMA::LABEL DOM task' }],
+      onBufferChanged: (fn: () => void) => {
+        void fn; // subscribed but not fired in this direction
+        return () => {};
+      },
+    } as unknown as import('./terminal-engine').TerminalEngine;
+
+    const term = fakeXterm(['SIGMA::LABEL Xterm task']);
+
+    // 1. Engine attaches (DOM mode active).
+    attachEngineLabelReader('s', fakeEngine);
+    // 2. xterm attaches BEFORE the engine's entry is removed (React child
+    //    effect runs before the parent exclusion effect).
+    attachXtermLabelReader('s', term);
+    // 3. Old cache's destroyEngine calls detachLabelReader with the engine owner.
+    detachLabelReader('s', fakeEngine as unknown as object);
+
+    // Now fire the xterm event — the reader must be live.
+    term.fire();
+    expect(getAgentLabel('s')).toBe('Xterm task');
+  });
+
+  /** xterm→DOM: xterm attaches first; then engine attaches (new host); then
+   *  xterm destroy calls detachLabelReader with its owner. The engine reader
+   *  must remain live. */
+  it('xterm→DOM: engine reader survives when the xterm reader is destroyed last', () => {
+    let engineCb: () => void = () => {};
+    const fakeEngine = {
+      bufferLength: 1,
+      logicalLines: () => [{ startRow: 0, text: 'SIGMA::LABEL Engine task' }],
+      onBufferChanged: (fn: () => void) => {
+        engineCb = fn;
+        return () => { engineCb = () => {}; };
+      },
+    } as unknown as import('./terminal-engine').TerminalEngine;
+
+    const term = fakeXterm(['SIGMA::LABEL Old xterm task']);
+
+    // 1. xterm attaches (xterm mode active).
+    attachXtermLabelReader('s2', term);
+    // 2. engine attaches BEFORE the xterm entry is removed.
+    attachEngineLabelReader('s2', fakeEngine);
+    // 3. Old cache's destroy calls detachLabelReader with the xterm owner.
+    detachLabelReader('s2', term as unknown as object);
+
+    // Now fire the engine event — the reader must be live.
+    engineCb();
+    expect(getAgentLabel('s2')).toBe('Engine task');
+  });
+});

@@ -69,41 +69,55 @@ export function readXtermLabel(term: XtermLike): string | null {
   return extractLabel(lines);
 }
 
-const detachers = new Map<string, () => void>();
+interface DetacherEntry {
+  owner: object;
+  off: () => void;
+}
 
-/** Attach a label reader to a DOM-mode engine (idempotent per session). */
+const detachers = new Map<string, DetacherEntry>();
+
+/** Attach a label reader to a DOM-mode engine (idempotent per owner; replaces a
+ *  different owner to handle renderer-mode toggles). */
 export function attachEngineLabelReader(sessionId: string, engine: TerminalEngine): void {
-  if (detachers.has(sessionId)) return;
+  const prev = detachers.get(sessionId);
+  if (prev && prev.owner === engine) return; // idempotent for same owner
+  if (prev) {
+    try { prev.off(); } catch { /* raced */ }
+  }
   const off = engine.onBufferChanged(() => {
     const label = readEngineLabel(engine);
     if (label) setAgentLabel(sessionId, label);
   });
-  detachers.set(sessionId, off);
+  detachers.set(sessionId, { owner: engine, off });
 }
 
-/** Attach a label reader to an xterm-mode Terminal (idempotent per session). */
+/** Attach a label reader to an xterm-mode Terminal (idempotent per owner; replaces a
+ *  different owner to handle renderer-mode toggles). */
 export function attachXtermLabelReader(sessionId: string, term: XtermLike): void {
-  if (detachers.has(sessionId)) return;
+  const prev = detachers.get(sessionId);
+  if (prev && prev.owner === (term as object)) return; // idempotent for same owner
+  if (prev) {
+    try { prev.off(); } catch { /* raced */ }
+  }
   const sub = term.onWriteParsed(() => {
     const label = readXtermLabel(term);
     if (label) setAgentLabel(sessionId, label);
   });
-  detachers.set(sessionId, () => sub.dispose());
+  detachers.set(sessionId, { owner: term as object, off: () => sub.dispose() });
 }
 
-/** Detach a session's reader. Idempotent; safe if never attached. */
-export function detachLabelReader(sessionId: string): void {
-  const off = detachers.get(sessionId);
-  if (!off) return;
-  try {
-    off();
-  } catch {
-    /* raced teardown — ignore */
-  }
+/** Detach a session's reader. If `owner` is provided, only detaches when the current
+ *  reader is owned by that object — prevents a stale destroy from killing a newer reader
+ *  (the renderer-mode toggle case). Omit `owner` for unconditional force-detach (GC). */
+export function detachLabelReader(sessionId: string, owner?: object): void {
+  const cur = detachers.get(sessionId);
+  if (!cur) return;
+  if (owner !== undefined && cur.owner !== owner) return; // newer reader owns this slot
+  try { cur.off(); } catch { /* raced teardown — ignore */ }
   detachers.delete(sessionId);
 }
 
-/** Test-only: detach every reader. */
+/** Test-only: detach every reader unconditionally. */
 export function __resetLabelReaders(): void {
   for (const id of Array.from(detachers.keys())) detachLabelReader(id);
 }

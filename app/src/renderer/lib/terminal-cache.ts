@@ -566,7 +566,7 @@ export function destroy(sessionId: string): void {
   const entry = cache.get(sessionId);
   if (!entry) return;
   cache.delete(sessionId);
-  detachLabelReader(sessionId);
+  detachLabelReader(sessionId, entry.terminal);
   try {
     entry.unsubscribePty();
   } catch {

@@ -112,6 +112,6 @@ describe('engine-cache label-reader wiring', () => {
     const entry = getOrCreateEngine('lbl-1');
     expect(labelReaderMock.attachEngineLabelReader).toHaveBeenCalledWith('lbl-1', entry.engine);
     destroyEngine('lbl-1');
-    expect(labelReaderMock.detachLabelReader).toHaveBeenCalledWith('lbl-1');
+    expect(labelReaderMock.detachLabelReader).toHaveBeenCalledWith('lbl-1', entry.engine);
   });
 });

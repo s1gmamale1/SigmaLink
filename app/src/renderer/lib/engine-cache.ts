@@ -132,7 +132,7 @@ export function destroyEngine(sessionId: string): void {
   const entry = cache.get(sessionId);
   if (!entry) return;
   cache.delete(sessionId);
-  detachLabelReader(sessionId);
+  detachLabelReader(sessionId, entry.engine);
   try {
     entry.unsubscribePty();
   } catch {
