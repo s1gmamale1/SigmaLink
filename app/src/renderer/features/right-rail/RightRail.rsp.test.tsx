@@ -32,10 +32,10 @@ vi.mock('@/renderer/lib/rpc', () => ({
 // ─── chrome-ui-kv mock (in-memory map keyed by globalKey) ───────────────────
 const { store } = vi.hoisted(() => ({ store: new Map<string, string>() }));
 const readChromeUiMock = vi.fn(
-  async (globalKey: string, _panel: string): Promise<string | null> => store.get(globalKey) ?? null,
+  async (...a: [string, string]): Promise<string | null> => store.get(a[0]) ?? null,
 );
-const writeChromeUiMock = vi.fn(async (globalKey: string, _panel: string, value: string) => {
-  store.set(globalKey, value);
+const writeChromeUiMock = vi.fn(async (...a: [string, string, string]) => {
+  store.set(a[0], a[2]);
 });
 vi.mock('@/renderer/lib/chrome-ui-kv', () => ({
   readChromeUi: (...a: [string, string]) => readChromeUiMock(...a),

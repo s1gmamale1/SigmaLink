@@ -26,10 +26,10 @@ vi.mock('@/renderer/lib/rpc', () => ({
 // DEV-W4 — chrome-ui-kv mock for window-scope-aware open state persistence.
 const { uiStore } = vi.hoisted(() => ({ uiStore: new Map<string, string>() }));
 const readChromeUiMock = vi.fn(
-  async (globalKey: string, _panel: string): Promise<string | null> => uiStore.get(globalKey) ?? null,
+  async (...a: [string, string]): Promise<string | null> => uiStore.get(a[0]) ?? null,
 );
-const writeChromeUiMock = vi.fn(async (globalKey: string, _panel: string, value: string) => {
-  uiStore.set(globalKey, value);
+const writeChromeUiMock = vi.fn(async (...a: [string, string, string]) => {
+  uiStore.set(a[0], a[2]);
 });
 vi.mock('@/renderer/lib/chrome-ui-kv', () => ({
   readChromeUi: (...a: [string, string]) => readChromeUiMock(...a),
