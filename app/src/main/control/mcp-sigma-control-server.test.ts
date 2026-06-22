@@ -18,6 +18,7 @@ import {
   wrapInvokeResult,
   handleControlMcpLine,
   ControlClient,
+  SIGMA_CONTROL_PROTOCOL,
   type ControlServerDeps,
   type HostToolEntry,
   type InvokeOut,
@@ -496,5 +497,30 @@ describe('ControlClient + ControlMcpHost integration', () => {
 
     c.destroy();
     host.stop();
+  });
+
+  it('ControlClient sends protocol:SIGMA_CONTROL_PROTOCOL in control.hello (parity with standalone bridge)', async () => {
+    const socketPath = tempSock();
+    let helloParams: Record<string, unknown> | undefined;
+    const server = net.createServer((sock) => {
+      let buf = '';
+      sock.on('data', (c: Buffer) => {
+        buf += c.toString('utf8');
+        const nl = buf.indexOf('\n');
+        if (nl === -1) return;
+        const msg = JSON.parse(buf.slice(0, nl)) as { id: string; params: Record<string, unknown> };
+        helloParams = msg.params;
+        sock.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { ok: true } }) + '\n');
+      });
+    });
+    await new Promise<void>((res) => server.listen(socketPath, () => res()));
+
+    const client = new ControlClient(socketPath);
+    await client.connect('tok', 'lbl');
+    expect(SIGMA_CONTROL_PROTOCOL).toBe(1);
+    expect(helloParams).toMatchObject({ token: 'tok', label: 'lbl', protocol: SIGMA_CONTROL_PROTOCOL });
+
+    client.destroy();
+    server.close();
   });
 });
