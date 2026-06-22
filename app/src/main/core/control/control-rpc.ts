@@ -41,7 +41,7 @@ export interface ControlStatus {
 
 function buildConnectCommand(socketPath: string, serverEntry: string, token: string | null): string {
   const t = token ?? '<token-unavailable>';
-  return `claude mcp add sigmalink -e SIGMA_CONTROL_SOCKET='${socketPath}' -e SIGMA_CONTROL_TOKEN='${t}' -- node '${serverEntry}'`;
+  return `claude mcp add sigmalink -e SIGMA_CONTROL_SOCKET='${socketPath}' -e SIGMA_CONTROL_TOKEN='${t}' -e SIGMA_CONTROL_LABEL='external' -- node '${serverEntry}'`;
 }
 
 export function buildControlController(deps: ControlRpcDeps) {

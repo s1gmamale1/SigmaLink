@@ -1,7 +1,19 @@
 # Sigma Control Plane (External MCP) + Hermes Autonomous Runtime — Design
 
 **Date:** 2026-06-17
-**Status:** Approved direction (brainstorming). Awaiting spec review → implementation plan.
+**Status:** ⚠️ **PARTIALLY SUPERSEDED — read this first.** Phase 1 (the external MCP gateway) shipped
+largely as designed, but this document's body predates two corrections:
+1. **Transport is NOT loopback HTTP.** It is a `net` Unix-socket / Windows-named-pipe server in `main` plus a
+   standalone **stdio bridge** the external client spawns (see the §8 revision box). §1, §11, and §12 below
+   still say "HTTP" and are wrong — corrected inline.
+2. **SigmaLink does NOT host or run Hermes.** The "Hermes runtime" — a managed child Claude process, mission
+   store, and Hermes control room (§4 units 5–6, **all of §7**, the §10 Hermes test bullet, §11 Phase 2,
+   §12 Q1) — was **dropped from SigmaLink's scope.** SigmaLink is a **pure MCP surface** (the Unity-MCP /
+   Blender-MCP pattern); Hermes is just an external MCP client run separately. Phase 2 shipped instead as
+   **human-parity completeness** — see `2026-06-18-control-plane-human-parity-design.md` (the authoritative
+   current Phase-2 spec). The standalone bridge lives at `github.com/s1gmamale1/Sigma-Control`.
+
+Sections below are preserved for history with inline **SUPERSEDED** notes at each affected spot.
 **Owner:** Operator (arifkhodjaev98)
 
 ## 1. Problem & Goal
@@ -19,8 +31,9 @@ spawning coder panes, supervising them, responding when they need input, opening
 ### Locked decisions (from brainstorming)
 
 - **Surface:** an MCP server exposing the control plane to external MCP clients.
-- **Transport:** **local-first** (loopback HTTP), architected so an **authenticated remote** layer drops in
-  later with no rearchitecture ("local now, remote later").
+- **Transport:** **local-first** — ~~loopback HTTP~~ **a `net` Unix-socket / Windows-named-pipe control host
+  + a standalone stdio bridge** (corrected — see §8), architected so an **authenticated remote** layer drops
+  in later with no rearchitecture ("local now, remote later").
 - **Driver:** primarily **external MCP clients** — you bring the brain; SigmaLink exposes the surface.
 - **Scope of this spec:** **Gateway + Hermes runtime**, written as **one spec / two phases**
   (Phase 1 = the surface, Phase 2 = the Hermes brain that drives it). Hermes is *just another MCP
@@ -31,6 +44,10 @@ spawning coder panes, supervising them, responding when they need input, opening
 - **Hard constraint:** **process-singleton discipline.** No per-client / per-pane child-process fan-out
   (this is exactly the pre-v2 memory leak — PR #154). One shared in-process server, connections
   multiplexed; the only new child process is the single managed Hermes agent.
+
+> **SUPERSEDED (scope):** Phase 2 "Hermes runtime / Hermes brain" was dropped — SigmaLink hosts no agent and
+> spawns **no** managed Hermes child. There is **zero** per-client and zero Hermes child-process fan-out; the
+> bridge is the external client's own child. Phase 2 became human-parity tooling, not a hosted brain.
 
 ## 2. Ground Truth (what already exists — ~80% reuse)
 
@@ -97,8 +114,8 @@ External AI (external Claude Code / Hermes / OpenClaw)
 │     RPC choke points: pty.* · workspaces.* · panes.* · windows.*            │
 │        │                                                                    │
 │ (4) Escalation bridge ──► operator phone (reuse Telegram confirmDangerous)  │
-│ (5) Hermes runtime (singleton managed Claude process) ── an MCP *client*    │
-│ (6) Mission store + Hermes control UI (kill-switch)                         │
+│ (5) Hermes runtime  ── DROPPED (Hermes is an external client, not hosted)   │
+│ (6) Mission store + Hermes control UI ── DROPPED (not built — see banner)   │
 │ (7) Observation primitives (wait_for_pane / incremental read)              │
 └─────────────────────────────────────────────────────────────────────────────┘
    ▼
@@ -111,8 +128,8 @@ Redux reducer + IPC events (pty:data, assistant:dispatch-echo, …) → live UI 
 | 2 | **Control tool layer** (`assistant/tools.ts` + `control/tools-control.ts`) | Existing 19 + ~8 new tools via `invokeAssistantTool`; 3-mirror catalogue + parity tests. | Pure effect layer; same code serves Jorvis, Telegram, external. |
 | 3 | **External authorization policy** (`control/authz-external.ts`) | `origin:'external'`; provider-aware FREE/ESCALATE decision; kill-switch check first. Pure function. | One place encodes supervised-autonomy; unit-testable. |
 | 4 | **Escalation bridge** (`remote/escalation.ts`, generalizes the Telegram seam) | Route `confirmDangerous` → operator; timeout → default-deny + audit; channel-down → fail-closed. | Non-Telegram escalation drops in later. |
-| 5 | **Hermes runtime** (`core/hermes/supervisor.ts`) | ONE singleton managed Claude agent process pointed at the loopback server, driven by a Mission, supervising via `wait_for_pane`. | Just an MCP client → surface works without it; replaceable. |
-| 6 | **Mission store + Hermes control UI** (`core/hermes/missions.ts`, renderer Hermes room) | Create/start/pause/stop missions, workspace scope, live activity, **kill-switch**, escalation queue, audit view. | UI/state only; no agent logic. |
+| 5 | ~~**Hermes runtime**~~ | **DROPPED — not built.** SigmaLink hosts no agent; Hermes is an external MCP client run separately. | — |
+| 6 | ~~**Mission store + Hermes control UI**~~ | **DROPPED — not built.** (The renderer kill-switch shipped instead as the Settings → External Control "Freeze" toggle, server-level.) | — |
 | 7 | **Observation primitives** (`control/observe.ts`) | `wait_for_pane` (block until `SIGMA::PROMPT` / output-settle / exit / timeout, supports a list → wait-for-any) + incremental `read_pane_since(cursor)`. | Built on existing watcher + ring buffer; reusable by any client. |
 
 ## 5. Tool Surface
@@ -134,6 +151,7 @@ All 19 current tools, unchanged, subject to the external authorization policy (�
 | `read_pane_since` | `sessionId`, `cursor?` | incremental scrollback since cursor + new cursor | FREE |
 
 Optional (Phase 1.5, low priority): `detach_workspace`, `redock_workspace` (wrap `rpc.windows.*`).
+**Shipped (Phase 2) under the names `detach_window` / `redock_window`.**
 
 Every new tool is added to **all three mirrors** (`tools.ts`, `tool-catalogue.ts`, `system-prompt.ts`) and
 covered by the parity test. The strict-MCP catalogue is the only callable surface; drift = silent failure.
@@ -168,6 +186,15 @@ A Mission cannot self-grant escalated actions without the operator pre-approving
 classification applies only to `origin:'external'`.
 
 ## 7. Hermes Runtime (Phase 2)
+
+> **⚠️ SUPERSEDED — this entire section was DROPPED and never built.** Per the operator (2026-06-18),
+> SigmaLink is a pure MCP surface and does **not** host, run, or know about Hermes. The mission model,
+> `HermesSupervisor` managed child process, and Hermes control room described below are **not part of
+> SigmaLink**. Hermes is any external MCP client (e.g. a Claude Code instance) pointed at the standalone
+> `sigma-control-mcp` bridge and run separately (`github.com/s1gmamale1/Sigma-Control`, see its
+> `examples/hermes/`). Phase 2 shipped instead as **human-parity completeness** (`get_app_state` + parity
+> action tools) — see `2026-06-18-control-plane-human-parity-design.md`. The text below is retained for
+> historical context only.
 
 ### 7.1 Mission model
 `hermes_missions` table (or KV): `{ id, title, instruction, workspaceScope: ws_id[] | 'all', policy:
@@ -249,28 +276,30 @@ classification applies only to `origin:'external'`.
   constant across N client connections** (directly asserts the leak fix).
 - **`wait_for_pane`:** fires on `SIGMA::PROMPT`, on idle-settle, on exit, on timeout; wait-for-any returns
   the first-ready session.
-- **Hermes supervisor:** singleton (second start no-ops); quit teardown awaited; win32 orphan marker present.
+- ~~**Hermes supervisor:** singleton (second start no-ops); quit teardown awaited; win32 orphan marker present.~~ **(DROPPED — no Hermes runtime in SigmaLink.)**
 - **DB tests:** MockDb / fakes only — `better-sqlite3` can't load under vitest (Electron ABI). Assert emitted
   DDL / in-memory arrays.
 - **E2E:** deferred to CI (`tests/e2e/`) — never run a live Electron app locally (it steals operator focus).
 
 ## 11. Phasing
 
-- **Phase 1 — Gateway (surface):** Units 1, 2, 3, 7 + escalation seam (4). Singleton loopback HTTP MCP server,
-  `origin:'external'` + provider-aware policy, the ~8 new control tools, observation primitives, token auth,
-  kill-switch flag (server-level). Exit criteria: an external Claude Code can `claude mcp add` and drive
-  panes/workspaces under supervised autonomy; escalation reaches the phone; no per-client process; parity +
-  authz + lifecycle tests green.
-- **Phase 2 — Hermes runtime (brain):** Units 5, 6 + per-mission policy. Mission model, `HermesSupervisor`
-  singleton managed Claude process, supervision via `wait_for_pane`, Hermes control room + kill-switch UI,
-  quit-order + win32 orphan integration. Exit criteria: a mission runs a real cross-workspace dev task
-  unattended, escalates irreversible ops to the phone, and freezes instantly on kill-switch.
+- **Phase 1 — Gateway (surface):** Units 1, 2, 3, 7 + escalation seam (4). Singleton **`net`-socket control
+  host + stdio bridge** (~~loopback HTTP~~ — corrected), `origin:'external'` + provider-aware policy, the ~8
+  new control tools, observation primitives, token auth, kill-switch flag (server-level). Exit criteria: an
+  external Claude Code can `claude mcp add` and drive panes/workspaces under supervised autonomy; escalation
+  reaches the phone; no per-client process; parity + authz + lifecycle tests green.
+- **Phase 2 — Human-parity completeness (SHIPPED — replaced the dropped "Hermes runtime"):** `get_app_state`
+  (the "look at the screen" snapshot) + ten parity action tools (split/minimise/display-provider pane,
+  rename/detach/redock workspace, `send_message_to_agent`/`resume_swarm`/`kill_swarm`) + an authz pin per
+  tool. SigmaLink hosts **no** Hermes; the supervisor brain is an external MCP client. See
+  `2026-06-18-control-plane-human-parity-design.md`. (Original dropped text:
+  ~~Hermes runtime / mission model / HermesSupervisor / Hermes control room~~.)
 - **Phase 3 — Remote (later, separate spec):** authenticated remote transport (tunnel/TLS/mTLS, rate limits).
 
 ## 12. Open Questions (defaults chosen; flag if you disagree)
 
-1. **Hermes brain model:** default **Claude Opus** for the supervisor (planning/judgment); sub-agent coder
-   panes can be cheaper (Sonnet/external CLI). Configurable per mission.
+1. ~~**Hermes brain model:**~~ **MOOT — Hermes is not hosted by SigmaLink (see banner); the brain model is
+   the external client's concern, not SigmaLink's.**
 2. **Control socket path:** a stable per-user path (Unix socket under the user data dir on macOS/Linux; a
    named pipe `\\.\pipe\sigmalink-control-<hash>` on Windows), surfaced in the Settings UI as a copyable
    `claude mcp add sigmalink -- node …` command with the token wired via env.

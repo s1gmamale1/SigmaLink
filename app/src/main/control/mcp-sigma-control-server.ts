@@ -25,6 +25,12 @@ import process from 'node:process';
 import readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
 
+/** Bumped when the bridge↔host control protocol changes; sent in control.hello
+ *  so the host can detect an incompatible bridge. The host ignores it today
+ *  (forward-compatible). Kept in sync with the standalone bridge
+ *  (github.com/s1gmamale1/Sigma-Control, src/server.ts). */
+export const SIGMA_CONTROL_PROTOCOL = 1;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -130,7 +136,7 @@ export class ControlClient {
   /** Connect to the control socket and complete the control.hello handshake. */
   async connect(token: string, label: string): Promise<void> {
     await this.ensureSocket();
-    const result = await this.rpc('control.hello', { token, label });
+    const result = await this.rpc('control.hello', { token, label, protocol: SIGMA_CONTROL_PROTOCOL });
     const ok = (result as { ok?: boolean } | null)?.ok;
     if (!ok) throw new Error('control.hello rejected by host');
   }
