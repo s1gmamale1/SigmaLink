@@ -687,3 +687,14 @@ describe('PaneHeader auto-label precedence', () => {
     expect(input.value).toBe('Reviewing PR');
   });
 });
+
+// ── Task 5 — visible rename affordance ───────────────────────────────────────
+
+describe('PaneHeader rename affordance', () => {
+  it('shows a rename button that opens inline edit', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'aff1', name: null })} />);
+    const btn = screen.getByTestId('pane-rename-affordance');
+    fireEvent.click(btn);
+    expect(screen.getByTestId('pane-rename-input')).toBeTruthy();
+  });
+});

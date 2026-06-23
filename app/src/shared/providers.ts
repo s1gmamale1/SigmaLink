@@ -309,7 +309,7 @@ export function isImageCapableProvider(providerId: string): boolean {
 }
 
 /** Injected into pane Claude spawns via --append-system-prompt so the pane
- *  self-labels. Kept short for compliance; label-watcher parses the line. */
+ *  self-labels. Kept short for compliance; label-reader parses the line. */
 export const PANE_LABEL_INSTRUCTION =
   'When you start working on a task, output one line exactly in the form ' +
   '"SIGMA::LABEL <a 2-4 word summary of the task>" and nothing else on that ' +

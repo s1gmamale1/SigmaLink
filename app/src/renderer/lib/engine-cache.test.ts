@@ -2,6 +2,12 @@
 // (rpc, pty buses) are mocked.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const labelReaderMock = vi.hoisted(() => ({
+  attachEngineLabelReader: vi.fn(),
+  detachLabelReader: vi.fn(),
+}));
+vi.mock('@/renderer/lib/label-reader', () => labelReaderMock);
+
 const rpcMock = vi.hoisted(() => ({
   pty: {
     snapshot: vi.fn(async () => ({ buffer: '' })),
@@ -96,5 +102,16 @@ describe('engine-cache', () => {
     expect(getCachedEngine('s5')).toBeUndefined();
     expect(dataSubs.has('s5')).toBe(false);
     expect(exitSubs.has('s5')).toBe(false);
+  });
+});
+
+describe('engine-cache label-reader wiring', () => {
+  it('attaches a label reader on create and detaches on destroy', async () => {
+    labelReaderMock.attachEngineLabelReader.mockClear();
+    labelReaderMock.detachLabelReader.mockClear();
+    const entry = getOrCreateEngine('lbl-1');
+    expect(labelReaderMock.attachEngineLabelReader).toHaveBeenCalledWith('lbl-1', entry.engine);
+    destroyEngine('lbl-1');
+    expect(labelReaderMock.detachLabelReader).toHaveBeenCalledWith('lbl-1', entry.engine);
   });
 });

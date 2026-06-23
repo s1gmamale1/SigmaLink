@@ -40,9 +40,12 @@ vi.mock('@/renderer/components/WorktreeInfoBanner', () => ({
   WorktreeInfoBanner: () => null,
 }));
 
-// PaneShell calls ensureLabelWatcher on mount → subscribePtyData → window.sigma.eventOn.
-// Stub at the module boundary so no real bus subscription runs in this suite.
-vi.mock('@/renderer/lib/label-watcher', () => ({ ensureLabelWatcher: vi.fn() }));
+// The engine/xterm caches attach the label reader; mock it out for the room render.
+vi.mock('@/renderer/lib/label-reader', () => ({
+  attachEngineLabelReader: vi.fn(),
+  attachXtermLabelReader: vi.fn(),
+  detachLabelReader: vi.fn(),
+}));
 
 const addAgentMock = vi.fn();
 const createSwarmMock = vi.fn();

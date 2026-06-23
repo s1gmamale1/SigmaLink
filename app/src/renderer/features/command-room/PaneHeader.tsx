@@ -14,6 +14,7 @@ import { useState, useRef, useEffect, useCallback, useSyncExternalStore } from '
 import {
   Maximize2,
   Minimize2,
+  Pencil,
   Settings2,
   SplitSquareVertical,
   X,
@@ -243,7 +244,7 @@ export function PaneHeader({
                 }}
                 aria-label={`${id.providerShort}·${paneIndex} — drag to inject context`}
                 data-testid="pane-title-pill"
-                className="flex h-5 shrink-0 cursor-grab items-center gap-1 rounded-full border px-2 text-[10px] font-medium active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="group flex h-5 shrink-0 cursor-grab items-center gap-1 rounded-full border px-2 text-[10px] font-medium active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 style={{ borderColor: agentColor(session.id) }}
               >
                 {/* Folded status dot */}
@@ -284,6 +285,19 @@ export function PaneHeader({
                   >
                     {displayLabel} · {id.effortLabel}
                   </span>
+                )}
+                {!editing && (
+                  <button
+                    type="button"
+                    data-testid="pane-rename-affordance"
+                    aria-label="Rename pane"
+                    title="Rename pane"
+                    onClick={(e) => { e.stopPropagation(); startEditing(); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="ml-0.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
                 )}
               </span>
             </TooltipTrigger>

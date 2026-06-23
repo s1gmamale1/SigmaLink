@@ -52,7 +52,6 @@ import { PaneContextSidebar } from './PaneContextSidebar';
 import { useUncommittedCount } from '@/renderer/lib/use-git-status-poll';
 import { usePromptCard } from './use-prompt-card';
 import { PromptCard } from './PromptCard';
-import { ensureLabelWatcher } from '@/renderer/lib/label-watcher';
 
 // v1.4.8 — Max number of files allowed in a single Finder multi-drop.
 const MAX_DROP_FILES = 10;
@@ -126,12 +125,6 @@ export function PaneShell({
   // share ONE 15 s poll (and it pauses while the window is hidden). The
   // consumed `uncommitted: number | null` shape is unchanged.
   const uncommitted = useUncommittedCount(session.worktreePath);
-
-  // Auto-label — install the SIGMA::LABEL watcher for this pane. Idempotent +
-  // persists across remounts (module-scope); the cache GC disposes it on close.
-  useEffect(() => {
-    ensureLabelWatcher(session.id);
-  }, [session.id]);
 
   // FEAT-4 — opt-in interactive prompt cards. Read the KV gate ONCE on mount
   // (off-by-default; '1' = on). The hook watches this pane's PTY for a valid

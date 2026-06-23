@@ -73,6 +73,7 @@ vi.mock('@xterm/xterm', () => {
     loadAddon = vi.fn();
     onData = vi.fn(() => ({ dispose: vi.fn() }));
     onSelectionChange = vi.fn(() => ({ dispose: vi.fn() }));
+    onWriteParsed = vi.fn(() => ({ dispose: vi.fn() }));
     hasSelection = vi.fn(() => false);
     getSelection = vi.fn(() => '');
     focus = vi.fn();

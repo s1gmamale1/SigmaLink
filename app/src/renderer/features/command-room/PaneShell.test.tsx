@@ -130,9 +130,12 @@ vi.mock('@/renderer/features/skills/SkillBindingChip', () => ({
   SkillBindingChip: () => null,
 }));
 
-// Insulate the auto-label watcher — its real subscribePtyData hits
-// window.sigma.eventOn, which this suite's window.sigma stub does not provide.
-vi.mock('@/renderer/lib/label-watcher', () => ({ ensureLabelWatcher: vi.fn() }));
+// The engine/xterm caches attach the label reader; mock it out for the room render.
+vi.mock('@/renderer/lib/label-reader', () => ({
+  attachEngineLabelReader: vi.fn(),
+  attachXtermLabelReader: vi.fn(),
+  detachLabelReader: vi.fn(),
+}));
 
 beforeEach(async () => {
   spawnScratchMock.mockReset();
