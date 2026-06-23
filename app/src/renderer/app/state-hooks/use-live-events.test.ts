@@ -66,6 +66,9 @@ const sendMessageMock = vi.fn();
 // open_workspace navigate coverage — returns the opened workspace so the handler
 // can WORKSPACE_OPEN + SET_ACTIVE_WORKSPACE_ID it.
 const workspaceOpenMock = vi.fn<(root: string) => Promise<{ id: string }>>();
+// dispatch-echo hydration coverage — the GLOBAL handler refetches panes (silent)
+// and dispatches ADD_SESSIONS so a launch_pane reflects in the grid in ANY room.
+const panesListSilentMock = vi.fn<(id: string) => Promise<AgentSession[]>>();
 
 function emptyReview(workspaceId: string): ReviewState {
   return { workspaceId, sessions: [] };
@@ -115,6 +118,8 @@ const rpcSilentMock = {
     unreadCount: () => Promise.resolve(0),
   },
   kv: { get: (key: string) => Promise.resolve(kvStore[key] ?? null) },
+  panes: { listForWorkspace: (id: string) => panesListSilentMock(id) },
+  swarms: { list: () => Promise.resolve([]) },
 };
 
 vi.mock('@/renderer/lib/rpc', () => ({
@@ -175,6 +180,8 @@ beforeEach(() => {
   sendMessageMock.mockReset();
   sendMessageMock.mockResolvedValue(undefined);
   workspaceOpenMock.mockReset();
+  panesListSilentMock.mockReset();
+  panesListSilentMock.mockResolvedValue([]);
   kvStore = {};
   toastMock.mockReset();
   toastMock.warning.mockReset();
@@ -754,5 +761,47 @@ describe('useLiveEvents — split_pane subscriber dispatches from the tool resul
       await Promise.resolve();
     });
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'ADD_SESSIONS' }));
+  });
+});
+
+// launch_pane / create_swarm / add_agent emit `assistant:dispatch-echo`. Its
+// hydration (refetch panes → ADD_SESSIONS) must live in this GLOBAL hook so a
+// pane spawned by an external client (Hermes) or Telegram surfaces in the grid
+// regardless of which room is active — previously the only subscriber was inside
+// JorvisRoom, so an external launch never reflected unless the operator happened
+// to be in the Jorvis room.
+describe('useLiveEvents — assistant:dispatch-echo hydrates the grid in ANY room', () => {
+  it('refetches panes and dispatches ADD_SESSIONS on dispatch-echo ok:true', async () => {
+    panesListSilentMock.mockResolvedValueOnce([session('s2')]);
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+    dispatch.mockClear();
+
+    await act(async () => {
+      sigma.emit('assistant:dispatch-echo', {
+        workspaceId: 'a', sessionId: 's2', providerId: 'claude', ok: true, error: null, conversationId: null,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(panesListSilentMock).toHaveBeenCalledWith('a');
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'ADD_SESSIONS' }));
+  });
+
+  it('does not refetch or ADD_SESSIONS on dispatch-echo ok:false', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+    dispatch.mockClear();
+
+    await act(async () => {
+      sigma.emit('assistant:dispatch-echo', {
+        workspaceId: 'a', sessionId: 's2', providerId: 'claude', ok: false, error: 'boom', conversationId: null,
+      });
+      await Promise.resolve();
+    });
+
+    expect(panesListSilentMock).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'ADD_SESSIONS' }));
   });
 });

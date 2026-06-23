@@ -20,6 +20,7 @@ describe('control-rpc', () => {
     const ctl = buildControlController({ kv: fakeKv(), credentials: fakeCreds('secret-tok'), socketPath: '/tmp/c.sock', serverEntry: '/app/x.cjs', start: async () => {}, stop: () => {}, liveConnections: () => 2, setBearer: () => {}, respondEscalation: () => {}, cancelEscalations: () => {}, reportViewport: () => {} });
     const { command } = await ctl.connectCommand();
     expect(command).toContain('/tmp/c.sock'); expect(command).toContain('secret-tok'); expect(command).toContain('/app/x.cjs');
+    expect(command).toContain('SIGMA_CONTROL_LABEL');
   });
   it('rotateToken rotates + pushes the new token via setBearer', async () => {
     const setBearer = vi.fn(); const creds = fakeCreds('old');
