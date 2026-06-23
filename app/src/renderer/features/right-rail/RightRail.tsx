@@ -18,10 +18,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { rpc } from '@/renderer/lib/rpc';
-import { useAppStateSelector } from '@/renderer/app/state';
 import { useBelowBreakpoint } from '@/renderer/lib/use-breakpoint';
-import { readWorkspaceUi, writeWorkspaceUi } from '@/renderer/lib/workspace-ui-kv';
+import { readChromeUi, writeChromeUi } from '@/renderer/lib/chrome-ui-kv';
 import { Splitter } from './Splitter';
 import { RightRailTabs } from './RightRailTabs';
 import { JorvisTabPlaceholder } from './JorvisTabPlaceholder';
@@ -75,19 +73,17 @@ interface Props {
 const DEFAULT_WIDTH = 480;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 1200;
-// Legacy GLOBAL kv key — read-through fallback so pre-RSP-1 widths aren't lost
-// on first run after the migration to per-workspace keying.
+// Global kv key for the rail width. Window-scope-aware via chrome-ui-kv: the
+// main window uses this global key (universal across workspaces); a detached
+// scoped window uses `ui.<scope>.rightRail.width`.
 const KV_WIDTH = 'rightRail.width';
-// Per-workspace panel id (combined into `ui.<wsId>.rightRail.width`).
+// Panel id (combined into `ui.<scope>.rightRail.width` in a scoped window).
 const RIGHT_RAIL_WIDTH_PANEL = 'rightRail.width';
 
 export function RightRail({ children }: Props) {
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [hydrated, setHydrated] = useState(false);
   const { activeTab, setActiveTab } = useRightRail();
-  // RSP-1 — per-workspace width keying. When no workspace is open, `wsId` is
-  // null and width persists under the legacy global key.
-  const wsId = useAppStateSelector((s) => s.activeWorkspace?.id ?? null);
 
   // RSP-1 — narrow-viewport auto-collapse (NEW). Below the `narrow` breakpoint
   // (900px) the rail hides and the body renders full-bleed; widening back above
@@ -131,19 +127,14 @@ export function RightRail({ children }: Props) {
     setSigmaActivated(true);
   }
 
-  // RSP-1 — hydrate persisted width from the per-workspace key
-  // (`ui.<wsId>.rightRail.width`) with read-through fallback to the legacy
-  // global key. Re-runs when `wsId` changes since a different workspace can
-  // persist a different width. When no workspace is open we read the global key
-  // directly so we don't crash. The active tab is hydrated by
+  // Hydrate persisted width from the chrome-ui key (global in main window,
+  // per-scope in detached windows). The active tab is hydrated by
   // `RightRailContext`, which is mounted higher in the tree.
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
-        const rawWidth = wsId
-          ? await readWorkspaceUi(wsId, RIGHT_RAIL_WIDTH_PANEL, KV_WIDTH)
-          : await rpc.kv.get(KV_WIDTH).catch(() => null);
+        const rawWidth = await readChromeUi(KV_WIDTH, RIGHT_RAIL_WIDTH_PANEL);
         if (!alive) return;
         const parsed = typeof rawWidth === 'string' ? parseInt(rawWidth, 10) : NaN;
         if (Number.isFinite(parsed) && parsed >= MIN_WIDTH && parsed <= MAX_WIDTH) {
@@ -162,24 +153,16 @@ export function RightRail({ children }: Props) {
     return () => {
       alive = false;
     };
-  }, [wsId]);
+  }, []);
 
   const handleResize = useCallback((next: number) => {
     widthRef.current = next;
     setWidth(next);
   }, []);
 
-  const handleCommit = useCallback(
-    (final: number) => {
-      const str = String(Math.round(final));
-      if (wsId) {
-        void writeWorkspaceUi(wsId, RIGHT_RAIL_WIDTH_PANEL, str);
-      } else {
-        void rpc.kv.set(KV_WIDTH, str).catch(() => undefined);
-      }
-    },
-    [wsId],
-  );
+  const handleCommit = useCallback((final: number) => {
+    void writeChromeUi(KV_WIDTH, RIGHT_RAIL_WIDTH_PANEL, String(Math.round(final)));
+  }, []);
 
   // Until the kv read resolves we render the body full-bleed. Otherwise the
   // rail would flicker open at default width before snapping to the persisted

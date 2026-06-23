@@ -14,13 +14,10 @@ import {
   type ThemeId,
 } from '@/renderer/lib/themes';
 import { useTheme } from '@/renderer/app/ThemeProvider';
-import { useAppStateSelector } from '@/renderer/app/state';
 import { refreshTier, useTier } from '@/renderer/lib/canDo';
 import { cn } from '@/lib/utils';
 import { KV_PLAN_TIER, type Tier } from '@/main/core/plan/capabilities';
 import { ThemeGallery } from './ThemeGallery';
-import { WorkspaceTintSection } from './WorkspaceTintSection';
-
 const FONT_SIZES = [12, 13, 14, 16] as const;
 const TERMINAL_FONTS = [
   'Consolas, Monaco, Courier New, monospace',
@@ -47,10 +44,6 @@ export function AppearanceTab() {
   const [terminalFont, setTerminalFont] = useState<string>(TERMINAL_FONTS[0]);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const tier = useTier();
-  // BSP-T4 — source the active workspace id so the tint section can read/write
-  // its per-workspace `ui.<wsId>.tint` value.
-  const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspaceId);
-
   useEffect(() => {
     void (async () => {
       const [fs, tf] = await Promise.all([
@@ -113,9 +106,6 @@ export function AppearanceTab() {
         {/* BSP-T3 — card gallery replaces the old flat button grid */}
         <ThemeGallery current={theme} onSelect={(id) => setTheme(id as ThemeId)} />
       </section>
-
-      {/* BSP-T4 — per-workspace tint section. Only rendered when a workspace is active. */}
-      <WorkspaceTintSection activeWorkspaceId={activeWorkspaceId} />
 
       <section>
         <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">

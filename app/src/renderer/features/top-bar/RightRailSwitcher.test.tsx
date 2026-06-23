@@ -7,7 +7,7 @@
 //    against `useAppState()`.
 //
 // DEV-W4: adds tests for the toggle-on-active-tab behavior and railOpen
-// persistence via workspace-ui-kv.
+// persistence via chrome-ui-kv.
 //
 // We mock the renderer RPC + state modules so the assertions never reach the
 // production RPC or reducer. The production `RightRailProvider` is wrapped
@@ -23,19 +23,17 @@ vi.mock('@/renderer/lib/rpc', () => ({
   rpcSilent: { kv: { get: vi.fn().mockResolvedValue(null) } },
 }));
 
-// DEV-W4 — workspace-ui-kv mock for per-workspace open state persistence.
+// DEV-W4 — chrome-ui-kv mock for window-scope-aware open state persistence.
 const { uiStore } = vi.hoisted(() => ({ uiStore: new Map<string, string>() }));
-const readWorkspaceUiMock = vi.fn(async (wsId: string, panel: string): Promise<string | null> => {
-  return uiStore.get(`ui.${wsId}.${panel}`) ?? null;
+const readChromeUiMock = vi.fn(
+  async (...a: [string, string]): Promise<string | null> => uiStore.get(a[0]) ?? null,
+);
+const writeChromeUiMock = vi.fn(async (...a: [string, string, string]) => {
+  uiStore.set(a[0], a[2]);
 });
-const writeWorkspaceUiMock = vi.fn(async (wsId: string, panel: string, value: string) => {
-  uiStore.set(`ui.${wsId}.${panel}`, value);
-});
-vi.mock('@/renderer/lib/workspace-ui-kv', () => ({
-  workspaceUiKey: (wsId: string, panel: string) => `ui.${wsId}.${panel}`,
-  // Spread to accept optional 3rd arg (legacyGlobalKey) without unused-arg lint error.
-  readWorkspaceUi: (...a: [string, string, string?]) => readWorkspaceUiMock(a[0], a[1]),
-  writeWorkspaceUi: (...a: [string, string, string]) => writeWorkspaceUiMock(...a),
+vi.mock('@/renderer/lib/chrome-ui-kv', () => ({
+  readChromeUi: (...a: [string, string]) => readChromeUiMock(...a),
+  writeChromeUi: (...a: [string, string, string]) => writeChromeUiMock(...a),
 }));
 
 // Capture dispatches from RightRailSwitcher's `useAppDispatch()`.
@@ -74,8 +72,8 @@ describe('RightRailSwitcher', () => {
     dispatchSpy.mockReset();
     kvSetMock.mockReset().mockResolvedValue(undefined);
     uiStore.clear();
-    readWorkspaceUiMock.mockClear();
-    writeWorkspaceUiMock.mockClear();
+    readChromeUiMock.mockClear();
+    writeChromeUiMock.mockClear();
     activeWsId = 'ws-switcher-1';
   });
 
@@ -155,11 +153,7 @@ describe('RightRailSwitcher', () => {
     });
 
     // toggleRail sets open → false (was true by default).
-    expect(writeWorkspaceUiMock).toHaveBeenCalledWith(
-      'ws-switcher-1',
-      'rightRail.open',
-      'false',
-    );
+    expect(writeChromeUiMock).toHaveBeenCalledWith('rightRail.open', 'rightRail.open', 'false');
   });
 
   it('DEV-W4: clicking a different (inactive) tab switches and opens the rail', async () => {
@@ -173,12 +167,8 @@ describe('RightRailSwitcher', () => {
 
     // Editor becomes active.
     expect(editorTab.getAttribute('aria-selected')).toBe('true');
-    // setRailOpen(true) is called — writeWorkspaceUi persists 'true'.
-    expect(writeWorkspaceUiMock).toHaveBeenCalledWith(
-      'ws-switcher-1',
-      'rightRail.open',
-      'true',
-    );
+    // setRailOpen(true) is called — writeChromeUi persists 'true'.
+    expect(writeChromeUiMock).toHaveBeenCalledWith('rightRail.open', 'rightRail.open', 'true');
   });
 
   it('DEV-W4: clicking the active tab twice re-opens then re-closes', async () => {
@@ -198,20 +188,20 @@ describe('RightRailSwitcher', () => {
     });
 
     // Two toggleRail calls → 'false' then 'true'.
-    const calls = writeWorkspaceUiMock.mock.calls.filter((c) => c[1] === 'rightRail.open');
+    const calls = writeChromeUiMock.mock.calls.filter((c) => c[0] === 'rightRail.open');
     expect(calls.length).toBeGreaterThanOrEqual(2);
     expect(calls[calls.length - 1][2]).toBe('true');
   });
 
   it('DEV-W4: railOpen is hydrated from persisted workspace KV on mount', async () => {
-    // Pre-seed a closed state for the active workspace.
-    uiStore.set('ui.ws-switcher-1.rightRail.open', 'false');
+    // Pre-seed a closed state via the global key.
+    uiStore.set('rightRail.open', 'false');
 
     renderSwitcher();
     await act(async () => {});
 
-    // readWorkspaceUi should have been called for 'rightRail.open'.
-    expect(readWorkspaceUiMock).toHaveBeenCalledWith('ws-switcher-1', 'rightRail.open');
+    // readChromeUi should have been called for 'rightRail.open'.
+    expect(readChromeUiMock).toHaveBeenCalledWith('rightRail.open', 'rightRail.open');
   });
 
   // ── Task 5 — showSettings prop ───────────────────────────────────────────

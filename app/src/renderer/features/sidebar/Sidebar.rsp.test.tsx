@@ -1,16 +1,13 @@
 // @vitest-environment jsdom
 //
-// RSP-1 (Lane RSP-Shell) — Sidebar per-workspace width persistence + shared
+// Sidebar — universal width (global, not per-workspace) + shared
 // breakpoint-hook auto-collapse.
 //
 // Asserts:
-//   - Width hydrates from the per-workspace key (`ui.<wsId>.sidebar.width`)
-//     when a workspace is active, with read-through fallback to the legacy
-//     global key (`app.sidebar.width`).
-//   - A drag-commit writes the PER-WORKSPACE key (not the global one).
-//   - Changing `wsId` re-hydrates (a different workspace → different width).
-//   - With no workspace open (`wsId === null`) it falls back to the legacy
-//     global key for both read and write.
+//   - Width hydrates from the GLOBAL key (`app.sidebar.width`) directly via
+//     `rpc.kv`, mount-once (no re-read on workspace change).
+//   - A drag-commit writes the GLOBAL key (never a per-workspace key).
+//   - Width is universal: switching the active workspace does NOT re-hydrate.
 //   - Sidebar auto-collapses when `useBelowBreakpoint('compact')` is true.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -52,26 +49,6 @@ vi.mock('@/renderer/lib/drag-region', () => ({
 
 vi.mock('@/renderer/lib/shortcuts', () => ({ PLATFORM_IS_MAC: false }));
 
-// Per-workspace kv helper — backed by an in-memory map so read-through fallback
-// to the legacy global key is exercised exactly like the real implementation.
-const { store } = vi.hoisted(() => ({ store: new Map<string, string>() }));
-const readWorkspaceUiMock = vi.fn(
-  async (wsId: string, panel: string, legacyGlobalKey?: string): Promise<string | null> => {
-    const scoped = store.get(`ui.${wsId}.${panel}`);
-    if (scoped !== undefined) return scoped;
-    if (legacyGlobalKey) return store.get(legacyGlobalKey) ?? null;
-    return null;
-  },
-);
-const writeWorkspaceUiMock = vi.fn(async (wsId: string, panel: string, value: string) => {
-  store.set(`ui.${wsId}.${panel}`, value);
-});
-vi.mock('@/renderer/lib/workspace-ui-kv', () => ({
-  workspaceUiKey: (wsId: string, panel: string) => `ui.${wsId}.${panel}`,
-  readWorkspaceUi: (...a: [string, string, string?]) => readWorkspaceUiMock(...a),
-  writeWorkspaceUi: (...a: [string, string, string]) => writeWorkspaceUiMock(...a),
-}));
-
 // Shared breakpoint hook — controllable per test.
 let belowCompact = false;
 vi.mock('@/renderer/lib/use-breakpoint', () => ({
@@ -98,11 +75,8 @@ function ws(id: string) {
 }
 
 beforeEach(() => {
-  store.clear();
   kvGetMock.mockReset().mockResolvedValue(null);
   kvSetMock.mockReset().mockResolvedValue(undefined);
-  readWorkspaceUiMock.mockClear();
-  writeWorkspaceUiMock.mockClear();
   dispatchMock.mockReset();
   belowCompact = false;
   mockState = {
@@ -125,72 +99,42 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('Sidebar RSP-1 — per-workspace width persistence', () => {
-  it('hydrates width from the per-workspace key when present', async () => {
-    store.set('ui.ws-1.sidebar.width', '360');
+describe('Sidebar — universal width (global, not per-workspace)', () => {
+  it('hydrates width from the global key app.sidebar.width', async () => {
+    kvGetMock.mockResolvedValue('360');
     const { container } = render(<Sidebar />);
     await act(async () => {});
     const aside = container.querySelector('aside') as HTMLElement;
     expect(aside.style.width).toBe('360px');
-    expect(readWorkspaceUiMock).toHaveBeenCalledWith('ws-1', 'sidebar.width', 'app.sidebar.width');
+    expect(kvGetMock).toHaveBeenCalledWith('app.sidebar.width');
   });
 
-  it('falls through to the legacy global key when the scoped value is unset', async () => {
-    store.set('app.sidebar.width', '300'); // pre-RSP-1 global value
+  it('a drag-commit writes the global key (never a per-workspace key)', async () => {
     const { container } = render(<Sidebar />);
     await act(async () => {});
-    const aside = container.querySelector('aside') as HTMLElement;
-    expect(aside.style.width).toBe('300px');
-  });
-
-  it('a drag-commit writes the per-workspace key', async () => {
-    const { container } = render(<Sidebar />);
-    await act(async () => {});
-
     const divider = container.querySelector('[role="separator"]') as HTMLElement;
     fireEvent.pointerDown(divider, { clientX: 0, clientY: 0 });
     window.dispatchEvent(new PointerEvent('pointermove', { clientX: 80, clientY: 0 }));
     await act(async () => {});
     window.dispatchEvent(new PointerEvent('pointerup'));
-
-    expect(writeWorkspaceUiMock).toHaveBeenCalledWith('ws-1', 'sidebar.width', '320');
-    // Must NOT have written the flat global key for an active workspace.
-    expect(kvSetMock).not.toHaveBeenCalledWith('app.sidebar.width', expect.anything());
+    expect(kvSetMock).toHaveBeenCalledWith('app.sidebar.width', '320');
   });
 
-  it('re-hydrates when wsId changes (different workspace → different width)', async () => {
-    store.set('ui.ws-1.sidebar.width', '360');
-    store.set('ui.ws-2.sidebar.width', '420');
+  it('does NOT re-hydrate when the active workspace changes (width is universal)', async () => {
+    kvGetMock.mockResolvedValue('360');
     const { container, rerender } = render(<Sidebar />);
     await act(async () => {});
     let aside = container.querySelector('aside') as HTMLElement;
     expect(aside.style.width).toBe('360px');
 
-    // Switch the active workspace and re-render.
+    // Switch the active workspace and make the global key resolve to a NEW value.
+    kvGetMock.mockResolvedValue('420');
     mockState = { ...mockState, activeWorkspace: ws('ws-2') };
     rerender(<Sidebar />);
     await act(async () => {});
     aside = container.querySelector('aside') as HTMLElement;
-    expect(aside.style.width).toBe('420px');
-  });
-
-  it('falls back to the global key when no workspace is open', async () => {
-    mockState = { ...mockState, activeWorkspace: null };
-    kvGetMock.mockResolvedValue('260');
-    const { container } = render(<Sidebar />);
-    await act(async () => {});
-    const aside = container.querySelector('aside') as HTMLElement;
-    expect(aside.style.width).toBe('260px');
-    expect(kvGetMock).toHaveBeenCalledWith('app.sidebar.width');
-
-    // Drag-commit with no workspace persists to the legacy global key.
-    const divider = container.querySelector('[role="separator"]') as HTMLElement;
-    fireEvent.pointerDown(divider, { clientX: 0, clientY: 0 });
-    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 40, clientY: 0 }));
-    await act(async () => {});
-    window.dispatchEvent(new PointerEvent('pointerup'));
-    expect(kvSetMock).toHaveBeenCalledWith('app.sidebar.width', '300');
-    expect(writeWorkspaceUiMock).not.toHaveBeenCalled();
+    // Stays 360 — the mount-once effect did not re-read on workspace change.
+    expect(aside.style.width).toBe('360px');
   });
 });
 

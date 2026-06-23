@@ -144,3 +144,11 @@ _(Not new / already tracked: `handleRelaunch` no close-write — see the pane-cl
 _Operator: pane windows need 3-4 clicks to focus and flicker when clicked. Disambiguated via AskUserQuestion: **all panes**, **both main + popped-out windows**, **flicker only on click**, **both ring + keystroke focus feel stuck**. Root-caused against `origin/main` (read-only); confirm-first plan written._
 
 - ~~🐞 **[high] DOM-presenter panes need 3-4 clicks to focus + flicker on click**~~ → **promoted to [ROADMAP.md](ROADMAP.md) Phase 18** (2026-06-17). Plan: `app/docs/superpowers/plans/2026-06-17-pane-focus-flicker.md`. Root cause (code-evidenced, default DOM presenter since v2.4.1): keystrokes go to a hidden 1×1 `<textarea>` focused on `mouseUp` **gated behind a `!sel.isCollapsed` early-return** (`app/src/renderer/features/command-room/DomTerminalView.tsx:386-390`) → a micro-movement click doesn't focus + clobbers the clipboard; plain `.focus()` with no `{ preventScroll }` (`:171,274,393`) scroll-jumps the `overflowY:auto` FlowView (textarea pinned `bottom:0`) → the flicker. Activation fires on mousedown-capture (`PaneGrid.tsx:315`→`CommandRoom.tsx:434`) with no static remount, so the "ring lag" is confirm-first (likely perceived failed-focus). Fix: focus on `pointerdown` + `preventScroll`, decouple copy-on-select; xterm path untouched. Effort: M.
+
+---
+
+## 🧹 Cleanup (2026-06-23) — dead workspace-tint CSS
+
+_Surfaced by the universal-workspace-chrome final review (branch `fix/global-workspace-chrome`). The per-workspace tint feature was removed; its JS/TSX is gone and the `.sl-chrome-tint` class is no longer applied anywhere._
+
+- 🧹 **[low] Remove dead `.sl-chrome-tint` CSS + `--surface-tint` var** — `app/src/index.css` still defines the `.sl-chrome-tint` wash rule (`:183`), the reduced-transparency reset selector (`:831`, keep its `.bg-sidebar` sibling), and the `--surface-tint` var (`:47`) — all now unapplied (identity no-op). Left in place to avoid touching a11y/theme blocks pre-PR. Safe to delete together: `--surface-tint` has a single consumer (the `.sl-chrome-tint` color-mix at `:187`). Also trim the stale `useWorkspaceTint` comments (`:43-45`, `:173-175`) + the `use-workspace-colors.ts:11` BSP-T4 note. Effort: S.

@@ -16,7 +16,6 @@ import { PLATFORM_IS_MAC } from '@/renderer/lib/shortcuts';
 import { isMainWindow } from '@/renderer/lib/window-context';
 import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 import { useBelowBreakpoint } from '@/renderer/lib/use-breakpoint';
-import { readWorkspaceUi, writeWorkspaceUi } from '@/renderer/lib/workspace-ui-kv';
 import { DEV_WORKSPACE_KV_KEY, DEV_WORKSPACE_MAX_PANES } from '@/shared/special-workspace';
 import type { GridPreset, Workspace } from '@/shared/types';
 import { WorkspacesPanel } from './WorkspacesPanel';
@@ -25,14 +24,10 @@ import { DevWorkspaceDialog } from './DevWorkspaceDialog';
 const APP_SIDEBAR_DEFAULT = 240;
 const APP_SIDEBAR_MIN = 180;
 const APP_SIDEBAR_MAX = 480;
-// Legacy GLOBAL kv keys — read-through fallback so pre-RSP-1 widths/collapse
-// state aren't lost on first run after the migration to per-workspace keying.
-const APP_SIDEBAR_LEGACY_WIDTH_KEY = 'app.sidebar.width';
-const APP_SIDEBAR_LEGACY_COLLAPSED_KEY = 'app.sidebar.collapsed';
-// Per-workspace panel id (combined with the active workspace id into
-// `ui.<wsId>.<panel>` by workspace-ui-kv). Only the WIDTH is per-workspace;
-// collapse stays a global preference (see setCollapsed / session-restore).
-const SIDEBAR_WIDTH_PANEL = 'sidebar.width';
+// Sidebar width is a GLOBAL preference (universal across workspaces). The
+// sidebar renders only in the main window, so a single global key is used.
+const APP_SIDEBAR_WIDTH_KEY = 'app.sidebar.width';
+const APP_SIDEBAR_COLLAPSED_KEY = 'app.sidebar.collapsed';
 // SigmaLink Dev — grid preset snap steps for the launch plan. Preset is a UI
 // hint only (panes[] drives the real pane count); hoisted to module scope so
 // it isn't re-allocated on every launch.
@@ -49,9 +44,6 @@ export function Sidebar() {
   const workspaces = useAppStateSelector((s) => s.workspaces);
   const sessions = useAppStateSelector((s) => s.sessions);
   const attentionWorkspaces = useAppStateSelector((s) => s.attentionWorkspaces);
-  // RSP-1 — per-workspace width keying. When no workspace is open, `wsId` is
-  // null and we fall back to the legacy global key (see read/write helpers).
-  const wsId = activeWorkspace?.id ?? null;
 
   // SigmaLink Dev (Phase 14) — terminal-count dialog visibility + the KV
   // pointer to the singleton dev workspace (used for the DEV badge / `~`
@@ -82,44 +74,29 @@ export function Sidebar() {
   const isDragging = useRef(false);
   const rafHandle = useRef<number | null>(null);
 
-  // RSP-1 — hydrate width from the per-workspace key (`ui.<wsId>.sidebar.width`)
-  // with read-through fallback to the legacy global key. Re-runs when `wsId`
-  // changes since a different workspace can persist a different width. When no
-  // workspace is open we read the global key directly so we don't crash.
+  // Sidebar width is universal across workspaces — read the global key once on
+  // mount (no per-workspace re-hydrate). Detached windows have no Sidebar.
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const v = wsId
-        ? await readWorkspaceUi(wsId, SIDEBAR_WIDTH_PANEL, APP_SIDEBAR_LEGACY_WIDTH_KEY)
-        : await rpc.kv.get(APP_SIDEBAR_LEGACY_WIDTH_KEY).catch(() => null);
+      const v = await rpc.kv.get(APP_SIDEBAR_WIDTH_KEY).catch(() => null);
       if (!alive) return;
       const n = Number(v);
       if (Number.isFinite(n) && n >= APP_SIDEBAR_MIN && n <= APP_SIDEBAR_MAX) {
         setSidebarWidth(n);
       } else {
-        // A workspace with no persisted width falls back to the default so a
-        // wide previous workspace doesn't bleed into a fresh one.
         setSidebarWidth(APP_SIDEBAR_DEFAULT);
       }
     })();
     return () => {
       alive = false;
     };
-  }, [wsId]);
+  }, []);
 
-  // Persist the sidebar width under the active workspace's key (or the legacy
-  // global key when no workspace is open). Best-effort; layout is non-critical.
-  const persistWidth = useCallback(
-    (value: number) => {
-      const str = String(value);
-      if (wsId) {
-        void writeWorkspaceUi(wsId, SIDEBAR_WIDTH_PANEL, str);
-      } else {
-        void rpc.kv.set(APP_SIDEBAR_LEGACY_WIDTH_KEY, str).catch(() => undefined);
-      }
-    },
-    [wsId],
-  );
+  // Persist under the single global key (best-effort; layout is non-critical).
+  const persistWidth = useCallback((value: number) => {
+    void rpc.kv.set(APP_SIDEBAR_WIDTH_KEY, String(value)).catch(() => undefined);
+  }, []);
 
   const startSidebarDrag = useCallback(
     (ev: React.PointerEvent<HTMLDivElement>) => {
@@ -197,7 +174,7 @@ export function Sidebar() {
     // review M1 — collapse is a GLOBAL preference: session-restore reads
     // `app.sidebar.collapsed` on boot to seed BOOT_UI. (Only the WIDTH is
     // per-workspace.) Always write the global key so collapse survives restart.
-    void rpc.kv.set(APP_SIDEBAR_LEGACY_COLLAPSED_KEY, next ? '1' : '0').catch(() => undefined);
+    void rpc.kv.set(APP_SIDEBAR_COLLAPSED_KEY, next ? '1' : '0').catch(() => undefined);
   }
 
   async function openPersistedWorkspace(ws: Workspace) {
@@ -312,10 +289,7 @@ export function Sidebar() {
       aria-label="Sidebar"
       data-testid="sidebar"
       className={cn(
-        // BSP-T4 — `sl-chrome-tint` opts THIS chrome surface (only) into the
-        // per-workspace --surface-tint wash. Other `bg-sidebar` surfaces
-        // (EditorTab, browser TabStrip/recents, right-rail) stay untinted.
-        'relative flex shrink-0 flex-col bg-sidebar sl-chrome-tint text-sidebar-foreground sl-glass-heavy',
+        'relative flex shrink-0 flex-col bg-sidebar text-sidebar-foreground sl-glass-heavy',
         // Collapsed state retains the border-r since no drag divider is rendered.
         // Expanded state: border-r lives on the drag divider div (see below).
         collapsed && 'border-r border-border w-14',
