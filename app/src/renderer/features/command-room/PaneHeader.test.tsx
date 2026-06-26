@@ -672,6 +672,28 @@ describe('PaneHeader auto-label precedence', () => {
     expect(screen.getByTestId('pane-display-name').getAttribute('title')).toContain('A very long task summary');
   });
 
+  it('does not floor the label width at 80px — a full auto-label can grow', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p5w', name: null })} />);
+    const fullLabel = 'Async token refresh refactor across the gateway';
+    act(() => setAgentLabel('p5w', fullLabel));
+    const span = screen.getByTestId('pane-display-name');
+    // The full label is rendered (not pre-clipped in the DOM)…
+    expect(span.textContent ?? '').toContain(fullLabel);
+    // …and the old fixed 80px cap is gone, so a roomy pane shows it in full.
+    expect(span.className).not.toContain('max-w-[80px]');
+    // truncate stays as the cramped-pane fallback (CSS ellipsis, not a hard cap).
+    expect(span.className).toContain('truncate');
+    expect(span.className).toContain('min-w-0');
+  });
+
+  it('title pill can shrink (min-w-0, not shrink-0) so the label ellipsizes before badges are pushed off', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p5p', name: null })} />);
+    act(() => setAgentLabel('p5p', 'Some live task label'));
+    const pill = screen.getByTestId('pane-title-pill');
+    expect(pill.className).toContain('min-w-0');
+    expect(pill.className).not.toContain('shrink-0');
+  });
+
   it('opens inline edit on a targeted pane-rename-request', () => {
     render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p6', name: null })} />);
     act(() => window.dispatchEvent(new CustomEvent('sigma:pane-rename-request', { detail: { sessionId: 'p6' } })));

@@ -244,7 +244,7 @@ export function PaneHeader({
                 }}
                 aria-label={`${id.providerShort}·${paneIndex} — drag to inject context`}
                 data-testid="pane-title-pill"
-                className="group flex h-5 shrink-0 cursor-grab items-center gap-1 rounded-full border px-2 text-[10px] font-medium active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="group flex h-5 min-w-0 cursor-grab items-center gap-1 rounded-full border px-2 text-[10px] font-medium active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 style={{ borderColor: agentColor(session.id) }}
               >
                 {/* Folded status dot */}
@@ -273,12 +273,12 @@ export function PaneHeader({
                     }}
                     // Stop click inside the input from propagating to drag.
                     onClick={(e) => e.stopPropagation()}
-                    className="max-w-[80px] bg-transparent outline-none"
+                    className="min-w-0 max-w-[240px] bg-transparent outline-none"
                     aria-label="Rename pane"
                   />
                 ) : (
                   <span
-                    className="max-w-[80px] truncate cursor-text"
+                    className="min-w-0 truncate cursor-text"
                     onDoubleClick={(e) => { e.stopPropagation(); startEditing(); }}
                     data-testid="pane-display-name"
                     title={`${displayLabel} · ${id.effortLabel}`}
