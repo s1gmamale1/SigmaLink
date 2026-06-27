@@ -43,7 +43,6 @@ import { Button } from '@/components/ui/button';
 import { PANE_DRAG_MIME } from '@/renderer/lib/pane-context-builder';
 import { agentColor } from '@/renderer/lib/workspace-color';
 import { subscribeAgentLabel, getAgentLabel, summarizePrompt } from '@/renderer/lib/pane-labels';
-import { subscribeFirstMessage, getFirstMessage } from '@/renderer/lib/pane-first-message';
 import { derivePaneIdentity } from './pane-identity';
 import { PaneGearPopoverBody } from './PaneGearPopover';
 import { useCoachmark } from './use-coachmark';
@@ -152,14 +151,7 @@ export function PaneHeader({
     useCallback(() => getAgentLabel(session.id), [session.id]),
   );
 
-  // First typed message — fallback so an interactive pane (no launch prompt)
-  // still shows its task before Claude emits a SIGMA::LABEL. Ephemeral.
-  const firstMessage = useSyncExternalStore(
-    useCallback((cb) => subscribeFirstMessage(session.id, cb), [session.id]),
-    useCallback(() => getFirstMessage(session.id), [session.id]),
-  );
-
-  // Launch-prompt floor for the display chain (see displayLabel below).
+  // Launch-prompt floor for the LABEL chain (see below).
   const initialLabel = summarizePrompt(session.initialPrompt);
 
   // Memoized so the rename-request listener below can depend on it: its identity
@@ -167,9 +159,10 @@ export function PaneHeader({
   // listener always invokes the LIVE closure (current agentLabel) without
   // re-registering on high-frequency re-renders.
   const startEditing = useCallback((): void => {
-    setDraftName(localName ?? agentLabel ?? initialLabel ?? firstMessage ?? id.alias);
+    // Renames the pane NAME (not the auto LABEL) — prefilled with the current name.
+    setDraftName(localName ?? id.alias);
     setEditing(true);
-  }, [localName, agentLabel, initialLabel, firstMessage, id.alias]);
+  }, [localName, id.alias]);
 
   // Context-menu "Rename label…" (PaneShell) requests inline edit via a window
   // event — same renderer-internal CustomEvent pattern as sigma:renderer-mode-changed.
@@ -206,12 +199,13 @@ export function PaneHeader({
     setDraftName('');
   }
 
-  // Display label precedence: operator name > Claude SIGMA::LABEL > launch-prompt
-  // summary > first typed message > alias. `hasTask` drives accent-vs-muted colour
-  // (bridgemind-style: a pane with a known task pops; an idle one stays muted).
-  const taskLabel = agentLabel?.trim() || initialLabel || firstMessage?.trim() || null;
-  const displayLabel = localName?.trim() || taskLabel || id.alias;
-  const hasTask = !!(localName?.trim() || taskLabel);
+  // NAME and LABEL are SEPARATE slots. NAME = the stable pane identity (operator
+  // rename or the cute alias) and is the rename target. LABEL = the live task,
+  // fed by typed prompts AND Claude's SIGMA::LABEL (shared store, last-writer-wins)
+  // so it re-titles on every prompt/task; the launch prompt is the floor. Null →
+  // no label chip (an idle pane shows just its name).
+  const paneName = localName?.trim() || id.alias;
+  const taskLabel = agentLabel?.trim() || initialLabel || null;
 
   // FEAT-12 — drag-start handler. The pill is now the drag source.
   function handleGripDragStart(e: React.DragEvent): void {
@@ -256,7 +250,7 @@ export function PaneHeader({
                 }}
                 aria-label={`${id.providerShort}·${paneIndex} — drag to inject context`}
                 data-testid="pane-title-pill"
-                className="group flex h-5 min-w-0 flex-1 cursor-grab items-center gap-1.5 rounded font-medium active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="group flex h-5 min-w-0 max-w-[45%] cursor-grab items-center gap-1.5 rounded font-medium active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 {/* Folded status dot */}
                 <span
@@ -266,8 +260,8 @@ export function PaneHeader({
                   aria-label={`status: ${session.status}`}
                   aria-hidden="false"
                 />
-                {/* BSP-O4 — name / alias · effort. Click the name to enter
-                    inline-edit mode; the input replaces it while editing. */}
+                {/* Pane NAME (stable identity / rename target) — alias or the
+                    operator's rename, NOT the task. Double-click edits it. */}
                 {editing ? (
                   <input
                     ref={inputRef}
@@ -289,13 +283,12 @@ export function PaneHeader({
                   />
                 ) : (
                   <span
-                    className={cn('min-w-0 truncate cursor-text', !hasTask && 'text-muted-foreground')}
-                    style={hasTask ? { color: agentColor(session.id) } : undefined}
+                    className="min-w-0 truncate cursor-text"
                     onDoubleClick={(e) => { e.stopPropagation(); startEditing(); }}
                     data-testid="pane-display-name"
-                    title={`${displayLabel} — ${id.alias} · ${id.effortLabel}`}
+                    title={`${paneName} · ${id.effortLabel} — double-click to rename`}
                   >
-                    {displayLabel}
+                    {paneName} <span className="text-muted-foreground">· {id.effortLabel}</span>
                   </span>
                 )}
                 {!editing && (
@@ -322,6 +315,18 @@ export function PaneHeader({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
+
+        {/* ── Live task LABEL — SEPARATE from the name. Re-titles on every typed
+            prompt AND Claude's SIGMA::LABEL (shared store, last-writer-wins).
+            Accent-coloured per pane; empty (flex spacer) when the pane is idle. */}
+        <span
+          data-testid="pane-task-label"
+          className="min-w-0 flex-1 truncate"
+          style={taskLabel ? { color: agentColor(session.id) } : undefined}
+          title={taskLabel ?? undefined}
+        >
+          {taskLabel}
+        </span>
 
         {/* BSP-V2 — live cost + tok/s estimate badge.
             Hidden when no usage recorded yet (hasData=false). Reduced-motion

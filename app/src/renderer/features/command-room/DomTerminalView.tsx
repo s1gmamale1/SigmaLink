@@ -13,7 +13,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
 import { encodeKeyEvent, encodePaste, isNativePasteCombo, shiftEnterNewline } from './input-encoder';
-import { feedFirstMessageKey, feedFirstMessagePaste } from '@/renderer/lib/pane-first-message';
+import { feedPromptKey, feedPromptPaste } from '@/renderer/lib/pane-prompt-capture';
 import { encodeSgrMouse, shouldReportMouse } from './mouse-encoder';
 import { getPlatform } from '@/renderer/lib/platform';
 import { useAppStateSelector } from '@/renderer/app/state';
@@ -365,9 +365,9 @@ export function DomTerminalView({
     // (`\x16` / CSI 2;2~) would leave DOM panes with no keyboard paste on
     // Windows. mac keeps Ctrl+V as readline quoted-insert (paste is Cmd+V).
     if (isNativePasteCombo(keyEvent, getPlatform() === 'darwin')) return;
-    // Capture the operator's first typed line as a pane-label fallback (no-op
-    // once captured; SIGMA::LABEL supersedes it via PaneHeader precedence).
-    feedFirstMessageKey(sessionId, keyEvent);
+    // Capture typed prompts → pane LABEL (re-titles every prompt; SIGMA::LABEL
+    // refines it via the shared store, last-writer-wins).
+    feedPromptKey(sessionId, keyEvent);
     const bytes = encodeKeyEvent(keyEvent, entry.engine.modes, {
       shiftEnterNewline: shiftEnterNewline(providerId),
     });
@@ -381,7 +381,7 @@ export function DomTerminalView({
     if (entry.ptyExited) return;
     const text = ev.clipboardData.getData('text');
     if (!text) return;
-    feedFirstMessagePaste(sessionId, text);
+    feedPromptPaste(sessionId, text);
     writeBytes(encodePaste(text, entry.engine.modes));
   };
 
