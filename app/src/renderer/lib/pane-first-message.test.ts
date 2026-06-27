@@ -88,6 +88,12 @@ describe('pane-first-message', () => {
     expect(getFirstMessage('s5')).toBe('go');
   });
 
+  it('accepts a non-Latin first line (Cyrillic/Uzbek)', () => {
+    type('s6c', 'обнови шлюз'); // "update the gateway"
+    feedFirstMessageKey('s6c', K('Enter'));
+    expect(getFirstMessage('s6c')).toBe('обнови шлюз');
+  });
+
   it('paste appends to the draft (newlines flattened); Enter still commits', () => {
     feedFirstMessagePaste('s6', 'review the\nPR diff');
     feedFirstMessageKey('s6', K('Enter'));

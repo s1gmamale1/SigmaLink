@@ -50,9 +50,10 @@ function commit(sessionId: string): string | null {
   const raw = drafts.get(sessionId) ?? '';
   drafts.delete(sessionId);
   const clean = sanitizeLabel(raw);
-  // Must be non-trivial AND contain a letter/digit (skip "...", whitespace-only,
-  // lone punctuation, control noise that survived sanitize).
-  if (!clean || clean.length < MIN_COMMIT_LEN || !/[a-z0-9]/i.test(clean)) return null;
+  // Must be non-trivial AND contain a letter/digit in ANY script (Latin,
+  // Cyrillic/Uzbek, CJK, …) — skip "...", whitespace-only, lone punctuation,
+  // control noise that survived sanitize. \p{L}\p{N} with the u flag, not [a-z0-9].
+  if (!clean || clean.length < MIN_COMMIT_LEN || !/[\p{L}\p{N}]/u.test(clean)) return null;
   captured.add(sessionId);
   firstMessages.set(sessionId, clean);
   notify(sessionId);
