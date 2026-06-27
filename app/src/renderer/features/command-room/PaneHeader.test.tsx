@@ -636,13 +636,45 @@ describe('PaneHeader — BSP-O4 inline rename', () => {
 // ── Auto-label precedence tests ───────────────────────────────────────────────
 
 import { setAgentLabel, __resetAgentLabels } from '@/renderer/lib/pane-labels';
+import { feedFirstMessageKey, __resetFirstMessages } from '@/renderer/lib/pane-first-message';
+
+/** Type a line into a pane's first-message capture and submit it. */
+function typeFirst(sessionId: string, text: string): void {
+  const base = { ctrlKey: false, altKey: false, metaKey: false, shiftKey: false };
+  for (const ch of text) feedFirstMessageKey(sessionId, { key: ch, ...base });
+  feedFirstMessageKey(sessionId, { key: 'Enter', ...base });
+}
 
 describe('PaneHeader auto-label precedence', () => {
-  afterEach(() => __resetAgentLabels());
+  afterEach(() => { __resetAgentLabels(); __resetFirstMessages(); });
 
-  it('shows the alias with no manual name, no SIGMA::LABEL, no initialPrompt', () => {
+  it('shows the alias (muted) with no manual name, no SIGMA::LABEL, no prompt, no typed message', () => {
     render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p1', name: null, initialPrompt: undefined })} />);
-    expect(screen.getByTestId('pane-display-name').textContent).toMatch(/·/);
+    const span = screen.getByTestId('pane-display-name');
+    // Headline is just the alias now — effort moved to the tooltip/title.
+    expect(span.textContent?.trim().length ?? 0).toBeGreaterThan(0);
+    expect(span.textContent).not.toMatch(/·/);
+    // Effort still travels in the title for hover.
+    expect(span.getAttribute('title')).toMatch(/·/);
+    // No task → muted, not accent-coloured.
+    expect(span.className).toContain('text-muted-foreground');
+  });
+
+  it('shows the first typed message when no SIGMA::LABEL and no launch prompt (accent, not muted)', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'pfm', name: null, initialPrompt: undefined })} />);
+    act(() => typeFirst('pfm', 'wire up the gateway'));
+    const span = screen.getByTestId('pane-display-name');
+    expect(span.textContent).toContain('wire up the gateway');
+    expect(span.className).not.toContain('text-muted-foreground');
+  });
+
+  it('SIGMA::LABEL beats the first typed message', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'pfm2', name: null, initialPrompt: undefined })} />);
+    act(() => typeFirst('pfm2', 'just chatting here'));
+    act(() => setAgentLabel('pfm2', 'Refactor tokens'));
+    const t = screen.getByTestId('pane-display-name').textContent ?? '';
+    expect(t).toContain('Refactor tokens');
+    expect(t).not.toContain('just chatting here');
   });
 
   it('shows the launch-prompt summary when there is no SIGMA::LABEL', () => {

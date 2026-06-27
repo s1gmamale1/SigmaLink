@@ -43,6 +43,7 @@ import { Button } from '@/components/ui/button';
 import { PANE_DRAG_MIME } from '@/renderer/lib/pane-context-builder';
 import { agentColor } from '@/renderer/lib/workspace-color';
 import { subscribeAgentLabel, getAgentLabel, summarizePrompt } from '@/renderer/lib/pane-labels';
+import { subscribeFirstMessage, getFirstMessage } from '@/renderer/lib/pane-first-message';
 import { derivePaneIdentity } from './pane-identity';
 import { PaneGearPopoverBody } from './PaneGearPopover';
 import { useCoachmark } from './use-coachmark';
@@ -151,6 +152,13 @@ export function PaneHeader({
     useCallback(() => getAgentLabel(session.id), [session.id]),
   );
 
+  // First typed message — fallback so an interactive pane (no launch prompt)
+  // still shows its task before Claude emits a SIGMA::LABEL. Ephemeral.
+  const firstMessage = useSyncExternalStore(
+    useCallback((cb) => subscribeFirstMessage(session.id, cb), [session.id]),
+    useCallback(() => getFirstMessage(session.id), [session.id]),
+  );
+
   // Launch-prompt floor for the display chain (see displayLabel below).
   const initialLabel = summarizePrompt(session.initialPrompt);
 
@@ -159,9 +167,9 @@ export function PaneHeader({
   // listener always invokes the LIVE closure (current agentLabel) without
   // re-registering on high-frequency re-renders.
   const startEditing = useCallback((): void => {
-    setDraftName(localName ?? agentLabel ?? initialLabel ?? id.alias);
+    setDraftName(localName ?? agentLabel ?? initialLabel ?? firstMessage ?? id.alias);
     setEditing(true);
-  }, [localName, agentLabel, initialLabel, id.alias]);
+  }, [localName, agentLabel, initialLabel, firstMessage, id.alias]);
 
   // Context-menu "Rename label…" (PaneShell) requests inline edit via a window
   // event — same renderer-internal CustomEvent pattern as sigma:renderer-mode-changed.
@@ -198,8 +206,12 @@ export function PaneHeader({
     setDraftName('');
   }
 
-  // Display label: operator name > Claude SIGMA::LABEL > launch-prompt summary > alias.
-  const displayLabel = localName?.trim() || agentLabel?.trim() || initialLabel || id.alias;
+  // Display label precedence: operator name > Claude SIGMA::LABEL > launch-prompt
+  // summary > first typed message > alias. `hasTask` drives accent-vs-muted colour
+  // (bridgemind-style: a pane with a known task pops; an idle one stays muted).
+  const taskLabel = agentLabel?.trim() || initialLabel || firstMessage?.trim() || null;
+  const displayLabel = localName?.trim() || taskLabel || id.alias;
+  const hasTask = !!(localName?.trim() || taskLabel);
 
   // FEAT-12 — drag-start handler. The pill is now the drag source.
   function handleGripDragStart(e: React.DragEvent): void {
@@ -227,7 +239,7 @@ export function PaneHeader({
         aria-hidden="true"
       />
       {/* P5.2 density-aware height — h-7 comfortable/compact, h-6 dense tier. */}
-      <div className="sl-glass-toolbar flex h-7 items-center gap-1.5 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]">
+      <div className="group/header sl-glass-toolbar flex h-7 items-center gap-1.5 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]">
 
         {/* ── Title pill (drag handle, status glyph, alias·effort) ──────── */}
         <TooltipProvider delayDuration={coachmark.loaded && !coachmark.seen ? 300 : 200}>
@@ -244,8 +256,7 @@ export function PaneHeader({
                 }}
                 aria-label={`${id.providerShort}·${paneIndex} — drag to inject context`}
                 data-testid="pane-title-pill"
-                className="group flex h-5 min-w-0 cursor-grab items-center gap-1 rounded-full border px-2 text-[10px] font-medium active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                style={{ borderColor: agentColor(session.id) }}
+                className="group flex h-5 min-w-0 flex-1 cursor-grab items-center gap-1.5 rounded font-medium active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 {/* Folded status dot */}
                 <span
@@ -278,12 +289,13 @@ export function PaneHeader({
                   />
                 ) : (
                   <span
-                    className="min-w-0 truncate cursor-text"
+                    className={cn('min-w-0 truncate cursor-text', !hasTask && 'text-muted-foreground')}
+                    style={hasTask ? { color: agentColor(session.id) } : undefined}
                     onDoubleClick={(e) => { e.stopPropagation(); startEditing(); }}
                     data-testid="pane-display-name"
-                    title={`${displayLabel} · ${id.effortLabel}`}
+                    title={`${displayLabel} — ${id.alias} · ${id.effortLabel}`}
                   >
-                    {displayLabel} · {id.effortLabel}
+                    {displayLabel}
                   </span>
                 )}
                 {!editing && (
@@ -302,34 +314,41 @@ export function PaneHeader({
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" align="start" className="font-mono text-[10px]">
+              {`${id.alias} · ${id.effortLabel} · ${id.providerShort}·${paneIndex}`}
+              <br />
               {coachmark.seen
-                ? `${id.providerShort}·${paneIndex} — drag to inject context`
+                ? 'drag to inject context · double-click to rename'
                 : 'Drag this pill to inject context into another pane\'s composer'}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-
-        {/* Spacer */}
-        <span className="flex-1" />
 
         {/* BSP-V2 — live cost + tok/s estimate badge.
             Hidden when no usage recorded yet (hasData=false). Reduced-motion
             safe: only color/opacity, no transforms/animations. Truncate-safe:
             max-w-[120px] + truncate so the badge never pushes the icon cluster
             off-screen on narrow panes. */}
-        <PaneLiveStatsBadge
-          totalCostUsd={liveStats.totalCostUsd}
-          estTokPerSec={liveStats.estTokPerSec}
-          hasData={liveStats.hasData}
-        />
-        <PaneRuntimeProfileBadge runtimeProfileId={session.runtimeProfileId} />
-        <PaneRssBadge
-          rssBytes={liveStats.rssBytes}
-          processCount={liveStats.processCount}
-          rootRssBytes={liveStats.rootRssBytes}
-          mcpRssBytes={liveStats.mcpRssBytes}
-          topChildCommand={liveStats.topChildCommand}
-        />
+        {/* bridgemind-faithful: stats fade in on header hover so the task label
+            owns the bar at rest. Named group/header avoids touching the pill's
+            own unnamed group (pencil reveal). */}
+        <div
+          data-testid="pane-stats-cluster"
+          className="flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover/header:opacity-100 group-focus-within/header:opacity-100"
+        >
+          <PaneLiveStatsBadge
+            totalCostUsd={liveStats.totalCostUsd}
+            estTokPerSec={liveStats.estTokPerSec}
+            hasData={liveStats.hasData}
+          />
+          <PaneRuntimeProfileBadge runtimeProfileId={session.runtimeProfileId} />
+          <PaneRssBadge
+            rssBytes={liveStats.rssBytes}
+            processCount={liveStats.processCount}
+            rootRssBytes={liveStats.rootRssBytes}
+            mcpRssBytes={liveStats.mcpRssBytes}
+            topChildCommand={liveStats.topChildCommand}
+          />
+        </div>
 
         {/* ── Icon cluster ────────────────────────────────────────────────── */}
         {/* Stop accidental drags from the cluster triggering a context drag. */}

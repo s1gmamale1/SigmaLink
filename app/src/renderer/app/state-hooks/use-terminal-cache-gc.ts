@@ -21,6 +21,7 @@ import { closeScratchForParent, getScratchParentIds } from '@/renderer/lib/scrat
 import { disposePromptWatcher } from '@/renderer/lib/prompt-watcher';
 import { detachLabelReader } from '@/renderer/lib/label-reader';
 import { clearAgentLabel } from '@/renderer/lib/pane-labels';
+import { clearFirstMessage } from '@/renderer/lib/pane-first-message';
 
 export function useTerminalCacheGc(state: AppState): void {
   // Track every sessionId we've seen so a one-shot vanishing (session was
@@ -52,6 +53,7 @@ export function useTerminalCacheGc(state: AppState): void {
       disposePromptWatcher(id); // 2026-06-10 finding 4 — no-op if never watched
       detachLabelReader(id);
       clearAgentLabel(id);
+      clearFirstMessage(id);
     }
     // Defence in depth: scratch parents the store knows about that are not
     // in state at all (e.g. state slices replaced wholesale) get swept too.
