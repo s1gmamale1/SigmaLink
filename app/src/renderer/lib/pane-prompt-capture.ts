@@ -19,6 +19,28 @@ const DRAFT_CAP = 400;
 // Reject trivial commits (a stray Enter, a single char) — they aren't a task.
 const MIN_COMMIT_LEN = 2;
 
+// Routine confirmations / acks must NOT re-title the pane: they'd blank the good
+// title to "titling…" and (for non-self-labeling providers) spawn a needless
+// Haiku call that sticks a junk "Yes"/"Approve" title. Skip a 1-2 word line made
+// only of these, or a pure number/punctuation line.
+const ACK_WORDS = new Set([
+  'y', 'n', 'yes', 'no', 'ok', 'okay', 'k', 'yep', 'yeah', 'yup', 'nope', 'nah',
+  'sure', 'go', 'stop', 'continue', 'cont', 'approve', 'approved', 'accept',
+  'reject', 'deny', 'retry', 'again', 'done', 'next', 'skip', 'quit', 'exit',
+  'q', 'c', 'cancel', 'back', 'good', 'great', 'thanks', 'ty', 'please', 'pls',
+]);
+
+function isLikelyAck(s: string): boolean {
+  const t = s.toLowerCase().trim();
+  if (/^[\d\s.,;:!?/\\()[\]{}'"`*_~+=-]+$/.test(t)) return true; // pure number/punct
+  const words = t.split(/\s+/).filter(Boolean);
+  return (
+    words.length >= 1 &&
+    words.length <= 2 &&
+    words.every((w) => ACK_WORDS.has(w.replace(/[.!?,]+$/, '')))
+  );
+}
+
 /** The subset of a key event the capture reads (DOM-free, like input-encoder). */
 export interface CaptureKeyEvent {
   key: string;
@@ -42,9 +64,10 @@ function commit(sessionId: string): string | null {
   const clean = (raw.match(/[\p{L}\p{N}]/u) && raw.trim().length >= MIN_COMMIT_LEN)
     ? rawToLabel(raw)
     : null;
-  if (!clean) return null;
+  if (!clean || isLikelyAck(clean)) return null;
   // Hand the prompt to the title orchestrator: it shows "titling…", waits for a
-  // SIGMA::LABEL, then summarizes (Haiku) if none arrives. Re-titles every prompt.
+  // SIGMA::LABEL, then summarizes (Haiku) if none arrives. Re-titles every prompt
+  // (routine acks are filtered above so they don't blank the title / spend Haiku).
   onPrompt(sessionId, clean);
   return clean;
 }

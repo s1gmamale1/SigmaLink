@@ -87,16 +87,28 @@ describe('pane-prompt-capture', () => {
     feedPromptKey('s6', K('ArrowLeft'));
     feedPromptKey('s6', K('v', { metaKey: true }));
     feedPromptKey('s6', K('c', { ctrlKey: true }));
-    type('s6', 'go');
+    type('s6', 'refactor');
     feedPromptKey('s6', K('Tab'));
     feedPromptKey('s6', K('Enter'));
-    expect(onPrompt).toHaveBeenCalledWith('s6', 'go');
+    expect(onPrompt).toHaveBeenCalledWith('s6', 'refactor');
   });
 
   it('paste appends to the draft (newlines flattened); Enter still commits', () => {
     feedPromptPaste('s7', 'review the\nPR diff');
     feedPromptKey('s7', K('Enter'));
     expect(onPrompt).toHaveBeenCalledWith('s7', 'review the PR diff');
+  });
+
+  it('does NOT re-title on routine acks / confirmations / bare numbers', () => {
+    for (const ack of ['yes', 'ok', 'approve', 'continue', 'y', 'no', 'thanks', '1', '1, 2']) {
+      type('ack', ack);
+      feedPromptKey('ack', K('Enter'));
+    }
+    expect(onPrompt).not.toHaveBeenCalled();
+    // …but a real instruction still titles.
+    type('ack', 'fix the auth bug');
+    feedPromptKey('ack', K('Enter'));
+    expect(onPrompt).toHaveBeenCalledWith('ack', 'fix the auth bug');
   });
 
   it('clearPromptDraft drops an in-progress draft', () => {

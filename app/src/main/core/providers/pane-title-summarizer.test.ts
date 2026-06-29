@@ -36,6 +36,10 @@ describe('sanitizeTitle', () => {
     expect(sanitizeTitle('- **Auth Refactor**')).toBe('Auth Refactor');
   });
   it('takes the first non-empty line', () => expect(sanitizeTitle('\n  Auth Refactor \nblah')).toBe('Auth Refactor'));
+  it('strips a leading SIGMA::LABEL sentinel', () => {
+    expect(sanitizeTitle('SIGMA::LABEL Auth Refactor')).toBe('Auth Refactor');
+    expect(sanitizeTitle('sigma::label  Token Flow')).toBe('Token Flow');
+  });
   it('rejects junk', () => {
     expect(sanitizeTitle('')).toBeNull();
     expect(sanitizeTitle('...')).toBeNull();
@@ -53,14 +57,16 @@ describe('summarizeTitle', () => {
     expect(await summarizeTitle('refactor the auth flow', spawn)).toBe('Auth Refactor');
   });
 
-  it('passes -p, the prompt, and --model haiku to the claude binary', async () => {
+  it('passes -p, the prompt, --model haiku, and CLOSES stdin (stdio ignore)', async () => {
     const spawn = vi.fn(() => fakeChild('Title Here\n')) as never;
     await summarizeTitle('some task', spawn);
-    const [bin, args] = (spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [bin, args, opts] = (spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(bin).toBe('/usr/bin/claude');
     expect(args).toContain('-p');
     expect(args).toContain('--model');
     expect(args).toContain('haiku');
+    // stdin must be closed or `claude -p` stalls waiting for piped input.
+    expect((opts as { stdio?: unknown[] }).stdio?.[0]).toBe('ignore');
   });
 
   it('returns null when the claude binary is not found', async () => {
