@@ -184,4 +184,37 @@ describe('buildAppState', () => {
     );
     expect(snap.pendingEscalations).toEqual([]);
   });
+
+  // Task 5 — authError per-session block.
+  it('authError is null for all sessions when authErrors dep is absent', () => {
+    const snap = buildAppState(baseDeps({}), { workspaceId: 'w1' });
+    for (const s of snap.panes.sessions) {
+      expect(s.authError).toBeNull();
+    }
+  });
+
+  it('authError is populated from the dep for the matching session', () => {
+    const snap = buildAppState(
+      baseDeps({
+        authErrors: () => new Map([['s2', { kind: 'token_expired', atMs: 9999 }]]),
+      }),
+      { workspaceId: 'w1' },
+    );
+    const s1 = snap.panes.sessions.find((s) => s.sessionId === 's1')!;
+    const s2 = snap.panes.sessions.find((s) => s.sessionId === 's2')!;
+    expect(s1.authError).toBeNull(); // no entry for s1
+    expect(s2.authError).toEqual({ kind: 'token_expired', atMs: 9999 });
+  });
+
+  it('authError degrades to null for all sessions when dep throws', () => {
+    const snap = buildAppState(
+      baseDeps({
+        authErrors: () => { throw new Error('registry down'); },
+      }),
+      { workspaceId: 'w1' },
+    );
+    for (const s of snap.panes.sessions) {
+      expect(s.authError).toBeNull();
+    }
+  });
 });

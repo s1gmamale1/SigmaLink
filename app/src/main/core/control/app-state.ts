@@ -127,6 +127,12 @@ export interface AppStateDeps {
    * Wrapped in safe() so a failing read never throws the whole snapshot.
    */
   pendingEscalations?: () => Array<{ id: string; toolName: string; summary: string; requestedAt: number }>;
+  /**
+   * Task 5 — per-session codex auth errors (read from PtyRegistry.authErrorSnapshot).
+   * Optional: absent → authError is null for all sessions. A failing read is
+   * swallowed by safe() — never throws the snapshot.
+   */
+  authErrors?: () => ReadonlyMap<string, { kind: string; atMs: number }>;
   now?: () => number;
 }
 
@@ -152,6 +158,8 @@ export interface AppStateSnapshotSession {
   splitDirection: 'horizontal' | 'vertical' | null;
   splitIndex: 0 | 1 | null;
   attentionTs: number | null;
+  /** Task 5 — first codex auth error detected in this pane's PTY output; null for all other panes. */
+  authError: { kind: string; atMs: number } | null;
   swarmId: string | null;
   agentKey: string | null;
   swarmRole: string | null;
@@ -237,6 +245,12 @@ export function buildAppState(
       : [];
 
   const attn = safe(() => deps.attention(), new Map<string, { ts: number; reason: string }>());
+  // Task 5 — codex auth errors, keyed by session id. Wrapped in safe() so a
+  // failing read degrades to an empty map and never throws the whole snapshot.
+  const authErrMap = safe(
+    () => (deps.authErrors ? deps.authErrors() : new Map<string, { kind: string; atMs: number }>()),
+    new Map<string, { kind: string; atMs: number }>(),
+  );
 
   const rawSessions: RawSession[] = [];
   for (const wsId of wsScope) {
@@ -246,6 +260,7 @@ export function buildAppState(
   const sessions: AppStateSnapshotSession[] = rawSessions.map((s) => {
     const live = safe(() => deps.ptyAlive(s.id), { alive: false, pid: null });
     const a = attn.get(s.id);
+    const ae = authErrMap.get(s.id);
     return {
       sessionId: s.id,
       workspaceId: s.workspaceId,
@@ -268,6 +283,7 @@ export function buildAppState(
       splitDirection: s.splitDirection,
       splitIndex: s.splitIndex,
       attentionTs: a ? a.ts : null,
+      authError: ae ?? null,
       swarmId: s.swarmId,
       agentKey: s.agentKey,
       swarmRole: s.swarmRole,
