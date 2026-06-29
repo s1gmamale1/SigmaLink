@@ -25,8 +25,7 @@ import type {
   SwarmFactoryDeps,
 } from './factory';
 import { checkRamBrakeAdmission } from '../ram-brake/admission';
-
-const MAX_SWARM_AGENTS = 20;
+import { countsTowardAgentCap, MAX_SWARM_AGENTS } from '../../../shared/providers';
 
 export async function addAgentToSwarm(
   input: AddAgentToSwarmInput,
@@ -88,7 +87,11 @@ export async function addAgentToSwarm(
       .from(swarmAgents)
       .where(eq(swarmAgents.swarmId, input.swarmId))
       .all();
-    if (agentRows.length >= MAX_SWARM_AGENTS) {
+    // Plain terminals (providerId 'shell') are NOT real agents — they spawn
+    // through the internal shell sentinel. They neither count toward the budget
+    // nor are themselves capped: only a real-agent add is gated by the cap.
+    const agentPaneCount = agentRows.filter((a) => countsTowardAgentCap(a.providerId)).length;
+    if (countsTowardAgentCap(input.providerId) && agentPaneCount >= MAX_SWARM_AGENTS) {
       throw new Error(`Cannot add agent: swarm already has ${MAX_SWARM_AGENTS} agents.`);
     }
 
