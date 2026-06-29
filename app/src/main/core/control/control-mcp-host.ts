@@ -148,9 +148,9 @@ export class ControlMcpHost {
         socket.destroy();
         return;
       }
-      // Protocol range check: absent/non-number → floor (accept); number > MAX → reject.
+      // Protocol range check: absent/non-number → floor (accept); number outside [MIN,MAX] → reject.
       const protocol = params.protocol;
-      if (typeof protocol === 'number' && protocol > SIGMA_CONTROL_PROTOCOL) {
+      if (typeof protocol === 'number' && (protocol > SIGMA_CONTROL_PROTOCOL || protocol < MIN_PROTOCOL)) {
         this.send(socket, { jsonrpc: '2.0', id, error: { code: -32003, message: `protocol v${protocol} unsupported; host accepts [${MIN_PROTOCOL},${SIGMA_CONTROL_PROTOCOL}]` } });
         socket.destroy();
         return;

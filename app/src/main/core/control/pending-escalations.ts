@@ -64,7 +64,7 @@ export class PendingEscalationStore {
   }
 
   private newId(): string {
-    return this.deps.genId ? this.deps.genId() : `esc-${++this.seq}`;
+    return this.deps.genId ? this.deps.genId() : `pesc-${++this.seq}`;
   }
 
   private ttl(): number {

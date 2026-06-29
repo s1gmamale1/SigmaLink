@@ -130,6 +130,18 @@ describe('ControlMcpHost', () => {
     c.destroy(); host.stop();
   });
 
+  it('rejects control.hello with protocol 0 (below MIN) with error code -32003 and closes the socket', async () => {
+    const socketPath = sock();
+    const host = new ControlMcpHost({ socketPath, getToken: () => 'secret', isFrozen: () => false, resolveInvoker: () => vi.fn(), escalate: async () => true });
+    await host.start();
+    const c = net.connect(socketPath);
+    const res = await rpc(c, { jsonrpc: '2.0', id: 1, method: 'control.hello', params: { token: 'secret', label: 'x', protocol: 0 } });
+    expect(res.error.code).toBe(-32003);
+    expect(res.error.message).toMatch(/unsupported/i);
+    await new Promise<void>((resolve) => { c.once('close', () => resolve()); setTimeout(resolve, 500); });
+    c.destroy(); host.stop();
+  });
+
   it('accepts control.hello with protocol 1 (exact MAX)', async () => {
     const socketPath = sock();
     const host = new ControlMcpHost({ socketPath, getToken: () => 'secret', isFrozen: () => false, resolveInvoker: () => vi.fn(), escalate: async () => true });
