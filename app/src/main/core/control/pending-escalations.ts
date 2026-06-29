@@ -141,6 +141,16 @@ export class PendingEscalationStore {
     return true;
   }
 
+  /**
+   * Kill-switch clear: immediately cancel every pending escalation and every
+   * unconsumed grant. A stale grant must not survive a disable/freeze and then
+   * pass the external gate after unfreeze within the original TTL.
+   */
+  cancelAll(): void {
+    this.escalations.clear();
+    this.grants.clear();
+  }
+
   /** Returns shallow copies of all currently pending escalations. */
   listPending(): PendingEscalation[] {
     const now = this.clock();

@@ -123,4 +123,38 @@ describe('PendingEscalationStore', () => {
     store.registerEscalation({ toolName: 'close_pane', argsHash: 'h1', summary: 's', clientLabel: 'bot' });
     expect(notified).toEqual(['close_pane']);
   });
+
+  // Task 6e — cancelAll (kill-switch clear)
+  it('cancelAll clears all pending escalations (listPending returns [])', () => {
+    const store = new PendingEscalationStore({ now: () => 1000 });
+    store.registerEscalation({ toolName: 'close_pane', argsHash: 'h1', summary: 's', clientLabel: 'bot' });
+    store.registerEscalation({ toolName: 'kill_swarm', argsHash: 'h2', summary: 's2', clientLabel: 'bot' });
+    expect(store.listPending()).toHaveLength(2);
+    store.cancelAll();
+    expect(store.listPending()).toHaveLength(0);
+  });
+
+  it('cancelAll clears all unconsumed grants (a previously-approved grant no longer consumes)', () => {
+    const store = new PendingEscalationStore({ now: () => 1000 });
+    const { id } = store.registerEscalation({ toolName: 'close_pane', argsHash: 'h1', summary: 's', clientLabel: 'bot' });
+    store.resolveEscalation(id, true); // creates a grant
+    expect(store.consumeGrant('close_pane', 'h1', 'bot')).toBe(true); // sanity: grant was there
+    // Register + approve a second one we DON'T consume yet
+    const { id: id2 } = store.registerEscalation({ toolName: 'kill_swarm', argsHash: 'h2', summary: 's2', clientLabel: 'bot' });
+    store.resolveEscalation(id2, true);
+
+    store.cancelAll();
+
+    // Both grants should be gone
+    expect(store.consumeGrant('close_pane', 'h1', 'bot')).toBe(false);
+    expect(store.consumeGrant('kill_swarm', 'h2', 'bot')).toBe(false);
+  });
+
+  it('cancelAll makes checkEscalation return expired for a previously-pending id', () => {
+    const store = new PendingEscalationStore({ now: () => 1000 });
+    const { id } = store.registerEscalation({ toolName: 'close_pane', argsHash: 'h1', summary: 's', clientLabel: 'bot' });
+    expect(store.checkEscalation(id)).toBe('pending');
+    store.cancelAll();
+    expect(store.checkEscalation(id)).toBe('expired'); // record gone → expired
+  });
 });

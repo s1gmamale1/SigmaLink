@@ -846,6 +846,7 @@ async function buildRouter() {
                 workspaceLiveAgents,
                 workspaceCap: caps.maxWorkspaceLiveAgents,
                 headroom: caps.maxTotalLiveAgents - liveAgents,
+                workspaceHeadroom: caps.maxWorkspaceLiveAgents - workspaceLiveAgents,
               };
             } catch {
               return null;
@@ -2859,7 +2860,13 @@ async function buildRouter() {
         // approve also auto-records a one-shot grant for the re-issue.
         pendingEscalationsStore.resolveEscalation(id, approved);
       },
-      cancelEscalations: () => controlEscalator.cancelAll(),
+      cancelEscalations: () => {
+        // Task 6e — kill-switch must clear BOTH the legacy blocking escalator AND the
+        // Task-4 non-blocking pending store. A stale grant must not survive disable/freeze
+        // and pass the external gate after unfreeze within its original TTL.
+        controlEscalator.cancelAll();
+        pendingEscalationsStore.cancelAll();
+      },
       reportViewport: (patch) => viewportShadow.report(patch),
     }),
   });
