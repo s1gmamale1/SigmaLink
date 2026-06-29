@@ -74,6 +74,31 @@ describe('PaneGrid', () => {
     expect(active?.className).toMatch(/ring-inset/);
   });
 
+  // Flicker fix regression guard: switching the active pane must NOT toggle a
+  // cell's z-index between auto and a value (that create/destroyed a stacking
+  // context around the terminal's GPU canvas → one-frame re-raster flash).
+  // Every cell keeps a non-auto z floor (z-0 idle, z-1 active) and an always-
+  // present ring whose COLOR changes (no box-shadow geometry pop).
+  it('keeps a stable stacking context + always-on ring on every cell (no flicker)', async () => {
+    renderGrid(['a', 'b'], null, 'b');
+    await act(async () => {});
+    const cells = screen.getAllByTestId('pane-cell');
+    const active = cells.find((c) => c.getAttribute('data-active') === 'true')!;
+    const idle = cells.find((c) => c.getAttribute('data-active') !== 'true')!;
+
+    // Active is lifted (z-1); idle has a z-0 floor — both non-auto, so the
+    // stacking context exists in BOTH states and never churns on switch.
+    expect(active.className).toMatch(/z-\[1\]/);
+    expect(idle.className).toMatch(/z-0/);
+    expect(active.className).not.toMatch(/z-0/);
+
+    // Ring geometry is constant on every cell; only its colour toggles.
+    expect(active.className).toMatch(/ring-1 ring-inset/);
+    expect(idle.className).toMatch(/ring-1 ring-inset/);
+    expect(idle.className).toMatch(/ring-transparent/);
+    expect(active.className).toMatch(/ring-\[hsl\(var\(--ring\)\)\]/);
+  });
+
   it('fullscreen: focused cell overlays (absolute z-50), others mounted but hidden', async () => {
     renderGrid(['a', 'b'], 'a');
     await act(async () => {});

@@ -313,9 +313,24 @@ export function PaneGrid({
                     data-active={isActive ? 'true' : undefined}
                     data-bsp-hidden={isHidden ? 'true' : undefined}
                     onMouseDownCapture={() => onActivate(sid)}
+                    // Flicker fix: every cell keeps a STABLE stacking context — a
+                    // non-auto z-index in BOTH states (z-0 idle, z-1 active). The old
+                    // code toggled z-index auto↔1, which created/destroyed a stacking
+                    // context around the terminal's GPU canvas on every focus switch;
+                    // Chromium then re-rasterized the canvas for one frame — the
+                    // "flickers like it re-renders itself" flash (on BOTH the newly-
+                    // active and newly-idle pane). With a constant z floor the toggle
+                    // only reorders paint, never re-parents the canvas layer.
+                    //
+                    // The ring is ALWAYS present and only its COLOR changes
+                    // (transparent → accent) so no inset box-shadow geometry pops in/
+                    // out; `transition-shadow` eases the ring + the glass `.sl-pane-
+                    // active` bloom instead of hard-cutting them.
                     className={[
-                      'relative min-h-0 min-w-0 overflow-hidden bg-card',
-                      isActive ? 'sl-pane-active z-[1] ring-1 ring-inset ring-[hsl(var(--ring))]' : '',
+                      'relative min-h-0 min-w-0 overflow-hidden bg-card ring-1 ring-inset transition-shadow duration-150',
+                      isActive
+                        ? 'sl-pane-active z-[1] ring-[hsl(var(--ring))]'
+                        : 'z-0 ring-transparent',
                     ].join(' ')}
                     // Cells carry NO size style — the grid track sizes them. Only
                     // the fullscreen overlay / hidden-sibling branches set style,
