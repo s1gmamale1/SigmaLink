@@ -5,11 +5,18 @@
 // PURE — no I/O, no state. Called per PTY data chunk by registry.onData for
 // codex panes. Must be cheap (regex test on the incoming chunk, first match wins).
 //
-// Anchored on the phrases the codex CLI / OAuth server actually emits to avoid
-// false positives on ordinary output:
-//   token_expired          — exact key emitted on token expiry
+// All patterns are anchored on phrases the codex CLI or OAuth server actually
+// emits so that user-echoed text (e.g. "please fix the 401 unauthorized error
+// in my API") cannot trigger false positives:
+//   token_expired              — exact JSON key on token expiry
 //   refresh token already used — race: second spawn consumed the single-use token
-//   HTTP 401 / 401 + auth  — generic HTTP Unauthorized on the auth endpoint
+//   HTTP 401                   — literal HTTP status line in auth server responses
+//   could not be refreshed     — codex-specific OAuth client phrase
+//   sign in again              — codex CLI prompt on session expiry
+//
+// The bare `\b401\b...(auth|unauthorized)` catch-all was intentionally removed:
+// it matched arbitrary user text containing "401 unauthorized" and produced
+// false positives on user-visible pane output.
 
 export type CodexAuthErrorKind = 'token_expired' | 'refresh_reused' | 'unauthorized';
 
@@ -22,9 +29,11 @@ const PATTERNS: ReadonlyArray<{ re: RegExp; kind: CodexAuthErrorKind }> = [
   { re: /\btoken_expired\b/, kind: 'token_expired' },
   // Single-use refresh token already consumed by another codex process (race).
   { re: /refresh token already used/i, kind: 'refresh_reused' },
-  // HTTP 401 on an auth endpoint; or "401" followed by auth-related context on
-  // the same line (e.g. "401 Unauthorized", "401 - auth failed").
-  { re: /HTTP 401|\b401\b[^\n]*(?:auth|unauthorized)/i, kind: 'unauthorized' },
+  // Codex-specific auth-failure phrases. `HTTP 401` is the literal HTTP status
+  // line that codex logs from its OAuth client — specific enough to never appear
+  // in user-echoed text. `could not be refreshed` and `sign in again` are codex
+  // CLI phrases that only appear in the process's own error output.
+  { re: /HTTP 401|could not be refreshed|sign in again/i, kind: 'unauthorized' },
 ];
 
 /**

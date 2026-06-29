@@ -853,6 +853,8 @@ async function buildRouter() {
           },
           // Task 4 — pending non-blocking escalations.
           pendingEscalations: () => pendingEscalationsStore.listPending(),
+          // Task 5 — per-session codex auth errors surfaced in app state.
+          authErrors: () => pty.authErrorSnapshot(),
         },
         opts,
       ),
@@ -1011,6 +1013,26 @@ async function buildRouter() {
         },
         persist: (sessionId, snapshot) => persistScrollback(userData, sessionId, snapshot),
       }),
+      // Task 5 — surface codex auth errors to the renderer. The registry detects
+      // them and fires this callback; we flip the DB status to 'error' and
+      // broadcast pty:error so the pane chrome shows the same error state as a
+      // crash (PaneShell error boundary + sidebar dot).
+      onCodexAuthError: (sessionId, _err) => {
+        try {
+          getDb()
+            .update(agentSessions)
+            .set({ status: 'error' })
+            .where(eq(agentSessions.id, sessionId))
+            .run();
+        } catch {
+          /* best-effort DB update */
+        }
+        try {
+          broadcast('pty:error', { sessionId, exitCode: null, signal: null });
+        } catch {
+          /* broadcast is best-effort */
+        }
+      },
       promptSink,
     },
   );

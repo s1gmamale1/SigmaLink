@@ -44,12 +44,37 @@ describe('scanCodexAuthError', () => {
     });
   });
 
-  it('detects 401 Unauthorized as unauthorized', () => {
-    expect(scanCodexAuthError('Error: 401 Unauthorized')).toEqual({ kind: 'unauthorized' });
+  it('detects "could not be refreshed" as unauthorized', () => {
+    expect(scanCodexAuthError('OAuth token could not be refreshed')).toEqual({
+      kind: 'unauthorized',
+    });
   });
 
-  it('detects 401 auth failed as unauthorized', () => {
-    expect(scanCodexAuthError('status 401 auth failed')).toEqual({ kind: 'unauthorized' });
+  it('detects "sign in again" as unauthorized', () => {
+    expect(scanCodexAuthError('Session expired. Please sign in again to continue.')).toEqual({
+      kind: 'unauthorized',
+    });
+  });
+
+  it('detects "could not be refreshed" case-insensitively', () => {
+    expect(scanCodexAuthError('ERROR: COULD NOT BE REFRESHED')).toEqual({ kind: 'unauthorized' });
+  });
+
+  // ── false-positive guard — user-typed text must NOT match ──────────────────
+
+  it('does NOT match user-typed text mentioning "401 unauthorized"', () => {
+    // The bare \b401\b...auth catch-all was removed precisely because it matched
+    // arbitrary user messages like this.
+    expect(scanCodexAuthError('please fix the 401 unauthorized error in my API')).toBeNull();
+  });
+
+  it('does NOT match user-typed "401 auth failed" echoed in the pane', () => {
+    expect(scanCodexAuthError('debug the 401 auth failed response from our server')).toBeNull();
+  });
+
+  it('does NOT match standalone "401 Unauthorized" not prefixed by "HTTP "', () => {
+    // Without the catch-all, "401 Unauthorized" alone is not a match.
+    expect(scanCodexAuthError('Error: 401 Unauthorized')).toBeNull();
   });
 
   // ── no false positives ─────────────────────────────────────────────────────
@@ -62,15 +87,9 @@ describe('scanCodexAuthError', () => {
     expect(scanCodexAuthError('')).toBeNull();
   });
 
-  it('returns null for 401 without auth context on the same line', () => {
-    // A standalone "401" (e.g. a line number or index) should not match.
-    // Our pattern requires "401" to be followed by auth/unauthorized on the
-    // same line OR to be prefixed by "HTTP ".
-    expect(scanCodexAuthError('item 401 is processed')).toBeNull();
-  });
-
   it('returns null for a 401 only in a multi-line chunk where auth is on a different line', () => {
-    // [^\n]* prevents the auth context from crossing a newline.
+    // [^\n]* prevents the auth context from crossing a newline — and the bare
+    // \b401\b pattern no longer exists, so this is doubly safe.
     expect(scanCodexAuthError('error code 401\nauth is fine')).toBeNull();
   });
 
