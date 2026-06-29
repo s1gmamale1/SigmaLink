@@ -1060,6 +1060,50 @@ describe('launch_pane autoApprove KV parity', () => {
   });
 });
 
+// ── launch_pane forceRamBrake wiring (control-plane Task 3) ──────────────
+// The control-plane driver can override the RAM-brake cap by passing
+// forceRamBrake:true. The LaunchPlan must carry that flag so executeLaunchPlan
+// threads it into the admission check as `force: plan.forceRamBrake === true`.
+describe('launch_pane forceRamBrake wiring', () => {
+  beforeEach(() => {
+    vi.mocked(executeLaunchPlan).mockClear();
+    vi.mocked(executeLaunchPlan).mockResolvedValue(
+      { sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>,
+    );
+  });
+
+  it('sets forceRamBrake:true on the plan when arg is true', async () => {
+    const plans: Parameters<typeof executeLaunchPlan>[0][] = [];
+    vi.mocked(executeLaunchPlan).mockImplementation(async (plan) => {
+      plans.push(plan);
+      return { sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>;
+    });
+    const ctx = makeCtx([], 'ws1');
+
+    await findTool('launch_pane')!.handler(
+      { workspaceRoot: '/x', provider: 'claude', forceRamBrake: true },
+      ctx,
+    );
+
+    expect(plans).toHaveLength(1);
+    expect(plans[0].forceRamBrake).toBe(true);
+  });
+
+  it('leaves forceRamBrake falsy on the plan when arg is absent', async () => {
+    const plans: Parameters<typeof executeLaunchPlan>[0][] = [];
+    vi.mocked(executeLaunchPlan).mockImplementation(async (plan) => {
+      plans.push(plan);
+      return { sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>;
+    });
+    const ctx = makeCtx([], 'ws1');
+
+    await findTool('launch_pane')!.handler({ workspaceRoot: '/x', provider: 'claude' }, ctx);
+
+    expect(plans).toHaveLength(1);
+    expect(plans[0].forceRamBrake).toBeFalsy();
+  });
+});
+
 // ── read_pane — terminal screen read over the scrollback ring buffer ───────
 // 2026-06-11 "can't access terminals": Jorvis had NO tool to read a pane's
 // screen even though registry.snapshot() exists. These tests pin the tool's

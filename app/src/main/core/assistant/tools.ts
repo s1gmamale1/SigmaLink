@@ -447,6 +447,7 @@ export const TOOLS: ToolDefinition[] = [
           initialPrompt: a.initialPrompt,
           autoApprove,
         })),
+        forceRamBrake: a.forceRamBrake === true,
       };
       const out = await executeLaunchPlan(plan, {
         pty: ctx.pty,

@@ -114,4 +114,44 @@ describe('buildAppState', () => {
     const snap = buildAppState(baseDeps({}), {});
     expect(snap.panes.sessions).toHaveLength(2); // resolved targetWs = viewport.activeWorkspaceId
   });
+
+  // Task 3 — capacity block: driver can see live count + cap + headroom so it
+  // knows whether to stop/kill panes before spawning more.
+  it('includes capacity block when capacity dep is provided', () => {
+    const snap = buildAppState(
+      baseDeps({
+        capacity: (_workspaceId) => ({
+          liveAgents: 3,
+          cap: 15,
+          workspaceLiveAgents: 2,
+          workspaceCap: 8,
+          headroom: 12, // cap(15) - liveAgents(3)
+        }),
+      }),
+      { workspaceId: 'w1' },
+    );
+    expect(snap.capacity).toEqual({
+      liveAgents: 3,
+      cap: 15,
+      workspaceLiveAgents: 2,
+      workspaceCap: 8,
+      headroom: 12,
+    });
+  });
+
+  it('capacity is null when dep is absent', () => {
+    // baseDeps has no capacity dep → should degrade to null, never throw
+    const snap = buildAppState(baseDeps({}), { workspaceId: 'w1' });
+    expect(snap.capacity).toBeNull();
+  });
+
+  it('capacity degrades to null when dep throws (never crashes the snapshot)', () => {
+    const snap = buildAppState(
+      baseDeps({
+        capacity: () => { throw new Error('db down'); },
+      }),
+      { workspaceId: 'w1' },
+    );
+    expect(snap.capacity).toBeNull();
+  });
 });

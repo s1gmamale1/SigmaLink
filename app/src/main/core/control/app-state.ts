@@ -91,6 +91,15 @@ export interface RawNotif {
   readAt: number | null;
 }
 
+export interface CapacitySnapshot {
+  liveAgents: number;
+  cap: number;
+  workspaceLiveAgents: number;
+  workspaceCap: number;
+  /** Global headroom: cap - liveAgents. */
+  headroom: number;
+}
+
 export interface AppStateDeps {
   listWorkspaces: () => RawWorkspace[];
   getOpenWorkspaceIds: () => string[];
@@ -107,6 +116,12 @@ export interface AppStateDeps {
   viewport: () => ViewportShadow;
   derivePaneName: (s: { id: string; name: string | null }) => string;
   shapeSignature: (orderedIds: string[]) => string;
+  /**
+   * RAM-brake capacity snapshot (control-plane Task 3). Optional: absent →
+   * capacity is null in the snapshot (degrades gracefully). A failing read
+   * is also swallowed by safe() and produces null — never throws the snapshot.
+   */
+  capacity?: (workspaceId: string | null) => CapacitySnapshot | null;
   now?: () => number;
 }
 
@@ -177,6 +192,8 @@ export interface AppStateSnapshot {
       };
   notifications: { unreadCount: number; recent: RawNotif[] };
   windows: Array<{ windowId: number; isMain: boolean; workspaceIds: string[] }>;
+  /** RAM-brake capacity (Task 3). Null when the dep is absent or its read fails. */
+  capacity: CapacitySnapshot | null;
 }
 
 const EMPTY_VIEWPORT: ViewportShadow = {
@@ -290,6 +307,13 @@ export function buildAppState(
   const windows = safe(() => deps.windowScopes(), []);
   const detachedIds = windows.filter((w) => !w.isMain).flatMap((w) => w.workspaceIds);
 
+  // Task 3 — RAM-brake capacity block. Wrapped in safe() so a failing read
+  // never throws the whole snapshot (spec §9 defensive degradation).
+  const capacity = safe<CapacitySnapshot | null>(
+    () => (deps.capacity ? deps.capacity(targetWs) : null),
+    null,
+  );
+
   return {
     capturedAt: now(),
     viewportStale: viewport.viewportStale,
@@ -312,5 +336,6 @@ export function buildAppState(
     browser,
     notifications,
     windows,
+    capacity,
   };
 }
