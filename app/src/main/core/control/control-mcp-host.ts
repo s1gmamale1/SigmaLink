@@ -11,6 +11,11 @@
 import * as net from 'node:net';
 import * as fs from 'node:fs';
 import { tokenEquals } from './control-config';
+import { isExternallyListed } from './authz-external';
+
+/** The protocol version this host implements. Clients advertising a higher version are rejected. */
+const SIGMA_CONTROL_PROTOCOL = 1;
+const MIN_PROTOCOL = 1;
 
 export interface ExternalToolInvoker {
   (input: {
@@ -143,6 +148,13 @@ export class ControlMcpHost {
         socket.destroy();
         return;
       }
+      // Protocol range check: absent/non-number → floor (accept); number > MAX → reject.
+      const protocol = params.protocol;
+      if (typeof protocol === 'number' && protocol > SIGMA_CONTROL_PROTOCOL) {
+        this.send(socket, { jsonrpc: '2.0', id, error: { code: -32003, message: `protocol v${protocol} unsupported; host accepts [${MIN_PROTOCOL},${SIGMA_CONTROL_PROTOCOL}]` } });
+        socket.destroy();
+        return;
+      }
       this.authed.set(socket, { label });
       const t = this.handshakeTimers.get(socket);
       if (t) { clearTimeout(t); this.handshakeTimers.delete(socket); }
@@ -161,7 +173,12 @@ export class ControlMcpHost {
     }
 
     if (req.method === 'tools.list') {
-      this.send(socket, { jsonrpc: '2.0', id, result: { tools: this.opts.getCatalogue?.() ?? [] } });
+      const all = this.opts.getCatalogue?.() ?? [];
+      // Filter to the external-safe subset so shell/exec/write tools added in future
+      // don't silently leak to external clients (isExternallyListed is the single source
+      // of truth in authz-external.ts).
+      const tools = (all as Array<{ name: string }>).filter((t) => isExternallyListed(t.name));
+      this.send(socket, { jsonrpc: '2.0', id, result: { tools } });
       return;
     }
     if (req.method === 'tools.invoke') {

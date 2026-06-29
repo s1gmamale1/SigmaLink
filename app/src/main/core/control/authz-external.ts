@@ -20,12 +20,34 @@ export const AGENT_PROVIDERS: ReadonlySet<string> = new Set([
   'opencode',
 ]);
 
+/**
+ * Tools explicitly denied for ALL external callers regardless of kill-switch state.
+ * Intent: arbitrary file-write, raw shell/exec, or other tools with unbounded blast radius.
+ * Currently empty — no such tools exist in JORVIS_TOOL_CATALOGUE. Extend here when
+ * adding file-write/exec tools; they will be automatically excluded from getCatalogue()
+ * served to external clients AND classified 'deny' by classifyExternal().
+ */
+export const EXTERNAL_DENY_TOOLS: ReadonlySet<string> = new Set<string>([
+  // e.g. 'run_git_command', 'write_file' — add if such tools are added to the catalogue
+]);
+
+/**
+ * Returns true when a tool should be included in the external tools.list response.
+ * A tool is unlisted when it is in EXTERNAL_DENY_TOOLS — callers cannot discover
+ * or invoke it via the external MCP surface.
+ */
+export function isExternallyListed(toolId: string): boolean {
+  return !EXTERNAL_DENY_TOOLS.has(toolId);
+}
+
 /** Irreversible / high-blast-radius tools — always escalate to the operator. */
 export const EXTERNAL_ESCALATE_TOOLS: ReadonlySet<string> = new Set([
   'browser_navigate',
   'close_pane',
   'close_workspace',
   'kill_swarm',
+  'open_url',
+  'stop_pane',
 ]);
 
 /** Tools whose danger depends on the TARGET pane's provider (agent vs shell). */
@@ -52,6 +74,8 @@ export interface ClassifyInput {
 
 export function classifyExternal(input: ClassifyInput): ExternalVerdict {
   if (input.killSwitch) return 'deny';
+  // Hard-deny tools in the explicit deny list regardless of other conditions.
+  if (EXTERNAL_DENY_TOOLS.has(input.toolId)) return 'deny';
   let verdict: ExternalVerdict;
   if (EXTERNAL_ESCALATE_TOOLS.has(input.toolId)) {
     verdict = 'escalate';
