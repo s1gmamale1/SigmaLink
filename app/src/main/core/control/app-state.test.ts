@@ -126,6 +126,7 @@ describe('buildAppState', () => {
           workspaceLiveAgents: 2,
           workspaceCap: 8,
           headroom: 12, // cap(15) - liveAgents(3)
+          workspaceHeadroom: 6, // workspaceCap(8) - workspaceLiveAgents(2)
         }),
       }),
       { workspaceId: 'w1' },
@@ -136,6 +137,7 @@ describe('buildAppState', () => {
       workspaceLiveAgents: 2,
       workspaceCap: 8,
       headroom: 12,
+      workspaceHeadroom: 6,
     });
   });
 

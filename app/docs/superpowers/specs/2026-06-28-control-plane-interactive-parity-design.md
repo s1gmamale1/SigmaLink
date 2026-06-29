@@ -121,6 +121,7 @@ timeout (operator decision 2026-06-28: *non-blocking + check tool*).
   a consumable grant — and avoids holding a server-side continuation across the (possibly long) approval gap.
 - **Scope:** external origin only. `origin:'local'` and `origin:'telegram'` keep today's blocking behavior —
   blast-radius control.
+- **SDK escalation response contract:** an escalate-verdict tool call returns `{ ok:false, result:{ status:'needs_approval', escalationId } }` — drivers MUST check `ok===false && result.status==='needs_approval'` and poll `check_escalation(escalationId)` before re-issuing.
 - **Test:** an external escalate call returns `needs_approval` synchronously (no 60s wait, fake clock);
   `check_escalation` reflects approve/deny/expire; local origin still blocks.
 

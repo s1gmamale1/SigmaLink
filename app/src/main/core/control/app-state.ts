@@ -98,6 +98,8 @@ export interface CapacitySnapshot {
   workspaceCap: number;
   /** Global headroom: cap - liveAgents. */
   headroom: number;
+  /** Workspace-scoped headroom: workspaceCap - workspaceLiveAgents. */
+  workspaceHeadroom: number;
 }
 
 export interface AppStateDeps {
