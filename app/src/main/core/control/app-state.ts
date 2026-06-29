@@ -200,7 +200,7 @@ export interface AppStateSnapshot {
   /** RAM-brake capacity (Task 3). Null when the dep is absent or its read fails. */
   capacity: CapacitySnapshot | null;
   /** Pending non-blocking escalations (Task 4). Empty when the dep is absent. */
-  pendingEscalations: Array<{ id: string; toolName: string; summary: string; requestedAt: number }>;
+  pendingEscalations: Array<{ id: string; tool: string; summary: string; requestedAt: number }>;
 }
 
 const EMPTY_VIEWPORT: ViewportShadow = {
@@ -322,8 +322,16 @@ export function buildAppState(
   );
 
   // Task 4 — pending non-blocking escalations. Wrapped in safe() for resilience.
-  const pendingEscalations = safe<Array<{ id: string; toolName: string; summary: string; requestedAt: number }>>(
-    () => (deps.pendingEscalations ? deps.pendingEscalations() : []),
+  // Project to spec §5 shape: { id, tool, summary, requestedAt } — rename toolName→tool,
+  // drop clientLabel and any extra fields so external clients never see other clients' labels.
+  const pendingEscalations = safe<Array<{ id: string; tool: string; summary: string; requestedAt: number }>>(
+    () =>
+      (deps.pendingEscalations ? deps.pendingEscalations() : []).map((e) => ({
+        id: e.id,
+        tool: e.toolName,
+        summary: e.summary,
+        requestedAt: e.requestedAt,
+      })),
     [],
   );
 

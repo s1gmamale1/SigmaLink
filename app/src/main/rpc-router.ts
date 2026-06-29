@@ -170,7 +170,7 @@ import { persistScrollback, loadScrollback, gcScrollback, makeScrollbackExitSink
 import { buildWindowsOpenShellArgs } from './core/util/windows-spawn';
 import { whenShellPathReady } from './core/util/shell-path';
 import { analyzeSessionRisk } from './core/ram-brake/session-risk';
-import { readRamBrakeCaps } from './core/ram-brake/admission';
+import { countLive, readRamBrakeCaps } from './core/ram-brake/admission';
 import { PendingEscalationStore } from './core/control/pending-escalations';
 
 interface SharedDeps {
@@ -838,18 +838,8 @@ async function buildRouter() {
             try {
               const db = getRawDb();
               const caps = readRamBrakeCaps(db);
-              const countLiveRaw = (workspaceId: string | null) => {
-                const whereWs = workspaceId ? 'AND workspace_id = ?' : '';
-                const args = workspaceId ? [workspaceId] : [];
-                const row = db
-                  .prepare(
-                    `SELECT COUNT(*) AS count FROM agent_sessions WHERE status IN ('starting','running') ${whereWs}`,
-                  )
-                  .get(...args) as { count?: number } | undefined;
-                return Number(row?.count ?? 0);
-              };
-              const liveAgents = countLiveRaw(null);
-              const workspaceLiveAgents = countLiveRaw(wsId);
+              const liveAgents = countLive(db);
+              const workspaceLiveAgents = countLive(db, wsId ?? undefined);
               return {
                 liveAgents,
                 cap: caps.maxTotalLiveAgents,

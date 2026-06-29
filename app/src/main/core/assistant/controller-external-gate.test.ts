@@ -31,6 +31,7 @@ type InvokeTool = (input: {
   name: string;
   args: Record<string, unknown>;
   origin?: 'local' | 'telegram' | 'external';
+  clientLabel?: string;
   confirmDangerous?: (toolName: string, summary: string) => Promise<boolean>;
 }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
 

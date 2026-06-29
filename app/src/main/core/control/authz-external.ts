@@ -1,7 +1,10 @@
 // src/main/core/control/authz-external.ts
 //
 // Supervised-autonomy authorization policy for origin:'external' tool calls.
-// PURE function — no I/O, no DB, no electron import (must load under vitest).
+// NOTE: classifyExternal is NOT fully side-effect-free — on the 'escalate'
+// path it invokes the consumeGrant() callback (injected via deps) which mutates
+// the one-shot grant store.  All other deps (targetProvider lookup, kill-switch
+// read) remain I/O-free and safe under vitest.
 // The gate in controller.ts resolves `targetProvider` (the provider of the
 // session a prompt_agent/send_keys targets) and the kill-switch, then asks
 // this function for the verdict.

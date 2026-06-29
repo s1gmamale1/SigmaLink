@@ -172,7 +172,7 @@ describe('buildAppState', () => {
     );
     expect(snap.pendingEscalations).toHaveLength(1);
     expect(snap.pendingEscalations[0].id).toBe('esc-1');
-    expect(snap.pendingEscalations[0].toolName).toBe('close_pane');
+    expect(snap.pendingEscalations[0].tool).toBe('close_pane');
   });
 
   it('pendingEscalations degrades to [] when dep throws', () => {
