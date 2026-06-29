@@ -154,4 +154,34 @@ describe('buildAppState', () => {
     );
     expect(snap.capacity).toBeNull();
   });
+
+  // Task 4 — pendingEscalations block.
+  it('pendingEscalations is [] when dep is absent', () => {
+    const snap = buildAppState(baseDeps({}), { workspaceId: 'w1' });
+    expect(snap.pendingEscalations).toEqual([]);
+  });
+
+  it('pendingEscalations lists entries from dep', () => {
+    const snap = buildAppState(
+      baseDeps({
+        pendingEscalations: () => [
+          { id: 'esc-1', toolName: 'close_pane', summary: 's', requestedAt: 999 },
+        ],
+      }),
+      { workspaceId: 'w1' },
+    );
+    expect(snap.pendingEscalations).toHaveLength(1);
+    expect(snap.pendingEscalations[0].id).toBe('esc-1');
+    expect(snap.pendingEscalations[0].toolName).toBe('close_pane');
+  });
+
+  it('pendingEscalations degrades to [] when dep throws', () => {
+    const snap = buildAppState(
+      baseDeps({
+        pendingEscalations: () => { throw new Error('boom'); },
+      }),
+      { workspaceId: 'w1' },
+    );
+    expect(snap.pendingEscalations).toEqual([]);
+  });
 });

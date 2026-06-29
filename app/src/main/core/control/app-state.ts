@@ -122,6 +122,11 @@ export interface AppStateDeps {
    * is also swallowed by safe() and produces null — never throws the snapshot.
    */
   capacity?: (workspaceId: string | null) => CapacitySnapshot | null;
+  /**
+   * Task 4 — pending non-blocking escalations. Optional: absent → empty list.
+   * Wrapped in safe() so a failing read never throws the whole snapshot.
+   */
+  pendingEscalations?: () => Array<{ id: string; toolName: string; summary: string; requestedAt: number }>;
   now?: () => number;
 }
 
@@ -194,6 +199,8 @@ export interface AppStateSnapshot {
   windows: Array<{ windowId: number; isMain: boolean; workspaceIds: string[] }>;
   /** RAM-brake capacity (Task 3). Null when the dep is absent or its read fails. */
   capacity: CapacitySnapshot | null;
+  /** Pending non-blocking escalations (Task 4). Empty when the dep is absent. */
+  pendingEscalations: Array<{ id: string; toolName: string; summary: string; requestedAt: number }>;
 }
 
 const EMPTY_VIEWPORT: ViewportShadow = {
@@ -314,6 +321,12 @@ export function buildAppState(
     null,
   );
 
+  // Task 4 — pending non-blocking escalations. Wrapped in safe() for resilience.
+  const pendingEscalations = safe<Array<{ id: string; toolName: string; summary: string; requestedAt: number }>>(
+    () => (deps.pendingEscalations ? deps.pendingEscalations() : []),
+    [],
+  );
+
   return {
     capturedAt: now(),
     viewportStale: viewport.viewportStale,
@@ -337,5 +350,6 @@ export function buildAppState(
     notifications,
     windows,
     capacity,
+    pendingEscalations,
   };
 }

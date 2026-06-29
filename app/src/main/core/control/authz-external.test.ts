@@ -88,6 +88,7 @@ describe('classifyExternal', () => {
     send_message_to_agent: 'free',
     resume_swarm: 'free',
     kill_swarm: 'escalate',
+    check_escalation: 'free',
   };
 
   it('every externally-exposed catalogue tool has a pinned, intended verdict', () => {

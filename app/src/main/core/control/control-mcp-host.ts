@@ -18,6 +18,8 @@ export interface ExternalToolInvoker {
     args: Record<string, unknown>;
     origin: 'external';
     confirmDangerous: (toolName: string, summary: string) => Promise<boolean>;
+    /** Task 4 — label of the connecting client (used to key one-shot grants). */
+    clientLabel?: string;
   }): Promise<{ ok: boolean; result: unknown; error?: string }>;
 }
 
@@ -174,6 +176,7 @@ export class ControlMcpHost {
           args,
           origin: 'external',
           confirmDangerous: (toolName, summary) => this.opts.escalate(toolName, summary, session.label),
+          clientLabel: session.label,
         });
         this.send(socket, { jsonrpc: '2.0', id, result: out });
       } catch (err) {
