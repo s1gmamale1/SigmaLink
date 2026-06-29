@@ -313,9 +313,25 @@ export function PaneGrid({
                     data-active={isActive ? 'true' : undefined}
                     data-bsp-hidden={isHidden ? 'true' : undefined}
                     onMouseDownCapture={() => onActivate(sid)}
+                    // Flicker fix: every cell keeps a STABLE stacking context — a
+                    // non-auto z-index in BOTH states (z-0 idle, z-1 active). Toggling
+                    // z-index auto↔1 created/destroyed a stacking context around the
+                    // terminal's GPU canvas on every focus switch → Chromium
+                    // re-rasterized the canvas for one frame. A constant z floor means
+                    // the toggle only reorders paint, never re-parents the canvas.
+                    //
+                    // NO transition on the focus state — the focus glow appears/clears
+                    // INSTANTLY. (An earlier `transition-shadow` fade was itself the
+                    // perceived "flicker animation"; removed per operator.)
+                    //
+                    // Theme-aware focus glow (active OR fullscreen-focused): the glow
+                    // is a `.sl-pane-active::after` inset overlay in glass-material.css —
+                    // drawn on top of the terminal, inside the cell, so it glows on ALL
+                    // FOUR sides and is never clipped by the row's overflow-hidden nor
+                    // covered by neighbouring panes (an outer box-shadow was both).
                     className={[
                       'relative min-h-0 min-w-0 overflow-hidden bg-card',
-                      isActive ? 'sl-pane-active z-[1] ring-1 ring-inset ring-[hsl(var(--ring))]' : '',
+                      isActive || isFocused ? 'sl-pane-active z-[1]' : 'z-0',
                     ].join(' ')}
                     // Cells carry NO size style — the grid track sizes them. Only
                     // the fullscreen overlay / hidden-sibling branches set style,
