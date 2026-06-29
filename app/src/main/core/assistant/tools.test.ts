@@ -251,7 +251,7 @@ describe('assistant list_* tools', () => {
 });
 
 describe('assistant add_agent tool', () => {
-  function seedSwarmWithBuilders(count: number): void {
+  function seedSwarmWithBuilders(count: number, providerId = 'shell'): void {
     seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: '/tmp/ws-1' });
     seedSwarm(fake, {
       id: 'swarm-1',
@@ -268,7 +268,7 @@ describe('assistant add_agent tool', () => {
         swarmId: 'swarm-1',
         role: 'builder',
         roleIndex: i,
-        providerId: 'shell',
+        providerId,
         sessionId: `sess-${i}`,
         status: 'idle',
         inboxPath: `/tmp/inbox-builder-${i}`,
@@ -277,7 +277,7 @@ describe('assistant add_agent tool', () => {
       seedAgentSession(fake, {
         id: `sess-${i}`,
         workspaceId: 'ws-1',
-        providerId: 'shell',
+        providerId,
         status: 'running',
         paneIndex: i - 1,
       });
@@ -351,16 +351,30 @@ describe('assistant add_agent tool', () => {
     });
   });
 
-  it('add_agent refuses swarms at 20 agents before spawning', async () => {
-    seedSwarmWithBuilders(20);
+  it('add_agent refuses swarms at 20 real agents before spawning', async () => {
+    seedSwarmWithBuilders(20, 'claude');
     const ctx = makeAddAgentCtx();
 
     await expect(
-      findTool('add_agent')!.handler({ swarmId: 'swarm-1', providerId: 'shell' }, ctx),
+      findTool('add_agent')!.handler({ swarmId: 'swarm-1', providerId: 'claude' }, ctx),
     ).rejects.toThrow(/20 agents/);
     expect(
       (ctx.pty as unknown as { create: ReturnType<typeof vi.fn> }).create,
     ).not.toHaveBeenCalled();
+  });
+
+  it('add_agent: 20 plain terminals (shell) do NOT block a real agent', async () => {
+    // Plain terminals are excluded from the cap, so a swarm full of shells
+    // still accepts a real agent through the assistant tool surface.
+    seedSwarmWithBuilders(20, 'shell');
+    const ctx = makeAddAgentCtx();
+
+    await expect(
+      findTool('add_agent')!.handler({ swarmId: 'swarm-1', providerId: 'claude' }, ctx),
+    ).resolves.toBeDefined();
+    expect(
+      (ctx.pty as unknown as { create: ReturnType<typeof vi.fn> }).create,
+    ).toHaveBeenCalled();
   });
 
   // Phase 3 follow-up (Task 4) — add_agent must echo assistant:dispatch-echo so

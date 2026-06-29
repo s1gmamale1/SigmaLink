@@ -129,6 +129,7 @@ afterEach(() => {
 function seedSwarmOf(
   count: number,
   roleFor: (idx: number) => 'coordinator' | 'builder' | 'scout' | 'reviewer' = () => 'builder',
+  providerFor: (idx: number) => string = () => 'shell',
 ): void {
   seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: '/tmp/ws-1', repoMode: 'plain' });
   seedSwarm(fake, {
@@ -146,7 +147,7 @@ function seedSwarmOf(
       swarmId: 'swarm-1',
       role,
       roleIndex: i,
-      providerId: 'shell',
+      providerId: providerFor(i),
       sessionId: `sess-${i}`,
       status: 'idle',
       inboxPath: `/tmp/inbox-${role}-${i}`,
@@ -202,13 +203,15 @@ describe('paneIndex derivation', () => {
     expect(result.agentKey).toBe('builder-4');
   });
 
-  it('rejects 21st agent (20-cap)', async () => {
-    // Cap is exclusive — 20 existing agents block the 21st before any side
-    // effects fire (no PTY spawn, no mailbox append, no DB insert).
-    seedSwarmOf(20);
+  it('rejects 21st agent (20-cap) — real agents', async () => {
+    // Cap is exclusive — 20 existing REAL agents block the 21st before any side
+    // effects fire (no PTY spawn, no mailbox append, no DB insert). Plain
+    // terminals (providerId 'shell') do NOT count — see the shell tests below.
+    seedSwarmOf(20, () => 'builder', () => 'claude');
     const deps = makeDeps();
+    const agentInput: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'claude' };
 
-    await expect(addAgentToSwarm(input, deps)).rejects.toThrow(/20 agents/);
+    await expect(addAgentToSwarm(agentInput, deps)).rejects.toThrow(/20 agents/);
 
     expect(vi.mocked(resolveAndSpawn)).not.toHaveBeenCalled();
     expect((deps.mailbox.append as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(0);
@@ -233,16 +236,39 @@ describe('addAgentToSwarm', () => {
     expect(result.session.id).toBe(result.sessionId);
   });
 
-  it('capacity refusal at roster.length === 20', async () => {
-    seedSwarmOf(20);
+  it('capacity refusal at 20 real agents', async () => {
+    seedSwarmOf(20, () => 'builder', () => 'claude');
     const deps = makeDeps();
+    const agentInput: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'claude' };
 
-    await expect(addAgentToSwarm(input, deps)).rejects.toThrow(/swarm already has 20 agents/);
+    await expect(addAgentToSwarm(agentInput, deps)).rejects.toThrow(/swarm already has 20 agents/);
 
     // No insert into swarm_agents (we're still at 20), no PTY spawn, no
     // mailbox audit trail for the rejection.
     expect((fake.store.tables.get('swarm_agents') ?? []).length).toBe(20);
     expect(vi.mocked(resolveAndSpawn)).not.toHaveBeenCalled();
+  });
+
+  it('shell panes do NOT count toward the cap', async () => {
+    // 20 plain terminals present — adding a real agent still succeeds because
+    // shell rows are excluded from the agent count.
+    seedSwarmOf(20, () => 'builder', () => 'shell');
+    const agentInput: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'claude' };
+
+    const result = await addAgentToSwarm(agentInput, makeDeps());
+
+    expect(result.agentKey).toBe('builder-21');
+    expect((fake.store.tables.get('swarm_agents') ?? []).length).toBe(21);
+  });
+
+  it('a shell pane is uncapped even at 20 real agents', async () => {
+    seedSwarmOf(20, () => 'builder', () => 'claude');
+    const shellInput: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'shell' };
+
+    const result = await addAgentToSwarm(shellInput, makeDeps());
+
+    expect((fake.store.tables.get('swarm_agents') ?? []).length).toBe(21);
+    expect(result.session.id).toBe(result.sessionId);
   });
 });
 

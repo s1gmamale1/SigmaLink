@@ -31,13 +31,12 @@ import type { SwarmMailbox } from './mailbox';
 import { defaultRoster, totalForPreset } from './types';
 import { loadSwarm, materializeRosterAgent } from './factory-spawn';
 import { checkRamBrakeAdmission } from '../ram-brake/admission';
+import { MAX_SWARM_AGENTS } from '../../../shared/providers';
 
 // Re-export loadSwarm so existing callers (controller.ts, tools.ts) are unaffected.
 export { loadSwarm } from './factory-spawn';
 // Re-export addAgentToSwarm for the same reason.
 export { addAgentToSwarm } from './factory-add-agent';
-
-const MAX_SWARM_AGENTS = 20;
 
 export interface SwarmFactoryDeps {
   pty: PtyRegistry;

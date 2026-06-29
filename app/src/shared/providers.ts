@@ -295,6 +295,25 @@ export function listVisibleProviders(showLegacy: boolean): AgentProviderDefiniti
   });
 }
 
+/** Internal sentinel providerId for agent-less plain-shell / custom-command panes. */
+export const SHELL_PROVIDER_ID = 'shell';
+
+/**
+ * Max real-agent panes per swarm. Plain terminals (providerId 'shell') do NOT
+ * count toward this — see `countsTowardAgentCap`. Single source of truth shared
+ * by the backend gate (factory-add-agent) and the renderer +Pane / +Agent gates.
+ */
+export const MAX_SWARM_AGENTS = 20;
+
+/**
+ * A pane counts toward the swarm agent cap only if it runs a real agent. Plain
+ * terminals / custom-command panes spawn through the internal 'shell' sentinel
+ * and are uncapped at the swarm level (still bounded by RAM Brake + worktree cap).
+ */
+export function countsTowardAgentCap(providerId: string): boolean {
+  return providerId !== SHELL_PROVIDER_ID;
+}
+
 /**
  * Spec 2026-06-10 (B) — providers whose CLIs ingest an image FILE PATH from
  * the prompt (Claude Code detects image paths; Codex accepts paths / -i).
