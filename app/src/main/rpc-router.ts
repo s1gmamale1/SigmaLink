@@ -170,6 +170,8 @@ import { persistScrollback, loadScrollback, gcScrollback, makeScrollbackExitSink
 import { buildWindowsOpenShellArgs } from './core/util/windows-spawn';
 import { whenShellPathReady } from './core/util/shell-path';
 import { analyzeSessionRisk } from './core/ram-brake/session-risk';
+import { countLive, readRamBrakeCaps } from './core/ram-brake/admission';
+import { PendingEscalationStore } from './core/control/pending-escalations';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -686,6 +688,11 @@ async function buildRouter() {
   const promptSink = new PromptSink();
   // viewportShadow: also read by get_app_state (Task 4)
   const viewportShadow = createViewportShadow();
+  // Task 4 — non-blocking escalation store. Created here (before appStateProvider)
+  // so appStateProvider.snapshot can list pending escalations in get_app_state.
+  const pendingEscalationsStore = new PendingEscalationStore({
+    notify: (req) => broadcast('control:escalation', req),
+  });
 
   // get_app_state provider — built once, passed into the assistant tool ctx.
   const appStateProvider = {
@@ -826,6 +833,29 @@ async function buildRouter() {
           viewport: () => viewportShadow.get(),
           derivePaneName,
           shapeSignature,
+          // Task 3 — RAM-brake capacity snapshot.
+          capacity: (wsId: string | null) => {
+            try {
+              const db = getRawDb();
+              const caps = readRamBrakeCaps(db);
+              const liveAgents = countLive(db);
+              const workspaceLiveAgents = countLive(db, wsId ?? undefined);
+              return {
+                liveAgents,
+                cap: caps.maxTotalLiveAgents,
+                workspaceLiveAgents,
+                workspaceCap: caps.maxWorkspaceLiveAgents,
+                headroom: caps.maxTotalLiveAgents - liveAgents,
+                workspaceHeadroom: caps.maxWorkspaceLiveAgents - workspaceLiveAgents,
+              };
+            } catch {
+              return null;
+            }
+          },
+          // Task 4 — pending non-blocking escalations.
+          pendingEscalations: () => pendingEscalationsStore.listPending(),
+          // Task 5 — per-session codex auth errors surfaced in app state.
+          authErrors: () => pty.authErrorSnapshot(),
         },
         opts,
       ),
@@ -984,6 +1014,26 @@ async function buildRouter() {
         },
         persist: (sessionId, snapshot) => persistScrollback(userData, sessionId, snapshot),
       }),
+      // Task 5 — surface codex auth errors to the renderer. The registry detects
+      // them and fires this callback; we flip the DB status to 'error' and
+      // broadcast pty:error so the pane chrome shows the same error state as a
+      // crash (PaneShell error boundary + sidebar dot).
+      onCodexAuthError: (sessionId) => {
+        try {
+          getDb()
+            .update(agentSessions)
+            .set({ status: 'error' })
+            .where(eq(agentSessions.id, sessionId))
+            .run();
+        } catch {
+          /* best-effort DB update */
+        }
+        try {
+          broadcast('pty:error', { sessionId, exitCode: null, signal: null });
+        } catch {
+          /* broadcast is best-effort */
+        }
+      },
       promptSink,
     },
   );
@@ -2486,6 +2536,8 @@ async function buildRouter() {
       resume: (id: string) => swarmsCtl.resume(id),
       kill: (id: string) => swarmsCtl.kill(id),
     },
+    // Task 4 — non-blocking escalation store (external origin).
+    pendingEscalations: pendingEscalationsStore,
   });
   const assistantCtl = assistantBundle.controller;
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the
@@ -2801,8 +2853,20 @@ async function buildRouter() {
       stop: () => controlMcpHost.stop(),
       liveConnections: () => controlMcpHost.liveConnectionCount(),
       setBearer: (t) => { controlBearer = t; },
-      respondEscalation: (id, approved) => controlEscalator.resolve(id, approved),
-      cancelEscalations: () => controlEscalator.cancelAll(),
+      respondEscalation: (id, approved) => {
+        // Legacy blocking escalations resolve via controlEscalator.
+        controlEscalator.resolve(id, approved);
+        // Task 4 non-blocking escalations resolve via pendingEscalationsStore;
+        // approve also auto-records a one-shot grant for the re-issue.
+        pendingEscalationsStore.resolveEscalation(id, approved);
+      },
+      cancelEscalations: () => {
+        // Task 6e — kill-switch must clear BOTH the legacy blocking escalator AND the
+        // Task-4 non-blocking pending store. A stale grant must not survive disable/freeze
+        // and pass the external gate after unfreeze within its original TTL.
+        controlEscalator.cancelAll();
+        pendingEscalationsStore.cancelAll();
+      },
       reportViewport: (patch) => viewportShadow.report(patch),
     }),
   });

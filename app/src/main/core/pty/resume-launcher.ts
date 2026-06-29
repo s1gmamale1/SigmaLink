@@ -4,6 +4,7 @@ import type { PtyRegistry, SessionRecord } from './registry';
 import type { AgentProviderDefinition } from '../../../shared/providers';
 import type { resolveAndSpawn, ResolveAndSpawnResult } from '../providers/launcher';
 import { providerPreAssignsSession } from '../providers/launcher';
+import { withCodexSpawnLock, resolveCodexHome } from '../control/codex-spawn-lock';
 import {
   ensureClaudeProjectDir,
   isClaudeSessionId,
@@ -545,22 +546,27 @@ export async function respawnFailedWorkspacePanes(
           homeDir: deps.claudeHomeDir,
         });
       }
-      const result: ResolveAndSpawnResult = resolve(
-        { ptyRegistry: deps.pty },
-        {
-          providerId,
-          ...(healViaPreAssign
-            ? { preassignedSessionId: row.id, isResume: false as const }
-            : { sessionId: row.id, isResume: true as const }),
-          cwd,
-          cols: deps.cols ?? 120,
-          rows: deps.rows ?? 32,
-          showLegacy: deps.showLegacy ?? readShowLegacy(db),
-          // No resumeArgs — this is a fresh spawn in the same worktree.
-          extraArgs: [],
-          spawnMode,
-        },
-      );
+      const doSpawn = () =>
+        resolve(
+          { ptyRegistry: deps.pty },
+          {
+            providerId,
+            ...(healViaPreAssign
+              ? { preassignedSessionId: row.id, isResume: false as const }
+              : { sessionId: row.id, isResume: true as const }),
+            cwd,
+            cols: deps.cols ?? 120,
+            rows: deps.rows ?? 32,
+            showLegacy: deps.showLegacy ?? readShowLegacy(db),
+            // No resumeArgs — this is a fresh spawn in the same worktree.
+            extraArgs: [],
+            spawnMode,
+          },
+        );
+      const result: ResolveAndSpawnResult =
+        providerId === 'codex'
+          ? await withCodexSpawnLock(resolveCodexHome(), () => Promise.resolve(doSpawn()))
+          : doSpawn();
       const rec = result.ptySession;
       markResumeRunning(db, row.id, rec.startedAt);
       writeProviderEffective(db, row.id, result.providerEffective);
@@ -730,26 +736,31 @@ export async function resumeWorkspacePanes(
       setExternalSessionId(db, row.id, null);
     }
     try {
-      const spawned: ResolveAndSpawnResult = resolve(
-        { ptyRegistry: deps.pty },
-        {
-          providerId: resumeProviderId,
-          ...(healViaPreAssign
-            ? { preassignedSessionId: row.id, isResume: false as const }
-            : { sessionId: row.id, isResume: true as const }),
-          cwd,
-          cols: deps.cols ?? 120,
-          rows: deps.rows ?? 32,
-          showLegacy: deps.showLegacy ?? readShowLegacy(db),
-          extraArgs: resume.args,
-          // v1.9-scrollback — load persisted scrollback when the flag is on.
-          resumeScrollback: deps.loadScrollbackForSession?.(row.id),
-          // SF-8 Yolo/Bypass — re-apply the persisted bypass flag so the
-          // provider's autoApproveFlag is appended to argv on every resume.
-          autoApprove: row.autoApprove === 1,
-          spawnMode,
-        },
-      );
+      const doBootSpawn = () =>
+        resolve(
+          { ptyRegistry: deps.pty },
+          {
+            providerId: resumeProviderId,
+            ...(healViaPreAssign
+              ? { preassignedSessionId: row.id, isResume: false as const }
+              : { sessionId: row.id, isResume: true as const }),
+            cwd,
+            cols: deps.cols ?? 120,
+            rows: deps.rows ?? 32,
+            showLegacy: deps.showLegacy ?? readShowLegacy(db),
+            extraArgs: resume.args,
+            // v1.9-scrollback — load persisted scrollback when the flag is on.
+            resumeScrollback: deps.loadScrollbackForSession?.(row.id),
+            // SF-8 Yolo/Bypass — re-apply the persisted bypass flag so the
+            // provider's autoApproveFlag is appended to argv on every resume.
+            autoApprove: row.autoApprove === 1,
+            spawnMode,
+          },
+        );
+      const spawned: ResolveAndSpawnResult =
+        resumeProviderId === 'codex'
+          ? await withCodexSpawnLock(resolveCodexHome(), () => Promise.resolve(doBootSpawn()))
+          : doBootSpawn();
       const rec = spawned.ptySession;
       markResumeRunning(db, row.id, rec.startedAt);
       writeProviderEffective(db, row.id, spawned.providerEffective);

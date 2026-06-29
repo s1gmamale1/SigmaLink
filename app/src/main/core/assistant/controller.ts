@@ -30,6 +30,7 @@ import {
 } from './conversations';
 import { DANGEROUS_REMOTE, findTool, publicTools, summarizeArgs } from './tools';
 import { classifyExternal } from '../control/authz-external';
+import type { PendingEscalationStore } from '../control/pending-escalations';
 import { ToolTracer, safeSerialize, type ToolTrace } from './tool-tracer';
 import { recordSwarmOrigin } from './swarm-origins';
 import { runClaudeCliTurn, cancelClaudeCliTurn } from './runClaudeCliTurn';
@@ -87,6 +88,13 @@ export interface AssistantControllerDeps {
    * tool calls are denied immediately. When absent, defaults to false (off).
    */
   controlFrozen?: () => boolean;
+  /**
+   * Task 4 — non-blocking escalation store. When supplied, an external
+   * escalate-class tool returns {ok:false, status:'needs_approval', escalationId}
+   * immediately instead of blocking 60s waiting for operator approval.
+   * Absent → back-compat: blocking confirmDangerous path still runs.
+   */
+  pendingEscalations?: PendingEscalationStore;
   /**
    * wait_for_pane — main-side pane watcher. When supplied, the tool blocks
    * until one of the given sessions becomes ready (prompt/idle/exit) or
@@ -159,6 +167,8 @@ export interface AssistantController {
     origin?: ToolOrigin;
     /** R-1 — supplied by the remote bridge to approve DANGEROUS_REMOTE calls. */
     confirmDangerous?: ConfirmDangerous;
+    /** Task 4 — label of the external client (used to key one-shot grants). */
+    clientLabel?: string;
   }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
 }
 
@@ -214,6 +224,8 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
     confirmDangerous?: ConfirmDangerous;
     /** BSP-B3 — shared per-turn CDP call counter (passed from the send closure). */
     cdpCallCounter?: { count: number };
+    /** Task 4 — label of the external client for grant keying. */
+    clientLabel?: string;
   }): Promise<{ ok: boolean; result: unknown; error?: string }> => {
     const tool = findTool(input?.name ?? '');
     const conv = input?.conversationId ? getConversation(input.conversationId) : null;
@@ -257,13 +269,47 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       const sidRaw = (input?.args as { sessionId?: unknown })?.sessionId;
       const sid = typeof sidRaw === 'string' ? sidRaw : null;
       const targetProvider = sid && deps.resolveSessionProvider ? deps.resolveSessionProvider(sid) : null;
-      const verdict = classifyExternal({ toolId: tool.id, targetProvider, killSwitch });
+      // Task 4 — one-shot grant check: a previous operator approval provides a
+      // consumable grant that downgrades the escalate verdict to free once.
+      const clientLabel = input?.clientLabel ?? 'external';
+      const argsHash = JSON.stringify(input?.args ?? {});
+      const pendingStore = deps.pendingEscalations;
+      const verdict = classifyExternal({
+        toolId: tool.id,
+        targetProvider,
+        killSwitch,
+        consumeGrant: pendingStore
+          ? () => pendingStore.consumeGrant(tool.id, argsHash, clientLabel)
+          : undefined,
+      });
       if (verdict === 'deny') {
         const error = 'External control is frozen (kill-switch engaged).';
         recordTrace({ ...traceBase, args: input?.args ?? {}, ok: false, result: null, error });
         return { ok: false, result: null, error };
       }
       if (verdict === 'escalate') {
+        // Task 4: non-blocking path for external origin when the pending store is
+        // wired. Register the escalation and return immediately; the driver polls
+        // check_escalation and re-issues when approved.
+        if (pendingStore) {
+          const summary = summarizeArgs(tool.id, input?.args ?? {});
+          const { id: escalationId } = pendingStore.registerEscalation({
+            toolName: tool.id,
+            argsHash,
+            summary,
+            clientLabel,
+          });
+          const error = `Needs operator approval. Poll check_escalation({escalationId:"${escalationId}"}) then re-issue.`;
+          recordTrace({
+            ...traceBase,
+            args: input?.args ?? {},
+            ok: false,
+            result: { status: 'needs_approval', escalationId },
+            error,
+          });
+          return { ok: false, result: { status: 'needs_approval', escalationId }, error };
+        }
+        // Fallback (no pending store): blocking path for back-compat.
         let approved = false;
         try {
           approved =
@@ -332,9 +378,11 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         // (including the MCP-host bridge path) gets them too.
         notifications: deps.notifications,
         broadcastPtyError: deps.broadcastPtyError,
+        resolveSessionProvider: deps.resolveSessionProvider,
         promptSink: deps.promptSink,
         appState: deps.appState,
         swarms: deps.swarms,
+        pendingEscalations: deps.pendingEscalations,
       });
       // P3-S7 — single persistence path: the tracer writes the `messages`
       // row with role='tool' and `toolCallId` set to the trace id; the

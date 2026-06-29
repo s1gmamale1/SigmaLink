@@ -114,4 +114,109 @@ describe('buildAppState', () => {
     const snap = buildAppState(baseDeps({}), {});
     expect(snap.panes.sessions).toHaveLength(2); // resolved targetWs = viewport.activeWorkspaceId
   });
+
+  // Task 3 — capacity block: driver can see live count + cap + headroom so it
+  // knows whether to stop/kill panes before spawning more.
+  it('includes capacity block when capacity dep is provided', () => {
+    const snap = buildAppState(
+      baseDeps({
+        capacity: () => ({
+          liveAgents: 3,
+          cap: 15,
+          workspaceLiveAgents: 2,
+          workspaceCap: 8,
+          headroom: 12, // cap(15) - liveAgents(3)
+          workspaceHeadroom: 6, // workspaceCap(8) - workspaceLiveAgents(2)
+        }),
+      }),
+      { workspaceId: 'w1' },
+    );
+    expect(snap.capacity).toEqual({
+      liveAgents: 3,
+      cap: 15,
+      workspaceLiveAgents: 2,
+      workspaceCap: 8,
+      headroom: 12,
+      workspaceHeadroom: 6,
+    });
+  });
+
+  it('capacity is null when dep is absent', () => {
+    // baseDeps has no capacity dep → should degrade to null, never throw
+    const snap = buildAppState(baseDeps({}), { workspaceId: 'w1' });
+    expect(snap.capacity).toBeNull();
+  });
+
+  it('capacity degrades to null when dep throws (never crashes the snapshot)', () => {
+    const snap = buildAppState(
+      baseDeps({
+        capacity: () => { throw new Error('db down'); },
+      }),
+      { workspaceId: 'w1' },
+    );
+    expect(snap.capacity).toBeNull();
+  });
+
+  // Task 4 — pendingEscalations block.
+  it('pendingEscalations is [] when dep is absent', () => {
+    const snap = buildAppState(baseDeps({}), { workspaceId: 'w1' });
+    expect(snap.pendingEscalations).toEqual([]);
+  });
+
+  it('pendingEscalations lists entries from dep', () => {
+    const snap = buildAppState(
+      baseDeps({
+        pendingEscalations: () => [
+          { id: 'esc-1', toolName: 'close_pane', summary: 's', requestedAt: 999 },
+        ],
+      }),
+      { workspaceId: 'w1' },
+    );
+    expect(snap.pendingEscalations).toHaveLength(1);
+    expect(snap.pendingEscalations[0].id).toBe('esc-1');
+    expect(snap.pendingEscalations[0].tool).toBe('close_pane');
+  });
+
+  it('pendingEscalations degrades to [] when dep throws', () => {
+    const snap = buildAppState(
+      baseDeps({
+        pendingEscalations: () => { throw new Error('boom'); },
+      }),
+      { workspaceId: 'w1' },
+    );
+    expect(snap.pendingEscalations).toEqual([]);
+  });
+
+  // Task 5 — authError per-session block.
+  it('authError is null for all sessions when authErrors dep is absent', () => {
+    const snap = buildAppState(baseDeps({}), { workspaceId: 'w1' });
+    for (const s of snap.panes.sessions) {
+      expect(s.authError).toBeNull();
+    }
+  });
+
+  it('authError is populated from the dep for the matching session', () => {
+    const snap = buildAppState(
+      baseDeps({
+        authErrors: () => new Map([['s2', { kind: 'token_expired', atMs: 9999 }]]),
+      }),
+      { workspaceId: 'w1' },
+    );
+    const s1 = snap.panes.sessions.find((s) => s.sessionId === 's1')!;
+    const s2 = snap.panes.sessions.find((s) => s.sessionId === 's2')!;
+    expect(s1.authError).toBeNull(); // no entry for s1
+    expect(s2.authError).toEqual({ kind: 'token_expired', atMs: 9999 });
+  });
+
+  it('authError degrades to null for all sessions when dep throws', () => {
+    const snap = buildAppState(
+      baseDeps({
+        authErrors: () => { throw new Error('registry down'); },
+      }),
+      { workspaceId: 'w1' },
+    );
+    for (const s of snap.panes.sessions) {
+      expect(s.authError).toBeNull();
+    }
+  });
 });

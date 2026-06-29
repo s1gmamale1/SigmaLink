@@ -996,6 +996,114 @@ describe('assistant launch_pane echo (spec 2026-06-10 A)', () => {
   });
 });
 
+// ── launch_pane autoApprove parity (control-plane Task 2) ─────────────────
+// The control-plane driver launches panes without trust interstitials blocking.
+// autoApprove is resolved from: arg → workspace Yolo KV default → false.
+// KV key: `pane.autoApprove.default.<workspaceId>` (value '1' → true).
+describe('launch_pane autoApprove KV parity', () => {
+  beforeEach(() => {
+    vi.mocked(executeLaunchPlan).mockClear();
+    vi.mocked(executeLaunchPlan).mockResolvedValue(
+      { sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>,
+    );
+  });
+
+  it('threads workspace Yolo KV default into autoApprove (KV "1" → true)', async () => {
+    const plans: Parameters<typeof executeLaunchPlan>[0][] = [];
+    vi.mocked(executeLaunchPlan).mockImplementation(async (plan) => {
+      plans.push(plan);
+      return { sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>;
+    });
+    const ctx = {
+      ...makeCtx([], 'ws1'),
+      kvGet: (k: string) => (k === 'pane.autoApprove.default.ws1' ? '1' : null),
+    } as unknown as ToolContext;
+
+    await findTool('launch_pane')!.handler({ workspaceRoot: '/x', provider: 'claude' }, ctx);
+
+    expect(plans).toHaveLength(1);
+    expect(plans[0].panes[0].autoApprove).toBe(true);
+  });
+
+  it('arg autoApprove:false overrides KV "1" (arg wins)', async () => {
+    const plans: Parameters<typeof executeLaunchPlan>[0][] = [];
+    vi.mocked(executeLaunchPlan).mockImplementation(async (plan) => {
+      plans.push(plan);
+      return { sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>;
+    });
+    const ctx = {
+      ...makeCtx([], 'ws1'),
+      kvGet: (k: string) => (k === 'pane.autoApprove.default.ws1' ? '1' : null),
+    } as unknown as ToolContext;
+
+    await findTool('launch_pane')!.handler(
+      { workspaceRoot: '/x', provider: 'claude', autoApprove: false },
+      ctx,
+    );
+
+    expect(plans).toHaveLength(1);
+    expect(plans[0].panes[0].autoApprove).toBe(false);
+  });
+
+  it('defaults to false when both arg and KV are absent', async () => {
+    const plans: Parameters<typeof executeLaunchPlan>[0][] = [];
+    vi.mocked(executeLaunchPlan).mockImplementation(async (plan) => {
+      plans.push(plan);
+      return { sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>;
+    });
+    const ctx = makeCtx([], 'ws1');
+
+    await findTool('launch_pane')!.handler({ workspaceRoot: '/x', provider: 'claude' }, ctx);
+
+    expect(plans).toHaveLength(1);
+    expect(plans[0].panes[0].autoApprove).toBe(false);
+  });
+});
+
+// ── launch_pane forceRamBrake wiring (control-plane Task 3) ──────────────
+// The control-plane driver can override the RAM-brake cap by passing
+// forceRamBrake:true. The LaunchPlan must carry that flag so executeLaunchPlan
+// threads it into the admission check as `force: plan.forceRamBrake === true`.
+describe('launch_pane forceRamBrake wiring', () => {
+  beforeEach(() => {
+    vi.mocked(executeLaunchPlan).mockClear();
+    vi.mocked(executeLaunchPlan).mockResolvedValue(
+      { sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>,
+    );
+  });
+
+  it('sets forceRamBrake:true on the plan when arg is true', async () => {
+    const plans: Parameters<typeof executeLaunchPlan>[0][] = [];
+    vi.mocked(executeLaunchPlan).mockImplementation(async (plan) => {
+      plans.push(plan);
+      return { sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>;
+    });
+    const ctx = makeCtx([], 'ws1');
+
+    await findTool('launch_pane')!.handler(
+      { workspaceRoot: '/x', provider: 'claude', forceRamBrake: true },
+      ctx,
+    );
+
+    expect(plans).toHaveLength(1);
+    expect(plans[0].forceRamBrake).toBe(true);
+  });
+
+  it('leaves forceRamBrake falsy on the plan when arg is absent', async () => {
+    const plans: Parameters<typeof executeLaunchPlan>[0][] = [];
+    vi.mocked(executeLaunchPlan).mockImplementation(async (plan) => {
+      plans.push(plan);
+      return { sessions: [] } as unknown as Awaited<ReturnType<typeof executeLaunchPlan>>;
+    });
+    const ctx = makeCtx([], 'ws1');
+
+    await findTool('launch_pane')!.handler({ workspaceRoot: '/x', provider: 'claude' }, ctx);
+
+    expect(plans).toHaveLength(1);
+    expect(plans[0].forceRamBrake).toBeFalsy();
+  });
+});
+
 // ── read_pane — terminal screen read over the scrollback ring buffer ───────
 // 2026-06-11 "can't access terminals": Jorvis had NO tool to read a pane's
 // screen even though registry.snapshot() exists. These tests pin the tool's
@@ -1100,7 +1208,8 @@ describe('prompt_agent liveness', () => {
     expect(writes).toEqual([]);
   });
 
-  it('writes prompt + carriage return (Enter, to submit) to a live session', async () => {
+  it('writes body then submit byte separately (settle-submit avoids paste-burst swallow)', async () => {
+    vi.useFakeTimers();
     const writes: Array<[string, string]> = [];
     const ctx: ToolContext = {
       ...makeCtx([], 'ws-1'),
@@ -1110,11 +1219,15 @@ describe('prompt_agent liveness', () => {
         write: (id: string, d: string) => writes.push([id, d]),
       } as unknown as ToolContext['pty'],
     };
-    const out = (await findTool('prompt_agent')!.handler(
+    const handlerPromise = findTool('prompt_agent')!.handler(
       { sessionId: 's1', prompt: 'hi' },
       ctx,
-    )) as Record<string, unknown>;
+    );
+    await vi.runAllTimersAsync();
+    const out = (await handlerPromise) as Record<string, unknown>;
+    vi.useRealTimers();
     expect(out['ok']).toBe(true);
-    expect(writes).toEqual([['s1', 'hi\r']]);
+    // body first, then submit byte separately — two distinct PTY writes
+    expect(writes).toEqual([['s1', 'hi'], ['s1', '\r']]);
   });
 });

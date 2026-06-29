@@ -74,7 +74,7 @@ export function readRamBrakeCaps(db: Database.Database): RamBrakeCaps {
   };
 }
 
-function countLive(db: Database.Database, workspaceId?: string): number {
+export function countLive(db: Database.Database, workspaceId?: string): number {
   const whereWorkspace = workspaceId ? 'AND workspace_id = ?' : '';
   const args = workspaceId ? [workspaceId] : [];
   const row = db

@@ -152,3 +152,38 @@ _Operator: pane windows need 3-4 clicks to focus and flicker when clicked. Disam
 _Surfaced by the universal-workspace-chrome final review (branch `fix/global-workspace-chrome`). The per-workspace tint feature was removed; its JS/TSX is gone and the `.sl-chrome-tint` class is no longer applied anywhere._
 
 - 🧹 **[low] Remove dead `.sl-chrome-tint` CSS + `--surface-tint` var** — `app/src/index.css` still defines the `.sl-chrome-tint` wash rule (`:183`), the reduced-transparency reset selector (`:831`, keep its `.bg-sidebar` sibling), and the `--surface-tint` var (`:47`) — all now unapplied (identity no-op). Left in place to avoid touching a11y/theme blocks pre-PR. Safe to delete together: `--surface-tint` has a single consumer (the `.sl-chrome-tint` color-mix at `:187`). Also trim the stale `useWorkspaceTint` comments (`:43-45`, `:173-175`) + the `use-workspace-colors.ts:11` BSP-T4 note. Effort: S.
+
+---
+
+## 🔬 Deep review findings (2026-06-28) — Sigma-Control ↔ SigmaLink interactive parity
+
+_Root-caused after an autonomous external-driver (Hermes) session against installed v2.8.1 stalled on prompt-submit, trust prompts, RAM cap, and codex auth. 5 read-only lanes off `origin/main` + target-verification of the running binary. The six confirmed causes are scoped into the spec `app/docs/superpowers/specs/2026-06-28-control-plane-interactive-parity-design.md` (Phase 2.5) → bound for ROADMAP; the deferred items below stay parked._
+
+**Confirmed causes (→ scoped into Phase 2.5 spec, not parked):**
+- 🐞 **[high] `prompt_agent` doesn't submit multi-line prompts** — `app/src/main/core/assistant/tools.ts:506` writes `prompt + '\r'` as one bulk PTY write; TUI paste-burst-detect swallows the trailing `\r`. **Target-verified on running v2.8.1 (has the `\r`, still fails).** Fix: submit-settle (body → settle → separate Enter). Effort: M.
+- 🐞 **[high] `launch_pane` ignores Yolo/auto-approve KV** — `tools.ts:421-431` builds the plan without `autoApprove` → no provider bypass flag → first-run trust/update interstitials block control launches; GUI threads `pane.autoApprove.default.<ws>` (`Launcher.tsx:609`), the tool reads nothing. Effort: S.
+- 🐞 **[high] external control can't pass RAM-brake `force`** — `sLaunchPane` schema (`tools.ts:209-214`) has no `forceRamBrake`; `admission.ts:82` counts human+control in one 12-pool with no origin split → a human at 12 live starves all external spawns. Effort: S.
+- 🐞 **[medium] shell-pane `prompt_agent` → opaque `TimeoutError`** — correct escalation (`authz-external.ts:43-52`) but 60s block (`rpc-router.ts:843`) outlives the external CLI deadline; `ControlClient.rpc()` has no timeout. Fix: non-blocking escalation. Effort: M.
+- 🐞 **[medium] codex single-use refresh-token race + zero error surfacing** — 3 unserialized spawn paths share `~/.codex/auth.json` (no `CODEX_HOME`, `local-pty.ts:543-548`); a codex pane printing 401 still shows `dbStatus:'running'` (`app-state.ts:124`). Fix: CODEX_HOME-keyed spawn mutex + PTY auth-error scanner. ~40% SigmaLink-attributable. Effort: M.
+- 🐞 **[medium] `SIGMA_CONTROL_PROTOCOL` sent but never validated** — host reads only token+label (`control-mcp-host.ts:135-148`); no version negotiation between the standalone `Sigma-Control` bridge and the host. Host also serves the full `JORVIS_TOOL_CATALOGUE` externally (`rpc-router.ts:853`), not a filtered subset. Effort: S.
+
+**Out of scope (NOT a control-plane bug):**
+- **[behavioral] "Claude lane meandered, wrote no files"** — the lane received + started its prompt; producing no writes is prompt-quality, likely downstream of the submit bug mangling the prompt. No code fix; re-evaluate after the submit-settle lands.
+
+**🚫 Deferred by design (from the Phase 2.5 spec §10):**
+- **[control/codex] deterministic codex "Update available" interstitial suppression** — whether `--dangerously-bypass-approvals-and-sandbox` also suppresses codex's version-check prompt is unverified from source; needs a live codex run to find the env/flag. Until then the driver dismisses via `send_keys`. Build when the mechanism is confirmed.
+- **[control/codex] per-workspace `CODEX_HOME` isolation** — would fully end the shared-auth race but breaks single-login (each workspace needs its own `codex login`). Deferred; spawn serialization is the chosen fix instead.
+- **[control/capacity] reserved control-plane RAM headroom (separate pool)** — a dedicated control cap vs the shared 12-pool. The `forceRamBrake` arg + `get_app_state` capacity visibility cover the case for now; revisit if human/control starvation recurs.
+- **[control/interstitials] generic `dismiss_interstitial` / dialog-aware tool** — vs the current read_pane + send_keys inference. Build if interstitial handling stays fragile after auto-approve parity.
+- **[control/protocol] bump the standalone `github.com/s1gmamale1/Sigma-Control` bridge in lockstep** — once Phase 2.5 Unit 6 lands host-side `protocol` validation + a tool-name set, update `src/server.ts` there to match. Cross-repo follow-up.
+
+### Phase 2.5 build — parked follow-ups (from per-task + final reviews, 2026-06-29)
+
+_All Minor; the branch shipped MERGE-READY without them. Park for a later hardening pass._
+- **[control/escalation] canonical (sorted-key) argsHash for grant matching** — `pending-escalations` grant key uses raw `JSON.stringify(args)`; a re-issue with reordered keys misses the grant → re-escalates. Fails SAFE (toward more approval, never less), so low urgency. Canonicalize before broad agent SDKs rely on it. (T4-F5 / Leo #6 / final #3.)
+- **[control/escalation] prune terminal escalations + consumed grants** — `PendingEscalationStore` never evicts approved/denied/expired records or consumed grants; `listPending` scans the all-time map each `get_app_state`. Slow leak in a days-long main process. Add TTL-based pruning. (T4-F3.)
+- **[control/escalation] dedup repeated pre-approval re-issues** — identical re-issues before the operator approves mint a new escalation id each → N renderer cards for one intent. Dedup by (tool,argsHash,clientLabel) on register. (T4-F7.)
+- **[control/escalation] `invokeTool` RPC-wrapper drops `clientLabel`** — the public interface advertises it but the RPC-wrapper param type omits it; correct in practice (external path uses invokeAssistantTool directly) but the interface over-promises. (T4-F9.)
+- **[control/perception] redact / per-client scope `get_app_state`** — exposes local paths, browser URLs/titles, notification bodies, and all clients' pending-escalation summaries. Fine while `SIGMA_CONTROL_TOKEN` = full local operator; scope/redact if the audience ever broadens beyond a single trusted token. (Leo #7 / final #4.)
+- **[control/interstitials] structured interstitial detection in `get_app_state`** — surface `trust_prompt` / `update_prompt` / `auth_error` / `needs_login` as typed per-pane signals so a driver can react deterministically instead of scraping `read_pane` text. (Leo, future enhancement.)
+- **[control/codex] note: codex spawn serialization defers rapid GUI codex opens ~2.5s** — deliberate (settleMs auth window); revisit the settle value or add a ready-signal release if multi-codex GUI boot latency is felt. (final #5, operator heads-up.)
