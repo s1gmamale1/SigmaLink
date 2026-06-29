@@ -326,9 +326,15 @@ export function PaneGrid({
                     // (transparent → accent) so no inset box-shadow geometry pops in/
                     // out; `transition-shadow` eases the ring + the glass `.sl-pane-
                     // active` bloom instead of hard-cutting them.
+                    // Theme-aware focus glow: `sl-pane-active` also applies when the
+                    // pane is FOCUSED (fullscreen), not just the in-grid active pane,
+                    // so the focused surface always reads as glowing. The glow itself
+                    // (universal, theme-coloured via --ring) lives in
+                    // glass-material.css `.sl-pane-active` — box-shadow only, so it
+                    // composes with the stable z-floor + transition-shadow above.
                     className={[
                       'relative min-h-0 min-w-0 overflow-hidden bg-card ring-1 ring-inset transition-shadow duration-150',
-                      isActive
+                      isActive || isFocused
                         ? 'sl-pane-active z-[1] ring-[hsl(var(--ring))]'
                         : 'z-0 ring-transparent',
                     ].join(' ')}

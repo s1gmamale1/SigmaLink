@@ -278,12 +278,37 @@
   color: hsl(var(--primary));
 }
 
-/* ACTIVE PANE — Lane P applies `.sl-pane-active` alongside the flat-theme
-   hairline ring on the focused grid cell. On glass we layer a soft 12px bloom
-   in the ring colour so the active pane reads as the focused surface without an
-   opaque border. Flat themes (incl. the Clean family) ignore this rule and keep
-   just the hairline. */
+/* ACTIVE / FOCUSED PANE — universal theme-aware glow. `--ring` is declared in
+   every one of the 15 theme blocks in index.css (always == --primary), so a
+   single declaration on `hsl(var(--ring))` automatically adopts the selected
+   theme's accent with zero JS. The inset hairline reproduces what the cell's
+   Tailwind `ring-1 ring-inset` would draw; the outer bloom is the glow. This is
+   a box-shadow-only change — no layout thrash, no stacking-context pop — so the
+   flicker fix (stable z-floor + geometry-stable ring slot + transition-shadow)
+   stays intact. Applies on ALL themes (was glass-only before). */
+.sl-pane-active {
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--ring) / 0.9),
+    0 0 18px 4px hsl(var(--ring) / 0.25);
+}
+
+/* Glass: an OUTSET hairline (1px past the cell edge into the mesh backdrop) reads
+   correctly on translucent surfaces, and the frosted backdrop diffuses the bloom,
+   so it runs slightly stronger than on opaque flat themes. */
 :root[data-theme^='glass'] .sl-pane-active {
-  box-shadow: 0 0 0 1px hsl(var(--ring)), 0 0 12px 2px hsl(var(--ring) / 0.22);
+  box-shadow:
+    0 0 0 1px hsl(var(--ring)),
+    0 0 18px 4px hsl(var(--ring) / 0.28);
   border-color: hsl(var(--ring));
+}
+
+/* Reduced transparency: the alpha bloom is itself a transparency effect — collapse
+   it to a sharp hairline so the a11y preference is honoured. */
+@media (prefers-reduced-transparency: reduce) {
+  .sl-pane-active {
+    box-shadow: inset 0 0 0 1px hsl(var(--ring));
+  }
+  :root[data-theme^='glass'] .sl-pane-active {
+    box-shadow: 0 0 0 1px hsl(var(--ring));
+  }
 }

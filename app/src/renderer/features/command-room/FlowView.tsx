@@ -189,7 +189,17 @@ const LineRow = memo(
     prev.blockFailed === next.blockFailed,
 );
 
-export function FlowView({
+// Flicker fix (intermittent): memo so a sibling pane's focus switch
+// (SET_ACTIVE_SESSION → unmemoized CommandRoom/PaneGrid/PaneShell cascade) does
+// NOT re-render this FlowView. A spurious re-render re-fired useStickToBottom's
+// pin (scrollTop=scrollHeight + rAF re-pin) and re-reconciled the 64 live-tail
+// rows under content-visibility → a one-frame scroll/reflow jolt = the "sometimes"
+// flash. Props are referentially stable on a focus cascade (engine is cache-owned;
+// onLinkClick is useCallback'd on the stable setActiveTab; searchTerm=undefined and
+// activeMatch=null while search is closed). Live output is UNAFFECTED — FlowView
+// self-subscribes to engine.onBufferChanged via its own `bump`, and memo only
+// blocks PARENT-driven re-renders, never internal-state ones.
+export const FlowView = memo(function FlowView({
   engine,
   className,
   onLinkClick,
@@ -327,4 +337,4 @@ export function FlowView({
       )}
     </div>
   );
-}
+});

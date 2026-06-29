@@ -107,6 +107,10 @@ describe('PaneGrid', () => {
     expect(a.style.position).toBe('absolute');
     expect(a.style.zIndex).toBe('50');
     expect(b.style.display).toBe('none'); // sibling stays mounted (terminal preserved)
+    // The focused (fullscreen) pane carries the glow class too — the theme-aware
+    // `.sl-pane-active` glow keys off isActive OR isFocused, so a focused surface
+    // always reads as glowing.
+    expect(a.className).toMatch(/sl-pane-active/);
   });
 
   it('seeds resize fractions from persisted KV when the shape matches', async () => {
