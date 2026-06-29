@@ -7,8 +7,13 @@ import {
 afterEach(() => __resetAgentLabels());
 
 describe('heuristicTitle', () => {
-  it('peels leading filler and Title-Cases the subject', () => {
-    expect(heuristicTitle('can you please build a robust ecommerce website')).toMatch(/Ecommerce|Robust|Build/);
+  it('peels leading filler to the real subject (lowercase, matches the LLM style)', () => {
+    expect(heuristicTitle('can you please build a robust ecommerce website')).toMatch(/robust|ecommerce|build/);
+  });
+  it('peels "give me / show me / tell me" — no dangling "me"', () => {
+    expect(heuristicTitle('give me the most generic e-commerce website design')).not.toMatch(/^me\b/i);
+    expect(heuristicTitle('give me the most generic e-commerce website design')).toContain('generic');
+    expect(heuristicTitle('show me how to build a cart')).not.toMatch(/^me\b/i);
   });
   it('never returns the raw long prompt verbatim', () => {
     const raw = 'give me what language, algorithms, what architectural design for an ecommerce site';

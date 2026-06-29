@@ -97,4 +97,28 @@ describe('summarizeTitle (opencode)', () => {
     expect(await summarizeTitle('   ', spawn)).toBeNull();
     expect(spawn).not.toHaveBeenCalled();
   });
+
+  it('serializes runs — never two `opencode run` spawns active at once', async () => {
+    let active = 0;
+    let maxActive = 0;
+    const spawn = vi.fn((_bin: string, args: string[]) => {
+      const child = new EventEmitter() as FakeChild;
+      child.stdout = new EventEmitter();
+      child.kill = () => {};
+      const isRun = args[0] === 'run';
+      if (isRun) { active++; maxActive = Math.max(maxActive, active); }
+      setTimeout(() => {
+        child.stdout.emit('data', Buffer.from(jsonRun('Title')));
+        if (isRun) active--;
+        child.emit('close', 0);
+      }, 5);
+      return child;
+    }) as never;
+    await Promise.all([
+      summarizeTitle('task alpha one', spawn),
+      summarizeTitle('task beta two', spawn),
+      summarizeTitle('task gamma three', spawn),
+    ]);
+    expect(maxActive).toBe(1); // mutex held — no concurrent opencode runs
+  });
 });

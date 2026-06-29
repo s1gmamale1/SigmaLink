@@ -138,9 +138,19 @@ async function getFirstModel(bin: string, spawn: typeof spawnExecutable): Promis
   return list[0] ?? null;
 }
 
+// Serialize all opencode runs: concurrent `opencode run` invocations collide on
+// opencode's local session state (verified — one of four fails in ~1s under load),
+// so we queue them. A pane shows its instant heuristic while it waits its turn.
+let titleQueue: Promise<unknown> = Promise.resolve();
+function runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+  const result = titleQueue.then(fn, fn);
+  titleQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
 /**
  * Summarize a task prompt into a short title via opencode, or null on any failure.
- * `spawn` is injectable for tests.
+ * Serialized (one opencode run at a time). `spawn` is injectable for tests.
  */
 export async function summarizeTitle(
   text: string,
@@ -150,12 +160,13 @@ export async function summarizeTitle(
   const bin = await resolveOpencode();
   if (!bin) return null;
 
-  // Attempt 1 — opencode's default model (the user's configured/sub'd model).
-  const primary = await runOpencode(bin, text, null, spawn);
-  if (primary) return primary;
-
-  // Attempt 2 — first model opencode lists (self-healing fallback).
-  const first = await getFirstModel(bin, spawn);
-  if (!first) return null;
-  return runOpencode(bin, text, first, spawn);
+  return runExclusive(async () => {
+    // Attempt 1 — opencode's default model (the user's configured/sub'd model).
+    const primary = await runOpencode(bin, text, null, spawn);
+    if (primary) return primary;
+    // Attempt 2 — first model opencode lists (self-healing fallback).
+    const first = await getFirstModel(bin, spawn);
+    if (!first) return null;
+    return runOpencode(bin, text, first, spawn);
+  });
 }
