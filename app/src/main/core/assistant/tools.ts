@@ -220,6 +220,8 @@ const sLaunchPane = z.object({
   provider: z.string().min(1),
   count: z.number().int().min(1).max(8).optional(),
   initialPrompt: z.string().optional(),
+  autoApprove: z.boolean().optional(),
+  forceRamBrake: z.boolean().optional(),
 });
 const sPromptAgent = z.object({ sessionId: z.string().min(1), prompt: z.string() });
 const sReadPane = z.object({
@@ -424,11 +426,18 @@ export const TOOLS: ToolDefinition[] = [
         provider: { type: 'string' },
         count: { type: 'number', minimum: 1, maximum: 8 },
         initialPrompt: { type: 'string' },
+        autoApprove: { type: 'boolean' },
+        forceRamBrake: { type: 'boolean' },
       },
     },
     sLaunchPane,
     async (a, ctx) => {
       const count = a.count ?? 1;
+      // SF-8 parity — resolve autoApprove from arg → workspace Yolo KV default → false.
+      // KV key mirrors AddPaneButton.tsx: `pane.autoApprove.default.<workspaceId>`.
+      const wsId = ctx.defaultWorkspaceId;
+      const kvYolo = wsId ? (ctx.kvGet?.(`pane.autoApprove.default.${wsId}`) ?? null) : null;
+      const autoApprove = a.autoApprove ?? (kvYolo === '1' || kvYolo === 'true');
       const plan: LaunchPlan = {
         workspaceRoot: a.workspaceRoot,
         preset: pickPreset(count),
@@ -436,6 +445,7 @@ export const TOOLS: ToolDefinition[] = [
           paneIndex: i,
           providerId: a.provider,
           initialPrompt: a.initialPrompt,
+          autoApprove,
         })),
       };
       const out = await executeLaunchPlan(plan, {

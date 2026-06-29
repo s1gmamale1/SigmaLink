@@ -39,6 +39,8 @@ export const JORVIS_TOOL_CATALOGUE: JorvisCatalogueEntry[] = [
         provider: { type: 'string' },
         count: { type: 'number', minimum: 1, maximum: 8 },
         initialPrompt: { type: 'string' },
+        autoApprove: { type: 'boolean' },
+        forceRamBrake: { type: 'boolean' },
       },
     },
   },
