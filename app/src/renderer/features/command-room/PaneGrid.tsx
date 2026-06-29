@@ -314,29 +314,24 @@ export function PaneGrid({
                     data-bsp-hidden={isHidden ? 'true' : undefined}
                     onMouseDownCapture={() => onActivate(sid)}
                     // Flicker fix: every cell keeps a STABLE stacking context — a
-                    // non-auto z-index in BOTH states (z-0 idle, z-1 active). The old
-                    // code toggled z-index auto↔1, which created/destroyed a stacking
-                    // context around the terminal's GPU canvas on every focus switch;
-                    // Chromium then re-rasterized the canvas for one frame — the
-                    // "flickers like it re-renders itself" flash (on BOTH the newly-
-                    // active and newly-idle pane). With a constant z floor the toggle
-                    // only reorders paint, never re-parents the canvas layer.
+                    // non-auto z-index in BOTH states (z-0 idle, z-1 active). Toggling
+                    // z-index auto↔1 created/destroyed a stacking context around the
+                    // terminal's GPU canvas on every focus switch → Chromium
+                    // re-rasterized the canvas for one frame. A constant z floor means
+                    // the toggle only reorders paint, never re-parents the canvas.
                     //
-                    // The ring is ALWAYS present and only its COLOR changes
-                    // (transparent → accent) so no inset box-shadow geometry pops in/
-                    // out; `transition-shadow` eases the ring + the glass `.sl-pane-
-                    // active` bloom instead of hard-cutting them.
-                    // Theme-aware focus glow: `sl-pane-active` also applies when the
-                    // pane is FOCUSED (fullscreen), not just the in-grid active pane,
-                    // so the focused surface always reads as glowing. The glow itself
-                    // (universal, theme-coloured via --ring) lives in
-                    // glass-material.css `.sl-pane-active` — box-shadow only, so it
-                    // composes with the stable z-floor + transition-shadow above.
+                    // NO transition on the focus state — the focus glow appears/clears
+                    // INSTANTLY. (An earlier `transition-shadow` fade was itself the
+                    // perceived "flicker animation"; removed per operator.)
+                    //
+                    // Theme-aware focus glow (active OR fullscreen-focused): the glow
+                    // is a `.sl-pane-active::after` inset overlay in glass-material.css —
+                    // drawn on top of the terminal, inside the cell, so it glows on ALL
+                    // FOUR sides and is never clipped by the row's overflow-hidden nor
+                    // covered by neighbouring panes (an outer box-shadow was both).
                     className={[
-                      'relative min-h-0 min-w-0 overflow-hidden bg-card ring-1 ring-inset transition-shadow duration-150',
-                      isActive || isFocused
-                        ? 'sl-pane-active z-[1] ring-[hsl(var(--ring))]'
-                        : 'z-0 ring-transparent',
+                      'relative min-h-0 min-w-0 overflow-hidden bg-card',
+                      isActive || isFocused ? 'sl-pane-active z-[1]' : 'z-0',
                     ].join(' ')}
                     // Cells carry NO size style — the grid track sizes them. Only
                     // the fullscreen overlay / hidden-sibling branches set style,

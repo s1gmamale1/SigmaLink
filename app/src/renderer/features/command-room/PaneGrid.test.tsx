@@ -66,20 +66,21 @@ describe('PaneGrid', () => {
     }
   });
 
-  it('marks the active cell with the accent ring', async () => {
+  it('marks the active cell with the focus-glow class', async () => {
     renderGrid(['a', 'b'], null, 'b');
     await act(async () => {});
     const active = screen.getAllByTestId('pane-cell').find((c) => c.getAttribute('data-active') === 'true');
     expect(active?.getAttribute('data-session-id')).toBe('b');
-    expect(active?.className).toMatch(/ring-inset/);
+    // The theme-aware glow is the `.sl-pane-active::after` overlay (glass-material.css).
+    expect(active?.className).toMatch(/sl-pane-active/);
   });
 
   // Flicker fix regression guard: switching the active pane must NOT toggle a
   // cell's z-index between auto and a value (that create/destroyed a stacking
-  // context around the terminal's GPU canvas → one-frame re-raster flash).
-  // Every cell keeps a non-auto z floor (z-0 idle, z-1 active) and an always-
-  // present ring whose COLOR changes (no box-shadow geometry pop).
-  it('keeps a stable stacking context + always-on ring on every cell (no flicker)', async () => {
+  // context around the terminal's GPU canvas → one-frame re-raster flash), and
+  // there must be NO transition on the focus state (the earlier transition-shadow
+  // fade read as a flicker animation). Every cell keeps a non-auto z floor.
+  it('keeps a stable stacking context with no focus transition (no flicker)', async () => {
     renderGrid(['a', 'b'], null, 'b');
     await act(async () => {});
     const cells = screen.getAllByTestId('pane-cell');
@@ -92,11 +93,13 @@ describe('PaneGrid', () => {
     expect(idle.className).toMatch(/z-0/);
     expect(active.className).not.toMatch(/z-0/);
 
-    // Ring geometry is constant on every cell; only its colour toggles.
-    expect(active.className).toMatch(/ring-1 ring-inset/);
-    expect(idle.className).toMatch(/ring-1 ring-inset/);
-    expect(idle.className).toMatch(/ring-transparent/);
-    expect(active.className).toMatch(/ring-\[hsl\(var\(--ring\)\)\]/);
+    // Only the active/focused cell carries the glow class; idle does not.
+    expect(active.className).toMatch(/sl-pane-active/);
+    expect(idle.className).not.toMatch(/sl-pane-active/);
+
+    // No transition utility on the cell — focus glow is instant, not animated.
+    expect(active.className).not.toMatch(/transition/);
+    expect(idle.className).not.toMatch(/transition/);
   });
 
   it('fullscreen: focused cell overlays (absolute z-50), others mounted but hidden', async () => {
