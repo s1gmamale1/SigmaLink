@@ -34,6 +34,7 @@ import {
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch } from '@/renderer/app/state';
 import type { Swarm, Workspace } from '@/shared/types';
+import { countsTowardAgentCap, MAX_SWARM_AGENTS } from '@/shared/providers';
 import { worktreeModeKey } from '@/shared/worktree-mode';
 import type { AgentRuntimeProfileId } from '@/shared/runtime-profiles';
 import {
@@ -76,8 +77,11 @@ function getAddPaneDisabledReason(
   }
   // Spec 2026-06-10 (D): other non-running states (janitor 'failed', legacy
   // 'paused') no longer gate the button — addPane() auto-resumes on click.
-  if (activeSwarm.agents.length >= 20) {
-    return `Maximum 20 panes per swarm (current: ${activeSwarm.agents.length})`;
+  // Plain terminals (providerId 'shell') are NOT real agents and do not count
+  // toward the cap — only real-agent panes consume the budget.
+  const agentPaneCount = activeSwarm.agents.filter((a) => countsTowardAgentCap(a.providerId)).length;
+  if (agentPaneCount >= MAX_SWARM_AGENTS) {
+    return `Maximum ${MAX_SWARM_AGENTS} agents per swarm (current: ${agentPaneCount})`;
   }
   return null;
 }

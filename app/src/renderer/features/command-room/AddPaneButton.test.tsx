@@ -145,6 +145,7 @@ afterEach(() => {
 function makeSwarm(
   overrides: Partial<Swarm> = {},
   agentCount = 0,
+  providerId = 'claude',
 ): Swarm {
   return {
     id: 'swarm-1',
@@ -159,7 +160,7 @@ function makeSwarm(
       id: `agent-${i}`,
       swarmId: 'swarm-1',
       sessionId: `s-${i}`,
-      providerId: 'claude',
+      providerId,
       agentKey: `agent-${i}`,
       role: 'builder' as const,
       roleIndex: i,
@@ -241,10 +242,17 @@ describe('AddPaneButton — disabled reason pill', () => {
     expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
   });
 
-  it('1c: shows pill "Maximum 20 panes" when agent count reaches 20', async () => {
+  it('1c: shows pill "Maximum 20 agents" when real-agent count reaches 20', async () => {
     await renderAddPaneButton({ activeSwarm: makeSwarm({}, 20) });
     const pill = screen.getByTestId('add-pane-disabled-reason');
-    expect(pill.textContent).toContain('Maximum 20 panes per swarm');
+    expect(pill.textContent).toContain('Maximum 20 agents per swarm');
+  });
+
+  it('1c-shell: NO pill when 20 panes are all plain terminals (shell)', async () => {
+    // Plain terminals do not count toward the agent cap, so a swarm of 20
+    // shells leaves the +Pane button enabled.
+    await renderAddPaneButton({ activeSwarm: makeSwarm({}, 20, 'shell') });
+    expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
   });
 
   it('2: pill is NOT rendered when swarm is running with < 20 agents', async () => {
