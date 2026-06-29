@@ -676,22 +676,21 @@ describe('PaneHeader name + task label (separate slots)', () => {
     expect((screen.getByTestId('pane-task-label').textContent ?? '').trim()).toBe('');
   });
 
-  it('a typed prompt shows the "titling…" placeholder, NOT the raw prompt', () => {
+  it('a typed prompt shows an instant heuristic title (not the raw ramble, no titling…)', () => {
     render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l1', name: null, initialPrompt: undefined })} />);
-    act(() => typePrompt('l1', 'wire up the gateway with a long rambling prompt'));
+    const raw = 'build a robust ecommerce website with cart and checkout flows';
+    act(() => typePrompt('l1', raw));
     const label = screen.getByTestId('pane-task-label');
-    expect(label.textContent).toContain('titling');
-    expect(label.textContent).not.toContain('wire up the gateway');
+    expect((label.textContent ?? '').trim().length).toBeGreaterThan(0);
+    expect(label.textContent).not.toContain('titling');
+    expect(label.textContent).not.toBe(raw); // not the raw long prompt
   });
 
-  it('a SIGMA::LABEL resolves the titling… placeholder to the real label', () => {
+  it('a SIGMA::LABEL upgrades the heuristic to the clean agent title', () => {
     render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l2', name: null, initialPrompt: undefined })} />);
-    act(() => typePrompt('l2', 'some long raw prompt the operator typed'));
-    expect(screen.getByTestId('pane-task-label').textContent).toContain('titling');
+    act(() => typePrompt('l2', 'some long raw prompt the operator typed here'));
     act(() => onAgentLabel('l2', 'Refactor Tokens'));
-    const t = screen.getByTestId('pane-task-label').textContent ?? '';
-    expect(t).toContain('Refactor Tokens');
-    expect(t).not.toContain('titling');
+    expect(screen.getByTestId('pane-task-label').textContent).toContain('Refactor Tokens');
   });
 
   it('label shows Claude SIGMA::LABEL', () => {

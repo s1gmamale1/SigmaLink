@@ -1,24 +1,22 @@
-// Pane title orchestrator — decides the LABEL for each pane from two sources,
-// provider-agnostically:
+// Pane title orchestrator. Decides the LABEL for each pane, free + provider-agnostic:
 //
-//   1. Agent self-label (SIGMA::LABEL) — Claude emits it; label-reader routes it
-//      here via onAgentLabel(). Highest quality; wins instantly and cancels any
-//      pending summary.
-//   2. Haiku summarizer — for providers that DON'T self-label (codex/gemini/
-//      cursor) or a Claude pane that hasn't emitted yet. On a submitted prompt we
-//      show a "titling…" placeholder, wait TITLE_WAIT_MS for a SIGMA::LABEL, and
-//      if none arrives call rpc.paneTitle.summarize (one-shot `claude -p haiku`).
+//   onPrompt → set an INSTANT heuristic title (cleaned first words) so the pane is
+//     never blank/raw, then after a short grace window upgrade it via the opencode
+//     summarizer (rpc.paneTitle.summarize → `opencode run`, free) UNLESS a
+//     SIGMA::LABEL already arrived.
+//   onAgentLabel → a SIGMA::LABEL from the pane's own agent (label-reader); the
+//     cleanest source — it wins instantly and cancels the summarizer. Deduped so a
+//     stale buffered sentinel re-firing on a later prompt can't clobber the title.
 //
-// The raw prompt is NO LONGER a sticky label — only the source for the summary,
-// with a truncated-prompt fallback if the summarizer fails. A new prompt RESETS
-// the cycle (re-title every prompt). A per-session generation counter drops stale
-// timers/in-flight summaries when a newer prompt or an agent label supersedes.
-//
-// Single writer to the pane-labels store (setAgentLabel) for the LABEL slot.
+// Single writer to the pane-labels store (setAgentLabel). A per-session generation
+// counter drops stale timers / in-flight summaries when a newer prompt or a fresh
+// SIGMA::LABEL supersedes.
 
-import { setAgentLabel, summarizePrompt } from '@/renderer/lib/pane-labels';
+import { setAgentLabel, heuristicTitle } from '@/renderer/lib/pane-labels';
 import { rpcSilent } from '@/renderer/lib/rpc';
 
+// Grace window: let a self-labeling agent (claude) emit SIGMA::LABEL before we
+// spend an opencode call. Non-self-labelers just wait this out then get the summary.
 export const TITLE_WAIT_MS = 3_000;
 
 interface TitleState {
@@ -28,55 +26,27 @@ interface TitleState {
 }
 
 const states = new Map<string, TitleState>();
-const pending = new Map<string, boolean>();
-const pendingSubs = new Map<string, Set<() => void>>();
+// Last SIGMA::LABEL value consumed per session — dedupes the label-reader re-firing
+// the SAME sentinel (still in scrollback) after a new prompt set the heuristic.
+const lastAgentLabel = new Map<string, string>();
 
-function notifyPending(sessionId: string): void {
-  const set = pendingSubs.get(sessionId);
-  if (set) for (const cb of set) cb();
-}
-
-function setPending(sessionId: string, value: boolean): void {
-  if ((pending.get(sessionId) ?? false) === value) return;
-  if (value) pending.set(sessionId, true);
-  else pending.delete(sessionId);
-  notifyPending(sessionId);
-}
-
-/** True while a title is being resolved (show the "titling…" placeholder). */
-export function isPaneTitlePending(sessionId: string): boolean {
-  return pending.get(sessionId) ?? false;
-}
-
-export function subscribePaneTitlePending(sessionId: string, cb: () => void): () => void {
-  let set = pendingSubs.get(sessionId);
-  if (!set) { set = new Set(); pendingSubs.set(sessionId, set); }
-  set.add(cb);
-  return () => {
-    const s = pendingSubs.get(sessionId);
-    if (!s) return;
-    s.delete(cb);
-    if (s.size === 0) pendingSubs.delete(sessionId);
-  };
-}
-
-/** A submitted prompt — start the title cycle (placeholder + summary fallback). */
+/** A submitted prompt — set the instant heuristic, schedule the summarizer upgrade. */
 export function onPrompt(sessionId: string, promptText: string): void {
   const clean = promptText.trim();
   if (!clean) return;
   const prev = states.get(sessionId);
   if (prev?.timer) clearTimeout(prev.timer);
   const gen = (prev?.gen ?? 0) + 1;
-  setPending(sessionId, true);
+  // Instant floor — never blank, never the raw ramble.
+  setAgentLabel(sessionId, heuristicTitle(clean));
   const timer = setTimeout(() => { void runSummary(sessionId, gen); }, TITLE_WAIT_MS);
   states.set(sessionId, { gen, timer, prompt: clean });
 }
 
 async function runSummary(sessionId: string, gen: number): Promise<void> {
   const st = states.get(sessionId);
-  if (!st || st.gen !== gen) return; // superseded by a newer prompt / agent label
+  if (!st || st.gen !== gen) return; // superseded by a newer prompt or a SIGMA::LABEL
   st.timer = null;
-  if (!isPaneTitlePending(sessionId)) return; // an agent label already resolved it
 
   let title: string | null = null;
   try {
@@ -86,40 +56,34 @@ async function runSummary(sessionId: string, gen: number): Promise<void> {
     title = null;
   }
 
-  // Re-check after the await: a newer prompt or an agent label may have landed.
   const cur = states.get(sessionId);
-  if (!cur || cur.gen !== gen) return;
-  if (!isPaneTitlePending(sessionId)) return;
-
-  // Summary, else a truncated-prompt fallback (never the full raw prompt).
-  const label = title ?? summarizePrompt(st.prompt) ?? st.prompt.slice(0, 60);
-  setAgentLabel(sessionId, label);
-  setPending(sessionId, false);
+  if (!cur || cur.gen !== gen) return; // a newer prompt / SIGMA::LABEL landed mid-await
+  if (title) setAgentLabel(sessionId, title); // else keep the heuristic floor
 }
 
-/** A SIGMA::LABEL arrived (from label-reader) — it wins instantly. */
+/** A SIGMA::LABEL arrived from the pane's own agent (label-reader). Cleanest source. */
 export function onAgentLabel(sessionId: string, text: string): void {
+  if (lastAgentLabel.get(sessionId) === text) return; // stale buffered re-fire — ignore
+  lastAgentLabel.set(sessionId, text);
   const st = states.get(sessionId);
   if (st) {
     if (st.timer) { clearTimeout(st.timer); st.timer = null; }
-    st.gen += 1; // invalidate any in-flight summary for this session
+    st.gen += 1; // invalidate any in-flight summary
   }
-  setPending(sessionId, false);
   setAgentLabel(sessionId, text);
 }
 
-/** Permanent removal (pane closed). Clears timer + pending. The LABEL itself is
- *  cleared via clearAgentLabel in the GC hook. */
+/** Permanent removal (pane closed). The LABEL itself is cleared via clearAgentLabel. */
 export function clearPaneTitle(sessionId: string): void {
   const st = states.get(sessionId);
   if (st?.timer) clearTimeout(st.timer);
   states.delete(sessionId);
-  setPending(sessionId, false);
+  lastAgentLabel.delete(sessionId);
 }
 
 /** Test-only: wipe all orchestrator state. */
 export function __resetPaneTitleOrchestrator(): void {
   for (const st of states.values()) if (st.timer) clearTimeout(st.timer);
   states.clear();
-  pending.clear();
+  lastAgentLabel.clear();
 }

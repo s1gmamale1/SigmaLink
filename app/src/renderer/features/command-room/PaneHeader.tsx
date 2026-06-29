@@ -43,7 +43,6 @@ import { Button } from '@/components/ui/button';
 import { PANE_DRAG_MIME } from '@/renderer/lib/pane-context-builder';
 import { agentColor } from '@/renderer/lib/workspace-color';
 import { subscribeAgentLabel, getAgentLabel, summarizePrompt } from '@/renderer/lib/pane-labels';
-import { isPaneTitlePending, subscribePaneTitlePending } from '@/renderer/lib/pane-title-orchestrator';
 import { derivePaneIdentity } from './pane-identity';
 import { PaneGearPopoverBody } from './PaneGearPopover';
 import { useCoachmark } from './use-coachmark';
@@ -150,13 +149,6 @@ export function PaneHeader({
   const agentLabel = useSyncExternalStore(
     useCallback((cb) => subscribeAgentLabel(session.id, cb), [session.id]),
     useCallback(() => getAgentLabel(session.id), [session.id]),
-  );
-
-  // "titling…" placeholder — true while the orchestrator resolves a title
-  // (waiting for SIGMA::LABEL, then the Haiku summarizer).
-  const titling = useSyncExternalStore(
-    useCallback((cb) => subscribePaneTitlePending(session.id, cb), [session.id]),
-    useCallback(() => isPaneTitlePending(session.id), [session.id]),
   );
 
   // Launch-prompt floor for the LABEL chain (see below).
@@ -329,14 +321,11 @@ export function PaneHeader({
             Accent-coloured per pane; empty (flex spacer) when the pane is idle. */}
         <span
           data-testid="pane-task-label"
-          className={cn(
-            'min-w-0 flex-1 truncate',
-            titling && 'text-muted-foreground animate-pulse italic',
-          )}
-          style={!titling && taskLabel ? { color: agentColor(session.id) } : undefined}
-          title={titling ? 'Resolving task title…' : (taskLabel ?? undefined)}
+          className="min-w-0 flex-1 truncate"
+          style={taskLabel ? { color: agentColor(session.id) } : undefined}
+          title={taskLabel ?? undefined}
         >
-          {titling ? 'titling…' : taskLabel}
+          {taskLabel}
         </span>
 
         {/* BSP-V2 — live cost + tok/s estimate badge.

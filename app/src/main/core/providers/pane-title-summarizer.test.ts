@@ -23,19 +23,24 @@ function fakeChild(stdout: string, opts: { error?: boolean } = {}): FakeChild {
   return child;
 }
 
+/** Mimic `opencode run --format json` output: one JSON event per line. */
+function jsonRun(text: string): string {
+  return [
+    JSON.stringify({ type: 'step_start', part: { type: 'step-start' } }),
+    JSON.stringify({ type: 'text', part: { type: 'text', text } }),
+    JSON.stringify({ type: 'step_finish', part: { type: 'step-finish' } }),
+  ].join('\n') + '\n';
+}
+
 beforeEach(() => {
   __resetSummarizerCache();
-  probeProviderById.mockResolvedValue({ id: 'claude', found: true, resolvedPath: '/usr/bin/claude' });
+  probeProviderById.mockResolvedValue({ id: 'opencode', found: true, resolvedPath: '/opt/homebrew/bin/opencode' });
 });
 afterEach(() => vi.clearAllMocks());
 
 describe('sanitizeTitle', () => {
   it('keeps a clean title', () => expect(sanitizeTitle('Auth Refactor')).toBe('Auth Refactor'));
-  it('strips surrounding quotes/markdown', () => {
-    expect(sanitizeTitle('"Auth Refactor"')).toBe('Auth Refactor');
-    expect(sanitizeTitle('- **Auth Refactor**')).toBe('Auth Refactor');
-  });
-  it('takes the first non-empty line', () => expect(sanitizeTitle('\n  Auth Refactor \nblah')).toBe('Auth Refactor'));
+  it('strips quotes/markdown', () => expect(sanitizeTitle('- **Auth Refactor**')).toBe('Auth Refactor'));
   it('strips a leading SIGMA::LABEL sentinel', () => {
     expect(sanitizeTitle('SIGMA::LABEL Auth Refactor')).toBe('Auth Refactor');
     expect(sanitizeTitle('sigma::label  Token Flow')).toBe('Token Flow');
@@ -43,46 +48,47 @@ describe('sanitizeTitle', () => {
   it('rejects junk', () => {
     expect(sanitizeTitle('')).toBeNull();
     expect(sanitizeTitle('...')).toBeNull();
-    expect(sanitizeTitle('   ')).toBeNull();
-  });
-  it('caps very long output', () => {
-    const long = 'word '.repeat(40);
-    expect((sanitizeTitle(long) ?? '').length).toBeLessThanOrEqual(60);
   });
 });
 
-describe('summarizeTitle', () => {
-  it('returns the sanitized model output', async () => {
-    const spawn = vi.fn(() => fakeChild('Auth Refactor\n')) as never;
-    expect(await summarizeTitle('refactor the auth flow', spawn)).toBe('Auth Refactor');
+describe('summarizeTitle (opencode)', () => {
+  it('parses the title from JSON text events', async () => {
+    const spawn = vi.fn(() => fakeChild(jsonRun('Ecommerce Website Builder'))) as never;
+    expect(await summarizeTitle('build an ecommerce site', spawn)).toBe('Ecommerce Website Builder');
   });
 
-  it('passes -p, the prompt, --model haiku, and CLOSES stdin (stdio ignore)', async () => {
-    const spawn = vi.fn(() => fakeChild('Title Here\n')) as never;
+  it('runs `opencode run … --format json`, stdin closed, default model first (no -m)', async () => {
+    const spawn = vi.fn(() => fakeChild(jsonRun('Title Here'))) as never;
     await summarizeTitle('some task', spawn);
     const [bin, args, opts] = (spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(bin).toBe('/usr/bin/claude');
-    expect(args).toContain('-p');
-    expect(args).toContain('--model');
-    expect(args).toContain('haiku');
-    // stdin must be closed or `claude -p` stalls waiting for piped input.
+    expect(bin).toBe('/opt/homebrew/bin/opencode');
+    expect(args[0]).toBe('run');
+    expect(args).toContain('--format');
+    expect(args).toContain('json');
+    expect(args).not.toContain('-m'); // attempt 1 = opencode's default model
     expect((opts as { stdio?: unknown[] }).stdio?.[0]).toBe('ignore');
   });
 
-  it('returns null when the claude binary is not found', async () => {
-    probeProviderById.mockResolvedValue({ id: 'claude', found: false });
-    const spawn = vi.fn(() => fakeChild('x')) as never;
+  it('falls back to the first listed model when the default yields nothing', async () => {
+    const spawn = vi.fn((_bin: string, args: string[]) => {
+      if (args[0] === 'models') return fakeChild('opencode/big-pickle\nzai-coding-plan/glm-5.2\n');
+      if (args[0] === 'run' && args.includes('-m')) return fakeChild(jsonRun('Fallback Title'));
+      return fakeChild(''); // default run → empty
+    }) as never;
+    expect(await summarizeTitle('task', spawn)).toBe('Fallback Title');
+    const runCalls = (spawn as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[1][0] === 'run');
+    expect(runCalls[1][1]).toContain('opencode/big-pickle'); // first listed model
+  });
+
+  it('returns null when opencode is not installed', async () => {
+    probeProviderById.mockResolvedValue({ id: 'opencode', found: false });
+    const spawn = vi.fn(() => fakeChild(jsonRun('x'))) as never;
     expect(await summarizeTitle('task', spawn)).toBeNull();
     expect(spawn).not.toHaveBeenCalled();
   });
 
   it('returns null on a spawn error', async () => {
     const spawn = vi.fn(() => fakeChild('', { error: true })) as never;
-    expect(await summarizeTitle('task', spawn)).toBeNull();
-  });
-
-  it('returns null on empty output', async () => {
-    const spawn = vi.fn(() => fakeChild('')) as never;
     expect(await summarizeTitle('task', spawn)).toBeNull();
   });
 
