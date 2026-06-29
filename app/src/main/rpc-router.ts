@@ -170,6 +170,8 @@ import { persistScrollback, loadScrollback, gcScrollback, makeScrollbackExitSink
 import { buildWindowsOpenShellArgs } from './core/util/windows-spawn';
 import { whenShellPathReady } from './core/util/shell-path';
 import { analyzeSessionRisk } from './core/ram-brake/session-risk';
+import { readRamBrakeCaps } from './core/ram-brake/admission';
+import { PendingEscalationStore } from './core/control/pending-escalations';
 
 interface SharedDeps {
   pty: PtyRegistry;
@@ -686,6 +688,11 @@ async function buildRouter() {
   const promptSink = new PromptSink();
   // viewportShadow: also read by get_app_state (Task 4)
   const viewportShadow = createViewportShadow();
+  // Task 4 — non-blocking escalation store. Created here (before appStateProvider)
+  // so appStateProvider.snapshot can list pending escalations in get_app_state.
+  const pendingEscalationsStore = new PendingEscalationStore({
+    notify: (req) => broadcast('control:escalation', req),
+  });
 
   // get_app_state provider — built once, passed into the assistant tool ctx.
   const appStateProvider = {
@@ -826,6 +833,36 @@ async function buildRouter() {
           viewport: () => viewportShadow.get(),
           derivePaneName,
           shapeSignature,
+          // Task 3 — RAM-brake capacity snapshot.
+          capacity: (wsId: string | null) => {
+            try {
+              const db = getRawDb();
+              const caps = readRamBrakeCaps(db);
+              const countLiveRaw = (workspaceId: string | null) => {
+                const whereWs = workspaceId ? 'AND workspace_id = ?' : '';
+                const args = workspaceId ? [workspaceId] : [];
+                const row = db
+                  .prepare(
+                    `SELECT COUNT(*) AS count FROM agent_sessions WHERE status IN ('starting','running') ${whereWs}`,
+                  )
+                  .get(...args) as { count?: number } | undefined;
+                return Number(row?.count ?? 0);
+              };
+              const liveAgents = countLiveRaw(null);
+              const workspaceLiveAgents = countLiveRaw(wsId);
+              return {
+                liveAgents,
+                cap: caps.maxTotalLiveAgents,
+                workspaceLiveAgents,
+                workspaceCap: caps.maxWorkspaceLiveAgents,
+                headroom: caps.maxTotalLiveAgents - liveAgents,
+              };
+            } catch {
+              return null;
+            }
+          },
+          // Task 4 — pending non-blocking escalations.
+          pendingEscalations: () => pendingEscalationsStore.listPending(),
         },
         opts,
       ),
@@ -2486,6 +2523,8 @@ async function buildRouter() {
       resume: (id: string) => swarmsCtl.resume(id),
       kill: (id: string) => swarmsCtl.kill(id),
     },
+    // Task 4 — non-blocking escalation store (external origin).
+    pendingEscalations: pendingEscalationsStore,
   });
   const assistantCtl = assistantBundle.controller;
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the
@@ -2801,7 +2840,13 @@ async function buildRouter() {
       stop: () => controlMcpHost.stop(),
       liveConnections: () => controlMcpHost.liveConnectionCount(),
       setBearer: (t) => { controlBearer = t; },
-      respondEscalation: (id, approved) => controlEscalator.resolve(id, approved),
+      respondEscalation: (id, approved) => {
+        // Legacy blocking escalations resolve via controlEscalator.
+        controlEscalator.resolve(id, approved);
+        // Task 4 non-blocking escalations resolve via pendingEscalationsStore;
+        // approve also auto-records a one-shot grant for the re-issue.
+        pendingEscalationsStore.resolveEscalation(id, approved);
+      },
       cancelEscalations: () => controlEscalator.cancelAll(),
       reportViewport: (patch) => viewportShadow.report(patch),
     }),
