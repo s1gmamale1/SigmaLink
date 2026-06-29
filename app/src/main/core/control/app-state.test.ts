@@ -120,7 +120,7 @@ describe('buildAppState', () => {
   it('includes capacity block when capacity dep is provided', () => {
     const snap = buildAppState(
       baseDeps({
-        capacity: (_workspaceId) => ({
+        capacity: () => ({
           liveAgents: 3,
           cap: 15,
           workspaceLiveAgents: 2,

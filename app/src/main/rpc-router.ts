@@ -1018,7 +1018,7 @@ async function buildRouter() {
       // them and fires this callback; we flip the DB status to 'error' and
       // broadcast pty:error so the pane chrome shows the same error state as a
       // crash (PaneShell error boundary + sidebar dot).
-      onCodexAuthError: (sessionId, _err) => {
+      onCodexAuthError: (sessionId) => {
         try {
           getDb()
             .update(agentSessions)

@@ -107,7 +107,7 @@ describe('withCodexSpawnLock', () => {
     // Fake timer — we fire it manually to simulate time advancing.
     const timers: Array<{ fn: () => void; id: number }> = [];
     let nextId = 0;
-    const fakeSet = (fn: () => void, _ms: number): number => {
+    const fakeSet = (fn: () => void): number => {
       const id = ++nextId;
       timers.push({ fn, id });
       return id;

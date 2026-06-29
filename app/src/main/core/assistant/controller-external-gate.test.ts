@@ -306,7 +306,7 @@ describe('external gate — controlFrozen kill-switch', () => {
 describe('external gate — non-blocking escalation (Task 4)', () => {
   it('external escalate-class tool returns needs_approval immediately (no 60s wait)', async () => {
     const { PendingEscalationStore } = await import('../control/pending-escalations');
-    let t = 1000;
+    const t = 1000;
     const store = new PendingEscalationStore({ now: () => t });
     const confirmDangerous = vi.fn(async () => true); // should NOT be awaited
     const { invoke } = makeInvoke({ pendingEscalations: store });
