@@ -11,7 +11,7 @@
 // submitted line overwrites, matching "re-title every prompt". Approximate by
 // design (cursor edits mid-line can desync the draft); good enough for a label.
 
-import { setAgentLabel } from '@/renderer/lib/pane-labels';
+import { onPrompt } from '@/renderer/lib/pane-title-orchestrator';
 
 // Draft safety cap (pre-sanitize) so a pathological paste/hold can't grow the
 // buffer unbounded; sanitizeLabel applies the final 80-char display cap.
@@ -43,8 +43,9 @@ function commit(sessionId: string): string | null {
     ? rawToLabel(raw)
     : null;
   if (!clean) return null;
-  // Shared store, last-writer-wins — SIGMA::LABEL and prompts feed the same slot.
-  setAgentLabel(sessionId, clean);
+  // Hand the prompt to the title orchestrator: it shows "titling…", waits for a
+  // SIGMA::LABEL, then summarizes (Haiku) if none arrives. Re-titles every prompt.
+  onPrompt(sessionId, clean);
   return clean;
 }
 

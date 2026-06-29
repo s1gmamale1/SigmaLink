@@ -36,6 +36,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
     kv: {
       get: vi.fn().mockResolvedValue('1'), // default: coachmark already seen
     },
+    paneTitle: { summarize: vi.fn().mockResolvedValue({ title: null }) },
   },
   // CheckpointPanel + PaneHeader BSP-O4 use onEvent for event subscriptions.
   onEvent: vi.fn(() => () => undefined),
@@ -637,6 +638,7 @@ describe('PaneHeader — BSP-O4 inline rename', () => {
 
 import { setAgentLabel, __resetAgentLabels } from '@/renderer/lib/pane-labels';
 import { feedPromptKey, __resetPromptCapture } from '@/renderer/lib/pane-prompt-capture';
+import { onAgentLabel, __resetPaneTitleOrchestrator } from '@/renderer/lib/pane-title-orchestrator';
 
 /** Type a prompt into a pane's capture and submit it (feeds the shared label). */
 function typePrompt(sessionId: string, text: string): void {
@@ -646,7 +648,7 @@ function typePrompt(sessionId: string, text: string): void {
 }
 
 describe('PaneHeader name + task label (separate slots)', () => {
-  afterEach(() => { __resetAgentLabels(); __resetPromptCapture(); });
+  afterEach(() => { __resetAgentLabels(); __resetPromptCapture(); __resetPaneTitleOrchestrator(); });
 
   // ── NAME (stable identity, the rename target) ──
   it('name shows the alias when there is no manual name', () => {
@@ -674,20 +676,22 @@ describe('PaneHeader name + task label (separate slots)', () => {
     expect((screen.getByTestId('pane-task-label').textContent ?? '').trim()).toBe('');
   });
 
-  it('label shows a typed prompt', () => {
+  it('a typed prompt shows the "titling…" placeholder, NOT the raw prompt', () => {
     render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l1', name: null, initialPrompt: undefined })} />);
-    act(() => typePrompt('l1', 'wire up the gateway'));
-    expect(screen.getByTestId('pane-task-label').textContent).toContain('wire up the gateway');
+    act(() => typePrompt('l1', 'wire up the gateway with a long rambling prompt'));
+    const label = screen.getByTestId('pane-task-label');
+    expect(label.textContent).toContain('titling');
+    expect(label.textContent).not.toContain('wire up the gateway');
   });
 
-  it('label RE-TITLES on every new prompt (no first-message lock)', () => {
+  it('a SIGMA::LABEL resolves the titling… placeholder to the real label', () => {
     render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l2', name: null, initialPrompt: undefined })} />);
-    act(() => typePrompt('l2', 'first task'));
-    expect(screen.getByTestId('pane-task-label').textContent).toContain('first task');
-    act(() => typePrompt('l2', 'second different task'));
+    act(() => typePrompt('l2', 'some long raw prompt the operator typed'));
+    expect(screen.getByTestId('pane-task-label').textContent).toContain('titling');
+    act(() => onAgentLabel('l2', 'Refactor Tokens'));
     const t = screen.getByTestId('pane-task-label').textContent ?? '';
-    expect(t).toContain('second different task');
-    expect(t).not.toContain('first task');
+    expect(t).toContain('Refactor Tokens');
+    expect(t).not.toContain('titling');
   });
 
   it('label shows Claude SIGMA::LABEL', () => {

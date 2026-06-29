@@ -299,6 +299,11 @@ export interface AppRouter {
       externalSessionId?: string | null;
     }) => Promise<SessionRiskReport>;
   };
+  /** Provider-agnostic pane-title summarizer (one-shot `claude -p --model haiku`).
+   *  Returns null on any failure; the renderer orchestrator falls back. */
+  paneTitle: {
+    summarize: (input: { text: string }) => Promise<{ title: string | null }>;
+  };
   providers: {
     list: () => Promise<
       Array<{ id: string; name: string; description: string; color: string; icon: string; installHint: string }>
