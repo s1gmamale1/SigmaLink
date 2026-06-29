@@ -195,7 +195,10 @@ describe('external gate — prompt_agent (provider-gated)', () => {
     });
     expect(out.ok).toBe(true);
     expect(confirmDangerous).not.toHaveBeenCalled();
-    expect(writeFn).toHaveBeenCalledWith('sess-claude', 'echo hi\r');
+    // settle-submit: body write then submit byte separately (two distinct PTY writes)
+    expect(writeFn).toHaveBeenCalledTimes(2);
+    expect(writeFn).toHaveBeenNthCalledWith(1, 'sess-claude', 'echo hi');
+    expect(writeFn).toHaveBeenNthCalledWith(2, 'sess-claude', '\r');
   });
 
   it('prompt_agent → codex provider → FREE', async () => {

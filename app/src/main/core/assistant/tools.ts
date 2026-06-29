@@ -42,6 +42,7 @@ import { assertAllowedPath, isInsideRoot } from '../security/path-guard';
 import { assertAgentNavigable } from '../browser/agent-guard';
 import { runCDP } from '../browser/cdp';
 import { encodeKeys } from '../control/key-encode';
+import { submitPrompt } from '../control/submit-encode';
 
 export interface ToolContext {
   pty: PtyRegistry;
@@ -129,6 +130,14 @@ export interface ToolContext {
    * get_app_state — holistic app snapshot provider (built in the router).
    */
   appState?: { snapshot(opts: { workspaceId?: string; allWorkspaces?: boolean }): unknown };
+  /**
+   * Control MCP — resolves the provider id (e.g. 'claude', 'codex') for a
+   * given session id. Used by `prompt_agent` to pick the correct submit byte
+   * (body + settle + separate Enter avoids the TUI paste-burst swallowing the
+   * trailing CR). Falls back to '' → CR when absent or when session is unknown.
+   * Injected by rpc-router from the same `SELECT provider_id` the authz gate uses.
+   */
+  resolveSessionProvider?: (sessionId: string) => string | null;
   /**
    * Robustness (2026-06-18 live-smoke) — direct main-side swarm controller for
    * the swarm-op tools (split_pane / send_message_to_agent / resume_swarm /
@@ -499,11 +508,12 @@ export const TOOLS: ToolDefinition[] = [
       if (!ctx.pty.isLive(a.sessionId)) {
         throw new Error(`prompt_agent: session not found or exited: ${a.sessionId}`);
       }
-      // Submit with '\r' (the Enter key), NOT '\n' (a literal line-feed). TUI
-      // agents (claude/codex/opencode) treat '\n' as a newline INSIDE the input
-      // and only '\r' submits — without this prompt_agent typed but never sent
-      // (live-smoke: callers had to follow with send_keys(['Enter'])).
-      ctx.pty.write(a.sessionId, a.prompt + '\r');
+      // Write the body first, settle into a distinct PTY read (avoids the TUI
+      // paste-burst detection swallowing the trailing CR on large prompts), then
+      // write the submit byte separately. Provider-keyed so a future divergence
+      // is one line in submit-encode.ts.
+      const providerId = ctx.resolveSessionProvider?.(a.sessionId) ?? '';
+      await submitPrompt((s) => ctx.pty.write(a.sessionId, s), providerId, a.prompt);
       return { ok: true };
     },
   ),

@@ -332,6 +332,7 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         // (including the MCP-host bridge path) gets them too.
         notifications: deps.notifications,
         broadcastPtyError: deps.broadcastPtyError,
+        resolveSessionProvider: deps.resolveSessionProvider,
         promptSink: deps.promptSink,
         appState: deps.appState,
         swarms: deps.swarms,

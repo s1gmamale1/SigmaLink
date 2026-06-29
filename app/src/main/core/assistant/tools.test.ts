@@ -1100,7 +1100,8 @@ describe('prompt_agent liveness', () => {
     expect(writes).toEqual([]);
   });
 
-  it('writes prompt + carriage return (Enter, to submit) to a live session', async () => {
+  it('writes body then submit byte separately (settle-submit avoids paste-burst swallow)', async () => {
+    vi.useFakeTimers();
     const writes: Array<[string, string]> = [];
     const ctx: ToolContext = {
       ...makeCtx([], 'ws-1'),
@@ -1110,11 +1111,15 @@ describe('prompt_agent liveness', () => {
         write: (id: string, d: string) => writes.push([id, d]),
       } as unknown as ToolContext['pty'],
     };
-    const out = (await findTool('prompt_agent')!.handler(
+    const handlerPromise = findTool('prompt_agent')!.handler(
       { sessionId: 's1', prompt: 'hi' },
       ctx,
-    )) as Record<string, unknown>;
+    );
+    await vi.runAllTimersAsync();
+    const out = (await handlerPromise) as Record<string, unknown>;
+    vi.useRealTimers();
     expect(out['ok']).toBe(true);
-    expect(writes).toEqual([['s1', 'hi\r']]);
+    // body first, then submit byte separately — two distinct PTY writes
+    expect(writes).toEqual([['s1', 'hi'], ['s1', '\r']]);
   });
 });
