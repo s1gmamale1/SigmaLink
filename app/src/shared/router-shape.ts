@@ -299,8 +299,8 @@ export interface AppRouter {
       externalSessionId?: string | null;
     }) => Promise<SessionRiskReport>;
   };
-  /** Provider-agnostic pane-title summarizer (one-shot `claude -p --model haiku`).
-   *  Returns null on any failure; the renderer orchestrator falls back. */
+  /** Provider-agnostic pane-title summarizer (raw HTTP to the local Ollama daemon,
+   *  cloud model). Returns null on any failure; the renderer keeps the pane name. */
   paneTitle: {
     summarize: (input: { text: string }) => Promise<{ title: string | null }>;
   };
