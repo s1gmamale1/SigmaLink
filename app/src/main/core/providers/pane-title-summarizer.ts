@@ -41,12 +41,16 @@ let triedStartServe = false;
 /** Best-effort: start `ollama serve` once if the daemon is down (it's light with
  *  no LOCAL model loaded — cloud models don't load weights locally). */
 function tryStartOllamaServe(): void {
-  if (triedStartServe) return;
+  if (triedStartServe || process.env.VITEST) return; // never spawn during tests
   triedStartServe = true;
   try {
-    spawn('ollama', ['serve'], { detached: true, stdio: 'ignore' }).unref();
+    const child = spawn('ollama', ['serve'], { detached: true, stdio: 'ignore' });
+    // ENOENT (not installed) arrives as an ASYNC 'error' event — swallow it, else
+    // it surfaces as an unhandled error. Caller falls back to name-only anyway.
+    child.on('error', () => { /* not installed / can't start */ });
+    child.unref();
   } catch {
-    /* not installed / can't start — caller falls back to name-only */
+    /* sync spawn failure — ignored */
   }
 }
 
