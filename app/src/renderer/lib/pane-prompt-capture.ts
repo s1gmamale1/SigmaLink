@@ -65,9 +65,9 @@ function commit(sessionId: string): string | null {
     ? rawToLabel(raw)
     : null;
   if (!clean || isLikelyAck(clean)) return null;
-  // Hand the prompt to the title orchestrator: it shows "titling…", waits for a
-  // SIGMA::LABEL, then summarizes (Haiku) if none arrives. Re-titles every prompt
-  // (routine acks are filtered above so they don't blank the title / spend Haiku).
+  // Hand the prompt to the title orchestrator: it summarizes via the Ollama-cloud
+  // model and sets the resulting title (the pane keeps its name until then). Re-
+  // titles every prompt (routine acks are filtered above so they don't re-title).
   onPrompt(sessionId, clean);
   return clean;
 }

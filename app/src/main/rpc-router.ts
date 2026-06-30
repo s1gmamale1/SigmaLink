@@ -2820,7 +2820,8 @@ async function buildRouter() {
   );
 
   const paneTitleCtl = defineController({
-    // Provider-agnostic title fallback — a one-shot Haiku summary of the prompt.
+    // Provider-agnostic pane title — summarize the prompt via the local Ollama
+    // daemon (cloud model). Returns null on any failure; renderer keeps the name.
     summarize: async ({ text }: { text: string }) => ({ title: await summarizeTitle(text) }),
   });
 

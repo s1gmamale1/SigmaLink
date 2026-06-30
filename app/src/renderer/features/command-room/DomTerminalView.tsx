@@ -14,6 +14,7 @@ import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
 import { encodeKeyEvent, encodePaste, isNativePasteCombo, shiftEnterNewline } from './input-encoder';
 import { feedPromptKey, feedPromptPaste } from '@/renderer/lib/pane-prompt-capture';
+import { countsTowardAgentCap } from '@/shared/providers';
 import { encodeSgrMouse, shouldReportMouse } from './mouse-encoder';
 import { getPlatform } from '@/renderer/lib/platform';
 import { useAppStateSelector } from '@/renderer/app/state';
@@ -86,6 +87,11 @@ export function DomTerminalView({
   const providerId = useAppStateSelector((s) =>
     s.sessions.find((sess) => sess.id === sessionId)?.providerId,
   );
+  // Privacy gate: only AGENT panes feed the title summarizer. Plain-shell panes
+  // (providerId 'shell') and any pane whose provider hasn't resolved yet never
+  // capture — so a secret/command typed into a terminal is never sent to the
+  // cloud titler. A plain terminal has no "task" to title anyway.
+  const titleCaptureEnabled = !!providerId && countsTowardAgentCap(providerId);
   useEffect(() => {
     wsIdRef.current = activeWorkspaceId;
   }, [activeWorkspaceId]);
@@ -365,9 +371,9 @@ export function DomTerminalView({
     // (`\x16` / CSI 2;2~) would leave DOM panes with no keyboard paste on
     // Windows. mac keeps Ctrl+V as readline quoted-insert (paste is Cmd+V).
     if (isNativePasteCombo(keyEvent, getPlatform() === 'darwin')) return;
-    // Capture typed prompts → pane LABEL (re-titles every prompt; SIGMA::LABEL
-    // refines it via the shared store, last-writer-wins).
-    feedPromptKey(sessionId, keyEvent);
+    // Capture typed prompts → pane LABEL (re-titles every prompt). Agent panes
+    // only — plain terminals never feed the cloud titler (privacy gate above).
+    if (titleCaptureEnabled) feedPromptKey(sessionId, keyEvent);
     const bytes = encodeKeyEvent(keyEvent, entry.engine.modes, {
       shiftEnterNewline: shiftEnterNewline(providerId),
     });
@@ -381,7 +387,7 @@ export function DomTerminalView({
     if (entry.ptyExited) return;
     const text = ev.clipboardData.getData('text');
     if (!text) return;
-    feedPromptPaste(sessionId, text);
+    if (titleCaptureEnabled) feedPromptPaste(sessionId, text);
     writeBytes(encodePaste(text, entry.engine.modes));
   };
 
