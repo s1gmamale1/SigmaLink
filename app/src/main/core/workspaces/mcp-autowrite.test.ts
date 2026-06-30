@@ -735,6 +735,70 @@ describe('writeWorkspaceMcpConfig', () => {
     expect(codex).toContain('url = "http://127.0.0.1:4317/mcp"');
   });
 
+  it('skipCodexStdio: preserves a user npx ruflo that is NOT @claude-flow (strict marker)', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const codexPath = path.join(home, '.codex', 'config.toml');
+    fs.mkdirSync(path.dirname(codexPath), { recursive: true });
+    // command = "npx" but a DIFFERENT package — must not be deleted by the prune.
+    fs.writeFileSync(
+      codexPath,
+      ['[mcp_servers.ruflo]', 'command = "npx"', 'args = ["-y", "my-custom-ruflo"]', ''].join('\n'),
+    );
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+      skipCodexStdio: true,
+    });
+
+    expect(result.codex).toBeNull();
+    expect(result.refused).toContain(codexPath);
+    expect(fs.readFileSync(codexPath, 'utf8')).toContain('my-custom-ruflo');
+  });
+
+  it('skipCodexStdio: prunes the managed Codex stdio block even when another provider is refused', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const claudePath = path.join(root, '.mcp.json');
+    const codexPath = path.join(home, '.codex', 'config.toml');
+    // Unrelated user-managed Claude ruflo entry → triggers the all-or-nothing refusal.
+    fs.writeFileSync(
+      claudePath,
+      JSON.stringify({ mcpServers: { ruflo: { command: 'uvx', args: ['custom'] } } }, null, 2) + '\n',
+    );
+    // Managed Codex stdio block (the leak) → must still be removed.
+    fs.mkdirSync(path.dirname(codexPath), { recursive: true });
+    fs.writeFileSync(
+      codexPath,
+      [
+        '[mcp_servers.ruflo]',
+        'command = "npx"',
+        'args = ["-y", "@claude-flow/cli@latest", "mcp", "start"]',
+        '',
+        '[mcp_servers.ruflo.env]',
+        'CLAUDE_FLOW_DIR = "/old/.claude-flow"',
+        '',
+      ].join('\n'),
+    );
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+      skipCodexStdio: true,
+    });
+
+    // Claude write refused (user entry preserved), but the Codex leak is pruned.
+    expect(result.claude).toBeNull();
+    expect(result.refused).toContain(claudePath);
+    expect(result.codex).toBe(codexPath);
+    expect(fs.readFileSync(codexPath, 'utf8')).not.toContain('[mcp_servers.ruflo]');
+    // The user's Claude entry is untouched.
+    expect(fs.readFileSync(claudePath, 'utf8')).toContain('uvx');
+  });
+
   it('HTTP mode: no-opts still writes stdio entries (regression)', () => {
     const root = tmpDir('sigmalink-ruflo-root-');
     const home = tmpDir('sigmalink-ruflo-home-');

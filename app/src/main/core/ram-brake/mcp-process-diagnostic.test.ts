@@ -88,6 +88,19 @@ describe('summarizeMcpProcesses', () => {
     expect(out.claudeFlowStdioCount).toBe(0);
   });
 
+  it('does not count equals-form HTTP transport flags (-t=http / --transport=http)', () => {
+    const dashT = summarizeMcpProcesses(buildSnapshot([
+      { pid: 100, ppid: 1, command: 'codex.exe', args: 'codex' },
+      { pid: 101, ppid: 100, command: 'npx.cmd', args: 'npx -y @claude-flow/cli@latest mcp start -t=http -p 4317' },
+    ]));
+    expect(dashT.claudeFlowStdioCount).toBe(0);
+    const longForm = summarizeMcpProcesses(buildSnapshot([
+      { pid: 100, ppid: 1, command: 'codex.exe', args: 'codex' },
+      { pid: 101, ppid: 100, command: 'npx.cmd', args: 'npx -y @claude-flow/cli@latest mcp start --transport=http -p 4317' },
+    ]));
+    expect(longForm.claudeFlowStdioCount).toBe(0);
+  });
+
   it('returns an empty summary for a null snapshot', () => {
     const out = summarizeMcpProcesses(null);
     expect(out.claudeFlowStdioCount).toBe(0);

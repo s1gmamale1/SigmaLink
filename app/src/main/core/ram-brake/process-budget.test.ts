@@ -57,4 +57,17 @@ describe('checkObservedProcessBudget', () => {
     expect(out.current.workspaceRssBytes).toBe(0);
     expect(out.current.totalRssBytes).toBe(9_000);
   });
+  it('does not attribute a workspaceId-less session to the launching workspace', () => {
+    // A scratch/swarm session with no workspaceId must not consume ws-a's budget:
+    // it counts only toward total, so workspace-rss does NOT trip even over the cap.
+    const out = checkObservedProcessBudget({
+      workspaceId: 'ws-a', force: false, caps: CAPS,
+      sessions: [
+        { sessionId: 'scratch', workspaceId: undefined, snapshot: tree(10, 9_000, 1) },
+      ],
+    });
+    expect(out.current.workspaceRssBytes).toBe(0);
+    expect(out.current.totalRssBytes).toBe(9_000);
+    expect(out.violations).not.toContain('workspace-rss');
+  });
 });

@@ -171,9 +171,21 @@ export function writeWorkspaceMcpConfig(
         ', ',
       )}`,
     );
+    // Windows leak containment is a REMOVAL, not a write: still strip a managed
+    // Codex stdio Ruflo block even when ANOTHER provider's user config makes us
+    // refuse the writes — otherwise an unrelated custom Claude/Gemini entry would
+    // leave the managed Codex stdio multiplier in place, defeating this feature.
+    // Skip when the Codex file itself is the user-managed one (already refused);
+    // removeManagedCodexRufloToml self-protects against the rest (strict check).
+    const codex =
+      ctx.port === undefined &&
+      opts.skipCodexStdio === true &&
+      !customEntries.includes(codexTarget)
+        ? removeManagedCodexRufloToml({ target: codexTarget, ctx })
+        : null;
     return {
       claude: null,
-      codex: null,
+      codex,
       gemini: null,
       kimi: null,
       opencode: null,
@@ -296,7 +308,10 @@ function removeManagedCodexRufloToml(args: { target: string; ctx: WriteContext }
   if (ranges.length === 0) return null;
   const mainRange = ranges.find((range) => range.header === 'mcp_servers.ruflo');
   const mainBlock = mainRange ? existing.slice(mainRange.start, mainRange.end) : '';
-  if (!isManagedTomlRufloBlock(mainBlock)) {
+  // Strict check: only delete a block unambiguously written by SigmaLink. A
+  // user-managed ruflo entry (incl. one that merely shares `command = "npx"`) is
+  // left untouched and recorded in `refused`.
+  if (!isSigmaLinkManagedCodexStdioBlock(mainBlock)) {
     warnRefusal(refused, logger, target, 'existing ruflo TOML entry is user-managed');
     return null;
   }
@@ -520,6 +535,32 @@ function renderCodexHttpBlock(port: number): string {
  */
 function isManagedTomlRufloBlock(block: string): boolean {
   if (parseTomlStringValue(block, 'command') === RUFLO_COMMAND) return true;
+  if (parseTomlStringValue(block, 'transport') === 'http') {
+    const url = parseTomlStringValue(block, 'url');
+    return typeof url === 'string' && RUFLO_HTTP_URL_RE.test(url);
+  }
+  return false;
+}
+
+/**
+ * Stricter sibling of {@link isManagedTomlRufloBlock} for the DESTRUCTIVE remove
+ * path ({@link removeManagedCodexRufloToml}). The overwrite path (writeCodexToml)
+ * treats ANY `command = "npx"` ruflo block as ours and self-heals it by REWRITING
+ * a working entry — tolerable because nothing is lost. Deletion is irreversible,
+ * so it demands a tighter signature: a stdio block must ALSO carry the
+ * `@claude-flow/cli` package SigmaLink always writes, so a user's own
+ * `command = "npx"` ruflo pointing at a different package is preserved, not
+ * silently deleted. (Older SigmaLink configs — e.g. the `mcp-stdio` subcommand —
+ * still match because they contain `@claude-flow/cli` too.) A managed localhost
+ * HTTP block also qualifies.
+ */
+function isSigmaLinkManagedCodexStdioBlock(block: string): boolean {
+  if (
+    parseTomlStringValue(block, 'command') === RUFLO_COMMAND &&
+    block.includes('@claude-flow/cli')
+  ) {
+    return true;
+  }
   if (parseTomlStringValue(block, 'transport') === 'http') {
     const url = parseTomlStringValue(block, 'url');
     return typeof url === 'string' && RUFLO_HTTP_URL_RE.test(url);
