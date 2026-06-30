@@ -223,8 +223,16 @@ export async function executeLaunchPlan(
   const liveSessions = await Promise.all(
     deps.pty.list().map(async (session) => ({
       sessionId: session.id,
+      // Live sessions that predate workspaceId tracking (e.g. swarm panes spawned
+      // via factory-spawn, which does not yet thread it) are attributed to the
+      // launching workspace. That can only OVER-count workspace RSS, i.e. err
+      // toward blocking — safe for a brake, bounded by the cap, and overridable
+      // via forceRamBrake.
       workspaceId: session.workspaceId ?? wsRow.id,
-      snapshot: await deps.pty.processSnapshotCached(session.id),
+      // Local fail-open: a snapshot hiccup must never crash a launch, regardless
+      // of processSnapshotCached's own error contract. A null snapshot already
+      // contributes 0 RSS and 0 MCP chains, so this stays fail-open.
+      snapshot: await deps.pty.processSnapshotCached(session.id).catch(() => null),
     })),
   );
   checkObservedProcessBudget({
