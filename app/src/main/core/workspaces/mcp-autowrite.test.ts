@@ -649,6 +649,92 @@ describe('writeWorkspaceMcpConfig', () => {
     expect(opencode.mcp?.ruflo?.environment).toBeUndefined();
   });
 
+  // ─── Task 4: skipCodexStdio (Windows containment) ───────────────────────────
+
+  it('skipCodexStdio: removes a managed codex ruflo table when no port given', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const codexPath = path.join(home, '.codex', 'config.toml');
+    fs.mkdirSync(path.dirname(codexPath), { recursive: true });
+    fs.writeFileSync(
+      codexPath,
+      [
+        '[model]',
+        'name = "gpt-5"',
+        '',
+        '[mcp_servers.ruflo]',
+        'command = "npx"',
+        'args = ["-y", "@claude-flow/cli@latest", "mcp", "start"]',
+        '',
+        '[mcp_servers.ruflo.env]',
+        'CLAUDE_FLOW_DIR = "/old/.claude-flow"',
+        '',
+        '[mcp_servers.browser]',
+        'transport = "http"',
+        'url = "http://127.0.0.1:1/mcp"',
+        '',
+      ].join('\n'),
+    );
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+      skipCodexStdio: true,
+    });
+
+    expect(result.codex).toBe(codexPath);
+    const codex = fs.readFileSync(codexPath, 'utf8');
+    // Unrelated tables preserved.
+    expect(codex).toContain('[model]');
+    expect(codex).toContain('[mcp_servers.browser]');
+    // Managed ruflo table AND its env sub-table removed.
+    expect(codex).not.toContain('[mcp_servers.ruflo]');
+    expect(codex).not.toContain('[mcp_servers.ruflo.env]');
+  });
+
+  it('skipCodexStdio: preserves a user-managed codex ruflo table (refused, untouched)', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+    const codexPath = path.join(home, '.codex', 'config.toml');
+    fs.mkdirSync(path.dirname(codexPath), { recursive: true });
+    const originalContent = [
+      '[mcp_servers.ruflo]',
+      'command = "uvx"',
+      'args = ["custom-ruflo"]',
+      '',
+    ].join('\n');
+    fs.writeFileSync(codexPath, originalContent);
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+      skipCodexStdio: true,
+    });
+
+    expect(result.refused).toContain(codexPath);
+    expect(fs.readFileSync(codexPath, 'utf8')).toContain('custom-ruflo');
+  });
+
+  it('skipCodexStdio: still writes HTTP codex ruflo when a port exists', () => {
+    const root = tmpDir('sigmalink-ruflo-root-');
+    const home = tmpDir('sigmalink-ruflo-home-');
+
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => false,
+      port: 4317,
+      skipCodexStdio: true,
+    });
+
+    expect(result.refused).toEqual([]);
+    const codex = fs.readFileSync(result.codex!, 'utf8');
+    expect(codex).toContain('transport = "http"');
+    expect(codex).toContain('url = "http://127.0.0.1:4317/mcp"');
+  });
+
   it('HTTP mode: no-opts still writes stdio entries (regression)', () => {
     const root = tmpDir('sigmalink-ruflo-root-');
     const home = tmpDir('sigmalink-ruflo-home-');

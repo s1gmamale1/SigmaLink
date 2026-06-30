@@ -76,6 +76,13 @@ export interface WorkspaceMcpWriteOptions {
    * an invalid value to get the default stdio mode.
    */
   port?: number;
+  /**
+   * Windows containment: when true AND no `port` is provided, do NOT write a managed
+   * Codex stdio Ruflo entry. Any existing SigmaLink-managed `mcp_servers.ruflo` table is
+   * REMOVED; a user-managed table is preserved and recorded in `refused`. Ignored when a
+   * `port` is provided (HTTP entry is still written normally).
+   */
+  skipCodexStdio?: boolean;
 }
 
 export interface WorkspaceMcpWriteResult {
@@ -176,7 +183,13 @@ export function writeWorkspaceMcpConfig(
   }
 
   const claude = writeJsonMcpFile({ target: claudeTarget, ctx });
-  const codex = writeCodexToml({ target: codexTarget, ctx });
+  // Windows containment — when skipCodexStdio is requested and we have no HTTP
+  // port, strip (never write) the managed Codex stdio Ruflo entry instead of
+  // writing one. The HTTP path (port defined) is unaffected.
+  const codex =
+    ctx.port === undefined && opts.skipCodexStdio === true
+      ? removeManagedCodexRufloToml({ target: codexTarget, ctx })
+      : writeCodexToml({ target: codexTarget, ctx });
   const gemini = writeJsonMcpFile({ target: geminiTarget, ctx });
   const kimi = kimiActive ? writeJsonMcpFile({ target: kimiTarget, ctx }) : null;
   const opencode = opencodeActive ? writeOpencodeMcpFile({ target: opencodeTarget, ctx }) : null;
@@ -260,6 +273,40 @@ function writeCodexToml(args: { target: string; ctx: WriteContext }): string | n
   const next = replaceTomlTables(existing, ranges, block);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   writeFileAtomic(target, next);
+  return target;
+}
+
+/**
+ * Windows containment counterpart to {@link writeCodexToml}: instead of writing
+ * a managed Codex stdio Ruflo entry, REMOVE any SigmaLink-managed
+ * `[mcp_servers.ruflo]` table (and its `[mcp_servers.ruflo.env]` sub-table).
+ *
+ * - No ruflo table present → no-op (returns null).
+ * - User-managed ruflo table → left untouched and recorded in `refused`
+ *   (defense-in-depth; the all-or-nothing gate in writeWorkspaceMcpConfig
+ *   already refuses such files before any writer runs).
+ * - Managed ruflo table(s) → stripped; unrelated tables (`[model]`,
+ *   `[mcp_servers.browser]`, …) are preserved. Returns the codex path.
+ */
+function removeManagedCodexRufloToml(args: { target: string; ctx: WriteContext }): string | null {
+  const { target, ctx } = args;
+  const { refused, logger } = ctx;
+  const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+  const ranges = findTomlTableRanges(existing, 'mcp_servers.ruflo');
+  if (ranges.length === 0) return null;
+  const mainRange = ranges.find((range) => range.header === 'mcp_servers.ruflo');
+  const mainBlock = mainRange ? existing.slice(mainRange.start, mainRange.end) : '';
+  if (!isManagedTomlRufloBlock(mainBlock)) {
+    warnRefusal(refused, logger, target, 'existing ruflo TOML entry is user-managed');
+    return null;
+  }
+  let next = existing;
+  for (const range of [...ranges].sort((a, b) => b.start - a.start)) {
+    next = next.slice(0, range.start) + next.slice(range.end);
+  }
+  next = next.trimEnd();
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  writeFileAtomic(target, next.length > 0 ? `${next}\n` : '');
   return target;
 }
 
