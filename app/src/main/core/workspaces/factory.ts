@@ -64,6 +64,44 @@ export interface RemoveWorkspaceDeps {
  */
 export const ENABLE_RUFLO_HTTP_DAEMON = false;
 
+/**
+ * Windows containment — opt-in KV flag that re-enables writing a SigmaLink-managed
+ * Codex *stdio* Ruflo MCP entry on Windows. Default OFF: on Windows, when no HTTP
+ * daemon port is available, we suppress (and strip) the managed Codex stdio entry
+ * to avoid a per-pane `npx … mcp start` process that leaks RAM. Operators who want
+ * it back set this KV to '1'.
+ */
+export const KV_RUFLO_CODEX_STDIO_MCP = 'ruflo.codexStdioMcp';
+
+/**
+ * Read a boolean KV flag: '0' → false, '1'/'true' → true, anything else (missing
+ * or unreadable) → `defaultValue`. Mirrors the (non-exported) readKvEnabled in
+ * ruflo-mcp-policy.ts so factory's gate uses identical semantics.
+ */
+function readKvEnabled(key: string, defaultValue: boolean): boolean {
+  try {
+    const row = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(key) as { value?: string } | undefined;
+    if (row?.value === '0') return false;
+    if (row?.value === '1' || row?.value === 'true') return true;
+    return defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
+/**
+ * Decide whether mcp-autowrite should skip (and strip) the managed Codex stdio
+ * Ruflo entry. Only on Windows, only when no HTTP port is available, and only
+ * while the opt-in KV (KV_RUFLO_CODEX_STDIO_MCP) is unset/disabled.
+ */
+function shouldSkipCodexStdioRuflo(port: number | undefined): boolean {
+  if (port !== undefined) return false;
+  if (process.platform !== 'win32') return false;
+  return !readKvEnabled(KV_RUFLO_CODEX_STDIO_MCP, false);
+}
+
 function rowToWorkspace(row: typeof workspaces.$inferSelect): Workspace {
   return {
     id: row.id,
@@ -141,7 +179,10 @@ export async function openWorkspaceNew(
           );
         }
       }
-      writeWorkspaceMcpConfig(abs, port !== undefined ? { port } : undefined);
+      writeWorkspaceMcpConfig(abs, {
+        ...(port !== undefined ? { port } : {}),
+        skipCodexStdio: shouldSkipCodexStdioRuflo(port),
+      });
       const autotrust = getRawDb()
         .prepare('SELECT value FROM kv WHERE key = ?')
         .get(KV_RUFLO_AUTOTRUST_MCP) as { value?: string } | undefined;
@@ -347,7 +388,10 @@ export async function openWorkspace(rootPath: string, deps: OpenWorkspaceDeps = 
           );
         }
       }
-      writeWorkspaceMcpConfig(abs, port !== undefined ? { port } : undefined);
+      writeWorkspaceMcpConfig(abs, {
+        ...(port !== undefined ? { port } : {}),
+        skipCodexStdio: shouldSkipCodexStdioRuflo(port),
+      });
       // SF-7 — auto-trust the bundled ruflo server (default-ON, opt-out, fail-open).
       const autotrust = getRawDb()
         .prepare('SELECT value FROM kv WHERE key = ?')
