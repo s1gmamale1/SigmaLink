@@ -115,4 +115,50 @@ describe('ControlMcpHost', () => {
     expect(got.error.message).toMatch(/too large/i);
     c.destroy(); host.stop();
   });
+
+  // Task 6(a) — protocol range validation
+  it('rejects control.hello with protocol > MAX (v2) with error code -32003 and closes the socket', async () => {
+    const socketPath = sock();
+    const host = new ControlMcpHost({ socketPath, getToken: () => 'secret', isFrozen: () => false, resolveInvoker: () => vi.fn(), escalate: async () => true });
+    await host.start();
+    const c = net.connect(socketPath);
+    const res = await rpc(c, { jsonrpc: '2.0', id: 1, method: 'control.hello', params: { token: 'secret', label: 'x', protocol: 2 } });
+    expect(res.error.code).toBe(-32003);
+    expect(res.error.message).toMatch(/unsupported/i);
+    // socket should be destroyed after rejection
+    await new Promise<void>((resolve) => { c.once('close', () => resolve()); setTimeout(resolve, 500); });
+    c.destroy(); host.stop();
+  });
+
+  it('rejects control.hello with protocol 0 (below MIN) with error code -32003 and closes the socket', async () => {
+    const socketPath = sock();
+    const host = new ControlMcpHost({ socketPath, getToken: () => 'secret', isFrozen: () => false, resolveInvoker: () => vi.fn(), escalate: async () => true });
+    await host.start();
+    const c = net.connect(socketPath);
+    const res = await rpc(c, { jsonrpc: '2.0', id: 1, method: 'control.hello', params: { token: 'secret', label: 'x', protocol: 0 } });
+    expect(res.error.code).toBe(-32003);
+    expect(res.error.message).toMatch(/unsupported/i);
+    await new Promise<void>((resolve) => { c.once('close', () => resolve()); setTimeout(resolve, 500); });
+    c.destroy(); host.stop();
+  });
+
+  it('accepts control.hello with protocol 1 (exact MAX)', async () => {
+    const socketPath = sock();
+    const host = new ControlMcpHost({ socketPath, getToken: () => 'secret', isFrozen: () => false, resolveInvoker: () => vi.fn(), escalate: async () => true });
+    await host.start();
+    const c = net.connect(socketPath);
+    const res = await rpc(c, { jsonrpc: '2.0', id: 1, method: 'control.hello', params: { token: 'secret', label: 'x', protocol: 1 } });
+    expect(res.result.ok).toBe(true);
+    c.destroy(); host.stop();
+  });
+
+  it('accepts control.hello with absent protocol (floor — forward-compat)', async () => {
+    const socketPath = sock();
+    const host = new ControlMcpHost({ socketPath, getToken: () => 'secret', isFrozen: () => false, resolveInvoker: () => vi.fn(), escalate: async () => true });
+    await host.start();
+    const c = net.connect(socketPath);
+    const res = await rpc(c, { jsonrpc: '2.0', id: 1, method: 'control.hello', params: { token: 'secret', label: 'x' } });
+    expect(res.result.ok).toBe(true);
+    c.destroy(); host.stop();
+  });
 });

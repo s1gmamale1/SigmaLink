@@ -278,12 +278,42 @@
   color: hsl(var(--primary));
 }
 
-/* ACTIVE PANE — Lane P applies `.sl-pane-active` alongside the flat-theme
-   hairline ring on the focused grid cell. On glass we layer a soft 12px bloom
-   in the ring colour so the active pane reads as the focused surface without an
-   opaque border. Flat themes (incl. the Clean family) ignore this rule and keep
-   just the hairline. */
-:root[data-theme^='glass'] .sl-pane-active {
-  box-shadow: 0 0 0 1px hsl(var(--ring)), 0 0 12px 2px hsl(var(--ring) / 0.22);
-  border-color: hsl(var(--ring));
+/* ACTIVE / FOCUSED PANE — universal theme-aware focus glow on ALL FOUR sides.
+   `--ring` is declared in every one of the 15 theme blocks in index.css
+   (always == --primary), so the glow auto-adopts the selected theme's accent
+   with zero JS.
+
+   Implemented as an `::after` OVERLAY (not a box-shadow on the cell) so the glow
+   is visible on every edge: an outer box-shadow gets clipped by the row's
+   `overflow-hidden` (top/bottom) and painted over by adjacent opaque panes
+   (left/right) — it only peeked out at the grid's outer rim. The overlay is
+   `position:absolute; inset:0` INSIDE the cell, painted ABOVE the terminal
+   (z-index) with INSET shadows, so the glow rings all four inner edges, is never
+   clipped, and never covered by neighbours. `pointer-events:none` keeps it
+   click-through. No transition — the glow appears/clears instantly (an earlier
+   `transition-shadow` fade read as a "flicker animation"). */
+.sl-pane-active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1.5px hsl(var(--ring)),
+    inset 0 0 18px 1px hsl(var(--ring) / 0.55);
+}
+
+/* Glass: the frosted backdrop diffuses the glow, so run it a touch stronger. */
+:root[data-theme^='glass'] .sl-pane-active::after {
+  box-shadow:
+    inset 0 0 0 1.5px hsl(var(--ring)),
+    inset 0 0 22px 2px hsl(var(--ring) / 0.6);
+}
+
+/* Reduced transparency: the alpha bloom is itself a transparency effect — collapse
+   it to a sharp hairline so the a11y preference is honoured. */
+@media (prefers-reduced-transparency: reduce) {
+  .sl-pane-active::after {
+    box-shadow: inset 0 0 0 1.5px hsl(var(--ring));
+  }
 }

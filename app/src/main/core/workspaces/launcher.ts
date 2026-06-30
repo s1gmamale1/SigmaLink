@@ -17,6 +17,7 @@ import type { AddInput } from '../notifications/manager';
 import { getSharedDeps } from '../../rpc-router';
 import { writeMcpConfigForAgent } from '../browser/mcp-config-writer';
 import { resolveAndSpawn, ProviderLaunchError } from '../providers/launcher';
+import { withCodexSpawnLock, resolveCodexHome } from '../control/codex-spawn-lock';
 import { whenShellPathReady } from '../util/shell-path';
 import { resolveSpawnRendererMode } from '../pty/spawn-renderer-mode';
 import { buildResumeArgs } from '../pty/resume-launcher';
@@ -475,7 +476,9 @@ export async function executeLaunchPlan(
       // assistant spawn) because providers/launcher.ts's resolveAndSpawn is a
       // sync callee reached only through here or the gated rpc-router handlers.
       await whenShellPathReady();
-      const spawnResult = resolveAndSpawn(
+      // Task 5 — serialize codex spawns to avoid OAuth refresh-token races.
+      // Non-codex providers call resolveAndSpawn directly (unchanged).
+      const doSpawn = () => resolveAndSpawn(
         { ptyRegistry: deps.pty },
         {
           providerId: provider.id,
@@ -509,6 +512,9 @@ export async function executeLaunchPlan(
           ),
         },
       );
+      const spawnResult = provider.id === 'codex'
+        ? await withCodexSpawnLock(resolveCodexHome(), () => Promise.resolve(doSpawn()))
+        : doSpawn();
       const rec = spawnResult.ptySession;
       const finalSessionId = rec.id;
       const effectiveProvider =

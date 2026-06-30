@@ -31,6 +31,7 @@ type InvokeTool = (input: {
   name: string;
   args: Record<string, unknown>;
   origin?: 'local' | 'telegram' | 'external';
+  clientLabel?: string;
   confirmDangerous?: (toolName: string, summary: string) => Promise<boolean>;
 }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
 
@@ -195,7 +196,10 @@ describe('external gate — prompt_agent (provider-gated)', () => {
     });
     expect(out.ok).toBe(true);
     expect(confirmDangerous).not.toHaveBeenCalled();
-    expect(writeFn).toHaveBeenCalledWith('sess-claude', 'echo hi\r');
+    // settle-submit: body write then submit byte separately (two distinct PTY writes)
+    expect(writeFn).toHaveBeenCalledTimes(2);
+    expect(writeFn).toHaveBeenNthCalledWith(1, 'sess-claude', 'echo hi');
+    expect(writeFn).toHaveBeenNthCalledWith(2, 'sess-claude', '\r');
   });
 
   it('prompt_agent → codex provider → FREE', async () => {
@@ -294,6 +298,122 @@ describe('external gate — controlFrozen kill-switch', () => {
       origin: 'external',
     });
     expect(out.ok).toBe(true);
+  });
+});
+
+// ── Task 4: non-blocking escalation (external origin with pendingEscalations) ──
+
+describe('external gate — non-blocking escalation (Task 4)', () => {
+  it('external escalate-class tool returns needs_approval immediately (no 60s wait)', async () => {
+    const { PendingEscalationStore } = await import('../control/pending-escalations');
+    const t = 1000;
+    const store = new PendingEscalationStore({ now: () => t });
+    const confirmDangerous = vi.fn(async () => true); // should NOT be awaited
+    const { invoke } = makeInvoke({ pendingEscalations: store });
+    const out = await invoke({
+      name: 'close_pane',
+      args: { sessionId: 'sess-1' },
+      origin: 'external',
+      confirmDangerous,
+    });
+    expect(out.ok).toBe(false);
+    // Returns a status:'needs_approval' result immediately (no blocking).
+    expect((out.result as { status: string })?.status).toBe('needs_approval');
+    expect((out.result as { escalationId: string })?.escalationId).toBeDefined();
+    // confirmDangerous is NOT called (non-blocking path).
+    expect(confirmDangerous).not.toHaveBeenCalled();
+  });
+
+  it('check_escalation reflects pending status', async () => {
+    const { PendingEscalationStore } = await import('../control/pending-escalations');
+    const store = new PendingEscalationStore({ now: () => 1000 });
+    const { invoke } = makeInvoke({ pendingEscalations: store });
+    const out = await invoke({
+      name: 'close_pane',
+      args: { sessionId: 'sess-1' },
+      origin: 'external',
+    });
+    const escalationId = (out.result as { escalationId: string }).escalationId;
+    // Poll check_escalation — should be pending.
+    const poll = await invoke({
+      name: 'check_escalation',
+      args: { escalationId },
+      origin: 'external',
+    });
+    expect(poll.ok).toBe(true);
+    expect((poll.result as { status: string }).status).toBe('pending');
+  });
+
+  it('approved escalation: re-issued call passes through (grant consumed)', async () => {
+    const { PendingEscalationStore } = await import('../control/pending-escalations');
+    const store = new PendingEscalationStore({ now: () => 1000 });
+    const ptyKill = vi.fn();
+    const { invoke } = makeInvoke({
+      pendingEscalations: store,
+      pty: {
+        write: vi.fn(),
+        kill: ptyKill,
+        has: vi.fn(() => true),
+        snapshot: vi.fn(() => ''),
+        isLive: vi.fn(() => true),
+      } as unknown as AssistantControllerDeps['pty'],
+    });
+    // 1. First call → needs_approval
+    const first = await invoke({
+      name: 'close_pane',
+      args: { sessionId: 'sess-1' },
+      origin: 'external',
+      clientLabel: 'bot',
+    });
+    expect(first.ok).toBe(false);
+    const escalationId = (first.result as { escalationId: string }).escalationId;
+    // 2. Operator approves → records one-shot grant
+    store.resolveEscalation(escalationId, true);
+    expect(store.checkEscalation(escalationId)).toBe('approved');
+    // 3. Re-issue the same call → grant consumed → FREE → executes
+    const second = await invoke({
+      name: 'close_pane',
+      args: { sessionId: 'sess-1' },
+      origin: 'external',
+      clientLabel: 'bot',
+    });
+    expect(second.ok).toBe(true);
+    expect(ptyKill).toHaveBeenCalledWith('sess-1');
+    // 4. A third call (grant consumed) → escalate again
+    const third = await invoke({
+      name: 'close_pane',
+      args: { sessionId: 'sess-1' },
+      origin: 'external',
+      clientLabel: 'bot',
+    });
+    expect(third.ok).toBe(false);
+    expect((third.result as { status: string })?.status).toBe('needs_approval');
+  });
+
+  it('local origin still blocks (unaffected by pendingEscalations store)', async () => {
+    const { PendingEscalationStore } = await import('../control/pending-escalations');
+    const store = new PendingEscalationStore({ now: () => 1000 });
+    const ptyKill = vi.fn();
+    const { invoke } = makeInvoke({
+      pendingEscalations: store,
+      pty: {
+        write: vi.fn(),
+        kill: ptyKill,
+        has: vi.fn(() => true),
+        snapshot: vi.fn(() => ''),
+        isLive: vi.fn(() => true),
+      } as unknown as AssistantControllerDeps['pty'],
+    });
+    // local origin: close_pane runs without any gate
+    const out = await invoke({
+      name: 'close_pane',
+      args: { sessionId: 'sess-1' },
+      origin: 'local',
+    });
+    expect(out.ok).toBe(true);
+    expect(ptyKill).toHaveBeenCalledWith('sess-1');
+    // pendingEscalations store is untouched
+    expect(store.listPending()).toHaveLength(0);
   });
 });
 

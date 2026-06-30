@@ -20,6 +20,7 @@ import { spawnLocalPty, resolveEffectiveSpawnMode, type PtyHandle, type SpawnInp
 import { RingBuffer } from './ring-buffer';
 import { detectLinks, type LinkHit } from './link-detector';
 import { extractSentinel, sliceSentinelCarry } from './sentinel';
+import { scanCodexAuthError } from './auth-error-scan';
 import {
   inspectProcessTree,
   stopProcessTree,
@@ -173,6 +174,17 @@ export interface PtyRegistryOptions {
    * stays vitest-loadable with no import of the concrete PromptSink class.
    */
   promptSink?: { feed(id: string, data: string): void; noteExit(id: string): void };
+  /**
+   * Task 5 — fired once per codex session on the first recognized auth-error
+   * signature in PTY output (`token_expired` / `refresh token` / `HTTP 401`).
+   *
+   * The handler is responsible for updating the DB status → 'error' and
+   * broadcasting `pty:error` to the renderer; the registry only maintains
+   * the in-memory `authErrors` map and fires this callback.
+   * Optional: absent → map is still updated; only the external side-effects
+   * (DB + IPC) are skipped.
+   */
+  onCodexAuthError?: (sessionId: string, err: { kind: string; atMs: number }) => void;
 }
 
 export class PtyRegistry {
@@ -187,6 +199,9 @@ export class PtyRegistry {
   private readonly onCliExited: CliExitedSink | null;
   private readonly onSessionExit: ((sessionId: string, snapshot: string) => void) | null;
   private readonly promptSink: { feed(id: string, data: string): void; noteExit(id: string): void } | null;
+  /** Task 5 — per-session codex auth error map. Keyed by session id. */
+  private readonly authErrors = new Map<string, { kind: string; atMs: number }>();
+  private readonly onCodexAuthError: ((sessionId: string, err: { kind: string; atMs: number }) => void) | null;
   constructor(onData: DataSink, onExit: ExitSink, opts: PtyRegistryOptions = {}) {
     this.onData = onData;
     this.onExit = onExit;
@@ -198,6 +213,7 @@ export class PtyRegistry {
     this.onCliExited = opts.onCliExited ?? null;
     this.onSessionExit = opts.onSessionExit ?? null;
     this.promptSink = opts.promptSink ?? null;
+    this.onCodexAuthError = opts.onCodexAuthError ?? null;
   }
 
   create(
@@ -281,6 +297,7 @@ export class PtyRegistry {
     const linkSink = this.onLinkDetected;
     const shouldDetectLinks = this.shouldDetectLinks;
     const cliExitedSink = this.onCliExited;
+    const codexAuthErrorSink = this.onCodexAuthError;
     // 2026-06-10 audit (finding 4) — per-session tail carried between PTY
     // reads so a sentinel split across two (or more) chunks still matches.
     // DETECTION-ONLY: bytes from a previous chunk were already forwarded to
@@ -348,6 +365,22 @@ export class PtyRegistry {
             linkSink(id, hit);
           } catch {
             /* never let a buggy listener break the data stream */
+          }
+        }
+      }
+      // Task 5 — codex auth-error scan. Only for codex panes; only on the first
+      // detection per session (subsequent chunks skip the regex entirely).
+      if (input.providerId === 'codex' && !this.authErrors.has(id)) {
+        const authErr = scanCodexAuthError(data);
+        if (authErr) {
+          const atMs = Date.now();
+          this.authErrors.set(id, { kind: authErr.kind, atMs });
+          if (codexAuthErrorSink) {
+            try {
+              codexAuthErrorSink(id, { kind: authErr.kind, atMs });
+            } catch {
+              /* never let an auth-error listener break the data stream */
+            }
           }
         }
       }
@@ -555,6 +588,17 @@ export class PtyRegistry {
     }
     rec.buffer.clear();
     this.sessions.delete(id);
+    // Task 5 — clean up auth error tracking when a session is forgotten.
+    this.authErrors.delete(id);
+  }
+
+  /**
+   * Task 5 — returns a snapshot of the per-session codex auth error map.
+   * Keyed by session id; value is `{ kind, atMs }` set on first detection.
+   * Used by `buildAppState` to surface `authError` per session.
+   */
+  authErrorSnapshot(): ReadonlyMap<string, { kind: string; atMs: number }> {
+    return new Map(this.authErrors);
   }
 
   /**

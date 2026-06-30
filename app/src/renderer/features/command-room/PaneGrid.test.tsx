@@ -66,12 +66,40 @@ describe('PaneGrid', () => {
     }
   });
 
-  it('marks the active cell with the accent ring', async () => {
+  it('marks the active cell with the focus-glow class', async () => {
     renderGrid(['a', 'b'], null, 'b');
     await act(async () => {});
     const active = screen.getAllByTestId('pane-cell').find((c) => c.getAttribute('data-active') === 'true');
     expect(active?.getAttribute('data-session-id')).toBe('b');
-    expect(active?.className).toMatch(/ring-inset/);
+    // The theme-aware glow is the `.sl-pane-active::after` overlay (glass-material.css).
+    expect(active?.className).toMatch(/sl-pane-active/);
+  });
+
+  // Flicker fix regression guard: switching the active pane must NOT toggle a
+  // cell's z-index between auto and a value (that create/destroyed a stacking
+  // context around the terminal's GPU canvas → one-frame re-raster flash), and
+  // there must be NO transition on the focus state (the earlier transition-shadow
+  // fade read as a flicker animation). Every cell keeps a non-auto z floor.
+  it('keeps a stable stacking context with no focus transition (no flicker)', async () => {
+    renderGrid(['a', 'b'], null, 'b');
+    await act(async () => {});
+    const cells = screen.getAllByTestId('pane-cell');
+    const active = cells.find((c) => c.getAttribute('data-active') === 'true')!;
+    const idle = cells.find((c) => c.getAttribute('data-active') !== 'true')!;
+
+    // Active is lifted (z-1); idle has a z-0 floor — both non-auto, so the
+    // stacking context exists in BOTH states and never churns on switch.
+    expect(active.className).toMatch(/z-\[1\]/);
+    expect(idle.className).toMatch(/z-0/);
+    expect(active.className).not.toMatch(/z-0/);
+
+    // Only the active/focused cell carries the glow class; idle does not.
+    expect(active.className).toMatch(/sl-pane-active/);
+    expect(idle.className).not.toMatch(/sl-pane-active/);
+
+    // No transition utility on the cell — focus glow is instant, not animated.
+    expect(active.className).not.toMatch(/transition/);
+    expect(idle.className).not.toMatch(/transition/);
   });
 
   it('fullscreen: focused cell overlays (absolute z-50), others mounted but hidden', async () => {
@@ -82,6 +110,10 @@ describe('PaneGrid', () => {
     expect(a.style.position).toBe('absolute');
     expect(a.style.zIndex).toBe('50');
     expect(b.style.display).toBe('none'); // sibling stays mounted (terminal preserved)
+    // The focused (fullscreen) pane carries the glow class too — the theme-aware
+    // `.sl-pane-active` glow keys off isActive OR isFocused, so a focused surface
+    // always reads as glowing.
+    expect(a.className).toMatch(/sl-pane-active/);
   });
 
   it('seeds resize fractions from persisted KV when the shape matches', async () => {

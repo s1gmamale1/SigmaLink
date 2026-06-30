@@ -28,6 +28,7 @@ import type { AgentSession, Role, Swarm, SwarmAgent } from '../../../shared/type
 import { agentKey as makeAgentKey } from './types';
 import { envelopeToInsert, parseProtocolLine, ProtocolLineBuffer } from './protocol';
 import { resolveAndSpawn } from '../providers/launcher';
+import { withCodexSpawnLock, resolveCodexHome } from '../control/codex-spawn-lock';
 import { resolveSpawnRendererMode } from '../pty/spawn-renderer-mode';
 import type { SwarmFactoryDeps } from './factory';
 import { workspaceCwdInWorktree } from '../workspaces/worktree-cwd';
@@ -399,32 +400,37 @@ export async function spawnAgentSession(
     !!(provider.oneshotArgs?.length),
     !!provider.initialPromptFlag,
   );
-  const spawnResult = resolveAndSpawn(
-    { ptyRegistry: args.deps.pty },
-    {
-      providerId: provider.id,
-      cwd,
-      cols: args.deps.defaultCols ?? 120,
-      rows: args.deps.defaultRows ?? 32,
-      showLegacy,
-      extraArgs,
-      // SF-8 — Yolo/Bypass: buildArgs appends provider.autoApproveFlag when true.
-      autoApprove: args.autoApprove ?? false,
-      // v1.5.5-A — pass pre-allocated UUID via preassignedSessionId (NOT
-      // sessionId) so registry.create uses it as the row id while keeping
-      // isResume=false → onPostSpawnCapture fires for disk-scan providers
-      // and shouldPreAssign still injects --session-id for claude/gemini.
-      preassignedSessionId: spawnSessionId,
-      // v1.5.5 — explicit: swarm agent spawns are always fresh (no sessionId).
-      isResume: false,
-      spawnMode,
-      // P1c — resolve the renderer mode at spawn so claude's #160 fullscreen
-      // injection is appended ONLY for xterm-mode panes (the DOM presenter
-      // wants inline). Fresh swarm spawns have no per-session override yet, so
-      // this resolves global default KV → shared DEFAULT_RENDERER_MODE.
-      rendererMode: resolveSpawnRendererMode(getRawDb(), spawnSessionId),
-    },
-  );
+  const doSpawn = () =>
+    resolveAndSpawn(
+      { ptyRegistry: args.deps.pty },
+      {
+        providerId: provider.id,
+        cwd,
+        cols: args.deps.defaultCols ?? 120,
+        rows: args.deps.defaultRows ?? 32,
+        showLegacy,
+        extraArgs,
+        // SF-8 — Yolo/Bypass: buildArgs appends provider.autoApproveFlag when true.
+        autoApprove: args.autoApprove ?? false,
+        // v1.5.5-A — pass pre-allocated UUID via preassignedSessionId (NOT
+        // sessionId) so registry.create uses it as the row id while keeping
+        // isResume=false → onPostSpawnCapture fires for disk-scan providers
+        // and shouldPreAssign still injects --session-id for claude/gemini.
+        preassignedSessionId: spawnSessionId,
+        // v1.5.5 — explicit: swarm agent spawns are always fresh (no sessionId).
+        isResume: false,
+        spawnMode,
+        // P1c — resolve the renderer mode at spawn so claude's #160 fullscreen
+        // injection is appended ONLY for xterm-mode panes (the DOM presenter
+        // wants inline). Fresh swarm spawns have no per-session override yet, so
+        // this resolves global default KV → shared DEFAULT_RENDERER_MODE.
+        rendererMode: resolveSpawnRendererMode(getRawDb(), spawnSessionId),
+      },
+    );
+  const spawnResult =
+    provider.id === 'codex'
+      ? await withCodexSpawnLock(resolveCodexHome(), () => Promise.resolve(doSpawn()))
+      : doSpawn();
   const rec = spawnResult.ptySession;
   const effectiveProvider = findProvider(spawnResult.providerEffective) ?? provider;
 

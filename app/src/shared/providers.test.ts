@@ -8,13 +8,16 @@
 import { describe, it, expect } from 'vitest';
 import {
   AGENT_PROVIDERS,
+  countsTowardAgentCap,
   findProvider,
   installCommandFor,
   isImageCapableProvider,
   listDetectable,
   listVisibleProviders,
+  MAX_SWARM_AGENTS,
   paneLabelArgs,
   PANE_LABEL_INSTRUCTION,
+  SHELL_PROVIDER_ID,
   type AgentProviderDefinition,
 } from './providers';
 
@@ -169,5 +172,22 @@ describe('paneLabelArgs (disabled — titling is decoupled from the agent)', () 
   });
   it('the instruction is empty (no transcript pollution)', () => {
     expect(PANE_LABEL_INSTRUCTION).toBe('');
+  });
+});
+
+describe('swarm agent cap helpers', () => {
+  it('real agent providers count toward the cap', () => {
+    expect(countsTowardAgentCap('claude')).toBe(true);
+    expect(countsTowardAgentCap('codex')).toBe(true);
+    expect(countsTowardAgentCap('gemini')).toBe(true);
+  });
+
+  it('the shell sentinel (plain terminal) does NOT count', () => {
+    expect(countsTowardAgentCap(SHELL_PROVIDER_ID)).toBe(false);
+    expect(countsTowardAgentCap('shell')).toBe(false);
+  });
+
+  it('MAX_SWARM_AGENTS is 20', () => {
+    expect(MAX_SWARM_AGENTS).toBe(20);
   });
 });

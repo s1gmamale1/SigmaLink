@@ -91,6 +91,17 @@ export interface RawNotif {
   readAt: number | null;
 }
 
+export interface CapacitySnapshot {
+  liveAgents: number;
+  cap: number;
+  workspaceLiveAgents: number;
+  workspaceCap: number;
+  /** Global headroom: cap - liveAgents. */
+  headroom: number;
+  /** Workspace-scoped headroom: workspaceCap - workspaceLiveAgents. */
+  workspaceHeadroom: number;
+}
+
 export interface AppStateDeps {
   listWorkspaces: () => RawWorkspace[];
   getOpenWorkspaceIds: () => string[];
@@ -107,6 +118,23 @@ export interface AppStateDeps {
   viewport: () => ViewportShadow;
   derivePaneName: (s: { id: string; name: string | null }) => string;
   shapeSignature: (orderedIds: string[]) => string;
+  /**
+   * RAM-brake capacity snapshot (control-plane Task 3). Optional: absent →
+   * capacity is null in the snapshot (degrades gracefully). A failing read
+   * is also swallowed by safe() and produces null — never throws the snapshot.
+   */
+  capacity?: (workspaceId: string | null) => CapacitySnapshot | null;
+  /**
+   * Task 4 — pending non-blocking escalations. Optional: absent → empty list.
+   * Wrapped in safe() so a failing read never throws the whole snapshot.
+   */
+  pendingEscalations?: () => Array<{ id: string; toolName: string; summary: string; requestedAt: number }>;
+  /**
+   * Task 5 — per-session codex auth errors (read from PtyRegistry.authErrorSnapshot).
+   * Optional: absent → authError is null for all sessions. A failing read is
+   * swallowed by safe() — never throws the snapshot.
+   */
+  authErrors?: () => ReadonlyMap<string, { kind: string; atMs: number }>;
   now?: () => number;
 }
 
@@ -132,6 +160,8 @@ export interface AppStateSnapshotSession {
   splitDirection: 'horizontal' | 'vertical' | null;
   splitIndex: 0 | 1 | null;
   attentionTs: number | null;
+  /** Task 5 — first codex auth error detected in this pane's PTY output; null for all other panes. */
+  authError: { kind: string; atMs: number } | null;
   swarmId: string | null;
   agentKey: string | null;
   swarmRole: string | null;
@@ -177,6 +207,10 @@ export interface AppStateSnapshot {
       };
   notifications: { unreadCount: number; recent: RawNotif[] };
   windows: Array<{ windowId: number; isMain: boolean; workspaceIds: string[] }>;
+  /** RAM-brake capacity (Task 3). Null when the dep is absent or its read fails. */
+  capacity: CapacitySnapshot | null;
+  /** Pending non-blocking escalations (Task 4). Empty when the dep is absent. */
+  pendingEscalations: Array<{ id: string; tool: string; summary: string; requestedAt: number }>;
 }
 
 const EMPTY_VIEWPORT: ViewportShadow = {
@@ -213,6 +247,12 @@ export function buildAppState(
       : [];
 
   const attn = safe(() => deps.attention(), new Map<string, { ts: number; reason: string }>());
+  // Task 5 — codex auth errors, keyed by session id. Wrapped in safe() so a
+  // failing read degrades to an empty map and never throws the whole snapshot.
+  const authErrMap = safe(
+    () => (deps.authErrors ? deps.authErrors() : new Map<string, { kind: string; atMs: number }>()),
+    new Map<string, { kind: string; atMs: number }>(),
+  );
 
   const rawSessions: RawSession[] = [];
   for (const wsId of wsScope) {
@@ -222,6 +262,7 @@ export function buildAppState(
   const sessions: AppStateSnapshotSession[] = rawSessions.map((s) => {
     const live = safe(() => deps.ptyAlive(s.id), { alive: false, pid: null });
     const a = attn.get(s.id);
+    const ae = authErrMap.get(s.id);
     return {
       sessionId: s.id,
       workspaceId: s.workspaceId,
@@ -244,6 +285,7 @@ export function buildAppState(
       splitDirection: s.splitDirection,
       splitIndex: s.splitIndex,
       attentionTs: a ? a.ts : null,
+      authError: ae ?? null,
       swarmId: s.swarmId,
       agentKey: s.agentKey,
       swarmRole: s.swarmRole,
@@ -290,6 +332,27 @@ export function buildAppState(
   const windows = safe(() => deps.windowScopes(), []);
   const detachedIds = windows.filter((w) => !w.isMain).flatMap((w) => w.workspaceIds);
 
+  // Task 3 — RAM-brake capacity block. Wrapped in safe() so a failing read
+  // never throws the whole snapshot (spec §9 defensive degradation).
+  const capacity = safe<CapacitySnapshot | null>(
+    () => (deps.capacity ? deps.capacity(targetWs) : null),
+    null,
+  );
+
+  // Task 4 — pending non-blocking escalations. Wrapped in safe() for resilience.
+  // Project to spec §5 shape: { id, tool, summary, requestedAt } — rename toolName→tool,
+  // drop clientLabel and any extra fields so external clients never see other clients' labels.
+  const pendingEscalations = safe<Array<{ id: string; tool: string; summary: string; requestedAt: number }>>(
+    () =>
+      (deps.pendingEscalations ? deps.pendingEscalations() : []).map((e) => ({
+        id: e.id,
+        tool: e.toolName,
+        summary: e.summary,
+        requestedAt: e.requestedAt,
+      })),
+    [],
+  );
+
   return {
     capturedAt: now(),
     viewportStale: viewport.viewportStale,
@@ -312,5 +375,7 @@ export function buildAppState(
     browser,
     notifications,
     windows,
+    capacity,
+    pendingEscalations,
   };
 }

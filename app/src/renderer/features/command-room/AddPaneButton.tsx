@@ -2,7 +2,8 @@
 //
 // Owns:
 //   - The +Pane button (Plus icon + chevron DropdownMenu)
-//   - `disabledReason` derivation (no workspace / swarms loading / swarm paused / 20-pane cap)
+//   - `disabledReason` derivation (no workspace / swarms loading / swarm completed);
+//     the agent cap disables only the real-agent provider items, never the trigger (PR #206)
 //   - Always-visible inline reason pill (data-testid="add-pane-disabled-reason")
 //   - Persistent error chip (data-testid="add-pane-error-chip", 10s timer, dismiss ×, unmount cleanup)
 //   - addPane() → rpc.swarms.addAgent (creates a default swarm first if none exists)
@@ -34,6 +35,7 @@ import {
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch } from '@/renderer/app/state';
 import type { Swarm, Workspace } from '@/shared/types';
+import { countsTowardAgentCap, MAX_SWARM_AGENTS } from '@/shared/providers';
 import { worktreeModeKey } from '@/shared/worktree-mode';
 import type { AgentRuntimeProfileId } from '@/shared/runtime-profiles';
 import {
@@ -47,7 +49,8 @@ function yoloKvKey(workspaceId: string): string {
   return `pane.autoApprove.default.${workspaceId}`;
 }
 
-// v1.13.1 — derive the human-readable reason why "+ Pane" is disabled.
+// v1.13.1 — derive the human-readable reason why "+ Pane" is HARD-disabled
+// (the whole trigger button is greyed out).
 //
 // Three-tier logic:
 //   1. No workspace open         → "Open or create a workspace first"
@@ -55,8 +58,13 @@ function yoloKvKey(workspaceId: string): string {
 //   2. Workspace open, swarms
 //      still loading            → "Loading workspace…" (transient, accurate)
 //   3. Workspace + swarm ready,
-//      swarm not running        → pause / cap messages
+//      swarm 'completed'        → "Swarm has ended" message
 //   4. Everything OK             → null (button enabled)
+//
+// PR #206: the agent cap is NO LONGER a hard-disable reason. Plain terminals
+// are uncapped and must stay reachable at the cap, so the cap is handled
+// separately (see `agentCapReached` in the component) and only disables the
+// real-agent provider items — never the whole trigger.
 //
 // Returns `null` during the in-flight `adding` window — the dropdown is
 // closing anyway and flashing a reason would be noise.
@@ -76,9 +84,6 @@ function getAddPaneDisabledReason(
   }
   // Spec 2026-06-10 (D): other non-running states (janitor 'failed', legacy
   // 'paused') no longer gate the button — addPane() auto-resumes on click.
-  if (activeSwarm.agents.length >= 20) {
-    return `Maximum 20 panes per swarm (current: ${activeSwarm.agents.length})`;
-  }
   return null;
 }
 
@@ -199,6 +204,21 @@ export function AddPaneButton({
   }
 
   const disabledReason = getAddPaneDisabledReason(activeWorkspace, activeSwarm, swarmsLoading, adding);
+
+  // PR #206 — Plain terminals are uncapped, so the agent cap must NOT disable
+  // the whole trigger (the "Plain terminal" item has to stay reachable). It
+  // disables only the real-agent provider items and surfaces a pill. Plain
+  // terminals (providerId 'shell') are not real agents and do not count toward
+  // the cap — only real-agent panes consume the budget.
+  const agentPaneCount = activeSwarm
+    ? activeSwarm.agents.filter((a) => countsTowardAgentCap(a.providerId)).length
+    : 0;
+  const agentCapReached =
+    !adding && !!activeSwarm && activeSwarm.status !== 'completed' && agentPaneCount >= MAX_SWARM_AGENTS;
+  const capPill = agentCapReached
+    ? `Maximum ${MAX_SWARM_AGENTS} agents per swarm (current: ${agentPaneCount})`
+    : null;
+  const reasonPill = disabledReason ?? capPill;
 
   async function addPane(
     providerId: string,
@@ -356,7 +376,7 @@ export function AddPaneButton({
             <DropdownMenuItem
               key={provider.id}
               onClick={() => void addPane(provider.id)}
-              disabled={adding}
+              disabled={adding || agentCapReached}
             >
               {provider.name}
             </DropdownMenuItem>
@@ -493,14 +513,14 @@ export function AddPaneButton({
           aria-live="polite" + role="status": SR announces the reason when
           it changes (no-workspace → paused → cap) without interrupting
           current speech. */}
-      {disabledReason && (
+      {reasonPill && (
         <span
           data-testid="add-pane-disabled-reason"
           aria-live="polite"
           role="status"
           className="text-[10px] italic text-muted-foreground/80"
         >
-          {disabledReason}
+          {reasonPill}
         </span>
       )}
       {/* DOGFOOD-V1.4.2-01 hypothesis 3 — persistent inline error chip.

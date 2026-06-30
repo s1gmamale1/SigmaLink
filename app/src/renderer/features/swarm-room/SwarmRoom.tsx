@@ -13,6 +13,7 @@ import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { EmptyState } from '@/renderer/components/EmptyState';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { RoleAssignment, Swarm } from '@/shared/types';
+import { countsTowardAgentCap, MAX_SWARM_AGENTS } from '@/shared/providers';
 import { SwarmCreate } from './SwarmCreate';
 import { RoleRoster } from './RoleRoster';
 import { SideChat } from './SideChat';
@@ -224,7 +225,8 @@ export function SwarmRoom() {
                 disabled={
                   busy ||
                   activeSwarm.status !== 'running' ||
-                  activeSwarm.agents.length >= 20
+                  activeSwarm.agents.filter((a) => countsTowardAgentCap(a.providerId)).length >=
+                    MAX_SWARM_AGENTS
                 }
                 className="gap-1"
               >

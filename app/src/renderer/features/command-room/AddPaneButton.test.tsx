@@ -145,6 +145,7 @@ afterEach(() => {
 function makeSwarm(
   overrides: Partial<Swarm> = {},
   agentCount = 0,
+  providerId = 'claude',
 ): Swarm {
   return {
     id: 'swarm-1',
@@ -159,7 +160,7 @@ function makeSwarm(
       id: `agent-${i}`,
       swarmId: 'swarm-1',
       sessionId: `s-${i}`,
-      providerId: 'claude',
+      providerId,
       agentKey: `agent-${i}`,
       role: 'builder' as const,
       roleIndex: i,
@@ -241,10 +242,37 @@ describe('AddPaneButton — disabled reason pill', () => {
     expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
   });
 
-  it('1c: shows pill "Maximum 20 panes" when agent count reaches 20', async () => {
+  it('1c: shows pill "Maximum 20 agents" when real-agent count reaches 20', async () => {
     await renderAddPaneButton({ activeSwarm: makeSwarm({}, 20) });
     const pill = screen.getByTestId('add-pane-disabled-reason');
-    expect(pill.textContent).toContain('Maximum 20 panes per swarm');
+    expect(pill.textContent).toContain('Maximum 20 agents per swarm');
+  });
+
+  it('1c-shell: NO pill when 20 panes are all plain terminals (shell)', async () => {
+    // Plain terminals do not count toward the agent cap, so a swarm of 20
+    // shells leaves the +Pane button enabled.
+    await renderAddPaneButton({ activeSwarm: makeSwarm({}, 20, 'shell') });
+    expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
+  });
+
+  it('1d: at 20 real agents the Plain terminal item stays enabled while agent items are disabled', async () => {
+    // PR #206: plain terminals are uncapped, so the agent cap must NOT
+    // hard-disable the +Pane trigger — only the real-agent provider items.
+    await renderAddPaneButton({ activeSwarm: makeSwarm({}, 20) });
+    // Trigger must be clickable (NOT disabled) so the dropdown can open.
+    const trigger = screen.getByRole('button', { name: /Pane/i });
+    expect((trigger as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(trigger);
+    // The mocked DropdownMenuItem reflects `disabled` as aria-disabled and does
+    // not forward data-testid, so match the plain-terminal item by its text.
+    const plain = screen.getByText('Plain terminal');
+    expect(plain.getAttribute('aria-disabled')).toBe('false');
+    const claudeItem = screen.getByRole('menuitem', { name: 'Claude' });
+    expect(claudeItem.getAttribute('aria-disabled')).toBe('true');
+    // The cap pill is still surfaced.
+    expect(screen.getByTestId('add-pane-disabled-reason').textContent).toContain(
+      'Maximum 20 agents per swarm',
+    );
   });
 
   it('2: pill is NOT rendered when swarm is running with < 20 agents', async () => {
