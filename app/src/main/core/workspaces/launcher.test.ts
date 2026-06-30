@@ -161,6 +161,11 @@ function makeTestDeps(worktreeCreateResult?: { worktreePath: string; branch: str
     kill: vi.fn(),
     forget: vi.fn(),
     write: vi.fn(),
+    // Task 5 — observed-process RAM-brake preflight enumerates live sessions
+    // and snapshots each. Default to an empty fleet + null snapshot so the
+    // preflight is a no-op and the existing launcher tests are unaffected.
+    list: vi.fn(() => []),
+    processSnapshotCached: vi.fn(async () => null),
   };
   const removeAndPrune = vi.fn().mockResolvedValue(undefined);
   const worktreePool = {
@@ -428,6 +433,63 @@ describe('executeLaunchPlan — CRIT-1/CRIT-2 twin-B: worktree cleanup on UNIQUE
     // No worktree was created (plain mode), so removeAndPrune must not be called.
     expect(removeAndPrune).not.toHaveBeenCalled();
     expect(sessions[0]!.status).toBe('error');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 5 — observed-process RAM-brake budget: block a launch when a live pane
+// already leaked duplicate claude-flow stdio MCP server chains. The preflight
+// runs AFTER admission but BEFORE any worktree/PTY side effect, so the launch
+// must reject before worktreePool.create is ever called.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('executeLaunchPlan — Task 5: observed-process RAM-brake budget', () => {
+  it('blocks launch when a live session already has duplicate claude-flow stdio MCP descendants', async () => {
+    const { deps } = makeTestDeps();
+
+    // A live pane in the SAME workspace the plan launches into, already carrying
+    // two independent claude-flow stdio MCP chains (both children of the root,
+    // a non-match, so they collapse to 2 distinct servers → duplicate).
+    deps.pty.list = vi.fn(() => [
+      {
+        id: 'live-1',
+        workspaceId: WS_ID,
+        providerId: 'codex',
+        cwd: '/repo',
+        pid: 10,
+        alive: true,
+      } as unknown as ReturnType<typeof deps.pty.list>[number],
+    ]);
+    deps.pty.processSnapshotCached = vi.fn(async () => ({
+      rootPid: 10,
+      supported: true,
+      rssBytes: 1024,
+      descendantPids: [11, 12],
+      nodes: [
+        { pid: 10, ppid: 1, rssBytes: 100, command: 'codex.exe', args: 'codex' },
+        { pid: 11, ppid: 10, rssBytes: 400, command: 'node.exe', args: 'node @claude-flow/cli/bin/cli.js mcp start' },
+        { pid: 12, ppid: 10, rssBytes: 400, command: 'node.exe', args: 'node @claude-flow/cli/bin/cli.js mcp start' },
+      ],
+    }));
+
+    // Standard git-workspace DB mocking — the FIRST admission check must PASS
+    // (empty agent_sessions, generous default caps) so the rejection we assert
+    // comes from the observed-process preflight, not admission.
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    await expect(executeLaunchPlan(makeGitPlan(), deps)).rejects.toThrow(
+      'RAM_BRAKE_OBSERVED_PROCESS_BUDGET:',
+    );
+    // No spawn side effects: the worktree must never have been created.
+    expect(deps.worktreePool.create).not.toHaveBeenCalled();
   });
 });
 

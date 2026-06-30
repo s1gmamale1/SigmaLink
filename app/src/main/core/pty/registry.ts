@@ -56,6 +56,13 @@ export interface SessionRecord {
   id: string;
   providerId: string;
   cwd: string;
+  /**
+   * Owning workspace id (RAM-brake observed-process budget). Optional so the
+   * many existing `create()` callers and SessionRecord mocks still compile;
+   * when present, the launcher's observed preflight attributes this session's
+   * RSS / MCP footprint to the right workspace.
+   */
+  workspaceId?: string;
   pid: number;
   alive: boolean;
   exitCode?: number;
@@ -219,6 +226,12 @@ export class PtyRegistry {
   create(
     input: {
       providerId: string;
+      /**
+       * Owning workspace id (RAM-brake observed-process budget). Optional so
+       * existing fresh-spawn/resume callers that have not threaded a workspace
+       * id keep compiling; stored verbatim on the SessionRecord.
+       */
+      workspaceId?: string;
       sessionId?: string;
       /**
        * v1.5.5-A — SigmaLink-internal DB session id for FRESH spawns.
@@ -433,6 +446,7 @@ export class PtyRegistry {
       id,
       providerId: input.providerId,
       cwd: input.cwd,
+      workspaceId: input.workspaceId,
       pid: pty.pid,
       alive: true,
       startedAt: Date.now(),

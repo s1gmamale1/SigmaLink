@@ -73,6 +73,14 @@ export interface ResolveAndSpawnOpts {
   cols?: number;
   rows?: number;
   env?: NodeJS.ProcessEnv;
+  /**
+   * Owning workspace id, forwarded onto the SessionRecord so the RAM-brake
+   * observed-process budget can attribute this pane's live RSS / MCP footprint
+   * to the right workspace. Optional — callers that omit it leave the record's
+   * `workspaceId` undefined (the launcher preflight then falls back to the
+   * launching workspace).
+   */
+  workspaceId?: string;
   /** Append `provider.autoApproveFlag` to args when true and a flag exists. */
   autoApprove?: boolean;
   /**
@@ -347,6 +355,9 @@ export function resolveAndSpawn(
     try {
       const ptySession = deps.ptyRegistry.create({
         sessionId: opts.sessionId,
+        // RAM-brake observed-process budget — carry the owning workspace id so
+        // the live session can be attributed to its workspace on later launches.
+        workspaceId: opts.workspaceId,
         // v1.5.5-A — fresh spawns supply a pre-allocated DB row id via
         // `preassignedSessionId`; this is forwarded as-is so the registry
         // uses it as the session id WITHOUT triggering isResume = true.
