@@ -1,124 +1,86 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EventEmitter } from 'node:events';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { summarizeTitle, sanitizeTitle, setTitleModels, __resetSummarizerCache } from './pane-title-summarizer';
 
-const probeProviderById = vi.fn();
-vi.mock('./probe', () => ({
-  probeProviderById: (id: string) => probeProviderById(id),
-}));
+afterEach(() => __resetSummarizerCache());
 
-import { summarizeTitle, sanitizeTitle, __resetSummarizerCache } from './pane-title-summarizer';
-
-type FakeChild = EventEmitter & { stdout: EventEmitter; kill: () => void };
-
-function fakeChild(stdout: string, opts: { error?: boolean } = {}): FakeChild {
-  const child = new EventEmitter() as FakeChild;
-  child.stdout = new EventEmitter();
-  child.kill = () => {};
-  queueMicrotask(() => {
-    if (opts.error) { child.emit('error', new Error('spawn failed')); return; }
-    if (stdout) child.stdout.emit('data', Buffer.from(stdout));
-    child.emit('close', 0);
+/** A fake fetch that returns the queued responses in order (one per call). */
+function fakeFetch(responses: Array<{ ok?: boolean; status?: number; body?: unknown } | Error>) {
+  let i = 0;
+  return vi.fn(async () => {
+    const r = responses[Math.min(i, responses.length - 1)];
+    i++;
+    if (r instanceof Error) throw r;
+    return {
+      ok: r.ok ?? true,
+      status: r.status ?? 200,
+      json: async () => r.body ?? {},
+    } as Response;
   });
-  return child;
 }
-
-/** Mimic `opencode run --format json` output: one JSON event per line. */
-function jsonRun(text: string): string {
-  return [
-    JSON.stringify({ type: 'step_start', part: { type: 'step-start' } }),
-    JSON.stringify({ type: 'text', part: { type: 'text', text } }),
-    JSON.stringify({ type: 'step_finish', part: { type: 'step-finish' } }),
-  ].join('\n') + '\n';
-}
-
-beforeEach(() => {
-  __resetSummarizerCache();
-  probeProviderById.mockResolvedValue({ id: 'opencode', found: true, resolvedPath: '/opt/homebrew/bin/opencode' });
-});
-afterEach(() => vi.clearAllMocks());
 
 describe('sanitizeTitle', () => {
-  it('keeps a clean title', () => expect(sanitizeTitle('Auth Refactor')).toBe('Auth Refactor'));
-  it('strips quotes/markdown', () => expect(sanitizeTitle('- **Auth Refactor**')).toBe('Auth Refactor'));
-  it('strips a leading SIGMA::LABEL sentinel', () => {
-    expect(sanitizeTitle('SIGMA::LABEL Auth Refactor')).toBe('Auth Refactor');
-    expect(sanitizeTitle('sigma::label  Token Flow')).toBe('Token Flow');
+  it('keeps a clean title', () => expect(sanitizeTitle('ecommerce website development')).toBe('ecommerce website development'));
+  it('strips quotes/markdown + SIGMA::LABEL', () => {
+    expect(sanitizeTitle('"Auth Refactor"')).toBe('Auth Refactor');
+    expect(sanitizeTitle('SIGMA::LABEL token flow')).toBe('token flow');
   });
-  it('rejects junk', () => {
-    expect(sanitizeTitle('')).toBeNull();
-    expect(sanitizeTitle('...')).toBeNull();
-  });
+  it('rejects junk', () => { expect(sanitizeTitle('')).toBeNull(); expect(sanitizeTitle('...')).toBeNull(); });
 });
 
-describe('summarizeTitle (opencode)', () => {
-  it('parses the title from JSON text events', async () => {
-    const spawn = vi.fn(() => fakeChild(jsonRun('Ecommerce Website Builder'))) as never;
-    expect(await summarizeTitle('build an ecommerce site', spawn)).toBe('Ecommerce Website Builder');
+describe('summarizeTitle (Ollama cloud)', () => {
+  it('returns the title from the model response', async () => {
+    const f = fakeFetch([{ body: { response: 'ecommerce website development' } }]) as never;
+    expect(await summarizeTitle('build an ecommerce site', f)).toBe('ecommerce website development');
   });
 
-  it('runs `opencode run … --format json`, stdin closed, default model first (no -m)', async () => {
-    const spawn = vi.fn(() => fakeChild(jsonRun('Title Here'))) as never;
-    await summarizeTitle('some task', spawn);
-    const [bin, args, opts] = (spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(bin).toBe('/opt/homebrew/bin/opencode');
-    expect(args[0]).toBe('run');
-    expect(args).toContain('--format');
-    expect(args).toContain('json');
-    expect(args).not.toContain('-m'); // attempt 1 = opencode's default model
-    expect((opts as { stdio?: unknown[] }).stdio?.[0]).toBe('ignore');
+  it('POSTs to the local ollama daemon with the cloud model + stream:false', async () => {
+    const f = fakeFetch([{ body: { response: 'a title' } }]) as never;
+    await summarizeTitle('task', f);
+    const [url, opts] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe('http://127.0.0.1:11434/api/generate');
+    const sent = JSON.parse((opts as { body: string }).body);
+    expect(sent.model).toBe('qwen3-coder:480b-cloud');
+    expect(sent.stream).toBe(false);
   });
 
-  it('falls back to the first listed model when the default yields nothing', async () => {
-    const spawn = vi.fn((_bin: string, args: string[]) => {
-      if (args[0] === 'models') return fakeChild('opencode/big-pickle\nzai-coding-plan/glm-5.2\n');
-      if (args[0] === 'run' && args.includes('-m')) return fakeChild(jsonRun('Fallback Title'));
-      return fakeChild(''); // default run → empty
-    }) as never;
-    expect(await summarizeTitle('task', spawn)).toBe('Fallback Title');
-    const runCalls = (spawn as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[1][0] === 'run');
-    expect(runCalls[1][1]).toContain('opencode/big-pickle'); // first listed model
+  it('falls back to the next model when the first is retired (4xx body error)', async () => {
+    const f = fakeFetch([
+      { body: { error: 'qwen3-coder was retired' } }, // model 1 permanent error
+      { body: { response: 'fallback title' } },        // model 2 ok
+    ]) as never;
+    expect(await summarizeTitle('task', f)).toBe('fallback title');
   });
 
-  it('returns null when opencode is not installed', async () => {
-    probeProviderById.mockResolvedValue({ id: 'opencode', found: false });
-    const spawn = vi.fn(() => fakeChild(jsonRun('x'))) as never;
-    expect(await summarizeTitle('task', spawn)).toBeNull();
-    expect(spawn).not.toHaveBeenCalled();
+  it('retries the same model once on a 5xx cold-start, then succeeds', async () => {
+    const f = fakeFetch([
+      { ok: false, status: 502 },                 // cold-start
+      { body: { response: 'warm title' } },        // retry ok
+    ]) as never;
+    expect(await summarizeTitle('task', f)).toBe('warm title');
   });
 
-  it('returns null on a spawn error', async () => {
-    const spawn = vi.fn(() => fakeChild('', { error: true })) as never;
-    expect(await summarizeTitle('task', spawn)).toBeNull();
+  it('returns null when every model fails', async () => {
+    const f = fakeFetch([{ ok: false, status: 401 }]) as never; // unauthorized, all
+    expect(await summarizeTitle('task', f)).toBeNull();
   });
 
-  it('returns null for blank input without spawning', async () => {
-    const spawn = vi.fn(() => fakeChild('x')) as never;
-    expect(await summarizeTitle('   ', spawn)).toBeNull();
-    expect(spawn).not.toHaveBeenCalled();
+  it('returns null on a network error (daemon down)', async () => {
+    const f = fakeFetch([new Error('ECONNREFUSED')]) as never;
+    expect(await summarizeTitle('task', f)).toBeNull();
   });
 
-  it('serializes runs — never two `opencode run` spawns active at once', async () => {
-    let active = 0;
-    let maxActive = 0;
-    const spawn = vi.fn((_bin: string, args: string[]) => {
-      const child = new EventEmitter() as FakeChild;
-      child.stdout = new EventEmitter();
-      child.kill = () => {};
-      const isRun = args[0] === 'run';
-      if (isRun) { active++; maxActive = Math.max(maxActive, active); }
-      setTimeout(() => {
-        child.stdout.emit('data', Buffer.from(jsonRun('Title')));
-        if (isRun) active--;
-        child.emit('close', 0);
-      }, 5);
-      return child;
-    }) as never;
-    await Promise.all([
-      summarizeTitle('task alpha one', spawn),
-      summarizeTitle('task beta two', spawn),
-      summarizeTitle('task gamma three', spawn),
-    ]);
-    expect(maxActive).toBe(1); // mutex held — no concurrent opencode runs
+  it('returns null for blank input without calling fetch', async () => {
+    const f = fakeFetch([{ body: { response: 'x' } }]) as never;
+    expect(await summarizeTitle('   ', f)).toBeNull();
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('honors a model override via setTitleModels', async () => {
+    setTitleModels(['my-custom:cloud']);
+    const f = fakeFetch([{ body: { response: 'custom' } }]) as never;
+    await summarizeTitle('task', f);
+    const sent = JSON.parse((f as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(sent.model).toBe('my-custom:cloud');
   });
 });

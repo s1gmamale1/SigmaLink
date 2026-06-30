@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const summarize = vi.fn<(a: { text: string }) => Promise<{ title: string | null }>>();
 vi.mock('@/renderer/lib/rpc', () => ({
@@ -11,76 +11,65 @@ import {
   onAgentLabel,
   clearPaneTitle,
   __resetPaneTitleOrchestrator,
-  TITLE_WAIT_MS,
 } from './pane-title-orchestrator';
-import { getAgentLabel, heuristicTitle, __resetAgentLabels } from './pane-labels';
+import { getAgentLabel, __resetAgentLabels } from './pane-labels';
 
-beforeEach(() => {
-  vi.useFakeTimers();
-  summarize.mockReset();
-  summarize.mockResolvedValue({ title: 'Auth Refactor' });
-});
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
 afterEach(() => {
   __resetPaneTitleOrchestrator();
   __resetAgentLabels();
-  vi.useRealTimers();
+  summarize.mockReset();
 });
 
 describe('pane-title-orchestrator', () => {
-  it('sets the instant heuristic floor on a prompt (no waiting, no raw prompt)', () => {
-    const p = 'refactor the auth token flow to async refresh';
-    onPrompt('s1', p);
-    expect(getAgentLabel('s1')).toBe(heuristicTitle(p));
-    expect(getAgentLabel('s1')).not.toBe(p);
+  it('titles via the summarizer — no heuristic, name-only until it lands', async () => {
+    summarize.mockResolvedValue({ title: 'ecommerce website development' });
+    onPrompt('s1', 'build a robust ecommerce website with cart');
+    expect(getAgentLabel('s1')).toBeNull(); // name-only until the title lands
+    await flush();
+    expect(summarize).toHaveBeenCalledWith({ text: 'build a robust ecommerce website with cart' });
+    expect(getAgentLabel('s1')).toBe('ecommerce website development');
   });
 
-  it('upgrades to the opencode summary after the grace window', async () => {
-    onPrompt('s2', 'refactor the auth token flow');
-    await vi.advanceTimersByTimeAsync(TITLE_WAIT_MS);
-    expect(summarize).toHaveBeenCalledWith({ text: 'refactor the auth token flow' });
-    expect(getAgentLabel('s2')).toBe('Auth Refactor');
-  });
-
-  it('a SIGMA::LABEL wins instantly and cancels the summarizer', async () => {
-    onPrompt('s3', 'do a thing here');
-    onAgentLabel('s3', 'Reviewing PR');
-    expect(getAgentLabel('s3')).toBe('Reviewing PR');
-    await vi.advanceTimersByTimeAsync(TITLE_WAIT_MS * 2);
-    expect(summarize).not.toHaveBeenCalled();
-    expect(getAgentLabel('s3')).toBe('Reviewing PR');
-  });
-
-  it('keeps the heuristic when the summarizer returns null', async () => {
+  it('keeps the name (no bs) when the summarizer returns null', async () => {
     summarize.mockResolvedValue({ title: null });
-    const p = 'wire up the gateway service';
-    onPrompt('s4', p);
-    await vi.advanceTimersByTimeAsync(TITLE_WAIT_MS);
-    expect(getAgentLabel('s4')).toBe(heuristicTitle(p));
+    onPrompt('s2', 'some task here');
+    await flush();
+    expect(getAgentLabel('s2')).toBeNull();
   });
 
-  it('a new prompt supersedes the previous one (only the latest summarizes)', async () => {
-    onPrompt('s5', 'first task here');
-    await vi.advanceTimersByTimeAsync(TITLE_WAIT_MS / 2);
-    onPrompt('s5', 'second different task');
-    await vi.advanceTimersByTimeAsync(TITLE_WAIT_MS);
-    expect(summarize).toHaveBeenCalledTimes(1);
-    expect(summarize).toHaveBeenCalledWith({ text: 'second different task' });
+  it('latest prompt wins — a superseded slow summary cannot clobber it', async () => {
+    summarize.mockResolvedValueOnce({ title: 'OLD' }).mockResolvedValueOnce({ title: 'NEW' });
+    onPrompt('s3', 'first prompt');
+    onPrompt('s3', 'second prompt');
+    await flush();
+    expect(summarize).toHaveBeenNthCalledWith(1, { text: 'first prompt' });
+    expect(summarize).toHaveBeenNthCalledWith(2, { text: 'second prompt' });
+    expect(getAgentLabel('s3')).toBe('NEW');
   });
 
-  it('ignores a stale SIGMA::LABEL re-fire so it cannot clobber a newer prompt', () => {
-    onAgentLabel('s6', 'Old Task');
-    expect(getAgentLabel('s6')).toBe('Old Task');
-    onPrompt('s6', 'a brand new different task');
-    const heur = getAgentLabel('s6');
-    expect(heur).toBe(heuristicTitle('a brand new different task'));
-    onAgentLabel('s6', 'Old Task'); // label-reader re-fires the buffered sentinel
-    expect(getAgentLabel('s6')).toBe(heur); // unchanged — stale ignored
+  it('onAgentLabel (voluntary SIGMA::LABEL) overrides + invalidates in-flight summary', async () => {
+    summarize.mockResolvedValue({ title: 'summary title' });
+    onPrompt('s4', 'do the thing');
+    onAgentLabel('s4', 'Agent Title');
+    expect(getAgentLabel('s4')).toBe('Agent Title');
+    await flush();
+    expect(getAgentLabel('s4')).toBe('Agent Title'); // summary dropped (superseded)
   });
 
-  it('clearPaneTitle cancels the pending summary', async () => {
-    onPrompt('s7', 'some task to do');
-    clearPaneTitle('s7');
-    await vi.advanceTimersByTimeAsync(TITLE_WAIT_MS);
+  it('clearPaneTitle drops state so a late summary is ignored', async () => {
+    let resolve!: (v: { title: string | null }) => void;
+    summarize.mockReturnValue(new Promise((r) => { resolve = r; }));
+    onPrompt('s5', 'task');
+    clearPaneTitle('s5');
+    resolve({ title: 'late' });
+    await flush();
+    expect(getAgentLabel('s5')).toBeNull();
+  });
+
+  it('ignores blank prompts', () => {
+    onPrompt('s6', '   ');
     expect(summarize).not.toHaveBeenCalled();
   });
 });

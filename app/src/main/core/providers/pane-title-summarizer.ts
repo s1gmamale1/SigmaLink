@@ -1,55 +1,57 @@
-// Provider-agnostic pane-title summarizer via the **opencode** CLI headless mode
-// (`opencode run -m <model> --format json`). Free: rides the user's opencode login
-// (their sub'd model, e.g. GLM 5.2, or opencode's free models). No API key, and —
-// unlike `claude -p` — it doesn't bill the Max sub or boot a 12-19s agent.
+// Provider-agnostic pane-title summarizer via Ollama CLOUD models — a raw HTTP
+// call to the LOCAL ollama daemon (127.0.0.1:11434), which PROXIES the request to
+// Ollama's servers. So: free (Ollama free tier, after `ollama signin`), clean,
+// fast (~2s warm), and crucially NO local model RAM (the compute is remote). No
+// API key in the app; decoupled from the pane's own agent.
 //
-// Self-healing model choice (operator design): try opencode's DEFAULT model first;
-// if that fails (model removed / none configured), fall back to the FIRST model
-// `opencode models` lists. opencode missing/not-logged-in → returns null and the
-// renderer orchestrator keeps the instant heuristic title.
+// Self-healing model choice: try the preferred cloud models in order; a retired/
+// unauthorized/unavailable model just falls through to the next (verified live:
+// glm-4.6 returned "was retired"). All fail → null → renderer keeps the pane name.
 //
-// Run in os.tmpdir so it doesn't load the workspace's AGENTS.md (keeps the call
-// small/fast), stdin closed, stderr unpiped.
+// Reasoning models (gpt-oss) need a bigger token budget to emit past their hidden
+// thinking; non-reasoning ones (qwen3-coder) answer directly — encoded per model.
 
-import { tmpdir } from 'node:os';
-import { spawnExecutable } from '../util/spawn-cross-platform';
-import { probeProviderById } from './probe';
+import { spawn } from 'node:child_process';
 
-const TIMEOUT_MS = 30_000;     // opencode boot + a free-tier turn can be ~10-15s; generous (it's background)
-const INPUT_CAP = 2_000;
-const STDOUT_CAP = 64_000;     // JSON event stream — small, but cap defensively
+const OLLAMA_URL = 'http://127.0.0.1:11434/api/generate';
+const WARM_TIMEOUT_MS = 35_000; // first cloud call can cold-start (~30s/502); warm ~2s
 const TITLE_CAP = 60;
 
-let cachedOpencodePath: string | null | undefined; // undefined=unprobed, null=not found
-let cachedModels: string[] | null = null;
+interface TitleModel { name: string; numPredict: number; think: boolean }
+// Preferred cloud models, best first. qwen3-coder answers directly (no reasoning);
+// gpt-oss reasons so it needs a larger budget. Override-able via setTitleModels().
+let MODELS: TitleModel[] = [
+  { name: 'qwen3-coder:480b-cloud', numPredict: 24, think: false },
+  { name: 'gpt-oss:120b-cloud', numPredict: 160, think: false },
+];
 
-/** Test-only: reset caches. */
-export function __resetSummarizerCache(): void {
-  cachedOpencodePath = undefined;
-  cachedModels = null;
-}
-
-async function resolveOpencode(): Promise<string | null> {
-  if (cachedOpencodePath !== undefined) return cachedOpencodePath;
-  try {
-    const probe = await probeProviderById('opencode');
-    cachedOpencodePath = probe.found && probe.resolvedPath ? probe.resolvedPath : null;
-  } catch {
-    cachedOpencodePath = null;
+/** Operator/KV override of the model preference list (names). */
+export function setTitleModels(names: string[]): void {
+  if (names.length) {
+    MODELS = names.map((name) =>
+      name.startsWith('gpt-oss')
+        ? { name, numPredict: 160, think: false }
+        : { name, numPredict: 24, think: false },
+    );
   }
-  return cachedOpencodePath;
 }
 
-function buildTitlePrompt(text: string): string {
-  return (
-    'Reply with ONLY a 2-4 word title in Title Case naming what this coding task ' +
-    'is about. No quotes, no punctuation, no preamble, no explanation — just the ' +
-    'title.\n\nTask:\n' + text.slice(0, INPUT_CAP)
-  );
+let triedStartServe = false;
+
+/** Best-effort: start `ollama serve` once if the daemon is down (it's light with
+ *  no LOCAL model loaded — cloud models don't load weights locally). */
+function tryStartOllamaServe(): void {
+  if (triedStartServe) return;
+  triedStartServe = true;
+  try {
+    spawn('ollama', ['serve'], { detached: true, stdio: 'ignore' }).unref();
+  } catch {
+    /* not installed / can't start — caller falls back to name-only */
+  }
 }
 
-/** First non-empty line, stripped of a stray SIGMA::LABEL prefix + quotes/markdown,
- *  collapsed, capped. Returns null when nothing usable survives. */
+/** Clean a model's reply into a title: strip a stray SIGMA::LABEL prefix, quotes,
+ *  markdown, edge punctuation; collapse; cap. Null if nothing usable. */
 export function sanitizeTitle(out: string): string | null {
   const line = out.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? '';
   let s = line.replace(/^\s*SIGMA::LABEL\s*/i, '');
@@ -58,115 +60,77 @@ export function sanitizeTitle(out: string): string | null {
   return s.length > TITLE_CAP ? s.slice(0, TITLE_CAP).trim() : s;
 }
 
-/** Parse `opencode run --format json` output: concatenate the `type:"text"` event
- *  parts, then sanitize. */
-function extractTitle(stdout: string): string | null {
-  let text = '';
-  for (const raw of stdout.split('\n')) {
-    const line = raw.trim();
-    if (!line || line[0] !== '{') continue;
-    try {
-      const ev = JSON.parse(line) as { type?: string; part?: { type?: string; text?: string } };
-      if (ev.type === 'text' && typeof ev.part?.text === 'string') text += ev.part.text;
-    } catch {
-      /* partial/non-JSON line — skip */
-    }
-  }
-  return sanitizeTitle(text);
-}
+interface OllamaResult { ok: boolean; title: string | null; retry: boolean }
 
-/** One headless opencode run. `model` null → opencode's default model. */
-function runOpencode(
-  bin: string,
-  text: string,
-  model: string | null,
-  spawn: typeof spawnExecutable,
-): Promise<string | null> {
-  const args = ['run', buildTitlePrompt(text), '--format', 'json'];
-  if (model) args.splice(1, 0, '-m', model);
-  return new Promise<string | null>((resolve) => {
-    let child;
-    try {
-      child = spawn(bin, args, { cwd: tmpdir(), env: process.env, stdio: ['ignore', 'pipe', 'ignore'] });
-    } catch {
-      resolve(null);
-      return;
-    }
-    let stdout = '';
-    let settled = false;
-    const finish = (val: string | null): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try { child.kill(); } catch { /* gone */ }
-      resolve(val);
-    };
-    const timer = setTimeout(() => finish(null), TIMEOUT_MS);
-    child.stdout.on('data', (d: Buffer) => {
-      if (stdout.length < STDOUT_CAP) stdout += d.toString();
+async function callOllama(
+  model: TitleModel,
+  prompt: string,
+  fetchImpl: typeof fetch,
+): Promise<OllamaResult> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), WARM_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(OLLAMA_URL, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: model.name,
+        prompt,
+        stream: false,
+        think: model.think,
+        options: { num_predict: model.numPredict, temperature: 0.2 },
+      }),
     });
-    child.on('error', () => finish(null));
-    child.on('close', () => finish(extractTitle(stdout)));
-  });
-}
-
-async function getFirstModel(bin: string, spawn: typeof spawnExecutable): Promise<string | null> {
-  if (cachedModels) return cachedModels[0] ?? null;
-  const list = await new Promise<string[]>((resolve) => {
-    let child;
-    try {
-      child = spawn(bin, ['models'], { cwd: tmpdir(), env: process.env, stdio: ['ignore', 'pipe', 'ignore'] });
-    } catch {
-      resolve([]);
-      return;
+    if (!res.ok) {
+      // 5xx (incl. cloud cold-start 502) is worth one retry on the SAME model;
+      // 4xx (retired/unauthorized) is permanent → move to the next model.
+      return { ok: false, title: null, retry: res.status >= 500 };
     }
-    let out = '';
-    let settled = false;
-    const done = (): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(t);
-      try { child.kill(); } catch { /* gone */ }
-      resolve(out.split('\n').map((l) => l.trim()).filter((l) => /^[\w.-]+\/[\w.-]+$/.test(l)));
-    };
-    const t = setTimeout(done, 10_000);
-    child.stdout.on('data', (d: Buffer) => { out += d.toString(); });
-    child.on('error', done);
-    child.on('close', done);
-  });
-  cachedModels = list;
-  return list[0] ?? null;
+    const data = (await res.json()) as { response?: string; error?: string };
+    if (data.error) return { ok: false, title: null, retry: false };
+    return { ok: true, title: sanitizeTitle(String(data.response ?? '')), retry: false };
+  } catch {
+    // Network error (daemon down / abort) — try to bring the daemon up, retry once.
+    tryStartOllamaServe();
+    return { ok: false, title: null, retry: true };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-// Serialize all opencode runs: concurrent `opencode run` invocations collide on
-// opencode's local session state (verified — one of four fails in ~1s under load),
-// so we queue them. A pane shows its instant heuristic while it waits its turn.
-let titleQueue: Promise<unknown> = Promise.resolve();
-function runExclusive<T>(fn: () => Promise<T>): Promise<T> {
-  const result = titleQueue.then(fn, fn);
-  titleQueue = result.then(() => undefined, () => undefined);
-  return result;
+function buildTitlePrompt(text: string): string {
+  return (
+    'Output ONLY a 2-4 word lowercase title (no quotes, no punctuation, no ' +
+    'reasoning, no explanation) for this coding task:\n\n' + text.slice(0, 2_000)
+  );
 }
 
 /**
- * Summarize a task prompt into a short title via opencode, or null on any failure.
- * Serialized (one opencode run at a time). `spawn` is injectable for tests.
+ * Summarize a task prompt into a short title via an Ollama cloud model, or null on
+ * any failure. `fetchImpl` is injectable for tests.
  */
 export async function summarizeTitle(
   text: string,
-  spawn: typeof spawnExecutable = spawnExecutable,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<string | null> {
   if (!text || !text.trim()) return null;
-  const bin = await resolveOpencode();
-  if (!bin) return null;
+  const prompt = buildTitlePrompt(text);
 
-  return runExclusive(async () => {
-    // Attempt 1 — opencode's default model (the user's configured/sub'd model).
-    const primary = await runOpencode(bin, text, null, spawn);
-    if (primary) return primary;
-    // Attempt 2 — first model opencode lists (self-healing fallback).
-    const first = await getFirstModel(bin, spawn);
-    if (!first) return null;
-    return runOpencode(bin, text, first, spawn);
-  });
+  for (const model of MODELS) {
+    let r = await callOllama(model, prompt, fetchImpl);
+    if (!r.ok && r.retry) r = await callOllama(model, prompt, fetchImpl); // one retry (cold-start/daemon-up)
+    if (r.title) return r.title;
+    // else: empty/permanent-error → fall through to the next preferred model
+  }
+  return null;
+}
+
+/** Test-only: reset module state. */
+export function __resetSummarizerCache(): void {
+  triedStartServe = false;
+  MODELS = [
+    { name: 'qwen3-coder:480b-cloud', numPredict: 24, think: false },
+    { name: 'gpt-oss:120b-cloud', numPredict: 160, think: false },
+  ];
 }

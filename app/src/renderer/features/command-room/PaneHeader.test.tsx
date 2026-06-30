@@ -637,18 +637,10 @@ describe('PaneHeader — BSP-O4 inline rename', () => {
 // ── Auto-label precedence tests ───────────────────────────────────────────────
 
 import { setAgentLabel, __resetAgentLabels } from '@/renderer/lib/pane-labels';
-import { feedPromptKey, __resetPromptCapture } from '@/renderer/lib/pane-prompt-capture';
 import { onAgentLabel, __resetPaneTitleOrchestrator } from '@/renderer/lib/pane-title-orchestrator';
 
-/** Type a prompt into a pane's capture and submit it (feeds the shared label). */
-function typePrompt(sessionId: string, text: string): void {
-  const base = { ctrlKey: false, altKey: false, metaKey: false, shiftKey: false };
-  for (const ch of text) feedPromptKey(sessionId, { key: ch, ...base });
-  feedPromptKey(sessionId, { key: 'Enter', ...base });
-}
-
 describe('PaneHeader name + task label (separate slots)', () => {
-  afterEach(() => { __resetAgentLabels(); __resetPromptCapture(); __resetPaneTitleOrchestrator(); });
+  afterEach(() => { __resetAgentLabels(); __resetPaneTitleOrchestrator(); });
 
   // ── NAME (stable identity, the rename target) ──
   it('name shows the alias when there is no manual name', () => {
@@ -676,19 +668,15 @@ describe('PaneHeader name + task label (separate slots)', () => {
     expect((screen.getByTestId('pane-task-label').textContent ?? '').trim()).toBe('');
   });
 
-  it('a typed prompt shows an instant heuristic title (not the raw ramble, no titling…)', () => {
+  it('label is name-only until the summarizer title lands, then shows it', () => {
     render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l1', name: null, initialPrompt: undefined })} />);
-    const raw = 'build a robust ecommerce website with cart and checkout flows';
-    act(() => typePrompt('l1', raw));
-    const label = screen.getByTestId('pane-task-label');
-    expect((label.textContent ?? '').trim().length).toBeGreaterThan(0);
-    expect(label.textContent).not.toContain('titling');
-    expect(label.textContent).not.toBe(raw); // not the raw long prompt
+    expect((screen.getByTestId('pane-task-label').textContent ?? '').trim()).toBe(''); // name-only, no heuristic
+    act(() => setAgentLabel('l1', 'ecommerce website development')); // summarizer result
+    expect(screen.getByTestId('pane-task-label').textContent).toContain('ecommerce website development');
   });
 
-  it('a SIGMA::LABEL upgrades the heuristic to the clean agent title', () => {
+  it('onAgentLabel (rare voluntary agent override) sets the task label', () => {
     render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l2', name: null, initialPrompt: undefined })} />);
-    act(() => typePrompt('l2', 'some long raw prompt the operator typed here'));
     act(() => onAgentLabel('l2', 'Refactor Tokens'));
     expect(screen.getByTestId('pane-task-label').textContent).toContain('Refactor Tokens');
   });

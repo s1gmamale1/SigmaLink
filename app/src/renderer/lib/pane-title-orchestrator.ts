@@ -1,52 +1,33 @@
-// Pane title orchestrator. Decides the LABEL for each pane, free + provider-agnostic:
+// Pane title orchestrator. ONE source, decoupled from the pane's agent:
 //
-//   onPrompt → set an INSTANT heuristic title (cleaned first words) so the pane is
-//     never blank/raw, then after a short grace window upgrade it via the opencode
-//     summarizer (rpc.paneTitle.summarize → `opencode run`, free) UNLESS a
-//     SIGMA::LABEL already arrived.
-//   onAgentLabel → a SIGMA::LABEL from the pane's own agent (label-reader); the
-//     cleanest source — it wins instantly and cancels the summarizer. Deduped so a
-//     stale buffered sentinel re-firing on a later prompt can't clobber the title.
+//   onPrompt → fire the Ollama-cloud summarizer (rpc.paneTitle.summarize) and set
+//     the resulting clean title. NO instant heuristic — the pane shows just its
+//     NAME for the ~2s until the title lands (zero bs by construction: the label
+//     is only ever a clean model title or empty).
 //
-// Single writer to the pane-labels store (setAgentLabel). A per-session generation
-// counter drops stale timers / in-flight summaries when a newer prompt or a fresh
-// SIGMA::LABEL supersedes.
+// A per-session generation counter drops a slow summary from a superseded prompt
+// so the latest prompt always wins. onAgentLabel remains as a rare override for an
+// agent that voluntarily emits SIGMA::LABEL (the injection is gone, so normally
+// unused) — kept so label-reader has a sink.
 
-import { setAgentLabel, heuristicTitle } from '@/renderer/lib/pane-labels';
+import { setAgentLabel } from '@/renderer/lib/pane-labels';
 import { rpcSilent } from '@/renderer/lib/rpc';
 
-// Grace window: let a self-labeling agent (claude) emit SIGMA::LABEL before we
-// spend an opencode call. Non-self-labelers just wait this out then get the summary.
-export const TITLE_WAIT_MS = 3_000;
-
-interface TitleState {
-  gen: number;
-  timer: ReturnType<typeof setTimeout> | null;
-  prompt: string;
-}
-
+interface TitleState { gen: number; prompt: string }
 const states = new Map<string, TitleState>();
-// Last SIGMA::LABEL value consumed per session — dedupes the label-reader re-firing
-// the SAME sentinel (still in scrollback) after a new prompt set the heuristic.
-const lastAgentLabel = new Map<string, string>();
 
-/** A submitted prompt — set the instant heuristic, schedule the summarizer upgrade. */
+/** A submitted prompt — title it via the cloud summarizer (latest prompt wins). */
 export function onPrompt(sessionId: string, promptText: string): void {
   const clean = promptText.trim();
   if (!clean) return;
-  const prev = states.get(sessionId);
-  if (prev?.timer) clearTimeout(prev.timer);
-  const gen = (prev?.gen ?? 0) + 1;
-  // Instant floor — never blank, never the raw ramble.
-  setAgentLabel(sessionId, heuristicTitle(clean));
-  const timer = setTimeout(() => { void runSummary(sessionId, gen); }, TITLE_WAIT_MS);
-  states.set(sessionId, { gen, timer, prompt: clean });
+  const gen = (states.get(sessionId)?.gen ?? 0) + 1;
+  states.set(sessionId, { gen, prompt: clean });
+  void runSummary(sessionId, gen);
 }
 
 async function runSummary(sessionId: string, gen: number): Promise<void> {
   const st = states.get(sessionId);
-  if (!st || st.gen !== gen) return; // superseded by a newer prompt or a SIGMA::LABEL
-  st.timer = null;
+  if (!st || st.gen !== gen) return;
 
   let title: string | null = null;
   try {
@@ -57,33 +38,24 @@ async function runSummary(sessionId: string, gen: number): Promise<void> {
   }
 
   const cur = states.get(sessionId);
-  if (!cur || cur.gen !== gen) return; // a newer prompt / SIGMA::LABEL landed mid-await
-  if (title) setAgentLabel(sessionId, title); // else keep the heuristic floor
+  if (!cur || cur.gen !== gen) return; // a newer prompt superseded this one
+  if (title) setAgentLabel(sessionId, title); // else keep the name (no bs fallback)
 }
 
-/** A SIGMA::LABEL arrived from the pane's own agent (label-reader). Cleanest source. */
+/** Rare override: an agent that voluntarily emits SIGMA::LABEL (injection removed,
+ *  so normally never fires). Kept as the label-reader sink. */
 export function onAgentLabel(sessionId: string, text: string): void {
-  if (lastAgentLabel.get(sessionId) === text) return; // stale buffered re-fire — ignore
-  lastAgentLabel.set(sessionId, text);
   const st = states.get(sessionId);
-  if (st) {
-    if (st.timer) { clearTimeout(st.timer); st.timer = null; }
-    st.gen += 1; // invalidate any in-flight summary
-  }
+  if (st) st.gen += 1; // invalidate any in-flight summary
   setAgentLabel(sessionId, text);
 }
 
-/** Permanent removal (pane closed). The LABEL itself is cleared via clearAgentLabel. */
+/** Permanent removal (pane closed). LABEL itself is cleared via clearAgentLabel. */
 export function clearPaneTitle(sessionId: string): void {
-  const st = states.get(sessionId);
-  if (st?.timer) clearTimeout(st.timer);
   states.delete(sessionId);
-  lastAgentLabel.delete(sessionId);
 }
 
-/** Test-only: wipe all orchestrator state. */
+/** Test-only. */
 export function __resetPaneTitleOrchestrator(): void {
-  for (const st of states.values()) if (st.timer) clearTimeout(st.timer);
   states.clear();
-  lastAgentLabel.clear();
 }

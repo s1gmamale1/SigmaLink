@@ -1,36 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  sanitizeLabel, summarizePrompt, heuristicTitle,
+  sanitizeLabel, summarizePrompt,
   setAgentLabel, getAgentLabel, subscribeAgentLabel, clearAgentLabel, __resetAgentLabels,
 } from './pane-labels';
 
 afterEach(() => __resetAgentLabels());
-
-describe('heuristicTitle', () => {
-  it('peels leading filler to the real subject (lowercase, matches the LLM style)', () => {
-    expect(heuristicTitle('can you please build a robust ecommerce website')).toMatch(/robust|ecommerce|build/);
-  });
-  it('peels "give me / show me / tell me" — no dangling "me"', () => {
-    expect(heuristicTitle('give me the most generic e-commerce website design')).not.toMatch(/^me\b/i);
-    expect(heuristicTitle('give me the most generic e-commerce website design')).toContain('generic');
-    expect(heuristicTitle('show me how to build a cart')).not.toMatch(/^me\b/i);
-  });
-  it('never returns the raw long prompt verbatim', () => {
-    const raw = 'give me what language, algorithms, what architectural design for an ecommerce site';
-    const t = heuristicTitle(raw);
-    expect(t).not.toBe(raw);
-    expect(t.length).toBeLessThanOrEqual(60);
-  });
-  it('takes the first clause and caps to a few words', () => {
-    const t = heuristicTitle('refactor the auth module to use async token refresh everywhere across the app');
-    expect(t.split(' ').length).toBeLessThanOrEqual(5);
-  });
-  it('always returns a non-empty title, even for junk/empty', () => {
-    expect(heuristicTitle('').length).toBeGreaterThan(0);
-    expect(heuristicTitle('   ').length).toBeGreaterThan(0);
-    expect(heuristicTitle(null).length).toBeGreaterThan(0);
-  });
-});
 
 describe('sanitizeLabel', () => {
   it('keeps a normal label, trimmed', () => {
