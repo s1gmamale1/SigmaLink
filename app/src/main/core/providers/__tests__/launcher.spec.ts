@@ -247,9 +247,8 @@ test('BUG-V1.1-06: autoApprove=false does NOT append the flag', () => {
     },
     { providerId: 'claude', cwd: '/tmp' },
   );
-  // claude gets the auto-label instruction injected (pane-labeling); confirm
-  // it IS present, then strip it to assert the autoApprove contract.
-  assert.ok(result.argsUsed.includes('--append-system-prompt'));
+  // Titling is decoupled from the agent now — NO --append-system-prompt injection.
+  assert.ok(!result.argsUsed.includes('--append-system-prompt'));
   assert.deepEqual(contractArgs(result.argsUsed), []);
 });
 

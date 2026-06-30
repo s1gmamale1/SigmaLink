@@ -19,6 +19,14 @@ vi.mock('@/renderer/lib/rpc', () => ({ rpc: rpcMock, rpcSilent: rpcMock }));
 vi.mock('@/renderer/lib/pty-data-bus', () => ({ subscribePtyData: () => () => undefined }));
 vi.mock('@/renderer/lib/pty-exit-bus', () => ({ subscribeExit: () => () => undefined }));
 
+// Spy on prompt capture to assert the privacy gate: only AGENT panes feed the
+// cloud titler; plain-shell panes must never capture a typed line.
+const captureMock = vi.hoisted(() => ({
+  feedPromptKey: vi.fn(),
+  feedPromptPaste: vi.fn(),
+}));
+vi.mock('@/renderer/lib/pane-prompt-capture', () => captureMock);
+
 // FlowView link context (P2): the host reads the active workspace + right-rail
 // and routes clicked links through the shared routeLinkClick. Mock all three
 // so the host renders without a provider tree; the link test asserts the
@@ -83,6 +91,30 @@ describe('DomTerminalView', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     fireEvent.keyDown(input, { key: 'ArrowUp' });
     expect(rpcMock.pty.write.mock.calls.map((c) => c[1])).toEqual(['a', '\r', '\x1b[A']);
+  });
+
+  it('captures typed prompts for an AGENT pane (feeds the cloud titler)', async () => {
+    stateMock.state.sessions = [{ id: 'agentP', providerId: 'claude' }];
+    const { container } = render(<DomTerminalView sessionId="agentP" />);
+    await settle();
+    const input = container.querySelector('textarea')!;
+    fireEvent.keyDown(input, { key: 'h' });
+    fireEvent.keyDown(input, { key: 'i' });
+    expect(captureMock.feedPromptKey).toHaveBeenCalled();
+  });
+
+  it('does NOT capture for a plain-shell pane (no egress of typed commands/secrets)', async () => {
+    stateMock.state.sessions = [{ id: 'shellP', providerId: 'shell' }];
+    const { container } = render(<DomTerminalView sessionId="shellP" />);
+    await settle();
+    const input = container.querySelector('textarea')!;
+    fireEvent.keyDown(input, { key: 'e' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.paste(input, { clipboardData: { getData: () => 'export TOKEN=secret' } });
+    expect(captureMock.feedPromptKey).not.toHaveBeenCalled();
+    expect(captureMock.feedPromptPaste).not.toHaveBeenCalled();
+    // the keystroke still reaches the PTY — only the titler capture is gated
+    expect(rpcMock.pty.write).toHaveBeenCalled();
   });
 
   it('cmd-combos are NOT swallowed (encoder returns null → host app keeps them)', async () => {

@@ -67,6 +67,10 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'panes.rename',
   // Spec 2026-06-10 (B) — image staging for pane drop/paste.
   'panes.stageImage',
+  // Pane-label titling — renderer summarizer call (Ollama-cloud title). Without
+  // this allowlist entry the preload bridge silently rejects the invoke and the
+  // pane never gets a task title (the v1.5.0 un-allowlisted regression class).
+  'paneTitle.summarize',
   // providers
   'providers.list',
   'providers.probeAll',

@@ -36,6 +36,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
     kv: {
       get: vi.fn().mockResolvedValue('1'), // default: coachmark already seen
     },
+    paneTitle: { summarize: vi.fn().mockResolvedValue({ title: null }) },
   },
   // CheckpointPanel + PaneHeader BSP-O4 use onEvent for event subscriptions.
   onEvent: vi.fn(() => () => undefined),
@@ -636,55 +637,94 @@ describe('PaneHeader — BSP-O4 inline rename', () => {
 // ── Auto-label precedence tests ───────────────────────────────────────────────
 
 import { setAgentLabel, __resetAgentLabels } from '@/renderer/lib/pane-labels';
+import { onAgentLabel, __resetPaneTitleOrchestrator } from '@/renderer/lib/pane-title-orchestrator';
 
-describe('PaneHeader auto-label precedence', () => {
-  afterEach(() => __resetAgentLabels());
+describe('PaneHeader name + task label (separate slots)', () => {
+  afterEach(() => { __resetAgentLabels(); __resetPaneTitleOrchestrator(); });
 
-  it('shows the alias with no manual name, no SIGMA::LABEL, no initialPrompt', () => {
+  // ── NAME (stable identity, the rename target) ──
+  it('name shows the alias when there is no manual name', () => {
     render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p1', name: null, initialPrompt: undefined })} />);
-    expect(screen.getByTestId('pane-display-name').textContent).toMatch(/·/);
+    expect(screen.getByTestId('pane-display-name').textContent?.trim().length ?? 0).toBeGreaterThan(0);
   });
 
-  it('shows the launch-prompt summary when there is no SIGMA::LABEL', () => {
-    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p2', name: null, initialPrompt: 'Refactor the auth module' })} />);
-    expect(screen.getByTestId('pane-display-name').textContent).toContain('Refactor the auth module');
+  it('name shows the operator rename over the alias', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p1b', name: 'My pane' })} />);
+    expect(screen.getByTestId('pane-display-name').textContent).toContain('My pane');
   });
 
-  it('SIGMA::LABEL beats the launch-prompt summary', () => {
-    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p3', name: null, initialPrompt: 'Refactor the auth module' })} />);
-    act(() => setAgentLabel('p3', 'Reviewing PR'));
-    const t = screen.getByTestId('pane-display-name').textContent ?? '';
-    expect(t).toContain('Reviewing PR');
-    expect(t).not.toContain('Refactor the auth module');
+  it('a SIGMA::LABEL does NOT change the name — name and label are separate slots', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p1c', name: 'Reviewer' })} />);
+    act(() => setAgentLabel('p1c', 'Reviewing PR'));
+    expect(screen.getByTestId('pane-display-name').textContent).toContain('Reviewer');
+    expect(screen.getByTestId('pane-display-name').textContent).not.toContain('Reviewing PR');
+    // …but the label DOES show, in its own slot.
+    expect(screen.getByTestId('pane-task-label').textContent).toContain('Reviewing PR');
   });
 
-  it('manual name beats SIGMA::LABEL', () => {
-    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p4', name: 'Reviewer', initialPrompt: 'x' })} />);
-    act(() => setAgentLabel('p4', 'Reviewing PR'));
-    const t = screen.getByTestId('pane-display-name').textContent ?? '';
-    expect(t).toContain('Reviewer');
-    expect(t).not.toContain('Reviewing PR');
+  // ── LABEL (live task, separate slot) ──
+  it('label is empty for an idle pane (no SIGMA::LABEL, no prompt, no launch task)', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l0', name: null, initialPrompt: undefined })} />);
+    expect((screen.getByTestId('pane-task-label').textContent ?? '').trim()).toBe('');
   });
 
-  it('tooltip title carries the full label', () => {
-    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p5', name: null })} />);
-    act(() => setAgentLabel('p5', 'A very long task summary that overflows the narrow pane pill region here'));
-    expect(screen.getByTestId('pane-display-name').getAttribute('title')).toContain('A very long task summary');
+  it('label is name-only until the summarizer title lands, then shows it', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l1', name: null, initialPrompt: undefined })} />);
+    expect((screen.getByTestId('pane-task-label').textContent ?? '').trim()).toBe(''); // name-only, no heuristic
+    act(() => setAgentLabel('l1', 'ecommerce website development')); // summarizer result
+    expect(screen.getByTestId('pane-task-label').textContent).toContain('ecommerce website development');
   });
 
+  it('onAgentLabel (rare voluntary agent override) sets the task label', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l2', name: null, initialPrompt: undefined })} />);
+    act(() => onAgentLabel('l2', 'Refactor Tokens'));
+    expect(screen.getByTestId('pane-task-label').textContent).toContain('Refactor Tokens');
+  });
+
+  it('label shows Claude SIGMA::LABEL', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l3', name: null })} />);
+    act(() => setAgentLabel('l3', 'Refactor tokens'));
+    expect(screen.getByTestId('pane-task-label').textContent).toContain('Refactor tokens');
+  });
+
+  it('label falls back to the launch-prompt summary when no SIGMA::LABEL/prompt', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l4', name: null, initialPrompt: 'Refactor the auth module' })} />);
+    expect(screen.getByTestId('pane-task-label').textContent).toContain('Refactor the auth module');
+  });
+
+  it('label is not floored at 80px (full task can grow); truncate + min-w-0 + title stay', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l5', name: null })} />);
+    const full = 'Async token refresh refactor across the gateway';
+    act(() => setAgentLabel('l5', full));
+    const label = screen.getByTestId('pane-task-label');
+    expect(label.textContent ?? '').toContain(full);
+    expect(label.className).not.toContain('max-w-[80px]');
+    expect(label.className).toContain('truncate');
+    expect(label.className).toContain('min-w-0');
+    expect(label.getAttribute('title')).toContain('Async token refresh');
+  });
+
+  it('title pill is min-w-0 (not shrink-0) so the name ellipsizes before badges are pushed off', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'l6', name: null })} />);
+    const pill = screen.getByTestId('pane-title-pill');
+    expect(pill.className).toContain('min-w-0');
+    expect(pill.className).not.toContain('shrink-0');
+  });
+
+  // ── rename targets the NAME, not the label ──
   it('opens inline edit on a targeted pane-rename-request', () => {
-    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p6', name: null })} />);
-    act(() => window.dispatchEvent(new CustomEvent('sigma:pane-rename-request', { detail: { sessionId: 'p6' } })));
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'r1', name: null })} />);
+    act(() => window.dispatchEvent(new CustomEvent('sigma:pane-rename-request', { detail: { sessionId: 'r1' } })));
     expect(screen.getByTestId('pane-rename-input')).toBeTruthy();
   });
 
-  it('context-menu rename prefills the CURRENT agent label, not a stale one', () => {
-    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'p7', name: null, initialPrompt: 'Old prompt' })} />);
-    // Label arrives AFTER mount — the mount-registered listener must use it.
-    act(() => setAgentLabel('p7', 'Reviewing PR'));
-    act(() => window.dispatchEvent(new CustomEvent('sigma:pane-rename-request', { detail: { sessionId: 'p7' } })));
+  it('rename prefills the NAME (alias), NOT the live task label', () => {
+    render(<PaneHeader {...baseProps()} session={makeSession({ id: 'r2', name: null, initialPrompt: 'Old prompt' })} />);
+    act(() => setAgentLabel('r2', 'Reviewing PR'));
+    act(() => window.dispatchEvent(new CustomEvent('sigma:pane-rename-request', { detail: { sessionId: 'r2' } })));
     const input = screen.getByTestId('pane-rename-input') as HTMLInputElement;
-    expect(input.value).toBe('Reviewing PR');
+    expect(input.value).not.toBe('Reviewing PR'); // not the task label
+    expect(input.value.length).toBeGreaterThan(0); // the alias
   });
 });
 

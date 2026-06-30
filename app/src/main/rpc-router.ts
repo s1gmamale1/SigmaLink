@@ -28,6 +28,7 @@ import {
 import { resumeWorkspacePanes, respawnFailedWorkspacePanes } from './core/pty/resume-launcher';
 import { markPaneClosed } from './core/pty/mark-pane-closed';
 import { probeAllProviders, probeProviderById } from './core/providers/probe';
+import { summarizeTitle } from './core/providers/pane-title-summarizer';
 import {
   commitAndMerge,
   createCheckpoint,
@@ -2818,11 +2819,18 @@ async function buildRouter() {
     }),
   );
 
+  const paneTitleCtl = defineController({
+    // Provider-agnostic pane title — summarize the prompt via the local Ollama
+    // daemon (cloud model). Returns null on any failure; renderer keeps the name.
+    summarize: async ({ text }: { text: string }) => ({ title: await summarizeTitle(text) }),
+  });
+
   return defineRouter({
     app: appCtl,
     pty: ptyCtl,
     panes: panesCtl,
     ramBrake: ramBrakeCtl,
+    paneTitle: paneTitleCtl,
     providers: providersCtl,
     workspaces: workspacesCtl,
     windows: windowsCtl,

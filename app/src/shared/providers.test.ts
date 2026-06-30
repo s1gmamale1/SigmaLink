@@ -163,17 +163,15 @@ describe('claude xterm-mode spawns force the fullscreen TUI renderer (#160, cond
   });
 });
 
-describe('paneLabelArgs', () => {
-  it('injects --append-system-prompt for claude', () => {
-    expect(paneLabelArgs('claude')).toEqual(['--append-system-prompt', PANE_LABEL_INSTRUCTION]);
-  });
-  it('injects nothing for non-claude providers', () => {
+describe('paneLabelArgs (disabled — titling is decoupled from the agent)', () => {
+  it('injects nothing for any provider (no agent self-label)', () => {
+    expect(paneLabelArgs('claude')).toEqual([]);
     expect(paneLabelArgs('codex')).toEqual([]);
     expect(paneLabelArgs('gemini')).toEqual([]);
     expect(paneLabelArgs('shell')).toEqual([]);
   });
-  it('the instruction names the SIGMA::LABEL sentinel', () => {
-    expect(PANE_LABEL_INSTRUCTION).toContain('SIGMA::LABEL');
+  it('the instruction is empty (no transcript pollution)', () => {
+    expect(PANE_LABEL_INSTRUCTION).toBe('');
   });
 });
 
