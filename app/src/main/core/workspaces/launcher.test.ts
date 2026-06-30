@@ -491,6 +491,57 @@ describe('executeLaunchPlan — Task 5: observed-process RAM-brake budget', () =
     // No spawn side effects: the worktree must never have been created.
     expect(deps.worktreePool.create).not.toHaveBeenCalled();
   });
+
+  it('does not block a launch for an over-cap session that has no workspaceId', async () => {
+    const { deps } = makeTestDeps();
+
+    // One live session with NO workspaceId holding 5 GiB RSS — over the 4 GiB
+    // per-workspace cap but under the 12 GiB total cap. It must NOT be attributed
+    // to the launching workspace (a scratch/swarm pane shouldn't consume ws budget),
+    // so the launch proceeds. (Under the old `?? wsRow.id` fallback this rejected.)
+    const FIVE_GIB = 5 * 1024 * 1024 * 1024;
+    deps.pty.list = vi.fn(() => [
+      {
+        id: 'scratch-1',
+        workspaceId: undefined,
+        providerId: 'shell',
+        cwd: '/scratch',
+        pid: 10,
+        alive: true,
+      } as unknown as ReturnType<typeof deps.pty.list>[number],
+    ]);
+    deps.pty.processSnapshotCached = vi.fn(async () => ({
+      rootPid: 10,
+      supported: true,
+      rssBytes: FIVE_GIB,
+      descendantPids: [],
+      nodes: [{ pid: 10, ppid: 1, rssBytes: FIVE_GIB, command: 'node.exe', args: 'node scratch.js' }],
+    }));
+
+    // in-place mode (no worktree create) + default observed caps (KV reads miss → defaults).
+    vi.mocked(getRawDb).mockReturnValue({
+      prepare: vi.fn(() => ({
+        get: vi.fn((key?: string) =>
+          typeof key === 'string' && key.startsWith('workspace.worktreeMode.')
+            ? { value: 'in-place' }
+            : undefined,
+        ),
+        all: vi.fn(() => []),
+        run: vi.fn(() => undefined),
+      })),
+      transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+    } as unknown as ReturnType<typeof getRawDb>);
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })) })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const { sessions } = await executeLaunchPlan(makeGitPlan(), deps);
+    expect(sessions[0]!.status).toBe('running');
+  });
 });
 
 describe('executeLaunchPlan — Phase 2 RAM Brake MCP launch modes', () => {

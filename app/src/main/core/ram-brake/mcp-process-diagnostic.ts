@@ -38,10 +38,10 @@ export function isClaudeFlowStdioMcpStart(node: ProcessTreeNode): boolean {
   // Require BOTH `mcp` and `start` tokens so we only match an MCP server launch
   // (`... mcp start`), not unrelated claude-flow invocations that merely mention mcp.
   if (!text.includes('mcp') || !text.includes('start')) return false;
-  // Exclude HTTP-transport launches: claude-flow's `-t http` / `--transport http` daemon is a
-  // separate long-lived HTTP server, NOT a per-session stdio descendant, so it must not count
-  // toward stdio-MCP leak detection.
-  if (text.includes('-t http') || text.includes('--transport http')) return false;
+  // Exclude HTTP-transport launches: claude-flow's HTTP daemon (`-t http`, `-t=http`,
+  // `--transport http`, `--transport=http`) is a separate long-lived HTTP server, NOT a
+  // per-session stdio descendant, so it must not count toward stdio-MCP leak detection.
+  if (/(?:^|\s)(?:-t|--transport)[ =]http/.test(text)) return false;
   return text.includes('@claude-flow/cli') || text.includes('@claude-flow\\cli');
 }
 

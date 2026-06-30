@@ -21,7 +21,13 @@ export interface ObservedProcessBudgetCaps {
 }
 export interface ObservedSessionProcess {
   sessionId: string;
-  workspaceId: string;
+  /**
+   * Owning workspace, or `undefined` for sessions that don't carry one (legacy
+   * panes, scratch shells, swarm panes). Undefined sessions count ONLY toward
+   * `totalRssBytes`, never toward a specific workspace's RSS — so an unrelated
+   * session can't consume the launching workspace's budget.
+   */
+  workspaceId: string | undefined;
   snapshot: ProcessTreeSnapshot | null;
 }
 export interface ObservedProcessBudgetDetails {
