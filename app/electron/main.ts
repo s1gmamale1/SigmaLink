@@ -695,6 +695,17 @@ function buildWindow(opts: {
   // from disk without DevTools. Covers main + secondary windows (both built here).
   attachRendererLogCapture(win.webContents, diagnosticsLogPath());
 
+  // Record renderer-process CRASHES (distinct from the console output
+  // attachRendererLogCapture persists, and from the MAIN-process
+  // uncaughtException/unhandledRejection handlers below): `render-process-gone`
+  // fires when this window's renderer dies — GPU fault, OOM, or a hard crash
+  // under many composited WebGL panes — which was previously unrecorded, so a
+  // "the pane went blank" report left no trace on disk. `details` =
+  // { reason, exitCode }; logMainError → formatError tolerates the non-Error shape.
+  win.webContents.on('render-process-gone', (_event, details) => {
+    logMainError('render-process-gone', details);
+  });
+
   if (devServerUrl) {
     void win.loadURL(devServerUrl);
   } else {
@@ -905,6 +916,13 @@ function logMainError(kind: string, err: unknown): void {
 }
 process.on('uncaughtException', (err) => logMainError('uncaughtException', err));
 process.on('unhandledRejection', (reason) => logMainError('unhandledRejection', reason));
+
+// GPU / utility / renderer CHILD-process loss. A crashed GPU process (common
+// under many composited WebGL terminal panes) auto-restarts, but the event was
+// unrecorded — so "panes went blank then recovered" left no trace. Log it to the
+// same diagnostics file, alongside the render-process-gone capture in buildWindow.
+// `details` = { type, reason, exitCode, name }.
+app.on('child-process-gone', (_event, details) => logMainError('child-process-gone', details));
 
 // BUG-V1.1.2-02 — Renderer pushes `app:session-snapshot { workspaceId, room }`
 // every time the active workspace or room changes (throttled to ≤ 1/sec).
