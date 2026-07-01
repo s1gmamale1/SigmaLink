@@ -15,6 +15,7 @@ import type { WindowHandle } from './core/windows/registry';
 import { buildDetachWorkspace, buildRedockWorkspace } from './core/windows/detach-handlers';
 import { openDatabaseWithBootRetry } from './core/db/boot-open';
 import { sweepWin32DbOrphans, waitForPidsExit } from './core/process/orphan-sweep';
+import { summarizeMcpProcesses } from './core/ram-brake/mcp-process-diagnostic';
 import { runBootJanitor } from './core/db/janitor';
 import { PtyRegistry } from './core/pty/registry';
 import { PtyDataCoalescer } from './core/pty/pty-data-coalescer';
@@ -1468,12 +1469,14 @@ async function buildRouter() {
       })),
     processStats: async (sessionId: string) => {
       const snapshot = await pty.processSnapshotCached(sessionId);
+      const mcp = summarizeMcpProcesses(snapshot);
       return {
         supported: snapshot?.supported ?? false,
         rssBytes: snapshot?.rssBytes ?? 0,
         descendantPids: snapshot?.descendantPids ?? [],
         processCount: snapshot?.nodes.length ?? 0,
         nodes: snapshot?.nodes ?? [],
+        mcp,
       };
     },
     forget: async (sessionId: string) => {

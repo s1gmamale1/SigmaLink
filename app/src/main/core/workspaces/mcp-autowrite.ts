@@ -76,6 +76,13 @@ export interface WorkspaceMcpWriteOptions {
    * an invalid value to get the default stdio mode.
    */
   port?: number;
+  /**
+   * Windows containment: when true AND no `port` is provided, do NOT write a managed
+   * Codex stdio Ruflo entry. Any existing SigmaLink-managed `mcp_servers.ruflo` table is
+   * REMOVED; a user-managed table is preserved and recorded in `refused`. Ignored when a
+   * `port` is provided (HTTP entry is still written normally).
+   */
+  skipCodexStdio?: boolean;
 }
 
 export interface WorkspaceMcpWriteResult {
@@ -164,9 +171,21 @@ export function writeWorkspaceMcpConfig(
         ', ',
       )}`,
     );
+    // Windows leak containment is a REMOVAL, not a write: still strip a managed
+    // Codex stdio Ruflo block even when ANOTHER provider's user config makes us
+    // refuse the writes — otherwise an unrelated custom Claude/Gemini entry would
+    // leave the managed Codex stdio multiplier in place, defeating this feature.
+    // Skip when the Codex file itself is the user-managed one (already refused);
+    // removeManagedCodexRufloToml self-protects against the rest (strict check).
+    const codex =
+      ctx.port === undefined &&
+      opts.skipCodexStdio === true &&
+      !customEntries.includes(codexTarget)
+        ? removeManagedCodexRufloToml({ target: codexTarget, ctx })
+        : null;
     return {
       claude: null,
-      codex: null,
+      codex,
       gemini: null,
       kimi: null,
       opencode: null,
@@ -176,7 +195,13 @@ export function writeWorkspaceMcpConfig(
   }
 
   const claude = writeJsonMcpFile({ target: claudeTarget, ctx });
-  const codex = writeCodexToml({ target: codexTarget, ctx });
+  // Windows containment — when skipCodexStdio is requested and we have no HTTP
+  // port, strip (never write) the managed Codex stdio Ruflo entry instead of
+  // writing one. The HTTP path (port defined) is unaffected.
+  const codex =
+    ctx.port === undefined && opts.skipCodexStdio === true
+      ? removeManagedCodexRufloToml({ target: codexTarget, ctx })
+      : writeCodexToml({ target: codexTarget, ctx });
   const gemini = writeJsonMcpFile({ target: geminiTarget, ctx });
   const kimi = kimiActive ? writeJsonMcpFile({ target: kimiTarget, ctx }) : null;
   const opencode = opencodeActive ? writeOpencodeMcpFile({ target: opencodeTarget, ctx }) : null;
@@ -260,6 +285,43 @@ function writeCodexToml(args: { target: string; ctx: WriteContext }): string | n
   const next = replaceTomlTables(existing, ranges, block);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   writeFileAtomic(target, next);
+  return target;
+}
+
+/**
+ * Windows containment counterpart to {@link writeCodexToml}: instead of writing
+ * a managed Codex stdio Ruflo entry, REMOVE any SigmaLink-managed
+ * `[mcp_servers.ruflo]` table (and its `[mcp_servers.ruflo.env]` sub-table).
+ *
+ * - No ruflo table present → no-op (returns null).
+ * - User-managed ruflo table → left untouched and recorded in `refused`
+ *   (defense-in-depth; the all-or-nothing gate in writeWorkspaceMcpConfig
+ *   already refuses such files before any writer runs).
+ * - Managed ruflo table(s) → stripped; unrelated tables (`[model]`,
+ *   `[mcp_servers.browser]`, …) are preserved. Returns the codex path.
+ */
+function removeManagedCodexRufloToml(args: { target: string; ctx: WriteContext }): string | null {
+  const { target, ctx } = args;
+  const { refused, logger } = ctx;
+  const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+  const ranges = findTomlTableRanges(existing, 'mcp_servers.ruflo');
+  if (ranges.length === 0) return null;
+  const mainRange = ranges.find((range) => range.header === 'mcp_servers.ruflo');
+  const mainBlock = mainRange ? existing.slice(mainRange.start, mainRange.end) : '';
+  // Strict check: only delete a block unambiguously written by SigmaLink. A
+  // user-managed ruflo entry (incl. one that merely shares `command = "npx"`) is
+  // left untouched and recorded in `refused`.
+  if (!isSigmaLinkManagedCodexStdioBlock(mainBlock)) {
+    warnRefusal(refused, logger, target, 'existing ruflo TOML entry is user-managed');
+    return null;
+  }
+  let next = existing;
+  for (const range of [...ranges].sort((a, b) => b.start - a.start)) {
+    next = next.slice(0, range.start) + next.slice(range.end);
+  }
+  next = next.trimEnd();
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  writeFileAtomic(target, next.length > 0 ? `${next}\n` : '');
   return target;
 }
 
@@ -473,6 +535,32 @@ function renderCodexHttpBlock(port: number): string {
  */
 function isManagedTomlRufloBlock(block: string): boolean {
   if (parseTomlStringValue(block, 'command') === RUFLO_COMMAND) return true;
+  if (parseTomlStringValue(block, 'transport') === 'http') {
+    const url = parseTomlStringValue(block, 'url');
+    return typeof url === 'string' && RUFLO_HTTP_URL_RE.test(url);
+  }
+  return false;
+}
+
+/**
+ * Stricter sibling of {@link isManagedTomlRufloBlock} for the DESTRUCTIVE remove
+ * path ({@link removeManagedCodexRufloToml}). The overwrite path (writeCodexToml)
+ * treats ANY `command = "npx"` ruflo block as ours and self-heals it by REWRITING
+ * a working entry — tolerable because nothing is lost. Deletion is irreversible,
+ * so it demands a tighter signature: a stdio block must ALSO carry the
+ * `@claude-flow/cli` package SigmaLink always writes, so a user's own
+ * `command = "npx"` ruflo pointing at a different package is preserved, not
+ * silently deleted. (Older SigmaLink configs — e.g. the `mcp-stdio` subcommand —
+ * still match because they contain `@claude-flow/cli` too.) A managed localhost
+ * HTTP block also qualifies.
+ */
+function isSigmaLinkManagedCodexStdioBlock(block: string): boolean {
+  if (
+    parseTomlStringValue(block, 'command') === RUFLO_COMMAND &&
+    block.includes('@claude-flow/cli')
+  ) {
+    return true;
+  }
   if (parseTomlStringValue(block, 'transport') === 'http') {
     const url = parseTomlStringValue(block, 'url');
     return typeof url === 'string' && RUFLO_HTTP_URL_RE.test(url);

@@ -137,6 +137,7 @@ vi.mock('../db/client', () => ({
 // ---------------------------------------------------------------------------
 import { openWorkspaceNew } from './factory';
 import { randomUUID } from 'node:crypto';
+import { writeWorkspaceMcpConfig } from './mcp-autowrite';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -209,5 +210,23 @@ describe('openWorkspaceNew (DEV-W3a)', () => {
     expect(ws).toHaveProperty('repoMode');
     expect(ws).toHaveProperty('createdAt');
     expect(ws).toHaveProperty('lastOpenedAt');
+  });
+
+  // Task 4 — on Windows with no HTTP daemon port, the autowrite is asked to skip
+  // the managed Codex stdio Ruflo entry by default (operator opt-out KV unset).
+  it('on win32 with no port, asks autowrite to skip codex stdio (default opt-out)', async () => {
+    vi.mocked(writeWorkspaceMcpConfig).mockClear();
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    try {
+      await openWorkspaceNew('/tmp/win-project');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    }
+
+    expect(writeWorkspaceMcpConfig).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ skipCodexStdio: true }),
+    );
   });
 });
