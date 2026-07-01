@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { appendDiagnostic, formatError, attachRendererLogCapture } from './diagnostics-log.ts';
+import {
+  appendDiagnostic,
+  formatError,
+  attachRendererLogCapture,
+  isCrashGoneReason,
+} from './diagnostics-log.ts';
 
 const tmpDirs: string[] = [];
 function tmpFile(): string {
@@ -44,6 +49,19 @@ describe('formatError', () => {
     expect(formatError('unhandledRejection', 'plain', '2026-06-16T00:00:00.000Z')).toContain(
       'unhandledRejection: plain',
     );
+  });
+});
+
+describe('isCrashGoneReason', () => {
+  it('returns true for genuine crash reasons', () => {
+    for (const r of ['crashed', 'oom', 'launch-failed', 'integrity-failure', 'abnormal-exit']) {
+      expect(isCrashGoneReason(r)).toBe(true);
+    }
+  });
+  it('returns false for benign teardown reasons (normal close / GPU recycle)', () => {
+    for (const r of ['clean-exit', 'killed', 'normal-termination', '']) {
+      expect(isCrashGoneReason(r)).toBe(false);
+    }
   });
 });
 
