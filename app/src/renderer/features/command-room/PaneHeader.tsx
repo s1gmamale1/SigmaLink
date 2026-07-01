@@ -105,6 +105,9 @@ export function PaneHeader({
   const exited = session.status === 'exited';
   const dotColor = errored ? '#ef4444' : exited ? '#9ca3af' : '#22c55e';
 
+  // Per-pane accent — used for the task-title text colour (below).
+  const accent = agentColor(session.id);
+
   // BSP-V2 — live cost + tok/s estimate badge. Status-gated (PERF-5): only poll
   // running panes — exited/error panes have a frozen ledger.
   const liveStats = usePaneLiveStats(session.id, session.status === 'running');
@@ -232,8 +235,14 @@ export function PaneHeader({
         style={{ background: id.providerColor }}
         aria-hidden="true"
       />
-      {/* P5.2 density-aware height — h-7 comfortable/compact, h-6 dense tier. */}
-      <div className="group/header sl-glass-toolbar flex h-7 items-center gap-1.5 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]">
+      {/* P5.2 density-aware height — h-7 comfortable/compact, h-6 dense tier.
+          Uniform "lighter black" header bar — same on every pane, themed via the
+          --muted surface (a step lighter than the terminal's near-black body).
+          Solid backgroundColor overrides the glass frost so all bars read identical. */}
+      <div
+        className="group/header sl-glass-toolbar flex h-7 items-center gap-1.5 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]"
+        style={{ backgroundColor: 'hsl(var(--muted))' }}
+      >
 
         {/* ── Title pill (drag handle, status glyph, alias·effort) ──────── */}
         <TooltipProvider delayDuration={coachmark.loaded && !coachmark.seen ? 300 : 200}>
@@ -283,12 +292,12 @@ export function PaneHeader({
                   />
                 ) : (
                   <span
-                    className="min-w-0 truncate cursor-text"
+                    className="min-w-0 truncate cursor-text text-muted-foreground"
                     onDoubleClick={(e) => { e.stopPropagation(); startEditing(); }}
                     data-testid="pane-display-name"
                     title={`${paneName} · ${id.effortLabel} — double-click to rename`}
                   >
-                    {paneName} <span className="text-muted-foreground">· {id.effortLabel}</span>
+                    {paneName} <span className="opacity-70">· {id.effortLabel}</span>
                   </span>
                 )}
                 {!editing && (
@@ -321,8 +330,8 @@ export function PaneHeader({
             Accent-coloured per pane; empty (flex spacer) when the pane is idle. */}
         <span
           data-testid="pane-task-label"
-          className="min-w-0 flex-1 truncate"
-          style={taskLabel ? { color: agentColor(session.id) } : undefined}
+          className="min-w-0 flex-1 truncate font-semibold"
+          style={taskLabel ? { color: accent } : undefined}
           title={taskLabel ?? undefined}
         >
           {taskLabel}
@@ -360,7 +369,7 @@ export function PaneHeader({
         <div className="flex shrink-0 items-center gap-0.5" onDragStart={(e) => e.stopPropagation()}>
 
           {/* Gear — opacity-0 reveal (situational) */}
-          <div className="flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className="flex items-center opacity-0 transition-opacity group-hover/header:opacity-100 group-focus-within/header:opacity-100">
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <Popover>
@@ -429,7 +438,7 @@ export function PaneHeader({
           </TooltipProvider>
 
           {/* Split + Minimise — opacity-0 reveal (situational) */}
-          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/header:opacity-100 group-focus-within/header:opacity-100">
 
             {/* Merged split button */}
             <PaneHeaderSplitButton
