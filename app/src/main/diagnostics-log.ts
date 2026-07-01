@@ -47,6 +47,26 @@ export function formatError(kind: string, err: unknown, iso: string): string {
   return `[${iso}] ${kind}: ${e.message}\n${e.stack ?? ''}`;
 }
 
+/**
+ * Electron `render-process-gone` / `child-process-gone` `reason` values that
+ * signal a genuine fault worth persisting. Benign teardown reasons —
+ * 'clean-exit' and 'killed' (a normal window close, the app quit closing every
+ * window, or routine Chromium GPU-process recycling) — are excluded so they
+ * cannot flood the size-capped diagnostics file and evict a real crash entry.
+ */
+const CRASH_GONE_REASONS = new Set<string>([
+  'crashed',
+  'oom',
+  'launch-failed',
+  'integrity-failure',
+  'abnormal-exit',
+]);
+
+/** True when a process-gone `reason` indicates a real crash (not benign teardown). */
+export function isCrashGoneReason(reason: string): boolean {
+  return CRASH_GONE_REASONS.has(reason);
+}
+
 interface ConsoleCapableWebContents {
   on(
     event: 'console-message',

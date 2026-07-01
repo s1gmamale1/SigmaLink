@@ -21,7 +21,7 @@ import { matchesWakeWord as wakeMatch } from '../src/shared/wake-word';
 import { getModelById as getVoiceModelById, getDownloadedModelPath as getDownloadedVoiceModelPath } from '../src/main/core/voice/model-registry';
 import { maybeCheckOnBoot } from './auto-update';
 import { isAllowedEvent } from '../src/shared/rpc-channels';
-import { appendDiagnostic, attachRendererLogCapture, formatError } from '../src/main/diagnostics-log';
+import { appendDiagnostic, attachRendererLogCapture, formatError, isCrashGoneReason } from '../src/main/diagnostics-log';
 import {
   getCachedSnapshot,
   persistCachedSnapshot,
@@ -695,15 +695,18 @@ function buildWindow(opts: {
   // from disk without DevTools. Covers main + secondary windows (both built here).
   attachRendererLogCapture(win.webContents, diagnosticsLogPath());
 
-  // Record renderer-process CRASHES (distinct from the console output
-  // attachRendererLogCapture persists, and from the MAIN-process
-  // uncaughtException/unhandledRejection handlers below): `render-process-gone`
-  // fires when this window's renderer dies — GPU fault, OOM, or a hard crash
-  // under many composited WebGL panes — which was previously unrecorded, so a
-  // "the pane went blank" report left no trace on disk. `details` =
-  // { reason, exitCode }; logMainError → formatError tolerates the non-Error shape.
+  // Record renderer-process CRASHES to the diagnostics file (distinct from the
+  // console output attachRendererLogCapture persists, and from the MAIN-process
+  // uncaughtException/unhandledRejection handlers below). `render-process-gone`
+  // ALSO fires on benign teardown ('clean-exit'/'killed' — a normal window close,
+  // or MAIN-CLOSES-ALL at quit), so gate on isCrashGoneReason to keep routine
+  // closes from flooding the size-capped log and evicting a real crash entry.
   win.webContents.on('render-process-gone', (_event, details) => {
-    logMainError('render-process-gone', details);
+    if (!isCrashGoneReason(details.reason)) return;
+    appendDiagnostic(
+      diagnosticsLogPath(),
+      `[${new Date().toISOString()}] render-process-gone: reason=${details.reason} exitCode=${details.exitCode}`,
+    );
   });
 
   if (devServerUrl) {
@@ -917,12 +920,19 @@ function logMainError(kind: string, err: unknown): void {
 process.on('uncaughtException', (err) => logMainError('uncaughtException', err));
 process.on('unhandledRejection', (reason) => logMainError('unhandledRejection', reason));
 
-// GPU / utility / renderer CHILD-process loss. A crashed GPU process (common
-// under many composited WebGL terminal panes) auto-restarts, but the event was
-// unrecorded — so "panes went blank then recovered" left no trace. Log it to the
-// same diagnostics file, alongside the render-process-gone capture in buildWindow.
-// `details` = { type, reason, exitCode, name }.
-app.on('child-process-gone', (_event, details) => logMainError('child-process-gone', details));
+// GPU / utility / renderer CHILD-process CRASHES. A GPU process is recycled
+// routinely under many composited WebGL panes ('clean-exit'), so — like the
+// render-process-gone capture in buildWindow — log only genuine faults
+// (isCrashGoneReason) to the same diagnostics file, avoiding benign-recycle noise
+// that would evict real crashes from the size-capped log. `details` =
+// { type, reason, exitCode, name }.
+app.on('child-process-gone', (_event, details) => {
+  if (!isCrashGoneReason(details.reason)) return;
+  appendDiagnostic(
+    diagnosticsLogPath(),
+    `[${new Date().toISOString()}] child-process-gone: type=${details.type} reason=${details.reason} exitCode=${details.exitCode}${details.name ? ` name=${details.name}` : ''}`,
+  );
+});
 
 // BUG-V1.1.2-02 — Renderer pushes `app:session-snapshot { workspaceId, room }`
 // every time the active workspace or room changes (throttled to ≤ 1/sec).
