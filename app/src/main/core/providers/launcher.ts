@@ -77,8 +77,9 @@ export interface ResolveAndSpawnOpts {
    * Owning workspace id, forwarded onto the SessionRecord so the RAM-brake
    * observed-process budget can attribute this pane's live RSS / MCP footprint
    * to the right workspace. Optional — callers that omit it leave the record's
-   * `workspaceId` undefined (the launcher preflight then falls back to the
-   * launching workspace).
+   * `workspaceId` undefined; the launcher preflight then counts that session
+   * only toward the TOTAL-RSS cap, never a specific workspace's, so it can't
+   * inflate an unrelated workspace's budget.
    */
   workspaceId?: string;
   /** Append `provider.autoApproveFlag` to args when true and a flag exists. */
