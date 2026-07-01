@@ -286,8 +286,11 @@ describe('PaneHeader (Phase 4 BridgeSpace strip)', () => {
 
   it('gear + split + minimise are in the opacity-0 reveal wrapper (hover/focus)', () => {
     const REVEAL = /opacity-0/;
-    const REVEAL_HOVER = /group-hover:opacity-100/;
-    const REVEAL_FOCUS = /group-focus-within:opacity-100/;
+    // The cluster reveals via the NAMED group on the header strip (`group/header`),
+    // not a bare `group` — a bare `group-hover:` has no matching ancestor here and
+    // silently never fires (the gear/split/minimise-never-appear bug).
+    const REVEAL_HOVER = /group-hover\/header:opacity-100/;
+    const REVEAL_FOCUS = /group-focus-within\/header:opacity-100/;
 
     function revealWrapper(el: HTMLElement): HTMLElement | null {
       let node: HTMLElement | null = el;
