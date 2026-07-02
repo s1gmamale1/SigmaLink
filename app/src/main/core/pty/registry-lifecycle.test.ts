@@ -231,6 +231,18 @@ describe('exit pane-event kind hardening (finding 5)', () => {
 });
 
 describe('shell-first sentinel split across PTY reads (finding 4)', () => {
+  // Shell-first resolution is POSIX-only (win32 coerces to 'direct' — see
+  // resolveEffectiveSpawnMode). Pin a POSIX platform so these tests exercise
+  // the carry logic on Windows dev boxes too, instead of silently arming
+  // nothing and failing (they previously only passed on macOS/Linux hosts).
+  const originalPlatform = process.platform;
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+  });
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
+
   function createShellFirstSession(
     cliExits: Array<{ sessionId: string; exitCode: number }>,
     forwarded: string[],
