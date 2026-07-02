@@ -56,6 +56,11 @@ import { rpc } from '@/renderer/lib/rpc';
 import { subscribePtyData } from '@/renderer/lib/pty-data-bus';
 import { subscribeExit } from '@/renderer/lib/pty-exit-bus';
 import { computeSnapshotOverlap } from './snapshot-overlap';
+import {
+  activeTerminalPalette,
+  setActiveTerminalPalette,
+  type TerminalPalette,
+} from './terminal-palette';
 import { ctrlWheelShouldBubble } from './wheel-zoom';
 import { attachXtermLabelReader, detachLabelReader } from './label-reader';
 
@@ -171,29 +176,36 @@ function ensureParkingLot(): HTMLDivElement {
   return div;
 }
 
-export const THEME = {
-  background: '#0a0c12',
-  foreground: '#e6e8f0',
-  cursor: '#a78bfa',
-  cursorAccent: '#0a0c12',
-  selectionBackground: 'rgba(167, 139, 250, 0.35)',
-  black: '#0a0c12',
-  red: '#ef4444',
-  green: '#22c55e',
-  yellow: '#eab308',
-  blue: '#60a5fa',
-  magenta: '#c084fc',
-  cyan: '#22d3ee',
-  white: '#e6e8f0',
-  brightBlack: '#525a73',
-  brightRed: '#f87171',
-  brightGreen: '#4ade80',
-  brightYellow: '#facc15',
-  brightBlue: '#93c5fd',
-  brightMagenta: '#d8b4fe',
-  brightCyan: '#67e8f9',
-  brightWhite: '#f8fafc',
-} as const;
+/** Phase 17 — build the xterm ITheme for a TerminalPalette. The palette is
+ *  the single visual source of truth shared with the DOM presenter
+ *  (ansi-palette.ts); the all-themes parity test pins this mapping. */
+export function xtermThemeFrom(p: TerminalPalette) {
+  const [black, red, green, yellow, blue, magenta, cyan, white,
+    brightBlack, brightRed, brightGreen, brightYellow,
+    brightBlue, brightMagenta, brightCyan, brightWhite] = p.ansi;
+  return {
+    background: p.background,
+    foreground: p.foreground,
+    cursor: p.cursor,
+    cursorAccent: p.cursorAccent,
+    selectionBackground: p.selectionBackground,
+    black, red, green, yellow, blue, magenta, cyan, white,
+    brightBlack, brightRed, brightGreen, brightYellow,
+    brightBlue, brightMagenta, brightCyan, brightWhite,
+  } as const;
+}
+
+/** Phase 17 — theme-switch entry point (called by ThemeProvider): update the
+ *  shared active palette (the DOM presenter reads it per resolve) and restyle
+ *  every LIVE cached terminal in place. xterm applies `options.theme`
+ *  immediately, so open panes recolor without a respawn. */
+export function applyTerminalPalette(p: TerminalPalette): void {
+  setActiveTerminalPalette(p);
+  const theme = xtermThemeFrom(p);
+  for (const entry of cache.values()) {
+    entry.terminal.options.theme = theme;
+  }
+}
 
 /** xterm keeps its modern reflow path for ConPTY at or above this Windows build
  *  (the threshold baked into `@xterm/xterm`'s `windowsPty` docs); below it the
@@ -237,7 +249,7 @@ function buildTerminalOptions(
     cursorStyle: 'bar',
     allowTransparency: false,
     scrollback: 8000,
-    theme: THEME,
+    theme: xtermThemeFrom(activeTerminalPalette()),
     convertEol: true,
     // Required for the Unicode 11 width tables activated in getOrCreateTerminal
     // (`term.unicode.activeVersion`) — without it that proposed API throws and

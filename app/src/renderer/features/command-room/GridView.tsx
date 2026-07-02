@@ -11,7 +11,7 @@
 
 import { useEffect, useReducer } from 'react';
 import type { TerminalEngine } from '@/renderer/lib/terminal-engine';
-import { DEFAULT_BG, DEFAULT_FG } from './ansi-palette';
+import { defaultBg, defaultFg } from './ansi-palette';
 import { CURSOR_STYLE, runStyle } from './run-style';
 
 const MONO_FONT =
@@ -84,8 +84,8 @@ export function GridView({ engine, className }: { engine: TerminalEngine; classN
       style={{
         height: '100%',
         overflow: 'hidden',
-        background: DEFAULT_BG,
-        color: DEFAULT_FG,
+        background: defaultBg(),
+        color: defaultFg(),
         fontFamily: MONO_FONT,
         fontSize: 12,
         lineHeight: 1.4,

@@ -6,14 +6,14 @@
 
 import type { CSSProperties } from 'react';
 import type { StyledRun } from '@/renderer/lib/terminal-engine';
-import { colorFor, DEFAULT_BG, DEFAULT_FG } from './ansi-palette';
+import { colorFor, defaultBg, defaultFg } from './ansi-palette';
 
 export function runStyle(run: StyledRun, block: boolean): CSSProperties {
   let color = colorFor(run.fg, 'fg');
   let background = colorFor(run.bg, 'bg');
   if (run.inverse) {
-    const fgResolved = color ?? DEFAULT_FG;
-    const bgResolved = background ?? DEFAULT_BG;
+    const fgResolved = color ?? defaultFg();
+    const bgResolved = background ?? defaultBg();
     color = bgResolved;
     background = fgResolved;
   }

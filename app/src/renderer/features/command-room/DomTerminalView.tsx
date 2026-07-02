@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
+import { useTerminalPaletteEpoch } from '@/renderer/lib/terminal-palette';
 import { encodeKeyEvent, encodePaste, isNativePasteCombo, shiftEnterNewline } from './input-encoder';
 import { feedPromptKey, feedPromptPaste } from '@/renderer/lib/pane-prompt-capture';
 import { countsTowardAgentCap } from '@/shared/providers';
@@ -77,6 +78,9 @@ export function DomTerminalView({
   // alt-screen enter/exit (1049h/l). Cheap: the host renders a few divs.
   const [, bump] = useReducer((n: number) => n + 1, 0);
   useEffect(() => entry.engine.onBufferChanged(bump), [entry]);
+
+  // Phase 17 — theme switch: remount the presenter views in the new palette.
+  const paletteEpoch = useTerminalPaletteEpoch();
 
   // FlowView link context — mirror the xterm host (Terminal.tsx): a clicked
   // PTY-pane link routes through the active workspace's built-in browser via
@@ -444,9 +448,13 @@ export function DomTerminalView({
         />
       )}
       {entry.engine.bufferType === 'alternate' ? (
-        <GridView engine={entry.engine} />
+        // Phase 17: keyed by palette epoch — a theme switch remounts the view
+        // past the row memoization so every line repaints in the new palette
+        // (rare path; the view re-hydrates from the engine buffer).
+        <GridView key={`g${paletteEpoch}`} engine={entry.engine} />
       ) : (
         <FlowView
+          key={`f${paletteEpoch}`}
           engine={entry.engine}
           onLinkClick={onLinkClick}
           searchTerm={searchOpen ? searchTerm : undefined}
