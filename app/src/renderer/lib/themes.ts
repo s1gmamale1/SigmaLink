@@ -3,6 +3,16 @@
 // theme in `src/index.css` — this module is the metadata layer (id, label,
 // description, swatches) used by the Appearance tab + command palette.
 
+import {
+  AURORA_TERMINAL,
+  CUPERTINO_DARK_TERMINAL,
+  CUPERTINO_LIGHT_TERMINAL,
+  DEFAULT_TERMINAL,
+  LIGHT_LEGACY_TERMINAL_CLEAN,
+  LIGHT_LEGACY_TERMINAL_PARCHMENT,
+  type TerminalPalette,
+} from './terminal-palette';
+
 export type ThemeId =
   | 'obsidian'
   | 'parchment'
@@ -22,7 +32,16 @@ export type ThemeId =
   | 'clean-violet'
   | 'clean-blue'
   | 'clean-rose'
-  | 'clean-emerald';
+  | 'clean-emerald'
+  // Aurora family (Phase 17) — sigma-designs living light on velvet
+  // (aurora-material.css applies to every `[data-theme^='aurora']`).
+  | 'aurora'
+  | 'aurora-ember'
+  | 'aurora-ice'
+  // Cupertino family (Phase 17) — apple-design HIG, light-first
+  // (cupertino-material.css applies to every `[data-theme^='cupertino']`).
+  | 'cupertino-light'
+  | 'cupertino-dark';
 
 export interface ThemeDefinition {
   id: ThemeId;
@@ -35,6 +54,12 @@ export interface ThemeDefinition {
    * Radix portals that read the class still work.
    */
   appearance: 'dark' | 'light';
+  /**
+   * Phase 17 — terminal palette (xterm theme + DOM presenter ANSI map both
+   * derive from it). Dark legacy themes share DEFAULT_TERMINAL (byte-identical
+   * to the pre-Phase-17 constants); light themes carry light terminals.
+   */
+  terminal: TerminalPalette;
 }
 
 export const THEMES: ThemeDefinition[] = [
@@ -44,6 +69,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Default — deep neutral with violet primary.',
     swatch: { bg: '#0a0c10', fg: '#fafafa', primary: '#a86bff', accent: '#E07F4F' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   {
     id: 'parchment',
@@ -51,6 +77,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Warm light theme with rust accents.',
     swatch: { bg: '#f6f1e7', fg: '#1a1814', primary: '#b75a2c', accent: '#5b7fe0' },
     appearance: 'light',
+    terminal: LIGHT_LEGACY_TERMINAL_PARCHMENT,
   },
   {
     id: 'nord',
@@ -58,6 +85,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Cool, low-saturation blue/teal palette.',
     swatch: { bg: '#1e2530', fg: '#eceff4', primary: '#88c0d0', accent: '#a3be8c' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   {
     id: 'synthwave',
@@ -65,6 +93,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'High-contrast neon dark theme.',
     swatch: { bg: '#10081f', fg: '#f5f3ff', primary: '#ff5bbf', accent: '#5be7ff' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   {
     id: 'glass',
@@ -72,6 +101,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Neon glassmorphism — translucent blurred panels over a cyan/violet glow.',
     swatch: { bg: '#070a14', fg: '#eaf6ff', primary: '#22d3ee', accent: '#a855f7' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   // ── Glass Spectrum (BSP-T2) — same Liquid-Glass material, hue-shifted mesh + accent.
   {
@@ -80,6 +110,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Glass — aqua/teal mesh over a deep teal base.',
     swatch: { bg: '#061412', fg: '#eafcf6', primary: '#2ed6a8', accent: '#22d3ee' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   {
     id: 'glass-violet',
@@ -87,6 +118,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Glass — violet/magenta neon mesh.',
     swatch: { bg: '#0c0716', fg: '#f3eafc', primary: '#b06bff', accent: '#e85bd0' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   {
     id: 'glass-slate',
@@ -94,6 +126,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Glass — muted, low-saturation slate glass.',
     swatch: { bg: '#0a0d12', fg: '#e8eef5', primary: '#a6bace', accent: '#8aa0b8' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   {
     id: 'glass-frost',
@@ -101,6 +134,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Glass — bright frosted white-blue.',
     swatch: { bg: '#08111c', fg: '#f0f8ff', primary: '#7fd4f5', accent: '#b0d8f7' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   // ── Clean family (BSP-T1) — flat, opaque, hairline dividers, single accent ring.
   {
@@ -109,6 +143,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Flat opaque near-black — amber accent, zero blur.',
     swatch: { bg: '#0c0d0f', fg: '#e6e8ea', primary: '#e8833a', accent: '#e8833a' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   {
     id: 'clean-light',
@@ -116,6 +151,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Flat light surface — amber accent.',
     swatch: { bg: '#f7f8fa', fg: '#1a1d22', primary: '#d4711f', accent: '#d4711f' },
     appearance: 'light',
+    terminal: LIGHT_LEGACY_TERMINAL_CLEAN,
   },
   {
     id: 'clean-violet',
@@ -123,6 +159,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Flat dark — violet accent (SigmaLink brand).',
     swatch: { bg: '#0c0d0f', fg: '#e6e8ea', primary: '#a86bff', accent: '#a86bff' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   {
     id: 'clean-blue',
@@ -130,6 +167,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Flat dark — cool blue accent.',
     swatch: { bg: '#0c0d0f', fg: '#e6e8ea', primary: '#4aa3e0', accent: '#4aa3e0' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   {
     id: 'clean-rose',
@@ -137,6 +175,7 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Flat dark — rose accent.',
     swatch: { bg: '#0c0d0f', fg: '#e6e8ea', primary: '#e05299', accent: '#e05299' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
   },
   {
     id: 'clean-emerald',
@@ -144,6 +183,51 @@ export const THEMES: ThemeDefinition[] = [
     description: 'Flat dark — emerald accent.',
     swatch: { bg: '#0c0d0f', fg: '#e6e8ea', primary: '#3ecf8e', accent: '#3ecf8e' },
     appearance: 'dark',
+    terminal: DEFAULT_TERMINAL,
+  },
+  // ── Aurora family (Phase 17, sigma-designs) — living light on velvet; the
+  // material (breathing blooms, 4-light rim) lives in aurora-material.css.
+  {
+    id: 'aurora',
+    label: 'Aurora',
+    description: 'Living light on velvet — breathing blooms, spectrum rim.',
+    swatch: { bg: '#08070d', fg: '#e9e8f2', primary: '#bc82f3', accent: '#67a7ff' },
+    appearance: 'dark',
+    terminal: AURORA_TERMINAL,
+  },
+  {
+    id: 'aurora-ember',
+    label: 'Aurora Ember',
+    description: 'Aurora — warm end of the ramp (amber/coral light).',
+    swatch: { bg: '#08070d', fg: '#e9e8f2', primary: '#ff8578', accent: '#ff9a0f' },
+    appearance: 'dark',
+    terminal: AURORA_TERMINAL,
+  },
+  {
+    id: 'aurora-ice',
+    label: 'Aurora Ice',
+    description: 'Aurora — cool end of the ramp (blue/periwinkle light).',
+    swatch: { bg: '#08070d', fg: '#e9e8f2', primary: '#67a7ff', accent: '#98aeea' },
+    appearance: 'dark',
+    terminal: AURORA_TERMINAL,
+  },
+  // ── Cupertino family (Phase 17, apple-design HIG) — light-first restraint;
+  // the material (chrome-only frost, hairlines) lives in cupertino-material.css.
+  {
+    id: 'cupertino-light',
+    label: 'Cupertino',
+    description: 'HIG light — quiet frost chrome, one systemBlue accent.',
+    swatch: { bg: '#f7f7f9', fg: '#1b1b1e', primary: '#007aff', accent: '#007aff' },
+    appearance: 'light',
+    terminal: CUPERTINO_LIGHT_TERMINAL,
+  },
+  {
+    id: 'cupertino-dark',
+    label: 'Cupertino Dark',
+    description: 'HIG dark — elevated grays, systemBlue accent.',
+    swatch: { bg: '#1b1b1d', fg: '#e5e5e7', primary: '#0a84ff', accent: '#0a84ff' },
+    appearance: 'dark',
+    terminal: CUPERTINO_DARK_TERMINAL,
   },
 ];
 

@@ -1,0 +1,7 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   cupertino-material.css — Cupertino HIG material layer (Phase 17)
+   ─────────────────────────────────────────────────────────────────────────────
+   apple-design: restraint first — chrome-only frost, hairlines, one accent.
+   Filled in by Phase 17 Task 8. Every rule is scoped
+   `:root[data-theme^='cupertino']` (variants: cupertino-light / cupertino-dark).
+   ═══════════════════════════════════════════════════════════════════════════ */
