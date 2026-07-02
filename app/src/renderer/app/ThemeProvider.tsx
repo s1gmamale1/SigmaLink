@@ -11,13 +11,24 @@ import {
   applyTheme,
   DEFAULT_DENSITY,
   DEFAULT_THEME,
+  findTheme,
   isDensityId,
   isThemeId,
   KV_KEYS,
   type DensityId,
   type ThemeId,
 } from '@/renderer/lib/themes';
+import { applyTerminalPalette } from '@/renderer/lib/terminal-cache';
 import { loadPersistedZoom } from '@/renderer/lib/zoom';
+
+/** Phase 17 — a theme is chrome tokens AND a terminal palette; every apply
+ *  site goes through this pair so the two can never drift. `applyTheme` sets
+ *  `data-theme` + the dark/light class; `applyTerminalPalette` updates the
+ *  shared palette store (DOM presenter) and live-restyles cached xterms. */
+function applyThemeAndPalette(id: ThemeId): void {
+  applyTheme(id);
+  applyTerminalPalette(findTheme(id).terminal);
+}
 
 interface ThemeContextValue {
   theme: ThemeId;
@@ -36,7 +47,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // Apply defaults immediately so first paint is themed + at the default density.
   useEffect(() => {
-    applyTheme(DEFAULT_THEME);
+    applyThemeAndPalette(DEFAULT_THEME);
     applyDensity(DEFAULT_DENSITY);
   }, []);
 
@@ -56,10 +67,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         // corrected value back to kv so the next boot is clean.
         if (isThemeId(storedTheme)) {
           setThemeState(storedTheme);
-          applyTheme(storedTheme);
+          applyThemeAndPalette(storedTheme);
         } else {
           setThemeState(DEFAULT_THEME);
-          applyTheme(DEFAULT_THEME);
+          applyThemeAndPalette(DEFAULT_THEME);
           void rpc.kv.set(KV_KEYS.theme, DEFAULT_THEME).catch(() => undefined);
         }
         // P5.2 — same validate-or-fall-back contract for the global density.
@@ -112,7 +123,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setTheme = (next: ThemeId) => {
     setThemeState(next);
-    applyTheme(next);
+    applyThemeAndPalette(next);
     void rpc.kv.set(KV_KEYS.theme, next).catch(() => undefined);
   };
 
