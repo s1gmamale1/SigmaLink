@@ -74,6 +74,8 @@ jobs:
         # -o (exclusive) so only these two are built; voice-whisper is vendored
         # (whisper.cpp sources absent in CI) + lazy-loaded, so it must NOT be
         # auto-detected here or its node-gyp build hard-fails the whole step.
+        # voice-mac / voice-win are likewise skipped on purpose: e2e smoke
+        # never exercises native voice; the unit suites cover them with mocks.
         run: npx @electron/rebuild -f -o better-sqlite3,node-pty
 
       - name: Win32 spawn correctness tests (unit + .cmd shim round-trip)
