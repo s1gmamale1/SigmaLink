@@ -444,6 +444,31 @@ describe('Sidebar — DEV-W1: logo toggles sidebar collapse', () => {
   });
 });
 
+describe('Sidebar — Task 5: minimal header (wordmark moved to titlebar)', () => {
+  beforeEach(() => {
+    kvGetMock.mockResolvedValue(null);
+    kvSetMock.mockResolvedValue(undefined);
+    dispatchMock.mockReset();
+    mockState = {
+      activeWorkspace: null,
+      sidebarCollapsed: false,
+      openWorkspaces: [],
+      workspaces: [],
+      sessions: [],
+    };
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('renders no wordmark text in the header (brand moved to titlebar)', () => {
+    const { queryByText } = renderSidebar();
+    expect(queryByText('SigmaLink')).toBeNull();
+  });
+});
+
 describe('Sidebar — v1.4.8 resize handle (collapsed state)', () => {
   beforeEach(() => {
     kvGetMock.mockResolvedValue(null);
