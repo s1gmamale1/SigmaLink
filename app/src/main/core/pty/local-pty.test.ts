@@ -801,15 +801,11 @@ describe('buildWin32CmdCommandLine (Phase 5)', () => {
     expect(line).toContain(SENTINEL_SUFFIX);
   });
 
-  it('with sentinel: uses %ERRORLEVEL% capture pattern', () => {
+  it('with sentinel: uses the conditional-echo pair, no cmd variable expansion (audit A1)', () => {
     const line = buildWin32CmdCommandLine('mybin', [], true);
-    expect(line).toContain('%ERRORLEVEL%');
-  });
-
-  it('with sentinel: uses SET to save exit code before echo. resets it', () => {
-    const line = buildWin32CmdCommandLine('mybin', [], true);
-    expect(line).toContain('SET');
-    expect(line).toContain('__SL_EC');
+    expect(line).toContain(` && (echo. & echo ${SENTINEL_PREFIX}0${SENTINEL_SUFFIX})`);
+    expect(line).toContain(` || (echo. & echo ${SENTINEL_PREFIX}1${SENTINEL_SUFFIX})`);
+    expect(line).not.toContain('%');
   });
 
   it('without sentinel: NO sentinel prefix in output', () => {

@@ -164,33 +164,31 @@ export function buildPowerShellSentinelSnippet(): string {
 /**
  * Build the cmd.exe snippet that emits the sentinel after the CLI exits.
  *
- * Intended for injection as the tail of a cmd.exe command line, e.g.:
- *   claude --args & echo. & echo __SIGMALINK_CLI_EXIT_%ERRORLEVEL%__
+ * Appended to the injected interactive command line:
+ *   claude --args && (echo. & echo __SIGMALINK_CLI_EXIT_0__) || (echo. & echo __SIGMALINK_CLI_EXIT_1__)
  *
- * The snippet is:
- *   & echo. & echo __SIGMALINK_CLI_EXIT_%ERRORLEVEL%__
+ * WHY conditional echoes instead of %ERRORLEVEL% (2026-07-03 audit A1):
+ * cmd.exe expands every `%VAR%` at PARSE time for the entire `&`-chained
+ * interactive line — before ANY command in the line has run. A same-line
+ * `SET __SL_EC=%ERRORLEVEL%` therefore captures the PRE-line errorlevel, and
+ * a same-line `echo %__SL_EC%` expands before the SET executes (undefined on
+ * first use → echoed literally). Delayed expansion (`cmd /V:ON` + `!VAR!`)
+ * would fix that but changes `!` handling for everything the user types into
+ * the pane shell — unacceptable. The conditional-echo pair needs no
+ * expansion at all.
  *
- * `echo.` prints a blank line (the leading newline that SENTINEL_RE expects).
- * `%ERRORLEVEL%` is expanded by cmd at parse time when using `&` chaining,
- * which preserves the exit code of the left-hand command.
+ * FIDELITY TRADE: non-zero exit codes collapse to 1 on cmd.exe (pwsh panes
+ * keep exact codes via $LASTEXITCODE). `&&`/`||` bind to the CLI because it
+ * is the only preceding command; `(echo. & echo …)` always succeeds, so the
+ * `||` arm cannot double-fire after a successful `&&` arm.
  *
- * IMPORTANT: cmd.exe expands `%ERRORLEVEL%` at parse time for the entire line
- * unless `DELAYEDEXPANSION` is enabled (`setlocal enabledelayedexpansion`).
- * We use `&` (unconditional sequence) rather than `&&`/`||` so that the echo
- * always runs, and we rely on `%ERRORLEVEL%` being the code from the CLI (the
- * `echo.` command itself always succeeds, setting ERRORLEVEL to 0 before the
- * second echo). To capture the CLI exit code we must expand it BEFORE `echo.`
- * resets it — use a `SET` capture in the same line:
- *
- *   & SET __SL_EC=%ERRORLEVEL% & echo. & echo __SIGMALINK_CLI_EXIT_%__SL_EC%__
- *
- * This is what `buildCmdSentinelSnippet()` emits.
- *
+ * `echo.` prints the blank line that gives SENTINEL_RE its line-start anchor.
  * The caller appends `\r\n` or `\n` (the Enter keystroke written into the PTY
  * master for cmd.exe — `\r\n` is conventional but `\n` also works in ConPTY).
  */
 export function buildCmdSentinelSnippet(): string {
   return (
-    ` & SET __SL_EC=%ERRORLEVEL% & echo. & echo ${SENTINEL_PREFIX}%__SL_EC%%${SENTINEL_SUFFIX}`
+    ` && (echo. & echo ${SENTINEL_PREFIX}0${SENTINEL_SUFFIX})` +
+    ` || (echo. & echo ${SENTINEL_PREFIX}1${SENTINEL_SUFFIX})`
   );
 }
