@@ -1,0 +1,68 @@
+SigmaLink v2.9.0 — 2026-07-02
+=============================
+
+External control grows up, and every pane learns its own name. An
+external agent driving SigmaLink can now submit prompts reliably,
+launch auto-approved panes, read live capacity, and take a "pending —
+ask the operator" answer instead of a blocked socket. Meanwhile pane
+headers show a task title on ANY provider — summarized from the prompt
+you type by a free Ollama-cloud model — the app chrome stops flipping
+when you switch workspaces, focus-switch flicker is dead, plain
+terminals stop eating the swarm cap, and renderer/GPU crashes land in
+the diagnostics log. CI-green on macOS + Windows + Ubuntu.
+
+See CHANGELOG.md [2.9.0] for the itemized record.
+
+
+Added
+-----
+
+- External Control interactive parity, Phase 2.5 (#207): prompt_agent
+  encodes body and Enter separately per provider so multi-line prompts
+  actually submit; launch_pane takes autoApprove (or the workspace
+  Yolo default) and spawns permission-bypassed agents; get_app_state
+  reports real RAM-brake/live-count headroom; escalate-class tools
+  return a pending id + new check_escalation poller backed by one-shot
+  TTL'd operator grants; open_url and stop_pane now escalate; codex
+  spawns serialize through a per-home lock (OAuth refresh race) with
+  an auth-error scanner; the 39-tool external catalogue is pinned by
+  fail-closed tests.
+
+- Provider-agnostic pane task titles (#205): panes title themselves
+  from the prompt you type — claude, codex, gemini, opencode, cursor —
+  via a free Ollama-cloud summarizer (your own ollama signin, zero
+  local RAM). Shell panes never egress, failures degrade to the pane
+  name, manual renames always win.
+
+- Plain terminals no longer count toward the 20-agent swarm cap
+  (#206): shell panes are unlimited (RAM brake still admits each);
+  only real agent panes consume the cap.
+
+- Renderer/GPU crash diagnostics (#210): process-gone events with
+  crash-class reasons append to the file-based diagnostics log.
+
+- Pane header polish (#211): opaque theme-tokened bar, accent task
+  pill, and hover-reveal controls that actually reveal (the old
+  group-hover matched no ancestor).
+
+Changed
+-------
+
+- Universal workspace chrome (#203): sidebar collapse, right-rail
+  state, and rail tab are app-global — switching workspaces no longer
+  flips your chrome; detached windows keep their own scoped chrome.
+  Per-workspace tint is removed (parked in WISHLIST).
+
+Fixed
+-----
+
+- Pane auto-labels read the parsed TUI buffer (#204) instead of a
+  byte-regex that cursor-jump painting always defeated; plus a visible
+  rename affordance.
+
+- Pane focus-switch flicker (#208): stable z-index floor + memoized
+  terminal views; the focused pane gets a theme-aware all-sides glow.
+
+- External control plane alignment (#201, #202): the in-app bridge
+  sends protocol:1 in control.hello and the host validates it;
+  externally launched panes appear in the grid from any room.

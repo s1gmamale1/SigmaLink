@@ -296,7 +296,11 @@
   content: '';
   position: absolute;
   inset: 0;
-  z-index: 4;
+  /* Above the pane header (z-20) so the ring closes CLEANLY on all four sides.
+     The header strip has an opaque background; at z-index:4 the glow sat behind
+     it and the top corners were clipped/misaligned. Stays below the fullscreen
+     overlay (z-50). pointer-events:none keeps it click-through. */
+  z-index: 30;
   pointer-events: none;
   box-shadow:
     inset 0 0 0 1.5px hsl(var(--ring)),

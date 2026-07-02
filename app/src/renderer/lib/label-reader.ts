@@ -14,7 +14,7 @@
 // for one session) and detached at destroy. Feeds the existing pane-labels
 // store (sanitize + last-good + no-notify-on-unchanged live there).
 
-import { setAgentLabel } from '@/renderer/lib/pane-labels';
+import { onAgentLabel } from '@/renderer/lib/pane-title-orchestrator';
 import { extractLabel } from '@/renderer/lib/pane-label-scan';
 import type { TerminalEngine } from '@/renderer/lib/terminal-engine';
 
@@ -86,7 +86,7 @@ export function attachEngineLabelReader(sessionId: string, engine: TerminalEngin
   }
   const off = engine.onBufferChanged(() => {
     const label = readEngineLabel(engine);
-    if (label) setAgentLabel(sessionId, label);
+    if (label) onAgentLabel(sessionId, label);
   });
   detachers.set(sessionId, { owner: engine, off });
 }
@@ -101,7 +101,7 @@ export function attachXtermLabelReader(sessionId: string, term: XtermLike): void
   }
   const sub = term.onWriteParsed(() => {
     const label = readXtermLabel(term);
-    if (label) setAgentLabel(sessionId, label);
+    if (label) onAgentLabel(sessionId, label);
   });
   detachers.set(sessionId, { owner: term as object, off: () => sub.dispose() });
 }

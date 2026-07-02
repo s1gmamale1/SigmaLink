@@ -102,6 +102,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'panes.brief',            // C-5 — inject plan capsule + write scope block
   'panes.rename',           // BSP-O4 — operator-supplied display name
   'panes.stageImage',       // Spec 2026-06-10 (B) — image staging for pane drop/paste
+  'paneTitle.summarize',    // Pane-label titling — renderer Ollama-cloud summarizer call
   // providers (providersCtl)
   'providers.list',
   'providers.probeAll',

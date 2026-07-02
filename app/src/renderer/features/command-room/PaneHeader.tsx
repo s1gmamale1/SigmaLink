@@ -105,6 +105,9 @@ export function PaneHeader({
   const exited = session.status === 'exited';
   const dotColor = errored ? '#ef4444' : exited ? '#9ca3af' : '#22c55e';
 
+  // Per-pane accent — used for the task-title text colour (below).
+  const accent = agentColor(session.id);
+
   // BSP-V2 — live cost + tok/s estimate badge. Status-gated (PERF-5): only poll
   // running panes — exited/error panes have a frozen ledger.
   const liveStats = usePaneLiveStats(session.id, session.status === 'running');
@@ -151,7 +154,7 @@ export function PaneHeader({
     useCallback(() => getAgentLabel(session.id), [session.id]),
   );
 
-  // Launch-prompt floor for the display chain (see displayLabel below).
+  // Launch-prompt floor for the LABEL chain (see below).
   const initialLabel = summarizePrompt(session.initialPrompt);
 
   // Memoized so the rename-request listener below can depend on it: its identity
@@ -159,9 +162,10 @@ export function PaneHeader({
   // listener always invokes the LIVE closure (current agentLabel) without
   // re-registering on high-frequency re-renders.
   const startEditing = useCallback((): void => {
-    setDraftName(localName ?? agentLabel ?? initialLabel ?? id.alias);
+    // Renames the pane NAME (not the auto LABEL) — prefilled with the current name.
+    setDraftName(localName ?? id.alias);
     setEditing(true);
-  }, [localName, agentLabel, initialLabel, id.alias]);
+  }, [localName, id.alias]);
 
   // Context-menu "Rename label…" (PaneShell) requests inline edit via a window
   // event — same renderer-internal CustomEvent pattern as sigma:renderer-mode-changed.
@@ -198,8 +202,13 @@ export function PaneHeader({
     setDraftName('');
   }
 
-  // Display label: operator name > Claude SIGMA::LABEL > launch-prompt summary > alias.
-  const displayLabel = localName?.trim() || agentLabel?.trim() || initialLabel || id.alias;
+  // NAME and LABEL are SEPARATE slots. NAME = the stable pane identity (operator
+  // rename or the cute alias) and is the rename target. LABEL = the live task,
+  // fed by typed prompts AND Claude's SIGMA::LABEL (shared store, last-writer-wins)
+  // so it re-titles on every prompt/task; the launch prompt is the floor. Null →
+  // no label chip (an idle pane shows just its name).
+  const paneName = localName?.trim() || id.alias;
+  const taskLabel = agentLabel?.trim() || initialLabel || null;
 
   // FEAT-12 — drag-start handler. The pill is now the drag source.
   function handleGripDragStart(e: React.DragEvent): void {
@@ -226,8 +235,14 @@ export function PaneHeader({
         style={{ background: id.providerColor }}
         aria-hidden="true"
       />
-      {/* P5.2 density-aware height — h-7 comfortable/compact, h-6 dense tier. */}
-      <div className="sl-glass-toolbar flex h-7 items-center gap-1.5 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]">
+      {/* P5.2 density-aware height — h-7 comfortable/compact, h-6 dense tier.
+          Uniform "lighter black" header bar — same on every pane, themed via the
+          --muted surface (a step lighter than the terminal's near-black body).
+          Solid backgroundColor overrides the glass frost so all bars read identical. */}
+      <div
+        className="group/header sl-glass-toolbar flex h-7 items-center gap-1.5 border-b border-border px-2 pt-[2px] text-[length:calc(11px*var(--pane-font-scale,1))]"
+        style={{ backgroundColor: 'hsl(var(--muted))' }}
+      >
 
         {/* ── Title pill (drag handle, status glyph, alias·effort) ──────── */}
         <TooltipProvider delayDuration={coachmark.loaded && !coachmark.seen ? 300 : 200}>
@@ -244,8 +259,7 @@ export function PaneHeader({
                 }}
                 aria-label={`${id.providerShort}·${paneIndex} — drag to inject context`}
                 data-testid="pane-title-pill"
-                className="group flex h-5 shrink-0 cursor-grab items-center gap-1 rounded-full border px-2 text-[10px] font-medium active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                style={{ borderColor: agentColor(session.id) }}
+                className="group flex h-5 min-w-0 max-w-[45%] cursor-grab items-center gap-1.5 rounded font-medium active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 {/* Folded status dot */}
                 <span
@@ -255,8 +269,8 @@ export function PaneHeader({
                   aria-label={`status: ${session.status}`}
                   aria-hidden="false"
                 />
-                {/* BSP-O4 — name / alias · effort. Click the name to enter
-                    inline-edit mode; the input replaces it while editing. */}
+                {/* Pane NAME (stable identity / rename target) — alias or the
+                    operator's rename, NOT the task. Double-click edits it. */}
                 {editing ? (
                   <input
                     ref={inputRef}
@@ -273,17 +287,17 @@ export function PaneHeader({
                     }}
                     // Stop click inside the input from propagating to drag.
                     onClick={(e) => e.stopPropagation()}
-                    className="max-w-[80px] bg-transparent outline-none"
+                    className="min-w-0 max-w-[240px] bg-transparent outline-none"
                     aria-label="Rename pane"
                   />
                 ) : (
                   <span
-                    className="max-w-[80px] truncate cursor-text"
+                    className="min-w-0 truncate cursor-text text-muted-foreground"
                     onDoubleClick={(e) => { e.stopPropagation(); startEditing(); }}
                     data-testid="pane-display-name"
-                    title={`${displayLabel} · ${id.effortLabel}`}
+                    title={`${paneName} · ${id.effortLabel} — double-click to rename`}
                   >
-                    {displayLabel} · {id.effortLabel}
+                    {paneName} <span className="opacity-70">· {id.effortLabel}</span>
                   </span>
                 )}
                 {!editing && (
@@ -302,41 +316,60 @@ export function PaneHeader({
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" align="start" className="font-mono text-[10px]">
+              {`${id.alias} · ${id.effortLabel} · ${id.providerShort}·${paneIndex}`}
+              <br />
               {coachmark.seen
-                ? `${id.providerShort}·${paneIndex} — drag to inject context`
+                ? 'drag to inject context · double-click to rename'
                 : 'Drag this pill to inject context into another pane\'s composer'}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
-        {/* Spacer */}
-        <span className="flex-1" />
+        {/* ── Live task LABEL — SEPARATE from the name. Re-titles on every typed
+            prompt AND Claude's SIGMA::LABEL (shared store, last-writer-wins).
+            Accent-coloured per pane; empty (flex spacer) when the pane is idle. */}
+        <span
+          data-testid="pane-task-label"
+          className="min-w-0 flex-1 truncate font-semibold"
+          style={taskLabel ? { color: accent } : undefined}
+          title={taskLabel ?? undefined}
+        >
+          {taskLabel}
+        </span>
 
         {/* BSP-V2 — live cost + tok/s estimate badge.
             Hidden when no usage recorded yet (hasData=false). Reduced-motion
             safe: only color/opacity, no transforms/animations. Truncate-safe:
             max-w-[120px] + truncate so the badge never pushes the icon cluster
             off-screen on narrow panes. */}
-        <PaneLiveStatsBadge
-          totalCostUsd={liveStats.totalCostUsd}
-          estTokPerSec={liveStats.estTokPerSec}
-          hasData={liveStats.hasData}
-        />
-        <PaneRuntimeProfileBadge runtimeProfileId={session.runtimeProfileId} />
-        <PaneRssBadge
-          rssBytes={liveStats.rssBytes}
-          processCount={liveStats.processCount}
-          rootRssBytes={liveStats.rootRssBytes}
-          mcpRssBytes={liveStats.mcpRssBytes}
-          topChildCommand={liveStats.topChildCommand}
-        />
+        {/* bridgemind-faithful: stats fade in on header hover so the task label
+            owns the bar at rest. Named group/header avoids touching the pill's
+            own unnamed group (pencil reveal). */}
+        <div
+          data-testid="pane-stats-cluster"
+          className="flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover/header:opacity-100 group-focus-within/header:opacity-100"
+        >
+          <PaneLiveStatsBadge
+            totalCostUsd={liveStats.totalCostUsd}
+            estTokPerSec={liveStats.estTokPerSec}
+            hasData={liveStats.hasData}
+          />
+          <PaneRuntimeProfileBadge runtimeProfileId={session.runtimeProfileId} />
+          <PaneRssBadge
+            rssBytes={liveStats.rssBytes}
+            processCount={liveStats.processCount}
+            rootRssBytes={liveStats.rootRssBytes}
+            mcpRssBytes={liveStats.mcpRssBytes}
+            topChildCommand={liveStats.topChildCommand}
+          />
+        </div>
 
         {/* ── Icon cluster ────────────────────────────────────────────────── */}
         {/* Stop accidental drags from the cluster triggering a context drag. */}
         <div className="flex shrink-0 items-center gap-0.5" onDragStart={(e) => e.stopPropagation()}>
 
           {/* Gear — opacity-0 reveal (situational) */}
-          <div className="flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className="flex items-center opacity-0 transition-opacity group-hover/header:opacity-100 group-focus-within/header:opacity-100">
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <Popover>
@@ -405,7 +438,7 @@ export function PaneHeader({
           </TooltipProvider>
 
           {/* Split + Minimise — opacity-0 reveal (situational) */}
-          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/header:opacity-100 group-focus-within/header:opacity-100">
 
             {/* Merged split button */}
             <PaneHeaderSplitButton

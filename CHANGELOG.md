@@ -2,6 +2,51 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.9.0] — 2026-07-02
+
+**v2.9.0 makes the External Control plane actually driveable end-to-end (reliable prompt submission, auto-approve launches, live capacity, non-blocking escalations, codex spawn safety), gives every pane a self-updating task title on any provider via free Ollama-cloud summarization, unifies the app chrome across workspaces and windows, and lands a batch of Command-Room fixes — auto-labels read from the real TUI buffer, focus-switch flicker is gone, plain terminals no longer eat the 20-agent swarm cap, and renderer/GPU crashes are captured to diagnostics.**
+
+### Added — External Control interactive parity, Phase 2.5 (#207)
+
+External drivers (Hermes & co.) can now operate panes like a human, safely:
+
+- **Reliable submit** — `prompt_agent` encodes the prompt body and the submitting Enter separately per provider (with a settle in between), so multi-line prompts land and actually submit in claude/codex/gemini panes.
+- **Auto-approve launches** — `launch_pane` accepts `autoApprove` (falls back to the workspace Yolo KV default), spawning the provider with its permission-bypass flag. Operator-acked expansion of the external surface; kill-switch still freezes everything.
+- **Live capacity** — `get_app_state` reports real headroom from the same RAM-brake + live-count predicates the admission gate uses, plus a `forceRamBrake` escape hatch on `launch_pane`.
+- **Non-blocking escalation** — escalate-class tools return a pending-escalation id immediately instead of blocking the socket; a new `check_escalation` tool polls it; operator approval mints a one-shot, TTL-bounded (120s), client-label-keyed grant. `open_url` and `stop_pane` join the escalate set; the kill-switch cancels pending escalations AND unconsumed grants.
+- **Codex spawn safety** — codex spawns serialize through a per-CODEX_HOME lock with a settle window, killing the single-use OAuth refresh-token race when a workspace restores several codex panes; a codex auth-error scanner surfaces token-expiry in `get_app_state`.
+- **Surface hardening** — the 39-tool external catalogue is pinned by fail-closed tests (tools ≡ catalogue ≡ expected-verdict table), so a new tool cannot ship unlisted or unclassified.
+
+### Added — provider-agnostic pane task titles (#205)
+
+Panes title themselves from the prompt you type, on every provider — claude, codex, gemini, opencode, cursor — with zero local RAM: the typed prompt line is summarized by a free Ollama-cloud model (`qwen3-coder` → `gpt-oss` fallback) through your own `ollama` signin. Shell panes never egress; failures degrade silently to the pane name; manual renames always win. The old claude-only `SIGMA::LABEL` injection is retired.
+
+### Added — plain terminals don't count toward the 20-agent swarm cap (#206)
+
+`countsTowardAgentCap` is the single source of truth at every gate (backend add-agent, +Pane menu, +Agent button): shell panes are unlimited (RAM-brake still admits each one); only real agent panes consume the cap.
+
+### Added — renderer/GPU crash diagnostics (#210)
+
+`render-process-gone` / `child-process-gone` events with crash-class reasons (crashed, oom, launch-failed, integrity-failure, abnormal-exit) append to the file-based diagnostics log — survives a dead DB, can't recurse, benign exits excluded.
+
+### Added — pane header polish (#211)
+
+Opaque theme-tokened header bar, accent-tinted task-title pill, and hover-reveal controls that actually reveal (the old bare `group-hover:` matched no ancestor — gear/split/minimise never showed on header hover).
+
+### Changed — universal workspace chrome (#203)
+
+Sidebar collapse, right-rail open state, and rail tab are now app-global instead of per-workspace — switching workspaces no longer flips your chrome. Detached workspace windows keep their own scoped chrome. The per-workspace tint feature is removed (parked in WISHLIST).
+
+### Fixed — Command Room
+
+- **Pane auto-label reads the parsed TUI buffer (#204)** — labels emitted by full-screen TUIs are read from the parsed terminal buffer instead of a byte-regex that cursor-jump painting always defeated; plus a visible rename affordance on the title pill.
+- **Pane focus-switch flicker (#208)** — clicking between panes no longer jolts terminal content (stable z-index floor + memoized terminal views); the focused pane gets a theme-aware all-sides glow instead of a single-edge highlight.
+
+### Fixed — External Control plane alignment (#201, #202)
+
+- The in-app bridge now sends `protocol: 1` in `control.hello` and the host validates it (#201), re-aligning the in-app copy with the standalone Sigma-Control bridge.
+- Panes launched by an external client (or Jorvis from another room) now appear in the Command-Room grid no matter which room is active (#202) — a global dispatch-echo subscriber hydrates workspace-scoped sessions without hijacking your active view.
+
 ## [2.8.1] — 2026-06-23
 
 **v2.8.1 is a Windows-only patch that fixes the Claude Code (and other full-screen TUI) misformatting inside SigmaLink panes — wrong wrapping/blank lines, garbled box-drawing glyphs, misaligned columns, and broken first paint.**
