@@ -350,6 +350,67 @@ describe('PERF-10 — NOTIFICATIONS_DELTA single-add fast path preserves order',
   });
 });
 
+// 2026-07-02 review fix A — the delta's `updated` lane reconciles read-state
+// on existing rows (mark-read / mark-all-read / mark-unread) without the
+// alerting semantics of `added`.
+describe('NOTIFICATIONS_DELTA — `updated` read-state reconcile lane', () => {
+  const base = [notif('n3', 30), notif('n2', 20), notif('n1', 10)];
+
+  it('reconciles readAt on an existing row without duplicating it', () => {
+    const start: AppState = {
+      ...initialAppState,
+      notifications: base,
+      notificationsUnreadCount: 3,
+    };
+    const after = appStateReducer(start, {
+      type: 'NOTIFICATIONS_DELTA',
+      added: [],
+      removed: [],
+      updated: [{ ...base[1]!, readAt: 99 }],
+      unreadCount: 2,
+    });
+    expect(after.notifications).toHaveLength(3);
+    expect(after.notifications.find((n) => n.id === 'n2')?.readAt).toBe(99);
+    expect(after.notificationsUnreadCount).toBe(2);
+  });
+
+  it('mark-all-read reconcile flips every carried row to read, order preserved', () => {
+    const start: AppState = {
+      ...initialAppState,
+      notifications: base,
+      notificationsUnreadCount: 3,
+    };
+    const after = appStateReducer(start, {
+      type: 'NOTIFICATIONS_DELTA',
+      added: [],
+      removed: [],
+      updated: base.map((n) => ({ ...n, readAt: 77 })),
+      unreadCount: 0,
+    });
+    expect(after.notifications.map((n) => n.id)).toEqual(['n3', 'n2', 'n1']);
+    expect(after.notifications.every((n) => n.readAt === 77)).toBe(true);
+    expect(after.notificationsUnreadCount).toBe(0);
+  });
+
+  it('mark-unread reconcile clears readAt in place', () => {
+    const read = notif('n2', 20, { readAt: 55 });
+    const start: AppState = {
+      ...initialAppState,
+      notifications: [notif('n3', 30), read, notif('n1', 10)],
+      notificationsUnreadCount: 2,
+    };
+    const after = appStateReducer(start, {
+      type: 'NOTIFICATIONS_DELTA',
+      added: [],
+      removed: [],
+      updated: [{ ...read, readAt: null }],
+      unreadCount: 3,
+    });
+    expect(after.notifications.find((n) => n.id === 'n2')?.readAt).toBeNull();
+    expect(after.notifications.map((n) => n.id)).toEqual(['n3', 'n2', 'n1']);
+  });
+});
+
 // ─── ONB-1 — SET_SETTINGS_TAB ────────────────────────────────────────────────
 
 describe('ONB-1 — SET_SETTINGS_TAB stages a Settings tab', () => {

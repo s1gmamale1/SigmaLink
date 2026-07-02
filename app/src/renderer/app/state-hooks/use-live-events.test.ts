@@ -458,6 +458,7 @@ async function flushAsync(): Promise<void> {
 interface DeltaInput {
   added?: Notification[];
   removed?: string[];
+  updated?: Notification[];
   unreadCount?: number;
 }
 
@@ -466,11 +467,50 @@ async function emitDelta(input: DeltaInput): Promise<void> {
     sigma.emit('notifications:changed', {
       added: input.added ?? [],
       removed: input.removed ?? [],
+      updated: input.updated ?? [],
       unreadCount: input.unreadCount ?? (input.added ?? []).length,
     });
     await flushAsync();
   });
 }
+
+// 2026-07-02 review fix A — read-state deltas ride the `updated` lane:
+// forwarded to the reducer (row styling reconciles in EVERY window) but
+// NEVER alerting (no tone, no toast — mark-unread must not re-alert).
+describe('useLiveEvents — `updated` read-state reconcile lane', () => {
+  it('forwards updated rows to the reducer dispatch', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const n = makeNotification({ readAt: 123 });
+    await emitDelta({ updated: [n], unreadCount: 0 });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'NOTIFICATIONS_DELTA',
+        updated: [n],
+        unreadCount: 0,
+      }),
+    );
+  });
+
+  it('never plays a tone or toast for updated rows (even unread ones)', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await emitDelta({
+      updated: [makeNotification({ severity: 'warn', readAt: null })],
+      unreadCount: 1,
+    });
+
+    expect(playNotificationToneMock).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(toastMock.warning).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+});
 
 describe('useLiveEvents — v1.13.1 notification sound', () => {
   it('plays tone once per delta when added contains unread warn notification', async () => {

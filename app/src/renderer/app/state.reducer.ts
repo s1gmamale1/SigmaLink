@@ -789,7 +789,8 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       // 'after' tie policy reproduces the prior `Array.from(map.values())
       // .sort()` output exactly: the added/re-inserted row sat at the END of the
       // pre-sort array, so a stable sort left it behind equal-createdAt rows.
-      if (action.removed.length === 0 && action.added.length === 1) {
+      const updated = action.updated ?? [];
+      if (action.removed.length === 0 && action.added.length === 1 && updated.length === 0) {
         const added = action.added[0]!;
         const base =
           state.notifications.some((n) => n.id === added.id)
@@ -802,9 +803,12 @@ export function appStateReducer(state: AppState, action: Action): AppState {
           notificationsUnreadCount: action.unreadCount,
         };
       }
-      // Fallback for batched / mixed deltas (multiple adds, removals, or
-      // dedup-absorbing re-inserts) — keep the authoritative Map + full sort.
+      // Fallback for batched / mixed deltas (multiple adds, removals, read-state
+      // reconciles, or dedup-absorbing re-inserts) — keep the authoritative Map
+      // + full sort. `updated` rows (2026-07-02 fix A) apply first so a
+      // co-delivered `added` for the same id stays authoritative.
       const byId = new Map(state.notifications.map((n) => [n.id, n]));
+      for (const n of updated) byId.set(n.id, n);
       for (const n of action.added) byId.set(n.id, n);
       for (const id of action.removed) byId.delete(id);
       // Sort newest-first by createdAt so the dropdown render stays stable.
