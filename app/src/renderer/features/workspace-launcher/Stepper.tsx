@@ -8,7 +8,7 @@
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type StepId = 'start' | 'layout' | 'agents' | 'sessions';
+export type StepId = 'intent' | 'start' | 'layout' | 'agents' | 'sessions';
 
 interface StepSpec {
   id: StepId;
@@ -16,6 +16,7 @@ interface StepSpec {
 }
 
 const STEP_LABELS: Record<StepId, string> = {
+  intent: 'Intent',
   start: 'Start',
   layout: 'Layout',
   agents: 'Agents',

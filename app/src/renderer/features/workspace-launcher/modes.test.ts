@@ -15,13 +15,13 @@ import {
 
 describe('stepsForMode', () => {
   it('grid mode shows the full four-step sequence', () => {
-    expect(stepsForMode('space')).toEqual(['start', 'layout', 'agents', 'sessions']);
+    expect(stepsForMode('space')).toEqual(['intent', 'start', 'layout', 'agents', 'sessions']);
   });
 
   it('single / swarm / canvas show only the Start step', () => {
-    expect(stepsForMode('single')).toEqual(['start']);
-    expect(stepsForMode('swarm')).toEqual(['start']);
-    expect(stepsForMode('canvas')).toEqual(['start']);
+    expect(stepsForMode('single')).toEqual(['intent', 'start']);
+    expect(stepsForMode('swarm')).toEqual(['intent', 'start']);
+    expect(stepsForMode('canvas')).toEqual(['intent', 'start']);
   });
 });
 
@@ -37,12 +37,12 @@ describe('nextStepForMode / prevStepForMode', () => {
     expect(prevStepForMode('space', 'sessions')).toBe('agents');
     expect(prevStepForMode('space', 'agents')).toBe('layout');
     expect(prevStepForMode('space', 'layout')).toBe('start');
-    expect(prevStepForMode('space', 'start')).toBeNull();
+    expect(prevStepForMode('space', 'start')).toBe('intent');
   });
 
   it('non-grid modes have no next/prev beyond Start', () => {
     expect(nextStepForMode('single', 'start')).toBeNull();
-    expect(prevStepForMode('single', 'start')).toBeNull();
+    expect(prevStepForMode('single', 'start')).toBe('intent');
     expect(nextStepForMode('swarm', 'start')).toBeNull();
   });
 
@@ -59,6 +59,24 @@ describe('stepAfterStart', () => {
     expect(stepAfterStart('single')).toBe('start');
     expect(stepAfterStart('swarm')).toBe('start');
     expect(stepAfterStart('canvas')).toBe('start');
+  });
+});
+
+describe('intent landing step (minimal-chrome)', () => {
+  it('prepends intent to every mode', () => {
+    expect(stepsForMode('space')).toEqual(['intent', 'start', 'layout', 'agents', 'sessions']);
+    expect(stepsForMode('single')).toEqual(['intent', 'start']);
+    expect(stepsForMode('swarm')).toEqual(['intent', 'start']);
+    expect(stepsForMode('canvas')).toEqual(['intent', 'start']);
+  });
+  it('navigates start ↔ intent', () => {
+    expect(prevStepForMode('space', 'start')).toBe('intent');
+    expect(nextStepForMode('swarm', 'intent')).toBe('start');
+    expect(prevStepForMode('space', 'intent')).toBeNull();
+  });
+  it('stepAfterStart is unchanged', () => {
+    expect(stepAfterStart('space')).toBe('layout');
+    expect(stepAfterStart('single')).toBe('start');
   });
 });
 
