@@ -11,7 +11,7 @@
 
 import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Workspace } from '@/shared/types';
 
 // The drift case: a RUNNING swarm but ZERO panes.
@@ -69,7 +69,13 @@ vi.mock('./StartStep', () => ({
     return <div data-testid="start-step-stub" />;
   },
 }));
-vi.mock('./IntentCards', () => ({ IntentCards: () => <div data-testid="intent-cards" /> }));
+// minimal-chrome — stub the intent landing to a single mode row so the test can
+// advance into the wizard (which mounts StartStep → chooseExisting).
+vi.mock('./LauncherLanding', () => ({
+  LauncherLanding: ({ onPick }: { onPick: (m: string) => void }) => (
+    <button data-testid="intent-card-space" onClick={() => onPick('space')}>space</button>
+  ),
+}));
 vi.mock('./Stepper', () => ({ Stepper: () => <div data-testid="stepper" /> }));
 vi.mock('./LayoutStep', () => ({ LayoutStep: () => <div data-testid="layout-step" /> }));
 vi.mock('./AgentsStep', () => ({ AgentsStep: () => <div data-testid="agents-step" /> }));
@@ -131,6 +137,12 @@ describe('Launcher.chooseExisting — swarm-but-no-panes hydration (twin: Sideba
     const { WorkspaceLauncher } = await import('./Launcher');
     await act(async () => {
       render(<WorkspaceLauncher />);
+      await Promise.resolve();
+    });
+    // minimal-chrome — leave the intent landing so StartStep mounts and fires
+    // onChooseRecent → chooseExisting.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('intent-card-space'));
       // Pump microtasks: StartStep → onChooseRecent → chooseExisting →
       // Promise.all(listForWorkspace, swarms.list) resolves.
       for (let i = 0; i < 10; i++) {
