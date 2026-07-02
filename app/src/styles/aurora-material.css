@@ -1,8 +1,248 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    aurora-material.css — Aurora living-light material layer (Phase 17)
    ─────────────────────────────────────────────────────────────────────────────
-   sigma-designs: everything is alive, nothing is neon. Filled in by Phase 17
-   Task 7 — breathing blooms-on-velvet atmosphere, 4-independent-light living
-   rim on the focused pane, asymmetric attention flare. Every rule is scoped
-   `:root[data-theme^='aurora']` (variants: aurora / aurora-ember / aurora-ice).
+   sigma-designs: EVERYTHING IS ALIVE, NOTHING IS NEON. Color exists as light
+   spilled on darkness — a velvet floor with breathing blooms, and the
+   signature living rim on the focused pane: 3–4 INDEPENDENT colored lights
+   sliding along the edge at mixed speeds/directions. Never one traveling
+   highlight, never a static rainbow border, never whole-edge hue rotation.
+
+   SCOPE & ISOLATION
+   -----------------
+   Every rule is scoped `:root[data-theme^='aurora']` — the base `aurora` plus
+   `aurora-ember` / `aurora-ice`. Variants re-tint via the four
+   `--aurora-light-{1..4}` HSL tokens declared per variant in index.css; ONE
+   material recipe yields N looks (the glass-family ADR-001 pattern).
+
+   CROSS-LANE CONTRACT (shared with glass-material.css — do not rename)
+     .sl-glass / .sl-glass-heavy / .sl-glass-toolbar / .sl-nav-active
+     .sl-pane-active::after   (focused-pane ring, z-30 inset overlay)
+     [data-window-focused='false'] on <html>
+
+   MOTION BUDGET (utility surface)
+   -------------------------------
+   Atmosphere breathes on a 22s period; rim lights orbit on 7.6–13.4s periods
+   with a 3.7s group breathe. Everything is transform/opacity or a masked
+   2px ring (tiny paint area). All animation PAUSES when the OS window blurs
+   and collapses under prefers-reduced-motion. The FE-4 global
+   reduced-transparency safety-net (index.css) already forces .sl-glass*
+   opaque; the rules here add the aurora-specific collapses.
    ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   A1 — ATMOSPHERE: blooms on velvet.
+   Static faint blooms live on the body background; the BREATHING layer is a
+   fixed body::before overlay animated on transform/opacity only (its own
+   compositor layer — no per-frame paint of the page). An SVG-turbulence tile
+   dithers the gradients so the velvet doesn't band. Corners stay dark.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root[data-theme^='aurora'] body {
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(50rem 34rem at 16% -8%, hsl(var(--aurora-light-3) / 0.14), transparent 62%),
+    radial-gradient(44rem 30rem at 98% 4%, hsl(var(--aurora-light-4) / 0.11), transparent 60%),
+    radial-gradient(56rem 36rem at 55% 112%, hsl(var(--aurora-light-1) / 0.08), transparent 64%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+:root[data-theme^='aurora'] body::before {
+  content: '';
+  position: fixed;
+  inset: -10%;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(42rem 28rem at 24% 8%, hsl(var(--aurora-light-2) / 0.1), transparent 58%),
+    radial-gradient(38rem 26rem at 82% 88%, hsl(var(--aurora-light-4) / 0.09), transparent 60%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+  animation: aurora-breathe 22s var(--ease-smooth) infinite;
+}
+
+@keyframes aurora-breathe {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.045);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   A2 — CHROME: near-opaque velvet panels with a bloom hairline.
+   Aurora's identity is LIGHT, not blur — panels stay ≥92% opaque (the blooms
+   read through only faintly) and carry a soft colored edge instead of a
+   specular sheen. Little GPU cost: no backdrop-filter anywhere in aurora.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root[data-theme^='aurora'] .sl-glass,
+:root[data-theme^='aurora'] .sl-glass-heavy {
+  background: hsl(var(--card) / 0.94);
+  border: 1px solid hsl(var(--aurora-light-3) / 0.16);
+  box-shadow: 0 0 24px -8px hsl(var(--aurora-light-3) / 0.25);
+}
+
+:root[data-theme^='aurora'] .sl-glass-toolbar {
+  background: hsl(var(--background) / 0.92);
+  border-bottom: 1px solid hsl(var(--aurora-light-4) / 0.14);
+}
+
+:root[data-theme^='aurora'] .sl-nav-active {
+  background: linear-gradient(90deg, hsl(var(--primary) / 0.16), hsl(var(--accent) / 0.08));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   A3 — THE LIVING RIM (the signature; law of the rim).
+   The focused pane's `.sl-pane-active::after` inset overlay becomes a masked
+   2px ring painted by FOUR stacked conic gradients, each a single soft light
+   arc rotating at its own angular velocity — ω = 0.52 / −0.69 / 0.83 / −0.47
+   rad/s (periods 12.1 / 9.1 / 7.6 / 13.4 s, MIXED directions) — over a faint
+   base ring so the gaps between lights never go fully dark. The group opacity
+   breathes on 3.7s. @property registration is what makes the conic `from`
+   angles animatable. Paint area = a 2px frame (mask cuts the interior), so
+   per-frame cost is tiny and only ONE pane is ever focused.
+   ───────────────────────────────────────────────────────────────────────────── */
+@property --aurora-a1 {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+@property --aurora-a2 {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 137deg;
+}
+@property --aurora-a3 {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 251deg;
+}
+@property --aurora-a4 {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 63deg;
+}
+
+:root[data-theme^='aurora'] .sl-pane-active::after {
+  box-shadow: none;
+  padding: 2px;
+  background:
+    conic-gradient(from var(--aurora-a1), transparent 0 76%, hsl(var(--aurora-light-1) / 0.9) 88%, transparent 100%),
+    conic-gradient(from var(--aurora-a2), transparent 0 72%, hsl(var(--aurora-light-2) / 0.8) 86%, transparent 100%),
+    conic-gradient(from var(--aurora-a3), transparent 0 78%, hsl(var(--aurora-light-3) / 0.85) 89%, transparent 100%),
+    conic-gradient(from var(--aurora-a4), transparent 0 74%, hsl(var(--aurora-light-4) / 0.75) 87%, transparent 100%),
+    linear-gradient(hsl(var(--ring) / 0.3) 0 0);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation:
+    aurora-rot-1 12.1s linear infinite,
+    aurora-rot-2 9.1s linear infinite reverse,
+    aurora-rot-3 7.6s linear infinite,
+    aurora-rot-4 13.4s linear infinite reverse,
+    aurora-rim-breathe 3.7s ease-in-out infinite;
+}
+
+@keyframes aurora-rot-1 {
+  to {
+    --aurora-a1: 360deg;
+  }
+}
+@keyframes aurora-rot-2 {
+  to {
+    --aurora-a2: 497deg;
+  }
+}
+@keyframes aurora-rot-3 {
+  to {
+    --aurora-a3: 611deg;
+  }
+}
+@keyframes aurora-rot-4 {
+  to {
+    --aurora-a4: 423deg;
+  }
+}
+@keyframes aurora-rim-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+
+/* Battery: nothing self-animates in a blurred window (C2 sets the flag). */
+:root[data-theme^='aurora'][data-window-focused='false'] .sl-pane-active::after,
+:root[data-theme^='aurora'][data-window-focused='false'] body::before {
+  animation-play-state: paused;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   A4 — ATTENTION FLARE: asymmetric envelope (solar flare, not sine).
+   Overrides .sl-attention's symmetric flicker with a sharp attack (peak at
+   12%) and a long soft decay, riding emphasized-decelerate. 4 iterations
+   (~10s, matching the base behaviour) then the element keeps the base
+   settled glow from index.css until cleared on focus/visit.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root[data-theme^='aurora'] .sl-attention {
+  animation: aurora-flare 2.6s cubic-bezier(0.05, 0.7, 0.1, 1) 4;
+}
+
+@keyframes aurora-flare {
+  0% {
+    box-shadow:
+      0 0 0 1px hsl(var(--ring) / 0.35),
+      0 0 4px 0 hsl(var(--ring) / 0.1);
+  }
+  12% {
+    box-shadow:
+      0 0 0 1.5px hsl(var(--ring) / 0.9),
+      0 0 16px 4px hsl(var(--ring) / 0.5);
+  }
+  100% {
+    box-shadow:
+      0 0 0 1px hsl(var(--ring) / 0.35),
+      0 0 4px 0 hsl(var(--ring) / 0.1);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   A5 — A11Y COLLAPSE.
+   Reduced motion: blooms + rim freeze (static gradients stay). Reduced
+   transparency: the rim's alpha bloom collapses to a sharp hairline and the
+   chrome goes fully opaque (belt-and-braces on top of the FE-4 global net).
+   ───────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme^='aurora'] body::before,
+  :root[data-theme^='aurora'] .sl-pane-active::after,
+  :root[data-theme^='aurora'] .sl-attention {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme^='aurora'] .sl-pane-active::after {
+    background: none;
+    padding: 0;
+    mask: none;
+    -webkit-mask: none;
+    box-shadow: inset 0 0 0 1.5px hsl(var(--ring));
+  }
+  :root[data-theme^='aurora'] .sl-glass,
+  :root[data-theme^='aurora'] .sl-glass-heavy,
+  :root[data-theme^='aurora'] .sl-glass-toolbar {
+    background: hsl(var(--card));
+  }
+  :root[data-theme^='aurora'] body::before {
+    display: none;
+  }
+}
