@@ -45,9 +45,11 @@ export function claudeSessionFilePath(input: {
 export function classifyClaudeSessionRisk(input: {
   sessionBytes: number;
   lineCount: number;
-  priorTotalRssBytes?: number;
 }): SessionRiskLevel {
-  if ((input.priorTotalRssBytes ?? 0) > 750 * 1024 * 1024) return 'critical';
+  // NOTE (2026-07-03 audit A3): an unwired `priorTotalRssBytes > 750MB →
+  // critical` hook was removed here — no caller ever produced the value.
+  // Observed process-tree RSS enforcement belongs to the admission layer
+  // (PR #209), not per-session-file risk classification.
   if (input.sessionBytes > 8 * 1024 * 1024 || input.lineCount > 1800) return 'critical';
   if (input.sessionBytes >= 4 * 1024 * 1024 || input.lineCount >= 1200) return 'high';
   if (input.sessionBytes >= 1 * 1024 * 1024 || input.lineCount >= 500) return 'medium';
