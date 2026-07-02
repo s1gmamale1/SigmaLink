@@ -25,7 +25,12 @@ import type {
   SwarmFactoryDeps,
 } from './factory';
 import { checkRamBrakeAdmission } from '../ram-brake/admission';
-import { countsTowardAgentCap, MAX_SWARM_AGENTS } from '../../../shared/providers';
+import {
+  countLiveAgentPanes,
+  countsTowardAgentCap,
+  MAX_SWARM_AGENTS,
+  resolvePaneClosedAt,
+} from '../../../shared/providers';
 
 export async function addAgentToSwarm(
   input: AddAgentToSwarmInput,
@@ -90,11 +95,34 @@ export async function addAgentToSwarm(
     // Plain terminals (providerId 'shell') are NOT real agents — they spawn
     // through the internal shell sentinel. They neither count toward the budget
     // nor are themselves capped: only a real-agent add is gated by the cap.
-    const agentPaneCount = agentRows.filter((a) => countsTowardAgentCap(a.providerId)).length;
+    //
+    // Ghost-agents fix — the cap bounds CONCURRENT panes: pane close only
+    // stamps agent_sessions.closed_at (the swarm_agents row is never deleted),
+    // so count a row only while its pane is live. Rows with no sessionId yet
+    // (a concurrent add mid-spawn) stay counted so parallel adds cannot
+    // overshoot the cap; rows whose session was hard-deleted do not.
+    const closedAtStmt = raw.prepare('SELECT closed_at FROM agent_sessions WHERE id = ?');
+    const agentPaneCount = countLiveAgentPanes(
+      agentRows.map((a) => {
+        const sess = a.sessionId
+          ? (closedAtStmt.get(a.sessionId) as { closed_at: number | null } | undefined)
+          : undefined;
+        return {
+          providerId: a.providerId,
+          closedAt: resolvePaneClosedAt(
+            a.sessionId ?? null,
+            sess ? { closedAt: sess.closed_at ?? null } : undefined,
+          ),
+        };
+      }),
+    );
     if (countsTowardAgentCap(input.providerId) && agentPaneCount >= MAX_SWARM_AGENTS) {
       throw new Error(`Cannot add agent: swarm already has ${MAX_SWARM_AGENTS} agents.`);
     }
 
+    // NOTE: role-index derivation must keep scanning ALL rows (closed ones
+    // included) — UNIQUE(swarm_id, role, role_index) spans history, so a
+    // live-only max would collide with a closed row's index.
     const maxRoleIndex = agentRows
       .filter((a) => a.role === role)
       .reduce((max, a) => Math.max(max, a.roleIndex), 0);

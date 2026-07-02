@@ -156,6 +156,25 @@ function seedSwarmOf(
   }
 }
 
+/**
+ * Swarm-cap ghost-agents fix — the cap counts LIVE panes only, keyed off
+ * agent_sessions.closed_at. Seed a session row per agent so seeded agents
+ * read as live (closedAt null) or deliberately closed (closedAt set).
+ */
+function seedSessionsFor(
+  count: number,
+  closedAtFor: (idx: number) => number | null = () => null,
+): void {
+  for (let i = 1; i <= count; i += 1) {
+    seedAgentSession(fake, {
+      id: `sess-${i}`,
+      workspaceId: 'ws-1',
+      status: 'running',
+      closedAt: closedAtFor(i),
+    });
+  }
+}
+
 const input: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'shell' };
 
 // ── paneIndex derivation ───────────────────────────────────────────────────
@@ -204,10 +223,13 @@ describe('paneIndex derivation', () => {
   });
 
   it('rejects 21st agent (20-cap) — real agents', async () => {
-    // Cap is exclusive — 20 existing REAL agents block the 21st before any side
-    // effects fire (no PTY spawn, no mailbox append, no DB insert). Plain
+    // Cap is exclusive — 20 existing LIVE REAL agents block the 21st before any
+    // side effects fire (no PTY spawn, no mailbox append, no DB insert). Plain
     // terminals (providerId 'shell') do NOT count — see the shell tests below.
+    // Ghost-agents fix: the cap keys off live sessions, so seed one open
+    // session per agent to model 20 genuinely live panes.
     seedSwarmOf(20, () => 'builder', () => 'claude');
+    seedSessionsFor(20);
     const deps = makeDeps();
     const agentInput: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'claude' };
 
@@ -236,8 +258,9 @@ describe('addAgentToSwarm', () => {
     expect(result.session.id).toBe(result.sessionId);
   });
 
-  it('capacity refusal at 20 real agents', async () => {
+  it('capacity refusal at 20 live real agents', async () => {
     seedSwarmOf(20, () => 'builder', () => 'claude');
+    seedSessionsFor(20);
     const deps = makeDeps();
     const agentInput: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'claude' };
 
@@ -261,14 +284,54 @@ describe('addAgentToSwarm', () => {
     expect((fake.store.tables.get('swarm_agents') ?? []).length).toBe(21);
   });
 
-  it('a shell pane is uncapped even at 20 real agents', async () => {
+  it('a shell pane is uncapped even at 20 live real agents', async () => {
     seedSwarmOf(20, () => 'builder', () => 'claude');
+    seedSessionsFor(20);
     const shellInput: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'shell' };
 
     const result = await addAgentToSwarm(shellInput, makeDeps());
 
     expect((fake.store.tables.get('swarm_agents') ?? []).length).toBe(21);
     expect(result.session.id).toBe(result.sessionId);
+  });
+
+  it('CLOSED panes do NOT count toward the cap (ghost-agents fix)', async () => {
+    // The real-world bug: a long-lived default swarm accumulates swarm_agents
+    // rows because pane close only stamps agent_sessions.closed_at and never
+    // removes the row. 20 lifetime adds — all deliberately closed — must NOT
+    // block the 21st: the cap bounds CONCURRENT panes, not history.
+    seedSwarmOf(20, () => 'builder', () => 'claude');
+    seedSessionsFor(20, () => 1_700_000_000_000);
+    const agentInput: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'claude' };
+
+    const result = await addAgentToSwarm(agentInput, makeDeps());
+
+    expect(result.agentKey).toBe('builder-21');
+    expect((fake.store.tables.get('swarm_agents') ?? []).length).toBe(21);
+  });
+
+  it('agent rows whose sessions were hard-deleted do NOT count toward the cap', async () => {
+    // Workspace cleanup deletes agent_sessions rows but leaves swarm_agents
+    // behind. An orphaned row cannot be an open pane — it must not consume
+    // cap budget (self-heals the orphan class instead of re-creating the
+    // ghost bug for anyone who ran a session purge).
+    seedSwarmOf(20, () => 'builder', () => 'claude'); // sess-1..20 never seeded
+    const agentInput: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'claude' };
+
+    const result = await addAgentToSwarm(agentInput, makeDeps());
+
+    expect(result.agentKey).toBe('builder-21');
+  });
+
+  it('mix of live and closed panes — only live ones consume cap budget', async () => {
+    // 20 rows: 5 live + 15 closed → 5 live < 20 → the add succeeds.
+    seedSwarmOf(20, () => 'builder', () => 'claude');
+    seedSessionsFor(20, (i) => (i <= 5 ? null : 99));
+    const agentInput: AddAgentToSwarmInput = { swarmId: 'swarm-1', providerId: 'claude' };
+
+    const result = await addAgentToSwarm(agentInput, makeDeps());
+
+    expect(result.agentKey).toBe('builder-21');
   });
 });
 
