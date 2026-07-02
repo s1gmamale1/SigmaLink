@@ -1,7 +1,98 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    cupertino-material.css — Cupertino HIG material layer (Phase 17)
    ─────────────────────────────────────────────────────────────────────────────
-   apple-design: restraint first — chrome-only frost, hairlines, one accent.
-   Filled in by Phase 17 Task 8. Every rule is scoped
-   `:root[data-theme^='cupertino']` (variants: cupertino-light / cupertino-dark).
+   apple-design: RESTRAINT FIRST. Clarity, deference, depth — chrome recedes,
+   content leads. One systemBlue accent (declared in the index.css token
+   blocks), hairline separators, quiet luminosity-first frost on CHROME ONLY
+   (sidebar / toolbar / popovers) — never on content cards or list rows. No
+   glow, no gradient text, no bloom: hierarchy is carried by type, spacing,
+   and hairlines.
+
+   SCOPE & ISOLATION
+   -----------------
+   Every rule is scoped `:root[data-theme^='cupertino']` — cupertino-light
+   (the family face) and cupertino-dark. Both cuts share one material recipe;
+   the palette tokens (index.css) carry the light/dark difference.
+
+   MOTION BUDGET (utility surface)
+   -------------------------------
+   NONE added here. Cupertino rides the existing motion and easing tokens
+   (--motion / --ease families, ≤350ms springs) — on a utility surface Apple
+   motion is near-invisible.
+
+   A11Y
+   ----
+   The FE-4 global reduced-transparency net (index.css) already collapses
+   .sl-glass* to opaque tokens with !important; the rules below add the
+   cupertino-specific frost removal + prefers-contrast hairline thickening.
    ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   C1 — CHROME-ONLY FROST.
+   Luminosity-first: blur + mild saturation over the theme surface. It reads
+   as visible frost wherever chrome overlaps content (popovers, right-rail,
+   the fullscreen-pane chrome) and as a quiet solid elsewhere — deference,
+   not decoration. Content panes stay opaque and crisp.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root[data-theme^='cupertino'] .sl-glass,
+:root[data-theme^='cupertino'] .sl-glass-heavy {
+  background: hsl(var(--sidebar-background) / 0.78);
+  -webkit-backdrop-filter: blur(24px) saturate(1.35);
+  backdrop-filter: blur(24px) saturate(1.35);
+  border: 1px solid hsl(var(--border) / 0.7);
+  box-shadow: 0 1px 3px hsl(240 5% 10% / 0.07);
+}
+
+:root[data-theme^='cupertino'] .sl-glass-toolbar {
+  background: hsl(var(--background) / 0.82);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  backdrop-filter: blur(20px) saturate(1.3);
+  border-bottom: 1px solid hsl(var(--border) / 0.8);
+}
+
+/* Active sidebar row — a quiet accent tint pill, HIG-style. */
+:root[data-theme^='cupertino'] .sl-nav-active {
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   C2 — FOCUS RING: crisp, no bloom.
+   The base .sl-pane-active::after carries an 18px inset glow; Cupertino's
+   deference means the focused pane reads by a clean 2px accent ring only.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root[data-theme^='cupertino'] .sl-pane-active::after {
+  box-shadow: inset 0 0 0 2px hsl(var(--ring) / 0.9);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   C3 — SURFACE WASH.
+   A barely-there vertical wash so light chrome never sits on a dead-flat
+   field (and the frost has luminance variation to sample). Light cut only —
+   the dark cut's elevated grays carry their own separation.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root[data-theme='cupertino-light'] body {
+  background: linear-gradient(180deg, hsl(240 9% 98.5%), hsl(var(--background)));
+  background-attachment: fixed;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   C4 — A11Y.
+   ───────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme^='cupertino'] .sl-glass,
+  :root[data-theme^='cupertino'] .sl-glass-heavy,
+  :root[data-theme^='cupertino'] .sl-glass-toolbar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: hsl(var(--sidebar-background));
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root[data-theme^='cupertino'] .sl-glass,
+  :root[data-theme^='cupertino'] .sl-glass-heavy,
+  :root[data-theme^='cupertino'] .sl-glass-toolbar {
+    border-color: hsl(var(--border));
+  }
+}
