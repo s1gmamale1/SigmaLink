@@ -216,6 +216,9 @@ const fakePty = {
   create: () => makeFakeSession(),
   kill: vi.fn(),
   forget: vi.fn(),
+  // Task 5 observed-process RAM-brake enumerates live sessions; no live panes here.
+  list: () => [],
+  processSnapshotCached: async () => null,
 };
 const fakeWorktreePool = {
   create: async () => ({ worktreePath: null, branch: null, sessionId: 'prealloc-1' }),

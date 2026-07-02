@@ -178,6 +178,13 @@ export interface AppRouter {
         command: string;
         args: string;
       }>;
+      mcp: {
+        claudeFlowStdioCount: number;
+        claudeFlowStdioPids: number[];
+        claudeFlowStdioRssBytes: number;
+        duplicateClaudeFlowStdio: boolean;
+        topClaudeFlowCommand: string | null;
+      };
     }>;
     forget: (sessionId: string) => Promise<void>;
     /**

@@ -268,6 +268,13 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
           command: z.string(),
           args: z.string(),
         })),
+        mcp: z.object({
+          claudeFlowStdioCount: z.number().int().nonnegative(),
+          claudeFlowStdioPids: z.array(z.number().int()),
+          claudeFlowStdioRssBytes: z.number().nonnegative(),
+          duplicateClaudeFlowStdio: z.boolean(),
+          topClaudeFlowCommand: z.string().nullable(),
+        }),
       }),
     },
   'pty.list': stub,
