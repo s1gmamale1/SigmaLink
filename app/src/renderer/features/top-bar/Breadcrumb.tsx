@@ -1,24 +1,20 @@
-// V3-W12-008: top-bar breadcrumb. V3 frame 0185 shows
-// `Workspace 10 / matthewmiller` rendered as a single muted line at the top
-// of the active room. We replicate that here.
+// Minimal-chrome brand bar (2026-07-02 spec). One bar for both the empty and
+// active-workspace states: rooms menu · Σ monogram · wordmark · muted version,
+// with the functional icon cluster right-aligned. The old
+// `Workspace N / user — name` text and its `app.userName` kv plumbing are
+// deliberately removed — workspace identity lives in the sidebar.
 //
-// The OS username is not directly available to the renderer (sandbox +
-// contextIsolation = true). To avoid plumbing a new RPC channel — owned by
-// V3-W12-017 / coder-foundations — we cache a username in kv under
-// `app.userName`. If unset on first render we derive it from the active
-// workspace's `rootPath` (`/Users/<name>/…` on macOS, `/home/<name>/…` on
-// Linux) and persist it. Windows falls back to the empty string (the
-// renderer simply omits the `/<user>` half of the breadcrumb).
-//
-// Workspace number = 1-based index in `state.workspaces`. We deliberately
-// match V3 by counting from 1 on display ("Workspace 10").
+// The version is read once on mount via `rpc.app.getVersion()` (the same
+// source `use-whats-new.ts` uses) and cached in local state; it renders as
+// `v{version}` and stays empty (no layout reservation) until it resolves.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Network } from 'lucide-react';
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { dragStyle, noDragStyle } from '@/renderer/lib/drag-region';
 import { IS_WIN32 } from '@/renderer/lib/platform';
+import { Monogram } from '@/renderer/components/Monogram';
 import { RufloReadinessPill } from '@/renderer/components/RufloReadinessPill';
 import { NotificationBell } from '@/renderer/features/notifications/NotificationBell';
 import { RoomsMenuButton } from './RoomsMenuButton';
@@ -32,13 +28,31 @@ import { RightRailSwitcher } from './RightRailSwitcher';
 const WIN32_WCO_RESERVE_PX = 140;
 
 export function Breadcrumb() {
-  // PERF-3 — granular selectors: re-render only when the active workspace or
-  // the persisted workspace list changes. Both are referentially-stable slices
-  // (the reducer replaces them by reference), so Object.is bail-out holds.
+  // PERF-3 — granular selector: re-render only when the active workspace
+  // changes. The slice is a referentially-stable slice (the reducer replaces
+  // it by reference), so the Object.is bail-out holds.
   const dispatch = useAppDispatch();
   const active = useAppStateSelector((s) => s.activeWorkspace);
-  const workspaces = useAppStateSelector((s) => s.workspaces);
-  const [userName, setUserName] = useState<string>('');
+  const [version, setVersion] = useState<string>('');
+
+  // Fetch the running app version once on mount and cache it. Empty string
+  // until it resolves — the version span simply does not render, so there is
+  // no layout reservation / jump.
+  useEffect(() => {
+    let alive = true;
+    // Optional-chain the whole call (matches the `rpc.kv?.set?.()` idiom used
+    // elsewhere): a missing `rpc.app` yields undefined instead of a synchronous
+    // throw inside the effect, so the bar degrades to no-version gracefully.
+    void rpc.app
+      ?.getVersion?.()
+      ?.then((v) => {
+        if (alive && typeof v === 'string' && v.trim()) setVersion(v.trim());
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // BSP-O5 — persistent 1-click shortcut to the memory graph from any room.
   const openMemoryGraph = useCallback(() => {
@@ -46,67 +60,9 @@ export function Breadcrumb() {
     dispatch({ type: 'SET_PENDING_MEMORY_GRAPH_VIEW', pending: true });
   }, [dispatch]);
 
-  // Hydrate kv on mount; if unset, peek at the path on the active workspace.
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const cached = await rpc.kv.get('app.userName');
-        if (!alive) return;
-        if (cached && typeof cached === 'string' && cached.trim()) {
-          setUserName(cached.trim());
-          return;
-        }
-        // Fall back to extracting from the path. This runs once per app boot
-        // and the result is cached, so the cost is negligible.
-        const inferred = active ? extractUserFromPath(active.rootPath) : '';
-        if (inferred) {
-          setUserName(inferred);
-          void rpc.kv.set('app.userName', inferred).catch(() => undefined);
-        }
-      } catch {
-        // kv unavailable — leave blank.
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [active]);
-
-  const workspaceNumber = useMemo(() => {
-    if (!active) return null;
-    const idx = workspaces.findIndex((w) => w.id === active.id);
-    // 1-based; if the active workspace has not landed in the list yet (race
-    // on first open), fall back to the workspace count.
-    return idx >= 0 ? idx + 1 : workspaces.length;
-  }, [active, workspaces]);
-
-  if (!active) {
-    // Still render the chrome bar so the layout below does not jump when a
-    // workspace opens. The label reads `No workspace open`. The rooms menu
-    // button still renders here — Workspaces / Settings / Skills / Sigma are
-    // reachable without an active workspace and the user needs a way back to
-    // the workspaces room.
-    return (
-      <div
-        className="sl-glass-toolbar flex h-8 items-center gap-2 border-b border-border bg-background/60 px-4 text-xs text-muted-foreground"
-        style={{
-          ...dragStyle(),
-          paddingRight: IS_WIN32 ? WIN32_WCO_RESERVE_PX : undefined,
-        }}
-        data-testid="breadcrumb-empty"
-      >
-        <RoomsMenuButton />
-        <span>No workspace open</span>
-        <NotificationBell />
-        <RightRailSwitcher />
-      </div>
-    );
-  }
-
   return (
     <div
-      className="sl-glass-toolbar flex h-8 items-center gap-1 border-b border-border bg-background/60 px-4 text-xs"
+      className="sl-glass-toolbar flex h-8 items-center gap-2 border-b border-border bg-background/60 px-4 text-xs"
       style={{
         ...dragStyle(),
         paddingRight: IS_WIN32 ? WIN32_WCO_RESERVE_PX : undefined,
@@ -114,39 +70,31 @@ export function Breadcrumb() {
       data-testid="breadcrumb"
     >
       <RoomsMenuButton />
-      <span className="text-foreground">Workspace {workspaceNumber}</span>
-      {userName ? (
-        <>
-          <span className="text-muted-foreground">/</span>
-          <span className="text-muted-foreground">{userName}</span>
-        </>
-      ) : null}
-      <span className="ml-2 truncate text-muted-foreground" title={active.rootPath}>
-        — {active.name}
-      </span>
+      <Monogram size={14} />
+      <span className="font-medium text-foreground">SigmaLink</span>
+      {version ? <span className="text-muted-foreground">v{version}</span> : null}
+      {/* Spacer pushes the whole functional cluster to the right edge. It wins
+          the free space before RightRailSwitcher's own ml-auto resolves (CSS
+          flex-grow §9.7 runs before auto-margin distribution §9.9), so the
+          switcher's ml-auto collapses to 0 — one clean right edge, no gap. */}
+      <div className="flex-1" />
       <NotificationBell />
-      {/* BSP-O5 — 1-click shortcut to the memory graph from any room. */}
-      <button
-        type="button"
-        onClick={openMemoryGraph}
-        aria-label="Open memory graph"
-        data-testid="breadcrumb-memory-graph"
-        className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
-        // Inside the draggable breadcrumb — without this the click would start a
-        // window drag instead of firing onClick (Windows + macOS frameless chrome).
-        style={noDragStyle()}
-      >
-        <Network className="h-3.5 w-3.5" />
-      </button>
+      {active ? (
+        <button
+          type="button"
+          onClick={openMemoryGraph}
+          aria-label="Open memory graph"
+          data-testid="breadcrumb-memory-graph"
+          // Inside the draggable breadcrumb — without this the click would start
+          // a window drag instead of firing onClick (Windows + macOS frameless).
+          style={noDragStyle()}
+          className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+        >
+          <Network className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
       <RightRailSwitcher />
-      <RufloReadinessPill />
+      {active ? <RufloReadinessPill /> : null}
     </div>
   );
-}
-
-// Best-effort username extraction from a POSIX-ish absolute path. Returns
-// the empty string if the pattern does not match (Windows, custom mounts).
-function extractUserFromPath(p: string): string {
-  const m = /^\/(?:Users|home)\/([^/]+)(?:\/|$)/.exec(p);
-  return m ? m[1] : '';
 }

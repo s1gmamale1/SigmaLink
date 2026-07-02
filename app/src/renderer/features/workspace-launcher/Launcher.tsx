@@ -1,7 +1,8 @@
 // Workspace launcher orchestrator. N1 redesigns the flow to be intent-first
-// (BridgeSpace-style): Step 1 "Start" picks HOW you want to work via the hero
-// IntentCards (SigmaLink grid / SigmaSwarm / single terminal / SigmaCanvas) and
-// THEN picks a folder. The chosen mode drives a mode-aware Stepper (modes.ts):
+// (BridgeSpace-style): the launcher opens on the minimal-chrome landing step
+// (`LauncherLanding`) where you pick HOW you want to work (SigmaLink grid /
+// SigmaSwarm / single terminal / SigmaCanvas), which advances into the folder
+// step. The chosen mode drives a mode-aware Stepper (modes.ts):
 // only the SigmaLink grid mode shows Layout → Agents → Sessions; every other
 // mode is intent → launch. The launch RPCs are UNCHANGED — `launch()` still
 // branches on the mode and calls the same workspaces.launch / SET_ROOM 'swarm'
@@ -10,7 +11,7 @@
 // + resume picker keep working in the grid path.
 
 import { useEffect, useMemo, useState } from 'react';
-import { Play, Plus, Settings as SettingsIcon, SplitSquareHorizontal } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -19,7 +20,7 @@ import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { ErrorBanner } from '@/renderer/components/ErrorBanner';
 import type { GridPreset, LaunchPlan, ProviderProbe, Workspace } from '@/shared/types';
 import type { SessionRiskReport } from '@/shared/router-shape';
-import { IntentCards } from './IntentCards';
+import { LauncherLanding } from './LauncherLanding';
 import {
   type LauncherMode,
   nextStepForMode,
@@ -176,7 +177,9 @@ export function WorkspaceLauncher() {
   const persistedWorkspaces = useAppStateSelector((s) => s.workspaces);
 
   const [mode, setMode] = useState<LauncherMode>('space');
-  const [step, setStep] = useState<StepId>('start');
+  // minimal-chrome — the launcher opens on the intent landing (LauncherLanding).
+  // Picking a mode row advances to the folder ('start') step.
+  const [step, setStep] = useState<StepId>('intent');
   const [preset, setPreset] = useState<GridPreset>(4);
   // N1 — remember the grid preset the operator picked so that toggling into
   // 'single' (which pins 1 pane) and back out restores their choice instead of
@@ -308,16 +311,18 @@ export function WorkspaceLauncher() {
   // (changeStepOnPick / changePreset). Avoiding setState-in-effect keeps the
   // render pass single-pass per react-hooks/set-state-in-effect rule.
 
-  // N1 — change the launcher mode (intent-first). Resets the wizard to the
-  // Start step so a mode switch never leaves the user stranded on a step the
-  // new mode doesn't show. 'single' pins the pane budget to 1; switching back
-  // to a grid mode restores the operator's last grid preset. Clears any stale
-  // error. The launch RPC each mode ultimately calls is decided in launch().
-  function changeMode(next: LauncherMode): void {
+  // N1 + minimal-chrome — apply a mode switch (preset pin/restore for 'single')
+  // WITHOUT deciding the step. 'single' pins the pane budget to 1; switching
+  // back to a grid mode restores the operator's last grid preset. Clears any
+  // stale error. The launch RPC each mode ultimately calls is decided in
+  // launch(). Kept separate from step navigation so the landing path
+  // (pickIntent) can ALWAYS advance to the folder step, even when the user
+  // re-picks the current mode — applyMode's own `next === mode` guard only
+  // skips the redundant state writes, it never blocks the step change.
+  function applyMode(next: LauncherMode): void {
     if (next === mode) return;
     setError(null);
     setMode(next);
-    setStep('start');
     if (next === 'single') {
       // Remember the current grid preset so it can be restored on switch-back,
       // then pin to a single pane.
@@ -327,6 +332,14 @@ export function WorkspaceLauncher() {
       // Leaving single → restore the remembered grid preset.
       setPreset(gridPreset);
     }
+  }
+
+  // Landing path — picking a mode row ALWAYS advances to the folder step, even
+  // when the chosen mode equals the current one (default 'space'): the landing
+  // is the entry point, so a click must never be swallowed by an early-return.
+  function pickIntent(next: LauncherMode): void {
+    applyMode(next);
+    setStep('start');
   }
 
   function changePreset(next: GridPreset): void {
@@ -364,6 +377,9 @@ export function WorkspaceLauncher() {
 
   const completed = useMemo<Partial<Record<StepId, boolean>>>(
     () => ({
+      // The intent landing is always "complete" once left — keeps the jump-back
+      // logic consistent even though the crumb is hidden from the Stepper.
+      intent: true,
       start: !!selectedWorkspace,
       layout: !!selectedWorkspace && preset > 0,
       agents:
@@ -379,8 +395,14 @@ export function WorkspaceLauncher() {
     [selectedWorkspace, preset, counts, skipAgents],
   );
 
-  // N1 — the mode-filtered, ordered step list the Stepper + StepNav navigate.
-  const visibleSteps = useMemo(() => stepsForMode(mode), [mode]);
+  // N1 — the mode-filtered, ordered step list the Stepper displays. The 'intent'
+  // landing crumb is filtered OUT of the Stepper (it is a full-screen entry
+  // point, not a wizard crumb); Back from 'start' still reaches it because
+  // prevStepForMode reads the UNfiltered list (modes.ts).
+  const visibleSteps = useMemo(
+    () => stepsForMode(mode).filter((s) => s !== 'intent'),
+    [mode],
+  );
 
   // SMK-2 — stable array identity so SessionStep's [rows]-dep effect only fires
   // when the pane layout actually changes, not on every unrelated re-render.
@@ -725,6 +747,21 @@ export function WorkspaceLauncher() {
             ? `Open ${preset} ${preset === 1 ? 'shell' : 'shells'}`
             : `Launch ${preset} ${preset === 1 ? 'agent' : 'agents'}`;
 
+  // minimal-chrome — the intent landing is a full-screen entry point rendered
+  // in place of the wizard card. Picking a mode row (pickIntent) advances to
+  // the folder step; the Settings affordance routes to the Settings room.
+  if (step === 'intent') {
+    return (
+      <div className="sl-fade-in flex h-full flex-col overflow-y-auto p-6">
+        {error ? <ErrorBanner message={error} onDismiss={() => setError(null)} /> : null}
+        <LauncherLanding
+          onPick={pickIntent}
+          onOpenSettings={() => dispatch({ type: 'SET_ROOM', room: 'settings' })}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="sl-fade-in flex h-full flex-col gap-4 overflow-y-auto p-6">
       {error ? (
@@ -840,7 +877,9 @@ export function WorkspaceLauncher() {
         </div>
       ) : null}
       <header className="flex flex-col gap-1">
-        <div className="text-2xl font-semibold tracking-tight">Build the future.</div>
+        {/* minimal-chrome — the landing is the hero; the wizard header is a
+            quiet, single-line subtitle so it doesn't double-hero right after. */}
+        <div className="text-lg font-semibold tracking-tight">Set up your workspace</div>
         <div className="text-sm text-muted-foreground">{headerSubtitle(mode)}</div>
       </header>
 
@@ -849,19 +888,15 @@ export function WorkspaceLauncher() {
 
         <div className="border-t border-border/60 pt-4">
           {step === 'start' ? (
-            <div className="flex flex-col gap-6">
-              {/* N1 — intent-first: pick HOW you want to work, then a folder. */}
-              <IntentCards mode={mode} onChange={changeMode} />
-              <div className="border-t border-border/60 pt-5">
-                <StartStep
-                  selected={selectedWorkspace}
-                  recents={persistedWorkspaces}
-                  onPickFolder={pickFolder}
-                  onChooseRecent={chooseExisting}
-                  onForgetRecent={removeExisting}
-                />
-              </div>
-            </div>
+            // minimal-chrome — the mode is already chosen on the landing, so the
+            // Start step renders the folder picker alone (IntentCards retired).
+            <StartStep
+              selected={selectedWorkspace}
+              recents={persistedWorkspaces}
+              onPickFolder={pickFolder}
+              onChooseRecent={chooseExisting}
+              onForgetRecent={removeExisting}
+            />
           ) : null}
           {step === 'layout' ? (
             <div className="flex flex-col gap-3">
@@ -1003,8 +1038,6 @@ export function WorkspaceLauncher() {
           </Button>
         </div>
       </Card>
-
-      <BottomActionRow />
     </div>
   );
 }
@@ -1087,38 +1120,7 @@ function StepNav({ mode, step, onChange, canAgents }: StepNavProps) {
   );
 }
 
-// V3-W12-005 acceptance: bottom action row `+ NEW TERMINAL · SPLIT RIGHT ·
-// SETTINGS`. These are global affordances under the wizard card; the
-// individual handlers are stubs for now (Settings routes to the Settings
-// room; new-terminal/split-right wiring lands with Command Room polish).
-function BottomActionRow() {
-  // V1.1.10 perf — useAppDispatch is a context-only read (never re-renders
-  // on state change); previous useAppState() subscribed to the full state
-  // even though only dispatch was used.
-  const dispatch = useAppDispatch();
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-      <button
-        type="button"
-        className="flex items-center gap-1 rounded-md border border-border bg-card/40 px-3 py-1.5 transition hover:bg-card"
-        onClick={() => undefined}
-      >
-        <Plus className="h-3.5 w-3.5" /> New terminal
-      </button>
-      <button
-        type="button"
-        className="flex items-center gap-1 rounded-md border border-border bg-card/40 px-3 py-1.5 transition hover:bg-card"
-        onClick={() => undefined}
-      >
-        <SplitSquareHorizontal className="h-3.5 w-3.5" /> Split right
-      </button>
-      <button
-        type="button"
-        className="flex items-center gap-1 rounded-md border border-border bg-card/40 px-3 py-1.5 transition hover:bg-card"
-        onClick={() => dispatch({ type: 'SET_ROOM', room: 'settings' })}
-      >
-        <SettingsIcon className="h-3.5 w-3.5" /> Settings
-      </button>
-    </div>
-  );
-}
+// minimal-chrome — the old BottomActionRow (New terminal · Split right ·
+// Settings) is retired: two of its three buttons were dead `onClick={() =>
+// undefined}` stubs, and the Settings affordance now lives in the landing
+// footer (LauncherLanding).

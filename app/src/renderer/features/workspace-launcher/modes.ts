@@ -3,12 +3,17 @@
 // Pulled into its own module (no React component exports) so it is pure and
 // unit-testable, and so react-refresh/only-export-components is never tripped.
 //
-// Modes drive WHICH wizard steps show:
-//   • 'space'  — SigmaLink terminal grid: Start → Layout → Agents → Sessions
-//                (the full worktree-per-pane flow; B2 SessionStep preserved).
-//   • 'single' — one terminal: Start only, then launch a single-pane workspace.
-//   • 'swarm'  — SigmaSwarm orchestrator: Start only, then route to Swarm Room.
-//   • 'canvas' — SigmaCanvas (preserved): Start only, then route to Browser room.
+// Every mode leads with the 'intent' landing step (the minimal-chrome entry
+// point), then branches on WHICH wizard steps show next:
+//   • 'space'  — SigmaLink terminal grid: Intent → Start → Layout → Agents →
+//                Sessions (the full worktree-per-pane flow; B2 SessionStep
+//                preserved).
+//   • 'single' — one terminal: Intent → Start only, then launch a
+//                single-pane workspace.
+//   • 'swarm'  — SigmaSwarm orchestrator: Intent → Start only, then route to
+//                Swarm Room.
+//   • 'canvas' — SigmaCanvas (preserved): Intent → Start only, then route to
+//                Browser room.
 //
 // The Launcher's existing `launch()` already branches on the mode and calls the
 // SAME RPCs (workspaces.launch / SET_ROOM 'swarm' / design.createCanvas). This
@@ -18,16 +23,17 @@ import type { StepId } from './Stepper';
 
 export type LauncherMode = 'space' | 'single' | 'swarm' | 'canvas';
 
-/** Ordered full step set for the grid path. */
-const FULL_STEPS: StepId[] = ['start', 'layout', 'agents', 'sessions'];
+/** Ordered full step set for the grid path, including the intent landing step. */
+const FULL_STEPS: StepId[] = ['intent', 'start', 'layout', 'agents', 'sessions'];
 
 /**
- * The visible, ordered steps for a given mode. Only 'space' shows the full
- * Layout/Agents/Sessions sequence; every other mode is intent → launch, so it
- * shows the Start step alone (the launch CTA does the routing).
+ * The visible, ordered steps for a given mode. Every mode leads with the
+ * 'intent' landing step. Only 'space' shows the full Layout/Agents/Sessions
+ * sequence after it; every other mode goes intent → Start → launch, so it
+ * shows the Start step alone after intent (the launch CTA does the routing).
  */
 export function stepsForMode(mode: LauncherMode): StepId[] {
-  return mode === 'space' ? FULL_STEPS : ['start'];
+  return mode === 'space' ? FULL_STEPS : ['intent', 'start'];
 }
 
 /** The next step after `current` within `mode`, or null at the end. */

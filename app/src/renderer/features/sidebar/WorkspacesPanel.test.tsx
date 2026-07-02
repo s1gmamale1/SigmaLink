@@ -145,6 +145,12 @@ describe('<WorkspacesPanel />', () => {
     expect(getAllByTestId('workspace-dot')).toHaveLength(3);
   });
 
+  it('shows the open-workspace count in the header', () => {
+    renderPanel();
+    const header = screen.getByTestId('workspaces-header-count');
+    expect(header.textContent).toBe('3');
+  });
+
   describe('drag-to-reorder', () => {
     // Midpoints with stackRowRects: A=10, B=30, C=50. Insertion index = first
     // row whose midpoint is below clientY, else append (= length).

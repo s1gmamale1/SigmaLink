@@ -2,7 +2,7 @@
 //
 // Renders a mini mock-UI chrome preview (sidebar strip + pane + accent pill)
 // painted from `theme.swatch` hexes via inline style — no real `data-theme`
-// subtree (render-cost). Follows the IntentCards.tsx selectable-card idiom:
+// subtree (render-cost). Follows the launcher selectable-card idiom:
 // `<button aria-pressed>`, `border-ring bg-accent/10` selected,
 // `hover:-translate-y-0.5 transition ease-smooth`.
 //

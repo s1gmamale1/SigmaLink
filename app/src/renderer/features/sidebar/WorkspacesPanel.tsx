@@ -316,8 +316,11 @@ export function WorkspacesPanel({
       data-testid="workspaces-panel"
     >
       <div className="flex items-center gap-1 px-1 pb-1">
-        <div className="flex-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="flex flex-1 items-baseline gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Workspaces
+          <span data-testid="workspaces-header-count" className="text-[10px] text-muted-foreground/70">
+            {workspaces.length}
+          </span>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
