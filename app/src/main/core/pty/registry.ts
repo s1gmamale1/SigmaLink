@@ -567,6 +567,17 @@ export class PtyRegistry {
     const pid = rec.pid;
     const stillAlive = rec.alive && isProcessAlive(pid);
     if (stillAlive) {
+      // 2026-07-03 audit A2 — on Windows a single-PID kill strands MCP/npx
+      // descendants of the old process. Route the escalation through the same
+      // tree-aware taskkill path stop({tree:true}) uses. win32-gated so macOS
+      // teardown semantics stay byte-for-byte unchanged.
+      if (process.platform === 'win32') {
+        try {
+          stopProcessTree(pid, PTY_KILL_FALLBACK_MS);
+        } catch {
+          /* ignore — fall through to pty.kill() + SIGKILL fallback */
+        }
+      }
       try {
         rec.pty.kill();
       } catch {
