@@ -40,9 +40,12 @@ export function Breadcrumb() {
   // no layout reservation / jump.
   useEffect(() => {
     let alive = true;
+    // Optional-chain the whole call (matches the `rpc.kv?.set?.()` idiom used
+    // elsewhere): a missing `rpc.app` yields undefined instead of a synchronous
+    // throw inside the effect, so the bar degrades to no-version gracefully.
     void rpc.app
-      .getVersion()
-      .then((v) => {
+      ?.getVersion?.()
+      ?.then((v) => {
         if (alive && typeof v === 'string' && v.trim()) setVersion(v.trim());
       })
       .catch(() => undefined);
