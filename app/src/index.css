@@ -181,8 +181,13 @@
      material (mesh reads through), and an opaque color-mix fill would clobber
      it. The per-workspace `--accent` tint still applies on glass via the
      accent-token surfaces — only the surface WASH is opaque-themes-only.
+     Phase 17: aurora (velvet bloom panels) and cupertino (frost) own their
+     sidebar/chrome backgrounds in their material files for the same reason —
+     both excluded like glass. Keep this :not() chain in sync with the
+     reduced-transparency mirror near the end of this file.
      Unlayered so it wins over Tailwind's `bg-sidebar` utility on the same el. */
-  :root:not([data-theme^='glass']) .sl-chrome-tint {
+  :root:not([data-theme^='glass']):not([data-theme^='aurora']):not([data-theme^='cupertino'])
+    .sl-chrome-tint {
     background-color: color-mix(
       in oklab,
       hsl(var(--sidebar-background)) 90%,
@@ -1022,7 +1027,8 @@
      by accident. Under reduced transparency the sidebar reads as the plain,
      fully-opaque `--sidebar-background` with no hue mix — legibility first. */
   .bg-sidebar,
-  :root:not([data-theme^='glass']) .sl-chrome-tint {
+  :root:not([data-theme^='glass']):not([data-theme^='aurora']):not([data-theme^='cupertino'])
+    .sl-chrome-tint {
     background-color: hsl(var(--sidebar-background)) !important;
   }
   .bg-popover {
