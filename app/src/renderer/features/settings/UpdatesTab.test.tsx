@@ -110,7 +110,7 @@ describe('<UpdatesTab />', () => {
     await screen.findByText('Check for updates');
 
     emit('app:update-error', {
-      error: 'Admin permission required. Re-run the SigmaLink installer to upgrade: https://github.com/s1gmamale1/SigmaLink/releases/latest',
+      error: 'Update blocked by Windows (UAC). SigmaLink is not code-signed yet, so elevation can be denied — re-run the SigmaLink installer to upgrade: https://github.com/s1gmamale1/SigmaLink/releases/latest',
       isUacDenied: true,
     });
 
