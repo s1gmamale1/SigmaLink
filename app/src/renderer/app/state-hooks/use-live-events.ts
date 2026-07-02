@@ -72,6 +72,12 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       const p = raw as { sessionId?: unknown; ts?: unknown };
       if (typeof p.sessionId !== 'string') return;
       const ts = typeof p.ts === 'number' ? p.ts : Date.now();
+      // 2026-07-02 fix D — the operator is LOOKING at this pane: window
+      // focused AND the event's session IS the active session. Glow + ding
+      // are pure noise there (a >4s typing pause re-arms the idle timer via
+      // the keystroke echo). Unfocused window or a different active pane
+      // still alerts.
+      if (document.hasFocus() && stateRef.current.activeSessionId === p.sessionId) return;
       dispatch({ type: 'SET_ATTENTION', sessionId: p.sessionId, ts });
       if (ts - lastAttentionSoundAt > ATTENTION_SOUND_THROTTLE_MS) {
         lastAttentionSoundAt = ts;

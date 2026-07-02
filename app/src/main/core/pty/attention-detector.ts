@@ -8,6 +8,12 @@ export interface AttentionDetectorOptions {
   idleMs: () => number;
   emit: (sessionId: string, reason: AttentionReason) => void;
   dedupeMs?: number;
+  /** 2026-07-02 fix D — per-session eligibility gate. Return false for
+   *  sessions that must never produce attention (plain shell / scratch /
+   *  Dev-workspace panes — previously `ls` chimed "agent needs you" 4s after
+   *  its output settled). Omitted = every session eligible. A throwing gate
+   *  fails CLOSED (no phantom attention from a broken lookup). */
+  isEligible?: (sessionId: string) => boolean;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
   now?: () => number;
@@ -43,6 +49,13 @@ export class AttentionDetector {
   }
 
   feed(sessionId: string, data: string): void {
+    // fix D — ineligible sessions (shell/scratch panes) are never scanned and
+    // never arm the idle timer. Fail closed on a throwing gate.
+    try {
+      if (this.opts.isEligible && !this.opts.isEligible(sessionId)) return;
+    } catch {
+      return;
+    }
     let scanner = this.scanners.get(sessionId);
     if (!scanner) {
       scanner = new BellScanner();

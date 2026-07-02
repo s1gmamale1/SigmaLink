@@ -766,6 +766,68 @@ describe('useLiveEvents — agent:attention subscriber', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ATTENTION', sessionId: 's2', ts: baseTs + 500 });
     expect(playCueMock).not.toHaveBeenCalled();
   });
+
+  // 2026-07-02 review fix D — the operator is LOOKING at this pane (focused
+  // window + the event's session IS the active session): glow + ding are pure
+  // noise (a typing pause echo re-arms the idle timer). Skip both.
+  it('suppresses SET_ATTENTION + cue when the window is focused and the session is active', async () => {
+    const baseTs = Date.now() + 20_000_000;
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    try {
+      await renderLiveEvents({ ...stateWith([session('s1')]), activeSessionId: 's1' });
+      await act(async () => { await Promise.resolve(); });
+
+      await act(async () => {
+        sigma.emit('agent:attention', { sessionId: 's1', reason: 'idle', ts: baseTs });
+        await Promise.resolve();
+      });
+
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'SET_ATTENTION' }),
+      );
+      expect(playCueMock).not.toHaveBeenCalled();
+    } finally {
+      hasFocus.mockRestore();
+    }
+  });
+
+  it('still fires for the active session when the window is NOT focused', async () => {
+    const baseTs = Date.now() + 30_000_000;
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    try {
+      await renderLiveEvents({ ...stateWith([session('s1')]), activeSessionId: 's1' });
+      await act(async () => { await Promise.resolve(); });
+
+      await act(async () => {
+        sigma.emit('agent:attention', { sessionId: 's1', reason: 'idle', ts: baseTs });
+        await Promise.resolve();
+      });
+
+      expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ATTENTION', sessionId: 's1', ts: baseTs });
+      expect(playCueMock).toHaveBeenCalledWith('agent-attention');
+    } finally {
+      hasFocus.mockRestore();
+    }
+  });
+
+  it('still fires when the window is focused but a DIFFERENT session is active', async () => {
+    const baseTs = Date.now() + 40_000_000;
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    try {
+      await renderLiveEvents({ ...stateWith([session('s1'), session('s2')]), activeSessionId: 's2' });
+      await act(async () => { await Promise.resolve(); });
+
+      await act(async () => {
+        sigma.emit('agent:attention', { sessionId: 's1', reason: 'bell', ts: baseTs });
+        await Promise.resolve();
+      });
+
+      expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ATTENTION', sessionId: 's1', ts: baseTs });
+      expect(playCueMock).toHaveBeenCalledWith('agent-attention');
+    } finally {
+      hasFocus.mockRestore();
+    }
+  });
 });
 
 // ---- Phase-2 control — multi-window scope guard ----------------------------

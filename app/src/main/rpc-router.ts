@@ -68,7 +68,7 @@ import {
   setDetachedWorkspaceIdsProvider,
 } from './core/workspaces/lifecycle';
 import { executeLaunchPlan } from './core/workspaces/launcher';
-import { AGENT_PROVIDERS, installCommandFor } from '../shared/providers';
+import { AGENT_PROVIDERS, countsTowardAgentCap, installCommandFor } from '../shared/providers';
 import { SwarmMailbox } from './core/swarms/mailbox';
 import { BoardManager } from './core/swarms/boards';
 import { buildSwarmController } from './core/swarms/controller';
@@ -684,8 +684,34 @@ async function buildRouter() {
     idleMsGate = { value, at: now };
     return value;
   };
+  // 2026-07-02 fix D — attention is for AGENT panes only: plain shell /
+  // scratch / Dev-workspace sessions otherwise idle-fire "agent needs you"
+  // 4s after every command's output settles. Provider is immutable per
+  // session, so positives cache forever; negatives cache 2s so a first data
+  // chunk racing the agent_sessions INSERT can't permanently mute a real
+  // agent pane (the registry.ts null-route forever-cache bug class). Unknown
+  // sessions (scratch terminals, no DB row) resolve ineligible.
+  const attentionEligibility = new Map<string, { value: boolean; at: number }>();
+  const isAttentionEligible = (sessionId: string): boolean => {
+    const now = Date.now();
+    const cached = attentionEligibility.get(sessionId);
+    if (cached && (cached.value || now - cached.at < 2_000)) return cached.value;
+    let value = false;
+    try {
+      const row = getRawDb()
+        .prepare('SELECT provider_id FROM agent_sessions WHERE id = ?')
+        .get(sessionId) as { provider_id?: string } | undefined;
+      value = typeof row?.provider_id === 'string' && countsTowardAgentCap(row.provider_id);
+    } catch {
+      value = false;
+    }
+    if (attentionEligibility.size > 1024) attentionEligibility.clear(); // bounded
+    attentionEligibility.set(sessionId, { value, at: now });
+    return value;
+  };
   const attentionDetector = new AttentionDetector({
     idleMs,
+    isEligible: isAttentionEligible,
     emit: (sessionId, reason) =>
       broadcast('agent:attention', { sessionId, reason, ts: Date.now() }),
   });
