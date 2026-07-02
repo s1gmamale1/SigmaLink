@@ -239,6 +239,11 @@ let sigmabenchHandlers: Record<string, (...args: unknown[]) => unknown> | null =
 let designShutdown: (() => void) | null = null;
 /** PERF-1 — module ref so shutdownRouter can flush + cancel the coalescer timer. */
 let ptyDataCoalescerRef: PtyDataCoalescer | null = null;
+/** 2026-07-02 fix B — TRUE from the moment shutdownRouter starts, so the
+ *  quit-time killAll() pane exits don't persist phantom "Pane exited" warns.
+ *  Reset on registerRouter for the win32 close-all-windows → reopen path
+ *  (same process re-inits the router; a sticky flag would mute forever). */
+let routerShuttingDown = false;
 
 // Multi-window B2 — injectable secondary-window factory. The real factory lives
 // in electron/main.ts (createSecondaryWindow, adapted to WindowHandle via
@@ -966,7 +971,8 @@ async function buildRouter() {
         // for this session; suppress the duplicate here.
         try {
           if (!shouldSuppressPaneExitNotification(cliExitedSessions, event.sessionId)) {
-            pushPtyExitNotification(notificationsManager, event);
+            // fix B — 4th arg gates out quit-time killAll exits.
+            pushPtyExitNotification(notificationsManager, event, undefined, () => routerShuttingDown);
           }
         } catch {
           /* notifications fan-out is best-effort */
@@ -987,11 +993,16 @@ async function buildRouter() {
         // subsequent shell-exit onPaneEvent can detect and suppress its copy.
         cliExitedSessions.add(sessionId);
         try {
-          pushPtyExitNotification(notificationsManager, {
-            sessionId,
-            kind: exitCode === 0 ? 'exited' : 'error',
-            exitCode,
-          });
+          pushPtyExitNotification(
+            notificationsManager,
+            {
+              sessionId,
+              kind: exitCode === 0 ? 'exited' : 'error',
+              exitCode,
+            },
+            undefined, // fix B — default meta resolver; 4th arg is the shutdown gate
+            () => routerShuttingDown,
+          );
         } catch {
           /* notifications fan-out is best-effort */
         }
@@ -2920,6 +2931,7 @@ function registerIpcHandler(
 
 export async function registerRouter(): Promise<void> {
   if (router) return;
+  routerShuttingDown = false; // fix B — re-arm exit notifications on re-init
   router = await buildRouter();
   installWorkspaceLifecycleIpc();
   const isDev = !app.isPackaged;
@@ -3075,6 +3087,10 @@ export async function registerRouter(): Promise<void> {
  * orphan worktrees / zombie session rows after a normal shutdown.
  */
 export async function shutdownRouter(): Promise<void> {
+  // 2026-07-02 fix B — flip BEFORE killAll() so the pane exits it triggers
+  // (SIGTERM → onExit → onPaneEvent) are recognized as deliberate shutdown
+  // and don't persist phantom "Pane exited (code 143)" warns for next boot.
+  routerShuttingDown = true;
   // v1.9-scrollback — DEFAULT-OFF. Persist every live session's buffer
   // snapshot BEFORE killAll() tears down the PTYs, so we capture the last
   // visible scrollback. Best-effort: errors are swallowed so shutdown is
