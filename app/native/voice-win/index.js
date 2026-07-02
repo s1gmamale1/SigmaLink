@@ -6,10 +6,11 @@
 // not committed yet) — exports a stub whose `isAvailable()` returns `false`
 // so the adapter can transparently fall back to renderer Web Speech.
 //
-// The stub does NOT throw on `start`/`stop`/`requestPermission` calls; it
-// resolves to a "no-op" payload so callers do not have to special-case the
-// platform branch. The voice adapter checks `isAvailable()` first anyway,
-// but defending the contract end-to-end keeps unit tests boring on macOS CI.
+// The stub's `stop()`/`requestPermission()` resolve no-op payloads;
+// `start()` REJECTS with `code: 'unsupported'` so callers cannot believe a
+// dead recognizer is capturing. The voice adapter checks `isAvailable()`
+// first anyway, but defending the contract end-to-end keeps unit tests
+// boring on macOS CI.
 
 'use strict';
 
@@ -40,6 +41,12 @@ function buildStub() {
     onFinal: noop,
     onError: noop,
     onState: noop,
+    // Parity with the native export (sigmavoice_win.cc): output-router probes
+    // this with a typeof check before calling; the stub returns '' so the
+    // PowerShell frontmost-app fallback engages.
+    getFrontmostAppExePath() {
+      return '';
+    },
   };
 }
 
