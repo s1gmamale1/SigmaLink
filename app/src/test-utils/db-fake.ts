@@ -200,6 +200,8 @@ export interface SeedAgentSession {
   splitDirection?: 'horizontal' | 'vertical' | null;
   splitIndex?: number | null;
   minimised?: number;
+  /** Phase 13A deliberate-close marker (epoch ms). Null = pane never closed. */
+  closedAt?: number | null;
 }
 
 export function seedAgentSession(
@@ -225,6 +227,7 @@ export function seedAgentSession(
     splitDirection: partial.splitDirection ?? null,
     splitIndex: partial.splitIndex ?? null,
     minimised: partial.minimised ?? 0,
+    closedAt: partial.closedAt ?? null,
   };
   ensureTable(fake.store, 'agent_sessions').push(row);
   return row;
