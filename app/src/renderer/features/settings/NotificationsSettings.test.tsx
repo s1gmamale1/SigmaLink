@@ -8,8 +8,10 @@ import {
   KV_OS_PER_SOURCE,
 } from '@/shared/notification-prefs';
 
-const { store, sounds } = vi.hoisted(() => ({
+const { store, sounds, osTestMock } = vi.hoisted(() => ({
   store: new Map<string, string>(),
+  // 2026-07-03 (review medium #4) — OS delivery self-check rpc.
+  osTestMock: vi.fn(async () => ({ shown: true })),
   sounds: {
     getSoundMasterEnabled: vi.fn(async () => true),
     setSoundMasterEnabled: vi.fn(async () => undefined),
@@ -30,6 +32,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
         store.set(k, v);
       }),
     },
+    notifications: { osTest: () => osTestMock() },
   },
   rpcSilent: { kv: { get: vi.fn(async () => null), set: vi.fn(async () => undefined) } },
 }));
@@ -79,6 +82,25 @@ describe('NotificationsSettings — P3 NTF-1', () => {
     const call = setSpy.mock.calls.find((c) => c[0] === KV_OS_PER_SOURCE);
     expect(call).toBeTruthy();
     expect(JSON.parse(call![1] as string)).toContain('pty');
+  });
+});
+
+// 2026-07-03 (review medium #4) — OS delivery self-check button.
+describe('NotificationsSettings — OS delivery self-check', () => {
+  it('the test button fires notifications.osTest and shows the check-your-screen hint', async () => {
+    await renderPanel();
+    fireEvent.click(screen.getByTestId('notifications-os-test'));
+    expect(osTestMock).toHaveBeenCalledTimes(1);
+    const hint = await screen.findByTestId('notifications-os-test-hint');
+    expect(hint.textContent).toMatch(/System Settings/);
+  });
+
+  it('shows the unsupported hint when the OS cannot deliver', async () => {
+    osTestMock.mockResolvedValueOnce({ shown: false });
+    await renderPanel();
+    fireEvent.click(screen.getByTestId('notifications-os-test'));
+    const hint = await screen.findByTestId('notifications-os-test-hint');
+    expect(hint.textContent).toMatch(/not available/);
   });
 });
 

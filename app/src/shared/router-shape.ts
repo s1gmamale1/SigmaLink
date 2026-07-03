@@ -1235,6 +1235,10 @@ export interface AppRouter {
     markUnread: (id: string) => Promise<void>;
     dismiss: (id: string) => Promise<void>;
     clearRead: () => Promise<{ removed: string[] }>;
+    /** 2026-07-03 (review medium #4) — OS delivery self-check: fires a native
+     *  test notification bypassing every app gate; `shown=false` means the OS
+     *  itself blocked it (macOS authorization) or the platform is unsupported. */
+    osTest: () => Promise<{ shown: boolean }>;
   };
   /**
    * v1.5.0 packet 09 — Cross-machine sync (opt-in, e2ee, git-backed).

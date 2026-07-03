@@ -36,6 +36,7 @@ import {
   type NotificationPrefs,
 } from '../../../shared/notification-prefs';
 import { maxSeverity, navigateToNotification } from '../../features/notifications/helpers';
+import { isMainWindow } from '../../lib/window-context';
 
 // Agent-attention sound throttle. Module scope so a 20-agent swarm finishing
 // together plays ONE sound, and the throttle survives hook remounts.
@@ -551,6 +552,11 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       //  quiet aware.) Because the prefs live in KV (async reads), all of this
       //  runs in a fire-and-forget block AFTER the synchronous dispatch above;
       //  a few KV reads per delta is fine (deltas are user-paced).
+      // 2026-07-03 (review medium #2) — the delta broadcasts to EVERY window;
+      // each one used to tone + toast, so a detached scoped window doubled the
+      // alert. The tone/toast surface is MAIN-window-only (the bell lives in
+      // the main shell); scoped windows only reconcile the store above.
+      if (!isMainWindow()) return;
       const newUnread = added.filter((n) => n.readAt == null);
       if (newUnread.length === 0) return;
       void (async () => {

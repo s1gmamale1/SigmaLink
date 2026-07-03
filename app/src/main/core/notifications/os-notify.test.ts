@@ -150,6 +150,62 @@ describe('OsNotifier — focus gate + silent banner', () => {
   });
 });
 
+// 2026-07-03 (review medium #4) — macOS never surfaces authorization state:
+// Notification.isSupported() reports capability, not permission, so Settings
+// can say "OS notifications ✓" while nothing ever reaches the screen.
+// notifyTest() is the operator's self-verification probe: it bypasses EVERY
+// app-level gate (master toggle, severity, DND/quiet/mute, focus, throttle) so
+// the ONLY reason nothing appears is the OS itself — which is exactly what the
+// Settings hint then tells the operator to fix.
+describe('OsNotifier — notifyTest (delivery self-check)', () => {
+  function makeTestNotifier(over: { focused?: () => boolean; showThrows?: boolean } = {}) {
+    const show = over.showThrows
+      ? vi.fn(() => {
+          throw new Error('denied');
+        })
+      : vi.fn();
+    const factory = vi.fn(() => ({ show, on: vi.fn() }));
+    const notifier = new OsNotifier({
+      now: () => 0,
+      resolveIconPath: () => undefined,
+      notificationFactory: factory,
+      isAppFocused: over.focused ?? (() => true),
+    });
+    return { notifier, show, factory };
+  }
+
+  it('fires even with the master OS toggle OFF (bypasses isEnabled)', () => {
+    kv.set(KV_OS_ENABLED, '0');
+    const { notifier, show } = makeTestNotifier();
+    expect(notifier.notifyTest()).toBe(true);
+    expect(show).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires while the app is focused (bypasses the presence gate)', () => {
+    const { notifier, show } = makeTestNotifier({ focused: () => true });
+    expect(notifier.notifyTest()).toBe(true);
+    expect(show).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires under DND (bypasses the prefs gate)', () => {
+    kv.set(KV_DND, '1');
+    const { notifier, show } = makeTestNotifier();
+    expect(notifier.notifyTest()).toBe(true);
+    expect(show).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds the test notification silent', () => {
+    const { notifier, factory } = makeTestNotifier();
+    notifier.notifyTest();
+    expect(factory).toHaveBeenCalledWith(expect.objectContaining({ silent: true }));
+  });
+
+  it('returns false when the native show throws', () => {
+    const { notifier } = makeTestNotifier({ showThrows: true });
+    expect(notifier.notifyTest()).toBe(false);
+  });
+});
+
 describe('OsNotifier — NTF-1 prefs gating', () => {
   it('default prefs (no DND/quiet/mute) fire for warn and error', () => {
     const { notifier, show } = makeNotifier(0);

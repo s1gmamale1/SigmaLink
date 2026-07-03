@@ -85,6 +85,15 @@ vi.mock('../../lib/notifications', () => ({
 const playCueMock = vi.fn();
 vi.mock('../../lib/sounds', () => ({ playCue: (...a: unknown[]) => playCueMock(...a) }));
 
+// 2026-07-03 (review medium #2) — window identity gate for the tone/toast
+// block. Default = main window (matches the real getWindowContext fallback);
+// scoped-window tests flip it per case.
+let isMainWindowMock = true;
+vi.mock('../../lib/window-context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/window-context')>();
+  return { ...actual, isMainWindow: () => isMainWindowMock };
+});
+
 // P3 — sonner is the toast surface for the bell handoff. Mock the three call
 // shapes the delta effect uses (`toast`, `toast.warning`, `toast.error`).
 const toastMock = vi.fn() as ReturnType<typeof vi.fn> & {
@@ -599,6 +608,43 @@ describe('useLiveEvents — v1.13.1 notification sound', () => {
 });
 
 // ---- P3 (NTF-2) toast↔bell handoff ------------------------------------------
+
+// 2026-07-03 (review medium #2) — with a detached scoped window open, the
+// notifications:changed broadcast reaches EVERY window and each one played the
+// tone + stacked a toast (double alert). Scoped windows now only reconcile the
+// store; the tone/toast surface is main-window-only (the bell lives there too).
+describe('useLiveEvents — scoped windows never tone/toast', () => {
+  it('scoped window: reducer delta still dispatches, but no tone and no toast', async () => {
+    isMainWindowMock = false;
+    try {
+      await renderLiveEvents(stateWith([]));
+      await act(async () => { await Promise.resolve(); });
+
+      const n = makeNotification({ severity: 'warn', readAt: null });
+      await emitDelta({ added: [n] });
+
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'NOTIFICATIONS_DELTA', added: [n] }),
+      );
+      expect(playNotificationToneMock).not.toHaveBeenCalled();
+      expect(toastMock).not.toHaveBeenCalled();
+      expect(toastMock.warning).not.toHaveBeenCalled();
+      expect(toastMock.error).not.toHaveBeenCalled();
+    } finally {
+      isMainWindowMock = true;
+    }
+  });
+
+  it('main window keeps toning/toasting exactly as before', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => { await Promise.resolve(); });
+
+    await emitDelta({ added: [makeNotification({ severity: 'warn', readAt: null })] });
+
+    expect(playNotificationToneMock).toHaveBeenCalledTimes(1);
+    expect(toastMock.warning).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('useLiveEvents — P3 toast↔bell handoff', () => {
   it('plays the tone with the delta MAX unread severity', async () => {

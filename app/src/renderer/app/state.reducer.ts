@@ -30,6 +30,33 @@ function omitKey<T>(rec: Record<string, T>, key: string): Record<string, T> {
   return rest;
 }
 
+/** 2026-07-03 (review medium) — clear one session's attention AND release the
+ *  workspace-rail glow when it was the LAST glowing session in its workspace.
+ *  Previously `attentionWorkspaces` cleared only on workspace switch, so the
+ *  sidebar ring glowed forever while the operator stayed in the workspace.
+ *  Pass the PRE-mutation sessions list (REMOVE_SESSION resolves the workspace
+ *  before the filter; the removed id can't count as still-glowing because it
+ *  is already dropped from the session map). */
+function clearAttention(
+  sessions: AgentSession[],
+  attentionSessions: Record<string, number>,
+  attentionWorkspaces: Record<string, number>,
+  sessionId: string,
+): { attentionSessions: Record<string, number>; attentionWorkspaces: Record<string, number> } {
+  const nextSessions = omitKey(attentionSessions, sessionId);
+  const ws = sessions.find((s) => s.id === sessionId)?.workspaceId ?? null;
+  if (!ws || !(ws in attentionWorkspaces)) {
+    return { attentionSessions: nextSessions, attentionWorkspaces };
+  }
+  const stillGlowing = sessions.some(
+    (s) => s.workspaceId === ws && nextSessions[s.id] !== undefined,
+  );
+  return {
+    attentionSessions: nextSessions,
+    attentionWorkspaces: stillGlowing ? attentionWorkspaces : omitKey(attentionWorkspaces, ws),
+  };
+}
+
 // Perf audit 2026-06-10 #4 — per-swarm message thread cap. Hydrate tails 200
 // (SwarmRoom / SwarmRailTab); live APPENDs previously grew the array without
 // bound. 500 keeps the full hydrated tail plus a generous live window while
@@ -441,7 +468,9 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         activeSessionId: action.id,
-        attentionSessions: action.id ? omitKey(state.attentionSessions, action.id) : state.attentionSessions,
+        ...(action.id
+          ? clearAttention(state.sessions, state.attentionSessions, state.attentionWorkspaces, action.id)
+          : {}),
       };
     case 'SET_ATTENTION': {
       const ws = state.sessions.find((s) => s.id === action.sessionId)?.workspaceId ?? null;
@@ -454,7 +483,10 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       };
     }
     case 'CLEAR_SESSION_ATTENTION':
-      return { ...state, attentionSessions: omitKey(state.attentionSessions, action.sessionId) };
+      return {
+        ...state,
+        ...clearAttention(state.sessions, state.attentionSessions, state.attentionWorkspaces, action.sessionId),
+      };
     case 'MARK_SESSION_EXITED': {
       const sessions: AgentSession[] = state.sessions.map((s) =>
         s.id === action.id
@@ -467,7 +499,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
         // A dead agent isn't waiting on you — clear any lingering glow so an
         // exited/crashed-but-still-visible pane doesn't keep glowing.
-        attentionSessions: omitKey(state.attentionSessions, action.id),
+        ...clearAttention(state.sessions, state.attentionSessions, state.attentionWorkspaces, action.id),
       };
     }
     case 'MARK_SESSION_ERROR': {
@@ -493,7 +525,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         ...state,
         sessions,
         sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
-        attentionSessions: omitKey(state.attentionSessions, action.id),
+        ...clearAttention(state.sessions, state.attentionSessions, state.attentionWorkspaces, action.id),
       };
     }
     case 'REMOVE_SESSION': {
@@ -517,7 +549,8 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
         activeSessionId,
         focusedPaneId,
-        attentionSessions: omitKey(state.attentionSessions, action.id),
+        // PRE-filter sessions list so the removed session's workspace resolves.
+        ...clearAttention(state.sessions, state.attentionSessions, state.attentionWorkspaces, action.id),
       };
     }
     case 'SET_SWARMS':
