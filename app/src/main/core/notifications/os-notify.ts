@@ -91,11 +91,19 @@ export interface OsNotifierDeps {
     title: string;
     body: string;
     icon?: string;
+    /** 2026-07-02 fix C — always true: the app soundscape owns audio; the
+     *  native ding bypassed master-sound/mute/DND and double-played. */
+    silent: boolean;
   }) => { show: () => void; on: (event: 'click', cb: () => void) => void };
   /** Window-focus hook; falls back to BrowserWindow.getAllWindows() in prod. */
   focusWindow?: () => void;
   /** Icon path resolver — defaults to `<appPath>/build/icon.png`. */
   resolveIconPath?: () => string | undefined;
+  /** 2026-07-02 fix C — presence probe. When ANY app window is focused the
+   *  operator is IN the app (toast + bell + tone already carry the event), so
+   *  the OS banner is suppressed — ALL severities; presence ≠ DND. Defaults
+   *  to `BrowserWindow.getFocusedWindow() !== null`. */
+  isAppFocused?: () => boolean;
 }
 
 export class OsNotifier {
@@ -103,6 +111,7 @@ export class OsNotifier {
   private readonly notificationFactory: NonNullable<OsNotifierDeps['notificationFactory']>;
   private readonly focusWindow: () => void;
   private readonly resolveIconPath: () => string | undefined;
+  private readonly isAppFocused: () => boolean;
   /** `dedup_key → last fire ts`. Pruned lazily on lookup so a long-lived
    *  app doesn't accumulate unbounded throttle entries. */
   private readonly lastFireByKey = new Map<string, number>();
@@ -116,10 +125,12 @@ export class OsNotifier {
           title: input.title,
           body: input.body,
           icon: input.icon,
-          silent: false,
+          silent: input.silent,
         });
         return n;
       });
+    this.isAppFocused =
+      deps.isAppFocused ?? (() => BrowserWindow.getFocusedWindow() !== null);
     this.focusWindow =
       deps.focusWindow ??
       (() => {
@@ -147,6 +158,15 @@ export class OsNotifier {
   notify(notification: AppNotification): boolean {
     if (!Notification.isSupported()) return false;
     if (!isEnabled()) return false;
+    // 2026-07-02 fix C — presence gate: no OS banner while the operator is IN
+    // the app (all severities — the in-app toast/bell/tone carry it; presence
+    // is not DND, so no critical bypass). Fail OPEN: a broken probe must not
+    // silence away-notifications.
+    try {
+      if (this.isAppFocused()) return false;
+    } catch {
+      /* fail open */
+    }
     const allowed = readAllowedSeverities();
     if (!allowed.has(notification.severity)) return false;
     // P3 (NTF-1) — DND / quiet-hours / per-source mute gate. Read prefs from
@@ -181,6 +201,7 @@ export class OsNotifier {
       title: notification.title,
       body: notification.body ?? '',
       icon: this.resolveIconPath(),
+      silent: true, // fix C — the app soundscape owns audio
     });
     native.on('click', () => {
       try {

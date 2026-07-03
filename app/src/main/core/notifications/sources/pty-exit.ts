@@ -56,9 +56,22 @@ export function pushPtyExitNotification(
   manager: NotificationsManager,
   event: PtyExitEvent,
   resolveMeta: (sessionId: string) => SessionCloseMeta = resolveSessionMeta,
+  isShuttingDown: () => boolean = () => false,
 ): void {
   // Skip non-exit events; the bell would otherwise drown in PTY chatter.
   if (event.kind !== 'exited' && event.kind !== 'error') return;
+
+  // 2026-07-02 fix B — quit-time killAll() SIGTERMs every live pane while the
+  // before-quit hold keeps the event loop (and DB) alive, so those exits used
+  // to persist one "Pane exited (code 143)" WARN per pane (closed_at is NULL —
+  // a quit is not a close) and greet the next boot as phantom crashes for
+  // panes the resume-launcher restores alive. A shutdown is deliberate:
+  // suppress. Fail OPEN — a broken gate must not silence real exits.
+  try {
+    if (isShuttingDown()) return;
+  } catch {
+    /* fail open */
+  }
 
   const meta = resolveMeta(event.sessionId);
   // Bug 1 — a deliberate close (closed_at set) is NOT an unexpected exit.

@@ -72,6 +72,12 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       const p = raw as { sessionId?: unknown; ts?: unknown };
       if (typeof p.sessionId !== 'string') return;
       const ts = typeof p.ts === 'number' ? p.ts : Date.now();
+      // 2026-07-02 fix D — the operator is LOOKING at this pane: window
+      // focused AND the event's session IS the active session. Glow + ding
+      // are pure noise there (a >4s typing pause re-arms the idle timer via
+      // the keystroke echo). Unfocused window or a different active pane
+      // still alerts.
+      if (document.hasFocus() && stateRef.current.activeSessionId === p.sessionId) return;
       dispatch({ type: 'SET_ATTENTION', sessionId: p.sessionId, ts });
       if (ts - lastAttentionSoundAt > ATTENTION_SOUND_THROTTLE_MS) {
         lastAttentionSoundAt = ts;
@@ -508,6 +514,7 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       const p = raw as {
         added?: unknown;
         removed?: unknown;
+        updated?: unknown;
         unreadCount?: unknown;
       };
       const added = Array.isArray(p.added)
@@ -516,12 +523,18 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       const removed = Array.isArray(p.removed)
         ? (p.removed.filter((id) => typeof id === 'string') as string[])
         : [];
+      // 2026-07-02 fix A — read-state reconcile rows (mark-read/-all/-unread).
+      // They reconcile the store below but MUST NOT feed the tone/toast
+      // handoff — only `added` alerts.
+      const updated = Array.isArray(p.updated)
+        ? (p.updated.filter((n) => n && typeof n === 'object') as Notification[])
+        : [];
       const unreadCount = typeof p.unreadCount === 'number' ? p.unreadCount : 0;
 
       // Reducer upsert is the load-bearing path — do it SYNCHRONOUSLY, exactly
       // as before, so the bell badge / dropdown reconcile immediately and never
       // wait on the (async) sound + toast handoff below.
-      dispatch({ type: 'NOTIFICATIONS_DELTA', added, removed, unreadCount });
+      dispatch({ type: 'NOTIFICATIONS_DELTA', added, removed, updated, unreadCount });
 
       // P3 (NTF-2 / SND-1) — toast↔bell handoff. The new unread rows are
       // surfaced as a distinct per-severity tone + a themed sonner toast, BOTH

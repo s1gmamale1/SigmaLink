@@ -262,7 +262,8 @@ export type Action =
   | { type: 'MINIMISE_PANE'; paneId: string; minimised: boolean }
   // v1.4.9 #07 — Notifications reducer actions.
   // SET_NOTIFICATIONS: full replace (initial mount; paginated list response).
-  // NOTIFICATIONS_DELTA: merge `added` + remove `removed` + set unreadCount.
+  // NOTIFICATIONS_DELTA: merge `added` + `updated` + remove `removed` + set
+  // unreadCount (`updated` = read-state reconcile rows — upsert, never alert).
   // MARK_NOTIFICATION_READ / DISMISS_NOTIFICATION: optimistic local edits;
   // the main process echoes back via NOTIFICATIONS_DELTA which reconciles.
   | { type: 'SET_NOTIFICATIONS'; notifications: Notification[]; unreadCount: number }
@@ -270,6 +271,7 @@ export type Action =
       type: 'NOTIFICATIONS_DELTA';
       added: Notification[];
       removed: string[];
+      updated?: Notification[];
       unreadCount: number;
     }
   | { type: 'MARK_NOTIFICATION_READ'; id: string; readAt: number }

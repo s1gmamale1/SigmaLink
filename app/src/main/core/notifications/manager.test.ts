@@ -138,6 +138,12 @@ class NotificationsTestDb {
         get: (id: string): Row | undefined => this.rows.find((r) => r.id === id),
       };
     }
+    // ── SELECT * unread (markAllRead read-state snapshot) ─────────────
+    if (/^SELECT \* FROM notifications WHERE read_at IS NULL$/.test(s)) {
+      return {
+        all: (): Row[] => this.rows.filter((r) => r.read_at === null),
+      };
+    }
     // ── COUNT unread ──────────────────────────────────────────────────
     if (s.includes('COUNT(*) as n FROM notifications WHERE read_at IS NULL')) {
       return {
@@ -634,6 +640,44 @@ describe('NotificationsManager.markRead / markAllRead / markUnread', () => {
     mgr.markUnread(a.id);
     expect(fakeDb.rows[0].read_at).toBeNull();
     expect(emitted[0].unreadCount).toBe(1);
+  });
+
+  // 2026-07-02 review fix A — read-state mutations must carry the mutated
+  // row(s) so every window reconciles row STYLING, not just the badge. They
+  // ride the delta's `updated` lane: reconcile-only, never alert (`added`
+  // drives toast/tone/OS-banner and must stay empty here).
+  it('markRead emits the mutated row in updated with readAt set', () => {
+    const mgr = makeManager();
+    const a = mgr.add({ workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'k1' });
+    emitted.length = 0;
+    mgr.markRead(a.id);
+    expect(emitted[0].updated).toHaveLength(1);
+    expect(emitted[0].updated![0]!.id).toBe(a.id);
+    expect(emitted[0].updated![0]!.readAt).toBe(now);
+    expect(emitted[0].added).toHaveLength(0);
+  });
+
+  it('markAllRead emits every previously-unread row in updated (already-read rows excluded)', () => {
+    const mgr = makeManager();
+    const a = mgr.add({ workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'k1' });
+    const b = mgr.add({ workspaceId: 'ws-1', kind: 'b', severity: 'warn', title: 't', dedupKey: 'k2' });
+    mgr.markRead(a.id); // pre-read — must NOT re-surface in the delta
+    emitted.length = 0;
+    mgr.markAllRead();
+    expect(emitted[0].updated?.map((n) => n.id)).toEqual([b.id]);
+    expect(emitted[0].updated![0]!.readAt).toBe(now);
+    expect(emitted[0].added).toHaveLength(0);
+  });
+
+  it('markUnread emits the row in updated with readAt null (no re-alert via added)', () => {
+    const mgr = makeManager();
+    const a = mgr.add({ workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'k1' });
+    mgr.markRead(a.id);
+    emitted.length = 0;
+    mgr.markUnread(a.id);
+    expect(emitted[0].updated).toHaveLength(1);
+    expect(emitted[0].updated![0]!.readAt).toBeNull();
+    expect(emitted[0].added).toHaveLength(0);
   });
 
   it('markRead is a no-op on already-read rows (no event)', () => {

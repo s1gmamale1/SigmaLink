@@ -280,6 +280,38 @@ describe('AddPaneButton — disabled reason pill', () => {
     expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
   });
 
+  // Ghost-agents fix — the cap counts LIVE panes only. A swarm_agents row
+  // whose pane was deliberately closed (agent_sessions.closed_at set, threaded
+  // through SwarmAgent.closedAt) must not consume cap budget: pane close never
+  // deletes the row, so a long-lived default swarm accumulates 20 dead rows
+  // and would otherwise grey out every provider forever.
+  it('1e: 20 CLOSED real agents → providers stay enabled, no cap pill', async () => {
+    const swarm = makeSwarm({}, 20);
+    swarm.agents = swarm.agents.map((a) => ({ ...a, closedAt: 1_700_000_000_000 }));
+    await renderAddPaneButton({ activeSwarm: swarm });
+    expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Pane/i }));
+    const claudeItem = screen.getByRole('menuitem', { name: 'Claude' });
+    expect(claudeItem.getAttribute('aria-disabled')).toBe('false');
+  });
+
+  it('1f: mixed live/closed — only live panes count toward the cap', async () => {
+    // 20 rows, 19 closed + 1 live → 1 live < 20 → enabled, no pill.
+    const swarm = makeSwarm({}, 20);
+    swarm.agents = swarm.agents.map((a, i) => (i === 0 ? a : { ...a, closedAt: 99 }));
+    await renderAddPaneButton({ activeSwarm: swarm });
+    expect(screen.queryByTestId('add-pane-disabled-reason')).toBeNull();
+  });
+
+  it('1g: at the cap the dropdown itself explains why providers are disabled', async () => {
+    // The 10px pill next to the toolbar button is easy to miss — the reason
+    // must also appear INSIDE the open dropdown when the cap disables items.
+    await renderAddPaneButton({ activeSwarm: makeSwarm({}, 20) });
+    fireEvent.click(screen.getByRole('button', { name: /Pane/i }));
+    const note = screen.getByTestId('add-pane-cap-note');
+    expect(note.textContent).toContain('Maximum 20 agents per swarm');
+  });
+
   // v1.13.1 new cases
   it('12: shows "Loading workspace…" while swarmsLoading is true (workspace set, swarm null)', async () => {
     await renderAddPaneButton({ activeWorkspace: makeWorkspace(), activeSwarm: null, swarmsLoading: true });

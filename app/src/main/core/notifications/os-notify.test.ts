@@ -101,6 +101,55 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// 2026-07-02 review fix C — no banner while the operator is IN the app (the
+// in-app toast + bell + tone already carry it), and the native notification
+// is silent (the app soundscape owns audio; the OS ding bypassed every pref).
+describe('OsNotifier — focus gate + silent banner', () => {
+  function makeFocusNotifier(focused: () => boolean) {
+    const show = vi.fn();
+    const factory = vi.fn(() => ({ show, on: vi.fn() }));
+    const notifier = new OsNotifier({
+      now: () => 0,
+      resolveIconPath: () => undefined,
+      notificationFactory: factory,
+      isAppFocused: focused,
+    });
+    return { notifier, show, factory };
+  }
+
+  it('suppresses the OS banner while an app window is focused', () => {
+    const { notifier, show } = makeFocusNotifier(() => true);
+    expect(notifier.notify(makeNotification({ severity: 'warn' }))).toBe(false);
+    expect(show).not.toHaveBeenCalled();
+  });
+
+  it('fires when no window is focused', () => {
+    const { notifier, show } = makeFocusNotifier(() => false);
+    expect(notifier.notify(makeNotification({ severity: 'warn' }))).toBe(true);
+    expect(show).toHaveBeenCalledTimes(1);
+  });
+
+  it('suppresses critical too while focused (presence ≠ DND; in-app surfaces carry it)', () => {
+    const { notifier, show } = makeFocusNotifier(() => true);
+    expect(notifier.notify(makeNotification({ severity: 'critical' }))).toBe(false);
+    expect(show).not.toHaveBeenCalled();
+  });
+
+  it('a throwing focus probe fails OPEN — the banner still fires', () => {
+    const { notifier, show } = makeFocusNotifier(() => {
+      throw new Error('probe exploded');
+    });
+    expect(notifier.notify(makeNotification({ severity: 'warn' }))).toBe(true);
+    expect(show).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds the native notification silent — the app soundscape owns audio', () => {
+    const { notifier, factory } = makeFocusNotifier(() => false);
+    notifier.notify(makeNotification({ severity: 'warn' }));
+    expect(factory).toHaveBeenCalledWith(expect.objectContaining({ silent: true }));
+  });
+});
+
 describe('OsNotifier — NTF-1 prefs gating', () => {
   it('default prefs (no DND/quiet/mute) fire for warn and error', () => {
     const { notifier, show } = makeNotifier(0);

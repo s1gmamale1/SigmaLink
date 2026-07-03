@@ -35,7 +35,7 @@ import {
 import { rpc } from '@/renderer/lib/rpc';
 import { useAppDispatch } from '@/renderer/app/state';
 import type { Swarm, Workspace } from '@/shared/types';
-import { countsTowardAgentCap, MAX_SWARM_AGENTS } from '@/shared/providers';
+import { countLiveAgentPanes, MAX_SWARM_AGENTS } from '@/shared/providers';
 import { worktreeModeKey } from '@/shared/worktree-mode';
 import type { AgentRuntimeProfileId } from '@/shared/runtime-profiles';
 import {
@@ -210,9 +210,11 @@ export function AddPaneButton({
   // disables only the real-agent provider items and surfaces a pill. Plain
   // terminals (providerId 'shell') are not real agents and do not count toward
   // the cap — only real-agent panes consume the budget.
-  const agentPaneCount = activeSwarm
-    ? activeSwarm.agents.filter((a) => countsTowardAgentCap(a.providerId)).length
-    : 0;
+  //
+  // Ghost-agents fix — count LIVE panes, not lifetime swarm_agents rows:
+  // closed panes keep their row forever (Phase 13A soft-delete), so a raw row
+  // count filled the cap with dead panes and greyed out every provider.
+  const agentPaneCount = activeSwarm ? countLiveAgentPanes(activeSwarm.agents) : 0;
   const agentCapReached =
     !adding && !!activeSwarm && activeSwarm.status !== 'completed' && agentPaneCount >= MAX_SWARM_AGENTS;
   const capPill = agentCapReached
@@ -372,6 +374,18 @@ export function AddPaneButton({
           </DropdownMenuTrigger>
         )}
         <DropdownMenuContent align="start">
+          {/* Ghost-agents fix (UX) — the toolbar cap pill is 10px and easy to
+              miss; when the cap greys out the provider items, say why INSIDE
+              the open menu so "all providers disabled" is self-explanatory. */}
+          {capPill ? (
+            <div
+              data-testid="add-pane-cap-note"
+              className="max-w-[240px] px-2 py-1.5 text-[11px] text-muted-foreground"
+            >
+              {capPill} — close an agent pane to free a slot. Plain terminals
+              stay available.
+            </div>
+          ) : null}
           {providers.map((provider) => (
             <DropdownMenuItem
               key={provider.id}

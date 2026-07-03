@@ -311,7 +311,9 @@ export class NotificationsManager {
     return row.n;
   }
 
-  /** D4 — mark a single row read (no-op if already read). */
+  /** D4 — mark a single row read (no-op if already read).
+   *  2026-07-02 fix A — carry the mutated row in the delta's `updated` lane
+   *  so every window reconciles the row's styling, not just the badge. */
   markRead(id: string): void {
     const now = this.now();
     const res = getRawDb()
@@ -319,26 +321,45 @@ export class NotificationsManager {
         `UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL`,
       )
       .run(now, id);
-    if (res.changes > 0) this.broadcast({});
+    if (res.changes > 0) this.broadcast({ updated: this.rowById(id) });
   }
 
-  /** D4 — mark every unread row read. */
+  /** D4 — mark every unread row read. Snapshot the unread rows FIRST so the
+   *  emitted `updated` lane carries exactly the rows this call flipped. */
   markAllRead(): void {
     const now = this.now();
-    const res = getRawDb()
+    const db = getRawDb();
+    const unread = db
+      .prepare(`SELECT * FROM notifications WHERE read_at IS NULL`)
+      .all() as NotificationRowSql[];
+    const res = db
       .prepare(`UPDATE notifications SET read_at = ? WHERE read_at IS NULL`)
       .run(now);
-    if (res.changes > 0) this.broadcast({});
+    if (res.changes > 0) {
+      this.broadcast({
+        updated: unread.map((r) => rowToNotification({ ...r, read_at: now })),
+      });
+    }
   }
 
-  /** D5 — clear `read_at` on a single row (operator "Mark unread"). */
+  /** D5 — clear `read_at` on a single row (operator "Mark unread"). Rides the
+   *  `updated` lane — NOT `added` — so re-opening a row never re-alerts. */
   markUnread(id: string): void {
     const res = getRawDb()
       .prepare(
         `UPDATE notifications SET read_at = NULL WHERE id = ? AND read_at IS NOT NULL`,
       )
       .run(id);
-    if (res.changes > 0) this.broadcast({});
+    if (res.changes > 0) this.broadcast({ updated: this.rowById(id) });
+  }
+
+  /** Fetch one row as a single-element Notification array (empty if the row
+   *  vanished between the UPDATE and the read-back — never emit stale data). */
+  private rowById(id: string): Notification[] {
+    const row = getRawDb()
+      .prepare(`SELECT * FROM notifications WHERE id = ?`)
+      .get(id) as NotificationRowSql | undefined;
+    return row ? [rowToNotification(row)] : [];
   }
 
   /** D5 — DELETE the row outright. The dropdown removes it from view. */
@@ -544,13 +565,14 @@ export class NotificationsManager {
     return removed;
   }
 
-  /** Build + emit the delta envelope. `added`/`removed` default to []; the
-   *  unreadCount is always queried fresh so the renderer reducer can trust
-   *  it as the source of truth. */
+  /** Build + emit the delta envelope. `added`/`removed`/`updated` default to
+   *  []; the unreadCount is always queried fresh so the renderer reducer can
+   *  trust it as the source of truth. */
   private broadcast(partial: Partial<Omit<NotificationsDelta, 'unreadCount'>>): void {
     const delta: NotificationsDelta = {
       added: partial.added ?? [],
       removed: partial.removed ?? [],
+      updated: partial.updated ?? [],
       unreadCount: this.unreadCount(),
     };
     try {

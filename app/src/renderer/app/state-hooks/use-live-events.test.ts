@@ -458,6 +458,7 @@ async function flushAsync(): Promise<void> {
 interface DeltaInput {
   added?: Notification[];
   removed?: string[];
+  updated?: Notification[];
   unreadCount?: number;
 }
 
@@ -466,11 +467,50 @@ async function emitDelta(input: DeltaInput): Promise<void> {
     sigma.emit('notifications:changed', {
       added: input.added ?? [],
       removed: input.removed ?? [],
+      updated: input.updated ?? [],
       unreadCount: input.unreadCount ?? (input.added ?? []).length,
     });
     await flushAsync();
   });
 }
+
+// 2026-07-02 review fix A — read-state deltas ride the `updated` lane:
+// forwarded to the reducer (row styling reconciles in EVERY window) but
+// NEVER alerting (no tone, no toast — mark-unread must not re-alert).
+describe('useLiveEvents — `updated` read-state reconcile lane', () => {
+  it('forwards updated rows to the reducer dispatch', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const n = makeNotification({ readAt: 123 });
+    await emitDelta({ updated: [n], unreadCount: 0 });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'NOTIFICATIONS_DELTA',
+        updated: [n],
+        unreadCount: 0,
+      }),
+    );
+  });
+
+  it('never plays a tone or toast for updated rows (even unread ones)', async () => {
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await emitDelta({
+      updated: [makeNotification({ severity: 'warn', readAt: null })],
+      unreadCount: 1,
+    });
+
+    expect(playNotificationToneMock).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(toastMock.warning).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+});
 
 describe('useLiveEvents — v1.13.1 notification sound', () => {
   it('plays tone once per delta when added contains unread warn notification', async () => {
@@ -725,6 +765,68 @@ describe('useLiveEvents — agent:attention subscriber', () => {
 
     expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ATTENTION', sessionId: 's2', ts: baseTs + 500 });
     expect(playCueMock).not.toHaveBeenCalled();
+  });
+
+  // 2026-07-02 review fix D — the operator is LOOKING at this pane (focused
+  // window + the event's session IS the active session): glow + ding are pure
+  // noise (a typing pause echo re-arms the idle timer). Skip both.
+  it('suppresses SET_ATTENTION + cue when the window is focused and the session is active', async () => {
+    const baseTs = Date.now() + 20_000_000;
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    try {
+      await renderLiveEvents({ ...stateWith([session('s1')]), activeSessionId: 's1' });
+      await act(async () => { await Promise.resolve(); });
+
+      await act(async () => {
+        sigma.emit('agent:attention', { sessionId: 's1', reason: 'idle', ts: baseTs });
+        await Promise.resolve();
+      });
+
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'SET_ATTENTION' }),
+      );
+      expect(playCueMock).not.toHaveBeenCalled();
+    } finally {
+      hasFocus.mockRestore();
+    }
+  });
+
+  it('still fires for the active session when the window is NOT focused', async () => {
+    const baseTs = Date.now() + 30_000_000;
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    try {
+      await renderLiveEvents({ ...stateWith([session('s1')]), activeSessionId: 's1' });
+      await act(async () => { await Promise.resolve(); });
+
+      await act(async () => {
+        sigma.emit('agent:attention', { sessionId: 's1', reason: 'idle', ts: baseTs });
+        await Promise.resolve();
+      });
+
+      expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ATTENTION', sessionId: 's1', ts: baseTs });
+      expect(playCueMock).toHaveBeenCalledWith('agent-attention');
+    } finally {
+      hasFocus.mockRestore();
+    }
+  });
+
+  it('still fires when the window is focused but a DIFFERENT session is active', async () => {
+    const baseTs = Date.now() + 40_000_000;
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    try {
+      await renderLiveEvents({ ...stateWith([session('s1'), session('s2')]), activeSessionId: 's2' });
+      await act(async () => { await Promise.resolve(); });
+
+      await act(async () => {
+        sigma.emit('agent:attention', { sessionId: 's1', reason: 'bell', ts: baseTs });
+        await Promise.resolve();
+      });
+
+      expect(dispatch).toHaveBeenCalledWith({ type: 'SET_ATTENTION', sessionId: 's1', ts: baseTs });
+      expect(playCueMock).toHaveBeenCalledWith('agent-attention');
+    } finally {
+      hasFocus.mockRestore();
+    }
   });
 });
 

@@ -250,6 +250,13 @@ export interface SwarmAgent {
   agentKey: string; // e.g. "coordinator-1"
   /** V3-W12-018: per-agent auto-approve toggle, persisted on swarm_agents. */
   autoApprove?: boolean;
+  /**
+   * Ghost-agents fix — the pane's deliberate-close marker (epoch ms), resolved
+   * from agent_sessions.closed_at by `loadSwarm` via `resolvePaneClosedAt`.
+   * Null = the pane is live and consumes swarm-cap budget; a non-null value
+   * (or 0 when the session row was hard-deleted) means the row is history.
+   */
+  closedAt?: number | null;
 }
 
 export interface Swarm {
@@ -697,8 +704,14 @@ export interface Notification {
  *  full list (the original v1.4.7 brief's full-list approach saturates IPC
  *  under broadcast flood). Renderer reconciles via reducer. */
 export interface NotificationsDelta {
+  /** Newly-surfaced rows — drive alerts (toast / tone / OS banner) AND the
+   *  store upsert. Dedup-absorbing re-emits ride here by design (re-alert). */
   added: Notification[];
   removed: string[];
+  /** Read-state reconcile rows (markRead / markAllRead / markUnread) — upsert
+   *  into every window's store but NEVER alert. Optional for wire
+   *  back-compat with older senders. */
+  updated?: Notification[];
   unreadCount: number;
 }
 

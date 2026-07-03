@@ -314,6 +314,49 @@ export function countsTowardAgentCap(providerId: string): boolean {
   return providerId !== SHELL_PROVIDER_ID;
 }
 
+/** Minimal agent shape the cap counter needs — see `countLiveAgentPanes`. */
+export interface CapCountedAgent {
+  providerId: string;
+  /**
+   * The pane's deliberate-close marker (agent_sessions.closed_at, epoch ms)
+   * threaded onto the agent. Null/undefined = the pane is live.
+   */
+  closedAt?: number | null;
+}
+
+/**
+ * Ghost-agents fix — the cap bounds CONCURRENT panes, not lifetime adds.
+ * Pane close (Phase 13A) only stamps agent_sessions.closed_at and never
+ * deletes the swarm_agents row, so counting raw rows let a long-lived default
+ * swarm fill its 20 slots with dead panes and grey out every provider in the
+ * +Pane dropdown. A row consumes cap budget only while it is a real agent
+ * (`countsTowardAgentCap`) AND its pane has not been closed.
+ */
+export function countLiveAgentPanes(agents: readonly CapCountedAgent[]): number {
+  return agents.filter((a) => countsTowardAgentCap(a.providerId) && a.closedAt == null).length;
+}
+
+/**
+ * Derive a `CapCountedAgent.closedAt` from a swarm_agents row's sessionId and
+ * its (possibly missing) agent_sessions row. The liveness rule, in one place:
+ *
+ *   - no sessionId yet          → live (mid-spawn rows keep consuming budget,
+ *                                  so concurrent adds cannot overshoot the cap)
+ *   - session row hard-deleted  → closed (workspace cleanup deletes sessions
+ *                                  but leaves swarm_agents rows behind; an
+ *                                  orphan cannot be an open pane — returns 0
+ *                                  as a synthetic close marker)
+ *   - session row present       → its closed_at verbatim
+ */
+export function resolvePaneClosedAt(
+  sessionId: string | null,
+  session: { closedAt: number | null } | undefined,
+): number | null {
+  if (!sessionId) return null;
+  if (!session) return 0;
+  return session.closedAt ?? null;
+}
+
 /**
  * Spec 2026-06-10 (B) — providers whose CLIs ingest an image FILE PATH from
  * the prompt (Claude Code detects image paths; Codex accepts paths / -i).

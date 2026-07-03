@@ -130,3 +130,43 @@ describe('pushPtyExitNotification — deliberate-close suppression', () => {
     expect((mgr as unknown as { add: ReturnType<typeof vi.fn> }).add).toHaveBeenCalledTimes(1);
   });
 });
+
+// 2026-07-02 review fix B — quit-time killAll SIGTERMs every pane; those exits
+// (code 143, closed_at NULL) must not seed phantom "Pane exited" warns that
+// greet the next boot for panes the resume-launcher restores alive.
+describe('pushPtyExitNotification — app-shutdown suppression', () => {
+  it('does NOT add a notification while the app is shutting down', () => {
+    const mgr = fakeManager();
+    pushPtyExitNotification(
+      mgr,
+      { sessionId: 's1', kind: 'error', exitCode: 143 },
+      () => ({ workspaceId: 'w1', closedAt: null }),
+      () => true,
+    );
+    expect((mgr as unknown as { add: ReturnType<typeof vi.fn> }).add).not.toHaveBeenCalled();
+  });
+
+  it('DOES add a notification when the shutdown gate reports false', () => {
+    const mgr = fakeManager();
+    pushPtyExitNotification(
+      mgr,
+      { sessionId: 's1', kind: 'error', exitCode: 143 },
+      () => ({ workspaceId: 'w1', closedAt: null }),
+      () => false,
+    );
+    expect((mgr as unknown as { add: ReturnType<typeof vi.fn> }).add).toHaveBeenCalledTimes(1);
+  });
+
+  it('a throwing shutdown gate fails OPEN (notification still recorded)', () => {
+    const mgr = fakeManager();
+    pushPtyExitNotification(
+      mgr,
+      { sessionId: 's1', kind: 'error', exitCode: 1 },
+      () => ({ workspaceId: 'w1', closedAt: null }),
+      () => {
+        throw new Error('gate exploded');
+      },
+    );
+    expect((mgr as unknown as { add: ReturnType<typeof vi.fn> }).add).toHaveBeenCalledTimes(1);
+  });
+});
