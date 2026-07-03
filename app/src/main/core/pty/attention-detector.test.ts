@@ -112,3 +112,73 @@ describe('AttentionDetector query map', () => {
     expect(emitted).toEqual([{ id: 's1', reason: 'bell' }]);
   });
 });
+
+// ── eligibility gate (2026-07-02 review fix D) ─────────────────────────────
+// Plain shell / scratch / Dev-workspace panes must not produce "agent needs
+// you" — previously `ls` in a shell pane chimed 4s after its output settled.
+
+describe('AttentionDetector — per-session eligibility gate', () => {
+  function gated(isEligible: (id: string) => boolean, idleMs = 4000) {
+    let nowVal = 0;
+    let pending: { fn: () => void; id: number } | null = null;
+    let nextId = 1;
+    const emit = vi.fn<(id: string, reason: 'bell' | 'idle') => void>();
+    const det = new AttentionDetector({
+      idleMs: () => idleMs,
+      dedupeMs: 6000,
+      emit,
+      now: () => nowVal,
+      isEligible,
+      setTimer: (fn) => {
+        const id = nextId++;
+        pending = { fn, id };
+        return id;
+      },
+      clearTimer: (h) => {
+        if (pending?.id === h) pending = null;
+      },
+    });
+    return {
+      det,
+      emit,
+      advance: (ms: number) => {
+        nowVal += ms;
+      },
+      fire: () => {
+        const p = pending;
+        pending = null;
+        p?.fn();
+      },
+    };
+  }
+
+  it('rejected sessions emit neither bell nor idle', () => {
+    const h = gated((id) => id !== 'shell-1');
+    h.det.feed('shell-1', 'ls output\x07');
+    h.advance(4000);
+    h.fire(); // no idle timer should even be armed
+    expect(h.emit).not.toHaveBeenCalled();
+  });
+
+  it('eligible sessions detect exactly as before', () => {
+    const h = gated((id) => id !== 'shell-1');
+    h.det.feed('agent-1', 'output\x07');
+    expect(h.emit).toHaveBeenCalledWith('agent-1', 'bell');
+  });
+
+  it('a throwing gate fails CLOSED — no phantom attention from a broken lookup', () => {
+    const h = gated(() => {
+      throw new Error('gate exploded');
+    });
+    h.det.feed('s1', 'output\x07');
+    h.advance(4000);
+    h.fire();
+    expect(h.emit).not.toHaveBeenCalled();
+  });
+
+  it('omitting the gate keeps every session eligible (back-compat)', () => {
+    const h = harness();
+    h.det.feed('any', 'output\x07');
+    expect(h.emit).toHaveBeenCalledWith('any', 'bell');
+  });
+});

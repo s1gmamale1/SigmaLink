@@ -704,8 +704,14 @@ export interface Notification {
  *  full list (the original v1.4.7 brief's full-list approach saturates IPC
  *  under broadcast flood). Renderer reconciles via reducer. */
 export interface NotificationsDelta {
+  /** Newly-surfaced rows — drive alerts (toast / tone / OS banner) AND the
+   *  store upsert. Dedup-absorbing re-emits ride here by design (re-alert). */
   added: Notification[];
   removed: string[];
+  /** Read-state reconcile rows (markRead / markAllRead / markUnread) — upsert
+   *  into every window's store but NEVER alert. Optional for wire
+   *  back-compat with older senders. */
+  updated?: Notification[];
   unreadCount: number;
 }
 
