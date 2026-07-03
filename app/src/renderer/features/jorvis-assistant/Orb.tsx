@@ -1,6 +1,6 @@
 // V3-W13-012 — Sigma Assistant orb. Four states drive CSS keyframes:
 //   STANDBY    — gentle radial pulse.
-//   LISTENING  — breathing scale + cyan tint (mic input expected).
+//   LISTENING  — breathing scale + accent tint (mic input expected).
 //   RECEIVING  — scrolling stripe overlay (assistant streaming text).
 //   THINKING   — slow rotating conic gradient (model reasoning).
 // Click handler from STANDBY transitions into LISTENING via the parent.
@@ -50,9 +50,15 @@ export function Orb({ state, onClick, size = 56, className }: Props) {
 
 const ORB_KEYFRAMES = `
 .sl-orb {
-  --orb-base: oklch(0.68 0.16 285);
-  --orb-accent: oklch(0.78 0.14 220);
-  background: radial-gradient(circle at 30% 30%, var(--orb-accent), var(--orb-base));
+  /* Phase 17 — theme-adaptive: the sphere is built from the ACTIVE theme's
+     tokens instead of hardcoded hues. Base = --primary; the top-left
+     highlight is the same hue lightened (correct sphere shading even when a
+     theme's primary === accent); the outer glow carries --accent so
+     two-hue themes (glass, aurora) read as two lights. */
+  --orb-base: hsl(var(--primary));
+  --orb-hi: color-mix(in oklab, hsl(var(--primary)) 45%, white);
+  --orb-accent: hsl(var(--accent));
+  background: radial-gradient(circle at 30% 30%, var(--orb-hi), var(--orb-base));
   box-shadow: 0 0 24px -8px var(--orb-accent), inset 0 0 8px -2px rgba(255,255,255,0.5);
   cursor: pointer;
 }
@@ -72,7 +78,9 @@ const ORB_KEYFRAMES = `
 }
 
 .sl-orb[data-state='listening'] {
-  --orb-accent: oklch(0.85 0.18 200);
+  /* Listening = brighter, accent-tinted (theme-adaptive; was fixed cyan). */
+  --orb-base: color-mix(in oklab, hsl(var(--primary)) 55%, hsl(var(--accent)));
+  --orb-hi: color-mix(in oklab, hsl(var(--accent)) 40%, white);
   animation: sl-orb-breathe 1.6s ease-in-out infinite;
 }
 @keyframes sl-orb-breathe {
@@ -119,9 +127,9 @@ const ORB_KEYFRAMES = `
     transform: none !important;
   }
   /* Static, non-animated state indication. Each state still reads
-     differently at a glance (glow strength + listening cyan tint). */
+     differently at a glance (glow strength + listening accent tint). */
   .sl-orb[data-state='standby'] .sl-orb-glow { opacity: 0.40; }
-  .sl-orb[data-state='listening'] { --orb-accent: oklch(0.85 0.18 200); }
+  .sl-orb[data-state='listening'] { --orb-hi: color-mix(in oklab, hsl(var(--accent)) 40%, white); }
   .sl-orb[data-state='listening'] .sl-orb-glow { opacity: 0.60; }
   .sl-orb[data-state='receiving'] .sl-orb-glow {
     background: radial-gradient(circle, var(--orb-accent) 0%, transparent 65%);
