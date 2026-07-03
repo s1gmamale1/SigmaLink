@@ -46,6 +46,8 @@ _(Unscoped future enhancements, deferrals, and out-of-scope review findings — 
 
 ## Phase 17 — Theme families: Aurora + Cupertino (+ per-theme terminal palettes)
 
+> ✅ **SHIPPED in PR #214 `3440e47` (2026-07-03)** — sigma-check GREEN (score 95, CI 6/6, security clean), operator live-verified (families, live terminal recolor, luminous orb). Unreleased — rides the next tag. Review minors + deferred extensions parked in [WISHLIST.md](WISHLIST.md) under `[themes]`.
+
 **Goal.** Two new material theme families — not color swaps — and a theme that finally governs the WHOLE surface: chrome, panes, and terminal content recolor together.
 
 **Deliverables.**
