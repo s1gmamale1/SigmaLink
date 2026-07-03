@@ -46,6 +46,15 @@ _(real upgrades to build once the current system is production-grade)_
 
 _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
+### Minimal-chrome build — parked follow-ups (from per-task + final reviews, 2026-07-02)
+
+_All Minor; the `feat/minimal-chrome` branch shipped merge-ready without them (final review: Ready=Yes, 0 critical/important). Park for a later polish pass._
+- **[launcher/ux] wire real key bindings for the landing rows (⌘T/⌘S/⌘1/⌘2)** — the landing mode rows render `<Kbd>` hotkey chips with the SAME styling as the footer's ⌘K/⌘O chips (which ARE globally bound), so ⌘T etc. read as live but do nothing. Highest-value follow-up: either bind the 4 shortcuts (set mode + advance) or visually de-emphasize the row chips so they don't read as active. Spec deliberately parked the bindings. Effort: S. (`LauncherLanding.tsx` row chips.)
+- **[launcher/test] cover the SigmaCanvas alpha-hidden branch** — `LauncherLanding` tests only assert the ALPHA chip is SHOWN (default `gaSign` false); the `gaSign==='1'` → chip-hidden branch is untested. Trivial branch. Effort: XS.
+- **[launcher/docs] stale `Stepper.tsx` header comment** — the top-of-file comment still describes the pre-intent step order ("'space' shows Start → Layout…", "intent → launch" wording predates the real `'intent'` step). Assertions/code correct; comment misleads. Effort: XS. Also `modes.test.ts` two test TITLES are stale (assertions correct).
+- **[launcher/titlebar] version-click → "What's new"** — the brand-bar version (`v2.9.0`) is inert text; could open the What's-New/changelog surface on click. Effort: S.
+- **[sidebar] attention-count numeric badge on workspace rows** — rows already glow on agent-attention (`sl-attention`); a numeric count of waiting panes was scoped out. Effort: S.
+
 - **[external-control] External Control MCP — Phase 1+2 SHIPPED (#188), residual follow-ups** — the external-agent control plane (Unity/Blender-MCP pattern: external Hermes/OpenClaw/Claude Code drive SigmaLink via an MCP server under supervised autonomy; default-OFF, token handshake, `origin:'external'` forced) shipped in PR #188 (CI-green; standalone bridge repo [s1gmamale1/Sigma-Control](https://github.com/s1gmamale1/Sigma-Control), `npx -y github:s1gmamale1/Sigma-Control`). Live-smoke-driven (subagent-as-external-client + `get_app_state` oracle): 6 bugs found+fixed (dead-plane EVENTS-allowlist drop + a source-scan guard test; `send_message_to_agent` target validation; `split_pane` truthful error; `prompt_agent` now submits — Enter is CR not LF; the 4 swarm-op tools call the controller DIRECTLY in main and return REAL results, not a silent `ok:true`). Non-blocking residue from the merge-gate Opus review + boot:
   - **[security/nit] `control.rotateToken` doesn't drop already-authed live sockets** (`control-rpc.ts:59`) — rotates the bearer for NEW handshakes only; a pre-rotate client keeps its session. Stricter = force-disconnect live sockets on rotate. Effort: S.
   - **[nit] `stop_pane` is FREE for external** — an external agent can kill an agent's process mid-task without escalation. Recoverable (pane stays, relaunchable) + consistent with "irreversible escalates", but disruptive; note in operator docs or reconsider gating. Effort: S.
@@ -191,6 +200,13 @@ _All Minor; the branch shipped MERGE-READY without them. Park for a later harden
 - **[control/perception] redact / per-client scope `get_app_state`** — exposes local paths, browser URLs/titles, notification bodies, and all clients' pending-escalation summaries. Fine while `SIGMA_CONTROL_TOKEN` = full local operator; scope/redact if the audience ever broadens beyond a single trusted token. (Leo #7 / final #4.)
 - **[control/interstitials] structured interstitial detection in `get_app_state`** — surface `trust_prompt` / `update_prompt` / `auth_error` / `needs_login` as typed per-pane signals so a driver can react deterministically instead of scraping `read_pane` text. (Leo, future enhancement.)
 - **[control/codex] note: codex spawn serialization defers rapid GUI codex opens ~2.5s** — deliberate (settleMs auth window); revisit the settle value or add a ready-signal release if multi-codex GUI boot latency is felt. (final #5, operator heads-up.)
+
+## 🔬 Review findings (2026-07-03) — PR #213 swarm-cap ghost-agents fix
+
+_Both Minor, non-blocking; #213 merged GREEN (score 95). Both fail CONSERVATIVE (over-disable / over-count display), never under-gate._
+
+- 🐞 **[medium] renderer swarm state not refreshed on pane close — +Pane stays over-disabled at the cap until the next swarm refetch** — the `assistant:pane-closed` live-event handler (`app/src/renderer/app/state-hooks/use-live-events.ts:87`) dispatches `REMOVE_SESSION` only; `activeSwarm.agents[i].closedAt` stays null (live) until a `SET_SWARMS`/`UPSERT_SWARM` refetch (workspace switch, next add, boot). Closing a pane at 20/20 live doesn't re-enable providers immediately, contradicting the new in-dropdown crumb "close an agent pane to free a slot". Fix: stamp `closedAt` on the matching swarm agent in renderer state (or re-fetch/UPSERT the swarm) on pane close — cover BOTH the assistant close path and the manual pane-header ✕ path. Effort: S.
+- 🐞 **[low] SwarmRoom "N agents" label counts lifetime rows including closed ghosts** — `app/src/renderer/features/swarm-room/SwarmRoom.tsx:283` renders `activeSwarm.agents.length`, so 20 dead + 1 live shows "21 agents" while the cap correctly counts 1. Pre-existing display, now inconsistent with live-pane cap semantics. Fix: show `countLiveAgentPanes(activeSwarm.agents)` (optionally "+N closed"). Effort: S.
 
 ---
 

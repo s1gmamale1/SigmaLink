@@ -22,7 +22,7 @@ import {
   swarmAgents,
   workspaces as workspacesTable,
 } from '../db/schema';
-import { findProvider } from '../../../shared/providers';
+import { findProvider, resolvePaneClosedAt } from '../../../shared/providers';
 import { providerAcceptsModelFlag, listModelsFor } from '../../../shared/model-catalog';
 import type { AgentSession, Role, Swarm, SwarmAgent } from '../../../shared/types';
 import { agentKey as makeAgentKey } from './types';
@@ -785,16 +785,33 @@ export function loadSwarm(swarmId: string): Swarm | null {
     status: row.status as Swarm['status'],
     createdAt: row.createdAt,
     endedAt: row.endedAt ?? null,
-    agents: agentRows.map((r) => ({
-      id: r.id,
-      swarmId: r.swarmId,
-      role: r.role as Role,
-      roleIndex: r.roleIndex,
-      providerId: r.providerId,
-      sessionId: r.sessionId ?? null,
-      status: r.status as SwarmAgent['status'],
-      inboxPath: r.inboxPath,
-      agentKey: r.agentKey,
-    })),
+    agents: agentRows.map((r) => {
+      // Ghost-agents fix — thread the pane's close marker onto the agent so
+      // the renderer cap gates (+Pane / +Agent) can count LIVE panes instead
+      // of lifetime rows. Per-row PK lookup: swarms are bounded (dozens of
+      // lifetime rows) and the fake-db drizzle shim has no join support.
+      const sess = r.sessionId
+        ? db
+            .select()
+            .from(agentSessions)
+            .where(eq(agentSessions.id, r.sessionId))
+            .get()
+        : undefined;
+      return {
+        id: r.id,
+        swarmId: r.swarmId,
+        role: r.role as Role,
+        roleIndex: r.roleIndex,
+        providerId: r.providerId,
+        sessionId: r.sessionId ?? null,
+        status: r.status as SwarmAgent['status'],
+        inboxPath: r.inboxPath,
+        agentKey: r.agentKey,
+        closedAt: resolvePaneClosedAt(
+          r.sessionId ?? null,
+          sess ? { closedAt: sess.closedAt ?? null } : undefined,
+        ),
+      };
+    }),
   };
 }

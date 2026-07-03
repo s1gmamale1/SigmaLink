@@ -2,9 +2,10 @@
 // The rail is now a pure workspaces panel. The 12-item room nav moved to a
 // top-bar dropdown (Step 2). The Cmd+K command-palette card was dropped
 // from the rail too — the keyboard shortcut still works app-wide. Header
-// keeps the Σ monogram + wordmark + collapse chevron; the footer still
-// shows the active-workspace summary so users can see at a glance which
-// repo they're operating on.
+// keeps the Σ monogram (click to collapse/expand) + collapse chevron — the
+// wordmark moved to the titlebar so the brand isn't doubled. The footer
+// still shows the active-workspace summary so users can see at a glance
+// which repo they're operating on.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, GitBranch } from 'lucide-react';
@@ -323,11 +324,7 @@ export function Sidebar() {
         >
           <Monogram size={collapsed ? 22 : 24} />
         </button>
-        {collapsed ? null : (
-          <div className="flex-1 text-[13px] font-semibold uppercase tracking-[0.18em]">
-            SigmaLink
-          </div>
-        )}
+        {collapsed ? null : <div className="flex-1" />}
         {collapsed ? null : (
           <button
             type="button"

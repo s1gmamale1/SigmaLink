@@ -16,7 +16,7 @@
 
 import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { Workspace } from '@/shared/types';
 
 // ─── jsdom polyfills (mirrors SessionStep.test.tsx) ─────────────────────────
@@ -97,10 +97,12 @@ vi.mock('./StartStep', () => ({
   },
 }));
 
-vi.mock('./IntentCards', () => ({
-  IntentCards: ({ onChange }: { onChange: (m: string) => void }) => (
-    <div data-testid="intent-cards">
-      <button onClick={() => onChange('space')}>space</button>
+// minimal-chrome — the launcher now opens on the intent landing. Stub it to a
+// single mode row so the test can advance into the wizard (grid mode).
+vi.mock('./LauncherLanding', () => ({
+  LauncherLanding: ({ onPick }: { onPick: (m: string) => void }) => (
+    <div data-testid="launcher-landing">
+      <button data-testid="intent-card-space" onClick={() => onPick('space')}>space</button>
     </div>
   ),
 }));
@@ -181,6 +183,12 @@ describe('Launcher ↔ SessionStep integration (SMK-2)', () => {
 
     await act(async () => {
       await renderLauncherAtSessionsStep();
+      await Promise.resolve();
+    });
+    // minimal-chrome — leave the intent landing so the Start step (which fires
+    // onChooseRecent → chooseExisting → the sessions-step jump) actually mounts.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('intent-card-space'));
       // Pump enough microtask rounds for:
       // 1. StartStep → onChooseRecent → chooseExisting (opens workspace, fetches lastResumePlan)
       // 2. lastResumePlan resolves → setStep('sessions') → SessionStep mounts

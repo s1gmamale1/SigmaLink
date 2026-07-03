@@ -81,8 +81,8 @@ vi.mock('@/renderer/lib/rpc', () => ({
     design: { createCanvas: async () => ({}) },
     browser: { getState: async () => ({ tabs: [] }) },
   },
-  // N1 — IntentCards reads `rpcSilent.kv.get('canvas.gaSign')` on mount. Provide
-  // a silent stub so the real IntentCards (rendered in the Start step) is inert.
+  // minimal-chrome — LauncherLanding reads `rpcSilent.kv.get('canvas.gaSign')`
+  // on mount for the SigmaCanvas ALPHA gate. Provide a silent stub.
   rpcSilent: { kv: { get: async () => null } },
 }));
 
@@ -98,18 +98,9 @@ vi.mock('@/renderer/app/state', () => ({
 }));
 
 // Stub sub-step components to avoid full render complexity.
-// N1 — IntentCards replaces the old PickerCards row; the stub exposes one
-// button per mode so routing tests can switch modes.
-vi.mock('./IntentCards', () => ({
-  IntentCards: ({ onChange }: { onChange: (m: string) => void }) => (
-    <div data-testid="intent-cards">
-      <button data-testid="pick-space" onClick={() => onChange('space')}>space</button>
-      <button data-testid="pick-single" onClick={() => onChange('single')}>single</button>
-      <button data-testid="pick-swarm" onClick={() => onChange('swarm')}>swarm</button>
-      <button data-testid="pick-canvas" onClick={() => onChange('canvas')}>canvas</button>
-    </div>
-  ),
-}));
+// minimal-chrome — LauncherLanding (the intent landing) renders for REAL so the
+// mode rows carry their real `intent-card-<mode>` test-ids; routing tests click
+// those rows to leave the landing and enter the mode-aware wizard.
 vi.mock('./Stepper', () => ({
   // N1 — the mode-aware Stepper now receives a `steps` array; the stub renders
   // the visible step ids so routing tests can assert which steps show.
@@ -211,6 +202,27 @@ async function renderLauncher(activeWorkspace: Workspace | null = null) {
   return render(<WorkspaceLauncher />);
 }
 
+// minimal-chrome — render the launcher and leave the intent landing so the
+// mode-aware wizard (grid mode by default) is mounted. The launcher now opens
+// on the landing, so legacy tests that assert on wizard toggles/steps must
+// first click a mode row to enter the wizard.
+async function renderAndEnterWizard(activeWorkspace: Workspace | null = null) {
+  // Own the act() wrapping here (callers do NOT wrap this): render inside one
+  // act so its DOM commit flushes when the act completes, THEN click the
+  // landing's default mode row in a second act to enter the mode-aware wizard.
+  // (Querying the landing inside the render act observes an un-flushed DOM under
+  // React 19's reentrant-act deferral.)
+  let result: ReturnType<typeof render> | undefined;
+  await act(async () => {
+    result = await renderLauncher(activeWorkspace);
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('intent-card-space'));
+    await Promise.resolve();
+  });
+  return result!;
+}
+
 beforeEach(() => {
   kvGetMock.mockReset().mockResolvedValue(null);
   kvSetMock.mockReset().mockResolvedValue(undefined);
@@ -268,9 +280,7 @@ describe('WorkspaceLauncher — Phase 2 RAM Brake resume risk', () => {
       reasons: ['large-jsonl'],
     });
 
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     await act(async () => {
       fireEvent.click(screen.getByTestId('jump-agents'));
       await Promise.resolve();
@@ -318,9 +328,7 @@ afterEach(() => {
 
 describe('WorkspaceLauncher — Yolo/Bypass toggle (SF-8 B2)', () => {
   it('B2-1: yolo-toggle renders with danger warning text', async () => {
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     const toggle = screen.getByTestId('yolo-toggle');
     expect(toggle).toBeTruthy();
     // The warning text should be present somewhere near the toggle.
@@ -334,9 +342,7 @@ describe('WorkspaceLauncher — Yolo/Bypass toggle (SF-8 B2)', () => {
       if (key === 'pane.autoApprove.default.ws-42') return '1';
       return null;
     });
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     // Wait for the async kv read to complete.
     await waitFor(() => {
       const toggle = screen.getByTestId('yolo-toggle');
@@ -348,9 +354,7 @@ describe('WorkspaceLauncher — Yolo/Bypass toggle (SF-8 B2)', () => {
 
   it('B2-3: yolo-toggle defaults OFF when kv returns null', async () => {
     kvGetMock.mockResolvedValue(null);
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     await waitFor(() => {
       const toggle = screen.getByTestId('yolo-toggle');
       const isOff =
@@ -368,9 +372,7 @@ describe('WorkspaceLauncher — Yolo/Bypass toggle (SF-8 B2)', () => {
       return null;
     });
 
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
 
     // Navigate to the agents step so AgentsStep mock fires onSkipChange(true),
     // which enables the launch button (skipAgents=true).
@@ -399,9 +401,7 @@ describe('WorkspaceLauncher — Yolo/Bypass toggle (SF-8 B2)', () => {
   it('B2-5: launch payload panes have autoApprove:false when toggle is OFF', async () => {
     kvGetMock.mockResolvedValue(null); // OFF
 
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
 
     // Navigate to agents step to enable launch.
     await act(async () => {
@@ -426,9 +426,7 @@ describe('WorkspaceLauncher — Yolo/Bypass toggle (SF-8 B2)', () => {
   it('B2-6: toggling ON persists kv.set with "1"', async () => {
     kvGetMock.mockResolvedValue(null); // starts OFF
 
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     await act(async () => { await Promise.resolve(); });
 
     const toggle = screen.getByTestId('yolo-toggle');
@@ -446,9 +444,7 @@ describe('WorkspaceLauncher — Yolo/Bypass toggle (SF-8 B2)', () => {
       return null;
     });
 
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
     const toggle = screen.getByTestId('yolo-toggle');
@@ -465,10 +461,56 @@ describe('WorkspaceLauncher — Yolo/Bypass toggle (SF-8 B2)', () => {
 // N1 — intent-first, mode-aware launcher flow
 // ---------------------------------------------------------------------------
 
+describe('WorkspaceLauncher — minimal-chrome landing', () => {
+  it('opens on the intent landing (minimal-chrome)', async () => {
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    expect(await screen.findByText('Command the fleet.')).toBeTruthy();
+    // The wizard card (mode-aware Stepper + Start step) is absent on the landing.
+    expect(screen.queryByTestId('stepper')).toBeNull();
+    expect(screen.queryByTestId('start-step')).toBeNull();
+  });
+
+  it('clicking a mode row advances to the folder step', async () => {
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    // Starts on the landing — the wizard's Start step is not shown yet.
+    expect(screen.queryByTestId('start-step')).toBeNull();
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('intent-card-space'));
+      await Promise.resolve();
+    });
+    // StartStep (stubbed) renders once we advance off the landing.
+    expect(screen.getByTestId('start-step')).toBeTruthy();
+    expect(screen.getByTestId('stepper')).toBeTruthy();
+  });
+
+  it('clicking the CURRENT mode row still advances (no changeMode early-return trap)', async () => {
+    await act(async () => {
+      await renderLauncher(makeWorkspace());
+    });
+    // 'space' is the default mode; re-picking it must STILL advance to Start
+    // (pickIntent always advances, unlike changeMode which early-returns).
+    expect(screen.queryByTestId('start-step')).toBeNull();
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('intent-card-space'));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('start-step')).toBeTruthy();
+  });
+});
+
 describe('WorkspaceLauncher — N1 mode-aware flow', () => {
   it('N1-1: defaults to the SigmaLink grid mode showing all four steps', async () => {
     await act(async () => {
       await renderLauncher(makeWorkspace());
+    });
+    // Enter the wizard from the landing (default mode = 'space').
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('intent-card-space'));
+      await Promise.resolve();
     });
     const stepper = screen.getByTestId('stepper');
     expect(stepper.getAttribute('data-steps')).toBe('start,layout,agents,sessions');
@@ -479,7 +521,7 @@ describe('WorkspaceLauncher — N1 mode-aware flow', () => {
       await renderLauncher(makeWorkspace());
     });
     await act(async () => {
-      fireEvent.click(screen.getByTestId('pick-single'));
+      fireEvent.click(await screen.findByTestId('intent-card-single'));
       await Promise.resolve();
     });
     expect(screen.getByTestId('stepper').getAttribute('data-steps')).toBe('start');
@@ -490,7 +532,7 @@ describe('WorkspaceLauncher — N1 mode-aware flow', () => {
       await renderLauncher(makeWorkspace());
     });
     await act(async () => {
-      fireEvent.click(screen.getByTestId('pick-swarm'));
+      fireEvent.click(await screen.findByTestId('intent-card-swarm'));
       await Promise.resolve();
     });
     expect(screen.getByTestId('stepper').getAttribute('data-steps')).toBe('start');
@@ -501,7 +543,7 @@ describe('WorkspaceLauncher — N1 mode-aware flow', () => {
       await renderLauncher(makeWorkspace());
     });
     await act(async () => {
-      fireEvent.click(screen.getByTestId('pick-single'));
+      fireEvent.click(await screen.findByTestId('intent-card-single'));
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -531,7 +573,7 @@ describe('WorkspaceLauncher — N1 mode-aware flow', () => {
       await renderLauncher(makeWorkspace());
     });
     await act(async () => {
-      fireEvent.click(screen.getByTestId('pick-swarm'));
+      fireEvent.click(await screen.findByTestId('intent-card-swarm'));
       await Promise.resolve();
     });
 
@@ -549,10 +591,19 @@ describe('WorkspaceLauncher — N1 mode-aware flow', () => {
     await act(async () => {
       await renderLauncher(makeWorkspace());
     });
-    // Grid (default) shows it.
-    expect(screen.queryByTestId('yolo-toggle')).toBeTruthy();
+    // Grid (default) mode shows the toggle once we enter the wizard.
     await act(async () => {
-      fireEvent.click(screen.getByTestId('pick-swarm'));
+      fireEvent.click(await screen.findByTestId('intent-card-space'));
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('yolo-toggle')).toBeTruthy();
+    // Back to the landing, then pick swarm — the toggle is gone.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^back$/i }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('intent-card-swarm'));
       await Promise.resolve();
     });
     expect(screen.queryByTestId('yolo-toggle')).toBeNull();
@@ -693,9 +744,7 @@ describe('inferResumeGridPreset — closed-pane gaps (Phase 13 regression guard)
 
 describe('WorkspaceLauncher — in-place worktree mode toggle (DEV-W3b)', () => {
   it('W3b-1: inplace-toggle renders with collision warning text', async () => {
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     const toggle = screen.getByTestId('inplace-toggle');
     expect(toggle).toBeTruthy();
     const inPlaceTexts = screen.getAllByText(/in-place/i);
@@ -709,9 +758,7 @@ describe('WorkspaceLauncher — in-place worktree mode toggle (DEV-W3b)', () => 
       if (key === 'workspace.worktreeMode.ws-42') return 'in-place';
       return null;
     });
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     await waitFor(() => {
       const toggle = screen.getByTestId('inplace-toggle');
       expect(
@@ -723,9 +770,7 @@ describe('WorkspaceLauncher — in-place worktree mode toggle (DEV-W3b)', () => 
 
   it('W3b-3: toggle defaults OFF when kv returns null', async () => {
     kvGetMock.mockResolvedValue(null);
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     await waitFor(() => {
       const toggle = screen.getByTestId('inplace-toggle');
       const isOff =
@@ -739,9 +784,7 @@ describe('WorkspaceLauncher — in-place worktree mode toggle (DEV-W3b)', () => 
 
   it('W3b-4: toggling ON persists kv.set with "in-place"', async () => {
     kvGetMock.mockResolvedValue(null);
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     // Toggle it on.
     await act(async () => {
       fireEvent.click(screen.getByTestId('inplace-toggle'));
@@ -754,9 +797,7 @@ describe('WorkspaceLauncher — in-place worktree mode toggle (DEV-W3b)', () => 
       if (key === 'workspace.worktreeMode.ws-42') return 'in-place';
       return null;
     });
-    await act(async () => {
-      await renderLauncher(makeWorkspace());
-    });
+    await renderAndEnterWizard(makeWorkspace());
     // Wait for the kv hydration to set toggle ON.
     await waitFor(() => {
       const toggle = screen.getByTestId('inplace-toggle');

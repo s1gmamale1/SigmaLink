@@ -25,6 +25,8 @@ vi.mock('@/renderer/lib/rpc', () => ({
     panes: {
       listForWorkspace: vi.fn().mockResolvedValue([]),
     },
+    // Breadcrumb now reads the app version once on mount (minimal brand bar).
+    app: { getVersion: vi.fn().mockResolvedValue('0.0.0') },
   },
 }));
 
@@ -169,7 +171,7 @@ describe('C1 glass chrome — Breadcrumb', () => {
   it('breadcrumb strip carries sl-glass-toolbar (no active workspace)', async () => {
     const { getByTestId } = render(<Breadcrumb />);
     await act(async () => {});
-    const strip = getByTestId('breadcrumb-empty');
+    const strip = getByTestId('breadcrumb');
     expect(strip.className).toContain('sl-glass-toolbar');
   });
 });
