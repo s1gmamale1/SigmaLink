@@ -9,7 +9,15 @@
 import { defineController } from '../../../shared/rpc';
 import { getRawDb } from './client';
 
-export function buildKvController() {
+export interface KvControllerDeps {
+  /** 2026-07-03 (notification review medium #3) — post-write tap, called with
+   *  the key AFTER a successful set. Lets the router react to settings writes
+   *  (e.g. re-arm the daily-summary scheduler) at this one choke point.
+   *  Best-effort: a throwing hook never breaks the write. */
+  onSet?: (key: string) => void;
+}
+
+export function buildKvController(deps: KvControllerDeps = {}) {
   return defineController({
     get: async (key: string): Promise<string | null> => {
       if (typeof key !== 'string' || !key) return null;
@@ -29,6 +37,11 @@ export function buildKvController() {
            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
         )
         .run(key, v);
+      try {
+        deps.onSet?.(key);
+      } catch {
+        /* hook is best-effort — never break the write */
+      }
     },
   });
 }

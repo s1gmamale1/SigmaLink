@@ -2497,7 +2497,17 @@ async function buildRouter() {
     manager: tasksManager,
     mailbox,
   });
-  const kvCtl = buildKvController();
+  // 2026-07-03 (review medium #3) — Settings persists the daily-summary keys
+  // through this generic kv.set; without the tap an enable/re-time was dead
+  // until app restart (armDailySummary ran only at boot; disable alone worked
+  // via the fire-time re-read).
+  const kvCtl = buildKvController({
+    onSet: (key) => {
+      if (key === KV_DAILY_SUMMARY_ENABLED || key === KV_DAILY_SUMMARY_TIME) {
+        armDailySummary();
+      }
+    },
+  });
   // R-1 — Telegram bridge taps `assistant:state` here so a remote operator
   // sees the same streamed reply. The assistant `emit` wrapper below fans out
   // to this set; the bridge subscribes/unsubscribes on start()/stop().
