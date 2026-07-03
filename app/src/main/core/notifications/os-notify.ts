@@ -218,6 +218,28 @@ export class OsNotifier {
     return true;
   }
 
+  /** 2026-07-03 (review medium #4) — operator delivery self-check. Fires a
+   *  native notification bypassing EVERY app-level gate (master toggle,
+   *  severity allowlist, DND/quiet/mute, presence, throttle) so the only
+   *  reason nothing appears on screen is OS-level authorization — which
+   *  Electron cannot query on macOS (isSupported() reports capability, not
+   *  permission). The Settings hint interprets the outcome for the operator. */
+  notifyTest(): boolean {
+    if (!Notification.isSupported()) return false;
+    const native = this.notificationFactory({
+      title: 'SigmaLink test notification',
+      body: 'OS notifications are reaching your screen.',
+      icon: this.resolveIconPath(),
+      silent: true,
+    });
+    try {
+      native.show();
+    } catch {
+      return false;
+    }
+    return true;
+  }
+
   private prune(nowTs: number): void {
     for (const [key, ts] of this.lastFireByKey.entries()) {
       if (nowTs - ts >= OS_THROTTLE_MS) this.lastFireByKey.delete(key);

@@ -2754,8 +2754,11 @@ async function buildRouter() {
 
   // v1.4.9 #07 — Notifications controller. Channels: notifications.list,
   // notifications.unreadCount, notifications.markRead, notifications.markAllRead,
-  // notifications.markUnread, notifications.dismiss, notifications.clearRead.
-  const notificationsCtl = buildNotificationsController(notificationsManager);
+  // notifications.markUnread, notifications.dismiss, notifications.clearRead,
+  // notifications.osTest (2026-07-03 — delivery self-check).
+  const notificationsCtl = buildNotificationsController(notificationsManager, {
+    osTest: () => osNotifier.notifyTest(),
+  });
 
   // v1.5.0 packet 09 — Cross-machine sync controller. Channels: sync.enable,
   // sync.disable, sync.status, sync.listConflicts, sync.resolveConflict,

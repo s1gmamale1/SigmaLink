@@ -340,6 +340,7 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'notifications.markUnread',
   'notifications.dismiss',
   'notifications.clearRead',
+  'notifications.osTest', // 2026-07-03 — OS delivery self-check (Settings)
   // C-12 SigmaBench — multi-agent conflict benchmark. `run` kicks the harness
   // fire-and-forget and returns the new run id; `listRuns` / `getRun` read the
   // benchmark store so the SigmaBench room can render the provider

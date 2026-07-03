@@ -74,6 +74,10 @@ export function NotificationsSettings() {
   const [summaryEnabled, setSummaryEnabled] = useState<boolean>(false);
   const [summaryTime, setSummaryTime] = useState<string>(DEFAULT_DAILY_SUMMARY_TIME);
   const [noteDigestEnabled, setNoteDigestEnabled] = useState<boolean>(false);
+  // 2026-07-03 (review medium #4) — OS delivery self-check outcome. Electron
+  // can't query macOS notification authorization, so the operator verifies by
+  // firing a gate-bypassing test notification and eyeballing the screen.
+  const [osTestResult, setOsTestResult] = useState<'idle' | 'sent' | 'unsupported'>('idle');
   const [ready, setReady] = useState(false);
 
   // Hydrate from kv on mount.
@@ -116,6 +120,15 @@ export function NotificationsSettings() {
   const persistEnabled = async (next: boolean) => {
     setEnabled(next);
     await rpc.kv.set(KV_OS_ENABLED, next ? '1' : '0').catch(() => undefined);
+  };
+
+  const runOsTest = async () => {
+    try {
+      const res = await rpc.notifications.osTest();
+      setOsTestResult(res?.shown ? 'sent' : 'unsupported');
+    } catch {
+      setOsTestResult('unsupported');
+    }
   };
 
   const persistSeverities = async (next: NotificationSeverity[]) => {
@@ -216,6 +229,35 @@ export function NotificationsSettings() {
         />
         <span>Show OS notifications</span>
       </label>
+
+      {/* 2026-07-03 (review medium #4) — delivery self-check. The OS can block
+          notifications (macOS authorization) with no signal the app can read;
+          this fires a gate-bypassing test so the operator can verify delivery
+          and knows exactly where to fix it when nothing appears. */}
+      <div className="flex flex-col gap-1 text-sm">
+        <div>
+          <button
+            type="button"
+            onClick={() => void runOsTest()}
+            data-testid="notifications-os-test"
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Send test notification
+          </button>
+        </div>
+        {osTestResult === 'sent' && (
+          <p className="text-xs text-muted-foreground" data-testid="notifications-os-test-hint">
+            Sent — check your screen. If no banner appeared, notifications are blocked at the
+            OS level: enable SigmaLink under System Settings ▸ Notifications (macOS) or
+            Settings ▸ System ▸ Notifications (Windows).
+          </p>
+        )}
+        {osTestResult === 'unsupported' && (
+          <p className="text-xs text-muted-foreground" data-testid="notifications-os-test-hint">
+            OS notifications are not available on this system.
+          </p>
+        )}
+      </div>
 
       <fieldset
         className="flex flex-col gap-1 border-l-2 border-border pl-3 text-sm"

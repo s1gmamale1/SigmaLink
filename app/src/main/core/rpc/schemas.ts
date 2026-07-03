@@ -914,6 +914,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'notifications.markUnread': stub,
   'notifications.dismiss': stub,
   'notifications.clearRead': stub,
+  'notifications.osTest': stub,
   // ── V3-W12-017 stubs ────────────────────────────────────────────────
   'assistant.send': stub,
   'assistant.list': stub,

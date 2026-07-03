@@ -286,6 +286,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'notifications.markUnread',
   'notifications.dismiss',
   'notifications.clearRead',
+  'notifications.osTest',
   // sync (syncCtl — from buildSyncController)
   'sync.enable',
   'sync.disable',

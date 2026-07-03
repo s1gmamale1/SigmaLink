@@ -14,7 +14,16 @@ interface ListInput {
   severities?: NotificationSeverity[];
 }
 
-export function buildNotificationsController(manager: NotificationsManager) {
+export interface NotificationsControllerDeps {
+  /** 2026-07-03 (review medium #4) — OS delivery self-check; returns whether
+   *  the native show() call succeeded. Wired to OsNotifier.notifyTest. */
+  osTest?: () => boolean;
+}
+
+export function buildNotificationsController(
+  manager: NotificationsManager,
+  deps: NotificationsControllerDeps = {},
+) {
   return defineController({
     list: async (input?: ListInput): Promise<Notification[]> => {
       return manager.list(input ?? {});
@@ -46,6 +55,9 @@ export function buildNotificationsController(manager: NotificationsManager) {
     clearRead: async (): Promise<{ removed: string[] }> => {
       const removed = manager.clearRead();
       return { removed };
+    },
+    osTest: async (): Promise<{ shown: boolean }> => {
+      return { shown: deps.osTest ? deps.osTest() : false };
     },
   });
 }
