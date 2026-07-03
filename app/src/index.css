@@ -1,4 +1,6 @@
 @import './styles/glass-material.css';
+@import './styles/aurora-material.css';
+@import './styles/cupertino-material.css';
 
 @tailwind base;
 @tailwind components;
@@ -179,8 +181,13 @@
      material (mesh reads through), and an opaque color-mix fill would clobber
      it. The per-workspace `--accent` tint still applies on glass via the
      accent-token surfaces — only the surface WASH is opaque-themes-only.
+     Phase 17: aurora (velvet bloom panels) and cupertino (frost) own their
+     sidebar/chrome backgrounds in their material files for the same reason —
+     both excluded like glass. Keep this :not() chain in sync with the
+     reduced-transparency mirror near the end of this file.
      Unlayered so it wins over Tailwind's `bg-sidebar` utility on the same el. */
-  :root:not([data-theme^='glass']) .sl-chrome-tint {
+  :root:not([data-theme^='glass']):not([data-theme^='aurora']):not([data-theme^='cupertino'])
+    .sl-chrome-tint {
     background-color: color-mix(
       in oklab,
       hsl(var(--sidebar-background)) 90%,
@@ -611,6 +618,198 @@
     --role-scout: 150 55% 36%;
     --role-reviewer: 32 88% 42%;
   }
+
+  /* ── AURORA FAMILY (Phase 17, sigma-designs) ─────────────────────────────
+     Living light on velvet. Color exists as light spilled on darkness — the
+     material layer (breathing blooms, the 4-light living rim) lives in
+     styles/aurora-material.css, scoped `[data-theme^='aurora']`. The four
+     `--aurora-light-*` hues parameterise rim + blooms per variant (law of the
+     rim: 3–4 independent lights, mixed hues — never one traveling highlight). */
+  :root[data-theme='aurora'] {
+    --background: 252 30% 4%; /* velvet floor #08070d */
+    --foreground: 246 24% 93%;
+    --card: 250 24% 7%;
+    --card-foreground: 246 24% 93%;
+    --popover: 250 24% 6%;
+    --popover-foreground: 246 24% 93%;
+    --primary: 271 82% 73%; /* #bc82f3 */
+    --primary-foreground: 252 30% 6%;
+    --secondary: 250 18% 11%;
+    --secondary-foreground: 246 24% 93%;
+    --muted: 250 16% 13%;
+    --muted-foreground: 248 12% 58%;
+    --accent: 221 100% 70%; /* #67a7ff */
+    --accent-foreground: 252 30% 6%;
+    --destructive: 358 100% 66%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 250 18% 13%;
+    --input: 250 18% 13%;
+    --ring: 271 82% 73%;
+    --sidebar-background: 252 28% 5%;
+    --sidebar-foreground: 246 18% 88%;
+    --sidebar-primary: 271 82% 73%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 250 18% 11%;
+    --sidebar-accent-foreground: 246 18% 88%;
+    --sidebar-border: 250 18% 12%;
+    --sidebar-ring: 271 82% 73%;
+    --brand-warm: 33 100% 53%;
+    --brand-cool: 221 100% 70%;
+    /* The 4 independent rim/bloom lights (amber · coral · violet · blue). */
+    --aurora-light-1: 33 100% 53%;
+    --aurora-light-2: 358 100% 70%;
+    --aurora-light-3: 271 82% 73%;
+    --aurora-light-4: 221 100% 70%;
+  }
+  /* Aurora Ember — warm end of the 9-stop ramp. */
+  :root[data-theme='aurora-ember'] {
+    --background: 252 30% 4%;
+    --foreground: 246 24% 93%;
+    --card: 250 24% 7%;
+    --card-foreground: 246 24% 93%;
+    --popover: 250 24% 6%;
+    --popover-foreground: 246 24% 93%;
+    --primary: 6 100% 74%; /* #ff8578 */
+    --primary-foreground: 252 30% 6%;
+    --secondary: 250 18% 11%;
+    --secondary-foreground: 246 24% 93%;
+    --muted: 250 16% 13%;
+    --muted-foreground: 248 12% 58%;
+    --accent: 33 100% 53%; /* #ff9a0f */
+    --accent-foreground: 252 30% 6%;
+    --destructive: 358 100% 66%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 250 18% 13%;
+    --input: 250 18% 13%;
+    --ring: 6 100% 74%;
+    --sidebar-background: 252 28% 5%;
+    --sidebar-foreground: 246 18% 88%;
+    --sidebar-primary: 6 100% 74%;
+    --sidebar-primary-foreground: 252 30% 6%;
+    --sidebar-accent: 250 18% 11%;
+    --sidebar-accent-foreground: 246 18% 88%;
+    --sidebar-border: 250 18% 12%;
+    --sidebar-ring: 6 100% 74%;
+    --brand-warm: 33 100% 53%;
+    --brand-cool: 341 82% 66%;
+    --aurora-light-1: 33 100% 53%;
+    --aurora-light-2: 35 77% 54%;
+    --aurora-light-3: 6 100% 74%;
+    --aurora-light-4: 341 82% 66%;
+  }
+  /* Aurora Ice — cool end of the 9-stop ramp. */
+  :root[data-theme='aurora-ice'] {
+    --background: 252 30% 4%;
+    --foreground: 246 24% 93%;
+    --card: 250 24% 7%;
+    --card-foreground: 246 24% 93%;
+    --popover: 250 24% 6%;
+    --popover-foreground: 246 24% 93%;
+    --primary: 221 100% 70%; /* #67a7ff */
+    --primary-foreground: 252 30% 6%;
+    --secondary: 250 18% 11%;
+    --secondary-foreground: 246 24% 93%;
+    --muted: 250 16% 13%;
+    --muted-foreground: 248 12% 58%;
+    --accent: 227 66% 76%; /* #98aeea */
+    --accent-foreground: 252 30% 6%;
+    --destructive: 358 100% 66%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 250 18% 13%;
+    --input: 250 18% 13%;
+    --ring: 221 100% 70%;
+    --sidebar-background: 252 28% 5%;
+    --sidebar-foreground: 246 18% 88%;
+    --sidebar-primary: 221 100% 70%;
+    --sidebar-primary-foreground: 252 30% 6%;
+    --sidebar-accent: 250 18% 11%;
+    --sidebar-accent-foreground: 246 18% 88%;
+    --sidebar-border: 250 18% 12%;
+    --sidebar-ring: 221 100% 70%;
+    --brand-warm: 227 66% 76%;
+    --brand-cool: 221 100% 70%;
+    --aurora-light-1: 237 39% 64%;
+    --aurora-light-2: 221 100% 70%;
+    --aurora-light-3: 227 66% 76%;
+    --aurora-light-4: 271 82% 73%;
+  }
+
+  /* ── CUPERTINO FAMILY (Phase 17, apple-design HIG) ───────────────────────
+     Light-first restraint: semantic neutrals, ONE systemBlue accent, hairline
+     borders, continuous-corner radius. The material layer (chrome-only frost)
+     lives in styles/cupertino-material.css, scoped `[data-theme^='cupertino']`. */
+  :root[data-theme='cupertino-light'] {
+    --background: 240 8% 97%;
+    --foreground: 240 5% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 5% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 5% 11%;
+    --primary: 211 100% 50%; /* systemBlue #007aff */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 6% 93%;
+    --secondary-foreground: 240 5% 11%;
+    --muted: 240 6% 93%;
+    --muted-foreground: 240 4% 42%;
+    --accent: 211 100% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 3 100% 59%; /* systemRed #ff3b30 */
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 87%;
+    --input: 240 6% 87%;
+    --ring: 211 100% 50%;
+    --radius: 0.625rem; /* continuous-corner feel */
+    --sidebar-background: 240 7% 95%;
+    --sidebar-foreground: 240 5% 20%;
+    --sidebar-primary: 211 100% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 6% 90%;
+    --sidebar-accent-foreground: 240 5% 15%;
+    --sidebar-border: 240 6% 88%;
+    --sidebar-ring: 211 100% 50%;
+    /* Light-contrast status/brand/role tints (same discipline as clean-light). */
+    --status-success: 142 55% 35%;
+    --status-warning: 32 90% 42%;
+    --status-info: 211 100% 45%;
+    --status-danger: 3 85% 50%;
+    --brand-warm: 32 90% 42%;
+    --brand-cool: 211 100% 45%;
+    --role-coordinator: 211 90% 45%;
+    --role-builder: 262 65% 52%;
+    --role-scout: 150 55% 36%;
+    --role-reviewer: 32 88% 42%;
+  }
+  :root[data-theme='cupertino-dark'] {
+    --background: 240 3% 11%;
+    --foreground: 240 4% 91%;
+    --card: 240 3% 14%;
+    --card-foreground: 240 4% 91%;
+    --popover: 240 3% 13%;
+    --popover-foreground: 240 4% 91%;
+    --primary: 211 100% 52%; /* systemBlue dark #0a84ff */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 3% 17%;
+    --secondary-foreground: 240 4% 91%;
+    --muted: 240 3% 18%;
+    --muted-foreground: 240 4% 62%;
+    --accent: 211 100% 52%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 100% 61%; /* systemRed dark #ff453a */
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 3% 22%;
+    --input: 240 3% 22%;
+    --ring: 211 100% 52%;
+    --radius: 0.625rem;
+    --sidebar-background: 240 4% 9%;
+    --sidebar-foreground: 240 4% 85%;
+    --sidebar-primary: 211 100% 52%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3% 17%;
+    --sidebar-accent-foreground: 240 4% 88%;
+    --sidebar-border: 240 3% 20%;
+    --sidebar-ring: 211 100% 52%;
+    --brand-cool: 211 100% 52%;
+  }
 }
 
 /* Reusable motion utility classes — paired with the tokens above. Kept
@@ -828,7 +1027,8 @@
      by accident. Under reduced transparency the sidebar reads as the plain,
      fully-opaque `--sidebar-background` with no hue mix — legibility first. */
   .bg-sidebar,
-  :root:not([data-theme^='glass']) .sl-chrome-tint {
+  :root:not([data-theme^='glass']):not([data-theme^='aurora']):not([data-theme^='cupertino'])
+    .sl-chrome-tint {
     background-color: hsl(var(--sidebar-background)) !important;
   }
   .bg-popover {

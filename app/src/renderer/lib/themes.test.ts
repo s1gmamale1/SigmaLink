@@ -12,6 +12,13 @@ import {
   findTheme,
   THEMES,
 } from './themes';
+import {
+  AURORA_TERMINAL,
+  CUPERTINO_LIGHT_TERMINAL,
+  DEFAULT_TERMINAL,
+  LIGHT_LEGACY_TERMINAL_CLEAN,
+  LIGHT_LEGACY_TERMINAL_PARCHMENT,
+} from './terminal-palette';
 
 describe('themes — DEFAULT_THEME is glass', () => {
   it('DEFAULT_THEME === glass', () => {
@@ -69,8 +76,8 @@ describe('themes — density (P5.2)', () => {
 
 // BSP-T1/T2 — the Clean + Glass-Spectrum theme library.
 describe('themes — catalog (BSP-T1/T2 theme library)', () => {
-  it('ships 15 themes (4 classic + 5 glass + 6 clean)', () => {
-    expect(THEMES.length).toBe(15);
+  it('ships 20 themes (4 classic + 5 glass + 6 clean + 3 aurora + 2 cupertino)', () => {
+    expect(THEMES.length).toBe(20);
   });
 
   it('every theme id is unique', () => {
@@ -101,6 +108,32 @@ describe('themes — catalog (BSP-T1/T2 theme library)', () => {
     }
     expect(THEMES.find((t) => t.id === 'clean-light')?.appearance).toBe('light');
     expect(THEMES.find((t) => t.id === 'clean')?.appearance).toBe('dark');
+  });
+
+  it('registers the aurora + cupertino families (Phase 17)', () => {
+    for (const id of ['aurora', 'aurora-ember', 'aurora-ice', 'cupertino-light', 'cupertino-dark']) {
+      expect(isThemeId(id), id).toBe(true);
+    }
+    expect(findTheme('cupertino-light').appearance).toBe('light');
+    expect(findTheme('cupertino-dark').appearance).toBe('dark');
+    expect(findTheme('aurora').appearance).toBe('dark');
+  });
+
+  it('every theme carries a complete terminal palette', () => {
+    for (const t of THEMES) {
+      expect(t.terminal.ansi, t.id).toHaveLength(16);
+      expect(t.terminal.background, t.id).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+  });
+
+  it('dark legacy themes keep the byte-identical default terminal; light + new families diverge', () => {
+    for (const id of ['obsidian', 'nord', 'synthwave', 'glass', 'glass-frost', 'clean', 'clean-violet'] as const) {
+      expect(findTheme(id).terminal, id).toBe(DEFAULT_TERMINAL);
+    }
+    expect(findTheme('aurora').terminal).toBe(AURORA_TERMINAL);
+    expect(findTheme('cupertino-light').terminal).toBe(CUPERTINO_LIGHT_TERMINAL);
+    expect(findTheme('parchment').terminal).toBe(LIGHT_LEGACY_TERMINAL_PARCHMENT);
+    expect(findTheme('clean-light').terminal).toBe(LIGHT_LEGACY_TERMINAL_CLEAN);
   });
 
   // Drift guard (Phase 1 risk): a catalog theme with no CSS block renders

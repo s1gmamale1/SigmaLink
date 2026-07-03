@@ -40,6 +40,12 @@ _(real upgrades to build once the current system is production-grade)_
   - **Suppressed window-restore + same-dims drag-end leaves a stale frame** (near-impossible interleaving) — fix if ever seen: latch a `pendingReveal` flag that upgrades the drag-end fit to a reveal.
   Trigger: only if re-reported. Severity: low. Effort: S.
 
+- **[themes] Aurora + Cupertino follow-ups (deferred from the 2026-07-02 theme-families design)** — spec `app/docs/superpowers/specs/2026-07-02-theme-families-aurora-cupertino-design.md`; the families + per-theme terminal palettes ship on `feat/theme-families-aurora-cupertino`; these are the consciously-parked extensions:
+  - **[themes/macos] real window vibrancy for the Cupertino family** — `vibrancy: 'under-window'` on the BrowserWindow + transparent surface tokens so Cupertino chrome samples the actual desktop instead of CSS-frosting a flat background; needs a win32/linux degrade path (solid fallback) and a `prefers-reduced-transparency` story at the OS layer. Main-process change, so kept out of the CSS-only v1. Trigger: after Cupertino v1 is dogfooded. Effort: M.
+  - **[themes/chrome] per-theme Electron window `backgroundColor` sync** — `electron/main.ts:627,676,682` hardcode `#0a0c12`, so every light theme (parchment, clean-light, now cupertino-light) boots with a dark flash before first paint. Fix: read the persisted `app.theme` KV in main at window-create time and map to the theme's swatch bg. Pre-existing; becomes more visible once cupertino-light is a flagship. Effort: S.
+  - **[themes/audio] Aurora synthesized SFX** — glassy UI sounds for focus/attention events per the sigma-designs sfx-palette (envelope-driven, mix-law-capped). Only after the visual family proves itself; sound is opt-in by default. Trigger: operator asks for it. Effort: M.
+  - **[themes/variants] additional family variants + tinted dark terminal palettes** — more Aurora ramp cuts / Cupertino accent cuts, and per-dark-theme tinted terminal ANSI (existing dark themes keep the byte-identical shared palette in v1). Also gallery family-grouping headers if 20 flat tiles read poorly. Trigger: dogfood demand. Effort: S each.
+
 ---
 
 ## 🆕 New ideas (untriaged)

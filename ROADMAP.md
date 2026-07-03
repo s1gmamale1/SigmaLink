@@ -44,6 +44,29 @@ _(Unscoped future enhancements, deferrals, and out-of-scope review findings — 
 
 ---
 
+## Phase 17 — Theme families: Aurora + Cupertino (+ per-theme terminal palettes)
+
+**Goal.** Two new material theme families — not color swaps — and a theme that finally governs the WHOLE surface: chrome, panes, and terminal content recolor together.
+
+**Deliverables.**
+- `app/src/styles/aurora-material.css` — sigma-designs living light: breathing blooms-on-velvet atmosphere, 4-independent-light rim on the focused pane, asymmetric attention flare; reduced-motion/transparency collapse.
+- `app/src/styles/cupertino-material.css` — apple-design HIG light-first: chrome-only frost, hairlines, one systemBlue accent, crisp focus ring; ≤300ms motion budget.
+- `app/src/renderer/lib/terminal-palette.ts` — `TerminalPalette` per theme (xterm + DOM presenter both read it; live re-color of open terminals on switch; light terminals for cupertino-light/parchment/clean-light; dark legacy byte-identical).
+- 5 registry entries (`aurora`/`aurora-ember`/`aurora-ice`/`cupertino-light`/`cupertino-dark`) in `app/src/renderer/lib/themes.ts` + token blocks in `app/src/index.css`.
+- Extended all-themes xterm↔DOM parity test.
+
+**Why now.** Operator-requested (2026-07-02); the existing 15 themes reduce to 2 material families + hue swaps, and terminals ignore theming entirely — the single biggest "themes feel cosmetic" gap.
+
+**Scope.** Per the implementation plan `app/docs/superpowers/plans/2026-07-03-theme-families-aurora-cupertino.md` (Tasks 1–10): palette lib → registry → xterm live-apply (`terminal-cache.ts:174,240`) → DOM presenter active-palette reads (`ansi-palette.ts`, presenters remount on epoch) → ThemeProvider pairing → token blocks + chrome-tint exclusions (`index.css:183,831`) → the two material files → full gate.
+
+**Findings + recommendation.** Recon 2026-07-02: mature `data-theme` plumbing (registry/gallery/KV) makes families cheap to add via the proven `[data-theme^='family']` material pattern (glass-material.css); the terminal gap traces to two hardcoded constants with a byte-parity test between them — moving both onto one `TerminalPalette` source makes parity structural. Spec: `app/docs/superpowers/specs/2026-07-02-theme-families-aurora-cupertino-design.md`.
+
+**Risks.** Living-rim GPU cost (bounded: focused pane only, `@property` angle animation, pauses on window blur; live-dial verify); light-terminal legibility (GitHub-Light-derived ANSI, not naive inversion); the palette map is a new mirror surface (extended parity test is the guard); presenter remount on theme switch snaps scroll to tail (rare path, documented).
+
+**Definition of done.** Operator switches to each new theme and sees the family material (aurora rim alive with 4 mixed-direction lights; cupertino frost + hairlines) AND an OPEN terminal recolors live; parity test passes for all 20 themes; existing dark themes render byte-identically; full local gate (`tsc -b`/vitest/`eslint .`/build) + CI green. Deferred extensions (macOS vibrancy, window-chrome bg sync, SFX, extra variants) parked in WISHLIST.
+
+---
+
 ## Architecture decisions (ADRs)
 
 ### ADR-001 — Prefer shared Ruflo HTTP over per-pane stdio
@@ -83,3 +106,4 @@ _(Unscoped future enhancements, deferrals, and out-of-scope review findings — 
 | Item | Phase | Effort | Impact | Notes |
 |------|-------|--------|--------|-------|
 | Recently-closed panes (listClosed + reopen + UI) | Phase 13 (Part B) | M | Medium | Recoverable accidental close; mirrors browser-tab recents; reuses Part A's `closed_at` + `listRecents` surface (ADR-007). |
+| Theme families Aurora + Cupertino + per-theme terminal palettes | Phase 17 | L | Medium | Spec 2026-07-02 + plan 2026-07-03; branch `feat/theme-families-aurora-cupertino`; terminal follow-through is the structural win. |

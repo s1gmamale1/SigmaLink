@@ -21,10 +21,24 @@ vi.mock('@/renderer/lib/rpc', () => ({
   },
 }));
 
+// Phase 17 — ThemeProvider resolves findTheme(id).terminal and hands it to
+// applyTerminalPalette; the mock needs a complete-enough palette.
+const { FAKE_TERMINAL } = vi.hoisted(() => ({
+  FAKE_TERMINAL: {
+    background: '#0a0c12',
+    foreground: '#e6e8f0',
+    cursor: '#a78bfa',
+    cursorAccent: '#0a0c12',
+    selectionBackground: 'rgba(167, 139, 250, 0.35)',
+    ansi: Array.from({ length: 16 }, () => '#000000'),
+  },
+}));
+
 vi.mock('@/renderer/lib/themes', () => ({
   applyTheme: vi.fn(),
   DEFAULT_THEME: 'obsidian',
   isThemeId: vi.fn(() => false),
+  findTheme: vi.fn(() => ({ id: 'obsidian', appearance: 'dark', terminal: FAKE_TERMINAL })),
   // P5.2 density — ThemeProvider now also hydrates/applies density on mount.
   applyDensity: vi.fn(),
   DEFAULT_DENSITY: 'comfortable',

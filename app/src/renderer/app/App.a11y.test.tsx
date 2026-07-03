@@ -24,6 +24,19 @@ vi.mock('@/renderer/lib/rpc', () => ({
   },
 }));
 
+// Phase 17 — ThemeProvider resolves findTheme(id).terminal and hands it to
+// applyTerminalPalette; the mock needs a complete-enough palette.
+const { FAKE_TERMINAL } = vi.hoisted(() => ({
+  FAKE_TERMINAL: {
+    background: '#0a0c12',
+    foreground: '#e6e8f0',
+    cursor: '#a78bfa',
+    cursorAccent: '#0a0c12',
+    selectionBackground: 'rgba(167, 139, 250, 0.35)',
+    ansi: Array.from({ length: 16 }, () => '#000000'),
+  },
+}));
+
 vi.mock('@/renderer/lib/themes', () => ({
   applyTheme: vi.fn(),
   DEFAULT_THEME: 'obsidian',
@@ -34,8 +47,9 @@ vi.mock('@/renderer/lib/themes', () => ({
   isDensityId: vi.fn(() => false),
   KV_KEYS: { theme: 'app.theme', density: 'app.density' },
   // The themed <Toaster> wrapper (mounted by App) reads `appearance` from the
-  // active theme via `findTheme`, so the mock must provide it.
-  findTheme: vi.fn(() => ({ id: 'obsidian', appearance: 'dark' })),
+  // active theme via `findTheme`, so the mock must provide it — and (Phase 17)
+  // ThemeProvider reads `.terminal` off the same result.
+  findTheme: vi.fn(() => ({ id: 'obsidian', appearance: 'dark', terminal: FAKE_TERMINAL })),
 }));
 
 // Mock AppStateProvider to avoid Electron context-bridge hooks (window.sigma).

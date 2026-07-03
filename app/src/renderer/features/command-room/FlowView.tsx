@@ -17,7 +17,7 @@
 import type { CSSProperties } from 'react';
 import { memo, useEffect, useReducer } from 'react';
 import type { TerminalEngine } from '@/renderer/lib/terminal-engine';
-import { DEFAULT_BG, DEFAULT_FG } from './ansi-palette';
+import { defaultBg, defaultFg } from './ansi-palette';
 import { CURSOR_STYLE, runStyle } from './run-style';
 import { findUrls } from './linkify';
 import { segmentRuns, type Decoration, type LineSegment } from './line-segments';
@@ -265,8 +265,8 @@ export const FlowView = memo(function FlowView({
           // the transcript overflows, narrowing the box mid-session and stranding
           // the last word of full lines (the "inline break" bug).
           scrollbarGutter: 'stable',
-          background: DEFAULT_BG,
-          color: DEFAULT_FG,
+          background: defaultBg(),
+          color: defaultFg(),
           fontFamily: MONO_FONT,
           fontSize: 12,
           lineHeight: 1.4,
@@ -324,7 +324,7 @@ export const FlowView = memo(function FlowView({
             borderRadius: '9999px',
             border: '1px solid rgba(130,140,165,0.4)',
             background: 'rgba(28,32,44,0.9)',
-            color: DEFAULT_FG,
+            color: defaultFg(),
             cursor: 'pointer',
             fontSize: 14,
             lineHeight: 1,

@@ -39,7 +39,7 @@ describe('FlowView', () => {
     const spans = Array.from(view.querySelectorAll('span'));
     const hot = spans.find((s) => s.textContent === 'hot')!;
     expect(hot.style.fontWeight).toBe('700');
-    expect(hot.style.color).toBe('rgb(239, 68, 68)'); // ANSI_16[1] #ef4444
+    expect(hot.style.color).toBe('rgb(239, 68, 68)'); // palette ansi[1] #ef4444 (DEFAULT_TERMINAL)
   });
 
   it('inverse swaps fg/bg against the theme defaults', async () => {
@@ -48,8 +48,8 @@ describe('FlowView', () => {
     await write(engine, '\x1b[7minv\x1b[0m');
     const span = Array.from(getByTestId('flow-view').querySelectorAll('span'))
       .find((s) => s.textContent === 'inv')!;
-    expect(span.style.color).toBe('rgb(10, 12, 18)');               // DEFAULT_BG
-    expect(span.style.backgroundColor).toBe('rgb(230, 232, 240)');  // DEFAULT_FG
+    expect(span.style.color).toBe('rgb(10, 12, 18)');               // defaultBg() #0a0c12
+    expect(span.style.backgroundColor).toBe('rgb(230, 232, 240)');  // defaultFg() #e6e8f0
   });
 
   it('a line longer than cols renders as ONE row div (logical join)', async () => {
