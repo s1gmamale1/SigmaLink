@@ -545,6 +545,60 @@ describe('agent-attention', () => {
     s = appStateReducer(s, { type: 'REMOVE_SESSION', id: sid });
     expect(s.attentionSessions[sid]).toBeUndefined();
   });
+
+  // 2026-07-02 review MEDIUM (fixed 2026-07-03) — every session-level clear must
+  // also release the WORKSPACE-rail glow when it was the last glowing session in
+  // that workspace; previously attentionWorkspaces only cleared on workspace
+  // switch, so the sidebar ring glowed forever while you stayed in the workspace.
+  describe('workspace glow follows the last session clear', () => {
+    const sid2 = 'sess-2';
+    function seededTwo(): AppState {
+      return appStateReducer(makeStateWithOpen([wsId], wsId), {
+        type: 'ADD_SESSIONS',
+        sessions: [session(sid, wsId), session(sid2, wsId)],
+      });
+    }
+
+    it('CLEAR_SESSION_ATTENTION on the LAST glowing session drops the workspace glow', () => {
+      let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+      expect(s.attentionWorkspaces[wsId]).toBe(1000);
+      s = appStateReducer(s, { type: 'CLEAR_SESSION_ATTENTION', sessionId: sid });
+      expect(s.attentionWorkspaces[wsId]).toBeUndefined();
+    });
+
+    it('CLEAR_SESSION_ATTENTION keeps the workspace glow while ANOTHER session in it still glows', () => {
+      let s = appStateReducer(seededTwo(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+      s = appStateReducer(s, { type: 'SET_ATTENTION', sessionId: sid2, ts: 1001 });
+      s = appStateReducer(s, { type: 'CLEAR_SESSION_ATTENTION', sessionId: sid });
+      expect(s.attentionSessions[sid]).toBeUndefined();
+      expect(s.attentionSessions[sid2]).toBe(1001);
+      expect(s.attentionWorkspaces[wsId]).toBeDefined();
+    });
+
+    it('SET_ACTIVE_SESSION on the last glowing session drops the workspace glow', () => {
+      let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+      s = appStateReducer(s, { type: 'SET_ACTIVE_SESSION', id: sid });
+      expect(s.attentionWorkspaces[wsId]).toBeUndefined();
+    });
+
+    it('MARK_SESSION_EXITED on the last glowing session drops the workspace glow', () => {
+      let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+      s = appStateReducer(s, { type: 'MARK_SESSION_EXITED', id: sid, exitCode: 0 });
+      expect(s.attentionWorkspaces[wsId]).toBeUndefined();
+    });
+
+    it('MARK_SESSION_ERROR on the last glowing session drops the workspace glow', () => {
+      let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+      s = appStateReducer(s, { type: 'MARK_SESSION_ERROR', id: sid, exitCode: 1 });
+      expect(s.attentionWorkspaces[wsId]).toBeUndefined();
+    });
+
+    it('REMOVE_SESSION on the last glowing session drops the workspace glow', () => {
+      let s = appStateReducer(seeded(), { type: 'SET_ATTENTION', sessionId: sid, ts: 1000 });
+      s = appStateReducer(s, { type: 'REMOVE_SESSION', id: sid });
+      expect(s.attentionWorkspaces[wsId]).toBeUndefined();
+    });
+  });
 });
 
 // ─── REORDER_OPEN_WORKSPACES — drag-to-reorder the rail ──────────────────────
