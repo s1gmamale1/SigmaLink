@@ -2,6 +2,33 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [2.9.1] — 2026-07-05
+
+**v2.9.1 kills the ghost panes — every pane death path now stamps `closed_at` and the workspace readers hide closed slots instead of un-shadowing their past — plus: minimised panes stop popping open, the 20-agent cap stops counting exited ghosts, cross-workspace session resume is guarded again, the DOM cursor follows the per-theme terminal palette, and the release rolls up the minimal-chrome shell (#215), the Aurora + Cupertino theme families (#214), and both notification fix rounds (#212, #217).**
+
+### Fixed — pane→workspace DB lifecycle (#221)
+
+- **Ghost-pane resurrection**: `listForWorkspace` + `lastResumePlan` filtered `closed_at IS NULL` inside the ranked per-slot CTE, so closing a slot's newest row un-shadowed older ghost rows — killed swarms returned as red error tiles on reopen. Both queries now rank all rows per slot first and filter after rn=1; `killSwarm` stamps `closed_at` (idempotent `markPaneClosed`) before killing each agent PTY.
+- **Field-stripped session refetch**: the `listForWorkspace` mapping dropped `minimised`/`splitGroupId`/`splitDirection`/`splitIndex`/`autoApprove`; dispatch-echo refetches and redocks clobbered richer in-memory state → minimised panes popped open live. Mapping now mirrors `loadAgentSession`.
+- **Phantom 20-agent cap**: terminal non-resumable sessions (`exited`/`error` with `exit_code !== -1`) no longer count as live at the three admission gates; resume-eligible (`exit_code === -1`) panes still do.
+- **Cross-workspace session capture**: the disk-scan session-id capture resolved `workspace_id` at schedule time — before the `agent_sessions` INSERT — leaving the claimed-by-other-workspace guard dead on fresh spawns. The lookup now runs inside the retry attempt.
+
+### Fixed — pre-tag polish (#220)
+
+- DOM-presenter cursor derives from the active per-theme terminal palette (`cursorStyle()`), restoring xterm↔DOM parity on the Phase-17 themes; the all-themes parity test now pins `cursor`/`cursorAccent` per theme.
+- Launcher landing icon chips + Alpha badge switched to `text-accent` — readable on all 20 themes (was ~1.2:1 on cupertino-light/aurora).
+
+### Fixed — earlier rounds rolled up
+
+- Swarm 20-agent cap counted lifetime ghost rows; the three gates now count live panes via shared `countLiveAgentPanes` (#213).
+- Notifications round 2: `updated` delta lane for mark-read (no re-alerts), app-shutdown gate, focus-gated + silent OS banners, agent-attention gating (#212).
+- Notifications round 3: workspace glow clears with attention, main-window-only OS alerts, live daily-digest re-arm, Settings osTest self-check (#217).
+
+### Added — rolled up
+
+- **Minimal-chrome shell** (#215): pure launcher landing ('intent' step: Σ hero + stacked mode rows + kbd-hint footer), brand-bar titlebar (monogram + wordmark + version), sidebar wordmark drop + workspaces count; `IntentCards`/`BottomActionRow`/`app.userName` plumbing retired.
+- **Theme families** (#214): Aurora (velvet blooms) + Cupertino (frost) material families, per-theme terminal ANSI palettes for all 20 themes (legacy dark themes byte-identical), luminous orb.
+
 ## [2.9.0] — 2026-07-02
 
 **v2.9.0 makes the External Control plane actually driveable end-to-end (reliable prompt submission, auto-approve launches, live capacity, non-blocking escalations, codex spawn safety), gives every pane a self-updating task title on any provider via free Ollama-cloud summarization, unifies the app chrome across workspaces and windows, and lands a batch of Command-Room fixes — auto-labels read from the real TUI buffer, focus-switch flicker is gone, plain terminals no longer eat the 20-agent swarm cap, and renderer/GPU crashes are captured to diagnostics.**

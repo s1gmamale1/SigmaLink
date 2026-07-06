@@ -1,0 +1,63 @@
+SigmaLink v2.9.1 — 2026-07-05
+=============================
+
+Dead panes stay dead, and the app gets its BridgeMind-grade face. The
+headline fix: closing or killing panes no longer leaves ghost rows that
+resurrect as red tiles when you reopen a workspace — the pane lifecycle
+now stamps every death path and the readers hide a closed slot instead
+of un-shadowing its past. Minimised panes stop popping open on their
+own, long-lived swarms stop hitting a phantom "20 agents" wall, and a
+pane can no longer resume another workspace's conversation. On top:
+the new minimal-chrome launcher landing + brand titlebar, two new
+theme families (Aurora + Cupertino) with per-theme terminal palettes,
+and two notification-review fix rounds. CI-green on macOS + Windows +
+Ubuntu.
+
+See CHANGELOG.md [2.9.1] for the itemized record.
+
+
+Fixed
+-----
+
+- Ghost-pane resurrection (#221): listForWorkspace and lastResumePlan
+  rank each pane slot's rows FIRST and filter closed_at after — a
+  closed newest row now hides its slot instead of un-shadowing older
+  ghosts; killSwarm stamps closed_at on every agent session before
+  killing its PTY. Killed swarms no longer return as red error tiles
+  on workspace reopen.
+- Minimised panes popping open / split state wiped (#221):
+  listForWorkspace now carries minimised, splitGroupId, splitDirection,
+  splitIndex and autoApprove, so dispatch-echo refetches and redocks
+  stop clobbering in-memory pane state with field-stripped rows.
+- Phantom 20-agent cap (#221): terminal non-resumable sessions
+  (exited/error with a real exit code) no longer count toward the
+  swarm cap; resume-eligible panes still do.
+- Wrong-workspace session resume (#221): the disk-scan session-id
+  capture resolves the pane's workspace at attempt time (after the DB
+  insert), reviving the cross-workspace claim guard for shared-cwd
+  setups (in-place mode, duplicate roots, dev workspace).
+- DOM-presenter cursor now derives from the active per-theme terminal
+  palette instead of a hardcoded violet — xterm and DOM renderers show
+  the same cursor on every theme; the all-themes parity test pins it
+  (#220).
+- Launcher landing icon chips + Alpha badge readable on all 20 themes
+  (was ~1.2:1 contrast on cupertino-light/aurora) (#220).
+- Swarm agent cap counted lifetime ghost rows (#213) — the three
+  admission gates count LIVE panes via one shared helper.
+- Notifications round 2 (#212): mark-read emits an `updated` delta lane
+  (no re-alerts), no notification work during app shutdown, OS banners
+  are focus-gated and silent, agent-attention events gated.
+- Notifications round 3 (#217): workspace glow clears with attention,
+  OS alerts fire from the main window only, the daily digest re-arms
+  live on settings changes, and Settings gains a "send test
+  notification" self-check.
+
+Added
+-----
+
+- Minimal-chrome shell (#215): pure launcher landing (Σ hero +
+  stacked mode rows + kbd-hint footer), brand-bar titlebar (monogram +
+  wordmark + version), sidebar wordmark drop + workspace count.
+- Theme families (#214): Aurora (velvet blooms) and Cupertino (frost)
+  material families + per-theme terminal ANSI palettes for all 20
+  themes (legacy dark themes byte-identical), and the luminous orb.
