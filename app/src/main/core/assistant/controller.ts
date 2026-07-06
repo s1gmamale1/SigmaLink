@@ -176,6 +176,10 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
   const tracer = new ToolTracer();
   tracer.setEmitter(deps.emit);
   const activeTurns = new Map<string, ActiveTurn>();
+  // P0.1 — one live turn per conversation. Prevents a double-send (multi-window,
+  // telegram, external, or a fast double-tap) from spawning a second `claude`
+  // child against the same conversation. Keyed by conversationId → live turnId.
+  const liveTurnByConversation = new Map<string, string>();
 
   // H-19 (partial) — opportunistic aidefence gate. Built only when a ruflo
   // proxy is injected; otherwise the send path is a no-op (back-compat). Audit
@@ -437,7 +441,7 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
        * onto the turn so it reaches the tool-invocation gate. Optional.
        */
       confirmDangerous?: ConfirmDangerous;
-    }): Promise<{ conversationId: string; turnId: string }> => {
+    }): Promise<{ conversationId: string; turnId: string; busy?: boolean }> => {
       if (typeof input?.workspaceId !== 'string' || !input.workspaceId) {
         throw new Error('assistant.send: workspaceId required');
       }
@@ -454,6 +458,12 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
           kind: 'assistant',
         }).id;
       }
+      // P0.1 — reject a concurrent turn for this conversation. Return the live
+      // turn id so the caller can attach to it instead of starting a rival turn.
+      const existingTurnId = liveTurnByConversation.get(conversationId);
+      if (existingTurnId && activeTurns.has(existingTurnId)) {
+        return { conversationId, turnId: existingTurnId, busy: true };
+      }
       appendMessage({ conversationId, role: 'user', content: input.prompt });
       // H-19 (partial) — ADVISORY inbound scan. Best-effort + never blocks the
       // local operator's own prompt; a flagged result is AUDITED (the gate emits
@@ -468,6 +478,7 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       const turnId = randomUUID();
       const turn: ActiveTurn = { conversationId, turnId, cancelled: false };
       activeTurns.set(turnId, turn);
+      liveTurnByConversation.set(conversationId, turnId);
       // BSP-B3 — allocate a fresh CDP call counter for this turn. It is shared
       // (by reference) across all tool calls dispatched within the same turn so
       // the cumulative rate limit is enforced globally, not per-call.
@@ -538,6 +549,9 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
           });
         } finally {
           activeTurns.delete(turnId);
+          if (liveTurnByConversation.get(conversationId) === turnId) {
+            liveTurnByConversation.delete(conversationId);
+          }
         }
       })();
       return { conversationId, turnId };
@@ -553,6 +567,11 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
     cancel: async (input: { conversationId: string; turnId: string }): Promise<void> => {
       const t = activeTurns.get(input.turnId);
       if (t) t.cancelled = true;
+      // P0.1 — drop the live-turn index so a fresh send for this conversation
+      // isn't wrongly rejected as still busy after a cancel.
+      if (liveTurnByConversation.get(input.conversationId) === input.turnId) {
+        liveTurnByConversation.delete(input.conversationId);
+      }
       // V3-W14-002 — also kill the in-flight CLI child if there is one.
       // No-op when the turn is being run by the stub fallback.
       cancelClaudeCliTurn(input.turnId);
