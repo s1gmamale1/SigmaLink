@@ -26,6 +26,14 @@ interface RawSessionRow {
   started_at: number;
   exited_at: number | null;
   pane_index: number | null;
+  // Task 2 (v2.9.1) — the mapping used to omit these even though the SELECT is
+  // `s.*`, so a minimised/split-annotated pane came back field-stripped and
+  // ADD_SESSIONS clobbered the richer in-memory object.
+  minimised: number;
+  split_group_id: string | null;
+  split_direction: string | null;
+  split_index: number | null;
+  auto_approve: number;
 }
 
 // ─── Fake DB ─────────────────────────────────────────────────────────────────
@@ -90,6 +98,13 @@ function listForWorkspace(
       startedAt: r.started_at,
       exitedAt: r.exited_at ?? undefined,
       initialPrompt: r.initial_prompt ?? undefined,
+      // Task 2 (v2.9.1) — mirror loadAgentSession's split/minimised/autoApprove
+      // mapping so a refetch does not strip these fields.
+      minimised: !!r.minimised,
+      splitGroupId: r.split_group_id ?? null,
+      splitDirection: (r.split_direction as 'horizontal' | 'vertical' | null) ?? null,
+      splitIndex: r.split_index ?? null,
+      autoApprove: !!r.auto_approve,
     }));
   } catch {
     return [];
@@ -121,6 +136,11 @@ function row(
     started_at: startedAt,
     exited_at: startedAt + 1000,
     pane_index: paneIndex,
+    minimised: 0,
+    split_group_id: null,
+    split_direction: null,
+    split_index: null,
+    auto_approve: 0,
   };
 }
 
@@ -220,6 +240,11 @@ describe('panes.listForWorkspace — full AgentSession rehydration', () => {
         started_at: 5000,
         exited_at: 6000,
         pane_index: 0,
+        minimised: 0,
+        split_group_id: null,
+        split_direction: null,
+        split_index: null,
+        auto_approve: 0,
       },
     ]);
     const result = listForWorkspace(db, 'ws-F');
@@ -237,5 +262,42 @@ describe('panes.listForWorkspace — full AgentSession rehydration', () => {
     expect(s.startedAt).toBe(5000);
     expect(s.exitedAt).toBe(6000);
     expect(s.initialPrompt).toBe('Hello world');
+  });
+
+  // Task 2 (v2.9.1) — the mapping must carry minimised + the three split fields
+  // + autoApprove (mirroring loadAgentSession), or a redock/dispatch-echo
+  // refetch replaces the live in-memory session with a field-stripped row and
+  // ADD_SESSIONS (whole-object map.set) wipes the split/minimised annotations.
+  it('carries minimised, split fields, and autoApprove through the mapping', () => {
+    const db = buildFakeDb([
+      {
+        ...row('ws-split', 0, 'claude', 1000),
+        minimised: 1,
+        split_group_id: 'grp-1',
+        split_direction: 'vertical',
+        split_index: 1,
+        auto_approve: 1,
+      },
+    ]);
+    const result = listForWorkspace(db, 'ws-split');
+    expect(result).toHaveLength(1);
+    const s = result[0]!;
+    expect(s.minimised).toBe(true);
+    expect(s.splitGroupId).toBe('grp-1');
+    expect(s.splitDirection).toBe('vertical');
+    expect(s.splitIndex).toBe(1);
+    expect(s.autoApprove).toBe(true);
+  });
+
+  // Standalone (non-split) panes map the null/0 columns to null/false — the
+  // legacy shape must not spuriously flip into a split/minimised pane.
+  it('maps null/0 split+minimised columns to null/false', () => {
+    const db = buildFakeDb([row('ws-plain', 0, 'codex', 2000)]);
+    const s = listForWorkspace(db, 'ws-plain')[0]!;
+    expect(s.minimised).toBe(false);
+    expect(s.splitGroupId).toBeNull();
+    expect(s.splitDirection).toBeNull();
+    expect(s.splitIndex).toBeNull();
+    expect(s.autoApprove).toBe(false);
   });
 });

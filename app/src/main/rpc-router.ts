@@ -1742,6 +1742,15 @@ async function buildRouter() {
           display_provider_id: string | null;
           // BSP-O4 — operator-supplied display name (migration 0036).
           name: string | null;
+          // Task 2 (v2.9.1) — the SELECT is `s.*` but the mapping previously
+          // dropped these, so a redock/dispatch-echo refetch replaced the live
+          // in-memory session with a field-stripped row and ADD_SESSIONS
+          // (whole-object map.set) wiped the split/minimised annotations.
+          minimised: number;
+          split_group_id: string | null;
+          split_direction: string | null;
+          split_index: number | null;
+          auto_approve: number;
         }
         const rows = getRawDb()
           .prepare(
@@ -1782,6 +1791,15 @@ async function buildRouter() {
           runtimeProfileId: r.runtime_profile_id ?? 'ruflo-core',
           displayProviderId: r.display_provider_id ?? null,
           name: r.name ?? null,
+          // Task 2 (v2.9.1) — mirror loadAgentSession (factory-spawn.ts) so a
+          // refetch carries split/minimised/autoApprove instead of stripping
+          // them. snake→camel + null handling identical to the drizzle mapper.
+          minimised: !!r.minimised,
+          splitGroupId: r.split_group_id ?? null,
+          splitDirection:
+            (r.split_direction as 'horizontal' | 'vertical' | null) ?? null,
+          splitIndex: r.split_index ?? null,
+          autoApprove: !!r.auto_approve,
         }));
       } catch {
         return [];
