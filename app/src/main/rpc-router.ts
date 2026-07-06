@@ -554,17 +554,6 @@ async function buildRouter() {
     cwd: string,
   ): void {
     if (!DISK_SCAN_PROVIDERS.has(providerId.toLowerCase())) return;
-    // Look up the workspace_id for this session so the disk scanner can
-    // scope its capture to the correct workspace.
-    let workspaceId: string | undefined;
-    try {
-      const wsRow = getRawDb()
-        .prepare('SELECT workspace_id FROM agent_sessions WHERE id = ?')
-        .get(sessionId) as { workspace_id: string } | undefined;
-      workspaceId = wsRow?.workspace_id;
-    } catch {
-      /* pre-migration DB; scanner will fall back to unscoped behaviour */
-    }
     let stopped = false;
     const attempt = async () => {
       if (stopped) return;
@@ -577,6 +566,21 @@ async function buildRouter() {
       if (rec.externalSessionId && rec.externalSessionId.length > 0) {
         stopped = true;
         return;
+      }
+      // Task 4 — resolve the workspace_id at ATTEMPT time, not schedule time.
+      // The capture hook fires inside registry.create, which runs BEFORE the
+      // agent_sessions INSERT, so a schedule-time lookup returned undefined and
+      // findLatestSessionId's cross-workspace claim guard was dead on every
+      // fresh spawn. Attempts run at +2s/+5s/+15s, safely after the INSERT, so
+      // the lookup resolves and the scanner scopes capture to this workspace.
+      let workspaceId: string | undefined;
+      try {
+        const wsRow = getRawDb()
+          .prepare('SELECT workspace_id FROM agent_sessions WHERE id = ?')
+          .get(sessionId) as { workspace_id: string } | undefined;
+        workspaceId = wsRow?.workspace_id;
+      } catch {
+        /* pre-migration DB; scanner will fall back to unscoped behaviour */
       }
       try {
         const captured = await findLatestSessionId(providerId, cwd, { workspaceId });
