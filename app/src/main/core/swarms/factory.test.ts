@@ -34,7 +34,7 @@ import type {
   AddAgentToSwarmInput,
   SwarmFactoryDeps,
 } from './factory';
-import { addAgentToSwarm, createSwarm } from './factory';
+import { addAgentToSwarm, createSwarm, killSwarm } from './factory';
 import { WorktreeDiskGuardError } from '../git/worktree';
 
 // ── Fakes wired in beforeEach ──────────────────────────────────────────────
@@ -332,6 +332,81 @@ describe('addAgentToSwarm', () => {
     const result = await addAgentToSwarm(agentInput, makeDeps());
 
     expect(result.agentKey).toBe('builder-21');
+  });
+});
+
+// ── Task 1 (v2.9.1): killSwarm stamps closed_at ─────────────────────────────
+//
+// killSwarm kills each agent's PTY but historically never stamped
+// agent_sessions.closed_at. SIGTERM lands the row as status='error' with
+// closed_at NULL — a shape neither the DB janitor nor the renderer GC ever
+// reaps — so on workspace reopen the dead swarm resurrects as red error tiles.
+// killSwarm must mark every agent session closed (mirroring panes.close) BEFORE
+// the kill, so the async pty-exit lands already-closed and the slot hides its
+// own ghost.
+describe('killSwarm — stamps closed_at on every agent session (ghost-pane fix)', () => {
+  function seedRunningSwarm(): { killSpy: ReturnType<typeof vi.fn> } {
+    seedWorkspace(fake, { id: 'ws-1', name: 'ws-1', rootPath: '/tmp/ws-1', repoMode: 'plain' });
+    seedSwarm(fake, {
+      id: 'swarm-1',
+      workspaceId: 'ws-1',
+      name: 'Build',
+      mission: 'test',
+      preset: 'custom',
+      status: 'running',
+    });
+    for (let i = 1; i <= 3; i += 1) {
+      seedAgent(fake, {
+        id: `agent-${i}`,
+        swarmId: 'swarm-1',
+        role: 'builder',
+        roleIndex: i,
+        providerId: 'claude',
+        sessionId: `sess-${i}`,
+        status: 'idle',
+        agentKey: `builder-${i}`,
+      });
+      // Open sessions (closed_at NULL) — the pre-fix ghost shape.
+      seedAgentSession(fake, {
+        id: `sess-${i}`,
+        workspaceId: 'ws-1',
+        status: 'running',
+        closedAt: null,
+      });
+    }
+    return { killSpy: vi.fn() };
+  }
+
+  function sessionsById(): Map<string, Record<string, unknown>> {
+    const rows = fake.store.tables.get('agent_sessions') ?? [];
+    return new Map(rows.map((r) => [r.id as string, r]));
+  }
+
+  it('marks all agent sessions closed_at before killing their PTYs', () => {
+    const { killSpy } = seedRunningSwarm();
+
+    killSwarm('swarm-1', {
+      pty: { kill: killSpy } as unknown as SwarmFactoryDeps['pty'],
+      userDataDir: '/tmp/sigmalink-factory-test',
+    });
+
+    const rows = sessionsById();
+    for (const id of ['sess-1', 'sess-2', 'sess-3']) {
+      expect(rows.get(id)?.closedAt, `${id} closed_at`).not.toBeNull();
+      expect(rows.get(id)?.closedAt, `${id} closed_at`).toBeTypeOf('number');
+    }
+    // Every agent's PTY was still killed.
+    expect(killSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it('marks the swarm completed', () => {
+    seedRunningSwarm();
+    killSwarm('swarm-1', {
+      pty: { kill: vi.fn() } as unknown as SwarmFactoryDeps['pty'],
+      userDataDir: '/tmp/sigmalink-factory-test',
+    });
+    const swarmRow = (fake.store.tables.get('swarms') ?? []).find((r) => r.id === 'swarm-1');
+    expect(swarmRow?.status).toBe('completed');
   });
 });
 

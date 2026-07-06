@@ -1676,11 +1676,16 @@ async function buildRouter() {
       try {
         const rows = getRawDb()
           .prepare(
+            // Task 1 (v2.9.1) — RANK-THEN-FILTER. Rank ALL rows per slot
+            // (rn = 1 = newest per slot), THEN drop the slot when its winner is
+            // closed. Filtering closed_at inside the CTE let a closed newest row
+            // un-shadow an older open row in the same slot → ghost resurrection.
             `WITH ranked AS (
                SELECT
                  s.pane_index AS paneIndex,
                  s.provider_id AS providerId,
                  s.external_session_id AS externalSessionId,
+                 s.closed_at,
                  ROW_NUMBER() OVER (
                    PARTITION BY s.workspace_id, s.pane_index
                    ORDER BY
@@ -1690,11 +1695,10 @@ async function buildRouter() {
                  ) AS rn
                FROM agent_sessions s
                WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
-                 AND s.closed_at IS NULL
              )
              SELECT paneIndex, providerId, externalSessionId
              FROM ranked
-             WHERE rn = 1
+             WHERE rn = 1 AND closed_at IS NULL
              ORDER BY paneIndex ASC`,
           )
           .all(workspaceId) as Array<{
@@ -1741,6 +1745,9 @@ async function buildRouter() {
         }
         const rows = getRawDb()
           .prepare(
+            // Task 1 (v2.9.1) — RANK-THEN-FILTER (mirror of lastResumePlan). The
+            // `s.*` projection already carries closed_at into the ranked CTE, so
+            // the outer WHERE drops a slot only after its newest row won rn = 1.
             `WITH ranked AS (
                SELECT
                  s.*,
@@ -1753,11 +1760,10 @@ async function buildRouter() {
                  ) AS rn
                FROM agent_sessions s
                WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
-                 AND s.closed_at IS NULL
              )
              SELECT *
              FROM ranked
-             WHERE rn = 1
+             WHERE rn = 1 AND closed_at IS NULL
              ORDER BY pane_index ASC`,
           )
           .all(workspaceId) as RawSessionRow[];

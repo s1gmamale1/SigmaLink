@@ -32,6 +32,10 @@ interface AgentSessionRow {
   exited_at: number | null;
   external_session_id: string | null;
   pane_index: number | null;
+  // Task 1 (v2.9.1) — deliberate-close marker. The ranked CTE now filters this
+  // AFTER picking the per-slot winner (rank-then-filter), so a closed newest
+  // row hides its slot instead of un-shadowing an older ghost.
+  closed_at: number | null;
 }
 
 // ─── Fake DB (mirrors the JOIN shape introduced by v1.3.1) ───────────────────
@@ -55,7 +59,10 @@ function buildFakeDb(rows: AgentSessionRow[]) {
           const scoped = rows.filter(
             (r) => r.workspace_id === wsId && r.pane_index !== null,
           );
-          // Group by pane_index → deterministic owner per group.
+          // Group by pane_index → deterministic owner per group. RANK-THEN-
+          // FILTER (Task 1): rank ALL rows (closed included) to pick each slot's
+          // newest owner, THEN drop the slot when that winner is closed. Mirrors
+          // `WHERE rn = 1 AND closed_at IS NULL` in the outer select.
           const latestPerPane = new Map<number, AgentSessionRow>();
           for (const r of scoped) {
             const existing = latestPerPane.get(r.pane_index as number);
@@ -63,9 +70,9 @@ function buildFakeDb(rows: AgentSessionRow[]) {
               latestPerPane.set(r.pane_index as number, r);
             }
           }
-          const ordered = [...latestPerPane.values()].sort(
-            (a, b) => (a.pane_index ?? 0) - (b.pane_index ?? 0),
-          );
+          const ordered = [...latestPerPane.values()]
+            .filter((r) => r.closed_at === null)
+            .sort((a, b) => (a.pane_index ?? 0) - (b.pane_index ?? 0));
           return ordered.map((r) => ({
             paneIndex: r.pane_index as number,
             providerId: r.provider_id,
@@ -102,6 +109,7 @@ function lastResumePlan(
              s.pane_index AS paneIndex,
              s.provider_id AS providerId,
              s.external_session_id AS externalSessionId,
+             s.closed_at,
              ROW_NUMBER() OVER (
                PARTITION BY s.workspace_id, s.pane_index
                ORDER BY
@@ -114,7 +122,7 @@ function lastResumePlan(
          )
          SELECT paneIndex, providerId, externalSessionId
          FROM ranked
-         WHERE rn = 1
+         WHERE rn = 1 AND closed_at IS NULL
          ORDER BY paneIndex ASC`,
       )
       .all(workspaceId);
@@ -137,6 +145,7 @@ function row(
   providerId: string,
   externalSessionId: string | null,
   startedAt: number,
+  closedAt: number | null = null,
 ): AgentSessionRow {
   sessionCounter += 1;
   return {
@@ -151,6 +160,7 @@ function row(
     exited_at: startedAt + 1000,
     external_session_id: externalSessionId,
     pane_index: paneIndex,
+    closed_at: closedAt,
   };
 }
 
@@ -313,6 +323,39 @@ describe('lastResumePlan — pane plan derivation', () => {
       paneIndex: 0,
       providerId: 'codex',
       sessionId: 'ext-high',
+    });
+  });
+
+  // Task 1 (v2.9.1) — ghost-pane resurrection. Slot 0 reused: an OLDER open row
+  // (closed_at NULL, exited) plus a NEWER deliberately-closed row. Rank-then-
+  // filter picks the newest row as the slot winner, sees it is closed, and DROPS
+  // the whole slot. The buggy filter-inside-CTE shape excluded the closed newest
+  // row before ranking, letting the older open row resurrect as a red tile.
+  it('a slot whose NEWEST row is closed hides its slot (no older-ghost resurrection)', () => {
+    const db = buildFakeDb([
+      // Older row — still open (closed_at NULL), exited.
+      row('ws-ghost', 0, 'claude', 'ext-old-open', 1_700_000_800_000, null),
+      // Newer row — deliberately closed. This is the slot winner and is closed,
+      // so the slot must NOT appear.
+      row('ws-ghost', 0, 'claude', 'ext-new-closed', 1_700_000_900_000, 1_700_000_950_000),
+    ]);
+    const result = lastResumePlan(db, 'ws-ghost');
+    expect(result).toEqual([]);
+  });
+
+  // A slot whose newest (winning) row is OPEN still appears, even when older
+  // rows in the same slot are closed — closed history must not hide a live slot.
+  it('a slot whose NEWEST row is open still appears despite closed older rows', () => {
+    const db = buildFakeDb([
+      row('ws-mix', 0, 'claude', 'ext-old-closed', 1_700_001_000_000, 1_700_001_050_000),
+      row('ws-mix', 0, 'claude', 'ext-new-open', 1_700_001_100_000, null),
+    ]);
+    const result = lastResumePlan(db, 'ws-mix');
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      paneIndex: 0,
+      providerId: 'claude',
+      sessionId: 'ext-new-open',
     });
   });
 });
