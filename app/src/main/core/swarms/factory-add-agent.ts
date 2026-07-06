@@ -101,17 +101,25 @@ export async function addAgentToSwarm(
     // so count a row only while its pane is live. Rows with no sessionId yet
     // (a concurrent add mid-spawn) stay counted so parallel adds cannot
     // overshoot the cap; rows whose session was hard-deleted do not.
-    const closedAtStmt = raw.prepare('SELECT closed_at FROM agent_sessions WHERE id = ?');
+    // Task 3 — also read status + exit_code so the cap excludes terminal
+    // non-resumable panes (clean exits + crashes keep closed_at NULL forever).
+    const closedAtStmt = raw.prepare(
+      'SELECT closed_at, status, exit_code FROM agent_sessions WHERE id = ?',
+    );
     const agentPaneCount = countLiveAgentPanes(
       agentRows.map((a) => {
         const sess = a.sessionId
-          ? (closedAtStmt.get(a.sessionId) as { closed_at: number | null } | undefined)
+          ? (closedAtStmt.get(a.sessionId) as
+              | { closed_at: number | null; status: string; exit_code: number | null }
+              | undefined)
           : undefined;
         return {
           providerId: a.providerId,
           closedAt: resolvePaneClosedAt(
             a.sessionId ?? null,
-            sess ? { closedAt: sess.closed_at ?? null } : undefined,
+            sess
+              ? { closedAt: sess.closed_at ?? null, status: sess.status, exitCode: sess.exit_code ?? null }
+              : undefined,
           ),
         };
       }),
