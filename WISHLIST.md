@@ -56,6 +56,13 @@ _(real upgrades to build once the current system is production-grade)_
 
 _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
+### Pane→workspace DB-lifecycle audit residue (2026-07-05, Fable deep audit; the 4 confirmed bugs shipped on `fix/pane-db-lifecycle`)
+
+- 🐞 **[med, latent] duplicate exited/-1 rows on one pane slot → boot-resume UNIQUE throw marks the NEWEST pane failed + leaks its PTY** — allocator ignores non-live rows (`pane-slots.ts:22-42`) so exited/-1 slots get reused; `listEligibleRows` returns both duplicates (`resume-launcher.ts:334-360`); the loser's `markResumeRunning` hits `agent_sessions_ws_pane_uq` AFTER its PTY spawned (`resume-launcher.ts:286-291`, spawn at `:760-765`), catch marks exited/-1 with NO pty kill (`:782-791`) → headless CLI + a respawn toast that then hits the registry duplicate-live guard. Fix: dedup eligible rows per pane_index (newest started_at wins) before the spawn loop + kill the spawned PTY in the catch. Effort: M.
+- 🐞 **[re-ranked MED, was low] `handleRelaunch` has no close-write** (`CommandRoom.tsx:281-304`) — the audit showed this is NOT cosmetic: each crash+Relaunch cycle used to leak a cap slot AND feed slot-reuse resurrection. The shipped rank-then-filter + terminal-liveness fixes mask the visible symptoms, but the old row still lingers unclosed; stamping `closed_at` on relaunch is the clean invariant. Effort: S.
+- 🧹 **[low] workspace removal leaks satellite state** — `removeWorkspace` (`factory.ts:461-509`) / `removeWorkspaceAndGc` (`cleanup.ts:284-377`) delete only `agent_sessions` + `workspaces`; `swarms`/`swarm_agents`/`swarm_messages`, `browser_tabs`, `memories`, `tasks`, `conversations`, `notifications`, and per-ws KV (`panegrid.<id>`, `workspace.worktreeMode.<id>`, `workspace.swarmTeardownPolicy.<id>`, sidebar color) all leak. DB-growth hygiene only (UUID ids never reused → restore-safe). Effort: S-M.
+- 🎨 **[nit] landing Alpha badge ~2.5:1 on cupertino-light** — #220 improved it from ~1.6:1 but 9px bold text still sits under the 4.5:1 AA bar through the 30% wash; bump shade or size if strict AA on micro-labels is wanted (`LauncherLanding.tsx:116`). Effort: XS.
+
 ### Round-3 notification review residue (PR #217 review, 2026-07-03)
 
 _All Minor; #217 merged GREEN (95/100). Park for a later polish pass._
