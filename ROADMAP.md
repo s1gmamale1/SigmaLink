@@ -4,7 +4,7 @@ SigmaLink is an Electron desktop workspace for launching and coordinating live C
 
 This ROADMAP is the single source of truth for what to build next.
 
-> **Release status (2026-06-18).** Phases 1–18 have all SHIPPED — their permanent record lives in CHANGELOG + master memory + Ruflo; the shipped phase bodies have been cleared from this doc, which is the ephemeral *next-up* whiteboard, not an archive. Released through **v2.7.1** (`9dbc833`). **Merged on `main`, not yet released (the next tag bundles them all):** pane crash isolation (#179) · first-class Linux Ubuntu x64 support (#180) · pane focus + click-flicker fix (Phase 18, #182) · v2.7.2 prep / default-theme revert to 'glass' (#183) · file-viewer create/delete/rename/move (#184) · pane auto-scroll + jump-to-bottom (#185) · provider-aware Shift+Enter (#187) · **External Control MCP — external-agent control plane: Phase 1 gateway + Phase 2 human-parity surface (#188, CI-green; standalone bridge published at [s1gmamale1/Sigma-Control](https://github.com/s1gmamale1/Sigma-Control))**. ⚠️ If the next tag is the **maiden Linux release**, `workflow_dispatch`-run `release-linux.yml` first — the Linux packaging path has never executed in CI (see the 2026-06-17 findings in [WISHLIST.md](WISHLIST.md)).
+> **Release status (2026-07-07).** Phases 1–18 have all SHIPPED (permanent record in CHANGELOG + master memory + Ruflo); Phase 17 (theme families) shipped in **v2.9.1** (`fa96ef2`, 2026-07-05, #212–#221, all platforms green). Released through **v2.9.1**. The doc is the ephemeral *next-up* whiteboard, not an archive. **Current arc: the Jorvis Persistent Operator (Phases 19–22)** — spec `app/docs/superpowers/specs/2026-07-07-jorvis-persistent-operator-design.md`, grounded by the 2026-07-07 five-lane recon (findings in [WISHLIST.md](WISHLIST.md)).
 
 ---
 
@@ -19,7 +19,94 @@ This ROADMAP is the single source of truth for what to build next.
 
 ## Open / next work
 
-Everything previously sequenced here (Phases 1–18) has shipped (Phase 18 — pane focus + click-flicker — landed in #182; External Control MCP, a major new external-agent control surface, shipped via #188 and is recorded in CHANGELOG + master memory, not re-listed here as it was never a sequenced phase). One scoped item remains:
+The Jorvis Persistent Operator arc (Phases 19–22, sequenced below, do in order) + one older scoped leftover (Phase 13 Part B).
+
+## Phase 19 — Jorvis P0: reliability foundation
+
+**Goal.** Jorvis is trustworthy day-to-day: no silent turn deaths, no mystery breakage after a CLI update, a fresh session is one action away.
+
+**Deliverables.**
+- Main-side per-conversation concurrent-turn guard (defined `busy` result; never a second `claude` child).
+- Error rows in the transcript for every failure path (spawn fail / CLI exit / tool timeout / resume exhausted) + retry affordance; interrupted-turn banner extended to CLI-death.
+- Envelope tolerance + recorded-fixture contract tests across claude CLI versions + a `claude --version` boot probe surfaced in diagnostics.
+- "New session" action (app) + `/new` (Telegram): clears `claudeSessionId`, keeps transcript.
+- Ride-along wishlist fixes: wire-or-delete orphan `assistant:security`; `resumeHint` schema stub; `refResolve` through path-guard; stale "13 tools"/test-title comments; kill the stale `docs/03-plan/WISHLIST.md` twin.
+
+**Why now.** Operator verdict: Jorvis is unused because inconsistent — everything else in this arc is dark until turns are reliable. Lane zero.
+
+**Scope.** Turn guard at `app/src/main/core/assistant/controller.ts:178,422` (`activeTurns` + `send()`); error paths in `runClaudeCliTurn.ts:266-282,379-393` + `runClaudeCliTurn.trajectory.ts:220-233`; envelope parsing `cli-envelope.ts:72-80`; fresh-session on `conversations.ts:85-103` (`setClaudeSessionId(null)`); orphan event at `controller.ts:189` vs `shared/rpc-channels.ts` EVENTS; `refResolve` at `controller.ts:780-839` through `core/security/path-guard.ts:91-116`; schema stub in `core/rpc/schemas.ts:952-955`.
+
+**Findings + recommendation.** 2026-07-07 recon confirmed all targets with file:line receipts; every fix is a bounded change to an existing hardened path — no new architecture. Do this as one PR.
+
+**Risks.** Envelope-tolerance behavior change could mask real protocol errors — mitigate: log+surface unknown subtypes in diagnostics, never swallow. Turn guard must not break the Telegram/external origins that legitimately send while the app chat idles — guard is per-conversation, not global.
+
+**Definition of done.** Two rapid sends → one child + a defined busy result (test); every induced failure (kill the CLI mid-turn, break the binary path, time out a tool) produces a visible transcript error row; fixture tests pass against ≥2 recorded CLI envelope versions; `/new` + app "New session" verified live; full local gate (tsc -b / vitest / `eslint .` / build) + CI green.
+
+## Phase 20 — Jorvis P1: mission core (kanban + supervisor loop)
+
+**Goal.** The operator hands Jorvis a natural-language goal; Jorvis decomposes it onto a kanban board, dispatches worktree-isolated panes, and drives them to done/blocked without per-step human involvement.
+
+**Deliverables.**
+- Migrations: `missions`, `mission_tasks` (indexed `(mission_id,status)` + `(assignee_session_id)`), `mission_events` (append-only timeline).
+- `core/missions/state.ts` — pure lifecycle state machine + rollups, fully unit-tested.
+- `core/missions/dao.ts` — board reads/writes.
+- Mission tools in `tools.ts`/`tool-catalogue.ts`: `mission_board`, `dispatch_task`, `complete_task`, `block_task`, `update_task` (catalogue-parity extended).
+- `core/operator/supervisor.ts` — decompose wake → deterministic watch (existing pane-event/notification sinks) → review wake (advance / done / blocked) → mission report.
+- `core/operator/scheduler.ts` — wake queue, global brain lock, per-day budget + quiet hours (KV).
+- Missions room (renderer): kanban columns, mission list, per-task detail (linked pane, worktree, timeline, report).
+- Stub-CLI e2e: fake `claude` binary drives a full mission through the board, zero tokens.
+
+**Why now.** The headline capability — "/goal but better, self-aware, human commanding a fleet." Requires Phase 19 (a supervisor on an unreliable turn engine is noise).
+
+**Scope.** Watch hooks ride `rpc-router.ts:957-963` (`onPaneEvent`) + the notification sinks; dispatch wraps `launch_pane` (`tools.ts:427-485`) with worktree isolation + task↔pane linking; review turns use `read_pane` (`tools.ts:552-588`); board manipulated only through the new audited tools; origin `'autonomous'` threaded through `invokeAssistantTool` (`controller.ts:219-420`).
+
+**Findings + recommendation.** SigmaLink already has the substrate: pane events, `monitor_pane`, `prompt_agent`/`read_pane`, swarms, notification sinks — the new work is the board (pure data), the loop (deterministic), and the wake scheduler. The brain stays behind `assistant.send`; no new model-spawning path. Absorb-or-bridge the existing `create_task` TasksManager decided at plan time.
+
+**Risks.** Runaway wake loops (a flapping pane re-enqueueing forever) — mitigate: per-task attempt cap + budget hard-stop + dedupe on enqueue. Review-verdict quality — bounded review (spec vs receipts), escalate on uncertainty rather than loop. New tables = sync-engine mirror-site discipline (`core/sync/engine.ts:66-77` + `dirty-tracker.ts:13,44`).
+
+**Definition of done.** Stub-CLI e2e runs a 3-task mission to `done` with zero human input; a deliberately-failing task lands `blocked` with an escalation notification; board UI reflects every transition live; wake budget hard-cap test passes; full local gate + CI green.
+
+## Phase 21 — Jorvis P2: persistent identity (memory · charter · self-evolution)
+
+**Goal.** Jorvis remembers across sessions and projects, operates under the Sigma-Profile charter, and grows competence via postmortems + playbooks — with prompt amendments only behind operator approval.
+
+**Deliverables.**
+- Global operator scope: workspace-less operator conversation + portfolio-injecting system prompt v2.
+- Sigma-Profile `jorvis` render target (cross-repo: `Sigma-Profile/core/targets.json`) bundled + loaded as the base persona (KV-overridable), replacing the inline persona in `system-prompt.ts:147-161`.
+- `jorvis_memory` table (kind fact|playbook|preference|postmortem, FTS-indexed) + `core/operator/memory.ts` + tools `remember`/`recall`/`update_memory`/`forget`.
+- `core/operator/context.ts` — wake-time assembly: board slice + top-K memories + portfolio under a token budget.
+- Postmortem-on-completion learning loop; Ruflo stays the fail-soft semantic layer (sqlite is ground truth).
+- `propose_amendment` tool + `jorvis_amendments` proposals + approve/deny (app + Telegram) → approved text appends after the charter.
+
+**Why now.** This is the "persistent, self-evolving" half of the vision; needs Phase 20's mission loop to have something to learn from.
+
+**Scope.** Conversation scope against `conversations` schema (`db/schema.ts:523-539`); prompt assembly in `system-prompt.ts` + `runClaudeCliTurn.args.ts:53-68`; memory tools join the catalogue (parity tests); charter loader with bundled-fallback.
+
+**Findings + recommendation.** Sigma-Profile already renders a Hermes operator target from one canonical charter — adding `jorvis` is the designed-for path (no copy-paste drift). Cross-session continuity = durable memory + board state reconstructed at wake, per the locked runtime decision.
+
+**Risks.** Context-budget creep (memories + portfolio + board slice can bloat every wake) — hard token budget in the assembler, tested. Charter render drift — pin the render, verify with Sigma-Profile's `--check` drift gate. Amendment injection is a prompt-surface change — approval gate + audit row per amendment.
+
+**Definition of done.** App restart → Jorvis recalls a fact + a playbook from before; a repeated mission demonstrably consults the prior postmortem; persona verifiably = the Sigma-Profile render; an amendment takes effect only after approval and is auditable; full local gate + CI green.
+
+## Phase 22 — Jorvis P3: channels (Telegram cockpit + external mission plane)
+
+**Goal.** The operator runs multi-project missions entirely from Telegram (with proactive reports pushed to them), and external Hermes/OpenClaw agents submit natural-language orders that Jorvis executes and reports on — absorbing SigmaControl.
+
+**Deliverables.**
+- Telegram v2 commands: `/mission`, `/status`, `/tasks`, `/new`, `/approve|/deny`, `/panes`, `/workspaces` (+ existing `/lock|/unlock`).
+- Proactive pushes through the existing scrub pipeline: mission done/blocked, escalations, amendment proposals, scheduled daily brief.
+- External mission plane on the control MCP: `submit_task` → missionId, `check_task` → status+timeline, `get_report` → final report; raw perception tools unchanged (two-plane).
+- Sigma-Control bridge bump (cross-repo: protocol + tool set in lockstep).
+
+**Why now.** Channels are thin adapters over Phases 20–21's mission/memory core — building them earlier would mean building them twice.
+
+**Scope.** Telegram in `core/remote/bridge.ts:379-443` (command routing before the assistant fallthrough) + outbound via `safety.ts:230-260`; external tools in `core/control/` + catalogue (discovery-filter untouched, `control-mcp-host.ts:178-196`); autonomous-origin escalations reuse `pending-escalations.ts` → Telegram confirm.
+
+**Findings + recommendation.** The R-1 bridge's safety pipeline (allowlist, lock, rate-limit, scrub, audit) is solid per recon — v2 adds commands + pushes, not a rewrite. Two-plane keeps existing Sigma-Control clients working.
+
+**Risks.** Telegram push volume (mission chatter → spam) — digest/throttle policy + severity gating. External mission abuse — kill-switch freezes wakes+dispatches; missions carry `client_label`; dangerous ops inside missions still escalate. Cross-repo bridge bump can drift — version-negotiate (`SIGMA_CONTROL_PROTOCOL` finally validated).
+
+**Definition of done.** A real multi-project mission is submitted, monitored, approved-at-an-escalation, and reported — phone only; an external MCP client (subagent-as-client smoke) submits an order and polls the final report; perception tools verified model-free; full local gate + CI green.
 
 ## Phase 13 (Part B) — Recently-closed panes (reopen)
 
@@ -41,31 +128,6 @@ Everything previously sequenced here (Phases 1–18) has shipped (Phase 18 — p
 **Definition of done.** Operator closes a pane by mistake, opens "Recently closed", clicks it, and the pane returns live; reaped rows age out of the list on the normal window; full local gate (`tsc -b`/vitest/eslint/build) + CI e2e-matrix green.
 
 _(Unscoped future enhancements, deferrals, and out-of-scope review findings — including the 2026-06-17 pre-release findings for #179/#180 — are parked in [WISHLIST.md](WISHLIST.md).)_
-
----
-
-## Phase 17 — Theme families: Aurora + Cupertino (+ per-theme terminal palettes)
-
-> ✅ **SHIPPED in PR #214 `3440e47` (2026-07-03)** — sigma-check GREEN (score 95, CI 6/6, security clean), operator live-verified (families, live terminal recolor, luminous orb). Unreleased — rides the next tag. Review minors + deferred extensions parked in [WISHLIST.md](WISHLIST.md) under `[themes]`.
-
-**Goal.** Two new material theme families — not color swaps — and a theme that finally governs the WHOLE surface: chrome, panes, and terminal content recolor together.
-
-**Deliverables.**
-- `app/src/styles/aurora-material.css` — sigma-designs living light: breathing blooms-on-velvet atmosphere, 4-independent-light rim on the focused pane, asymmetric attention flare; reduced-motion/transparency collapse.
-- `app/src/styles/cupertino-material.css` — apple-design HIG light-first: chrome-only frost, hairlines, one systemBlue accent, crisp focus ring; ≤300ms motion budget.
-- `app/src/renderer/lib/terminal-palette.ts` — `TerminalPalette` per theme (xterm + DOM presenter both read it; live re-color of open terminals on switch; light terminals for cupertino-light/parchment/clean-light; dark legacy byte-identical).
-- 5 registry entries (`aurora`/`aurora-ember`/`aurora-ice`/`cupertino-light`/`cupertino-dark`) in `app/src/renderer/lib/themes.ts` + token blocks in `app/src/index.css`.
-- Extended all-themes xterm↔DOM parity test.
-
-**Why now.** Operator-requested (2026-07-02); the existing 15 themes reduce to 2 material families + hue swaps, and terminals ignore theming entirely — the single biggest "themes feel cosmetic" gap.
-
-**Scope.** Per the implementation plan `app/docs/superpowers/plans/2026-07-03-theme-families-aurora-cupertino.md` (Tasks 1–10): palette lib → registry → xterm live-apply (`terminal-cache.ts:174,240`) → DOM presenter active-palette reads (`ansi-palette.ts`, presenters remount on epoch) → ThemeProvider pairing → token blocks + chrome-tint exclusions (`index.css:183,831`) → the two material files → full gate.
-
-**Findings + recommendation.** Recon 2026-07-02: mature `data-theme` plumbing (registry/gallery/KV) makes families cheap to add via the proven `[data-theme^='family']` material pattern (glass-material.css); the terminal gap traces to two hardcoded constants with a byte-parity test between them — moving both onto one `TerminalPalette` source makes parity structural. Spec: `app/docs/superpowers/specs/2026-07-02-theme-families-aurora-cupertino-design.md`.
-
-**Risks.** Living-rim GPU cost (bounded: focused pane only, `@property` angle animation, pauses on window blur; live-dial verify); light-terminal legibility (GitHub-Light-derived ANSI, not naive inversion); the palette map is a new mirror surface (extended parity test is the guard); presenter remount on theme switch snaps scroll to tail (rare path, documented).
-
-**Definition of done.** Operator switches to each new theme and sees the family material (aurora rim alive with 4 mixed-direction lights; cupertino frost + hairlines) AND an OPEN terminal recolors live; parity test passes for all 20 themes; existing dark themes render byte-identically; full local gate (`tsc -b`/vitest/`eslint .`/build) + CI green. Deferred extensions (macOS vibrancy, window-chrome bg sync, SFX, extra variants) parked in WISHLIST.
 
 ---
 
@@ -101,11 +163,17 @@ _(Unscoped future enhancements, deferrals, and out-of-scope review findings — 
 ### ADR-010 — Linux support contract: AppImage+deb x64 only, manual update, user-owned CLI installs
 **Decision.** Ship Linux as Ubuntu 22.04/24.04 x64 via AppImage + deb only; auto-update is a manual download + reveal-in-folder (no in-place apply); provider CLI installs are rewritten to a user-owned npm prefix (`$HOME/.npm-global`) / pipx-first python (never sudo). **Context.** Linux was BACKLOG WONTFIX; electron-updater cannot safely re-apply an AppImage/deb in place; global npm/pip installs otherwise need root or pollute system dirs; Wayland has no reliable paste-injection. **Consequences.** (+) A real, CI-gated Linux target with predictable install/update UX and no sudo for CLIs. (+) mac/win paths untouched (third branch per seam, independently unit-tested). (−) No snap/flatpak/rpm/arm64, no auto-apply updates, Wayland gets clipboard-fallback only — all explicit non-goals.
 
+### ADR-011 — SigmaLink hosts the operator brain (Jorvis); external agents submit missions, not thoughts
+**Decision.** Reverse the 2026-06-18 "SigmaLink hosts no agent brain" stance: Jorvis becomes a persistent, event-driven operator brain hosted by SigmaLink — a deterministic always-on nervous system (`core/operator/`) that wakes the model only on significant events, over a global (workspace-less) conversation with durable DB memory. External agents interact **two-plane**: raw perception tools stay deterministic/model-free; judgment work goes through the mission plane (`submit_task`/`check_task`/`get_report`). The dropped Hermes-supervisor (hosting an *external* brain process) stays dropped. **Context.** The 2026-06-18 reversal ("just expose tools, like Unity/Blender MCP") was about not hosting *someone else's* runtime; the 2026-07-07 operator decision is that SigmaLink's *own* assistant grows into the resident operator ("human commanding a fleet") — the two are compatible: Hermes/OpenClaw remain plain MCP clients, but now they can hand the resident brain natural-language orders. An always-on hot model process and PTY-as-API long-lived sessions were rejected (cost, fragility per the interactive-parity findings); persistence lives in the DB (missions board + memory), context is reassembled at wake. **Consequences.** (+) Autonomous multi-pane development with zero new model-spawning paths (everything rides `assistant.send` + the audited tool layer). (+) Cross-session/cross-project continuity without a hot process. (+) Existing Sigma-Control clients keep working (two-plane). (−) A new `autonomous` origin + wake scheduler + budget become security-critical surfaces. (−) The brain's quality depends on wake-time context assembly — a new tunable to get right.
+
 ---
 
 ## Effort / impact table
 
 | Item | Phase | Effort | Impact | Notes |
 |------|-------|--------|--------|-------|
+| Jorvis P0 reliability foundation | Phase 19 | M | High | Lane zero — everything else in the arc is dark until turns are trustworthy. One PR. |
+| Jorvis P1 mission core (kanban + supervisor loop) | Phase 20 | XL | High | The headline: autonomous fleet-driving dev. Requires Phase 19. Stub-CLI e2e keeps it token-free in CI. |
+| Jorvis P2 persistent identity (memory · charter · self-evolution) | Phase 21 | L | High | Cross-session/cross-project continuity + Sigma-Profile charter + approval-gated amendments. Requires Phase 20. |
+| Jorvis P3 channels (Telegram cockpit + external mission plane) | Phase 22 | L | High | Phone-first operation + absorbs SigmaControl (two-plane). Requires Phases 20–21. Cross-repo bridge bump. |
 | Recently-closed panes (listClosed + reopen + UI) | Phase 13 (Part B) | M | Medium | Recoverable accidental close; mirrors browser-tab recents; reuses Part A's `closed_at` + `listRecents` surface (ADR-007). |
-| Theme families Aurora + Cupertino + per-theme terminal palettes | Phase 17 | L | Medium | Spec 2026-07-02 + plan 2026-07-03; branch `feat/theme-families-aurora-cupertino`; terminal follow-through is the structural win. |
