@@ -554,17 +554,6 @@ async function buildRouter() {
     cwd: string,
   ): void {
     if (!DISK_SCAN_PROVIDERS.has(providerId.toLowerCase())) return;
-    // Look up the workspace_id for this session so the disk scanner can
-    // scope its capture to the correct workspace.
-    let workspaceId: string | undefined;
-    try {
-      const wsRow = getRawDb()
-        .prepare('SELECT workspace_id FROM agent_sessions WHERE id = ?')
-        .get(sessionId) as { workspace_id: string } | undefined;
-      workspaceId = wsRow?.workspace_id;
-    } catch {
-      /* pre-migration DB; scanner will fall back to unscoped behaviour */
-    }
     let stopped = false;
     const attempt = async () => {
       if (stopped) return;
@@ -577,6 +566,21 @@ async function buildRouter() {
       if (rec.externalSessionId && rec.externalSessionId.length > 0) {
         stopped = true;
         return;
+      }
+      // Task 4 — resolve the workspace_id at ATTEMPT time, not schedule time.
+      // The capture hook fires inside registry.create, which runs BEFORE the
+      // agent_sessions INSERT, so a schedule-time lookup returned undefined and
+      // findLatestSessionId's cross-workspace claim guard was dead on every
+      // fresh spawn. Attempts run at +2s/+5s/+15s, safely after the INSERT, so
+      // the lookup resolves and the scanner scopes capture to this workspace.
+      let workspaceId: string | undefined;
+      try {
+        const wsRow = getRawDb()
+          .prepare('SELECT workspace_id FROM agent_sessions WHERE id = ?')
+          .get(sessionId) as { workspace_id: string } | undefined;
+        workspaceId = wsRow?.workspace_id;
+      } catch {
+        /* pre-migration DB; scanner will fall back to unscoped behaviour */
       }
       try {
         const captured = await findLatestSessionId(providerId, cwd, { workspaceId });
@@ -1676,11 +1680,16 @@ async function buildRouter() {
       try {
         const rows = getRawDb()
           .prepare(
+            // Task 1 (v2.9.1) — RANK-THEN-FILTER. Rank ALL rows per slot
+            // (rn = 1 = newest per slot), THEN drop the slot when its winner is
+            // closed. Filtering closed_at inside the CTE let a closed newest row
+            // un-shadow an older open row in the same slot → ghost resurrection.
             `WITH ranked AS (
                SELECT
                  s.pane_index AS paneIndex,
                  s.provider_id AS providerId,
                  s.external_session_id AS externalSessionId,
+                 s.closed_at,
                  ROW_NUMBER() OVER (
                    PARTITION BY s.workspace_id, s.pane_index
                    ORDER BY
@@ -1690,11 +1699,10 @@ async function buildRouter() {
                  ) AS rn
                FROM agent_sessions s
                WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
-                 AND s.closed_at IS NULL
              )
              SELECT paneIndex, providerId, externalSessionId
              FROM ranked
-             WHERE rn = 1
+             WHERE rn = 1 AND closed_at IS NULL
              ORDER BY paneIndex ASC`,
           )
           .all(workspaceId) as Array<{
@@ -1738,9 +1746,21 @@ async function buildRouter() {
           display_provider_id: string | null;
           // BSP-O4 — operator-supplied display name (migration 0036).
           name: string | null;
+          // Task 2 (v2.9.1) — the SELECT is `s.*` but the mapping previously
+          // dropped these, so a redock/dispatch-echo refetch replaced the live
+          // in-memory session with a field-stripped row and ADD_SESSIONS
+          // (whole-object map.set) wiped the split/minimised annotations.
+          minimised: number;
+          split_group_id: string | null;
+          split_direction: string | null;
+          split_index: number | null;
+          auto_approve: number;
         }
         const rows = getRawDb()
           .prepare(
+            // Task 1 (v2.9.1) — RANK-THEN-FILTER (mirror of lastResumePlan). The
+            // `s.*` projection already carries closed_at into the ranked CTE, so
+            // the outer WHERE drops a slot only after its newest row won rn = 1.
             `WITH ranked AS (
                SELECT
                  s.*,
@@ -1753,11 +1773,10 @@ async function buildRouter() {
                  ) AS rn
                FROM agent_sessions s
                WHERE s.workspace_id = ? AND s.pane_index IS NOT NULL
-                 AND s.closed_at IS NULL
              )
              SELECT *
              FROM ranked
-             WHERE rn = 1
+             WHERE rn = 1 AND closed_at IS NULL
              ORDER BY pane_index ASC`,
           )
           .all(workspaceId) as RawSessionRow[];
@@ -1776,6 +1795,15 @@ async function buildRouter() {
           runtimeProfileId: r.runtime_profile_id ?? 'ruflo-core',
           displayProviderId: r.display_provider_id ?? null,
           name: r.name ?? null,
+          // Task 2 (v2.9.1) — mirror loadAgentSession (factory-spawn.ts) so a
+          // refetch carries split/minimised/autoApprove instead of stripping
+          // them. snake→camel + null handling identical to the drizzle mapper.
+          minimised: !!r.minimised,
+          splitGroupId: r.split_group_id ?? null,
+          splitDirection:
+            (r.split_direction as 'horizontal' | 'vertical' | null) ?? null,
+          splitIndex: r.split_index ?? null,
+          autoApprove: !!r.auto_approve,
         }));
       } catch {
         return [];

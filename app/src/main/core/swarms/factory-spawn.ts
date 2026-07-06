@@ -809,7 +809,14 @@ export function loadSwarm(swarmId: string): Swarm | null {
         agentKey: r.agentKey,
         closedAt: resolvePaneClosedAt(
           r.sessionId ?? null,
-          sess ? { closedAt: sess.closedAt ?? null } : undefined,
+          sess
+            ? {
+                closedAt: sess.closedAt ?? null,
+                // Task 3 — terminal non-resumable sessions don't hold cap budget.
+                status: sess.status,
+                exitCode: sess.exitCode ?? null,
+              }
+            : undefined,
         ),
       };
     }),

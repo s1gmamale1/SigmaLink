@@ -48,6 +48,37 @@ describe('rpc-router production wiring — notifications sink threaded to spawn 
   });
 });
 
+// Task 4 (v2.9.1) — disk-scan capture must resolve workspace_id at ATTEMPT
+// time, not at schedule time. The capture hook fires inside registry.create,
+// which runs BEFORE the agent_sessions INSERT, so a schedule-time lookup
+// returned undefined → findLatestSessionId's cross-workspace claim guard was
+// dead on every fresh spawn (a pane in workspace B could capture workspace A's
+// session id when cwds are shared). Moving the lookup into the retry closure
+// (attempts run +2s/+5s/+15s, after the INSERT) revives the guard.
+//
+// rpc-router.ts can't be unit-instantiated (boots better-sqlite3), so this is a
+// source-position guard scoped to the scheduleDiskScanCapture function body.
+describe('rpc-router disk-scan capture — workspace resolved at attempt time', () => {
+  const fnStart = ROUTER_SRC.indexOf('function scheduleDiskScanCapture');
+  // The function body is well under 2500 chars and the only other
+  // `SELECT workspace_id FROM agent_sessions` in the file sits BEFORE fnStart,
+  // so the slice is unambiguous.
+  const slice = ROUTER_SRC.slice(fnStart, fnStart + 2500);
+
+  it('scheduleDiskScanCapture exists', () => {
+    expect(fnStart).toBeGreaterThanOrEqual(0);
+  });
+
+  it('resolves workspace_id INSIDE the attempt() closure, not at schedule time', () => {
+    const attemptIdx = slice.indexOf('const attempt = async');
+    const lookupIdx = slice.indexOf('SELECT workspace_id FROM agent_sessions');
+    expect(attemptIdx).toBeGreaterThanOrEqual(0);
+    expect(lookupIdx).toBeGreaterThanOrEqual(0);
+    // The lookup must open AFTER the attempt closure so it runs post-INSERT.
+    expect(lookupIdx).toBeGreaterThan(attemptIdx);
+  });
+});
+
 // RC5 — Guard: every broadcast('literal') in rpc-router.ts must be in EVENTS.
 // The preload bridge silently no-ops renderer subscriptions to events not in
 // EVENTS, so a missing entry means the renderer never receives the event.

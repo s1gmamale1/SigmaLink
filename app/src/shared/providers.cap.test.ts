@@ -55,4 +55,82 @@ describe('resolvePaneClosedAt', () => {
   it('session deliberately closed → its closed_at passes through', () => {
     expect(resolvePaneClosedAt('sess-1', { closedAt: 42 })).toBe(42);
   });
+
+  // Task 3 (v2.9.1) — terminal + non-resumable sessions are dead weight on the
+  // 20-agent cap. A clean exit or crash leaves closed_at NULL forever (the
+  // renderer GC only dispatches REMOVE_SESSION), so counting closed_at alone let
+  // each crash+Relaunch leak a cap slot. Treat status IN ('exited','error') AND
+  // exit_code !== -1 as non-live by resolving a synthetic close marker.
+  it('terminal exited/0 session → non-live (synthetic close marker)', () => {
+    expect(
+      resolvePaneClosedAt('sess-1', { closedAt: null, status: 'exited', exitCode: 0 }),
+    ).not.toBeNull();
+  });
+
+  it('terminal error session → non-live', () => {
+    expect(
+      resolvePaneClosedAt('sess-1', { closedAt: null, status: 'error', exitCode: 1 }),
+    ).not.toBeNull();
+  });
+
+  // CRITICAL invariant — exit_code === -1 is killed-at-quit (resume-eligible).
+  // These MUST stay live or boot-resume over-admits agents whose slots
+  // resurrect on the next launch.
+  it('exited/-1 (killed-at-quit, resume-eligible) → still live', () => {
+    expect(
+      resolvePaneClosedAt('sess-1', { closedAt: null, status: 'exited', exitCode: -1 }),
+    ).toBeNull();
+  });
+
+  it('error/-1 (killed-at-quit) → still live', () => {
+    expect(
+      resolvePaneClosedAt('sess-1', { closedAt: null, status: 'error', exitCode: -1 }),
+    ).toBeNull();
+  });
+
+  it('running / starting sessions → live regardless of exit_code', () => {
+    expect(
+      resolvePaneClosedAt('sess-1', { closedAt: null, status: 'running', exitCode: null }),
+    ).toBeNull();
+    expect(
+      resolvePaneClosedAt('sess-1', { closedAt: null, status: 'starting', exitCode: null }),
+    ).toBeNull();
+  });
+
+  it('an explicit deliberate close still wins over the terminal rule', () => {
+    expect(
+      resolvePaneClosedAt('sess-1', { closedAt: 77, status: 'exited', exitCode: 0 }),
+    ).toBe(77);
+  });
+});
+
+// Task 3 (v2.9.1) — end-to-end: rows resolved through resolvePaneClosedAt and
+// counted by countLiveAgentPanes. Proves the cap excludes terminal-non-resumable
+// panes and keeps resume-eligible (exit_code -1) ones.
+describe('countLiveAgentPanes — terminal sessions excluded end-to-end', () => {
+  interface SessionRow {
+    closedAt: number | null;
+    status: string;
+    exitCode: number | null;
+  }
+  function capAgent(providerId: string, sess: SessionRow) {
+    return { providerId, closedAt: resolvePaneClosedAt('sess', sess) };
+  }
+
+  it('exited/0 and error rows do not count; exited/-1 and running do', () => {
+    const agents = [
+      capAgent('claude', { closedAt: null, status: 'exited', exitCode: 0 }), // dead
+      capAgent('claude', { closedAt: null, status: 'error', exitCode: 1 }), // dead
+      capAgent('claude', { closedAt: null, status: 'exited', exitCode: -1 }), // live (resume)
+      capAgent('claude', { closedAt: null, status: 'running', exitCode: null }), // live
+    ];
+    expect(countLiveAgentPanes(agents)).toBe(2);
+  });
+
+  it('20 crashed panes (exited/1) count 0 — the leaked-cap-slot bug', () => {
+    const agents = Array.from({ length: 20 }, () =>
+      capAgent('claude', { closedAt: null, status: 'exited', exitCode: 1 }),
+    );
+    expect(countLiveAgentPanes(agents)).toBe(0);
+  });
 });

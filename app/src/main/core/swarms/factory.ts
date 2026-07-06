@@ -31,6 +31,7 @@ import type { SwarmMailbox } from './mailbox';
 import { defaultRoster, totalForPreset } from './types';
 import { loadSwarm, materializeRosterAgent } from './factory-spawn';
 import { checkRamBrakeAdmission } from '../ram-brake/admission';
+import { markPaneClosed } from '../pty/mark-pane-closed';
 import { MAX_SWARM_AGENTS } from '../../../shared/providers';
 
 // Re-export loadSwarm so existing callers (controller.ts, tools.ts) are unaffected.
@@ -235,8 +236,20 @@ export function killSwarm(swarmId: string, deps: { pty: PtyRegistry; userDataDir
     .from(swarmAgents)
     .where(eq(swarmAgents.swarmId, swarmId))
     .all();
+  // Task 1 (v2.9.1) — ghost-pane fix. Stamp the durable close marker on each
+  // agent session BEFORE the kill (mirror of panes.close). SIGTERM lands the
+  // row as status='error' / closed_at NULL — a shape neither the DB janitor nor
+  // the renderer GC reaps — so without this the dead swarm resurrects as red
+  // error tiles on reopen. markPaneClosed is idempotent (WHERE closed_at IS
+  // NULL) and best-effort; the kill still proceeds if it throws.
+  const closedAt = Date.now();
   for (const a of agentRows) {
     if (a.sessionId) {
+      try {
+        markPaneClosed(getRawDb(), a.sessionId, closedAt);
+      } catch {
+        /* best-effort — kill still proceeds */
+      }
       try {
         deps.pty.kill(a.sessionId);
       } catch {

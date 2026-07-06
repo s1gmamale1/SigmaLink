@@ -346,15 +346,31 @@ export function countLiveAgentPanes(agents: readonly CapCountedAgent[]): number 
  *                                  but leaves swarm_agents rows behind; an
  *                                  orphan cannot be an open pane — returns 0
  *                                  as a synthetic close marker)
- *   - session row present       → its closed_at verbatim
+ *   - deliberately closed        → its closed_at verbatim (× / close-pane)
+ *   - terminal + non-resumable   → closed (Task 3): a clean exit or crash keeps
+ *                                  closed_at NULL forever (the renderer GC only
+ *                                  dispatches REMOVE_SESSION), so counting
+ *                                  closed_at alone leaked a cap slot on every
+ *                                  crash+Relaunch. status IN ('exited','error')
+ *                                  AND exit_code !== -1 → synthetic close marker.
+ *   - resume-eligible (exit -1)  → live: exit_code === -1 is killed-at-quit and
+ *                                  resumes on next boot, so it MUST keep its cap
+ *                                  slot or boot-resume over-admits agents whose
+ *                                  slots resurrect (see resume-launcher.ts).
+ *   - otherwise (running/…)      → live
  */
 export function resolvePaneClosedAt(
   sessionId: string | null,
-  session: { closedAt: number | null } | undefined,
+  session:
+    | { closedAt: number | null; status?: string; exitCode?: number | null }
+    | undefined,
 ): number | null {
   if (!sessionId) return null;
   if (!session) return 0;
-  return session.closedAt ?? null;
+  if (session.closedAt != null) return session.closedAt;
+  const terminal = session.status === 'exited' || session.status === 'error';
+  if (terminal && session.exitCode !== -1) return 0;
+  return null;
 }
 
 /**
