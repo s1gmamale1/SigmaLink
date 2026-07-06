@@ -104,12 +104,16 @@ export function LauncherLanding({ onPick, onOpenSettings }: LauncherLandingProps
                 aria-hidden
                 className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-primary/25 via-accent/20 to-transparent"
               />
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent-foreground">
+              {/* `text-accent` (not accent-foreground): the chip bg is a 15%
+                  accent WASH over the card, so the icon must contrast with the
+                  card, not with solid accent — accent-foreground computed
+                  ~1.2:1 on cupertino-light/aurora (Phase 17 review). */}
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">
                 <Icon className="h-[18px] w-[18px]" />
               </span>
               <span className="flex-1 text-sm font-medium tracking-tight">{row.title}</span>
               {row.alpha && !gaSign ? (
-                <span className="rounded-sm bg-accent/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-foreground">
+                <span className="rounded-sm bg-accent/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent">
                   Alpha
                 </span>
               ) : null}
