@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { rpcSilent, onEvent } from '@/renderer/lib/rpc';
 import type { OrbState } from './Orb';
-import type { ChatMessageView, ChatRole } from './ChatTranscript';
+import type { ChatMessageView } from './ChatTranscript';
 
 interface AssistantStateEvent {
   kind: 'state' | 'delta' | 'error';
@@ -157,9 +157,14 @@ export function useJorvisAssistantState({
         p.setMessages((rows) =>
           rows.some((r) => r.id === id)
             ? rows
-            : [...rows, { id, role: 'error' as ChatRole, content: text, createdAt: Date.now() }],
+            : [...rows, { id, role: 'error', content: text, createdAt: Date.now() }],
         );
         p.setBusy(false);
+        // Review fix — every other failure path in this component (the
+        // watchdog timeout and sendPrompt's catch, both in JorvisRoom) pairs
+        // the busy-clear with an orb reset. Without this the Orb can stick on
+        // "thinking" after a failed turn even though the composer unlocks.
+        p.setOrbState('standby');
         p.activeTurnIdRef.current = null;
         p.streamingRef.current = null;
         p.setStreaming(null);

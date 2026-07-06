@@ -153,7 +153,7 @@ describe('useJorvisAssistantState — standby commit is a sibling setState', () 
 
 describe('useJorvisAssistantState — kind:error (P0.2)', () => {
   it('kind:error commits an error row and clears busy for the active turn', () => {
-    const { setMessages, setBusy, setStreaming, streamingRef, activeTurnIdRef, clearWatchdog } =
+    const { setMessages, setOrbState, setBusy, setStreaming, streamingRef, activeTurnIdRef, clearWatchdog } =
       mountHandler();
 
     // Mirrors the main-process contract (runClaudeCliTurn.emit.ts emitErrorFinal):
@@ -176,6 +176,10 @@ describe('useJorvisAssistantState — kind:error (P0.2)', () => {
     });
 
     expect(setBusy).toHaveBeenCalledWith(false);
+    // Review fix — every other failure path (watchdog timeout, sendPrompt's
+    // catch) pairs the busy-clear with an orb reset; the error branch must too,
+    // else the Orb sticks on "thinking" after a failed turn.
+    expect(setOrbState).toHaveBeenCalledWith('standby');
     expect(activeTurnIdRef.current).toBeNull();
     expect(clearWatchdog).toHaveBeenCalled();
 
@@ -216,7 +220,7 @@ describe('useJorvisAssistantState — kind:error (P0.2)', () => {
   });
 
   it('an error for a STALE turn is ignored (B3 gating still holds)', () => {
-    const { setMessages, setBusy, activeTurnIdRef } = mountHandler();
+    const { setMessages, setOrbState, setBusy, activeTurnIdRef } = mountHandler();
     // A different turn is now active (e.g. the user sent a fresh prompt).
     activeTurnIdRef.current = 't2';
 
@@ -229,6 +233,7 @@ describe('useJorvisAssistantState — kind:error (P0.2)', () => {
     });
 
     expect(setBusy).not.toHaveBeenCalled();
+    expect(setOrbState).not.toHaveBeenCalled();
     expect(setMessages).not.toHaveBeenCalled();
     expect(activeTurnIdRef.current).toBe('t2');
   });
