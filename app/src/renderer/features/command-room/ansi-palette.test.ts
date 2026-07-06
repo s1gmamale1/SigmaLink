@@ -7,6 +7,7 @@ import {
   setActiveTerminalPalette,
 } from '@/renderer/lib/terminal-palette';
 import { colorFor, defaultBg, defaultFg, paletteColor } from './ansi-palette';
+import { cursorStyle } from './run-style';
 
 afterEach(() => {
   setActiveTerminalPalette(DEFAULT_TERMINAL);
@@ -33,6 +34,11 @@ describe('ansi-palette', () => {
       ).toEqual(Array.from({ length: 16 }, (_, i) => paletteColor(i)));
       expect(defaultBg(), t.id).toBe(x.background);
       expect(defaultFg(), t.id).toBe(x.foreground);
+      // v2.9.1 — the DOM presenter's cursor block must track the same palette
+      // slots xterm renders (was a hardcoded legacy-violet constant, invisible
+      // on the default dark palette where the values coincide).
+      expect(cursorStyle().backgroundColor, t.id).toBe(x.cursor);
+      expect(cursorStyle().color, t.id).toBe(x.cursorAccent);
     }
   });
 
