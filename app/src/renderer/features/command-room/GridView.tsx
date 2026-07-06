@@ -12,7 +12,7 @@
 import { useEffect, useReducer } from 'react';
 import type { TerminalEngine } from '@/renderer/lib/terminal-engine';
 import { defaultBg, defaultFg } from './ansi-palette';
-import { CURSOR_STYLE, runStyle } from './run-style';
+import { cursorStyle, runStyle } from './run-style';
 
 const MONO_FONT =
   'JetBrains Mono, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace';
@@ -46,7 +46,7 @@ export function GridView({ engine, className }: { engine: TerminalEngine; classN
         const style = runStyle(run, true);
         if (before) children.push(<span key={`${ri}b`} style={style}>{before}</span>);
         children.push(
-          <span key={`${ri}c`} data-cursor style={{ ...style, ...CURSOR_STYLE }}>
+          <span key={`${ri}c`} data-cursor style={{ ...style, ...cursorStyle() }}>
             {cursorChar}
           </span>,
         );
@@ -61,7 +61,7 @@ export function GridView({ engine, className }: { engine: TerminalEngine; classN
       const pad = cursorCol - consumed;
       if (pad > 0) children.push(<span key="cpad" style={{ display: 'inline-block', verticalAlign: 'top' }}>{' '.repeat(pad)}</span>);
       children.push(
-        <span key="ce" data-cursor style={{ display: 'inline-block', verticalAlign: 'top', ...CURSOR_STYLE }}>
+        <span key="ce" data-cursor style={{ display: 'inline-block', verticalAlign: 'top', ...cursorStyle() }}>
           {' '}
         </span>,
       );

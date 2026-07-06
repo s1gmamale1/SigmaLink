@@ -6,6 +6,7 @@
 
 import type { CSSProperties } from 'react';
 import type { StyledRun } from '@/renderer/lib/terminal-engine';
+import { activeTerminalPalette } from '@/renderer/lib/terminal-palette';
 import { colorFor, defaultBg, defaultFg } from './ansi-palette';
 
 export function runStyle(run: StyledRun, block: boolean): CSSProperties {
@@ -34,4 +35,16 @@ export function runStyle(run: StyledRun, block: boolean): CSSProperties {
   return style;
 }
 
-export const CURSOR_STYLE: CSSProperties = { backgroundColor: '#a78bfa', color: '#0a0c12' };
+/**
+ * Cursor block style, derived from the ACTIVE per-theme terminal palette so the
+ * DOM presenter's cursor matches xterm's (`xtermThemeFrom` feeds the same
+ * `cursor`/`cursorAccent` pair). Was a hardcoded legacy-violet constant, which
+ * coincided with the default dark palette but broke renderer parity on the
+ * Phase-17 light/tinted themes (e.g. cupertino-light: violet vs systemBlue).
+ * A function (like `defaultFg()`), not a const — palette-epoch remounts
+ * re-render the views, and each render re-reads the active palette.
+ */
+export function cursorStyle(): CSSProperties {
+  const p = activeTerminalPalette();
+  return { backgroundColor: p.cursor, color: p.cursorAccent };
+}

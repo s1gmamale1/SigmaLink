@@ -18,7 +18,7 @@ import type { CSSProperties } from 'react';
 import { memo, useEffect, useReducer } from 'react';
 import type { TerminalEngine } from '@/renderer/lib/terminal-engine';
 import { defaultBg, defaultFg } from './ansi-palette';
-import { CURSOR_STYLE, runStyle } from './run-style';
+import { cursorStyle, runStyle } from './run-style';
 import { findUrls } from './linkify';
 import { segmentRuns, type Decoration, type LineSegment } from './line-segments';
 import { deriveBlocks } from './command-blocks';
@@ -133,7 +133,7 @@ const LineRow = memo(
         const after = seg.text.slice(at + 1);
         if (before) children.push(<span key={`${i}b`} style={style} {...extra}>{before}</span>);
         children.push(
-          <span key={`${i}c`} data-cursor style={{ ...style, ...CURSOR_STYLE }}>
+          <span key={`${i}c`} data-cursor style={{ ...style, ...cursorStyle() }}>
             {cursorChar}
           </span>,
         );
@@ -152,7 +152,7 @@ const LineRow = memo(
       const pad = cursorOffset - consumed;
       if (pad > 0) children.push(<span key="cpad">{' '.repeat(pad)}</span>);
       children.push(
-        <span key="ce" data-cursor style={CURSOR_STYLE}>
+        <span key="ce" data-cursor style={cursorStyle()}>
           {' '}
         </span>,
       );
