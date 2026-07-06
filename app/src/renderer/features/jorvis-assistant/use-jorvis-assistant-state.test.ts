@@ -74,7 +74,7 @@ function mountHandler() {
     }),
   );
 
-  return { setMessages, setStreaming, streamingRef };
+  return { setMessages, setOrbState, setBusy, setStreaming, activeTurnIdRef, busyRef, streamingRef, clearWatchdog };
 }
 
 describe('useJorvisAssistantState — standby commit is a sibling setState', () => {
@@ -148,5 +148,88 @@ describe('useJorvisAssistantState — standby commit is a sibling setState', () 
       delta: 'Hello world',
       messageId: 'm1',
     });
+  });
+});
+
+describe('useJorvisAssistantState — kind:error (P0.2)', () => {
+  it('kind:error commits an error row and clears busy for the active turn', () => {
+    const { setMessages, setBusy, setStreaming, streamingRef, activeTurnIdRef, clearWatchdog } =
+      mountHandler();
+
+    // Mirrors the main-process contract (runClaudeCliTurn.emit.ts emitErrorFinal):
+    // a delta lands first (buffering into streamingRef), then kind:'error'.
+    emit('assistant:state', {
+      kind: 'delta',
+      delta: 'boo',
+      conversationId: 'c1',
+      turnId: 't1',
+      messageId: 'M1',
+    });
+    expect(streamingRef.current).toEqual({ turnId: 't1', delta: 'boo', messageId: 'M1' });
+
+    emit('assistant:state', {
+      kind: 'error',
+      conversationId: 'c1',
+      turnId: 't1',
+      messageId: 'M1',
+      message: 'claude CLI exited 1: boom',
+    });
+
+    expect(setBusy).toHaveBeenCalledWith(false);
+    expect(activeTurnIdRef.current).toBeNull();
+    expect(clearWatchdog).toHaveBeenCalled();
+
+    // The error row is committed as a sibling setState (same discipline as
+    // the standby commit), not nested inside setStreaming.
+    const errorCall = setMessages.mock.calls.find((call) => {
+      const updater = call[0] as (rows: ChatMessageView[]) => ChatMessageView[];
+      const rows = updater([]);
+      return rows.some((r) => r.role === 'error');
+    });
+    expect(errorCall).toBeDefined();
+    const updater = errorCall![0] as (rows: ChatMessageView[]) => ChatMessageView[];
+    const rows = updater([]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: 'M1', role: 'error', content: 'claude CLI exited 1: boom' });
+    // Idempotency guard: re-applying the updater against a row that already
+    // carries the id is a no-op (same array reference back).
+    expect(updater(rows)).toBe(rows);
+
+    // The streaming buffer is retired so a trailing standby{error} (which the
+    // main process also emits) finds nothing buffered to commit as a
+    // duplicate/blank assistant row.
+    expect(streamingRef.current).toBeNull();
+    expect(setStreaming).toHaveBeenLastCalledWith(null);
+  });
+
+  it('falls back to a stable id and a default message when the envelope omits them', () => {
+    const { setMessages } = mountHandler();
+
+    emit('assistant:state', { kind: 'error', conversationId: 'c1', turnId: 't1' });
+
+    const updater = setMessages.mock.calls[0][0] as (rows: ChatMessageView[]) => ChatMessageView[];
+    const rows = updater([]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].role).toBe('error');
+    expect(rows[0].id).toBe('err-t1');
+    expect(rows[0].content.length).toBeGreaterThan(0);
+  });
+
+  it('an error for a STALE turn is ignored (B3 gating still holds)', () => {
+    const { setMessages, setBusy, activeTurnIdRef } = mountHandler();
+    // A different turn is now active (e.g. the user sent a fresh prompt).
+    activeTurnIdRef.current = 't2';
+
+    emit('assistant:state', {
+      kind: 'error',
+      conversationId: 'c1',
+      turnId: 't1',
+      messageId: 'M-stale',
+      message: 'stale boom',
+    });
+
+    expect(setBusy).not.toHaveBeenCalled();
+    expect(setMessages).not.toHaveBeenCalled();
+    expect(activeTurnIdRef.current).toBe('t2');
   });
 });

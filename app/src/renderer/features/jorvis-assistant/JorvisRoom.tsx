@@ -248,6 +248,17 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
     sendPromptRef.current = sendPrompt;
   }, [sendPrompt]);
 
+  // P0.2 — Retry re-sends the last user prompt captured by `sendPrompt`
+  // above. `lastSentPromptRef` survives a failed turn untouched (the error
+  // handler in useJorvisAssistantState returns before reaching the
+  // standby branch that would otherwise consume it for the Ruflo
+  // pattern-store fire-and-forget), so it's still valid on click.
+  const onRetryError = useCallback(() => {
+    const prompt = lastSentPromptRef.current;
+    if (!prompt) return;
+    void sendPrompt(prompt);
+  }, [sendPrompt]);
+
   // B3 — make sure a pending watchdog timer never fires after unmount.
   useEffect(() => clearWatchdog, [clearWatchdog]);
 
@@ -378,6 +389,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
             streaming={streaming}
             pending={busy && streaming == null}
             conversationId={conversationId}
+            onRetry={onRetryError}
           />
         </div>
         <ToolCallInspector />
