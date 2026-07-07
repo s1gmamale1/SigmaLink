@@ -1,3 +1,5 @@
+> Superseded by repo-root WISHLIST.md — archived 2026-07-07.
+
 # SigmaLink — Wishlist (quick capture)
 
 > **Capture inbox.** Jot findings + new ideas here as they land — low ceremony.
