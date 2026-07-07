@@ -30,6 +30,14 @@ _(real upgrades to build once the current system is production-grade)_
 
 _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
+### Jorvis P0 execution — parked review findings (2026-07-07, Phase 19 branch)
+
+_Non-blocking findings from the subagent review loop during P0 implementation. Both Important-but-edge; deferred out of P0.2 by lead + reviewer agreement._
+
+- 🐞 **[med][jorvis] Retry button re-sends the CURRENT `lastSentPromptRef`, not the failed turn's prompt** — `app/src/renderer/features/jorvis-assistant/JorvisRoom.tsx` `onRetryError` reads a shared mutable ref at click time. Repro: turn A fails → Retry shows on error row A → click Retry, A succeeds (no new error row, so row A's Retry persists) → send unrelated prompt C → `lastSentPromptRef='C'` → clicking row A's still-live Retry silently sends **C**, not A. Wrong-action-on-click, no visual cue. Fix: capture the failed prompt ONTO the error row (thread a `retryPrompt` onto the committed error `ChatMessageView`) and have Retry send that, not the shared ref; or clear/hide Retry once its row is no longer the active failure. Effort: S–M. (rev-t2, P0.2 review.)
+- 🐞 **[low][jorvis] Ruflo pattern-store records a FAILED turn's prompt as a `task-completion` pattern** — the `standby` branch's fire-and-forget `ruflo.patterns.store` fires on any standby, including the error path's trailing standby. PRE-EXISTING (predates P0.2; before it, `kind:'error'` was unhandled so every failed turn hit this deterministically — P0.2 actually NARROWS the window to the rare adoption race). Fix: gate the pattern-store on a real success signal, not bare standby. Effort: S. (rev-t2 + impl-t2, P0.2 review.)
+- 🧹 **[nit][test] no named render-count regression test pins the error-row + Retry memo contract** — the existing `ChatTranscript.render-count.test.tsx` stays green but nothing explicitly guards that an error row + its Retry button don't re-invoke `useJorvisStreamReveal` or break `memo(ChatRow)` skipping. Add a named case. Effort: XS. (rev-t2, P0.2 review.)
+
 ---
 
 ## 🔬 Deep review findings (2026-07-07) — Jorvis full-subsystem map
