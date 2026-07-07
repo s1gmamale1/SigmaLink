@@ -279,8 +279,17 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
   // P0.4 — fresh-session control. Distinct from onNewConversation above:
   // this clears the Claude CLI resume id for the ACTIVE conversation so the
   // next turn starts a clean context, but keeps the transcript on screen.
+  // Final-review fix — newSession CANCELS an in-flight turn on main, and a
+  // cancelled turn emits no terminal event, so mirror onNewConversation's
+  // local reset here or a mid-turn click leaves the Orb/composer stuck on
+  // "thinking" until the watchdog.
   const onFreshSession = useCallback(() => {
     if (!conversationId) return;
+    setStreaming(null);
+    setOrbState('standby');
+    setBusy(false);
+    clearWatchdog();
+    activeTurnIdRef.current = null;
     void rpc.assistant
       .newSession({ conversationId })
       .then(() => {
@@ -291,7 +300,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
           description: err instanceof Error ? err.message : String(err),
         });
       });
-  }, [conversationId]);
+  }, [conversationId, clearWatchdog]);
 
   const paneEvents = useJorvisPaneEvents(conversationId);
 
