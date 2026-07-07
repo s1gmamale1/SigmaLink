@@ -30,6 +30,14 @@ _(real upgrades to build once the current system is production-grade)_
 
 _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
+### Jorvis tool-arg coercion #223 — parked gate minors (2026-07-08)
+
+_Operator live smoke on merged P0 caught strict-zod rejecting LLM quoted primitives (`count:"2"`, `allWorkspaces:"true"`); fixed at the `T()` parse choke point in PR #223 `9603893` (gate GREEN 95). Three XS follow-ups parked by the gate reviewer:_
+
+- **[nit] `Number()` coerces broader than strict decimal** — `"0x10"`→16, `"1e3"`→1000 pass the finite check; harmless (schema bounds/`.int()` catch downstream, worst case = original throw) but a `/^-?\d+(\.\d+)?$/` guard would make coercion exactly-decimal. `app/src/main/core/assistant/tools.ts` `coerceStringPrimitives`. Effort: XS.
+- **[test] pin the float-string-for-int case** — `count:"5.5"` → coerces to 5.5 → `.int()` fails → original error re-thrown; correct by reasoning, untested. Effort: XS.
+- **[watch] flat-only coercion guard** — `issue.path.length!==1` skips nested/array paths; zero tool schema today has numeric/boolean arrays (grep-verified by the gate), but if one ever lands, elements throw instead of coercing — relax + test then. Effort: XS.
+
 ### Jorvis P0 execution — parked review findings (2026-07-07, Phase 19 branch)
 
 _Non-blocking findings from the subagent review loop during P0 implementation. Both Important-but-edge; deferred out of P0.2 by lead + reviewer agreement._
