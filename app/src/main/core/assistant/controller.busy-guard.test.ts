@@ -23,6 +23,7 @@ vi.mock('./runClaudeCliTurn', () => ({
 }));
 
 import { getDb, getRawDb } from '../db/client';
+import { cancelClaudeCliTurn } from './runClaudeCliTurn';
 import { buildAssistantController } from './controller';
 import type { AssistantControllerDeps } from './controller';
 import { createDbFake, type DbFake } from '@/test-utils/db-fake';
@@ -60,6 +61,19 @@ function getSend(): SendFn {
   return (controller as unknown as { send: SendFn }).send;
 }
 
+type NewSessionFn = (input: { conversationId: string }) => Promise<{ ok: true }>;
+
+// Returns `send` + `newSession` off the SAME controller instance — the
+// concurrent-turn guard state (`activeTurns` / `liveTurnByConversation`)
+// lives in the controller's closure, so a fresh `buildAssistantController()`
+// per helper call would silently decouple the two and the cancel-in-flight
+// assertion would test nothing.
+function getController(): { send: SendFn; newSession: NewSessionFn } {
+  const { controller } = buildAssistantController(makeDeps());
+  const typed = controller as unknown as { send: SendFn; newSession: NewSessionFn };
+  return { send: typed.send, newSession: typed.newSession };
+}
+
 describe('assistant.send concurrent-turn guard', () => {
   it('a second send for a conversation with a live turn returns busy without a new turn', async () => {
     const send = getSend();
@@ -86,5 +100,36 @@ describe('assistant.send concurrent-turn guard', () => {
     expect(b.busy).toBeFalsy();
     expect(b.turnId).not.toBe(a.turnId);
     expect(b.conversationId).not.toBe(a.conversationId);
+  });
+});
+
+// P0.4 review fold-in — newSession must actually cancel the in-flight turn it
+// walks away from; otherwise the guard above only proves a live turn BLOCKS a
+// second send, not that newSession clears the block.
+describe('assistant.newSession cancel-in-flight', () => {
+  it('cancels a live turn and clears both maps', async () => {
+    const { send, newSession } = getController();
+
+    const first = await send({ workspaceId: 'ws1', prompt: 'a' });
+    expect(first.busy).toBeFalsy();
+
+    // Sanity: the guard from the describe block above — a second send while
+    // the first is still live is rejected as busy, pointing at turn #1.
+    const stillBusy = await send({ workspaceId: 'ws1', conversationId: first.conversationId, prompt: 'b' });
+    expect(stillBusy.busy).toBe(true);
+    expect(stillBusy.turnId).toBe(first.turnId);
+
+    await newSession({ conversationId: first.conversationId });
+
+    expect(vi.mocked(cancelClaudeCliTurn)).toHaveBeenCalledWith(first.turnId);
+
+    // The hung turn's ActiveTurn.cancelled === true is observable indirectly:
+    // liveTurnByConversation no longer points at it, so a fresh send against
+    // the same conversation succeeds with a NEW turnId instead of returning busy.
+    const afterNewSession = await send({ workspaceId: 'ws1', conversationId: first.conversationId, prompt: 'c' });
+    expect(afterNewSession.busy).toBeFalsy();
+    expect(afterNewSession.turnId).toBeTruthy();
+    expect(afterNewSession.turnId).not.toBe(first.turnId);
+    expect(afterNewSession.conversationId).toBe(first.conversationId);
   });
 });
