@@ -183,19 +183,13 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
   const liveTurnByConversation = new Map<string, string>();
 
   // H-19 (partial) — opportunistic aidefence gate. Built only when a ruflo
-  // proxy is injected; otherwise the send path is a no-op (back-compat). Audit
-  // events ride the existing emit broadcaster as `assistant:security` so the
-  // renderer can flip `Security: PENDING` → active and record threats.
+  // proxy is injected; otherwise the send path is a no-op (back-compat).
   const aidefence = deps.rufloCall
     ? createAidefenceGate({
         rufloCall: deps.rufloCall,
-        audit: (e) => {
-          try {
-            deps.emit('assistant:security', { kind: e.kind, detail: e.detail });
-          } catch {
-            /* audit fan-out is best-effort */
-          }
-        },
+        // P0.5 — audit is local-only for now (the renderer surface was never
+        // wired; the emitted event had no allowlist entry and no subscriber).
+        audit: () => { /* reserved: a security surface is future work (P2+) */ },
       })
     : undefined;
 
@@ -467,10 +461,10 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       }
       appendMessage({ conversationId, role: 'user', content: input.prompt });
       // H-19 (partial) — ADVISORY inbound scan. Best-effort + never blocks the
-      // local operator's own prompt; a flagged result is AUDITED (the gate emits
-      // `assistant:security`) so threats are recorded and `Security: PENDING`
-      // becomes active. No-op when `aidefence` is absent. Wrapped so a scan
-      // never delays or breaks the turn it precedes.
+      // local operator's own prompt; a flagged result is audited locally
+      // (see the aidefence gate construction above). No-op when `aidefence`
+      // is absent. Wrapped so a scan never delays or breaks the turn it
+      // precedes.
       try {
         await aidefence?.scanInbound(input.prompt);
       } catch {
