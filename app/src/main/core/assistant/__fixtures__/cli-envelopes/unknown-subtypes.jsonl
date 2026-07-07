@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"abc123"}
+{"type":"system","subtype":"some_future_hook","data":{"x":1}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}
+{"type":"rate_limit_event","tier":"foo"}
+{"type":"result","subtype":"success","result":"done","is_error":false}
+{"type":"totally_new_type","whatever":true}

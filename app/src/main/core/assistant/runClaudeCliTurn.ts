@@ -137,6 +137,24 @@ export const TURN_TIMEOUT_MS = 90_000;
 
 let cachedProbe: CachedProbe | null = null;
 
+/**
+ * P0.3 — log the resolved `claude` CLI version/path exactly once per process.
+ * Diagnostic only, not gated by test resets: this module has no clean way to
+ * reach the Electron-only `diagnostics.log` file (that path needs
+ * `app.getPath('userData')`, only safe after `app.whenReady()`, and this is a
+ * pure/testable module with no Electron dependency), so it falls back to
+ * `console.info` per the brief's documented fallback. `getOrProbe` is the
+ * only caller.
+ */
+let bootVersionLogged = false;
+function logBootVersionOnce(probe: CachedProbe): void {
+  if (bootVersionLogged || !probe.found) return;
+  bootVersionLogged = true;
+  console.info(
+    `[jorvis] claude CLI ${probe.version ?? 'unknown'} at ${probe.resolvedPath ?? 'unknown'}`,
+  );
+}
+
 /** Reset the cached probe (test-only escape hatch). */
 export function __resetProbeCache(): void {
   cachedProbe = null;
@@ -153,6 +171,7 @@ async function getOrProbe(
   if (cachedProbe) return cachedProbe;
   if (override) {
     cachedProbe = await override();
+    logBootVersionOnce(cachedProbe);
     return cachedProbe;
   }
   const def = findProvider('claude');
@@ -166,6 +185,7 @@ async function getOrProbe(
     resolvedPath: probe.resolvedPath,
     version: probe.version,
   };
+  logBootVersionOnce(cachedProbe);
   return cachedProbe;
 }
 

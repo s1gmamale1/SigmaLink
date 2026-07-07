@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"11111111-2222-4333-8444-555555555555"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}
+{"type":"result","subtype":"success","result":"hello","is_error":false,"total_cost_usd":0.0001,"usage":{"input_tokens":6,"output_tokens":1}}

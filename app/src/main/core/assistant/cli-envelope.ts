@@ -102,3 +102,23 @@ export function isResultEnvelope(env: CliEnvelope): env is CliResultEnvelope {
 export function isResultSuccess(env: CliResultEnvelope): env is CliResultSuccessEnvelope {
   return env.subtype === 'success' && env.is_error !== true;
 }
+
+export type EnvelopeClass =
+  | 'assistant'
+  | 'system-init'
+  | 'result-success'
+  | 'result-error'
+  | 'other';
+
+/**
+ * Total, never-throwing classification of a parsed envelope. Any unknown
+ * `type` or `subtype` (a forward-compatible CLI addition) collapses to
+ * 'other' so the turn loop log-and-continues instead of crashing. This is the
+ * update-proofing seam: new CLI envelope shapes cannot break a live turn.
+ */
+export function classifyEnvelope(env: CliEnvelope): EnvelopeClass {
+  if (isAssistantEnvelope(env)) return 'assistant';
+  if (isSystemInitEnvelope(env)) return 'system-init';
+  if (isResultEnvelope(env)) return isResultSuccess(env) ? 'result-success' : 'result-error';
+  return 'other';
+}
