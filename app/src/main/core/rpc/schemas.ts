@@ -959,6 +959,7 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'assistant.conversations.list': stub,
   'assistant.conversations.get': stub,
   'assistant.conversations.delete': stub,
+  'assistant.conversations.resumeHint': stub,
   'swarm.origin.get': stub,
   'design.captureElement': stub,
   'design.dispatch': stub,
