@@ -23,6 +23,8 @@ The Jorvis Persistent Operator arc (Phases 19–22, sequenced below, do in order
 
 ## Phase 19 — Jorvis P0: reliability foundation
 
+> ✅ **SHIPPED in PR #222 `2805d37` (2026-07-07)** — subagent-driven build (sonnet implementers + reviewers, opus whole-branch + sigma-check gates); round-1 gate caught a real non-atomic-turn-guard race (fixed + race-test-pinned same round), round-2 GREEN, CI 6/6. Unreleased — rides the next tag. Owed operator smokes (real `claude` binary): kill CLI mid-turn → error row + Retry · double-send → one child · fresh session keeps transcript · telegram `/new`. Low/edge findings parked in [WISHLIST.md](WISHLIST.md).
+
 **Goal.** Jorvis is trustworthy day-to-day: no silent turn deaths, no mystery breakage after a CLI update, a fresh session is one action away.
 
 **Deliverables.**
