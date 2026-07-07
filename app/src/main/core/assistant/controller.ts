@@ -37,6 +37,7 @@ import { recordSwarmOrigin } from './swarm-origins';
 import { runClaudeCliTurn, cancelClaudeCliTurn } from './runClaudeCliTurn';
 import type { RufloProxy } from '../ruflo/proxy';
 import { createAidefenceGate, type RufloCall } from '../security/aidefence-gate';
+import { assertAllowedPath } from '../security/path-guard';
 
 export interface AssistantControllerDeps {
   pty: PtyRegistry;
@@ -842,6 +843,20 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       const matches: Array<{ absPath: string; snippet: string }> = [];
       const needle = atRef.toLowerCase();
 
+      // P0.5 — mirrors the `read_files` guard in tools.ts. A dirent for a
+      // symlink reports isFile()/isDirectory() === false, so it never reached
+      // this far before; now that we classify a symlink's TARGET (below), an
+      // in-tree symlink pointing outside the workspace root must be rejected
+      // rather than silently walked/returned.
+      function insideRoot(p: string): boolean {
+        try {
+          assertAllowedPath(p, [root]);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
       function walk(dir: string, depth: number): void {
         if (depth > MAX_WALK_DEPTH || matches.length >= MAX_RESULTS) return;
         let entries: fs.Dirent[];
@@ -852,12 +867,25 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         }
         for (const entry of entries) {
           if (matches.length >= MAX_RESULTS) return;
-          if (entry.isDirectory()) {
-            if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
-            walk(path.join(dir, entry.name), depth + 1);
-          } else if (entry.isFile()) {
+          if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+          const absPath = path.join(dir, entry.name);
+          let isDir = entry.isDirectory();
+          let isFile = entry.isFile();
+          if (entry.isSymbolicLink()) {
+            let stat: fs.Stats;
+            try {
+              stat = fs.statSync(absPath); // follows the link
+            } catch {
+              continue; // broken symlink
+            }
+            if (!insideRoot(absPath)) continue; // escapes the workspace root — skip
+            isDir = stat.isDirectory();
+            isFile = stat.isFile();
+          }
+          if (isDir) {
+            walk(absPath, depth + 1);
+          } else if (isFile) {
             if (entry.name.toLowerCase().includes(needle)) {
-              const absPath = path.join(dir, entry.name);
               let snippet = '';
               try {
                 const raw = fs.readFileSync(absPath, 'utf8');
