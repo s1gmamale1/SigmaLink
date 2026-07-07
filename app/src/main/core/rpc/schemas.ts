@@ -948,6 +948,13 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
     }),
     output: any,
   },
+  // P0.4 — newSession({ conversationId }) — clear the resume id, keep the transcript.
+  'assistant.newSession': {
+    input: z.object({
+      conversationId: z.string().min(1).max(200),
+    }),
+    output: any,
+  },
   // P3-S7 — Sigma Assistant cross-session persistence + origin back-link.
   'assistant.conversations.list': stub,
   'assistant.conversations.get': stub,

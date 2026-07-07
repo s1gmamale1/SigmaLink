@@ -93,6 +93,12 @@ export function setClaudeSessionId(
     .run();
 }
 
+/** P0.4 — start a fresh CLI context WITHOUT dropping the transcript. Clears
+ *  the resume session id so the next turn spawns clean; messages are kept. */
+export function clearClaudeSessionId(conversationId: string): void {
+  setClaudeSessionId(conversationId, null);
+}
+
 export function getClaudeSessionId(conversationId: string): string | null {
   const row = getDb()
     .select()

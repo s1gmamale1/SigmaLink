@@ -2841,6 +2841,14 @@ async function buildRouter() {
             }) => Promise<unknown>;
           }
         ).send(input),
+      // P0.4 — fresh-session control for the `/new` command, same cast
+      // pattern as `send` above.
+      newSession: (input) =>
+        (
+          assistantCtl as {
+            newSession: (i: { conversationId: string }) => Promise<{ ok: true }>;
+          }
+        ).newSession(input),
     },
     subscribeAssistantState: (cb) => {
       assistantStateSubscribers.add(cb);

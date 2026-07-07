@@ -23,6 +23,7 @@ import { workspaces as workspacesTable } from '../db/schema';
 import { executeLaunchPlan } from '../workspaces/launcher';
 import {
   appendMessage,
+  clearClaudeSessionId,
   createConversation,
   getConversation,
   listConversations,
@@ -575,6 +576,29 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       // V3-W14-002 — also kill the in-flight CLI child if there is one.
       // No-op when the turn is being run by the stub fallback.
       cancelClaudeCliTurn(input.turnId);
+    },
+
+    /**
+     * P0.4 — fresh-session control. Clears the conversation's resume id
+     * (`claudeSessionId`) so the NEXT turn spawns a clean `claude` CLI
+     * context, while the transcript stays intact. Also drops any live-turn
+     * index + cancels an in-flight turn for this conversation so the fresh
+     * context isn't immediately resumed by a straggler.
+     */
+    newSession: async (input: { conversationId: string }): Promise<{ ok: true }> => {
+      if (typeof input?.conversationId !== 'string' || !input.conversationId) {
+        throw new Error('assistant.newSession: conversationId required');
+      }
+      const live = liveTurnByConversation.get(input.conversationId);
+      if (live) {
+        const t = activeTurns.get(live);
+        if (t) t.cancelled = true;
+        cancelClaudeCliTurn(live);
+        activeTurns.delete(live);
+        liveTurnByConversation.delete(input.conversationId);
+      }
+      clearClaudeSessionId(input.conversationId);
+      return { ok: true };
     },
 
     /** Spawn N panes; emit one `assistant:dispatch-echo` per pane. */

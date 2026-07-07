@@ -8,7 +8,7 @@
 // the same thread the user was in.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { Bot } from 'lucide-react';
+import { Bot, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { rpc } from '@/renderer/lib/rpc';
 import { PANE_DRAG_MIME, buildPaneContext, type PaneDragPayload } from '@/renderer/lib/pane-context-builder';
@@ -276,6 +276,23 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
     composerRef.current?.focus();
   }, [clearConversation, resetDismissed, clearWatchdog]);
 
+  // P0.4 — fresh-session control. Distinct from onNewConversation above:
+  // this clears the Claude CLI resume id for the ACTIVE conversation so the
+  // next turn starts a clean context, but keeps the transcript on screen.
+  const onFreshSession = useCallback(() => {
+    if (!conversationId) return;
+    void rpc.assistant
+      .newSession({ conversationId })
+      .then(() => {
+        toast.success('Fresh Jorvis session — history kept.');
+      })
+      .catch((err: unknown) => {
+        toast.error('Could not start a fresh session', {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      });
+  }, [conversationId]);
+
   const paneEvents = useJorvisPaneEvents(conversationId);
 
   function handleComposerDragOver(e: DragEvent<HTMLDivElement>): void {
@@ -344,6 +361,18 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
             <span className="ml-2 truncate text-xs text-muted-foreground">
               {activeWorkspace.name}
             </span>
+            {conversationId ? (
+              <button
+                type="button"
+                onClick={onFreshSession}
+                className="ml-auto inline-flex shrink-0 items-center gap-1 rounded border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground transition hover:border-primary hover:text-primary"
+                aria-label="New session (keep history)"
+                title="New session (keep history)"
+              >
+                <RotateCcw className="h-3 w-3" aria-hidden />
+                Fresh session
+              </button>
+            ) : null}
           </header>
         ) : (
           <SigmaRailDropdown

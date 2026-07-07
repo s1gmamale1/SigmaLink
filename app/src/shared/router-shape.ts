@@ -756,7 +756,7 @@ export interface AppRouter {
       conversationId?: string;
       prompt: string;
       attachments?: string[];
-    }) => Promise<{ conversationId: string; turnId: string }>;
+    }) => Promise<{ conversationId: string; turnId: string; busy?: boolean }>;
     list: (input: {
       workspaceId: string;
     }) => Promise<
@@ -777,6 +777,13 @@ export interface AppRouter {
       }>
     >;
     cancel: (input: { conversationId: string; turnId: string }) => Promise<void>;
+    /**
+     * P0.4 — fresh-session control. Clears the conversation's resume id
+     * (`claudeSessionId`) so the next turn spawns a clean CLI context while
+     * the transcript is kept. Also cancels a live turn for that conversation
+     * so a straggler can't resume the old context.
+     */
+    newSession: (input: { conversationId: string }) => Promise<{ ok: true }>;
     /**
      * Spawn N panes via `workspaces.launch` + initial PTY prompts. Emits one
      * `assistant:dispatch-echo` event per spawned pane so the renderer can
