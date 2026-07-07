@@ -245,6 +245,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'assistant.refResolve',
   'assistant.tools',
   'assistant.invokeTool',
+  // P0.4 — fresh-session control: clear the resume id, keep the transcript.
+  'assistant.newSession',
   // P3-S7 — Sigma Assistant cross-session persistence: Conversations panel
   // backing + Operator Console origin link. Channels register side-band in
   // `rpc-router.ts`; the typed AppRouter shape declares them under

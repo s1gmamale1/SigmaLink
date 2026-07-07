@@ -90,6 +90,7 @@ function makeBridge(over: Partial<TelegramBridgeDeps> = {}) {
     void input;
     return { conversationId: 'c1', turnId: 't1' };
   });
+  const newSession = vi.fn(async () => ({ ok: true as const }));
   // A simple deterministic safety layer factory honouring the allowlist + lock.
   let manualLock = false;
   const safetyFactory = (deps: SafetyLayerDeps): SafetyLayer => ({
@@ -131,7 +132,7 @@ function makeBridge(over: Partial<TelegramBridgeDeps> = {}) {
   const bridge = new TelegramBridge({
     kv,
     credentials,
-    assistant: { send },
+    assistant: { send, newSession },
     subscribeAssistantState: (cb) => {
       stateSub = cb;
       return () => {
@@ -150,6 +151,7 @@ function makeBridge(over: Partial<TelegramBridgeDeps> = {}) {
     bridge,
     client,
     send,
+    newSession,
     emitState: (p: unknown) => stateSub?.(p),
     setLock: (v: boolean) => {
       manualLock = v;
@@ -277,6 +279,47 @@ describe('TelegramBridge — commands', () => {
     expect(bridge.isLocked()).toBe(true);
     await client._handlers!.onMessage({ chatId: 42, text: '/unlock' });
     expect(bridge.isLocked()).toBe(false);
+  });
+
+  it('/new with no active conversation replies without calling newSession', async () => {
+    const { bridge, client, newSession } = makeBridge();
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 42, text: '/new' });
+    expect(newSession).not.toHaveBeenCalled();
+    expect(client._sent).toHaveLength(1);
+    expect(client._sent[0].text).toContain('No active Jorvis conversation yet');
+  });
+
+  it('/new clears the resume id on the last-dispatched conversation and confirms', async () => {
+    const { bridge, client, send, newSession } = makeBridge();
+    await bridge.start();
+    // A prior prompt dispatches through assistant.send, which resolves
+    // { conversationId: 'c1', turnId: 't1' } per the fake — the bridge tracks
+    // that as the active conversation for /new.
+    await client._handlers!.onMessage({ chatId: 42, text: 'hello jorvis' });
+    expect(send).toHaveBeenCalledTimes(1);
+    // Flush the fire-and-forget handleMessage continuation (the mock's own
+    // async body + the post-await assignment of lastConversationId each need
+    // a microtask tick) before the next inbound message races it.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await client._handlers!.onMessage({ chatId: 42, text: '/new' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(newSession).toHaveBeenCalledTimes(1);
+    expect(newSession).toHaveBeenCalledWith({ conversationId: 'c1' });
+    const last = client._sent[client._sent.length - 1];
+    expect(last.text).toContain('Fresh Jorvis session started');
+  });
+
+  it('/new is allowlist-gated like /lock', async () => {
+    const { bridge, client, newSession } = makeBridge();
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 999, text: '/new' });
+    expect(newSession).not.toHaveBeenCalled();
+    expect(client._sent).toHaveLength(0);
   });
 });
 

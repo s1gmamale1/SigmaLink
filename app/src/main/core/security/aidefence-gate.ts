@@ -1,10 +1,10 @@
 // H-19 (partial) — Ruflo aidefence gate for the assistant runtime.
 //
 // Today `aidefence_*` exists only as Ruflo MCP tools and is wired into the
-// runtime NOWHERE, so untrusted input is never scanned and the app reports
-// `Security: PENDING`. This module wires the existing engine into the assistant
-// send path. It generalises the OPPORTUNISTIC, LOCAL-FIRST, NEVER-FAIL-OPEN
-// pattern R-1 established in `core/remote/safety.ts`:
+// runtime NOWHERE, so untrusted input is never scanned. This module wires the
+// existing engine into the assistant send path. It generalises the
+// OPPORTUNISTIC, LOCAL-FIRST, NEVER-FAIL-OPEN pattern R-1 established in
+// `core/remote/safety.ts`:
 //
 //   - LOCAL-FIRST: the engine is best-effort enrichment, not a hard dependency.
 //   - OPPORTUNISTIC: every Ruflo call is wrapped in try/catch; absent/throw is fine.
@@ -13,10 +13,9 @@
 //     (not-flagged inbound, unchanged outbound), it does NOT escalate to an error.
 //
 // `scanInbound` is ADVISORY for local operator input: it LOGS/AUDITS flagged
-// prompts so `Security: PENDING` becomes active and threats are recorded, but it
-// is the CALLER's decision whether to act — we never hard-block the operator's
-// own prompt here. (Hard-blocking untrusted REMOTE input remains the job of
-// R-1's `core/remote/safety.ts`.)
+// prompts locally, but it is the CALLER's decision whether to act — we never
+// hard-block the operator's own prompt here. (Hard-blocking untrusted REMOTE
+// input remains the job of R-1's `core/remote/safety.ts`.)
 //
 // SCOPE: this module + the assistant controller send-path wiring. Per-tool
 // ingestion scanning (read_files / open_url / browser scrape) is a documented

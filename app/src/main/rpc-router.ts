@@ -2587,7 +2587,8 @@ async function buildRouter() {
     ruflo: rufloProxy,
     // H-19 — opportunistic aidefence proxy. Advisory inbound scan on every send
     // prompt; never blocks the local operator, never throws (the gate swallows
-    // a Ruflo failure). Makes `Security: PENDING` → active at runtime.
+    // a Ruflo failure). Flagged results are audited locally (P0.5 — no
+    // renderer surface is wired for this yet).
     rufloCall: (tool, args) => rufloProxy.call(tool, args),
     mcpHost: {
       serverEntry: jorvisHostServerEntry,
@@ -2841,6 +2842,14 @@ async function buildRouter() {
             }) => Promise<unknown>;
           }
         ).send(input),
+      // P0.4 — fresh-session control for the `/new` command, same cast
+      // pattern as `send` above.
+      newSession: (input) =>
+        (
+          assistantCtl as {
+            newSession: (i: { conversationId: string }) => Promise<{ ok: true }>;
+          }
+        ).newSession(input),
     },
     subscribeAssistantState: (cb) => {
       assistantStateSubscribers.add(cb);

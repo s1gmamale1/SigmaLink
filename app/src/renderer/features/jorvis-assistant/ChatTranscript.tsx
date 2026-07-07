@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { useJorvisStreamReveal } from './use-jorvis-stream-reveal';
 import { InlineToolChips } from './InlineToolChips';
 
-export type ChatRole = 'user' | 'assistant' | 'tool' | 'system';
+export type ChatRole = 'user' | 'assistant' | 'tool' | 'system' | 'error';
 
 export interface ChatMessageView {
   id: string;
@@ -37,6 +37,9 @@ interface Props {
    */
   pending?: boolean;
   conversationId?: string | null;
+  /** P0.2 — re-sends the last user prompt. Rendered as a "Retry" button on
+   *  the most recent `error` row only; omitted elsewhere. */
+  onRetry?: () => void;
   className?: string;
 }
 
@@ -45,12 +48,13 @@ const ROLE_LABEL: Record<ChatRole, string> = {
   assistant: 'JORVIS',
   tool: 'TOOL',
   system: 'SYSTEM',
+  error: 'ERROR',
 };
 
 // Sentinel: the in-flight streaming row uses this id so ChatRow can identify it.
 const STREAMING_ROW_ID = '__streaming__';
 
-export function ChatTranscript({ messages, streaming, streamingDelta, pending, conversationId, className }: Props) {
+export function ChatTranscript({ messages, streaming, streamingDelta, pending, conversationId, onRetry, className }: Props) {
   // Resolve the effective streaming object: prefer the new `streaming` prop,
   // fall back to the legacy `streamingDelta` string for backward-compat.
   // Memoized so it has a stable identity and doesn't cause useEffect to re-run
@@ -117,6 +121,16 @@ export function ChatTranscript({ messages, streaming, streamingDelta, pending, c
       ? [...messages, pendingMsg]
       : messages;
 
+  // P0.2 — Retry renders on the most recent `error` row only. Computed from
+  // `messages` (error rows are always committed, never the in-flight
+  // sentinel/pending row) so its value is stable across stream deltas.
+  const lastErrorId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'error') return messages[i].id;
+    }
+    return null;
+  }, [messages]);
+
   return (
     <div
       ref={scrollRef}
@@ -144,6 +158,10 @@ export function ChatTranscript({ messages, streaming, streamingDelta, pending, c
         // turn commits (at which point `effectiveStreaming` is null again).
         const isStreaming = inFlightMsg != null && m === inFlightMsg;
         const isPending = pendingMsg != null && m === pendingMsg;
+        // Only the last error row receives a defined onRetry — every other
+        // row keeps the same `undefined` prop value across renders so
+        // memo(ChatRow) still skips them (perf audit #3 contract).
+        const isLastError = m.role === 'error' && m.id === lastErrorId;
         return (
           <ChatRow
             key={m.id}
@@ -153,6 +171,7 @@ export function ChatTranscript({ messages, streaming, streamingDelta, pending, c
             streamingDelta={isStreaming ? effectiveStreaming!.delta : undefined}
             conversationId={conversationId}
             streamingTurnId={isStreaming ? effectiveStreaming!.turnId : undefined}
+            onRetry={isLastError ? onRetry : undefined}
           />
         );
       })}
@@ -168,6 +187,8 @@ interface ChatRowProps {
   streamingDelta?: string;
   conversationId?: string | null;
   streamingTurnId?: string;
+  /** Defined only for the single row Retry should render on (P0.2). */
+  onRetry?: () => void;
 }
 
 // Perf audit 2026-06-10 #3 — memo'd: committed rows keep stable props across
@@ -175,7 +196,7 @@ interface ChatRowProps {
 // the in-flight sentinel re-renders per delta. The sentinel's key handoff to
 // its committed twin (Phase-6 H1 anti-double-spring) lives in the PARENT's
 // key={m.id} and is untouched by memoization.
-const ChatRow = memo(function ChatRow({ message, isStreaming, isPending, streamingDelta, conversationId, streamingTurnId }: ChatRowProps) {
+const ChatRow = memo(function ChatRow({ message, isStreaming, isPending, streamingDelta, conversationId, streamingTurnId, onRetry }: ChatRowProps) {
   // Spring bubble-enter: React-19 ref-as-prop, applied exactly once via useLayoutEffect([]).
   const rootRef = useRef<HTMLDivElement | null>(null);
   const played = useRef(false);
@@ -219,6 +240,7 @@ const ChatRow = memo(function ChatRow({ message, isStreaming, isPending, streami
             r === 'user' && 'text-muted-foreground',
             r === 'tool' && 'bg-muted text-muted-foreground',
             r === 'system' && 'bg-amber-500/15 text-amber-500',
+            r === 'error' && 'bg-destructive/15 text-destructive',
           )}
         >
           {label}
@@ -237,6 +259,7 @@ const ChatRow = memo(function ChatRow({ message, isStreaming, isPending, streami
           r === 'user' && 'text-foreground/90',
           r === 'tool' && 'rounded border border-border bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground',
           r === 'system' && 'text-amber-500/90',
+          r === 'error' && 'text-destructive/90',
         )}
       >
         {r === 'tool' ? (
@@ -257,6 +280,17 @@ const ChatRow = memo(function ChatRow({ message, isStreaming, isPending, streami
       {/* Inline tool chips — only for the active in-flight assistant row */}
       {isStreaming && conversationId && streamingTurnId ? (
         <InlineToolChips conversationId={conversationId} turnId={streamingTurnId} />
+      ) : null}
+      {/* P0.2 — Retry, rendered only on the last error row (onRetry is
+          undefined for every other row; see the map in ChatTranscript). */}
+      {r === 'error' && onRetry ? (
+        <button
+          type="button"
+          className="self-start rounded border border-destructive/30 bg-background/60 px-2 py-0.5 text-[11px] font-medium text-destructive transition hover:bg-destructive/15"
+          onClick={onRetry}
+        >
+          Retry
+        </button>
       ) : null}
     </div>
   );

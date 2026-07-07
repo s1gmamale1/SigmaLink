@@ -247,6 +247,7 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'assistant.refResolve',    // v1.5.3-E (V3-W13-013 partial gap close)
   'assistant.tools',
   'assistant.invokeTool',
+  'assistant.newSession',  // P0.4 — fresh-session control
   // design (designCtl — from buildDesignController)
   'design.captureElement',
   'design.dispatch',

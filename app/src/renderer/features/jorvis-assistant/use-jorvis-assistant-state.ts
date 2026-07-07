@@ -4,12 +4,15 @@ import type { OrbState } from './Orb';
 import type { ChatMessageView } from './ChatTranscript';
 
 interface AssistantStateEvent {
-  kind: 'state' | 'delta';
+  kind: 'state' | 'delta' | 'error';
   state?: OrbState;
   conversationId: string;
   turnId: string;
   delta?: string;
   messageId?: string;
+  /** P0.2 — failure text carried on `kind:'error'` (runClaudeCliTurn.emit.ts
+   *  emitErrorFinal). */
+  message?: string;
 }
 
 export interface UseJorvisAssistantStateArgs {
@@ -140,6 +143,34 @@ export function useJorvisAssistantState({
       // Defensive conversation match: once a turn is adopted the conversation
       // must stay consistent (a forked/renamed conversation can't hijack it).
       if (p.conversationId && e.conversationId !== p.conversationId) return;
+      if (e.kind === 'error') {
+        // P0.2 — a CLI/turn failure (runClaudeCliTurn.emit.ts emitErrorFinal).
+        // Commit a distinct error row (idempotent by id) and retire the turn
+        // so the composer unlocks with a legible failure instead of relying
+        // on the trailing standby. The main process also re-emits the same
+        // text as a delta then `state:'standby'{error}` — null the streaming
+        // buffer here so that trailing standby (even if it re-adopts this
+        // now-retired turnId via the busy-but-unset-activeTurnId path above)
+        // finds nothing buffered and can't commit a second/blank row.
+        const id = e.messageId ?? `err-${e.turnId}`;
+        const text = e.message ?? 'Jorvis turn failed.';
+        p.setMessages((rows) =>
+          rows.some((r) => r.id === id)
+            ? rows
+            : [...rows, { id, role: 'error', content: text, createdAt: Date.now() }],
+        );
+        p.setBusy(false);
+        // Review fix — every other failure path in this component (the
+        // watchdog timeout and sendPrompt's catch, both in JorvisRoom) pairs
+        // the busy-clear with an orb reset. Without this the Orb can stick on
+        // "thinking" after a failed turn even though the composer unlocks.
+        p.setOrbState('standby');
+        p.activeTurnIdRef.current = null;
+        p.streamingRef.current = null;
+        p.setStreaming(null);
+        p.clearWatchdog();
+        return;
+      }
       if (e.kind === 'state') {
         if (e.state) p.setOrbState(e.state);
         if (e.state === 'standby') {

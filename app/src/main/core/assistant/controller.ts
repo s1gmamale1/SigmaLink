@@ -23,6 +23,7 @@ import { workspaces as workspacesTable } from '../db/schema';
 import { executeLaunchPlan } from '../workspaces/launcher';
 import {
   appendMessage,
+  clearClaudeSessionId,
   createConversation,
   getConversation,
   listConversations,
@@ -36,6 +37,7 @@ import { recordSwarmOrigin } from './swarm-origins';
 import { runClaudeCliTurn, cancelClaudeCliTurn } from './runClaudeCliTurn';
 import type { RufloProxy } from '../ruflo/proxy';
 import { createAidefenceGate, type RufloCall } from '../security/aidefence-gate';
+import { assertAllowedPath } from '../security/path-guard';
 
 export interface AssistantControllerDeps {
   pty: PtyRegistry;
@@ -59,7 +61,8 @@ export interface AssistantControllerDeps {
   /**
    * BUG-V1.1.2-01 — Sigma host MCP wiring. When supplied, the controller
    * forwards both fields to `runClaudeCliTurn` so the Claude CLI registers
-   * the 13 Sigma tools as an MCP server and emits real `tool_use` envelopes
+   * the Sigma tool catalogue (see `tool-catalogue.ts`, contract-tested
+   * against `tools.ts`) as an MCP server and emits real `tool_use` envelopes
    * (instead of describing them in prose in the system prompt, which left
    * the live `list_*` dispatchers as dead code).
    */
@@ -176,21 +179,19 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
   const tracer = new ToolTracer();
   tracer.setEmitter(deps.emit);
   const activeTurns = new Map<string, ActiveTurn>();
+  // P0.1 — one live turn per conversation. Prevents a double-send (multi-window,
+  // telegram, external, or a fast double-tap) from spawning a second `claude`
+  // child against the same conversation. Keyed by conversationId → live turnId.
+  const liveTurnByConversation = new Map<string, string>();
 
   // H-19 (partial) — opportunistic aidefence gate. Built only when a ruflo
-  // proxy is injected; otherwise the send path is a no-op (back-compat). Audit
-  // events ride the existing emit broadcaster as `assistant:security` so the
-  // renderer can flip `Security: PENDING` → active and record threats.
+  // proxy is injected; otherwise the send path is a no-op (back-compat).
   const aidefence = deps.rufloCall
     ? createAidefenceGate({
         rufloCall: deps.rufloCall,
-        audit: (e) => {
-          try {
-            deps.emit('assistant:security', { kind: e.kind, detail: e.detail });
-          } catch {
-            /* audit fan-out is best-effort */
-          }
-        },
+        // P0.5 — audit is local-only for now (the renderer surface was never
+        // wired; the emitted event had no allowlist entry and no subscriber).
+        audit: () => { /* reserved: a security surface is future work (P2+) */ },
       })
     : undefined;
 
@@ -437,7 +438,7 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
        * onto the turn so it reaches the tool-invocation gate. Optional.
        */
       confirmDangerous?: ConfirmDangerous;
-    }): Promise<{ conversationId: string; turnId: string }> => {
+    }): Promise<{ conversationId: string; turnId: string; busy?: boolean }> => {
       if (typeof input?.workspaceId !== 'string' || !input.workspaceId) {
         throw new Error('assistant.send: workspaceId required');
       }
@@ -454,20 +455,40 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
           kind: 'assistant',
         }).id;
       }
-      appendMessage({ conversationId, role: 'user', content: input.prompt });
+      // P0.1 — reject a concurrent turn for this conversation. Return the live
+      // turn id so the caller can attach to it instead of starting a rival turn.
+      const existingTurnId = liveTurnByConversation.get(conversationId);
+      if (existingTurnId && activeTurns.has(existingTurnId)) {
+        return { conversationId, turnId: existingTurnId, busy: true };
+      }
+      // PR #222 gate review — the CLAIM must land in the same macrotask as the
+      // check above, BEFORE the first await (the aidefence scan), or two sends
+      // racing within the scan-latency window both pass the check and double-
+      // spawn. Everything from here to the async IIFE is synchronous except the
+      // scan, and a sync throw releases the slot in the catch below.
+      const turnId = randomUUID();
+      const turn: ActiveTurn = { conversationId, turnId, cancelled: false };
+      activeTurns.set(turnId, turn);
+      liveTurnByConversation.set(conversationId, turnId);
+      try {
+        appendMessage({ conversationId, role: 'user', content: input.prompt });
+      } catch (err) {
+        activeTurns.delete(turnId);
+        if (liveTurnByConversation.get(conversationId) === turnId) {
+          liveTurnByConversation.delete(conversationId);
+        }
+        throw err;
+      }
       // H-19 (partial) — ADVISORY inbound scan. Best-effort + never blocks the
-      // local operator's own prompt; a flagged result is AUDITED (the gate emits
-      // `assistant:security`) so threats are recorded and `Security: PENDING`
-      // becomes active. No-op when `aidefence` is absent. Wrapped so a scan
-      // never delays or breaks the turn it precedes.
+      // local operator's own prompt; a flagged result is audited locally
+      // (see the aidefence gate construction above). No-op when `aidefence`
+      // is absent. Wrapped so a scan never delays or breaks the turn it
+      // precedes.
       try {
         await aidefence?.scanInbound(input.prompt);
       } catch {
         /* scan is advisory + never-fail-open — ignore */
       }
-      const turnId = randomUUID();
-      const turn: ActiveTurn = { conversationId, turnId, cancelled: false };
-      activeTurns.set(turnId, turn);
       // BSP-B3 — allocate a fresh CDP call counter for this turn. It is shared
       // (by reference) across all tool calls dispatched within the same turn so
       // the cumulative rate limit is enforced globally, not per-call.
@@ -538,6 +559,9 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
           });
         } finally {
           activeTurns.delete(turnId);
+          if (liveTurnByConversation.get(conversationId) === turnId) {
+            liveTurnByConversation.delete(conversationId);
+          }
         }
       })();
       return { conversationId, turnId };
@@ -553,9 +577,37 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
     cancel: async (input: { conversationId: string; turnId: string }): Promise<void> => {
       const t = activeTurns.get(input.turnId);
       if (t) t.cancelled = true;
+      // P0.1 — drop the live-turn index so a fresh send for this conversation
+      // isn't wrongly rejected as still busy after a cancel.
+      if (liveTurnByConversation.get(input.conversationId) === input.turnId) {
+        liveTurnByConversation.delete(input.conversationId);
+      }
       // V3-W14-002 — also kill the in-flight CLI child if there is one.
       // No-op when the turn is being run by the stub fallback.
       cancelClaudeCliTurn(input.turnId);
+    },
+
+    /**
+     * P0.4 — fresh-session control. Clears the conversation's resume id
+     * (`claudeSessionId`) so the NEXT turn spawns a clean `claude` CLI
+     * context, while the transcript stays intact. Also drops any live-turn
+     * index + cancels an in-flight turn for this conversation so the fresh
+     * context isn't immediately resumed by a straggler.
+     */
+    newSession: async (input: { conversationId: string }): Promise<{ ok: true }> => {
+      if (typeof input?.conversationId !== 'string' || !input.conversationId) {
+        throw new Error('assistant.newSession: conversationId required');
+      }
+      const live = liveTurnByConversation.get(input.conversationId);
+      if (live) {
+        const t = activeTurns.get(live);
+        if (t) t.cancelled = true;
+        cancelClaudeCliTurn(live);
+        activeTurns.delete(live);
+        liveTurnByConversation.delete(input.conversationId);
+      }
+      clearClaudeSessionId(input.conversationId);
+      return { ok: true };
     },
 
     /** Spawn N panes; emit one `assistant:dispatch-echo` per pane. */
@@ -805,6 +857,20 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       const matches: Array<{ absPath: string; snippet: string }> = [];
       const needle = atRef.toLowerCase();
 
+      // P0.5 — mirrors the `read_files` guard in tools.ts. A dirent for a
+      // symlink reports isFile()/isDirectory() === false, so it never reached
+      // this far before; now that we classify a symlink's TARGET (below), an
+      // in-tree symlink pointing outside the workspace root must be rejected
+      // rather than silently walked/returned.
+      function insideRoot(p: string): boolean {
+        try {
+          assertAllowedPath(p, [root]);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
       function walk(dir: string, depth: number): void {
         if (depth > MAX_WALK_DEPTH || matches.length >= MAX_RESULTS) return;
         let entries: fs.Dirent[];
@@ -815,12 +881,25 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         }
         for (const entry of entries) {
           if (matches.length >= MAX_RESULTS) return;
-          if (entry.isDirectory()) {
-            if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
-            walk(path.join(dir, entry.name), depth + 1);
-          } else if (entry.isFile()) {
+          if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+          const absPath = path.join(dir, entry.name);
+          let isDir = entry.isDirectory();
+          let isFile = entry.isFile();
+          if (entry.isSymbolicLink()) {
+            let stat: fs.Stats;
+            try {
+              stat = fs.statSync(absPath); // follows the link
+            } catch {
+              continue; // broken symlink
+            }
+            if (!insideRoot(absPath)) continue; // escapes the workspace root — skip
+            isDir = stat.isDirectory();
+            isFile = stat.isFile();
+          }
+          if (isDir) {
+            walk(absPath, depth + 1);
+          } else if (isFile) {
             if (entry.name.toLowerCase().includes(needle)) {
-              const absPath = path.join(dir, entry.name);
               let snippet = '';
               try {
                 const raw = fs.readFileSync(absPath, 'utf8');

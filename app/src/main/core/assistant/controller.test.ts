@@ -303,4 +303,69 @@ describe('assistant.refResolve', () => {
     const results = await ctl.refResolve({ workspaceId: 'no-such-ws', atRef: 'foo.ts' });
     expect(results).toEqual([]);
   });
+
+  // P0.5 — refResolve now routes every resolved path through the shared
+  // path-guard keystone (mirrors read_files in tools.ts). A symlink dirent
+  // reports isFile()/isDirectory() === false, so before this fix an in-tree
+  // symlink was silently invisible to the walk (neither matched nor walked
+  // into) rather than actually being contained — these tests exercise the
+  // real guard by classifying + following the symlink target.
+  describe('symlink containment (path-guard)', () => {
+    it('does not return an out-of-root symlinked FILE', async () => {
+      const root = makeTmp();
+      const outside = makeTmp();
+      fs.writeFileSync(path.join(outside, 'secretTarget.ts'), 'outside content');
+      fs.symlinkSync(path.join(outside, 'secretTarget.ts'), path.join(root, 'secretTarget.ts'));
+      seedWorkspace(fake, { id: 'ws-1', rootPath: root });
+
+      const ctl = getTypedController();
+      const results = await ctl.refResolve({ workspaceId: 'ws-1', atRef: 'secretTarget' });
+
+      expect(results).toEqual([]);
+    });
+
+    it('does not walk into an out-of-root symlinked DIRECTORY', async () => {
+      const root = makeTmp();
+      const outside = makeTmp();
+      fs.writeFileSync(path.join(outside, 'leaked.ts'), 'outside dir content');
+      fs.symlinkSync(outside, path.join(root, 'linked-outside'));
+      seedWorkspace(fake, { id: 'ws-1', rootPath: root });
+
+      const ctl = getTypedController();
+      const results = await ctl.refResolve({ workspaceId: 'ws-1', atRef: 'leaked' });
+
+      expect(results).toEqual([]);
+    });
+
+    it('still resolves an in-root symlinked file (guard does not over-block)', async () => {
+      const root = makeTmp();
+      fs.writeFileSync(path.join(root, 'realFile.ts'), 'real content');
+      fs.symlinkSync(path.join(root, 'realFile.ts'), path.join(root, 'aliasFile.ts'));
+      seedWorkspace(fake, { id: 'ws-1', rootPath: root });
+
+      const ctl = getTypedController();
+      const results = await ctl.refResolve({ workspaceId: 'ws-1', atRef: 'aliasFile' });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].snippet).toContain('real content');
+    });
+  });
+
+  // P0.5 review disclosure — the guard commit also moved the name filter
+  // (IGNORED_DIRS + dot-prefix) to run on EVERY dirent, not just directories,
+  // so dot-prefixed FILES (.env and friends — frequent secret carriers) are
+  // now excluded from @-ref matching too. Deliberate, safety-positive; this
+  // test pins it so a future walk refactor can't silently re-expose dotfiles.
+  it('does not return dot-prefixed files (.env class)', async () => {
+    const root = makeTmp();
+    fs.writeFileSync(path.join(root, '.envTarget'), 'SECRET=1');
+    fs.writeFileSync(path.join(root, 'envTarget.ts'), 'visible content');
+    seedWorkspace(fake, { id: 'ws-1', rootPath: root });
+
+    const ctl = getTypedController();
+    const results = await ctl.refResolve({ workspaceId: 'ws-1', atRef: 'envTarget' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].absPath).toBe(path.join(root, 'envTarget.ts'));
+  });
 });

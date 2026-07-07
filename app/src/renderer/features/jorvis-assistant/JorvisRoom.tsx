@@ -8,7 +8,7 @@
 // the same thread the user was in.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { Bot } from 'lucide-react';
+import { Bot, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { rpc } from '@/renderer/lib/rpc';
 import { PANE_DRAG_MIME, buildPaneContext, type PaneDragPayload } from '@/renderer/lib/pane-context-builder';
@@ -248,6 +248,17 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
     sendPromptRef.current = sendPrompt;
   }, [sendPrompt]);
 
+  // P0.2 — Retry re-sends the last user prompt captured by `sendPrompt`
+  // above. `lastSentPromptRef` survives a failed turn untouched (the error
+  // handler in useJorvisAssistantState returns before reaching the
+  // standby branch that would otherwise consume it for the Ruflo
+  // pattern-store fire-and-forget), so it's still valid on click.
+  const onRetryError = useCallback(() => {
+    const prompt = lastSentPromptRef.current;
+    if (!prompt) return;
+    void sendPrompt(prompt);
+  }, [sendPrompt]);
+
   // B3 — make sure a pending watchdog timer never fires after unmount.
   useEffect(() => clearWatchdog, [clearWatchdog]);
 
@@ -264,6 +275,32 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
     activeTurnIdRef.current = null;
     composerRef.current?.focus();
   }, [clearConversation, resetDismissed, clearWatchdog]);
+
+  // P0.4 — fresh-session control. Distinct from onNewConversation above:
+  // this clears the Claude CLI resume id for the ACTIVE conversation so the
+  // next turn starts a clean context, but keeps the transcript on screen.
+  // Final-review fix — newSession CANCELS an in-flight turn on main, and a
+  // cancelled turn emits no terminal event, so mirror onNewConversation's
+  // local reset here or a mid-turn click leaves the Orb/composer stuck on
+  // "thinking" until the watchdog.
+  const onFreshSession = useCallback(() => {
+    if (!conversationId) return;
+    setStreaming(null);
+    setOrbState('standby');
+    setBusy(false);
+    clearWatchdog();
+    activeTurnIdRef.current = null;
+    void rpc.assistant
+      .newSession({ conversationId })
+      .then(() => {
+        toast.success('Fresh Jorvis session — history kept.');
+      })
+      .catch((err: unknown) => {
+        toast.error('Could not start a fresh session', {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      });
+  }, [conversationId, clearWatchdog]);
 
   const paneEvents = useJorvisPaneEvents(conversationId);
 
@@ -333,6 +370,18 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
             <span className="ml-2 truncate text-xs text-muted-foreground">
               {activeWorkspace.name}
             </span>
+            {conversationId ? (
+              <button
+                type="button"
+                onClick={onFreshSession}
+                className="ml-auto inline-flex shrink-0 items-center gap-1 rounded border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground transition hover:border-primary hover:text-primary"
+                aria-label="New session (keep history)"
+                title="New session (keep history)"
+              >
+                <RotateCcw className="h-3 w-3" aria-hidden />
+                Fresh session
+              </button>
+            ) : null}
           </header>
         ) : (
           <SigmaRailDropdown
@@ -378,6 +427,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
             streaming={streaming}
             pending={busy && streaming == null}
             conversationId={conversationId}
+            onRetry={onRetryError}
           />
         </div>
         <ToolCallInspector />

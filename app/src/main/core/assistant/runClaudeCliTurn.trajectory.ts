@@ -9,6 +9,7 @@ import {
   isResultEnvelope,
   isResultSuccess,
   isSystemInitEnvelope,
+  classifyEnvelope,
   type CliAssistantEnvelope,
   type CliAssistantContentBlock,
   type CliResultErrorEnvelope,
@@ -65,9 +66,15 @@ export function handleParsedEnvelope(
     emitState(deps, 'receiving', turn);
     state.receivingEmitted = true;
   }
-  if (isSystemInitEnvelope(env)) {
+  // P0.3 — route on the tested, total classifier instead of ad-hoc `type`
+  // checks, so a new CLI envelope shape collapses to 'other' (log-only)
+  // rather than falling through unexpectedly. Same outcomes as before per
+  // class; the isXxxEnvelope() guards below just recover the narrowed type
+  // classifyEnvelope() already established.
+  const envelopeClass = classifyEnvelope(env);
+  if (envelopeClass === 'system-init' && isSystemInitEnvelope(env)) {
     captureClaudeSessionId(turn.conversationId, env.session_id, state);
-  } else if (isAssistantEnvelope(env)) {
+  } else if (envelopeClass === 'assistant' && isAssistantEnvelope(env)) {
     for (const block of env.message.content ?? []) {
       if (block.type === 'text' && typeof block.text === 'string') {
         // 4-char chunks via streamDelta so JorvisRoom's typing animation fires.
@@ -81,13 +88,16 @@ export function handleParsedEnvelope(
     });
     pendingToolRoutes.add(p);
     p.finally(() => pendingToolRoutes.delete(p));
-  } else if (isResultEnvelope(env)) {
+  } else if (
+    (envelopeClass === 'result-success' || envelopeClass === 'result-error') &&
+    isResultEnvelope(env)
+  ) {
     state.sawResult = true;
     if (state.resumeAttempted && env.subtype === 'error_during_execution') {
       state.resumeLikelyFailed = true;
       return;
     }
-    if (isResultSuccess(env)) {
+    if (envelopeClass === 'result-success' && isResultSuccess(env)) {
       const text = env.result ?? state.finalText;
       if (text && text !== state.finalText) {
         const remainder = text.slice(state.finalText.length);
@@ -118,7 +128,7 @@ export function handleParsedEnvelope(
     emitErrorFinal(deps, turn, errMsg, assistantMessageId);
     void endTrajectory(deps, trajectoryId, false, errMsg.slice(0, 300));
   }
-  // system / user / unknown envelopes are log-only.
+  // 'other' (system non-init / user / unknown envelopes) is log-only.
 }
 
 /**

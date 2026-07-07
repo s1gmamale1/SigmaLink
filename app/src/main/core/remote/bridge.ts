@@ -86,6 +86,9 @@ export interface AssistantSendInput {
 }
 export interface AssistantSeam {
   send(input: AssistantSendInput): Promise<unknown>;
+  /** P0.4 — fresh-session control for the `/new` command. Optional so older
+   *  wiring/tests that don't supply it keep working (guarded call at use). */
+  newSession?(input: { conversationId: string }): Promise<unknown>;
 }
 
 /** Minimal notifier — matches NotificationsManager.add. */
@@ -188,6 +191,10 @@ export class TelegramBridge extends EventEmitter {
 
   /** chatId of the most recent allowlisted sender — relay target. */
   private activeChatId: number | null = null;
+  /** P0.4 — conversation id from the most recent assistant.send dispatch.
+   *  `/new` targets this conversation (clears its resume id, keeps the
+   *  transcript). Null until the first successful dispatch. */
+  private lastConversationId: string | null = null;
   /** Accumulated delta text awaiting the debounced flush. */
   private relayBuffer = '';
   private relayTimer: NodeJS.Timeout | null = null;
@@ -381,11 +388,11 @@ export class TelegramBridge extends EventEmitter {
 
     const command = text.trim().toLowerCase();
 
-    // Control commands (/lock /unlock /status) are gated by ALLOWLIST ONLY —
-    // they must bypass the lock gate so an allowlisted operator can /unlock
-    // after a lock (a lock-gated /unlock could never get through). A
+    // Control commands (/lock /unlock /status /new) are gated by ALLOWLIST
+    // ONLY — they must bypass the lock gate so an allowlisted operator can
+    // /unlock after a lock (a lock-gated /unlock could never get through). A
     // non-allowlisted sender is still dropped silently.
-    if (command === '/lock' || command === '/unlock' || command === '/status') {
+    if (command === '/lock' || command === '/unlock' || command === '/status' || command === '/new') {
       const allowlist = parseAllowlist(this.deps.kv.get(KV_TELEGRAM_ALLOWLIST));
       if (!allowlist.includes(chatId)) {
         this.logAudit('inbound-dropped', chatId, 'dropped: not-allowlisted (command)');
@@ -398,6 +405,22 @@ export class TelegramBridge extends EventEmitter {
       } else if (command === '/unlock') {
         this.unlock();
         await this.reply(chatId, '🔓 Jorvis unlocked.');
+      } else if (command === '/new') {
+        // P0.4 — fresh session: clear the resume id on the last-dispatched
+        // conversation (transcript stays), so the next turn starts a clean
+        // CLI context.
+        if (!this.lastConversationId) {
+          await this.reply(chatId, 'No active Jorvis conversation yet — send a prompt first.');
+        } else {
+          try {
+            await this.deps.assistant.newSession?.({ conversationId: this.lastConversationId });
+            await this.reply(chatId, '🆕 Fresh Jorvis session started (history kept).');
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.logAudit('dispatch-error', chatId, message);
+            await this.reply(chatId, `Sigma hit an error: ${message}`);
+          }
+        }
       } else {
         const locked = this.isLocked();
         await this.reply(
@@ -429,12 +452,17 @@ export class TelegramBridge extends EventEmitter {
 
     this.logAudit('dispatch', chatId, 'assistant.send');
     try {
-      await this.deps.assistant.send({
+      const res = await this.deps.assistant.send({
         workspaceId,
         prompt: text,
         origin: 'telegram',
         confirmDangerous: (toolName, summary) => this.confirmDangerous(chatId, toolName, summary),
       });
+      // P0.4 — track the conversation `/new` should target.
+      const conversationId = (res as { conversationId?: unknown } | null)?.conversationId;
+      if (typeof conversationId === 'string' && conversationId) {
+        this.lastConversationId = conversationId;
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logAudit('dispatch-error', chatId, message);
