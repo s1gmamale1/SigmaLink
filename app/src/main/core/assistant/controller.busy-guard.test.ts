@@ -103,6 +103,50 @@ describe('assistant.send concurrent-turn guard', () => {
   });
 });
 
+// PR #222 gate review — the guard's check-then-claim must be ATOMIC (claim
+// before the first await). With aidefence wired, `send` awaits a real ruflo
+// round-trip; if the claim landed after that await, two sends racing within
+// the scan-latency window would BOTH pass the busy check and double-spawn.
+// The no-rufloCall tests above can't see this (scanInbound short-circuits
+// synchronously), so this test injects an async rufloCall resolving on a
+// macrotask and fires two sends WITHOUT awaiting the first.
+describe('assistant.send guard atomicity under an async inbound scan', () => {
+  it('two racing sends on one conversation yield exactly one live turn', async () => {
+    const rufloCall = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r));
+      return { safe: true };
+    });
+    const { controller } = buildAssistantController(
+      makeDeps({ rufloCall } as Partial<AssistantControllerDeps>),
+    );
+    const typed = controller as unknown as { send: SendFn; newSession: NewSessionFn };
+
+    // Mint the conversation, then free it — newSession eagerly clears both
+    // guard maps, so the racing pair below contends for an UNCLAIMED slot.
+    const setup = await typed.send({ workspaceId: 'ws1', prompt: 'setup' });
+    await typed.newSession({ conversationId: setup.conversationId });
+
+    const p1 = typed.send({
+      workspaceId: 'ws1',
+      conversationId: setup.conversationId,
+      prompt: 'a',
+    });
+    const p2 = typed.send({
+      workspaceId: 'ws1',
+      conversationId: setup.conversationId,
+      prompt: 'b',
+    });
+    const [a, b] = await Promise.all([p1, p2]);
+
+    const busyResults = [a, b].filter((r) => r.busy === true);
+    const liveResults = [a, b].filter((r) => !r.busy);
+    expect(liveResults).toHaveLength(1);
+    expect(busyResults).toHaveLength(1);
+    // The busy loser points at the winner's live turn, not a rival one.
+    expect(busyResults[0].turnId).toBe(liveResults[0].turnId);
+  });
+});
+
 // P0.4 review fold-in — newSession must actually cancel the in-flight turn it
 // walks away from; otherwise the guard above only proves a live turn BLOCKS a
 // second send, not that newSession clears the block.

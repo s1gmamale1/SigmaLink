@@ -461,7 +461,24 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       if (existingTurnId && activeTurns.has(existingTurnId)) {
         return { conversationId, turnId: existingTurnId, busy: true };
       }
-      appendMessage({ conversationId, role: 'user', content: input.prompt });
+      // PR #222 gate review — the CLAIM must land in the same macrotask as the
+      // check above, BEFORE the first await (the aidefence scan), or two sends
+      // racing within the scan-latency window both pass the check and double-
+      // spawn. Everything from here to the async IIFE is synchronous except the
+      // scan, and a sync throw releases the slot in the catch below.
+      const turnId = randomUUID();
+      const turn: ActiveTurn = { conversationId, turnId, cancelled: false };
+      activeTurns.set(turnId, turn);
+      liveTurnByConversation.set(conversationId, turnId);
+      try {
+        appendMessage({ conversationId, role: 'user', content: input.prompt });
+      } catch (err) {
+        activeTurns.delete(turnId);
+        if (liveTurnByConversation.get(conversationId) === turnId) {
+          liveTurnByConversation.delete(conversationId);
+        }
+        throw err;
+      }
       // H-19 (partial) — ADVISORY inbound scan. Best-effort + never blocks the
       // local operator's own prompt; a flagged result is audited locally
       // (see the aidefence gate construction above). No-op when `aidefence`
@@ -472,10 +489,6 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       } catch {
         /* scan is advisory + never-fail-open — ignore */
       }
-      const turnId = randomUUID();
-      const turn: ActiveTurn = { conversationId, turnId, cancelled: false };
-      activeTurns.set(turnId, turn);
-      liveTurnByConversation.set(conversationId, turnId);
       // BSP-B3 — allocate a fresh CDP call counter for this turn. It is shared
       // (by reference) across all tool calls dispatched within the same turn so
       // the cumulative rate limit is enforced globally, not per-call.
