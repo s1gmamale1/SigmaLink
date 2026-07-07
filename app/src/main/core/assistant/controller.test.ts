@@ -350,4 +350,22 @@ describe('assistant.refResolve', () => {
       expect(results[0].snippet).toContain('real content');
     });
   });
+
+  // P0.5 review disclosure — the guard commit also moved the name filter
+  // (IGNORED_DIRS + dot-prefix) to run on EVERY dirent, not just directories,
+  // so dot-prefixed FILES (.env and friends — frequent secret carriers) are
+  // now excluded from @-ref matching too. Deliberate, safety-positive; this
+  // test pins it so a future walk refactor can't silently re-expose dotfiles.
+  it('does not return dot-prefixed files (.env class)', async () => {
+    const root = makeTmp();
+    fs.writeFileSync(path.join(root, '.envTarget'), 'SECRET=1');
+    fs.writeFileSync(path.join(root, 'envTarget.ts'), 'visible content');
+    seedWorkspace(fake, { id: 'ws-1', rootPath: root });
+
+    const ctl = getTypedController();
+    const results = await ctl.refResolve({ workspaceId: 'ws-1', atRef: 'envTarget' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].absPath).toBe(path.join(root, 'envTarget.ts'));
+  });
 });
