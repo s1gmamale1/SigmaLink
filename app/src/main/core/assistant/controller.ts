@@ -61,7 +61,8 @@ export interface AssistantControllerDeps {
   /**
    * BUG-V1.1.2-01 — Sigma host MCP wiring. When supplied, the controller
    * forwards both fields to `runClaudeCliTurn` so the Claude CLI registers
-   * the 13 Sigma tools as an MCP server and emits real `tool_use` envelopes
+   * the Sigma tool catalogue (see `tool-catalogue.ts`, contract-tested
+   * against `tools.ts`) as an MCP server and emits real `tool_use` envelopes
    * (instead of describing them in prose in the system prompt, which left
    * the live `list_*` dispatchers as dead code).
    */

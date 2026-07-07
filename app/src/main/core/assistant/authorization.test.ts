@@ -84,7 +84,7 @@ function makeToolCtx(overrides: Partial<ToolContext> = {}): ToolContext {
 // ── contract: DANGEROUS_REMOTE membership ───────────────────────────────────
 
 describe('DANGEROUS_REMOTE contract', () => {
-  it('contains exactly prompt_agent, close_pane, close_workspace', () => {
+  it('contains exactly prompt_agent, close_pane, close_workspace, kill_swarm', () => {
     // close_workspace added 2026-06-17: tearing down a whole workspace from a
     // remote (telegram) origin is at least as destructive as close_pane, so it
     // must clear the confirmation gate too. Additive change (the comment in
