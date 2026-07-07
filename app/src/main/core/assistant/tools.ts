@@ -205,6 +205,51 @@ function emitDispatchEchoes(
   }
 }
 
+/**
+ * 2026-07-07 operator smoke — LLMs routinely emit quoted primitives
+ * (`{"count":"2","allWorkspaces":"true"}`), and the strict schemas turned that
+ * into hard tool failures (`get_app_state`/`launch_pane` toasts). This is the
+ * ONE parse choke point every tool (all origins: local chat, telegram,
+ * external MCP) flows through, so lossless coercion lives here, not per-schema:
+ * parse once; on `invalid_type expected boolean|number received string` issues,
+ * coerce EXACTLY those paths (`"true"`/`"false"` → boolean, finite numeric
+ * string → number) and re-parse once. Fields the schema accepts as-is are
+ * never touched, so a legit string field whose value happens to be "2" can't
+ * be corrupted — only args that would have FAILED anyway are rewritten.
+ */
+function coerceStringPrimitives(raw: unknown, issues: z.core.$ZodIssue[]): unknown {
+  if (typeof raw !== 'object' || raw === null) return raw;
+  const clone: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  for (const issue of issues) {
+    if (issue.code !== 'invalid_type') continue;
+    const expected = (issue as { expected?: string }).expected;
+    if (expected !== 'boolean' && expected !== 'number') continue;
+    if (issue.path.length !== 1) continue; // tool args are flat objects today
+    const key = String(issue.path[0]);
+    const val = clone[key];
+    if (typeof val !== 'string') continue;
+    if (expected === 'boolean') {
+      if (val === 'true') clone[key] = true;
+      else if (val === 'false') clone[key] = false;
+    } else {
+      const n = Number(val);
+      if (val.trim() !== '' && Number.isFinite(n)) clone[key] = n;
+    }
+  }
+  return clone;
+}
+
+function parseToolArgs<S extends z.ZodTypeAny>(schema: S, raw: unknown): Record<string, unknown> {
+  const first = schema.safeParse(raw);
+  if (first.success) return first.data as Record<string, unknown>;
+  const coerced = coerceStringPrimitives(raw, first.error.issues);
+  if (coerced !== raw) {
+    const second = schema.safeParse(coerced);
+    if (second.success) return second.data as Record<string, unknown>;
+  }
+  throw first.error; // original error — the coercion is invisible unless it fully fixes the parse
+}
+
 const T = <S extends z.ZodTypeAny>(
   id: string,
   name: string,
@@ -217,7 +262,7 @@ const T = <S extends z.ZodTypeAny>(
   name,
   description,
   inputSchema,
-  parse: (raw) => schema.parse(raw) as Record<string, unknown>,
+  parse: (raw) => parseToolArgs(schema, raw),
   handler: (raw, ctx) => handler(raw as z.infer<S>, ctx),
 });
 
