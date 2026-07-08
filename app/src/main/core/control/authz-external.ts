@@ -56,6 +56,11 @@ export const EXTERNAL_ESCALATE_TOOLS: ReadonlySet<string> = new Set([
   'add_mission_task',
   'move_mission_task',
   'complete_mission',
+  // Phase 20 P1b — dispatch_task launches a real worktree-isolated pane
+  // (process spawn + git worktree) AND mutates the operator-owned mission
+  // board, same as its P1a mutation siblings above — escalate for external
+  // origin.
+  'dispatch_task',
 ]);
 
 /** Tools whose danger depends on the TARGET pane's provider (agent vs shell). */
